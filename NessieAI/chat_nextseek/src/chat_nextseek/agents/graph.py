@@ -2354,6 +2354,9 @@ REFUSAL_REPLIES = {
     "lineage_path": (
         "That question would follow lineage from every sample at once, which is too large to run. Name a sample by "
         "its UID or a sample type, and say how many steps to follow."),
+    "unbounded_path": (
+        "That question would follow lineage with no limit on the steps, which is too large to run. Name a sample by "
+        "its UID or a sample type, and say how many steps to follow."),
     "fulltext": (
         "That wording would search every sample's text for several words at once and would match far too much. Name "
         "the sample type, project or field you mean, or ask about one word or phrase."),
@@ -2361,13 +2364,16 @@ REFUSAL_REPLIES = {
         "I can't return whole samples for that question. Ask for a count, or for the fields you need, such as the "
         "UID, the type and named attributes."),
 }
-_REFUSAL_PRIORITY = ("assay_join", "lineage_path", "fulltext", "whole_node")
+_REFUSAL_PRIORITY = ("assay_join", "lineage_path", "unbounded_path", "fulltext", "whole_node")
+#: A shape kind's reply kind: an unanchored path is "lineage_path" (from every sample at once), a path with no step
+#: limit "unbounded_path" (review N3).
+_SHAPE_REPLY_KIND = {"assay_join": "assay_join", "unscoped_fulltext": "fulltext", "unbounded_path": "unbounded_path",
+                     "unanchored_path": "lineage_path"}
 
 
 def refusal_kinds(problems=(), whole=(), calls=(), shapes=()) -> list[str]:
     """The reply kinds (``REFUSAL_REPLIES``) for what the guards refused; a kind with no entry has no reply of its own."""
-    kinds = {"assay_join" if s.kind == "assay_join" else "fulltext" if s.kind == "unscoped_fulltext"
-             else "lineage_path" for s in shapes}
+    kinds = {_SHAPE_REPLY_KIND.get(s.kind, "lineage_path") for s in shapes}
     if whole:
         kinds.add("whole_node")
     if problems:

@@ -899,8 +899,15 @@ PATH_ENDS = ("MATCH p = (a:T_TIS {uuid: $u})-[:DERIVED_FROM*1..3]->(b:T_NHP) "
              "RETURN length(p) AS hops, a.uuid AS from_uuid, b.uuid AS to_uuid")
 
 
+# Review N3: an anchored path with no step limit has its own reply; "from every sample at once" is for an
+# unanchored one.
+ANCHORED_UNBOUNDED = "MATCH (s:Sample {uuid: $a})-[:DERIVED_FROM*]->(t) RETURN t.uuid AS uuid"
+UNANCHORED = "MATCH (a:Sample)-[:DERIVED_FROM*1..3]->(b:Sample) RETURN count(*) AS n"
+
+
 @pytest.mark.parametrize("cypher,kind", [(PAIRED, "assay_join"), (PAIRED_ZETA, "assay_join"),
-                                         (UNBOUNDED, "lineage_path"), (UNSCOPED, "fulltext")])
+                                         (UNBOUNDED, "unbounded_path"), (ANCHORED_UNBOUNDED, "unbounded_path"),
+                                         (UNANCHORED, "lineage_path"), (UNSCOPED, "fulltext")])
 def test_a_refusal_carries_its_kind_and_both_cyphers_and_a_reply_of_its_own(monkeypatch, live, cypher, kind):
     out = run(monkeypatch, FakeLLM(cypher, cypher, cypher))
     assert out.cypher == "" and out.refusal_kinds[0] == kind
@@ -909,6 +916,13 @@ def test_a_refusal_carries_its_kind_and_both_cyphers_and_a_reply_of_its_own(monk
     assert reply
     for leak in ("Graph agent", "Cypher", "catalog", "Reason", "guard", "INPUT_TO"):
         assert leak not in reply
+
+
+def test_the_unbounded_path_reply_asks_for_a_step_limit_and_not_every_sample():
+    reply = graph_mod.refusal_reply(["unbounded_path"])
+    assert reply == ("That question would follow lineage with no limit on the steps, which is too large to run. Name a "
+                     "sample by its UID or a sample type, and say how many steps to follow.")
+    assert "every sample" not in reply and "every sample" in graph_mod.refusal_reply(["lineage_path"])
 
 
 def test_a_refusal_in_down_mode_carries_its_kind_too(monkeypatch, down):

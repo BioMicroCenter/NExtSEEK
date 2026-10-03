@@ -60,6 +60,28 @@ def test_uuid_rows_still_count_distinct_samples():
     assert "3 rows for 2 distinct samples" in review.disclosure
 
 
+# ---- review N2: the holding-study note ----------------------------------------------------------------------------
+
+def test_a_bare_unpublished_test_is_not_a_holding_study():
+    from chat_nextseek.graph_review import holding_study_note
+    cypher = "MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE NOT st.title ENDS WITH 'Unpublished' RETURN count(s) AS n"
+    assert holding_study_note(cypher, {}, [{"n": 4}]) is None
+
+
+def test_a_list_of_studies_is_not_one_holding_study():
+    from chat_nextseek.graph_review import holding_study_note
+    rows = [{"title": "Zeta Unpublished"}, {"title": "Quill Unpublished"}]
+    assert holding_study_note("MATCH (st:Study) RETURN st.title AS title", {}, rows) is None
+
+
+def test_one_holding_study_by_its_rows_or_a_parameter_gets_the_note():
+    from chat_nextseek.graph_review import HOLDING_STUDY_NOTE, holding_study_note
+    rows = [{"title": "Zeta Unpublished", "n": 3}, {"title": "Zeta Unpublished", "n": 1}]
+    assert holding_study_note("MATCH (st:Study) RETURN st.title AS title, 1 AS n", {}, rows) == HOLDING_STUDY_NOTE
+    cypher = "MATCH (s)-[:IN_STUDY]->(st:Study) WHERE st.title = $t RETURN count(s) AS n"
+    assert holding_study_note(cypher, {"t": "Quill Unpublished"}, [{"n": 2}]) == HOLDING_STUDY_NOTE
+
+
 class _FakeSession:
     def execute_read(self, fn, cypher, params, is_admin):
         return [{"uuid": "ZZZ-1", "st": "S1"}, {"uuid": "ZZZ-1", "st": "S2"}, {"uuid": "ZZZ-2", "st": "S1"}], {}
@@ -116,13 +138,15 @@ def test_the_schema_no_longer_says_samples_always_carry_the_paper_ids():
     "**Are two named samples related**",
     "an Assay node also holds each assay kind",
     "**A holding study**",
+    "**The tool's total counts distinct samples only when every row returns the sample's `uuid`; otherwise it counts "
+    "rows.**",
 ])
 def test_every_graph_agent_edit_is_in_the_prompt(phrase):
     assert phrase in AGENT
 
 
 def test_the_old_wordings_are_gone():
-    for old in ("are UPPERCASE properties of the samples, and also of",
+    for old in ("The tool's total counts rows, not samples.","are UPPERCASE properties of the samples, and also of",
                 "and every sample carrying it with the studies those samples are IN_STUDY to",
                 "- **Assays and protocols** live on the edge. Match"):
         assert old not in AGENT

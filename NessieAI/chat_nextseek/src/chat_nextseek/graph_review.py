@@ -926,23 +926,26 @@ def _duplicate_rows(t: _Turn) -> _Finding | None:
 HOLDING_STUDY_NOTE = ("The study is a holding study (its title ends in Unpublished). State plainly that samples "
                       "that belong to a paper are counted under that paper, so this number may differ from the "
                       "list SEEK shows for the study.")
-_HOLDING_LITERAL = re.compile(r"""(['"])([^'"]*?)\bunpublished\s*\1""", re.I)
+_STRING_LITERAL = re.compile(r"""(['"])(.*?)\1""")
 
 
 def holding_study_note(cypher: str | None, parameters, rows) -> str | None:
-    """HOLDING_STUDY_NOTE when the statement is about a Study whose title ends in "Unpublished" (surrounding space
-    and case aside): in a Cypher literal, a parameter value or a returned string. None otherwise."""
+    """HOLDING_STUDY_NOTE when the statement is about one Study whose title is a name followed by "Unpublished"
+    (surrounding space and case aside): in a Cypher literal, a parameter value, or the one such string every
+    returned row holds. A bare 'Unpublished' (a `NOT st.title ENDS WITH 'Unpublished'` test) and a list of studies
+    are not one holding study (review N2). None otherwise."""
     if not cypher or not re.search(r"\bStudy\b|\bIN_STUDY\b", cypher):
         return None
 
     def holding(value) -> bool:
-        return isinstance(value, str) and value.strip().lower().endswith("unpublished")
+        return isinstance(value, str) and re.fullmatch(r".*\S\s+unpublished", value.strip(), re.I | re.S) is not None
 
-    if _HOLDING_LITERAL.search(cypher) or any(holding(v) for v in (parameters or {}).values()):
+    if (any(holding(m.group(2)) for m in _STRING_LITERAL.finditer(cypher))
+            or any(holding(v) for v in (parameters or {}).values())):
         return HOLDING_STUDY_NOTE
-    for row in rows or ():
-        if isinstance(row, dict) and any(holding(v) for v in row.values()):
-            return HOLDING_STUDY_NOTE
+    held = [{v.strip() for v in row.values() if holding(v)} for row in rows or () if isinstance(row, dict)]
+    if held and all(held) and len(set().union(*held)) == 1:
+        return HOLDING_STUDY_NOTE
     return None
 
 
