@@ -273,6 +273,8 @@ Both assistant viewsets accept Token, session and Basic auth. `CCAssistantViewSe
 | WS progress poll (daphne only) | 300 ms DB poll | `nextseek_api/assistant/consumers.py:44` |
 | Sidecar WS frame | 16 MiB | `NessieAI/docker/cc-runtime/build_context/plugins/nextseek/bin/_sidecar_client.py:27` |
 | Sidecar → Django HTTP | 60 s | `NessieAI/docker/ns-sidecar/app/ns_client.py:27` |
+| Django op, every inner wait (models, Neo4j, its own REST calls) | the op's limit: 55 s (graph, aggregate, parse, entity, api-read), 60 s (graph-schema, run-ls, build-upload-xlsx), 150 s (report, generate-submission); 55 s on the sidecar road | `NessieAI/ns/op_limits.py` |
+| Tool → Django op, direct road | the op's limit + 10 s, never past the turn's deadline less 45 s | `NessieAI/docker/cc-runtime/build_context/plugins/nextseek/bin/_op_road.py` |
 | NS REST tool | 90 s, 120 s for advanced search | `NessieAI/chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:133`, `NessieAI/chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:135` |
 | Proxy request body | 10 MiB | `NessieAI/docker/bedrock-proxy/app/config.py:32` |
 | Upload total size | `BATCH_UPLOAD_MAX_TOTAL_BYTES`, default 200 MiB | `nextseek_api/services/cc_assistant.py:249` |

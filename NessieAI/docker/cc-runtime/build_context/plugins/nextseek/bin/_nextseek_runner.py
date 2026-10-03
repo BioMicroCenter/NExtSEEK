@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 """Shared entry point for nextseek-* shims.
 
-Thin WS/viewset client: dispatches to the NExtSEEK assistant viewset (query/plan)
-or to the sidecar via WebSocket (all other 7 ops). Imports NO chat_nextseek (U-11).
+Thin client: sends query/plan/pipeline/recall to the NExtSEEK assistant viewset, and the 11
+op tools on the road NEXTSEEK_CC_OPS_ROAD names (_op_road.py): straight to the viewset (default)
+or through the WebSocket sidecar (one release). Imports NO chat_nextseek (U-11).
 
 Emits one of:
   - stdout: result JSON (one line)
@@ -18,6 +19,9 @@ Exit codes:
   7  transport error (sidecar/viewset unreachable)
   8  auth failed (viewset 401)
   9  staging error
+  10 busy (two ops or NS queries of this turn already running)
+  11 time up (not enough of the turn left to run the op)
+  12 pass not allowed (the turn pass does not allow the request)
 
 Dry-run mode: when NEXTSEEK_DRY_RUN=1, each dispatcher returns a minimal
 valid typed JSON response without invoking any LLM, REST, or Neo4j call.
@@ -38,9 +42,14 @@ import typing
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-def _err(code: str, message: str, exit_code: int) -> typing.NoReturn:  # Minor-7
-    payload = {"error": {"code": code, "message": message}}
-    sys.stderr.write(json.dumps(payload) + "\n")
+def _err(code: str, message: str, exit_code: int, *, reason: str | None = None,
+         errors: list | None = None) -> typing.NoReturn:  # Minor-7
+    error: dict = {"code": code, "message": message}
+    if reason:
+        error["reason"] = reason
+    if errors:
+        error["errors"] = errors
+    sys.stderr.write(json.dumps({"error": error}) + "\n")
     sys.exit(exit_code)
 
 
@@ -67,30 +76,26 @@ def _dry_run() -> bool:
     return os.environ.get("NEXTSEEK_DRY_RUN") == "1"
 
 
+def _call_op(op: str, body: dict) -> dict:
+    """One of the 11 op tools, on the road NEXTSEEK_CC_OPS_ROAD names (_op_road.py, approach 1 piece 2)."""
+    import _op_road
+    try:
+        return _op_road.call(op, body, client_factory=_make_client)
+    except _op_road.OpCallError as e:
+        _err(e.code, e.message, e.exit_code, reason=e.reason, errors=e.errors)
+
 # ---------------------------------------------------------------- dispatchers
 
 def _dispatch_entity(args):
     if _dry_run():  # pragma: no branch
         return {"sampletypes": [], "assays": [], "keywords": [], "projects": []}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("entity", {"query": args.query},  # pragma: no cover
-                          ns_turn=_ns_turn(),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("entity", {"query": args.query})
 
 
 def _dispatch_parse(args):
     if _dry_run():  # pragma: no branch
         return {"mode": "new_search", "target_endpoint": None}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("parse", {"query": args.query},  # pragma: no cover
-                          ns_turn=_ns_turn(),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("parse", {"query": args.query})
 
 
 def _make_client():  # pragma: no cover
@@ -214,13 +219,7 @@ def _dispatch_api_read(args):
 
     if _dry_run():  # pragma: no branch
         return {"endpoint": "/dry-run/", "method": "GET", "response": {}}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("api-read", {"parser_plan": args.parser_plan},  # pragma: no cover
-                          ns_turn=_ns_turn(),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("api-read", {"parser_plan": args.parser_plan})
 
 
 def _dispatch_api_write(args):
@@ -233,44 +232,24 @@ def _dispatch_api_write(args):
 
     if _dry_run():  # pragma: no branch
         return {"endpoint": "/dry-run/", "method": "POST", "response": {}}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op(  # pragma: no cover
-            "api-write",  # pragma: no cover
-            {"parser_plan": args.parser_plan, "confirmed_write": args.confirmed_write},  # pragma: no cover
-            ns_turn=_ns_turn(),  # pragma: no cover
-            sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("api-write", {"parser_plan": args.parser_plan, "confirmed_write": args.confirmed_write})
 
 
 def _dispatch_graph(args):
     if _dry_run():  # pragma: no branch
         return {"cypher": "", "result": []}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("graph", {"query": args.query},  # pragma: no cover
-                          ns_turn=_ns_turn(),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("graph", {"query": args.query})
 
 
 def _dispatch_graph_schema(args):
     if _dry_run():  # pragma: no branch
         return {"source": "catalog", "schema": "", "vocabulary": ""}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
     body = {}  # pragma: no cover
     if args.types:  # pragma: no cover
         body["types"] = args.types  # pragma: no cover
     if args.query:  # pragma: no cover
         body["query"] = args.query  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("graph-schema", body,  # pragma: no cover
-                          ns_turn=_ns_turn(),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("graph-schema", body)
 
 
 def _dispatch_aggregate(args):
@@ -279,16 +258,10 @@ def _dispatch_aggregate(args):
     if _dry_run():
         return {"question": args.query, "complete": True, "elapsed_s": 0.0, "deadline_s": 50.0,
                 "parts": [], "notes": []}
-    import _sidecar_client as sc
     body = {"query": args.query}
     if args.parts:
         body["parts"] = args.parts
-    try:
-        return sc.call_op("aggregate", body,
-                          ns_turn=_ns_turn(),
-                          sidecar_url=sc.sidecar_url_from_env())
-    except sc.SidecarCallError as e:
-        _err(e.code, e.message, e.exit_code)
+    return _call_op("aggregate", body)
 
 
 def _dispatch_report(args):
@@ -301,13 +274,7 @@ def _dispatch_report(args):
 
     if _dry_run():  # pragma: no branch
         return {"summary": "", "saved_files": [], "rows": []}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("report", {"mode": args.mode, "project": args.project},  # pragma: no cover
-                          ns_turn=_ns_turn(),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("report", {"mode": args.mode, "project": args.project})
 
 
 def _dispatch_generate_submission(args):
@@ -318,15 +285,7 @@ def _dispatch_generate_submission(args):
 
     if _dry_run():  # pragma: no branch
         return {"report": "", "type": args.type}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op(  # pragma: no cover
-            "generate-submission",  # pragma: no cover
-            {"type": args.type, "uids": args.uids, "query": args.query},  # pragma: no cover
-            ns_turn=_ns_turn(),  # pragma: no cover
-            sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("generate-submission", {"type": args.type, "uids": args.uids, "query": args.query})
 
 
 def _dispatch_query(args):
@@ -491,17 +450,6 @@ def _dispatch_recall(args):
     }
 
 
-def _api_user() -> str:  # pragma: no cover
-    return os.environ.get("API_USER", "")  # pragma: no cover
-
-
-def _ns_turn() -> tuple[str, str]:  # pragma: no cover
-    """The username (the sidecar frame's api_user) and this turn's pass, for the sidecar road's frame."""
-    import _turn_pass as tp  # pragma: no cover
-    return (os.environ.get("NEXTSEEK_USERNAME") or os.environ.get("API_USER", ""),  # pragma: no cover
-            tp.turn_pass_from_env())  # pragma: no cover
-
-
 def _dispatch_pipeline(args):
     """Hand a CC-composed summary message to NS pipeline_agent (deterministic bridge).
 
@@ -525,13 +473,7 @@ def _dispatch_run_ls(args):
         return {"run_dir": args.run_dir, "truncated": False, "tree": "[dry-run]"}  # pragma: no cover
     if not args.run_dir:  # pragma: no cover
         _err("VALIDATION", "missing --run-dir", 3)  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("run-ls", {"run_dir": args.run_dir},  # pragma: no cover
-                          ns_turn=_ns_turn(),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("run-ls", {"run_dir": args.run_dir})
 
 
 def _dispatch_build_upload_xlsx(args):
@@ -540,16 +482,10 @@ def _dispatch_build_upload_xlsx(args):
         return {"saved_files": {}, "qa": {}}  # pragma: no cover
     if not args.rows:  # pragma: no cover
         _err("VALIDATION", "missing --rows", 3)  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
     body = {"rows": args.rows}  # pragma: no cover
     if getattr(args, "existing_parent_uids", None):  # pragma: no cover
         body["existing_parent_uids"] = args.existing_parent_uids  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("build-upload-xlsx", body,  # pragma: no cover
-                          ns_turn=_ns_turn(),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("build-upload-xlsx", body)
 
 
 _DISPATCH = {

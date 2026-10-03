@@ -40,6 +40,7 @@ def socket(monkeypatch):
     monkeypatch.setattr(sc, "_connect", lambda url: sock)
     monkeypatch.setenv("NEXTSEEK_USERNAME", "u")
     monkeypatch.setenv("NEXTSEEK_TURN_PASS", "pass-1")
+    monkeypatch.setenv("NEXTSEEK_CC_OPS_ROAD", "sidecar")
     monkeypatch.delenv("NEXTSEEK_DRY_RUN", raising=False)
     monkeypatch.delenv("NEXTSEEK_CC_TURN_DEADLINE_EPOCH", raising=False)
     return sock
