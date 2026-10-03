@@ -83,7 +83,7 @@ from .helpers import (
 )
 from .graph_retry import RETRY_CHANGED_ANSWER_NOTE, zero_row_retry_context
 from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
-from .helpers.suggestions import accept, clean_rerun, pending_for, public_chip, suggestions_from_review
+from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, uid_notes, uids_in
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
@@ -1390,6 +1390,20 @@ def _chip_rerun(accepted: dict[str, Any] | None) -> dict[str, Any] | None:
     if checked is None:
         return None
     return {**checked, "entity": rerun.get("entity"), "parser_plan": rerun.get("parser_plan")}
+
+
+def vocabulary_not_needed(session, user_text: str) -> bool:
+    """Whether this message's turn will be taken without a vocabulary: an open pipeline wizard, or a click on a chip
+    whose rerun skips the entity agent (``_run_chip_click``). Read-only: the chip offer stays for ``run_query``'s own
+    ``_accepted_suggestion``. A chip that falls through resolves the vocabulary inline, as it always did."""
+    try:
+        if pipeline_agent.is_active(session):
+            return True
+        chip = peek(session, user_text, last_turn_id=_last_turn_id(session))
+        return _chip_rerun(chip) is not None
+    except Exception as exc:  # a check must never cost the user their turn
+        print(f"[DEBUG][VOCAB] could not read the wizard or chip state: {exc!r}")
+        return False
 
 
 def _run_chip_click(*, config, session, user_text: str, accepted: dict[str, Any], rerun: dict[str, Any], log_dir,

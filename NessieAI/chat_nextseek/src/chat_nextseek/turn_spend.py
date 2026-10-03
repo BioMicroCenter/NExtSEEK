@@ -126,6 +126,31 @@ class TurnSpend:
                 row.update(billed={}, cost_usd=None, unpriced=f"price table: {type(exc).__name__}")
             self.calls.append(row)
 
+    def absorb(self, other: "TurnSpend | None", *, finished: bool = True) -> None:
+        """Take another collector's calls as this turn's own: the vocabulary pre-run's, which ran on a pool thread
+        before this turn's collector existed (``chat_nextseek/vocabulary.take``). Not ``finished``: its calls were
+        not all seen, so this turn's cost becomes partial rather than too low."""
+        if not finished:
+            with self._lock:
+                self.unobserved.append({"agent": "entity", "provider": None, "model": None, "attempt": None,
+                                        "outcome": None,
+                                        "why": "the vocabulary pre-run had not finished: its spend was not seen"})
+            return
+        if other is None or other is self:
+            return
+        with other._lock:
+            calls = [dict(c) for c in other.calls]
+            unobserved = [dict(u) for u in other.unobserved]
+            fallbacks = [dict(f) for f in other.fallbacks]
+            answered = list(other.answered)
+        with self._lock:
+            self.calls.extend(calls)
+            self.unobserved.extend(unobserved)
+            self.fallbacks.extend(fallbacks)
+            for model in answered:
+                if model not in self.answered:
+                    self.answered.append(model)
+
     def summary(self) -> dict[str, Any]:
         """The turn record: ``total_cost_usd``, ``cost_partial``, ``models_used``,
         ``model_fallback`` and the ``cost`` breakdown for ``debug``."""
