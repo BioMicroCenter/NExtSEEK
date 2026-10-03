@@ -32,6 +32,8 @@ _PROJECTS_SQL = (
     "WHERE gm.person_id = %s ORDER BY wg.project_id"
 )
 
+_PROJECT_TITLES_SQL = "SELECT id, title FROM projects WHERE id IN ({marks}) ORDER BY title"
+
 
 @dataclass(frozen=True)
 class Scope:
@@ -94,3 +96,36 @@ def plain_scope(user) -> Optional[dict]:
                     "request", type(exc).__name__)
         return None
     return {"is_admin": bool(scope.is_admin), "project_ids": [] if scope.is_admin else list(scope.project_ids)}
+
+
+def caller_block(user) -> Optional[dict]:
+    """The signed-in user's own session as plain data, for the system agent's CALLER block (round 4, U5.1).
+
+    ``{"username", "is_admin", "projects": [{"id", "name"}, ...]}``, built only from ``user`` (the request's
+    authenticated account), never from the question. Memberships are read from MySQL for an admin as well as
+    for anyone else (``resolve_scope`` skips the read for an admin because an admin is unscoped; here the
+    question is who the user belongs to). ``projects`` is ``None`` when the read failed: the block then says so
+    rather than claiming the user has no projects. ``None`` when the account has no username.
+    """
+    login = getattr(user, "username", None)
+    if not login:
+        return None
+    block = {"username": str(login), "is_admin": getattr(user, "is_superuser", False) is True, "projects": None}
+    try:
+        with connections[settings.SEEK_DATABASE].cursor() as cursor:
+            cursor.execute(_PERSON_SQL, [login])
+            row = cursor.fetchone()
+            if row is None or row[0] is None:
+                block["projects"] = []
+                return block
+            cursor.execute(_PROJECTS_SQL, [int(row[0])])
+            ids = sorted({int(r[0]) for r in cursor.fetchall() if r[0] is not None})
+            titles = {}
+            if ids:
+                cursor.execute(_PROJECT_TITLES_SQL.format(marks=", ".join(["%s"] * len(ids))), ids)
+                titles = {int(r[0]): r[1] for r in cursor.fetchall()}
+    except Exception as exc:  # noqa: BLE001 (the block degrades to "unknown", never to a wrong list)
+        log.warning("caller block: project membership could not be read (%s)", type(exc).__name__)
+        return block
+    block["projects"] = [{"id": i, "name": titles.get(i) or f"project {i}"} for i in ids]
+    return block
