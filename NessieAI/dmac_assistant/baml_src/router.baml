@@ -109,6 +109,15 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     `unrelated` for subjects that could not plausibly be an entry in a sample
     catalog at all.
 
+    How-to questions about the site go to `nextseek_query`. "How do I upload
+    samples", "how can I check my workbook before uploading it", "where do I
+    download my results as a spreadsheet" and "how do I call the API" ask how
+    to do something in NExtSEEK, and the user docs answer them. That holds even
+    when Container-CC could do the task itself. Select `container_cc` only when
+    the user supplies the data or file to work on in the message, or asks for
+    the work to be done ("validate this workbook", "make me the upload sheet",
+    "write the CSV").
+
     {% if input.followup_rule %}{{ input.followup_rule }}{% endif %}
 
     Open-ended summaries go to `container_cc`. A request to summarise a whole
@@ -123,10 +132,9 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
 
     Catalog counts stay `nextseek_query`. How many sample types, assays,
     projects, investigations, studies or protocols NExtSEEK defines is a lookup
-    NExtSEEK answers itself, and so is how many sample types have samples or
-    have none. The graph holds every sample type with its sample count, so a
-    question that asks for both numbers is one query over one source, not a
-    join of two.
+    NExtSEEK answers itself, and so is how many sample types or assay kinds
+    have samples or have none. A question that asks for both numbers is not a
+    join of two sources.
 
     {{ ctx.output_format }}
   "#

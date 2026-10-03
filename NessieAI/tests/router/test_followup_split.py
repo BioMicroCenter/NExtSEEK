@@ -221,8 +221,9 @@ def test_the_router_hands_the_rule_to_route_query(monkeypatch, split):
     monkeypatch.setattr(cc_router, "_load_router_deps",
                         lambda: (lambda capabilities=None: None, lambda path=None: [], Route, _B()))
     monkeypatch.setattr(cc_router, "_build_context_dir", lambda: None)
-    assert cc_router._route_query("Break those down by sex.") is None
+    answered = [_turn(cc_router.ROUTE_NS)]   # the rule is only shown once a turn was answered (U7-02)
+    assert cc_router._route_query("Break those down by sex.", answered) is None
     assert seen["rule"] == followup.FOLLOWUP_RULE_SPLIT
     monkeypatch.setenv(followup.FOLLOWUP_ROUTING_ENV, "cc")
-    assert cc_router._route_query("Break those down by sex.") is None
+    assert cc_router._route_query("Break those down by sex.", answered) is None
     assert seen["rule"] == followup.FOLLOWUP_RULE_CC
