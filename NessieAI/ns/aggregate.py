@@ -20,11 +20,12 @@ runs a superuser's statement as written and holds anyone else's to their project
 answered through graph_search, which applies the caller's projects on the server and returns a total, so a
 refused breakdown comes back as that total with a note saying the breakdown could not be computed.
 
-Time. The sidecar gives the op 60 s. The op answers at ``OP_DEADLINE_S`` with whatever has finished and names the
-other parts ``timed_out``; work already started finishes in the background, as the graph op's does. A retry or a
-fallback starts only while at least ``MIN_REMAINING_S`` remain. The op's call_scope carries the same deadline into
-every model call (``granular.run_op`` opens it at 55 s, this op tightens it to 50 s), so a model call is cut to fit
-it and none starts after it; a part (or the vocabulary) that ran out of time that way is ``timed_out`` too.
+Time. ``run_op`` hands the op its limit (``NessieAI/ns/op_limits.py``: 55 s, capped by the turn). The op answers
+``ANSWER_MARGIN_S`` before it (``op_deadline_s``: 50 s of 55) with whatever has finished and names the other parts
+``timed_out``; work already started finishes in the background, as the graph op's does. A retry or a fallback starts
+only while at least ``MIN_REMAINING_S`` remain. The op's call_scope carries the same deadline into every model call,
+Neo4j statement and REST call, so each is cut to fit it and none starts after it; a part (or the vocabulary) that ran
+out of time that way is ``timed_out`` too.
 """
 from __future__ import annotations
 
@@ -37,8 +38,8 @@ from typing import Any, Callable
 
 from NessieAI.ns.granular import GRAPH_SCOPE_FALLBACK_NOTE, OpValidationError, run_graph_question
 
-#: The op's own answer time, inside the sidecar's 60 s request timeout (ns-sidecar/app/ns_client.py).
-OP_DEADLINE_S = 50.0
+#: The op answers this long before its limit, so its reply is on the wire before the limit passes.
+ANSWER_MARGIN_S = 5.0
 #: A retry or a graph_search fallback starts only while at least this much of the deadline is left.
 MIN_REMAINING_S = 15.0
 MAX_PARTS = 4
@@ -74,6 +75,12 @@ _LIMIT_OPERAND_RE = re.compile(r"\s+(?:\d+|\$\w+)")
 
 def _clock() -> float:
     return _monotonic()
+
+
+def op_deadline_s(limit_s: float | None) -> float:
+    """Seconds after its start by which the op answers: its limit (the table's when None) less ``ANSWER_MARGIN_S``."""
+    from NessieAI.ns.op_limits import OP_LIMITS_S
+    return (OP_LIMITS_S["aggregate"] if limit_s is None else limit_s) - ANSWER_MARGIN_S
 
 
 def parse_parts(raw: Any, question: str) -> list[str]:
@@ -304,14 +311,14 @@ def _shape_part(k: int, text: str, answer, label: str) -> tuple[dict, list[str]]
 
 def _run_part(k: int, text: str, *, label: str, question: str, multi: bool, config: Any, session: Any,
               write_gate: Callable, exec_fn: Callable, entity_out: Any, uid_note: str | None, started: float,
-              deadline: float) -> tuple[dict, list[str]]:
+              deadline: float, fallback_budget_s: float) -> tuple[dict, list[str]]:
     """One part through the graph op's chain; never raises (a failure is an ``error`` part)."""
     try:
         answer = run_graph_question(
             text, config=config, session=session, write_gate=write_gate, neo4j_exec=exec_fn,
             entity_out=entity_out, refine_context=_brief(question, multi, uid_note), prepare_cypher=cap_rows,
             retry=lambda result, cypher: _retry_for(result, cypher, deadline),
-            started=started, clock=_clock, fallback_budget_s=OP_DEADLINE_S - MIN_REMAINING_S,
+            started=started, clock=_clock, fallback_budget_s=fallback_budget_s,
         )
         return _shape_part(k, text, answer, label)
     except Exception as exc:  # one part's failure never takes the others down
@@ -348,7 +355,7 @@ def _wait_until(futures: set, deadline: float) -> set:
 
 
 def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable,
-                  neo4j_exec: Callable | None = None) -> dict:
+                  neo4j_exec: Callable | None = None, limit_s: float | None = None) -> dict:
     """``{question, complete, elapsed_s, deadline_s, parts, notes}``; see the module docstring."""
     question = str(args.get("query") or "").strip()
     if not question:
@@ -360,12 +367,13 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
         from chat_nextseek.helpers import tool_neo4j_query
         exec_fn = tool_neo4j_query
 
+    deadline_s = op_deadline_s(limit_s)
     started = _clock()
-    deadline = started + OP_DEADLINE_S
-    # Every model call of the op fits this op's own deadline, not only the sidecar's (run_op's 55 s).
+    deadline = started + deadline_s
+    # Every model call of the op fits this op's own deadline, inside its limit (run_op's scope).
     from chat_nextseek import call_scope
     from chat_nextseek.llm_clients import LLMFatalError
-    call_scope.limit_current(OP_DEADLINE_S)
+    call_scope.limit_current(deadline_s)
 
     def _out_of_time(future) -> bool:
         """A task that ended because the op's deadline left no time for its model call (then it is timed_out)."""
@@ -383,13 +391,13 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
         prelude = pool.submit(contextvars.copy_context().run, _prelude, config, question, parts, exec_fn)
         if _wait_until({prelude}, deadline) or _out_of_time(prelude):
             vocabulary_late = True
-            notes.append(f"The question's vocabulary was not resolved within {OP_DEADLINE_S:.0f} s, so no part "
+            notes.append(f"The question's vocabulary was not resolved within {deadline_s:.0f} s, so no part "
                          "has an answer. Say so; never estimate one.")
         elif deadline - _clock() < MIN_REMAINING_S:
             prelude.result()  # an entity agent failure still fails the op
             vocabulary_late = True  # a part started now could only time out, after spending its model calls
             notes.append(f"Resolving the question's vocabulary left under {MIN_REMAINING_S:.0f} s of the op's "
-                         f"{OP_DEADLINE_S:.0f} s, so no part was started and none has an answer. Say so; never "
+                         f"{deadline_s:.0f} s, so no part was started and none has an answer. Say so; never "
                          "estimate one.")
         else:
             entity_out, uid_note, uid_reply_notes = prelude.result()  # an entity agent failure fails the op
@@ -398,7 +406,8 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
                 pool.submit(contextvars.copy_context().run, _run_part, k, text,
                             label=f"Part {k}: " if multi else "", question=question,
                             multi=multi, config=config, session=session, write_gate=write_gate, exec_fn=exec_fn,
-                            entity_out=entity_out, uid_note=uid_note, started=started, deadline=deadline): k
+                            entity_out=entity_out, uid_note=uid_note, started=started, deadline=deadline,
+                            fallback_budget_s=deadline_s - MIN_REMAINING_S): k
                 for k, text in enumerate(parts, 1)
             }
             unfinished = _wait_until(set(futures), deadline)
@@ -420,16 +429,16 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
         if vocabulary_late:
             continue
         if multi:
-            notes.append(f"Part {k} did not finish within {OP_DEADLINE_S:.0f} s and has no answer. Say so; never "
+            notes.append(f"Part {k} did not finish within {deadline_s:.0f} s and has no answer. Say so; never "
                          "estimate it.")
         else:
-            notes.append(f"The question did not finish within {OP_DEADLINE_S:.0f} s and has no answer. Say so; "
+            notes.append(f"The question did not finish within {deadline_s:.0f} s and has no answer. Say so; "
                          "never estimate it.")
     return {
         "question": question,
         "complete": all(part["status"] != "timed_out" for part in out_parts),
         "elapsed_s": round(_clock() - started, 1),
-        "deadline_s": OP_DEADLINE_S,
+        "deadline_s": deadline_s,
         "parts": out_parts,
         "notes": notes,
     }

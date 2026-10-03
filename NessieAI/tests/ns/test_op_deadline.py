@@ -20,6 +20,7 @@ from chat_nextseek.llm_clients import LLMFatalError
 from chat_nextseek.schemas import GraphAgentPlan, ParserPlan
 from NessieAI.ns import aggregate, granular
 from NessieAI.ns.granular import run_op
+from NessieAI.ns.op_limits import OP_LIMITS_S
 
 SIDECAR_CLIENT = Path(granular.__file__).resolve().parents[1] / "docker" / "ns-sidecar" / "app" / "ns_client.py"
 
@@ -39,12 +40,65 @@ class OpDeadlineTests(SimpleTestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_the_op_deadline_sits_inside_the_sidecars_wait(self):
+    def test_the_graph_op_limit_sits_inside_the_sidecars_wait(self):
         sidecar_s = float(re.search(r"^_TIMEOUT = ([0-9.]+)", SIDECAR_CLIENT.read_text(), re.M).group(1))
         self.assertEqual(sidecar_s, 60.0)
-        self.assertEqual(granular.OP_DEADLINE_S, 55.0)
-        self.assertLess(granular.OP_DEADLINE_S, sidecar_s)
-        self.assertLess(aggregate.OP_DEADLINE_S, granular.OP_DEADLINE_S)
+        self.assertEqual(OP_LIMITS_S["graph"], 55.0)
+        self.assertLess(OP_LIMITS_S["graph"], sidecar_s)
+        self.assertEqual(aggregate.op_deadline_s(None), 50.0)
+
+    def test_the_limit_passed_in_replaces_the_table(self):
+        seen = []
+
+        def entity(config, query):
+            seen.append(call_scope.current().total_s)
+            return SimpleNamespace(model_dump=lambda: {"sampletypes": []})
+
+        with patch("chat_nextseek.portable.entity_agent", side_effect=entity):
+            run_op("entity", {"query": "mice"}, config=SimpleNamespace(), session=None, write_gate=MagicMock(),
+                   limit_s=30.0)
+
+        self.assertEqual(seen, [30.0])
+
+    def test_a_report_op_gets_its_150_s_and_the_handler_is_told(self):
+        seen = []
+
+        def report(args, config, session, write_gate, neo4j_exec, outputs_dir, **op_ctx):
+            seen.append((call_scope.current().total_s, op_ctx["limit_s"], op_ctx["turn"]))
+            return {}
+
+        with patch.dict(granular._HANDLERS, {"report": report}):
+            run_op("report", {"mode": "samples", "project": "p"}, config=SimpleNamespace(), session=None,
+                   write_gate=MagicMock())
+
+        self.assertEqual(seen, [(150.0, 150.0, None)])
+
+    def test_the_aggregate_op_answers_five_seconds_inside_its_limit(self):
+        seen = []
+
+        def entity(config, query):
+            seen.append(call_scope.current().remaining())
+            return SimpleNamespace(model_dump=lambda: {"sampletypes": []})
+
+        def graph(config, query, entity_out, parser_plan, retry_context=None, refine_context=None):
+            return GraphAgentPlan(cypher="MATCH (s:T_TIS) RETURN count(DISTINCT s) AS n", parameters={})
+
+        with patch("chat_nextseek.portable.entity_agent", side_effect=entity), \
+             patch("chat_nextseek.portable.parser_agent", return_value=ParserPlan(mode="graph_query")), \
+             patch("chat_nextseek.portable.graph_agent", side_effect=graph):
+            out = run_op("aggregate", {"query": "How many TIS samples?", "parts": ""}, config=SimpleNamespace(),
+                         session=SimpleNamespace(), write_gate=MagicMock(), limit_s=40.0,
+                         neo4j_exec=lambda config, cypher, params: {"ok": True, "data": [{"n": 3}], "count": 1,
+                                                                    "total": 1, "truncated": False,
+                                                                    "scope": {"decision": "proven"}})
+
+        self.assertEqual(seen, [pytest.approx(35.0)])
+        self.assertEqual(out["deadline_s"], 35.0)
+
+    def test_a_graph_op_with_a_short_limit_starts_no_fallback_late(self):
+        self.assertEqual(granular.fallback_start_budget_s(None), 25.0)
+        self.assertEqual(granular.fallback_start_budget_s(40.0), 10.0)
+        self.assertEqual(granular.fallback_start_budget_s(20.0), 0.0)
 
     def test_an_op_runs_with_its_55_s_deadline(self):
         seen = []

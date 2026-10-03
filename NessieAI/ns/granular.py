@@ -58,28 +58,33 @@ def run_op(
     write_gate: Callable,
     neo4j_exec: Callable | None = None,
     outputs_dir: str | None = None,
+    limit_s: float | None = None,
+    turn: Any = None,
 ) -> dict:
     """Dispatch a granular op to its handler and return its result dict.
 
-    The op runs inside its own ``call_scope`` (chat_nextseek), with ``OP_DEADLINE_S``: a model that failed in one
-    of its agent calls is not asked again by the next one (a Gemini stall found by the entity agent sends the graph
-    agent straight to its fallback), and every model call is cut to fit the deadline, so the move happens inside
-    the op (operator ruling 2026-09-28, F3/F4).
+    The op runs inside its own ``call_scope`` (chat_nextseek) with ``limit_s``, the op's limit for this request
+    (``NessieAI/ns/op_limits.py``; the view passes it, None means the table's value). A model that failed in one of the
+    op's agent calls is not asked again by the next one, and every model call, Neo4j statement and REST call inside the
+    op is cut to fit the limit (operator rulings 2026-09-28). ``turn`` is the request's ``CCTurn`` under a turn pass,
+    else None; the handlers get both.
     """
     handler = _HANDLERS.get(op)
     if handler is None:
         raise OpValidationError(f"not a sidecar op: {op!r}")
     from chat_nextseek import call_scope
-    with call_scope.scope(deadline_s=OP_DEADLINE_S):
-        return handler(args, config, session, write_gate, neo4j_exec, outputs_dir)
+    from NessieAI.ns.op_limits import op_limit_s
+    limit = op_limit_s(op, None, time.time()) if limit_s is None else float(limit_s)
+    with call_scope.scope(deadline_s=limit):
+        return handler(args, config, session, write_gate, neo4j_exec, outputs_dir, limit_s=limit, turn=turn)
 
 
-def _entity(args, config, session, write_gate, neo4j_exec, outputs_dir):
+def _entity(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     from chat_nextseek.portable import entity_agent
     return _dump(entity_agent(config, args["query"]))
 
 
-def _parse(args, config, session, write_gate, neo4j_exec, outputs_dir):
+def _parse(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     from chat_nextseek.portable import entity_agent, parser_agent
     entity_out = entity_agent(config, args["query"])
     return _dump(parser_agent(session, config, args["query"], entity_out))
@@ -98,17 +103,18 @@ GRAPH_SCOPE_FALLBACK_RETRY_HINT = (
     "fallback.parser_plan asks it again."
 )
 
-#: The op runs behind the sidecar's 60 s request timeout (ns-sidecar/app/ns_client.py). The fallback adds an API-agent
-#: model call and a graph_search request, so it runs inline only when the refusal came this early; later, the op hands
-#: back the retargeted plan and the agent runs it with nextseek-api-read, which gets a 60 s budget of its own.
-GRAPH_FALLBACK_START_BUDGET_S = 25.0
-
-#: The deadline every model call of an op must fit (operator ruling D5, 2026-09-28): the sidecar waits 60 s
-#: (ns-sidecar/app/ns_client.py), less 5 s for the Neo4j step and the answer. ``run_op`` opens the op's call_scope
-#: with it, and the recovery ladder cuts each attempt to fit, so the one move to the fallback model happens inside
-#: the op and no model call starts after the sidecar has given up. The aggregate op tightens it to its own 50 s.
-OP_DEADLINE_S = 55.0
+#: What an inline graph_search fallback needs of the op's limit: an API-agent model call and a graph_search request.
+#: It runs inline only when the refusal came at least this long before the op's limit (25 s into a 55 s graph op, as
+#: before); later, the op hands back the retargeted plan and the agent runs it with nextseek-api-read.
+GRAPH_FALLBACK_RESERVE_S = 30.0
 _monotonic = time.monotonic
+
+
+def fallback_start_budget_s(limit_s: float | None) -> float:
+    """Seconds into a graph op by which a scope-refused question may still run its fallback inline."""
+    from NessieAI.ns.op_limits import OP_LIMITS_S
+    limit = OP_LIMITS_S["graph"] if limit_s is None else limit_s
+    return max(0.0, limit - GRAPH_FALLBACK_RESERVE_S)
 
 #: What the CC agent must tell the user when it answers from ``fallback`` (the NS chatter gets the same note).
 GRAPH_SCOPE_FALLBACK_NOTE = (
@@ -119,13 +125,13 @@ GRAPH_SCOPE_FALLBACK_NOTE = (
 
 
 def _graph_search_fallback(config, parser_plan, refused: dict, write_gate, elapsed_s: float, *,
-                           budget_s: float = GRAPH_FALLBACK_START_BUDGET_S) -> dict:
+                           budget_s: float | None = None) -> dict:
     """Answer a scope-refused graph question through graph_search, as the NS orchestrator does.
 
     Never raises: a fallback that cannot run reports why, and the refusal it answers stays in the op's ``result``.
     ``parser_plan`` is always the parser's plan retargeted to graph_search, as JSON, so the agent can ask it
     through nextseek-api-read when the fallback did not answer here. It runs here only when the op is still inside
-    ``budget_s`` (the graph op's ``GRAPH_FALLBACK_START_BUDGET_S``; the aggregate op passes its own). ``ok`` is
+    ``budget_s`` (by default ``fallback_start_budget_s`` of the table's graph limit; the ops pass their own). ``ok`` is
     graph_search's own answer: an error status is a failed fallback.
     Only graph_search is ever called here, and only through the read gate.
     """
@@ -146,9 +152,9 @@ def _graph_search_fallback(config, parser_plan, refused: dict, write_gate, elaps
         "codes": list(scope.get("codes") or ()), "reasons": list(scope.get("reasons") or ()),
         "parser_plan": plan_json,
     }
-    if elapsed_s > budget_s:
+    if elapsed_s > (fallback_start_budget_s(None) if budget_s is None else budget_s):
         out["error"] = (
-            f"not run here: the op had already used {elapsed_s:.0f} s of its 60 s; run nextseek-api-read with "
+            f"not run here: the op had already used {elapsed_s:.0f} s of its time; run nextseek-api-read with "
             "fallback.parser_plan to ask graph_search"
         )
         return out
@@ -233,7 +239,7 @@ def run_graph_question(
     retry: Callable[[dict, str], "tuple[str, str] | None"] | None = None,
     started: float | None = None,
     clock: Callable[[], float] | None = None,
-    fallback_budget_s: float = GRAPH_FALLBACK_START_BUDGET_S,
+    fallback_budget_s: float | None = None,
 ) -> GraphAnswer:
     """The graph op's chain: parser, graph agent, the Neo4j tool, and graph_search on a scope refusal.
 
@@ -289,21 +295,22 @@ def run_graph_question(
     return GraphAnswer(plan_dump, result, None, parser_plan, cypher, attempts, changed)
 
 
-def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir):
+def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     answer = run_graph_question(args["query"], config=config, session=session, write_gate=write_gate,
-                                neo4j_exec=neo4j_exec)
+                                neo4j_exec=neo4j_exec, fallback_budget_s=fallback_start_budget_s(limit_s))
     if answer.fallback is not None:
         return {"plan": answer.plan, "result": answer.result, "fallback": answer.fallback}
     return {"plan": answer.plan, "result": answer.result}
 
 
-def _aggregate(args, config, session, write_gate, neo4j_exec, outputs_dir):
+def _aggregate(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     """Counts and breakdowns in one call, one to four parts run in parallel on the server (``aggregate.py``)."""
     from NessieAI.ns.aggregate import run_aggregate
-    return run_aggregate(args, config=config, session=session, write_gate=write_gate, neo4j_exec=neo4j_exec)
+    return run_aggregate(args, config=config, session=session, write_gate=write_gate, neo4j_exec=neo4j_exec,
+                         limit_s=limit_s)
 
 
-def _graph_schema(args, config, session, write_gate, neo4j_exec, outputs_dir):
+def _graph_schema(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     """The deployed graph's schema, read live, with no model call and no Cypher.
 
     The op that replaces the graph snapshot the cc-agent image used to bake: the agent
@@ -317,7 +324,7 @@ def _graph_schema(args, config, session, write_gate, neo4j_exec, outputs_dir):
     return graph_schema_snapshot(config, types=types, question=args.get("query") or "")
 
 
-def _api_read(args, config, session, write_gate, neo4j_exec, outputs_dir):
+def _api_read(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     from chat_nextseek import helpers
     from chat_nextseek.portable import api_agent_build_request
     plan = api_agent_build_request(config, _load_parser_plan(args))
@@ -329,7 +336,7 @@ def _api_read(args, config, session, write_gate, neo4j_exec, outputs_dir):
     return {"endpoint": endpoint, "method": method, "api_plan": _dump(plan), "response": result}
 
 
-def _api_write(args, config, session, write_gate, neo4j_exec, outputs_dir):
+def _api_write(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     from chat_nextseek import helpers
     from chat_nextseek.portable import api_agent_build_request
     confirmed = args.get("confirmed_write", False)
@@ -345,7 +352,7 @@ def _api_write(args, config, session, write_gate, neo4j_exec, outputs_dir):
     }
 
 
-def _report(args, config, session, write_gate, neo4j_exec, outputs_dir):
+def _report(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     from chat_nextseek import helpers
     from chat_nextseek.schemas.chat import ReporterPlan
     mode = args["mode"]
@@ -356,7 +363,7 @@ def _report(args, config, session, write_gate, neo4j_exec, outputs_dir):
     return {"summary": summary, "saved_files": saved, "rows": result}
 
 
-def _generate_submission(args, config, session, write_gate, neo4j_exec, outputs_dir):
+def _generate_submission(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     # Route through the SAME orchestration the NS run_query report_generation
     # path uses (generate_report_outputs), rather than calling the leaf
     # report_writer_agent directly. That gives the op, for every report type:
@@ -412,7 +419,7 @@ def _generate_submission(args, config, session, write_gate, neo4j_exec, outputs_
 _RUN_LS_CAP = 2_000_000  # bytes of `ls -laR` returned to CC before truncation (well under the 16 MiB WS cap)
 
 
-def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir):
+def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     """Read-only recursive listing of a finished Luria run dir (reingest input).
 
     Validates ``run_dir`` is under ``<LURIA working_path>/runs`` (no traversal),
@@ -434,7 +441,7 @@ def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir):
     return {"run_dir": run_dir, "truncated": len(out) > _RUN_LS_CAP, "tree": out[:_RUN_LS_CAP]}
 
 
-def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_dir):
+def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     """Render one 4-sheet upload workbook per A.* sample type from CC-composed rows.
 
     args["rows"]: JSON array of {"SampleType", "json_metadata", "assay_ids"}. Runs QA

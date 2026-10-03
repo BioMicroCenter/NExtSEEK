@@ -111,7 +111,7 @@ class GraphOpScopeTests(SimpleTestCase):
         self.assertIn("nextseek-api-read", out["result"]["error"])
 
     def test_a_refusal_late_in_the_op_hands_the_plan_back_instead_of_running_it(self):
-        clock = iter([0.0, granular.GRAPH_FALLBACK_START_BUDGET_S + 1.0])
+        clock = iter([0.0, granular.fallback_start_budget_s(None) + 1.0])
         with patch("NessieAI.ns.granular._monotonic", lambda: next(clock)):
             out = self._run(SimpleNamespace(), neo4j_exec=MagicMock(return_value=_refused()))
 
@@ -124,7 +124,7 @@ class GraphOpScopeTests(SimpleTestCase):
         self.rest.assert_not_called()
 
     def test_a_refusal_early_in_the_op_runs_the_fallback(self):
-        clock = iter([0.0, granular.GRAPH_FALLBACK_START_BUDGET_S - 1.0])
+        clock = iter([0.0, granular.fallback_start_budget_s(None) - 1.0])
         with patch("NessieAI.ns.granular._monotonic", lambda: next(clock)):
             out = self._run(SimpleNamespace(), neo4j_exec=MagicMock(return_value=_refused()))
 
