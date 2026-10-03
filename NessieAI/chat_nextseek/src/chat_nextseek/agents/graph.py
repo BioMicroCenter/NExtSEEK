@@ -1845,9 +1845,11 @@ def _fulltext_problems(scan: _Scan, cypher: str, parameters) -> list[_Shape]:
 # holds 1,998,154. Lineage is DERIVED_FROM only (docs/superpowers/specs/2026-09-25-graph-assay-nodes-design.md
 # section 6.3).
 #
-# One pairing is allowed (round 4, ruling 1): when one of the samples is pinned by UID (`{uuid: $x}` or `s.uuid = $x`)
-# and the statement returns a distinct list or count (`RETURN DISTINCT`, `count(DISTINCT ..)`, `collect(DISTINCT ..)`),
-# the answer is bounded by that sample's own Assay. An unpinned pairing stays refused.
+# One pairing is allowed (round 4, ruling 1): when one of the samples is pinned by UID (`{uuid: $x}`, or `s.uuid = $x`
+# as a top-level AND conjunct of a WHERE in the pair's own row scope, never inside CALL { }), it pairs with exactly
+# one other sample on that Assay, and the last top-level RETURN gives a distinct list or count (`RETURN DISTINCT`,
+# `count(DISTINCT ..)`, `collect(DISTINCT ..)`), the answer is bounded by that sample's own Assay. An unpinned pairing
+# stays refused.
 #
 # `assay_join` refuses a statement in which, in one row scope, two distinct sample variables reach the same Assay
 # variable through INPUT_TO or OUTPUT_OF, however it is written: one pattern, comma-joined parts, separate MATCH or
@@ -2010,15 +2012,81 @@ def _with_carried(scan: _Scan, body_start: int, body_end: int, alive: dict, fres
 
 _UID_PIN_RE = re.compile(r"\buuid\s*:\s*(?:\$\w+|'[^']*'|\"[^\"]*\")")
 _DISTINCT_RESULT_RE = re.compile(r"\bRETURN\s+DISTINCT\b|\b(?:count|collect)\s*\(\s*DISTINCT\b", re.IGNORECASE)
+_PIN_CONJUNCT_RE = re.compile(r"(\w+)\.uuid\s*=\s*(?:\$\w+|'[^']*'|\"[^\"]*\")")
+_WHERE_STOPS = frozenset({"RETURN", "WITH", "MATCH", "OPTIONAL", "CALL", "UNWIND", "ORDER", "LIMIT", "SKIP"})
 
 
 def _uid_pinned(scan: _Scan, cypher: str, element: tuple) -> bool:
-    """A sample node pinned by UID equality: `(s {uuid: $x})`, or `s.uuid = $x` anywhere in the statement."""
+    """A sample node pattern pinned by its inline map: `(s {uuid: $x})`."""
     m = _NODE_PATTERN_RE.match(scan.masked, element[0])
-    if m and m.group("props") and _UID_PIN_RE.search(cypher[m.start("props"):m.end("props")]):
-        return True
-    return bool(element[3]) and bool(re.search(
-        rf"(?<![\w.$]){re.escape(element[3])}\.uuid\s*=\s*(?:\$\w+|'|\")", cypher))
+    return bool(m and m.group("props") and _UID_PIN_RE.search(cypher[m.start("props"):m.end("props")]))
+
+
+def _where_pins(scan: _Scan, cypher: str) -> list[tuple[int, str]]:
+    """(position, variable) of every `v.uuid = $x` (or a string literal) that is a top-level AND conjunct of a WHERE
+    clause. A WHERE with OR or XOR at its top level has no such conjunct (AND binds tighter), and one under NOT is
+    not one; a WHERE inside a list, a comprehension or a node pattern is not a clause."""
+    masked, pins = scan.masked, []
+    for m in re.finditer(r"\bWHERE\b", masked, re.IGNORECASE):
+        if _keyword_is_name(masked, m.start(), m.end()):
+            continue
+        opened = []
+        for ch in masked[:m.start()]:
+            if ch in "([{":
+                opened.append(ch)
+            elif ch in ")]}" and opened:
+                opened.pop()
+        if opened and opened[-1] != "{":
+            continue
+        spans, start, depth, alone, i = [], m.end(), 0, True, m.end()
+        while i < len(masked):
+            ch = masked[i]
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif depth == 0 and ch.isalpha() and not (masked[i - 1].isalnum() or masked[i - 1] in "_.$"):
+                word = re.match(r"\w+", masked[i:i + 12]).group(0).upper()
+                if word in _WHERE_STOPS and not (
+                        word == "WITH" and re.search(r"\b(?:STARTS|ENDS)\s*$", masked[:i], re.IGNORECASE)):
+                    break
+                if word in ("OR", "XOR"):
+                    alone = False
+                elif word == "AND":
+                    spans.append((start, i))
+                    start = i + 3
+                i += len(word)
+                continue
+            i += 1
+        spans.append((start, i))
+        if not alone:
+            continue
+        for s, e in spans:
+            text = cypher[s:e]
+            s, e = s + len(text) - len(text.lstrip()), e - len(text) + len(text.rstrip())
+            while e - s > 1 and masked[s] == "(" and cypher_text._matching_paren(masked, s) == e - 1:
+                text = cypher[s + 1:e - 1]  # outer parentheses stripped
+                s, e = s + 1 + len(text) - len(text.lstrip()), e - 1 - len(text) + len(text.rstrip())
+            pin = _PIN_CONJUNCT_RE.fullmatch(cypher[s:e])
+            if pin:
+                pins.append((s, pin.group(1)))
+    return pins
+
+
+def _call_spans(masked: str) -> list[tuple[int, int]]:
+    """(open, close) of every CALL { } subquery body."""
+    return [(start, end) for start, end, kind in _brace_kinds(masked)
+            if kind == "subquery" and re.search(r"\bCALL\s*(?:\([^()]*\)\s*)?$", masked[:start], re.IGNORECASE)]
+
+
+def _distinct_result(masked: str) -> bool:
+    """Whether the last top-level RETURN gives distinct rows (`RETURN DISTINCT`, `count(DISTINCT ..)`,
+    `collect(DISTINCT ..)`); a DISTINCT inside a subquery or a CALL does not count."""
+    returns = [m.start() for m in re.finditer(r"\bRETURN\b", masked, re.IGNORECASE)
+               if not _keyword_is_name(masked, m.start(), m.end()) and _depth(masked, m.start()) == 0]
+    return bool(returns) and bool(_DISTINCT_RESULT_RE.search(masked[returns[-1]:]))
 
 
 def _assay_join_problems(scan: _Scan, cypher: str) -> list[_Shape]:
@@ -2047,6 +2115,11 @@ def _assay_join_problems(scan: _Scan, cypher: str) -> list[_Shape]:
     for start, _open, _close, hit, _fulltext in _procedure_yields(scan):
         if hit:
             events.append((start, 1, "yield", hit, None))
+    calls = _call_spans(masked)
+    for pos, name in _where_pins(scan, cypher):
+        if not any(c[0] < pos < c[1] for c in calls):  # a pin inside CALL { } bounds nothing outside it
+            events.append((pos, 1, "pin", name, None))
+    pins: set = set()  # (sample key, the scope its pin is in)
     part, alive = 0, {}
     scopes: dict = {}  # a subquery's own names: ("sub", open) -> {name: key}
     home: dict = {}  # key -> the scope it was bound in
@@ -2066,6 +2139,13 @@ def _assay_join_problems(scan: _Scan, cypher: str) -> list[_Shape]:
             if m:
                 alive[m.group(1)] = key = fresh(m.group(1))
                 home[key] = ("part", part)
+            continue
+        if kind == "pin":
+            key = alive.get(a) if not where or a in alive else None
+            for span in where:
+                key = key or scopes.get(("sub", span[0]), {}).get(a)
+            if key is not None:
+                pins.add((key, ("sub", where[-1][0]) if where else ("part", part)))
             continue
         name = a if kind == "yield" else a[3]
         if kind == "node" and not name:
@@ -2133,15 +2213,19 @@ def _assay_join_problems(scan: _Scan, cypher: str) -> list[_Shape]:
     for key, local_samples in valued.items():
         if pairs.get(key):
             pairs[key] = {**pairs[key], **local_samples}
-    # ponytail: "distinct result" is read from the whole statement, not the scope; a RETURN DISTINCT in a subquery
-    # would also count. Tighten to the top-level RETURN if a counter-example shows up.
-    pinned = {keys.get(e[0], ("#node", e[0])) for e in _node_patterns(scan) if _uid_pinned(scan, cypher, e)}
-    distinct = bool(_DISTINCT_RESULT_RE.search(masked))
+    for e in _node_patterns(scan):
+        if _uid_pinned(scan, cypher, e) and not any(c[0] < e[0] < c[1] for c in calls):
+            where = chain(e[0])
+            pins.add((keys.get(e[0], ("#node", e[0])), ("sub", where[-1][0]) if where else ("part", part_at(e[0]))))
+    distinct = _distinct_result(masked)
     problems = []
-    for (_scope, a_key), samples in pairs.items():
+    for (scope, a_key), samples in pairs.items():
         if len(samples) < 2:
             continue
-        if distinct and pinned & set(samples):
+        # A pin bounds a pair only in the pair's own scope or the part around it; one pinned sample bounds one other.
+        around = {scope, scope if scope[0] == "part" else ("part", part_at(scope[1]))}
+        pinned = {key for key, pin_scope in pins if pin_scope in around}
+        if distinct and pinned and len(set(samples) - pinned) <= 1:
             continue  # one sample named by UID: bounded by its own Assay (round 4, ruling 1)
         ordered = sorted(samples.values())
         names = [display for _, display in ordered]

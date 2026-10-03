@@ -816,6 +816,9 @@ def test_samples_paired_through_an_assay_from_one_uid_named_sample_pass(cypher, 
         graph_mod.query_shape_problems(cypher.format(uid=uid), {"uid": uid})
 
 
+_PAIR = "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay)<-[:INPUT_TO]-(o:Sample) "
+
+
 @pytest.mark.parametrize("cypher", [
     # no UID: refused
     "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay)<-[:INPUT_TO]-(o:Sample) RETURN DISTINCT o.uuid AS uuid",
@@ -824,9 +827,35 @@ def test_samples_paired_through_an_assay_from_one_uid_named_sample_pass(cypher, 
     # a UID list is not one named sample
     "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay)<-[:INPUT_TO]-(o:Sample) WHERE s.uuid IN $uids "
     "RETURN DISTINCT o.uuid AS uuid",
-], ids=["no_uid", "uid_but_rows", "uid_list"])
+    # round 4 review F1: a uuid equality that is not a top-level AND conjunct pins nothing
+    _PAIR + "WHERE s.uuid = $a OR o.uuid = $b RETURN DISTINCT o.uuid AS uuid",
+    _PAIR + "WHERE s.uuid = 'YYY-990102DEF-2-PUB' OR o.uuid = $b RETURN DISTINCT o.uuid AS uuid",
+    _PAIR + "WHERE s.uuid = $a OR s.type = 'TIS' RETURN DISTINCT o.uuid AS uuid",
+    _PAIR + "WHERE NOT s.uuid = $a RETURN DISTINCT o.uuid AS uuid",
+    _PAIR + "WHERE s.uuid = 'ZZZ-990101ABC-1-PUB' OR s.uuid CONTAINS 'PUB' RETURN DISTINCT o.uuid AS uuid",
+    _PAIR + "WHERE s.uuid = $a AND o.type = 'TIS' OR o.type = 'MUS' RETURN DISTINCT o.uuid AS uuid",
+    # one pinned sample bounds one other sample on its Assay, not two
+    "MATCH (s {uuid:$a})-[:INPUT_TO]->(a)<-[:INPUT_TO]-(o), (a)<-[:OUTPUT_OF]-(p) RETURN DISTINCT o.uuid, p.uuid",
+    # a pin inside CALL { } does not bound the pairing outside it
+    "CALL { MATCH (s:Sample) WHERE s.uuid = $a RETURN count(*) AS c } " + _PAIR + "RETURN DISTINCT o.uuid AS uuid",
+    # a DISTINCT inside CALL { } does not make the outer rows distinct
+    "MATCH (s:Sample {uuid: $a})-[:INPUT_TO]->(a:Assay)<-[:INPUT_TO]-(o:Sample) "
+    "CALL { MATCH (x:Sample) RETURN count(DISTINCT x) AS n } RETURN o.uuid AS uuid, n",
+], ids=["no_uid", "uid_but_rows", "uid_list", "or_other_sample", "or_other_sample_literal", "or_type", "not_pin",
+        "or_contains", "and_then_or", "three_on_one_assay", "pin_in_call", "distinct_in_call"])
 def test_pairings_without_a_uid_or_a_distinct_result_stay_refused(cypher):
-    assert "assay_join" in kinds(cypher, {"uid": "ZZZ-990101ABC-1-PUB", "uids": ["a", "b"]})
+    params = {"uid": "ZZZ-990101ABC-1-PUB", "uids": ["a", "b"], "a": "ZZZ-990101ABC-1-PUB", "b": "YYY-990102DEF-2-PUB"}
+    assert "assay_join" in kinds(cypher, params)
+
+
+@pytest.mark.parametrize("cypher", [
+    "MATCH (s:Sample {uuid:$a})-[:INPUT_TO]->(a:Assay)<-[:OUTPUT_OF]-(o:Sample) WHERE s.uuid = $a AND NOT o.type = 'TIS' "
+    "RETURN count(DISTINCT o) AS n",
+    "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay)<-[:OUTPUT_OF]-(o:Sample) WHERE (s.uuid = $a) AND NOT o.type = 'TIS' "
+    "RETURN count(DISTINCT o) AS n",
+], ids=["inline_and_where", "where_conjunct"])
+def test_a_uid_pin_beside_a_negated_condition_on_the_other_sample_passes(cypher):
+    assert "assay_join" not in kinds(cypher, {"a": "ZZZ-990101ABC-1-PUB"})
 
 
 def test_the_example_in_the_assay_join_repair_passes_the_guard():
