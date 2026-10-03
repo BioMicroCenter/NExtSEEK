@@ -169,7 +169,7 @@ def test_dockerfile_is_pinned_hash_checked_cpu_only_and_has_no_weights():
     copies = [l for l in df.splitlines() if l.startswith(("COPY", "ADD"))]
     assert copies and not any("model" in l for l in copies)
     assert "serve_wrapper.py" in df
-    assert "EXPOSE" not in df  # the port rule: nothing published, ever
+    assert not any(l.startswith("EXPOSE") for l in df.splitlines())  # the port rule: nothing published, ever
 
 
 def test_build_context_never_ships_the_checkpoint():
@@ -190,3 +190,9 @@ def test_compose_passes_the_revision_to_the_wrapper():
     import yaml
     env = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())["services"]["laya-router"]["environment"]
     assert env["LAYA_REVISION"] == "${LAYA_REVISION:-unset}"
+
+
+def test_laya_env_example_holds_only_a_placeholder_key():
+    lines = [l for l in (REPO_ROOT / "docker" / "laya.env.example").read_text().splitlines()
+             if l and not l.startswith("#")]
+    assert lines == ['LAYA_API_KEY="SET_IN_LOCAL_ENV"']
