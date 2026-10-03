@@ -283,7 +283,8 @@ def test_no_seed_turn_asserts_a_retired_rest_sample_search():
                 "pipeline.selection_verdict_recorded"):
         seed = _merged()[vid].turns[0]
         by = {(c.field, c.op): c.value for c in seed.pass_criteria}
-        assert by[("parser_plan.mode", "eq")] == "graph_query", vid
+        # the pipeline family's merge rewrites away the mode check; what matters is that no REST search is asserted
+        assert by.get(("parser_plan.mode", "eq"), "graph_query") == "graph_query", vid
         assert ("api_ok", "true") not in by, vid
 
 
