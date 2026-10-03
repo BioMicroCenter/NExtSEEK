@@ -214,8 +214,11 @@ def _graph_turn(monkeypatch, tmp_path, plans, results):
         calls["neo4j"] += 1
         return next(result_iter)
 
+    chatter_kwargs: list = []
+
     def chatter(*a, **k):
         calls["chatter"] += 1
+        chatter_kwargs.append(k)
         return "graph reply"
 
     monkeypatch.setattr(orch, "graph_agent", agent)
@@ -236,7 +239,8 @@ def _graph_turn(monkeypatch, tmp_path, plans, results):
         send_event=lambda name, payload: events.append((name, payload)), debug_payload=debug,
         t_total_start=time.perf_counter(),
     )
-    return SimpleNamespace(out=out, debug=debug, calls=calls, written=written, events=events, session=session)
+    return SimpleNamespace(out=out, debug=debug, calls=calls, written=written, events=events, session=session,
+                           chatter_kwargs=chatter_kwargs)
 
 
 def _plan(cypher):
@@ -488,3 +492,76 @@ def test_the_planner_step_still_retries_a_cypher_error_once(monkeypatch):
     assert calls["agent"] == 2
     assert out["ok"] is True
     assert orch.GRAPH_SEARCH_ENDPOINT not in (out["error"] or "")
+
+
+# --------------------------------------------------------------------------- #
+# Round 4: a reply per refusal kind (U2.2), no sample search for the catalog labels (U2.6), the holding study (U2.5)
+# --------------------------------------------------------------------------- #
+
+def _refused_with(reasons, cypher=REFUSED_CYPHER):
+    out = _refused(cypher)
+    out["scope"] = _scope("refused", ["label_not_allowed"] * len(reasons), reasons)
+    return out
+
+
+@pytest.mark.parametrize("cypher,label", [("MATCH (a:Attribute) RETURN a.title AS title", "Attribute"),
+                                          ("MATCH (t:SampleType) RETURN t.title AS title", "SampleType")])
+def test_a_refused_read_of_the_catalog_labels_ends_with_a_short_reply_not_the_sample_search(monkeypatch, tmp_path,
+                                                                                             cypher, label):
+    refused = _refused_with([f"line 1, column 8: the label {label} may not be read"], cypher)
+    run = _graph_turn(monkeypatch, tmp_path, [_plan(cypher), _plan("NEVER")], [refused])
+
+    assert not isinstance(run.out, orch.GraphScopeFallback)
+    assert run.out["reply"] == orch.CATALOG_SCOPE_REPLY
+    assert run.calls == {"agent": 1, "neo4j": 1, "chatter": 0}
+    assert "graph_scope_fallback" not in run.debug and run.debug["graph_scope"]["decision"] == "refused"
+    for leak in ("Graph agent", "Cypher", "catalog", "Reason", "scope", "guard"):
+        assert leak not in orch.CATALOG_SCOPE_REPLY
+
+
+@pytest.mark.parametrize("reasons", [
+    ["line 1, column 8: the label Project may not be read"],
+    ["line 1, column 8: the label Attribute may not be read", "line 1, column 30: UNION may not be used"],
+])
+def test_any_other_scope_refusal_still_falls_back(monkeypatch, tmp_path, reasons):
+    run = _graph_turn(monkeypatch, tmp_path, [_plan(REFUSED_CYPHER)], [_refused_with(reasons)])
+    assert isinstance(run.out, orch.GraphScopeFallback)
+
+
+def test_a_refusal_without_a_cypher_replies_per_kind_and_keeps_both_attempts(monkeypatch, tmp_path):
+    plan = GraphAgentPlan(cypher="", explanation="Graph agent could not produce valid Cypher; internal words.",
+                          context_mode="catalog", refusal_kinds=["assay_join"],
+                          attempted_cypher="MATCH (a)-[:INPUT_TO]->(x:Assay)<-[:INPUT_TO]-(b) RETURN a, b",
+                          repaired_cypher="MATCH (c)-[:INPUT_TO]->(y:Assay)<-[:INPUT_TO]-(d) RETURN c, d")
+    run = _graph_turn(monkeypatch, tmp_path, [plan], [])
+    reply = run.out["reply"]
+    assert "UID" in reply and reply != orch.GRAPH_REFUSAL_REPLY
+    assert run.debug["graph_refusal_kinds"] == ["assay_join"]
+    assert [(a["reason"], a["cypher"]) for a in run.debug["graph_attempts"]] == [
+        ("initial", plan.attempted_cypher), ("repair", plan.repaired_cypher)]
+    assert run.debug["graph_refusal"].startswith("Graph agent could not")
+
+
+def test_a_refusal_with_no_kind_keeps_the_generic_reply(monkeypatch, tmp_path):
+    run = _graph_turn(monkeypatch, tmp_path, [GraphAgentPlan(cypher="", explanation="x", context_mode="catalog")], [])
+    assert run.out["reply"] == orch.GRAPH_REFUSAL_REPLY and run.debug["graph_attempts"] == []
+
+
+@pytest.mark.parametrize("title", ["Zeta Unpublished", "  Quill lab unpublished "])
+def test_a_count_scoped_to_a_holding_study_tells_the_reply_about_papers(monkeypatch, tmp_path, title):
+    cypher = "MATCH (s:T_TIS)-[:IN_STUDY]->(st:Study) WHERE st.title = $t RETURN count(s) AS n"
+    result = _proven(1, cypher)
+    result["parameters"] = {"t": title}
+    plan = GraphAgentPlan(cypher=cypher, parameters={"t": title}, context_mode="catalog")
+    run = _graph_turn(monkeypatch, tmp_path, [plan], [result])
+    notes = [n for k in run.chatter_kwargs for n in (k.get("query_notes") or [])]
+    assert any("holding study" in n and "counted under that paper" in n for n in notes), notes
+
+
+def test_a_count_scoped_to_a_published_study_gets_no_holding_note():
+    from chat_nextseek.graph_review import holding_study_note
+    cy = "MATCH (s)-[:IN_STUDY]->(st:Study) WHERE st.title = $t RETURN count(s) AS n"
+    assert holding_study_note(cy, {"t": "Zeta cohort"}, [{"n": 4}]) is None
+    assert holding_study_note("MATCH (s:T_TIS) RETURN count(s)", {"t": "Zeta Unpublished"}, []) is None
+    assert holding_study_note(cy.replace("$t", "'Quill Unpublished'"), {}, []) is not None
+    assert holding_study_note("MATCH (st:Study) RETURN st.title AS t", {}, [{"t": "Zeta Unpublished"}]) is not None

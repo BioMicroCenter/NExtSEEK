@@ -370,6 +370,10 @@ _SAMPLE_SOURCE_RELATIONSHIPS = frozenset({schema.IN_STUDY, schema.OF_TYPE, schem
 _NEVER_A_SAMPLE = frozenset({schema.ASSAY})
 _WHOLE_NODE_ALTERNATIVE = (
     "return s.id, s.uuid, s.type and the named properties the question needs, and count with count(*)")
+# A path variable (or nodes(p) shipped whole) gets its own hint: the path never goes back, its length and node ids do.
+_WHOLE_PATH_ALTERNATIVE = (
+    "return length({p}) AS hops and the uuids of the variables at the path's ends (a.uuid, b.uuid), and test the "
+    "path with {p} IS NOT NULL; never the path variable or nodes({p}) itself")
 
 
 @dataclass
@@ -1009,7 +1013,7 @@ def _call_lines(calls: list[str]) -> list[str]:
 
 
 def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot, calls: list[str] = (),
-                            shapes: list = ()) -> str:
+                            shapes: list = (), cypher: str | None = None) -> str:
     """The one repair prompt: every problem once, and the property names valid for each label involved.
 
     ``shapes`` are the query-shape guard's problems (P6a, P6b), repaired in the same round: alone they get their own
@@ -1027,8 +1031,15 @@ def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot
         lines.append("- labels that name no sample type: " + ", ".join(labels) + " (a type label is T_ plus the "
                      "code with every character outside [A-Za-z0-9_] replaced by _; see the type index)")
     if whole:
-        lines.append("- " + ", ".join(f"whole node {v}" for v in whole) + ": never return or collect a whole "
-                     f"Sample node; {_WHOLE_NODE_ALTERNATIVE}")
+        scan = _scan(cypher) if cypher else None
+        path_vars = [v for v in whole if scan and v in (scan.paths | scan.proc_paths)]
+        node_vars = [v for v in whole if v not in path_vars]
+        if node_vars:
+            lines.append("- " + ", ".join(f"whole node {v}" for v in node_vars) + ": never return or collect a whole "
+                         f"Sample node; {_WHOLE_NODE_ALTERNATIVE}")
+        if path_vars:
+            lines.append("- " + ", ".join(f"whole path {v}" for v in path_vars) + ": never return or collect a path; "
+                         + _WHOLE_PATH_ALTERNATIVE.format(p=path_vars[0]))
     lines += _call_lines(list(calls))
     lines += _shape_lines(list(shapes))
     owners = list(dict.fromkeys(owner for p in problems if p.kind == "property" for owner in p.owners))
@@ -2249,6 +2260,44 @@ def _shape_refusal_parts(shapes: list[_Shape]) -> list[str]:
     return parts
 
 
+#: What the user is told for each refused kind (round 4, U2.2): the reason in plain words and the shape that is allowed.
+#: Code-owned; the graph agent's own explanation names catalog properties and repair steps and is never shown.
+REFUSAL_REPLIES = {
+    "assay_join": (
+        "I can't match samples to each other just because they went through the same assay. Name one sample by its "
+        "UID and I can list the other samples that went through its assay, or ask which samples went through a "
+        "named assay."),
+    "lineage_path": (
+        "That question would follow lineage from every sample at once, which is too large to run. Name a sample by "
+        "its UID or a sample type, and say how many steps to follow."),
+    "fulltext": (
+        "That wording would search every sample's text for several words at once and would match far too much. Name "
+        "the sample type, project or field you mean, or ask about one word or phrase."),
+    "whole_node": (
+        "I can't return whole samples for that question. Ask for a count, or for the fields you need, such as the "
+        "UID, the type and named attributes."),
+}
+_REFUSAL_PRIORITY = ("assay_join", "lineage_path", "fulltext", "whole_node")
+
+
+def refusal_kinds(problems=(), whole=(), calls=(), shapes=()) -> list[str]:
+    """The reply kinds (``REFUSAL_REPLIES``) for what the guards refused; a kind with no entry has no reply of its own."""
+    kinds = {"assay_join" if s.kind == "assay_join" else "fulltext" if s.kind == "unscoped_fulltext"
+             else "lineage_path" for s in shapes}
+    if whole:
+        kinds.add("whole_node")
+    if problems:
+        kinds.add("catalog")
+    if calls:
+        kinds.add("procedure")
+    return [k for k in (*_REFUSAL_PRIORITY, "catalog", "procedure") if k in kinds]
+
+
+def refusal_reply(kinds) -> str | None:
+    """The user-facing reply for a refusal's most specific kind, or None when only the generic reply applies."""
+    return next((REFUSAL_REPLIES[k] for k in kinds or () if k in REFUSAL_REPLIES), None)
+
+
 def _shape_refusal(shapes: list[_Shape]) -> str:
     """The user-facing reason, when the one repair kept a refused shape."""
     return "Graph agent could not produce valid Cypher; " + "; ".join(_shape_refusal_parts(shapes)) + "."
@@ -2772,11 +2821,12 @@ def graph_agent(
             calls = _procedure_problems(result.cypher, procedures)
             shapes = query_shape_problems(result.cypher, result.parameters)
             if problems or whole or calls or shapes:
+                attempted = result.cypher
                 print(f"[DEBUG][GRAPH] Catalog guard: {[p.text for p in problems]} whole nodes {whole}"
                       + (f" calls {calls}" if calls else "") + (f" shapes {[p.kind for p in shapes]}" if shapes else "")
                       + "; attempting repair")
                 messages.append({"role": "system", "content": _catalog_repair_message(
-                    problems, whole, catalog.snapshot, calls, shapes)})
+                    problems, whole, catalog.snapshot, calls, shapes, result.cypher)})
                 result = call("Regenerate the Cypher.", "graph_agent_repair")
                 result.cypher, _ = canonicalize_sample_uid_property(result.cypher)
                 print(f"[DEBUG][GRAPH] Repaired cypher: {result.cypher!r}")
@@ -2790,7 +2840,9 @@ def graph_agent(
                           + (f" shapes {[p.kind for p in shapes]}" if shapes else "") + "; returning empty plan")
                     return GraphAgentPlan(cypher="", explanation=_catalog_refusal(problems, whole, calls, shapes),
                                           parameters={}, context_mode=context_mode,
-                                          context_fallback=context_fallback)
+                                          context_fallback=context_fallback,
+                                          refusal_kinds=refusal_kinds(problems, whole, calls, shapes),
+                                          attempted_cypher=attempted, repaired_cypher=result.cypher)
         else:
             # Schema guard: reject Cypher that filters on properties no node actually has
             # (e.g. a hallucinated `s.Lab`). Re-prompt once with the error + valid props;
@@ -2806,6 +2858,7 @@ def graph_agent(
             calls = _procedure_problems(result.cypher, procedures)
             shapes = query_shape_problems(result.cypher, result.parameters)
             if unknown or calls or shapes:
+                attempted = result.cypher
                 print(f"[DEBUG][GRAPH] Unknown properties in cypher: {unknown}"
                       + (f" calls {calls}" if calls else "") + (f" shapes {[p.kind for p in shapes]}" if shapes else "")
                       + "; attempting repair")
@@ -2843,6 +2896,8 @@ def graph_agent(
                         parameters={},
                         context_mode=context_mode,
                         context_fallback=context_fallback,
+                        refusal_kinds=refusal_kinds(still, [], calls, shapes),
+                        attempted_cypher=attempted, repaired_cypher=result.cypher,
                     )
 
         # Filter guard: an OPTIONAL MATCH immediately followed by WHERE folds the

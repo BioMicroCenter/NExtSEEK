@@ -860,3 +860,68 @@ def test_a_repair_that_still_pairs_through_an_assay_is_refused(monkeypatch, requ
     assert len(llm.calls) == 2 and out.cypher == ""
     assert "pairs samples through the Assay (a:Assay)" in out.explanation
     assert out.explanation.endswith("lineage is DERIVED_FROM.")
+
+
+# ------------------------------------------------------------------------------ round 4: refusal replies and paths
+PAIRED_ZETA = "MATCH (c:T_TIS)-[:OUTPUT_OF]->(zz:Assay)<-[:INPUT_TO]-(p:T_NHP) RETURN c.uuid AS c, p.uuid AS p"
+WHOLE_PATH = "MATCH p = (a:T_TIS {uuid: $u})-[:DERIVED_FROM*1..3]->(b:T_NHP) RETURN p"
+WHOLE_ROUTE = "MATCH route = (a:T_NHP {uuid: $u})-[:DERIVED_FROM*1..4]->(b:T_TIS) RETURN route"
+PATH_ENDS = ("MATCH p = (a:T_TIS {uuid: $u})-[:DERIVED_FROM*1..3]->(b:T_NHP) "
+             "RETURN length(p) AS hops, a.uuid AS from_uuid, b.uuid AS to_uuid")
+
+
+@pytest.mark.parametrize("cypher,kind", [(PAIRED, "assay_join"), (PAIRED_ZETA, "assay_join"),
+                                         (UNBOUNDED, "lineage_path"), (UNSCOPED, "fulltext")])
+def test_a_refusal_carries_its_kind_and_both_cyphers_and_a_reply_of_its_own(monkeypatch, live, cypher, kind):
+    out = run(monkeypatch, FakeLLM(cypher, cypher, cypher))
+    assert out.cypher == "" and out.refusal_kinds[0] == kind
+    assert out.attempted_cypher == cypher and out.repaired_cypher == cypher
+    reply = graph_mod.refusal_reply(out.refusal_kinds)
+    assert reply
+    for leak in ("Graph agent", "Cypher", "catalog", "Reason", "guard", "INPUT_TO"):
+        assert leak not in reply
+
+
+def test_a_refusal_in_down_mode_carries_its_kind_too(monkeypatch, down):
+    out = run(monkeypatch, FakeLLM(PAIRED, PAIRED))
+    assert out.refusal_kinds == ["assay_join"] and out.attempted_cypher == PAIRED
+
+
+def test_a_refusal_with_no_reply_of_its_own_gets_none():
+    assert graph_mod.refusal_reply([]) is None and graph_mod.refusal_reply(["catalog"]) is None
+
+
+@pytest.mark.parametrize("cypher,var", [(WHOLE_PATH, "p"), (WHOLE_ROUTE, "route")])
+def test_the_whole_path_repair_names_length_and_node_ids_never_the_path(monkeypatch, live, cypher, var):
+    llm = FakeLLM(cypher, PATH_ENDS.replace("p =", f"{var} =").replace("(p)", f"({var})"))
+    run(monkeypatch, llm)
+    repair = llm.repair()
+    assert f"whole path {var}" in repair and f"length({var}) AS hops" in repair
+    assert "a.uuid, b.uuid" in repair
+    assert "whole node" not in repair and "s.id, s.uuid" not in repair
+
+
+def test_a_node_variable_still_gets_the_node_hint(monkeypatch, live):
+    llm = FakeLLM("MATCH (s:T_TIS) RETURN s", "MATCH (s:T_TIS) RETURN s.uuid AS uuid")
+    run(monkeypatch, llm)
+    assert "whole node s" in llm.repair() and "s.id, s.uuid" in llm.repair() and "whole path" not in llm.repair()
+
+
+def test_a_path_returned_whole_or_through_nodes_is_flagged_and_its_ends_are_not():
+    assert graph_mod.whole_node_returns(PATH_ENDS) == []
+    assert graph_mod.whole_node_returns(WHOLE_PATH) == ["p"]
+    assert graph_mod.whole_node_returns(WHOLE_PATH.replace("RETURN p", "RETURN nodes(p) AS ns")) == ["p"]
+
+
+@pytest.mark.parametrize("uids", [("ZZZ-990101ABC-1-PUB", "ZZZ-990101ABD-1-PUB"), ("QQQ-770202XYZ-2-PUB", "QQQ-770202XYZ-3-PUB")])
+def test_the_two_uid_related_recipe_passes_every_guard_and_the_members_scope(uids):
+    from pathlib import Path
+    from chat_nextseek.cypher_scope import Scoped, scope_cypher
+    from chat_nextseek.graph_scope import GraphScope
+    text = (Path(graph_mod.__file__).parent.parent / "prompts" / "graph_agent.txt").read_text(encoding="utf-8")
+    line = next(l for l in text.splitlines() if l.startswith("- **Are two named samples related**"))
+    recipe = line.split("`")[1]
+    params = {"uid_a": uids[0], "uid_b": uids[1]}
+    assert graph_mod.whole_node_returns(recipe) == [] and graph_mod.query_shape_problems(recipe, params) == []
+    out = scope_cypher(recipe, params, GraphScope.for_projects([3, 1], source="test"))
+    assert isinstance(out, Scoped), getattr(out, "reasons", out)
