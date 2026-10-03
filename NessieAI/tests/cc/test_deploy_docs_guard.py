@@ -150,6 +150,24 @@ def test_guard_does_not_flag_legitimate_content():
         assert not (_LEGACY_HOST_ROOT in text and _HOST_PREP.search(text))
 
 
+def test_deploy_md_carries_the_unit_b_runbook():
+    """Unit B's first deploy and rollback: one rebuild for the three images, the 0025 table copy measured first,
+    and a full rollback that reverses the migrations BEFORE it repoints any image (an image-only rollback leaves
+    chats that ran a unit B turn undeletable)."""
+    text = _read(DEPLOY_MD)
+    match = re.search(r"^##\s+Approach 1 \(unit B\): first deploy and rollback\s*$(.*?)(?=^##\s)", text,
+                      re.MULTILINE | re.DOTALL)
+    assert match, "DEPLOY.md must keep the '## Approach 1 (unit B): first deploy and rollback' section"
+    section = match.group(1)
+    for needle in ("migrate nextseek_api 0024", "custom-stack", "assistant_query_task", "sqlmigrate",
+                   "DJANGO_SECRET_KEY", "NEXTSEEK_CC_OPS_ROAD", "NESSIE_VOCAB_PRERUN", "NESSIE_PARSER_START"):
+        assert needle in section, f"the unit B runbook lost {needle!r}"
+    assert section.index("migrate nextseek_api 0024") < section.index("docker tag"), (
+        "the full rollback must reverse the migrations before it repoints an image")
+    rollback = re.search(r"^###\s+5\.1\b(.*?)(?=^###\s)", _read(DEPLOYMENT_MD), re.MULTILINE | re.DOTALL)
+    assert rollback and "0025_cc_turn" in rollback.group(1), "DEPLOYMENT.md §5.1 must name 0025_cc_turn"
+
+
 def test_docs_point_at_each_other():
     """DEPLOY.md defers full-stack hygiene to DEPLOYMENT.md; DEPLOYMENT.md
     routes CC specifics to DEPLOY.md — the pointer pair must survive edits."""

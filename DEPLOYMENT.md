@@ -419,7 +419,9 @@ docker compose -p nextseek up -d --no-build --no-deps --force-recreate nextseek
 Then §6. If the bad deploy applied a **data** migration, rolling back the
 image does not roll back the data; that is what the §5.3 dump is for;
 restoring it is a deliberate, owner-approved action, not part of routine
-rollback.
+rollback. A deploy that applied `0025_cc_turn` is the case in point: reverse it
+before you repoint the image (`NessieAI/cc/DEPLOY.md`, "Approach 1 (unit B)"),
+or chats that ran a Container-CC turn cannot be deleted.
 
 ### 5.2 Tag conventions and their care
 
@@ -638,7 +640,7 @@ definition:
    Bedrock-via-proxy pointers, the user's NExtSEEK name and a one-turn pass
    (`NEXTSEEK_TURN_PASS`: Django holds the login for the turn and revokes the pass when the turn ends),
    the ops road (`NEXTSEEK_CC_OPS_ROAD`, `direct` or `sidecar`; on the sidecar road only, also the sidecar
-   host/port and the non-secret path mappings), the turn's stop time
+   host/port), the non-secret path mappings, the turn's stop time
    (`NEXTSEEK_CC_TURN_DEADLINE_EPOCH`, a number), and three non-secret model-call
    settings: `CLAUDE_CODE_MAX_RETRIES`, `API_TIMEOUT_MS` and
    `ANTHROPIC_DEFAULT_SONNET_MODEL` (a model id). The 16 forbidden shared-cred keys

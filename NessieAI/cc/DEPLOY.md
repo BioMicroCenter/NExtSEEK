@@ -65,6 +65,164 @@ dual-homed service. Per-turn agent containers are spawned from the
    with raw Compose commands.
 6. **Verify** — run the checks below plus DEPLOYMENT.md §6.
 
+## Approach 1 (unit B): first deploy and rollback
+
+Unit B (the turn pass, the direct ops road, the turn memory) changes the app,
+the agent image and the sidecar at once, and adds two migrations. Follow this
+section the first time a box takes it; later redeploys use the Procedure above.
+
+**What ships together.** `app` (Django, the CC engine, migrations
+`0025_cc_turn` and `0026_ccturn_ops_cost_partial`, the committed chat bundle),
+`cc-agent` (the plugin bins, the prompt hook, the skill and manifest, the
+container `CLAUDE.md`, the entrypoint and its baked `expected-settings.json`)
+and `nextseek-sidecar` (the turn-pass frame). Rebuild them with one verb,
+`./startup.sh rebuild --component custom-stack`; it also rebuilds
+`bedrock-proxy`, which is harmless. Why together:
+
+- the new app with the old agent image, or the reverse, makes every
+  Container-CC op exit `CONFIG_MISSING` (the new agent needs
+  `NEXTSEEK_TURN_PASS`; the old one needs a password the new app no longer
+  gives it);
+- the new app and agent with the old sidecar make the sidecar road (the light
+  rollback below) refuse every frame;
+- the deploy clone's checkout and the app image must be the same commit: the
+  doctor's CC wiring probe calls `build_agent_environment` with this commit's
+  arguments.
+
+`custom-stack` first tags all four images `pre-<timestamp>-<sha>` (each printed
+as "rollback tag verified"), then builds app, cc-agent, sidecar and proxy in
+that order, then recreates `nextseek`, the sidecar and the proxy together. A
+Container-CC turn that starts between the agent image's build and the app's
+recreate ends with a setup error, so deploy at a quiet time.
+
+**Pre-checks, read-only, in this order.**
+
+1. Record the deploy clone's commit before you fast-forward it
+   (`git rev-parse HEAD`): the full rollback checks it out again.
+2. Free disk: `df -h /`. The rebuild measures free disk for its images itself
+   (DEPLOYMENT.md §3.2), but migration 0025 copies a table inside the MySQL
+   data directory and needs its own room.
+3. The size of `assistant_query_task`:
+
+   ```bash
+   docker exec -it <mysql-container> mysql -u<user> -p dmac -e "SELECT TABLE_ROWS, ROUND((DATA_LENGTH+INDEX_LENGTH)/1048576) AS mb FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'assistant_query_task';"
+   ```
+
+   0025 adds a foreign key to this table, which MySQL does only by copying the
+   table: writes to it wait for the copy, the app's boot waits for the
+   migration, and the data directory needs about `mb` free on top of what it
+   holds. Tell the owner the number before the go.
+4. The dump (DEPLOYMENT.md §5.3): `assistant_query_task` and
+   `assistant_chat_session` at least; the whole `dmac` schema is safer. The
+   full rollback deletes the turn rows, and this dump is their only copy.
+5. `DJANGO_SECRET_KEY` is set in `docker/nextseek.env`. Check it without
+   printing it:
+
+   ```bash
+   docker exec nextseek sh -c 'test -n "$DJANGO_SECRET_KEY" && echo set || echo MISSING'
+   ```
+
+   The key that encrypts each turn's held login is derived from it: with no
+   secret key no pass is issued, and every Container-CC turn ends with a setup
+   error. Do not change it during the deploy; a running turn could no longer
+   read its login.
+6. **Never run `manage.py sqlmigrate nextseek_api 0025` on a box.** It is not
+   a preview: it runs the migration's table heal and creates
+   `assistant_cc_turn`.
+
+**Switches.** All optional, with code defaults, so the env template needs no
+change:
+
+| Setting | Default | The other value |
+|---|---|---|
+| `NEXTSEEK_CC_OPS_ROAD` | `direct`: the op tools call the assistant endpoints with the turn pass | `sidecar`: the WebSocket sidecar, kept one release as the light rollback |
+| `NESSIE_VOCAB_PRERUN` | `on`: each question's vocabulary is resolved beside the router | `off`: no pre-run, and Container-CC turns also lose the vocabulary note |
+| `NESSIE_PARSER_START` | `after_route`: the NS parser starts once the route is known | `early`: it starts before the route is known (not yet the default) |
+
+To change one, add its line to `docker/nextseek.env` and recreate the app:
+`docker compose -p nextseek up -d --no-deps --force-recreate nextseek`.
+Rebuild never re-renders that file.
+
+**Deploy.**
+
+1. Fast-forward the deploy clone (Procedure step 1), then
+   `./startup.sh rebuild --component custom-stack`.
+2. Watch the boot, `docker logs -f nextseek`, until the workers are up with no
+   `[MIGRATE-FAILED]`. Migrate runs `0025_cc_turn` first: not atomic, it
+   creates `assistant_cc_turn` with its chat column matched to the chat
+   table's charset, then adds `parent_cc_turn` to `assistant_query_task` (the
+   table copy). Then `0026_ccturn_ops_cost_partial`. If 0025 stops part way
+   (usually disk), fix the cause and restart `nextseek`: the heal skips a table
+   that is already there.
+3. If `static/` changed in the range (unit B's chat bundle did), run
+   `docker compose exec nextseek uv run manage.py collectstatic --noinput`
+   (DEPLOYMENT.md §3.2).
+
+**Post-checks, read-only.**
+
+```bash
+docker compose exec nextseek uv run manage.py showmigrations nextseek_api | tail -3
+# -> [X] 0025_cc_turn and [X] 0026_ccturn_ops_cost_partial
+docker compose exec nextseek uv run manage.py shell -c "from django.conf import settings as s; print(s.NEXTSEEK_CC_OPS_ROAD, s.NESSIE_VOCAB_PRERUN, s.NESSIE_PARSER_START)"
+# -> direct on after_route, unless a switch was set
+```
+
+Then the Verification block below (`cc_runner_available()` returns
+`(True, 'ok')`) and DEPLOYMENT.md §6. On the first Container-CC turn, while its
+agent container runs, list the password-like key names in its env (names only):
+
+```bash
+docker inspect $(docker ps -q --filter name=dmac-cc-agent-) --format '{{range .Config.Env}}{{println .}}{{end}}' | cut -d= -f1 | grep -E 'NEXTSEEK_TURN_PASS|API_PASS|NEXTSEEK_PASSWORD|SEEK_PASSWORD'
+# -> NEXTSEEK_TURN_PASS only
+```
+
+The turn's final event (the finished task's progress) carries `ops_cost_usd`,
+`turn_cost_usd` and `cost_partial`; `cost_partial_reason` names what was not
+counted.
+
+**Rollback, light (the ops road only).** Set `NEXTSEEK_CC_OPS_ROAD=sidecar` in
+`docker/nextseek.env` and recreate the app as under Switches. It needs the
+sidecar this rebuild made; everything else stays on unit B.
+
+**Rollback, full, in this order.**
+
+1. With the unit B image still running, reverse the migrations:
+
+   ```bash
+   docker compose exec nextseek uv run manage.py migrate nextseek_api 0024
+   ```
+
+   This drops 0026's two columns, the `parent_cc_turn` key and column, and the
+   `assistant_cc_turn` table with its rows: the turn memory and ops cost of
+   every unit B turn (the pre-check dump is their copy). Do not restart
+   `nextseek` between this step and step 4: the unit B image migrates at every
+   boot and would apply 0025 and 0026 again.
+2. Repoint the three images at the tags this rebuild printed (DEPLOYMENT.md
+   §5.1):
+
+   ```bash
+   T=pre-<timestamp>-<sha>                                   # from "rollback tag verified"
+   docker image inspect nextseek-nextseek:$T --format '{{.Id}}'     # each MUST succeed first
+   docker image inspect dmac-assistant:$T --format '{{.Id}}'
+   docker image inspect nextseek-ns-sidecar:$T --format '{{.Id}}'
+   docker tag nextseek-nextseek:$T nextseek-nextseek:latest
+   docker tag dmac-assistant:$T dmac-assistant:poc
+   docker tag nextseek-ns-sidecar:$T nextseek-ns-sidecar:latest
+   ```
+
+3. Check out the commit you recorded in the deploy clone
+   (`git checkout --detach <recorded-sha>`). Without it the doctor's CC wiring
+   probe fails with a TypeError: the checkout and the image disagree on
+   `build_agent_environment`.
+4. Recreate without building:
+   `docker compose -p nextseek up -d --no-build --no-deps --force-recreate nextseek nextseek-sidecar`.
+   The agent image needs no restart; the next turn uses it. Then
+   DEPLOYMENT.md §6.
+
+Skip step 1 and every chat that ran a unit B Container-CC turn can no longer be
+deleted: the older code does not know `assistant_cc_turn`, and MySQL refuses
+the delete (error 1451 on `assistant_cc_turn_task_id_fk`).
+
 ## Verification
 
 CC route wired end-to-end (checks daemon, agent image, network — in order;
