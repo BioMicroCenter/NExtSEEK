@@ -54,7 +54,7 @@ only the counts and the query are kept. `--raw` keeps everything.
 
 Money and models, per turn: `cost` is the engine's `total_cost_usd` and `router_cost`
 the router's `router_cost_usd` off the `route_decided` event, with their partial flags,
-`models_used`, `model_fallback`, `router_model`, `router_fallback`, `router_elapsed_s` and the laya block (`laya`, null when laya did not run). `turn_cost` and
+`models_used`, `model_fallback`, `router_model`, `router_fallback`, `router_elapsed_s` the laya block (`laya`, null when laya did not run) and `parser_decision` (raw_mode before the guardrails, final_mode, guardrails_changed, llm_ms). `turn_cost` and
 `turn_cost_partial` are those summed by the harness's own rule (`turn_cost.py`, found
 beside this script or in its checkout), and `fell_back` says whether any model of the
 turn fell back. When the manifest is on the instance, `case_costs.json` sums each case
@@ -171,6 +171,7 @@ q -e "SELECT JSON_OBJECT(
         'why',     JSON_UNQUOTE(JSON_EXTRACT(progress,'\$[0].data.reasoning')),
         'model',   JSON_UNQUOTE(JSON_EXTRACT(progress,'\$[1].data.model_id')),
         'mode',    JSON_UNQUOTE({D}'\$[0].parser_plan.mode')),
+        'parser_decision', {D}'\$[0].parser_decision'),
         'aplan',   {D}'\$[0].api_plan'),
         'ameta',   {D}'\$[0].api_result_meta'),
         'gplan',   {D}'\$[0].graph_plan'),
