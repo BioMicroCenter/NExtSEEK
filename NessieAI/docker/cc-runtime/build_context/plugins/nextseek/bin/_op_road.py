@@ -164,7 +164,8 @@ def error_from_response(resp: httpx.Response) -> OpCallError:
     if status == 403:
         if "PASS_NOT_ALLOWED" in str(body.get("detail") or ""):
             return OpCallError("PASS_NOT_ALLOWED", "This turn's pass does not allow this request.")
-        return OpCallError("AUTH_FAILED", "NExtSEEK refused this request (HTTP 403).")
+        return OpCallError("PASS_NOT_ALLOWED",
+                           "NExtSEEK refused this request (HTTP 403): the user may not use this project or route.")
     if status in (502, 503, 504):
         return OpCallError("TRANSPORT_ERROR", f"NExtSEEK could not be reached (HTTP {status}).")
     return OpCallError("AGENT_FAILED", f"NExtSEEK answered HTTP {status} with no error code.", reason="internal")

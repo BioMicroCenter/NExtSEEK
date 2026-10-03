@@ -158,7 +158,7 @@ def test_the_new_exit_numbers():
 @pytest.mark.parametrize("status, body, code", [
     (401, {"detail": "Authentication credentials were not provided."}, "AUTH_FAILED"),
     (403, {"detail": "PASS_NOT_ALLOWED: this route is not open to a turn pass"}, "PASS_NOT_ALLOWED"),
-    (403, {"detail": "You do not have permission to perform this action."}, "AUTH_FAILED"),
+    (403, {"detail": "You do not have permission to perform this action."}, "PASS_NOT_ALLOWED"),
     (502, None, "TRANSPORT_ERROR"),
     (500, None, "AGENT_FAILED"),
 ])
@@ -170,6 +170,18 @@ def test_a_reply_without_a_code_is_mapped_by_its_status(env, monkeypatch, capsys
         runner._dispatch_graph(SimpleNamespace(query="mice"))
     assert exc.value.code == _op_errors.EXIT[code]
     assert _stderr_error(capsys)["code"] == code
+
+
+def test_a_403_without_a_code_says_the_user_may_not_use_the_project(env, monkeypatch, capsys):
+    # P03-W3-1 item 8 (operator ruling 2026-10-02): the project-membership refusal, exit 12.
+    reply = httpx.Response(403, json={"detail": "You do not have permission to perform this action."})
+    _serve(monkeypatch, _NExtSEEK({f"{PREFIX}/graph/": reply}))
+    with pytest.raises(SystemExit) as exc:
+        runner._dispatch_graph(SimpleNamespace(query="mice"))
+    assert exc.value.code == 12
+    assert _stderr_error(capsys) == {
+        "code": "PASS_NOT_ALLOWED",
+        "message": "NExtSEEK refused this request (HTTP 403): the user may not use this project or route."}
 
 
 @pytest.mark.parametrize("left, fragment", [
