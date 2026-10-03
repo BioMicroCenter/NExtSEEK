@@ -66,6 +66,46 @@ def test_caller_questions_go_to_the_system_agent(q, mode):
     assert out.mode == "system_question" and out.target_endpoint is None
 
 
+# Review F2: ordinary graph questions the caller and catalog-count rules used to capture. The review lists 13; the
+# last two are more of the same shapes.
+GRAPH_QUESTIONS = [
+    "How many mice are in my projects?", "List the studies in my projects", "Which investigations are in my projects?",
+    "What tissues do my projects hold?", "Which of my projects has the most mice?",
+    "What sample types are in my projects?", "How many protocols do my projects use?",
+    "How many assays were run in the Zeta project?", "How many assay kinds did project Zeta use?",
+    "How many assays has ZZZ-990101ABC-1-PUB gone through?", "How many sample types does project Zeta have?",
+    "What assays exist for the Zeta tissue?", "How many clades of tissue are in Zeta?",
+    "Show the mice in my projects", "How many assay kinds did lab ZETA run?",
+]
+GRAPH_SIBLINGS = ["How many assays were run in the Quill project?", "How many assays has YYY-990102DEF-2-PUB gone through?",
+                  "What assays exist for the Quill tissue?"]
+
+
+@pytest.mark.parametrize("config", [ADMIN, MEMBER], ids=["admin", "member"])
+@pytest.mark.parametrize("q", GRAPH_QUESTIONS + GRAPH_SIBLINGS)
+def test_an_ordinary_graph_question_is_not_a_caller_or_catalog_question(q, config):
+    p = plan("graph_query")
+    assert route(q, p, config) is p
+
+
+@pytest.mark.parametrize("q,p", [
+    ("How many sample types are there in project Zeta?", plan("graph_query", projects=["Zeta"])),
+    ("How many assays are there for ZZZ-990101ABC-1-PUB?", plan("graph_query", uids=["ZZZ-990101ABC-1-PUB"])),
+    ("How many assay kinds exist in lab QUILL?", plan("graph_query", lab_codes=["QUILL"])),
+    ("Which projects am I in for YYY-990102DEF-2-PUB?", plan("graph_query", uids=["YYY-990102DEF-2-PUB"])),
+], ids=["project", "uid", "lab", "caller_with_uid"])
+def test_a_plan_that_names_a_project_lab_or_uid_skips_the_caller_and_catalog_rules(q, p):
+    assert route(q, p) is p
+
+
+@pytest.mark.parametrize("q,projects", [("Am I a member of Quill?", ()), ("Am I a member of Zeta?", ("Zeta",)),
+                                        ("Who is logged in?", ()), ("What are my projects?", ()),
+                                        ("Which projects am I in?", ()), ("Am I an admin?", ())])
+def test_membership_and_login_questions_go_to_the_system_agent(q, projects):
+    out = route(q, plan("graph_query", projects=projects))
+    assert out.mode == "system_question" and out.target_endpoint is None
+
+
 def test_a_sample_question_that_mentions_me_stays_on_the_graph():
     p = plan("graph_query")
     assert route("How many samples can I see in Zeta?", p) is p

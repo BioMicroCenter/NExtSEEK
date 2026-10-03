@@ -743,14 +743,26 @@ REROUTE = (("/nextseek_api/sample-tree/", "graph_query"), ("/nextseek_api/invest
            ("/nextseek_api/projects/", "graph_query"), ("/nextseek_api/assays/", "catalog"),
            ("/nextseek_api/sample_types/", "catalog"))
 _SAMPLE_WORD = re.compile(r"\bsamples\b|\bsample\b(?!\s+types?\b)|\b(?:data|used|unused|empty)\b", re.I)
+#: A catalog count needs a definitional tail ("are there", "does the catalog define"); a "what ... exist" question
+#: ends on it, so "What assays exist for the Zeta tissue?" stays a graph question (review F2).
 _CATALOG_COUNT = re.compile(
-    r"\bhow\s+many\b[^?.]{0,40}\b(?:sample\s+types?|assay\s+(?:types?|kinds?)|assays?|clades?)\b"
-    r"|\bwhat\s+(?:sample\s+types|assays|assay\s+types)\b[^?.]{0,30}\b(?:are\s+there|exist|are\s+defined)\b", re.I)
+    r"\bhow\s+many\b[^?.]{0,40}\b(?:sample\s+types?|assay\s+(?:types?|kinds?)|assays?|clades?)\b[^?.]{0,30}"
+    r"\b(?:are\s+there|exist|are\s+defined|in\s+the\s+catalog|does\s+nextseek\s+(?:have|define|support)"
+    r"|the\s+catalog\s+define)\b"
+    r"|\bwhat\s+(?:sample\s+types|assays|assay\s+types)\b[^?.]{0,30}\b(?:are\s+there|exist|are\s+defined)\b"
+    r"(?:\s+in\s+(?:the\s+catalog|nextseek))?\s*[?.!]*\s*$", re.I)
+#: "Am I a member of Zeta?" names a project by its nature, so it holds even when the plan resolved one.
+_MEMBER_OF = re.compile(r"\bam\s+i\s+(?:a\s+)?member\s+of\b", re.I)
+#: A question about the signed-in user. "my projects" counts only as the whole request ("What are my projects?",
+#: "List my projects"); "How many mice are in my projects?" is a graph question (review F2).
 _CALLER = re.compile(
     r"\bwho\s+am\s+i\b|\b(?:signed|logged)\s+in\s+as\b|\bam\s+i\s+(?:an?\s+)?(?:admin|superuser)\b"
+    r"|\bwho\s+is\s+logged\s+in\b|" + _MEMBER_OF.pattern +
     r"|\b(?:projects?|groups?)\b[^?.]{0,30}\b(?:am\s+i|i\s*(?:'m|am))\s+(?:in|a\s+member|part)\b"
     r"|\b(?:projects?|groups?)\b[^?.]{0,30}\bi\s+(?:belong|can\s+see|have\s+access)\b"
-    r"|\bmy\s+(?:account|login|username|role|permissions|projects|memberships?)\b", re.I)
+    r"|\bmy\s+(?:account|login|username|role|permissions)\b"
+    r"|^\W*(?:(?:what|which)\s+are|list|show(?:\s+me)?|give\s+me|tell\s+me)\s+(?:all\s+)?my\s+"
+    r"(?:projects|memberships?)\s*[?.!]*\s*$", re.I)
 #: The SOP an SOP download names: "SOP 142", "SOP id 142", "sops/142".
 _SOP_ID = re.compile(r"\bsops?\s*(?:id\s*)?[#/]?\s*(\d+)\b", re.I)
 _WELL_FORMED_ANY_UID = re.compile(r"\b[A-Z][A-Z.]{1,6}-\d{6}[A-Z]{3}-\d+(?:-PUB\d*)?\b", re.I)
@@ -775,7 +787,8 @@ def _route_by_kind(user_query: str, plan, config=None, resolved=None):
     Works on a ParserPlan or a ParserCandidate (``resolved`` is the plan's, for a candidate). REST is limited to
     samples/retrieve, an SOP download by id, and the people list; any other new_search goes to the catalog (system
     agent) or the graph, and a guard that fails sends a new_search to the graph. Steps, in order:
-    1 a caller question -> system_question; 2 a catalog count -> system_question; 3 the which-attributes shape ->
+    1 a caller question -> system_question; 2 a catalog count -> system_question (1 and 2 are skipped when the plan
+    names UIDs, labs or projects, except that "am I a member of <project>" keeps 1); 3 the which-attributes shape ->
     system_question for a caller who cannot see all projects, graph_query for one who can; 4 an endpoint not kept ->
     by prefix; 5 sops/ and people/ with a condition -> graph (reporter for a project's SOPs).
     """
@@ -793,18 +806,23 @@ def _route_by_kind_steps(user_query, plan, config, resolved):
 
     q = user_query or ""
     has_sample = bool(_SAMPLE_WORD.search(q))
-    if plan.mode in ("new_search", "graph_query", "system_question") and _CALLER.search(q) and not has_sample:
+    filters = plan.filters
+    projects = list(getattr(resolved, "projects", None) or [])
+    # A plan that names UIDs, labs or projects is about them, not about the caller or the catalog (review F2).
+    named = bool(filters.uids or filters.lab_codes)
+    if (plan.mode in ("new_search", "graph_query", "system_question") and _CALLER.search(q) and not has_sample
+            and not named and (not projects or _MEMBER_OF.search(q))):
         if plan.mode == "system_question":
             return plan
         return _to(plan, "system_question", "sent to system_question: a question about the signed-in user is answered from the session")
-    if plan.mode in ("new_search", "graph_query") and not has_sample and _CATALOG_COUNT.search(q):
+    if (plan.mode in ("new_search", "graph_query") and not has_sample and not named and not projects
+            and _CATALOG_COUNT.search(q)):
         return _to(plan, "system_question", "sent to system_question: what the catalog defines, and how many, is the catalog's")
     if plan.mode in ("new_search", "graph_query") and _WHICH_ATTRIBUTES_RE.search(q) and _SAMPLE_WORD_RE.search(q):
         if not sees_all(config):
             return _to(plan, "system_question", ATTRIBUTE_CATALOG_NOTE + " (the system agent answers from the catalog for this caller)")
         if plan.mode == "new_search":
             return _to(plan, "graph_query", "sent to graph_query: " + ATTRIBUTE_CATALOG_NOTE)
-    filters = plan.filters
     if plan.mode == "new_search":
         ep = plan.target_endpoint
         if ep not in KEPT_REST:
@@ -815,7 +833,6 @@ def _route_by_kind_steps(user_query, plan, config, resolved):
             if not filters.uids and _WELL_FORMED_ANY_UID.search(q):
                 extra["filters"] = filters.model_copy(update={"uids": list(dict.fromkeys(_WELL_FORMED_ANY_UID.findall(q)))})
             return _to(plan, kind, f"sent to {kind}: no REST list answers this", **extra)
-        projects = list(getattr(resolved, "projects", None) or [])
         if ep == SOPS_PATH:
             sop_id = sop_id_in(q)
             other = filters.lab_codes or filters.sampletype_code or filters.assay_codes
