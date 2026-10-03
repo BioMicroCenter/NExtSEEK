@@ -285,6 +285,7 @@ services:
       LAYA_THREADS: "4"
       HF_HUB_OFFLINE: "1"
       LAYA_MODEL_DIR: /models
+      LAYA_REVISION: "${LAYA_REVISION:-unset}"
     volumes:
       - ./docker/laya/models/${LAYA_REVISION:-unset}:/models:ro,z
     networks:
