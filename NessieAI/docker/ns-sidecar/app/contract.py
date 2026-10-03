@@ -48,7 +48,7 @@ class NsTurn(BaseModel):
     this wire."""
     model_config = ConfigDict(extra="forbid")
     api_user: str = Field(min_length=1)
-    turn_pass: str = Field(min_length=1)
+    turn_pass: str = Field(min_length=1, repr=False)
 
 
 class SidecarRequest(BaseModel):

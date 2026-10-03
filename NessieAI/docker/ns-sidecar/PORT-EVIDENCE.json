@@ -45,8 +45,8 @@
   },
   {
    "path": "app/contract.py",
-   "size_bytes": 6842,
-   "sha256": "88371cc95b466b7d75716a121ae9704c0e4a81271b9b0ae72e2c80a0a0b5af48"
+   "size_bytes": 6854,
+   "sha256": "d2b35fbf5efc8fbf246c82218b05da729b7fcc5378e380afdd86fb038bf356ee"
   },
   {
    "path": "app/exceptions.py",
@@ -65,8 +65,8 @@
   },
   {
    "path": "app/ns_client.py",
-   "size_bytes": 5846,
-   "sha256": "6a0d3f13c846a716d7f5041bd3e6a53f47e3f67c34d83211a2017675dc34be3d"
+   "size_bytes": 5835,
+   "sha256": "092a6aef3abef175748e1806e6179f465bef20f00a0e67d303c67bf982232a2a"
   },
   {
    "path": "app/ops.py",

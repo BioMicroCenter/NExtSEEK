@@ -59,7 +59,7 @@ def _map_error(resp: httpx.Response) -> None:
             named = [f"{item.get('field')} ({item.get('type')})" for item in body.get("errors") or []
                      if isinstance(item, dict) and item.get("field")]
             if named:
-                # BRAIN-PENDING: agent-visible on the sidecar road, not in BRAIN-CHANGES (preflight B5).
+                # Agent-visible on the sidecar road; approved as P03-W2-1 (BRAIN-CHANGES.md).
                 message = f"{message} Fields: {', '.join(named)}."
         reason = body.get("reason") if body.get("reason") in _REASONS else None
         raise PassThroughError(code, message, reason)

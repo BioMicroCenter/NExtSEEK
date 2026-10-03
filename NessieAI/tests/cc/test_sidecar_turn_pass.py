@@ -146,6 +146,12 @@ def test_the_config_repr_hides_the_pass():
     with _sidecar() as sc:
         assert "pass-1" not in repr(sc.server.NsHttpConfig(base_url="http://x", turn_pass="pass-1"))
 
+
+def test_the_frame_repr_hides_the_pass():
+    with _sidecar() as sc:
+        for contract in (sc.contract, sc.plugin_contract):
+            assert "pass-mine" not in repr(contract.NsTurn(api_user="u", turn_pass="pass-mine"))
+
 # ---- Ruling R1: the drop folder is named after the pass, never after the frame's username ----
 
 def _folder_for(sc, turn_pass):
