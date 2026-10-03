@@ -196,6 +196,20 @@ class Prerun:
                     logger.warning("could not announce the vocabulary", exc_info=True)
         return out
 
+    def close_step(self) -> None:
+        """The turn goes on without this vocabulary (late, failed, cancelled): send the same closing "Vocabulary
+        ready" event result sends, once, so "Reading your question" stops (review W1-3: the chat closes that step
+        on the label alone). The event's outcome says why. A pre-run that never started sent no first step. Turn
+        thread only; a no-op once announced."""
+        if not self.started or self._announced:
+            return
+        self._announced = True
+        if self.announce is not None:
+            try:
+                self.announce()
+            except Exception:  # noqa: BLE001 - a progress event never fails a turn
+                logger.warning("could not close the reading step", exc_info=True)
+
     @property
     def spend_usd(self) -> float:
         record = self.spend.summary() if self.spend is not None else {}

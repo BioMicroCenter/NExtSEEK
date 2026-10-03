@@ -296,6 +296,9 @@ _CONTAINER_MEMORY_TRANSCRIPTS = _CONTAINER_WORKDIR + "/.cc-memory/transcripts"
 # 2026-09-23: this chat's previous turns (Search details, rows, downloads), staged by
 # ``NessieAI/cc/prior_turns.py`` into the session's ``_memory`` subtree, RO.
 _CONTAINER_PREVIOUS_TURNS = "/data/previous_turns"
+# The turn's own read-only folder: the vocabulary Django resolved for the user's question (plan 04, piece 3).
+_CONTAINER_TURN = "/data/turn"
+VOCABULARY_FILE = "vocabulary.json"
 
 
 def cc_runner_available() -> tuple[bool, str]:
@@ -1217,6 +1220,7 @@ def _build_volumes(
     run_id: str,
     transcripts_subpath: str | None = None,
     previous_turns: bool = False,
+    turn_files: bool = False,
 ) -> list[dict]:
     """Engine-API ``Mount`` payloads (volume subpaths of ``dmac-cc-users``) for
     the CC sibling container.
@@ -1270,7 +1274,47 @@ def _build_volumes(
                 vol, _CONTAINER_PREVIOUS_TURNS, dirs.previous_turns_subpath, read_only=True
             )
         )
+    # The turn's vocabulary, when Django had it before the start: read-only, in a folder no other mount covers.
+    if turn_files and dirs.turn_subpath:
+        mounts.append(
+            _mount_volume_subpath(vol, _CONTAINER_TURN, dirs.turn_subpath, read_only=True)
+        )
     return mounts
+
+
+def _write_turn_vocabulary(mount_root: Path, turn_subpath: str, vocabulary: dict) -> None:
+    """Write the turn's vocabulary into its own folder, mounted read-only at /data/turn. Never scratch or cc-state
+    (sandbox guard for piece 3). Never raises: without the file the hook adds no vocabulary note."""
+    try:
+        data = (json.dumps(vocabulary, separators=(",", ":"), ensure_ascii=False, default=str) + "\n").encode("utf-8")
+        safe_fs.write_file_atomic(mount_root, f"{turn_subpath}/{VOCABULARY_FILE}", data, mode=0o644)
+    except Exception:  # noqa: BLE001
+        logger.warning("cc: the turn's vocabulary file was not written; the turn starts without it", exc_info=True)
+
+
+def _remove_turn_files(mount_root: Path, turn_subpath: str) -> None:
+    """Remove the turn's own folder once its container has stopped. Never raises."""
+    parts = tuple(turn_subpath.split("/"))
+    try:
+        fd = safe_fs.open_dir(mount_root, parts)
+    except OSError:
+        return
+    try:
+        os.unlink(VOCABULARY_FILE, dir_fd=fd)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.warning("cc: could not remove the turn's vocabulary file", exc_info=True)
+    finally:
+        os.close(fd)
+    try:
+        parent = safe_fs.open_dir(mount_root, parts[:-1])
+        try:
+            os.rmdir(parts[-1], dir_fd=parent)
+        finally:
+            os.close(parent)
+    except OSError:
+        pass
 
 
 def _stage_memory_file(cc_state_dir: Path, memory_claude_md: str | None) -> None:
@@ -1341,6 +1385,7 @@ def run_cc_turn(
     user_query: str = "",
     on_turn_complete: Callable[..., None] | None = None,
     chat_session_id: str | None = None,
+    vocabulary: dict | None = None,
 ) -> None:
     """Execute one Container-CC turn with scoped input/shared mounts + artifact publish.
 
@@ -1353,6 +1398,8 @@ def run_cc_turn(
     container has stopped: right after ``_stop_and_confirm_exit`` on the normal and timed-out paths, else in the
     ``finally``, always before the transcript capture and the scrub (the turn driver revokes the pass there). A
     failure in either is logged and never fails or shortens the turn's clean-up.
+
+    ``vocabulary``: the turn's vocabulary (plan 04), written read-only at /data/turn/vocabulary.json when given.
     """
     import docker
     from docker.errors import APIError, NotFound
@@ -1390,10 +1437,20 @@ def run_cc_turn(
         cc_state_key=cc_state_key, run_id=run_id,
         transcripts_subpath=transcripts_subpath,
         previous_turns=previous_turns,
+        turn_files=vocabulary is not None,
     )
     for _m in mounts:
         _backing = mount_root / _m["VolumeOptions"]["Subpath"]
         _backing.mkdir(parents=True, exist_ok=True)
+        if _m["Target"] == _CONTAINER_TURN:
+            # Django-owned and read-only in the agent: 0755, never world-writable; the mode is set on the open
+            # folder (safe_fs), never by path.
+            _fd = safe_fs.open_dir(mount_root, tuple(_m["VolumeOptions"]["Subpath"].split("/")))
+            try:
+                os.fchmod(_fd, 0o755)
+            finally:
+                os.close(_fd)
+            continue
         # The Django container runs as root; the agent runs as the unprivileged
         # image user (uid 1001). Make each backing dir writable (best-effort;
         # dev-instance). Task 10 sentinel scratch write proves uid-1001 writes.
@@ -1433,6 +1490,8 @@ def run_cc_turn(
 
     # Fail closed if any mount's backing subpath dir is still missing.
     _preflight_subpath_dirs(str(mount_root), mounts)
+    if vocabulary is not None and dirs.turn_subpath:
+        _write_turn_vocabulary(mount_root, dirs.turn_subpath, vocabulary)
 
     path_mappings = path_mappings_for(output_mnt=dirs.output_mnt,
                                       run_scratch_mnt=dirs.run_scratch_mnt)
@@ -1943,6 +2002,8 @@ def run_cc_turn(
                         total_skipped, total_files, run_id)
         except Exception:  # noqa: BLE001
             logger.warning("cc #72: transcript store scrub failed", exc_info=True)
+        if vocabulary is not None and dirs.turn_subpath:
+            _remove_turn_files(mount_root, dirs.turn_subpath)
 
 
 def _time_limit_phrase(seconds: float) -> str:

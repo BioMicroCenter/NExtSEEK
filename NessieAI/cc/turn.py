@@ -468,6 +468,14 @@ def _with_prerun_outcome(send_event, state: dict):
     return wrapped
 
 
+def _early_plan_fits_ops(chat_session, chat_config, user, req) -> bool:
+    """Whether a plan the pre-run made early is the plan an op would make for the same question: only on a chat with
+    no earlier turn (the ops' parser runs on a throwaway session, with no history) and with no evaluation switch."""
+    es = chat_session.extra_state or {}
+    return (not es.get("chat_log") and not (chat_session.results_history or [])
+            and _eval_config(chat_config, user, req) is chat_config)
+
+
 def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                send_event, adapter, api_user, api_pass,
                resolved_session_id: str, graph_scope=None) -> None:
@@ -493,6 +501,7 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
     # second one over the real error (F13): the NS endpoints' guard.
     send_event, error_state = _error_tracking_send_event(send_event)
     # Piece 3: the pre-run's outcome goes out once, right before the turn's answer (_with_prerun_outcome).
+    cost_state: dict = {"turn": None, "router": None, "prerun_settled": None}  # Task 10 reads it
     prerun_state: dict = {"prerun": None, "cc_turn": None, "reported": False}
     send_event = _with_prerun_outcome(send_event, prerun_state)
     user_api_user, user_api_pass = api_user, api_pass
@@ -547,7 +556,7 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
             prerun_state["prerun"] = prerun
             prerun.announce = lambda: send_event("prelude_step", {"label": prerun_mod.VOCABULARY_READY,
                                                                   "elapsed_s": prerun.elapsed_s,
-                                                                  "outcome": prerun.outcome})
+                                                                  "outcome": prerun.outcome or prerun_mod.LATE})
             if prerun.started:
                 send_event("prelude_step", {"label": prerun_mod.READING_YOUR_QUESTION})
             send_event("prelude_step", {"label": prerun_mod.CHOOSING_AN_ENGINE})
@@ -649,6 +658,10 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                         "agent": "container_cc", "session_id": resolved_session_id,
                     })
                     return
+                cost_state["turn"] = cc_pass_row
+                cost_state["router"] = cc_router.router_cost_fields(decision)
+                # Task 6's end-of-turn report reads the ops' own vocabulary resolutions off this row.
+                prerun_state["cc_turn"] = cc_pass_row
                 ok, detail = cc_engine.cc_runner_available()
                 if not ok:
                     send_event("query_error", {
@@ -784,6 +797,22 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 if written:
                     memory_claude_md = str(written)
 
+                # Piece 3: the vocabulary, waited for at most CC_WAIT_S past staging, into the turn's row and file.
+                # A late one still reaches the row (hand_to_turn); one still queued is cancelled there; the first op
+                # that needs it and finds none resolves it on the user's question.
+                vocabulary_json = None
+                if prerun is not None and prerun.started:
+                    out = prerun.result(prerun_mod.CC_WAIT_S)
+                    cost_state["prerun_settled"] = prerun_mod.hand_to_turn(
+                        prerun, cc_pass_row, user_question=req.query or "",
+                        store_early_plan=_early_plan_fits_ops(chat_session, chat_config, request.user, req))
+                    if out is not None:
+                        vocabulary_json = out.model_dump(mode="json")
+                    else:
+                        # Late, failed or cancelled: the turn goes on without it, and "Reading your question" must
+                        # not keep spinning over the whole trace (review W1-3). Same label; the outcome says why.
+                        prerun.close_step()
+
                 # Surface the CC turn's parameters in the Debug panel (#4):
                 # model, resume session, budget cap, and the resolved
                 # wall-clock — previously all backend-only.
@@ -815,6 +844,7 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     on_turn_complete=_append_cc_turn_complete,
                     turn_timeout=resolved_turn_timeout,
                     chat_session_id=cc_state_key,
+                    vocabulary=vocabulary_json,
                 )
         except Exception as exc:
             logger.exception("cc-assistant pipeline error")

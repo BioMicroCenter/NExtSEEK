@@ -101,6 +101,10 @@ class UserDirs:
     # ``memory_*``, so one chat never sees another's.
     previous_turns_subpath: str | None = None
     previous_turns_mnt: str | None = None
+    # 2026-09-28 (plan 04): this turn's own Django-owned folder, mounted read-only at /data/turn when it holds the
+    # turn's vocabulary. No agent mount covers it, and it is removed when the turn's container has stopped.
+    turn_subpath: str | None = None
+    turn_mnt: str | None = None
 
 
 def build_user_dirs(
@@ -151,6 +155,8 @@ def build_user_dirs(
                                 if session_id else None),
         previous_turns_mnt=(f"{user_mount}/_memory/{session_id}/previous_turns"
                             if session_id else None),
+        turn_subpath=f"{user_rel}/_turn/{run_id}" if run_id else None,
+        turn_mnt=f"{user_mount}/_turn/{run_id}" if run_id else None,
     )
     # Step 1: the backing roots of the agent's read-write mounts. safe_fs refuses a root below one, so every
     # caller passes one of these (or a Django folder above them) and puts the agent's path components in rel.
