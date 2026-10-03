@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import sys
 import threading
 
 import pytest
@@ -109,3 +110,31 @@ def test_live_decide_fast_paths_and_shadow_keeps_baml(real_config, sidecar, monk
     monkeypatch.setenv("NESSIE_LAYA_LIVE", REV)
     live = cc_router.decide("How many mouse liver samples are there?")
     assert (live.route, live.source, live.router_model) == ("nextseek_query", "laya", "laya:" + REV)
+
+
+def test_the_training_view_feeds_the_heldout_draft_and_its_manifest_feeds_back(tmp_path):
+    """U3's build_dataset rows go through U4's draft and freeze (real split and hashes); the frozen manifest
+    then takes the held chat out of the next training view."""
+    sys.path.insert(0, str(REPO / "scripts/laya"))
+    bd = _module("scripts/laya/build_dataset.py", "build_dataset_under_test")
+    from scripts.laya import draft_heldout, freeze_heldout, split
+
+    def turn(i, sess, q):
+        return {"id": str(i), "session": sess, "created": f"2026-10-01 00:00:{i:02d}", "q": q,
+                "route": "nextseek_query", "src": "baml", "status": "completed"}
+
+    assert split.heldout_bucket("unlabelled", "TCGA") and not split.heldout_bucket("unlabelled", "MUS")
+    turns = [turn(1, "s1", "How many TCGA samples are there?"), turn(2, "s1", "and how many in mice?"),
+             turn(3, "s2", "How many mouse liver samples are there?")]
+    view = bd.build_rows(turns, {"families": {}}, {"routes": []}, set())
+    held, rest = draft_heldout.draft([draft_heldout.pool_row(r) for r in view])
+    assert sorted(r["query"] for r in held) == ["How many TCGA samples are there?", "and how many in mice?"]
+    assert [r["query"] for r in rest] == ["How many mouse liver samples are there?"]
+    assert {r["route"] for r in held} == {"nextseek_query"} and {r["truth_kind"] for r in held} == {"teacher"}
+
+    draft = tmp_path / "draft.jsonl"
+    draft.write_text("".join(json.dumps(r) + "\n" for r in held))
+    freeze_heldout.freeze(draft, tmp_path / "frozen")
+    manifest = split.load_manifest(tmp_path / "frozen" / "heldout-v1.manifest.jsonl")
+    again = bd.build_rows(turns, {"families": {}}, {"routes": []}, manifest)
+    assert [r["query"] for r in again] == ["How many mouse liver samples are there?"]

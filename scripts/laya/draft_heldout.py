@@ -1,7 +1,8 @@
 """Build the held-out DRAFT from a text pool (JevLevROUTING, unit U4). Writes nothing in the repo.
 
 Pool = jsonl rows {chat_id, query, history, family, entity, route, truth_kind, prompt_seen[, entities]},
-built outside the repo. Usage: python -m scripts.laya.draft_heldout POOL.jsonl OUT_DIR   (OUT_DIR outside any git repo)
+built outside the repo, or build_dataset.py's training view built with an empty manifest (--manifest /dev/null),
+which pool_row maps. Usage: python -m scripts.laya.draft_heldout POOL.jsonl OUT_DIR   (OUT_DIR outside any git repo)
 """
 from __future__ import annotations
 
@@ -22,6 +23,15 @@ def assert_outside_git(path) -> None:
     for d in (p, *p.parents):
         if (d / ".git").exists():
             raise ValueError(f"{p} is inside a git repo ({d}); held-out text must live outside every repo")
+
+
+def pool_row(r: dict) -> dict:
+    """A build_dataset.py training-view row as a pool row; a pool row passes through unchanged."""
+    if "route" in r:
+        return r
+    truth = bool(r.get("either") or r.get("truth_route"))
+    return {**r, "route": "either" if r.get("either") else (r.get("truth_route") or r["teacher_route"]),
+            "truth_kind": "truth" if truth else "teacher", "prompt_seen": r.get("slice") == "prompt_seen"}
 
 
 def draft(rows: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -50,7 +60,7 @@ def topup(held: list[dict]) -> dict:
 
 def main(pool, out_dir) -> None:
     assert_outside_git(out_dir)
-    rows = [json.loads(line) for line in open(pool) if line.strip()]
+    rows = [pool_row(json.loads(line)) for line in open(pool) if line.strip()]
     held, rest = draft(rows)
     out = pathlib.Path(out_dir).expanduser()
     out.mkdir(parents=True, exist_ok=True)

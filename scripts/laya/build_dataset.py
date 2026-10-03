@@ -6,7 +6,8 @@ Inputs (all read-only, none checked in):
                     repeat the flag. Only runs whose box ran today's router prompt belong here (SPEC s8 Teacher).
   --corpus PATH     corpus.json at origin/dev: case-level route assertions are the truth.
   --caps PATH       route_capabilities.json: its example queries are the prompt-seen slice.
-  --manifest PATH   held-out manifest (json list of rows with "hash", or {"rows": [...]}): its hashes are removed.
+  --manifest PATH   held-out manifest (freeze_heldout.py's jsonl, one row with "hash" per line): its hashes are
+                    removed. /dev/null gives the full pool that draft_heldout.py drafts from.
   --extra PATH      jsonl of {query, route, history?} written by the training agent (unrelated and counter-cases).
   --evidence PATH   optional route_example_evidence.json: single-engine paired evidence, truth only where no
                     assertion exists.
