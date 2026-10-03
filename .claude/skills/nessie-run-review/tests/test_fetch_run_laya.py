@@ -29,3 +29,9 @@ def test_the_turn_query_reads_laya_and_router_elapsed_by_key_not_by_position():
 def test_the_pulled_turn_keeps_laya_and_the_elapsed_untouched():
     turns = _load().price_turns([{"laya": {"mode": "shadow", "gate": "pass"}, "router_elapsed_s": 0.31}])
     assert turns[0]["laya"] == {"mode": "shadow", "gate": "pass"} and turns[0]["router_elapsed_s"] == 0.31
+
+
+def test_the_turn_query_reads_the_parser_decision_off_the_debug_object():
+    remote = _load().REMOTE
+    line = next(l for l in remote.splitlines() if "'parser_decision'" in l)
+    assert "parser_decision" in line and "$[0].parser_decision" in line
