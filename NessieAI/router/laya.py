@@ -35,6 +35,8 @@ RECORD_KEYS = ("mode", "route", "probabilities", "answer_confidence", "calibrate
                "threshold", "gate", "latency_ms", "revision", "options_hash", "prompt_hash", "state_tokens",
                "truncated", "margin", "error", "baml_route")
 
+# No proxy, whatever the env says: the condensed question and the bearer key go only to the sidecar.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 _cfg: list = []          # [config dict or None] once loaded
 _logged: set = set()     # one log line per process per key
 
@@ -110,7 +112,7 @@ def _post(body: dict) -> dict:
     req = urllib.request.Request(
         SIDECAR_URL + "/route", data=json.dumps(body).encode(), method="POST",
         headers={"Content-Type": "application/json", "Authorization": "Bearer " + os.environ.get(KEY_ENV, "")})
-    with urllib.request.urlopen(req, timeout=DEADLINE_S) as resp:
+    with _OPENER.open(req, timeout=DEADLINE_S) as resp:
         return json.loads(resp.read())
 
 

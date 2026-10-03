@@ -160,3 +160,39 @@ def test_temperature_is_applied(tmp_path, monkeypatch):
     fake_post(monkeypatch, reply(ns=0.2, cc=0.7, un=0.1))
     rec = _run(laya)
     assert rec["calibrated_confidence"] < 0.7 and rec["answer_confidence"] == 0.7
+
+
+def test_the_sidecar_call_never_goes_through_a_proxy(monkeypatch):
+    """The condensed question and the bearer key go straight to the sidecar, whatever http_proxy says."""
+    import http.server
+    import threading
+    import urllib.request
+
+    from NessieAI.router import laya
+    seen = []
+
+    class Proxy(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            seen.append(self.path)
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *args):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), Proxy)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setenv("http_proxy", f"http://127.0.0.1:{srv.server_address[1]}")
+        for var in ("no_proxy", "NO_PROXY"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr(urllib.request, "_opener", None)  # urlopen's shared opener reads the env once
+        monkeypatch.setattr(laya, "SIDECAR_URL", "http://laya-router.invalid:8080")
+        with pytest.raises(OSError):
+            laya._post({"state": "s"})
+        assert seen == []
+    finally:
+        srv.shutdown()
+        srv.server_close()
