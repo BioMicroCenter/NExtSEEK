@@ -15,6 +15,7 @@ import threading
 import pytest
 
 from NessieAI.router import laya, laya_common, posterior_selector
+from NessieAI.router import router as cc_router
 
 REPO = pathlib.Path(__file__).resolve().parents[3]
 REV = "20261003-abcdef123456"
@@ -94,3 +95,17 @@ def test_the_client_and_the_wrapper_agree_on_the_wire(real_config, sidecar, monk
     assert questions == {"route": {"type": "choice", "instructions": opts["prompt"],
                                    "criteria": {o["key"]: o["text"] for o in opts["options"]}}}
 
+
+def test_live_decide_fast_paths_and_shadow_keeps_baml(real_config, sidecar, monkeypatch):
+    baml = cc_router.RouteDecision(route=cc_router.ROUTE_CC, model_class="opus", model_id="m",
+                                   reasoning="baml", source="baml")
+    monkeypatch.setattr(cc_router, "_legacy_decide", lambda q, h=None: baml)
+    monkeypatch.setattr(cc_router.random, "random", lambda: 0.99)  # no audit
+    monkeypatch.setenv("NESSIE_LAYA_SHADOW", "1")
+    shadow = cc_router.decide("How many mouse liver samples are there?")
+    assert (shadow.route, shadow.source, shadow.laya["mode"], shadow.laya["gate"]) == ("container_cc", "baml",
+                                                                                        "shadow", "pass")
+    laya._reset()
+    monkeypatch.setenv("NESSIE_LAYA_LIVE", REV)
+    live = cc_router.decide("How many mouse liver samples are there?")
+    assert (live.route, live.source, live.router_model) == ("nextseek_query", "laya", "laya:" + REV)

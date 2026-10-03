@@ -115,7 +115,7 @@ def _post(body: dict) -> dict:
 def _call(cfg: dict, query: str, history, rec: dict) -> None:
     """Fill ``rec`` from the sidecar's reply and set ``rec['gate']``."""
     from NessieAI.router import laya_common
-    state = laya_common.condense(query, history)
+    state = laya_common.condense(query, history or [])  # decide() defaults history to None; condense takes a list
     try:
         reply = _post({"state": state, "question_id": "route", "prompt": cfg["prompt"], "options": cfg["options"]})
     except (TimeoutError, socket.timeout):
