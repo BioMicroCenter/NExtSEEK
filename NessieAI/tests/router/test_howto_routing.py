@@ -142,3 +142,40 @@ def test_route_text_and_generated_file_agree():
     assert "a question about how to get a file from the site is the NS route" in text
     assert "that the user supplies or asks to have made" in text
     assert "building/validating" not in text
+
+
+# ------------------------------------------------------------------ fix round 4.1: the file of one named SOP
+@pytest.mark.parametrize("query", [
+    "Give me the file for the SOP titled Z.QIL-990101-V2_Zeta-fixation.docx",   # the dev smoke's shape
+    "Download SOP 9001",                                                          # by id
+    'Can I get the PDF of the protocol "Quill Staining Protocol"?',              # quoted title, protocol = SOP
+    "Download SOP #9002 for me, please.",
+])
+def test_the_file_of_one_named_sop_the_router_sent_to_cc_goes_to_ns(monkeypatch, query):
+    _says(monkeypatch, cc_router.ROUTE_CC)
+    d = _route(query)
+    assert (d.route, d.source) == (cc_router.ROUTE_NS, "sop_file")
+    assert d.model_class is None and d.model_id is None
+    assert "the router" in d.reasoning
+
+
+@pytest.mark.parametrize("query", [
+    "make me a SOP template file",                                    # no SOP named: a new file to make
+    "convert these SOPs to a PDF",                                    # several SOPs, a new file
+    "Make a PDF of SOP 9001",                                         # one SOP, but a new file to make
+    "Download SOP 9001 and SOP 9002",                                 # two SOPs
+    "Download SOP 9001 and check it against /home/quill/zeta.csv",    # supplies a file to work on
+    "Which SOP did the Zeta mice follow?",                            # no SOP named, no file asked for
+])
+def test_new_files_several_sops_or_supplied_content_stay_on_cc(monkeypatch, query):
+    sent = _says(monkeypatch, cc_router.ROUTE_CC)
+    assert _route(query) is sent
+
+
+def test_router_and_route_text_send_a_named_sops_file_to_ns():
+    src = " ".join(_baml().split())
+    assert "The file of one SOP named by its id or its exact title goes to `nextseek_query`" in src
+    assert src.index("How-to questions about the site") < src.index("The file of one SOP named") < src.index(
+        "{{ input.followup_rule }}")
+    path = paths.DMAC_ASSISTANT_DIR / "build_context" / "route_capabilities.json"
+    assert "the file of one SOP named by its id or its exact title" in path.read_text(encoding="utf-8")

@@ -135,6 +135,33 @@ def _is_site_howto(query: str | None) -> bool:
     return not _WORK_REQUEST.search(q)
 
 
+# Named-SOP rule (fix round 4.1, ruling 9): the file of ONE SOP named by its id or its exact title is NExtSEEK's sops/
+# download, and Container-CC cannot read that endpoint. A turn the router sent to Container-CC moves to NExtSEEK when it
+# names one SOP (singular, by id, a quoted title or "titled/called/named" title), asks for its file, supplies nothing
+# else and asks for no new file to be made. The id and file-word forms mirror the parser's _SOP_ID and _SOP_FILE_WORD.
+_SOP_ID_REF = re.compile(r"\bsop\s*(?:id\s*)?#?\s*\d+\b", re.IGNORECASE)
+_SOP_TITLE_REF = re.compile(
+    r"\b(?:titled|called|named)\s+[^\n?]*|[\"“][^\"“”\n]+[\"”]|(?<!\w)'[^'\n]+'(?!\w)",
+    re.IGNORECASE)
+_SOP_FILE = re.compile(r"\b(?:download|file|pdf|docx?|document|attachment|copy)\b", re.IGNORECASE)
+# ponytail: a title that holds one of these words keeps the router's choice; parse titles if that ever bites.
+_NEW_FILE = re.compile(
+    r"\b(?:make|create|build|write|draft|generate|convert|merge|combine|compare|summari[sz]e|translate|rewrite|edit|"
+    r"template)\b", re.IGNORECASE)
+
+
+def _is_named_sop_file(query: str | None) -> bool:
+    """True for a request for the file of one SOP named by id or exact title, with nothing supplied or to be made."""
+    q = query or ""
+    rest = _SOP_TITLE_REF.sub(" ", q)  # a named title is neither supplied content nor a second SOP
+    titles = len(_SOP_TITLE_REF.findall(q)) if re.search(r"\b(?:sop|protocol)\b", rest, re.IGNORECASE) else 0
+    if len(_SOP_ID_REF.findall(rest)) + titles != 1 or re.search(r"\b(?:sops|protocols)\b", rest, re.IGNORECASE):
+        return False
+    if not _SOP_FILE.search(q) or _NEW_FILE.search(q):
+        return False
+    return not (_SUPPLIED_CONTENT.search(rest) or len([ln for ln in q.splitlines() if ln.strip()]) > 2)
+
+
 def _decide_route(user, req, *, force_cc: bool, session=None,
                   history: list[router_context.HistoryTurn] | None = None,
                   chat_log: list[dict] | None = None) -> cc_router.RouteDecision:
@@ -184,6 +211,12 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
             decision, route=cc_router.ROUTE_NS, model_class=None, model_id=None,
             reasoning=f"howto; router said container_cc ({decision.reasoning})",
             source="howto",
+        )
+    elif decision.route == cc_router.ROUTE_CC and _is_named_sop_file(req.query):
+        decision = dataclasses.replace(
+            decision, route=cc_router.ROUTE_NS, model_class=None, model_id=None,
+            reasoning=f"named SOP file; router said container_cc ({decision.reasoning})",
+            source="sop_file",
         )
     if (
         session is not None

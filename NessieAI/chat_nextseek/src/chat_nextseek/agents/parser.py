@@ -769,9 +769,10 @@ _WELL_FORMED_ANY_UID = re.compile(r"\b[A-Z][A-Z.]{1,6}-\d{6}[A-Z]{3}-\d+(?:-PUB\
 
 
 #: A quoted SOP title ("..." or '...', 3+ characters; an apostrophe inside a word opens nothing), and the words after
-#: "titled", "called" or "named".
+#: "titled", "called" or "named", read to a "?", "!", a line end or a sentence-ending period: a title such as
+#: "P.ABC-990101-V1_x.docx" keeps its dots (fix round 4.1).
 _SOP_QUOTED = re.compile(r"[\"\u201c\u201d]([^\"\u201c\u201d]{3,})[\"\u201c\u201d]|(?<!\w)'([^']{3,})'(?!\w)")
-_SOP_NAMED = re.compile(r"\b(?:titled|called|named)\s+([^?.]+)", re.I)
+_SOP_NAMED = re.compile(r"\b(?:titled|called|named)\s+(.+?)\s*(?:[?!\n]|\.(?=\s|$)|$)", re.I)
 _SOP_FILE_WORD = re.compile(r"\b(?:download|file|pdf|docx?|document|attachment)\b", re.I)
 
 

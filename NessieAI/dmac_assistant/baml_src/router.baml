@@ -118,6 +118,12 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     the work to be done ("validate this workbook", "make me the upload sheet",
     "write the CSV").
 
+    The file of one SOP named by its id or its exact title goes to
+    `nextseek_query`, which downloads it ("Download SOP 9001", "give me the
+    file for the SOP titled X"), even though the user takes the file away.
+    Select `container_cc` only when the user asks for a new file to be made
+    from it.
+
     {% if input.followup_rule %}{{ input.followup_rule }}{% endif %}
 
     Open-ended summaries go to `container_cc`. A request to summarise a whole

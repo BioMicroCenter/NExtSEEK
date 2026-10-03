@@ -211,3 +211,14 @@ def test_plan_mode_candidates_get_the_same_mapping():
 def test_the_catalog_holds_exactly_the_three_pairs():
     pairs = {(r["method"], r["path"]) for r in json.loads(CATALOG.read_text(encoding="utf-8"))}
     assert pairs == {("POST", RETRIEVE), ("GET", SOPS), ("GET", PEOPLE)}
+
+
+# ------------------------------------------------------------------ fix round 4.1
+@pytest.mark.parametrize("q,ref", [
+    ("Give me the file for the SOP titled Z.QIL-990101-V2_Zeta-fixation.docx", "Z.QIL-990101-V2_Zeta-fixation.docx"),
+    ("Download the SOP titled Q.ABC-990202-V1_quill.pdf.", "Q.ABC-990202-V1_quill.pdf"),
+    ("Can I download the SOP named Zeta v1.2 staining?", "Zeta v1.2 staining"),
+])
+def test_a_title_with_dots_is_kept_whole(q, ref):
+    """The dev smoke's title had dots in it; the title is read to a '?' or a sentence-ending period, not the first dot."""
+    _kept_sop(route(q, plan(endpoint=SOPS)), ref)
