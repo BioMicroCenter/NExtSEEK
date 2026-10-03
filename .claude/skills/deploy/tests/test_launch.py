@@ -889,3 +889,17 @@ def test_the_laya_kv_drops_an_inline_comment_and_spaces_as_compose_does(tmp_path
 def test_a_laya_mode_value_the_rule_cannot_read_is_a_stop(tmp_path, capsys):
     code, out, d = preflight(tmp_path, capsys, good_preflight(laya_mode="shadow=1 live=x # go"))
     assert code == 5 and "- laya_mode:" in out.err
+
+
+@pytest.mark.parametrize("value,verdict", [('"0"', "ok"), ("0", "ok"), ('"1"', "stop"), ("1", "stop")])
+def test_the_prod_posterior_row_reads_a_quoted_value_and_a_real_1_still_stops(tmp_path, capsys, value, verdict):
+    box = tmp_path / "box"
+    (box / "docker").mkdir(parents=True)
+    (box / "docker" / "nextseek.env").write_text(f"NEXTSEEK_POSTERIOR_ROUTING_ENABLED={value}\n")
+    line = next(x for x in L.PREFLIGHT_EXTRA["prod"].splitlines() if "posterior_routing" in x)
+    kv = subprocess.run(["bash", "-c", line], cwd=box, capture_output=True, text=True).stdout.strip()
+    assert kv == "KV posterior_routing=" + value.strip('"')
+    code, out, d = preflight(tmp_path / "brief", capsys, good_preflight(posterior_routing=kv.split("=", 1)[1]),
+                             instance="prod")
+    rows = {r["id"]: r for r in json.loads((d / "preflight.json").read_text())["checks"]}
+    assert rows["posterior_routing"]["verdict"] == verdict

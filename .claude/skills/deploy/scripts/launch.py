@@ -491,7 +491,7 @@ PREFLIGHT_EXTRA = {
         '[ -n "$E" ] && git diff --name-only HEAD.."$E" -- startup/seed/neo4j.cypher.gz startup/seed/seek_production.sql.gz | sed \'s/^/SEED_TOUCHED /\'',
         'for f in NessieAI/docker/bedrock-proxy/proxy-secret.env docker/seek-nginx.conf; do if [ -f "$f" ]; then echo "FILE present $f"; else echo "FILE missing $f"; fi; done',
         'if docker compose config -q >/dev/null 2>&1; then echo "KV compose_config=ok"; else echo "KV compose_config=bad"; fi',
-        'v=$(grep -E "^NEXTSEEK_POSTERIOR_ROUTING_ENABLED=" docker/nextseek.env | cut -d= -f2); echo "KV posterior_routing=${v:-unset}"',
+        'v=$(grep -E "^NEXTSEEK_POSTERIOR_ROUTING_ENABLED=" docker/nextseek.env | cut -d= -f2 | tr -d \'"\'); echo "KV posterior_routing=${v:-unset}"',
         LAYA_KV,
     ]),
 }
