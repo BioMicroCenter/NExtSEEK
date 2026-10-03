@@ -36,8 +36,8 @@ def _valid(body) -> bool:
 
 
 def make_server(agent, revision: str, api_key: str, host: str, port: int) -> ThreadingHTTPServer:
-    if not api_key:
-        raise SystemExit("LAYA_API_KEY is empty: refusing to start an open sidecar")
+    if not api_key or api_key == "SET_IN_LOCAL_ENV":  # the env templates' placeholder is a public key
+        raise SystemExit("LAYA_API_KEY is empty or the template placeholder: refusing to start an open sidecar")
     expected = ("Bearer " + api_key).encode()
     lock = threading.Lock()  # one forward pass at a time: CPU torch with 4 threads, one copy for all workers
 

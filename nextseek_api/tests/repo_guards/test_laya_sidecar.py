@@ -149,9 +149,10 @@ def test_a_good_request_logs_nothing_with_the_body(serve, caplog, capfd):
     assert "Which engine" not in caplog.text + err.out + err.err
 
 
-def test_wrapper_refuses_to_start_without_a_key():
+@pytest.mark.parametrize("key", ["", "SET_IN_LOCAL_ENV"])  # the templates' placeholder is a public key
+def test_wrapper_refuses_to_start_without_a_real_key(key):
     with pytest.raises(SystemExit):
-        _load().make_server(FakeAgent(), revision="r", api_key="", host="127.0.0.1", port=0)
+        _load().make_server(FakeAgent(), revision="r", api_key=key, host="127.0.0.1", port=0)
 
 
 def test_wrapper_imports_no_torch_until_the_model_loads():
