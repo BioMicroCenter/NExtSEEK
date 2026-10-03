@@ -36,6 +36,10 @@ class OpValidationError(ValueError):
     """Bad/missing op arguments. Maps to the canonical VALIDATION error code."""
 
 
+class OpBusyError(RuntimeError):
+    """The turn already has ``turn_memory.MAX_OPS_IN_FLIGHT`` ops running. Maps to the BUSY error code."""
+
+
 def _dump(obj: Any) -> Any:
     return obj.model_dump() if hasattr(obj, "model_dump") else obj
 
@@ -67,7 +71,8 @@ def run_op(
     (``NessieAI/ns/op_limits.py``; the view passes it, None means the table's value). A model that failed in one of the
     op's agent calls is not asked again by the next one, and every model call, Neo4j statement and REST call inside the
     op is cut to fit the limit (operator rulings 2026-09-28). ``turn`` is the request's ``CCTurn`` under a turn pass,
-    else None; the handlers get both.
+    else None; the handlers get both. Under a turn pass the op takes one of the turn's two slots first
+    (turn_memory.py) and gives it back in a finally; with both taken it raises OpBusyError and the handler never runs.
     """
     handler = _HANDLERS.get(op)
     if handler is None:
@@ -75,8 +80,19 @@ def run_op(
     from chat_nextseek import call_scope
     from NessieAI.ns.op_limits import op_limit_s
     limit = op_limit_s(op, None, time.time()) if limit_s is None else float(limit_s)
-    with call_scope.scope(deadline_s=limit):
-        return handler(args, config, session, write_gate, neo4j_exec, outputs_dir, limit_s=limit, turn=turn)
+    slot = False
+    if turn is not None:
+        from NessieAI.ns.turn_memory import take_op_slot
+        if not take_op_slot(turn):
+            raise OpBusyError("this turn already has two ops running")
+        slot = True
+    try:
+        with call_scope.scope(deadline_s=limit):
+            return handler(args, config, session, write_gate, neo4j_exec, outputs_dir, limit_s=limit, turn=turn)
+    finally:
+        if slot:
+            from NessieAI.ns.turn_memory import release_op_slot
+            release_op_slot(turn)
 
 
 def _entity(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
