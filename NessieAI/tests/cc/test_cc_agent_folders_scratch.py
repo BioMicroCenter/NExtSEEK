@@ -49,7 +49,7 @@ def _staging(tmp_path) -> Path:
 
 def _sweep(tmp_path, scratch: Path):
     return cc_staging.sweep_user_staging(
-        user_root_mount=str(tmp_path / "users"), scratch_dir=str(scratch), api_user=API_USER,
+        user_root_mount=str(tmp_path / "users"), scratch_dir=str(scratch), staging_folder=cc_staging.staging_folder_for(API_USER),
         user_id="alice", project_dirname="proj", since_ts=None)
 
 

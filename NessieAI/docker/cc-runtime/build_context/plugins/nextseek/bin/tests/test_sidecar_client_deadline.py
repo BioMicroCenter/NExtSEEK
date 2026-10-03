@@ -52,7 +52,7 @@ def socket(monkeypatch):
 
 
 def _graph():
-    return sc.call_op("graph", {"query": "How many mouse samples?"}, ns_login=("u", "p"),
+    return sc.call_op("graph", {"query": "How many mouse samples?"}, ns_turn=("u", "pass-1"),
                       sidecar_url="ws://nextseek-sidecar:8765")
 
 

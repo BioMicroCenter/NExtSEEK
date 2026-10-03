@@ -18,7 +18,7 @@ Four commands here are shims. Django scans only each installed app's own folder 
 | `recover_attribute_sync_jobs` | recovers synchronous attribute jobs whose web process died; `--loop` repeats, `--check-heartbeat` is the healthcheck |
 | `check_attribute_outbox_heartbeat` | exits nonzero unless the outbox dispatcher heartbeat is fresh (a healthcheck) |
 | `run_assay_registration_jobs` | claims and runs queued assay-registration jobs; loops unless told to make one pass |
-| `cc_sweep_staging` | sweeps a user's completed sidecar staging files into their Container-CC scratch folder; needs `--user-id`, `--api-user`, `--project` |
+| `cc_sweep_staging` | sweeps a user's completed sidecar staging files into their Container-CC scratch folder; needs `--user-id`, `--staging-folder`, `--project` |
 | `nessie` | runs the Nessie router-aware test harness (`--tier route\|full`); see `NessieAI/tests/README.md` |
 | `derive_sample_type_requirements` | derives sample type upload requirements from the sample graph; `--dry-run` prints without writing |
 | `backfill_publication_attributes` | backfills DOI and PMID into sample metadata from `--from-studies` or `--from-file`; dry run unless `--apply` |

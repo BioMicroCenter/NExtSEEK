@@ -163,9 +163,7 @@ def _container_code():
     return [path for path in files if path.is_file()]
 
 
-def test_nothing_in_the_container_reads_a_password_except_the_sidecar_frame():
-    """The one reader left is _nextseek_runner._api_pass, which fills the sidecar frame's ns_login until plan 03
-    moves those ops to the direct road with the pass; plan 03 deletes it and drops the exception below."""
+def test_nothing_in_the_container_reads_a_password():
     offenders = []
     for path in _container_code():
         rel = path.relative_to(CC_RUNTIME).as_posix()
@@ -174,8 +172,6 @@ def test_nothing_in_the_container_reads_a_password_except_the_sidecar_frame():
                 continue
             stripped = line.strip()
             if stripped.startswith("#") or stripped.startswith("unset "):
-                continue
-            if rel.endswith("bin/_nextseek_runner.py") and 'os.environ.get("API_PASS", "")' in line:
                 continue
             offenders.append(f"{rel}:{number}: {stripped}")
     assert offenders == []

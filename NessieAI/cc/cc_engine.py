@@ -1603,7 +1603,7 @@ def run_cc_turn(
         # limits the in-turn sweep to THIS turn's markers; older strays are left
         # for the ``cc_sweep_staging`` recovery entrypoint. Never fatal to the
         # turn (upstream _sweep_then_diff swallows sweep errors likewise).
-        if api_user and agent_gone and road == SIDECAR:
+        if turn_pass and agent_gone and road == SIDECAR:
             try:
                 from . import cc_staging
                 cc_staging.sweep_user_staging(
@@ -1613,7 +1613,8 @@ def run_cc_turn(
                     # had mounted. Sweeping into the user root would drop these
                     # artifacts outside the diffed tree entirely.
                     scratch_dir=dirs.run_scratch_mnt,
-                    api_user=api_user,
+                    # Ruling R1: the folder is the hash of THIS turn's pass, so only this turn can claim it.
+                    staging_folder=cc_staging.staging_folder_for(turn_pass),
                     user_id=user_id,
                     project_dirname=project_dirname,
                     since_ts=sweep_since,

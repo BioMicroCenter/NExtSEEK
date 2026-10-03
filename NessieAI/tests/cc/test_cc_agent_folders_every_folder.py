@@ -36,7 +36,7 @@ REQ_LINK = "33333333-3333-3333-3333-333333333333"
 # -- Part A: a turn whose agent plants links everywhere -----------------------------------------------------
 
 def _staging(users: Path) -> Path:
-    return users / "_staging" / hashlib.sha256(API_USER.encode()).hexdigest()
+    return users / "_staging" / hashlib.sha256(b"pass-1").hexdigest()
 
 
 def _agent_work(users: Path, canary: Canary):
@@ -106,7 +106,7 @@ def test_a_turn_whose_agent_plants_links_everywhere_leaves_the_canary_alone(tmp_
         query="q", model_id="m", send_event=lambda e, d: events.append((e, dict(d))),
         user_id="alice", project_dirname="proj", run_id=RUN_ID,
         paths=CCPaths(users_volume="dmac-cc-users", user_root_mount=str(users)),
-        cc_state_key=CHAT, memory_claude_md=str(memory), api_user=API_USER, api_pass=API_PASS,
+        cc_state_key=CHAT, memory_claude_md=str(memory), api_user=API_USER, api_pass=API_PASS, turn_pass="pass-1",
         chat_session=object(), user_query="q", on_turn_complete=payloads.append,
         chat_session_id=CHAT, turn_timeout=30, session_id=SESSION,
     )

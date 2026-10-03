@@ -47,7 +47,7 @@ def _turn(tmp_path, monkeypatch, container, calls):
     monkeypatch.setattr("NessieAI.cc.cc_staging.sweep_user_staging", lambda **_kw: calls.append("sweep"))
     events: list[tuple[str, dict]] = []
     cc_engine.run_cc_turn(
-        query="q", model_id="m", api_user="alice-login", api_pass="pw",
+        query="q", model_id="m", api_user="alice-login", api_pass="pw", turn_pass="pass-1",
         send_event=lambda e, d: events.append((e, dict(d))),
         user_id="alice", project_dirname="proj", run_id=RUN_ID,
         paths=CCPaths(users_volume="dmac-cc-users", user_root_mount=str(tmp_path)),

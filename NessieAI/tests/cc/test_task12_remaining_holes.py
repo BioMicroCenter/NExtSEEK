@@ -378,7 +378,7 @@ def test_cc_staging_unsafe_and_deferred(tmp_path):
     result = cc_staging.sweep_user_staging(
         user_root_mount=str(user_root),
         scratch_dir=str(scratch),
-        api_user="alice",
+        staging_folder=digest,
         user_id="alice",
         project_dirname="proj",
         since_ts=10_000,

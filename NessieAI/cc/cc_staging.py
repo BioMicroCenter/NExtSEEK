@@ -4,8 +4,8 @@ The NS sidecar (``docker/ns-sidecar/app/staging.py``) stages downloaded
 ``report`` / ``generate-submission`` artifacts into its ``SIDECAR_STAGING_DIR``
 under the layout::
 
-    {SIDECAR_STAGING_DIR}/{sha256(api_user)}/{request_id}/<files>
-    {SIDECAR_STAGING_DIR}/{sha256(api_user)}/{request_id}.complete   # atomic marker
+    {SIDECAR_STAGING_DIR}/{sha256(turn_pass)}/{request_id}/<files>
+    {SIDECAR_STAGING_DIR}/{sha256(turn_pass)}/{request_id}.complete   # atomic marker
 
 In this integration ``SIDECAR_STAGING_DIR`` is the RESERVED top-level
 ``_staging/`` subpath of the ``dmac-cc-users`` volume, mounted read-write into
@@ -26,7 +26,9 @@ in the staging flow — never the agent, never the sidecar):
   ``(project_dirname, user_id)`` of the CURRENT request — NEVER from any staged
   file/dir name. Staged content therefore cannot redirect delivery to a foreign
   subtree, and the hashed staging dir it reads is keyed by the current
-  ``api_user`` only. Cross-user delivery is impossible by construction.
+  turn's own pass only (ruling R1: the sidecar names the folder after the hash of the pass, never after a username
+  in the container's message, so only the turn that holds the pass can claim a file). Cross-user delivery is
+  impossible by construction.
 * Path safety (defense in depth, independent of the sidecar's own key
   sanitization): ``_staging/<hash>`` and the user's scratch are read, listed and written only through
   ``NessieAI/cc/safe_fs.py``, each from its mount root (``_staging``, and the scratch delivered into: the
@@ -60,7 +62,7 @@ same contract as upstream, where "the agent never sees SIDECAR_STAGING_DIR
 paths as such; it only ever sees the swept copies at
 ``<scratch>/nextseek-artifacts/<relpath>``". The engine does not rewrite the
 op-result strings (doing so would couple it to the sidecar's internal
-``sha256(api_user)/request_id`` layout for no gain).
+``sha256(turn_pass)/request_id`` layout for no gain).
 """
 from __future__ import annotations
 
@@ -113,23 +115,24 @@ class SweepResult:
     deferred_markers: list[str] = field(default_factory=list)
 
 
-def _user_hash(api_user: str) -> str:
-    """SHA-256 of ``api_user``. MUST match the sidecar's
-    ``sidecar.app.staging._user_hash`` (docker/ns-sidecar/app/staging.py:24-25),
-    or staged artifacts are never found (silent drift)."""
-    return hashlib.sha256(api_user.encode("utf-8")).hexdigest()
+def staging_folder_for(turn_pass: str) -> str:
+    """The sidecar's drop folder for a turn: SHA-256 of the turn pass (ruling R1). MUST match the sidecar's
+    ``sidecar.app.staging._folder_key``, or staged artifacts are never found (silent drift)."""
+    return hashlib.sha256(turn_pass.encode("utf-8")).hexdigest()
+
+
+_FOLDER_RE = re.compile(r"[0-9a-f]{64}")
 
 
 # Reuse the engine's segment validators so the sweep's identity guards are
 # identical to the mount path's (a divergent guard is a cross-user vector).
-def _validate_identity(api_user: str, user_id: str, project_dirname: str) -> None:
+def _validate_identity(staging_folder: str, user_id: str, project_dirname: str) -> None:
     from .cc_engine import _validate_user_id, _validate_project
 
     _validate_user_id(user_id)
     _validate_project(project_dirname)
-    if not isinstance(api_user, str) or not api_user or "/" in api_user or "\x00" in api_user \
-            or api_user in (".", ".."):
-        raise ValueError(f"invalid api_user: {api_user!r}")
+    if not isinstance(staging_folder, str) or not _FOLDER_RE.fullmatch(staging_folder):
+        raise ValueError("invalid staging folder")
 
 
 def _safe_rel(rel: Path) -> bool:
@@ -261,14 +264,14 @@ def sweep_user_staging(
     *,
     user_root_mount: str,
     scratch_dir: str,
-    api_user: str,
+    staging_folder: str,
     user_id: str,
     project_dirname: str,
     since_ts: float | None = None,
 ) -> SweepResult:
     """Move this user's completed staged artifacts into their own scratch subtree.
 
-    Reads ``{user_root_mount}/_staging/{sha256(api_user)}/*.complete`` and, for
+    Reads ``{user_root_mount}/_staging/{staging_folder}/*.complete`` and, for
     each completed request dir, copies its regular files into
     ``{scratch_dir}/nextseek-artifacts/<relpath>`` (disambiguating collisions),
     then removes the swept request dir + marker. On cleanup failure the marker is
@@ -279,17 +282,17 @@ def sweep_user_staging(
     older strays are left behind (deferred); when ``None``, all are swept.
 
     Cross-user safety: the destination is derived ONLY from the validated
-    ``(project_dirname, user_id)`` and the source ONLY from ``sha256(api_user)``
+    ``(project_dirname, user_id)`` and the source ONLY from ``staging_folder`` (``staging_folder_for(turn_pass)`` in-turn)
     — never from staged content. See module docstring for the path-payload
     supersession contract.
     """
-    _validate_identity(api_user, user_id, project_dirname)
+    _validate_identity(staging_folder, user_id, project_dirname)
 
     # The sidecar's mount root is the trusted root (registered by staging_root_for); the sidecar controls
     # everything below it, the user's <hash> folder included, so that folder is a step in rel and is never
     # trusted as part of a root.
     staging_root = staging_root_for(user_root_mount)
-    user_hash = _user_hash(api_user)
+    user_hash = staging_folder
     result = SweepResult()
     try:
         # One listing of this user's staging folder, never through a link: the sidecar writes it.

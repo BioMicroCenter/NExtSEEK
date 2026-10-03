@@ -19,13 +19,14 @@ from sidecar.app.exceptions import (
     AgentFailedError,
     AuthFailedError,
     OpValidationError,
+    PassThroughError,
     TransportError,
     WriteBlockedError,
 )
 
 # Re-export for callers that import exceptions from ops (server.py, write_gate.py, etc.)
 __all__ = [
-    "AgentFailedError", "AuthFailedError", "OpValidationError",
+    "AgentFailedError", "AuthFailedError", "OpValidationError", "PassThroughError",
     "TransportError", "WriteBlockedError",
     "ALLOW_ALL", "NO_STAGE", "NO_STAGE_BYTES", "NO_COMMIT", "run_op",
 ]
@@ -76,19 +77,19 @@ def run_op(op: str, args: dict, *, config: Any, session: Any,
 
 def _entity(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
     envelope = ns_client.call_op("entity", {"query": args["query"]},
-                                 base_url=config.base_url, auth=config.auth)
+                                 base_url=config.base_url, turn_pass=config.turn_pass)
     return envelope["result"]
 
 
 def _parse(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
     envelope = ns_client.call_op("parse", {"query": args["query"]},
-                                 base_url=config.base_url, auth=config.auth)
+                                 base_url=config.base_url, turn_pass=config.turn_pass)
     return envelope["result"]
 
 
 def _graph(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
     envelope = ns_client.call_op("graph", {"query": args["query"]},
-                                 base_url=config.base_url, auth=config.auth)
+                                 base_url=config.base_url, turn_pass=config.turn_pass)
     return envelope["result"]
 
 
@@ -99,7 +100,7 @@ def _graph_schema(args, config, session, write_gate, stage, stage_bytes, commit_
     if args.get("query"):
         body["query"] = args["query"]
     envelope = ns_client.call_op("graph-schema", body,
-                                 base_url=config.base_url, auth=config.auth)
+                                 base_url=config.base_url, turn_pass=config.turn_pass)
     return envelope["result"]
 
 
@@ -108,7 +109,7 @@ def _aggregate(args, config, session, write_gate, stage, stage_bytes, commit_byt
     if args.get("parts"):
         body["parts"] = args["parts"]
     envelope = ns_client.call_op("aggregate", body,
-                                 base_url=config.base_url, auth=config.auth)
+                                 base_url=config.base_url, turn_pass=config.turn_pass)
     return envelope["result"]
 
 
@@ -117,7 +118,7 @@ def _api_read(args, config, session, write_gate, stage, stage_bytes, commit_byte
     _load_parser_plan(args)  # raises OpValidationError on bad JSON
     body = {"parser_plan": args["parser_plan"]}
     envelope = ns_client.call_op("api-read", body,
-                                 base_url=config.base_url, auth=config.auth)
+                                 base_url=config.base_url, turn_pass=config.turn_pass)
     return envelope["result"]
 
 
@@ -131,21 +132,21 @@ def _api_write(args, config, session, write_gate, stage, stage_bytes, commit_byt
     if "query" in args and args["query"]:
         body["query"] = args["query"]
     envelope = ns_client.call_op("api-write", body,
-                                 base_url=config.base_url, auth=config.auth)
+                                 base_url=config.base_url, turn_pass=config.turn_pass)
     return envelope["result"]
 
 
 def _report(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
     body = {"mode": args["mode"], "project": args["project"]}
     envelope = ns_client.call_op("report", body,
-                                 base_url=config.base_url, auth=config.auth)
+                                 base_url=config.base_url, turn_pass=config.turn_pass)
     result = envelope["result"]
     download = envelope.get("download")
     if download:
         # DD-A5-5: loop per-artifact, then commit once after the loop (F-T16-2-B)
         for art in download["artifacts"]:
             data = ns_client.fetch_artifact(art["url"],
-                                            base_url=config.base_url, auth=config.auth)
+                                            base_url=config.base_url, turn_pass=config.turn_pass)
             staged_path = stage_bytes("report", art["key"], data)
             result["saved_files"][art["key"]] = staged_path
         commit_bytes()  # exactly once after ALL artifacts are staged
@@ -158,7 +159,7 @@ def _generate_submission(args, config, session, write_gate, stage, stage_bytes, 
     if "query" in args and args["query"]:
         body["query"] = args["query"]
     envelope = ns_client.call_op("generate-submission", body,
-                                 base_url=config.base_url, auth=config.auth)
+                                 base_url=config.base_url, turn_pass=config.turn_pass)
     result = envelope["result"]
     download = envelope.get("download")
     if download:
@@ -166,7 +167,7 @@ def _generate_submission(args, config, session, write_gate, stage, stage_bytes, 
         staged_files = {}
         for art in download["artifacts"]:
             data = ns_client.fetch_artifact(art["url"],
-                                            base_url=config.base_url, auth=config.auth)
+                                            base_url=config.base_url, turn_pass=config.turn_pass)
             staged_path = stage_bytes("generate-submission", art["key"], data)
             staged_files[art["key"]] = staged_path
         commit_bytes()  # exactly once after ALL artifacts are staged
@@ -177,7 +178,7 @@ def _generate_submission(args, config, session, write_gate, stage, stage_bytes, 
 
 def _run_ls(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
     envelope = ns_client.call_op("run-ls", {"run_dir": args["run_dir"]},
-                                 base_url=config.base_url, auth=config.auth)
+                                 base_url=config.base_url, turn_pass=config.turn_pass)
     return envelope["result"]
 
 
@@ -186,14 +187,14 @@ def _build_upload_xlsx(args, config, session, write_gate, stage, stage_bytes, co
     if args.get("existing_parent_uids"):
         body["existing_parent_uids"] = args["existing_parent_uids"]
     envelope = ns_client.call_op("build-upload-xlsx", body,
-                                 base_url=config.base_url, auth=config.auth)
+                                 base_url=config.base_url, turn_pass=config.turn_pass)
     result = envelope["result"]
     download = envelope.get("download")
     if download:
         staged_files = {}
         for art in download["artifacts"]:
             data = ns_client.fetch_artifact(art["url"],
-                                            base_url=config.base_url, auth=config.auth)
+                                            base_url=config.base_url, turn_pass=config.turn_pass)
             staged_files[art["key"]] = stage_bytes("build-upload-xlsx", art["key"], data)
         commit_bytes()  # exactly once after ALL artifacts are staged
         result["staged_files"] = staged_files

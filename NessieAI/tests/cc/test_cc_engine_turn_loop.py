@@ -163,7 +163,7 @@ def test_run_cc_turn_streams_result_and_persists(tmp_path, monkeypatch):
     )
 
     cc_engine.run_cc_turn(
-        query="q", model_id="m", api_user="u", api_pass="p",
+        query="q", model_id="m", api_user="u", api_pass="p", turn_pass="pass-1",
         send_event=lambda e, d: events.append((e, dict(d))),
         user_id="alice", project_dirname="proj",
         run_id=_run_id(),
@@ -206,7 +206,7 @@ def test_run_cc_turn_timeout_and_generic_error(tmp_path, monkeypatch):
         lambda raw, stdout_stream=None: _BlockingSock(),
     )
     cc_engine.run_cc_turn(
-        query="q", model_id="m", api_user="u", api_pass="p",
+        query="q", model_id="m", api_user="u", api_pass="p", turn_pass="pass-1",
         send_event=lambda e, d: events.append((e, dict(d))),
         user_id="alice", project_dirname="proj",
         run_id=_run_id(),

@@ -75,7 +75,7 @@ def _dispatch_entity(args):
     import _sidecar_client as sc  # pragma: no cover
     try:  # pragma: no cover
         return sc.call_op("entity", {"query": args.query},  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
+                          ns_turn=_ns_turn(),  # pragma: no cover
                           sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
     except sc.SidecarCallError as e:  # pragma: no cover
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
@@ -87,7 +87,7 @@ def _dispatch_parse(args):
     import _sidecar_client as sc  # pragma: no cover
     try:  # pragma: no cover
         return sc.call_op("parse", {"query": args.query},  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
+                          ns_turn=_ns_turn(),  # pragma: no cover
                           sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
     except sc.SidecarCallError as e:  # pragma: no cover
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
@@ -217,7 +217,7 @@ def _dispatch_api_read(args):
     import _sidecar_client as sc  # pragma: no cover
     try:  # pragma: no cover
         return sc.call_op("api-read", {"parser_plan": args.parser_plan},  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
+                          ns_turn=_ns_turn(),  # pragma: no cover
                           sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
     except sc.SidecarCallError as e:  # pragma: no cover
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
@@ -238,7 +238,7 @@ def _dispatch_api_write(args):
         return sc.call_op(  # pragma: no cover
             "api-write",  # pragma: no cover
             {"parser_plan": args.parser_plan, "confirmed_write": args.confirmed_write},  # pragma: no cover
-            ns_login=(_api_user(), _api_pass()),  # pragma: no cover
+            ns_turn=_ns_turn(),  # pragma: no cover
             sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
     except sc.SidecarCallError as e:  # pragma: no cover
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
@@ -250,7 +250,7 @@ def _dispatch_graph(args):
     import _sidecar_client as sc  # pragma: no cover
     try:  # pragma: no cover
         return sc.call_op("graph", {"query": args.query},  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
+                          ns_turn=_ns_turn(),  # pragma: no cover
                           sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
     except sc.SidecarCallError as e:  # pragma: no cover
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
@@ -267,7 +267,7 @@ def _dispatch_graph_schema(args):
         body["query"] = args.query  # pragma: no cover
     try:  # pragma: no cover
         return sc.call_op("graph-schema", body,  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
+                          ns_turn=_ns_turn(),  # pragma: no cover
                           sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
     except sc.SidecarCallError as e:  # pragma: no cover
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
@@ -285,7 +285,7 @@ def _dispatch_aggregate(args):
         body["parts"] = args.parts
     try:
         return sc.call_op("aggregate", body,
-                          ns_login=(_api_user(), _api_pass()),
+                          ns_turn=_ns_turn(),
                           sidecar_url=sc.sidecar_url_from_env())
     except sc.SidecarCallError as e:
         _err(e.code, e.message, e.exit_code)
@@ -304,7 +304,7 @@ def _dispatch_report(args):
     import _sidecar_client as sc  # pragma: no cover
     try:  # pragma: no cover
         return sc.call_op("report", {"mode": args.mode, "project": args.project},  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
+                          ns_turn=_ns_turn(),  # pragma: no cover
                           sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
     except sc.SidecarCallError as e:  # pragma: no cover
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
@@ -323,7 +323,7 @@ def _dispatch_generate_submission(args):
         return sc.call_op(  # pragma: no cover
             "generate-submission",  # pragma: no cover
             {"type": args.type, "uids": args.uids, "query": args.query},  # pragma: no cover
-            ns_login=(_api_user(), _api_pass()),  # pragma: no cover
+            ns_turn=_ns_turn(),  # pragma: no cover
             sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
     except sc.SidecarCallError as e:  # pragma: no cover
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
@@ -495,10 +495,11 @@ def _api_user() -> str:  # pragma: no cover
     return os.environ.get("API_USER", "")  # pragma: no cover
 
 
-# The sidecar road's frame only (ns_login), until plan 03 moves those ops to the direct road with the turn pass.
-# The container holds no password any more, so this is empty.
-def _api_pass() -> str:  # pragma: no cover
-    return os.environ.get("API_PASS", "")  # pragma: no cover
+def _ns_turn() -> tuple[str, str]:  # pragma: no cover
+    """The username (the sidecar frame's api_user) and this turn's pass, for the sidecar road's frame."""
+    import _turn_pass as tp  # pragma: no cover
+    return (os.environ.get("NEXTSEEK_USERNAME") or os.environ.get("API_USER", ""),  # pragma: no cover
+            tp.turn_pass_from_env())  # pragma: no cover
 
 
 def _dispatch_pipeline(args):
@@ -527,7 +528,7 @@ def _dispatch_run_ls(args):
     import _sidecar_client as sc  # pragma: no cover
     try:  # pragma: no cover
         return sc.call_op("run-ls", {"run_dir": args.run_dir},  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
+                          ns_turn=_ns_turn(),  # pragma: no cover
                           sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
     except sc.SidecarCallError as e:  # pragma: no cover
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
@@ -545,7 +546,7 @@ def _dispatch_build_upload_xlsx(args):
         body["existing_parent_uids"] = args.existing_parent_uids  # pragma: no cover
     try:  # pragma: no cover
         return sc.call_op("build-upload-xlsx", body,  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
+                          ns_turn=_ns_turn(),  # pragma: no cover
                           sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
     except sc.SidecarCallError as e:  # pragma: no cover
         _err(e.code, e.message, e.exit_code)  # pragma: no cover

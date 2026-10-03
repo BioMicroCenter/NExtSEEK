@@ -120,22 +120,22 @@ class GranularOpFatalTests(TestCase):
         with _sidecar_modules() as sc:
             sc.granular_models.OpErrorResponse.model_validate(body)
 
-            # The sidecar's HTTP client reads it as an agent failure that carries the reason.
+            # The sidecar's HTTP client passes NExtSEEK's code, reason and fixed message through.
             http_reply = httpx.Response(resp.status_code, json=body,
                                         request=httpx.Request("POST", f"http://nextseek{BASE}/entity/"))
-            with self.assertRaises(sc.exceptions.AgentFailedError) as caught:
+            with self.assertRaises(sc.exceptions.PassThroughError) as caught:
                 sc.ns_client._map_error(http_reply)
-            self.assertIn("AGENT_FAILED", str(caught.exception))
-            self.assertIn(op_errors.REASON_MESSAGES["model_unavailable"], str(caught.exception))
+            self.assertEqual((caught.exception.code, caught.exception.reason), ("AGENT_FAILED", "model_unavailable"))
+            self.assertEqual(caught.exception.message, op_errors.REASON_MESSAGES["model_unavailable"])
 
             # The whole sidecar turn: the WS request in, the answer the plugin reads out.
             server = sc.server
             request_id = "6f1c1f6e-8a53-4c1b-9d8e-1a2b3c4d5e6f"
             raw_request = json.dumps({"op": "entity", "args": {"query": "mouse"},
-                                      "ns_login": {"api_user": "u1", "api_pass": "p"},
+                                      "ns_turn": {"api_user": "u1", "turn_pass": "pass-1"},
                                       "request_id": request_id})
             with patch.object(server, "_build_user_config",
-                              return_value=server.NsHttpConfig(base_url="http://nextseek", auth=("u1", "p"))), \
+                              return_value=server.NsHttpConfig(base_url="http://nextseek", turn_pass="pass-1")), \
                  patch.object(server, "_build_write_gate", return_value=lambda *a, **k: None), \
                  patch.object(server, "_build_stage", return_value=lambda *a, **k: None), \
                  patch.object(server, "_build_stage_bytes", return_value=(lambda *a, **k: None, lambda *a, **k: None)), \
@@ -146,5 +146,5 @@ class GranularOpFatalTests(TestCase):
                 parsed = contract.SidecarResponse.model_validate_json(answer)
                 self.assertEqual(parsed.status, "error")
                 self.assertEqual(parsed.request_id, request_id)
-                self.assertEqual(parsed.error.code, "AGENT_FAILED")
+                self.assertEqual((parsed.error.code, parsed.error.reason), ("AGENT_FAILED", "model_unavailable"))
                 self.assertEqual(contract.ERROR_EXIT[parsed.error.code], 4)

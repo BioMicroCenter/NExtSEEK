@@ -24,3 +24,14 @@ class TransportError(RuntimeError):
 
 class AgentFailedError(RuntimeError):
     """→ AGENT_FAILED / exit 4. Raised on CONFIG_ERROR, CONFIG_MISSING, and unexpected errors."""
+
+
+class PassThroughError(RuntimeError):
+    """NExtSEEK answered with one of its op error codes (approach 1, piece 2): the sidecar hands the code, the fixed
+    message and, for AGENT_FAILED, the reason to the plugin unchanged."""
+
+    def __init__(self, code: str, message: str, reason: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.reason = reason

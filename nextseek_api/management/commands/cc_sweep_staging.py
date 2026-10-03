@@ -14,7 +14,7 @@ exposed here for:
 Runs in the ``nextseek`` container as the trusted Django process:
 
     docker exec nextseek python manage.py cc_sweep_staging \\
-        --user-id <django_user> --api-user <ns_login> --project <pid>-<slug>
+        --user-id <django_user> --staging-folder <64-hex> --project <pid>-<slug>
 
 Sweeps ALL completed ``.complete`` request dirs for the given user (recovery
 mode, ``since_ts=None``): staged artifacts are moved into that user's own
@@ -40,12 +40,14 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser) -> None:
         parser.add_argument("--user-id", required=True, help="Django username (scratch subpath segment).")
-        parser.add_argument("--api-user", required=True, help="NExtSEEK login the sidecar hashed the staging dir by.")
+        parser.add_argument("--staging-folder", required=True,
+                            help="The sidecar's drop folder name: the sha256 of the turn pass (64 hex). The pass "
+                                 "itself is gone after its turn, so the operator names the folder.")
         parser.add_argument("--project", required=True, help="Validated project dirname ({pid}-{slug}).")
 
     def handle(self, *args, **options) -> None:
         user_id = options["user_id"]
-        api_user = options["api_user"]
+        staging_folder = options["staging_folder"]
         project = options["project"]
 
         paths = CCPaths.from_env()
@@ -59,7 +61,7 @@ class Command(BaseCommand):
             result = cc_staging.sweep_user_staging(
                 user_root_mount=paths.user_root_mount,
                 scratch_dir=dirs.scratch_mnt,
-                api_user=api_user,
+                staging_folder=staging_folder,
                 user_id=user_id,
                 project_dirname=project,
                 since_ts=None,  # recovery: sweep ALL completed request dirs

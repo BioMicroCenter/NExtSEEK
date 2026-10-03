@@ -38,8 +38,8 @@ class _Socket:
 def socket(monkeypatch):
     sock = _Socket()
     monkeypatch.setattr(sc, "_connect", lambda url: sock)
-    monkeypatch.setenv("API_USER", "u")
-    monkeypatch.setenv("API_PASS", "p")
+    monkeypatch.setenv("NEXTSEEK_USERNAME", "u")
+    monkeypatch.setenv("NEXTSEEK_TURN_PASS", "pass-1")
     monkeypatch.delenv("NEXTSEEK_DRY_RUN", raising=False)
     monkeypatch.delenv("NEXTSEEK_CC_TURN_DEADLINE_EPOCH", raising=False)
     return sock
@@ -53,6 +53,8 @@ def test_the_question_and_its_parts_go_to_the_sidecar(socket):
     assert socket.sent["op"] == "aggregate"
     assert socket.sent["args"] == {"query": "Roots and leaves", "parts": parts}
     assert out["question"] == "Roots and leaves"
+    assert socket.sent["ns_turn"] == {"api_user": "u", "turn_pass": "pass-1"}
+    assert "ns_login" not in socket.sent
 
 
 def test_no_parts_sends_no_parts_key(socket):
