@@ -130,7 +130,23 @@ def test_the_wait_reaches_the_request(env, monkeypatch):
     assert server.requests[0].extensions["timeout"]["read"] == 160.0
 
 
-@pytest.mark.parametrize("code, status", [("VALIDATION", 422), ("WRITE_BLOCKED", 403), ("AUTH_FAILED", 401),
+def test_the_turn_cut_wait_reaches_the_request(env, monkeypatch):
+    monkeypatch.setenv(TURN_DEADLINE_ENV, str(int(NOW + 120)))
+    server = _serve(monkeypatch, _NExtSEEK({f"{PREFIX}/report/": _ok("report", {"saved_files": {}})}))
+    runner._dispatch_report(SimpleNamespace(mode="samples", project="p"))
+    assert server.requests[0].extensions["timeout"]["read"] == 75.0
+
+
+def test_an_unknown_reason_never_reaches_stderr(env, monkeypatch, capsys):
+    body = {"code": "AGENT_FAILED", "reason": "weird", "message": "m", "errors": []}
+    _serve(monkeypatch, _NExtSEEK({f"{PREFIX}/graph/": httpx.Response(502, json=body)}))
+    with pytest.raises(SystemExit) as exc:
+        runner._dispatch_graph(SimpleNamespace(query="mice"))
+    assert exc.value.code == 4
+    assert "reason" not in _stderr_error(capsys)
+
+
+@pytest.mark.parametrize("code, status",[("VALIDATION", 422), ("WRITE_BLOCKED", 403), ("AUTH_FAILED", 401),
                                           ("PASS_NOT_ALLOWED", 403), ("BUSY", 429), ("TIME_UP", 408),
                                           ("AGENT_FAILED", 502)])
 def test_each_op_error_code_exits_with_its_number(env, monkeypatch, capsys, code, status):
