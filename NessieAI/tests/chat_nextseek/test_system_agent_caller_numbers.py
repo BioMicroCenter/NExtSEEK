@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from chat_nextseek import system_tools
 from chat_nextseek.agents import system as system_mod
 
 from .test_system_agent_docs_tools import _Script, _config, _run, _tool, docs_dir  # noqa: F401
 
 ALICE = {"username": "alice_admin", "is_admin": True,
-         "projects": [{"id": 31, "name": "Proj Alpha"}, {"id": 32, "name": "Proj Beta"}]}
-BOB = {"username": "bob_member", "is_admin": False, "projects": [{"id": 77, "name": "Proj Gamma"}]}
+         "projects": [{"id": 31, "name": "Proj Alpha"}, {"id": 32, "name": "Proj Beta"}], "project_count": 2}
+BOB = {"username": "bob_member", "is_admin": False, "projects": [{"id": 77, "name": "Proj Gamma"}], "project_count": 1}
 
 
 def _built(config, question="which projects am I a member of"):
@@ -75,17 +77,21 @@ def test_the_prompt_teaches_caller():
         assert needle in text
 
 
-def test_caller_block_reads_memberships_for_an_admin_and_a_member():
+def _caller_block_from(user, person, ids, titles):
     from unittest.mock import MagicMock, patch
     from nextseek_api.graph_search.scope import caller_block
 
-    def run(user, person, ids, titles):
-        cur = MagicMock()
-        cur.fetchone.return_value = person
-        cur.fetchall.side_effect = [ids, titles]
-        with patch("nextseek_api.graph_search.scope.connections") as conns:
-            conns.__getitem__.return_value.cursor.return_value.__enter__.return_value = cur
-            return caller_block(user)
+    cur = MagicMock()
+    cur.fetchone.return_value = person
+    cur.fetchall.side_effect = [ids, titles]
+    with patch("nextseek_api.graph_search.scope.connections") as conns:
+        conns.__getitem__.return_value.cursor.return_value.__enter__.return_value = cur
+        return caller_block(user)
+
+
+def test_caller_block_reads_memberships_for_an_admin_and_a_member():
+    from unittest.mock import MagicMock
+    run = _caller_block_from
 
     admin = MagicMock(username="alice_admin", is_superuser=True)
     member = MagicMock(username="bob_member", is_superuser=False, is_staff=True)
@@ -99,8 +105,57 @@ def test_caller_block_says_unknown_when_the_read_fails_and_none_without_a_userna
     with patch("nextseek_api.graph_search.scope.connections") as conns:
         conns.__getitem__.side_effect = RuntimeError("db down")
         out = caller_block(MagicMock(username="bob_member", is_superuser=False))
-    assert out == {"username": "bob_member", "is_admin": False, "projects": None}
+    assert out == {"username": "bob_member", "is_admin": False, "projects": None, "project_count": None}
     assert caller_block(MagicMock(username="", is_superuser=False)) is None
+
+
+def test_a_caller_with_no_person_row_has_no_projects_and_a_count_of_zero():
+    from unittest.mock import MagicMock
+    out = _caller_block_from(MagicMock(username="quill_j", is_superuser=False), None, [], [])
+    assert out["projects"] == [] and out["project_count"] == 0
+
+
+@pytest.mark.parametrize("ids,titles,narrative", [
+    ([(7,), (12,)], [(7, "Zeta"), (12, "Quill")], "You are a member of 2 projects: Zeta (7) and Quill (12)."),
+    ([(7,), (12,), (30,)], [(7, "Zeta"), (12, "Quill"), (30, "Zeta Archive")],
+     "You are a member of 3 projects: Zeta, Quill and Zeta Archive."),
+])
+def test_the_number_of_the_callers_projects_is_evidence(ids, titles, narrative):
+    """Review F7: "How many projects am I in?" had no way to give a number the check would keep."""
+    from unittest.mock import MagicMock
+    block = _caller_block_from(MagicMock(username="quill_j", is_superuser=False), (6,), ids, titles)
+    assert system_tools.unsupported_numbers(narrative, json.dumps(block)) == []
+
+
+def test_a_membership_read_that_failed_is_rendered_as_such():
+    """Review N5: never `null`, which a model can read as "no projects"."""
+    from types import SimpleNamespace
+    text = system_mod._caller_text(SimpleNamespace(CALLER={"username": "quill_j", "is_admin": False,
+                                                            "projects": None, "project_count": None}))
+    assert "(could not be read)" in text and "null" not in text
+    assert json.loads(text)["projects"] == json.loads(text)["project_count"] == "(could not be read)"
+
+
+@pytest.mark.parametrize("code,count,narrative", [("TIS", 4120, "There are 4,120 TIS samples."),
+                                                  ("MUS", 311, "The catalog row says 311 MUS samples.")])
+def test_a_number_from_entity_details_is_evidence(monkeypatch, docs_dir, code, count, narrative):
+    """Review F7: ENTITY_DETAILS is catalog data the model is told to answer from, so its numbers stand."""
+    config = _config(docs_dir)
+    config.FULL_SAMPLETYPES_MAP = {code: {"SampleType": code, "sample_count": count}}
+    script = _Script([_tool("answer", mode="get_entities", narrative=narrative)])
+    monkeypatch.setattr(system_mod, "call_tools", script)
+    monkeypatch.setattr(system_mod, "live_catalog_context", lambda *a, **k: None)
+    monkeypatch.setattr(system_mod.graph_catalog, "committed_schema", lambda config: {})
+    from chat_nextseek.schemas import ParserPlan
+    out = system_mod.system_agent(config, f"How many {code} samples are there?", {"sampletypes": [{"code": code}]},
+                                  ParserPlan(mode="system_question"))
+    assert out.narrative == narrative and len(script.calls) == 1
+
+
+def test_the_prompt_says_a_failed_membership_read_is_not_no_projects():
+    from pathlib import Path
+    text = (Path(system_mod.__file__).resolve().parents[1] / "prompts" / "system_agent.txt").read_text()
+    assert "say the memberships could not be read, never that there are none" in " ".join(text.split())
 
 
 # --- U5.2 numbers -----------------------------------------------------------------------------------------------
@@ -134,7 +189,7 @@ def test_a_number_still_unbacked_after_the_retry_is_removed_with_a_note(monkeypa
 
 def test_numbers_from_the_question_the_caller_and_codes_are_not_flagged():
     evidence = "How many of the 12 mice?\n" + json.dumps(ALICE)
-    narrative = "You asked about 12 mice. You are in project 31.\n1. Open TIS-230830ENG-1-PUB at /docs/step-2/"
+    narrative = "You asked about 12 mice. You are in project 31.\n1. Open ZZZ-990101ABC-1-PUB at /docs/step-2/"
     assert system_tools.unsupported_numbers(narrative, evidence) == []
     assert system_tools.unsupported_numbers("There are 1,044 of them and 7.5%.", "1044 and 7.5") == []
 

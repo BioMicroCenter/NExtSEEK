@@ -83,6 +83,8 @@ def _caller_text(config) -> str:
     caller = getattr(config, "CALLER", None)
     if not isinstance(caller, dict) or not caller:
         return "(not available: the session could not be read)"
+    if "projects" in caller and caller["projects"] is None:  # a failed read is said, never `null` (review N5)
+        caller = {**caller, "projects": "(could not be read)", "project_count": "(could not be read)"}
     return json.dumps(caller, indent=2, default=str)
 
 
@@ -234,9 +236,11 @@ def system_agent(
         {"role": "user", "content": "\n\n".join(b["content"] for b in blocks if b["role"] == "user")}
     ]
     read: set[str] = set()
-    # What a number in the answer may come from: the tool results, the question and CALLER (U5.2).
+    # What a number in the answer may come from: the tool results, the question, CALLER (U5.2) and ENTITY_DETAILS,
+    # the catalog rows get_catalog_entry returns (review F7). The indexes and the schema are not evidence.
     caller_text = _caller_text(config)
     evidence: list[str] = [user_query, caller_text]
+    evidence += [b["content"] for b in blocks if b["role"] == "user" and b["content"].startswith("ENTITY_DETAILS")]
     retried = False
 
     sys_client, sys_model, sys_budget = config.get_agent_model(SYSTEM_AGENT_KEY)

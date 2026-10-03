@@ -101,22 +101,24 @@ def plain_scope(user) -> Optional[dict]:
 def caller_block(user) -> Optional[dict]:
     """The signed-in user's own session as plain data, for the system agent's CALLER block (round 4, U5.1).
 
-    ``{"username", "is_admin", "projects": [{"id", "name"}, ...]}``, built only from ``user`` (the request's
-    authenticated account), never from the question. Memberships are read from MySQL for an admin as well as
-    for anyone else (``resolve_scope`` skips the read for an admin because an admin is unscoped; here the
-    question is who the user belongs to). ``projects`` is ``None`` when the read failed: the block then says so
-    rather than claiming the user has no projects. ``None`` when the account has no username.
+    ``{"username", "is_admin", "projects": [{"id", "name"}, ...], "project_count"}``, built only from ``user`` (the
+    request's authenticated account), never from the question. Memberships are read from MySQL for an admin as well
+    as for anyone else (``resolve_scope`` skips the read for an admin because an admin is unscoped; here the
+    question is who the user belongs to). ``projects`` and ``project_count`` are ``None`` when the read failed: the
+    block then says so rather than claiming the user has no projects. ``project_count`` is there so the system
+    agent's number check finds the count it states (review F7). ``None`` when the account has no username.
     """
     login = getattr(user, "username", None)
     if not login:
         return None
-    block = {"username": str(login), "is_admin": getattr(user, "is_superuser", False) is True, "projects": None}
+    block = {"username": str(login), "is_admin": getattr(user, "is_superuser", False) is True, "projects": None,
+             "project_count": None}
     try:
         with connections[settings.SEEK_DATABASE].cursor() as cursor:
             cursor.execute(_PERSON_SQL, [login])
             row = cursor.fetchone()
             if row is None or row[0] is None:
-                block["projects"] = []
+                block["projects"], block["project_count"] = [], 0
                 return block
             cursor.execute(_PROJECTS_SQL, [int(row[0])])
             ids = sorted({int(r[0]) for r in cursor.fetchall() if r[0] is not None})
@@ -128,4 +130,5 @@ def caller_block(user) -> Optional[dict]:
         log.warning("caller block: project membership could not be read (%s)", type(exc).__name__)
         return block
     block["projects"] = [{"id": i, "name": titles.get(i) or f"project {i}"} for i in ids]
+    block["project_count"] = len(ids)
     return block
