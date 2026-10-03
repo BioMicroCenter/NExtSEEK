@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
-from django.db import OperationalError, connection
+from django.db import InterfaceError, OperationalError, connection
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 
@@ -128,3 +128,13 @@ class ReleaseRetryTests(SimpleTestCase):
         with patch.object(CCTurn, "objects", manager), patch("django.db.connection"), \
              self.assertLogs("NessieAI.ns.turn_memory", level="WARNING"):
             release_op_slot(SimpleNamespace(pk=7))
+
+    def test_an_interface_error_and_a_failing_close_are_logged_never_raised(self):
+        """InterfaceError is not a DatabaseError, and the retry's close can fail too; neither may leave the finally."""
+        manager = MagicMock()
+        manager.filter.return_value.update.side_effect = InterfaceError("(0, '')")
+        with patch.object(CCTurn, "objects", manager), patch("django.db.connection") as conn, \
+             self.assertLogs("NessieAI.ns.turn_memory", level="WARNING") as logs:
+            conn.close.side_effect = InterfaceError("(0, '')")
+            release_op_slot(SimpleNamespace(pk=7))
+        self.assertEqual(len(logs.records), 1)

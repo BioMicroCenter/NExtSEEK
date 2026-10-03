@@ -32,7 +32,7 @@ def take_op_slot(turn: Any) -> bool:
 def release_op_slot(turn: Any) -> None:
     """Give back a slot ``take_op_slot`` took. Never below zero. When the worker's connection dropped during a long op,
     one retry on a fresh connection. Never raises: it runs in a ``finally`` and must not hide the op's own error."""
-    from django.db import DatabaseError, connection
+    from django.db import connection
     from django.db.models import F
 
     from nextseek_api.assistant.models_db import CCTurn
@@ -41,8 +41,11 @@ def release_op_slot(turn: Any) -> None:
         try:
             CCTurn.objects.filter(pk=turn.pk, ops_in_flight__gt=0).update(ops_in_flight=F("ops_in_flight") - 1)
             return
-        except DatabaseError:
+        except Exception:  # InterfaceError is not a DatabaseError; nothing may leave the caller's finally
             if attempt == 2:
                 logger.warning("cc turn %s: an op slot could not be given back", turn.pk, exc_info=True)
                 return
-            connection.close()
+            try:
+                connection.close()
+            except Exception:
+                pass
