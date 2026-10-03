@@ -270,6 +270,30 @@ def test_handing_a_finished_prerun_to_a_turn_stores_everything_at_once(monkeypat
 
 
 @pytest.mark.django_db(transaction=True)
+def test_a_failed_vocabulary_write_still_records_the_spend_and_a_failed_spend_write_marks_the_cost_partial(
+        monkeypatch, fresh_pool):
+    monkeypatch.setattr(vocabulary_mod, "resolve_vocabulary", _paid_entity())
+    turn = _turn("mice")
+    p = prerun.start_prerun(None, CONFIG, "mice", skip=False)
+    p.result(10)
+
+    def boom(*a, **k):
+        raise RuntimeError("row gone")
+    monkeypatch.setattr(tm, "store_vocabulary", boom)
+    settled = prerun.hand_to_turn(p, turn, user_question="mice", store_early_plan=False)
+    assert settled.is_set()
+    row = CCTurn.objects.get(pk=turn.pk)
+    assert row.ops_cost_usd == Decimal(str(round(model_prices.call_cost(FLASH, USAGE).cost_usd, 6)))
+    assert row.ops_cost_partial is False, "the spend write itself succeeded"
+    assert tm.load_strikes(turn) == [["bedrock", "sonnet", "unavailable"]]
+
+    turn2 = _turn("mice")
+    monkeypatch.setattr(tm, "add_spend", boom)
+    assert prerun.hand_to_turn(p, turn2, user_question="mice", store_early_plan=False).is_set()
+    assert CCTurn.objects.get(pk=turn2.pk).ops_cost_partial is True, "a lost spend write never reads complete"
+
+
+@pytest.mark.django_db(transaction=True)
 def test_a_late_prerun_reaches_the_turn_from_its_pool_thread(monkeypatch, fresh_pool):
     release = threading.Event()
     entered: list = []

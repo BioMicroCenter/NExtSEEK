@@ -313,15 +313,35 @@ def hand_to_turn(prerun: Prerun, turn: Any, *, user_question: str, store_early_p
         return settled
 
     def _settle(p: Prerun) -> None:
+        """Four independent writes, the pattern of granular._settle_turn: one failing never stops another, and a lost
+        spend or strikes write marks the turn's cost partial (spec: a failed write never yields a confident complete
+        cost). The vocabulary and the early plan are conveniences: lost, the first op resolves them itself."""
         try:
-            out = p._vocabulary(0)
-            if out is not None:
-                turn_memory.store_vocabulary(turn, out.model_dump(mode="json"))
+            lost = False
+            try:
+                turn_memory.add_spend(turn, p.spend_usd, partial=p.spend_partial)
+            except Exception:  # noqa: BLE001
+                lost = True
+                logger.warning("could not record the pre-run's spend in its turn", exc_info=True)
             if p.strikes:
-                turn_memory.merge_strikes(turn, p.strikes)
-            turn_memory.add_spend(turn, p.spend_usd, partial=p.spend_partial)
-            if store_early_plan and isinstance(p.plan, dict):
-                turn_memory.store_plan(turn, user_question, p.plan)
+                try:
+                    turn_memory.merge_strikes(turn, p.strikes)
+                except Exception:  # noqa: BLE001
+                    lost = True
+                    logger.warning("could not record the pre-run's failed models in its turn", exc_info=True)
+            if lost:
+                try:
+                    turn_memory.mark_cost_partial(turn)
+                except Exception:  # noqa: BLE001
+                    logger.error("could not mark the turn's cost partial after a lost write", exc_info=True)
+            try:
+                out = p._vocabulary(0)
+                if out is not None:
+                    turn_memory.store_vocabulary(turn, out.model_dump(mode="json"))
+                if store_early_plan and isinstance(p.plan, dict):
+                    turn_memory.store_plan(turn, user_question, p.plan)
+            except Exception:  # noqa: BLE001
+                logger.warning("could not store the pre-run's vocabulary or plan in its turn", exc_info=True)
         finally:
             settled.set()
 
