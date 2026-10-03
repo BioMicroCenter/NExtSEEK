@@ -12,13 +12,14 @@ the live chat session.
 from __future__ import annotations
 
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
+from . import call_scope, turn_spend
 from .agents import entity_agent
 from .helpers import shortlist_catalog
 from .schemas import EntityAgentOutput
 
-__all__ = ["SHORTLIST_SAMPLETYPES", "SHORTLIST_ASSAYS", "resolve_vocabulary"]
+__all__ = ["SHORTLIST_SAMPLETYPES", "SHORTLIST_ASSAYS", "resolve_vocabulary", "NS_WAIT_S", "VocabularySource", "take"]
 
 SHORTLIST_SAMPLETYPES = 50
 SHORTLIST_ASSAYS = 75
@@ -62,3 +63,66 @@ def resolve_vocabulary(session: Any, config: Any, query: str, *, diagnostics: di
     result = entity(config, query, sampletypes_short, assays_short)
     print(f"[TIMING][ENTITY] {time.perf_counter() - t0:.2f}s")
     return result
+
+
+#: How long an NS turn waits for a pre-run still running: above the entity agent's own wall clocks, so in practice
+#: the pre-run has answered or failed long before.
+NS_WAIT_S = 120.0
+
+
+class VocabularySource(Protocol):
+    """What an NS turn reads of its vocabulary pre-run (``NessieAI/cc/prerun.Prerun``)."""
+
+    diagnostics: dict[str, Any]
+    plan: dict[str, Any] | None
+    strikes: list[list[str]]
+    spend: Any
+
+    def done(self) -> bool: ...
+
+    def result(self, timeout_s: float) -> EntityAgentOutput | None: ...
+
+    # Optional (the real Prerun has both; a source without them is read as never queued and never counted):
+    # cancel() -> bool drops a pre-run still queued; note_resolved_in_turn() counts the turn's own resolution.
+
+
+def take(source: VocabularySource | None) -> tuple[EntityAgentOutput, dict[str, Any], dict[str, Any] | None] | None:
+    """The pre-run's vocabulary, its shortlist diagnostics and its early plan, or None to resolve it in the turn.
+
+    Called in the turn thread, inside the turn's cost collector and call scope: the pre-run's spend becomes the
+    turn's (partial when it is still running) and the models that failed in it are not asked again in the turn.
+    A pre-run still queued (the pool was busy) is cancelled first, so the turn resolves the vocabulary now instead of
+    waiting behind the queue; when this hands out nothing, the source is told the turn resolves it itself."""
+    if source is None:
+        return None
+    cancel = getattr(source, "cancel", None)
+    if callable(cancel):
+        try:
+            cancel()
+        except Exception as exc:  # noqa: BLE001 - then it is waited for as before
+            print(f"[VOCAB] a queued pre-run could not be cancelled: {exc!r}")
+    taken = _take(source)
+    if taken is None:
+        note = getattr(source, "note_resolved_in_turn", None)
+        if callable(note):
+            note()
+    return taken
+
+
+def _take(source: VocabularySource) -> tuple[EntityAgentOutput, dict[str, Any], dict[str, Any] | None] | None:
+    try:
+        out = source.result(NS_WAIT_S)
+    except Exception as exc:  # noqa: BLE001 - the turn resolves it itself
+        print(f"[VOCAB] the pre-run's result could not be read; resolving it in the turn: {exc!r}")
+        out = None
+    finished = bool(source.done())
+    spend = turn_spend.current()
+    if spend is not None:
+        spend.absorb(getattr(source, "spend", None), finished=finished)
+    scope = call_scope.current()
+    if scope is not None and finished:
+        scope.seed(getattr(source, "strikes", None) or [])
+    if not isinstance(out, EntityAgentOutput):
+        return None
+    plan = getattr(source, "plan", None)
+    return out, dict(getattr(source, "diagnostics", None) or {}), plan if isinstance(plan, dict) else None

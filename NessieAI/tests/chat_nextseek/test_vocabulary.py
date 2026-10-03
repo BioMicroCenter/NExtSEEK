@@ -6,12 +6,15 @@ entity events in the order the stepper and the debug panel read them. No model i
 """
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 
 import pytest
 
+from chat_nextseek import call_scope, model_prices, turn_spend
 from chat_nextseek import orchestrator as orch
 from chat_nextseek import vocabulary
+from chat_nextseek.llm_clients import LLMResponse
 from chat_nextseek.schemas import EntityAgentOutput
 from chat_nextseek.schemas.router import ParserPlan
 
@@ -122,3 +125,106 @@ def test_the_ns_turn_resolves_its_vocabulary_through_it_with_the_same_events(ns_
                          ("agent_started", "entity"), ("agent_complete", "entity"), ("agent_started", "parser")]
     assert payload["debug"]["shortlist_sampletype_codes"] == ["MUS"]
     assert payload["debug"]["entity_result"]["keywords"] == ["mice"]
+
+
+FLASH = "gemini-3.5-flash"
+USAGE = {"prompt_tokens": 4000, "completion_tokens": 100, "thoughts_tokens": 300, "cached_tokens": 1000}
+
+
+class FakePrerun:
+    """What run_query reads of a pre-run (NessieAI/cc/prerun.Prerun)."""
+
+    def __init__(self, out=None, *, finished=True, strikes=(), plan=None, priced=True):
+        self._out, self._finished, self.plan = out, finished, plan
+        self.strikes = [list(s) for s in strikes]
+        self.diagnostics = {"sampletype_codes": ["PRE"], "assay_codes": []}
+        self.spend = turn_spend.TurnSpend()
+        if priced:
+            self.spend.record({"agent": "entity", "provider": "gcp", "model": FLASH, "attempt": 1, "outcome": "ok"},
+                              resp=LLMResponse(content="x", raw=None, usage=dict(USAGE), model=FLASH,
+                                               provider="gcp", metadata={}))
+        self.waited = []
+
+    def done(self):
+        return self._finished
+
+    def result(self, timeout_s):
+        self.waited.append((timeout_s, threading.current_thread().name))
+        return self._out
+
+
+def test_an_ns_turn_with_a_prerun_result_skips_the_entity_agent_and_owns_its_spend(ns_turn):
+    pre = FakePrerun(EntityAgentOutput(keywords=["from the pre-run"]))
+
+    payload, events, calls = ns_turn(vocabulary=pre)
+
+    assert calls["entity"] == 0 and calls["shortlist"] == 0
+    assert calls["parser"][0].keywords == ["from the pre-run"]
+    assert pre.waited and pre.waited[0][1] == threading.current_thread().name, "taken in the turn thread"
+    assert payload["debug"]["shortlist_sampletype_codes"] == ["PRE"]
+    assert payload["total_cost_usd"] == pytest.approx(model_prices.call_cost(FLASH, USAGE).cost_usd, abs=1e-6)
+    names = [(ev, data.get("agent")) for ev, data in events if ev in ("agent_started", "agent_complete")]
+    assert names[:4] == [("agent_started", "catalog"), ("agent_complete", "catalog"),
+                         ("agent_started", "entity"), ("agent_complete", "entity")]
+
+
+def test_a_failed_prerun_is_resolved_in_the_turn_and_its_dead_model_is_skipped(ns_turn, monkeypatch):
+    """Review focus 4: the pre-run's strikes seed the NS turn's own CallScope."""
+    seen = {}
+
+    def entity(config, query, sampletypes, assays):
+        seen["dead"] = call_scope.current().failed(("gcp", FLASH))
+        return EntityAgentOutput(keywords=["inline"])
+    monkeypatch.setattr(orch, "entity_agent", entity)
+
+    payload, _, calls = ns_turn(vocabulary=FakePrerun(None, strikes=[["gcp", FLASH, "timeout"]], priced=False))
+
+    assert calls["parser"][0].keywords == ["inline"]
+    assert seen["dead"]["reason"] == "timeout"
+
+
+def test_a_prerun_still_running_leaves_the_turn_partial(ns_turn):
+    payload, _, calls = ns_turn(vocabulary=FakePrerun(None, finished=False, priced=False))
+    assert calls["entity"] == 1
+    assert payload["cost_partial"] is True
+
+
+def test_an_early_plan_replaces_the_parser_call(ns_turn):
+    early = ParserPlan(mode="unsupported", intent_summary="early").model_dump(mode="json")
+
+    payload, _, calls = ns_turn(vocabulary=FakePrerun(EntityAgentOutput(), plan=early))
+
+    assert calls["parser"] == []
+    assert payload["debug"]["parser_plan"]["intent_summary"] == "early"
+
+
+def test_take_without_a_source_takes_nothing():
+    assert vocabulary.take(None) is None
+
+
+class QueuedPrerun(FakePrerun):
+    """A pre-run still waiting for a place in the pool: take cancels it and the turn resolves the vocabulary."""
+
+    def __init__(self):
+        super().__init__(None, finished=False, priced=False)
+        self.cancelled = False
+        self.resolved_in_turn = 0
+
+    def cancel(self):
+        self.cancelled = True
+        self._finished = True
+        return True
+
+    def note_resolved_in_turn(self):
+        self.resolved_in_turn += 1
+
+
+def test_take_cancels_a_queued_prerun_and_the_turn_resolves_it_at_once(ns_turn):
+    pre = QueuedPrerun()
+
+    payload, _, calls = ns_turn(vocabulary=pre)
+
+    assert pre.cancelled is True
+    assert calls["entity"] == 1, "resolved in the turn"
+    assert pre.resolved_in_turn == 1
+    assert payload["cost_partial"] is False, "a cancelled pre-run spent nothing and is not left running"

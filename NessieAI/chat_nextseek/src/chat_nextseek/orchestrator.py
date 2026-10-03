@@ -89,7 +89,7 @@ from .helpers.uid_check import check_uids, uid_notes, uids_in
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .schemas.graph import GraphAgentPlan
 from .session import SessionState
-from .vocabulary import resolve_vocabulary
+from .vocabulary import resolve_vocabulary, take as take_vocabulary
 from .tee import Tee
 from . import turn_spend
 from .uid_links import link_sample_uids
@@ -1930,13 +1930,26 @@ def unsupported_reply(plan) -> str:
 
 
 def _turn_vocabulary(config: ChatConfig, user_text: str, send_event: SendEvent, *, mode: str,
-                     note_agent: Callable[[str], None] | None = None) -> tuple[EntityAgentOutput, dict[str, Any]]:
-    """The turn's vocabulary and its shortlist diagnostics (``vocabulary.resolve_vocabulary``).
+                     note_agent: Callable[[str], None] | None = None,
+                     vocabulary: Any = None) -> tuple[EntityAgentOutput, dict[str, Any], dict[str, Any] | None]:
+    """The turn's vocabulary, its shortlist diagnostics and the plan the pre-run made early (or None).
 
-    The catalog and entity events go out in the order the stepper and the debug panel read them. This module's
-    ``entity_agent`` and ``shortlist_catalog`` are handed in, so the tests that patch them here still reach them.
+    ``vocabulary`` is the pre-run started when the question arrived (``NessieAI/cc/prerun.py``), or None. Its result
+    is taken here, in the turn thread (``vocabulary.take``); with none, or one that failed, the vocabulary is resolved
+    here as it always was. The catalog and entity events go out either way, in the same order, so the stepper and the
+    debug panel read the same turn. This module's ``entity_agent`` and ``shortlist_catalog`` are handed in, so the
+    tests that patch them here still reach them.
     """
     send_event("agent_started", {"agent": "catalog", "mode": mode})
+    taken = take_vocabulary(vocabulary)
+    if taken is not None:
+        entity_result, diagnostics, early_plan = taken
+        send_event("agent_complete", {"agent": "catalog", "summary": None})
+        if note_agent is not None:
+            note_agent("entity")
+        send_event("agent_started", {"agent": "entity", "mode": mode})
+        send_event("agent_complete", {"agent": "entity", "summary": entity_result.model_dump()})
+        return entity_result, diagnostics, early_plan
     diagnostics: dict[str, Any] = {}
 
     def _shortlisted() -> None:
@@ -1948,7 +1961,17 @@ def _turn_vocabulary(config: ChatConfig, user_text: str, send_event: SendEvent, 
     entity_result = resolve_vocabulary(None, config, user_text, diagnostics=diagnostics, on_shortlisted=_shortlisted,
                                        entity=entity_agent, shortlist=shortlist_catalog)
     send_event("agent_complete", {"agent": "entity", "summary": entity_result.model_dump()})
-    return entity_result, diagnostics
+    return entity_result, diagnostics, None
+
+
+def _early_or_parse(early_plan: dict[str, Any] | None, parse: Callable[[], Any]) -> Any:
+    """The plan the pre-run made early (NESSIE_PARSER_START=early), else the parser's."""
+    if isinstance(early_plan, dict):
+        try:
+            return ParserPlan.model_validate(early_plan)
+        except Exception as exc:  # noqa: BLE001 - parse it again
+            print(f"[VOCAB] the early parser plan did not load; parsing again: {exc!r}")
+    return parse()
 
 
 @turn_spend.collects_turn
@@ -1960,6 +1983,7 @@ def run_query(
     *,
     credentials: dict[str, str] | None = None,
     graph_scope: Any = _UNSET,
+    vocabulary: Any = None,
 ) -> dict[str, Any]:
     """
     Shared query orchestrator for Streamlit, CLI, and async/SSE consumers.
@@ -1974,6 +1998,8 @@ def run_query(
     graph_scope — the caller's project scope for graph queries, as plain data
     ({"is_admin", "project_ids"}) or a GraphScope; see _identity_gate. Left out, the
     config's own scope stands (single-operator surfaces).
+
+    vocabulary — the vocabulary pre-run (NessieAI/cc/prerun.py) or None; see _turn_vocabulary.
     """
     config, identity_refusal = _identity_gate(
         session, config, credentials, send_event, entry_point="run_query", graph_scope=graph_scope,
@@ -2030,13 +2056,13 @@ def run_query(
             if clicked is not None:
                 return clicked
 
-        entity_result, shortlist_diag = _turn_vocabulary(config, user_text, send_event, mode="",
-                                                         note_agent=_note_agent)
+        entity_result, shortlist_diag, early_plan = _turn_vocabulary(
+            config, user_text, send_event, mode="", note_agent=_note_agent, vocabulary=vocabulary)
 
         current_agent = "parser"
         send_event("agent_started", {"agent": "parser", "mode": ""})
         _t0 = time.perf_counter()
-        plan = parser_agent(session, config, user_text, entity_result)
+        plan = _early_or_parse(early_plan, lambda: parser_agent(session, config, user_text, entity_result))
         print(f"[TIMING][PARSER] {time.perf_counter() - _t0:.2f}s")
         plan = ParserPlan.model_validate(fix_sample_endpoint(plan.model_dump()))
         plan = _clamp_lab_codes_to_entity(plan, entity_result)
@@ -2888,12 +2914,14 @@ def run_query_plan(
     *,
     credentials: dict[str, str] | None = None,
     graph_scope: Any = _UNSET,
+    vocabulary: Any = None,
 ) -> dict[str, Any]:
     """
     Planner-based orchestrator: entity -> parser -> planner -> executor -> chatter -> evaluator.
     Parallel structure to `run_query`, using the same result contract.
 
     credentials, graph_scope — same shallow-copy and identity-gate semantics as run_query.
+    vocabulary — the vocabulary pre-run, or None (see _turn_vocabulary).
     """
     config, identity_refusal = _identity_gate(
         session, config, credentials, send_event, entry_point="run_query_plan", graph_scope=graph_scope,
@@ -2914,7 +2942,8 @@ def run_query_plan(
             _raw_send_event(event_name, payload)
 
     try:
-        entity_result, shortlist_diag = _turn_vocabulary(config, user_text, send_event, mode="plan")
+        entity_result, shortlist_diag, _ = _turn_vocabulary(config, user_text, send_event, mode="plan",
+                                                            vocabulary=vocabulary)
 
         send_event("agent_started", {"agent": "parser", "mode": "plan"})
         _t0 = time.perf_counter()
