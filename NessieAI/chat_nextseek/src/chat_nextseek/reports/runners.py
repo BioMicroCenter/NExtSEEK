@@ -1224,12 +1224,14 @@ def _investigation_named(config, key: str) -> "tuple[int, str, dict | None] | No
 
 
 def _entity_named_by_labs(config, lab_names: "list[str] | None") -> "dict | None":
-    """The one project, else the one investigation, every lab name the user gave also names; or None.
+    """The one project, else the one investigation, every lab name the user gave also names; or a falsy value.
 
     A name counts when it equals, case-folded, a project name or alias (``PROJECT_NAME_TO_ID``, which carries the
     catalog's aliases), else an investigation title or alias. Projects first. Any lab without a match, labs naming
     different entities, or an entity outside the caller's scope (graph_scope; no scope counts as outside; an
     investigation counts as inside when its owner project is, or for an admin) leave the lab scope in place.
+    ``None`` means the lookup ran and no name matched anything (or it could not run: no names, no scope), so the
+    footer may say the name is not a project's; ``{}`` means something matched but cannot be used (review F9).
     """
     names = [n.strip() for n in (lab_names or []) if isinstance(n, str) and n.strip()]
     if not names:
@@ -1238,7 +1240,7 @@ def _entity_named_by_labs(config, lab_names: "list[str] | None") -> "dict | None
     if scope is None:
         return None
     table = getattr(config, "PROJECT_NAME_TO_ID", None) or {}
-    found = set()
+    found, missing = set(), False
     for n in names:
         key = n.upper()
         if key in table:
@@ -1246,19 +1248,22 @@ def _entity_named_by_labs(config, lab_names: "list[str] | None") -> "dict | None
             continue
         inv = _investigation_named(config, key)
         if inv is None:
-            return None
+            missing = True
+            continue
         inv_id, title, row = inv
         owner = (row or {}).get("project_id")
         if not (scope.is_admin or (owner is not None and owner in scope.project_ids)):
-            return None
+            return {}
         found.add(("investigation", inv_id, title))
+    if missing:
+        return {} if found else None
     if len({(k, i) for k, i, _ in found}) != 1:
-        return None
+        return {}
     kind, ident, key = sorted(found)[0]
     label = ", ".join(names)
     if kind == "project":
         if not (scope.is_admin or ident in scope.project_ids):
-            return None
+            return {}
         canonical = next((p["name"] for p in getattr(config, "FULL_PROJECTS", None) or []
                           if is_project_row(p) and p.get("project_id") == ident and p.get("name")), key)
         return {"name": label, "project": canonical, "kind": "project", "key": key}
@@ -1396,8 +1401,8 @@ def run_reporter_summary(
     reporter_result = _drop_uuid_list(reporter_result)
     if lab_project and isinstance(reporter_result, dict):
         reporter_result["lab_project"] = lab_project
-    elif fallback_labs and lab_names and isinstance(reporter_result, dict):
-        reporter_result["lab_names"] = list(lab_names)
+    elif fallback_labs and lab_names and lab_project is None and isinstance(reporter_result, dict):
+        reporter_result["lab_names"] = list(lab_names)  # the lookup found nothing: the footer may say so
 
     # ── Register output files ─────────────────────────────────────────
     saved_files: dict[str, str] = {}

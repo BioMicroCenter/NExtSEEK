@@ -457,6 +457,7 @@ def test_a_lab_with_no_matching_project_stays_a_lab_scope(monkeypatch, tmp_path)
 
     assert asked == [None]
     assert result["scope"]["kind"] == "lab"
+    assert result["lab_names"] == ["Quillon"]
     assert "this report covers lab QLN, not a project. Quillon is a lab here and is not the name of a project or investigation." in footer
 
 
@@ -477,6 +478,22 @@ def test_a_member_without_the_project_keeps_the_lab_scope(monkeypatch, tmp_path)
     assert asked == [None]
     assert result["scope"]["kind"] == "lab"
     assert "both a lab and the project" not in footer
+    # Review F9: the lookup found the project, so the footer never says the name is not one.
+    assert "lab_names" not in result
+    assert "this report covers lab NFD, not a project." in footer and "is not the name of a project" not in footer
+
+
+@pytest.mark.parametrize("projects,labs,names", [
+    ({"ZETA": 41, "QUILL": 42}, ["ZETA", "QUILL"], ["Zeta", "Quill"]),   # two labs naming two projects
+    ({"ZETA": 41}, ["ZETA", "QUILL"], ["Zeta", "Quillon"]),                # one names a project, one names nothing
+])
+def test_labs_the_lookup_matched_get_no_negative_footer(monkeypatch, tmp_path, projects, labs, names):
+    asked, result, _summary, footer = _project_run(monkeypatch, tmp_path, projects, labs, names)
+
+    assert asked == [None] and result["scope"]["kind"] == "lab"
+    assert "lab_names" not in result
+    assert f"this report covers lab {', '.join(sorted(labs))}, not a project." in footer
+    assert "is not the name of a project" not in footer
 
 
 def test_a_member_with_the_project_is_redirected_to_it(monkeypatch, tmp_path):
