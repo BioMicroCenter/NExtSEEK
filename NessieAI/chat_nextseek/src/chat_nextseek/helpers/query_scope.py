@@ -244,7 +244,7 @@ def _asked_for(
         _add("assay", code)
 
     for value in _uniq(entity_result.get("keywords")) + _uniq(filters.get("keywords")):
-        if fold(value) in scientist_keys:
+        if fold(value) in scientist_keys or names_only_the_kind(value):  # a kind word is never asked for as a filter
             continue
         _add("keyword", value)
     for name in scientists:
@@ -275,7 +275,8 @@ def _executed_text(api_plan: dict | None, graph_plan: dict | None) -> str | None
             parts.append(cypher)
         parts.append(json.dumps(graph_plan.get("parameters") or {}, default=str))
     if api_plan:
-        for key in ("requestBody", "queryParameters"):
+        # match_terms: the names a people request matches in code, applied though never sent (fix round 4.1).
+        for key in ("requestBody", "queryParameters", "match_terms"):
             parts.append(json.dumps(api_plan.get(key) or {}, default=str))
         parts.append(str(api_plan.get("endpoint") or ""))
     if not parts:

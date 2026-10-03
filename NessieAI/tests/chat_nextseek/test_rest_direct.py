@@ -170,3 +170,71 @@ def test_an_unresolved_or_unchecked_uid_leaves_the_plan_alone():
     plan = ParserPlan(mode="graph_query", filters=ParserFilters(uids=["ZZZ-990101ABC-9"]))
     assert plan_with_stored_uids(plan, [UidCheck(asked="ZZZ-990101ABC-9", stored=None)]) is plan
     assert plan_with_stored_uids(plan, None) is plan
+
+
+# ------------------------------------------------------------------ fix round 4.1: kind words are not names
+@pytest.mark.parametrize("keywords,terms", [(["researchers", "registered"], []), (["registered users"], []),
+                                            (["scientists"], []), (["members"], []), (["quill_j"], ["quill_j"])])
+def test_a_word_naming_the_kind_listed_is_never_a_name_to_match(keywords, terms):
+    assert build(PEOPLE, keywords=keywords).model_dump().get("match_terms", []) == terms
+
+
+def _people_scope(question, entity_keywords, match_terms=()):
+    from chat_nextseek.helpers.query_scope import describe_query_scope
+
+    return describe_query_scope(
+        entity_result={"keywords": list(entity_keywords)},
+        parser_plan={"mode": "new_search", "target_endpoint": PEOPLE, "filters": {"keywords": []}},
+        api_plan={"endpoint": PEOPLE, "method": "GET", "requestBody": {}, "queryParameters": {},
+                  "match_terms": list(match_terms)},
+        user_query=question)
+
+
+@pytest.mark.parametrize("question,keywords", [("Who are the researchers registered?", ["researchers"]),
+                                               ("Who are the researchers registered in NExtSEEK?", ["researchers", "registered"]),
+                                               ("List the registered users", ["registered users"])])
+def test_the_whole_people_list_drops_no_constraint(question, keywords):
+    """The dev smoke's false caveat: a kind word the entity step resolved was reported as a filter not applied."""
+    assert _people_scope(question, keywords).not_applied == []
+
+
+def test_a_name_matched_in_code_counts_as_applied():
+    scope = _people_scope("Is there a user called quill_j?", ["quill_j"], match_terms=["quill_j"])
+    assert scope.not_applied == [] and any("quill_j" in label for label in scope.applied)
+
+
+def test_the_chatter_gets_no_not_applied_line_and_no_kind_keyword_for_the_people_list(monkeypatch):
+    from chat_nextseek.agents import chatter as chatter_mod
+
+    box = {}
+
+    class _Config:
+        CHATTER_SYSTEM_PROMPT, LOG_DIR = "SYSTEM PROMPT", ""
+
+        def get_agent_model(self, agent_label):
+            return (object(), "stub-model", None)
+
+    def _fake(config, *, messages, **_):
+        box["user"] = messages[-1]["content"]
+        return "stub reply"
+
+    monkeypatch.setattr(chatter_mod, "call_llm_text", _fake)
+    rows = {"ok": True, "data": {"data": [{"id": "1", "type": "people", "attributes": {"title": "Quill, Jane"}}]}}
+    api_plan = {"endpoint": PEOPLE, "method": "GET", "requestBody": {}, "queryParameters": {}, "match_terms": []}
+    chatter_mod.chatter_agent_answer(
+        _Config(), "Who are the researchers registered in NExtSEEK?", {"keywords": ["researchers"]},
+        {"mode": "new_search", "target_endpoint": PEOPLE, "filters": {"keywords": []}}, api_plan,
+        slim_api_result_for_llm(rows, api_plan=api_plan), rows, log_dir="")
+    assert "NOT APPLIED" not in box["user"] and "- Keywords: (none)" in box["user"]
+
+
+def test_the_sop_list_on_the_graph_drops_no_constraint():
+    """Item 2's sibling: the unfiltered protocol list is not reported as dropping the word SOP."""
+    from chat_nextseek.helpers.query_scope import describe_query_scope
+
+    scope = describe_query_scope(
+        entity_result={"keywords": ["SOP"]}, parser_plan={"mode": "graph_query", "filters": {"keywords": []}},
+        graph_plan={"cypher": "MATCH (c:Sample)-[r:DERIVED_FROM]->(:Sample) WHERE r.protocol_title IS NOT NULL "
+                              "RETURN DISTINCT r.protocol_title AS protocol_title", "parameters": {}},
+        user_query="What SOPs are on file?")
+    assert scope.not_applied == []

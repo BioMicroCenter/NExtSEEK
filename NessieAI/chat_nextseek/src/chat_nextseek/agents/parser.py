@@ -14,7 +14,7 @@ from ..config import ChatConfig
 from ..helpers import (
     build_recent_results_summary,
 )
-from ..helpers.query_scope import names_only_the_kind
+from ..helpers.query_scope import PEOPLE_KIND_WORDS, names_only_the_kind
 from ..llm_clients import LLMTimeoutError, model_traits
 from ..schemas.schema_helper import call_llm_structured, empty_output_problem
 from ..schemas import (
@@ -737,7 +737,7 @@ RETRIEVE_PATHS = frozenset({"/nextseek_api/samples/retrieve/", "/nextseek_api/ad
 SOPS_PATH = "/nextseek_api/sops/"
 PEOPLE_PATH = "/nextseek_api/people/"
 KEPT_REST = RETRIEVE_PATHS | {SOPS_PATH, PEOPLE_PATH}
-_PEOPLE_NOUNS = {"people", "person", "researcher", "researchers", "user", "users", "account", "accounts", "registered"}
+_PEOPLE_NOUNS = PEOPLE_KIND_WORDS
 #: Where a plan naming any other endpoint goes, by prefix so an old chat's sample-tree/<uid>/tree/ matches.
 #: "catalog" is system_question, or graph_query when the question has a sample word.
 REROUTE = (("/nextseek_api/sample-tree/", "graph_query"), ("/nextseek_api/investigations/", "graph_query"),

@@ -17,7 +17,7 @@ from ..helpers import (
     api_row_count,
     log_prompt,
 )
-from ..helpers.query_scope import describe_query_scope, render_query_scope
+from ..helpers.query_scope import describe_query_scope, names_only_the_kind, render_query_scope
 from ..uid_links import link_sample_uids
 from ..schemas import (
     PlannerOutput,
@@ -736,7 +736,8 @@ def chatter_agent_answer(
     # ["keywords"] rendered "(none)" in every turn, in every mode, since the line was
     # written. The system prompt's "state ... what the key filters were (sample type,
     # assay, keywords)" was unsatisfiable for keywords the whole time.
-    keywords_list = [str(k) for k in (entity_result.get("keywords") or []) if str(k).strip()]
+    keywords_list = [str(k) for k in (entity_result.get("keywords") or [])
+                     if str(k).strip() and not names_only_the_kind(k)]  # "researchers" names the list, filters nothing
     keywords_str = ", ".join(keywords_list) if keywords_list else "(none)"
 
     # Compute total_matches + preview_count for the mode at hand, AND
