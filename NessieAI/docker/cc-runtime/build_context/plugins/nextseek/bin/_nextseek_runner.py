@@ -588,10 +588,9 @@ def main() -> None:
         result = _DISPATCH[args.agent](args)
     except SystemExit:  # pragma: no cover
         raise  # pragma: no cover
-    except Exception as exc:
-        _err("AGENT_FAILED",
-             f"{type(exc).__name__}: {exc}",
-             4)
+    except Exception:
+        # The exception text is not shown: the agent reads only the approved "internal" sentence.
+        _err("AGENT_FAILED", "The op failed inside NExtSEEK.", 4, reason="internal")
     sys.stdout.write(json.dumps(result, default=str) + "\n")  # pragma: no cover
 
 
