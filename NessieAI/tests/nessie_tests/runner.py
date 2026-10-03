@@ -40,7 +40,10 @@ from NessieAI.tests.nessie_tests.manifest import (
 # `followup` belongs here for the same reason (2026-09-23): the router said NExtSEEK, the
 # turn refers back to an earlier answered turn, and the product moved it to CC.
 # `cc_unavailable` does NOT: the CC runner was down, so no routing decision was tested.
-ROUTE_DECISION_SOURCES = frozenset({"baml", "sticky", "followup"})
+# `howto` and `sop_file` (round 4, 2026-10-03) belong for the same reason as `followup`: the router said
+# container_cc and the product's own rule moved the turn to NExtSEEK (a how-to question about the site; the file
+# of one named SOP). Both follow a real BAML call, so they are evidence about routing.
+ROUTE_DECISION_SOURCES = frozenset({"baml", "sticky", "followup", "howto", "sop_file"})
 
 
 def default_route_criterion(variant) -> dict | None:

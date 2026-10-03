@@ -57,3 +57,5 @@ def test_no_trace_no_field():
 def test_followup_is_a_routing_decision_and_cc_unavailable_is_not():
     assert "followup" in runner.ROUTE_DECISION_SOURCES
     assert "cc_unavailable" not in runner.ROUTE_DECISION_SOURCES
+    # round 4: the product's how-to and named-SOP-file rules move a BAML decision; they are not fallbacks
+    assert {"howto", "sop_file"} <= runner.ROUTE_DECISION_SOURCES
