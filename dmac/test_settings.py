@@ -81,3 +81,7 @@ STORAGES = {
         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
     },
 }
+
+# No test starts a background model call unless it asks to: the vocabulary pre-run is off here, and the tests of it
+# switch it on (NessieAI/cc/prerun.py).
+NESSIE_VOCAB_PRERUN = "off"
