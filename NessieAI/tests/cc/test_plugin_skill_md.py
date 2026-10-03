@@ -39,6 +39,9 @@ RUNNER_EXIT_CODES = (
     "TRANSPORT_ERROR",
     "AUTH_FAILED",
     "STAGING_ERROR",
+    "BUSY",
+    "TIME_UP",
+    "PASS_NOT_ALLOWED",
 )
 
 
@@ -152,6 +155,13 @@ def test_errors_section_lists_the_runner_codes():
     assert "## Errors" in text
     for code in RUNNER_EXIT_CODES:
         assert code in text, f"Errors section must document exit code {code}"
+
+
+def test_errors_section_says_which_failures_are_not_retried():
+    text = _read_skill()
+    errors = text[text.index("## Errors"):text.index("BEGIN PLAN005-GEN:skill-ops")]
+    for token in ("model_unavailable", "deadline", "TIME_UP", "(10)", "(11)", "(12)"):
+        assert token in errors, f"Errors section must cover {token}"
 
 
 # --------------------------------------------------------------------------
