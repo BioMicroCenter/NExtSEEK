@@ -118,15 +118,15 @@ _NO_LABEL_WRITES = {"labels_rows": 0, "labels_written": 0, "labels_skipped_label
 
 # sync_assays (the 1.3 spec, section 5.6, step 4): above this many members to rewrite, a full sync is enqueued
 # instead. Set from scripts/graph_search/measure_assay_nodes.py on production: at or above its largest SEEK assay
-# membership, so remapping any one of its SEEK assays never needs a full sync. PROVISIONAL: production has not been
-# measured yet; this is the plan's estimate, replaced by the measured "suggested" value before the rollout.
-ASSAY_REWRITE_MAX = 100_000
+# membership, so remapping any one of its SEEK assays never needs a full sync. Production's measured "suggested" value
+# (round 4, ruling Q10; it replaced the plan's provisional 100,000).
+ASSAY_REWRITE_MAX = 50_000
 ASSAY_GUARD_SLOT_SUFFIX = "-assays"
 # sync_samples (the 1.3 spec, D10): a lineage partner with more DERIVED_FROM edges than this is not rewritten inline;
 # it gets its own samples row, so a hub parent never holds batch upload's graph lock. Set from
 # scripts/graph_search/measure_assay_nodes.py on production: its 99.9th percentile DERIVED_FROM degree, rounded up.
-# PROVISIONAL: production has not been measured yet; this is the plan's estimate, replaced by the measured value.
-PARTNER_REWRITE_MAX = 2_000
+# Production's measured value (round 4, ruling Q10; it replaced the plan's provisional 2,000).
+PARTNER_REWRITE_MAX = 1_000
 # The outbox key a hub partner is handed off on (kind ``samples``). Its drain runs ``sync_assay_edges``, which rewrites
 # that sample's own INPUT_TO and OUTPUT_OF and has no partner step, so a hub whose partner is a hub hands nothing back.
 HUB_KEY_PREFIX = "assay_edges:"
