@@ -35,6 +35,8 @@ export interface PreludeStepData {
   label: string;
   /** Seconds the vocabulary took, on "Vocabulary ready". */
   elapsed_s?: number | null;
+  /** How the vocabulary pre-run ended, on "Vocabulary ready": completed, late, failed, cancelled, skipped. */
+  outcome?: string | null;
 }
 
 /** Container-CC turn parameters, emitted just before the CC turn starts. */

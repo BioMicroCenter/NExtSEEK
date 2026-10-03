@@ -190,6 +190,44 @@ describe("useProcessingState", () => {
     expect(result.current.processingState.mode).toBe("container_cc");
   });
 
+  it.each(["late", "failed", "cancelled"])("hides Vocabulary ready on a Container-CC turn when the outcome is %s", (outcome) => {
+    const { result } = renderHook(() => useProcessingState());
+    act(() => result.current.handlePreludeStep({ label: "Reading your question" }));
+    act(() => result.current.handlePreludeStep({ label: "Choosing an engine" }));
+    act(() => result.current.handleRouteDecided({ route: "container_cc", reasoning: "needs a chart" }));
+    act(() => result.current.handlePreludeStep({ label: "Vocabulary ready", outcome }));
+
+    const steps = result.current.processingState.steps;
+    expect(steps.map((s) => s.label)).toEqual(["Reading your question", "Choosing an engine", "Router → container_cc"]);
+    expect(steps.every((s) => s.status === "complete")).toBe(true);
+  });
+
+  it("shows Vocabulary ready when the outcome is completed", () => {
+    const { result } = renderHook(() => useProcessingState());
+    act(() => result.current.handlePreludeStep({ label: "Reading your question" }));
+    act(() => result.current.handlePreludeStep({ label: "Choosing an engine" }));
+    act(() => result.current.handleRouteDecided({ route: "container_cc", reasoning: "needs a chart" }));
+    act(() => result.current.handlePreludeStep({ label: "Vocabulary ready", outcome: "completed" }));
+
+    const steps = result.current.processingState.steps;
+    expect(steps.map((s) => s.label)).toEqual([
+      "Reading your question", "Choosing an engine", "Vocabulary ready", "Router → container_cc",
+    ]);
+    expect(steps.every((s) => s.status === "complete")).toBe(true);
+  });
+
+  it.each(["late", "failed", "cancelled"])("hides Vocabulary ready on an NS turn when the outcome is %s", (outcome) => {
+    const { result } = renderHook(() => useProcessingState());
+    act(() => result.current.handlePreludeStep({ label: "Reading your question" }));
+    act(() => result.current.handlePreludeStep({ label: "Choosing an engine" }));
+    act(() => result.current.handleRouteDecided({ route: "nextseek_query" }));
+    act(() => result.current.handlePreludeStep({ label: "Vocabulary ready", outcome }));
+
+    const steps = result.current.processingState.steps;
+    expect(steps.map((s) => s.label)).not.toContain("Vocabulary ready");
+    expect(steps.find((s) => s.label === "Reading your question")?.status).toBe("complete");
+  });
+
   it("ignores a repeated or empty label", () => {
     const { result } = renderHook(() => useProcessingState());
     act(() => result.current.handlePreludeStep({ label: "Choosing an engine" }));

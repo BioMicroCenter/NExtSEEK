@@ -238,12 +238,18 @@ export function useProcessingState(): UseProcessingStateReturn {
   });
 
   // A routing step: inserted after the routing steps already shown, so one that arrives once the engine's own steps
-  // exist still sits above them. "Vocabulary ready" also completes "Reading your question".
+  // exist still sits above them. "Vocabulary ready" also completes "Reading your question"; when its pre-run did not
+  // finish it adds no row, so the stepper (ChatPanel, in both shells) never shows it.
   const handlePreludeStep = useCallback((data: PreludeStepData) => {
     const label = typeof data.label === "string" ? data.label.trim() : "";
     if (!label) return;
+    // A "Vocabulary ready" whose pre-run did not finish (late, failed, cancelled) only closes "Reading your
+    // question": no row says ready when nothing was. The server sends the outcome on that label alone.
+    const ready = label === PRELUDE_READY;
+    const incomplete = ready && typeof data.outcome === "string" && data.outcome !== "completed";
     setState((prev) => {
       if (prev.steps.some((s) => s.agentName === PRELUDE_AGENT && s.label === label)) return prev;
+      if (incomplete) return { ...prev, steps: completePrelude(prev.steps, [PRELUDE_READING]) };
       const steps = label === PRELUDE_READY ? completePrelude(prev.steps, [PRELUDE_READING]) : prev.steps;
       let at = 0;
       steps.forEach((s, i) => {
