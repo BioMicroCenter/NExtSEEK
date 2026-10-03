@@ -40,6 +40,7 @@ from .agents.followup import (
     stored_query_rebuildable,
 )
 from .agents.followup_compute import compute_over_rows
+from .agents.graph import refusal_reply
 from .agents import (
     chatter_agent_answer,
     chatter_agent_plan,
@@ -59,7 +60,8 @@ from .agents import (
 from .agents.reporter import report_coder_agent
 from .config import ChatConfig
 from .graph_review import (FOLLOWUP_SEEDED_SKIP, FOLLOWUP_TIER1_SKIP, GraphReview, ReviewInput, as_debug,
-                           check_binding, check_premise, review_compute, review_tier1, with_checks)
+                           check_binding, check_premise, holding_study_note, review_compute, review_tier1,
+                           with_checks)
 from .graph_review_counts import SKIP_AFTER_MS, live_values, rerun_statement, run_tier2
 from .graph_scope import RESERVED_PREFIX, SCOPE_ATTR, GraphScope
 from .prompt_variants import variant_record
@@ -1441,6 +1443,23 @@ def _run_chip_click(*, config, session, user_text: str, accepted: dict[str, Any]
     return outcome
 
 
+#: What a non-admin is told when the only thing the scope refused is a read of the SampleType or Attribute catalog
+#: (U2.6, ruling 7 of round 4): never the sample-search fallback, which answers a different question.
+CATALOG_SCOPE_REPLY = (
+    "I can't read the full list of sample types or attributes from the graph for your account. Ask what sample "
+    "types NExtSEEK has, or name one of your projects and ask which sample types it holds."
+)
+_CATALOG_LABEL_REASON = re.compile(r"^the label (SampleType|Attribute)(?::(SampleType|Attribute))* may not be read")
+
+
+def _only_catalog_labels_refused(graph_result: dict) -> bool:
+    """Whether the scope refused nothing but SampleType / Attribute reads (``label_not_allowed`` only)."""
+    scope = graph_result.get("scope") if isinstance(graph_result.get("scope"), dict) else {}
+    reasons = list(scope.get("reasons") or ())
+    return (list(scope.get("codes") or ()) == ["label_not_allowed"] and bool(reasons)
+            and all(_CATALOG_LABEL_REASON.match(str(r).split(": ", 1)[-1]) for r in reasons))
+
+
 def _graph_scope_fallback(graph_plan, graph_result: dict, attempts: list, debug_payload: dict,
                           send_event) -> GraphScopeFallback:
     """Record a refused graph turn and hand it back to run_query, which answers through graph_search.
@@ -1553,7 +1572,15 @@ def _execute_graph_turn(
         # Graph agent could not produce valid Cypher; properties ['node.year', ...] are not in the
         # catalog").
         debug_payload["graph_refusal"] = graph_plan.explanation or "no query"
-        reply = GRAPH_REFUSAL_REPLY
+        # U2.2: a reply per refused kind that says what is allowed, and the Cypher the model wrote before and after
+        # its one repair, kept for the debug panel (graph_attempts was null on a refusal).
+        debug_payload["graph_refusal_kinds"] = list(graph_plan.refusal_kinds)
+        debug_payload["graph_attempts"] = [
+            {"cypher": cypher, "ok": False, "count": None, "error": graph_plan.explanation, "reason": reason,
+             "executed_cypher": None, "scope_decision": None, "elapsed_ms": None}
+            for cypher, reason in ((graph_plan.attempted_cypher, "initial"), (graph_plan.repaired_cypher, "repair"))
+            if cypher]
+        reply = refusal_reply(graph_plan.refusal_kinds) or GRAPH_REFUSAL_REPLY
         session["last_debug"] = debug_payload
         send_event("agent_complete", {"agent": "graph",
                                       "summary": {"schema_fallback": schema_fallback} if schema_fallback else None})
@@ -1575,6 +1602,13 @@ def _execute_graph_turn(
     debug_payload["graph_attempts"] = attempts
     debug_payload["graph_scope"] = graph_result.get("scope")
     if is_scope_refusal(graph_result):
+        if _only_catalog_labels_refused(graph_result):
+            debug_payload["graph_plan"] = graph_plan.model_dump()
+            debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
+            debug_payload["graph_refusal"] = "scope refused a read of the SampleType or Attribute catalog"
+            session["last_debug"] = debug_payload
+            send_event("search_complete", {"source": "neo4j", "ok": False, "count": None, "scope": "refused"})
+            return _emit_query_complete(send_event, CATALOG_SCOPE_REPLY, debug_payload, None)
         return _graph_scope_fallback(graph_plan, graph_result, attempts, debug_payload, send_event)
     # Nothing used to inspect a graph result that ran, so confidently wrong numbers reached the reply (98
     # "converters" of which 57 were stored as Non-converter, 2026-09-23). The reviewer reads the result the turn
@@ -1604,6 +1638,10 @@ def _execute_graph_turn(
     if review_disclosure:
         broke = any(check.name == "breakage" and check.fired for check in review.checks)
         query_notes.append(_review_note(review_disclosure, BREAKAGE_NOTE if broke else REVIEW_NOTE))
+    holding = holding_study_note(graph_plan.cypher, graph_result.get("parameters") or graph_plan.parameters,
+                                 graph_result.get("data"))
+    if holding:
+        query_notes.append(holding)
 
     send_event(
         "search_complete",

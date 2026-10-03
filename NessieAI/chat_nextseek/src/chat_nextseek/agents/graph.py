@@ -370,6 +370,10 @@ _SAMPLE_SOURCE_RELATIONSHIPS = frozenset({schema.IN_STUDY, schema.OF_TYPE, schem
 _NEVER_A_SAMPLE = frozenset({schema.ASSAY})
 _WHOLE_NODE_ALTERNATIVE = (
     "return s.id, s.uuid, s.type and the named properties the question needs, and count with count(*)")
+# A path variable (or nodes(p) shipped whole) gets its own hint: the path never goes back, its length and node ids do.
+_WHOLE_PATH_ALTERNATIVE = (
+    "return length({p}) AS hops and the uuids of the variables at the path's ends (a.uuid, b.uuid), and test the "
+    "path with {p} IS NOT NULL; never the path variable or nodes({p}) itself")
 
 
 @dataclass
@@ -1009,7 +1013,7 @@ def _call_lines(calls: list[str]) -> list[str]:
 
 
 def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot, calls: list[str] = (),
-                            shapes: list = ()) -> str:
+                            shapes: list = (), cypher: str | None = None) -> str:
     """The one repair prompt: every problem once, and the property names valid for each label involved.
 
     ``shapes`` are the query-shape guard's problems (P6a, P6b), repaired in the same round: alone they get their own
@@ -1027,8 +1031,15 @@ def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot
         lines.append("- labels that name no sample type: " + ", ".join(labels) + " (a type label is T_ plus the "
                      "code with every character outside [A-Za-z0-9_] replaced by _; see the type index)")
     if whole:
-        lines.append("- " + ", ".join(f"whole node {v}" for v in whole) + ": never return or collect a whole "
-                     f"Sample node; {_WHOLE_NODE_ALTERNATIVE}")
+        scan = _scan(cypher) if cypher else None
+        path_vars = [v for v in whole if scan and v in (scan.paths | scan.proc_paths)]
+        node_vars = [v for v in whole if v not in path_vars]
+        if node_vars:
+            lines.append("- " + ", ".join(f"whole node {v}" for v in node_vars) + ": never return or collect a whole "
+                         f"Sample node; {_WHOLE_NODE_ALTERNATIVE}")
+        if path_vars:
+            lines.append("- " + ", ".join(f"whole path {v}" for v in path_vars) + ": never return or collect a path; "
+                         + _WHOLE_PATH_ALTERNATIVE.format(p=path_vars[0]))
     lines += _call_lines(list(calls))
     lines += _shape_lines(list(shapes))
     owners = list(dict.fromkeys(owner for p in problems if p.kind == "property" for owner in p.owners))
@@ -1834,6 +1845,10 @@ def _fulltext_problems(scan: _Scan, cypher: str, parameters) -> list[_Shape]:
 # holds 1,998,154. Lineage is DERIVED_FROM only (docs/superpowers/specs/2026-09-25-graph-assay-nodes-design.md
 # section 6.3).
 #
+# One pairing is allowed (round 4, ruling 1): when one of the samples is pinned by UID (`{uuid: $x}` or `s.uuid = $x`)
+# and the statement returns a distinct list or count (`RETURN DISTINCT`, `count(DISTINCT ..)`, `collect(DISTINCT ..)`),
+# the answer is bounded by that sample's own Assay. An unpinned pairing stays refused.
+#
 # `assay_join` refuses a statement in which, in one row scope, two distinct sample variables reach the same Assay
 # variable through INPUT_TO or OUTPUT_OF, however it is written: one pattern, comma-joined parts, separate MATCH or
 # OPTIONAL MATCH clauses, a variable carried by WITH (bare or aliased), an undirected or alternated relationship, an
@@ -1993,6 +2008,19 @@ def _with_carried(scan: _Scan, body_start: int, body_end: int, alive: dict, fres
     return carried
 
 
+_UID_PIN_RE = re.compile(r"\buuid\s*:\s*(?:\$\w+|'[^']*'|\"[^\"]*\")")
+_DISTINCT_RESULT_RE = re.compile(r"\bRETURN\s+DISTINCT\b|\b(?:count|collect)\s*\(\s*DISTINCT\b", re.IGNORECASE)
+
+
+def _uid_pinned(scan: _Scan, cypher: str, element: tuple) -> bool:
+    """A sample node pinned by UID equality: `(s {uuid: $x})`, or `s.uuid = $x` anywhere in the statement."""
+    m = _NODE_PATTERN_RE.match(scan.masked, element[0])
+    if m and m.group("props") and _UID_PIN_RE.search(cypher[m.start("props"):m.end("props")]):
+        return True
+    return bool(element[3]) and bool(re.search(
+        rf"(?<![\w.$]){re.escape(element[3])}\.uuid\s*=\s*(?:\$\w+|'|\")", cypher))
+
+
 def _assay_join_problems(scan: _Scan, cypher: str) -> list[_Shape]:
     """assay_join: every Assay that two distinct samples reach in one row scope (the section comment has the rule)."""
     links = _assay_links(scan, cypher)
@@ -2105,10 +2133,16 @@ def _assay_join_problems(scan: _Scan, cypher: str) -> list[_Shape]:
     for key, local_samples in valued.items():
         if pairs.get(key):
             pairs[key] = {**pairs[key], **local_samples}
+    # ponytail: "distinct result" is read from the whole statement, not the scope; a RETURN DISTINCT in a subquery
+    # would also count. Tighten to the top-level RETURN if a counter-example shows up.
+    pinned = {keys.get(e[0], ("#node", e[0])) for e in _node_patterns(scan) if _uid_pinned(scan, cypher, e)}
+    distinct = bool(_DISTINCT_RESULT_RE.search(masked))
     problems = []
     for (_scope, a_key), samples in pairs.items():
         if len(samples) < 2:
             continue
+        if distinct and pinned & set(samples):
+            continue  # one sample named by UID: bounded by its own Assay (round 4, ruling 1)
         ordered = sorted(samples.values())
         names = [display for _, display in ordered]
         both = "both" if len(names) == 2 else "all"
@@ -2195,7 +2229,11 @@ def _shape_lines(shapes: list[_Shape]) -> list[str]:
             "one side with every sample on the other. Keep the lineage on DERIVED_FROM "
             "((child:Sample)-[:DERIVED_FROM]->(parent:Sample)), and test an assay on one sample at a time: "
             "WHERE EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }. To count what went into and "
-            "what came out of one Assay, count each in its own COUNT { } subquery.")
+            "what came out of one Assay, count each in its own COUNT { } subquery. The one pairing that is allowed "
+            "starts from a sample the question names by UID: `MATCH (s:Sample {uuid: $uid})-[:INPUT_TO|OUTPUT_OF]->"
+            "(a:Assay)<-[:INPUT_TO|OUTPUT_OF]-(o:Sample) RETURN DISTINCT o.uuid AS uuid` (or "
+            "`count(DISTINCT o)`), and for the same run add the shared seek_assay_ids id on the two edges. With no "
+            "sample named by UID, samples cannot be paired through an Assay.")
     return lines
 
 
@@ -2220,6 +2258,44 @@ def _shape_refusal_parts(shapes: list[_Shape]) -> list[str]:
         else:
             parts.append(f"the unscoped fulltext call {p.text} {p.detail}")
     return parts
+
+
+#: What the user is told for each refused kind (round 4, U2.2): the reason in plain words and the shape that is allowed.
+#: Code-owned; the graph agent's own explanation names catalog properties and repair steps and is never shown.
+REFUSAL_REPLIES = {
+    "assay_join": (
+        "I can't match samples to each other just because they went through the same assay. Name one sample by its "
+        "UID and I can list the other samples that went through its assay, or ask which samples went through a "
+        "named assay."),
+    "lineage_path": (
+        "That question would follow lineage from every sample at once, which is too large to run. Name a sample by "
+        "its UID or a sample type, and say how many steps to follow."),
+    "fulltext": (
+        "That wording would search every sample's text for several words at once and would match far too much. Name "
+        "the sample type, project or field you mean, or ask about one word or phrase."),
+    "whole_node": (
+        "I can't return whole samples for that question. Ask for a count, or for the fields you need, such as the "
+        "UID, the type and named attributes."),
+}
+_REFUSAL_PRIORITY = ("assay_join", "lineage_path", "fulltext", "whole_node")
+
+
+def refusal_kinds(problems=(), whole=(), calls=(), shapes=()) -> list[str]:
+    """The reply kinds (``REFUSAL_REPLIES``) for what the guards refused; a kind with no entry has no reply of its own."""
+    kinds = {"assay_join" if s.kind == "assay_join" else "fulltext" if s.kind == "unscoped_fulltext"
+             else "lineage_path" for s in shapes}
+    if whole:
+        kinds.add("whole_node")
+    if problems:
+        kinds.add("catalog")
+    if calls:
+        kinds.add("procedure")
+    return [k for k in (*_REFUSAL_PRIORITY, "catalog", "procedure") if k in kinds]
+
+
+def refusal_reply(kinds) -> str | None:
+    """The user-facing reply for a refusal's most specific kind, or None when only the generic reply applies."""
+    return next((REFUSAL_REPLIES[k] for k in kinds or () if k in REFUSAL_REPLIES), None)
 
 
 def _shape_refusal(shapes: list[_Shape]) -> str:
@@ -2745,11 +2821,12 @@ def graph_agent(
             calls = _procedure_problems(result.cypher, procedures)
             shapes = query_shape_problems(result.cypher, result.parameters)
             if problems or whole or calls or shapes:
+                attempted = result.cypher
                 print(f"[DEBUG][GRAPH] Catalog guard: {[p.text for p in problems]} whole nodes {whole}"
                       + (f" calls {calls}" if calls else "") + (f" shapes {[p.kind for p in shapes]}" if shapes else "")
                       + "; attempting repair")
                 messages.append({"role": "system", "content": _catalog_repair_message(
-                    problems, whole, catalog.snapshot, calls, shapes)})
+                    problems, whole, catalog.snapshot, calls, shapes, result.cypher)})
                 result = call("Regenerate the Cypher.", "graph_agent_repair")
                 result.cypher, _ = canonicalize_sample_uid_property(result.cypher)
                 print(f"[DEBUG][GRAPH] Repaired cypher: {result.cypher!r}")
@@ -2763,7 +2840,9 @@ def graph_agent(
                           + (f" shapes {[p.kind for p in shapes]}" if shapes else "") + "; returning empty plan")
                     return GraphAgentPlan(cypher="", explanation=_catalog_refusal(problems, whole, calls, shapes),
                                           parameters={}, context_mode=context_mode,
-                                          context_fallback=context_fallback)
+                                          context_fallback=context_fallback,
+                                          refusal_kinds=refusal_kinds(problems, whole, calls, shapes),
+                                          attempted_cypher=attempted, repaired_cypher=result.cypher)
         else:
             # Schema guard: reject Cypher that filters on properties no node actually has
             # (e.g. a hallucinated `s.Lab`). Re-prompt once with the error + valid props;
@@ -2779,6 +2858,7 @@ def graph_agent(
             calls = _procedure_problems(result.cypher, procedures)
             shapes = query_shape_problems(result.cypher, result.parameters)
             if unknown or calls or shapes:
+                attempted = result.cypher
                 print(f"[DEBUG][GRAPH] Unknown properties in cypher: {unknown}"
                       + (f" calls {calls}" if calls else "") + (f" shapes {[p.kind for p in shapes]}" if shapes else "")
                       + "; attempting repair")
@@ -2816,6 +2896,8 @@ def graph_agent(
                         parameters={},
                         context_mode=context_mode,
                         context_fallback=context_fallback,
+                        refusal_kinds=refusal_kinds(still, [], calls, shapes),
+                        attempted_cypher=attempted, repaired_cypher=result.cypher,
                     )
 
         # Filter guard: an OPTIONAL MATCH immediately followed by WHERE folds the

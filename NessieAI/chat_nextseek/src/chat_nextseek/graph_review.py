@@ -125,6 +125,24 @@ class _Memo:
         return self._call("attributes_holding", label, tuple(attributes), tuple(spellings))
 
 
+#: The row columns that name a sample, in the order they are tried (round 4, U2.4).
+SAMPLE_ID_COLUMNS = ("uuid", "sample_uuid", "sample_id", "id")
+
+
+def sample_ids(rows) -> list | None:
+    """The sample id of every row, or None when the rows do not all carry one in the same column.
+
+    The first of ``SAMPLE_ID_COLUMNS`` that every row holds as a plain value (a string or an integer). Used to count
+    distinct samples when a to-many column repeats one sample on several rows."""
+    if not rows or not all(isinstance(r, dict) for r in rows):
+        return None
+    for column in SAMPLE_ID_COLUMNS:
+        values = [r.get(column) for r in rows]
+        if all(isinstance(v, (str, int)) and not isinstance(v, bool) for v in values):
+            return values
+    return None
+
+
 @dataclass
 class ReviewInput:
     question: str
@@ -161,7 +179,8 @@ class GraphReview:
 
 # The ship set, in the order their facts are disclosed. The last two are recorded, never fired.
 SHIP = ("breakage", "negated_value", "value_split_rows", "value_split_catalog", "stem_miss",
-        "all_question_narrowed", "zero_unproven_base", "unapplied_value", "free_text_beside_field", "premise_count")
+        "all_question_narrowed", "zero_unproven_base", "unapplied_value", "free_text_beside_field", "premise_count",
+        "duplicate_rows")
 INFO_ONLY = ("title_contains_multi", "count_only")
 
 NEGATION = re.compile(r"\b(non|not|no|un|anti|never)[\s\-_]*$")
@@ -890,6 +909,43 @@ def _premise_count(t: _Turn) -> _Finding | None:
     return None
 
 
+DUPLICATE_ROWS_FACT = "The query returned {rows} rows for {distinct} distinct samples; the count is of distinct samples."
+
+
+def _duplicate_rows(t: _Turn) -> _Finding | None:
+    """U2.4: rows that carry a sample id and repeat one (a to-many column beside the sample), so rows > distinct."""
+    ids = sample_ids(t.inp.rows)
+    if ids is None or len(set(ids)) >= len(ids):
+        return None
+    return _Finding(f"{len(ids)} rows, {len(set(ids))} distinct sample ids",
+                    DUPLICATE_ROWS_FACT.format(rows=f"{len(ids):,}", distinct=f"{len(set(ids)):,}"))
+
+
+#: Told to the reply when a count or list is scoped to a holding study (U2.5, ruling 4 of round 4). Code-owned: the
+#: graph agent's prompt (U1-12) only asks it to say the same in its explanation.
+HOLDING_STUDY_NOTE = ("The study is a holding study (its title ends in Unpublished). State plainly that samples "
+                      "that belong to a paper are counted under that paper, so this number may differ from the "
+                      "list SEEK shows for the study.")
+_HOLDING_LITERAL = re.compile(r"""(['"])([^'"]*?)\bunpublished\s*\1""", re.I)
+
+
+def holding_study_note(cypher: str | None, parameters, rows) -> str | None:
+    """HOLDING_STUDY_NOTE when the statement is about a Study whose title ends in "Unpublished" (surrounding space
+    and case aside): in a Cypher literal, a parameter value or a returned string. None otherwise."""
+    if not cypher or not re.search(r"\bStudy\b|\bIN_STUDY\b", cypher):
+        return None
+
+    def holding(value) -> bool:
+        return isinstance(value, str) and value.strip().lower().endswith("unpublished")
+
+    if _HOLDING_LITERAL.search(cypher) or any(holding(v) for v in (parameters or {}).values()):
+        return HOLDING_STUDY_NOTE
+    for row in rows or ():
+        if isinstance(row, dict) and any(holding(v) for v in row.values()):
+            return HOLDING_STUDY_NOTE
+    return None
+
+
 def _breakage(inp: ReviewInput) -> _Finding | None:
     if inp.cypher is None:
         return _Finding("no Cypher ran", "No database query ran for this question.")
@@ -953,6 +1009,7 @@ def review_tier1(inp: ReviewInput, catalog: CatalogProvider, *, skip: dict[str, 
         run("unapplied_value", lambda: _unapplied_value(turn))
         run("free_text_beside_field", lambda: _free_text_beside_field(turn))
         run("premise_count", lambda: _premise_count(turn))
+        run("duplicate_rows", lambda: _duplicate_rows(turn))
 
     # recorded, never fired: the title gate belongs to Tier 2; count_only is information only
     try:
