@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import functools
 import logging
+import random
 import re
 import threading
 from dataclasses import dataclass, replace
@@ -92,11 +93,13 @@ class RouteDecision:
     router_cost_usd: float | None = None
     router_usage: dict | None = None
     router_cost_partial: bool = False
+    # The laya record (JevLevROUTING SPEC s7): None when laya is off.
+    laya: dict | None = None
 
 
 # The fields a policy rebuild of a decision must carry over from the router's decision.
 ROUTER_RECORD_FIELDS = ("router_model", "router_fallback", "router_cost_usd", "router_usage",
-                        "router_cost_partial")
+                        "router_cost_partial", "laya")
 
 
 def router_record(decision: RouteDecision) -> dict:
@@ -115,6 +118,9 @@ def router_cost_fields(decision) -> dict:
         "router_cost_usd": getattr(decision, "router_cost_usd", None),
         "router_cost_partial": bool(getattr(decision, "router_cost_partial", False)),
         "router_usage": usage,
+        # laya's record (JevLevROUTING SPEC s7), absent when laya was off for the turn. It rides
+        # this one spread because every routed decision has usage and test_router_cost pins one spread.
+        **({"laya": decision.laya} if getattr(decision, "laya", None) else {}),
     }
 
 
@@ -624,6 +630,57 @@ def _posterior_enabled_decide(query: str, history: list[HistoryTurn] | None = No
     )
 
 
+def _laya_decision(rec: dict, baml: RouteDecision | None) -> RouteDecision:
+    """The fast-path decision for a gate-passing laya record; ``baml`` is the audit's own BAML answer."""
+    route = rec["route"]
+    if baml is not None:
+        rec = {**rec, "mode": "audit", "baml_route": baml.route}
+    return RouteDecision(
+        route=route,
+        model_class="opus" if route == ROUTE_CC else None,
+        model_id=_resolve_cc_model_id() if route == ROUTE_CC else None,
+        reasoning=f"laya p={rec['calibrated_confidence']:.2f}",
+        source="laya",
+        router_model="laya:" + str(rec["revision"]),
+        laya=rec,
+    )
+
+
+def _decide_with_laya(query: str, history: list[HistoryTurn] | None = None) -> RouteDecision:
+    """laya in front of BAML (SPEC s2). Off: today's path, nothing imported. Any laya failure, an
+    exception included, leaves the BAML decision, with ``laya.error`` set."""
+    md, job = "off", None
+    try:
+        from NessieAI.router import laya  # lazy: the router imports neither torch nor laya (SPEC test 13)
+        md = laya.mode()
+        if md != "off":
+            job = laya.start(query, history, md)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CC router: laya setup failed (%s)", type(exc).__name__)
+        decision = _legacy_decide(query, history)
+        return replace(decision, laya={"mode": md, "gate": "exception", "error": type(exc).__name__})
+    if job is None:
+        return _legacy_decide(query, history)
+    rec, err, baml = None, None, None
+    if md == "live":
+        try:
+            rec = job.result()
+            if rec["gate"] == "pass":
+                if random.random() < laya.AUDIT_RATE:
+                    baml = _legacy_decide(query, history)
+                return _laya_decision(rec, baml)
+        except Exception as exc:  # noqa: BLE001
+            err = exc
+    baml = baml or _legacy_decide(query, history)
+    try:
+        rec = rec or job.result()
+    except Exception as exc:  # noqa: BLE001
+        err = exc
+    if err is not None:
+        rec = {**(rec or {"mode": md}), "gate": "exception", "error": type(err).__name__}
+    return replace(baml, laya=rec)
+
+
 def decide(query: str, history: list[HistoryTurn] | None = None) -> RouteDecision:
     """Return the route decision for a user query.
 
@@ -635,7 +692,7 @@ def decide(query: str, history: list[HistoryTurn] | None = None) -> RouteDecisio
         if posterior_selector.posterior_routing_enabled():
             decision = _posterior_enabled_decide(query, history)
         else:
-            decision = _legacy_decide(query, history)
+            decision = _decide_with_laya(query, history)
     try:
         return replace(decision, **spend.fields())
     except Exception as exc:  # noqa: BLE001 - routing never raises over bookkeeping
