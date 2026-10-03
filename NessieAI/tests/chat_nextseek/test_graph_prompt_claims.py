@@ -52,7 +52,10 @@ MIN_SCHEMA_PATH = PACKAGE / "context" / "min_graph_schema.json"
 # Re-pinned a sixth time (round 4, unit B, reviewed by the judge): api_preferred_triggers shrink to retrieve, one SOP's
 # file and the user list; the assay rule points at the Assay node; two disambiguation rules (catalog counts and the
 # signed-in user go to the system agent) are added; the DOI rule says paper studies and MAY be samples.
-FROZEN_ROUTING_SHA256 = "f9352f09158ff6635565d137d7a2314516730c7ab5a41b24b2ffbbc58cf8e462"
+# Re-pinned a seventh time (round 4 fix F5, supervisor): the SOP trigger names the file of one SOP by its id OR its
+# exact title, as the parser prompt and the code-built request now do. Checked by replacing that one string in the
+# old frozen JSON, which then equals the new one exactly (was f9352f09158f...c58cf8e462).
+FROZEN_ROUTING_SHA256 = "715d6192282500a2df13f9cbdc672712d436aa40952ff3a8116cadd71a99d526"
 DESCRIPTIVE_RULE_PREFIX = "If the query filters or reports on a descriptive sample attribute"
 
 

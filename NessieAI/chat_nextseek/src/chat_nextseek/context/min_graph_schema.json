@@ -83,7 +83,7 @@
   ],
   "api_preferred_triggers": [
     "The full metadata record, an export or a download of samples named by UID \u2192 samples/retrieve",
-    "The file of one SOP named by its id \u2192 sops",
+    "The file of one SOP named by its id or its exact title \u2192 sops",
     "The registered user accounts, with no other condition \u2192 people"
   ],
   "disambiguation_rules": [
