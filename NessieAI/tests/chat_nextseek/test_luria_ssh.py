@@ -24,7 +24,7 @@ def test_ssh_run_builds_command_and_returns_stdout(monkeypatch):
         stdout = "Submitted batch job 4821\n"
         stderr = ""
 
-    def fake_run(cmd, capture_output, text):
+    def fake_run(cmd, capture_output, text, timeout=None):
         seen["cmd"] = cmd
         return R()
 
@@ -59,7 +59,7 @@ def test_scp_file_targets_full_remote_path(monkeypatch):
         stdout = ""
         stderr = ""
 
-    def fake_run(cmd, capture_output, text):
+    def fake_run(cmd, capture_output, text, timeout=None):
         seen["cmd"] = cmd
         return R()
 
@@ -68,3 +68,20 @@ def test_scp_file_targets_full_remote_path(monkeypatch):
     assert seen["cmd"][0] == "scp"
     assert seen["cmd"][-1] == "alice@luria.mit.edu:/net/x/runs/r/run.sh"
     assert "/local/run.sh" in seen["cmd"]
+
+
+def test_ssh_run_passes_its_timeout_and_a_connect_timeout(monkeypatch):
+    seen = {}
+
+    def fake_run(cmd, capture_output, text, timeout=None):
+        seen["cmd"], seen["timeout"] = cmd, timeout
+        raise subprocess.TimeoutExpired(cmd, timeout)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    try:
+        ssh_mod.ssh_run(LE, "ls", key_path="/tmp/k", timeout=3)
+        assert False, "expected RuntimeError"
+    except RuntimeError as e:
+        assert "timed out" in str(e)
+    assert seen["timeout"] == 3
+    assert "ConnectTimeout=10" in seen["cmd"]

@@ -15,6 +15,7 @@ _SSH_OPTS = [
     "-o", "StrictHostKeyChecking=accept-new",
     "-o", "UserKnownHostsFile=/app/.ssh/known_hosts",
     "-o", "BatchMode=yes",
+    "-o", "ConnectTimeout=10",
 ]
 
 
@@ -31,10 +32,13 @@ def prepare_key(key_path: str) -> str:
     return tmp
 
 
-def ssh_run(luria_env: dict, remote_cmd: str, *, key_path: str) -> str:
-    """Run one remote command over SSH; return stdout, raise RuntimeError on nonzero exit."""
+def ssh_run(luria_env: dict, remote_cmd: str, *, key_path: str, timeout: float | None = None) -> str:
+    """Run one remote command over SSH; return stdout, raise RuntimeError on nonzero exit or after ``timeout`` s."""
     cmd = ["ssh", "-i", key_path, *_SSH_OPTS, _target(luria_env), remote_cmd]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"ssh timed out after {timeout:.0f} s") from None
     if proc.returncode != 0:
         raise RuntimeError(f"ssh failed ({proc.returncode}): {proc.stderr.strip()}")
     return proc.stdout
