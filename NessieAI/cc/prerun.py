@@ -126,7 +126,7 @@ class Prerun:
             return False
         if not self._future.cancel():
             return False
-        self._fix(CANCELLED)
+        self._fixed = CANCELLED  # it never ran: that overrides a LATE fixed by result() while it was still queued
         return True
 
     @property

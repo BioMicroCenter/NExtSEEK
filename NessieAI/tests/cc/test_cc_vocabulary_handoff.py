@@ -179,7 +179,8 @@ def test_a_queued_prerun_given_up_on_by_a_cc_turn_still_closes_the_reading_step(
     try:
         events = drive(monkeypatch, user=user, chat=chat, task=task, route=decision(cc_router.ROUTE_CC))
         assert seen["vocabulary"] is None
-        assert _closed_once(events, prerun.LATE)
+        assert _closed_once(events, prerun.CANCELLED)
+        assert [e["data"]["outcome"] for e in events.named("vocabulary_prerun")] == [prerun.CANCELLED]
     finally:
         gate.set()
         blocker.result(10)
