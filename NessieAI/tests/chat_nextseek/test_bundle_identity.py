@@ -44,3 +44,25 @@ def test_ids_recover_from_a_history_whose_counter_is_missing():
 def test_a_corrupt_counter_does_not_crash_the_turn():
     session = {"results_history": [], BUNDLE_SEQ_KEY: "not-a-number"}
     assert _next_bundle_id(session) == 1
+
+
+class _Allocating(dict):
+    """A session with its chat's one allocator (Django's DictSessionAdapter)."""
+
+    def __init__(self, ids):
+        super().__init__()
+        self._ids = iter(ids)
+
+    def allocate_bundle_id(self):
+        return next(self._ids)
+
+
+def test_a_session_with_an_allocator_takes_its_ids_from_it():
+    session = _Allocating([41, 42])
+    assert [_next_bundle_id(session), _next_bundle_id(session)] == [41, 42]
+
+
+def test_an_allocator_that_declines_leaves_the_numbering_in_memory():
+    session = _Allocating([None])
+    session["results_history"] = [{"id": 3}]
+    assert _next_bundle_id(session) == 4

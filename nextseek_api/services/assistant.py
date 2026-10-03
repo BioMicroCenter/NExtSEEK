@@ -1256,43 +1256,48 @@ class AssistantViewSet(viewsets.ViewSet):
         return Response(resp_body, status=status.HTTP_200_OK)
 
     def _register_artifact_bundle(self, request, req, op: str, result) -> dict:
-        """Persist a lightweight bundle in the caller's chat session so the op's
-        outputs are downloadable via the (ownership-checked) download_artifact
-        endpoint. Returns ``{session_id, bundle_id, artifacts:[{key,url}]}``."""
+        """Persist a lightweight bundle in the asking chat so the op's outputs are downloadable via the
+        (ownership-checked) download_artifact endpoint. Returns ``{session_id, bundle_id, artifacts:[{key,url}]}``.
+
+        Under a turn pass the chat is always the turn's own (plan 02's allow table and ``_refuse_for_pass`` refuse any
+        other), so the files land in the chat that asked (issue 13) and the tool's artifact GET is allowed. The bundle
+        id comes from the chat's one allocator (bundle_ids.py), taken and written under the same row lock as the
+        append: the chat is live, and a nested NS turn may be numbering its own bundle at the same moment.
+        """
+        from django.db import transaction
+
+        from nextseek_api.assistant.bundle_ids import next_bundle_id_locked
+
+        turn = request.auth if is_turn_pass(request) else None
+        chat_pk = turn.chat_id if turn is not None else None
         session_id = getattr(req, "session_id", None)
-        chat_session = None
-        if session_id:
-            try:
-                chat_session = ChatSession.objects.get(session_id=session_id, user=request.user)
-            except ChatSession.DoesNotExist:
-                chat_session = None
-        if chat_session is None:
-            chat_session = ChatSession.objects.create(user=request.user)
+        if chat_pk is None and session_id:
+            chat_pk = (ChatSession.objects.filter(session_id=session_id, user=request.user)
+                       .values_list("pk", flat=True).first())
+        if chat_pk is None:
+            chat_pk = ChatSession.objects.create(user=request.user).pk
 
-        history = chat_session.results_history or []
-        bundle_id = max((b.get("id", 0) for b in history if isinstance(b, dict)), default=0) + 1
         saved_files = result.get("saved_files") if isinstance(result, dict) else None
-        if op == "generate-submission":
-            # real emitter workbooks in saved_files PLUS the on-the-fly all_tables xlsx.
-            bundle = {"id": bundle_id, "mode": "generate-submission",
-                      "report_saved_files": saved_files or {}, "report_writer_output": result}
-        else:  # report / build-upload-xlsx — saved_files (report file / reingest workbooks)
-               # are served directly; no writer-output payload.
-            bundle = {"id": bundle_id,
-                      "mode": "reingest" if op == "build-upload-xlsx" else "reporter",
-                      "report_saved_files": saved_files or {}, "report_writer_output": {}}
-        history.append(bundle)
-        chat_session.results_history = history
-        chat_session.save(update_fields=["results_history", "updated_at"])
+        with transaction.atomic():
+            locked = ChatSession.objects.select_for_update().get(pk=chat_pk)
+            bundle_id = next_bundle_id_locked(locked)
+            if op == "generate-submission":
+                # real emitter workbooks in saved_files PLUS the on-the-fly all_tables xlsx.
+                bundle = {"id": bundle_id, "mode": "generate-submission",
+                          "report_saved_files": saved_files or {}, "report_writer_output": result}
+            else:  # report / build-upload-xlsx: saved_files (report file / reingest workbooks) are served directly.
+                bundle = {"id": bundle_id,
+                          "mode": "reingest" if op == "build-upload-xlsx" else "reporter",
+                          "report_saved_files": saved_files or {}, "report_writer_output": {}}
+            locked.results_history = [*(locked.results_history or []), bundle]
+            locked.save(update_fields=["results_history", "extra_state", "updated_at"])
 
-        base = (f"/nextseek_api/assistant/sessions/{chat_session.session_id}"
-                f"/bundles/{bundle_id}/artifacts")
+        base = f"/nextseek_api/assistant/sessions/{chat_pk}/bundles/{bundle_id}/artifacts"
         artifacts = [{"key": k, "url": f"{base}/{k}/"} for k in (saved_files or {})]
         if op == "generate-submission":
             # The submission output has no on-disk file; expose it as a combined xlsx.
             artifacts.append({"key": "all_tables", "url": f"{base}/all_tables/"})
-        return {"session_id": str(chat_session.session_id), "bundle_id": bundle_id,
-                "artifacts": artifacts}
+        return {"session_id": str(chat_pk), "bundle_id": bundle_id, "artifacts": artifacts}
 
     @extend_schema(
         operation_id="Assistant: Entity Extract",

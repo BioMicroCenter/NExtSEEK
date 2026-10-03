@@ -1800,7 +1800,15 @@ def _next_bundle_id(session) -> int:
 
     A counter that only ever moves forward cannot collide, and it survives a lost
     append because it is stored separately from the history it indexes.
+
+    A session with one allocator for its chat (NExtSEEK's DictSessionAdapter, approach 1 piece 2)
+    takes the id from it, under a row lock shared with the Container-CC artifact ops, so the two never hand out one id.
     """
+    allocate = getattr(session, "allocate_bundle_id", None)
+    if callable(allocate):
+        nxt = allocate()
+        if nxt is not None:
+            return nxt
     history = session.get("results_history") or []
     highest_seen = max((b.get("id") or 0) for b in history) if history else 0
     try:
