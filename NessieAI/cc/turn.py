@@ -533,6 +533,17 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 # Spec piece 1: the container gets a one-turn pass, never the user's password. Issued before any
                 # early return below, so the finally revokes it on every way out. The row holds the caller's OWN
                 # login (user_api_*), never the prod-config swap above.
+                if not (user_api_user and user_api_pass):
+                    # No stored login: a pass would carry an empty login and every op would 401, so the turn
+                    # stops here, before any pass or container.
+                    send_event("query_error", {
+                        "error": (
+                            "You are not signed in to NExtSEEK for this chat, so this turn did not start. "
+                            "Please sign in again, then ask your question again."
+                        ),
+                        "agent": "container_cc", "session_id": resolved_session_id,
+                    })
+                    return
                 try:
                     cc_pass_row, cc_pass_raw = cc_turn_pass.issue_pass(
                         task=query_task, chat=chat_session, user=request.user,

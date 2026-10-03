@@ -235,3 +235,28 @@ def test_a_turn_started_by_a_basic_header_holds_that_login_for_its_ops(cc, monke
     assert seen["status"] == 200
     assert seen["login"] == ("hdr-user", "hdr pw:ü")
     _assert_revoked(QueryTask.objects.get(task_id=resp.json()["task_id"]))
+
+
+NOT_SIGNED_IN = (
+    "You are not signed in to NExtSEEK for this chat, so this turn did not start. "
+    "Please sign in again, then ask your question again."
+)
+
+
+@pytest.mark.parametrize("login", [("caller", ""), ("", PASSWORD), ("", ""), (None, None)])
+def test_a_turn_with_no_stored_login_is_refused_before_any_pass_or_container(cc, login):
+    task, events = _start(make_user("nologin"), api_user=login[0], api_pass=login[1])
+    errors = [data for event, data in events if event == "query_error"]
+    assert [e["error"] for e in errors] == [NOT_SIGNED_IN]
+    assert errors[0]["agent"] == "container_cc"
+    assert not CCTurn.objects.filter(task=task).exists(), "no pass is issued"
+    assert cc.engine == [], "no container starts"
+
+
+def test_a_real_project_failure_still_gets_the_old_line(cc, monkeypatch):
+    def no_project(*args, **kwargs):
+        raise ProjectResolutionError("no SEEK person")
+    monkeypatch.setattr("NessieAI.cc.cc_provision.resolve_user_project", no_project)
+    _, events = _start(make_user("noproject"))
+    errors = [data["error"] for event, data in events if event == "query_error"]
+    assert errors == ["Could not resolve your SEEK project. Please try again shortly."]
