@@ -1,7 +1,8 @@
 # Native Assistant Granular-Ops Contract
 
-The HTTP contract for the native granular ops: what the `ns-sidecar`, and through it the
-Container-CC agent, calls to run one piece of the NS engine. The ops run in `NessieAI/ns/`
+The HTTP contract for the native granular ops: what the Container-CC agent calls to run one piece
+of the NS engine, directly on the default road, or through the `ns-sidecar` on the sidecar road
+(`NEXTSEEK_CC_OPS_ROAD`). The ops run in `NessieAI/ns/`
 (`run_op` in `NessieAI/ns/granular.py`); the HTTP actions are on `AssistantViewSet` in
 `nextseek_api/services/assistant.py`. The sidecar keeps a hand copy of the request and response
 models in `NessieAI/docker/ns-sidecar/app/granular_models.py`.
@@ -16,10 +17,15 @@ All endpoints are **additive** to the existing `AssistantViewSet`; existing endp
   NExtSEEK credentials (HTTP Basic, or session `username`/`password`) are
   injected into a per-request `ChatConfig` copy and used for the outbound call,
   exactly as `query`/`query_async` do.
+  A Container-CC turn sends its turn pass instead (`Authorization: NextseekTurn <pass>`,
+  `TurnPassAuthentication`; the sidecar relays it on the sidecar road). A pass is accepted only for the rows of the allow table
+  (`nextseek_api/assistant/turn_pass_allow.py`), so `api-write` is refused to it
+  (`PASS_NOT_ALLOWED`); its downstream calls act as the login Django holds for the
+  turn, never the prod config.
 - **Success envelope:** `200` with `{"op": "<op>", "result": { … }}`.
 - **Error envelope:** `{"code", "reason", "message", "errors"}`, built only in `nextseek_api/assistant/op_errors.py`.
   `code` is closed: `VALIDATION` (422), `WRITE_BLOCKED` (403), `AUTH_FAILED` (401), `PASS_NOT_ALLOWED` (403),
-  `BUSY` (429), `TIME_UP` (408; only for an op that calls a model, under a turn pass, with under 20 s usable before the turn's deadline less 45 s; a container may send `X-Nextseek-Deadline` (Unix seconds), which can only bring the turn's deadline forward; a nested query, plan or pipeline turn (`POST /query/async/` under a turn pass) gets the same `TIME_UP` when under 20 s is left before that deadline), `AGENT_FAILED` (502). `reason` is set only with `AGENT_FAILED`
+  `BUSY` (429), `TIME_UP` (408; only for an op that calls a model, under a turn pass, with under 20 s usable before the turn's deadline less 45 s; a container may send `X-Nextseek-Deadline` (Unix seconds), which can only bring the turn's deadline forward; a nested query, plan or pipeline turn (`POST /query/async/` under a turn pass) gets the same `TIME_UP` when under 20 s is left before that deadline less 45 s), `AGENT_FAILED` (502). `reason` is set only with `AGENT_FAILED`
   (`model_unavailable`, `deadline`, `bad_output`, `internal`), else `null`. `message` is a fixed sentence per code
   and reason, never an exception's text or a value the caller sent. `errors` is `[{"field", "type"}, ...]` for
   `VALIDATION` (the refused field and what was wrong, never its value) and `[{"title": "<CODE>", "detail":
