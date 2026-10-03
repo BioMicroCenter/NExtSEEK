@@ -17,7 +17,10 @@ def _literal(path: Path, name: str):
     for node in ast.parse(path.read_text(encoding="utf-8")).body:
         targets = [node.target] if isinstance(node, ast.AnnAssign) else getattr(node, "targets", [])
         if any(getattr(target, "id", None) == name for target in targets):
-            return ast.literal_eval(node.value)
+            value = node.value
+            if isinstance(value, ast.Call) and getattr(value.func, "id", None) == "frozenset":
+                value = value.args[0]
+            return ast.literal_eval(value)
     raise AssertionError(f"{name} not found in {path}")
 
 
@@ -39,3 +42,9 @@ def test_the_sidecar_contract_can_carry_every_code_djangos_ops_send():
     for code in op_errors.CODES:
         assert exits[code] == op_errors.EXIT[code]
     assert tuple(_literal(contract, "REASONS")) == op_errors.REASONS
+
+
+def test_the_sidecar_passes_through_exactly_djangos_codes_and_reasons():
+    ns_client = paths.NS_SIDECAR_DIR / "app" / "ns_client.py"
+    assert set(_literal(ns_client, "_NEXTSEEK_CODES")) == set(op_errors.CODES)
+    assert set(_literal(ns_client, "_REASONS")) == set(op_errors.REASONS)
