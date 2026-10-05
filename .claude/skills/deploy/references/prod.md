@@ -2,10 +2,16 @@
 
 Production is a live shared system with real researchers on it. On prod this skill deploys and
 runs CI. It asks Nessie questions ONLY when the brief says `prod_nessie: yes` (each question
-creates a chat and task rows as the CI superuser; that is the one write accepted here), and never
+creates a chat and task rows as the CI superuser, or as the non-admin smoke login for a
+`*-member.json` cases file; that is the one write accepted here), and never
 runs exploratory commands, one-off scripts in a container, or anything else that writes. The operator's
 older standing rule was "no ssh to prod at all"; the brief naming `prod` is the operator's
 explicit ask that lifts it for exactly the brief's steps.
+
+**Run a prod launch with the short form** (SKILL.md, operator ruling 2026-10-05, option B): `prepare`,
+then `start`, then `finish` (in the background), then `report`. In Ask mode each is one approval for a
+whole step; the step-by-step commands would ask about a dozen times. Read every output with the Read
+tool, never `cat` through Bash: auto mode refused even a local read of `$D/preflight.out`.
 
 The full hand runbook, with a "found" line for every trap, is
 the operator's local prod-commands runbook (not in git). Its steps 2, 3, 5 and 8
@@ -32,7 +38,7 @@ image is the unpinned `neo4j`.
 
 ## 2. Preflight (read-only, one connection)
 
-The same three commands as dev.md section 2. The prod script adds four rows, and the floors differ:
+`prepare` runs it (or the same three commands as dev.md section 2). The prod script adds four rows, and the floors differ:
 
 | Check | Stop when |
 |---|---|

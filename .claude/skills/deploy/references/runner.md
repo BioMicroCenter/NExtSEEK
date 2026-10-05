@@ -12,17 +12,22 @@ uv run $K/launch.py runner --brief $D/brief.json          # -> $D/runner/launch-
 uv run $K/launch.py ssh --brief $D/brief.json --purpose start
 ```
 
+The short form does both after the review in one command: `start --brief $D/brief.json --form
+$D/commit-review-form.json` (SKILL.md, "The short form"). Its watch, pull and judge are one more:
+`finish --brief $D/brief.json`, run in the background.
+
 `runner` refuses unless the preflight verdict is ok, the preflight holds the full 40-character
 expected sha, and (when the brief left `images` null) the commits step found no stop. `ssh
 --purpose start` also refuses a preflight taken more than 90 minutes before the start
 (`PREFLIGHT_MAX_AGE_MIN` in `rules.py`): the box moves, so run the preflight again and re-render. It copies each
-cases file into `$D/runner/launch-<TAG>-cases-<n>.json`, fills the template, and runs `bash -n` on
+cases file into `$D/runner/launch-<TAG>-cases-<n>.json` (`-cases-<n>-member.json` for a member file), fills the template, and runs `bash -n` on
 both scripts. `ssh --purpose start` copies `$D/runner/launch-<TAG>-*` to the box (`/tmp` on dev,
 `<home>` on prod), makes them readable, and starts tmux session `launch-<TAG>`
 unless one exists (`SESSION_EXISTS`). It prints the first status lines.
 
 Before starting, announce one line: what, why, cost ("free" when there is no Nessie, else the
 estimate from `brief.json` against the budget), expected minutes (`derived.estimate.minutes`).
+`prepare` prints that line ready to say (`ANNOUNCE`).
 
 ## What the rendered runner does, in order
 

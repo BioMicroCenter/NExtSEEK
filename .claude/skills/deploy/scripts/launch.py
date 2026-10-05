@@ -19,6 +19,11 @@ runner, the report or the commit review.
     uv run launch.py judge    --brief B                           -> facts.json, report-form.json
     uv run launch.py report   --brief B --form <filled form>      -> launch-report.json, LAUNCH-REPORT.md
 
+The short form (one operator approval per step; the same steps, rules and exit codes):
+    uv run launch.py prepare  --form brief-form.json  -> brief .. preflight .. git fetch .. commits
+    uv run launch.py start    --brief B --form <filled commit review form>  -> review, runner, ssh start
+    uv run launch.py finish   --brief B               -> ssh watch (long), ssh pull, judge
+
 Exit codes: 0 ok · 2 invalid form or usage · 3 output exists (pass --force) · 5 a stop rule
 fired (stop and report, do not work around) · 6 outside the time window · 7 the one-connection
 rule refused the ssh.
@@ -27,8 +32,10 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import datetime as dt
 import fcntl
+import io
 import json
 import os
 import re
@@ -440,6 +447,7 @@ def cmd_brief(a) -> int:
     # written even when refused, so the stop can be reported (`report --no-facts`); every
     # later step refuses a brief whose verdict is not ok
     write_json(d / "brief.json", out, a.force)
+    a.launch_dir = d   # for `prepare`, which goes on with the steps after this one
     if stops or window:
         lines = []
         if stops:
@@ -1984,6 +1992,123 @@ def cmd_report(a) -> int:
 
 
 # =====================================================================================
+# 8. The short form: prepare, start, finish. Each runs the step-by-step subcommands above in
+#    order, in this process, and stops at the first that does not exit 0 with that same code, so
+#    one operator approval covers a whole step. Orchestration only: no rule of its own.
+# =====================================================================================
+def _chain(steps) -> int:
+    for label, fn, kw in steps:
+        print(f"== {label}", flush=True)
+        try:
+            code = fn(argparse.Namespace(**kw))
+        except Stop:
+            print(f"STOPPED at {label}", flush=True)
+            raise
+        sys.stdout.flush()
+        if code:
+            print(f"STOPPED at {label} (exit {code})", flush=True)
+            return code
+    return EXIT_OK
+
+
+def _ssh_kw(a, brief: str, purpose: str, script=None, out=None) -> dict:
+    return {"brief": brief, "purpose": purpose, "script": script, "out": out,
+            "after_failure": a.after_failure, "dry_run": False, "now": getattr(a, "now", None)}
+
+
+def cmd_prepare(a) -> int:
+    """brief, preflight script, ssh preflight, preflight, git fetch, commits. Ends where the agent fills
+    the commit review form."""
+    nb = argparse.Namespace(form=a.form, out_dir=a.out_dir, now=a.now, force=a.force)
+    code = _chain([("brief", lambda _: cmd_brief(nb), {})])
+    if code:
+        return code
+    d = nb.launch_dir
+    b = str(d / "brief.json")
+    script = d / "preflight.sh"
+
+    def preflight_script(ns):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = cmd_preflight_script(ns)
+        atomic_write(script, buf.getvalue())
+        print(f"OK: wrote {script}")
+        return code
+
+    repo = Path(a.repo).expanduser() if a.repo else rules.workstation_repo()
+
+    def fetch(ns):
+        git(repo, "fetch", "-q", "origin")
+        print(f"OK: fetched origin in {repo}")
+        return EXIT_OK
+
+    code = _chain([
+        ("preflight-script", preflight_script, {"brief": b}),
+        ("ssh preflight", cmd_ssh, _ssh_kw(a, b, "preflight", str(script), str(d / "preflight.out"))),
+        ("preflight", cmd_preflight, {"brief": b, "output": None}),
+        ("git fetch", fetch, {}),
+        ("commits", cmd_commits, {"brief": b, "repo": a.repo, "base": None, "head": None, "force": a.force}),
+    ])
+    if code:
+        return code
+    data, brief, _ = load_brief(b)
+    form = load_json(d / "commit-review-form.json", "commit-review-form.json")
+    for c in form["commits"]:
+        print(f"COMMIT {c['sha']} {c['subject']} | images: {', '.join(c['images']) or 'none'}"
+              + (f" | flags: {', '.join(c['flags'])}" if c["flags"] else ""))
+    images = images_for(brief, d)
+    der = data["derived"]
+    paid = brief.nessie is not None or brief.ci_nessie_lane
+    cost = (f"paid, up to ${der['estimate']['usd_upper']:.2f} of the ${der['estimate']['budget_usd']:.2f} budget"
+            if paid else "free")
+    print(f"ANNOUNCE (say it before you run start): launch {der['tag']} on {der['box']}: rebuild "
+          f"{', '.join(images) or 'nothing'}, CI {'on' if brief.ci else 'off'}, Nessie {der['cases']} cases in "
+          f"{len(brief.nessie.cases) if brief.nessie else 0} file(s), {cost}, about "
+          f"{estimate_minutes(brief, images)} min. Why: {brief.change}")
+    print(f"NEXT: fill {d / 'commit-review-form.json'} (references/commit-review.md), then "
+          f"`start --brief {b} --form {d / 'commit-review-form.json'}`")
+    return EXIT_OK
+
+
+def cmd_start(a) -> int:
+    """review (prints the review for the parent), runner, ssh start."""
+    data, brief, d = load_brief(a.brief)
+    code = _chain([
+        ("review", cmd_review, {"brief": a.brief, "form": a.form, "force": a.force}),
+        ("runner", cmd_runner, {"brief": a.brief, "out_dir": None, "force": a.force}),
+    ])
+    if code:
+        return code
+    if brief.parent:
+        print(f"----- commit-review.md for {brief.parent!r} (send it now, in full) -----")
+        print((d / "commit-review.md").read_text(encoding="utf-8"))
+        print("----- end of commit-review.md -----", flush=True)
+    return _chain([("ssh start", cmd_ssh, _ssh_kw(a, a.brief, "start"))])
+
+
+def cmd_finish(a) -> int:
+    """ssh watch (long: run it in the background), pull, judge."""
+    data, brief, d = load_brief(a.brief)
+    code = _chain([
+        ("ssh watch", cmd_ssh, _ssh_kw(a, a.brief, "watch", str(d / "runner" / "watch.sh"), str(d / "watch.out"))),
+        ("ssh pull", cmd_ssh, _ssh_kw(a, a.brief, "pull")),
+        ("judge", cmd_judge, {"brief": a.brief, "evidence": None, "status": None, "force": a.force}),
+    ])
+    if code:
+        return code
+    facts = load_json(d / "facts.json", "facts.json")
+    print(f"FACTS: {d / 'facts.json'}")
+    print(f"REPORT_FORM: {d / 'report-form.json'}")
+    print(f"STATUS: {facts['status_file']}")
+    for n in facts["nessie"]:
+        print(f"NESSIE_RUN {n['run']} login={n.get('login', 'admin')} exit={n.get('exit')} "
+              f"dir={Path(facts['evidence']) / n['run']} log={n['log']}")
+    print("NEXT: read facts.json, the logs and every Nessie reply with the Read tool, fill the report form, "
+          "then `report`")
+    return EXIT_OK
+
+
+# =====================================================================================
 # CLI
 # =====================================================================================
 def main(argv=None) -> int:
@@ -2007,10 +2132,18 @@ def main(argv=None) -> int:
     s.add_argument("--status"); s.add_argument("--force", action="store_true")
     s = sub.add_parser("report"); s.add_argument("--brief", required=True); s.add_argument("--form")
     s.add_argument("--no-facts", action="store_true"); s.add_argument("--force", action="store_true")
+    s = sub.add_parser("prepare"); s.add_argument("--form", required=True); s.add_argument("--out-dir")
+    s.add_argument("--repo"); s.add_argument("--now"); s.add_argument("--after-failure")
+    s.add_argument("--force", action="store_true")
+    s = sub.add_parser("start"); s.add_argument("--brief", required=True); s.add_argument("--form", required=True)
+    s.add_argument("--now"); s.add_argument("--after-failure"); s.add_argument("--force", action="store_true")
+    s = sub.add_parser("finish"); s.add_argument("--brief", required=True); s.add_argument("--after-failure")
+    s.add_argument("--force", action="store_true")
     a = ap.parse_args(argv)
     handlers = {"brief": cmd_brief, "preflight-script": cmd_preflight_script, "preflight": cmd_preflight,
                 "commits": cmd_commits, "review": cmd_review, "runner": cmd_runner, "ssh": cmd_ssh,
-                "judge": cmd_judge, "report": cmd_report}
+                "judge": cmd_judge, "report": cmd_report,
+                "prepare": cmd_prepare, "start": cmd_start, "finish": cmd_finish}
     try:
         return handlers[a.cmd](a)
     except Stop as e:

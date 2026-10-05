@@ -104,6 +104,26 @@ stop conditions, the nightly time windows, image needs, budgets, the one-ssh rul
 `K=.claude/skills/deploy/scripts`, `S=<your scratchpad>`, run every step as `uv run $K/launch.py ...`.
 The launch folder `D` is printed by step 1 (`<reports_dir>/<instance>-launch-<TAG>/`).
 
+**Read every launch output with the Read tool, never `cat` through Bash** (an extra Bash command is
+one more approval, and auto mode has refused a plain `cat` of `$D/preflight.out`).
+
+### The short form: the way to run a prod launch (allowed on dev)
+
+Three commands run the steps of the table below in order, in one process, and stop at the first step
+that does not exit 0, with that step's exit code. Every rule, refusal and exit code is the step's own,
+so one operator approval (Ask mode) covers a whole step. Each prints what you need next.
+
+| Command | Runs | Prints | Then you |
+|---|---|---|---|
+| `prepare --form $S/brief-form.json` | steps 1 to 3 up to the form: brief, preflight script (`$D/preflight.sh`), ssh preflight, preflight, `git fetch`, commits | the brief lines, the preflight table and verdict, one `COMMIT` line per commit, an `ANNOUNCE` line | say the announcement, fill `$D/commit-review-form.json` |
+| `start --brief $D/brief.json --form $D/commit-review-form.json` | steps 3 to 5: review, runner, ssh start | `DELIVER`, the full commit review when there is a parent, the runner summary, the first status lines | SendMessage the review to the parent at once (here it goes as the rebuild begins, not before it) |
+| `finish --brief $D/brief.json` | steps 6 to 8: ssh watch, ssh pull, judge. Long: run it with Bash `run_in_background: true` | the judge verdict, `FACTS`, `REPORT_FORM`, one `NESSIE_RUN` line per run | read facts and replies, then step 9, `report`, as usual |
+
+A rerun after a stop needs `--force` (exit 3: the brief or the review exists). `--after-failure
+"<the operator's words>"` passes through to the ssh step, as below.
+
+### Step by step
+
 | # | Step | Command | You write |
 |---|---|---|---|
 | 1 | Brief | `brief --form $S/brief-form.json` | the brief form (`references/brief-form.md`) |

@@ -956,3 +956,98 @@ def test_absent_instance_key_is_named(tmp_path, monkeypatch):
 ])
 def test_proxy_and_sidecar_rebuild_only_for_their_build_inputs(path, images):
     assert rules.rule_for(path).images == images
+
+
+# --------------------------------------------------------------------------- the short form
+class FakeBox:
+    """Stands in for `launch.py ssh`: records every call and plays the box's side."""
+
+    def __init__(self, preflight_text="", fail=None):
+        self.calls, self.preflight_text, self.fail = [], preflight_text, fail
+
+    def __call__(self, a):
+        self.calls.append(a.purpose)
+        if a.purpose == self.fail:
+            raise L.Stop(L.EXIT_SSH, [f"the {a.purpose} connection failed"])
+        d = Path(a.brief).parent
+        if a.purpose == "preflight":
+            Path(a.out).write_text(self.preflight_text)
+        elif a.purpose == "watch":
+            Path(a.out).write_text("ALL_DONE\n")
+        elif a.purpose == "pull":
+            ev = d / "launch-20260926-1300"
+            ev.mkdir(exist_ok=True)
+            (d / "launch-20260926-1300.status").write_text(STATUS)
+            (ev / "app.log").write_text((FIX / "real-app-p3.log").read_text())
+            (ev / "cc.log").write_text("       ✓ cc-agent image rebuilt; no persistent container to restart\n")
+            (ev / "checks.log").write_text(CHECKS)
+            (ev / "ci.log").write_text(CI_LOG)
+        return 0
+
+
+def _prepare(tmp_path, capsys, monkeypatch, box=None, **brief_over):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    repo, base, head = git_repo(tmp_path)
+    subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", str(repo)], check=True)
+    box = box or FakeBox()
+    if not box.preflight_text:
+        box.preflight_text = good_preflight(expected=head, origin=head, head=base)
+    monkeypatch.setattr(L, "cmd_ssh", box)
+    f = tmp_path / "brief-form.json"
+    f.write_text(json.dumps(brief_form(expected_sha=head[:8], **brief_over)))
+    d = tmp_path / "launch"
+    code, out = run(["prepare", "--form", str(f), "--out-dir", str(d), "--repo", str(repo), "--now", NOW_OK], capsys)
+    return code, out, d, box
+
+
+def test_prepare_runs_brief_to_commits_and_prints_what_comes_next(tmp_path, capsys, monkeypatch):
+    code, out, d, box = _prepare(tmp_path, capsys, monkeypatch)
+    assert code == 0, out.err
+    assert box.calls == ["preflight"]
+    assert "READ-ONLY" in (d / "preflight.sh").read_text() and (d / "commit-review-form.json").is_file()
+    assert "OK     disk" in out.out and "COMMIT " in out.out and "change 2 to nextseek_api/views.py" in out.out
+    assert "ANNOUNCE (say it before you run start): launch 20260926-1300" in out.out and "free" in out.out
+    assert "NEXT: fill" in out.out
+
+
+def test_prepare_stops_at_the_first_refusal_with_its_code(tmp_path, capsys, monkeypatch):
+    # a refused brief: exit 5, and no connection at all
+    code, out, d, box = _prepare(tmp_path / "a", capsys, monkeypatch, prod_nessie=True)
+    assert code == 5 and "contradictory" in out.err and "STOPPED at brief" in out.out
+    assert box.calls == []
+    # a refused preflight: exit 5, one connection, no commits step
+    box = FakeBox(good_preflight(disk_free_gb="3"))
+    code, out, d, box = _prepare(tmp_path / "b", capsys, monkeypatch, box=box)
+    assert code == 5 and "- disk:" in out.err and box.calls == ["preflight"]
+    assert not (d / "commit-review-form.json").exists()
+    # a failed connection: exit 7 and nothing after it
+    code, out, d, box = _prepare(tmp_path / "c", capsys, monkeypatch, box=FakeBox(fail="preflight"))
+    assert code == 7 and not (d / "preflight.json").exists()
+
+
+def test_start_reviews_renders_and_starts_and_stops_before_the_box_on_a_bad_form(tmp_path, capsys, monkeypatch):
+    code, out, d, box = _prepare(tmp_path, capsys, monkeypatch)
+    assert code == 0, out.err
+    bad = filled_review(d, drop_one=True)
+    code, out = run(["start", "--brief", str(d / "brief.json"), "--form", str(bad)], capsys)
+    assert code == 2 and "not accounted for" in out.err and box.calls == ["preflight"]
+    assert not (d / "runner").exists()
+    code, out = run(["start", "--brief", str(d / "brief.json"), "--form", str(filled_review(d))], capsys)
+    assert code == 0, out.err
+    assert box.calls == ["preflight", "start"]
+    assert "DELIVER: SendMessage to 'SUPERVISOR-TEST'" in out.out and "## Behaviour changes" in out.out
+    assert "bash -n clean" in out.out
+
+
+def test_finish_watches_pulls_and_judges_and_stops_after_a_failed_watch(tmp_path, capsys, monkeypatch):
+    code, out, d, box = _prepare(tmp_path, capsys, monkeypatch)
+    code, out = run(["start", "--brief", str(d / "brief.json"), "--form", str(filled_review(d))], capsys)
+    assert code == 0, out.err
+    box.fail = "watch"
+    code, out = run(["finish", "--brief", str(d / "brief.json")], capsys)
+    assert code == 7 and box.calls[-1] == "watch" and not (d / "facts.json").exists()
+    box.fail = None
+    code, out = run(["finish", "--brief", str(d / "brief.json")], capsys)
+    assert code == 0, out.err
+    assert box.calls[-2:] == ["watch", "pull"]
+    assert "HEAD on expected sha" in out.out and f"FACTS: {d / 'facts.json'}" in out.out
