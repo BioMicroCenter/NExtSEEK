@@ -46,8 +46,9 @@ HEALTH_NEEDS = (
 NOT_HEALTH = ("CI failed", "CI passed", "stopped before building")
 
 # The rebuild's closing line when the build and restart worked and only health lines are red
-# (startup/cli.py). It is no stop of its own: it stops only beside a red the judge cannot explain
-# (unexplained or stale). Rich drops the space where it wraps a line, so each space is optional.
+# (startup/cli.py). It is no stop of its own: it stops beside a red the judge cannot explain
+# (unexplained or stale), or alone, when no known or pending red explains it. Rich drops the space
+# where it wraps a line, so each space is optional.
 SUMMARY_RED = r"^Rebuild finished but is red: .*No ?rollback ?is ?needed"
 
 

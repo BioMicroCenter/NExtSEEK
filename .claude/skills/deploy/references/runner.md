@@ -46,8 +46,9 @@ estimate from `brief.json` against the budget), expected minutes (`derived.estim
 The red classes come from `.claude/skills/deploy/scripts/rules.py`: `known` (the table of known reds), `pending <c>` (a
 check that names a component still to be rebuilt: expected mid-launch, since stack health runs after
 every rebuild), `stale <c>` (it names a component already rebuilt: a real problem), `summary` (the
-rebuild's closing `Rebuild finished but is red: ... No rollback is needed` line: it stops only beside
-an unexplained or stale red, so a rebuild whose only reds are pending or known goes on), `unexplained`.
+rebuild's closing `Rebuild finished but is red: ... No rollback is needed` line: it stops beside
+an unexplained or stale red, or alone with no known or pending red to explain it, so a rebuild whose
+other reds are all pending or known goes on), `unexplained`.
 A red's indented detail lines are part of its text (the `graph sync health` problems are). The same
 table drives `launch.py judge` on the pulled logs; a test pins that the bash and Python judges
 classify the same log identically and stop on the same lines.

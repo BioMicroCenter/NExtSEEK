@@ -559,6 +559,11 @@ def test_the_rebuild_summary_still_stops_beside_a_stale_or_unexplained_red(tmp_p
                    "DEPLOYMENT.md section 5 (Rollback).\n")
     b, p, _ = judges_bad(tmp_path, text, log, "", _known("prod"))
     assert b == p and len(p) == 1
+    # a summary with no other red is not explained by anything, so it still stops
+    log.write_text("       ✗ Rebuild finished but is red: stack health. No rollback is needed: the build and "
+                   "restart succeeded, only the health judgement is red.\n")
+    b, p, _ = judges_bad(tmp_path, text, log, "cc-agent", _known("prod"))
+    assert b == p and len(p) == 1 and p[0].startswith("Rebuild finished but is red")
 
 
 DEV_2010 = FIX / "real-app-dev-20261003-2010.log"

@@ -1337,9 +1337,10 @@ def classify_red(red: str, pending: set[str], known: list[str]) -> str:
 
 def bad_reds(reds: list[dict]) -> list[str]:
     """The reds that stop, as the runner's judge() prints them: every unexplained or stale red, then the
-    rebuild's summary line, which stops only beside one of them."""
+    rebuild's summary line, which stops beside one of them or when no known or pending red explains it."""
     bad = [r["text"] for r in reds if r["class"] == "unexplained" or r["class"].startswith("stale")]
-    return bad + [r["text"] for r in reds if r["class"] == "summary"] if bad else []
+    explained = any(r["class"] == "known" or r["class"].startswith("pending") for r in reds)
+    return bad + [r["text"] for r in reds if r["class"] == "summary" and (bad or not explained)]
 
 
 def parse_status(text: str) -> dict:

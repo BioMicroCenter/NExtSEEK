@@ -67,15 +67,15 @@ classify(){ # $1 one red: skip | known | summary | pending <component> | stale <
   echo unexplained
 }
 judge(){ # $1 log $2 label: records every red with its class; prints the reds nothing explains, then
-  # the rebuild's summary line, which stops only beside one of them (launch.py bad_reds)
-  health_reds "$1" | { bad=""; sum=""
+  # the rebuild's summary line, beside one of them or when no known or pending red explains it (launch.py bad_reds)
+  health_reds "$1" | { bad=""; sum=""; why=""
     while IFS= read -r line; do
       c=$(classify "$line")
       [ "$c" = skip ] && continue
       say "RED $2 [$c] $(echo "$line" | cut -c1-160)"
-      case "$c" in known|pending*) ;; summary) sum="$line";; *) bad=1; echo "$line";; esac
+      case "$c" in known|pending*) why=1;; summary) sum="$line";; *) bad=1; echo "$line";; esac
     done
-    if [ -n "$bad" ] && [ -n "$sum" ]; then echo "$sum"; fi; }
+    if [ -n "$sum" ] && { [ -n "$bad" ] || [ -z "$why" ]; }; then echo "$sum"; fi; }
 }
 rebuild(){ # $1 component; returns 1 when its success line is missing
   ./startup.sh rebuild --component "$1" --no-ci > "$L/$(logname "$1").log" 2>&1 </dev/null
