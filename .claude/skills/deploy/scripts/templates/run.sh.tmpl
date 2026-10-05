@@ -18,6 +18,7 @@ CASES="@@CASES@@"
 NESSIE_FLAGS="@@NESSIE_FLAGS@@"
 KNOWN_CI_REDS='@@KNOWN_CI_REDS@@'
 KNOWN_HEALTH_REDS='@@KNOWN_HEALTH_REDS@@'
+SUMMARY_RED='@@SUMMARY_RED@@'
 WINDOWS="@@WINDOWS@@"
 DISCARD="@@DISCARD@@"
 
@@ -46,16 +47,18 @@ in_window(){ # the stop window the current UTC time falls in, if any (HHMM-HHMM)
   done
   return 0
 }
-health_reds(){ # $1 log: every ✗ line, its wrapped continuation lines joined, the mark stripped
+health_reds(){ # $1 log: every ✗ line, its wrapped continuation and detail lines joined, the mark stripped
   awk '
     /^[[:space:]]+✗ / { if (r != "") print r; r = $0; sub(/^[[:space:]]+✗ /, "", r); next }
     r != "" && /^[^[:space:]]/ && !/^(╭|│|╰|FAILED|ERROR|XFAIL|XPASS|PASSED|=)/ { r = r $0; next }
+    r != "" && /^         [[:space:]]*[^[:space:]]/ { d = $0; sub(/^[[:space:]]+/, "", d); r = r " " d; next }
     { if (r != "") print r; r = "" }
     END { if (r != "") print r }' "$1" | sed -E 's/[[:space:]]+$//'
 }
-classify(){ # $1 one red: skip | known | pending <component> | stale <component> | unexplained
+classify(){ # $1 one red: skip | known | summary | pending <component> | stale <component> | unexplained
   case "$1" in "CI failed"*|"CI passed"*|"stopped before building"*) echo skip; return;; esac
   if printf '%s\n' "$1" | grep -qE "$KNOWN_HEALTH_REDS"; then echo known; return; fi
+  if printf '%s\n' "$1" | grep -qE "$SUMMARY_RED"; then echo summary; return; fi
   n=$(need_of "$1")
   if [ -n "$n" ]; then
     case " $PENDING " in *" $n "*) echo "pending $n";; *) echo "stale $n";; esac
@@ -63,13 +66,16 @@ classify(){ # $1 one red: skip | known | pending <component> | stale <component>
   fi
   echo unexplained
 }
-judge(){ # $1 log $2 label: records every red with its class; prints the reds nothing explains
-  health_reds "$1" | while IFS= read -r line; do
-    c=$(classify "$line")
-    [ "$c" = skip ] && continue
-    say "RED $2 [$c] $(echo "$line" | cut -c1-160)"
-    case "$c" in known|pending*) ;; *) echo "$line";; esac
-  done
+judge(){ # $1 log $2 label: records every red with its class; prints the reds nothing explains, then
+  # the rebuild's summary line, which stops only beside one of them (launch.py bad_reds)
+  health_reds "$1" | { bad=""; sum=""
+    while IFS= read -r line; do
+      c=$(classify "$line")
+      [ "$c" = skip ] && continue
+      say "RED $2 [$c] $(echo "$line" | cut -c1-160)"
+      case "$c" in known|pending*) ;; summary) sum="$line";; *) bad=1; echo "$line";; esac
+    done
+    if [ -n "$bad" ] && [ -n "$sum" ]; then echo "$sum"; fi; }
 }
 rebuild(){ # $1 component; returns 1 when its success line is missing
   ./startup.sh rebuild --component "$1" --no-ci > "$L/$(logname "$1").log" 2>&1 </dev/null

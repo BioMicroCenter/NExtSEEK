@@ -1056,6 +1056,7 @@ def runner_values(data: dict, brief: BriefForm, d: Path, exp_full: str, cases: l
         "CASES": " ".join(cases), "NESSIE_FLAGS": " ".join(flags),
         "KNOWN_CI_REDS": ere_alternation(data["derived"]["known_ci_reds"]),
         "KNOWN_HEALTH_REDS": ere_alternation(data["derived"]["known_health_reds"]),
+        "SUMMARY_RED": rules.SUMMARY_RED,
         "WINDOWS": windows_hhmm(inst),
         "DISCARD": " ".join(inst.discard_before_pull),
         "REFRESH_MARKER": "NessieAI/chat_nextseek/src/chat_nextseek/context/.context_db_refresh",
@@ -1270,10 +1271,13 @@ def _run_ssh(a, inst: rules.Instance, d: Path, tag: str, script: str) -> int:
 STAMP_RE = re.compile(r"\s(\d{2}:\d{2}:\d{2})\s*$")
 CASE_RE = re.compile(r"^\[\s*(\d+)/(\d+)\]\s+(\S+)\s+(\S+)\s+(\S+)\s+([\d.]+)s\s+\$([\d.]+)\s+(\S+)(?:\s+<-\s+(.*))?$")
 NOT_CONTINUATION = re.compile(r"^(╭|│|╰|FAILED|ERROR|XFAIL|XPASS|PASSED|=)")
+# Indented deeper than the text of a ✗ line (seven spaces, the mark, a space): a detail line of that red,
+# such as the problems under 'graph sync health' (startup/steps/validate.py GRAPH_SYNC_HEALTH_INDENT).
+DETAIL_LINE = re.compile(r"^ {9}\s*\S")
 
 
 def health_reds(text: str) -> list[str]:
-    """Every ✗ line with its wrapped continuation lines joined (the runner's awk, in Python)."""
+    """Every ✗ line with its wrapped continuation lines and its detail lines joined (the runner's awk)."""
     reds, cur = [], None
     for line in text.splitlines():
         m = re.match(r"^\s+✗ (.*)$", line)
@@ -1284,6 +1288,9 @@ def health_reds(text: str) -> list[str]:
             continue
         if cur is not None and line and not line[0].isspace() and not NOT_CONTINUATION.match(line):
             cur += line
+            continue
+        if cur is not None and DETAIL_LINE.match(line):
+            cur += " " + line.lstrip()
             continue
         if cur is not None:
             reds.append(cur.rstrip())
@@ -1298,10 +1305,19 @@ def classify_red(red: str, pending: set[str], known: list[str]) -> str:
         return "skip"
     if any(re.search(p, red) for p in known):
         return "known"
+    if re.search(rules.SUMMARY_RED, red):
+        return "summary"
     for name, comp in rules.HEALTH_NEEDS:
         if red.startswith(name):
             return f"pending {comp}" if comp in pending else f"stale {comp}"
     return "unexplained"
+
+
+def bad_reds(reds: list[dict]) -> list[str]:
+    """The reds that stop, as the runner's judge() prints them: every unexplained or stale red, then the
+    rebuild's summary line, which stops only beside one of them."""
+    bad = [r["text"] for r in reds if r["class"] == "unexplained" or r["class"].startswith("stale")]
+    return bad + [r["text"] for r in reds if r["class"] == "summary"] if bad else []
 
 
 def parse_status(text: str) -> dict:
@@ -1480,7 +1496,7 @@ def cmd_judge(a) -> int:
             "rollback_tag": st["rollback"].get(c),
             "built_from": (st["rollback"].get(c) or "").rsplit("-", 1)[-1] or None,
             "reds": reds,
-            "unexplained": [r["text"] for r in reds if r["class"] == "unexplained" or r["class"].startswith("stale")],
+            "unexplained": bad_reds(reds),
         }
     ck_p = ev / "checks.log"
     checks = parse_checks(ck_p.read_text(encoding="utf-8", errors="replace")) if ck_p.is_file() else {}
@@ -1500,7 +1516,7 @@ def cmd_judge(a) -> int:
         nessie.append({**n, **parsed, "log": str(log)})
     head_ok = bool(st["head"]) and st["head"].split()[0].startswith(brief.expected_sha[:7])
     unexplained = sum(len(r["unexplained"]) for r in rebuilds.values())
-    ci_health_bad = [r["text"] for r in ci.get("health_reds", []) if r["class"] not in ("known",)]
+    ci_health_bad = bad_reds(ci.get("health_reds", []))
     facts = {
         "schema": "launch-facts/v1", "judged_at": iso(utcnow()), "tag": tag, "instance": brief.instance,
         "evidence": str(ev), "status_file": str(status_p),

@@ -446,7 +446,7 @@ def _functions(text):
 
 def bash_judge(tmp_path, text, log, pending):
     header = "\n".join(ln for ln in text.splitlines()[:30]
-                       if re.match(r"^(KNOWN_HEALTH_REDS|KNOWN_CI_REDS|WINDOWS)=", ln))
+                       if re.match(r"^(KNOWN_HEALTH_REDS|KNOWN_CI_REDS|SUMMARY_RED|WINDOWS)=", ln))
     script = tmp_path / "j.sh"
     script.write_text(f"{header}\nST={tmp_path}/st\n{_functions(text)}\nPENDING='{pending}'\n"
                       f'health_reds "{log}" | while IFS= read -r l; do echo "$(classify "$l")|$l"; done\n')
@@ -479,6 +479,89 @@ def test_a_red_for_a_pending_component_is_expected_and_after_it_is_stale(tmp_pat
     assert got[1][0] == "stale app"
     assert got[2][0] == "unexplained"
     assert got[3][0] == "skip"
+
+
+def judges_bad(tmp_path, text, log, pending, known):
+    """The reds that stop, from the runner's bash judge() and from launch.py, with the instance's known reds."""
+    funcs = _functions(text)
+    script = tmp_path / "jb.sh"
+    script.write_text(f"KNOWN_HEALTH_REDS='{L.ere_alternation(known)}'\nSUMMARY_RED='{rules.SUMMARY_RED}'\n"
+                      f"ST={tmp_path}/st\n{funcs}\nPENDING='{pending}'\njudge \"{log}\" app\n")
+    r = subprocess.run(["bash", str(script)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    reds = [{"text": t, "class": L.classify_red(t, set(pending.split()), known)}
+            for t in L.health_reds(Path(log).read_text())]
+    reds = [x for x in reds if x["class"] != "skip"]
+    return r.stdout.splitlines(), L.bad_reds(reds), reds
+
+
+def _known(instance):
+    return [k.match for k in rules.INSTANCES[instance].known_reds if k.kind == "health"]
+
+
+def test_the_rebuild_summary_does_not_stop_when_every_other_red_is_pending(tmp_path, capsys):
+    # prod-launch-20261003-2359: the only red was cc-agent context with cc-agent still to rebuild
+    d, text = rendered_runner(tmp_path, capsys)
+    log = FIX / "real-app-prod-20261003-2359.log"
+    b, p, reds = judges_bad(tmp_path, text, log, "cc-agent", _known("prod"))
+    assert b == p == []
+    assert [x["class"] for x in reds] == ["pending cc-agent", "summary"]
+
+
+def test_the_rebuild_summary_still_stops_beside_a_stale_or_unexplained_red(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys)
+    log = tmp_path / "mixed.log"
+    log.write_text((FIX / "real-app-prod-20261003-2359.log").read_text().replace(
+        "       ✗ Rebuild finished",
+        "       ✗ app image code: STALE: of 2212 tracked app files, 3 differ\n       ✗ Rebuild finished"))
+    b, p, _ = judges_bad(tmp_path, text, log, "cc-agent", _known("prod"))
+    assert b == p and len(p) == 2
+    assert p[0].startswith("app image code: STALE") and p[1].startswith("Rebuild finished but is red")
+    # the summary of a rebuild whose app or front door is not up is never excused
+    log.write_text("       ✗ Rebuild finished but is red: stack health. The app or front door is not up; see "
+                   "DEPLOYMENT.md section 5 (Rollback).\n")
+    b, p, _ = judges_bad(tmp_path, text, log, "", _known("prod"))
+    assert b == p and len(p) == 1
+
+
+DEV_2010 = FIX / "real-app-dev-20261003-2010.log"
+
+
+def test_op14_drift_alone_is_known_on_dev_and_stops_on_prod(tmp_path, capsys):
+    # dev-launch-20261003-2010: graph sync health red only from the drift OP14 leaves red on dev
+    d, text = rendered_runner(tmp_path, capsys)
+    b, p, reds = judges_bad(tmp_path, text, DEV_2010, "cc-agent", _known("dev"))
+    assert b == p == []
+    assert any(x["class"] == "known" and x["text"].startswith("graph sync health") for x in reds)
+    b, p, _ = judges_bad(tmp_path, text, DEV_2010, "cc-agent", _known("prod"))
+    assert b == p and any(x.startswith("graph sync health") for x in p) and p[-1].startswith("Rebuild finished")
+
+
+@pytest.mark.parametrize("old,new", [
+    # another drift check failed too
+    ("in: catalog.assistant_investigations. It", "in: catalog.assistant_investigations, 1.lineage.duplicate_edges. It"),
+    # a stale job: its problem line comes before the drift line
+    ("           drift run 101 (finished", "           outbox is stale: 2.0 h old against 1.0 h\n           drift run 101 (finished"),
+    # an overdue failed run
+    ("failed runs: 0 \n(0 overdue)", "failed runs: 1 \n(1 overdue)"),
+    # an overdue failing outbox row
+    ("failing outbox rows: 0 (0 overdue)", "failing outbox rows: 2 (1 overdue)"),
+])
+def test_graph_sync_health_still_stops_on_dev_for_anything_but_the_op14_drift(tmp_path, capsys, old, new):
+    d, text = rendered_runner(tmp_path, capsys)
+    src = DEV_2010.read_text()
+    assert old in src
+    log = tmp_path / "x.log"
+    log.write_text(src.replace(old, new))
+    b, p, _ = judges_bad(tmp_path, text, log, "cc-agent", _known("dev"))
+    assert b == p and p[0].startswith("graph sync health") and p[-1].startswith("Rebuild finished")
+
+
+def test_the_off_prod_drift_set_is_the_ci_smoke_one():
+    import ast
+    src = (SKILL.parents[2] / "ci" / "smoke" / "test_graph_sync_status.py").read_text()
+    m = re.search(r"^OFF_PROD_ALLOWED_DRIFT = frozenset\((\{[^}]*\})\)", src, re.M)
+    assert m and ast.literal_eval(m.group(1)) == set(rules.OFF_PROD_ALLOWED_DRIFT)
 
 
 def test_in_window(tmp_path, capsys):

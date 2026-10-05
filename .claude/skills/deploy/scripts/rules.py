@@ -45,6 +45,11 @@ HEALTH_NEEDS = (
 # Lines drawn with ✗ that are not stack-health checks.
 NOT_HEALTH = ("CI failed", "CI passed", "stopped before building")
 
+# The rebuild's closing line when the build and restart worked and only health lines are red
+# (startup/cli.py). It is no stop of its own: it stops only beside a red the judge cannot explain
+# (unexplained or stale). Rich drops the space where it wraps a line, so each space is optional.
+SUMMARY_RED = r"^Rebuild finished but is red: .*No ?rollback ?is ?needed"
+
 
 @dataclass(frozen=True)
 class KnownRed:
@@ -148,6 +153,25 @@ _REFRESH = tuple(f" M {_CONTEXT}/{f}" for f in (
     "assays_db.json", "min_assays_db.json", "min_sampletypes_db.json", "projects_db.json",
     "sampletypes_db.json")) + (f"?? {_CONTEXT}/.context_db_refresh",)
 
+# Drift checks a box that is not production may fail (operator ruling OP14, 2026-10-02). The same set
+# as OFF_PROD_ALLOWED_DRIFT in ci/smoke/test_graph_sync_status.py; a test pins the two together.
+OFF_PROD_ALLOWED_DRIFT = frozenset({"catalog.assistant_investigations"})
+
+
+def _graph_sync_drift_only() -> str:
+    """The 'graph sync health' red whose ONLY problem is a drift run that failed only the allowed checks.
+
+    The line (startup/steps/validate.py) is the summary (nextseek_api/graph_sync/health.py summary()), then one
+    detail line per problem in the order: older body, stale jobs, dead rows, overdue rows, overdue runs, drift.
+    Drift comes last, so the drift line follows the summary directly only when no other problem exists, and
+    its names end at the '.' of the remedy, so another failed check breaks the match. Warnings may follow."""
+    names = "(" + "|".join(re.escape(n) for n in sorted(OFF_PROD_ALLOWED_DRIFT)) + ")"
+    p = (r"^graph sync health: failing outbox rows: [0-9]+ \(0 overdue\); failed runs: [0-9]+ \(0 overdue\); "
+         r"latest drift check: run [0-9]+ drift drift run [0-9]+ \(finished [^)]*\) found drift in: "
+         + names + "(, " + names + r")*\. It stays red")
+    return p.replace(" ", " ?")   # rich drops the space where it wraps a line
+
+
 DEV_SEEK_REDS = (
     KnownRed("ci", r"^ci/smoke/test_reachability\.py::test_route_is_reachable\[/seek/sample_types/id=",
              "SEEK SampleTypesController#show spends about 22 s in the database, past the 20 s client "
@@ -166,6 +190,10 @@ _INSTANCE_RULES = {
                      "dev lacks some investigations; this alone makes the rebuild exit 1", "2026-09-25"),
             KnownRed("health", r"^no usable GHCR credential",
                      "no ~/.config/nextseek/ghcr.env on dev (issue #87); harmless", "2026-09-25"),
+            KnownRed("health", _graph_sync_drift_only(),
+                     "graph sync health is red only because the latest drift run failed the checks allowed off "
+                     "production (OP14: leave it red on dev); any other problem on that line still stops",
+                     "2026-10-05"),
         ),
         windows=(
             Window((4, 0), (12, 0), "the nightly mariadb-dump hangs on a stuck NFS mount and holds "
