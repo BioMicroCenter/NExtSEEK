@@ -23,6 +23,8 @@ _PROBE = (
     "    django.setup()\n"
     "import NessieAI.router.router\n"
     "print(sorted(m for m in sys.modules if m.split('.')[:2] == ['NessieAI', 'hibayes']))\n"
+    "print(sorted(m for m in sys.modules if m.split('.')[0] in ('torch', 'laya')"
+    " or m.split('.')[:3] in (['NessieAI', 'router', 'laya'], ['NessieAI', 'router', 'laya_common'])))\n"
 )
 
 
@@ -40,4 +42,7 @@ def test_importing_the_router_does_not_load_hibayes():
         timeout=120,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().splitlines()[-1] == "[]", result.stdout
+    hibayes, laya = result.stdout.strip().splitlines()[-2:]
+    assert hibayes == "[]", result.stdout
+    # laya (JevLevROUTING) is imported inside decide(), never at import time; no torch either.
+    assert laya == "[]", result.stdout

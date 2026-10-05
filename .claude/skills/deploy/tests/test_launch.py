@@ -1087,3 +1087,70 @@ def test_the_sidecar_op_check_applies_only_on_the_sidecar_road(tmp_path, capsys)
 def test_the_checks_parser_reads_the_road():
     ck = L.parse_checks("CHECK ops_road direct\nCHECK sidecar_ops skipped\n")
     assert (ck["ops_road"], ck["sidecar_ops"]) == ("direct", "skipped")
+
+
+# --------------------------------------------------------------------------- laya_mode (JevLevROUTING)
+@pytest.mark.parametrize("inst", ["dev", "prod"])
+def test_the_laya_mode_kv_is_in_the_preflight_script_on_every_instance(tmp_path, capsys, inst):
+    code, out, d = make_brief(tmp_path / inst, capsys, instance=inst)
+    assert code == 0
+    code, out = run(["preflight-script", "--brief", str(d / "brief.json")], capsys)
+    assert "NESSIE_LAYA_SHADOW" in out.out and "NESSIE_LAYA_LIVE" in out.out and "KV laya_mode=" in out.out
+    p = tmp_path / inst / "pre.sh"
+    p.write_text(out.out)
+    assert subprocess.run(["bash", "-n", str(p)]).returncode == 0
+
+
+@pytest.mark.parametrize("mode", ["shadow=0 live=", "shadow=1 live=", "shadow=unset live=", "unknown"])
+def test_laya_mode_passes_for_off_shadow_or_absent(tmp_path, capsys, mode):
+    code, out, d = preflight(tmp_path, capsys, good_preflight(laya_mode=mode))
+    assert code == 0, out.err
+    rows = {r["id"]: r for r in json.loads((d / "preflight.json").read_text())["checks"]}
+    assert rows["laya_mode"]["verdict"] == "ok"
+
+
+@pytest.mark.parametrize("mode", ["shadow=0 live=1", "shadow=1 live=true", "shadow=1 live=20261003-abcdef012345"])
+def test_laya_live_stops_unless_the_brief_names_that_revision(tmp_path, capsys, mode):
+    code, out, d = preflight(tmp_path, capsys, good_preflight(laya_mode=mode))
+    assert code == 5 and "- laya_mode:" in out.err
+
+
+def test_laya_live_passes_when_the_brief_names_the_revision(tmp_path, capsys):
+    mode = "shadow=1 live=20261003-abcdef012345"
+    code, out, d = preflight(tmp_path, capsys, good_preflight(laya_mode=mode),
+                             laya_live_revision="20261003-abcdef012345")
+    assert code == 0, out.err
+    code, out, d = preflight(tmp_path / "other", capsys, good_preflight(laya_mode=mode),
+                             laya_live_revision="20261004-000000000000")
+    assert code == 5 and "- laya_mode:" in out.err
+
+
+@pytest.mark.parametrize("live_line", ['NESSIE_LAYA_LIVE="20261003-abcdef012345" # go',
+                                       "NESSIE_LAYA_LIVE= 20261003-abcdef012345 "])
+def test_the_laya_kv_drops_an_inline_comment_and_spaces_as_compose_does(tmp_path, capsys, live_line):
+    box = tmp_path / "box"
+    (box / "docker").mkdir(parents=True)
+    (box / "docker" / "nextseek.env").write_text('NESSIE_LAYA_SHADOW="1"\n' + live_line + "\n")
+    kv = subprocess.run(["bash", "-c", L.LAYA_KV], cwd=box, capture_output=True, text=True).stdout.strip()
+    assert kv == "KV laya_mode=shadow=1 live=20261003-abcdef012345"
+    code, out, d = preflight(tmp_path / "brief", capsys, good_preflight(laya_mode=kv[len("KV laya_mode="):]))
+    assert code == 5 and "- laya_mode:" in out.err
+
+
+def test_a_laya_mode_value_the_rule_cannot_read_is_a_stop(tmp_path, capsys):
+    code, out, d = preflight(tmp_path, capsys, good_preflight(laya_mode="shadow=1 live=x # go"))
+    assert code == 5 and "- laya_mode:" in out.err
+
+
+@pytest.mark.parametrize("value,verdict", [('"0"', "ok"), ("0", "ok"), ('"1"', "stop"), ("1", "stop")])
+def test_the_prod_posterior_row_reads_a_quoted_value_and_a_real_1_still_stops(tmp_path, capsys, value, verdict):
+    box = tmp_path / "box"
+    (box / "docker").mkdir(parents=True)
+    (box / "docker" / "nextseek.env").write_text(f"NEXTSEEK_POSTERIOR_ROUTING_ENABLED={value}\n")
+    line = next(x for x in L.PREFLIGHT_EXTRA["prod"].splitlines() if "posterior_routing" in x)
+    kv = subprocess.run(["bash", "-c", line], cwd=box, capture_output=True, text=True).stdout.strip()
+    assert kv == "KV posterior_routing=" + value.strip('"')
+    code, out, d = preflight(tmp_path / "brief", capsys, good_preflight(posterior_routing=kv.split("=", 1)[1]),
+                             instance="prod")
+    rows = {r["id"]: r for r in json.loads((d / "preflight.json").read_text())["checks"]}
+    assert rows["posterior_routing"]["verdict"] == verdict

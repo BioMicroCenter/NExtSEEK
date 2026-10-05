@@ -54,9 +54,11 @@ only the counts and the query are kept. `--raw` keeps everything.
 
 Money and models, per turn: `cost` is the engine's `total_cost_usd` and `router_cost`
 the router's `router_cost_usd` off the `route_decided` event, with their partial flags,
-`models_used`, `model_fallback`, `router_model` and `router_fallback`. A Container-CC turn also
-carries `ops_cost` (`ops_cost_usd`) and `server_turn_cost` (`turn_cost_usd`, the whole turn as the server
-summed it; it replaces the engine + router sum). `turn_cost` and
+`models_used`, `model_fallback`, `router_model`, `router_fallback`, `router_elapsed_s`, the laya block
+(`laya`, null when laya did not run) and `parser_decision` (raw_mode before the guardrails, final_mode,
+guardrails_changed, llm_ms). A Container-CC turn also carries `ops_cost` (`ops_cost_usd`) and
+`server_turn_cost` (`turn_cost_usd`, the whole turn as the server summed it; it replaces the engine +
+router sum). `turn_cost` and
 `turn_cost_partial` are those summed by the harness's own rule (`turn_cost.py`, found
 beside this script or in its checkout), and `fell_back` says whether any model of the
 turn fell back. When the manifest is on the instance, `case_costs.json` sums each case
@@ -183,6 +185,7 @@ q -e "SELECT JSON_OBJECT(
         'why',     JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.reasoning'),'\$[0]')),
         'model',   JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.model_id'),'\$[0]')),
         'mode',    JSON_UNQUOTE({D}'\$[0].parser_plan.mode')),
+        'parser_decision', {D}'\$[0].parser_decision'),
         'aplan',   {D}'\$[0].api_plan'),
         'ameta',   {D}'\$[0].api_result_meta'),
         'gplan',   {D}'\$[0].graph_plan'),
@@ -200,7 +203,10 @@ q -e "SELECT JSON_OBJECT(
         'router_cost',         JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_cost_usd'),'\$[0]'),
         'router_cost_partial', JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_cost_partial'),'\$[0]'),
         'router_model',        JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_model'),'\$[0]'),
-        'router_fallback',     JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_fallback'),'\$[0]')
+        'router_fallback',     JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_fallback'),'\$[0]'),
+        'router_elapsed_s',    JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_elapsed_s'),'\$[0]'),
+        'attempted_route',     JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.attempted_route'),'\$[0]'),
+        'laya',                JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.laya'),'\$[0]')
       ) FROM assistant_query_task t WHERE {where} ORDER BY t.id;"
 """
 

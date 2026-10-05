@@ -168,6 +168,9 @@ local_settings.py
 # See docker/nextseek.env.example for the template.
 docker/nextseek.env
 docker/db.env
+# laya sidecar's own key file and the (large) fine-tuned checkpoints.
+docker/laya.env
+docker/laya/models/
 # Ad-hoc backup copies of rendered env files (nextseek.env.bak.<date>, …):
 # same secrets, same rule, any depth.
 *.env.bak*

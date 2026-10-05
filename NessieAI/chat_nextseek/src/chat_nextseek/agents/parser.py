@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import functools
 import json
 import re
@@ -918,17 +919,26 @@ def _apply_parser_guardrails(
     session: "SessionState | SessionStateProxy | None" = None,
     force_mode: str | None = None,
     config: Any = None,
+    trace: list[str] | None = None,
 ) -> ParserPlan:
     """Apply narrow deterministic safety checks after LLM routing.
+
+    ``trace``, when given, collects the name of each guardrail that changed the mode (telemetry only).
 
     After the bulk-export check, a sample search the REST path no longer serves goes to the
     graph (``_route_retired_sample_search``). ``force_mode`` is the evaluation switch
     (``_force_parser_mode``); it runs last, after every product guardrail, and is None
     outside an evaluation run.
     """
-    plan = _normalise_mode_aliases(plan)
-    plan = _note_refine_without_bundle(session, plan)
-    plan = _force_graph_for_uid_lineage(user_query, plan)
+    def _seen(name: str, before: ParserPlan, after: ParserPlan) -> ParserPlan:
+        if trace is not None and after.mode != before.mode:
+            trace.append(name)
+        return after
+
+    plan = _seen("mode_aliases", plan, _normalise_mode_aliases(plan))
+    plan = _seen("refine_without_bundle", plan, _note_refine_without_bundle(session, plan))
+    plan = _seen("uid_lineage", plan, _force_graph_for_uid_lineage(user_query, plan))
+    before_bulk = plan
     if _is_unscoped_bulk_export_request(user_query, plan.mode, plan.filters):
         plan = ParserPlan(
             mode="unsupported",
@@ -947,9 +957,10 @@ def _apply_parser_guardrails(
             report_mode=None,
             report_type=None,
         )
-    plan = _route_retired_sample_search(session, plan)
-    plan = _route_by_kind(user_query, plan, config)
-    return _force_parser_mode(plan, force_mode)
+    plan = _seen("unscoped_bulk_export", before_bulk, plan)
+    plan = _seen("retired_sample_search", plan, _route_retired_sample_search(session, plan))
+    plan = _seen("route_by_kind", plan, _route_by_kind(user_query, plan, config))
+    return _seen("force_mode", plan, _force_parser_mode(plan, force_mode))
 
 
 def _apply_multi_parser_guardrails(user_query: str, plan: MultiParserPlan, config: Any = None) -> MultiParserPlan:
@@ -993,9 +1004,11 @@ def _empty_plan_problem(plan: ParserPlan) -> str | None:
     )
 
 
-def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, user_query: str, entity_result: EntityAgentOutput | dict) -> ParserPlan:
+def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, user_query: str, entity_result: EntityAgentOutput | dict, decision: dict | None = None) -> ParserPlan:
     """
     Invoke the single-path parser used by the standard pipeline.
+    ``decision``, when given, is filled with telemetry: raw_mode (the LLM's pick), final_mode,
+    guardrails_changed (guardrails that changed the mode, in order) and llm_ms. No question text.
     Embeds recent session context plus catalog endpoints into the prompt and returns a ParserPlan.
     """
     from ..chat_memory import history_block
@@ -1051,6 +1064,7 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
         print(f"[DEBUG][PARSER] Extended thinking enabled: budget={parser_thinking_budget} tokens, model={parser_model_name}")
 
     print("\n[DEBUG][PARSER] User query:", user_query)
+    _llm_t0 = time.perf_counter()
     try:
         plan_model = call_llm_structured(
             config=config,
@@ -1089,11 +1103,18 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
             metadata={"failure": "parse_error", "error": repr(e)},
         )
 
+    _llm_ms = int((time.perf_counter() - _llm_t0) * 1000)
     print("[DEBUG][PARSER] Parsed plan:", json.dumps(plan_model.model_dump(), indent=2))
+    _raw_mode = plan_model.mode
+    _changed: list[str] = []
     plan_model = _apply_parser_guardrails(
         user_query, plan_model, session=session,
         force_mode=getattr(config, "FORCE_PARSER_MODE", None), config=config,
+        trace=_changed,
     )
+    if decision is not None:
+        decision.update(raw_mode=_raw_mode, final_mode=plan_model.mode,
+                        guardrails_changed=_changed, llm_ms=_llm_ms)
     if plan_model.mode == "unsupported":
         print("[DEBUG][PARSER] Guardrailed plan:", json.dumps(plan_model.model_dump(), indent=2))
     return plan_model

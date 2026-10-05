@@ -288,7 +288,8 @@ def _keeps_the_cost(d):
     assert d.router_cost_usd == 0.0042
     assert d.router_usage == {"calls": [{"model": PRO}]}
     assert d.router_cost_partial is False
-    assert cc_router.router_cost_fields(d) == {
+    fields = cc_router.router_cost_fields(d)
+    assert {k: fields[k] for k in ("router_cost_usd", "router_cost_partial", "router_usage")} == {
         "router_cost_usd": 0.0042, "router_cost_partial": False, "router_usage": {"calls": [{"model": PRO}]}}
 
 
