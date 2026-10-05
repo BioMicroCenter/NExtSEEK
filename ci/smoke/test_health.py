@@ -93,15 +93,6 @@ def test_identity_probe_responds(api, base_url, smoke_creds):
     assert r.json().get("data", {}).get("id"), "no person in the response body"
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Two different authenticated accounts are reported as the same SEEK "
-        "person. Measured 2026-09-01 on the local stack. Cause and fix are "
-        "recorded in the private findings note, which this public repo does "
-        "not carry. Flips to XPASS when the proxy client is fixed."
-    ),
-    strict=False,
-)
 def test_seek_identity_matches_the_authenticated_caller(api, base_url, smoke_creds):
     """The API must report the caller's own SEEK identity, not somebody else's.
 

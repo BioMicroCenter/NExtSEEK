@@ -5,6 +5,7 @@ import base64
 from typing import Any, Dict, Optional, Tuple, List
 
 import requests
+from requests.cookies import RequestsCookieJar
 from django.conf import settings
 
 from seek.seekdb import SeekDB
@@ -146,12 +147,20 @@ def resolve_seek_auth(request, order: Optional[List[str]] = None) -> Tuple[Optio
     return None, None
 
 
+class _NoCookies(RequestsCookieJar):
+    """Cookie jar that stores nothing: each call authenticates on its own."""
+
+    def set_cookie(self, *args, **kwargs):
+        pass
+
+
 class SeekAPIClient:
     """Minimal SEEK API client using requests.Session and JSON:API headers."""
 
     def __init__(self) -> None:
         self.base_url: str = settings.SEEK_URL.rstrip('/')
         self.session = requests.Session()
+        self.session.cookies = _NoCookies()
         self.session.headers.update({'Accept': JSONAPI_ACCEPT})
         self.timeout_s: int = 20
 
