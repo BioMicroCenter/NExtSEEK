@@ -9,4 +9,6 @@
    WHERE EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }. Studies that ran X: the IN_STUDY of
    those samples. "Underwent / processed via X" stays the DERIVED_FROM edge test of STEP 4. Pair samples through an
    Assay only from one UID-named sample: its Assay a, the DISTINCT others that went through a; same run: a shared
-   seek_assay_ids id on their edges.
+   seek_assay_ids id on their edges. With no sample named by UID, never list pairs: group by Assay
+   and count, MATCH (s:Sample)-[:INPUT_TO|OUTPUT_OF]->(a:Assay) RETURN a.title AS assay, count(DISTINCT s) AS samples
+   ORDER BY samples DESC LIMIT 50, and say in the explanation that pairs are not listed and one UID gives its partners.

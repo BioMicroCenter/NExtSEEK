@@ -2317,7 +2317,9 @@ def _shape_lines(shapes: list[_Shape]) -> list[str]:
             "starts from a sample the question names by UID: `MATCH (s:Sample {uuid: $uid})-[:INPUT_TO|OUTPUT_OF]->"
             "(a:Assay)<-[:INPUT_TO|OUTPUT_OF]-(o:Sample) RETURN DISTINCT o.uuid AS uuid` (or "
             "`count(DISTINCT o)`), and for the same run add the shared seek_assay_ids id on the two edges. With no "
-            "sample named by UID, samples cannot be paired through an Assay.")
+            "sample named by UID, never list pairs: group by Assay and count, `MATCH (s:Sample)-[:INPUT_TO|OUTPUT_OF]->"
+            "(a:Assay) RETURN a.title AS assay, count(DISTINCT s) AS samples ORDER BY samples DESC LIMIT 50`, and say "
+            "in the explanation that pairs are not listed and one UID gives its partners.")
     return lines
 
 

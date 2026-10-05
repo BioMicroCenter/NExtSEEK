@@ -639,7 +639,9 @@ ASSAY_STRUCTURE_TEXT = """\
    WHERE EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }. Studies that ran X: the IN_STUDY of
    those samples. "Underwent / processed via X" stays the DERIVED_FROM edge test of STEP 4. Pair samples through an
    Assay only from one UID-named sample: its Assay a, the DISTINCT others that went through a; same run: a shared
-   seek_assay_ids id on their edges.
+   seek_assay_ids id on their edges. With no sample named by UID, never list pairs: group by Assay
+   and count, MATCH (s:Sample)-[:INPUT_TO|OUTPUT_OF]->(a:Assay) RETURN a.title AS assay, count(DISTINCT s) AS samples
+   ORDER BY samples DESC LIMIT 50, and say in the explanation that pairs are not listed and one UID gives its partners.
 """
 
 
@@ -652,7 +654,7 @@ def test_the_assay_section_is_the_reviewed_text():
 
 def test_the_assay_section_is_compact():
     # It goes into every graph turn on a 1.3 graph, beside the main file's 5,400 bytes.
-    assert len(gc.ASSAY_STRUCTURE_PATH.read_bytes()) <= 1024
+    assert len(gc.ASSAY_STRUCTURE_PATH.read_bytes()) <= 1400  # 1024 until the R5 count-table sentence
 
 
 def test_the_structure_file_names_the_version_it_describes_on_its_first_line():

@@ -115,17 +115,13 @@ RETURN count(s) AS n
 - **A sample the question says was treated with, stained with or used another sample** (a chemical, a treatment agent, a bacterial stock, an antibody) is that sample's child: every attribute whose title contains Parent (Parent, AntibodyParent, Treatment1Parent, ...) produced a DERIVED_FROM edge to the sample it names. "Samples treated with a Y with property P" is exactly one hop to that parent, never a variable-length path: `MATCH (c:Sample)-[:DERIVED_FROM]->(y:T_CHM) WHERE <P on y> RETURN count(DISTINCT c) AS n`. Only the stated relationship makes this a traversal; "associated with" alone is a text search (STEP 1).
 - **Everything derived from one UID**: `MATCH (d:Sample)-[:DERIVED_FROM*1..12]->(:Sample {uuid: $uid}) RETURN DISTINCT d.uuid AS uuid, d.type AS type`. Its ancestors: reverse the arrow. Count with `count(DISTINCT d)`. Directly derived is one hop: `MATCH (c:Sample)-[:DERIVED_FROM]->(:Sample {uuid: $uid}) RETURN count(DISTINCT c) AS n`.
 - **Are two named samples related** ("are X and Y related", "is X derived from Y"): anchor both by UID (each as the UID CHECK block spells it) and test lineage in each direction with a bounded EXISTS, returning booleans only: `MATCH (a:Sample {uuid: $uid_a}), (b:Sample {uuid: $uid_b}) RETURN EXISTS { (a)-[:DERIVED_FROM*1..12]->(b) } AS a_derived_from_b, EXISTS { (b)-[:DERIVED_FROM*1..12]->(a) } AS b_derived_from_a`. Related by lineage means either is true. This tests lineage (DERIVED_FROM) only: say so in the explanation, because "related" can also mean the same study or the same assay.
-- **Relationship properties only on a single hop.** `[r:DERIVED_FROM*1..12]` binds a list, so `r.internal_assay_title` there is a type error. Test the assay on a one-hop edge **in its own nested `EXISTS`** on the sample whose edge it is. Never put that edge in the same MATCH as the path that reaches the sample: Cypher never uses one relationship twice in a pattern, so the path would have to avoid the very edge you are testing, and the count silently collapses. "Mice with a descendant that underwent the assay":
+- **Relationship properties only on a single hop.** `[r:DERIVED_FROM*1..12]` binds a list, so `r.internal_assay_title` there is a type error. Test the assay on a one-hop edge in its own MATCH, apart from the path that reaches the sample. Never put that edge in the same MATCH as the path: Cypher never uses one relationship twice in a pattern, so the path would have to avoid the very edge you are testing, and the count silently collapses. When the assay is the narrow side, start from the edges that carry it and walk up to the type; do not scan every sample of the type and walk down from each. "Mice with a descendant that underwent the assay":
 ```
-MATCH (m:T_MUS)
-WHERE EXISTS {
-  MATCH (m)<-[:DERIVED_FROM*1..12]-(c:Sample)
-  WHERE EXISTS {
-    MATCH (c)-[r:DERIVED_FROM]->(:Sample)
-    WHERE (r.internal_assay_title = $assay OR $assay IN coalesce(r.internal_assay_titles, []))
-  }
-}
-RETURN count(m) AS n
+MATCH (c:Sample)-[r:DERIVED_FROM]->(:Sample)
+WHERE (r.internal_assay_title = $assay OR $assay IN coalesce(r.internal_assay_titles, []))
+WITH DISTINCT c
+MATCH (c)-[:DERIVED_FROM*1..12]->(m:T_MUS)
+RETURN count(DISTINCT m) AS n
 ```
 - **Assays and protocols** live on the edge (on a schema 1.3 graph an Assay node also holds each assay kind: its section of the GRAPH SCHEMA says when to use it, for went through, which assays and same assay as a sample). Match the user's term against the ASSAY TITLES (or PROTOCOL TITLES) vocabulary and use that exact string; when no title is close, use `(toLower(r.internal_assay_title) CONTAINS toLower($term) OR any(t IN coalesce(r.internal_assay_titles, []) WHERE toLower(t) CONTAINS toLower($term)))`. Before combining an assay with a sample type, check ASSAY-SAMPLE CONNECTIONS: when the type is the assay's parent or child type, filter that side of the one-hop edge; when it is further up the chain, chain a bounded path to it as above.
 - **Type vs assay**: when the question is about what data exists below a sample ("that have NMR data"), filter the descendant's type; when it is about the process applied ("that underwent NMR"), filter the edge's assay.
