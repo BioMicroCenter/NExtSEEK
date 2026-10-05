@@ -82,6 +82,34 @@ def test_parse_software_versions_collision_across_processes():
     assert "samtools" not in conflicts
 
 
+def test_software_versions_ignore_surrounding_whitespace():
+    # nf-core/scrnaseq 4.1.0 writes CELLRANGER_COUNT's version quoted with a
+    # trailing space ('9.0.1 ') and the other CELLRANGER_* processes without
+    # one. Padding is not a version: it must not raise a conflict, and every
+    # view must report the bare value, whichever pipeline wrote the padding.
+    text = (
+        "CELLRANGER_COUNT:\n"
+        "  cellranger: '9.0.1 '\n"
+        "CELLRANGER_MKGTF:\n"
+        "  cellranger: 9.0.1\n"
+        "' PADDED_PROCESS ':\n"
+        "  ' samtools\t': \"\t1.21\\n\"\n"
+        "Workflow:\n"
+        "  nf-core/scrnaseq: 'v4.1.0 '\n")
+
+    assert parsers.software_version_conflicts(text) == {}
+
+    flat = parsers.parse_software_versions(text)
+    assert flat["cellranger"] == "9.0.1"
+    assert flat["samtools"] == "1.21"
+    assert flat["nf-core/scrnaseq"] == "v4.1.0"
+
+    by_process = parsers.parse_software_versions_by_process(text)
+    assert by_process["CELLRANGER_COUNT"] == {"cellranger": "9.0.1"}
+    assert by_process["PADDED_PROCESS"] == {"samtools": "1.21"}
+    assert by_process["Workflow"] == {"nf-core/scrnaseq": "v4.1.0"}
+
+
 def test_parse_samplesheet_reads_sample_and_fastq_columns():
     # nf-core 3.22 writes NO samplesheet into the results directory; the input
     # samplesheet lives beside nextflow.config in the run directory above it.

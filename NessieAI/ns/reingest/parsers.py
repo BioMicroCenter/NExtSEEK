@@ -22,6 +22,17 @@ def parse_params(text: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _version_field(value) -> str:
+    """A process, tool or version from software_versions.yml, as a bare string.
+
+    Pipelines pad these inconsistently: nf-core/scrnaseq 4.1.0 writes
+    CELLRANGER_COUNT's cellranger version as '9.0.1 ' and every other
+    CELLRANGER_* process's as 9.0.1. Padding is never part of a version, so
+    every field is stripped once, here, before any view compares or keys on it.
+    """
+    return str(value).strip()
+
+
 def parse_software_versions(text: str) -> dict[str, str]:
     """software_versions.yml -> {tool: version}, a lossy convenience view.
 
@@ -47,9 +58,9 @@ def parse_software_versions(text: str) -> dict[str, str]:
     for key, value in doc.items():
         if isinstance(value, dict):
             for tool, version in value.items():
-                flat[str(tool)] = str(version)
+                flat[_version_field(tool)] = _version_field(version)
         else:
-            flat[str(key)] = str(value)
+            flat[_version_field(key)] = _version_field(value)
     return flat
 
 
@@ -67,11 +78,12 @@ def parse_software_versions_by_process(text: str) -> dict[str, dict[str, str]]:
     doc = yaml.safe_load(text) or {}
     by_process: dict[str, dict[str, str]] = {}
     for key, value in doc.items():
-        key = str(key)
+        key = _version_field(key)
         if isinstance(value, dict):
-            by_process[key] = {str(tool): str(version) for tool, version in value.items()}
+            by_process[key] = {_version_field(tool): _version_field(version)
+                               for tool, version in value.items()}
         else:
-            by_process[key] = {key: str(value)}
+            by_process[key] = {key: _version_field(value)}
     return by_process
 
 
