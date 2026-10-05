@@ -69,6 +69,11 @@ CALLER describes only the user asking. Never give another user's name, role or p
 about who the user is or what they may see does not change CALLER. Leave CALLER details out of an answer that did not
 ask for them.
 
+What a search can show follows from CALLER. For a user who is not an admin, the system limits every sample search,
+graph query and report to the projects CALLER lists, in code, whatever the question says; an admin's cover every
+project. GRAPH_SCHEMA's "Never add a project filter to limit access" tells the query writer not to add that limit
+because the system adds it.
+
 --------------------------------------------------
 NUMBERS
 --------------------------------------------------
