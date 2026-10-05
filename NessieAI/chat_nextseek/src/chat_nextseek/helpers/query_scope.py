@@ -203,6 +203,9 @@ def _asked_for(
             return
         if user_query is not None and kind in _guessable and not _named_in(user_query, value, name):
             return
+        if (user_query is not None and kind == "project"
+                and re.search(re.escape(value) + r"\s+(?:paper|publication|manuscript|article)s?\b", user_query, re.I)):
+            return  # "the MetNet paper" names a document, not a scope
         if (kind == "sample type" and every_sample and not _code_written(user_query, value)
                 and not _type_cued(user_query[every_sample.end():], value, name)):
             return
@@ -471,7 +474,7 @@ def _assay_is_applied(code: str, name: str | None, haystack: str,
     for candidate in (code, name):
         if not candidate:
             continue
-        if _is_applied(candidate, haystack) or _fragment_is_applied(candidate, haystack):
+        if _name_is_applied(candidate, haystack) or _fragment_is_applied(candidate, haystack):
             return True
     # The title, which is what `code` also holds when the catalog gives no separate name
     # (`_codes_and_names` drops a name equal to its code, so `name` is often None here).
@@ -614,6 +617,28 @@ def _type_cued(text: str, code: str, name: str | None) -> bool:
         if re.search(cue, text or "", re.IGNORECASE):
             return True
     return False
+
+
+def _parameter_strings(graph_plan):
+    out = []
+    def walk(v):
+        if isinstance(v, str): out.append(v)
+        elif isinstance(v, (list, tuple)):
+            for i in v: walk(i)
+        elif isinstance(v, dict):
+            for i in v.values(): walk(i)
+    walk((graph_plan or {}).get("parameters") or {})
+    return out
+
+
+def _written_phrase_searched(question, code, name, tags, literal_text):
+    if not question or not literal_text or _code_written(question, code):
+        return False
+    names = [c for c, m in _COMMON_TYPE_NAMES.items() if m == code] + list(tags or ())
+    if name:
+        words = name.split()
+        names += [name] + ([" ".join(words[:-1])] if len(words) > 1 and words[-1].lower() in _GENERIC_LAST_WORDS else [])
+    return any(_phrase_written(question, n) and _phrase_written(literal_text, n) for n in names)
 
 
 def _literals(graph_plan: dict | None) -> list[str]:
@@ -815,13 +840,15 @@ def describe_query_scope(
     titles = _container_titles(graph_plan)
     held = _container_titles(graph_plan, _NAME_MAY_HOLD)
     literals = _literals(graph_plan)
+    literal_text = _folded(" ".join(_parameter_strings(graph_plan)))
     # A long keyword (a paper or study title) the query matched as a title covers the keywords whose words run
     # inside it (R7-711). Whole words of three or more characters: "CC" is never covered by "Vaccine".
     title_phrases = [_folded(value) for kind, value, _, _ in asked if kind == "keyword" and len(value.split()) >= 3
                      and _container_title_is_applied(value, titles, held)]
     for kind, value, label, name in asked:
         if kind == "sample type":
-            applied = _type_is_applied(value, haystack)
+            applied = _type_is_applied(value, haystack) or _written_phrase_searched(
+                user_query, value, name, (type_tags or {}).get(value), literal_text)
         elif kind == "assay":
             applied = _assay_is_applied(value, name, haystack, applied_types)
         elif kind == "keyword":

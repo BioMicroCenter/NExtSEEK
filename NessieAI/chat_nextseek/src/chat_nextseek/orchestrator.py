@@ -2568,7 +2568,7 @@ def run_query(
             current_agent = "system"
             send_event("agent_started", {"agent": "system", "mode": mode})
             _t0 = time.perf_counter()
-            sys_output = system_agent(config, user_text, entity_result, plan)
+            sys_output = system_agent(config, user_text, entity_result, plan, session=session)
             print(f"[TIMING][SYSTEM] {time.perf_counter() - _t0:.2f}s")
             print(f"[DEBUG][SYSTEM] mode={sys_output.mode}")
             print(f"[DEBUG][SYSTEM] entities_consulted={sys_output.entities_consulted}")

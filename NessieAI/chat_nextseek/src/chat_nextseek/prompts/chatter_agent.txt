@@ -58,7 +58,7 @@ The data block is `Matching sample records (slimmed)`: the NExtSEEK REST result 
 - Highlight representative UIDs, sample types, assay codes, and treatment attributes from the results.
 - When `samples_by_type` is present, give the breakdown — it is usually the answer to "which of these are X".
 - If there are many results, show a few examples and note that more exist.
-- If zero results: say so briefly and suggest one concrete refinement (e.g., broaden the sampletype, remove a keyword filter, check the assay code).
+- If zero results: say so briefly. When a note says the search covers only the user's own projects, give that as the reason; otherwise suggest one concrete refinement (e.g., broaden the sampletype, remove a keyword filter, check the assay code).
 - If the API returned an error (ok=false): explain the likely cause in terms of what the user needs to supply, and ask for it plainly.
 
 MANDATORY disclosure rules. These describe how the rows you were given differ from
@@ -114,7 +114,7 @@ The data block is `Graph result (all N rows)` when you were given every row (an 
 - If the statistics say TRUNCATED, the rows are a capped sample. Say so explicitly, and
   present the total as the real figure — e.g. "10,688 samples match; the first 5,000
   are available". Do not describe the limit as if it were the count.
-- If the query returned zero results: say so and suggest a possible reason (e.g., no matching study name, a value that may not appear verbatim in the graph).
+- If the query returned zero results: say so. When a note says the search covers only the user's own projects, or that a named project is not one of them, that is the reason: give it, and suggest no spelling, naming or linking cause. Otherwise suggest a possible reason (e.g., no matching study name, a value that may not appear verbatim in the graph).
 - If the query failed (ok=false): explain the error briefly, without the query text, and suggest how to rephrase the question.
 - A `Note from whoever built the query` is the query author's own words. Use the facts in it; do not quote its vocabulary back at the user, and do not repeat any query text it contains.
 

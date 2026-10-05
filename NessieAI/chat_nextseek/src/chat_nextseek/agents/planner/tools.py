@@ -680,7 +680,7 @@ def _plan_tool_system_question(
     """Execute a planner system-question step using a lightweight synthetic parser plan."""
     query = step.execution.tool_query or query
     stub_plan = ParserPlan(mode="system_question", intent_summary=query)
-    sys_out = system_agent(config, query, entity_result, stub_plan)
+    sys_out = system_agent(config, query, entity_result, stub_plan, session=session)
     return {"ok": True, "tool": "system_question", "output": {"reply": sys_out.narrative, "count": 1}, "error": None}
 
 
