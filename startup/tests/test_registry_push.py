@@ -154,6 +154,16 @@ def test_gate_passes_with_only_env_example(mock_run: MagicMock) -> None:
 
 
 @patch("startup.steps.registry_push.subprocess.run")
+def test_gate_passes_with_the_laya_env_example(mock_run: MagicMock) -> None:
+    # docker/laya.env.example holds only a placeholder LAYA_API_KEY, like nextseek.env.example.
+    mock_run.side_effect = _gate_run_dispatcher(
+        "/app/docker/nextseek.env.example\n/app/docker/laya.env.example\n"
+    )
+    ok, detail = baked_secret_gate("img:latest")
+    assert ok is True, detail
+
+
+@patch("startup.steps.registry_push.subprocess.run")
 def test_gate_applies_optional_disposable_resource_limits(mock_run: MagicMock) -> None:
     mock_run.side_effect = _gate_run_dispatcher("")
 

@@ -37,7 +37,7 @@ CANONICAL_PROJECT = "nextseek"
 STATE_FILENAME = ".ghcr-push-state.json"
 
 # §5.2 gate: files whose presence in the image is always acceptable.
-_GATE_ALLOWED_FILES = {"/app/docker/nextseek.env.example"}
+_GATE_ALLOWED_FILES = {"/app/docker/nextseek.env.example", "/app/docker/laya.env.example"}
 # /app/.env is conditionally acceptable: the deployed lineage carries a
 # known-benign single-key residue (LURIAKEY = a file path, not a credential —
 # user-verified and accepted for the 2026-08-05 baseline push). Any other key
