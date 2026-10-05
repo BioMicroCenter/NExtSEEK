@@ -10,6 +10,7 @@ import pytest
 
 from chat_nextseek.agents import chatter as chatter_mod
 from chat_nextseek.graph_scope import GraphScope, with_scope
+from chat_nextseek.helpers.results import slim_api_result_for_llm
 from chat_nextseek.schemas.entity import EntityAgentOutput
 from chat_nextseek.schemas.router import ParserPlan
 
@@ -96,6 +97,38 @@ def test_a_members_answered_count_in_own_project_carries_no_scope_note(captured)
     _graph_turn(_member(), ["Own One"], 120)
     assert "not a member" not in captured["user_content"]
     assert "Own Two" not in captured["user_content"]
+
+
+def _rest_turn(config, question, endpoint, body):
+    api_plan = {"endpoint": endpoint, "method": "GET", "requestBody": {}, "queryParameters": {}}
+    api_full = {"ok": True, "status_code": 200, "data": body}
+    chatter_mod.chatter_agent_answer(
+        config, question, EntityAgentOutput().model_dump(),
+        ParserPlan(mode="new_search", target_endpoint=endpoint).model_dump(),
+        api_plan, slim_api_result_for_llm(api_full, api_plan=api_plan), api_full, None, log_dir="",
+    )
+
+
+_SOP_RECORD = {"data": {"id": "142", "type": "sops", "attributes": {
+    "title": "P.X-1_Protocol.docx",
+    "content_blobs": [{"original_filename": "p.docx", "link": "https://seek.example/sops/142/content_blobs/9"}]}}}
+
+
+@pytest.mark.parametrize("question, endpoint, body", [
+    ("Download SOP 142", "/nextseek_api/sops/142/", _SOP_RECORD),
+    ("List the registered users", "/nextseek_api/people/", {"data": []}),
+])
+def test_a_members_sop_record_or_people_list_carries_no_scope_zero_note(captured, question, endpoint, body):
+    _rest_turn(_member(), question, endpoint, body)
+    assert "not an admin" not in captured["user_content"]
+
+
+def test_a_members_uid_retrieve_with_no_rows_names_the_projects_it_covered(captured):
+    _rest_turn(_member(), "Show me the record for NHP-X-1", "/nextseek_api/samples/retrieve/",
+               {"total_samples": 0, "total_sample_types": 0, "total_children": 0, "failed_uids": ["NHP-X-1"],
+                "data": [], "lineage_complete": True})
+    text = captured["user_content"]
+    assert "not an admin" in text and "Own One" in text
 
 
 def test_the_graph_zero_rule_no_longer_invites_a_spelling_guess_under_scope():

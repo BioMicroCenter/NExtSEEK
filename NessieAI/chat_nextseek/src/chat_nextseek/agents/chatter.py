@@ -297,17 +297,9 @@ def _fold_name(name: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", str(name or "").lower())
 
 
-def _returned_zero(answered: bool, is_graph: bool, graph_result: Any, error_context: Any,
-                   api_result_full: Any, slim_flags: dict) -> bool:
-    """A search that ran and found nothing: not answered, and not a failure."""
-    if answered:
-        return False
-    if is_graph:
-        return bool((graph_result or {}).get("ok"))
-    if error_context:
-        return False
-    source = api_result_full if isinstance(api_result_full, dict) else slim_flags
-    return source.get("ok") is not False
+#: REST answers a member's project scope does not decide: SEEK's own sharing governs an SOP, and the people list is
+#: every account. A zero there is not "none in your projects".
+_UNSCOPED_REST = ("/nextseek_api/people/", "/nextseek_api/sops/")
 
 
 def _member_scope_notes(config: Any, entity_result: dict, parser_plan: dict, zero: bool) -> list[str]:
@@ -901,22 +893,26 @@ def chatter_agent_answer(
     # F-d's closer drop is for an answered result only: rows, or a count or total above zero. On a zero, a failed
     # query or an error, a question that asks the user to choose (which project, the closest spelling of a
     # misspelled lab) is the answer, not a stock offer.
+    # `zero` (G2): a search that ran and counted nothing. A REST answer with no count (one SOP record) is not one.
     if is_graph:
         answered = bool((graph_result or {}).get("ok")) and _returned_something(
             (graph_result or {}).get("data"), total_matches)
+        zero = bool((graph_result or {}).get("ok")) and not answered
     elif is_reporter:
         answered = _report_returned_rows(reporter_summary)
+        zero = not answered
     else:
         api_source = api_result_full if isinstance(api_result_full, dict) else slim_flags
         rest_rows = api_row_count(api_result_full)
-        answered = (not error_context and api_source.get("ok") is not False
-                    and (_above_zero(rest_rows if rest_rows is not None else slim_flags.get("rows_returned"))
-                         or _above_zero(total_matches)))
+        ran = not error_context and api_source.get("ok") is not False
+        answered = ran and (_above_zero(rest_rows if rest_rows is not None else slim_flags.get("rows_returned"))
+                            or _above_zero(total_matches))
+        endpoint = str((api_plan or {}).get("endpoint") or "").split("?", 1)[0].rstrip("/") + "/"
+        zero = (ran and not endpoint.startswith(_UNSCOPED_REST)
+                and 0 in (rest_rows, slim_flags.get("rows_returned"), total_matches))
 
-    query_notes = [*(query_notes or []), *_member_scope_notes(
-        config, entity_result, parser_plan, zero=_returned_zero(answered, is_graph, graph_result, error_context,
-                                                                api_result_full, slim_flags)
-    )] or query_notes
+    query_notes = [*(query_notes or []), *_member_scope_notes(config, entity_result, parser_plan, zero=zero)] \
+        or query_notes
     offered_step = _one_line(offered_step) or None
     scope = describe_query_scope(
         entity_result=entity_result,
