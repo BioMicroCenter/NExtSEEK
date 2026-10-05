@@ -1,5 +1,5 @@
 {
-  "fetched_at": "2026-09-24T20:51:17.375991+00:00",
+  "fetched_at": "2026-10-03T04:13:15.645002+00:00",
   "connections": [
     {
       "assay": "Agglutination Assay",
@@ -24,72 +24,12 @@
     {
       "assay": "Alanine Aminotransferase (ALT/GPT) Activity Assay",
       "parent_type": "TIS",
+      "child_type": "D.GPT"
+    },
+    {
+      "assay": "Alanine Aminotransferase (ALT/GPT) Activity Assay",
+      "parent_type": "TIS",
       "child_type": "DNA"
-    },
-    {
-      "assay": "Antibody Functional Profiling",
-      "parent_type": "BAC",
-      "child_type": "D.ADCD"
-    },
-    {
-      "assay": "Antibody Functional Profiling",
-      "parent_type": "BAC",
-      "child_type": "D.ADCP"
-    },
-    {
-      "assay": "Antibody Functional Profiling",
-      "parent_type": "BAC",
-      "child_type": "D.ADNP"
-    },
-    {
-      "assay": "Antibody Functional Profiling",
-      "parent_type": "CEL",
-      "child_type": "D.ADDCP"
-    },
-    {
-      "assay": "Antibody Functional Profiling",
-      "parent_type": "CEL",
-      "child_type": "D.ADMP"
-    },
-    {
-      "assay": "Antibody Functional Profiling",
-      "parent_type": "CEL",
-      "child_type": "D.ADNP"
-    },
-    {
-      "assay": "Antibody Functional Profiling",
-      "parent_type": "D.ADCD",
-      "child_type": "A.ADCD"
-    },
-    {
-      "assay": "Antibody Functional Profiling",
-      "parent_type": "D.ADDCP",
-      "child_type": "A.ADDCP"
-    },
-    {
-      "assay": "Antibody Functional Profiling",
-      "parent_type": "D.ADMP",
-      "child_type": "A.ADMP"
-    },
-    {
-      "assay": "Antibody Functional Profiling",
-      "parent_type": "D.ADNP",
-      "child_type": "A.ADNP"
-    },
-    {
-      "assay": "Antibody Functional Profiling",
-      "parent_type": "TIS",
-      "child_type": "D.ADCP"
-    },
-    {
-      "assay": "Antibody Functional Profiling",
-      "parent_type": "TIS",
-      "child_type": "D.ADNKA"
-    },
-    {
-      "assay": "Antibody Functional Profiling",
-      "parent_type": "TIS",
-      "child_type": "D.ADNP"
     },
     {
       "assay": "Antibody Functional Profiling (Systems Serology)",
@@ -100,26 +40,21 @@
       "assay": "Antibody Functional Profiling (Systems Serology)",
       "parent_type": "D.ADCP",
       "child_type": "A.ADCP"
+    },
+    {
+      "assay": "Antibody Functional Profiling (Systems Serology)",
+      "parent_type": "D.ADNKA",
+      "child_type": "A.ADNKA"
+    },
+    {
+      "assay": "Antibody Functional Profiling (Systems Serology)",
+      "parent_type": "D.ADNP",
+      "child_type": "A.ADNP"
     },
     {
       "assay": "Antibody Functional Profiling (Systems Serology)",
       "parent_type": "D.FCRB",
       "child_type": "A.FCRB"
-    },
-    {
-      "assay": "Antibody Functional Profiling Analysis",
-      "parent_type": "D.ADCP",
-      "child_type": "A.ADCP"
-    },
-    {
-      "assay": "Antibody Functional Profiling Analysis",
-      "parent_type": "D.ADNKA",
-      "child_type": "A.ADNKA"
-    },
-    {
-      "assay": "Antibody Functional Profiling Analysis",
-      "parent_type": "D.ADNP",
-      "child_type": "A.ADNP"
     },
     {
       "assay": "Antibody Titer Assay Analysis",
@@ -158,6 +93,56 @@
     },
     {
       "assay": "Antibody-Dependent Functional Profiling (ADFP)",
+      "parent_type": "BAC",
+      "child_type": "D.ADCD"
+    },
+    {
+      "assay": "Antibody-Dependent Functional Profiling (ADFP)",
+      "parent_type": "BAC",
+      "child_type": "D.ADCP"
+    },
+    {
+      "assay": "Antibody-Dependent Functional Profiling (ADFP)",
+      "parent_type": "BAC",
+      "child_type": "D.ADNP"
+    },
+    {
+      "assay": "Antibody-Dependent Functional Profiling (ADFP)",
+      "parent_type": "CEL",
+      "child_type": "D.ADDCP"
+    },
+    {
+      "assay": "Antibody-Dependent Functional Profiling (ADFP)",
+      "parent_type": "CEL",
+      "child_type": "D.ADMP"
+    },
+    {
+      "assay": "Antibody-Dependent Functional Profiling (ADFP)",
+      "parent_type": "CEL",
+      "child_type": "D.ADNP"
+    },
+    {
+      "assay": "Antibody-Dependent Functional Profiling (ADFP)",
+      "parent_type": "D.ADCD",
+      "child_type": "A.ADCD"
+    },
+    {
+      "assay": "Antibody-Dependent Functional Profiling (ADFP)",
+      "parent_type": "D.ADDCP",
+      "child_type": "A.ADDCP"
+    },
+    {
+      "assay": "Antibody-Dependent Functional Profiling (ADFP)",
+      "parent_type": "D.ADMP",
+      "child_type": "A.ADMP"
+    },
+    {
+      "assay": "Antibody-Dependent Functional Profiling (ADFP)",
+      "parent_type": "D.ADNP",
+      "child_type": "A.ADNP"
+    },
+    {
+      "assay": "Antibody-Dependent Functional Profiling (ADFP)",
       "parent_type": "TIS",
       "child_type": "D.ADCD"
     },
@@ -172,7 +157,12 @@
       "child_type": "D.ADNKA"
     },
     {
-      "assay": "Area Under the Curve",
+      "assay": "Antibody-Dependent Functional Profiling (ADFP)",
+      "parent_type": "TIS",
+      "child_type": "D.ADNP"
+    },
+    {
+      "assay": "Area Under the Curve (AUC)",
       "parent_type": "D.ELSA",
       "child_type": "A.ELSA"
     },
@@ -302,7 +292,7 @@
       "child_type": "CEL"
     },
     {
-      "assay": "Cell Lysate",
+      "assay": "Cell Lysate Preparation",
       "parent_type": "CEL",
       "child_type": "LYS"
     },
@@ -310,11 +300,6 @@
       "assay": "Cell Viability Assay",
       "parent_type": "CEL",
       "child_type": "D.VIA"
-    },
-    {
-      "assay": "Chemical Challenge",
-      "parent_type": "CHM",
-      "child_type": "CHM"
     },
     {
       "assay": "Chemical Synthesis",
@@ -325,6 +310,11 @@
       "assay": "Chemical Synthesis",
       "parent_type": "CHM",
       "child_type": "SNSR"
+    },
+    {
+      "assay": "Chemical challenge",
+      "parent_type": "CHM",
+      "child_type": "CHM"
     },
     {
       "assay": "Chemical challenge",
@@ -347,21 +337,6 @@
       "child_type": "A.CLOT"
     },
     {
-      "assay": "Comet Chip",
-      "parent_type": "CEL",
-      "child_type": "A.COMC"
-    },
-    {
-      "assay": "Comet Chip",
-      "parent_type": "CEL",
-      "child_type": "D.IMG"
-    },
-    {
-      "assay": "Comet Chip",
-      "parent_type": "CHM",
-      "child_type": "A.COMC"
-    },
-    {
       "assay": "Comet Chip Analysis",
       "parent_type": "D.IMG",
       "child_type": "A.COMC"
@@ -369,7 +344,17 @@
     {
       "assay": "CometChip Assay",
       "parent_type": "CEL",
+      "child_type": "A.COMC"
+    },
+    {
+      "assay": "CometChip Assay",
+      "parent_type": "CEL",
       "child_type": "D.IMG"
+    },
+    {
+      "assay": "CometChip Assay",
+      "parent_type": "CHM",
+      "child_type": "A.COMC"
     },
     {
       "assay": "CometChip Assay",
@@ -382,19 +367,9 @@
       "child_type": "D.SIM"
     },
     {
-      "assay": "Convolutional Neural Network",
+      "assay": "Convolutional Neural Network (CNN) Assay",
       "parent_type": "D.IMG",
       "child_type": "M.CNN"
-    },
-    {
-      "assay": "Copy Number Variation Analysis",
-      "parent_type": "A.ALN",
-      "child_type": "A.CNV"
-    },
-    {
-      "assay": "Copy Number Variation Analysis",
-      "parent_type": "D.ARR",
-      "child_type": "A.CNV"
     },
     {
       "assay": "Copy Number Variation Analysis",
@@ -405,11 +380,6 @@
       "assay": "Copy Number Variation Analysis",
       "parent_type": "D.SEQ",
       "child_type": "A.CNV"
-    },
-    {
-      "assay": "Crystallography",
-      "parent_type": "CHM",
-      "child_type": "D.CRY"
     },
     {
       "assay": "CyTOF",
@@ -517,11 +487,6 @@
       "child_type": "D.IMG"
     },
     {
-      "assay": "Digitally Barcoded Mtb Matrix Analysis",
-      "parent_type": "D.SEQ",
-      "child_type": "A.DBMM"
-    },
-    {
       "assay": "Digitally barcoded Mycobacterium tuberculosis barcode amplicon sequencing (barcode-by-sample count matrix)",
       "parent_type": "BAC",
       "child_type": "A.DBMM"
@@ -557,11 +522,6 @@
       "child_type": "D.ELSA"
     },
     {
-      "assay": "ELISA",
-      "parent_type": "TIS",
-      "child_type": "D.ELSA"
-    },
-    {
       "assay": "Electrochemical Filtration",
       "parent_type": "FLT",
       "child_type": "WTR"
@@ -572,7 +532,7 @@
       "child_type": "WTR"
     },
     {
-      "assay": "Electron Paramagnetic Resonance",
+      "assay": "Electron Paramagnetic Resonance (EPR) Spectroscopy",
       "parent_type": "CHM",
       "child_type": "D.PRM"
     },
@@ -587,11 +547,6 @@
       "child_type": "A.FCRB"
     },
     {
-      "assay": "FC Receptor Binding Assay",
-      "parent_type": "TIS",
-      "child_type": "D.FCRB"
-    },
-    {
       "assay": "Fc Receptor Binding Assay",
       "parent_type": "ABP",
       "child_type": "D.FCRB"
@@ -602,7 +557,7 @@
       "child_type": "D.FCRB"
     },
     {
-      "assay": "Field Water Sensor Run",
+      "assay": "Field Water Quality Sensor Measurement",
       "parent_type": "LOC",
       "child_type": "D.SNSR"
     },
@@ -682,16 +637,6 @@
       "child_type": "A.FLOW"
     },
     {
-      "assay": "GPT Assay",
-      "parent_type": "DNA",
-      "child_type": "D.GPT"
-    },
-    {
-      "assay": "GPT Assay",
-      "parent_type": "TIS",
-      "child_type": "D.GPT"
-    },
-    {
       "assay": "Gel Permeation Chromatography (GPC)",
       "parent_type": "CHM",
       "child_type": "CHM"
@@ -700,11 +645,6 @@
       "assay": "Gel Permeation Chromatography (GPC)",
       "parent_type": "CHM",
       "child_type": "D.GPC"
-    },
-    {
-      "assay": "Gene Expression Analysis",
-      "parent_type": "A.ALN",
-      "child_type": "A.GEX"
     },
     {
       "assay": "Gene Expression Analysis",
@@ -732,34 +672,19 @@
       "child_type": "A.GEX"
     },
     {
-      "assay": "Genome Alignment",
-      "parent_type": "DNA",
-      "child_type": "A.ALN"
-    },
-    {
-      "assay": "Genome Alignment",
-      "parent_type": "RNA",
-      "child_type": "A.ALN"
-    },
-    {
       "assay": "Glycosylation Assay",
       "parent_type": "AB",
       "child_type": "D.GLYN"
     },
     {
-      "assay": "HistoPathology",
-      "parent_type": "TIS",
-      "child_type": "D.IMG"
-    },
-    {
-      "assay": "HistoPathology Analysis",
-      "parent_type": "D.IMG",
-      "child_type": "A.IMG"
-    },
-    {
       "assay": "Histopathology",
       "parent_type": "TIS",
       "child_type": "D.IMG"
+    },
+    {
+      "assay": "Histopathology Analysis",
+      "parent_type": "D.IMG",
+      "child_type": "A.IMG"
     },
     {
       "assay": "Imaging",
@@ -773,11 +698,6 @@
     },
     {
       "assay": "Imaging",
-      "parent_type": "SLD",
-      "child_type": "D.IMG"
-    },
-    {
-      "assay": "Imaging",
       "parent_type": "SNSR",
       "child_type": "D.IMG"
     },
@@ -785,6 +705,11 @@
       "assay": "Imaging Analysis",
       "parent_type": "D.IMG",
       "child_type": "A.IMG"
+    },
+    {
+      "assay": "Immunohistochemistry",
+      "parent_type": "TIS",
+      "child_type": "D.IMG"
     },
     {
       "assay": "Ion Chromatography",
@@ -828,17 +753,7 @@
     },
     {
       "assay": "Library Prep",
-      "parent_type": "CEL",
-      "child_type": "DNA"
-    },
-    {
-      "assay": "Library Prep",
       "parent_type": "DNA",
-      "child_type": "DNA"
-    },
-    {
-      "assay": "Library Prep",
-      "parent_type": "RNA",
       "child_type": "DNA"
     },
     {
@@ -867,38 +782,28 @@
       "child_type": "M.LMM"
     },
     {
-      "assay": "Long Read Sequencing",
-      "parent_type": "DNA",
-      "child_type": "D.SEQ"
-    },
-    {
       "assay": "Long-Read Sequencing",
       "parent_type": "DNA",
       "child_type": "D.SEQ"
     },
     {
-      "assay": "Luminex",
-      "parent_type": "CEX",
-      "child_type": "D.LMX"
-    },
-    {
-      "assay": "Luminex",
-      "parent_type": "TIS",
-      "child_type": "D.LMX"
-    },
-    {
-      "assay": "Luminex Analysis",
+      "assay": "Luminex Data Processing",
       "parent_type": "A.LMX",
       "child_type": "D.FILE"
     },
     {
-      "assay": "Luminex Analysis",
+      "assay": "Luminex Data Processing",
       "parent_type": "D.LMX",
       "child_type": "A.LMX"
     },
     {
       "assay": "Luminex Multiplex Immunoassay",
       "parent_type": "CEL",
+      "child_type": "D.LMX"
+    },
+    {
+      "assay": "Luminex Multiplex Immunoassay",
+      "parent_type": "CEX",
       "child_type": "D.LMX"
     },
     {
@@ -928,8 +833,18 @@
     },
     {
       "assay": "Mass Spectrometry",
+      "parent_type": "CEX",
+      "child_type": "D.MSP"
+    },
+    {
+      "assay": "Mass Spectrometry",
       "parent_type": "CHM",
       "child_type": "CHM"
+    },
+    {
+      "assay": "Mass Spectrometry",
+      "parent_type": "CHM",
+      "child_type": "D.MSP"
     },
     {
       "assay": "Mass Spectrometry",
@@ -940,6 +855,16 @@
       "assay": "Mass Spectrometry",
       "parent_type": "DNA",
       "child_type": "D.SPC"
+    },
+    {
+      "assay": "Mass Spectrometry",
+      "parent_type": "GAS",
+      "child_type": "D.MSP"
+    },
+    {
+      "assay": "Mass Spectrometry",
+      "parent_type": "LYS",
+      "child_type": "D.MSP"
     },
     {
       "assay": "Mass Spectrometry",
@@ -973,58 +898,13 @@
     },
     {
       "assay": "Mass Spectrometry Analysis",
-      "parent_type": "D.SPC",
-      "child_type": "A.SPC"
-    },
-    {
-      "assay": "Mass Spectrometry Proteomics",
-      "parent_type": "CEX",
-      "child_type": "D.MSP"
-    },
-    {
-      "assay": "Mass Spectrometry Proteomics",
-      "parent_type": "GAS",
-      "child_type": "D.MSP"
-    },
-    {
-      "assay": "Mass Spectrometry Proteomics",
-      "parent_type": "LYS",
-      "child_type": "D.MSP"
-    },
-    {
-      "assay": "Mass Spectrometry Proteomics",
-      "parent_type": "TIS",
-      "child_type": "D.MSP"
-    },
-    {
-      "assay": "Mass Spectrometry Proteomics Analysis",
-      "parent_type": "D.MSP",
-      "child_type": "A.IMP"
-    },
-    {
-      "assay": "Mass Spectrometry Proteomics Analysis",
-      "parent_type": "D.MSP",
-      "child_type": "A.MSP"
-    },
-    {
-      "assay": "Mass Spectrometry Proteomics Analysis",
       "parent_type": "D.MSP",
       "child_type": "A.PHP"
     },
     {
-      "assay": "Methylation Analysis",
-      "parent_type": "D.ARR",
-      "child_type": "A.MET"
-    },
-    {
-      "assay": "Microarray Hybridization",
-      "parent_type": "DNA",
-      "child_type": "D.ARR"
-    },
-    {
-      "assay": "Microarray Hybridization",
-      "parent_type": "RNA",
-      "child_type": "D.ARR"
+      "assay": "Mass Spectrometry Analysis",
+      "parent_type": "D.SPC",
+      "child_type": "A.SPC"
     },
     {
       "assay": "Microfluidic Device Creation",
@@ -1035,11 +915,6 @@
       "assay": "Microfluidic Device Creation",
       "parent_type": "CEL",
       "child_type": "OOC"
-    },
-    {
-      "assay": "Microfluidic Device Creation",
-      "parent_type": "OOC",
-      "child_type": "CEL"
     },
     {
       "assay": "Migration Assay Analysis",
@@ -1077,16 +952,6 @@
       "child_type": "A.VCF"
     },
     {
-      "assay": "NMR",
-      "parent_type": "CHM",
-      "child_type": "D.NMR"
-    },
-    {
-      "assay": "NMR Analysis",
-      "parent_type": "D.NMR",
-      "child_type": "A.NMR"
-    },
-    {
       "assay": "Nuclear Magnetic Resonance Spectroscopy",
       "parent_type": "CHM",
       "child_type": "CHM"
@@ -1120,6 +985,11 @@
       "assay": "Organ-on-a-Chip Device Fabrication",
       "parent_type": "CEL",
       "child_type": "OOC"
+    },
+    {
+      "assay": "Organ-on-a-Chip Device Fabrication",
+      "parent_type": "OOC",
+      "child_type": "CEL"
     },
     {
       "assay": "PET/CT Scan",
@@ -1169,11 +1039,6 @@
     {
       "assay": "Patient Visit",
       "parent_type": "PAV",
-      "child_type": "PAV"
-    },
-    {
-      "assay": "Patient Visit",
-      "parent_type": "PAV",
       "child_type": "TIS"
     },
     {
@@ -1212,22 +1077,7 @@
       "child_type": "CEX"
     },
     {
-      "assay": "Proteomics",
-      "parent_type": "CEL",
-      "child_type": "D.MSP"
-    },
-    {
-      "assay": "Proteomics",
-      "parent_type": "CHM",
-      "child_type": "D.MSP"
-    },
-    {
-      "assay": "Proteomics Analysis",
-      "parent_type": "D.MSP",
-      "child_type": "A.MSP"
-    },
-    {
-      "assay": "Proximity Extension Assay",
+      "assay": "Proximity Extension Assay (PEA)",
       "parent_type": "TIS",
       "child_type": "D.PEX"
     },
@@ -1257,24 +1107,9 @@
       "child_type": "RNA"
     },
     {
-      "assay": "RNA Isolation",
-      "parent_type": "CEL",
-      "child_type": "RNA"
-    },
-    {
-      "assay": "RNA Isolation",
-      "parent_type": "TIS",
-      "child_type": "RNA"
-    },
-    {
-      "assay": "RaDR Image Machine Learning Analysis",
+      "assay": "RaDR Fluorescence Microscopy Image Machine Learning Analysis",
       "parent_type": "D.IMG",
       "child_type": "A.IMG"
-    },
-    {
-      "assay": "Reverse Phase Protein Array",
-      "parent_type": "TIS",
-      "child_type": "A.RPPA"
     },
     {
       "assay": "Scanning Electron Microscopy",
@@ -1358,6 +1193,16 @@
     },
     {
       "assay": "Spatial Transcriptomics",
+      "parent_type": "D.IMG",
+      "child_type": "A.SPTX"
+    },
+    {
+      "assay": "Spatial Transcriptomics",
+      "parent_type": "D.SEQ",
+      "child_type": "A.SPTX"
+    },
+    {
+      "assay": "Spatial Transcriptomics",
       "parent_type": "DNA",
       "child_type": "D.SEQ"
     },
@@ -1385,16 +1230,6 @@
       "assay": "Spatial Transcriptomics",
       "parent_type": "TIS",
       "child_type": "SLD"
-    },
-    {
-      "assay": "Spatial Transcriptomics Analysis",
-      "parent_type": "D.IMG",
-      "child_type": "A.SPTX"
-    },
-    {
-      "assay": "Spatial Transcriptomics Analysis",
-      "parent_type": "D.SEQ",
-      "child_type": "A.SPTX"
     },
     {
       "assay": "Spectroscopy",
@@ -1522,16 +1357,6 @@
       "child_type": "D.TITR"
     },
     {
-      "assay": "Titer Assay Analysis",
-      "parent_type": "D.TITR",
-      "child_type": "A.TITR"
-    },
-    {
-      "assay": "Variant Annotation",
-      "parent_type": "A.VCF",
-      "child_type": "A.VCF"
-    },
-    {
       "assay": "Variant Call Filtering",
       "parent_type": "A.ALN",
       "child_type": "A.VCF"
@@ -1539,11 +1364,6 @@
     {
       "assay": "Variant Call Filtering",
       "parent_type": "A.VCF",
-      "child_type": "A.VCF"
-    },
-    {
-      "assay": "Variant Calling",
-      "parent_type": "A.ALN",
       "child_type": "A.VCF"
     },
     {
@@ -1587,17 +1407,22 @@
       "child_type": "A.WBLT"
     },
     {
-      "assay": "X-Ray Photoelectron Spectroscopy",
-      "parent_type": "CHM",
-      "child_type": "D.XRS"
-    },
-    {
       "assay": "X-ray Crystallography",
       "parent_type": "CHM",
       "child_type": "CHM"
     },
     {
-      "assay": "cDNA Generation",
+      "assay": "X-ray Crystallography",
+      "parent_type": "CHM",
+      "child_type": "D.CRY"
+    },
+    {
+      "assay": "X-ray Photoelectron Spectroscopy",
+      "parent_type": "CHM",
+      "child_type": "D.XRS"
+    },
+    {
+      "assay": "cDNA Synthesis",
       "parent_type": "RNA",
       "child_type": "DNA"
     },

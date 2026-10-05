@@ -11,6 +11,25 @@ The names these sections define are also in `nextseek_graph/schema.py`, one grou
 Counts are dated measurements; re-measure before relying on one. "Measured" is the graph now; the v1.0 section
 records the graph as found on 2026-09-14, before v1.1.
 
+## Measured, 2026-10-03 (production, schema 1.3)
+
+Production's graph after its 1.3 full sync (03:48Z), read only; no TCGA. The committed fallback capture (the three
+`neo4j_*.json` files beside the graph agent) was taken from this graph at 04:13Z.
+
+| | Count |
+|---|---:|
+| `Assay` nodes | 137 |
+| `(:Assay)-[:RUN_IN]->(:Study)` | 464 |
+| `INPUT_TO` plus `OUTPUT_OF` (sample edges) | 231,928 |
+| Relationship types | 12 |
+| DERIVED_FROM protocol titles | 315 |
+| (assay, parent type, child type) connections | 287 |
+
+The 287 against the 322 of 2026-09-24 below is not a loss. A read of production on 2026-10-05 found every missing
+connection's DERIVED_FROM edges: 51 under the assay's new name, 13 under a merged name, 10 with no edge of that type
+pair on production at all (TCGA types, present only on graphs that load TCGA), and one pair (TIS to D.ELSA, 82
+edges) present but carrying no assay label.
+
 ## Measured, 2026-09-24
 
 The local graph (the production snapshot plus TCGA) at schema 1.2, `catalog_hash` 7c3840b3d0be, synced
