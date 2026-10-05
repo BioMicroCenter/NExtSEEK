@@ -214,8 +214,8 @@ def admin_user_record(api, base_url, login, timeout=120):
     This endpoint, not ``/nextseek_api/people/current/``, is how a case learns who it is and which
     project it may use. ``UsersViewSet.list`` reads SEEK's own ``users`` and ``people`` tables through
     the Django ORM, so the answer is per-caller correct. Measured 2026-09-17: ``people/current/``
-    goes through the SEEK proxy, whose session is shared between callers
-    (``nextseek_api/CLAUDE.md``: "Proxy ViewSets share one SEEK session"), and six consecutive calls
+    goes through the SEEK proxy, whose session was then shared between callers (it keeps no
+    cookies since 2026-10-05), and six consecutive calls
     alternating the two smoke accounts answered with ONE identity for both, whichever the shared
     session happened to hold. A scope case built on that endpoint would compare an account with
     itself.

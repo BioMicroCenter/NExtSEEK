@@ -70,15 +70,13 @@ from this file.
   fatal to the schema route; `nextseek_api/tests/test_viewset_conventions_schema.py:1`
   exists as the only local signal because it generates the whole document.
 - **`SeekAPIClient` is held as a class attribute, so one `requests.Session` is shared by
-  every caller of a proxy ViewSet.** The instance is built once when the class body is
-  evaluated; walking the AST of every non-test module under `nextseek_api/` on 2026-09-03
-  for a class-level assignment calling `SeekAPIClient` found nine, one being
-  `nextseek_api/services/people.py:35`, and each owns a session made at
-  `nextseek_api/helpers.py:128`. The smoke suite records the matching live symptom and
-  names the cause: two authenticated accounts are reported as the same SEEK person, and
-  the marker says it flips green "when the proxy client is fixed"
-  (`ci/smoke/test_health.py:94-99`). Copy that pattern into a new service and you copy
-  the defect.
+  every caller of a proxy ViewSet, and that session must keep no cookies.** The instance
+  is built once when the class body is evaluated (nine class-level assignments under
+  `nextseek_api/`, one being `nextseek_api/services/people.py:35`). Its session uses
+  `_NoCookies` (`nextseek_api/helpers.py`), so each call authenticates on its own
+  credentials; `nextseek_api/tests/test_seek_client_cookies.py` guards it and
+  `ci/smoke/test_health.py::test_seek_identity_matches_the_authenticated_caller` checks it
+  live. Never give that session a cookie jar that stores.
 - **An unmatched path under this prefix does not produce a DRF 404.** Mezzanine's
   catch-all is included under a bare `^` at `dmac/urls.py:55`, after this app at
   `dmac/urls.py:29`, and `dmac/urls.py:60` points the 404 handler at Mezzanine's page

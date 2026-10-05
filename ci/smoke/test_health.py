@@ -99,13 +99,26 @@ def test_seek_identity_matches_the_authenticated_caller(api, base_url, smoke_cre
     This is not cosmetic. Project scoping and the participating-project
     permission both key off the SEEK person, so resolving the wrong one decides
     authorization against the wrong account.
+
+    SEEK puts ``login`` on a person only when the caller is a SEEK admin
+    (``PersonSerializer``: ``attribute :login, if: -> { User.current_user&.is_admin? }``),
+    and the smoke account is not one, so its own record comes back without it.
+    The proof is ``/nextseek_api/attributes/``: on every request it asks SEEK's
+    ``/people/current`` with the caller's own credential and refuses (401) unless
+    that person is the one bound to this login in SEEK's ``users`` table.
     """
     r = api.get(f"{base_url}/nextseek_api/people/current/", timeout=60)
     check_gateway(r)
     assert r.status_code == 200
     login = r.json().get("data", {}).get("attributes", {}).get("login")
-    assert login == smoke_creds[0], (
+    assert login in (None, smoke_creds[0]), (
         f"authenticated as {smoke_creds[0]!r} but SEEK reports {login!r}"
+    )
+    r = api.get(f"{base_url}/nextseek_api/attributes/", timeout=60)
+    check_gateway(r)
+    assert r.status_code == 200, (
+        f"SEEK's current person is not the one bound to {smoke_creds[0]!r}: "
+        f"/nextseek_api/attributes/ answered {r.status_code}: {r.text[:200]}"
     )
 
 
