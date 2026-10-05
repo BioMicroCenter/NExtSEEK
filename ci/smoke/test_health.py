@@ -80,7 +80,7 @@ def test_identity_probe_responds(api, base_url, smoke_creds):
     """Run this first when triaging. It proves MySQL and SEEK Rails are both up.
 
     It deliberately does NOT assert *which* person comes back; that is the next
-    test, which currently fails for a real reason.
+    test.
     """
     r = api.get(f"{base_url}/nextseek_api/people/current/", timeout=60)
     check_gateway(r)

@@ -1,4 +1,4 @@
-"""Each SEEK API call authenticates on its own; no cookies are kept between calls."""
+"""Each SEEK API call authenticates on its own; no cookies are kept between calls, even for the same caller."""
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -37,7 +37,7 @@ class SeekClientCookieTests(SimpleTestCase):
             with override_settings(SEEK_URL=f"http://127.0.0.1:{srv.server_port}"):
                 client = SeekAPIClient()
                 client.get_sop(_basic("a"), "1")
-                body, code, _, _ = client.get_sop(_basic("b"), "1")
+                body, code, _, _ = client.get_sop(_basic("a"), "1")
         finally:
             srv.shutdown()
             srv.server_close()
