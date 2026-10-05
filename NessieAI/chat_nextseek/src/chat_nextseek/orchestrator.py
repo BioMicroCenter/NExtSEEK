@@ -1034,6 +1034,8 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
 #: Bounded on purpose: each try is a model call plus a Neo4j round trip on the user's
 #: latency budget, and the measured graph stage already runs at a p90 of 18.9 s.
 GRAPH_MAX_TRIES = 3
+#: The attempt record of a statement not sent because it repeats one that timed out.
+_REPEAT_NOT_RUN = {"ok": False, "count": None, "error": "not run: it repeats a statement that timed out"}
 
 
 def _graph_attempt(cypher: str | None, result: dict, reason: str, *, elapsed_ms: int) -> dict[str, Any]:
@@ -1102,8 +1104,10 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
     zero_row_retry_used = False
     # Statements Neo4j stopped for time this turn. A repeat is never sent, and a second timeout ends the loop.
     timed_out_statements: set[str] = set()
+    last_timeout = None  # (plan, result, parameters, ms) of the latest statement that timed out
     if timed_out(graph_result):
         timed_out_statements.add(normalized_cypher(graph_plan.cypher))
+        last_timeout = (graph_plan, graph_result, parameters, kept_ms)
 
     for _ in range(GRAPH_MAX_TRIES - 1):
         if len(timed_out_statements) >= 2:
@@ -1141,7 +1145,11 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         if not graph_plan_retry.cypher:
             break
         if normalized_cypher(graph_plan_retry.cypher) in timed_out_statements:
-            attempts.append(_graph_attempt(graph_plan_retry.cypher, graph_result, "repeat_of_timeout", elapsed_ms=0))
+            attempts.append(_graph_attempt(graph_plan_retry.cypher, _REPEAT_NOT_RUN, "repeat_of_timeout", elapsed_ms=0))
+            # A failure kept since (another statement's syntax error) is not why the turn failed: the timeout is.
+            # A second timeout needs no such step: a failed retry already replaces a failed original.
+            if not graph_result.get("ok"):
+                graph_plan, graph_result, parameters, kept_ms = last_timeout
             break
         retry_parameters = _bind_parameters(graph_plan_retry, parameters_extra)
         t_query = time.perf_counter()
@@ -1150,6 +1158,7 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         attempts.append(_graph_attempt(graph_plan_retry.cypher, retry_result, reason, elapsed_ms=retry_ms))
         if timed_out(retry_result):
             timed_out_statements.add(normalized_cypher(graph_plan_retry.cypher))
+            last_timeout = (graph_plan_retry, retry_result, retry_parameters, retry_ms)
         # Keep the retry only when it is an improvement. A retry that errors, or that
         # also finds nothing after a zero-row first attempt, leaves the original alone.
         if not retry_result.get("ok"):

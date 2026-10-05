@@ -363,3 +363,16 @@ def test_the_loop_stops_after_the_second_timeout(monkeypatch, tmp_path):
     assert calls["neo4j"] == 2
     assert calls["agent"] == 2   # the initial statement and one retry, no third
     assert debug["graph_attempts"][-1]["ok"] is False
+
+
+def test_a_repeat_after_another_error_records_itself_and_keeps_the_timeout(monkeypatch, tmp_path):
+    """WALK times out, OTHER has a syntax error, the agent writes WALK again: the repeat is not run, its record
+    says so, and the turn reports the timeout (with WALK's plan), not OTHER's syntax error."""
+    _, debug, calls = _run(monkeypatch, tmp_path, plans=_plans(WALK, OTHER, WALK),
+                           results=[TIMEOUT, _err("SyntaxError: bad"), TIMEOUT])
+    last = debug["graph_attempts"][-1]
+    assert last["reason"] == "repeat_of_timeout"
+    assert last["ok"] is False and last["count"] is None
+    assert last["error"] == "not run: it repeats a statement that timed out"
+    assert calls["chatter_kwargs"]["graph_result"] is TIMEOUT
+    assert calls["chatter_kwargs"]["graph_plan"]["cypher"] == WALK
