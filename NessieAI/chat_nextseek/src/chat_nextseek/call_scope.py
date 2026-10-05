@@ -23,10 +23,13 @@ whose primary and fallback both failed earlier fails at once without calling eit
   except for the agents whose budget says ``op_move_reserve=False`` (the graph agent and the report writer, whose
   move could not redo their work in that time), which get what is left; the moved call gets at most what is left;
   with ``DEADLINE_FLOOR_S`` or less left no call starts. An NS turn opens
-  its scope with no deadline, so nothing is cut.
+  its scope with no deadline, so nothing is cut. The waits that are not
+  model calls (Neo4j, Django's own REST calls) read it through ``time_left_for``.
 * Threads: marks and reads take a lock. Only the caller's thread marks (the wall-clock worker threads never touch the
   scope, so an abandoned call that answers late cannot). The aggregate op's parts run on pool threads and get this
   same object through ``contextvars.copy_context``.
+* Across a turn's ops: NessieAI/ns/granular.run_op seeds each op's scope from the turn's stored strikes and stores
+  its new ones back (seed / strikes); an NS turn seeds its scope with its vocabulary pre-run's (chat_nextseek/vocabulary.take).
 """
 from __future__ import annotations
 
@@ -34,9 +37,9 @@ import contextlib
 import contextvars
 import threading
 import time
-from typing import Iterator
+from typing import Any, Iterator
 
-__all__ = ["CallScope", "current", "scope", "limit_current", "MOVE_RESERVE_S", "MIN_FIRST_TRY_S", "DEADLINE_FLOOR_S"]
+__all__ = ["CallScope", "current", "scope", "limit_current", "time_left_for", "MOVE_RESERVE_S", "MIN_FIRST_TRY_S", "DEADLINE_FLOOR_S"]
 
 _CURRENT: contextvars.ContextVar["CallScope | None"] = contextvars.ContextVar(
     "chat_nextseek_call_scope", default=None,
@@ -97,6 +100,19 @@ class CallScope:
             items = sorted(self._failed.items(), key=lambda kv: kv[1]["at"])
         return [{"provider": k[0], "model": k[1], "reason": v["reason"], "agent": v["agent"]} for k, v in items]
 
+    def seed(self, strikes: Any) -> None:
+        """Mark the models an earlier op or the pre-run of this turn found failing, each ``[provider, model,
+        reason]`` as a turn stores it (``NessieAI/ns/turn_memory.py``). Malformed items are skipped; a model this
+        scope already marked keeps its own mark."""
+        for item in strikes or ():
+            if (isinstance(item, (list, tuple)) and len(item) >= 3
+                    and all(isinstance(part, str) and part for part in item[:3])):
+                self.mark_failed((item[0], item[1]), reason=item[2], agent=None)
+
+    def strikes(self) -> list[list[str]]:
+        """Every mark as ``[provider, model, reason]``, in the order they were made: what a turn stores."""
+        return [[m["provider"], m["model"], m["reason"]] for m in self.failed_models()]
+
 
 def current() -> CallScope | None:
     """The scope of the turn or op running in this context, if any."""
@@ -109,6 +125,22 @@ def limit_current(seconds: float) -> CallScope | None:
     if current_scope is not None:
         current_scope.limit(seconds)
     return current_scope
+
+
+def time_left_for(base_s: float) -> float | None:
+    """How long a wait may last now: ``base_s`` outside a deadline; inside one, ``base_s`` or what is left if that is
+    less; None when ``DEADLINE_FLOOR_S`` or less is left, and then nothing should start.
+
+    For the waits that are not model calls (a Neo4j statement, a REST call Django makes to itself): an op's limit caps
+    them too (approach 1, piece 2), so no request is still running after the op has answered.
+    """
+    current_scope = _CURRENT.get()
+    left = None if current_scope is None else current_scope.remaining()
+    if left is None:
+        return base_s
+    if left <= DEADLINE_FLOOR_S:
+        return None
+    return min(base_s, left)
 
 
 @contextlib.contextmanager

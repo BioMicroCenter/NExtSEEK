@@ -19,6 +19,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from nextseek_api.permissions import IsSuperUser
+from nextseek_api.assistant.turn_pass_auth import TurnPassAuthentication
 from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
 
 from .celery_app import app as celery_app
@@ -98,7 +99,9 @@ class BatchUploadViewSet(viewsets.ViewSet):
     and provides status tracking, cancellation, and result download.
     """
 
-    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
+    # The turn pass first (spec piece 1); its allow table opens only validate/ to it.
+    authentication_classes = [TurnPassAuthentication, TokenAuthentication, CsrfExemptSessionAuthentication,
+                              BasicAuthentication]
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 

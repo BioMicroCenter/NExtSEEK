@@ -12,7 +12,7 @@ It maps 1:1 onto the security-acceptance checklist (AUDIT.md, live items):
   12 real Opus turn forced_result.json: is_error false, reply echoes the sentinel
   12 proxy live     proxy_log.txt: >=1 `POST /model/<opus-5-5>/invoke[...] -> 200`
   13 token unlogged proxy_log.txt: 0 occurrences of `ABSK` / `Authorization`
-  10 agent de-cred  agent_env_scan.txt: none of the 16 shared keys; no `ABSK`/`demopassword`
+  10 agent de-cred  agent_env_scan.txt: none of the 16 shared keys, no user-password key; no `ABSK`/`demopassword`
    9 segmentation   network.json: agent net excludes neo4j/seek-mysql/seek/seek-solr
   16 turn-scoped artifacts forced_result.json: non-empty artifacts with turn-scoped keys
                     (nested/turn-scoped shape -- rejects the pre-Step-2 flat
@@ -42,6 +42,9 @@ SHARED_CRED_KEYS = (
 )
 # Non-secret markers whose presence in the agent env betrays a leak.
 LEAK_MARKERS = ("ABSK", "demopassword")
+# The user's own password under every name it used to reach the agent. Since the turn pass (spec piece 1) the
+# agent holds none of them: its only NExtSEEK credential is NEXTSEEK_TURN_PASS, valid for one turn.
+USER_PASSWORD_KEYS = ("NEXTSEEK_PASSWORD", "API_PASS", "SEEK_PASSWORD")
 # Backend-service name STEMS the de-credentialed agent's network must NOT contain.
 # Matched on word boundaries so the legitimately-dual-homed ``nextseek_nginx``
 # entrypoint (which contains the substring "seek") is NOT a false positive.
@@ -152,9 +155,12 @@ def validate_run(run_dir: str | Path) -> tuple[bool, list[tuple[str, bool, str]]
         present_markers = [m for m in LEAK_MARKERS if m in envtxt]
         add("agent_env_no_shared_keys", not present_keys, f"leaked keys: {present_keys}")
         add("agent_env_no_leak_markers", not present_markers, f"markers: {present_markers}")
+        present_password = [k for k in USER_PASSWORD_KEYS if re.search(rf"(^|\W){re.escape(k)}=", envtxt)]
+        add("agent_env_no_user_password", not present_password, f"password keys: {present_password}")
     except Exception as e:  # noqa: BLE001
         add("agent_env_no_shared_keys", False, f"unreadable: {e}")
         add("agent_env_no_leak_markers", False, "no env scan")
+        add("agent_env_no_user_password", False, "no env scan")
 
     # 9 — network segmentation: agent net excludes backend services
     try:

@@ -471,7 +471,7 @@ def test_mock_transport_rejects_non_get_except_search_validate(tmp_path):
     c.validate_file(workbook, project_id=1, checks="structure")
 
 
-def test_from_env_credential_precedence_and_transport(monkeypatch):
+def test_from_env_authenticates_with_the_turn_pass(monkeypatch):
     seen = {}
 
     def handler(request):
@@ -479,31 +479,25 @@ def test_from_env_credential_precedence_and_transport(monkeypatch):
         return httpx.Response(200, json={"data": []})
 
     monkeypatch.setenv("NEXTSEEK_URL", "http://ns.test")
+    monkeypatch.setenv("NEXTSEEK_TURN_PASS", "T" * 43)
     monkeypatch.setenv("NEXTSEEK_USERNAME", "next-user")
     monkeypatch.setenv("NEXTSEEK_PASSWORD", "next-pass")
-    monkeypatch.setenv("API_USER", "legacy-user")
-    monkeypatch.setenv("API_PASS", "legacy-pass")
     c = buc.BatchUploadClient.from_env(transport=httpx.MockTransport(handler))
     c.list_sample_types()
-    assert seen["auth"].startswith("Basic ")
-    encoded = seen["auth"].removeprefix("Basic ")
-    assert base64.b64decode(encoded).decode() == "next-user:next-pass"
+    assert seen["auth"] == "NextseekTurn " + "T" * 43
     assert str(c._client.base_url).rstrip("/") == "http://ns.test"
 
 
-def test_from_env_legacy_fallback_partial_nextseek_pair_and_missing(monkeypatch):
-    for key in ("NEXTSEEK_URL", "NEXTSEEK_BASE_URL", "NEXTSEEK_USERNAME", "NEXTSEEK_PASSWORD", "API_USER", "API_PASS"):
+def test_from_env_needs_a_base_url_and_the_pass_never_a_password(monkeypatch):
+    for key in ("NEXTSEEK_URL", "NEXTSEEK_BASE_URL", "NEXTSEEK_TURN_PASS", "NEXTSEEK_USERNAME",
+                "NEXTSEEK_PASSWORD", "API_USER", "API_PASS"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("NEXTSEEK_BASE_URL", "http://fallback.ns.test")
+    monkeypatch.setenv("NEXTSEEK_TURN_PASS", "T" * 43)
+    assert isinstance(buc.BatchUploadClient.from_env(), buc.BatchUploadClient)
+    monkeypatch.delenv("NEXTSEEK_TURN_PASS")
     monkeypatch.setenv("API_USER", "u")
     monkeypatch.setenv("API_PASS", "p")
-    assert isinstance(buc.BatchUploadClient.from_env(), buc.BatchUploadClient)
-    monkeypatch.setenv("NEXTSEEK_USERNAME", "partial-user")
-    with pytest.raises(SystemExit) as partial:
-        buc.BatchUploadClient.from_env()
-    assert partial.value.code == 2
-    monkeypatch.delenv("NEXTSEEK_USERNAME")
-    monkeypatch.delenv("API_PASS")
     with pytest.raises(SystemExit) as exc:
         buc.BatchUploadClient.from_env()
     assert exc.value.code == 2

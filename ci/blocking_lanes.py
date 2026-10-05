@@ -11,7 +11,7 @@ edit here: the graph_sync and graph_search tests under nextseek_api/tests/, the
 studies tool's tests under nextseek_api/studies/tests/, the Sample Search page's view and
 JavaScript tests and the user docs tests under seek/tests/, and the check that Nessie's docs
 snapshot matches the user docs. Two modules are named one by one: the entity_tree view tests and
-their read-routing test.
+their read-routing test. The Container-CC agent-folder tests under NessieAI/tests/cc/ join by glob.
 
 Exit 1, printing nothing on stdout, when a glob matches no file: the workflow
 passes the output to pytest as its paths, and pytest given no path walks the
@@ -47,6 +47,10 @@ BLOCKING_GLOBS = (
     # resolve; and Nessie's docs snapshot is regenerated whenever a page changes.
     "seek/tests/test_docs_*.py",
     "NessieAI/tests/build_tools/integration/test_docs_snapshot_*.py",
+    # The Container-CC agent-folder tests: Django never follows a link in a folder an agent
+    # or the sidecar can write (NessieAI/cc/CLAUDE.md). The entrypoint module needs jq, which
+    # the workflow step checks for.
+    "NessieAI/tests/cc/test_cc_agent_folders_*.py",
 )
 
 

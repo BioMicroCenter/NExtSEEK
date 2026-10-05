@@ -120,7 +120,7 @@ jobs:
       # The second blocking step: the unit tests ci/blocking_lanes.py names by
       # glob (the graph_sync and graph_search tests, the studies tool's tests, and
       # the Sample Search page's view and JavaScript tests) and by name (the entity_tree view and
-      # read-routing tests). They also run in the lanes above, where a
+      # read-routing tests), and the Container-CC agent-folder tests. They also run in the lanes above, where a
       # failure is only a report; here any failure fails the job. A new module
       # joins by its name. The page's JavaScript module skips wherever node is
       # missing, and a skip is green, so a runner without node fails here
@@ -156,6 +156,10 @@ jobs:
         run: |
           if ! command -v node >/dev/null; then
             echo "::error::node is not on this runner, so seek/tests/test_sample_search_js.py would skip every test instead of running them"
+            exit 1
+          fi
+          if ! command -v jq >/dev/null; then
+            echo "::error::jq is not on this runner, so NessieAI/tests/cc/test_cc_agent_folders_entrypoint.py would skip every test instead of running them"
             exit 1
           fi
           paths=$(python ci/blocking_lanes.py)

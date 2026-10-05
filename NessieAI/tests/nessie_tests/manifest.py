@@ -46,6 +46,10 @@ class TurnMeta(BaseModel):
     engine_cost: float | None = None
     # The router part: `route_decided`'s `router_cost_usd`.
     router_cost: float | None = None
+    # Plan 04: a Container-CC turn's ops (and pre-run and nested NS turns) and its whole cost as the server summed
+    # them; None on NS turns and older servers.
+    ops_cost: float | None = None
+    server_turn_cost: float | None = None
     cost_partial: bool = False
     router_cost_partial: bool = False
     models_used: list[str] = Field(default_factory=list)
@@ -74,7 +78,8 @@ class TurnMeta(BaseModel):
             engine_cost=fields["engine_cost"], router_cost=fields["router_cost"],
             route=fields["route"], source=fields["source"],
             cost_partial=fields["cost_partial"],
-            router_cost_partial=fields["router_cost_partial"])
+            router_cost_partial=fields["router_cost_partial"],
+            server_turn_cost=fields["server_turn_cost"])
         return cls(turn=turn, task_id=task_id, cost=cost, partial=partial, **fields)
 
 
@@ -88,7 +93,9 @@ def case_money(turns_meta, *, turns_sent: int) -> dict:
     cost, partial = turn_cost.case_total(
         [(t.cost, t.partial) for t in turns_meta],
         missing_turns=max(0, turns_sent - len(turns_meta)))
-    return {"cost": cost, "cost_partial": partial, "turns_meta": turns_meta,
+    ops = [t.ops_cost for t in turns_meta if t.ops_cost is not None]
+    ops_cost = round(sum(ops), 6) if ops else None
+    return {"cost": cost, "cost_partial": partial, "ops_cost": ops_cost, "turns_meta": turns_meta,
             "turns_sent": turns_sent,
             "fallback_turns": sum(1 for t in turns_meta if t.fell_back)}
 
@@ -139,6 +146,8 @@ class NessieManifestEntry(BaseModel):
     # is None, which already says nothing was observed. Defaults False so
     # manifests written before it existed load and read as they always did.
     cost_partial: bool = False
+    # plan 04: the case's ops cost, summed over its turns; None when no turn reported one
+    ops_cost: float | None = None
     # One record per driven turn, in order: its router and engine costs and the
     # models that answered it. Defaults to [] so older manifests still load.
     turns_meta: list[TurnMeta] = Field(default_factory=list)
@@ -283,6 +292,9 @@ def cost_summary(entries) -> dict:
         prices existed was partial, because NS-routed cases emitted no
         ``total_cost_usd`` at all, and a CC turn that ends in ``query_error``
         carries no cost field (``NessieAI/cc/translate.py``).
+    ``ops_cost_total``
+        Plan 04: the Container-CC ops' spend summed over the cases that reported one (it is inside
+        ``total_cost``, not added to it); None when no case reported any.
     ``cost_display``
         The one preformatted string every summary prints, so the CLI, the HTML
         report and ``manage.py nessie`` cannot describe the same run differently.
@@ -317,6 +329,8 @@ def cost_summary(entries) -> dict:
         "cost_unmeasured": n_un,
         "cost_partial_cases": n_part,
         "cost_partial": bool(n_obs and (n_un or n_part)),
+        "ops_cost_total": (round(sum(e.ops_cost for e in entries if getattr(e, "ops_cost", None) is not None), 6)
+                           if any(getattr(e, "ops_cost", None) is not None for e in entries) else None),
         "cost_display": display,
     }
 

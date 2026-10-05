@@ -74,7 +74,11 @@ BACK_EDGE_ALLOWLIST: dict[str, frozenset[str]] = {
     # The CC turn (Phase B, moved from nextseek_api/services/cc_assistant.py,
     # which already held this edge): ChatSession reads and summary writes, and
     # the CCSessionTranscript upsert when a CC turn completes.
-    "NessieAI/cc/turn.py": frozenset({"nextseek_api.assistant.models_db"}),
+    "NessieAI/cc/turn.py": frozenset({
+        "nextseek_api.assistant.models_db",
+        # Spec piece 1 (plan 02): the CC turn issues, dates and revokes its turn pass.
+        "nextseek_api.assistant.turn_pass",
+    }),
     # Router telemetry and the posterior leg, through the ORM models.
     "NessieAI/router/risk_overlay.py": frozenset({"nextseek_api.assistant.models_db"}),
     "NessieAI/router/turn_ledger.py": frozenset({"nextseek_api.assistant.models_db"}),
@@ -108,6 +112,9 @@ BACK_EDGE_ALLOWLIST: dict[str, frozenset[str]] = {
     # the error a failed ChatSession save raises, to tell the user the turn was
     # not saved. The adapter itself is built by the ViewSet and handed in.
     "NessieAI/ns/turn.py": frozenset({"nextseek_api.assistant.session_adapter"}),
+    # The Container-CC turn's shared state (approach 1): the op slots (plan 03) and the turn's memory (plan 04),
+    # read and written as atomic updates on the CCTurn row.
+    "NessieAI/ns/turn_memory.py": frozenset({"nextseek_api.assistant.models_db"}),
     # schema_rag: the Ingest/Retrieve pydantic API models stay in nextseek_api.
     "NessieAI/schema_rag/__init__.py": frozenset({"nextseek_api.models"}),
     "NessieAI/schema_rag/service.py": frozenset({"nextseek_api.models"}),

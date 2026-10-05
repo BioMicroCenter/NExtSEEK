@@ -1,8 +1,7 @@
-"""Synchronous HTTP client for NExtSEEK native granular-op endpoints (T15, A-5).
-
-Calls POST /nextseek_api/assistant/{op}/ with HTTP Basic auth and maps the
-NExtSEEK error envelope ({code, errors}) onto the sidecar exception classes
-defined in ops.py that server.py's catch-ladder turns into §12 codes.
+"""Synchronous HTTP client for NExtSEEK native granular-op endpoints (T15, A-5; approach 1, piece 2). Calls POST
+/nextseek_api/assistant/{op}/ with the turn pass (Authorization: NextseekTurn) and maps NExtSEEK's error reply onto the
+sidecar exception classes that server.py's catch-ladder turns into §12 codes; a reply carrying one of NExtSEEK's op
+error codes is passed through with its fixed message and reason.
 
 IMPORT STYLE IS LOAD-BEARING: this module does ``import httpx`` (module-qualified)
 and calls ``httpx.post(...)`` / ``httpx.get(...)``.  Do NOT change to
@@ -18,52 +17,58 @@ import httpx
 from sidecar.app.exceptions import (
     AgentFailedError,
     AuthFailedError,
-    OpValidationError,
+    PassThroughError,
     TransportError,
-    WriteBlockedError,
 )
 
 # Timeout (seconds) for all NExtSEEK granular-op calls (DD-A5-1).
 _TIMEOUT = 60.0
 
+#: NExtSEEK's op error codes and reasons (nextseek_api/assistant/op_errors.py CODES and REASONS).
+_NEXTSEEK_CODES = frozenset({"VALIDATION", "WRITE_BLOCKED", "AUTH_FAILED", "PASS_NOT_ALLOWED", "BUSY", "TIME_UP",
+                             "AGENT_FAILED"})
+_REASONS = frozenset({"model_unavailable", "deadline", "bad_output", "internal"})
+
+
+def _headers(turn_pass: str) -> dict:
+    return {"Authorization": f"NextseekTurn {turn_pass}"}
+
 
 def _map_error(resp: httpx.Response) -> None:
-    """Inspect a non-2xx response and raise the appropriate sidecar exception.
+    """Inspect a non-2xx response and raise the matching sidecar exception.
 
-    Error mapping (DD-A5-2):
-      - 401                       → AuthFailedError
-      - 4xx/5xx with body code:
-          VALIDATION              → OpValidationError
-          WRITE_BLOCKED           → WriteBlockedError
-          CONFIG_ERROR /
-          CONFIG_MISSING          → AgentFailedError
-          any other 403           → AuthFailedError  (non-participant)
-          everything else         → AgentFailedError
+    Error mapping:
+      - a body with one of NExtSEEK's op error codes → PassThroughError (code, message, reason as sent)
+      - 401                                           → AuthFailedError
+      - CONFIG_ERROR / CONFIG_MISSING                 → AgentFailedError
+      - any other 403                                 → AuthFailedError  (non-participant)
+      - everything else                               → AgentFailedError
     """
     status = resp.status_code
-    if status == 401:
-        raise AuthFailedError("NExtSEEK returned 401 Unauthorized")
-
-    # Try to parse the error envelope.
     try:
         body = resp.json()
     except Exception:
         body = {}
-
+    if not isinstance(body, dict):
+        body = {}
     code = body.get("code", "")
 
-    if code == "VALIDATION":
-        raise OpValidationError(f"NExtSEEK VALIDATION: {body.get('errors', [])}")
-    if code == "WRITE_BLOCKED":
-        raise WriteBlockedError(f"NExtSEEK WRITE_BLOCKED: {body.get('errors', [])}")
+    if code in _NEXTSEEK_CODES:
+        message = str(body.get("message") or code)
+        if code == "VALIDATION":
+            named = [f"{item.get('field')} ({item.get('type')})" for item in body.get("errors") or []
+                     if isinstance(item, dict) and item.get("field")]
+            if named:
+                # Agent-visible on the sidecar road; approved as P03-W2-1 (BRAIN-CHANGES.md).
+                message = f"{message} Fields: {', '.join(named)}."
+        reason = body.get("reason") if body.get("reason") in _REASONS else None
+        raise PassThroughError(code, message, reason)
+    if status == 401:
+        raise AuthFailedError("NExtSEEK returned 401 Unauthorized")
     if code in ("CONFIG_ERROR", "CONFIG_MISSING"):
         raise AgentFailedError(f"NExtSEEK {code}: {body.get('errors', [])}")
-
-    # Any other 403 (e.g. non-participant, no code match) → AuthFailedError.
     if status == 403:
         raise AuthFailedError(f"NExtSEEK returned 403 (code={code!r}): {body.get('errors', [])}")
-
-    # Everything else (5xx, unexpected 4xx, …) → AgentFailedError.
     raise AgentFailedError(
         f"NExtSEEK returned HTTP {status} (code={code!r}): {body.get('errors', [])}"
     )
@@ -74,7 +79,7 @@ def call_op(
     body: dict,
     *,
     base_url: str,
-    auth: tuple[str, str],
+    turn_pass: str,
 ) -> dict:
     """POST a granular op to NExtSEEK and return the parsed JSON response dict.
 
@@ -82,7 +87,7 @@ def call_op(
         op:       Sidecar op name (e.g. "entity", "report").
         body:     Request payload dict (forwarded as JSON).
         base_url: NExtSEEK base URL, e.g. "http://nextseek_nginx".
-        auth:     (api_user, api_pass) tuple for HTTP Basic auth.
+        turn_pass: this turn's pass, sent as Authorization: NextseekTurn.
 
     Returns:
         The full response dict ({"op": ..., "result": ..., "download"?: ...}).
@@ -96,7 +101,7 @@ def call_op(
     """
     url = f"{base_url}/nextseek_api/assistant/{op}/"
     try:
-        resp = httpx.post(url, json=body, auth=auth, timeout=_TIMEOUT)
+        resp = httpx.post(url, json=body, headers=_headers(turn_pass), timeout=_TIMEOUT)
     except httpx.HTTPError as exc:
         raise TransportError(f"HTTP transport error calling {url}: {exc}") from exc
 
@@ -112,14 +117,14 @@ def fetch_artifact(
     rel_url: str,
     *,
     base_url: str,
-    auth: tuple[str, str],
+    turn_pass: str,
 ) -> bytes:
     """GET a report/submission artifact from NExtSEEK and return raw bytes.
 
     Args:
         rel_url:  Server-relative URL from download.artifacts[].url.
         base_url: NExtSEEK base URL, e.g. "http://nextseek_nginx".
-        auth:     (api_user, api_pass) tuple for HTTP Basic auth.
+        turn_pass: this turn's pass, sent as Authorization: NextseekTurn.
 
     Returns:
         Raw artifact bytes.
@@ -131,7 +136,7 @@ def fetch_artifact(
     """
     url = f"{base_url}{rel_url}"
     try:
-        resp = httpx.get(url, auth=auth, timeout=_TIMEOUT)
+        resp = httpx.get(url, headers=_headers(turn_pass), timeout=_TIMEOUT)
     except httpx.HTTPError as exc:
         raise TransportError(f"HTTP transport error fetching artifact {url}: {exc}") from exc
 

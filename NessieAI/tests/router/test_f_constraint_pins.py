@@ -78,8 +78,15 @@ def test_no_new_migrations():                        # Global Constraint
         "nextseek_api/migrations/0022_turn_ledger_query_task.py",
         "nextseek_api/migrations/0023_graph_sync_outbox_failing_since.py",
         "nextseek_api/migrations/0024_sampleshare.py",
+        # Pin updated for the Container-CC turn pass: 0025 creates the CCTurn table and its index and adds the
+        # nullable QueryTask.parent_cc_turn FK; it touches no router table. _cc_turn_heal.py is its heal helper.
+        "nextseek_api/migrations/0025_cc_turn.py",
+        # Pin updated for plan 04's turn memory: 0026 adds two CCTurn columns, ops_cost_partial and
+        # vocabulary_resolutions; it touches no router table.
+        "nextseek_api/migrations/0026_ccturn_ops_cost_partial.py",
         "nextseek_api/migrations/__init__.py",
         "nextseek_api/migrations/_cc_transcript_heal.py",
+        "nextseek_api/migrations/_cc_turn_heal.py",
         "nextseek_api/migrations/_chat_log_normalize.py",
         "nextseek_api/migrations/_turn_ledger_heal.py",
     ]

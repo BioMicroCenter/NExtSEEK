@@ -85,14 +85,15 @@ from .helpers import (
 )
 from .graph_retry import RETRY_CHANGED_ANSWER_NOTE, zero_row_retry_context
 from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
-from .helpers.suggestions import accept, clean_rerun, pending_for, public_chip, suggestions_from_review
+from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .schemas.graph import GraphAgentPlan
 from .session import SessionState
+from .vocabulary import resolve_vocabulary, take as take_vocabulary
 from .tee import Tee
-from . import turn_spend
+from . import call_scope, turn_spend
 from .uid_links import link_sample_uids
 
 SendEvent = Callable[[str, dict[str, Any]], None]
@@ -428,6 +429,13 @@ def _emit_query_complete(
     return payload
 
 
+def _limit_turn(deadline_epoch: float | None) -> None:
+    """A nested turn started by a Container-CC turn answers inside it: its scope's deadline is ``deadline_epoch``
+    (Unix time, the Container-CC turn's deadline less the answer reserve). A turn of its own has none."""
+    if deadline_epoch is not None:
+        call_scope.limit_current(max(0.0, float(deadline_epoch) - time.time()))
+
+
 @turn_spend.collects_turn
 def run_pipeline_launch(
     session: SessionState | SessionStateProxy,
@@ -437,6 +445,7 @@ def run_pipeline_launch(
     *,
     credentials: dict[str, str] | None = None,
     graph_scope: Any = _UNSET,
+    deadline_epoch: float | None = None,
 ) -> dict[str, Any]:
     """Deterministic CC → pipeline_agent bridge entry (query/async mode='pipeline').
 
@@ -447,12 +456,14 @@ def run_pipeline_launch(
 
     credentials — see _identity_gate. An incomplete per-request identity refuses
     the turn rather than launching a pipeline as the service account.
+    deadline_epoch -- set on a nested turn a Container-CC turn started; see _limit_turn.
     """
     config, identity_refusal = _identity_gate(
         session, config, credentials, send_event, entry_point="run_pipeline_launch", graph_scope=graph_scope,
     )
     if identity_refusal is not None:
         return identity_refusal
+    _limit_turn(deadline_epoch)
 
     log_dir = _ensure_query_log_dir(session, config)
     if send_event:
@@ -1393,6 +1404,20 @@ def _chip_rerun(accepted: dict[str, Any] | None) -> dict[str, Any] | None:
     return {**checked, "entity": rerun.get("entity"), "parser_plan": rerun.get("parser_plan")}
 
 
+def vocabulary_not_needed(session, user_text: str) -> bool:
+    """Whether this message's turn will be taken without a vocabulary: an open pipeline wizard, or a click on a chip
+    whose rerun skips the entity agent (``_run_chip_click``). Read-only: the chip offer stays for ``run_query``'s own
+    ``_accepted_suggestion``. A chip that falls through resolves the vocabulary inline, as it always did."""
+    try:
+        if pipeline_agent.is_active(session):
+            return True
+        chip = peek(session, user_text, last_turn_id=_last_turn_id(session))
+        return _chip_rerun(chip) is not None
+    except Exception as exc:  # a check must never cost the user their turn
+        print(f"[DEBUG][VOCAB] could not read the wizard or chip state: {exc!r}")
+        return False
+
+
 def _run_chip_click(*, config, session, user_text: str, accepted: dict[str, Any], rerun: dict[str, Any], log_dir,
                     artifact_store, send_event, t_total_start: float, note_agent):
     """A click on a chip that carries a rerun: the graph turn without the entity agent and the parser, whose outputs
@@ -1861,7 +1886,15 @@ def _next_bundle_id(session) -> int:
 
     A counter that only ever moves forward cannot collide, and it survives a lost
     append because it is stored separately from the history it indexes.
+
+    A session with one allocator for its chat (NExtSEEK's DictSessionAdapter, approach 1 piece 2)
+    takes the id from it, under a row lock shared with the Container-CC artifact ops, so the two never hand out one id.
     """
+    allocate = getattr(session, "allocate_bundle_id", None)
+    if callable(allocate):
+        nxt = allocate()
+        if nxt is not None:
+            return nxt
     history = session.get("results_history") or []
     highest_seen = max((b.get("id") or 0) for b in history) if history else 0
     try:
@@ -1967,6 +2000,51 @@ def unsupported_reply(plan) -> str:
     return UNSUPPORTED_REPLY
 
 
+def _turn_vocabulary(config: ChatConfig, user_text: str, send_event: SendEvent, *, mode: str,
+                     note_agent: Callable[[str], None] | None = None,
+                     vocabulary: Any = None) -> tuple[EntityAgentOutput, dict[str, Any], dict[str, Any] | None]:
+    """The turn's vocabulary, its shortlist diagnostics and the plan the pre-run made early (or None).
+
+    ``vocabulary`` is the pre-run started when the question arrived (``NessieAI/cc/prerun.py``), or None. Its result
+    is taken here, in the turn thread (``vocabulary.take``); with none, or one that failed, the vocabulary is resolved
+    here as it always was. The catalog and entity events go out either way, in the same order, so the stepper and the
+    debug panel read the same turn. This module's ``entity_agent`` and ``shortlist_catalog`` are handed in, so the
+    tests that patch them here still reach them.
+    """
+    send_event("agent_started", {"agent": "catalog", "mode": mode})
+    taken = take_vocabulary(vocabulary)
+    if taken is not None:
+        entity_result, diagnostics, early_plan = taken
+        send_event("agent_complete", {"agent": "catalog", "summary": None})
+        if note_agent is not None:
+            note_agent("entity")
+        send_event("agent_started", {"agent": "entity", "mode": mode})
+        send_event("agent_complete", {"agent": "entity", "summary": entity_result.model_dump()})
+        return entity_result, diagnostics, early_plan
+    diagnostics: dict[str, Any] = {}
+
+    def _shortlisted() -> None:
+        send_event("agent_complete", {"agent": "catalog", "summary": None})
+        if note_agent is not None:
+            note_agent("entity")
+        send_event("agent_started", {"agent": "entity", "mode": mode})
+
+    entity_result = resolve_vocabulary(None, config, user_text, diagnostics=diagnostics, on_shortlisted=_shortlisted,
+                                       entity=entity_agent, shortlist=shortlist_catalog)
+    send_event("agent_complete", {"agent": "entity", "summary": entity_result.model_dump()})
+    return entity_result, diagnostics, None
+
+
+def _early_or_parse(early_plan: dict[str, Any] | None, parse: Callable[[], Any]) -> Any:
+    """The plan the pre-run made early (NESSIE_PARSER_START=early), else the parser's."""
+    if isinstance(early_plan, dict):
+        try:
+            return ParserPlan.model_validate(early_plan)
+        except Exception as exc:  # noqa: BLE001 - parse it again
+            print(f"[VOCAB] the early parser plan did not load; parsing again: {exc!r}")
+    return parse()
+
+
 @turn_spend.collects_turn
 def run_query(
     session: SessionState | SessionStateProxy,
@@ -1976,6 +2054,8 @@ def run_query(
     *,
     credentials: dict[str, str] | None = None,
     graph_scope: Any = _UNSET,
+    vocabulary: Any = None,
+    deadline_epoch: float | None = None,
 ) -> dict[str, Any]:
     """
     Shared query orchestrator for Streamlit, CLI, and async/SSE consumers.
@@ -1990,12 +2070,16 @@ def run_query(
     graph_scope — the caller's project scope for graph queries, as plain data
     ({"is_admin", "project_ids"}) or a GraphScope; see _identity_gate. Left out, the
     config's own scope stands (single-operator surfaces).
+
+    vocabulary — the vocabulary pre-run (NessieAI/cc/prerun.py) or None; see _turn_vocabulary.
+    deadline_epoch -- set on a nested turn a Container-CC turn started; see _limit_turn.
     """
     config, identity_refusal = _identity_gate(
         session, config, credentials, send_event, entry_point="run_query", graph_scope=graph_scope,
     )
     if identity_refusal is not None:
         return identity_refusal
+    _limit_turn(deadline_epoch)
 
     log_dir = _ensure_query_log_dir(session, config)
     artifact_store = ArtifactStore(log_dir)
@@ -2046,36 +2130,13 @@ def run_query(
             if clicked is not None:
                 return clicked
 
-        send_event("agent_started", {"agent": "catalog", "mode": ""})
-        sampletypes_short, assays_short, shortlist_diag = shortlist_catalog(
-            user_text,
-            config.MIN_SAMPLETYPES or [],
-            config.MIN_ASSAYS or [],
-            k_st=50,
-            k_a=75,
-            sampletype_index=getattr(config, "SAMPLETYPE_INDEX", None),
-            assay_index=getattr(config, "ASSAY_INDEX", None),
-            ratio=getattr(config, "SEMANTIC_RATIO", 0.7),
-            min_k=getattr(config, "SEMANTIC_MIN_K", 10),
-            max_k=getattr(config, "SEMANTIC_MAX_K", 80),
-        )
-        if not sampletypes_short:
-            sampletypes_short = config.MIN_SAMPLETYPES or []
-        if not assays_short:
-            assays_short = config.MIN_ASSAYS or []
-        send_event("agent_complete", {"agent": "catalog", "summary": None})
-
-        current_agent = "entity"
-        send_event("agent_started", {"agent": "entity", "mode": ""})
-        _t0 = time.perf_counter()
-        entity_result = entity_agent(config, user_text, sampletypes_short, assays_short)
-        print(f"[TIMING][ENTITY] {time.perf_counter() - _t0:.2f}s")
-        send_event("agent_complete", {"agent": "entity", "summary": entity_result.model_dump()})
+        entity_result, shortlist_diag, early_plan = _turn_vocabulary(
+            config, user_text, send_event, mode="", note_agent=_note_agent, vocabulary=vocabulary)
 
         current_agent = "parser"
         send_event("agent_started", {"agent": "parser", "mode": ""})
         _t0 = time.perf_counter()
-        plan = parser_agent(session, config, user_text, entity_result)
+        plan = _early_or_parse(early_plan, lambda: parser_agent(session, config, user_text, entity_result))
         print(f"[TIMING][PARSER] {time.perf_counter() - _t0:.2f}s")
         plan = ParserPlan.model_validate(fix_sample_endpoint(plan.model_dump()))
         plan = _clamp_lab_codes_to_entity(plan, entity_result)
@@ -2927,18 +2988,23 @@ def run_query_plan(
     *,
     credentials: dict[str, str] | None = None,
     graph_scope: Any = _UNSET,
+    vocabulary: Any = None,
+    deadline_epoch: float | None = None,
 ) -> dict[str, Any]:
     """
     Planner-based orchestrator: entity -> parser -> planner -> executor -> chatter -> evaluator.
     Parallel structure to `run_query`, using the same result contract.
 
     credentials, graph_scope — same shallow-copy and identity-gate semantics as run_query.
+    vocabulary — the vocabulary pre-run, or None (see _turn_vocabulary).
+    deadline_epoch -- set on a nested turn a Container-CC turn started; see _limit_turn.
     """
     config, identity_refusal = _identity_gate(
         session, config, credentials, send_event, entry_point="run_query_plan", graph_scope=graph_scope,
     )
     if identity_refusal is not None:
         return identity_refusal
+    _limit_turn(deadline_epoch)
 
     log_dir = _ensure_query_log_dir(session, config)
     artifact_store = ArtifactStore(log_dir)
@@ -2953,28 +3019,8 @@ def run_query_plan(
             _raw_send_event(event_name, payload)
 
     try:
-        send_event("agent_started", {"agent": "catalog", "mode": "plan"})
-        sampletypes_short, assays_short, shortlist_diag = shortlist_catalog(
-            user_text,
-            config.MIN_SAMPLETYPES or [],
-            config.MIN_ASSAYS or [],
-            k_st=50,
-            k_a=75,
-            sampletype_index=getattr(config, "SAMPLETYPE_INDEX", None),
-            assay_index=getattr(config, "ASSAY_INDEX", None),
-            ratio=getattr(config, "SEMANTIC_RATIO", 0.7),
-            min_k=getattr(config, "SEMANTIC_MIN_K", 10),
-            max_k=getattr(config, "SEMANTIC_MAX_K", 80),
-        )
-        sampletypes_short = sampletypes_short or config.MIN_SAMPLETYPES or []
-        assays_short = assays_short or config.MIN_ASSAYS or []
-        send_event("agent_complete", {"agent": "catalog", "summary": None})
-
-        send_event("agent_started", {"agent": "entity", "mode": "plan"})
-        _t0 = time.perf_counter()
-        entity_result = entity_agent(config, user_text, sampletypes_short, assays_short)
-        print(f"[TIMING][ENTITY] {time.perf_counter() - _t0:.2f}s")
-        send_event("agent_complete", {"agent": "entity", "summary": entity_result.model_dump()})
+        entity_result, shortlist_diag, _ = _turn_vocabulary(config, user_text, send_event, mode="plan",
+                                                            vocabulary=vocabulary)
 
         send_event("agent_started", {"agent": "parser", "mode": "plan"})
         _t0 = time.perf_counter()

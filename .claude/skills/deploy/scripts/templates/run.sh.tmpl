@@ -152,9 +152,18 @@ C=/app/NessieAI/chat_nextseek/src/chat_nextseek/context
   echo "CHECK labs_line $(docker logs nextseek 2>&1 | grep -F '[CONFIG][LABS]' | tail -1 | cut -c1-200)"
   echo "CHECK labs_file $(docker compose exec -T nextseek sh -c "stat -c %y $C/labs_db.json 2>/dev/null || echo missing" </dev/null)"
   echo "CHECK refresh_marker $(docker compose exec -T nextseek sh -c "stat -c %y $C/.context_db_refresh 2>/dev/null || echo missing" </dev/null)"
-  running=$(docker exec nextseek-sidecar sh -c 'grep -A3 "SIDECAR_OPS = frozenset" /app/sidecar/app/contract.py' 2>/dev/null | tr -d ' \n')
-  repo=$(git show HEAD:NessieAI/docker/ns-sidecar/app/contract.py | grep -A3 "SIDECAR_OPS = frozenset" | tr -d ' \n')
-  [ -n "$running" ] && [ "$running" = "$repo" ] && echo "CHECK sidecar_ops match" || echo "CHECK sidecar_ops differ"
+  # The op tools take the sidecar only when NEXTSEEK_CC_OPS_ROAD says sidecar (approach 1, piece 2); a build
+  # without the switch (no NessieAI/cc/ops_road.py) always used it.
+  road=$(docker compose exec -T nextseek sh -c 'test -f /app/NessieAI/cc/ops_road.py || { echo sidecar; exit 0; }; v=$(printf %s "${NEXTSEEK_CC_OPS_ROAD:-direct}" | tr -d " " | tr A-Z a-z); [ "$v" = sidecar ] && echo sidecar || echo direct' </dev/null 2>/dev/null | tail -1)
+  [ -n "$road" ] || road=sidecar
+  echo "CHECK ops_road $road"
+  if [ "$road" = sidecar ]; then
+    running=$(docker exec nextseek-sidecar sh -c 'grep -A3 "SIDECAR_OPS = frozenset" /app/sidecar/app/contract.py' 2>/dev/null | tr -d ' \n')
+    repo=$(git show HEAD:NessieAI/docker/ns-sidecar/app/contract.py | grep -A3 "SIDECAR_OPS = frozenset" | tr -d ' \n')
+    [ -n "$running" ] && [ "$running" = "$repo" ] && echo "CHECK sidecar_ops match" || echo "CHECK sidecar_ops differ"
+  else
+    echo "CHECK sidecar_ops skipped"
+  fi
   for i in nextseek-nextseek:latest dmac-assistant:poc nextseek-ns-sidecar:latest nextseek-bedrock-proxy:latest; do
     echo "IMAGE $i $(docker image inspect -f '{{.Created}}' $i 2>&1)"
   done

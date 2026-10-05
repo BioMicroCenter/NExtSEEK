@@ -86,6 +86,27 @@ def get_token_auth(request) -> Optional[str]:
     return None
 
 
+def _turn_pass_login(request):
+    """What a Container-CC turn pass acts as downstream, or None when ``request`` carries no pass.
+
+    ``((username, password), {})`` from the login the turn holds, or ``(None, None)`` when that login is gone.
+    A pass never falls through to another credential source and its own value is never forwarded to SEEK.
+    """
+    from nextseek_api.permissions import is_turn_pass
+
+    if not is_turn_pass(request):
+        return None
+    from nextseek_api.assistant import turn_pass
+
+    try:
+        username, password = turn_pass.login_for(request.auth)
+    except turn_pass.TurnPassError:
+        return None, None
+    if not username or not password:
+        return None, None
+    return (username, password), {}
+
+
 def resolve_seek_auth(request, order: Optional[List[str]] = None) -> Tuple[Optional[Tuple[str, str]], Optional[Dict[str, str]]]:
     """
     Determine how to authenticate to SEEK for this incoming request.
@@ -102,6 +123,11 @@ def resolve_seek_auth(request, order: Optional[List[str]] = None) -> Tuple[Optio
     Default order is ["BASIC", "SESSION", "TOKEN"].
     """
     order = order or ["BASIC", "SESSION", "TOKEN"]
+
+    # A Container-CC turn pass resolves to the login its turn holds, whatever order was asked for.
+    via_pass = _turn_pass_login(request)
+    if via_pass is not None:
+        return via_pass
 
     for method in order:
         if method == "BASIC":

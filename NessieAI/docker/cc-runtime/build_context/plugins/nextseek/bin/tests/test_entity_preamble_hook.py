@@ -6,7 +6,8 @@ was staged in turn-02/. The only "newest is turn N" pointer was in the memory fi
 resumed conversation does not look at again. The hook runs before every turn, resumed or not,
 so it now opens the injected context with the newest staged turn: which turn, what it asked,
 what it returned, whether it carries sample UIDs, its files, and to read MANIFEST.md first.
-It still resolves the vocabulary, and it still never blocks a turn.
+It also injects the turn's vocabulary, read from the turn's own file (Django wrote it before the container
+started); it runs no bin and makes no call, and it never blocks a turn.
 
 Runs the real script with the host's sh and jq (the image installs jq; skipped where absent).
 """
@@ -59,18 +60,37 @@ def _manifest(tmp_path: Path, *turns: dict) -> Path:
     return staged
 
 
-def _entity_bin(tmp_path: Path, payload: str) -> Path:
+NOTE_PREFIX = ("NExtSEEK vocabulary auto-resolved for this query (NExtSEEK resolved it before your turn started; "
+               "do not run nextseek-entity-extract again for it). Use these canonical terms, not the raw phrasing or "
+               "abbreviations, when building op calls (investigation/project names, sampletype codes, assays, "
+               "keywords). If a term you need is not here, consult context/MANIFEST.md:")
+
+
+def _vocab_file(tmp_path: Path, payload: str) -> Path:
+    """The turn's vocabulary as Django writes it (NessieAI/cc/cc_engine._write_turn_vocabulary)."""
+    path = tmp_path / "turn" / "vocabulary.json"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(payload + "\n")
+    return path
+
+
+def _spy_bin(tmp_path: Path) -> tuple[Path, Path]:
+    """A bin that leaves a marker if anything runs it: the hook must run none."""
+    marker = tmp_path / "bin-ran"
     stub = tmp_path / "nextseek-entity-extract"
-    stub.write_text(f"#!/bin/sh\nprintf '%s' '{payload}'\n")
+    stub.write_text(f"#!/bin/sh\ntouch '{marker}'\nprintf '{{}}'\n")
     stub.chmod(0o755)
-    return stub
+    return stub, marker
 
 
-def _run(tmp_path: Path, *, staged: Path | None = None, entity: Path | None = None,
+def _run(tmp_path: Path, *, staged: Path | None = None, vocab: Path | None = None,
          prompt: str = "Break those down by sex") -> subprocess.CompletedProcess:
     env = dict(os.environ)
     env["NEXTSEEK_PREVIOUS_TURNS_DIR"] = str(staged or tmp_path / "absent")
-    env["NEXTSEEK_ENTITY_EXTRACT_BIN"] = str(entity or tmp_path / "no-such-bin")
+    env["NEXTSEEK_TURN_VOCABULARY_FILE"] = str(vocab or tmp_path / "no-such-file.json")
+    stub, _ = _spy_bin(tmp_path)
+    env["NEXTSEEK_ENTITY_EXTRACT_BIN"] = str(stub)
+    env["PATH"] = f"{tmp_path}:{env.get('PATH', '')}"
     return subprocess.run(["sh", str(HOOK)], input=json.dumps({"prompt": prompt}), env=env,
                           capture_output=True, text=True, timeout=30)
 
@@ -108,26 +128,6 @@ def test_a_count_only_turn_says_it_has_no_uids_and_to_keep_its_filter(tmp_path):
     assert "change only its RETURN" in ctx and "keep every MATCH and WHERE" in ctx
 
 
-def test_both_notes_the_turn_first_then_the_vocabulary(tmp_path):
-    vocab = '{"sampletypes":["MUS"],"assays":[],"keywords":[],"projects":[]}'
-    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, NS_TURN),
-                        entity=_entity_bin(tmp_path, vocab)))
-    assert ctx.index("turn 3") < ctx.index("NExtSEEK vocabulary auto-resolved")
-    assert ctx.rstrip().endswith(vocab)
-
-
-def test_the_vocabulary_alone_when_nothing_is_staged(tmp_path):
-    vocab = '{"sampletypes":["NHP"],"assays":[],"keywords":[],"projects":[]}'
-    ctx = _context(_run(tmp_path, entity=_entity_bin(tmp_path, vocab)))
-    assert ctx.startswith("NExtSEEK vocabulary auto-resolved") and "previous_turns" not in ctx
-
-
-def test_the_turn_note_survives_a_failed_vocabulary_lookup(tmp_path):
-    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, NS_TURN),
-                        entity=_entity_bin(tmp_path, "not json")))
-    assert "turn 3" in ctx and "vocabulary" not in ctx
-
-
 @pytest.mark.parametrize("manifest", ["", "{not json", '{"turns": []}', '{"turns": "x"}'])
 def test_nothing_to_say_emits_nothing_and_never_blocks(tmp_path, manifest):
     staged = tmp_path / "previous_turns"
@@ -154,3 +154,40 @@ def test_a_cc_newest_turn_points_at_the_newest_search_and_not_at_rerunning_one(t
     ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, CC_TURN, NS_TURN)))
     assert "never re-run its search" not in ctx
     assert "The newest NExtSEEK search is turn 3" in ctx and "/data/previous_turns/turn-03/" in ctx
+
+
+def test_both_notes_the_turn_first_then_the_vocabulary(tmp_path):
+    vocab = '{"sampletypes":["MUS"],"assays":[],"keywords":[],"projects":[]}'
+    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, NS_TURN), vocab=_vocab_file(tmp_path, vocab)))
+    assert ctx.index("turn 3") < ctx.index("NExtSEEK vocabulary auto-resolved")
+    assert ctx.rstrip().endswith(vocab)
+
+
+def test_the_vocabulary_alone_when_nothing_is_staged_with_the_same_note_text(tmp_path):
+    vocab = '{"sampletypes":["NHP"],"assays":[],"keywords":[],"projects":[]}'
+    ctx = _context(_run(tmp_path, vocab=_vocab_file(tmp_path, vocab)))
+    assert ctx == NOTE_PREFIX + "\n" + vocab
+
+
+def test_the_turn_note_survives_a_malformed_vocabulary_file(tmp_path):
+    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, NS_TURN), vocab=_vocab_file(tmp_path, "not json")))
+    assert "turn 3" in ctx and "vocabulary" not in ctx
+
+
+def test_no_vocabulary_file_no_vocabulary_note(tmp_path):
+    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, NS_TURN)))
+    assert "vocabulary" not in ctx
+
+
+def test_the_hook_runs_no_bin_and_makes_no_call(tmp_path):
+    vocab = '{"sampletypes":[],"assays":[],"keywords":["x"],"projects":[]}'
+    _run(tmp_path, vocab=_vocab_file(tmp_path, vocab))
+    assert not (tmp_path / "bin-ran").exists()
+
+
+def test_the_hook_reads_the_file_the_engine_mounts(tmp_path):
+    """Review focus 1 (hook half): the default path is the one the engine mounts (pinned in
+    NessieAI/tests/cc/test_vocabulary_path_pin.py), and a first turn's file (no manifest) is read."""
+    assert '${NEXTSEEK_TURN_VOCABULARY_FILE:-/data/turn/vocabulary.json}' in HOOK.read_text()
+    ctx = _context(_run(tmp_path, vocab=_vocab_file(tmp_path, '{"keywords":["mice"]}')))
+    assert ctx.endswith('{"keywords":["mice"]}')

@@ -1463,7 +1463,7 @@
       },
       {
        "name": "Automatic vocabulary resolution on every CC prompt (UserPromptSubmit hook)",
-       "description": "Before the agent acts on any prompt, entity-extract runs outside the agent's control and injects the resolved {sampletypes, assays, keywords, projects} as additionalContext, so abbreviations are expanded and op calls are grounded. Fail-open: missing prompt, missing bin, timeout or malformed result emits nothing. Re-registered into ~/.claude/settings.json at container start because the headless runtime does not load plugin hooks.json.",
+       "description": "Before the agent acts on any prompt, the hook injects the vocabulary NExtSEEK resolved for the question before the turn started (`/data/turn/vocabulary.json`) as additionalContext, so abbreviations are expanded and op calls are grounded. Fail-open: no file or malformed JSON emits nothing. Re-registered into ~/.claude/settings.json at container start because the headless runtime does not load plugin hooks.json.",
        "modality": "container_cc",
        "reachable_from_chat": "yes",
        "enum_count": 3,

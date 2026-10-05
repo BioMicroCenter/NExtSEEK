@@ -21,6 +21,7 @@ import type {
   QueryCompleteData,
   QueryErrorData,
   RouteDecidedData,
+  PreludeStepData,
   CcTurnMetaData,
   Turn,
 } from "@/lib/types/api";
@@ -49,6 +50,7 @@ export function EmbeddedApp() {
   const pendingDebugRef = useRef<DebugEntry[]>([]);
   const {
     processingState,
+    handlePreludeStep,
     handleRouteDecided,
     handleAgentStarted,
     handleAgentComplete,
@@ -125,6 +127,10 @@ export function EmbeddedApp() {
           };
           pendingDebugRef.current.push(entry);
           setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
+          break;
+        }
+        case "prelude_step": {
+          handlePreludeStep(event.data as PreludeStepData);
           break;
         }
         case "route_decided": {
@@ -205,7 +211,7 @@ export function EmbeddedApp() {
         }
       }
     },
-    [handleRouteDecided, handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, handleSelectionEvent, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, sessions],
+    [handlePreludeStep, handleRouteDecided, handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, handleSelectionEvent, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, sessions],
   );
 
   const handleQueryError = useCallback(

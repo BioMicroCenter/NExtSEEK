@@ -1426,6 +1426,8 @@ def parse_checks(text: str) -> dict:
             ck["refresh_marker"] = ln[len("CHECK refresh_marker "):]
         elif ln.startswith("CHECK sidecar_ops "):
             ck["sidecar_ops"] = ln.split()[2]
+        elif ln.startswith("CHECK ops_road "):
+            ck["ops_road"] = ln.split()[2]
         elif ln.startswith("CHECK cc_agent_versions "):
             ck["cc_agent_versions"] = ln[len("CHECK cc_agent_versions "):]
         elif ln.startswith("CHECK memory "):

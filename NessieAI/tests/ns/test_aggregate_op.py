@@ -112,7 +112,7 @@ class PartsTests(SimpleTestCase):
         self.assertEqual((part["part"], part["question"], part["status"]), (1, q, "ok"))
         self.assertEqual(out["question"], q)
         self.assertTrue(out["complete"])
-        self.assertEqual(out["deadline_s"], aggregate.OP_DEADLINE_S)
+        self.assertEqual(out["deadline_s"], aggregate.op_deadline_s(None))
         json.dumps(out)  # crosses the wire as JSON
 
     def test_bad_parts_are_a_validation_error_before_any_agent_runs(self):
@@ -467,7 +467,7 @@ class DeadlineTests(SimpleTestCase):
             if query == "slow part":
                 fast_done.wait(5)
                 time.sleep(0.5)  # the fast part has only its fake query and its shaping left: let it finish
-                clock.now += aggregate.OP_DEADLINE_S + 1  # the slow part outlives the op's deadline
+                clock.now += aggregate.op_deadline_s(None) + 1  # the slow part outlives the op's deadline
                 release.wait(10)
                 slow_finished.set()
                 raise RuntimeError("released after the op answered")
@@ -495,7 +495,7 @@ class DeadlineTests(SimpleTestCase):
         q = "How many HeLa samples?"
         clock = _Clock()
         fakes = Fakes({q: [COUNT, COUNT]}, {"T_TIS": [_ok([{"n": 0}])]},
-                      parser_hook=lambda query: setattr(clock, "now", clock.now + aggregate.OP_DEADLINE_S
+                      parser_hook=lambda query: setattr(clock, "now", clock.now + aggregate.op_deadline_s(None)
                                                         - aggregate.MIN_REMAINING_S + 1))
         with patch("NessieAI.ns.aggregate._monotonic", clock):
             part = fakes.run(q)["parts"][0]
@@ -507,7 +507,7 @@ class DeadlineTests(SimpleTestCase):
         q = "Studies of NHP samples"
         clock = _Clock()
         fakes = Fakes({q: ["MATCH (st:Study) RETURN count(st) AS n"]}, {"Study": [_refused(["unjoined_node"])]},
-                      parser_hook=lambda query: setattr(clock, "now", clock.now + aggregate.OP_DEADLINE_S
+                      parser_hook=lambda query: setattr(clock, "now", clock.now + aggregate.op_deadline_s(None)
                                                         - aggregate.MIN_REMAINING_S + 1))
         with patch("NessieAI.ns.aggregate._monotonic", clock):
             part = fakes.run(q)["parts"][0]
@@ -524,7 +524,7 @@ class DeadlineTests(SimpleTestCase):
         entity = fakes.entity
 
         def slow_entity(config, query):
-            clock.now += aggregate.OP_DEADLINE_S - aggregate.MIN_REMAINING_S + 1
+            clock.now += aggregate.op_deadline_s(None) - aggregate.MIN_REMAINING_S + 1
             return entity(config, query)
 
         fakes.entity = slow_entity

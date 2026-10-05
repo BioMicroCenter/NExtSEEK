@@ -608,7 +608,8 @@ def test_the_turn_pull_reads_the_router_price_and_the_turn_record_read_only():
     import re as _re
 
     for key in ("total_cost_usd", "router_cost_usd", "router_cost_partial", "router_model",
-                "router_fallback", "cost_partial", "models_used", "model_fallback"):
+                "router_fallback", "cost_partial", "models_used", "model_fallback",
+                "parent_cc_turn_id"):
         assert key in fetch_run.REMOTE, key
     for sql in (fetch_run.REMOTE, fetch_run.RAW):
         upper = sql.upper()
@@ -628,6 +629,27 @@ def test_a_pulled_turn_is_priced_by_the_harness_rule():
 
     got = [(t["turn_cost"], t["turn_cost_partial"]) for t in turns]
     assert got == [(0.51, False), (0.01, True), (0.003, False), (0.4, False), (0.21, True)]
+
+
+def test_the_parent_column_is_read_only_where_the_instance_has_it():
+    """parent_cc_turn_id arrives with migration 0025; an instance without it reads NULL. Named straight in the
+    select, the query fails there, and q() hides mysql's error: the pull would come back with no turns."""
+    turns_sql = fetch_run.REMOTE.split('echo "@@@TURNS@@@"', 1)[1]
+    assert "information_schema.columns" in fetch_run.REMOTE
+    assert "t.parent_cc_turn_id," not in turns_sql
+    assert "'parent',  $PARENT," in turns_sql
+
+
+def test_the_window_total_counts_a_nested_turn_once_through_its_parent():
+    """A nested NS turn is already inside its parent's server_turn_cost: counted once, through the parent. "c" and
+    "x" carry no router price, so the rule marks both partial; only "x" is the window's own."""
+    turns = fetch_run.price_turns([
+        _pulled("p", cost=0.5, router_cost=0.01, server_turn_cost=0.7),   # the parent, nested turns inside
+        _pulled("c", route="nextseek_query", cost=0.2, parent="p"),
+        _pulled("x", route="nextseek_query", cost=0.1),
+    ])
+    total, priced, partial, nested = fetch_run.window_total(turns)
+    assert (total, priced, partial, nested) == (pytest.approx(0.8), 2, 1, 1)
 
 
 def test_a_pulled_turn_and_the_harness_price_the_same_payload_the_same():
@@ -833,3 +855,10 @@ def test_a_pull_that_joins_no_case_says_so(tmp_path, monkeypatch, capsys):
 
 def test_a_pull_loads_the_summing_rule_from_the_harness_not_a_copy():
     assert fetch_run.turn_cost.__file__.endswith("nessie_tests/turn_cost.py")
+
+
+def test_price_turns_prefers_the_servers_whole_turn_cost():
+    turns = [{"cost": 0.3, "router_cost": 0.004, "route": "container_cc", "src": "baml", "cost_partial": False,
+              "router_cost_partial": False, "server_turn_cost": 0.454, "ops_cost": 0.15}]
+    (t,) = fetch_run.price_turns(turns)
+    assert t["turn_cost"] == 0.454 and t["turn_cost_partial"] is False

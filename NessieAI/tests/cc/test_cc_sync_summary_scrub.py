@@ -70,7 +70,8 @@ class _Summary:
 
 
 def _fixture(tmp_path, monkeypatch):
-    src = tmp_path / "sess-other.jsonl"
+    src = tmp_path / "cc-state" / "sess-other" / "projects" / "-home-user" / "sess-other.jsonl"
+    src.parent.mkdir(parents=True)
     src.write_bytes(TRANSCRIPT)
     seen = {}
 

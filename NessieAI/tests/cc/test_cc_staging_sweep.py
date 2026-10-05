@@ -1,13 +1,13 @@
 """Hermetic tests for the G7-11 Task 14 user-scoped sidecar staging sweep
 (``nextseek_api/cc_assistant/cc_staging.py``) + its management-command entrypoint.
 
-No Docker, no network, no DB (fakes + tmp dirs only). Grounds every layout fact
+No Docker, no network; the DB only for the command's owner lookup. Grounds every layout fact
 against the ported upstream contract at
 ``docker/ns-sidecar/app/staging.py`` (byte-identical to
 ``<source-checkout>/sidecar/app/staging.py`` @ a429f13):
 
-    {SIDECAR_STAGING_DIR}/{sha256(api_user)}/{request_id}/<files>
-    {SIDECAR_STAGING_DIR}/{sha256(api_user)}/{request_id}.complete
+    {SIDECAR_STAGING_DIR}/{sha256(turn pass)}/{request_id}/<files>
+    {SIDECAR_STAGING_DIR}/{sha256(turn pass)}/{request_id}.complete
 
 Each locked invariant has a FIRING negative control (a test that goes RED under
 the forbidden mutation): fresh artifact surfaces same-turn, non-`.complete` not
@@ -36,12 +36,12 @@ PORTED_STAGING = paths.NS_SIDECAR_DIR / "app" / "staging.py"
 # helpers: build a sidecar-shaped staging tree under a fake dmac-cc-users mount
 # --------------------------------------------------------------------------
 
-def _stage(root: Path, api_user: str, request_id: str, files: dict[str, bytes],
+def _stage(root: Path, turn_pass: str, request_id: str, files: dict[str, bytes],
            *, complete: bool = True, marker_mtime: float | None = None) -> Path:
     """Write ``files`` (relpath -> bytes) under
-    ``{root}/_staging/{sha256(api_user)}/{request_id}/`` and (optionally) the
+    ``{root}/_staging/{sha256(turn pass)}/{request_id}/`` and (optionally) the
     sibling ``.complete`` marker — exactly the sidecar's layout."""
-    base = root / "_staging" / hashlib.sha256(api_user.encode()).hexdigest()
+    base = root / "_staging" / hashlib.sha256(turn_pass.encode()).hexdigest()
     req = base / request_id
     for rel, data in files.items():
         dst = req / rel
@@ -83,7 +83,7 @@ def test_fresh_complete_artifact_surfaces_in_same_turn_publish_set(tmp_path):
 
     res = cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(scratch),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT,
         since_ts=0.0,  # in-turn mode; all real mtimes >= 0 -> treated as this turn
     )
     assert res.delivered == ["nextseek-artifacts/submission.csv"]
@@ -111,7 +111,7 @@ def test_non_complete_dir_is_not_swept(tmp_path):
 
     res = cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(scratch),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT, since_ts=0.0,
     )
     assert res.delivered == []
     assert not (scratch / "nextseek-artifacts").exists()
@@ -137,7 +137,7 @@ def test_older_stray_not_attributed_in_turn_but_recovered_standalone(tmp_path):
 
     in_turn = cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(scratch),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT,
         since_ts=turn_start - 1,
     )
     assert in_turn.delivered == ["nextseek-artifacts/fresh.csv"]
@@ -147,7 +147,7 @@ def test_older_stray_not_attributed_in_turn_but_recovered_standalone(tmp_path):
 
     recovery = cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(scratch),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT,
         since_ts=None,  # recovery: sweep ALL completed dirs
     )
     assert recovery.delivered == ["nextseek-artifacts/stray.csv"]
@@ -171,7 +171,7 @@ def test_delivery_scoped_to_caller_identity_not_staged_content(tmp_path):
 
     cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(a_scratch),
-        api_user="alice@x", user_id="alice", project_dirname=PROJECT, since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for("alice@x"), user_id="alice", project_dirname=PROJECT, since_ts=0.0,
     )
     # Alice's sweep reads ONLY sha256("alice@x") -> gets "A", never bob's "B".
     assert (a_scratch / "nextseek-artifacts" / "r.csv").read_bytes() == b"A"
@@ -180,7 +180,7 @@ def test_delivery_scoped_to_caller_identity_not_staged_content(tmp_path):
     b_scratch = _scratch(root, "9-otherproj", "bob")
     cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(b_scratch),
-        api_user="bob@x", user_id="bob", project_dirname="9-otherproj", since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for("bob@x"), user_id="bob", project_dirname="9-otherproj", since_ts=0.0,
     )
     assert (b_scratch / "nextseek-artifacts" / "r.csv").read_bytes() == b"B"
     # Alice's subtree never received bob's bytes.
@@ -197,29 +197,30 @@ def test_foreign_users_staging_invisible_to_this_caller(tmp_path):
 
     res = cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(b_scratch),
-        api_user="bob@x", user_id="bob", project_dirname="9-otherproj", since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for("bob@x"), user_id="bob", project_dirname="9-otherproj", since_ts=0.0,
     )
     assert res.delivered == []
     assert not (b_scratch / "nextseek-artifacts").exists()
 
 
-@pytest.mark.parametrize("api_user,user_id,project", [
-    ("a/../b", USER, PROJECT),               # api_user path separator
-    ("..", USER, PROJECT),                    # api_user dotdot
-    ("", USER, PROJECT),                      # empty api_user
-    (API_USER, "../evil", PROJECT),           # user_id traversal
-    (API_USER, "a/b", PROJECT),               # user_id separator
-    (API_USER, USER, "../../etc"),            # project traversal
-    (API_USER, USER, "a/b"),                  # project separator
-    (API_USER, USER, ".."),                   # project dotdot
+@pytest.mark.parametrize("folder,user_id,project", [
+    ("a/../b", USER, PROJECT),               # folder path separator
+    ("..", USER, PROJECT),                    # folder dotdot
+    ("", USER, PROJECT),                      # empty folder
+    ("A" * 64, USER, PROJECT),                # not the lowercase hex a hash is
+    (cc_staging.staging_folder_for(API_USER), "../evil", PROJECT),           # user_id traversal
+    (cc_staging.staging_folder_for(API_USER), "a/b", PROJECT),               # user_id separator
+    (cc_staging.staging_folder_for(API_USER), USER, "../../etc"),            # project traversal
+    (cc_staging.staging_folder_for(API_USER), USER, "a/b"),                  # project separator
+    (cc_staging.staging_folder_for(API_USER), USER, ".."),                   # project dotdot
 ])
-def test_invalid_identity_rejected(tmp_path, api_user, user_id, project):
-    """Foreign/traversing project/user/api_user components are rejected before any
+def test_invalid_identity_rejected(tmp_path, folder, user_id, project):
+    """Foreign/traversing project/user/folder components are rejected before any
     path interpolation — no cross-user path is constructible from a WS request."""
     with pytest.raises(ValueError):
         cc_staging.sweep_user_staging(
             user_root_mount=str(tmp_path), scratch_dir=str(tmp_path / "s"),
-            api_user=api_user, user_id=user_id, project_dirname=project, since_ts=0.0,
+            staging_folder=folder, user_id=user_id, project_dirname=project, since_ts=0.0,
         )
 
 
@@ -240,7 +241,7 @@ def test_symlinked_staged_file_is_skipped(tmp_path):
 
     res = cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(scratch),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT, since_ts=0.0,
     )
     assert res.delivered == ["nextseek-artifacts/ok.txt"]
     assert not (scratch / "nextseek-artifacts" / "leak.txt").exists()
@@ -265,7 +266,7 @@ def test_symlinked_request_dir_is_refused(tmp_path):
 
     res = cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(scratch),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT, since_ts=0.0,
     )
     assert res.delivered == []
     assert not (scratch / "nextseek-artifacts").exists()
@@ -315,7 +316,7 @@ def test_dotdot_named_request_marker_cannot_escape_hashed_base(tmp_path):
 
     res = cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(scratch),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT, since_ts=0.0,
     )
     # Nothing delivered; the foreign user's bytes never reach the caller's scratch.
     assert res.delivered == [] and res.deferred_markers == []
@@ -353,7 +354,7 @@ def test_non_canonical_request_id_marker_refused(tmp_path, bad_stem):
 
     res = cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(scratch),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT, since_ts=0.0,
     )
     assert res.delivered == [] and res.deferred_markers == []
     assert not (scratch / "nextseek-artifacts").exists()
@@ -368,7 +369,7 @@ def test_nested_relpath_preserved_within_subtree(tmp_path):
            {"sub/dir/deep.csv": b"deep"})
     res = cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(scratch),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT, since_ts=0.0,
     )
     assert res.delivered == ["nextseek-artifacts/sub/dir/deep.csv"]
     assert (scratch / "nextseek-artifacts" / "sub" / "dir" / "deep.csv").read_bytes() == b"deep"
@@ -406,7 +407,7 @@ def test_dest_artifacts_dir_symlink_to_foreign_tree_refused(tmp_path):
 
     res = cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(scratch),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT, since_ts=0.0,
     )
     assert res.delivered == []                       # nothing delivered
     assert not (foreign / "payload.csv").exists()    # NO cross-user write
@@ -436,7 +437,7 @@ def test_dest_nested_dir_symlink_to_foreign_tree_refused(tmp_path):
 
     res = cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(scratch),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT, since_ts=0.0,
     )
     assert res.delivered == []
     assert not (planted / "payload.csv").exists()    # NO cross-user write
@@ -459,7 +460,7 @@ def test_dest_nested_dangling_symlink_refused(tmp_path):
 
     res = cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(scratch),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT, since_ts=0.0,
     )
     assert res.delivered == []
     assert not (foreign / "planted").exists()
@@ -480,7 +481,7 @@ def test_dest_leaf_symlink_refused_not_followed(tmp_path):
 
     res = cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(scratch),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT, since_ts=0.0,
     )
     # O_EXCL treats the planted symlink name as taken and disambiguates to a
     # fresh REAL file — the write never follows the link into the foreign tree.
@@ -503,7 +504,7 @@ def test_cleanup_removes_swept_dir_and_marker(tmp_path):
 
     cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(scratch),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT, since_ts=0.0,
     )
     assert not req.exists()
     assert not marker.exists()
@@ -518,7 +519,7 @@ def test_collision_is_disambiguated_never_clobbers(tmp_path):
 
     res = cc_staging.sweep_user_staging(
         user_root_mount=str(root), scratch_dir=str(scratch),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT, since_ts=0.0,
     )
     # Prior artifact preserved; new one renamed with the __N pattern.
     assert (scratch / "nextseek-artifacts" / "r.csv").read_bytes() == b"PRIOR"
@@ -529,17 +530,17 @@ def test_collision_is_disambiguated_never_clobbers(tmp_path):
 def test_missing_staging_root_is_noop(tmp_path):
     res = cc_staging.sweep_user_staging(
         user_root_mount=str(tmp_path / "users"), scratch_dir=str(tmp_path / "s"),
-        api_user=API_USER, user_id=USER, project_dirname=PROJECT, since_ts=0.0,
+        staging_folder=cc_staging.staging_folder_for(API_USER), user_id=USER, project_dirname=PROJECT, since_ts=0.0,
     )
     assert res.delivered == [] and res.deferred_markers == []
 
 
-def test_user_hash_matches_ported_sidecar_contract():
-    """Parity with NessieAI/docker/ns-sidecar/app/staging.py::_user_hash: silent drift
-    means staged artifacts are never found."""
-    assert cc_staging._user_hash("alice@mit.edu") == hashlib.sha256(b"alice@mit.edu").hexdigest()
+def test_staging_folder_matches_ported_sidecar_contract():
+    """Parity with NessieAI/docker/ns-sidecar/app/staging.py::_folder_key (the hash of the turn pass, ruling R1):
+    silent drift means staged artifacts are never found."""
+    assert cc_staging.staging_folder_for("a-pass") == hashlib.sha256(b"a-pass").hexdigest()
     text = PORTED_STAGING.read_text(encoding="utf-8")
-    assert 'hashlib.sha256(api_user.encode("utf-8")).hexdigest()' in text
+    assert 'hashlib.sha256(turn_pass.encode("utf-8")).hexdigest()' in text
 
 
 def test_reserved_staging_name_never_a_project_dirname():
@@ -563,6 +564,7 @@ def test_staging_root_for_derivation():
 # management command (recovery / Task 15 gate entrypoint) — SAME code path
 # --------------------------------------------------------------------------
 
+@pytest.mark.django_db  # the command looks the folder's owner up in the CC turn table (W3-2)
 def test_management_command_recovery_delivers_all(tmp_path, monkeypatch):
     from django.core.management import call_command
     from io import StringIO
@@ -576,7 +578,7 @@ def test_management_command_recovery_delivers_all(tmp_path, monkeypatch):
     monkeypatch.setenv("DMAC_CC_USERS_VOLUME", "dmac-cc-users")
 
     out = StringIO()
-    call_command("cc_sweep_staging", "--user-id", USER, "--api-user", API_USER,
+    call_command("cc_sweep_staging", "--user-id", USER, "--staging-folder", cc_staging.staging_folder_for(API_USER),
                  "--project", PROJECT, stdout=out)
     payload = json.loads(out.getvalue())
     # Recovery mode (since_ts=None) delivers the old stray too.
@@ -592,4 +594,4 @@ def test_management_command_rejects_traversal_identity(tmp_path, monkeypatch):
     monkeypatch.setenv("DMAC_USER_ROOT_MOUNT", str(tmp_path / "users"))
     with pytest.raises(CommandError):
         call_command("cc_sweep_staging", "--user-id", "../evil",
-                     "--api-user", API_USER, "--project", PROJECT)
+                     "--staging-folder", cc_staging.staging_folder_for(API_USER), "--project", PROJECT)

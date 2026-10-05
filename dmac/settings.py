@@ -16,6 +16,10 @@ NEXTSEEK_POSTERIOR_ROUTING_ENABLED = (
     (os.getenv("NEXTSEEK_POSTERIOR_ROUTING_ENABLED") or "").strip().lower()
     in ("1", "true", "yes", "on")
 )
+# Container-CC ops road (approach 1, piece 2): "direct", the default, sends the op tools straight to the assistant
+# endpoints with the turn pass; "sidecar" keeps the WebSocket sidecar for one release, as the rollback. Django puts
+# this value into every Container-CC agent's env (NessieAI/cc/ops_road.py is the one reader).
+NEXTSEEK_CC_OPS_ROAD = (os.getenv("NEXTSEEK_CC_OPS_ROAD") or "direct").strip().lower()
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 
@@ -378,6 +382,9 @@ LOGGING = {
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        # A Container-CC turn pass (spec piece 1): answers only `Authorization: NextseekTurn`, and refuses any
+        # route outside its allow table before the view runs. First, so a pass is never read as anything else.
+        'nextseek_api.assistant.turn_pass_auth.TurnPassAuthentication',
         'rest_framework.authentication.TokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.BasicAuthentication',
@@ -525,6 +532,18 @@ os.makedirs(SCHEMA_RAG_EMBEDDING_MODEL_PATH, exist_ok=True)
 # Maximum total size (in bytes) for all files in a single batch upload request.
 # Default: 200 MB. Override via environment variable.
 BATCH_UPLOAD_MAX_TOTAL_BYTES = int(os.getenv("BATCH_UPLOAD_MAX_TOTAL_BYTES", 200 * 1024 * 1024))
+
+##############################
+# NESSIE TURN SETTINGS       #
+##############################
+
+# The vocabulary pre-run (NessieAI/cc/prerun.py): "on" resolves each question's vocabulary beside the router, "off"
+# does not. When the NS parser starts: "after_route", or "early" (as soon as the vocabulary is in). Env-backed with
+# code defaults, so a box's env file needs nothing; local_settings.py may set either.
+if "NESSIE_VOCAB_PRERUN" not in globals():
+    NESSIE_VOCAB_PRERUN = os.getenv("NESSIE_VOCAB_PRERUN", "on")
+if "NESSIE_PARSER_START" not in globals():
+    NESSIE_PARSER_START = os.getenv("NESSIE_PARSER_START", "after_route")
 
 # NExtSEEK service endpoints + Neo4j.
 #

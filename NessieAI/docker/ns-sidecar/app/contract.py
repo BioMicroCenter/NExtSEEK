@@ -4,6 +4,9 @@ SINGLE SOURCE OF TRUTH at sidecar/app/contract.py (host-importable as sidecar.ap
 shipped in the sidecar image via `COPY sidecar/app/`). A byte-identical copy lives at
 build_context/plugins/nextseek/bin/_ws_contract.py for the plugin bins (which import it
 standalone, without the `sidecar` package); test_ws_contract_parity.py fails on drift.
+
+Approach 1, piece 2: the frame carries the turn pass (ns_turn), never a login, and NExtSEEK's op error codes and
+reasons pass through (ERROR_EXIT, REASONS).
 """
 from __future__ import annotations
 
@@ -29,23 +32,30 @@ ERROR_EXIT: dict[str, int] = {
     "TRANSPORT_ERROR": 7,
     "AUTH_FAILED": 8,
     "STAGING_ERROR": 9,
+    "BUSY": 10,
+    "TIME_UP": 11,
+    "PASS_NOT_ALLOWED": 12,
 }
 
+# NExtSEEK's AGENT_FAILED reasons (nextseek_api/assistant/op_errors.py REASONS), passed through to the plugin.
+REASONS = ("model_unavailable", "deadline", "bad_output", "internal")
 
-class NsLogin(BaseModel):
+
+class NsTurn(BaseModel):
+    """The turn's pass (approach 1, piece 2). The pass goes to NExtSEEK as ``Authorization: NextseekTurn`` and its
+    hash names the sidecar's drop folder (ruling R1), so only the turn that holds the pass can claim a file.
+    ``api_user`` is carried for the plugin's frame but never names a folder or a credential. No login crosses
+    this wire."""
     model_config = ConfigDict(extra="forbid")
-    # min_length=1: an empty api_user would collapse all empty-login sessions onto
-    # ns:{sha256("")} (one shared session/staging dir) — the sidecar must not rely on
-    # client-side validation to keep identities distinct.
     api_user: str = Field(min_length=1)
-    api_pass: str
+    turn_pass: str = Field(min_length=1, repr=False)
 
 
 class SidecarRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     op: str
     args: dict
-    ns_login: NsLogin
+    ns_turn: NsTurn
     request_id: str
 
     @field_validator("op")
@@ -70,6 +80,14 @@ class SidecarError(BaseModel):
     code: str
     message: str
     retryable: bool = False
+    reason: str | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def _known_reason(cls, v: str | None) -> str | None:
+        if v is not None and v not in REASONS:
+            raise ValueError(f"unknown error reason: {v!r}")
+        return v
 
     @field_validator("code")
     @classmethod

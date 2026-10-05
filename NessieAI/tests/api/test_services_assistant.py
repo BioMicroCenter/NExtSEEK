@@ -1048,16 +1048,15 @@ class ViewSetConfigTests(TestCase):
     """Verify ViewSet class-level configuration."""
 
     def test_authentication_classes(self):
+        from nextseek_api.assistant.turn_pass_auth import TurnPassAuthentication
         from nextseek_api.authentication import CsrfExemptSessionAuthentication
         from nextseek_api.services.assistant import AssistantViewSet
         from rest_framework.authentication import TokenAuthentication, BasicAuthentication
 
         auth_classes = AssistantViewSet.authentication_classes
-        # Should have 3 authentication classes
-        self.assertEqual(len(auth_classes), 3)
-        self.assertIn(TokenAuthentication, auth_classes)
-        self.assertIn(CsrfExemptSessionAuthentication, auth_classes)
-        self.assertIn(BasicAuthentication, auth_classes)
+        # The turn pass first (spec piece 1), then the three it always had.
+        self.assertEqual(auth_classes, [TurnPassAuthentication, TokenAuthentication,
+                                        CsrfExemptSessionAuthentication, BasicAuthentication])
 
     def test_permission_classes(self):
         from nextseek_api.services.assistant import (

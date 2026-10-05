@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 import orjson
+from _turn_pass import TurnPassAuth, turn_pass_from_env
 
 _API = "/nextseek_api"
 _UID_CHUNK_SIZE = 1000
@@ -27,7 +28,7 @@ class BatchUploadClient:
     def __init__(
         self,
         base_url: str,
-        auth: tuple[str, str],
+        auth: httpx.Auth,
         *,
         transport: httpx.BaseTransport | None = None,
         timeout: float = 60.0,
@@ -50,24 +51,15 @@ class BatchUploadClient:
     def from_env(
         cls, *, transport: httpx.BaseTransport | None = None
     ) -> "BatchUploadClient":
+        """A client for this turn: NEXTSEEK_URL (or NEXTSEEK_BASE_URL) and the turn pass. Never a password."""
         base = os.environ.get("NEXTSEEK_URL") or os.environ.get("NEXTSEEK_BASE_URL") or ""
-        ns_user = os.environ.get("NEXTSEEK_USERNAME") or ""
-        ns_password = os.environ.get("NEXTSEEK_PASSWORD") or ""
-        legacy_user = os.environ.get("API_USER") or ""
-        legacy_password = os.environ.get("API_PASS") or ""
-        if ns_user or ns_password:
-            user = ns_user
-            password = ns_password
-        else:
-            user = legacy_user
-            password = legacy_password
-        if not base or not user or not password:
+        turn_pass = turn_pass_from_env()
+        if not base or not turn_pass:
             sys.stderr.write(
-                "nextseek-error: CONFIG_MISSING — NEXTSEEK_URL/NEXTSEEK_BASE_URL "
-                "and NEXTSEEK_USERNAME/NEXTSEEK_PASSWORD or API_USER/API_PASS not set\n"
+                "nextseek-error: CONFIG_MISSING: NEXTSEEK_URL/NEXTSEEK_BASE_URL and NEXTSEEK_TURN_PASS not set\n"
             )
             raise SystemExit(2)
-        return cls(base_url=base, auth=(user, password), transport=transport)
+        return cls(base_url=base, auth=TurnPassAuth(turn_pass), transport=transport)
 
     def list_sample_types(self) -> list[dict[str, Any]]:
         response = self._client.get(f"{_API}/sample_types/")

@@ -131,18 +131,20 @@ def build_op_argv(
 # --------------------------------------------------------------------------
 
 def gate_executor_environment(
-    *, api_user: str, api_pass: str, path_mappings: dict[str, Any] | None = None,
+    *, api_user: str, turn_pass: str | None, path_mappings: dict[str, Any] | None = None,
     source: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """The executor's COMPLETE env: the production ``build_agent_environment``
     output (so every existing env guard applies by construction -- OI-3, no
-    shared creds) plus exactly one additive runtime-mode flag that puts the
-    executor into idle mode (``exec sleep infinity`` in the image's
-    entrypoint -- docker/cc-runtime/container/entrypoint.sh) so the harness
-    can ``docker exec`` each op into it, mirroring the router's own idle-mode
-    convention (DD-04) rather than inventing a new one."""
+    shared creds, no user password: spec piece 1) plus exactly one additive
+    runtime-mode flag that puts the executor into idle mode (``exec sleep
+    infinity`` in the image's entrypoint -- docker/cc-runtime/container/entrypoint.sh)
+    so the harness can ``docker exec`` each op into it, mirroring the router's
+    own idle-mode convention (DD-04) rather than inventing a new one. The ops
+    authenticate with ``turn_pass``, which has to be a pass live in the database
+    the app behind nginx reads."""
     env = cc_engine.build_agent_environment(
-        source=source, api_user=api_user, api_pass=api_pass,
+        source=source, api_user=api_user, turn_pass=turn_pass,
         path_mappings=path_mappings or {},
     )
     env.update(DMAC_RUNTIME_MODE_IDLE)

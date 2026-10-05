@@ -59,6 +59,15 @@ class QueryTask(models.Model):
     result = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # The Container-CC turn whose pass started this task (a nested query/plan/pipeline turn), set once when a
+    # pass-authenticated request creates it. The progress check for a pass reads it; nothing else writes it.
+    parent_cc_turn = models.ForeignKey(
+        "CCTurn",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="children",
+    )
 
     class Meta:
         db_table = "assistant_query_task"
@@ -67,6 +76,50 @@ class QueryTask(models.Model):
 
     def __str__(self):
         return f"QueryTask {self.task_id} ({self.status})"
+
+
+class CCTurn(models.Model):
+    """One Container-CC turn's server-side record: its pass, the login held for it, its deadline.
+
+    The agent container gets a random one-turn pass instead of the user's password; this row keeps only the pass's
+    sha256. The user's NExtSEEK login, which Django still needs for its own REST calls and SEEK, is held as AES-GCM
+    ciphertext (``nextseek_api/assistant/turn_pass.py``) and emptied when the turn ends. Only Django writes these
+    rows. Its own table rather than fields on QueryTask, whose ``progress`` column is rewritten without a lock.
+
+    ``vocabulary``, ``plans``, ``strikes`` and ``ops_cost_usd`` are the turn's shared memory (plan 04);
+    ``ops_in_flight`` is the op slot counter (plan 03).
+    """
+
+    task = models.OneToOneField(QueryTask, on_delete=models.CASCADE, related_name="cc_turn")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    chat = models.ForeignKey(ChatSession, on_delete=models.CASCADE)
+    pass_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    login_nonce = models.BinaryField(null=True, blank=True)
+    login_ciphertext = models.BinaryField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    deadline_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    vocabulary = models.JSONField(null=True, blank=True)
+    plans = models.JSONField(default=dict)
+    strikes = models.JSONField(default=list)
+    ops_cost_usd = models.DecimalField(max_digits=10, decimal_places=6, default=0)
+    ops_in_flight = models.PositiveSmallIntegerField(default=0)
+    #: True once an op's model calls were not all priced or seen, or an op's spend or strikes could not be written
+    #: (NessieAI/ns/turn_memory.add_spend / mark_cost_partial): the turn's cost is then a floor (piece 3, plan 04).
+    ops_cost_partial = models.BooleanField(default=False)
+    #: How many times an op resolved the turn's vocabulary itself (NessieAI/ns/turn_memory.count_vocabulary_resolution):
+    #: with the pre-run, what the turn's "vocabulary_prerun" event reports as duplicate entity calls (plan 04).
+    vocabulary_resolutions = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = "assistant_cc_turn"
+        app_label = "nextseek_api"
+        # The clean-up that runs at every issue reads only live rows (revoked_at IS NULL) past expires_at.
+        indexes = [models.Index(fields=["revoked_at", "expires_at"], name="assistant_cc_turn_live")]
+
+    def __str__(self):
+        return f"CCTurn task={self.task_id} (revoked={self.revoked_at is not None})"
 
 
 class TurnLedger(models.Model):

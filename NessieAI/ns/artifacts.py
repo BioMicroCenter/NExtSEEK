@@ -29,6 +29,16 @@ def _granular_outputs_dir() -> str:
     return out
 
 
+def _discard_empty_dir(path: str | None) -> None:
+    """Remove a run-root an op was refused before writing to. rmdir removes only an empty folder, so a partly
+    written op keeps its files for the log."""
+    if path:
+        try:
+            os.rmdir(path)
+        except OSError:
+            pass
+
+
 def _resolve_saved_path(value):
     """A saved_files value is either a string path or a list of paths (multi-file
     keys like geo_seq_workbooks / sra_*). Serve the first concrete path."""

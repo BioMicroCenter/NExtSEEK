@@ -18,9 +18,11 @@ so the right piece(s) can be invoked for a given question. There is no single do
 Pick the op(s) a task needs, run them, and compose the answer from what they return. Read this
 entire file before taking any action.
 
-Every op runs **server-side** (via the sidecar or the NExtSEEK viewset) and returns JSON on
-stdout. The agent container holds only the user's NExtSEEK login (`API_USER`/`API_PASS`) — never
-database or provider credentials, and no `chat_nextseek` source. Do not attempt to reach those.
+Every op runs **server-side** (through NExtSEEK's own endpoints) and returns JSON on
+stdout. The agent container holds only a one-turn pass for the user's NExtSEEK account
+(`NEXTSEEK_TURN_PASS`), which the server accepts only on the routes these ops use and only until this
+turn ends: never the user's password, database or provider credentials, and no `chat_nextseek` source.
+Do not attempt to reach those.
 
 ## Context files — read the manifest first
 
@@ -29,8 +31,7 @@ consult each**. **Read `context/MANIFEST.md` before constructing any op call**, 
 specific file(s) it points you to. Never guess project/study/investigation names, sampletype
 codes, assays, or endpoints from memory — resolve them from these files.
 
-`nextseek-entity-extract` also runs **automatically on every query** (a UserPromptSubmit hook)
-and injects resolved NExtSEEK vocabulary into your context before you act. Use those resolved
+The NExtSEEK vocabulary for the user's question is resolved **automatically on every query** and injected into your context before you act (a UserPromptSubmit hook). Use those resolved
 terms (and the manifest files) — e.g. expand abbreviations like **GBM → the Glioblastoma
 investigation** — rather than passing the user's raw phrasing straight to `graph`/`api-read`.
 
@@ -88,6 +89,7 @@ nextseek-graph --query "Which NHP samples have both CT scan data and sequencing 
     `response.data` with the same disclosure. If that fails too, report the refusal and both
     errors, and stop.
 - **Read `result.ok` and `result.data`.** An empty `data` is an answer: state it plainly.
+- **`parser_plan`.** The plan the op's parser made for this question. Only when the user asks for the same records from the REST API (for example their full metadata), pass it as it is: `nextseek-api-read --parser-plan '<parser_plan, as JSON>'`; never run it to repeat a count the graph already gave.
 - **Refinement and follow-ups** ("which of those…", "only the female ones", "by sex"): start from
   the previous turn's files in `/data/previous_turns/`, in the order the container CLAUDE.md gives
   ("When the question needs a field the rows do not show"): `rows.csv`, then `samples.csv` (every
@@ -307,12 +309,12 @@ write reaches NExtSEEK from this chat: the server refuses every create, update a
 layers guard a path that ends in a refusal.
 
 - **Layer 1 (mechanical, deployment-dependent)**: a Claude Code permission allowlist / deny rule that gates `nextseek-api-write`. **In the dmac-assistant bridge POC, the `container_cc` route runs under `--permission-mode auto` (per the host bridge's launch command), NOT `--dangerously-skip-permissions`.** Under auto mode, blanket `Bash(*)` allow rules are dropped and every tool call — including `nextseek-api-write` — is screened by the auto-mode classifier, which blocks escalation/exfiltration. That classifier is a behavioral gate, not a hard guarantee, and no explicit `Bash(nextseek-api-write:*)` deny rule is shipped here. Treat L1 as defense-in-depth, not as a guarantee — the load-bearing layers are L2 and L3.
-- **Layer 2 (mechanical, always on — enforced server-side)**: an `api-write` op is refused unless write confirmation is explicit. The `nextseek-api-write` shim requires `--confirmed-write`, and the authoritative gate now runs **outside** the agent container: the sidecar's write gate (`sidecar/app/write_gate.py`) refuses the op unless `confirmed_write` is exactly `True`, and NExtSEEK enforces its own server-side write gate behind that. Because neither gate runs in a process the in-container agent controls, the agent cannot bypass L2.
+- **Layer 2 (mechanical, always on — enforced server-side)**: an `api-write` op is refused unless write confirmation is explicit. The `nextseek-api-write` shim requires `--confirmed-write`, and the authoritative gate runs **outside** the agent container: NExtSEEK's write gate (`NessieAI/ns/write_gate.py`) refuses the op unless `confirmed_write` is exactly `True`, and a turn pass is refused for `api-write` before that. Because neither check runs in a process the in-container agent controls, the agent cannot bypass L2.
 - **Layer 3 (behavioral, this skill — load-bearing)**: NEVER call `AskUserQuestion` (`container/CLAUDE.md` forbids it; the chat UI doesn't render the widget). Instead, write plain text:
 
 > "About to execute a WRITE-classified operation. Method: POST. Endpoint: /samples/<...>/. Body: {...}. **Confirm?**"
 
-Then wait for the user's next message. If the user responds "yes" / "go ahead" / similar, invoke `nextseek-api-write` with `--confirmed-write`. If anything else, abort and acknowledge.
+Then wait for the user's next message. Even if the user responds "yes" / "go ahead" / similar, the turn pass is refused by `nextseek-api-write` (see the table and the start of this section): tell the user the change is made in NExtSEEK itself. If anything else, abort and acknowledge.
 
 ## Stop-after-2 rule (load-bearing)
 
@@ -340,24 +342,44 @@ The only legitimate chaining is the documented recipe above (`nextseek-parse` �
 
 ## Errors
 
-The runner emits a one-line JSON error to stderr with a code (exit code in parens):
+The runner emits a one-line JSON error to stderr, `{"error": {"code": ..., "message": ...}}`, with the exit code in
+parens below. `message` is a fixed sentence. `AGENT_FAILED` adds `reason`; `VALIDATION` adds `errors`, one
+`{"field", "type"}` per refused argument, never its value.
 
-- `CONFIG_MISSING` (2): `API_USER`/`API_PASS` not set. Tell the user; do not retry.
+One rule for any failed op: do not retry `TIME_UP`, `PASS_NOT_ALLOWED`, `AUTH_FAILED`, a `TRANSPORT_ERROR` that says
+this turn was nearly out of time, or `AGENT_FAILED` with reason `model_unavailable` or `deadline`, and do not try
+another tool to reach the same result. Every other failure gets one retry (the stop-after-2 rule above is the cap).
+
+- `CONFIG_MISSING` (2): `NEXTSEEK_TURN_PASS` not set (for `nextseek-query`, `nextseek-plan`, `nextseek-pipeline` and `nextseek-recall`, also `NEXTSEEK_CHAT_SESSION_ID`). Tell the user; do not retry.
 - `IMPORT_FAILED` (2): a required module is unavailable server-side. Surface a deploy-side message.
-- `VALIDATION` (3): bad CLI args. Fix the call.
-- `AGENT_FAILED` (4): LLM/network failure. Retry once with the same call; if still failing,
-  surface the structured payload to the user.
+- `VALIDATION` (3): the op refused an argument. Fix the field `errors` names and call the op once more.
+- `AGENT_FAILED` (4): the op failed on the server. What to do depends on `reason`:
+  - `model_unavailable`: the AI models it needs did not answer, the fallback included. Do not retry it in this turn:
+    answer with what you already have, say that step could not run because the AI service was unavailable, and
+    offer to try it in the next turn.
+  - `deadline`: the op ran out of time. Do not retry it in this turn: answer with what you already have, say that
+    step did not finish in time, and offer to run it in the next turn.
+  - `bad_output` or `internal`: retry once with the same call; if it fails again, surface the message to the user.
 - `WRITE_BLOCKED` (5): write shim without `--confirmed-write`, or `nextseek-api-read` received a
   non-read-safe endpoint. Apply the L3 prompt only for true writes; otherwise fix routing.
 - `CONFIG_ERROR` (6): a plugin/config file is missing server-side. Deploy-side issue; surface as
   "plugin misconfiguration, please rebuild image."
-- `TRANSPORT_ERROR` (7): sidecar/viewset unreachable, or an op that ran out of turn time. When
-  the message says this turn was nearly out of time, or has no time left for another try, do not
-  retry the op in this turn: answer with what you already have, say that step did not finish (and
-  whether the service was slow), and offer to run it in the next turn. Otherwise surface it as a
-  deploy-side issue.
-- `AUTH_FAILED` (8): NExtSEEK rejected the login. Tell the user to check credentials.
-- `STAGING_ERROR` (9): artifact staging failed server-side. Surface the message.
+- `TRANSPORT_ERROR` (7): NExtSEEK could not be reached, or an op ran out of turn time. When the message says this
+  turn was nearly out of time, or has no time left for another try, do not retry the op in this turn: answer with
+  what you already have, say that step did not finish (and whether the service was slow), and offer to run it in the
+  next turn. Otherwise retry once; if it fails again, surface it as a deploy-side issue.
+- `AUTH_FAILED` (8): NExtSEEK did not accept this turn's pass, or could not act as the user with it (the pass ended,
+  or the user's sign-in for this chat is gone). Do not retry: tell the user to sign in again and ask again.
+- `STAGING_ERROR` (9): a file the op made could not be downloaded into `/data/scratch/nextseek-artifacts/`. Retry
+  once; if it fails again, surface the message.
+- `BUSY` (10): two ops or NS queries of this turn are already running (a running `nextseek-query`, `nextseek-plan`
+  or `nextseek-pipeline` counts as one). An op the tool stopped waiting for may still be running on the server. Wait
+  until one has answered, then call this one again; the wait-and-call-again does not count as your retry under the
+  stop-after-2 rule. Never run more than two `nextseek-*` tools at the same time.
+- `TIME_UP` (11): not enough of this turn is left to run the op. Do not retry: answer with what you already have and
+  say which step could not run in this turn, and offer to run it in the next turn.
+- `PASS_NOT_ALLOWED` (12): this turn's pass does not allow that request. Do not retry it and do not try another tool
+  to reach it; tell the user what you could not do.
 
 <!-- BEGIN PLAN005-GEN:skill-ops -->
 aggregate	nextseek-aggregate	Count samples or break them down (by type, attribute value, project, person), held to the user's projects: one call, the question alone or 1 to 4 parts run in parallel, each returned as a small table with the sum of its group counts (not a sample total when groups may overlap) and its missing-value bucket, never sample records.	sidecar	read	true	true

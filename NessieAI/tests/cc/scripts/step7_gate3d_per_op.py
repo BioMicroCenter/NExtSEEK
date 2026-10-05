@@ -101,11 +101,14 @@ def _read_transcript_steps(cc_state_mnt: str | None, *, since: float):
     return (steps, cc_session_id, raw_bytes). Empty if none found."""
     if not cc_state_mnt:
         return [], None, b""
-    root = Path(cc_state_mnt) / "projects"
-    jsonl = cc_engine._newest_jsonl_under(root, min_mtime=since - 1) if root.exists() else None
+    root = Path(cc_state_mnt)
+    try:
+        jsonl = cc_engine._newest_jsonl_under(root, ("projects",), min_mtime=since - 1)
+        raw = cc_engine.safe_fs.read_file(root, jsonl.relative_to(root)) if jsonl else b""
+    except OSError:
+        jsonl = None
     if not jsonl:
         return [], None, b""
-    raw = jsonl.read_bytes()
     parsed = cc_summary.parse_transcript(raw)
     trace = cc_trace.extract_trace(
         parsed, cc_session_id="", ts="", files_created=[], files_modified=[],

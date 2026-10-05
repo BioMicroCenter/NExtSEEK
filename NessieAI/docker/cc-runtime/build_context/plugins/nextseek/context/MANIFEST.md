@@ -5,9 +5,7 @@ truth for NExtSEEK vocabulary, schema, and endpoints. **Consult the file whose
 "consult when" matches your task BEFORE constructing an op call** — do not guess
 project/study names, sampletype codes, assays, or endpoints from memory.
 
-Note: `nextseek-entity-extract` runs automatically on every query (UserPromptSubmit
-hook) and injects resolved vocabulary into your context. These files are the
-authoritative source when you need more than the auto-resolution provides.
+Note: the NExtSEEK vocabulary for the user's question is resolved automatically on every query and injected into your context before you act (a UserPromptSubmit hook). These files are the authoritative source when you need more than the auto-resolution provides.
 
 | File | What it is | Consult when |
 |------|-----------|--------------|
@@ -26,4 +24,4 @@ authoritative source when you need more than the auto-resolution provides.
 - **Any other question about samples** (find, filter, UIDs and lab codes, lineage, the attribute values of the samples found): `nextseek-graph`. The graph holds every sample attribute as a property, so metadata filters (cell type, treatment, scientist, dates) are graph questions too. The op is held to the user's projects; when it answers through the project-scoped sample search instead, the answer arrives under `fallback` and must be disclosed (the `nextseek` skill says how).
 - **A catalog list, people, or one sample's full export**: `nextseek-parse` → `nextseek-api-read`, and only for the endpoints in `read_safe_endpoints.json` (single-record `{uid}` endpoints are refused, and no file download is among them). `/people/` lists registered users; the person on a sample is its `Scientist` attribute, a graph question.
 - **A write** (create, update, delete): not from this chat. The server refuses every write `nextseek-api-write` sends; tell the user the change is made in NExtSEEK itself (the `nextseek` skill says how).
-- **A named cohort/abbreviation** (GBM, CSBC, …): expand it via `capabilities.md` / the auto entity-extract before putting it in a question.
+- **A named cohort/abbreviation** (GBM, CSBC, …): expand it via `capabilities.md` / the auto-resolved vocabulary note before putting it in a question.

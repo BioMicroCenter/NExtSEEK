@@ -48,3 +48,23 @@ def may_read_any_users_data(user) -> bool:
         and getattr(user, "is_authenticated", False)
         and getattr(user, "is_superuser", False)
     )
+
+
+def is_turn_pass(request) -> bool:
+    """True when ``request`` was authenticated by a Container-CC turn pass (``request.auth`` is its CCTurn)."""
+    from nextseek_api.assistant.models_db import CCTurn  # lazy: this module is imported before models load
+
+    return isinstance(getattr(request, "auth", None), CCTurn)
+
+
+def may_read_any(request) -> bool:
+    """``may_read_any_users_data`` for a request, and never under a turn pass.
+
+    A pass acts as its turn's user inside that turn's chat (operator ruling 2026-09-28): an admin's pass keeps the
+    admin's own data reach (graph and search scope) and loses reading other users' chats, tasks, bundles and
+    artifacts. Every read-any check goes through here
+    (nextseek_api/tests/repo_guards/test_read_any_goes_through_the_request.py).
+    """
+    if is_turn_pass(request):
+        return False
+    return may_read_any_users_data(getattr(request, "user", None))

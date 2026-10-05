@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import docker as docker_mod
+from django.test import override_settings
 from docker.errors import APIError, NotFound
 
 from NessieAI.cc import cc_engine
@@ -74,6 +75,7 @@ def _install_client(monkeypatch, container):
     return container
 
 
+@override_settings(NEXTSEEK_CC_OPS_ROAD="sidecar")
 def test_run_cc_turn_streams_result_and_persists(tmp_path, monkeypatch):
     container = _FakeContainer()
     _install_client(monkeypatch, container)
@@ -114,9 +116,12 @@ def test_run_cc_turn_streams_result_and_persists(tmp_path, monkeypatch):
     def boom_copy(*a, **k):
         raise OSError("copy failed")
 
-    monkeypatch.setattr(cc_engine.shutil, "copyfile", boom_copy)
+    monkeypatch.setattr(cc_engine, "_stage_memory_file", boom_copy)
+
+    sweep_calls = []
 
     def boom_sweep(**kw):
+        sweep_calls.append(kw)
         raise RuntimeError("sweep boom")
 
     monkeypatch.setattr(
@@ -158,7 +163,7 @@ def test_run_cc_turn_streams_result_and_persists(tmp_path, monkeypatch):
     )
 
     cc_engine.run_cc_turn(
-        query="q", model_id="m", api_user="u", api_pass="p",
+        query="q", model_id="m", api_user="u", api_pass="p", turn_pass="pass-1",
         send_event=lambda e, d: events.append((e, dict(d))),
         user_id="alice", project_dirname="proj",
         run_id=_run_id(),
@@ -174,6 +179,7 @@ def test_run_cc_turn_streams_result_and_persists(tmp_path, monkeypatch):
     kinds = [e for e, _ in events]
     assert "agent_started" in kinds
     assert "query_complete" in kinds
+    assert sweep_calls, "the sweep must be reached so the boom check is real"
     assert container.stopped is True
 
 
@@ -200,7 +206,7 @@ def test_run_cc_turn_timeout_and_generic_error(tmp_path, monkeypatch):
         lambda raw, stdout_stream=None: _BlockingSock(),
     )
     cc_engine.run_cc_turn(
-        query="q", model_id="m", api_user="u", api_pass="p",
+        query="q", model_id="m", api_user="u", api_pass="p", turn_pass="pass-1",
         send_event=lambda e, d: events.append((e, dict(d))),
         user_id="alice", project_dirname="proj",
         run_id=_run_id(),

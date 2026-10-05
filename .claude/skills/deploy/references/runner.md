@@ -39,7 +39,7 @@ estimate from `brief.json` against the budget), expected minutes (`derived.estim
 | rebuilds | each component in the order bedrock-proxy, app, cc-agent, nextseek-sidecar, `--no-ci` | the success line is missing (unless the component is in `continue_on_failure`: then it says `FAILED ..., continuing`) |
 | after app | collectstatic; on dev the labs copy and a `nextseek` restart; `mkdir -p /app/runs` | never |
 | judge | every red stack-health line of each rebuild log, classified | an unexplained or stale red while components are still pending; after the last rebuild it becomes a `FINDING` line and the run goes on to CI |
-| checks | http, containers, boot markers, CC runner, labs, refresh marker, sidecar ops against the repo, image ages, cc-agent node and Claude Code versions (when rebuilt), every live marker, memory | never (it is evidence) |
+| checks | http, containers, boot markers, CC runner, labs, refresh marker, the ops road and, on the sidecar road only, sidecar ops against the repo, image ages, cc-agent node and Claude Code versions (when rebuilt), every live marker, memory | never (it is evidence) |
 | CI | `./startup.sh ci [--wait-ready] --no-nessie` | never; it records the result line, new reds and red health lines |
 | Nessie | only when CI printed a result and every failed id is a known red; restarts SEEK over 12 GiB when allowed; one run dir per cases file (a `*-member.json` file as the non-admin `CI_SMOKE_USER`, every other as `CI_WRITE_USER`), copied out to `~/launch-<TAG>/` and `~/backups/` | CI not green apart from the known reds |
 

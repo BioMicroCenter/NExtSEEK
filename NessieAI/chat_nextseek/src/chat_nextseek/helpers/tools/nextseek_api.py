@@ -8,6 +8,7 @@ from typing import Any
 
 import requests
 
+from ... import call_scope
 from ...chat_memory import MEMORY_WINDOW
 from ...config import ChatConfig
 from ...cypher_text import mask_cypher
@@ -144,6 +145,14 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
     if path == "/nextseek_api/samples/advanced_search/":
         request_timeout = 120
 
+    # An op's limit caps this wait too (approach 1, piece 2): a request still running after the op has answered only
+    # holds a worker. An NS turn has no deadline: 90 s (120 s for advanced_search), as before.
+    capped = call_scope.time_left_for(float(request_timeout))
+    if capped is None:
+        print(f"[DEBUG][API] {OUT_OF_TIME_NOT_SENT}")
+        return {"ok": False, "error": OUT_OF_TIME_NOT_SENT, "endpoint": endpoint, "method": method}
+    request_timeout = capped
+
     print("[DEBUG][API] Request:")
     print(f"  METHOD: {verb}")
     print(f"  URL:    {url}")
@@ -195,6 +204,7 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
 
 _API_HTML_PATTERN = re.compile(r"<[^>]+>")
 _API_UID_LIKE_FIELDS = {"uid", "uuid", "title", "idlink", "idurl"}
+OUT_OF_TIME_NOT_SENT = "The op ran out of time before this request could be sent, so it was not sent."
 
 
 def _sanitize_api_row_strings(payload: Any) -> Any:

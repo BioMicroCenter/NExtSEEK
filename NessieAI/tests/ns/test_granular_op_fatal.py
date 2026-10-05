@@ -36,6 +36,7 @@ from rest_framework.test import APIClient
 
 from chat_nextseek.llm_clients import LLMFatalError
 from NessieAI import paths
+from nextseek_api.assistant import op_errors
 
 BASE = "/nextseek_api/assistant"
 RAW = "All provider fallbacks exhausted: agent 'entity': 503 ServiceUnavailableException"
@@ -95,19 +96,21 @@ class GranularOpFatalTests(TestCase):
             LLMFatalError(RAW, agent="entity", unavailable=True, model_fallback=MOVE))
         self.assertEqual(resp.status_code, 502, resp.content)
         body = resp.json()
-        self.assertEqual(body, {"code": "AGENT_FAILED",
-                                "errors": [{"title": "AGENT_FAILED", "detail": f"model_unavailable: {RAW}"}]})
+        self.assertEqual((body["code"], body["reason"]), ("AGENT_FAILED", "model_unavailable"))
+        self.assertEqual(body["message"], op_errors.REASON_MESSAGES["model_unavailable"])
+        self.assertNotIn("ServiceUnavailableException", json.dumps(body))
         self.assertTrue(any("granular op entity failed" in line for line in logs.output), logs.output)
 
-    def test_any_other_fatal_is_agent_failed_with_its_raw_message(self):
+    def test_any_other_fatal_is_agent_failed_internal_without_its_text(self):
         raw = "Unrecoverable LLM error: agent 'entity', model 'gemini-3.5-flash': 400 INVALID_ARGUMENT"
         resp, logs = self._entity_op_raising(LLMFatalError(raw, agent="entity"))
         self.assertEqual(resp.status_code, 502, resp.content)
-        self.assertEqual(resp.json(), {"code": "AGENT_FAILED",
-                                       "errors": [{"title": "AGENT_FAILED", "detail": raw}]})
+        body = resp.json()
+        self.assertEqual((body["code"], body["reason"]), ("AGENT_FAILED", "internal"))
+        self.assertNotIn("INVALID_ARGUMENT", json.dumps(body))
         self.assertTrue(any("granular op entity failed" in line for line in logs.output), logs.output)
 
-    def test_the_reply_fits_the_sidecar_and_plugin_contracts_unchanged(self):
+    def test_the_reply_fits_the_sidecar_and_plugin_contracts(self):
         from nextseek_api.assistant.models_api import OpErrorResponse
 
         resp, _ = self._entity_op_raising(LLMFatalError(RAW, agent="entity", unavailable=True, model_fallback=MOVE))
@@ -117,22 +120,22 @@ class GranularOpFatalTests(TestCase):
         with _sidecar_modules() as sc:
             sc.granular_models.OpErrorResponse.model_validate(body)
 
-            # The sidecar's HTTP client reads it as an agent failure that carries the reason.
+            # The sidecar's HTTP client passes NExtSEEK's code, reason and fixed message through.
             http_reply = httpx.Response(resp.status_code, json=body,
                                         request=httpx.Request("POST", f"http://nextseek{BASE}/entity/"))
-            with self.assertRaises(sc.exceptions.AgentFailedError) as caught:
+            with self.assertRaises(sc.exceptions.PassThroughError) as caught:
                 sc.ns_client._map_error(http_reply)
-            self.assertIn("AGENT_FAILED", str(caught.exception))
-            self.assertIn("model_unavailable", str(caught.exception))
+            self.assertEqual((caught.exception.code, caught.exception.reason), ("AGENT_FAILED", "model_unavailable"))
+            self.assertEqual(caught.exception.message, op_errors.REASON_MESSAGES["model_unavailable"])
 
             # The whole sidecar turn: the WS request in, the answer the plugin reads out.
             server = sc.server
             request_id = "6f1c1f6e-8a53-4c1b-9d8e-1a2b3c4d5e6f"
             raw_request = json.dumps({"op": "entity", "args": {"query": "mouse"},
-                                      "ns_login": {"api_user": "u1", "api_pass": "p"},
+                                      "ns_turn": {"api_user": "u1", "turn_pass": "pass-1"},
                                       "request_id": request_id})
             with patch.object(server, "_build_user_config",
-                              return_value=server.NsHttpConfig(base_url="http://nextseek", auth=("u1", "p"))), \
+                              return_value=server.NsHttpConfig(base_url="http://nextseek", turn_pass="pass-1")), \
                  patch.object(server, "_build_write_gate", return_value=lambda *a, **k: None), \
                  patch.object(server, "_build_stage", return_value=lambda *a, **k: None), \
                  patch.object(server, "_build_stage_bytes", return_value=(lambda *a, **k: None, lambda *a, **k: None)), \
@@ -143,5 +146,5 @@ class GranularOpFatalTests(TestCase):
                 parsed = contract.SidecarResponse.model_validate_json(answer)
                 self.assertEqual(parsed.status, "error")
                 self.assertEqual(parsed.request_id, request_id)
-                self.assertEqual(parsed.error.code, "AGENT_FAILED")
+                self.assertEqual((parsed.error.code, parsed.error.reason), ("AGENT_FAILED", "model_unavailable"))
                 self.assertEqual(contract.ERROR_EXIT[parsed.error.code], 4)

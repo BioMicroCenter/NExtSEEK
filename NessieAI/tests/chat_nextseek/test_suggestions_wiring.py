@@ -64,8 +64,9 @@ def _dict_session():
 
 
 def _adapter_session():
-    """The request path's session: a ``DictSessionAdapter``, whose ``pop`` the chip bookkeeping relies on."""
-    return DictSessionAdapter(SimpleNamespace(results_history=[], last_debug={}, extra_state={}))
+    """The request path's session: a ``DictSessionAdapter`` over an unsaved chat (``_state.adding``: bundle ids are numbered in memory)."""
+    return DictSessionAdapter(SimpleNamespace(results_history=[], last_debug={}, extra_state={},
+                                              _state=SimpleNamespace(adding=True)))
 
 
 SESSIONS = [_dict_session, _adapter_session]

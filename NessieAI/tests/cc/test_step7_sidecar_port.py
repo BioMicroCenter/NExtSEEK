@@ -88,14 +88,14 @@ PINNED_SOURCE_SHA256 = {
     "__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "app/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "app/config.py": "2e79ac3f162df3fb1782be583db775da2faa3890378ecd582922603766ffc9df",
-    "app/contract.py": "ee115574ba70d8096169a52fda4ef8cf6f6c1ce0277db1745b477b35dbe7baa3",
-    "app/exceptions.py": "172d216e9c7373a491007c2eb4b39992b863c78f383f8a4cbd07a76a3ec8b0fb",
-    "app/granular_models.py": "231aff9f576efb6e620f62019ce031e34fe59558a03f5b5247f55e4e5663a347",
+    "app/contract.py": "d2b35fbf5efc8fbf246c82218b05da729b7fcc5378e380afdd86fb038bf356ee",
+    "app/exceptions.py": "ecd217b0a353c1ce400b8bfcad5c76c28485e354f14b05012ec991c6e21c6068",
+    "app/granular_models.py": "d60c1a5c2200360d4b9cb99b9eba84b0602486b3d6ac5c82a988e1deefa891c2",
     "app/healthcheck.py": "bb0bb5db69201a895ea6c55bad3f74142971a550c167e9e0b8b99c2b1dfb8ba3",
-    "app/ns_client.py": "e565dea4c67bccb1fcccc14356b0c1988b1cd0e4f9f4606e7c06a519b0f59ae5",
-    "app/ops.py": "1a393d6dee461f5f1def966100f1c19c791134f19aa0f816c2edf0908b1ad89d",
-    "app/server.py": "dd2a9266dba4fb61287c1b18eb1fb639408abedb6dbd3a2fddf69a5113f3c17b",
-    "app/staging.py": "a34b2c40c8a3b8f907960d1b4f2ad6ac38c60703d1c64d0a7c37860527814ac9",
+    "app/ns_client.py": "092a6aef3abef175748e1806e6179f465bef20f00a0e67d303c67bf982232a2a",
+    "app/ops.py": "39dfda4a8daebea45f44d02f58c817dd1accccdfac021eaffde8e5cb4da519b1",
+    "app/server.py": "f778f274a64e90fef1b7f094515dacccf0ea6be925791562967c8f1d8eda3474",
+    "app/staging.py": "81eaff53af8fd66adeeb90d186a5dff0d2f9a6791f0d797a6273f972f29e6a8b",
     "app/write_gate.py": "86ec8f617cd287d89b35856307bd7a04fdd0bdafc4edbc789391eb69ce4b788e",
 }
 
@@ -227,12 +227,14 @@ def test_server_py_redacts_credentials_in_repr():
     api_user/api_pass through accidental logging of the config object."""
     text = _read(SIDECAR_DIR / "app" / "server.py")
     assert "<redacted>" in text
-    assert "auth=('<redacted>', '<redacted>')" in text
+    assert "turn_pass='<redacted>'" in text
 
 
-def test_staging_py_hashes_api_user_never_stores_raw_username():
+def test_staging_py_names_the_folder_by_the_pass_hash_never_the_username():
+    """Ruling R1: the drop folder is the hash of the turn pass; the frame's api_user never names a path."""
     text = _read(SIDECAR_DIR / "app" / "staging.py")
-    assert "hashlib.sha256(api_user.encode" in text
+    assert "hashlib.sha256(turn_pass.encode" in text
+    assert "api_user" not in text
 
 
 def test_ops_py_commits_bytes_exactly_once_outside_the_artifact_loop():

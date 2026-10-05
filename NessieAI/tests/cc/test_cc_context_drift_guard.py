@@ -366,7 +366,8 @@ def test_write_gate_loads_the_allowlist_this_guard_watches():
     assert actual.is_file(), (
         f"the write gate's read-safe allowlist is missing from disk at {actual}. "
         "load_allowlist() raises AllowlistMissingError there, which the viewset "
-        "maps to CONFIG_ERROR, so every api-read op fails closed."
+        "maps to AGENT_FAILED (reason internal) at the op view, so every api-read "
+        "op fails closed."
     )
 
 

@@ -93,7 +93,7 @@ That is the same shape as the corpus before any of this work, and it now has a c
 | capability | state | assertion wanted | what blocks it |
 |---|---|---|---|
 | Embeddable-text builders for sampletypes, assays and endpoints | `no` | not expressible: pure build-time functions with no per-turn observable | doc_sampletype/doc_assay/doc_endpoint decide which catalog FIELDS get embedded. Their output is text fed to sentence-transformers at index-build time; nothing per-turn records which fields were included, and the curation decisions |
-| Automatic vocabulary resolution on every CC prompt (UserPromptSubmit h | `partial` | last_reply mentions TIS | Only the hook's downstream effect is visible: if PBMC was expanded to TIS before the agent acted, the answer talks about TIS. The hook's own additionalContext block (prefix 'NExtSEEK vocabulary auto-resolved for this query…', emit |
+| Automatic vocabulary for each CC turn (Django resolves it before the container starts; the UserPromptSubmit hook injects `/data/turn/vocabulary.json`) | `partial` | last_reply mentions TIS | Only the hook's downstream effect is visible: if PBMC was expanded to TIS before the agent acted, the answer talks about TIS. The hook's own additionalContext block (prefix 'NExtSEEK vocabulary auto-resolved for this query…', emit |
 
 ### `system_capability_question`
 
@@ -405,10 +405,10 @@ That is the same shape as the corpus before any of this work, and it now has a c
 
 | capability | state | assertion wanted | what blocks it |
 |---|---|---|---|
-| Write safety: the three-layer contract | `partial` | a write request is not executed until the agent has obtained a plain-text confirmation | Only layer L3 (the behavioural prompt) is visible. L1 (the Claude Code allowlist, with nextseek-api-write deliberately absent) and L2 (the sidecar write_gate refusing unless confirmed_write is exactly True, WRITE_BLOCKED exit 5) l |
+| Write safety: the three-layer contract | `partial` | a write request is not executed until the agent has obtained a plain-text confirmation | Only layer L3 (the behavioural prompt) is visible. L1 (the Claude Code allowlist, with nextseek-api-write deliberately absent) and L2 (the op view's write gate, `NessieAI/ns/write_gate.py`, refusing unless confirmed_write is exactly True, WRITE_BLOCKED exit 5) l |
 | Stop-after-2 rule and the hard prohibitions | `no` | after two failed nextseek-* attempts the agent stops and replies in plain text instead of spelunking plugin source | Needs `cc_trace.steps` to count attempts and to show that no Read/Grep over /app/plugins/nextseek/bin/ followed. The trace is already assembled per turn (cc_trace.extract_trace) and stored in extra_state['cc_traces'] -- it just ha |
 | Skill routing rule and the reingest exception | `no` | a sample-creation ask engages nextseek-batch-upload from its first action, while registering a finished run's outputs stays with the nextseek skill | Which skill the agent chose is only in the transcript and in the trace's step kinds ('skill'). Needs `cc_trace.skills_used` or equivalent -- the same cc_traces reader as the two above. Three capabilities in this five-capability fa |
-| Automatic vocabulary resolution on every prompt (UserPromptSubmit hook | `partial` | a lab synonym in the prompt is resolved to a real sample type code before the agent acts | A correct reply is consistent with the hook having fired AND with the agent resolving it unaided. The hook is fail-open by design, so its absence is silent. Distinguishing them needs the injected additionalContext ('NExtSEEK vocab |
+| Automatic vocabulary for each CC turn (Django resolves it before the container starts; the UserPromptSubmit hook injects `/data/turn/vocabulary.json`) | `partial` | a lab synonym in the prompt is resolved to a real sample type code before the agent acts | A correct reply is consistent with the hook having fired AND with the agent resolving it unaided. The hook is fail-open by design, so its absence is silent. Distinguishing them needs the injected additionalContext ('NExtSEEK vocab |
 
 ### `unsupported`
 

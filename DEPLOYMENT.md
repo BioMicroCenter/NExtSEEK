@@ -419,7 +419,9 @@ docker compose -p nextseek up -d --no-build --no-deps --force-recreate nextseek
 Then §6. If the bad deploy applied a **data** migration, rolling back the
 image does not roll back the data; that is what the §5.3 dump is for;
 restoring it is a deliberate, owner-approved action, not part of routine
-rollback.
+rollback. A deploy that applied `0025_cc_turn` is the case in point: reverse it
+before you repoint the image (`NessieAI/cc/DEPLOY.md`, "Approach 1 (unit B)"),
+or chats that ran a Container-CC turn cannot be deleted.
 
 ### 5.2 Tag conventions and their care
 
@@ -611,12 +613,17 @@ Sharp edges an operator must know:
   keys read by `NessieAI/cc/` (e.g. `NEXTSEEK_CC_IMAGE`,
   `NEXTSEEK_CC_NETWORK`, `DMAC_BEDROCK_PROXY_URL`,
   `NEXTSEEK_CC_MAX_BUDGET_USD`, `NEXTSEEK_CC_TIMEOUT_SECONDS`,
-  `NEXTSEEK_SIDECAR_HOST/PORT`, `DMAC_CC_MEMORY_*`) are absent from the
+  `NEXTSEEK_SIDECAR_HOST/PORT`, `NEXTSEEK_CC_OPS_ROAD` (default `direct`;
+  `sidecar` is the one-release rollback), `DMAC_CC_MEMORY_*`) are absent from the
   render template and fall back to safe in-code defaults (budget default:
   **$0.50/turn**). A fresh install works, but if you need to tune these,
   add them to `docker/nextseek.env` by hand. Two settings-level knobs
   (`CC_PERSIST_STRICT`, `CC_TRANSCRIPT_MAX_BYTES`) must be set as plain
   attributes in `dmac/local_settings.py` if needed.
+- **Switching the Container-CC ops road** (`NEXTSEEK_CC_OPS_ROAD`, `direct` by default, `sidecar` for one release):
+  set it in `docker/nextseek.env`, then `docker compose up -d --no-deps --force-recreate nextseek` (a restart does
+  not re-read the env file). Check `docker compose exec -T nextseek printenv NEXTSEEK_CC_OPS_ROAD`, then, during the
+  next Container-CC turn, `docker exec <dmac-cc-agent-...> printenv NEXTSEEK_CC_OPS_ROAD` in the agent container.
 - `SEEK_PUBLIC_URL` must agree in three places (`startup/.instance.json`,
   `docker/nextseek.env`, SEEK's DB `site_base_host` row); `doctor` detects
   drift but never auto-fixes it.
@@ -629,13 +636,16 @@ The per-turn CC agent container is sandboxed. These invariants are enforced
 by tests and were live-verified; any deploy that would weaken one is wrong by
 definition:
 
-1. **Zero shared credentials in the agent env.** The agent gets only:
-   Bedrock-via-proxy pointers, per-request SEEK user credentials, sidecar
-   host/port, non-secret path mappings, the turn's stop time
+1. **Zero shared credentials in the agent env, and no user password.** The agent gets only:
+   Bedrock-via-proxy pointers, the user's NExtSEEK name and a one-turn pass
+   (`NEXTSEEK_TURN_PASS`: Django holds the login for the turn and revokes the pass when the turn ends),
+   the ops road (`NEXTSEEK_CC_OPS_ROAD`, `direct` or `sidecar`; on the sidecar road only, also the sidecar
+   host/port), the non-secret path mappings, the turn's stop time
    (`NEXTSEEK_CC_TURN_DEADLINE_EPOCH`, a number), and three non-secret model-call
    settings: `CLAUDE_CODE_MAX_RETRIES`, `API_TIMEOUT_MS` and
    `ANTHROPIC_DEFAULT_SONNET_MODEL` (a model id). The 16 forbidden shared-cred keys
-   (AWS/Bedrock token, Neo4j, MySQL, GCP, Anthropic) are enumerated in
+   (AWS/Bedrock token, Neo4j, MySQL, GCP, Anthropic) and the three user-password keys
+   (`NEXTSEEK_PASSWORD`, `API_PASS`, `SEEK_PASSWORD`) are enumerated in
    `NessieAI/tests/cc/validate_cc_acceptance.py`; the env
    builder is `NessieAI/cc/cc_engine.py` (`build_agent_environment`), the single source
    of truth.

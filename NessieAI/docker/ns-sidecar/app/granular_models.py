@@ -249,10 +249,11 @@ class SubmissionResponse(BaseModel):
 class OpErrorResponse(BaseModel):
     """Error envelope for a granular op.
 
-    Carries the NExtSEEK ``errors`` list AND the canonical dmac error ``code``
-    (CONFIG_MISSING / VALIDATION / AGENT_FAILED / WRITE_BLOCKED / CONFIG_ERROR /
-    AUTH_FAILED) so the dmac thin client can map it to its CLI exit taxonomy.
+    ``code`` and ``errors`` as before; since approach 1 (piece 2) NExtSEEK also sends ``reason`` (AGENT_FAILED only)
+    and ``message`` (a fixed sentence). This copy documents the envelope; the sidecar does not validate replies with it.
     """
     code: str
+    reason: Optional[str] = None
+    message: Optional[str] = None
     errors: List[Dict[str, Any]]
     model_config = ConfigDict(extra="forbid")

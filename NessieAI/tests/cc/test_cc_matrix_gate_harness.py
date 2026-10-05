@@ -124,10 +124,10 @@ def test_gate_executor_environment_goes_through_build_agent_environment():
         "NEXTSEEK_BASE_URL": "http://127.0.0.1:8000",
     }
     env = gate.gate_executor_environment(
-        api_user="gateuser", api_pass="gatepass", source=hostile_source,
+        api_user="gateuser", turn_pass="gatepass", source=hostile_source,
     )
     expected = cc_engine.build_agent_environment(
-        source=hostile_source, api_user="gateuser", api_pass="gatepass", path_mappings={},
+        source=hostile_source, api_user="gateuser", turn_pass="gatepass", path_mappings={},
     )
     for k, v in expected.items():
         assert env[k] == v
@@ -140,7 +140,7 @@ def test_gate_executor_environment_goes_through_build_agent_environment():
 
 def test_gate_executor_environment_carries_no_shared_creds_even_from_hostile_source():
     env = gate.gate_executor_environment(
-        api_user="u", api_pass="p",
+        api_user="u", turn_pass="p",
         source={"AWS_BEARER_TOKEN_BEDROCK": "x", "MYSQL_PASSWORD": "y", "GCP_API_KEY": "z"},
     )
     for key in SHARED_CRED_KEYS:

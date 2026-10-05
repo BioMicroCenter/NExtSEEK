@@ -1,6 +1,6 @@
 """The CC ``graph`` op under a project scope (spec docs/superpowers/specs/2026-09-18-graph-cypher-scope.md 7.2).
 
-The op returns ``{"plan", "result"}`` as before. ``result`` is the Neo4j tool's dict, so it carries the ``scope``
+The op returns ``{"plan", "result", "parser_plan"}`` as before. ``result`` is the Neo4j tool's dict, so it carries the ``scope``
 record. When the statement was refused for its scope, the op answers the question itself through
 ``/nextseek_api/samples/graph_search/``, the way the NS orchestrator does: the parser plan retargeted to graph_search,
 built by the API agent, gated as a read and run, returned under ``fallback`` with a note the agent must disclose. The
@@ -71,7 +71,7 @@ class GraphOpScopeTests(SimpleTestCase):
         out = self._run(config, neo4j_exec=MagicMock(return_value=_refused()))
 
         result, fallback = out["result"], out["fallback"]
-        self.assertEqual(set(out), {"plan", "result", "fallback"})
+        self.assertEqual(set(out), {"plan", "result", "fallback", "parser_plan"})
         self.assertEqual(result["scope"]["decision"], "refused")
         self.assertTrue(result["error"].startswith(SCOPE_REFUSED))
         self.assertIn(GRAPH_SEARCH, result["error"])
@@ -111,7 +111,7 @@ class GraphOpScopeTests(SimpleTestCase):
         self.assertIn("nextseek-api-read", out["result"]["error"])
 
     def test_a_refusal_late_in_the_op_hands_the_plan_back_instead_of_running_it(self):
-        clock = iter([0.0, granular.GRAPH_FALLBACK_START_BUDGET_S + 1.0])
+        clock = iter([0.0, granular.fallback_start_budget_s(None) + 1.0])
         with patch("NessieAI.ns.granular._monotonic", lambda: next(clock)):
             out = self._run(SimpleNamespace(), neo4j_exec=MagicMock(return_value=_refused()))
 
@@ -124,7 +124,7 @@ class GraphOpScopeTests(SimpleTestCase):
         self.rest.assert_not_called()
 
     def test_a_refusal_early_in_the_op_runs_the_fallback(self):
-        clock = iter([0.0, granular.GRAPH_FALLBACK_START_BUDGET_S - 1.0])
+        clock = iter([0.0, granular.fallback_start_budget_s(None) - 1.0])
         with patch("NessieAI.ns.granular._monotonic", lambda: next(clock)):
             out = self._run(SimpleNamespace(), neo4j_exec=MagicMock(return_value=_refused()))
 

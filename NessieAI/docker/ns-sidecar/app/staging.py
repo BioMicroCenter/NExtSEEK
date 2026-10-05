@@ -1,9 +1,10 @@
-"""Per-user artifact staging (§10, OD-2, U-7). Never mounts scratch; writes to a
-host-bind staging dir the bridge sweeps. Hashed user key (never raw api_user as a
-path segment). Atomic publish via a sibling `<request>.complete` marker the bridge
-waits on. The bridge maps the hashed dir back to identity.user_id (T10).
+"""Per-turn artifact staging (§10, OD-2, U-7). Never mounts scratch; writes to a
+host-bind staging dir Django sweeps. The folder is named by the hash of the TURN PASS
+(ruling R1), never by a username taken from the frame: only the turn holding the pass can
+name that folder, so no turn can drop a file where another turn's sweep will look.
+Atomic publish via a sibling `<request>.complete` marker the sweep waits on.
 
-T16: adds make_stage_bytes(cfg, login, request_id) -> (writer, commit) pair for
+T16: adds make_stage_bytes(cfg, turn, request_id) -> (writer, commit) pair for
 the download-and-stage path (report/generate-submission). The writer stages raw bytes;
 the committer writes the .complete marker exactly once after all artifacts are staged.
 """
@@ -14,21 +15,22 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable
 
-from sidecar.app.contract import NsLogin
+from sidecar.app.contract import NsTurn
 
 
 class StagingError(RuntimeError):
     """→ STAGING_ERROR / exit 9."""
 
 
-def _user_hash(api_user: str) -> str:
-    return hashlib.sha256(api_user.encode("utf-8")).hexdigest()
+def _folder_key(turn_pass: str) -> str:
+    """The drop folder's name: sha256 of the turn pass. MUST match NessieAI/cc/cc_staging.staging_folder_for."""
+    return hashlib.sha256(turn_pass.encode("utf-8")).hexdigest()
 
 
-def make_stage(cfg: Any, login: NsLogin, request_id: str) -> Callable[[str, dict], dict]:
+def make_stage(cfg: Any, turn: NsTurn, request_id: str) -> Callable[[str, dict], dict]:
     """Return stage(op, result) that copies result['saved_files'] into staging and
     writes a completion marker, returning result augmented with 'staged_files'."""
-    base = Path(cfg.staging_dir) / _user_hash(login.api_user)
+    base = Path(cfg.staging_dir) / _folder_key(turn.turn_pass)
     req_dir = base / request_id
     marker = base / f"{request_id}.complete"
 
@@ -59,7 +61,7 @@ def make_stage(cfg: Any, login: NsLogin, request_id: str) -> Callable[[str, dict
 
 
 def make_stage_bytes(
-    cfg: Any, login: NsLogin, request_id: str
+    cfg: Any, turn: NsTurn, request_id: str
 ) -> tuple[Callable[[str, str, bytes], str], Callable[[], None]]:
     """Return a (stage_bytes, commit) pair for the download-and-stage path (T16, DD-A5-5).
 
@@ -74,7 +76,7 @@ def make_stage_bytes(
         The ops.py report/generate-submission handlers call commit() once outside the
         per-artifact loop — never inside it.
     """
-    base = Path(cfg.staging_dir) / _user_hash(login.api_user)
+    base = Path(cfg.staging_dir) / _folder_key(turn.turn_pass)
     req_dir = base / request_id
     marker = base / f"{request_id}.complete"
 
@@ -100,9 +102,9 @@ def make_stage_bytes(
     return stage_bytes, commit
 
 
-def cleanup_request(cfg: Any, api_user: str, request_id: str) -> None:
+def cleanup_request(cfg: Any, turn_pass: str, request_id: str) -> None:
     """Remove a request's staged dir + marker. Called by the bridge after sweep (T10)
     or by a periodic janitor for abandoned dirs."""
-    base = Path(cfg.staging_dir) / _user_hash(api_user)
+    base = Path(cfg.staging_dir) / _folder_key(turn_pass)
     shutil.rmtree(base / request_id, ignore_errors=True)
     (base / f"{request_id}.complete").unlink(missing_ok=True)

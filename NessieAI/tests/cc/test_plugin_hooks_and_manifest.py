@@ -1,9 +1,9 @@
 """Doc-contract tests: the entity-extract UserPromptSubmit hook + context manifest.
 
 Pin the two mechanisms added 2026-07-06 so the port can't silently drop them:
-  1. A plugin UserPromptSubmit hook that ALWAYS runs nextseek-entity-extract
-     before the agent acts (resolve vocabulary / expand abbreviations like GBM),
-     fail-open and isolation-preserving.
+  1. A plugin UserPromptSubmit hook that injects the turn's vocabulary file
+     (/data/turn/vocabulary.json, expands abbreviations like GBM) and the newest
+     staged turn before the agent acts, fail-open and isolation-preserving.
   2. A context/MANIFEST.md that tells the agent which context files exist and
      when to consult each, referenced from SKILL.md.
 """
@@ -33,9 +33,9 @@ def test_hook_script_exists_is_executable_and_fail_open():
     assert _HOOK_SH.is_file()
     assert os.access(_HOOK_SH, os.X_OK), "entity_preamble.sh must be executable"
     body = _HOOK_SH.read_text(encoding="utf-8")
-    # Runs entity-extract; bounded; degrades without blocking the turn.
-    assert "nextseek-entity-extract" in body
-    assert "timeout" in body
+    # Reads the turn's vocabulary file; runs no op and waits on nothing; never blocks the turn.
+    assert "/data/turn/vocabulary.json" in body
+    assert "--query" not in body and "NEXTSEEK_ENTITY_EXTRACT_BIN" not in body
     assert "UserPromptSubmit" in body
     assert "exit 0" in body  # fail-open path
 
@@ -90,7 +90,9 @@ def test_entrypoint_registers_hook_in_user_settings():
     """Headless `claude --print` does not load local-plugin hooks, so the entrypoint
     must register the UserPromptSubmit hook in ~/.claude/settings.json at startup."""
     entrypoint = _entrypoint_text()
-    assert "UserPromptSubmit" in entrypoint
+    hook_program = (paths.CC_RUNTIME_DIR / "container" / "claude-home" / "entity-hook.jq").read_text(encoding="utf-8")
+    assert "UserPromptSubmit" in hook_program
+    assert "entity-hook.jq" in entrypoint
     assert "entity_preamble.sh" in entrypoint
     assert "settings.json" in entrypoint
 

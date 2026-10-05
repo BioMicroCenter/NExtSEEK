@@ -20,11 +20,15 @@ runs a superuser's statement as written and holds anyone else's to their project
 answered through graph_search, which applies the caller's projects on the server and returns a total, so a
 refused breakdown comes back as that total with a note saying the breakdown could not be computed.
 
-Time. The sidecar gives the op 60 s. The op answers at ``OP_DEADLINE_S`` with whatever has finished and names the
-other parts ``timed_out``; work already started finishes in the background, as the graph op's does. A retry or a
-fallback starts only while at least ``MIN_REMAINING_S`` remain. The op's call_scope carries the same deadline into
-every model call (``granular.run_op`` opens it at 55 s, this op tightens it to 50 s), so a model call is cut to fit
-it and none starts after it; a part (or the vocabulary) that ran out of time that way is ``timed_out`` too.
+Time. ``run_op`` hands the op its limit (``NessieAI/ns/op_limits.py``: 55 s, capped by the turn). The op answers
+``ANSWER_MARGIN_S`` before it (``op_deadline_s``: 50 s of 55) with whatever has finished and names the other parts
+``timed_out``; work already started finishes in the background, as the graph op's does. A retry or a fallback starts
+only while at least ``MIN_REMAINING_S`` remain. The op's call_scope carries the same deadline into every model call,
+Neo4j statement and REST call, so each is cut to fit it and none starts after it; a part (or the vocabulary) that ran
+out of time that way is ``timed_out`` too. Each task (the vocabulary step
+and every part) records its model calls into a cost collector of its own (_in_own_collector). A task that has finished
+when the op answers is the op's spend; one still running is handed to run_op (granular.hand_over_late), which settles
+its spend and failed models into the Container-CC turn when it finishes and keeps the op's slot until then.
 """
 from __future__ import annotations
 
@@ -37,8 +41,8 @@ from typing import Any, Callable
 
 from NessieAI.ns.granular import GRAPH_SCOPE_FALLBACK_NOTE, OpValidationError, run_graph_question
 
-#: The op's own answer time, inside the sidecar's 60 s request timeout (ns-sidecar/app/ns_client.py).
-OP_DEADLINE_S = 50.0
+#: The op answers this long before its limit, so its reply is on the wire before the limit passes.
+ANSWER_MARGIN_S = 5.0
 #: A retry or a graph_search fallback starts only while at least this much of the deadline is left.
 MIN_REMAINING_S = 15.0
 MAX_PARTS = 4
@@ -76,25 +80,31 @@ def _clock() -> float:
     return _monotonic()
 
 
+def op_deadline_s(limit_s: float | None) -> float:
+    """Seconds after its start by which the op answers: its limit (the table's when None) less ``ANSWER_MARGIN_S``."""
+    from NessieAI.ns.op_limits import OP_LIMITS_S
+    return (OP_LIMITS_S["aggregate"] if limit_s is None else limit_s) - ANSWER_MARGIN_S
+
+
 def parse_parts(raw: Any, question: str) -> list[str]:
     """The parts to answer: ``[question]`` when none were given, else 1 to ``MAX_PARTS`` non-empty strings."""
     if raw is None or (isinstance(raw, str) and not raw.strip()):
         return [question]
     if not isinstance(raw, str):
-        raise OpValidationError("parts must be a JSON array of strings, sent as text")
+        raise OpValidationError("parts must be a JSON array of strings, sent as text", field="parts", error_type="must_be_json_text")
     try:
         parts = json.loads(raw)
     except ValueError as exc:
-        raise OpValidationError(f"parts is not valid JSON: {exc}") from exc
+        raise OpValidationError(f"parts is not valid JSON: {exc}", field="parts", error_type="invalid_json") from exc
     if not isinstance(parts, list) or not all(isinstance(part, str) for part in parts):
-        raise OpValidationError("parts must be a JSON array of strings")
+        raise OpValidationError("parts must be a JSON array of strings", field="parts", error_type="must_be_a_json_array_of_strings")
     parts = [part.strip() for part in parts]
     if not 1 <= len(parts) <= MAX_PARTS:
-        raise OpValidationError(f"parts must hold 1 to {MAX_PARTS} sub-questions, not {len(parts)}")
+        raise OpValidationError(f"parts must hold 1 to {MAX_PARTS} sub-questions, not {len(parts)}", field="parts", error_type="must_hold_1_to_4_parts")
     if not all(parts):
-        raise OpValidationError("every part must be a non-empty sub-question")
+        raise OpValidationError("every part must be a non-empty sub-question", field="parts", error_type="empty_part")
     if any(len(part) > MAX_PART_CHARS for part in parts):
-        raise OpValidationError(f"a part may be at most {MAX_PART_CHARS} characters")
+        raise OpValidationError(f"a part may be at most {MAX_PART_CHARS} characters", field="parts", error_type="part_over_2000_characters")
     return parts
 
 
@@ -304,29 +314,41 @@ def _shape_part(k: int, text: str, answer, label: str) -> tuple[dict, list[str]]
 
 def _run_part(k: int, text: str, *, label: str, question: str, multi: bool, config: Any, session: Any,
               write_gate: Callable, exec_fn: Callable, entity_out: Any, uid_note: str | None, started: float,
-              deadline: float) -> tuple[dict, list[str]]:
+              deadline: float, fallback_budget_s: float,
+              parser_plan: Any = None) -> tuple[dict, list[str], Any]:
     """One part through the graph op's chain; never raises (a failure is an ``error`` part)."""
     try:
         answer = run_graph_question(
             text, config=config, session=session, write_gate=write_gate, neo4j_exec=exec_fn,
             entity_out=entity_out, refine_context=_brief(question, multi, uid_note), prepare_cypher=cap_rows,
             retry=lambda result, cypher: _retry_for(result, cypher, deadline),
-            started=started, clock=_clock, fallback_budget_s=OP_DEADLINE_S - MIN_REMAINING_S,
+            started=started, clock=_clock, fallback_budget_s=fallback_budget_s,
+            parser_plan=parser_plan,
         )
-        return _shape_part(k, text, answer, label)
+        part, notes = _shape_part(k, text, answer, label)
+        return part, notes, answer.parser_plan
     except Exception as exc:  # one part's failure never takes the others down
         part = _blank_part(k, text, "error")
         part["error"] = f"{type(exc).__name__}: {exc}"[:500]
-        return part, [f"{label}this part failed ({part['error']}). Say so; never estimate it."]
+        return part, [f"{label}this part failed ({part['error']}). Say so; never estimate it."], None
 
 
-def _prelude(config: Any, question: str, parts: list[str], exec_fn: Callable) -> tuple[Any, str | None, list[str]]:
-    """The vocabulary, resolved once over the question and every part, and the UID check (one read-only query)."""
+def _prelude(config: Any, question: str, parts: list[str], exec_fn: Callable, *, vocabulary: Any = None,
+             vocabulary_question: str | None = None) -> tuple[Any, str | None, list[str]]:
+    """The vocabulary and the UID check (one read-only query). The vocabulary is the turn's when it has one
+    (``vocabulary``), else resolved on the user's question (``vocabulary_question``, a Container-CC turn), else, with
+    no turn, over the question and every part as before."""
     from chat_nextseek.helpers.uid_check import check_uids, uid_notes, uids_in
     from chat_nextseek.portable import entity_agent
 
     text = question if parts == [question] else question + "\n\nParts:\n" + "\n".join(f"- {p}" for p in parts)
-    entity_out = entity_agent(config, text)
+    if vocabulary is not None:
+        entity_out = vocabulary
+    elif vocabulary_question is not None:
+        from chat_nextseek.vocabulary import resolve_vocabulary
+        entity_out = resolve_vocabulary(None, config, vocabulary_question)
+    else:
+        entity_out = entity_agent(config, text)
     try:
         uids = uids_in(text)
         checks = check_uids(config, uids, run=exec_fn) if uids else []
@@ -334,6 +356,15 @@ def _prelude(config: Any, question: str, parts: list[str], exec_fn: Callable) ->
     except Exception:  # a failed check claims nothing either way
         agent_note, reply_notes = None, []
     return entity_out, agent_note, reply_notes
+
+
+def _in_own_collector(own: Any, fn: Callable, *args: Any, **kwargs: Any) -> Any:
+    """Run ``fn`` with ``own`` as its cost collector (``turn_spend.recording_into``), never the op's: the op counts
+    it exactly once, as its own spend when the task finished before the answer, else through run_op's late
+    settlement (``granular.hand_over_late``) when it finishes."""
+    from chat_nextseek import turn_spend
+    with turn_spend.recording_into(own):
+        return fn(*args, **kwargs)
 
 
 def _wait_until(futures: set, deadline: float) -> set:
@@ -348,11 +379,11 @@ def _wait_until(futures: set, deadline: float) -> set:
 
 
 def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable,
-                  neo4j_exec: Callable | None = None) -> dict:
+                  neo4j_exec: Callable | None = None, limit_s: float | None = None, turn: Any = None) -> dict:
     """``{question, complete, elapsed_s, deadline_s, parts, notes}``; see the module docstring."""
     question = str(args.get("query") or "").strip()
     if not question:
-        raise OpValidationError("query is required")
+        raise OpValidationError("query is required", field="query", error_type="missing")
     parts = parse_parts(args.get("parts"), question)
     multi = len(parts) > 1
     exec_fn = neo4j_exec
@@ -360,12 +391,28 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
         from chat_nextseek.helpers import tool_neo4j_query
         exec_fn = tool_neo4j_query
 
+    turn_vocabulary, vocabulary_question, cached_plans = None, None, {}
+    if turn is not None:
+        from chat_nextseek.schemas import EntityAgentOutput, ParserPlan
+        from NessieAI.ns import turn_memory
+        stored = turn_memory.get_vocabulary(turn)
+        turn_vocabulary = EntityAgentOutput.model_validate(stored) if stored is not None else None
+        vocabulary_question = turn_memory.user_question(turn) or question
+        for k, text in enumerate(parts, 1):
+            plan = turn_memory.get_plan(turn, text)
+            if plan is not None:
+                try:
+                    cached_plans[k] = ParserPlan.model_validate(plan)
+                except Exception:  # noqa: BLE001 - that part parses again
+                    pass
+
+    deadline_s = op_deadline_s(limit_s)
     started = _clock()
-    deadline = started + OP_DEADLINE_S
-    # Every model call of the op fits this op's own deadline, not only the sidecar's (run_op's 55 s).
+    deadline = started + deadline_s
+    # Every model call of the op fits this op's own deadline, inside its limit (run_op's scope).
     from chat_nextseek import call_scope
     from chat_nextseek.llm_clients import LLMFatalError
-    call_scope.limit_current(OP_DEADLINE_S)
+    call_scope.limit_current(deadline_s)
 
     def _out_of_time(future) -> bool:
         """A task that ended because the op's deadline left no time for its model call (then it is timed_out)."""
@@ -375,41 +422,79 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
     notes: list[str] = []
     answered: dict[int, dict] = {}
     vocabulary_late = False
+    from chat_nextseek import turn_spend
+    #: Every task the op submitted, with its own cost collector (settled after the pool is shut down).
+    tasks: dict[Any, Any] = {}
+    made_plans: dict[int, Any] = {}
     pool = ThreadPoolExecutor(max_workers=len(parts), thread_name_prefix="nextseek-aggregate")
     try:
         # Each task runs in a copy of the op's context, so it sees the op's call_scope: a model the
         # prelude or one part found failing is not asked again by the others (a Context cannot be
         # entered by two threads at once, hence one copy per task).
-        prelude = pool.submit(contextvars.copy_context().run, _prelude, config, question, parts, exec_fn)
+        if turn is not None and turn_vocabulary is None:
+            from NessieAI.ns import turn_memory
+            turn_memory.count_vocabulary_resolution(turn)
+        prelude_spend = turn_spend.TurnSpend()
+        prelude = pool.submit(contextvars.copy_context().run, _in_own_collector, prelude_spend, _prelude,
+                              config, question, parts, exec_fn, vocabulary=turn_vocabulary,
+                              vocabulary_question=vocabulary_question if turn_vocabulary is None else None)
+        tasks[prelude] = prelude_spend
         if _wait_until({prelude}, deadline) or _out_of_time(prelude):
             vocabulary_late = True
-            notes.append(f"The question's vocabulary was not resolved within {OP_DEADLINE_S:.0f} s, so no part "
+            notes.append(f"The question's vocabulary was not resolved within {deadline_s:.0f} s, so no part "
                          "has an answer. Say so; never estimate one.")
         elif deadline - _clock() < MIN_REMAINING_S:
             prelude.result()  # an entity agent failure still fails the op
             vocabulary_late = True  # a part started now could only time out, after spending its model calls
             notes.append(f"Resolving the question's vocabulary left under {MIN_REMAINING_S:.0f} s of the op's "
-                         f"{OP_DEADLINE_S:.0f} s, so no part was started and none has an answer. Say so; never "
+                         f"{deadline_s:.0f} s, so no part was started and none has an answer. Say so; never "
                          "estimate one.")
         else:
             entity_out, uid_note, uid_reply_notes = prelude.result()  # an entity agent failure fails the op
+            if turn is not None and turn_vocabulary is None:
+                from NessieAI.ns.granular import _store_turn_vocabulary
+                entity_out = _store_turn_vocabulary(turn, entity_out)
             notes.extend(uid_reply_notes)
+            part_spend = {k: turn_spend.TurnSpend() for k in range(1, len(parts) + 1)}
             futures = {
-                pool.submit(contextvars.copy_context().run, _run_part, k, text,
+                pool.submit(contextvars.copy_context().run, _in_own_collector, part_spend[k], _run_part, k, text,
                             label=f"Part {k}: " if multi else "", question=question,
                             multi=multi, config=config, session=session, write_gate=write_gate, exec_fn=exec_fn,
-                            entity_out=entity_out, uid_note=uid_note, started=started, deadline=deadline): k
+                            entity_out=entity_out, uid_note=uid_note, started=started, deadline=deadline,
+                            fallback_budget_s=deadline_s - MIN_REMAINING_S,
+                            parser_plan=cached_plans.get(k)): k
                 for k, text in enumerate(parts, 1)
             }
+            tasks.update({future: part_spend[k] for future, k in futures.items()})
             unfinished = _wait_until(set(futures), deadline)
             part_notes: dict[int, list[str]] = {}
             for future, k in futures.items():
                 if future not in unfinished and not _out_of_time(future):
-                    answered[k], part_notes[k] = future.result()
+                    answered[k], part_notes[k], made_plans[k] = future.result()
             for k in sorted(part_notes):
                 notes.extend(part_notes[k])
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
+
+    # Plan 04 (late parts, 2026-09-30): a task that has finished (answered, timed out or failed) is this op's spend
+    # now; one still running is handed to run_op, which settles it into the turn when it finishes and keeps the op's
+    # slot until then. The answer does not wait for it. A task that finishes between the two checks is settled by its
+    # done-callback at once.
+    op_spend = turn_spend.current()
+    from NessieAI.ns.granular import hand_over_late
+    for future, own in tasks.items():
+        if future.done():
+            if op_spend is not None:
+                op_spend.absorb(own)
+        else:
+            hand_over_late(future, own)
+    if turn is not None:
+        from NessieAI.ns import turn_memory
+        from NessieAI.ns.granular import _plan_json
+        for k, plan in made_plans.items():
+            dumped = _plan_json(plan)
+            if k not in cached_plans and isinstance(dumped, dict):
+                turn_memory.store_plan(turn, parts[k - 1], dumped)
 
     out_parts = []
     for k, text in enumerate(parts, 1):
@@ -420,16 +505,16 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
         if vocabulary_late:
             continue
         if multi:
-            notes.append(f"Part {k} did not finish within {OP_DEADLINE_S:.0f} s and has no answer. Say so; never "
+            notes.append(f"Part {k} did not finish within {deadline_s:.0f} s and has no answer. Say so; never "
                          "estimate it.")
         else:
-            notes.append(f"The question did not finish within {OP_DEADLINE_S:.0f} s and has no answer. Say so; "
+            notes.append(f"The question did not finish within {deadline_s:.0f} s and has no answer. Say so; "
                          "never estimate it.")
     return {
         "question": question,
         "complete": all(part["status"] != "timed_out" for part in out_parts),
         "elapsed_s": round(_clock() - started, 1),
-        "deadline_s": OP_DEADLINE_S,
+        "deadline_s": deadline_s,
         "parts": out_parts,
         "notes": notes,
     }

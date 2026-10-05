@@ -44,7 +44,7 @@ class WriteBlockedError(RuntimeError):
 
 
 class AllowlistMissingError(RuntimeError):
-    """The read-safe allowlist file is missing or malformed. Maps to CONFIG_ERROR."""
+    """The read-safe allowlist file is missing or malformed. Maps to AGENT_FAILED (reason internal) at the op view."""
 
 
 def default_allowlist_path() -> str:

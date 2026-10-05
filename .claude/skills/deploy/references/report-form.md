@@ -4,7 +4,7 @@
 
 - `facts.json`: everything mechanical. Status lines and their UTC stamps (step timings), every
   rebuild's success line, rollback tag and the sha it was built from, every stack-health red with
-  its class, `checks.log` (http, restarts, OOM, labs, refresh marker, sidecar ops, images, live
+  its class, `checks.log` (http, restarts, OOM, labs, refresh marker, the ops road and, on the sidecar road only, the sidecar ops, images, live
   marker counts), the CI result line, counts and failed ids (known or new by the table in
   `.claude/skills/deploy/scripts/rules.py`), the stack-health lines at the top of CI, and each Nessie run's per-case lines.
 - `report-form.json`: the report, prefilled from the facts, with `null` wherever judgement is

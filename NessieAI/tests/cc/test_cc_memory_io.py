@@ -19,8 +19,10 @@ def test_write_memory_file_writes_then_clears(tmp_path):
 
 
 def test_stage_transcripts_copies_and_prunes(tmp_path):
-    src_a = tmp_path / "A.jsonl"; src_a.write_text('{"a":1}\n')
-    src_b = tmp_path / "B.jsonl"; src_b.write_text('{"b":2}\n')
+    store = tmp_path / "cc-state" / "S" / "projects" / "-home-user"
+    store.mkdir(parents=True)
+    src_a = store / "A.jsonl"; src_a.write_text('{"a":1}\n')
+    src_b = store / "B.jsonl"; src_b.write_text('{"b":2}\n')
     staging = tmp_path / "stage"
     win = [_meta("A", src_a), _meta("B", src_b)]
     out = cc_memory_io.stage_transcripts(win, staging)

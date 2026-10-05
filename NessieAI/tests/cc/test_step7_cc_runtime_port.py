@@ -117,6 +117,7 @@ def test_cc_runtime_runner_helper_present():
     "_assistant_client.py",
     "_sidecar_client.py",
     "_turn_deadline.py",
+    "_turn_pass.py",
 ])
 def test_cc_runtime_runner_sibling_helpers_present(helper):
     """The Dockerfile COPYs these sibling helper modules to /opt/dmac/

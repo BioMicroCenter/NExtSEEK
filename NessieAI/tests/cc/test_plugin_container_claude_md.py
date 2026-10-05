@@ -46,7 +46,7 @@ def test_plugins_section_uses_canonical_paths():
         "/app/plugins/nextseek/bin/",
         "/app/plugins/nextseek/context/",
         "read the SKILL.md first",
-        "translated to `API_USER` / `API_PASS` by the container entrypoint",
+        "authenticate with the turn pass in `NEXTSEEK_TURN_PASS` themselves",
     ]
     missing = [s for s in expected_strings if s not in text]
     assert not missing, (
@@ -131,6 +131,7 @@ def _every_agent_mount():
         project_dirname="42-px", user_id="alice", cc_state_key="S1", run_id="R1",
         transcripts_subpath="42-px/alice/_memory/S1/transcripts",
         previous_turns=True,
+        turn_files=True,
     )
 
 
@@ -158,7 +159,7 @@ def test_container_claude_md_names_no_dmac_switch_the_agent_never_gets():
     """Every DMAC_* variable the file names is one build_agent_environment
     sets. The agent never gets DMAC_ROUTER_ENABLED or DMAC_RUNTIME_MODE."""
     env = _engine().build_agent_environment(
-        source={}, api_user="u", api_pass="p", path_mappings={}, chat_session_id="c",
+        source={}, api_user="u", turn_pass="p", path_mappings={}, chat_session_id="c",
     )
     named = set(re.findall(r"\bDMAC_[A-Z0-9_]+\b", CLAUDE_MD.read_text()))
     assert named - set(env) == set()

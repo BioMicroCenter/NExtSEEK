@@ -44,7 +44,10 @@ largest module here and holds several concerns; read the part you need.
 | `cc_upload_list.py`, `cc_upload_validate.py` | the upload list and filename validation for agent file uploads |
 | `cc_config.py` | `CCPaths` (the external volume and its mount point, read from env) and `CCMemoryConfig` |
 | `cc_provision.py` | `build_user_dirs`, the one source of every directory a turn touches, and `resolve_user_project`, which resolves the caller's SEEK project with the caller's own credentials and fails closed |
-| `cc_staging.py` | `sweep_user_staging`, which moves sidecar-staged artifacts into the requesting user's own tree |
+| `cc_staging.py` | `sweep_user_staging`, which moves sidecar-staged artifacts into the requesting user's own tree. It runs only on the sidecar road; the sidecar's drop folder is named by the sha256 of the turn pass |
+| `safe_fs.py` | every file operation Django makes in a folder an agent or the sidecar can write (`cc-state`, `scratch`, `_staging`): no link followed, no path trusted, and a root must be a registered mount root or a Django folder above one |
+| `prerun.py` | the vocabulary pre-run: one per question beside the router, on a small pool (4 running, 4 waiting), handed to the NS turn or the Container-CC turn's row and `/data/turn` |
+| `ops_road.py` | which road the agent's op tools take, `direct` or `sidecar` (`NEXTSEEK_CC_OPS_ROAD`): one reader for the agent's env, the staging sweep and the op view's sidecar cap |
 | `step7_llm_cost_ledger.py` | records real token spend; armed by `nextseek_api/cc_assistant/apps.py` |
 | `op_registry/` | the inventory of the plugin commands the agent may call (`NessieAI/cc/op_registry/README.md`; below) |
 
@@ -56,7 +59,8 @@ an op only through `/add-cc-op` (`.claude/skills/add-cc-op/SKILL.md`).
 **Background work.** The idle-session summarizer and the file-upload task are Celery tasks in
 `nextseek_api/cc_assistant/cc_sweep.py` and `nextseek_api/cc_assistant/cc_upload_tasks.py`,
 registered by `nextseek_api/batch_upload/celery_app.py`.
-`nextseek_api/management/commands/cc_sweep_staging.py` is the manual recovery path for staged strays.
+`nextseek_api/management/commands/cc_sweep_staging.py` is the manual recovery path for staged strays. It refuses a
+folder whose turn row belongs to another user; a folder with no turn row is the operator's call.
 
 ## Running and testing
 
@@ -71,6 +75,8 @@ source-tree checks out of the in-container run.
 Depends on, outside this directory:
 
 - `NessieAI/dmac_assistant/`: `run_tracker.diff_files`, imported lazily inside `cc_engine.py`.
+- `nextseek_api.assistant.turn_pass`, from `turn.py`, which issues, dates and revokes the turn pass (an allowed
+  back-edge, `NessieAI/CLAUDE.md` "Boundary").
 - `nextseek_api.assistant.models_db`, from `cc_transcript_store.py` and `turn.py`, and `seek.seekdb`,
   lazily, from `cc_provision.py` (both allowed back-edges, `NessieAI/CLAUDE.md` "Boundary").
 - `NessieAI/router/` (`policy.py`, the route decision) and `NessieAI/ns/turn.py`, from `turn.py`.

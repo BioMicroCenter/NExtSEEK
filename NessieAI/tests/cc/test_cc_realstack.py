@@ -529,8 +529,14 @@ class CCCapabilityGateMatrix(TestCase):
         gate.write_json(images_path, images_obj)
 
         # --- Step 3: spawn the DEDICATED gate executor -----------------------
+        # Spec piece 1: the executor's ops authenticate with a turn pass, which must be live in the database the
+        # app behind nginx reads (this test's own ORM database is a throwaway copy). Plan 05 runs the live checks
+        # through a real Container-CC turn; here the operator may hand one in.
+        gate_pass = os.environ.get("NEXTSEEK_CC_GATE_TURN_PASS")
+        if not gate_pass:
+            raise unittest.SkipTest("NEXTSEEK_CC_GATE_TURN_PASS is not set: the ops matrix needs a live turn pass")
         environment = gate.gate_executor_environment(
-            api_user=self.api_user, api_pass=self.api_pass,
+            api_user=self.api_user, turn_pass=gate_pass,
             path_mappings={"scratch": self.paths.user_root_mount},
         )
         run_kwargs = gate.build_gate_executor_run_kwargs(

@@ -237,3 +237,15 @@ describe.each(SHELLS)("%s after a reply without chips", (_name, make) => {
     expect(screen.queryByTestId("suggestion-chip")).toBeNull();
   });
 });
+
+describe.each(SHELLS)("%s while a turn is being routed", (_name, make) => {
+  it("shows each routing step in the stepper", async () => {
+    const t = await sendAQuestion(make);
+
+    act(() => t.onProgress({ event: "prelude_step", data: { label: "Reading your question" } }));
+    act(() => t.onProgress({ event: "prelude_step", data: { label: "Choosing an engine" } }));
+
+    expect(await screen.findByText("Reading your question")).toBeInTheDocument();
+    expect(await screen.findByText("Choosing an engine")).toBeInTheDocument();
+  });
+});

@@ -1072,3 +1072,18 @@ def test_the_watch_exits_0_once_the_runner_is_done_and_1_before(tmp_path, capsys
     assert subprocess.run(["bash", str(script)], capture_output=True).returncode == 0
     st.write_text("START x 00:00:01\n")
     assert subprocess.run(["bash", str(script)], capture_output=True).returncode == 1
+
+
+def test_the_sidecar_op_check_applies_only_on_the_sidecar_road(tmp_path, capsys):
+    """Approach 1, piece 2: with NEXTSEEK_CC_OPS_ROAD=direct the op tools never touch the sidecar, so a stale sidecar
+    is not a finding; a build without the switch always used the sidecar."""
+    _, text = rendered_runner(tmp_path, capsys)
+    assert 'echo "CHECK ops_road $road"' in text
+    assert "test -f /app/NessieAI/cc/ops_road.py" in text
+    assert 'echo "CHECK sidecar_ops skipped"' in text
+    assert text.index('if [ "$road" = sidecar ]') < text.index('echo "CHECK sidecar_ops match"')
+
+
+def test_the_checks_parser_reads_the_road():
+    ck = L.parse_checks("CHECK ops_road direct\nCHECK sidecar_ops skipped\n")
+    assert (ck["ops_road"], ck["sidecar_ops"]) == ("direct", "skipped")

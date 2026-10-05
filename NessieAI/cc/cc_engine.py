@@ -40,7 +40,9 @@ from .attach import BridgeAttachSocket
 from .translate import MODEL_UNAVAILABLE_REASON, CCStreamTranslator
 from .cc_config import CCPaths
 from . import cc_transcript_store
+from .ops_road import DIRECT, ROAD_ENV, SIDECAR
 from NessieAI.cc import cc_session
+from NessieAI.cc import safe_fs
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +105,9 @@ _MIN_CC_API_TIMEOUT_MS = 1000
 # for response headers) plus this much slack. Later, the request must be streaming an
 # answer, and Claude Code prints nothing while it streams: the turn just ran out of time.
 _RETRY_WINDOW_SLACK_S = 5.0
+# Step 1: after a FAILED stop and a force-remove, how long to wait for Docker to confirm the agent has exited
+# (an exited container answers at once); nothing reads or writes its scratch until that is confirmed.
+_CONFIRM_EXIT_WAIT_S = 5.0
 # The engine's monotonic clock, one name so tests can stand in for it.
 _monotonic = time.monotonic
 # Claude Code 2.1.282's auto-mode classifier asks a Sonnet model about each tool call,
@@ -156,14 +161,19 @@ _USER_ID_RE = re.compile(r"^[A-Za-z0-9._@+-]{1,64}$")
 _CONTAINER_NAME_SAFE_RE = re.compile(r"^[0-9a-f-]{1,64}$")
 
 # I-14: keys whose values must never reach a log line. After OI-3 the agent env
-# holds no AWS/backend creds; the per-request NExtSEEK password is the remaining
-# secret. DMAC_PATH_MAPPINGS encodes host layout (not a credential, still redact).
+# holds no AWS/backend creds, and after the turn pass (spec piece 1) no password
+# either: its one secret is NEXTSEEK_TURN_PASS. The password keys stay listed
+# because the transcript scrub's secrets (scrub_secrets) are keyed by these names.
+# DMAC_PATH_MAPPINGS encodes host layout (not a credential): log lines still mask
+# it, transcripts do not (operator ruling R5, _TRANSCRIPT_SECRET_KEYS).
 _REDACTED_ENV_KEYS = frozenset({
-    "NEXTSEEK_PASSWORD", "API_PASS", "DMAC_PATH_MAPPINGS",
+    "NEXTSEEK_PASSWORD", "API_PASS", "NEXTSEEK_TURN_PASS", "DMAC_PATH_MAPPINGS",
     # belt-and-suspenders: these must NEVER be in the agent env, but redact if seen.
-    "AWS_BEARER_TOKEN_BEDROCK", "NEO4J_PASSWORD", "MYSQL_PASSWORD",
+    "SEEK_PASSWORD", "AWS_BEARER_TOKEN_BEDROCK", "NEO4J_PASSWORD", "MYSQL_PASSWORD",
     "MYSQL_DEV_PASSWORD", "GCP_API_KEY", "ANTHROPIC_API_KEY",
 })
+# What a transcript scrub removes: the log keys minus the user-facing path mappings (R5).
+_TRANSCRIPT_SECRET_KEYS = _REDACTED_ENV_KEYS - {"DMAC_PATH_MAPPINGS"}
 
 # I-10 (audit checklist 2): auto mode with a classifier gating each tool call —
 # NOT ``--dangerously-skip-permissions``. Model + caps + $defaults-first
@@ -286,6 +296,9 @@ _CONTAINER_MEMORY_TRANSCRIPTS = _CONTAINER_WORKDIR + "/.cc-memory/transcripts"
 # 2026-09-23: this chat's previous turns (Search details, rows, downloads), staged by
 # ``NessieAI/cc/prior_turns.py`` into the session's ``_memory`` subtree, RO.
 _CONTAINER_PREVIOUS_TURNS = "/data/previous_turns"
+# The turn's own read-only folder: the vocabulary Django resolved for the user's question (plan 04, piece 3).
+_CONTAINER_TURN = "/data/turn"
+VOCABULARY_FILE = "vocabulary.json"
 
 
 def cc_runner_available() -> tuple[bool, str]:
@@ -395,19 +408,23 @@ def build_agent_environment(
     *,
     source: Mapping[str, str] | None = None,
     api_user: str | None,
-    api_pass: str | None,
+    turn_pass: str | None,
     path_mappings: Mapping[str, Any],
     chat_session_id: str | None = None,
     turn_deadline: float | None = None,
+    ops_road: str = DIRECT,
 ) -> dict[str, str]:
     """The COMPLETE env for the sandboxed Container-CC agent (OI-3).
+
+    ``ops_road`` (``ops_road.py``) is the road the op tools take; only the sidecar road gets the sidecar's address.
 
     SINGLE source of truth for the agent env — ``run_cc_turn`` and the
     containment canary both call this, so a secret can never sneak in via a
     separate inline dict (audit B3). The agent holds ZERO AWS creds and NONE of
     the 16 shared backend credentials (NEO4J_* / MYSQL_* / GCP_API_KEY): it
     reaches Bedrock only through the auth-proxy, and NExtSEEK data only through
-    the authenticated REST API as the user. ``source`` is the Django/process env
+    the authenticated REST API as the user, with the one-turn pass Django issued for this
+    turn (``turn_pass``); it never holds the user's password. ``source`` is the Django/process env
     to read non-secret topology from (defaults to os.environ; the canary passes a
     hostile source to prove nothing leaks). ``turn_deadline`` is the Unix time by
     which the turn will have been stopped; only the turn driver knows it, so it
@@ -422,14 +439,14 @@ def build_agent_environment(
         "CLAUDE_CODE_SKIP_BEDROCK_AUTH": "1",
         "CLAUDE_CODE_ENABLE_AUTO_MODE": "1",
     }
-    # I-9: the agent acts as the USER's OWN login, injected per-request (never a
-    # shared env secret). Entrypoint maps NEXTSEEK_* -> API_USER/API_PASS.
+    # I-9, spec piece 1: the agent acts as the user through the one-turn pass Django issued for this turn
+    # (sent as `Authorization: NextseekTurn`, answered only by TurnPassAuthentication). It never holds the user's
+    # password. The username is not secret: messages use it.
     if api_user:
         env["NEXTSEEK_USERNAME"] = api_user
         env["API_USER"] = api_user
-    if api_pass:
-        env["NEXTSEEK_PASSWORD"] = api_pass
-        env["API_PASS"] = api_pass
+    if turn_pass:
+        env["NEXTSEEK_TURN_PASS"] = turn_pass
     # Non-secret topology the agent legitimately needs.
     region = src.get("AWS_REGION") or src.get("AWS_DEFAULT_REGION")
     if region:
@@ -446,11 +463,13 @@ def build_agent_environment(
         rewritten = _rewrite_loopback_url(base)
         env["NEXTSEEK_BASE_URL"] = rewritten
         env["NEXTSEEK_URL"] = rewritten
-    # Step 2 (G7-11): the NS sidecar's compose service DNS name + WS port —
-    # the ONLY two keys the plugin's _sidecar_client.py needs (never a
-    # credential; per-request user Basic auth travels inside WS frames).
-    env["NEXTSEEK_SIDECAR_HOST"] = src.get("NEXTSEEK_SIDECAR_HOST", _DEFAULT_SIDECAR_HOST)
-    env["NEXTSEEK_SIDECAR_PORT"] = src.get("NEXTSEEK_SIDECAR_PORT", _DEFAULT_SIDECAR_PORT)
+    # Approach 1, piece 2: the road the op tools take (ops_road.py; never a credential). Only the sidecar road needs
+    # the sidecar's compose service DNS name + WS port (_sidecar_client.py).
+    road = SIDECAR if str(ops_road or "").strip().lower() == SIDECAR else DIRECT
+    env[ROAD_ENV] = road
+    if road == SIDECAR:
+        env["NEXTSEEK_SIDECAR_HOST"] = src.get("NEXTSEEK_SIDECAR_HOST", _DEFAULT_SIDECAR_HOST)
+        env["NEXTSEEK_SIDECAR_PORT"] = src.get("NEXTSEEK_SIDECAR_PORT", _DEFAULT_SIDECAR_PORT)
     # D19: container->host path translation for artifact-location reporting.
     env["DMAC_PATH_MAPPINGS"] = json.dumps(path_mappings, separators=(",", ":"))
     # §4.C: the live chat session id for nextseek-recall/query — not a credential.
@@ -571,7 +590,7 @@ def _secret_variants(environment: Mapping[str, str]) -> list[bytes]:
     transform, which is a moving part inside a security-critical function bought
     for no known emitter).
     """
-    secrets = {v for k in _REDACTED_ENV_KEYS if (v := environment.get(k))}
+    secrets = {v for k in _TRANSCRIPT_SECRET_KEYS if (v := environment.get(k))}
     # Not secrets themselves — only the left half of the Basic-auth pair.
     users = {u for k in ("NEXTSEEK_USERNAME", "API_USER") if (u := environment.get(k))}
     variants: set[bytes] = set()
@@ -618,6 +637,32 @@ def transcript_scrubber(environment: Mapping[str, str]) -> Callable[[bytes], byt
     return lambda raw: _scrub_secret_bytes(raw, environment)
 
 
+#: The names under which a scrub is given the user's password. A scrub given neither never writes the clean
+#: watermark (#76): it cannot vouch for the absence of a password it was never told.
+_PASSWORD_KEYS = ("NEXTSEEK_PASSWORD", "API_PASS")
+
+
+def scrub_secrets(*, api_user: str | None, api_pass: str | None, turn_pass: str | None = None) -> dict[str, str]:
+    """The secrets a transcript scrub removes: the login Django holds for this turn, and the turn pass.
+
+    Keyed by the env names ``_secret_variants`` reads, so the variant builder is unchanged. Built from what Django
+    holds, never from the agent's container env, which no longer carries the password (spec piece 1): a scrub fed
+    from that env would find nothing and watermark a transcript that still holds a password as clean.
+    """
+    secrets: dict[str, str] = {}
+    if api_user:
+        secrets["NEXTSEEK_USERNAME"] = api_user
+    if api_pass:
+        secrets["NEXTSEEK_PASSWORD"] = api_pass
+    if turn_pass:
+        secrets["NEXTSEEK_TURN_PASS"] = turn_pass
+    return secrets
+
+
+def _holds_password(environment: Mapping[str, str]) -> bool:
+    return any(environment.get(key) for key in _PASSWORD_KEYS)
+
+
 class ScrubReport(NamedTuple):
     """Outcome of one ``scrub_transcript_store`` pass.
 
@@ -632,8 +677,10 @@ class ScrubReport(NamedTuple):
 
 
 # #76: the per-session transcript store lives at <cc_state_dir>/projects.
-_TRANSCRIPT_STORE_DIRNAME = "projects"
+_TRANSCRIPT_STORE_DIRNAME = cc_session.TRANSCRIPT_STORE_DIRNAME
 _SCRUB_MANIFEST_VERSION = 1
+# A manifest has one line per transcript; anything larger is not one of ours and reads as "nothing verified".
+_SCRUB_MANIFEST_MAX_BYTES = 16 * 1024 * 1024
 
 
 def _scrub_manifest_path(cc_state_dir: Path | str) -> Path:
@@ -668,8 +715,10 @@ def _read_scrub_manifest(cc_state_dir: Path | str) -> dict[str, str]:
     consumer treats an unrecorded file as unscrubbed, so every error path here
     has to fail towards "unknown", never towards "clean".
     """
+    manifest = _scrub_manifest_path(cc_state_dir)
     try:
-        blob = _scrub_manifest_path(cc_state_dir).read_bytes()
+        # One level above the agent's folder, and still never read through a link.
+        blob = safe_fs.read_file(manifest.parent, manifest.name, max_bytes=_SCRUB_MANIFEST_MAX_BYTES)
     except OSError:
         return {}
     try:
@@ -689,7 +738,7 @@ def _write_scrub_manifest(cc_state_dir: Path | str, files: dict[str, str]) -> No
 
     A WHOLE-FILE replace, not a merge: an entry whose transcript has since been
     deleted, or which this pass could not read, must not survive as a stale
-    "clean" claim. tmp + ``os.replace`` so a concurrent reader never sees a
+    "clean" claim. one rename (``safe_fs.write_file_atomic``) so a concurrent reader never sees a
     half-written manifest and read it as ``{}``-on-parse-error.
     """
     path = _scrub_manifest_path(cc_state_dir)
@@ -697,14 +746,9 @@ def _write_scrub_manifest(cc_state_dir: Path | str, files: dict[str, str]) -> No
         {"version": _SCRUB_MANIFEST_VERSION, "files": files},
         sort_keys=True, separators=(",", ":"),
     )
+    # ``cc-state/`` itself is Django's (no agent mounts it), made here as before.
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(payload, encoding="utf-8")
-    os.replace(tmp, path)
-    try:
-        os.chmod(path, 0o644)
-    except OSError:
-        pass
+    safe_fs.write_file_atomic(path.parent, path.name, payload.encode("utf-8"), mode=0o644)
 
 
 def transcript_is_verified_scrubbed(transcript_path: Path | str, raw: bytes) -> bool:
@@ -784,10 +828,11 @@ def scrub_transcript_store(
     read-only into LATER agent containers, and ``cc_sweep`` feeds it verbatim to
     the summarizer whose output lands in the merged ``CLAUDE.md``.
 
-    Rewritten via tmp + ``os.replace`` so a reader never observes a truncated
-    file and the jsonl stays structurally valid: ``<REDACTED>`` carries no quote
-    or backslash, so replacing a value inside a JSON string cannot break the
-    escaping that ``--resume`` parses.
+    Rewritten through ``safe_fs.write_file_atomic`` (a fresh temporary name, one rename, the mode set on the
+    open file), so a reader never observes a truncated file, nothing is written through a link in the agent's
+    folder, and the jsonl stays structurally valid: ``<REDACTED>`` carries no quote or backslash, so replacing
+    a value inside a JSON string cannot break the escaping that ``--resume`` parses. A ``projects`` that is a
+    link, or not a folder, is never entered: it counts as one skipped file and no watermark is written.
 
     Every file it cannot scrub is LOGGED with its path and the error, and
     counted in ``ScrubReport.skipped``. ``cc_sweep`` re-reads these same files
@@ -808,51 +853,48 @@ def scrub_transcript_store(
     survive.
     """
     cc_state_dir = Path(cc_state_dir)
-    root = cc_state_dir / _TRANSCRIPT_STORE_DIRNAME
-    if not root.is_dir():
+    # The trusted root is the session folder (the mount's backing root); projects/ and everything below it
+    # are the agent's, so they are walked in rel and never trusted.
+    try:
+        # Listed in full first: the rewrites below add and rename entries in these folders.
+        listing = list(safe_fs.iter_files(cc_state_dir, (_TRANSCRIPT_STORE_DIRNAME,), suffix=".jsonl"))
+    except FileNotFoundError:
         return ScrubReport(0, 0)
+    except OSError as exc:
+        logger.warning("cc #72: transcript store under %s is not a real folder or cannot be listed, "
+                       "left unscrubbed: %r", cc_state_dir, exc)
+        return ScrubReport(0, 1)
     rewritten = 0
     skipped = 0
     verified: dict[str, str] = {}
-    for path in root.rglob("*.jsonl"):
-        if path.is_symlink() or not path.is_file():
-            continue
+    for rel, _st in listing:
+        key = rel  # already "projects/<path below the store>", the manifest's key
         try:
-            rel = str(path.relative_to(cc_state_dir))
-        except ValueError:  # pragma: no cover - rglob cannot leave its root
-            continue
-        try:
-            raw = path.read_bytes()
+            raw = safe_fs.read_file(cc_state_dir, rel)
         except OSError as exc:
             skipped += 1
-            logger.warning("cc #72: cannot read transcript %s, left unscrubbed: %r",
-                           path, exc)
+            logger.warning("cc #72: cannot read transcript %s, left unscrubbed: %r", cc_state_dir / rel, exc)
             continue
         clean = _scrub_secret_bytes(raw, environment)
         if clean == raw:
-            verified[rel] = _transcript_digest(raw)
+            verified[key] = _transcript_digest(raw)
             continue
-        tmp = path.with_name(path.name + ".scrub-tmp")
         try:
-            tmp.write_bytes(clean)
-            os.replace(tmp, path)
-            # os.replace installs a NEW inode owned by root (Django); the agent
-            # runs as uid 1001 and must still read/append it on the next turn.
-            # Same world-permission approach as the mount backing dirs above.
-            try:
-                os.chmod(path, 0o666)
-            except OSError:
-                pass
-            rewritten += 1
-            verified[rel] = _transcript_digest(clean)
+            # 0o666: the rename leaves a new inode owned by Django's root, and the agent
+            # (uid 1001) must still read and append it on the next turn.
+            safe_fs.write_file_atomic(cc_state_dir, rel, clean, mode=0o666)
         except OSError as exc:
             skipped += 1
-            logger.warning("cc #72: failed to scrub transcript %s, left "
-                           "unscrubbed: %r", path, exc)
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
+            logger.warning("cc #72: failed to scrub transcript %s, left unscrubbed: %r", cc_state_dir / rel, exc)
+            continue
+        rewritten += 1
+        verified[key] = _transcript_digest(clean)
+    if not _holds_password(environment):
+        # A scrub given no password cannot vouch that none is left: record nothing, so cc_sweep keeps skipping
+        # these files until a turn with the user's login scrubs them (spec piece 1).
+        logger.info("cc #76: the scrub of %s had no password to look for; no clean watermark written",
+                    cc_state_dir)
+        return ScrubReport(rewritten=rewritten, skipped=skipped)
     try:
         _write_scrub_manifest(cc_state_dir, verified)
     except OSError as exc:
@@ -913,25 +955,31 @@ def scrub_sibling_transcript_stores(
     the next step if this shows up in turn latency.
     """
     root = Path(cc_state_root)
-    if not root.is_dir():
-        return ScrubReport(0, 0)
     skip_name = Path(exclude).name if exclude is not None else None
-    rewritten = 0
-    skipped = 0
     try:
-        entries = sorted(root.iterdir())
+        root_fd = safe_fs.open_dir(root)
+    except FileNotFoundError:
+        return ScrubReport(0, 0)
     except OSError as exc:
         logger.warning("cc #76: cannot list cc-state root %s: %r", root, exc)
         return ScrubReport(0, 0)
-    for child in entries:
-        # Skips the current session, the ".<sid>.scrub.json" manifests that
-        # live at this level, and any symlink (which could point out of the
-        # user's tree entirely).
-        if child.name == skip_name or child.is_symlink() or not child.is_dir():
+    try:
+        with os.scandir(root_fd) as it:
+            # Real session folders only: a link here is never followed, and the
+            # ".<sid>.scrub.json" manifests at this level are files.
+            names = sorted(e.name for e in it if e.is_dir(follow_symlinks=False))
+    except OSError as exc:
+        logger.warning("cc #76: cannot list cc-state root %s: %r", root, exc)
+        return ScrubReport(0, 0)
+    finally:
+        os.close(root_fd)
+    rewritten = 0
+    skipped = 0
+    for name in names:
+        if name == skip_name:
             continue
-        if not (child / _TRANSCRIPT_STORE_DIRNAME).is_dir():
-            continue
-        report = scrub_transcript_store(child, environment)
+        # A session with no projects/ yet reports (0, 0) and writes no watermark.
+        report = scrub_transcript_store(root / name, environment)
         rewritten += report.rewritten
         skipped += report.skipped
     return ScrubReport(rewritten=rewritten, skipped=skipped)
@@ -1080,8 +1128,9 @@ def _run_kwargs(
         # F15: reap the sibling even when the parent Django worker dies mid-turn
         # (a SIGKILL/worker-recycle skips the finally-block remove, orphaning the
         # container on dmac-cc-net with an rw mount and live spend). Safe here:
-        # the code never container.wait()s or inspects post-exit, and the now-
-        # redundant finally remove(force=True) is already guarded by except pass.
+        # _stop_and_confirm_exit treats a NotFound on an already
+        # removed container (404) as gone, and the now-redundant finally
+        # remove(force=True) is already guarded by except pass.
         "auto_remove": True,
     }
 
@@ -1118,6 +1167,43 @@ def _spawn_with_stale_name_retry(client: Any, run_kwargs: dict[str, Any]) -> Any
         return client.containers.run(**run_kwargs)
 
 
+def _stop_and_confirm_exit(container: Any, *, confirm_wait_s: float = _CONFIRM_EXIT_WAIT_S) -> bool:
+    """Stop the agent, and say whether it is gone, before Django touches its folders.
+
+    Claude Code keeps reading stdin, so waiting for a self-exit would cost the wait on every turn: the
+    container is stopped first. Docker's stop returns success only once the container has stopped (an
+    already-stopped one answers 304, which docker-py does not raise), so a successful ``stop`` returns True
+    at once, with no wait. If the stop fails, the container is force-removed and then
+    ``wait(timeout=confirm_wait_s)`` confirms it. ``NotFound`` from the stop, the remove or the wait means Docker no
+    longer knows it (``auto_remove``), which is gone too; from the stop or the remove it returns before any
+    wait. False only when neither the stop nor the remove plus wait confirms, and the caller then publishes
+    nothing: an agent that may still be running could change a file between Django's check and its copy.
+    Never raises.
+    """
+    from docker.errors import NotFound
+
+    try:
+        container.stop(timeout=2)
+        return True
+    except NotFound:
+        return True
+    except Exception:  # noqa: BLE001 - a failed stop is followed by a force-remove and a confirm
+        pass
+    try:
+        container.remove(force=True)
+    except NotFound:
+        return True
+    except Exception:  # noqa: BLE001 - the confirm below decides
+        pass
+    try:
+        container.wait(timeout=confirm_wait_s)
+        return True
+    except NotFound:
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _mount_volume_subpath(source: str, target: str, subpath: str, *, read_only: bool = False) -> dict:
     """docker-py 7.1.0: Mount() has no subpath kwarg — patch VolumeOptions onto Mount dict subclass."""
     m = docker.types.Mount(target=target, source=source, type="volume", read_only=read_only)
@@ -1134,6 +1220,7 @@ def _build_volumes(
     run_id: str,
     transcripts_subpath: str | None = None,
     previous_turns: bool = False,
+    turn_files: bool = False,
 ) -> list[dict]:
     """Engine-API ``Mount`` payloads (volume subpaths of ``dmac-cc-users``) for
     the CC sibling container.
@@ -1187,7 +1274,72 @@ def _build_volumes(
                 vol, _CONTAINER_PREVIOUS_TURNS, dirs.previous_turns_subpath, read_only=True
             )
         )
+    # The turn's vocabulary, when Django had it before the start: read-only, in a folder no other mount covers.
+    if turn_files and dirs.turn_subpath:
+        mounts.append(
+            _mount_volume_subpath(vol, _CONTAINER_TURN, dirs.turn_subpath, read_only=True)
+        )
     return mounts
+
+
+def _write_turn_vocabulary(mount_root: Path, turn_subpath: str, vocabulary: dict) -> None:
+    """Write the turn's vocabulary into its own folder, mounted read-only at /data/turn. Never scratch or cc-state
+    (sandbox guard for piece 3). Never raises: without the file the hook adds no vocabulary note."""
+    try:
+        data = (json.dumps(vocabulary, separators=(",", ":"), ensure_ascii=False, default=str) + "\n").encode("utf-8")
+        safe_fs.write_file_atomic(mount_root, f"{turn_subpath}/{VOCABULARY_FILE}", data, mode=0o644)
+    except Exception:  # noqa: BLE001
+        logger.warning("cc: the turn's vocabulary file was not written; the turn starts without it", exc_info=True)
+
+
+def _remove_turn_files(mount_root: Path, turn_subpath: str) -> None:
+    """Remove the turn's own folder once its container has stopped. Never raises."""
+    parts = tuple(turn_subpath.split("/"))
+    try:
+        fd = safe_fs.open_dir(mount_root, parts)
+    except OSError:
+        return
+    try:
+        os.unlink(VOCABULARY_FILE, dir_fd=fd)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.warning("cc: could not remove the turn's vocabulary file", exc_info=True)
+    finally:
+        os.close(fd)
+    try:
+        parent = safe_fs.open_dir(mount_root, parts[:-1])
+        try:
+            os.rmdir(parts[-1], dir_fd=parent)
+        finally:
+            os.close(parent)
+    except OSError:
+        pass
+
+
+def _stage_memory_file(cc_state_dir: Path, memory_claude_md: str | None) -> None:
+    """Put this turn's memory ``CLAUDE.md`` in the agent's ``~/.claude``, or remove last turn's.
+
+    ``cc_state_dir`` is the agent's own folder, so both go through ``safe_fs``: the new file is renamed over
+    whatever is at ``CLAUDE.md`` (a link included) and nothing is written through a link. The old file is deleted
+    on every turn before the new one is written, so a file the agent left at that name is never read as memory.
+    """
+    # Remove last turn's file FIRST on every turn, so a failed write below never leaves an
+    # agent-rewritten CLAUDE.md to be read as memory.
+    dir_fd = safe_fs.open_dir(cc_state_dir)
+    try:
+        try:
+            os.unlink(_CONTAINER_MEMORY_CLAUDE_MD, dir_fd=dir_fd)
+        except FileNotFoundError:
+            pass
+        except IsADirectoryError:
+            shutil.rmtree(_CONTAINER_MEMORY_CLAUDE_MD, dir_fd=dir_fd)
+    finally:
+        os.close(dir_fd)
+    if memory_claude_md:
+        source = Path(memory_claude_md)  # Django's own _memory/<session>/CLAUDE.md
+        data = safe_fs.read_file(source.parent, source.name)
+        safe_fs.write_file_atomic(cc_state_dir, _CONTAINER_MEMORY_CLAUDE_MD, data, mode=0o644)
 
 
 def _preflight_subpath_dirs(user_root_mount: str, mounts: list[dict]) -> None:
@@ -1224,17 +1376,30 @@ def run_cc_turn(
     image: str | None = None,
     api_user: str | None = None,
     api_pass: str | None = None,
+    turn_pass: str | None = None,
+    on_deadline: Callable[[float], None] | None = None,
+    on_turn_end: Callable[[], None] | None = None,
     max_budget_usd: float = _DEFAULT_MAX_BUDGET_USD,
     turn_timeout: int = _DEFAULT_TURN_TIMEOUT,
     chat_session: Any | None = None,
     user_query: str = "",
     on_turn_complete: Callable[..., None] | None = None,
     chat_session_id: str | None = None,
+    vocabulary: dict | None = None,
 ) -> None:
     """Execute one Container-CC turn with scoped input/shared mounts + artifact publish.
 
     Always terminates with exactly one ``query_complete`` (structured ``artifacts``
     channel for deliverables, ``cc_raw_files`` for scratch/raw/) or ``query_error``.
+
+    ``api_user``/``api_pass`` are the login Django holds for the turn: the scrub's
+    secrets. The password never enters the container; ``turn_pass`` does (spec piece 1). ``on_deadline(epoch)`` is
+    told the watchdog deadline once, before the spawn; ``on_turn_end()`` is called at most once, as soon as the
+    container has stopped: right after ``_stop_and_confirm_exit`` on the normal and timed-out paths, else in the
+    ``finally``, always before the transcript capture and the scrub (the turn driver revokes the pass there). A
+    failure in either is logged and never fails or shortens the turn's clean-up.
+
+    ``vocabulary``: the turn's vocabulary (plan 04), written read-only at /data/turn/vocabulary.json when given.
     """
     import docker
     from docker.errors import APIError, NotFound
@@ -1272,10 +1437,20 @@ def run_cc_turn(
         cc_state_key=cc_state_key, run_id=run_id,
         transcripts_subpath=transcripts_subpath,
         previous_turns=previous_turns,
+        turn_files=vocabulary is not None,
     )
     for _m in mounts:
         _backing = mount_root / _m["VolumeOptions"]["Subpath"]
         _backing.mkdir(parents=True, exist_ok=True)
+        if _m["Target"] == _CONTAINER_TURN:
+            # Django-owned and read-only in the agent: 0755, never world-writable; the mode is set on the open
+            # folder (safe_fs), never by path.
+            _fd = safe_fs.open_dir(mount_root, tuple(_m["VolumeOptions"]["Subpath"].split("/")))
+            try:
+                os.fchmod(_fd, 0o755)
+            finally:
+                os.close(_fd)
+            continue
         # The Django container runs as root; the agent runs as the unprivileged
         # image user (uid 1001). Make each backing dir writable (best-effort;
         # dev-instance). Task 10 sentinel scratch write proves uid-1001 writes.
@@ -1306,28 +1481,41 @@ def run_cc_turn(
         # subpath (mounts to /home/user/.claude) so it lands at
         # /home/user/.claude/CLAUDE.md and MERGES with the baked project
         # /home/user/CLAUDE.md. Replaces the dropped RO file bind; the agent may
-        # transiently overwrite it within a turn (re-copied next turn — accepted).
-        if memory_claude_md:
-            try:
-                shutil.copyfile(memory_claude_md, cc_state_dir / _CONTAINER_MEMORY_CLAUDE_MD)
-            except OSError:
-                logger.warning("cc-1c: failed to stage merged CLAUDE.md into cc-state")
+        # transiently overwrite it within a turn (replaced, or removed, next turn).
+        # Step 1: every turn, through safe_fs; last turn's file is removed first, then the new one is written.
+        try:
+            _stage_memory_file(cc_state_dir, memory_claude_md)
+        except OSError:
+            logger.warning("cc-1c: failed to stage merged CLAUDE.md into cc-state")
 
     # Fail closed if any mount's backing subpath dir is still missing.
     _preflight_subpath_dirs(str(mount_root), mounts)
 
     path_mappings = path_mappings_for(output_mnt=dirs.output_mnt,
                                       run_scratch_mnt=dirs.run_scratch_mnt)
-    # OI-3: the COMPLETE agent env from the single builder — zero AWS/backend
-    # creds; Bedrock only via the auth-proxy, NExtSEEK only via the user's login.
+    # 13b.2: from THIS turn's clamped timeout, and taken before the spawn, so
+    # it is never later than the watchdog's, which starts after the spawn.
+    turn_deadline = time.time() + turn_timeout
+    if on_deadline is not None:
+        try:
+            on_deadline(turn_deadline)
+        except Exception:  # noqa: BLE001 - the pass keeps its provisional expiry; the turn goes on
+            logger.warning("cc: recording the turn deadline failed (run_id=%s)", run_id, exc_info=True)
+    # OI-3: the COMPLETE agent env from the single builder: zero AWS/backend creds, no password; Bedrock only via
+    # the auth-proxy, NExtSEEK only with the turn pass.
+    # Approach 1, piece 2: read the road once per turn, so the env and the sweep below always agree.
+    from .ops_road import ops_road as current_ops_road
+    road = current_ops_road()
     environment = build_agent_environment(
-        source=os.environ, api_user=api_user, api_pass=api_pass,
+        source=os.environ, api_user=api_user, turn_pass=turn_pass,
         path_mappings=path_mappings,
         chat_session_id=chat_session_id,
-        # 13b.2: from THIS turn's clamped timeout, and taken before the spawn, so
-        # it is never later than the watchdog's, which starts after the spawn.
-        turn_deadline=time.time() + turn_timeout,
+        turn_deadline=turn_deadline,
+        ops_road=road,
     )
+    # Spec piece 1: every scrub below takes its secrets from the login Django holds for this turn and the pass,
+    # never from the container env, which holds no password.
+    scrub_env = scrub_secrets(api_user=api_user, api_pass=api_pass, turn_pass=turn_pass)
 
     command = _build_command(
         model_id=model_id, session_id=effective_session_id, max_budget_usd=max_budget_usd,
@@ -1348,17 +1536,31 @@ def run_cc_turn(
     # which is safe because the scrub is line-count preserving (see the
     # ``_turn_slice`` block comment).
     #
-    # The root expression MUST match the one ``_read_turn_transcript`` resolves:
+    # The root and rel_parts MUST match the ones ``_read_turn_transcript`` passes (the session folder, then
+    # ``projects``):
     # ``_transcript_line_counts`` keys are un-normalised ``str(path)``, so a
     # different spelling misses every lookup and silently degrades every row
     # back to the whole cumulative session.
-    pre_turn_lines = _transcript_line_counts(
-        Path(dirs.cc_state_mnt) / "projects" if dirs.cc_state_mnt else None)
+    pre_turn_lines = _transcript_line_counts(dirs.cc_state_mnt, (_TRANSCRIPT_STORE_DIRNAME,))
     # #68: whether a CCSessionTranscript row exists for this turn yet. Bound
     # BEFORE the try because the finally reads it: an exception raised between
     # the try and an in-try assignment would make the finally raise
     # UnboundLocalError and mask the real failure.
     transcript_persisted = False
+    # Spec piece 1: the turn pass dies with the container. _end_turn runs the driver's callback at most once: right
+    # after the container stops on the normal path, else from the finally. start_task's own finally revokes again
+    # (idempotent) for the returns that never reach this function.
+    turn_ended = False
+
+    def _end_turn() -> None:
+        nonlocal turn_ended
+        if turn_ended or on_turn_end is None:
+            return
+        turn_ended = True
+        try:
+            on_turn_end()
+        except Exception:  # noqa: BLE001 - never skip the publish, the capture or the scrub
+            logger.warning("cc: revoking the turn pass failed (run_id=%s)", run_id, exc_info=True)
 
     # The --model id, so the turn record can name the model that answered even when the
     # result frame carries no modelUsage.
@@ -1368,6 +1570,9 @@ def run_cc_turn(
     client = docker.from_env()
     container = None
     try:
+        # Inside the try: its finally removes the file, whatever fails before the container starts.
+        if vocabulary is not None and dirs.turn_subpath:
+            _write_turn_vocabulary(mount_root, dirs.turn_subpath, vocabulary)
         spawn_kwargs = _run_kwargs(
             image=image, command=command, environment=environment,
             mounts=mounts, run_id=run_id, user_id=user_id,
@@ -1436,6 +1641,19 @@ def run_cc_turn(
             for event, data in translator.finalize():
                 terminal = (event, data)
 
+        # Step 1: the agent must be gone before Django reads or writes its scratch, so
+        # nothing it does can change a file between Django's check and its copy. The
+        # finally's stop stays for the paths that never get here.
+        agent_gone = _stop_and_confirm_exit(container)
+        if not agent_gone:
+            logger.error("cc: could not confirm the agent container exited (run_id=%s); "
+                         "this turn's files are not published", run_id)
+        # Spec piece 1: the container has stopped (or could not be confirmed gone, when the pass matters most):
+        # revoke the pass before the sweep and the publish.
+        _end_turn()
+
+        # Approach 1, piece 2: only the sidecar road stages downloads; on the direct road the tool downloads into its
+        # own scratch, so there is nothing to sweep. Strays stay for cc_sweep_staging.
         # G7-11 (Task 14): same-turn sidecar staging sweep. Mirrors upstream
         # ws.py:276-293 — sweep this user's ``.complete``-marked staging dirs
         # into their OWN ``{project}/{user}/scratch/nextseek-artifacts/`` subtree
@@ -1445,7 +1663,7 @@ def run_cc_turn(
         # limits the in-turn sweep to THIS turn's markers; older strays are left
         # for the ``cc_sweep_staging`` recovery entrypoint. Never fatal to the
         # turn (upstream _sweep_then_diff swallows sweep errors likewise).
-        if api_user:
+        if turn_pass and agent_gone and road == SIDECAR:
             try:
                 from . import cc_staging
                 cc_staging.sweep_user_staging(
@@ -1455,7 +1673,8 @@ def run_cc_turn(
                     # had mounted. Sweeping into the user root would drop these
                     # artifacts outside the diffed tree entirely.
                     scratch_dir=dirs.run_scratch_mnt,
-                    api_user=api_user,
+                    # Ruling R1: the folder is the hash of THIS turn's pass, so only this turn can claim it.
+                    staging_folder=cc_staging.staging_folder_for(turn_pass),
                     user_id=user_id,
                     project_dirname=project_dirname,
                     since_ts=sweep_since,
@@ -1466,22 +1685,26 @@ def run_cc_turn(
                 )
 
         # Post-turn publish: diff scratch, split deliverables from scratch/raw/.
-        try:
-            result = _publish_artifacts(
-                scratch_mount, output_mount,
-                turn_id=str(run_id),
-                output_logical_root=dirs.output_mnt, before=before,
-                # A stopped turn keeps its raw/ files in its own scratch only:
-                # output/raw/ is not per-turn (see _publish_artifacts).
-                include_raw=not timed_out,
-            )
-        except Exception:
-            if not timed_out:
-                raise
-            # A failed salvage must not replace the timeout the user is owed.
-            logger.exception("cc: publishing a timed-out turn's files failed "
-                             "(run_id=%s)", run_id)
-            result = {"artifacts": [], "raw": []}
+        if agent_gone:
+            try:
+                result = _publish_artifacts(
+                    scratch_mount, output_mount,
+                    turn_id=str(run_id),
+                    output_logical_root=dirs.output_mnt, before=before,
+                    # A stopped turn keeps its raw/ files in its own scratch only:
+                    # output/raw/ is not per-turn (see _publish_artifacts).
+                    include_raw=not timed_out,
+                )
+            except Exception:
+                if not timed_out:
+                    raise
+                # A failed salvage must not replace the timeout the user is owed.
+                logger.exception("cc: publishing a timed-out turn's files failed "
+                                 "(run_id=%s)", run_id)
+                result = {"artifacts": [], "raw": []}
+        else:
+            result = {"artifacts": [], "raw": [], "raw_zip": None,
+                      "files_created": [], "files_modified": []}
 
         if timed_out:
             # Always a query_error, never a query_complete: the user is told the turn
@@ -1550,7 +1773,7 @@ def run_cc_turn(
                 dirs.cc_state_mnt,
                 turn_start=translator._turn_start_ts,
                 prior_lines=pre_turn_lines,
-                environment=environment,
+                environment=scrub_env,
             )
             if captured.turn:
                 # The SCRUBBED per-TURN slice (not shutil.copy2 of the raw file):
@@ -1642,6 +1865,9 @@ def run_cc_turn(
                 container.remove(force=True)
             except Exception:
                 pass
+        # The paths that never reached the stop above (a failed spawn or attach, a docker error): revoke now, before
+        # the #68 capture and the scrub below. A no-op when the try already did.
+        _end_turn()
         # #68: the fallback capture, for a turn that did NOT reach the
         # ``query_complete`` gate above — a ``query_error`` result frame, the
         # watchdog timeout (which returns before the gate), or either exception
@@ -1698,7 +1924,7 @@ def run_cc_turn(
                     dirs.cc_state_mnt,
                     turn_start=translator._turn_start_ts,
                     prior_lines=pre_turn_lines,
-                    environment=environment,
+                    environment=scrub_env,
                 )
                 if not fallback.turn:
                     # Every outcome of this block logs, including the two that
@@ -1750,7 +1976,7 @@ def run_cc_turn(
         try:
             if dirs.cc_state_mnt:
                 current = Path(dirs.cc_state_mnt)
-                report = scrub_transcript_store(current, environment)
+                report = scrub_transcript_store(current, scrub_env)
                 # #76: and every OTHER session store this user owns. This turn
                 # holds the only thing that can clean them — the user's own
                 # credential — and a session whose own turn died before this
@@ -1765,7 +1991,7 @@ def run_cc_turn(
                 # latency, but it does hold the turn's thread. See the
                 # scrub_sibling_transcript_stores docstring for the trade.
                 siblings = scrub_sibling_transcript_stores(
-                    current.parent, environment, exclude=current)
+                    current.parent, scrub_env, exclude=current)
                 total_skipped = report.skipped + siblings.skipped
                 if total_skipped:
                     total_files = (total_skipped + report.rewritten
@@ -1777,6 +2003,8 @@ def run_cc_turn(
                         total_skipped, total_files, run_id)
         except Exception:  # noqa: BLE001
             logger.warning("cc #72: transcript store scrub failed", exc_info=True)
+        if vocabulary is not None and dirs.turn_subpath:
+            _remove_turn_files(mount_root, dirs.turn_subpath)
 
 
 def _time_limit_phrase(seconds: float) -> str:
@@ -1826,20 +2054,20 @@ def _time_limit_message(seconds: float) -> str:
 
 
 def _snapshot_tree(root: Path) -> dict[str, tuple[int, int]]:
-    """Return regular, non-symlink file versions under root, keyed by relpath."""
+    """Regular files under ``root``, keyed by relpath: ``(size, mtime_ns)``.
+
+    ``root`` is the turn's scratch, the agent's folder: listed with ``safe_fs.iter_files``, so a link, a FIFO
+    or a folder that is a link is never listed or entered. A missing root is an empty snapshot.
+    """
     out: dict[str, tuple[int, int]] = {}
-    if not root.is_dir():
+    try:
+        for rel, st in safe_fs.iter_files(Path(root)):
+            out[rel] = (st.st_size, st.st_mtime_ns)
+    except FileNotFoundError:
         return out
-    for dirpath, _dirnames, filenames in os.walk(root, followlinks=False):
-        for filename in filenames:
-            full = Path(dirpath) / filename
-            if full.is_symlink():
-                continue
-            try:
-                st = full.stat()
-            except OSError:
-                continue
-            out[str(full.relative_to(root))] = (st.st_size, st.st_mtime_ns)
+    except OSError as exc:
+        logger.warning("cc: cannot list %s (%r); nothing in it is published", root, exc)
+        return out
     return out
 
 
@@ -1894,14 +2122,22 @@ def _write_raw_turn_copy(output_mnt: str | os.PathLike[str], run_id: object,
     return raw_copy
 
 
-def _newest_jsonl_under(root: Path, *, min_mtime: float | None = None) -> Path | None:
-    """Pick newest *.jsonl under root; if min_mtime set, only files with mtime >= min_mtime."""
-    candidates = [p for p in root.rglob("*.jsonl") if p.is_file()]
-    if min_mtime is not None:
-        candidates = [p for p in candidates if p.stat().st_mtime >= min_mtime]
-    if not candidates:
-        return None
-    return max(candidates, key=lambda p: p.stat().st_mtime)
+def _newest_jsonl_under(root: Path, rel_parts: tuple[str, ...] = (), *,
+                        min_mtime: float | None = None) -> Path | None:
+    """Newest ``*.jsonl`` under ``root/rel_parts`` by modification time, never through a link.
+
+    With ``min_mtime``, only files at least that recent. The store is the agent's folder, so ``root`` is the
+    session folder (a trusted root) and ``projects`` is in ``rel_parts``; it is listed with
+    ``safe_fs.iter_files``: a start folder that is missing, a link or not a folder, or a root below a
+    registered agent root, raises ``OSError``, which every caller catches.
+    """
+    best: tuple[float, str] | None = None
+    for rel, st in safe_fs.iter_files(Path(root), rel_parts, suffix=".jsonl"):
+        if min_mtime is not None and st.st_mtime < min_mtime:
+            continue
+        if best is None or st.st_mtime > best[0]:
+            best = (st.st_mtime, rel)
+    return None if best is None else Path(root) / best[1]
 
 
 # --------------------------------------------------------------------------
@@ -1969,14 +2205,14 @@ def _turn_slice(raw: bytes, prior_lines: int) -> bytes:
     return b"\n".join(lines[prior_lines:]) + b"\n"
 
 
-def _transcript_line_counts(store_root: Path | str | None) -> dict[str, int]:
+def _transcript_line_counts(store_root: Path | str | None, rel_parts: tuple[str, ...] = ()) -> dict[str, int]:
     """Map ``str(path) -> _jsonl_line_count`` for every ``*.jsonl`` under a store.
 
     The pre-spawn snapshot whose values later feed ``_turn_slice``'s
     ``prior_lines``.
 
-    KEY SPELLING IS THE CALLER'S, not a normal form. Keys are ``str(path)`` for
-    whatever ``root.rglob`` yields, and nothing here calls ``.resolve()``: the
+    KEY SPELLING IS THE CALLER'S, not a normal form. Keys are ``str(root / rel)`` for
+    each file ``safe_fs.iter_files`` lists under ``root/rel_parts``, and nothing here calls ``.resolve()``: the
     spelling of ``store_root`` going in is the spelling coming out. The reader
     (``_read_turn_transcript``) looks its own resolved path up in this mapping,
     so the two must build the root from the SAME expression — and normalising on
@@ -1990,27 +2226,22 @@ def _transcript_line_counts(store_root: Path | str | None) -> dict[str, int]:
 
     Total-function on purpose — it runs on the turn's hot path, before the agent
     is even spawned, and must never be the reason a turn fails. Returns ``{}``
-    for a falsy root or a path that is not a directory; skips symlinks and
-    non-files; skips a file it cannot read rather than raising; and returns
-    whatever it had counted so far if the walk itself dies.
+    for a falsy root, a start folder that is missing, a link or not a folder, or a root below a
+    registered agent root (pass the session folder as ``store_root`` and ``("projects",)`` as ``rel_parts``);
+    never follows a link below it (links, FIFOs and other non-files are skipped); skips a file it cannot read
+    rather than raising; and returns whatever it had counted so far if the walk itself dies.
     """
     if not store_root:
         return {}
     root = Path(store_root)
     counts: dict[str, int] = {}
-    # ``is_dir()`` and ``rglob`` are INSIDE the try, not ahead of it.
-    # ``Path.is_dir()`` swallows ENOENT/ENOTDIR/ELOOP but re-raises EACCES, so
-    # an unreadable parent directory would otherwise propagate straight past
-    # this function's "must never be the reason a turn fails" guarantee; and
-    # ``rglob`` is a generator, so anything it raises surfaces at iteration.
+    # safe_fs never follows a link in the store (the agent's folder) and raises for a
+    # root that is missing, a link or unreadable at the first step of the walk; all of
+    # it is inside the try, so none of it can fail the turn.
     try:
-        if not root.is_dir():
-            return {}
-        for path in root.rglob("*.jsonl"):
+        for rel, _st in safe_fs.iter_files(root, rel_parts, suffix=".jsonl"):
             try:
-                if path.is_symlink() or not path.is_file():
-                    continue
-                counts[str(path)] = _jsonl_line_count(path.read_bytes())
+                counts[str(root / rel)] = _jsonl_line_count(safe_fs.read_file(root, rel))
             except OSError:
                 continue
     except OSError:
@@ -2092,45 +2323,38 @@ def _read_turn_transcript(
     paths that are already failing. Returns ``CapturedTranscript(b"", b"")``
     rather than raising when ``cc_state_mnt`` is falsy, the ``projects`` dir does
     not exist (turn 1 of a chat), no recent-enough jsonl appears within
-    ``attempts``, or ANY of the file I/O fails. That last clause covers the
-    DIRECTORY PROBE and the LOCATE step as well as the read: ``Path.is_dir()``
-    re-raises ``EACCES`` (it only swallows ENOENT/ENOTDIR/ELOOP), and
-    ``_newest_jsonl_under`` calls ``p.stat()`` twice per candidate with no
-    handler of its own, so a transcript vanishing between the ``rglob`` and the
-    ``stat`` raises ``OSError`` out of the search — and everything past the
-    guards below is pure byte work that cannot fail.
+    ``attempts``, or ANY of the file I/O fails. That last clause covers the LOCATE step as well as the read:
+    ``safe_fs.iter_files`` raises for a store that is unreadable, a link or not a folder, and ``safe_fs.read_file``
+    for a transcript that vanished or became a link after the listing, and everything past the guards below is pure
+    byte work that cannot fail.
     """
     if not cc_state_mnt:
         return CapturedTranscript(b"", b"")
-    root = Path(cc_state_mnt) / "projects"
+    # The trusted root is the session folder; projects/ is the agent's and goes in rel_parts. The paths built
+    # from it are spelled exactly as _transcript_line_counts(cc_state_mnt, ("projects",)) keys them.
+    root = Path(cc_state_mnt)
 
-    # The LOCATE step is inside the try, not only the read: the store is live —
-    # the agent, a concurrent sweep or a sibling turn can unlink a jsonl between
-    # the rglob and the stat — and this helper is called from run_cc_turn's
-    # finally, where an escape would skip the #72/#76 scrub that follows it.
-    #
-    # ``root.is_dir()`` is inside it too, for the same reason it is inside
-    # ``_transcript_line_counts``': it swallows ENOENT/ENOTDIR/ELOOP but
-    # RE-RAISES EACCES, so an unreadable parent directory would escape a
-    # function whose docstring promises to be total. Both callers happen to
-    # wrap this today, but on the SUCCESS path that escape costs the user the
-    # reply they had already earned.
+    # The whole locate-and-read is inside the try: the store is live (the agent, a sibling
+    # turn or a sweep can remove a jsonl between the listing and the read), and this helper
+    # also runs from run_cc_turn's finally, where an escape would skip the #72/#76 scrub.
+    # safe_fs never follows a link in the store, which is the agent's folder.
     try:
-        # Checked up front rather than left to rglob: on turn 1 the store does
-        # not exist yet, and retrying an absent directory would spend the
-        # back-off budget as pure latency on the user's reply.
-        if not root.is_dir():
-            return CapturedTranscript(b"", b"")
         jsonl_path = None
         for attempt in range(attempts):
-            jsonl_path = _newest_jsonl_under(root, min_mtime=turn_start - 1)
+            try:
+                jsonl_path = _newest_jsonl_under(root, (_TRANSCRIPT_STORE_DIRNAME,),
+                                                 min_mtime=turn_start - 1)
+            except FileNotFoundError:
+                # Turn 1 of a chat: no store yet. Retrying an absent folder would only
+                # spend the back-off as latency on the user's reply.
+                return CapturedTranscript(b"", b"")
             if jsonl_path:
                 break
             if attempt < attempts - 1:
                 time.sleep(0.2)
         if not jsonl_path:
             return CapturedTranscript(b"", b"")
-        raw = jsonl_path.read_bytes()
+        raw = safe_fs.read_file(root, jsonl_path.relative_to(root))
     except OSError:
         logger.warning("cc #68: could not read this turn's transcript under %s",
                        root, exc_info=True)
@@ -2187,13 +2411,13 @@ def _publish_artifacts(
             if not _safe_relpath(rel):
                 logger.warning("CC: refusing unsafe artifact relpath %r", rel)
                 continue
-            src = scratch_mount / rel
-            if src.is_symlink() or not src.is_file():
-                continue
             out_rel = rel.removeprefix("raw/") if strip_raw_prefix else rel
             dst = dest_root / out_rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            try:
+                # Scratch is the agent's folder: every step re-walked, never through a link.
+                safe_fs.copy_out(scratch_mount, rel, dst)
+            except (safe_fs.UnsafePath, FileNotFoundError):
+                continue
             written.append(dst)
         return written
 

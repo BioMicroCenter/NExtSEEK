@@ -1,6 +1,6 @@
 """Sidecar WS server: accept → validate (T2) → build per-user HTTP config →
 dispatch (T16 ops via NExtSEEK HTTP) → typed response.
-Per-call NS login => Basic auth on each HTTP request (U-2, no env mutation, T16).
+Per-call turn pass => Authorization: NextseekTurn on each HTTP request (approach 1, piece 2; no env mutation).
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from sidecar.app import ops
 from sidecar.app.config import SidecarConfig
-from sidecar.app.contract import NsLogin, SidecarError, SidecarRequest, SidecarResponse
+from sidecar.app.contract import NsTurn, SidecarError, SidecarRequest, SidecarResponse
 from sidecar.app.staging import StagingError  # top-level safe: staging.py has no heavy NS runtime imports
 
 _CFG: SidecarConfig | None = None
@@ -22,29 +22,25 @@ _CFG: SidecarConfig | None = None
 
 @dataclass(frozen=True, repr=False)
 class NsHttpConfig:
-    """Lightweight per-request HTTP config: base_url + Basic auth credentials.
-    Replaces the old in-process NS runtime config (T16, DD-A5-6). No env mutation."""
+    """Lightweight per-request HTTP config: base_url + this turn's pass (approach 1, piece 2). No env mutation."""
     base_url: str
-    auth: tuple[str, str]
+    turn_pass: str
 
     def __repr__(self) -> str:
-        return f"NsHttpConfig(base_url={self.base_url!r}, auth=('<redacted>', '<redacted>'))"
+        return f"NsHttpConfig(base_url={self.base_url!r}, turn_pass='<redacted>')"
 
 
-def _err_response(request_id: str, code: str, message: str, retryable: bool = False) -> str:
+def _err_response(request_id: str, code: str, message: str, retryable: bool = False,
+                  reason: str | None = None) -> str:
     return SidecarResponse(request_id=request_id, status="error", result=None,
-                           error=SidecarError(code=code, message=message, retryable=retryable)
+                           error=SidecarError(code=code, message=message, retryable=retryable, reason=reason)
                            ).model_dump_json()
 
 
-def _build_user_config(login: NsLogin) -> NsHttpConfig:
-    """Build a per-request NsHttpConfig from the caller's NS login (U-2, T16).
-
-    No os.environ mutation — credentials are passed as per-request Basic auth
-    on each HTTP call via ns_client (DD-A5-6), eliminating the cross-user-bleed
-    race class that the previous ChatConfig approach carried.
-    """
-    return NsHttpConfig(base_url=_CFG.nextseek_base_url, auth=(login.api_user, login.api_pass))
+def _build_user_config(turn: NsTurn) -> NsHttpConfig:
+    """Build a per-request NsHttpConfig from the frame's turn pass. No os.environ mutation: the pass travels as a
+    header on each HTTP call via ns_client."""
+    return NsHttpConfig(base_url=_CFG.nextseek_base_url, turn_pass=turn.turn_pass)
 
 
 def _build_write_gate():
@@ -52,15 +48,15 @@ def _build_write_gate():
     return build_gate()
 
 
-def _build_stage(request_id: str, login: NsLogin):
+def _build_stage(request_id: str, turn: NsTurn):
     from sidecar.app.staging import make_stage  # T7
-    return make_stage(_CFG, login, request_id)
+    return make_stage(_CFG, turn, request_id)
 
 
-def _build_stage_bytes(request_id: str, login: NsLogin):
+def _build_stage_bytes(request_id: str, turn: NsTurn):
     """Return the (stage_bytes, commit) pair for downloading artifacts over HTTP (T16, DD-A5-5)."""
     from sidecar.app.staging import make_stage_bytes  # T16
-    return make_stage_bytes(_CFG, login, request_id)
+    return make_stage_bytes(_CFG, turn, request_id)
 
 
 async def handle_message(raw: str) -> str:
@@ -89,11 +85,11 @@ async def handle_message(raw: str) -> str:
         return _err_response(req.request_id, "VALIDATION", f"bad args for {req.op}: {exc}")
 
     try:
-        config = _build_user_config(req.ns_login)
+        config = _build_user_config(req.ns_turn)
         # NOTE: _build_user_session has been REMOVED (T16) — granular HTTP ops are stateless POSTs.
         gate = _build_write_gate()
-        stage = _build_stage(req.request_id, req.ns_login)
-        stage_bytes, commit_bytes = _build_stage_bytes(req.request_id, req.ns_login)
+        stage = _build_stage(req.request_id, req.ns_turn)
+        stage_bytes, commit_bytes = _build_stage_bytes(req.request_id, req.ns_turn)
     except Exception as exc:  # noqa: BLE001
         return _err_response(req.request_id, "CONFIG_ERROR", f"setup failed: {type(exc).__name__}")
 
@@ -107,6 +103,8 @@ async def handle_message(raw: str) -> str:
             stage_bytes=stage_bytes,
             commit_bytes=commit_bytes,
         )
+    except ops.PassThroughError as exc:
+        return _err_response(req.request_id, exc.code, exc.message, reason=exc.reason)
     except ops.OpValidationError as exc:
         return _err_response(req.request_id, "VALIDATION", str(exc))
     except ops.WriteBlockedError as exc:
