@@ -33,6 +33,9 @@ from NessieAI.ns.reingest import derived, manifest, maps, parsers
 # in the version written from documentation; see the fixture README.
 _PARAMS_GLOB = "pipeline_info/params*.json"
 _SOFTWARE_VERSIONS_GLOB = "pipeline_info/*software*versions*.yml"  # nf_core_<pipeline>_software_mqc_versions.yml
+# nf-core/differentialabundance 1.5.0 writes the same softwareVersionsToYAML
+# content under this name instead. Read only when the file above is absent.
+_COLLATED_VERSIONS_GLOB = "pipeline_info/collated_versions.yml"
 _EXECUTION_TRACE_GLOB = "pipeline_info/execution_trace*.txt"
 # the input samplesheet, beside nextflow.config -- ABSENT in nf-core/rnaseq
 # 3.22, which writes no validated samplesheet into the results directory
@@ -71,6 +74,7 @@ _STAR_LOG_GLOB = "*/log/*.Log.final.out"
 GENERIC_GLOBS: tuple[str, ...] = (
     _PARAMS_GLOB,
     _SOFTWARE_VERSIONS_GLOB,
+    _COLLATED_VERSIONS_GLOB,
     _EXECUTION_TRACE_GLOB,
     _SAMPLESHEET_GLOB,
     _MULTIQC_TXT_GLOB,
@@ -151,10 +155,12 @@ INVENTORY_GLOBS: tuple[str, ...] = (
     "**/*.vcf",
     "**/*.vcf.gz",
     # The MultiQC html report -- named link $outputs.multiqc_report_html.
-    "multiqc*/**/multiqc_report.html",
+    # "*" before the name: nf-core/scrnaseq prefixes it with the run name
+    # (M188_multiqc_report.html).
+    "multiqc*/**/*multiqc_report.html",
     # nf-core/rnavar >=1.3 publishes its report under reports/, which the
     # pattern above (anchored at a top-level multiqc* folder) never reaches.
-    "**/reports/multiqc/multiqc_report.html",
+    "**/reports/multiqc/*multiqc_report.html",
     # Contaminant screening reports -- named link $outputs.kraken2_report.
     "**/*.kraken2.report.txt",
     # Text matrices whose names are not the rnaseq `*.merged.*` convention:
@@ -273,6 +279,28 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
                 return rel, text
         return None
 
+    def newest(pattern: str, what: str) -> tuple[str, str] | None:
+        """The newest readable match: the last attempt of a restarted run.
+
+        `nextflow run -resume` in the same folder (Nessie's own launch
+        template does this) writes one timestamped params file and one
+        execution trace per attempt, and nf-core's timestamps sort
+        chronologically. The first match is the first attempt, whose
+        parameters and failures no longer describe the run, so the last one
+        is read and the ignored attempts are named in a warning.
+        """
+        paths = [str(path.relative_to(base)) for path in sorted(base.glob(pattern))]
+        for i in range(len(paths) - 1, -1, -1):
+            text = read(paths[i])
+            if text is not None:
+                if len(paths) > 1:
+                    warnings.append(
+                        f"{len(paths)} {what}, one per attempt of a restarted run: "
+                        f"using the newest, {paths[i]}; ignored "
+                        + ", ".join(p for p in paths if p != paths[i]))
+                return paths[i], text
+        return None
+
     def all_named(pattern: str, filename: str) -> list[str]:
         """Every allowlisted path named exactly `filename`, sorted.
 
@@ -298,12 +326,12 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
 
     out = manifest.RunManifest(run_dir=resolved_run_dir)
 
-    found = first(_PARAMS_GLOB)
+    found = newest(_PARAMS_GLOB, "params files")
     if found:
         sources["params"], text = found[0], found[1]
         out.params = parsers.parse_params(text)
 
-    found = first(_SOFTWARE_VERSIONS_GLOB)
+    found = first(_SOFTWARE_VERSIONS_GLOB) or first(_COLLATED_VERSIONS_GLOB)
     has_versions = found is not None
     if found:
         sources["software_versions"], text = found[0], found[1]
@@ -333,7 +361,7 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             run_name=Path(resolved_run_dir).name,
         )
 
-    found = first(_EXECUTION_TRACE_GLOB)
+    found = newest(_EXECUTION_TRACE_GLOB, "execution traces")
     has_execution = found is not None
     if found:
         sources["execution"], text = found[0], found[1]
@@ -677,6 +705,11 @@ def _pipeline_name(params: dict) -> str:
     return str(params.get("pipeline") or "")
 
 
+def _is_multiqc_report(name: str) -> bool:
+    """multiqc_report.html, or nf-core/scrnaseq's <run>_multiqc_report.html."""
+    return name.lower().endswith("multiqc_report.html")
+
+
 def _sample_for_output_path(rel_path: str, sample_names: list[str]) -> str | None:
     """Best-effort per-sample attribution for one inventory entry, "where
     derivable" (per the design) -- never invented. A per-sample output names
@@ -702,6 +735,10 @@ def _sample_for_output_path(rel_path: str, sample_names: list[str]) -> str | Non
     """
     path = Path(rel_path)
     name = path.name
+    if _is_multiqc_report(name):
+        # Always one report for the whole run. nf-core/scrnaseq names it after
+        # the run, and a one-sample run shares that name with its sample.
+        return None
     best: str | None = None
     for sample in sample_names:
         if not sample:
@@ -722,7 +759,7 @@ def _sample_for_output_path(rel_path: str, sample_names: list[str]) -> str | Non
 # inventory entry sorted by path for a deterministic pick among ties (e.g.
 # two aligners' MultiQC reports both matching multiqc_report.html).
 _NAMED_OUTPUT_MATCHERS: tuple[tuple[str, Callable[[str], bool]], ...] = (
-    ("multiqc_report_html", lambda name: name == "multiqc_report.html"),
+    ("multiqc_report_html", lambda name: _is_multiqc_report(name)),
     ("kraken2_report", lambda name: name.endswith(".kraken2.report.txt")),
     ("deseq2_dds_rdata", lambda name: name.endswith(".dds.rdata") or name.endswith(".dds.rds")),
 )

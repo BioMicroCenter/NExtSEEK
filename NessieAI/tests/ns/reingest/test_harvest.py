@@ -928,3 +928,136 @@ def test_inventory_globs_are_not_folded_into_the_staged_list():
     staged = harvest.staged_globs()
     assert "**/*.bam" not in staged
     assert not any(p.endswith("*.bam") for p in staged)
+
+
+def _restarted_run(root):
+    """A run folder holding two attempts, as `nextflow run -resume` leaves it:
+    one params file and one execution trace per attempt, timestamped, and one
+    versions file the last attempt overwrote."""
+    info = root / "pipeline_info"
+    info.mkdir(parents=True)
+    (info / "nf_core_scrnaseq_software_mqc_versions.yml").write_text(
+        "Workflow:\n  nf-core/scrnaseq: v4.1.0\n  Nextflow: 25.04.6\n")
+    (info / "params_2025-11-13_11-52-01.json").write_text('{"attempt": "first"}')
+    (info / "params_2025-11-16_05-29-51.json").write_text('{"attempt": "last"}')
+    (info / "execution_trace_2025-11-13_11-51-54.txt").write_text(
+        "task_id\tstatus\n1\tFAILED\n2\tABORTED\n")
+    (info / "execution_trace_2025-11-16_05-29-45.txt").write_text(
+        "task_id\tstatus\n1\tCACHED\n2\tCOMPLETED\n")
+
+
+def test_a_restarted_run_is_read_from_its_newest_attempt(tmp_path):
+    # The timestamps in nf-core's file names sort chronologically, so the
+    # newest attempt is the last match. Reading the first one reported the
+    # first attempt's parameters and its failures for a run that finished.
+    root = tmp_path / "run"
+    _restarted_run(root)
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
+
+    assert got.sources["params"] == "pipeline_info/params_2025-11-16_05-29-51.json"
+    assert got.params == {"attempt": "last"}
+    assert got.sources["execution"] == "pipeline_info/execution_trace_2025-11-16_05-29-45.txt"
+    assert got.execution.failed == 0
+    assert got.run_status == manifest.RUN_COMPLETE
+
+
+def test_a_restarted_run_says_which_attempts_it_ignored(tmp_path):
+    root = tmp_path / "run"
+    _restarted_run(root)
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
+
+    attempts = [w for w in got.warnings if "attempt" in w]
+    assert attempts == [
+        "2 params files, one per attempt of a restarted run: using the newest, "
+        "pipeline_info/params_2025-11-16_05-29-51.json; ignored "
+        "pipeline_info/params_2025-11-13_11-52-01.json",
+        "2 execution traces, one per attempt of a restarted run: using the newest, "
+        "pipeline_info/execution_trace_2025-11-16_05-29-45.txt; ignored "
+        "pipeline_info/execution_trace_2025-11-13_11-51-54.txt",
+    ]
+
+
+def test_a_single_attempt_raises_no_attempt_warning(tmp_path):
+    root = tmp_path / "run"
+    _minimal_run(root)
+    (root / "pipeline_info" / "params_2026-01-26_13-53-31.json").write_text("{}")
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
+    assert not [w for w in got.warnings if "attempt" in w]
+
+
+def test_differentialabundance_collated_versions_are_read(tmp_path):
+    # differentialabundance 1.5.0 writes its versions with nf-core's own
+    # softwareVersionsToYAML, the same format as every other pipeline, under
+    # pipeline_info/collated_versions.yml. Missing it left the pipeline
+    # unnamed and the run "incomplete", so no map applied.
+    root = tmp_path / "run"
+    (root / "pipeline_info").mkdir(parents=True)
+    (root / "pipeline_info" / "collated_versions.yml").write_text(
+        "DESEQ2_DIFFERENTIAL:\n  r-base: 4.3.1\n"
+        "Workflow:\n  nf-core/differentialabundance: v1.5.0\n  Nextflow: 24.04.4\n")
+    (root / "pipeline_info" / "execution_trace_2025-09-16_11-59-28.txt").write_text(
+        "task_id\tstatus\n1\tCOMPLETED\n")
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
+
+    assert got.sources["software_versions"] == "pipeline_info/collated_versions.yml"
+    assert got.pipeline.name == "nf-core/differentialabundance"
+    assert got.pipeline.version == "v1.5.0"
+    assert got.run_status == manifest.RUN_COMPLETE
+
+
+def test_the_standard_versions_file_wins_over_collated_versions(tmp_path):
+    root = tmp_path / "run"
+    _minimal_run(root)
+    (root / "pipeline_info" / "collated_versions.yml").write_text(
+        "Workflow:\n  nf-core/other: v0.0.1\n")
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
+    assert got.sources["software_versions"].endswith("nf_core_rnaseq_software_mqc_versions.yml")
+
+
+@pytest.mark.parametrize("report", [
+    "multiqc/M188_multiqc_report.html",                       # scrnaseq: <run>_multiqc_report.html
+    "multiqc/star_salmon/multiqc_report.html",                # rnaseq
+    "reports/multiqc/250818Rib_multiqc_report.html",          # rnavar layout, prefixed
+])
+def test_a_prefixed_multiqc_report_is_inventoried_and_named(tmp_path, report):
+    # nf-core/scrnaseq names its report after the run (M188_multiqc_report.html);
+    # both the inventory glob and the named-output matcher required the bare name.
+    root = tmp_path / "run"
+    _minimal_run(root)
+    (root / report).parent.mkdir(parents=True, exist_ok=True)
+    (root / report).write_text("<html></html>")
+
+    listed = {str(p.relative_to(root)) for pattern in harvest.INVENTORY_GLOBS
+              for p in root.glob(pattern)}
+    assert report in listed
+
+    got = harvest.harvest_local(
+        str(root), inventory=[{"path": report, "bytes": 13}],
+        lookup_by_fastq=lambda p, types=None: [])
+    assert got.named_outputs["multiqc_report_html"] == report
+
+
+def test_a_multiqc_side_file_is_not_taken_for_the_report(tmp_path):
+    root = tmp_path / "run"
+    _minimal_run(root)
+    got = harvest.harvest_local(
+        str(root), inventory=[{"path": "multiqc/multiqc_report.html.bak", "bytes": 1}],
+        lookup_by_fastq=lambda p, types=None: [])
+    assert "multiqc_report_html" not in got.named_outputs
+
+
+def test_a_report_named_after_a_sample_stays_run_level(tmp_path):
+    # In a one-sample scrnaseq run the run and the sample share a name (M188),
+    # so "M188_multiqc_report.html" starts with "M188_". A MultiQC report
+    # covers the whole run: attributing it to the sample would make the key
+    # per-sample, and every per_run QC link would resolve to nothing.
+    root = tmp_path / "run"
+    _minimal_run(root)
+    (root / "samplesheet.csv").write_text(
+        "sample,fastq_1,fastq_2\nM188,/net/cluster/fastq/M188_R1.fastq.gz,\n")
+    got = harvest.harvest_local(
+        str(root), inventory=[{"path": "multiqc/M188_multiqc_report.html", "bytes": 13}],
+        lookup_by_fastq=lambda p, types=None: [])
+
+    assert got.named_outputs["multiqc_report_html"] == "multiqc/M188_multiqc_report.html"
+    assert [o.sample for o in got.outputs] == [None]

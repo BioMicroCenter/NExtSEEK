@@ -518,7 +518,7 @@ def test_stage_run_dir_skips_an_inventory_candidate_reached_through_an_escaping_
 
 def test_stage_run_dir_skips_the_real_multiqc_report_glob_reached_through_a_symlinked_dir(tmp_path, monkeypatch):
     """The ONE production INVENTORY_GLOBS entry an ancestor-symlink escape
-    can actually reach: "multiqc*/**/multiqc_report.html" is the only
+    can actually reach: "multiqc*/**/*multiqc_report.html" is the only
     pattern in the tuple whose leading segment is a literal/wildcard
     ("multiqc*") rather than "**" -- and, per the synthetic-pattern test
     above, only the "**" component declines to follow a symlink; a leading
@@ -538,6 +538,8 @@ def test_stage_run_dir_skips_the_real_multiqc_report_glob_reached_through_a_syml
     outside_dir.mkdir()
     outside_report = outside_dir / "multiqc_report.html"
     outside_report.write_text("<html>leaked</html>")
+    # nf-core/scrnaseq's run-prefixed name, which the pattern now also matches.
+    (outside_dir / "M188_multiqc_report.html").write_text("<html>leaked</html>")
     (run_dir / "multiqc").symlink_to(outside_dir)
 
     monkeypatch.setattr(
@@ -551,10 +553,11 @@ def test_stage_run_dir_skips_the_real_multiqc_report_glob_reached_through_a_syml
         _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
 
     assert inventory == []
-    assert any(
-        item["path"] == "multiqc/multiqc_report.html" and "outside run_dir" in item["reason"]
-        for item in skipped
-    ), skipped
+    for leaked in ("multiqc/multiqc_report.html", "multiqc/M188_multiqc_report.html"):
+        assert any(
+            item["path"] == leaked and "outside run_dir" in item["reason"]
+            for item in skipped
+        ), skipped
 
 
 @pytest.mark.parametrize("rel_path", [
@@ -589,7 +592,7 @@ def test_every_inventory_glob_but_the_multiqc_one_starts_with_a_double_star():
     """Only a leading "**" declines to follow a symlinked ancestor (see the
     symlink tests above). The MultiQC pattern is the one reviewed exception,
     with its own escape test; a new pattern must not quietly become a second."""
-    exceptions = {"multiqc*/**/multiqc_report.html"}
+    exceptions = {"multiqc*/**/*multiqc_report.html"}
     assert [p for p in harvest.INVENTORY_GLOBS
             if not p.startswith("**/") and p not in exceptions] == []
 
