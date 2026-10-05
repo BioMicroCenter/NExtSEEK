@@ -1302,3 +1302,21 @@ def test_a_project_named_as_a_paper_adjective_is_not_asked():
              "project_titles": {"MetNet": "MetNet"}}
     scope = _g1("Which samples come from the MetNet paper?", {"projects": ["MetNet"]}, graph=graph)
     assert scope.not_applied == [], scope.not_applied
+
+
+@pytest.mark.parametrize("question, code, name, tags, value", [
+    # "<type> samples" in the question, a tag of the type inside the title the query matched, no type constraint.
+    ("How many water samples are in the Delta SRP project?", "WTR", "Water Sample",
+     ["water sample", "water", "Superfund", "SRP"], "Delta_SRP"),
+    ("How many tissue samples are in the Gamma Tissue Atlas study?", "TIS", "Tissue Sample",
+     ["tissue", "biopsy"], "Gamma Tissue Atlas"),
+    ("How many mouse samples are in the CC study?", "MUS", "Mouse", ["mouse", "CC"], "CC"),
+    # The catalog name, which ends in Sample, written in the question.
+    ("Count the Water Sample records in the Delta SRP project", "WTR", "Water Sample",
+     ["water sample", "water", "Superfund", "SRP"], "Delta_SRP"),
+])
+def test_a_type_asked_as_samples_is_listed_when_only_a_title_holds_its_tag(question, code, name, tags, value):
+    graph = {"cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE st.title = $t RETURN count(DISTINCT s) AS n",
+             "parameters": {"t": value}}
+    scope = _g1(question, {"sampletypes": [{"code": code, "name": name}]}, graph=graph, tags={code: tags})
+    assert any(code in label for label in scope.not_applied), scope.not_applied

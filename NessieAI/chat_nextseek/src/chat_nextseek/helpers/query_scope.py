@@ -631,8 +631,16 @@ def _parameter_strings(graph_plan):
     return out
 
 
+def _asked_as_samples(question, code, name):
+    """The question asks for the type as samples ("water samples", "from mice", "Water Sample records"): a title or
+    search value that also holds one of its words or tags is not that type's constraint."""
+    if _type_cued(question, code, name):
+        return True
+    return bool(name) and name.split()[-1].lower() in ("sample", "samples") and _phrase_written(question, name)
+
+
 def _written_phrase_searched(question, code, name, tags, literal_text):
-    if not question or not literal_text or _code_written(question, code):
+    if not question or not literal_text or _code_written(question, code) or _asked_as_samples(question, code, name):
         return False
     names = [c for c, m in _COMMON_TYPE_NAMES.items() if m == code] + list(tags or ())
     if name:
