@@ -180,7 +180,7 @@ class GraphReview:
 # The ship set, in the order their facts are disclosed. The last two are recorded, never fired.
 SHIP = ("breakage", "negated_value", "value_split_rows", "value_split_catalog", "stem_miss",
         "all_question_narrowed", "zero_unproven_base", "unapplied_value", "free_text_beside_field", "premise_count",
-        "duplicate_rows")
+        "duplicate_rows", "empty_by_node")
 INFO_ONLY = ("title_contains_multi", "count_only")
 
 NEGATION = re.compile(r"\b(non|not|no|un|anti|never)[\s\-_]*$")
@@ -682,6 +682,37 @@ def _all_question_narrowed(t: _Turn) -> _Finding | None:
     return None
 
 
+def _braced_blocks(cy: str, opener: str):
+    """Yield ``(start, body)`` for each ``opener { ... }`` in ``cy``, braces balanced."""
+    for m in re.finditer(opener + r"\s*\{", cy, re.I):
+        depth, i = 1, m.end()
+        while i < len(cy) and depth:
+            depth += {"{": 1, "}": -1}.get(cy[i], 0)
+            i += 1
+        yield m.start(), cy[m.end():i - 1]
+
+
+def _empty_by_node(t: _Turn) -> _Finding | None:
+    """A "has no samples" test that judges a Study or Investigation by its own node.
+
+    ``NOT EXISTS { (:Sample)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv) }`` lists every node that holds no
+    sample itself. A title can sit on two nodes (a SEEK node that holds none and a graph-only node that holds the
+    samples), so such a list can include a title that holds thousands (production review 4 Oct, G5). Fires when
+    the block ends in an outer Study or Investigation variable and never compares that variable's title.
+    """
+    for start, body in _braced_blocks(t.cy, r"\bNOT\s+EXISTS"):
+        if not re.search(r"IN_STUDY|IN_INVESTIGATION", body):
+            continue
+        for var in re.findall(r"\(\s*(\w+)\s*\)", body):
+            if re.search(rf"\b{re.escape(var)}\s*:\s*(Study|Investigation)\b", t.cy[:start]) \
+                    and not re.search(rf"\b{re.escape(var)}\.title\b", body):
+                return _Finding(
+                    detail=f"NOT EXISTS over {var} with no title comparison",
+                    fact=("A study or investigation is judged by its own node here, and another node with the same "
+                          "title may hold samples, so this list may include a title that does."))
+    return None
+
+
 def _zero_unproven_base(t: _Turn) -> _Finding | None:
     """A zero behind a fuzzy anchor and another filter, whose starting set was never counted.
 
@@ -1013,6 +1044,7 @@ def review_tier1(inp: ReviewInput, catalog: CatalogProvider, *, skip: dict[str, 
         run("free_text_beside_field", lambda: _free_text_beside_field(turn))
         run("premise_count", lambda: _premise_count(turn))
         run("duplicate_rows", lambda: _duplicate_rows(turn))
+        run("empty_by_node", lambda: _empty_by_node(turn))
 
     # recorded, never fired: the title gate belongs to Tier 2; count_only is information only
     try:

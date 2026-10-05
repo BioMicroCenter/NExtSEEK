@@ -46,3 +46,11 @@ def test_the_assay_join_repair_line_says_group_by_assay_and_count():
     lines = " ".join(graph_mod._shape_lines(shapes))
     assert "cannot be paired through an Assay" not in lines
     assert "never list pairs" in lines and "count(DISTINCT s) AS samples" in lines
+
+
+def test_an_empty_set_is_judged_by_title_and_the_example_is_clean():
+    assert "is judged by title, not by node" in GRAPH_AGENT
+    example = _fenced_after(GRAPH_AGENT, "is judged by title, not by node")
+    assert "i2.title = inv.title" in example
+    assert graph_mod.refused_query_shapes(example) == []
+    assert "CSBC" not in example and "MetNet" not in example

@@ -755,3 +755,30 @@ def test_a_short_stored_code_on_another_field_does_not_fire_either():
                         "MATCH (s:T_GAD)\nWHERE s.Condition = 'multiple sclerosis'\nRETURN count(s) AS n",
                         "T_GAD", "Abbrev", ["MS", "CF"])
     assert not _check(rv, "unapplied_value").fired
+
+
+# --- R5 G5: "has no samples" judged by the node, not the title -------------------------------------------------
+
+EMPTY_INVESTIGATIONS = (
+    "MATCH (inv:Investigation)\nWHERE NOT EXISTS {\n  MATCH (:Sample)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv)\n}\n"
+    "RETURN inv.id AS id, inv.title AS title\nORDER BY inv.title")
+EMPTY_STUDIES = (
+    "MATCH (st:Study)-[:IN_INVESTIGATION]->(inv:Investigation) WHERE inv.title = $investigation_title\n"
+    "  AND NOT EXISTS { (:Sample)-[:IN_STUDY]->(st) } RETURN st.id AS id, st.title AS title ORDER BY st.id")
+EMPTY_BY_TITLE = (
+    "MATCH (inv:Investigation)\nWHERE NOT EXISTS { MATCH (:Sample)-[:IN_STUDY]->(:Study)"
+    "-[:IN_INVESTIGATION]->(i2:Investigation) WHERE i2.title = inv.title }\n"
+    "RETURN DISTINCT inv.title AS title ORDER BY title")
+
+
+@pytest.mark.parametrize("cypher", [EMPTY_INVESTIGATIONS, EMPTY_STUDIES])
+def test_empty_by_node_fires_when_the_node_is_judged_alone(cypher):
+    rv = _plain("Which investigations have no samples?", cypher, {}, rows=[{"id": 19, "title": "X"}])
+    assert _check(rv, "empty_by_node").fired
+    assert rv.verdict == "suggest"
+    assert "own node" in rv.disclosure and "same title" in rv.disclosure
+
+
+def test_empty_by_node_stays_quiet_on_the_title_form():
+    rv = _plain("Which investigations have no samples?", EMPTY_BY_TITLE, {}, rows=[{"title": "X"}])
+    assert not _check(rv, "empty_by_node").fired
