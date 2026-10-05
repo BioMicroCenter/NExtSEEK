@@ -782,3 +782,16 @@ def test_empty_by_node_fires_when_the_node_is_judged_alone(cypher):
 def test_empty_by_node_stays_quiet_on_the_title_form():
     rv = _plain("Which investigations have no samples?", EMPTY_BY_TITLE, {}, rows=[{"title": "X"}])
     assert not _check(rv, "empty_by_node").fired
+
+
+def test_empty_by_node_stays_quiet_on_a_question_with_no_samples_in_it():
+    cy = ("MATCH (st:Study) WHERE NOT EXISTS { MATCH (st)-[:IN_INVESTIGATION]->(:Investigation) } "
+          "RETURN st.title AS title")
+    rv = _plain("Which studies belong to no investigation?", cy, {}, rows=[{"title": "X"}])
+    assert not _check(rv, "empty_by_node").fired
+
+
+def test_empty_by_node_stays_quiet_on_an_empty_list():
+    inp = ReviewInput(question="Which investigations have no samples?", cypher=EMPTY_INVESTIGATIONS, parameters={},
+                      keyword_fields={}, rows=[], count=0, total=0, ok=True, error=None)
+    assert not _check(review_tier1(inp, DictCatalog({})), "empty_by_node").fired

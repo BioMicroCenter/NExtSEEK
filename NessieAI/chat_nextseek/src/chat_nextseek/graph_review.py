@@ -698,10 +698,13 @@ def _empty_by_node(t: _Turn) -> _Finding | None:
     ``NOT EXISTS { (:Sample)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv) }`` lists every node that holds no
     sample itself. A title can sit on two nodes (a SEEK node that holds none and a graph-only node that holds the
     samples), so such a list can include a title that holds thousands (production review 4 Oct, G5). Fires when
-    the block ends in an outer Study or Investigation variable and never compares that variable's title.
+    the block holds a Sample, ends in an outer Study or Investigation variable and never compares that variable's
+    title, and the list has rows.
     """
+    if not t.rows:
+        return None
     for start, body in _braced_blocks(t.cy, r"\bNOT\s+EXISTS"):
-        if not re.search(r"IN_STUDY|IN_INVESTIGATION", body):
+        if not (re.search(r"IN_STUDY|IN_INVESTIGATION", body) and re.search(r":\s*Sample\b", body)):
             continue
         for var in re.findall(r"\(\s*(\w+)\s*\)", body):
             if re.search(rf"\b{re.escape(var)}\s*:\s*(Study|Investigation)\b", t.cy[:start]) \
