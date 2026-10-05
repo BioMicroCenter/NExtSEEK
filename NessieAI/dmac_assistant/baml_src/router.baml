@@ -100,14 +100,14 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
 
     A question is NOT `unrelated` merely because its subject sounds like general
     biology or ordinary laboratory vocabulary. NExtSEEK's registered assays,
-    sample types and protocols have plain-language names — Tissue Collection,
-    RNA Extraction, Flow Cytometry, Comet Chip Analysis, Patient Visit, Luminex —
-    so "tell me about tissue collection" is a catalog question about this
-    database, not small talk about biology. The same applies when the user names
-    no sample and uses no first-person wording: "What is a TIS sample?" is in
-    scope exactly as much as "what assays do I have access to". Reserve
-    `unrelated` for subjects that could not plausibly be an entry in a sample
-    catalog at all.
+    sample types and protocols have plain-language names: lab techniques,
+    tissues, collection steps, instruments and visit types. A request to explain
+    or describe one of those names is a catalog question about this database,
+    not small talk about biology. The same applies when the user names no sample
+    and uses no first-person wording: asking what a sample type code or an assay
+    name means is in scope exactly as much as asking which assays they can see.
+    Reserve `unrelated` for subjects that could not plausibly be an entry in a
+    sample catalog at all.
 
     How-to questions about the site go to `nextseek_query`. "How do I upload
     samples", "how can I check my workbook before uploading it", "where do I
