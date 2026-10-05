@@ -150,8 +150,53 @@ markers = ["host_only: source-tree/host-lane test; excluded from in-container ru
 [dependency-groups]
 dev = [
     "coverage",
+    "import-linter",
 ]
 # Note: the startup CLI does NOT use a uv dependency group — it runs in an
 # isolated env via `uv run --no-project --with typer --with rich`. This avoids
 # pulling in the main project's deps (mysqlclient et al.) when the host lacks
 # the C build toolchain. See startup.sh.
+
+# Import contracts (ci/gate/test_import_contracts.py runs `lint-imports`).
+# ignore_imports lists today's known debts (ARCHITECTURE.md "Known debts");
+# fixing one means deleting its line.
+[tool.importlinter]
+root_packages = ["nextseek_api", "seek", "dmac", "chat_nextseek", "NessieAI"]
+include_external_packages = false
+
+[[tool.importlinter.contracts]]
+name = "Product code does not import the test tree"
+type = "forbidden"
+source_modules = [
+    "nextseek_api", "seek", "dmac", "chat_nextseek",
+    "NessieAI.build_tools", "NessieAI.cc", "NessieAI.hibayes", "NessieAI.ns",
+    "NessieAI.router", "NessieAI.schema_rag",
+]
+forbidden_modules = ["NessieAI.tests"]
+ignore_imports = [
+    # test modules living inside product packages are exempt
+    "nextseek_api.tests.** -> NessieAI.tests.**",
+    # known debt
+    "nextseek_api.management.commands.nessie -> NessieAI.tests.nessie_tests.*",
+    "NessieAI.hibayes.human_grade_fit -> NessieAI.tests.nessie_tests.bayes_manifest",
+    "NessieAI.cc.op_registry.paired_evidence -> NessieAI.tests.nessie_tests.*",
+    "NessieAI.build_tools.gen_op_surfaces.route_capabilities -> NessieAI.tests.nessie_tests.*",
+]
+
+[[tool.importlinter.contracts]]
+name = "chat_nextseek does not import nextseek_api"
+type = "forbidden"
+source_modules = ["chat_nextseek"]
+forbidden_modules = ["nextseek_api"]
+ignore_imports = [
+    "chat_nextseek.orchestrator -> nextseek_api.assistant.excel_export",
+]
+
+[[tool.importlinter.contracts]]
+name = "NessieAI.cc does not import seek or dmac"
+type = "forbidden"
+source_modules = ["NessieAI.cc"]
+forbidden_modules = ["seek", "dmac"]
+ignore_imports = [
+    "NessieAI.cc.cc_provision -> seek.seekdb",
+]

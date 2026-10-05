@@ -52,15 +52,20 @@ loop), SEEK with its workers and Solr, MySQL, Neo4j, nginx, a message broker, an
 
 Found by the code graph; each is a real import, not a graph artefact.
 
-- Product code imports the test tree. The `nessie` management command
-  (`nextseek_api/management/commands/nessie.py`) and `NessieAI/hibayes/human_grade_fit.py` import modules from
-  `NessieAI/tests/nessie_tests/`, and the live router reads that folder's `corpus.json` through
-  `NessieAI/paths.py`. That is why the app image must carry `NessieAI/tests/`.
+- Product code imports the test tree. Four product modules import from `NessieAI/tests/nessie_tests/`: the
+  `nessie` management command (`nextseek_api/management/commands/nessie.py`),
+  `NessieAI/hibayes/human_grade_fit.py`, `NessieAI/cc/op_registry/paired_evidence.py` and
+  `NessieAI/build_tools/gen_op_surfaces/route_capabilities.py`. The live router also reads that folder's
+  `corpus.json` through `NessieAI/paths.py` (a path read, not an import). That is why the app image must
+  carry `NessieAI/tests/`.
 - The NS engine package imports the Django app: `NessieAI/chat_nextseek/src/chat_nextseek/orchestrator.py`
   imports `nextseek_api.assistant.excel_export`, so `chat_nextseek` is not the standalone package its
   `pyproject.toml` suggests.
 - The Container-CC engine reaches the legacy table layer directly: `NessieAI/cc/cc_provision.py` imports
   `seek.seekdb.SeekDB` instead of going through `nextseek_api/`.
+
+CI stops these growing: `ci/gate/test_import_contracts.py` runs import-linter on the contracts in `pyproject.toml`.
+Each debt above is an `ignore_imports` line there; fixing one means deleting its line.
 
 ## The Neo4j graph
 
