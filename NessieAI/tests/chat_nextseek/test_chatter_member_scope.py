@@ -22,6 +22,8 @@ CATALOG = [
     {"name": "Alpha Inv", "alternative_names": ["Alpha"], "entity_type": "investigation", "project_id": 7,
      "parent_project": "Alpha"},
     {"name": "Own One", "alternative_names": [], "entity_type": "project", "project_id": 13, "parent_project": None},
+    {"name": "PUBLISHED", "alternative_names": ["Published Data", "Published"], "entity_type": "project",
+     "project_id": 6, "parent_project": None},
 ]
 
 
@@ -61,10 +63,10 @@ def captured(monkeypatch):
     return box
 
 
-def _graph_turn(config, projects, n):
+def _graph_turn(config, projects, n, question="How many samples are in the Alpha project?"):
     meta = {"decision": "admin"} if config.CALLER["is_admin"] else {"decision": "proven", "project_ids": [13, 14]}
     chatter_mod.chatter_agent_answer(
-        config, "How many samples are in the Alpha project?",
+        config, question,
         EntityAgentOutput(projects=projects).model_dump(), ParserPlan(mode="graph_query").model_dump(),
         graph_plan={"cypher": "MATCH (s:Sample)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(i:Investigation) "
                               "WHERE i.title = $t RETURN count(DISTINCT s) AS n",
@@ -85,6 +87,26 @@ def test_a_members_zero_on_a_catalog_project_outside_scope_says_so(captured):
     text = captured["user_content"]
     assert "Alpha" in text.split("What the query actually did", 1)[1]
     assert "not a member" in text
+
+
+def test_a_project_the_question_never_writes_gets_no_foreign_note(captured):
+    # The entity step reads "Published Data" into a -PUB UID; the question names no project.
+    chatter_mod.chatter_agent_answer(
+        _member(), "Show me the record for NHP-220630FLY-1-PUB",
+        EntityAgentOutput(projects=["PUBLISHED"], uids=["NHP-220630FLY-1-PUB"]).model_dump(),
+        ParserPlan(mode="graph_query").model_dump(),
+        graph_plan={"cypher": "MATCH (s:Sample {uuid: $uid}) RETURN s.uuid AS uuid, s.type AS type",
+                    "parameters": {"uid": "NHP-220630FLY-1-PUB"}, "explanation": "one sample"},
+        graph_result={"ok": True, "count": 1, "total": 1, "data": [{"uuid": "NHP-220630FLY-1-PUB", "type": "NHP"}],
+                      "scope": {"decision": "proven", "project_ids": [13, 14]}},
+        log_dir="",
+    )
+    assert "not a member" not in captured["user_content"]
+
+
+def test_two_names_of_one_foreign_project_give_one_note(captured):
+    _graph_turn(_member(), ["Alpha", "Alpha Center"], 0, question="How many samples are in Alpha (Alpha Center)?")
+    assert captured["user_content"].count("not a member") == 1
 
 
 def test_an_admin_zero_carries_no_scope_note(captured):

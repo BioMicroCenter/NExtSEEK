@@ -18,7 +18,7 @@ from ..helpers import (
     api_row_count,
     log_prompt,
 )
-from ..helpers.query_scope import describe_query_scope, names_only_the_kind, render_query_scope
+from ..helpers.query_scope import _named_in, describe_query_scope, names_only_the_kind, render_query_scope
 from ..uid_links import link_sample_uids
 from ..schemas import (
     PlannerOutput,
@@ -302,10 +302,16 @@ def _fold_name(name: Any) -> str:
 _UNSCOPED_REST = ("/nextseek_api/people/", "/nextseek_api/sops/")
 
 
-def _member_scope_notes(config: Any, entity_result: dict, parser_plan: dict, zero: bool) -> list[str]:
+def _row_names(row: dict) -> list[str]:
+    return [n for n in [row.get("name"), *(row.get("alternative_names") or [])] if n]
+
+
+def _member_scope_notes(config: Any, entity_result: dict, parser_plan: dict, zero: bool, question: str) -> list[str]:
     """What a non-admin's reply must say about project scope (G2). Admin or no scope: nothing.
-    A named project every catalog row of which sits in a project outside the caller's is "not a member"; a name
-    with no row, or a row with no project_id (TCGA), decides nothing. A zero names the caller's own projects.
+    A named project every catalog row of which sits in a project outside the caller's is "not a member", once per
+    project, and only when the question writes one of those rows' names (``_named_in``, as describe_query_scope
+    reads it: the entity step reads a project into a -PUB UID); a name with no row, or a row with no project_id
+    (TCGA), decides nothing. A zero names the caller's own projects.
     Reads only the static catalog and CALLER, never the graph, so it leaks no count."""
     scope = graph_scope.scope_of(config)
     if scope is None or scope.is_admin:
@@ -316,14 +322,17 @@ def _member_scope_notes(config: Any, entity_result: dict, parser_plan: dict, zer
              *(((parser_plan.get("resolved") or {}).get("projects")) or [])]
     notes: list[str] = []
     seen: set[str] = set()
+    noted: set[frozenset] = set()
     for name in named:
         key = _fold_name(name)
         if not key or key in seen:
             continue
         seen.add(key)
-        ids = {r.get("project_id") for r in rows
-               if key in {_fold_name(n) for n in [r.get("name"), *(r.get("alternative_names") or [])]}}
-        if ids and None not in ids and not (ids & own):
+        hits = [r for r in rows if key in {_fold_name(n) for n in _row_names(r)}]
+        ids = frozenset(r.get("project_id") for r in hits)
+        written = any(_named_in(question or "", n) for r in hits for n in _row_names(r))
+        if ids and None not in ids and not (ids & own) and written and ids not in noted:
+            noted.add(ids)
             notes.append(f"{name} is a project this account is not a member of, so none of its records were "
                          "searched or counted. Say so, and give no number for it.")
     if zero:
@@ -911,7 +920,8 @@ def chatter_agent_answer(
         zero = (ran and not endpoint.startswith(_UNSCOPED_REST)
                 and 0 in (rest_rows, slim_flags.get("rows_returned"), total_matches))
 
-    query_notes = [*(query_notes or []), *_member_scope_notes(config, entity_result, parser_plan, zero=zero)] \
+    query_notes = [*(query_notes or []), *_member_scope_notes(config, entity_result, parser_plan, zero=zero,
+                                                               question=user_query)] \
         or query_notes
     offered_step = _one_line(offered_step) or None
     scope = describe_query_scope(
