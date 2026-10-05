@@ -353,24 +353,16 @@ and, for anyone but a superuser, read only the caller's samples, lineage include
 - **The orphaned templates.** Nothing renders them.
 - **`attributeFilter`.** Not ported — dead at every call site.
 
-## Seed gap
+## Seed gap (closed 2026-10-05)
 
-Production's `dmac` has `sample_types_context`, `assay_context` and
-`projects_context`. Only `sample_types_context` was added to
-`startup/seed/dmac.sql.gz` (101 rows), because at the time only it was needed
-for the README. `assay_context` and `projects_context` remain a seed/production
-divergence and will bite whoever next depends on them.
-
-`sample_attributes_unique` is a fourth gap, and a different one: the README's
-per-column meanings *do* need it, but it could not be folded into the seed here
-because `./startup.sh dump-db` requires maintainer credentials for a remote host
-and regenerates all three seed dumps together. The dump therefore still does not
-carry the table — but the gap no longer reaches a fresh install, because
-`startup/steps/schema_fixups.py` registers `dmac.sample_attributes_unique` as a
-`MissingTable` and install runs its DDL
-(`startup/seed/sql/sample_attributes_unique.sql`) whenever it is absent. The same
-hook heals an existing install on its next run. An instance that is running and
-not about to be reinstalled — production — still takes that DDL by hand. If the
+The 2026-10-05 seed refresh (`startup/seed/README.md`) carries all four context
+tables in `startup/seed/dmac.sql.gz`: `sample_types_context`, `assay_context`,
+`projects_context` and `sample_attributes_unique`, as dev held them. The install
+hook stays: `startup/steps/schema_fixups.py` registers
+`dmac.sample_attributes_unique` as a `MissingTable` and runs its DDL
+(`startup/seed/sql/sample_attributes_unique.sql`) whenever it is absent, which
+heals an install made from an older seed. An instance that is running and not
+about to be reinstalled — production — still takes that DDL by hand. If the
 table is missing anyway, the loader renders meanings blank by design rather than
 failing.
 

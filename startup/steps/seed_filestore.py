@@ -23,15 +23,16 @@ from pathlib import Path
 
 from startup.lib.docker_ops import compose_exec, DockerOpsError
 
-# NOT committed: at ~215MB it exceeds GitHub's 100MB/file push limit (and forks
-# can't host LFS objects), so unlike the small *.sql.gz / *.cypher.gz DB seeds
-# it's gitignored and hosted out-of-band on S3. `download_archive` fetches it on
-# demand; callers warn-and-skip if it's absent and can't be downloaded.
+# NOT committed: unlike the small *.sql.gz / *.cypher.gz DB seeds it's gitignored
+# and hosted out-of-band on S3. `download_archive` fetches it on demand; callers
+# warn-and-skip if it's absent and can't be downloaded. Each refresh publishes a
+# new dated object (startup/seed/regenerate/README.md step 10), so an older commit
+# keeps downloading the archive that matches its own seeds.
 FILESTORE_ARCHIVE = "startup/seed/filestore.tar.gz"
-FILESTORE_URL = "https://nextseek.s3.us-east-2.amazonaws.com/filestore.tar.gz"
+FILESTORE_URL = "https://nextseek.s3.us-east-2.amazonaws.com/filestore-2026-10-05.tar.gz"
 # sha256 of the published archive — verified after download so a truncated or
 # tampered fetch fails loudly instead of seeding a corrupt filestore.
-FILESTORE_SHA256 = "7eb3bf166b1e6cbbd6551d5feeca8d2b5d9c89a3b0f7c863434650e0d167cd15"
+FILESTORE_SHA256 = "587828cf0ebdc751348b357dd85c34089620ab4cf12bebb2724c6203e8fa3aba"
 FILESTORE_PATH = "/seek/filestore"
 SEEK_OWNER = "www-data:www-data"
 
