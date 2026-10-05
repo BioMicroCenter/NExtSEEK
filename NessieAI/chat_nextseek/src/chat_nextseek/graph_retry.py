@@ -8,6 +8,33 @@ the same words.
 """
 from __future__ import annotations
 
+import re
+
+_TIMED_OUT = re.compile(r"TransactionTimedOut|25N14|not completed within")
+
+
+def timed_out(result: dict) -> bool:
+    """True when a failed graph result is Neo4j stopping the statement for time."""
+    return not result.get("ok") and bool(_TIMED_OUT.search(str(result.get("error") or "")))
+
+
+def normalized_cypher(cypher: str | None) -> str:
+    """The statement with whitespace collapsed, to tell a repeat from a new statement."""
+    return " ".join((cypher or "").split())
+
+
+def timeout_retry_context(cypher: str) -> str:
+    """The retry message for a statement Neo4j stopped for time. The generic error text hid that it was a cost
+    problem, and the agent wrote the same walk again (production review 4 Oct: three statements, 237 s)."""
+    return (
+        "Your previous Cypher query was stopped for time, so it was too expensive for this graph:\n"
+        f"{cypher}\n\n"
+        "Do not rerun it or a variant of it. Start from the narrow side: when an assay, an edge property "
+        "or a named value picks out few records, match those first and carry them forward "
+        "(for example MATCH ... WHERE ... WITH DISTINCT ...), then walk from them to the type you need. "
+        "Never scan every sample of a type and walk from each one."
+    )
+
 
 def zero_row_retry_context(cypher: str) -> str:
     """The retry message for a query that ran without error and matched nothing.

@@ -968,3 +968,17 @@ def test_the_two_uid_related_recipe_passes_every_guard_and_the_members_scope(uid
     assert graph_mod.whole_node_returns(recipe) == [] and graph_mod.query_shape_problems(recipe, params) == []
     out = scope_cypher(recipe, params, GraphScope.for_projects([3, 1], source="test"))
     assert isinstance(out, Scoped), getattr(out, "reasons", out)
+
+
+# ------------------------------------------------------------- assay counts pass, pair joins stay refused (R5 G4)
+
+ASSAY_COUNT_TABLE = ("MATCH (s:Sample)-[:INPUT_TO|OUTPUT_OF]->(a:Assay) "
+                     "RETURN a.title AS assay, count(DISTINCT s) AS samples ORDER BY samples DESC LIMIT 50")
+ASSAY_PAIR_JOIN = ("MATCH (s:Sample)-[:INPUT_TO|OUTPUT_OF]->(a:Assay)<-[:INPUT_TO|OUTPUT_OF]-(o:Sample) "
+                   "RETURN s.uuid AS a, o.uuid AS b")
+
+
+def test_the_per_assay_count_table_passes_and_a_pair_join_is_refused():
+    assert passes(ASSAY_COUNT_TABLE)
+    assert "assay_join" in kinds(ASSAY_PAIR_JOIN)
+    assert any("assay join" in line for line in graph_mod.refused_query_shapes(ASSAY_PAIR_JOIN))
