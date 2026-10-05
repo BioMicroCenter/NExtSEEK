@@ -492,9 +492,17 @@ PREFLIGHT_CHECK_IDS.update({
     "complete", "disk", "memory", "swap", "oom", "restarts", "busy", "tmux", "branch", "fetch",
     "expected", "origin_match", "ff", "dirty", "dirty_touched", "nextseek_env", "ci_env",
     "labs_source", "http", "seed_touched", "compose_files", "compose_config", "posterior_routing",
-    "seek_worker_oom",
+    "seek_worker_oom", "member_login",
 })
 CI_ENV_KEYS = ("CI_SMOKE_USER", "CI_SMOKE_PASS", "CI_WRITE_USER", "CI_WRITE_PASS")
+# A cases file named *-member.json runs as the box's non-admin smoke login (CI_SMOKE_USER in its ci.env,
+# a non-superuser that CI's test_ci_account_is_not_a_superuser proves); every other file as CI_WRITE_USER.
+MEMBER_SUFFIX = "-member.json"
+MEMBER_KEYS = ("CI_SMOKE_USER", "CI_SMOKE_PASS")
+
+
+def member_files(brief: BriefForm) -> list[str]:
+    return [c.file for c in (brief.nessie.cases if brief.nessie else []) if c.file.endswith(MEMBER_SUFFIX)]
 
 
 def render(template: str, values: dict[str, str]) -> str:
@@ -625,6 +633,12 @@ def judge_preflight(p: dict, brief: BriefForm, tag: str) -> list[dict]:
     missing = [k for k in CI_ENV_KEYS if k not in keys]
     row("ci_env", f"missing {missing}" if missing else "all 4 keys set", not (need_keys and missing),
         "~/.config/nextseek/ci.env holds the four CI keys")
+    members = member_files(brief)
+    if members:
+        lacks = [k for k in MEMBER_KEYS if k not in keys]
+        row("member_login", f"missing {lacks}" if lacks else "CI_SMOKE_USER and CI_SMOKE_PASS set", not lacks,
+            f"a *{MEMBER_SUFFIX} cases file ({len(members)}) runs as the non-admin login: ci.env names "
+            "CI_SMOKE_USER and CI_SMOKE_PASS")
     if inst.labs_copy:
         present = kv.get("labs_source") == "present"
         needs = "app" in (brief.images or ["app"])
@@ -1086,7 +1100,7 @@ def cmd_runner(a) -> int:
     out.mkdir(parents=True, exist_ok=True)
     cases = []
     for i, c in enumerate(brief.nessie.cases if brief.nessie else [], start=1):
-        name = f"launch-{tag}-cases-{i}.json"
+        name = f"launch-{tag}-cases-{i}" + ("-member.json" if c.file.endswith(MEMBER_SUFFIX) else ".json")
         (out / name).write_bytes(Path(c.file).expanduser().read_bytes())
         cases.append(name)
     run = render("run.sh.tmpl", runner_values(data, brief, d, exp_full, cases))
@@ -1360,8 +1374,8 @@ def parse_status(text: str) -> dict:
             st["static_exit"] = int(mm.group(1))
         elif body.startswith("LABS "):
             st["labs"] = body[5:]
-        elif mm := re.match(r"^NESSIE_START run=(\S+) utc=(\S+)", body):
-            st["nessie"].append({"run": mm.group(1), "start_utc": mm.group(2)})
+        elif mm := re.match(r"^NESSIE_START run=(\S+) utc=(\S+)(?: login=(\S+))?", body):
+            st["nessie"].append({"run": mm.group(1), "start_utc": mm.group(2), "login": mm.group(3) or "admin"})
         elif mm := re.match(r"^NESSIE_EXIT run=(\S+) exit=(\d+) utc=(\S+)", body):
             for n in st["nessie"]:
                 if n["run"] == mm.group(1):

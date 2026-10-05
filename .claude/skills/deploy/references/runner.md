@@ -36,13 +36,16 @@ estimate from `brief.json` against the budget), expected minutes (`derived.estim
 | judge | every red stack-health line of each rebuild log, classified | an unexplained or stale red while components are still pending; after the last rebuild it becomes a `FINDING` line and the run goes on to CI |
 | checks | http, containers, boot markers, CC runner, labs, refresh marker, sidecar ops against the repo, image ages, cc-agent node and Claude Code versions (when rebuilt), every live marker, memory | never (it is evidence) |
 | CI | `./startup.sh ci [--wait-ready] --no-nessie` | never; it records the result line, new reds and red health lines |
-| Nessie | only when CI printed a result and every failed id is a known red; restarts SEEK over 12 GiB when allowed; one run dir per cases file, copied out to `~/launch-<TAG>/` and `~/backups/` | CI not green apart from the known reds |
+| Nessie | only when CI printed a result and every failed id is a known red; restarts SEEK over 12 GiB when allowed; one run dir per cases file (a `*-member.json` file as the non-admin `CI_SMOKE_USER`, every other as `CI_WRITE_USER`), copied out to `~/launch-<TAG>/` and `~/backups/` | CI not green apart from the known reds |
 
 The red classes come from `.claude/skills/deploy/scripts/rules.py`: `known` (the table of known reds), `pending <c>` (a
 check that names a component still to be rebuilt: expected mid-launch, since stack health runs after
-every rebuild), `stale <c>` (it names a component already rebuilt: a real problem), `unexplained`.
-The same table drives `launch.py judge` on the pulled logs; a test pins that the bash and Python
-judges classify the same log identically.
+every rebuild), `stale <c>` (it names a component already rebuilt: a real problem), `summary` (the
+rebuild's closing `Rebuild finished but is red: ... No rollback is needed` line: it stops only beside
+an unexplained or stale red, so a rebuild whose only reds are pending or known goes on), `unexplained`.
+A red's indented detail lines are part of its text (the `graph sync health` problems are). The same
+table drives `launch.py judge` on the pulled logs; a test pins that the bash and Python judges
+classify the same log identically and stop on the same lines.
 
 ## The status file
 
@@ -62,7 +65,7 @@ CHECKS CHECK http 200
 CI exit=1
 CI_RESULT CI failed: 2 failed, 304 passed, ...
 CI_NEW_REDS <ids>
-NESSIE_START run=... utc=...  /  NESSIE_EXIT run=... exit=1 utc=...
+NESSIE_START run=... utc=... login=admin|member  /  NESSIE_EXIT run=... exit=1 utc=...
 STOPPED: <why>
 ALL_DONE
 ```

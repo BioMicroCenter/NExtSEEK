@@ -135,14 +135,24 @@ container, as above. A case with no `_measure` entry keeps its old numbers: chec
 
 ## 4. Running
 
-The rendered runner's Nessie block does this, as `CI_WRITE_USER` from `~/.config/nextseek/ci.env`,
-once per cases file in the brief:
+The rendered runner's Nessie block does this once per cases file in the brief, with a login from
+the box's own `~/.config/nextseek/ci.env`:
+
+- a cases file whose name ends `-member.json` runs as the non-admin smoke login, `CI_SMOKE_USER`
+  with `CI_SMOKE_PASS` (a non-superuser: CI's `test_ci_account_is_not_a_superuser` proves it on
+  every box). Its runner copy keeps the suffix (`launch-<TAG>-cases-<n>-member.json`);
+- every other cases file runs as the admin login, `CI_WRITE_USER` with `CI_WRITE_PASS`.
 
 ```bash
-docker compose exec -T -e CI_WRITE_PASS nextseek uv run manage.py nessie --tier full \
-  --cases /app/runs/<file> --user "$CI_WRITE_USER" --password-env CI_WRITE_PASS \
+docker compose exec -T -e "$PW" nextseek uv run manage.py nessie --tier full \
+  --cases /app/runs/<file> --user "$U" --password-env "$PW" \
   --out /app/runs/<run> </dev/null > <log> 2>&1
 ```
+
+`NESSIE_START` in the status file ends `login=member` or `login=admin`, and `facts.json` carries it
+per run. The preflight stops (row `member_login`) when the brief has a `-member.json` file and the
+box's ci.env lacks `CI_SMOKE_USER` or `CI_SMOKE_PASS`. The login names and passwords stay in ci.env
+on the box: name them, never print them. A question meant for both logins goes in both files.
 
 Optional flags, only from the brief form (`nessie.force_route`, `nessie.pace_s`): `--force-route
 ns|cc` (forces every turn; the route criteria are stripped), `--pace <seconds>` between turns. The paid forced-arm modes (`--arms`,

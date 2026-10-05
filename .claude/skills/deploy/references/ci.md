@@ -51,8 +51,12 @@ Every box built from this branch prints one more stack-health line, production i
 (`warnings:` under it): label changes awaiting approval, or `skipped` while the container is still migrating; not a
 finding. Red, with one detail line per problem: an outbox row failing past its kind's back-off plus 30 minutes, the
 latest full, reconcile, catalog or drift run failed, stale freshness, or dead rows. A red line makes `rebuild` exit 1
-at its end and `ci` exit 1 after the suite, so it is never a known red: read its detail lines and report each as a
-finding. `graph_sync_health could not complete (exit 3)` means the tables could not be read.
+at its end and `ci` exit 1 after the suite, so it is a known red in one case only: on dev (any box but prod), when
+its one problem line is a drift run that failed only `catalog.assistant_investigations` (operator ruling OP14,
+"leave it red" on dev; `OFF_PROD_ALLOWED_DRIFT` in `rules.py`, the same set as `ci/smoke/test_graph_sync_status.py`).
+Any other drift check, a stale job, a dead or overdue row or an overdue run still stops a launch, and on prod it
+always does. Otherwise read its detail lines and report each as a finding. `graph_sync_health could not complete
+(exit 3)` means the tables could not be read.
 
 Between an app rebuild that moves the graph writer to a new schema version and the full sync that follows it, the
 graph is still at the old version, so every graph write path refuses on purpose, drift prints `skipped` and `graph

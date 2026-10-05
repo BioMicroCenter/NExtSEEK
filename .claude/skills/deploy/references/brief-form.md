@@ -22,7 +22,7 @@ the script decides the default, not you.
 | `static_changed` | no | `null` | informational: collectstatic runs after every app rebuild anyway |
 | `ci` | no | `true` | `./startup.sh ci --no-nessie` after the rebuilds |
 | `ci_nessie_lane` | no | `false` | drop `--no-nessie` (paid; never on prod) |
-| `nessie` | no | `null` | `{cases: [{file, cc_turns_estimate}], force_route, pace_s}`: each cases file (a local path) and how many of its turns will likely go to Container-CC |
+| `nessie` | no | `null` | `{cases: [{file, cc_turns_estimate}], force_route, pace_s}`: each cases file (a local path) and how many of its turns will likely go to Container-CC. A file whose name ends `-member.json` runs as the box's non-admin smoke login (`CI_SMOKE_USER`), every other file as the admin login (`CI_WRITE_USER`): nessie-questions.md section 4 |
 | `paid` | with any Nessie | `null` | `{approved, budget_usd, approved_by}` (`approved_by` in the approver's words) |
 | `prod_nessie` | no | `false` | the explicit yes that allows Nessie on prod |
 | `allowed_extras` | no | `[]` | only from: `seek restart ok`, `nginx recreate ok`, `db backup ok`, `bedrock-proxy rebuild ok`, `compose recreate ok` |

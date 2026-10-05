@@ -46,6 +46,7 @@ from `.claude/skills/deploy/scripts/rules.py`:
 | dirty_touched | the range touches a dirty file other than the context refresh |
 | nextseek_env | old `/app/chat_nextseek` style paths |
 | ci_env | one of `CI_SMOKE_USER`, `CI_SMOKE_PASS`, `CI_WRITE_USER`, `CI_WRITE_PASS` missing |
+| member_login | a `*-member.json` cases file in the brief and `CI_SMOKE_USER` or `CI_SMOKE_PASS` missing from ci.env (the row exists only then) |
 | labs_source | `/tmp/labs_db.json` missing when app is rebuilt (a warning otherwise). The operator re-stages it: the workstation copy is root-only and never committed |
 | http | not 200 |
 
@@ -105,9 +106,10 @@ status file, unpacked into the launch folder).
 
 ## 7. Dev gotchas
 
-- **`REBUILD app exit=1` is often not a failure.** A red `graph sync health` line also makes it exit 1, and
-  that one is always a finding (ci.md, "The graph sync health line"). The rebuild exits 1 when graph drift is red (known:
-  1 of 43, `catalog.assistant_investigations`) or when there is no GHCR credential for the
+- **`REBUILD app exit=1` is often not a failure.** A red `graph sync health` line also makes it exit 1; it is
+  known on dev only when its one problem is the OP14 drift on `catalog.assistant_investigations`, and any other
+  problem on it stops (ci.md, "The graph sync health line"). The rebuild exits 1 when graph drift is red (known:
+  1 of N, `catalog.assistant_investigations`) or when there is no GHCR credential for the
   rollback push (loud banner, harmless). The deciding line is `✓ app rebuilt and restarted`.
 - **The refresh marker.** `.context_db_refresh` inside the container is fine if its mtime is
   AFTER the container's start; `facts.json` carries `checks.refresh_after_start`. False means it

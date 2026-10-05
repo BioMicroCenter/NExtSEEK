@@ -440,6 +440,43 @@ def test_the_paid_step_needs_every_model_id_proven(tmp_path, capsys):
     assert "grep -qE '✓ model ids reachable'" in nessie.split("docker compose exec", 1)[0]
 
 
+def _member_brief(tmp_path):
+    admin = tmp_path / "cases-admin.json"
+    member = tmp_path / "cases-member.json"
+    admin.write_text(Path(_cases_file(tmp_path)).read_text())
+    member.write_text(Path(_cases_file(tmp_path)).read_text())
+    return {"nessie": {"cases": [{"file": str(admin), "cc_turns_estimate": 1},
+                                 {"file": str(member), "cc_turns_estimate": 1}]},
+            "paid": {"approved": True, "budget_usd": 5, "approved_by": "operator"}}
+
+
+def test_a_member_cases_file_runs_as_the_non_admin_login(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, **_member_brief(tmp_path))
+    names = sorted(p.name for p in (d / "runner").glob("launch-*-cases-*"))
+    assert names == ["launch-20260926-1300-cases-1.json", "launch-20260926-1300-cases-2-member.json"]
+    block = "case \"$f\" in" + text.split("case \"$f\" in", 1)[1].split("esac", 1)[0] + "esac"
+    s = tmp_path / "login.sh"
+    s.write_text("CI_SMOKE_USER=smoke CI_WRITE_USER=writer\nfor f in a-cases-1.json a-cases-2-member.json; do\n"
+                 f"{block}\necho \"$f $LOGIN $U $PW\"\ndone\n")
+    r = subprocess.run(["bash", str(s)], capture_output=True, text=True)
+    assert r.stdout.splitlines() == ["a-cases-1.json admin writer CI_WRITE_PASS",
+                                     "a-cases-2-member.json member smoke CI_SMOKE_PASS"]
+    assert '--user "$U" --password-env "$PW"' in text and '-e "$PW"' in text
+    st = L.parse_status("NESSIE_START run=dev-x-cases-2-member utc=2026-10-04T01:19:01Z login=member 01:19:01\n"
+                        "NESSIE_START run=dev-x-cases-1 utc=2026-10-04T01:00:01Z 01:00:01\n")
+    assert [n["login"] for n in st["nessie"]] == ["member", "admin"]
+
+
+def test_a_member_cases_file_needs_the_non_admin_login_on_the_box(tmp_path, capsys):
+    text = good_preflight(ci_env_keys="CI_WRITE_PASS,CI_WRITE_USER,")
+    code, out, d = preflight(tmp_path, capsys, text, **_member_brief(tmp_path))
+    assert code == 5 and "- member_login:" in out.err and "CI_SMOKE_USER" in out.err
+    code, out, d = preflight(tmp_path / "ok", capsys, good_preflight(), **_member_brief(tmp_path))
+    assert code == 0, out.err
+    rows = {r["id"]: r for r in json.loads((d / "preflight.json").read_text())["checks"]}
+    assert rows["member_login"]["verdict"] == "ok"
+
+
 def _functions(text):
     return text.split("# >>> functions", 1)[1].split("# <<< functions", 1)[0]
 

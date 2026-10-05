@@ -200,9 +200,14 @@ if [ $DO_NESSIE = 1 ]; then
     RUN=$INSTANCE-${f%.json}
     cp "$IN/$f" "$L/$f" || { say "CASES missing $f"; continue; }
     docker cp "$L/$f" nextseek:/app/runs/$f
-    say "NESSIE_START run=$RUN utc=$(date -u +%FT%TZ)"
-    docker compose exec -T -e CI_WRITE_PASS nextseek uv run manage.py nessie --tier full \
-      --cases /app/runs/$f --user "$CI_WRITE_USER" --password-env CI_WRITE_PASS $NESSIE_FLAGS \
+    case "$f" in   # a *-member.json file runs as the non-admin smoke login, every other as the admin (2026-10-05)
+      *-member.json) LOGIN=member U=${CI_SMOKE_USER:-} PW=CI_SMOKE_PASS;;
+      *) LOGIN=admin U=${CI_WRITE_USER:-} PW=CI_WRITE_PASS;;
+    esac
+    [ -n "$U" ] || { say "CASES no $LOGIN login in ci.env for $f"; continue; }
+    say "NESSIE_START run=$RUN utc=$(date -u +%FT%TZ) login=$LOGIN"
+    docker compose exec -T -e "$PW" nextseek uv run manage.py nessie --tier full \
+      --cases /app/runs/$f --user "$U" --password-env "$PW" $NESSIE_FLAGS \
       --out /app/runs/$RUN </dev/null > "$L/nessie-$RUN.log" 2>&1
     say "NESSIE_EXIT run=$RUN exit=$? utc=$(date -u +%FT%TZ)"
     docker cp nextseek:/app/runs/$RUN "$L/" > /dev/null 2>&1
