@@ -13,3 +13,4 @@ echo "=== REBUILD"; grep -hE "✗|✓|stopped before" $L/proxy.log $L/app.log $L
 echo "=== CHECKS"; cat $L/checks.log 2>/dev/null
 echo "=== CI"; grep -E "^(FAILED|ERROR) |CI passed|CI failed" $L/ci.log 2>/dev/null | tail -25
 echo "=== NESSIE"; for f in $L/nessie-*.log; do [ -f "$f" ] && { echo "-- $f"; grep -vE "W042|HINT:" "$f" | grep -E '^\[ *[0-9]+/|passed|failed|xpass|GATE|cost' | tail -120; }; done
+grep -q ALL_DONE $ST 2>/dev/null   # the exit: 0 once the runner is done (finish then pulls), 1 while it is not

@@ -117,7 +117,7 @@ so one operator approval (Ask mode) covers a whole step. Each prints what you ne
 |---|---|---|---|
 | `prepare --form $S/brief-form.json` | steps 1 to 3 up to the form: brief, preflight script (`$D/preflight.sh`), ssh preflight, preflight, `git fetch`, commits | the brief lines, the preflight table and verdict, one `COMMIT` line per commit, an `ANNOUNCE` line | say the announcement, fill `$D/commit-review-form.json` |
 | `start --brief $D/brief.json --form $D/commit-review-form.json` | steps 3 to 5: review, runner, ssh start | `DELIVER`, the full commit review when there is a parent, the runner summary, the first status lines | SendMessage the review to the parent at once (here it goes as the rebuild begins, not before it) |
-| `finish --brief $D/brief.json` | steps 6 to 8: ssh watch, ssh pull, judge. Long: run it with Bash `run_in_background: true` | the judge verdict, `FACTS`, `REPORT_FORM`, one `NESSIE_RUN` line per run | read facts and replies, then step 9, `report`, as usual |
+| `finish --brief $D/brief.json` | steps 6 to 8: ssh watch, ssh pull, judge. Long: run it with Bash `run_in_background: true`. The watch exits 1 when the runner has not written `ALL_DONE` (nothing pulled: report it stuck) | the judge verdict, `FACTS`, `REPORT_FORM`, one `NESSIE_RUN` line per run | read facts and replies, then step 9, `report`, as usual |
 
 A rerun after a stop needs `--force` (exit 3: the brief or the review exists). `--after-failure
 "<the operator's words>"` passes through to the ssh step, as below.

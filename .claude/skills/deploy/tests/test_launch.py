@@ -1056,3 +1056,19 @@ def test_finish_watches_pulls_and_judges_and_stops_after_a_failed_watch(tmp_path
     assert code == 0, out.err
     assert box.calls[-2:] == ["watch", "pull"]
     assert "HEAD on expected sha" in out.out and f"FACTS: {d / 'facts.json'}" in out.out
+
+
+def test_the_watch_exits_0_once_the_runner_is_done_and_1_before(tmp_path, capsys):
+    # `finish` stops at the first non-zero exit, so the watch's exit must say whether the runner finished,
+    # not whether a Nessie log happens to exist (a stopped or CI-only launch has none)
+    d, _ = rendered_runner(tmp_path, capsys)
+    home = tmp_path / "home"
+    (home / "launch-20260926-1300").mkdir(parents=True)
+    st = home / "launch-20260926-1300.status"
+    script = tmp_path / "w.sh"
+    script.write_text("sleep(){ :; }\n" + re.sub(r"(?m)^H=\S+;", f"H={home};",
+                                                 (d / "runner" / "watch.sh").read_text()))
+    st.write_text("START x 00:00:01\nSTOPPED: unexplained red after app: x 00:00:02\nALL_DONE 00:00:02\n")
+    assert subprocess.run(["bash", str(script)], capture_output=True).returncode == 0
+    st.write_text("START x 00:00:01\n")
+    assert subprocess.run(["bash", str(script)], capture_output=True).returncode == 1
