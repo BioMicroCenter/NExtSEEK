@@ -776,7 +776,7 @@ def test_empty_by_node_fires_when_the_node_is_judged_alone(cypher):
     rv = _plain("Which investigations have no samples?", cypher, {}, rows=[{"id": 19, "title": "X"}])
     assert _check(rv, "empty_by_node").fired
     assert rv.verdict == "suggest"
-    assert "own node" in rv.disclosure and "same title" in rv.disclosure
+    assert "recorded twice" in rv.disclosure and "other record" in rv.disclosure
 
 
 def test_empty_by_node_stays_quiet_on_the_title_form():

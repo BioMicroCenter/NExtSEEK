@@ -89,6 +89,16 @@ def test_a_members_zero_on_a_catalog_project_outside_scope_says_so(captured):
     assert "not a member" in text
 
 
+def test_a_member_of_many_long_titled_projects_keeps_the_zero_instruction(captured):
+    cfg = _member()
+    cfg.CALLER = {**cfg.CALLER, "projects": [{"id": 100 + i, "name": f"Project {i:02d} " + "x" * 29}
+                                             for i in range(10)]}
+    _graph_turn(cfg, [], 0)
+    text = captured["user_content"]
+    assert "give that as the reason" in text
+    assert "Project 04" in text and "Project 05" not in text and "and 5 more" in text
+
+
 def test_a_project_the_question_never_writes_gets_no_foreign_note(captured):
     # The entity step reads "Published Data" into a -PUB UID; the question names no project.
     chatter_mod.chatter_agent_answer(

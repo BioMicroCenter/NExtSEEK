@@ -337,10 +337,13 @@ def _member_scope_notes(config: Any, entity_result: dict, parser_plan: dict, zer
                          "searched or counted. Say so, and give no number for it.")
     if zero:
         projects = (getattr(config, "CALLER", None) or {}).get("projects")
-        names = ", ".join(str(p.get("name")) for p in projects if isinstance(p, dict) and p.get("name")) \
-            if isinstance(projects, list) else ""
-        notes.append("This account is not an admin: its searches cover only the projects it belongs to "
-                     f"({names or 'its own projects'}). A zero means none in those projects; give that as the reason.")
+        names = [str(p.get("name")) for p in projects if isinstance(p, dict) and p.get("name")] \
+            if isinstance(projects, list) else []
+        # The instruction first and at most five names: describe_query_scope cuts a note at 400 characters.
+        listed = ", ".join(names[:5]) + (f", and {len(names) - 5} more" if len(names) > 5 else "")
+        notes.append(("This account is not an admin: its searches cover only the projects it belongs to, so a zero "
+                      "means none in those projects; give that as the reason. "
+                      + (f"Its projects: {listed}." if names else "")).rstrip())
     return notes
 
 

@@ -711,8 +711,8 @@ def _empty_by_node(t: _Turn) -> _Finding | None:
                     and not re.search(rf"\b{re.escape(var)}\.title\b", body):
                 return _Finding(
                     detail=f"NOT EXISTS over {var} with no title comparison",
-                    fact=("A study or investigation is judged by its own node here, and another node with the same "
-                          "title may hold samples, so this list may include a title that does."))
+                    fact=("Some titles are recorded twice, once without samples, so a title listed here may still "
+                          "hold samples under its other record."))
     return None
 
 
