@@ -136,6 +136,8 @@ def _preset(instance: str) -> dict:
         sys.exit(f"fetch_run: cannot read instance {instance!r} from {path} ({exc!r}); "
                  f"create it from .claude/skills/deploy/boxes.example.json, or pass --host/--user")
 
+# Every field is read by key, first match ('$[*].data.x' then '$[0]'), never by
+# event position: a Container-CC turn sends prelude_step events before route_decided.
 # The debug object hangs off the query_complete event inside the progress array.
 # The `$` is backslash-escaped because this lands inside a double-quoted shell
 # string, where bare `$[...]` is deprecated arithmetic expansion and errors out.
@@ -166,10 +168,10 @@ q -e "SELECT JSON_OBJECT(
         'error',   COALESCE(
                      JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.error'),'\$[0]')),
                      JSON_UNQUOTE(JSON_EXTRACT(result,'\$.error'))),
-        'route',   JSON_UNQUOTE(JSON_EXTRACT(progress,'\$[0].data.route')),
-        'src',     JSON_UNQUOTE(JSON_EXTRACT(progress,'\$[0].data.source')),
-        'why',     JSON_UNQUOTE(JSON_EXTRACT(progress,'\$[0].data.reasoning')),
-        'model',   JSON_UNQUOTE(JSON_EXTRACT(progress,'\$[1].data.model_id')),
+        'route',   JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.route'),'\$[0]')),
+        'src',     JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.source'),'\$[0]')),
+        'why',     JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.reasoning'),'\$[0]')),
+        'model',   JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.model_id'),'\$[0]')),
         'mode',    JSON_UNQUOTE({D}'\$[0].parser_plan.mode')),
         'aplan',   {D}'\$[0].api_plan'),
         'ameta',   {D}'\$[0].api_result_meta'),
