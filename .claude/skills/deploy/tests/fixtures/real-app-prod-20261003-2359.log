@@ -1,0 +1,56 @@
+       Disk /var/lib/docker: 255.5 GB total, 53.1 GB free
+       Floor for profile 'absent -> prod': 30 GB
+       ✓ 53.1 GB free, at or above the 30 GB floor
+╭──────────────────────────────────────╮
+│ Rebuilding app for instance NExtSEEK │
+╰──────────────────────────────────────╯
+
+       ✓ rollback tag verified: nextseek-nextseek:pre-20261003T202737-aa85faf9 
+(sha256:c94e7bd887329aae16bd56d1098d144cf43359da28a67888d20efa1bc9c3a836)
+
+
+       ✓ app rebuilt and restarted
+       ✓ front door (nextseek_nginx) running
+       ✓ app + front door: nextseek + nextseek_nginx running
+       ✓ first-party images: all 4 present (nextseek-nextseek:latest, 
+dmac-assistant:poc, nextseek-ns-sidecar:latest, nextseek-bedrock-proxy:latest)
+       ✓ cc services: bedrock-proxy + nextseek-sidecar running
+       ✗ cc-agent context: STALE: dmac-assistant:poc bakes 2 of 6 canonical 
+context files unlike the checkout: capabilities.md (differs), 
+min_api_endpoints_enriched.json (differs). The CC agent reads its baked copy 
+until you run: ./startup.sh rebuild --component cc-agent
+       ✓ app image code: the running nextseek holds all 2212 tracked app files 
+as the checkout has them
+       ✓ cc-agent runtime: dmac-assistant:poc: node v22.23.3, Claude Code 
+2.1.282, markitdown 0.1.6, matplotlib 3.11.2, onnxruntime 1.27.0; 
+matplotlib.pyplot imports
+       ✓ bedrock-proxy allow list: the running bedrock-proxy allows exactly the 
+checkout's 4: us.anthropic.claude-opus-5-5, us.anthropic.claude-opus-4-8, 
+us.anthropic.claude-opus-4-7, us.anthropic.claude-sonnet-4-6
+       ✓ CC fallback wiring: --model us.anthropic.claude-opus-5-5, 
+--fallback-model us.anthropic.claude-opus-4-8, classifier 
+us.anthropic.claude-sonnet-4-6, retries 3, request timeout 60000 ms; every one 
+allowed by the running proxy
+       ✓ model ids reachable: every id the deployed config calls answered, each 
+with the credential its calls carry (free metadata calls; 7 ids, profile default
+(mode mixed)): gemini-3.8-flash via app GCP_API_KEY ok (api, chatter, 
+context_engineer, entity +5; fallback of memory); 
+global.anthropic.claude-sonnet-5-5 via app Bedrock token ok (memory, system; 
+fallback of api, chatter, context_engineer, entity +7); 
+us.anthropic.claude-opus-5-5 via app Bedrock token ok (followup, multi_parser, 
+parser, pipeline_agent +3; fallback of system); gemini-3.1-pro-preview via app 
+GCP_API_KEY ok (router primary; fallback of multi_parser, parser, planner, 
+report_coder +1; BAML ClassifyQuery, EvaluateFunctionalUsefulness, 
+JudgeRouterAnswer, JudgeUITranscript, RouteQuery); gemini-3.5-flash via app 
+GCP_API_KEY ok (router fallback; BAML Summarize); us.anthropic.claude-opus-5-5 
+via bedrock-proxy token ok (CC main); us.anthropic.claude-opus-4-8 via 
+bedrock-proxy token ok (CC fallback); us.anthropic.claude-sonnet-4-6 via 
+bedrock-proxy token ok (CC classifier)
+       ! graph sync health: failing outbox rows: 0 (0 overdue); failed runs: 0 
+(0 overdue); latest drift check: run 55 ok; warnings:
+           drift run 55 counted DERIVED_FROM labels awaiting approval: changed 
+2290, cleared 5316 (its check 9.lineage.labels_differ_from_rule lists examples)
+       ✓ off-box rollback baseline pushed: 
+ghcr.io/biomicrocenter/nextseek:baseline-20261003-aa85faf9-dirty
+       ✗ Rebuild finished but is red: stack health. No rollback is needed: the 
+build and restart succeeded, only the health judgement is red.
