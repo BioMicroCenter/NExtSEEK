@@ -145,6 +145,8 @@ def test_committed_seed_carries_no_site_base_host_row() -> None:
     assert seed.exists(), seed
     with gzip.open(seed, "rt", encoding="utf-8", errors="replace") as fh:
         for line in fh:
+            if line.startswith("--"):
+                continue  # mysqldump's own `-- WHERE:  var <> 'site_base_host'` note on the filtered table
             assert "site_base_host" not in line, (
                 "committed seed contains a site_base_host row -- a dump-db run has "
                 "baked one instance's hostname into the universal seed"
@@ -297,3 +299,157 @@ def test_successful_dump_replaces_the_seed(tmp_path: Path) -> None:
         assert "dump payload" in fh.read()
     assert (seed_dir / "seek_production.sql.gz").exists()
     assert not list(seed_dir.glob("*.tmp.*"))
+
+
+def test_dump_script_drops_the_mariadb_sandbox_line(tmp_path: Path) -> None:
+    """A MariaDB 10.5.25+/11.x client opens every dump with a line MySQL 8's client rejects at install."""
+    import subprocess
+
+    script, seed_dir, env, _log = _install_fake_dump_lane(tmp_path, supports_colstats=False, dump_ok=True)
+    fake = Path(env["PATH"].split(":")[0]) / "mysqldump"
+    fake.write_text(fake.read_text().replace(
+        "echo '-- dump payload'",
+        "printf '%s\\n' '/*M!999999\\- enable the sandbox mode */' '-- dump payload'"))
+    proc = subprocess.run([str(script)], env=env, capture_output=True, text=True)
+
+    assert proc.returncode == 0, proc.stderr
+    for name in ("dmac.sql.gz", "seek_production.sql.gz"):
+        with gzip.open(seed_dir / name, "rt", encoding="utf-8") as fh:
+            text = fh.read()
+        assert "sandbox mode" not in text, f"{name} still opens with the MariaDB sandbox line"
+        assert "dump payload" in text
+
+
+def test_dump_script_writes_the_dmac_seed_as_utf8mb4(tmp_path: Path) -> None:
+    """R7 holds even when the source dmac database is latin1: table defaults and the latin1 key columns that match
+    them become utf8mb4 together (or the foreign keys would not load), and a data row is never rewritten."""
+    import subprocess
+
+    script, seed_dir, env, _log = _install_fake_dump_lane(tmp_path, supports_colstats=False, dump_ok=True)
+    fake = Path(env["PATH"].split(":")[0]) / "mysqldump"
+    fake.write_text(fake.read_text().replace(
+        "echo '-- dump payload'",
+        "printf '%s\\n' 'CREATE TABLE `t` (' '  `k` char(32) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL,'"
+        " ') ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=latin1;'"
+        " \"INSERT INTO \\`t\\` VALUES ('x CHARACTER SET latin1 COLLATE latin1_swedish_ci DEFAULT CHARSET=latin1');\""))
+    proc = subprocess.run([str(script)], env=env, capture_output=True, text=True)
+
+    assert proc.returncode == 0, proc.stderr
+    with gzip.open(seed_dir / "dmac.sql.gz", "rt", encoding="utf-8") as fh:
+        lines = fh.read().splitlines()
+    assert "  `k` char(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL," in lines
+    assert ") ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;" in lines
+    assert any(line.startswith("INSERT") and "CHARACTER SET latin1" in line for line in lines), "a data row was rewritten"
+    with gzip.open(seed_dir / "seek_production.sql.gz", "rt", encoding="utf-8") as fh:
+        assert "DEFAULT CHARSET=latin1" in fh.read(), "only the dmac seed is rewritten"
+
+
+def test_dump_script_runs_the_client_named_by_mysqldump(tmp_path: Path) -> None:
+    """MYSQLDUMP picks the client, e.g. a MySQL container's own (`docker exec -i <c> mysqldump`)."""
+    import subprocess
+
+    script, seed_dir, env, argv_log = _install_fake_dump_lane(tmp_path, supports_colstats=True, dump_ok=True)
+    bindir = Path(env["PATH"].split(":")[0])
+    (bindir / "mysqldump").rename(bindir / "container-mysqldump")
+    env["MYSQLDUMP"] = f"{bindir / 'container-mysqldump'}"
+    proc = subprocess.run([str(script)], env=env, capture_output=True, text=True)
+
+    assert proc.returncode == 0, proc.stderr
+    assert "--column-statistics=0" in argv_log.read_text()
+    with gzip.open(seed_dir / "dmac.sql.gz", "rt", encoding="utf-8") as fh:
+        assert "dump payload" in fh.read()
+
+
+# --- temporal properties: dump_neo4j.py writes them as Cypher function calls -------------------------------
+# Every Sample carries `synced_at` (a DateTime) since graph schema 1.1, and many carry a Date attribute, so the
+# fast loader must read `datetime("...")` and friends, and give the driver the same type back.
+
+@pytest.fixture
+def dump_neo4j(monkeypatch):
+    """Import startup/seed/regenerate/dump_neo4j.py; its python-dotenv import is maintainer-only, so stub it for
+    this test only."""
+    import importlib.util
+    import sys
+    import types
+
+    monkeypatch.setitem(sys.modules, "dotenv", types.SimpleNamespace(load_dotenv=lambda *a, **k: None))
+    path = _REPO_ROOT / "startup" / "seed" / "regenerate" / "dump_neo4j.py"
+    spec = importlib.util.spec_from_file_location("dump_neo4j_under_test", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_cypher_map_reads_temporal_calls_as_markers() -> None:
+    from startup.steps.seed import Temporal
+
+    d = _cypher_map_to_dict(
+        '{`synced_at`: datetime("2026-10-04T03:04:24.367000000+00:00"), `SampleCreationDate`: date("2023-07-13"), '
+        '`t`: localdatetime("2023-07-13T10:00:00"), `d`: duration("P1DT2H"), `xs`: [date("2020-01-01")], `n`: 3}'
+    )
+    assert d["synced_at"] == Temporal("datetime", "2026-10-04T03:04:24.367000000+00:00")
+    assert d["SampleCreationDate"] == Temporal("date", "2023-07-13")
+    assert d["t"] == Temporal("localdatetime", "2023-07-13T10:00:00")
+    assert d["d"] == Temporal("duration", "P1DT2H")
+    assert d["xs"] == [Temporal("date", "2020-01-01")]
+    assert d["n"] == 3
+
+
+def test_cypher_map_leaves_temporal_text_inside_strings_alone() -> None:
+    d = _cypher_map_to_dict('{`note`: "datetime(\\"2020\\") is text", `k`: "date(\\"x\\")"}')
+    assert d == {"note": 'datetime("2020") is text', "k": 'date("x")'}
+
+
+def test_temporal_round_trip_escape_parse_driver(dump_neo4j) -> None:
+    """dump_neo4j._escape -> install parser -> driver value equals what the source graph held, type included."""
+    import datetime
+
+    import neo4j.time as nt
+    from startup.steps.seed import driver_value
+
+    values = {
+        "dt": nt.DateTime(2026, 10, 4, 3, 4, 24, 367000000, tzinfo=datetime.timezone.utc),
+        "local": nt.DateTime(2023, 7, 13, 10, 0, 0, 5),
+        "day": nt.Date(2023, 7, 13),
+        "dur": nt.Duration(days=1, hours=2),
+        "plain": "datetime(\"not a call\")",
+    }
+    parsed = _cypher_map_to_dict(dump_neo4j._props_str(values))
+    for k, v in values.items():
+        back = driver_value(parsed[k])
+        assert type(back) is type(v), (k, type(back), type(v))
+        assert back == v, (k, back, v)
+
+
+def test_box_graph_exporter_writes_what_dump_neo4j_writes(dump_neo4j) -> None:
+    """The refresh kit's on-box exporter keeps its own copy of the escaper (it runs in the app container, without
+    python-dotenv); both must write the same text for every kind of value."""
+    import datetime
+    import importlib.util
+
+    import neo4j.time as nt
+
+    path = _REPO_ROOT / "startup" / "seed" / "regenerate" / "refresh" / "box" / "graph_export.py"
+    spec = importlib.util.spec_from_file_location("graph_export_under_test", path)
+    box = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(box)
+    values = {"s": 'a "q" \\ \n', "n": None, "b": True, "i": 3, "f": 1.5, "l": ["x", 2],
+              "dt": nt.DateTime(2026, 1, 2, 3, 4, 5, 6, tzinfo=datetime.timezone.utc), "ld": nt.DateTime(2026, 1, 2),
+              "d": nt.Date(2026, 1, 2), "t": nt.Time(1, 2, 3), "tz": nt.Time(1, 2, 3, tzinfo=datetime.timezone.utc),
+              "ds": [nt.Date(2020, 1, 1), nt.Date(2021, 2, 3)], "du": nt.Duration(months=1, seconds=2),
+              "other": object.__new__(type("Odd", (), {"__str__": lambda self: 'odd "x"'}))}
+    assert box._props_str(values) == dump_neo4j._props_str(values)
+
+
+def test_unconvertible_temporal_fails_before_any_write(tmp_path: Path) -> None:
+    """A temporal the driver cannot rebuild (an old-format datetime("2023-07-13")) stops the load before a driver is
+    even opened: half a graph would make the next install skip Neo4j as already populated."""
+    from startup.steps import seed as seed_mod
+
+    gz = tmp_path / "neo4j.cypher.gz"
+    with gzip.open(gz, "wt") as fh:
+        fh.write('CREATE (n0:Sample:_ImportRef {`_exportId`: 0, `d`: datetime("2023-07-13")});')
+    with patch("neo4j.GraphDatabase") as gdb, patch.object(seed_mod, "compose_port", return_value=7687):
+        with pytest.raises(ValueError):
+            seed_mod.load_neo4j_dump(gz, "pw", tmp_path, {})
+    gdb.driver.assert_not_called()

@@ -268,6 +268,8 @@ docs/superpowers/plans/*
 # on S3 and downloaded on demand by the startup CLI. See startup/seed/README.md.
 /filestore/
 startup/seed/filestore.tar.gz
+# a dump-db run's in-progress temp files (dump_mysql.sh, dump_neo4j.py): unscrubbed until moved into place
+startup/seed/*.tmp.*
 
 # Paired --bayesian run directories: manifests are ~800K and the artifacts/
 # tree is ~325M per run. They are deliverables, not source, and a `git add -A`

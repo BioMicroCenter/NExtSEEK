@@ -5,6 +5,7 @@ import gzip
 import json
 import re
 from pathlib import Path
+from typing import NamedTuple
 
 from startup.lib.docker_ops import compose_exec, compose_port, DockerOpsError
 
@@ -97,7 +98,7 @@ def load_mysql_dump(
 
 # --- Neo4j cypher-dump parsing (pure; unit-testable without a DB) ---------------
 #
-# dump_neo4j.py emits the export as ~674k single statements: one
+# dump_neo4j.py emits the export as single statements (~914k in the 2026-10-05 seed): one
 # ``CREATE (nN:Labels:_ImportRef {props});`` per node, then a label-scoped index,
 # then one ``MATCH (a:_ImportRef {_exportId: N}) MATCH (b...) CREATE (a)-[:T props]->(b);``
 # per relationship, then a cleanup pass. Replaying that statement-by-statement
@@ -115,13 +116,42 @@ _REL_RE = re.compile(
 )
 
 
+class Temporal(NamedTuple):
+    """A temporal property as dump_neo4j.py writes it: the Cypher function (``date``, ``datetime``,
+    ``localdatetime``, ``time``, ``localtime``, ``duration``) and its ISO 8601 argument."""
+
+    fn: str
+    iso: str
+
+
+_TEMPORAL_CALL = re.compile(r'(localdatetime|datetime|localtime|date|time|duration)\("((?:[^"\\]|\\.)*)"\)')
+_TEMPORAL_KEY = "\x00temporal"
+
+
+def driver_value(value):
+    """A parsed property value as the bolt driver should send it: a ``Temporal`` becomes the matching
+    ``neo4j.time`` type (nanoseconds and offsets kept), lists are converted element by element."""
+    if isinstance(value, Temporal):
+        import neo4j.time as nt  # lazy: only needed when actually seeding
+
+        cls = {"date": nt.Date, "datetime": nt.DateTime, "localdatetime": nt.DateTime,
+               "time": nt.Time, "localtime": nt.Time, "duration": nt.Duration}[value.fn]
+        return cls.from_iso_format(value.iso)
+    if isinstance(value, list):
+        return [driver_value(v) for v in value]
+    return value
+
+
 def _cypher_map_to_dict(s: str) -> dict:
     """Convert a Cypher map literal (incl. surrounding ``{}``) to a dict.
 
     Walks the string so backtick-quoted keys become JSON keys while backticks
     inside double-quoted string values are left untouched. dump_neo4j.py's
-    ``_escape`` emits JSON-compatible values; ``strict=False`` tolerates literal
-    control characters (e.g. tabs) inside strings that it does not escape.
+    ``_escape`` emits JSON-compatible values plus one non-JSON form, a temporal
+    function call such as ``datetime("2026-10-04T03:04:24.367000000+00:00")``;
+    outside a string that call becomes a ``Temporal`` (see ``driver_value``).
+    ``strict=False`` tolerates literal control characters (e.g. tabs) inside
+    strings that it does not escape.
     """
     out: list[str] = []
     i = 0
@@ -145,10 +175,16 @@ def _cypher_map_to_dict(s: str) -> dict:
             j = s.index("`", i + 1)
             out.append(json.dumps(s[i + 1:j]))  # backtick-quoted key -> JSON key
             i = j + 1
+        elif (m := _TEMPORAL_CALL.match(s, i)) is not None:
+            out.append(json.dumps({_TEMPORAL_KEY: m.group(1), "iso": m.group(2)}))
+            i = m.end()
         else:
             out.append(c)
             i += 1
-    return json.loads("".join(out), strict=False)
+    return json.loads(
+        "".join(out), strict=False,
+        object_hook=lambda d: Temporal(d[_TEMPORAL_KEY], d["iso"]) if _TEMPORAL_KEY in d else d,
+    )
 
 
 def parse_neo4j_cypher_dump(text: str) -> tuple[dict[str, list[dict]], dict[str, list[dict]]]:
@@ -209,6 +245,15 @@ def load_neo4j_dump(
 
     text = gzip.decompress(gz_path.read_bytes()).decode()
     nodes_by_labels, rels_by_type = parse_neo4j_cypher_dump(text)
+    # Turn every Temporal into its driver type BEFORE the first write, in place: a value that cannot convert
+    # fails here with nothing written, as an unparseable statement does, never with half a graph loaded
+    # (which the next install would then skip as already populated).
+    for props in [r for rows in nodes_by_labels.values() for r in rows] + [
+        r["props"] for rows in rels_by_type.values() for r in rows
+    ]:
+        for k, v in props.items():
+            if isinstance(v, (Temporal, list)):
+                props[k] = driver_value(v)
     bolt_port = compose_port("neo4j", 7687, repo_root, env)
     driver = GraphDatabase.driver(
         f"bolt://localhost:{bolt_port}", auth=("neo4j", neo4j_password)

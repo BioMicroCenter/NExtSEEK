@@ -466,12 +466,13 @@ WRITERS: tuple[Writer, ...] = (
            note="the data-file proxy, split out of inventory WR-09: the assay_assets rows it makes link a data "
                 "file to an assay, and the graph reads only a sample's"),
     Writer(id="WR-31",
-           sites=("startup/seed/regenerate/dump_neo4j.py::main",),
+           sites=("startup/seed/regenerate/dump_neo4j.py::main",
+                  "startup/seed/regenerate/refresh/box/graph_export.py::main"),
            tables=(),
            how=("cypher",),
            reconcile="RECONCILE_INSTALL",
-           note="the seed dump regenerator writes the Cypher file WR-18 installs; it reads a live graph and "
-                "writes no graph of its own"),
+           note="the seed dump regenerator and the refresh kit's on-box exporter write the Cypher file WR-18 "
+                "installs; they read a live graph and write no graph of their own"),
     Writer(id="WR-32",
            sites=("NessieAI/chat_nextseek/src/chat_nextseek/cypher_scope.py::<module>",),
            tables=(),
@@ -501,15 +502,26 @@ WRITERS: tuple[Writer, ...] = (
                 "outbox rows in its transaction (after the commit when refused), and so does its undo; rollback "
                 "deletes the SOP links a clone copied (Sop rows, which the graph does not read) before it deletes "
                 "the clone"),
+    Writer(id="WR-34",
+           sites=("startup/seed/regenerate/refresh/graph.py::load",
+                  "startup/seed/regenerate/refresh/graph.py::load.flush_nodes",
+                  "startup/seed/regenerate/refresh/graph.py::load.flush_rels",
+                  "startup/seed/regenerate/refresh/graph.py::kill.batched"),
+           tables=(),
+           how=("cypher",),
+           reconcile="RECONCILE_INSTALL",
+           note="the seed refresh kit loads a box's graph copy into a throwaway container and removes nodes there; "
+                "it never touches a stack's graph, and what it leaves is dumped into the seed WR-18 installs"),
 )
 
 
 # Sites where the scan can see a write but not which table it is on, because the
 # table name is built at run time. None of them is a writer of its own: each is a
 # generic record layer a declared writer above calls, or a write to a table the
-# graph does not read. The gate diffs this list against the scan too, so a new
+# graph does not read, or (the seed refresh kit) an operator tool that writes only a
+# throwaway copy. The gate diffs this list against the scan too, so a new
 # module writing SQL through a variable table name fails until somebody says which
-# of the two it is.
+# of these it is.
 UNRESOLVED_SITES: tuple[str, ...] = (
     # The generic record layers. The caller holds the table name, and the caller's
     # own site is declared above: this is where WR-06, WR-12, WR-13, WR-14 and
@@ -545,6 +557,12 @@ UNRESOLVED_SITES: tuple[str, ...] = (
     # Batch upload's own outbox row, written on the batch's connection inside the
     # batch's transaction. The table is graph_sync's, not a graph source.
     "nextseek_api/batch_upload/insert.py::enqueue_samples_outbox",
+    # The seed refresh kit (WR-34's MySQL half): kill sets and needles in its own work schema, and DELETEs on a
+    # throwaway copy of a box's databases, never a stack's. What survives is dumped into the seeds WR-18 installs.
+    "startup/seed/regenerate/refresh/kill.py::add",
+    "startup/seed/regenerate/refresh/kill.py::execute",
+    "startup/seed/regenerate/refresh/kill.py::execute.run_batched",
+    "startup/seed/regenerate/refresh/search.py::capture",
 )
 
 
