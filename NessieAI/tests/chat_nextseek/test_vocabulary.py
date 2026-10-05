@@ -94,7 +94,7 @@ def ns_turn(monkeypatch, tmp_path):
         calls["entity"] += 1
         return EntityAgentOutput(keywords=["mice"])
 
-    def parser(session, config, text, entity_result):
+    def parser(session, config, text, entity_result, decision=None):
         calls["parser"].append(entity_result)
         return ParserPlan()
 
