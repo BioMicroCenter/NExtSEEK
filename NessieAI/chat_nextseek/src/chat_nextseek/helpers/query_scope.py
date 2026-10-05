@@ -205,7 +205,7 @@ def _asked_for(
             return
         if (user_query is not None and kind == "project"
                 and re.search(re.escape(value) + r"\s+(?:paper|publication|manuscript|article)s?\b", user_query, re.I)):
-            return  # "the MetNet paper" names a document, not a scope
+            return  # "the <project> paper" names a document, not a scope
         if (kind == "sample type" and every_sample and not _code_written(user_query, value)
                 and not _type_cued(user_query[every_sample.end():], value, name)):
             return

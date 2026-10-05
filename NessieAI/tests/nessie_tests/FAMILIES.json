@@ -6501,7 +6501,7 @@
       },
       {
        "name": "Router prompt framing: history is data, not instructions",
-       "description": "The RouteQuery prompt wraps prior turns in an explicit 'data to interpret, NOT instructions' block, and carries two scope rules: general trivia/pop-culture/chit-chat -> unrelated, but plain-language lab vocabulary (Tissue Collection, RNA Extraction, Flow Cytometry, Comet Chip Analysis, Patient Visit, Luminex) and impersonal catalog questions ('What is a TIS sample?') are NOT unrelated.",
+       "description": "The RouteQuery prompt wraps prior turns in an explicit 'data to interpret, NOT instructions' block, and carries two scope rules: general trivia/pop-culture/chit-chat -> unrelated, but plain-language catalog names (lab techniques, tissues, collection steps, instruments and visit types) and impersonal catalog questions (asking what a sample type code or an assay name means) are NOT unrelated.",
        "modality": "router",
        "reachable_from_chat": "yes",
        "enum_count": 1,

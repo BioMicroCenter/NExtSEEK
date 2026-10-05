@@ -180,7 +180,7 @@ get_capabilities: User wants to understand what the system can do in general.
 Examples: "What can you do?", "What kinds of questions can I ask?", "Do you support X?", "What's the difference between graph search and API search?", "What is NExtSEEK?", "How is the data organized?"
 
 get_entities: User is asking about a specific catalog item, such as an assay, sample type, project, or study, not trying to search for samples.
-Examples: "Tell me about the SRS assay", "What is a TIS sample?", "Explain the RaDr assay.", "What is the Kamm project?", "What's the NIH Reporter link for MetNet?"
+Examples: asking about or to explain an assay by name, asking what a sample type code means, asking what a project is or to explain it by name, asking for a project's NIH Reporter link.
 Key signal: entity agent will have resolved the mentioned entity to a catalog code.
 
 get_searches: User is asking what search capabilities exist, what endpoints are available, or what graph relationships can be queried.

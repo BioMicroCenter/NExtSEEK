@@ -8,7 +8,8 @@ v2_apoc remains a variant, and it adds one appended section to the graph agent a
 The worked examples were each run read-only against the local 1.2 graph when the prompt was written. One of them is
 here because running it caught a trap: a path and an assay test on the same edge in one MATCH pattern. Cypher never
 matches one relationship twice in a pattern, so "mice with a descendant that underwent Tissue Collection" returned 45
-mice instead of 5,699. The assay test now sits in its own nested EXISTS, and a test below keeps it there.
+mice instead of 5,699. The assay test now sits on a one-hop edge in its own MATCH, apart from the path, and a test
+below keeps it there.
 """
 
 import json
