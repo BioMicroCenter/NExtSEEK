@@ -83,7 +83,8 @@ from .helpers import (
     matched_nothing,
     tool_neo4j_query,
 )
-from .graph_retry import RETRY_CHANGED_ANSWER_NOTE, zero_row_retry_context
+from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, normalized_cypher, timed_out, timeout_retry_context,
+                          zero_row_retry_context)
 from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
@@ -1099,8 +1100,14 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         _graph_attempt(graph_plan.cypher, graph_result, "initial", elapsed_ms=kept_ms)]
     first_ok_empty = matched_nothing(graph_result)
     zero_row_retry_used = False
+    # Statements Neo4j stopped for time this turn. A repeat is never sent, and a second timeout ends the loop.
+    timed_out_statements: set[str] = set()
+    if timed_out(graph_result):
+        timed_out_statements.add(normalized_cypher(graph_plan.cypher))
 
     for _ in range(GRAPH_MAX_TRIES - 1):
+        if len(timed_out_statements) >= 2:
+            break
         if is_scope_refusal(graph_result):
             # Final: another model call can only write another query the prover cannot
             # prove. The graph turn falls back to graph_search.
@@ -1108,11 +1115,14 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         if not graph_result.get("ok"):
             neo4j_error = graph_result.get("error", "Unknown error")
             print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
-            retry_ctx = (
-                f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
-                "Revisit the schema carefully - check property types, relationship directions, "
-                "and graph_topology - then generate a corrected query."
-            )
+            if timed_out(graph_result):
+                retry_ctx = timeout_retry_context(graph_plan.cypher)
+            else:
+                retry_ctx = (
+                    f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
+                    "Revisit the schema carefully - check property types, relationship directions, "
+                    "and graph_topology - then generate a corrected query."
+                )
             reason = "cypher_error"
         elif matched_nothing(graph_result) and not zero_row_retry_used:
             zero_row_retry_used = True
@@ -1130,11 +1140,16 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         )
         if not graph_plan_retry.cypher:
             break
+        if normalized_cypher(graph_plan_retry.cypher) in timed_out_statements:
+            attempts.append(_graph_attempt(graph_plan_retry.cypher, graph_result, "repeat_of_timeout", elapsed_ms=0))
+            break
         retry_parameters = _bind_parameters(graph_plan_retry, parameters_extra)
         t_query = time.perf_counter()
         retry_result = tool_neo4j_query(config, graph_plan_retry.cypher, retry_parameters)
         retry_ms = _ms_since(t_query)
         attempts.append(_graph_attempt(graph_plan_retry.cypher, retry_result, reason, elapsed_ms=retry_ms))
+        if timed_out(retry_result):
+            timed_out_statements.add(normalized_cypher(graph_plan_retry.cypher))
         # Keep the retry only when it is an improvement. A retry that errors, or that
         # also finds nothing after a zero-row first attempt, leaves the original alone.
         if not retry_result.get("ok"):
