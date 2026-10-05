@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from .. import graph_catalog, system_tools
+from ..chat_memory import history_block, recent_turns
 from ..config import ChatConfig
 from ..context_rows import is_investigation_row, is_project_row
 from ..llm_clients import without_reasoning_blocks
@@ -87,9 +88,11 @@ def _caller_text(config) -> str:
         caller = {**caller, "projects": "(could not be read)", "project_count": "(could not be read)"}
     return json.dumps(caller, indent=2, default=str)
 
+LAST_ANSWER_CAP = 3000
+
 
 def build_messages(config: ChatConfig, user_query: str, entity_dict: dict, plan_dict: dict,
-                   pages: dict | None = None) -> list[dict]:
+                   pages: dict | None = None, session=None) -> list[dict]:
     """The system agent's context. The ``system`` blocks are the same for every question (the cached head:
     prompt, capabilities, endpoints, the catalog and docs indexes); the ``user`` blocks are this question's,
     CALLER among them: it differs per user, so it never goes in the cached head."""
@@ -140,6 +143,16 @@ def build_messages(config: ChatConfig, user_query: str, entity_dict: dict, plan_
         schema_json = json.dumps(committed, indent=2) if committed else "{}"
     entity_details_json = json.dumps(entity_details, indent=2) if entity_details else "{}"
 
+    # This session's earlier turns and the full last reply (the log keeps only a 280-char preview), as user
+    # blocks so the cached head is untouched. A fresh session adds nothing.
+    memory = []
+    history = history_block(session)
+    if history:
+        memory.append({"role": "user", "content": history})
+        last = ((recent_turns(session, 1) or [{}])[-1].get("assistant_reply") or "")[:LAST_ANSWER_CAP]
+        if last:
+            memory.append({"role": "user", "content": f"LAST_ANSWER (your previous reply in full):\n{last}"})
+
     # The catalogs are an index here, not every row in full: get_catalog_entry and list_catalog read the rows.
     return [
         {"role": "system", "content": config.SYSTEM_AGENT_SYSTEM_PROMPT},
@@ -152,6 +165,7 @@ def build_messages(config: ChatConfig, user_query: str, entity_dict: dict, plan_
         {"role": "user", "content": f"ENTITY_DETAILS (full catalog data for resolved entities):\n{entity_details_json}"},
         {"role": "user", "content": f"CALLER:\n{_caller_text(config)}"},
         {"role": "user", "content": f"PARSER_INTENT:\n{json.dumps(plan_dict, indent=2)}"},
+        *memory,
         {"role": "user", "content": f"QUESTION:\n{user_query}"},
     ]
 
@@ -216,6 +230,7 @@ def system_agent(
     user_query: str,
     entity_result: EntityAgentOutput | dict,
     parser_plan: ParserPlan | dict,
+    session=None,
 ) -> SystemAgentOutput:
     """
     Answer meta questions about the system: capabilities, catalog entity details, search options, and how to
@@ -230,7 +245,7 @@ def system_agent(
     plan_dict = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else (parser_plan or {})
 
     pages = system_tools.load_docs(getattr(config, "DOCS_DIR", None))
-    blocks = build_messages(config, user_query, entity_dict, plan_dict, pages)
+    blocks = build_messages(config, user_query, entity_dict, plan_dict, pages, session)
     system = "\n\n".join(b["content"] for b in blocks if b["role"] == "system")
     messages: list[dict] = [
         {"role": "user", "content": "\n\n".join(b["content"] for b in blocks if b["role"] == "user")}
@@ -240,7 +255,7 @@ def system_agent(
     # the catalog rows get_catalog_entry returns (review F7). The indexes and the schema are not evidence.
     caller_text = _caller_text(config)
     evidence: list[str] = [user_query, caller_text]
-    evidence += [b["content"] for b in blocks if b["role"] == "user" and b["content"].startswith("ENTITY_DETAILS")]
+    evidence += [b["content"] for b in blocks if b["role"] == "user" and b["content"].startswith(("ENTITY_DETAILS", "CHAT_HISTORY", "LAST_ANSWER"))]
     retried = False
 
     sys_client, sys_model, sys_budget = config.get_agent_model(SYSTEM_AGENT_KEY)
