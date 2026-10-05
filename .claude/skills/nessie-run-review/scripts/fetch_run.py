@@ -150,7 +150,7 @@ DEBUG = r"JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.debug'),"
 REMOTE = r"""
 set -u
 PW=$(docker exec {dbc} sh -c 'echo $MYSQL_ROOT_PASSWORD')
-q() {{ docker exec {dbc} mysql -uroot -p"$PW" {db} -N --raw "$@" 2>/dev/null; }}
+q() {{ docker exec {dbc} mysql -uroot -p"$PW" --default-character-set=utf8mb4 {db} -N --raw "$@" 2>/dev/null; }}
 
 echo "@@@MANIFEST@@@"
 docker exec {app} cat {manifest} 2>/dev/null || echo "MISSING"
@@ -215,7 +215,7 @@ q -e "SELECT JSON_OBJECT(
 RAW = r"""
 set -u
 PW=$(docker exec {dbc} sh -c 'echo $MYSQL_ROOT_PASSWORD')
-docker exec {dbc} mysql -uroot -p"$PW" {db} -N --raw -e "SELECT JSON_OBJECT(
+docker exec {dbc} mysql -uroot -p"$PW" --default-character-set=utf8mb4 {db} -N --raw -e "SELECT JSON_OBJECT(
         'id', id, 'task_uuid', task_id, 'session', session_id, 'user_id', user_id,
         'query', query, 'status', status,
         'created', CAST(created_at AS CHAR), 'updated', CAST(updated_at AS CHAR),
@@ -265,7 +265,7 @@ def run_remote(host: str, user: str, script: str) -> str:
     )
     if proc.returncode != 0:
         sys.exit(f"remote command failed ({proc.returncode}): {proc.stderr.decode(errors='replace')[:500]}")
-    # Query text can carry non-UTF8 bytes (a latin-1 em dash shows up in the corpus).
+    # mysql is asked for utf8mb4, so the pull is UTF-8; errors="replace" is only a backstop for stray bytes.
     return proc.stdout.decode("utf-8", errors="replace")
 
 

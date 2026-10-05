@@ -111,6 +111,9 @@ The password is read from the container, never hard-coded:
 PW=$(docker exec seek-mysql sh -c 'echo $MYSQL_ROOT_PASSWORD')
 ```
 
+When running `mysql` by hand, pass `--default-character-set=utf8mb4` (as in
+`docker exec seek-mysql mysql -uroot -p"$PW" --default-character-set=utf8mb4 dmac -N --raw -e "..."`), or non-ASCII text arrives garbled.
+
 ### Reaching the debug object
 
 `progress` is TEXT holding JSON, and MySQL casts implicitly inside JSON functions.
