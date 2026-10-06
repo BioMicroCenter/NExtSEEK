@@ -83,7 +83,7 @@ when its rule lands. Paths are relative to `--outdir`, taken from each
 pipeline's `conf/modules.config` at the release in its map's
 `applies_to_versions`. differentialabundance rows give both layouts: 1.4 and
 1.5 publish flat, and 2.0.0 adds a `<paramset>/` folder, shown as
-`[<paramset>/]`; its map covers only 1.x so far. "Unconfirmed" means the docs
+`[<paramset>/]`; its map covers both. "Unconfirmed" means the docs
 and the code disagree, or neither names the file exactly: check a real run
 before writing the rule.
 
@@ -92,8 +92,9 @@ What blocks each row:
 - **ready**: in the inventory, with a fitting type. Only the rule is missing.
 - **inventory**: needs a pattern in `harvest.INVENTORY_GLOBS` first.
 - **type**: no sample type means what the file holds; a schema request.
-- **per contrast**: one file per contrast. A rule is `per_sample` or `per_run`
-  only, so one row would stand for every contrast.
+- **per contrast**: one file per contrast. A `per_file` rule gives each its own
+  row (with `@contrast` for the id), so this no longer blocks on its own; the
+  row still needs its other blockers cleared.
 - **parent**: the parent is an analysis sample (the input matrix's `A.GEX`),
   which the parent lookup cannot reach; it finds only the samplesheet's own files.
 - **choice**: a decision on whether, or which of several, to register.
@@ -104,13 +105,13 @@ What blocks each row:
 | denovotranscript | `evigene/okayset/all_assembled.okay.aa` (its proteins) | none | type, inventory |
 | denovotranscript | `trinity/pooled_reads.fa.gz`, `rnaspades/pooled_reads.transcripts.fa.gz` (assemblies before redundancy reduction) | none | type, inventory, choice |
 | denovotranscript | `tx2gene/*tx2gene.tsv` (unconfirmed name), as secondary data to `quant.sf` | A.GEX | inventory |
-| differentialabundance | `tables/differential/<paramset>/<contrast>.{deseq2,limma,dream}.results.tsv` (2.0.0 only; the 1.x deseq2 and limma tables are `per_file` rules with `Contrast`) | A.GEX | inventory, parent |
-| differentialabundance | `tables/differential/<contrast>.deseq2.results_filtered.tsv` (1.5+, a subset of the results table) | A.GEX | choice |
-| differentialabundance | `tables/processed_abundance/<paramset>/all.normalised_counts.tsv` (2.0.0 only; the 1.x flat path has its rule) | A.GEX | parent |
-| differentialabundance | `tables/processed_abundance/[<paramset>/]all.{vst,rlog}.tsv` (which one follows `--deseq2_vs_method`) | A.GEX | inventory, parent, choice: a second A.GEX per run |
-| differentialabundance | `other/deseq2/[<paramset>/]<contrast>.dds.rld.rds`; its `.dds.rld.rds` suffix also misses the `deseq2_dds_rdata` named output | A.GEX | per contrast, parent |
-| differentialabundance | `other/limma/[<paramset>/]<contrast>.MArrayLM.limma.rds` | A.GEX | per contrast, parent |
-| differentialabundance | `report/<paramset>/<study>_differentialabundance_report.html` (2.0.0 only; the 1.x `report/<study>.html` is linked as `Link_QualityControl`) | A.GEX link | inventory, parent |
+| differentialabundance | `tables/differential/[<paramset>/]<contrast>.deseq2.results_filtered.tsv` (1.5+, a subset of the results table) | A.GEX | choice |
+| differentialabundance | `tables/differential/<paramset>/<contrast>_<study>_<method>.annotated.tsv` (2.0.0: the results joined to gene annotation) | A.GEX | choice |
+| differentialabundance | `other/dream/<paramset>/<contrast>_<study>.dream.model.txt`, and each method's `*.model.txt` | A.GEX | inventory, choice |
+| differentialabundance | the upstream counts matrix as `Parent` (`@upstream_parent`, by checksum): wired, but no checksum is taken, because `params.matrix` sits in the upstream run's folder and the stage script reads nothing outside `run_dir`. Rows keep the sequencing samples as parents | A.GEX | a ruling on hashing that one file |
+| differentialabundance | `MethodSettings` on 2.0.0 rows: each paramset has its own settings, which the run's params do not hold, so the field is blank there | A.GEX | inventory: the paramsets file |
+| differentialabundance | contrast direction on runs whose contrasts file is in the launch folder (every run before `--outdir .` launches): left blank | A.GEX | a curator fills it |
+| differentialabundance | non-RNA-seq study types (`--study_type affy_array`, `geo_soft_file`, `maxquant`) are named in `Notes`; their `*.matrix.tsv` normalised matrix has no rule, maxquant's results are protein abundance filed as A.GEX, and their samplesheets name no FASTQ, so no parent resolves | A.GEX, other | type, parent |
 | hlatyping | `optitype/<sample>/<sample>_result.tsv` (unconfirmed name) | none (HLA genotype) | type, inventory |
 | hlatyping | `hlahd/<sample>/<sample>_final.result.txt` (only with `--tools hlahd`) | none (HLA genotype) | type, inventory |
 | hlatyping | `yara/<sample>/<sample>.mapped.bam`, or `<sample>_1`/`_2.mapped.bam` when paired | A.ALN? | choice: HLA-only reference, and two BAMs per paired sample |
@@ -145,6 +146,8 @@ What blocks each row:
 | smrnaseq | `genome_quant/bam/*.bam`, `mirna_quant/bam/{hairpin,mature,seqcluster}/*.bam` (only with `--save_intermediates`; `.csi` index) | A.ALN | choice; the `.csi` is not inventoried |
 | smrnaseq | `mirdeep2/**/result_*.csv` (novel miRNA calls) | none | type, inventory |
 | all | A.VCF rows link no assay where the house assay "Variant Calling Analysis" does not exist | A.VCF | a house assay to create |
+
+Ruled out on purpose, so not on the list above: differentialabundance's `all.vst.tsv` / `all.rlog.tsv` (regenerated from the normalised counts), its plots, Shiny app, `*.sizefactors.tsv` and session logs.
 
 ## Filling in a stub
 

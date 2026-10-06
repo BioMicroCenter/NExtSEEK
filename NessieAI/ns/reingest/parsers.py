@@ -111,6 +111,57 @@ def parse_samplesheet(text: str) -> list[dict[str, str]]:
     return [dict(row) for row in csv.DictReader(io.StringIO(text))]
 
 
+_CONTRAST_FIELDS = ("variable", "reference", "target", "blocking")
+
+
+def parse_contrasts(text: str, filename: str) -> dict[str, dict[str, str]]:
+    """An nf-core/differentialabundance contrasts file -> {contrast id: direction}.
+
+    Each value is {variable, reference, target, blocking}: the samplesheet
+    column compared, the baseline group, the group compared against it (a
+    positive log2 fold change means higher in the target), and the extra
+    variables modelled alongside, ";"-joined. The format follows the file's
+    extension, as the pipeline's own ``--contrasts`` does:
+
+    - ``.csv`` / ``.tsv`` (1.x and 2.0.0): columns ``id, variable, reference,
+      target`` and an optional ``blocking``, already ";"-delimited.
+    - ``.yml`` / ``.yaml`` (2.0.0): a ``contrasts`` list whose entries give
+      ``comparison: [variable, reference, target]`` and ``blocking_factors``. A
+      formula contrast (``formula`` + ``make_contrasts_str``) states no single
+      reference or target, so its fields stay "" rather than being guessed.
+
+    A file without those columns (or that list) is not a contrasts file: {}.
+    """
+    blank = dict.fromkeys(_CONTRAST_FIELDS, "")
+    name = filename.lower()
+    if name.endswith((".yml", ".yaml")):
+        doc = yaml.safe_load(text) or {}
+        entries = doc.get("contrasts") if isinstance(doc, dict) else None
+        out: dict[str, dict[str, str]] = {}
+        for entry in entries if isinstance(entries, list) else []:
+            if not isinstance(entry, dict) or not entry.get("id"):
+                continue
+            fields = dict(blank)
+            comparison = entry.get("comparison")
+            if isinstance(comparison, list) and len(comparison) == 3:
+                fields.update(zip(("variable", "reference", "target"),
+                                  (str(v).strip() for v in comparison)))
+                blocking = entry.get("blocking_factors") or []
+                if isinstance(blocking, list):
+                    fields["blocking"] = ";".join(str(b).strip() for b in blocking)
+            out[str(entry["id"]).strip()] = fields
+        return out
+    delimiter = "\t" if name.endswith(".tsv") else ","
+    rows = list(csv.DictReader(io.StringIO(text), delimiter=delimiter))
+    if not rows or not {"id", "variable", "reference", "target"} <= set(rows[0]):
+        return {}
+    return {
+        (row.get("id") or "").strip(): {
+            field: (row.get(field) or "").strip() for field in _CONTRAST_FIELDS}
+        for row in rows if (row.get("id") or "").strip()
+    }
+
+
 def parse_general_stats(text: str) -> dict[str, dict[str, float | str]]:
     """multiqc_general_stats.txt -> {sample: {column: value}}.
 

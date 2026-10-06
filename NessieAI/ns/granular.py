@@ -891,9 +891,15 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
             # the remote INVENTORY_GLOBS listing -- harvest_local never sees
             # `run_dir` (the real cluster directory) itself, only `staged`, so
             # it cannot gather that listing on its own.
+            # `upstream_matrix_checksum` stays unset: the input matrix of a
+            # downstream run (differentialabundance's params.matrix) sits in
+            # the upstream run's folder, outside this run_dir, and the stage
+            # script reads nothing outside run_dir. Until hashing that one
+            # file is allowed, rows keep the sequencing samples as parents.
             run_manifest = harvest.harvest_local(
                 staged, run_dir=run_dir, lookup_by_fastq=_d_seq_by_fastq,
-                sample_type_lookup=_sample_types_for_uids, inventory=inventory)
+                sample_type_lookup=_sample_types_for_uids, inventory=inventory,
+                lookup_gex_by_checksum=_gex_by_checksum)
     finally:
         try:
             os.remove(key_path)
@@ -1203,6 +1209,13 @@ def _d_seq_by_fastq(path: str, types: tuple[str, ...] = ("D.SEQ",)) -> list[str]
     return uids_by_primary_data(path, types=types)
 
 
+def _gex_by_checksum(checksum: str) -> list[str]:
+    """UIDs of the registered A.GEX whose Checksum_PrimaryData is ``checksum``:
+    how a downstream run's input matrix finds the analysis it came from."""
+    from nextseek_api.services.reingest_lookups import gex_uids_by_checksum
+    return gex_uids_by_checksum(checksum)
+
+
 def _sample_types_for_uids(uids: list[str]) -> dict[str, str]:
     """The SampleType title per resolved parent UID, for the QC backfill.
 
@@ -1458,8 +1471,13 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
     # Parent target (mapper.py only ever sets Parent from one of these -- see
     # its _HAS_PARENT set) -- qa_rows' new-mode Parent-resolvability check
     # needs this cohort or every new-mode row's Parent would fail resolution
-    # against an empty set and hard-reject the whole batch.
+    # against an empty set and hard-reject the whole batch. The upstream A.GEX
+    # a downstream run's input matrix resolved to (mapper's @upstream_parent)
+    # is the other Parent a map may set, and is just as legitimate.
     existing_parent_uids = {s.d_seq_uid for s in run_manifest.samples if s.d_seq_uid}
+    upstream_uid = (run_manifest.upstream_matrix or {}).get("uid")
+    if upstream_uid:
+        existing_parent_uids.add(upstream_uid)
 
     out_root = outputs_dir or os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs"
 

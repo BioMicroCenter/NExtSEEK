@@ -567,6 +567,12 @@ def test_stage_run_dir_skips_the_real_multiqc_report_glob_reached_through_a_syml
     "tables/processed_abundance/all.normalised_counts.tsv",  # nf-core/differentialabundance 1.x
     "tables/differential/LPS_vs_Ctrl.deseq2.results.tsv",    # its per-contrast DESeq2 results
     "tables/differential/KO_vs_WT.limma.results.tsv",        # its per-contrast limma results
+    # differentialabundance 2.0.0 puts each under a <paramset>/ folder, and adds dream
+    "tables/processed_abundance/rnaseq_dream/all.normalised_counts.tsv",
+    "tables/differential/rnaseq_deseq2/treatment_SRP254919.deseq2.results.tsv",
+    "tables/differential/rnaseq_limma/treatment_SRP254919.limma.results.tsv",
+    "tables/differential/rnaseq_dream/treatment_SRP254919.dream.results.tsv",
+    "report/rnaseq_dream/SRP254919_differentialabundance_report.html",
 ])
 def test_stage_run_dir_inventories_the_outputs_the_stub_maps_name(tmp_path, monkeypatch, rel_path):
     """Each path is a deliverable a committed map rule (or a named output)
@@ -719,9 +725,12 @@ def _patch_harvest(monkeypatch, *, failed=0, tmp_manifest_dir):
     seen: dict = {}
 
     def fake_harvest_local(root, *, lookup_by_fastq=None, sample_type_lookup=None,
-                           inventory=None, run_dir=None):
+                           inventory=None, run_dir=None, upstream_matrix_checksum=None,
+                           lookup_gex_by_checksum=None):
         seen["lookup_by_fastq"] = lookup_by_fastq
         seen["sample_type_lookup"] = sample_type_lookup
+        seen["lookup_gex_by_checksum"] = lookup_gex_by_checksum
+        seen["upstream_matrix_checksum"] = upstream_matrix_checksum
         return manifest_mod.RunManifest(
             run_dir=run_dir if run_dir is not None else root,
             execution=manifest_mod.ExecutionInfo(processes=3, failed=failed, non_terminal=0),
@@ -749,6 +758,10 @@ def test_run_harvest_passes_both_lookups_through(monkeypatch, tmp_path):
               _Cfg(), None, None, None, None)
     assert seen["lookup_by_fastq"] is g._d_seq_by_fastq
     assert seen["sample_type_lookup"] is g._sample_types_for_uids
+    assert seen["lookup_gex_by_checksum"] is g._gex_by_checksum
+    # No checksum of an upstream matrix is taken yet: that file sits outside
+    # run_dir, and the stage script reads nothing outside run_dir.
+    assert seen["upstream_matrix_checksum"] is None
 
 
 def test_run_harvest_refuses_a_failed_run_without_the_override(monkeypatch, tmp_path):

@@ -4,7 +4,7 @@
     "generated_by": "nextseek_api.services.reingest_lookups.known_sample_types() and attributes_for(), which read Sample_types_context via nextseek_api.services.context_catalog.load_sample_type(s)",
     "generated_from": "the running 'nextseek' docker compose service (image nextseek-nextseek:latest), against that instance's own NExtSEEK database",
     "hand_edits": [
-      "A.GEX: 'Contrast' added by hand with context/sample_types.json, before any database held it (the context review gate). Regenerate from a database that has it to replace this note."
+      "A.GEX: 'Contrast', 'ContrastVariable', 'ContrastReference', 'ContrastTarget', 'Paramset' and 'MethodSettings' added by hand with context/sample_types.json, before any database held them (the context review gate). Regenerate from a database that has them to replace this note."
     ],
     "note": "manage.py shell prints a banner line (e.g. \"N objects imported automatically\") before the JSON on some instances; strip everything before the first '{' when piping to a file. Contains only SampleType codes and attribute titles (schema field names) -- no user, project, or path data. Snapshots EVERY sample type known_sample_types() returns, not a hardcoded subset, so a future map targeting a sample type outside the original seven maps tasks 2/8 covered is still checked against something real.",
     "purpose": "Snapshot of every SampleType attribute known to the NExtSEEK sample-type catalog, for NessieAI/tests/ns/reingest/test_map_contract.py. CI has no populated database, so this fixture stands in for a live nextseek_api.services.reingest_lookups.attributes_for() lookup.",
@@ -320,6 +320,9 @@
       "Checksum_PrimaryData",
       "Checksum_PrimaryType",
       "Contrast",
+      "ContrastReference",
+      "ContrastTarget",
+      "ContrastVariable",
       "DESeqFile",
       "DESeqFile_Link",
       "DataType",
@@ -336,8 +339,10 @@
       "MatrixDataType",
       "Metadata",
       "MetadataDataType",
+      "MethodSettings",
       "Name",
       "Notes",
+      "Paramset",
       "Parent",
       "Pipeline",
       "PipelineVersion",

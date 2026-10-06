@@ -235,3 +235,45 @@ def test_nextflow_report_verdicts_are_classified(sentence, kind):
     # one means a task FAILED AND WAS IGNORED, not that a retry happened:
     # retries never trigger it.
     assert parsers.classify_run_verdict(sentence) == kind
+
+
+# --- nf-core/differentialabundance contrasts files: the direction of every
+# contrast (which group is the reference). CSV/TSV in 1.x and 2.0.0, YAML in
+# 2.0.0, where a formula-based contrast has no single reference or target. ---
+
+def test_parse_contrasts_reads_the_csv_columns():
+    got = parsers.parse_contrasts(
+        "id,variable,reference,target,blocking\n"
+        "LPS_vs_Ctrl,Condition,Ctrl,LPS,Donor\n"
+        "MUC2_vs_Ctrl,Condition,Ctrl,MUC2,\n", "250818Rib_contrasts.csv")
+    assert got == {
+        "LPS_vs_Ctrl": {"variable": "Condition", "reference": "Ctrl", "target": "LPS", "blocking": "Donor"},
+        "MUC2_vs_Ctrl": {"variable": "Condition", "reference": "Ctrl", "target": "MUC2", "blocking": ""},
+    }
+
+
+def test_parse_contrasts_reads_a_tsv():
+    got = parsers.parse_contrasts("id\tvariable\treference\ttarget\nKO_vs_WT\tgenotype\tWT\tKO\n",
+                                  "contrasts.tsv")
+    assert got["KO_vs_WT"]["reference"] == "WT"
+
+
+def test_parse_contrasts_reads_yaml_comparisons_and_leaves_formula_contrasts_blank():
+    got = parsers.parse_contrasts(
+        "contrasts:\n"
+        "  - id: condition_control_treated_blockrep\n"
+        "    comparison: [\"condition\", \"control\", \"treated\"]\n"
+        "    blocking_factors: [\"replicate\", \"batch\"]\n"
+        "  - id: treatment_mCherry_hND6_sample_number\n"
+        "    make_contrasts_str: \"treatmenthND6 - treatmentmCherry\"\n"
+        "    formula: \"~ 0 + treatment + sample_number\"\n", "x.contrasts.yaml")
+    assert got["condition_control_treated_blockrep"] == {
+        "variable": "condition", "reference": "control", "target": "treated",
+        "blocking": "replicate;batch"}
+    # A formula contrast states no single reference group; nothing is guessed.
+    assert got["treatment_mCherry_hND6_sample_number"] == {
+        "variable": "", "reference": "", "target": "", "blocking": ""}
+
+
+def test_a_file_that_is_not_a_contrasts_file_parses_to_nothing():
+    assert parsers.parse_contrasts("sample,fastq_1\nA,a.fq.gz\n", "samplesheet.csv") == {}

@@ -71,6 +71,12 @@ _RSEQC_INFER_EXPERIMENT_GLOB = "*/rseqc/infer_experiment/*.infer_experiment.txt"
 # named it in harvest_globs, but nothing read that field, so the file was
 # never fetched and UnalignedReads could never be produced.
 _STAR_LOG_GLOB = "*/log/*.Log.final.out"
+# nf-core/differentialabundance's contrasts file, at the run folder's top level
+# (where `--outdir .` launches keep it). A .csv one is already staged by
+# _SAMPLESHEET_GLOB; these add the .tsv and YAML forms 2.0.0 also accepts.
+# harvest_local reads only the one file params.contrasts names.
+_CONTRASTS_TSV_GLOB = "*.tsv"
+_CONTRASTS_YAML_GLOB = "*.y*ml"
 
 GENERIC_GLOBS: tuple[str, ...] = (
     _PARAMS_GLOB,
@@ -82,6 +88,8 @@ GENERIC_GLOBS: tuple[str, ...] = (
     _RSEQC_READ_DISTRIBUTION_GLOB,
     _RSEQC_INFER_EXPERIMENT_GLOB,
     _STAR_LOG_GLOB,
+    _CONTRASTS_TSV_GLOB,
+    _CONTRASTS_YAML_GLOB,
 )
 
 # Not a glob: the stage script (granular._STAGE_SCRIPT) reads Nextflow's
@@ -169,26 +177,34 @@ INVENTORY_GLOBS: tuple[str, ...] = (
     # nf-core/rnavar >=1.3 publishes its report under reports/, which the
     # pattern above (anchored at a top-level multiqc* folder) never reaches.
     "**/reports/multiqc/*multiqc_report.html",
-    # nf-core/differentialabundance 1.x's study report, report/<study>.html --
-    # named link $outputs.differentialabundance_report_html. One level only: 1.5
-    # also writes hundreds of GSEA pages deeper under report/gsea/.
+    # nf-core/differentialabundance's study report -- named link
+    # $outputs.differentialabundance_report_html. 1.x writes report/<study>.html;
+    # 2.0.0 writes report/<paramset>/<study>_differentialabundance_report.html.
+    # Never deeper: 1.5 and 2.0.0 also write hundreds of GSEA pages under report/gsea/.
     "**/report/*.html",
+    "**/report/*/*_differentialabundance_report.html",
     # Contaminant screening reports -- named link $outputs.kraken2_report.
     "**/*.kraken2.report.txt",
     # Text matrices whose names are not the rnaseq `*.merged.*` convention:
     # nf-core/smrnaseq's merged miRNA counts, Salmon's per-sample
     # quantification (one `quant.sf` per sample folder; the folder names the
     # sample -- see _sample_for_output_path), and nf-core/differentialabundance's
-    # DESeq2-normalised matrix (1.x publishes it flat, as `all.normalised_counts.tsv`)
-    # and its per-contrast results tables (`<contrast>.{deseq2,limma}.results.tsv`;
-    # 1.5's `*.results_filtered.tsv` subsets are left out).
-    # Exact names, not "*.tsv": every pipeline writes many TSVs, and the
-    # inventory count is capped.
+    # normalised matrix (`all.normalised_counts.tsv`) and per-contrast results
+    # tables (`<contrast>.{deseq2,limma,dream}.results.tsv`), which 1.x publishes
+    # flat and 2.0.0 under a `<paramset>/` folder (dream is 2.0.0 only). The
+    # `*.results_filtered.tsv` subsets and 2.0.0's `*.annotated.tsv` joins are
+    # left out. pathlib's "*" never crosses a "/", so each layout needs its own
+    # pattern. Exact names, not "*.tsv": every pipeline writes many TSVs, and
+    # the inventory count is capped.
     "**/mirna_quant/mirtop/mirna.tsv",
     "**/salmon/*/quant.sf",
     "**/processed_abundance/all.normalised_counts.tsv",
+    "**/processed_abundance/*/all.normalised_counts.tsv",
     "**/tables/differential/*.deseq2.results.tsv",
     "**/tables/differential/*.limma.results.tsv",
+    "**/tables/differential/*/*.deseq2.results.tsv",
+    "**/tables/differential/*/*.limma.results.tsv",
+    "**/tables/differential/*/*.dream.results.tsv",
 )
 
 MAX_FILE_BYTES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_FILE_BYTES", 4_000_000))
@@ -210,7 +226,9 @@ _PER_READ_ROW_PREFIXES = ("fastqc_raw-", "fastqc_trimmed-", "cutadapt-")
 
 def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
                    sample_type_lookup=None,
-                   run_dir: str | None = None) -> manifest.RunManifest:
+                   run_dir: str | None = None,
+                   upstream_matrix_checksum: str | None = None,
+                   lookup_gex_by_checksum=None) -> manifest.RunManifest:
     """`root` stays the filesystem read root -- it is where every glob below
     actually looks for files, local disk only, no SSH, no network.
 
@@ -349,6 +367,9 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     if found:
         sources["params"], text = found[0], found[1]
         out.params = parsers.parse_params(text)
+
+    _read_contrasts(out, base, read, sources, warnings)
+    _resolve_upstream_matrix(out, upstream_matrix_checksum, lookup_gex_by_checksum, warnings)
 
     found = first(_SOFTWARE_VERSIONS_GLOB) or first(_COLLATED_VERSIONS_GLOB)
     has_versions = found is not None
@@ -626,6 +647,61 @@ def _samplesheet_header(text: str) -> list[str]:
     return next(csv.reader(io.StringIO(text)), [])
 
 
+def _read_contrasts(out: manifest.RunManifest, base: Path, read,
+                    sources: dict[str, str], warnings: list[str]) -> None:
+    """Fill ``out.contrasts`` from the contrasts file ``params.contrasts`` names.
+
+    Only the run folder's top level is read (a launch with ``--outdir .``
+    keeps the file there). Older runs keep it in the launch folder above the
+    results, which the harvest never reads -- the stage script refuses any
+    path outside the run folder -- so the direction stays blank and the
+    manifest says so, instead of guessing it from a contrast id.
+    """
+    named = str((out.params or {}).get("contrasts") or "").strip()
+    if not named:
+        return
+    name = Path(named).name
+    if not (base / name).is_file():
+        warnings.append(
+            f"contrasts file {name} is not in the run folder; contrast direction "
+            "(variable, reference, target) left blank")
+        return
+    text = read(name)
+    if text is None:
+        warnings.append(f"contrasts file {name} could not be read; contrast direction left blank")
+        return
+    parsed = parsers.parse_contrasts(text, name)
+    if not parsed:
+        warnings.append(f"{name} is not a contrasts file; contrast direction left blank")
+        return
+    out.contrasts = parsed
+    sources["contrasts"] = name
+
+
+def _resolve_upstream_matrix(out: manifest.RunManifest, checksum: str | None,
+                             lookup_gex_by_checksum, warnings: list[str]) -> None:
+    """Find the registered A.GEX this run's input matrix is, by checksum.
+
+    differentialabundance computes from another run's counts matrix
+    (``params.matrix``). That file's name is the same in every nf-core/rnaseq
+    run, so only its checksum identifies it: the one A.GEX whose
+    Checksum_PrimaryData equals it is the analysis this run descends from. No
+    match, or more than one, resolves nothing and says so; rows then keep the
+    sequencing samples as parents.
+    """
+    if not checksum:
+        return
+    found = list(lookup_gex_by_checksum(checksum)) if callable(lookup_gex_by_checksum) else []
+    path = str((out.params or {}).get("matrix") or "")
+    uid = found[0] if len(found) == 1 else None
+    out.upstream_matrix = {"path": path, "checksum": checksum, "uid": uid}
+    if uid is None:
+        what = "no registered A.GEX" if not found else f"{len(found)} registered A.GEX"
+        warnings.append(
+            f"upstream matrix {Path(path).name or '(unnamed)'} matches {what} by "
+            "checksum; rows keep the sequencing samples as parents")
+
+
 def _find_samplesheet(base: Path, read) -> tuple[str, str] | None:
     """Pick the samplesheet among every `_SAMPLESHEET_GLOB` ("*.csv") match.
 
@@ -803,11 +879,17 @@ def _is_multiqc_report(name: str) -> bool:
 
 
 def _is_differentialabundance_report(rel_path: str) -> bool:
-    """nf-core/differentialabundance 1.x's report/<study>.html. Named after the
-    study, so only its place identifies it: an .html file directly inside the
-    run's top-level report/ folder, never one of 1.5's report/gsea/ pages."""
+    """nf-core/differentialabundance's study report. 1.x writes report/<study>.html,
+    named after the study, so only its place identifies it: an .html file
+    directly inside the run's top-level report/ folder. 2.0.0 writes one per
+    paramset, report/<paramset>/<study>_differentialabundance_report.html.
+    Never one of the report/gsea/ pages (1.5 and 2.0.0)."""
     parts = Path(rel_path.lower()).parts
-    return len(parts) == 2 and parts[0] == "report" and parts[1].endswith(".html")
+    if not parts or parts[0] != "report":
+        return False
+    if len(parts) == 2:
+        return parts[1].endswith(".html")
+    return len(parts) == 3 and parts[2].endswith("_differentialabundance_report.html")
 
 
 def _sample_for_output_path(rel_path: str, sample_names: list[str]) -> str | None:

@@ -1067,9 +1067,25 @@ def test_an_html_file_elsewhere_is_not_taken_for_the_differentialabundance_repor
     _minimal_run(root)
     got = harvest.harvest_local(
         str(root), inventory=[{"path": "multiqc/star_salmon/report/x.html", "bytes": 1},
-                              {"path": "pipeline_info/execution_report.html", "bytes": 1}],
+                              {"path": "pipeline_info/execution_report.html", "bytes": 1},
+                              {"path": "report/gsea/rnaseq/c1/set/index.html", "bytes": 1},
+                              {"path": "report/rnaseq_dream/other.html", "bytes": 1}],
         lookup_by_fastq=lambda p, types=None: [])
     assert "differentialabundance_report_html" not in got.named_outputs
+
+
+def test_the_differentialabundance_2_report_is_named_inside_its_paramset_folder(tmp_path):
+    # 2.0.0 writes report/<paramset>/<study>_differentialabundance_report.html,
+    # one per paramset; the first, by path, is the run's QC link.
+    root = tmp_path / "run"
+    _minimal_run(root)
+    got = harvest.harvest_local(
+        str(root),
+        inventory=[{"path": "report/rnaseq_dream/SRP254919_differentialabundance_report.html", "bytes": 1},
+                   {"path": "report/generic_matrix_dream/SRP254919_differentialabundance_report.html", "bytes": 1}],
+        lookup_by_fastq=lambda p, types=None: [])
+    assert (got.named_outputs["differentialabundance_report_html"]
+            == "report/generic_matrix_dream/SRP254919_differentialabundance_report.html")
 
 
 def test_a_multiqc_side_file_is_not_taken_for_the_report(tmp_path):
@@ -1198,3 +1214,74 @@ def test_a_clean_run_gets_no_retry_warning(tmp_path):
     got = _harvest(tmp_path / "run")
     assert (got.execution.failed, got.execution.recovered) == (0, 0)
     assert not [w for w in got.warnings if "retried" in w or "verdict" in w]
+
+
+# --- nf-core/differentialabundance: the contrasts file and the upstream matrix ---
+
+def _da_params(root, **params):
+    import json as _json
+    (root / "pipeline_info" / "params_2025-09-16_11-59-32.json").write_text(_json.dumps(params))
+
+
+def test_the_contrasts_file_params_names_is_read_into_the_manifest(tmp_path):
+    root = tmp_path / "run"
+    _minimal_run(root)
+    _da_params(root, contrasts="250818Rib_contrasts.csv", study_type="rnaseq")
+    (root / "250818Rib_contrasts.csv").write_text(
+        "id,variable,reference,target,blocking\nLPS_vs_Ctrl,Condition,Ctrl,LPS,Donor\n")
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
+    assert got.contrasts == {"LPS_vs_Ctrl": {
+        "variable": "Condition", "reference": "Ctrl", "target": "LPS", "blocking": "Donor"}}
+    assert got.sources["contrasts"] == "250818Rib_contrasts.csv"
+
+
+def test_a_contrasts_file_outside_the_run_folder_leaves_direction_blank_and_says_so(tmp_path):
+    # Older runs keep the contrasts file in the launch folder, which the
+    # harvest never reads; the direction is blank, never guessed.
+    root = tmp_path / "run"
+    _minimal_run(root)
+    _da_params(root, contrasts="../launch/240404Kel_diffAbun_contrasts.csv")
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
+    assert got.contrasts == {}
+    assert any("240404Kel_diffAbun_contrasts.csv" in w and "not in the run folder" in w
+               for w in got.warnings)
+
+
+def test_the_upstream_matrix_resolves_to_its_registered_gex_by_checksum(tmp_path):
+    root = tmp_path / "run"
+    _minimal_run(root)
+    matrix = "/net/x/250818Rib/star_salmon/salmon.merged.gene_counts.tsv"
+    _da_params(root, matrix=matrix)
+    looked_up = []
+
+    def by_checksum(checksum):
+        looked_up.append(checksum)
+        return ["A.GEX-250818RIB-1-PUB"]
+
+    got = harvest.harvest_local(
+        str(root), lookup_by_fastq=lambda p, types=None: [],
+        upstream_matrix_checksum="0123abcd", lookup_gex_by_checksum=by_checksum)
+    assert looked_up == ["0123abcd"]
+    assert got.upstream_matrix == {"path": matrix, "checksum": "0123abcd",
+                                   "uid": "A.GEX-250818RIB-1-PUB"}
+
+
+def test_an_upstream_checksum_matching_no_or_several_gex_resolves_nothing(tmp_path):
+    root = tmp_path / "run"
+    _minimal_run(root)
+    _da_params(root, matrix="/net/x/m.tsv")
+    for found in ([], ["A.GEX-1", "A.GEX-2"]):
+        got = harvest.harvest_local(
+            str(root), lookup_by_fastq=lambda p, types=None: [],
+            upstream_matrix_checksum="ffff", lookup_gex_by_checksum=lambda c, f=found: f)
+        assert got.upstream_matrix["uid"] is None
+        assert any("upstream matrix" in w for w in got.warnings)
+
+
+def test_without_an_upstream_checksum_nothing_is_looked_up(tmp_path):
+    root = tmp_path / "run"
+    _minimal_run(root)
+    _da_params(root, matrix="/net/x/m.tsv")
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [],
+                                lookup_gex_by_checksum=lambda c: pytest.fail("looked up"))
+    assert got.upstream_matrix == {}

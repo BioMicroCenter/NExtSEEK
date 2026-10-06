@@ -679,6 +679,69 @@ def test_file_stem_is_blank_outside_a_per_file_row():
     assert mapper._resolve_value("@file_stem", run, None, {}) is None
 
 
+def _differentialabundance_2_run(*paths):
+    run = _differentialabundance_run(*paths)
+    run.pipeline = manifest.PipelineInfo(name="nf-core/differentialabundance", version="2.0.0")
+    run.params = {"study_name": "SRP254919"}
+    return run
+
+
+def test_differentialabundance_2_registers_every_paramset_and_method():
+    # Paths as nf-core/differentialabundance 2.0.0's own test snapshots publish
+    # them: <folder>/<paramset>/, and results named <contrast>_<study>.<method>.
+    run = _differentialabundance_2_run(
+        "tables/processed_abundance/rnaseq_deseq2/all.normalised_counts.tsv",
+        "tables/processed_abundance/rnaseq_dream/all.normalised_counts.tsv",
+        "tables/differential/rnaseq_deseq2/interaction_genotype_treatment_SRP254919.deseq2.results.tsv",
+        "tables/differential/rnaseq_deseq2/interaction_genotype_treatment_SRP254919_deseq2.annotated.tsv",
+        "tables/differential/rnaseq_dream/interaction_genotype_treatment_SRP254919.dream.results.tsv",
+        "tables/differential/rnaseq_dream/full_model_with_interactions_SRP254919.dream.results.tsv",
+        "tables/differential/rnaseq_dream/full_model_with_interactions_SRP254919_dream.annotated.tsv",
+    )
+    result = mapper.apply(run, maps.load("differentialabundance"))
+    gex = [r for r in result.rows if r.sample_type == "A.GEX"]
+
+    by_matrix = {}
+    for row in gex:
+        by_matrix.setdefault(row.attributes["Matrix"].value, []).append(row)
+    # One normalised matrix per paramset, not only the first.
+    assert len(by_matrix["normalised_counts"]) == 2
+    # The annotated joins are not results tables and get no row.
+    assert len(by_matrix["deseq2_results"]) == 1
+    dream = {r.attributes["Contrast"].value: r for r in by_matrix["dream_results"]}
+    # The study name 2.0.0 appends to the contrast id is not part of the contrast.
+    assert sorted(dream) == ["full_model_with_interactions", "interaction_genotype_treatment"]
+    assert by_matrix["deseq2_results"][0].attributes["Contrast"].value == "interaction_genotype_treatment"
+
+
+def test_a_file_name_shared_across_paramsets_keeps_its_folder():
+    # 2.0.0 can run one contrast under two paramsets of the same method; both
+    # tables then share a file name, and File_PrimaryData must still tell them apart.
+    run = _differentialabundance_2_run(
+        "tables/differential/generic_matrix_dream/full_model_with_interactions_SRP254919.dream.results.tsv",
+        "tables/differential/rnaseq_dream/full_model_with_interactions_SRP254919.dream.results.tsv",
+        "tables/differential/rnaseq_dream/interaction_genotype_treatment_SRP254919.dream.results.tsv",
+    )
+    result = mapper.apply(run, maps.load("differentialabundance"))
+    files = sorted(r.attributes["File_PrimaryData"].value for r in result.rows
+                   if r.sample_type == "A.GEX" and r.attributes["Matrix"].value == "dream_results")
+    assert files == [
+        "generic_matrix_dream/full_model_with_interactions_SRP254919.dream.results.tsv",
+        "interaction_genotype_treatment_SRP254919.dream.results.tsv",
+        "rnaseq_dream/full_model_with_interactions_SRP254919.dream.results.tsv",
+    ]
+
+
+def test_a_1x_contrast_ending_in_the_study_name_is_left_whole():
+    # Only 2.x appends the study name; a 1.x contrast that happens to end with
+    # it is the whole contrast id.
+    run = _differentialabundance_run("tables/differential/LPS_vs_Ctrl.deseq2.results.tsv")
+    run.params = {"study_name": "Ctrl"}
+    (row,) = [r for r in mapper.apply(run, maps.load("differentialabundance")).rows
+              if r.sample_type == "A.GEX" and "Contrast" in r.attributes]
+    assert row.attributes["Contrast"].value == "LPS_vs_Ctrl"
+
+
 def test_no_checksum_at_all_is_the_advisory_path_row_still_renders():
     # A manifest with no checksums (the default -- `outputs` and `checksums`
     # both empty) must not be a new hard dependency: rows ship exactly as
@@ -1274,3 +1337,97 @@ def test_a_basename_unique_to_its_sample_stays_bare():
     assert sorted(r.attributes["File_PrimaryData"].value
                   for r in result.rows if r.sample_type == "A.ALN") == [
         "CONTROL_REP1.markdup.sorted.bam", "CONTROL_REP2.markdup.sorted.bam"]
+
+
+# --- differentialabundance: direction, paramset, settings, report, model object,
+# study type and the upstream parent, on each result row ---
+
+def _row(result, matrix, contrast=None):
+    rows = [r for r in result.rows if r.sample_type == "A.GEX"
+            and r.attributes["Matrix"].value == matrix
+            and (contrast is None or r.attributes["Contrast"].value == contrast)]
+    assert len(rows) == 1, rows
+    return {k: v.value for k, v in rows[0].attributes.items()}
+
+
+def test_a_1x_result_row_carries_direction_settings_report_and_model_object():
+    run = _differentialabundance_run(
+        "tables/differential/LPS_vs_Ctrl.deseq2.results.tsv",
+        "other/deseq2/LPS_vs_Ctrl.dds.rld.rds",
+        "report/250818Rib_diffabun.html")
+    run.params = {"study_type": "rnaseq", "deseq2_test": "Wald", "deseq2_shrink_lfc": True,
+                  "deseq2_cores": 1, "limma_trend": False, "filtering_min_abundance": 1.0,
+                  "differential_max_qval": 0.05, "differential_min_fold_change": 2.0,
+                  "differential_palette_name": "Set1", "filtering_grouping_var": None}
+    run.contrasts = {"LPS_vs_Ctrl": {"variable": "Condition", "reference": "Ctrl",
+                                     "target": "LPS", "blocking": "Donor"}}
+    run.named_outputs = {"differentialabundance_report_html": "report/250818Rib_diffabun.html"}
+    attrs = _row(mapper.apply(run, maps.load("differentialabundance")), "deseq2_results")
+
+    assert attrs["ContrastVariable"] == "Condition"
+    assert attrs["ContrastReference"] == "Ctrl"
+    assert attrs["ContrastTarget"] == "LPS"
+    # Only what shaped this result: its own method's settings (not limma's, not
+    # the core count), filtering and the significance thresholds; unset ones skipped.
+    assert attrs["MethodSettings"] == (
+        "deseq2_shrink_lfc=true; deseq2_test=Wald; differential_max_qval=0.05; "
+        "differential_min_fold_change=2.0; filtering_min_abundance=1.0")
+    assert attrs["Link_QualityControl"] == "report/250818Rib_diffabun.html"
+    assert attrs["DESeqFile"] == "LPS_vs_Ctrl.dds.rld.rds"
+    # 1.x has no paramsets, and an RNA-seq study needs no note.
+    assert "Paramset" not in attrs
+    assert "Notes" not in attrs
+
+
+def test_a_contrast_missing_from_the_contrasts_file_gets_no_direction():
+    run = _differentialabundance_run("tables/differential/LPS_vs_Ctrl.deseq2.results.tsv")
+    attrs = _row(mapper.apply(run, maps.load("differentialabundance")), "deseq2_results")
+    for field in ("ContrastVariable", "ContrastReference", "ContrastTarget"):
+        assert field not in attrs
+
+
+def test_a_2x_row_names_its_paramset_its_own_report_and_its_own_model_object():
+    run = _differentialabundance_2_run(
+        "tables/differential/rnaseq_limma/treatment_SRP254919.limma.results.tsv",
+        "other/limma/rnaseq_limma/treatment_SRP254919.MArrayLM.limma.rds",
+        "other/limma/rnaseq_other/treatment_SRP254919.MArrayLM.limma.rds",
+        "report/rnaseq_deseq2/SRP254919_differentialabundance_report.html",
+        "report/rnaseq_limma/SRP254919_differentialabundance_report.html")
+    run.params = {"study_name": "SRP254919", "limma_trend": True}
+    run.named_outputs = {"differentialabundance_report_html":
+                         "report/rnaseq_deseq2/SRP254919_differentialabundance_report.html"}
+    attrs = _row(mapper.apply(run, maps.load("differentialabundance")), "limma_results")
+
+    assert attrs["Paramset"] == "rnaseq_limma"
+    # Its own paramset's report, not the run's first.
+    assert attrs["Link_QualityControl"] == "report/rnaseq_limma/SRP254919_differentialabundance_report.html"
+    # Two paramsets wrote an object of this name, so the folder stays.
+    assert attrs["DESeqFile"] == "rnaseq_limma/treatment_SRP254919.MArrayLM.limma.rds"
+    # 2.0.0 settings are per paramset and not in params: blank, never the wrong set.
+    assert "MethodSettings" not in attrs
+
+
+def test_a_non_rnaseq_study_is_named_in_notes():
+    run = _differentialabundance_run("tables/differential/A_vs_B.limma.results.tsv")
+    run.params = {"study_type": "maxquant"}
+    attrs = _row(mapper.apply(run, maps.load("differentialabundance")), "limma_results")
+    assert attrs["Notes"].startswith("study_type: maxquant")
+    assert "protein" in attrs["Notes"]
+
+
+def test_a_resolved_upstream_matrix_is_the_parent_instead_of_the_sequencing_samples():
+    run = _differentialabundance_run(
+        "tables/processed_abundance/all.normalised_counts.tsv",
+        "tables/differential/LPS_vs_Ctrl.deseq2.results.tsv")
+    run.upstream_matrix = {"path": "/x/salmon.merged.gene_counts.tsv", "checksum": "c",
+                           "uid": "A.GEX-250818RIB-1-PUB"}
+    result = mapper.apply(run, maps.load("differentialabundance"))
+    assert _row(result, "deseq2_results")["Parent"] == "A.GEX-250818RIB-1-PUB"
+    assert _row(result, "normalised_counts")["Parent"] == "A.GEX-250818RIB-1-PUB"
+
+
+def test_an_unresolved_upstream_matrix_keeps_the_sequencing_samples_as_parents():
+    run = _differentialabundance_run("tables/differential/LPS_vs_Ctrl.deseq2.results.tsv")
+    run.upstream_matrix = {"path": "/x/m.tsv", "checksum": "c", "uid": None}
+    assert _row(mapper.apply(run, maps.load("differentialabundance")), "deseq2_results")["Parent"] \
+        == "D.SEQ-1;D.SEQ-2"
