@@ -13,6 +13,7 @@ A doc that tracked code cites must itself be tracked, or the citation points at 
 | [`neo4j-programmatic-access.md`](neo4j-programmatic-access.md) | runbook | querying Neo4j over HTTP, Browser or bolt, or rotating its password | |
 | [`neo4j-schema.md`](neo4j-schema.md) | reference | reading or writing the sample graph: what v1.0 holds and what graph_search's v1.1 builds | |
 | [`sample-download-workflow.md`](sample-download-workflow.md) | explanation | changing any "Download samples" control or the workbook | |
+| [`contrast-attribute-rollout.md`](contrast-attribute-rollout.md) | runbook | deploying the differentialabundance per-contrast reingest rules to an instance: the A.GEX `Contrast` attribute and catalog edit it needs first, and where each instance stands | |
 | [`UI.md`](UI.md) | snapshot | finding a page's route, view and template. Dated 2026-09-03; check it against the tree | |
 | [`nfcore-capability-expansion.md`](nfcore-capability-expansion.md) | explanation | answering "what analyses can Nessie run?" in plain English, for a non-engineer | |
 | [`2026-08-07-pipeline-param-inference-design.md`](2026-08-07-pipeline-param-inference-design.md) | design | inferring species and library facts from NExtSEEK metadata to fill nf-core params. Approved, not yet built: the modules and audit script it cites do not exist in the tree | |
