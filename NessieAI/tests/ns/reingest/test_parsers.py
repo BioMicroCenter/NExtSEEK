@@ -173,3 +173,65 @@ def test_parse_general_stats_tolerates_blank_cells():
     stats = parsers.parse_general_stats(text)
     assert stats["S1"] == {"A_x": 1.5}
     assert stats["S2"] == {"B_y": 3.0}
+
+
+def _trace(*rows):
+    return "task_id\thash\tname\tstatus\texit\n" + "".join(
+        f"{i}\t{i:02d}/abcdef\t{name}\t{status}\t{0 if status == 'COMPLETED' else 143}\n"
+        for i, (name, status) in enumerate(rows, start=1))
+
+
+def test_a_task_that_failed_then_passed_on_retry_is_recovered_not_failed():
+    trace = parsers.parse_execution_trace(_trace(
+        ("STAR_ALIGN (S1)", "FAILED"),
+        ("STAR_ALIGN (S1)", "COMPLETED"),
+        ("MULTIQC", "COMPLETED")))
+    assert trace["failed"] == 0
+    assert trace["recovered"] == 1
+    assert trace["recovered_tasks"] == ["STAR_ALIGN (S1)"]
+
+
+def test_a_task_whose_last_row_failed_still_counts():
+    trace = parsers.parse_execution_trace(_trace(
+        ("STAR_ALIGN (S1)", "COMPLETED"),
+        ("STAR_ALIGN (S2)", "FAILED"),
+        ("STAR_ALIGN (S2)", "FAILED"),
+        ("MULTIQC", "ABORTED")))
+    assert trace["failed"] == 3
+    assert trace["recovered"] == 0
+    assert trace["recovered_tasks"] == []
+
+
+def test_the_251112_retry_pattern_is_fully_recovered():
+    # The real nf-core/scrnaseq 4.1.0 shape: four rows share one name, the
+    # two FAILED ones (exit 143) between two COMPLETED ones. A cached row
+    # counts as a success as well.
+    trace = parsers.parse_execution_trace(_trace(
+        ("CELLRANGER_COUNT (S1)", "CACHED"),
+        ("ANNDATAR_CONVERT (combined)", "COMPLETED"),
+        ("ANNDATAR_CONVERT (combined)", "FAILED"),
+        ("ANNDATAR_CONVERT (combined)", "FAILED"),
+        ("ANNDATAR_CONVERT (combined)", "COMPLETED")))
+    assert (trace["failed"], trace["recovered"]) == (0, 2)
+    assert trace["recovered_tasks"] == ["ANNDATAR_CONVERT (combined)"]
+
+
+def test_a_trace_without_a_name_column_counts_every_failure():
+    trace = parsers.parse_execution_trace("task_id\tstatus\n1\tFAILED\n2\tCOMPLETED\n")
+    assert (trace["failed"], trace["recovered"]) == (1, 0)
+
+
+@pytest.mark.parametrize("sentence, kind", [
+    ("Workflow execution completed successfully!", parsers.RUN_SUCCEEDED),
+    ("Workflow execution completed successfully. One or more tasks reported an error condition.",
+     parsers.RUN_SUCCEEDED_IGNORING_ERRORS),
+    ("Workflow execution completed unsuccessfully!", parsers.RUN_FAILED),
+    ("  Workflow execution completed successfully!\n", parsers.RUN_SUCCEEDED),
+    ("something else entirely", None),
+    ("", None),
+])
+def test_nextflow_report_verdicts_are_classified(sentence, kind):
+    # The three sentences are Nextflow's own (ReportTemplate.html). The middle
+    # one means a task FAILED AND WAS IGNORED, not that a retry happened:
+    # retries never trigger it.
+    assert parsers.classify_run_verdict(sentence) == kind

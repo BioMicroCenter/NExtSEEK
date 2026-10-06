@@ -13,6 +13,7 @@ from __future__ import annotations
 import csv
 import fnmatch
 import io
+import json
 import os
 from collections import Counter
 from pathlib import Path
@@ -82,6 +83,13 @@ GENERIC_GLOBS: tuple[str, ...] = (
     _RSEQC_INFER_EXPERIMENT_GLOB,
     _STAR_LOG_GLOB,
 )
+
+# Not a glob: the stage script (granular._STAGE_SCRIPT) reads Nextflow's
+# completion verdict out of the newest pipeline_info/execution_report*.html on
+# the cluster and writes {"path", "verdict"} under this name at the staged
+# root. The report itself is never staged: it embeds every task's data and can
+# exceed MAX_FILE_BYTES. Absent when the run has no report.
+RUN_VERDICT_NAME = "__nextseek_run_verdict__.json"
 
 def staged_globs() -> tuple[str, ...]:
     """What the remote stager copies: GENERIC_GLOBS plus every map's harvest_globs.
@@ -376,7 +384,11 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     has_execution = found is not None
     if found:
         sources["execution"], text = found[0], found[1]
-        out.execution = manifest.ExecutionInfo(**parsers.parse_execution_trace(text))
+        trace = parsers.parse_execution_trace(text)
+        recovered_tasks = trace.pop("recovered_tasks")
+        out.execution = manifest.ExecutionInfo(**trace)
+        _apply_run_verdict(out.execution, recovered_tasks, found[0],
+                           _read_run_verdict(base), warnings)
 
     stats: dict[str, dict] = {}
     stats_source: str | None = None
@@ -714,6 +726,75 @@ def _pick_metrics_source(
 
 def _pipeline_name(params: dict) -> str:
     return str(params.get("pipeline") or "")
+
+
+def _read_run_verdict(base: Path) -> dict | None:
+    """The stage script's {"path", "verdict"} record, or None if it wrote none."""
+    path = base / RUN_VERDICT_NAME
+    if not path.is_file():
+        return None
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def _attempt_stamp(rel_path: str, prefix: str) -> str:
+    """"_2025-11-16_05-29-45" from ".../execution_report_2025-11-16_05-29-45.html":
+    one launch writes its report and its trace under the same timestamp."""
+    stem = Path(rel_path).name.rsplit(".", 1)[0]
+    return stem[len(prefix):] if stem.startswith(prefix) else stem
+
+
+def _apply_run_verdict(execution: manifest.ExecutionInfo, recovered_tasks: list[str],
+                       trace_path: str, record: dict | None, warnings: list[str]) -> None:
+    """Settle `execution.failed` with Nextflow's own verdict where there is one.
+
+    The trace's rule (a task name's last row decides; see
+    parsers.parse_execution_trace) is a guess, because two inputs can share a
+    name. Nextflow's report is not: "completed successfully!" means no failure
+    was ignored and the run passed, so every failed row was retried until it
+    succeeded. The other two sentences mean a task's output is missing or the
+    run failed, so the run stays failed whatever the trace says. A report from
+    another attempt than the trace (a restart still running) is not used.
+    """
+    basis = "judged from the execution trace, with no Nextflow report verdict for this attempt"
+    verdict = None
+    if record is not None:
+        report_path = str(record.get("path") or "")
+        if _attempt_stamp(report_path, "execution_report") != _attempt_stamp(trace_path, "execution_trace"):
+            warnings.append(
+                f"the newest Nextflow report, {report_path}, is from a different attempt than "
+                f"the execution trace, {trace_path}; its verdict was not used")
+        elif not record.get("verdict"):
+            warnings.append(
+                f"Nextflow report {report_path} has no completion verdict; "
+                "failures were judged from the execution trace")
+        else:
+            verdict = " ".join(str(record["verdict"]).split())
+
+    kind = parsers.classify_run_verdict(verdict) if verdict else None
+    if kind is not None:
+        execution.nextflow_verdict = verdict
+    if kind == parsers.RUN_SUCCEEDED:
+        execution.recovered += execution.failed
+        execution.failed = 0
+        basis = f"Nextflow's report says: {verdict}"
+    elif kind == parsers.RUN_SUCCEEDED_IGNORING_ERRORS:
+        execution.failed = max(execution.failed, 1)
+        warnings.append(
+            f"Nextflow's report says a task failed and was ignored ({verdict}); "
+            "its outputs may be missing")
+    elif kind == parsers.RUN_FAILED:
+        execution.failed = max(execution.failed, 1)
+        warnings.append(f"Nextflow's report says the run failed ({verdict})")
+
+    if execution.recovered:
+        names = f" ({', '.join(recovered_tasks)})" if recovered_tasks else ""
+        warnings.append(
+            f"{execution.recovered} failed task attempt(s) were retried and then succeeded, "
+            f"so they are not counted as failures{names}; {basis}")
 
 
 def _is_multiqc_report(name: str) -> bool:

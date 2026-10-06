@@ -14,6 +14,7 @@ import yaml
 # execution_trace.txt statuses that mean the process is finished, either way.
 _TERMINAL = {"COMPLETED", "FAILED", "ABORTED", "CACHED"}
 _FAILED = {"FAILED", "ABORTED"}
+_SUCCEEDED = {"COMPLETED", "CACHED"}
 
 
 def parse_params(text: str) -> dict:
@@ -147,15 +148,69 @@ def parse_general_stats(text: str) -> dict[str, dict[str, float | str]]:
 
 
 def parse_execution_trace(text: str) -> dict:
-    """execution_trace.txt -> {processes, failed, non_terminal}.
+    """execution_trace.txt -> {processes, failed, non_terminal, recovered,
+    recovered_tasks}.
 
     `non_terminal` is what distinguishes a finished run from one still going:
     a process in SUBMITTED or RUNNING means the run has not completed.
+
+    A retried task leaves one row per try under the same `name`, written as
+    each try finishes, so a failure followed by a later success of that name
+    was retried until it passed. `failed` counts only the failed rows of a
+    name whose LAST row failed; the rest are `recovered`, and their names are
+    `recovered_tasks`. Two different inputs can share a name tag, so this is
+    a best guess: Nextflow's own report verdict, where there is one, outranks
+    it (see harvest._apply_run_verdict). A trace with no `name` column
+    counts every failed row.
     """
     rows = list(csv.DictReader(io.StringIO(text), delimiter="\t"))
     statuses = [(r.get("status") or "").strip().upper() for r in rows]
+    names = [(r.get("name") or "").strip() for r in rows]
+    last_status: dict[str, str] = {}
+    for name, status in zip(names, statuses):
+        if name:
+            last_status[name] = status
+    failed = recovered = 0
+    recovered_tasks: list[str] = []
+    for name, status in zip(names, statuses):
+        if status not in _FAILED:
+            continue
+        if name and last_status[name] in _SUCCEEDED:
+            recovered += 1
+            if name not in recovered_tasks:
+                recovered_tasks.append(name)
+        else:
+            failed += 1
     return {
         "processes": len(statuses),
-        "failed": sum(1 for s in statuses if s in _FAILED),
+        "failed": failed,
         "non_terminal": sum(1 for s in statuses if s and s not in _TERMINAL),
+        "recovered": recovered,
+        "recovered_tasks": recovered_tasks,
     }
+
+
+# Nextflow's three completion sentences, from its ReportTemplate.html. The
+# middle one is `workflow.success && workflow.stats.ignoredCount`: a task
+# failed and the pipeline carried on without it (errorStrategy 'ignore').
+# Retries never produce it; a run whose failures were all retried until they
+# passed reads "completed successfully!".
+RUN_SUCCEEDED = "succeeded"
+RUN_SUCCEEDED_IGNORING_ERRORS = "succeeded_ignoring_errors"
+RUN_FAILED = "failed"
+_VERDICTS = (
+    ("Workflow execution completed successfully. One or more tasks reported an error condition.",
+     RUN_SUCCEEDED_IGNORING_ERRORS),
+    ("Workflow execution completed successfully!", RUN_SUCCEEDED),
+    ("Workflow execution completed unsuccessfully!", RUN_FAILED),
+)
+
+
+def classify_run_verdict(sentence: str) -> str | None:
+    """A verdict line from Nextflow's execution report -> one of RUN_SUCCEEDED,
+    RUN_SUCCEEDED_IGNORING_ERRORS, RUN_FAILED, or None if it is none of them."""
+    text = " ".join(sentence.split())
+    for prefix, kind in _VERDICTS:
+        if text.startswith(prefix):
+            return kind
+    return None

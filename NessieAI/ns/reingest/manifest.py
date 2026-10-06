@@ -83,6 +83,11 @@ class ExecutionInfo(BaseModel):
     processes: int = 0
     failed: int = 0
     non_terminal: int = 0
+    # Failed tries that a retry of the same task later fixed; not in `failed`.
+    recovered: int = 0
+    # Nextflow's own completion sentence from the attempt's execution report,
+    # when one was read; it outranks the trace when counting `failed`.
+    nextflow_verdict: str | None = None
 
 
 class CapsInfo(BaseModel):

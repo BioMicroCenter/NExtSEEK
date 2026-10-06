@@ -606,7 +606,9 @@ _HARVEST_CHECKSUM_MAX_TOTAL_BYTES = int(
     os.environ.get("NEXTSEEK_HARVEST_CHECKSUM_MAX_TOTAL_BYTES", 500_000_000))
 
 _STAGE_SCRIPT = """\
-import hashlib, io, json, pathlib, sys, tarfile
+import hashlib, io, json, pathlib, re, sys, tarfile
+verdict_re = re.compile(rb"Workflow execution completed (?:un)?successfully[^<]*")
+verdict_scan_bytes = 64 * 1024 * 1024
 run_dir = pathlib.Path(sys.argv[1])
 runs_root = pathlib.Path(sys.argv[2])
 resolved_runs_root = runs_root.resolve()
@@ -731,6 +733,32 @@ if not run_dir_escapes_runs_root:
                 checksum_bytes_used += st.st_size
 
             inventory.append(entry)
+
+    # Nextflow's completion verdict, from the newest execution report. The
+    # report embeds every task's data and can exceed max_file_bytes, so it is
+    # never staged: only its one verdict sentence is read here and returned,
+    # under the same containment guard as every staged and listed file.
+    # Reading stops at the sentence, or after verdict_scan_bytes.
+    reports = sorted(run_dir.glob("pipeline_info/execution_report*.html"))
+    if reports:
+        path = reports[-1]
+        rel = str(path.relative_to(run_dir))
+        if confined_stat(path, rel) is not None:
+            found = None
+            scanned = 0
+            with open(path, "rb") as fh:
+                for line in fh:
+                    match = verdict_re.search(line)
+                    if match:
+                        found = " ".join(match.group(0).decode("utf-8", "replace").split())
+                        break
+                    scanned += len(line)
+                    if scanned > verdict_scan_bytes:
+                        break
+            verdict = json.dumps({"path": rel, "verdict": found}).encode()
+            info = tarfile.TarInfo(name="__nextseek_run_verdict__.json")
+            info.size = len(verdict)
+            tar.addfile(info, fileobj=io.BytesIO(verdict))
 
 report = json.dumps({
     "skipped": skipped,

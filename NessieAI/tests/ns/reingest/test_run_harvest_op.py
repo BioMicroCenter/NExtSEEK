@@ -861,3 +861,75 @@ def test_run_harvest_end_to_end_resolves_via_launch_record_despite_a_decoy_csv(
         "this sample; it never will if uid_resolve was looked up by the temp "
         "staging path")
     assert sample["d_seq_uid"] == "D.SEQ-EXAMPLE-1"
+
+
+def _stage(tmp_path, monkeypatch, run_dir):
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), list(harvest.GENERIC_GLOBS)))
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, _ = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+    return staged, skipped
+
+
+def test_the_stage_returns_only_the_newest_reports_verdict(tmp_path, monkeypatch):
+    # The report embeds every task's data and can be megabytes, over the
+    # 4 MB staging cap: only Nextflow's one verdict sentence comes back, read
+    # on the cluster, never the file.
+    run_dir = tmp_path / "runs" / "a_run"
+    info = run_dir / "pipeline_info"
+    info.mkdir(parents=True)
+    (info / "execution_report_2025-11-14_05-59-33.html").write_text(
+        "<h4>Workflow execution completed unsuccessfully!</h4>")
+    (info / "execution_report_2025-11-16_05-29-45.html").write_text(
+        "<head><script>" + "x" * 5_000_000 + "</script></head>\n"
+        '<div class="alert alert-success mb-4">\n'
+        "              Workflow execution completed successfully!\n"
+        "          </div>\n<script>window.data = {}</script>\n")
+
+    staged, skipped = _stage(tmp_path, monkeypatch, run_dir)
+
+    assert json.loads((staged / harvest.RUN_VERDICT_NAME).read_text()) == {
+        "path": "pipeline_info/execution_report_2025-11-16_05-29-45.html",
+        "verdict": "Workflow execution completed successfully!",
+    }
+    assert not list(staged.rglob("*.html"))
+    assert skipped == []
+
+
+def test_a_report_with_no_verdict_is_reported_as_such(tmp_path, monkeypatch):
+    run_dir = tmp_path / "runs" / "a_run"
+    (run_dir / "pipeline_info").mkdir(parents=True)
+    (run_dir / "pipeline_info" / "execution_report.html").write_text("<html>no verdict</html>")
+    staged, _ = _stage(tmp_path, monkeypatch, run_dir)
+    assert json.loads((staged / harvest.RUN_VERDICT_NAME).read_text()) == {
+        "path": "pipeline_info/execution_report.html", "verdict": None}
+
+
+def test_no_report_means_no_verdict_file(tmp_path, monkeypatch):
+    run_dir = tmp_path / "runs" / "a_run"
+    (run_dir / "pipeline_info").mkdir(parents=True)
+    staged, _ = _stage(tmp_path, monkeypatch, run_dir)
+    assert not (staged / harvest.RUN_VERDICT_NAME).exists()
+
+
+def test_a_symlinked_report_is_not_read(tmp_path, monkeypatch):
+    # The same containment guard as every staged and inventoried file.
+    run_dir = tmp_path / "runs" / "a_run"
+    (run_dir / "pipeline_info").mkdir(parents=True)
+    outside = tmp_path / "outside.html"
+    outside.write_text("Workflow execution completed successfully!")
+    (run_dir / "pipeline_info" / "execution_report_2025-11-16_05-29-45.html").symlink_to(outside)
+
+    staged, skipped = _stage(tmp_path, monkeypatch, run_dir)
+
+    assert not (staged / harvest.RUN_VERDICT_NAME).exists()
+    assert [s["path"] for s in skipped] == [
+        "pipeline_info/execution_report_2025-11-16_05-29-45.html"]
+
+
+def test_the_stage_script_and_the_harvest_agree_on_the_verdict_file_name():
+    assert f'"{harvest.RUN_VERDICT_NAME}"' in g._STAGE_SCRIPT

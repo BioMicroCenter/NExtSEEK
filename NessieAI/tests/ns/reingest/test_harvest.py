@@ -1096,3 +1096,105 @@ def test_a_report_named_after_a_sample_stays_run_level(tmp_path):
 
     assert got.named_outputs["multiqc_report_html"] == "multiqc/M188_multiqc_report.html"
     assert [o.sample for o in got.outputs] == [None]
+
+
+_TS = "2025-11-16_05-29-45"
+_RETRIED = ("task_id\thash\tname\tstatus\texit\n"
+            "103\tdc/5c8a98\tANNDATAR_CONVERT (combined)\tCOMPLETED\t0\n"
+            "104\td1/620a12\tANNDATAR_CONVERT (combined)\tFAILED\t143\n"
+            "105\t46/134a87\tANNDATAR_CONVERT (combined)\tFAILED\t143\n"
+            "106\tfa/87bf8e\tANNDATAR_CONVERT (combined)\tCOMPLETED\t0\n")
+
+
+def _run_with_verdict(root, trace_text, verdict, *, report_ts=_TS):
+    """A staged run as the stage script leaves it: the newest trace, and the
+    verdict line it read out of the newest execution report (None: report
+    present but no verdict in it; omitted entirely: no report)."""
+    info = root / "pipeline_info"
+    info.mkdir(parents=True)
+    (info / "nf_core_scrnaseq_software_mqc_versions.yml").write_text(
+        "Workflow:\n  nf-core/scrnaseq: v4.1.0\n")
+    (info / f"execution_trace_{_TS}.txt").write_text(trace_text)
+    if verdict is not False:
+        (root / harvest.RUN_VERDICT_NAME).write_text(json.dumps(
+            {"path": f"pipeline_info/execution_report_{report_ts}.html", "verdict": verdict}))
+
+
+def _harvest(root):
+    return harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
+
+
+def test_a_clean_nextflow_verdict_clears_retried_failures(tmp_path):
+    _run_with_verdict(tmp_path / "run", _RETRIED, "Workflow execution completed successfully!")
+    got = _harvest(tmp_path / "run")
+    assert (got.execution.failed, got.execution.recovered) == (0, 2)
+    assert got.execution.nextflow_verdict == "Workflow execution completed successfully!"
+    retried = [w for w in got.warnings if "retried" in w]
+    assert retried == [
+        "2 failed task attempt(s) were retried and then succeeded, so they are not counted "
+        "as failures (ANNDATAR_CONVERT (combined)); Nextflow's report says: "
+        "Workflow execution completed successfully!"]
+
+
+def test_a_clean_verdict_outranks_a_trace_that_looks_failed(tmp_path):
+    # Two inputs can share one task name, so the trace alone cannot prove a
+    # retry. Nextflow's own verdict can: success with nothing ignored means
+    # every failure was retried until it passed.
+    trace = ("task_id\tname\tstatus\n1\tCONVERT (a)\tCOMPLETED\n2\tCONVERT (b)\tFAILED\n")
+    _run_with_verdict(tmp_path / "run", trace, "Workflow execution completed successfully!")
+    got = _harvest(tmp_path / "run")
+    assert (got.execution.failed, got.execution.recovered) == (0, 1)
+
+
+def test_an_ignored_error_verdict_keeps_the_run_failed(tmp_path):
+    # "One or more tasks reported an error condition" means a task failed and
+    # the pipeline carried on without it: its outputs may be missing, so the
+    # op must still refuse without --allow-failed-run, even when the trace
+    # rule alone would call every failure recovered.
+    _run_with_verdict(
+        tmp_path / "run", _RETRIED,
+        "Workflow execution completed successfully. One or more tasks reported an error condition.")
+    got = _harvest(tmp_path / "run")
+    assert got.execution.failed >= 1
+    assert any("failed and was ignored" in w for w in got.warnings)
+
+
+def test_an_unsuccessful_verdict_keeps_the_run_failed(tmp_path):
+    _run_with_verdict(tmp_path / "run", _RETRIED, "Workflow execution completed unsuccessfully!")
+    got = _harvest(tmp_path / "run")
+    assert got.execution.failed >= 1
+    assert any("says the run failed" in w for w in got.warnings)
+
+
+def test_without_a_report_the_trace_rule_decides_and_says_so(tmp_path):
+    _run_with_verdict(tmp_path / "run", _RETRIED, False)
+    got = _harvest(tmp_path / "run")
+    assert (got.execution.failed, got.execution.recovered) == (0, 2)
+    assert got.execution.nextflow_verdict is None
+    assert any("retried" in w and "judged from the execution trace" in w for w in got.warnings)
+
+
+def test_a_report_from_another_attempt_is_not_used(tmp_path):
+    # A restarted run still in progress has a newer trace than its newest
+    # report: that report's verdict describes an earlier attempt.
+    _run_with_verdict(tmp_path / "run", _RETRIED, "Workflow execution completed unsuccessfully!",
+                      report_ts="2025-11-14_05-59-33")
+    got = _harvest(tmp_path / "run")
+    assert got.execution.nextflow_verdict is None
+    assert (got.execution.failed, got.execution.recovered) == (0, 2)
+    assert any("different attempt" in w for w in got.warnings)
+
+
+def test_a_report_with_no_verdict_falls_back_to_the_trace(tmp_path):
+    _run_with_verdict(tmp_path / "run", _RETRIED, None)
+    got = _harvest(tmp_path / "run")
+    assert (got.execution.failed, got.execution.recovered) == (0, 2)
+    assert any("no completion verdict" in w for w in got.warnings)
+
+
+def test_a_clean_run_gets_no_retry_warning(tmp_path):
+    _run_with_verdict(tmp_path / "run", "task_id\tname\tstatus\n1\tA\tCOMPLETED\n",
+                      "Workflow execution completed successfully!")
+    got = _harvest(tmp_path / "run")
+    assert (got.execution.failed, got.execution.recovered) == (0, 0)
+    assert not [w for w in got.warnings if "retried" in w or "verdict" in w]
