@@ -24,8 +24,13 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
   `_matches_path` in `reingest_lookups.py`. Must be non-empty;
   `test_map_contract.py` enforces both that and that every entry names a
   real sample type in the catalog.
-- `outputs` — glob to SampleType, with `cardinality` `per_sample` (1 to 1) or
-  `per_run` (many to 1, `Parent` semicolon-joined).
+- `outputs` — glob to SampleType, with `cardinality` `per_sample` (1 to 1),
+  `per_run` (many to 1, `Parent` semicolon-joined; only the first matching file),
+  or `per_file` (one per_run-shaped row per matching file, for outputs written
+  once per contrast). A `per_file` rule must set `primary_data` and cannot set
+  `secondary_data_glob`. Its rows can read `@file_stem`, the part of the file
+  name the glob's leading `*` matched (the contrast id for
+  `*.deseq2.results.tsv`).
 - `provenance_attributes` — a single flat dict shared by the whole map, merged
   into a row only for the output rule(s) that opt in with
   `include_provenance: true` (default `false`). A rule that does not opt in
@@ -76,9 +81,11 @@ so it records what was checked rather than gating anything.
 The running list of documented deliverables that no map claims. Delete a row
 when its rule lands. Paths are relative to `--outdir`, taken from each
 pipeline's `conf/modules.config` at the release in its map's
-`applies_to_versions` (differentialabundance: 2.0.0, which has no map range
-yet). "Unconfirmed" means the docs and the code disagree, or neither names the
-file exactly: check a real run before writing the rule.
+`applies_to_versions`. differentialabundance rows give both layouts: 1.4 and
+1.5 publish flat, and 2.0.0 adds a `<paramset>/` folder, shown as
+`[<paramset>/]`; its map covers only 1.x so far. "Unconfirmed" means the docs
+and the code disagree, or neither names the file exactly: check a real run
+before writing the rule.
 
 What blocks each row:
 
@@ -97,11 +104,13 @@ What blocks each row:
 | denovotranscript | `evigene/okayset/all_assembled.okay.aa` (its proteins) | none | type, inventory |
 | denovotranscript | `trinity/pooled_reads.fa.gz`, `rnaspades/pooled_reads.transcripts.fa.gz` (assemblies before redundancy reduction) | none | type, inventory, choice |
 | denovotranscript | `tx2gene/*tx2gene.tsv` (unconfirmed name), as secondary data to `quant.sf` | A.GEX | inventory |
-| differentialabundance | `tables/differential/<paramset>/<contrast>.{deseq2,limma,dream}.results.tsv` | A.GEX | inventory, per contrast, parent |
-| differentialabundance | `tables/processed_abundance/<paramset>/all.normalised_counts.tsv`, `all.vst.tsv` | A.GEX | inventory, parent |
-| differentialabundance | `other/deseq2/<paramset>/<contrast>.dds.rld.rds`; its `.dds.rld.rds` suffix also misses the `deseq2_dds_rdata` named output | A.GEX | per contrast, parent |
-| differentialabundance | `other/limma/<paramset>/<contrast>.MArrayLM.limma.rds` | A.GEX | per contrast, parent |
-| differentialabundance | `report/<paramset>/<study>_differentialabundance_report.html` (its QC report; there is no MultiQC) | A.GEX link | inventory, parent |
+| differentialabundance | `tables/differential/<paramset>/<contrast>.{deseq2,limma,dream}.results.tsv` (2.0.0 only; the 1.x deseq2 and limma tables are `per_file` rules with `Contrast`) | A.GEX | inventory, parent |
+| differentialabundance | `tables/differential/<contrast>.deseq2.results_filtered.tsv` (1.5+, a subset of the results table) | A.GEX | choice |
+| differentialabundance | `tables/processed_abundance/<paramset>/all.normalised_counts.tsv` (2.0.0 only; the 1.x flat path has its rule) | A.GEX | parent |
+| differentialabundance | `tables/processed_abundance/[<paramset>/]all.{vst,rlog}.tsv` (which one follows `--deseq2_vs_method`) | A.GEX | inventory, parent, choice: a second A.GEX per run |
+| differentialabundance | `other/deseq2/[<paramset>/]<contrast>.dds.rld.rds`; its `.dds.rld.rds` suffix also misses the `deseq2_dds_rdata` named output | A.GEX | per contrast, parent |
+| differentialabundance | `other/limma/[<paramset>/]<contrast>.MArrayLM.limma.rds` | A.GEX | per contrast, parent |
+| differentialabundance | `report/<paramset>/<study>_differentialabundance_report.html` (2.0.0 only; the 1.x `report/<study>.html` is linked as `Link_QualityControl`) | A.GEX link | inventory, parent |
 | hlatyping | `optitype/<sample>/<sample>_result.tsv` (unconfirmed name) | none (HLA genotype) | type, inventory |
 | hlatyping | `hlahd/<sample>/<sample>_final.result.txt` (only with `--tools hlahd`) | none (HLA genotype) | type, inventory |
 | hlatyping | `yara/<sample>/<sample>.mapped.bam`, or `<sample>_1`/`_2.mapped.bam` when paired | A.ALN? | choice: HLA-only reference, and two BAMs per paired sample |

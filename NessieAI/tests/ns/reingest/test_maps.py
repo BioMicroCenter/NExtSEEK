@@ -98,6 +98,39 @@ def test_a_bogus_cardinality_fails_map_validation():
         })
 
 
+def test_per_file_is_a_valid_cardinality():
+    pipeline_map = maps.PipelineMap.model_validate({
+        "pipeline": "nf-core/differentialabundance",
+        "outputs": [{"glob": "tables/differential/*.deseq2.results.tsv",
+                     "sample_type": "A.GEX", "cardinality": "per_file",
+                     "primary_data": True}],
+    })
+    assert pipeline_map.outputs[0].cardinality == "per_file"
+
+
+def test_a_per_file_rule_cannot_declare_secondary_data():
+    # A secondary glob matches every row's secondary at once; nothing pairs one
+    # results table with its own index file, so the map must not pretend to.
+    with pytest.raises(pydantic.ValidationError):
+        maps.PipelineMap.model_validate({
+            "pipeline": "nf-core/differentialabundance",
+            "outputs": [{"glob": "*.results.tsv", "sample_type": "A.GEX",
+                         "cardinality": "per_file", "primary_data": True,
+                         "secondary_data_glob": "*.results.tsv.idx"}],
+        })
+
+
+def test_a_per_file_rule_must_declare_primary_data():
+    # Its rows are counted by the files its glob matches; without primary data
+    # no file is matched and the rule could only ever emit nothing.
+    with pytest.raises(pydantic.ValidationError):
+        maps.PipelineMap.model_validate({
+            "pipeline": "nf-core/differentialabundance",
+            "outputs": [{"glob": "*.results.tsv", "sample_type": "A.GEX",
+                         "cardinality": "per_file"}],
+        })
+
+
 def test_the_committed_rnaseq_map_still_loads_with_the_constrained_cardinality():
     pipeline_map = maps.load("rnaseq")
     assert pipeline_map.outputs, "expected at least one output rule"

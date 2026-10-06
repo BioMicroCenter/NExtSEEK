@@ -161,15 +161,26 @@ INVENTORY_GLOBS: tuple[str, ...] = (
     # nf-core/rnavar >=1.3 publishes its report under reports/, which the
     # pattern above (anchored at a top-level multiqc* folder) never reaches.
     "**/reports/multiqc/*multiqc_report.html",
+    # nf-core/differentialabundance 1.x's study report, report/<study>.html --
+    # named link $outputs.differentialabundance_report_html. One level only: 1.5
+    # also writes hundreds of GSEA pages deeper under report/gsea/.
+    "**/report/*.html",
     # Contaminant screening reports -- named link $outputs.kraken2_report.
     "**/*.kraken2.report.txt",
     # Text matrices whose names are not the rnaseq `*.merged.*` convention:
-    # nf-core/smrnaseq's merged miRNA counts, and Salmon's per-sample
+    # nf-core/smrnaseq's merged miRNA counts, Salmon's per-sample
     # quantification (one `quant.sf` per sample folder; the folder names the
-    # sample -- see _sample_for_output_path). Exact names, not "*.tsv":
-    # every pipeline writes many TSVs, and the inventory count is capped.
+    # sample -- see _sample_for_output_path), and nf-core/differentialabundance's
+    # DESeq2-normalised matrix (1.x publishes it flat, as `all.normalised_counts.tsv`)
+    # and its per-contrast results tables (`<contrast>.{deseq2,limma}.results.tsv`;
+    # 1.5's `*.results_filtered.tsv` subsets are left out).
+    # Exact names, not "*.tsv": every pipeline writes many TSVs, and the
+    # inventory count is capped.
     "**/mirna_quant/mirtop/mirna.tsv",
     "**/salmon/*/quant.sf",
+    "**/processed_abundance/all.normalised_counts.tsv",
+    "**/tables/differential/*.deseq2.results.tsv",
+    "**/tables/differential/*.limma.results.tsv",
 )
 
 MAX_FILE_BYTES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_FILE_BYTES", 4_000_000))
@@ -710,6 +721,14 @@ def _is_multiqc_report(name: str) -> bool:
     return name.lower().endswith("multiqc_report.html")
 
 
+def _is_differentialabundance_report(rel_path: str) -> bool:
+    """nf-core/differentialabundance 1.x's report/<study>.html. Named after the
+    study, so only its place identifies it: an .html file directly inside the
+    run's top-level report/ folder, never one of 1.5's report/gsea/ pages."""
+    parts = Path(rel_path.lower()).parts
+    return len(parts) == 2 and parts[0] == "report" and parts[1].endswith(".html")
+
+
 def _sample_for_output_path(rel_path: str, sample_names: list[str]) -> str | None:
     """Best-effort per-sample attribution for one inventory entry, "where
     derivable" (per the design) -- never invented. A per-sample output names
@@ -735,9 +754,10 @@ def _sample_for_output_path(rel_path: str, sample_names: list[str]) -> str | Non
     """
     path = Path(rel_path)
     name = path.name
-    if _is_multiqc_report(name):
+    if _is_multiqc_report(name) or _is_differentialabundance_report(rel_path):
         # Always one report for the whole run. nf-core/scrnaseq names it after
-        # the run, and a one-sample run shares that name with its sample.
+        # the run, and a one-sample run shares that name with its sample;
+        # differentialabundance names it after the study.
         return None
     best: str | None = None
     for sample in sample_names:
@@ -755,13 +775,16 @@ def _sample_for_output_path(rel_path: str, sample_names: list[str]) -> str | Non
 # "$outputs.<key>" resolves against RunManifest.named_outputs (a dict), never
 # against RunManifest.outputs (a list) -- see manifest.py's docstring on both
 # fields and docs/superpowers/specs/2026-09-15-nfcore-reingest-design.md.
-# Each matcher runs against the LOWERCASED basename only, over every
+# Each matcher runs against the LOWERCASED run-relative path, over every
 # inventory entry sorted by path for a deterministic pick among ties (e.g.
-# two aligners' MultiQC reports both matching multiqc_report.html).
+# two aligners' MultiQC reports both matching multiqc_report.html). Most look
+# only at the basename; the differentialabundance report has no fixed name,
+# so it is the one matcher that reads the folder.
 _NAMED_OUTPUT_MATCHERS: tuple[tuple[str, Callable[[str], bool]], ...] = (
-    ("multiqc_report_html", lambda name: _is_multiqc_report(name)),
-    ("kraken2_report", lambda name: name.endswith(".kraken2.report.txt")),
-    ("deseq2_dds_rdata", lambda name: name.endswith(".dds.rdata") or name.endswith(".dds.rds")),
+    ("multiqc_report_html", lambda path: _is_multiqc_report(Path(path).name)),
+    ("kraken2_report", lambda path: path.endswith(".kraken2.report.txt")),
+    ("deseq2_dds_rdata", lambda path: path.endswith(".dds.rdata") or path.endswith(".dds.rds")),
+    ("differentialabundance_report_html", _is_differentialabundance_report),
 )
 
 
@@ -790,7 +813,7 @@ def _resolve_named_outputs(
     per_sample: dict[str, dict[str, str]] = {}
     ordered = sorted(outputs, key=lambda o: o.path)
     for key, matches in _NAMED_OUTPUT_MATCHERS:
-        hits = [o for o in ordered if matches(Path(o.path).name.lower())]
+        hits = [o for o in ordered if matches(o.path.lower())]
         if not hits:
             continue
         for record in hits:

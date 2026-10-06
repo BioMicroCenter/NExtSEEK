@@ -564,6 +564,9 @@ def test_stage_run_dir_skips_the_real_multiqc_report_glob_reached_through_a_syml
     "mirna_quant/mirtop/mirna.tsv",                 # nf-core/smrnaseq merged miRNA counts
     "salmon/SAMPLE_1/quant.sf",                     # per-sample Salmon quantification
     "reports/multiqc/multiqc_report.html",          # nf-core/rnavar >=1.3 MultiQC report
+    "tables/processed_abundance/all.normalised_counts.tsv",  # nf-core/differentialabundance 1.x
+    "tables/differential/LPS_vs_Ctrl.deseq2.results.tsv",    # its per-contrast DESeq2 results
+    "tables/differential/KO_vs_WT.limma.results.tsv",        # its per-contrast limma results
 ])
 def test_stage_run_dir_inventories_the_outputs_the_stub_maps_name(tmp_path, monkeypatch, rel_path):
     """Each path is a deliverable a committed map rule (or a named output)

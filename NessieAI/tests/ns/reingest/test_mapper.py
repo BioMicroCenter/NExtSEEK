@@ -555,6 +555,130 @@ def test_a_per_run_rules_checksum_attaches_from_the_single_run_wide_file():
     assert gex.attributes["Checksum_PrimaryData"].value == "ccc333"
 
 
+def test_differentialabundance_1x_registers_its_normalised_counts_as_one_run_level_gex():
+    # The 1.4/1.5 layout is flat: DESEQ2_NORM publishes all.<kind>.tsv straight
+    # into tables/processed_abundance/. Only the normalised counts become a
+    # row; the per-contrast results tables and the vst/rlog matrix do not.
+    run = manifest.RunManifest(
+        run_dir="/net/cluster/runs/240404Kel_diffabun",
+        params={},
+        pipeline=manifest.PipelineInfo(name="nf-core/differentialabundance", version="1.4.0"),
+        samples=[
+            manifest.SampleRecord(nfcore_sample="WT_1", d_seq_uid="D.SEQ-1",
+                                  uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD,
+                                  parent_sample_type="D.SEQ"),
+            manifest.SampleRecord(nfcore_sample="WT_2", d_seq_uid="D.SEQ-2",
+                                  uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD,
+                                  parent_sample_type="D.SEQ")])
+    run.outputs = [
+        manifest.OutputRecord(path="tables/processed_abundance/all.normalised_counts.tsv", bytes=50),
+        manifest.OutputRecord(path="tables/processed_abundance/all.vst.tsv", bytes=50),
+        manifest.OutputRecord(path="other/deseq2/WT_vs_KO.dds.rld.rds", bytes=50),
+    ]
+    run.named_outputs = {"differentialabundance_report_html": "report/study.html"}
+    result = mapper.apply(run, maps.load("differentialabundance"))
+
+    gex = [r for r in result.rows if r.sample_type == "A.GEX"]
+    assert len(gex) == 1
+    attrs = {k: v.value for k, v in gex[0].attributes.items()}
+    assert attrs["File_PrimaryData"] == "all.normalised_counts.tsv"
+    assert attrs["Matrix"] == "normalised_counts"
+    assert attrs["DataType"] == "TSV"
+    assert attrs["Pipeline"] == "nf-core/differentialabundance"
+    assert attrs["PipelineVersion"] == "1.4.0"
+    # The pipeline has no MultiQC; its own HTML report is the QC link.
+    assert attrs["Link_QualityControl"] == "report/study.html"
+    assert attrs["Parent"] == "D.SEQ-1;D.SEQ-2"
+
+
+def _differentialabundance_run(*paths):
+    run = manifest.RunManifest(
+        run_dir="/net/cluster/runs/250818Rib_diffabun",
+        params={},
+        pipeline=manifest.PipelineInfo(name="nf-core/differentialabundance", version="v1.5.0"),
+        samples=[
+            manifest.SampleRecord(nfcore_sample="d11311.1.1", d_seq_uid="D.SEQ-1",
+                                  uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD,
+                                  parent_sample_type="D.SEQ"),
+            manifest.SampleRecord(nfcore_sample="d11312.1.2", d_seq_uid="D.SEQ-2",
+                                  uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD,
+                                  parent_sample_type="D.SEQ")])
+    run.outputs = [manifest.OutputRecord(path=p, bytes=50) for p in paths]
+    return run
+
+
+def test_differentialabundance_registers_one_gex_per_contrast_named_by_its_contrast():
+    run = _differentialabundance_run(
+        "tables/differential/LPS_MUC2_vs_Ctrl.deseq2.results.tsv",
+        "tables/differential/LPS_MUC2_vs_Ctrl.deseq2.results_filtered.tsv",
+        "tables/differential/LPS_vs_Ctrl.deseq2.results.tsv",
+        "tables/differential/LPS_vs_Ctrl.deseq2.results_filtered.tsv",
+        "tables/differential/MUC2_vs_Ctrl.deseq2.results.tsv",
+        "tables/differential/MUC2_vs_Ctrl.deseq2.results_filtered.tsv",
+    )
+    run.checksums = {"tables/differential/LPS_vs_Ctrl.deseq2.results.tsv": "abc123"}
+    result = mapper.apply(run, maps.load("differentialabundance"))
+
+    rows = [r for r in result.rows if r.sample_type == "A.GEX"
+            and r.attributes["Matrix"].value == "deseq2_results"]
+    by_contrast = {r.attributes["Contrast"].value: r for r in rows}
+    # One row per unfiltered table; the 1.5 *_filtered.tsv subsets are not rows.
+    assert sorted(by_contrast) == ["LPS_MUC2_vs_Ctrl", "LPS_vs_Ctrl", "MUC2_vs_Ctrl"]
+    lps = {k: v.value for k, v in by_contrast["LPS_vs_Ctrl"].attributes.items()}
+    assert lps["File_PrimaryData"] == "LPS_vs_Ctrl.deseq2.results.tsv"
+    assert lps["Checksum_PrimaryData"] == "abc123"
+    assert lps["Matrix"] == "deseq2_results"
+    assert lps["Parent"] == "D.SEQ-1;D.SEQ-2"
+    # Each row names only its own file: no other contrast's checksum or candidates.
+    muc2 = by_contrast["MUC2_vs_Ctrl"].attributes
+    assert muc2["File_PrimaryData"].value == "MUC2_vs_Ctrl.deseq2.results.tsv"
+    assert muc2["File_PrimaryData"].candidates == []
+    assert "Checksum_PrimaryData" not in muc2
+
+
+def test_a_limma_run_registers_its_contrasts_with_the_limma_matrix_label():
+    run = _differentialabundance_run("tables/differential/KO_vs_WT.limma.results.tsv")
+    result = mapper.apply(run, maps.load("differentialabundance"))
+    (row,) = [r for r in result.rows if r.sample_type == "A.GEX"
+              and r.attributes["Matrix"].value == "limma_results"]
+    assert row.attributes["Contrast"].value == "KO_vs_WT"
+    assert row.attributes["Matrix"].value == "limma_results"
+
+
+def test_rows_built_together_get_distinct_name_ordinals():
+    # next_name_ordinal reads the saved catalog, which cannot see rows built in
+    # the same call: every A.GEX row would otherwise ask, get the same "next"
+    # number, and share a Name.
+    run = _differentialabundance_run(
+        "tables/processed_abundance/all.normalised_counts.tsv",
+        "tables/differential/LPS_vs_Ctrl.deseq2.results.tsv",
+        "tables/differential/MUC2_vs_Ctrl.deseq2.results.tsv",
+    )
+    run.params = {"trace_report_suffix": "2025-09-16_11-59-28"}
+    calls = []
+
+    def catalog_next(sample_type, prefix):
+        calls.append((sample_type, prefix))
+        return 5
+
+    result = mapper.apply(run, maps.load("differentialabundance"),
+                          context={"next_name_ordinal": catalog_next})
+    names = sorted(r.attributes["Name"].value for r in result.rows
+                   if r.sample_type == "A.GEX" and "Name" in r.attributes)
+    assert len(names) == 3
+    assert len(set(names)) == 3
+    assert [n.rsplit("_", 1)[1] for n in names] == ["5", "6", "7"]
+    # The catalog is asked once per prefix, not once per row.
+    assert len(calls) == 1
+
+
+def test_file_stem_is_blank_outside_a_per_file_row():
+    # @file_stem names the file a per_file row was built from; any other row
+    # has no single file to name and gets a blank, never a guess.
+    run = _differentialabundance_run("tables/processed_abundance/all.normalised_counts.tsv")
+    assert mapper._resolve_value("@file_stem", run, None, {}) is None
+
+
 def test_no_checksum_at_all_is_the_advisory_path_row_still_renders():
     # A manifest with no checksums (the default -- `outputs` and `checksums`
     # both empty) must not be a new hard dependency: rows ship exactly as

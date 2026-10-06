@@ -133,7 +133,7 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
     Absent means the computed values that need it resolve to None, leaving
     those cells blank -- never a placeholder."""
     approved_rules = approved_rules or {}
-    context = context or {}
+    context = _with_build_local_ordinals(context or {})
     result = MapResult()
     ruled_out = pipeline_map.ruled_out()
     metrics_source = run_manifest.sources.get("metrics", "")
@@ -256,12 +256,38 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
         if rule.cardinality == "per_sample":
             for row in _per_sample_rows(rule, merged_attrs, run_manifest, context):
                 result.rows.append(row)
+        elif rule.cardinality == "per_file":
+            for row in _per_file_rows(rule, merged_attrs, run_manifest, context):
+                result.rows.append(row)
         else:
             row = _per_run_row(rule, merged_attrs, run_manifest, context)
             if row is not None:
                 result.rows.append(row)
 
     return result
+
+
+def _with_build_local_ordinals(context: dict) -> dict:
+    """``context`` with a ``next_name_ordinal`` that also counts this build's rows.
+
+    The injected lookup reads the SAVED catalog, which cannot see the rows this
+    call is still building: a run whose map makes several A.GEX rows (a counts
+    matrix and one per contrast) would get the same "next" number for every one
+    and name them all ``gex_<date>_1``. So the catalog is asked once per
+    (sample type, prefix) and later rows take the following numbers. A context
+    without the lookup is returned unchanged, keeping those Names blank.
+    """
+    lookup = context.get("next_name_ordinal")
+    if not callable(lookup):
+        return context
+    issued: dict[tuple[str, str], int] = {}
+
+    def next_ordinal(sample_type: str, prefix: str) -> int:
+        key = (sample_type, prefix)
+        issued[key] = issued[key] + 1 if key in issued else lookup(sample_type, prefix)
+        return issued[key]
+
+    return {**context, "next_name_ordinal": next_ordinal}
 
 
 def _expand_braces(pattern: str) -> list[str]:
@@ -461,6 +487,34 @@ def _computed_gtf_path(run_manifest, sample, context) -> str | None:
     return _redact_reference_path((run_manifest.params or {}).get("gtf"))
 
 
+def _computed_file_stem(run_manifest, sample, context) -> str | None:
+    """"LPS_vs_Ctrl" from "tables/differential/LPS_vs_Ctrl.deseq2.results.tsv"
+    under the glob "tables/differential/*.deseq2.results.tsv" -- the part of a
+    per_file row's own file name that the glob's leading "*" matched.
+
+    nf-core names a per-contrast output after the contrast id, so this is the
+    contrast; the same holds for any other output written once per comparison.
+    Only a per_file row has one file to name (``apply`` puts it in
+    ``context``), so every other row gets None. So does a glob whose file-name
+    part is not "*" followed by a literal suffix: there is no single matched
+    part to report, and a guess would put a wrong label on the row.
+    """
+    path = (context or {}).get("file_path")
+    glob = (context or {}).get("file_glob")
+    if not path or not glob:
+        return None
+    name = os.path.basename(path)
+    for pattern in _expand_braces(glob):
+        if not fnmatch.fnmatch(path, pattern):
+            continue
+        name_pattern = pattern.rsplit("/", 1)[-1]
+        suffix = name_pattern[1:]
+        if (name_pattern.startswith("*") and not any(c in suffix for c in "*?[")
+                and len(name) > len(suffix) and name.endswith(suffix)):
+            return name[:-len(suffix)] if suffix else name
+    return None
+
+
 _COMPUTED = {
     "fastq_stem": _computed_fastq_stem,
     "run_date": _computed_run_date,
@@ -469,6 +523,7 @@ _COMPUTED = {
     "lab": _computed_lab,
     "genome_path": _computed_genome_path,
     "gtf_path": _computed_gtf_path,
+    "file_stem": _computed_file_stem,
 }
 
 
@@ -857,6 +912,29 @@ def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
             attribute="Parent", value=joined, origin=ORIGIN_MAP)
 
     return row if row.attributes else None
+
+
+def _per_file_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
+                   run_manifest: manifest.RunManifest,
+                   context: dict | None = None) -> list[MappedRow]:
+    """One per_run-shaped row for EACH file the rule's glob matches, in path order.
+
+    A per_run rule keeps the first match and drops the rest, which is right for
+    a run's single counts matrix and wrong for an output written once per
+    contrast. Each row here is built by ``_per_run_row`` against a copy of the
+    manifest whose inventory holds only that row's file, so the file, its
+    checksum and the run-wide ``Parent`` join are decided by exactly the same
+    code as a per_run row, and no row can be handed another row's file or
+    checksum. The file is also put in ``context``, for ``@file_stem``.
+    """
+    rows: list[MappedRow] = []
+    for output in _primary_candidates(rule, run_manifest, None):
+        only_this_file = run_manifest.model_copy(update={"outputs": [output]})
+        row_context = {**(context or {}), "file_path": output.path, "file_glob": rule.glob}
+        row = _per_run_row(rule, merged_attrs, only_this_file, row_context)
+        if row is not None:
+            rows.append(row)
+    return rows
 
 
 def _lookup(rule: maps.AttributeRule, run_manifest: manifest.RunManifest,

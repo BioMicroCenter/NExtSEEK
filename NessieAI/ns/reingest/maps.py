@@ -66,7 +66,7 @@ MAPS_DIR = Path(__file__).resolve().parent.parent / "reingest_maps"
 # `test_maps.py` asserts the two sets are identical, so adding one in only one
 # place fails loudly instead of resolving to None at runtime.
 COMPUTED_VALUES = ("fastq_stem", "run_date", "gex_name", "nextseek_user", "lab",
-                   "genome_path", "gtf_path")
+                   "genome_path", "gtf_path", "file_stem")
 
 _RUN_SECTIONS = ("params", "pipeline", "software_versions", "outputs", "checksums")
 _SAMPLE_SECTIONS = ("metrics", "derived")
@@ -84,7 +84,13 @@ class OutputRule(BaseModel):
     # A typo here must fail map load loudly, not fall through to one branch
     # silently -- this repo has already been bitten by exactly that class of
     # bug (an unrecognised status value silently read as "complete").
-    cardinality: Literal["per_sample", "per_run"] = "per_sample"
+    # per_sample: one row per resolved sample, from that sample's own file.
+    # per_run: one row for the run, from the single matching file (the first,
+    #   if several match), parented by every resolved sample.
+    # per_file: one row per matching file, each parented like a per_run row.
+    #   For outputs a run writes once per contrast, comparison or condition,
+    #   where per_run would keep the first and silently drop the rest.
+    cardinality: Literal["per_sample", "per_run", "per_file"] = "per_sample"
     primary_data: bool = False
     secondary_data_glob: str | None = None
     attributes: dict[str, str] = Field(default_factory=dict)
@@ -108,6 +114,20 @@ class OutputRule(BaseModel):
     # project happened to be first. None means emit no ASSAY rows for this
     # rule -- the pre-existing behaviour, not an error.
     assay: str | None = None
+
+    @model_validator(mode="after")
+    def per_file_needs_one_primary_file_per_row(self):
+        """A per_file rule counts its rows by the files its glob matches, so it
+        must declare primary data (or it matches nothing and emits nothing),
+        and it may not declare secondary data: nothing pairs one row's file
+        with its own secondary, so every row would get the first one."""
+        if self.cardinality == "per_file":
+            if not self.primary_data:
+                raise ValueError(f"per_file rule {self.glob!r} must set primary_data")
+            if self.secondary_data_glob:
+                raise ValueError(
+                    f"per_file rule {self.glob!r} cannot declare secondary_data_glob")
+        return self
 
 
 class AttributeRule(BaseModel):

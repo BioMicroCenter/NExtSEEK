@@ -1037,6 +1037,41 @@ def test_a_prefixed_multiqc_report_is_inventoried_and_named(tmp_path, report):
     assert got.named_outputs["multiqc_report_html"] == report
 
 
+def test_the_differentialabundance_1x_report_is_inventoried_and_named(tmp_path):
+    # 1.x writes its report as report/<study>.html, named after the study, so
+    # only its place (directly inside the top-level report/) identifies it.
+    # 1.5 also writes GSEA pages under report/gsea/<contrast>/<set>/, which
+    # must not be listed (there are hundreds) or taken for the report.
+    root = tmp_path / "run"
+    _minimal_run(root)
+    for rel in ("report/250818Rib_diffabun.html",
+                "report/gsea/LPS_vs_Ctrl/LPS_vs_Ctrl.go/index.html"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("<html></html>")
+
+    listed = {str(p.relative_to(root)) for pattern in harvest.INVENTORY_GLOBS
+              for p in root.glob(pattern)}
+    assert "report/250818Rib_diffabun.html" in listed
+    assert not any(p.startswith("report/gsea/") for p in listed)
+
+    got = harvest.harvest_local(
+        str(root),
+        inventory=[{"path": "report/gsea/LPS_vs_Ctrl/LPS_vs_Ctrl.go/index.html", "bytes": 13},
+                   {"path": "report/250818Rib_diffabun.html", "bytes": 13}],
+        lookup_by_fastq=lambda p, types=None: [])
+    assert got.named_outputs["differentialabundance_report_html"] == "report/250818Rib_diffabun.html"
+
+
+def test_an_html_file_elsewhere_is_not_taken_for_the_differentialabundance_report(tmp_path):
+    root = tmp_path / "run"
+    _minimal_run(root)
+    got = harvest.harvest_local(
+        str(root), inventory=[{"path": "multiqc/star_salmon/report/x.html", "bytes": 1},
+                              {"path": "pipeline_info/execution_report.html", "bytes": 1}],
+        lookup_by_fastq=lambda p, types=None: [])
+    assert "differentialabundance_report_html" not in got.named_outputs
+
+
 def test_a_multiqc_side_file_is_not_taken_for_the_report(tmp_path):
     root = tmp_path / "run"
     _minimal_run(root)
