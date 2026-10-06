@@ -556,7 +556,7 @@ class ChatConfig:
             if not env_config_map["GCP_API_KEY"] and not getattr(self, "GCP_API_KEY", None):
                 raise RuntimeError("GCP mode selected but GCP_API_KEY is not set.")
             _gcp_defaults = {
-                "gcp:lite": "gemini-2.5-flash",
+                "gcp:lite": "gemini-3.5-flash",
                 "gcp:current": "gemini-3.8-flash",
             }
             env_config_map["LLM_MODEL"] = os.getenv("GCP_LLM_MODEL", _gcp_defaults.get(_mode, "gemini-3.8-flash"))

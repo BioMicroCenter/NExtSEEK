@@ -336,15 +336,15 @@ class GeminiClient(BaseLLMClient):
                 f"({len(messages)} message(s), all system)"
             )
 
-        generation_config: dict[str, Any] = {"system_instruction": system_instruction, "temperature": temperature}
+        # No temperature, top_p, top_k or thinking_budget: Gemini 3 ignores the sampling fields
+        # (deprecated 2026-07-21) and later models answer 400 to all four (Google notice, 2026-10-06).
+        # `temperature` stays in the signature for the other providers' callers.
+        generation_config: dict[str, Any] = {"system_instruction": system_instruction}
         if isinstance(response_format, dict) and response_format.get("type") == "json_object":
             generation_config["response_mime_type"] = "application/json"
         if thinking_budget is not None:
-            if model.startswith("gemini-3"):
-                # Gemini 3 models take a level, not a token budget: the catalog's level is sent as it is.
-                generation_config["thinking_config"] = {"thinking_level": _BUDGET_TO_EFFORT.get(thinking_budget, "high")}
-            else:
-                generation_config["thinking_config"] = {"thinking_budget": thinking_budget}
+            # A level, not a token budget: the catalog's level is sent as it is.
+            generation_config["thinking_config"] = {"thinking_level": _BUDGET_TO_EFFORT.get(thinking_budget, "high")}
 
         try:
             resp = self.client.models.generate_content(

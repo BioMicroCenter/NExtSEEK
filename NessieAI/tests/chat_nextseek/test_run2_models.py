@@ -97,7 +97,8 @@ def test_the_gemini_default_model_is_3_8_flash():
     source = (paths.CHAT_NEXTSEEK_DIR / "src" / "chat_nextseek" / "config.py").read_text()
     assert '"gcp:current": "gemini-3.8-flash"' in source
     assert '_gcp_defaults.get(_mode, "gemini-3.8-flash")' in source
-    assert "gemini-3.5-flash" not in source
+    assert '"gcp:lite": "gemini-3.5-flash"' in source  # the only 3.5 Flash left (off 2.5, 2026-10-06)
+    assert source.count("gemini-3.5-flash") == 1
 
 
 def test_container_cc_runs_opus_5_5_and_falls_back_to_opus_4_8():

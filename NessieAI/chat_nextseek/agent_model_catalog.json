@@ -67,14 +67,14 @@
     }
   },
   "gcp:lite": {
-    "_comment": "GCP lite gen (-m gcp:lite): gemini-2.5-flash for most, gemini-2.5-pro for heavy reasoning agents.",
+    "_comment": "GCP lite gen (-m gcp:lite): gemini-3.5-flash for most, gemini-3.1-pro-preview for heavy reasoning agents (moved off Gemini 2.5, operator 2026-10-06).",
     "models": {
-      "gemini-2.5-flash": {
+      "gemini-3.5-flash": {
         "provider": "gcp",
         "thinking_level": null,
         "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "context_engineer", "memory_coder", "evaluator", "seqera_agent"]
       },
-      "gemini-2.5-pro": {
+      "gemini-3.1-pro-preview": {
         "provider": "gcp",
         "thinking_level": "high",
         "agents": ["parser", "report_writer", "report_coder", "multi_parser", "planner"]
