@@ -18,7 +18,6 @@ def test_an_op_logs_one_timing_line_with_its_steps(monkeypatch, caplog):
     assert out == {"ok": True}
     lines = [r.getMessage() for r in caplog.records if r.name == "dmac.op_timing"]
     assert len(lines) == 1
-    print(lines[0])
     assert lines[0].startswith("op_timing op=graph turn=None limit=90.0 view=0.00 ")
     for step in ("scope=", "parser_end=", "end="):
         assert step in lines[0]

@@ -104,6 +104,17 @@ def test_an_estimated_op_spend_says_so_and_is_not_partial():
     assert out["cost_partial"] is False
 
 
+def test_a_nested_turns_estimate_reaches_the_parent_turn():
+    """The nested NS turn's own record says cost_estimated (its query_error or query_complete): the parent says so."""
+    _, _, _, turn = _row()
+    _child(turn, "error", {"total_cost_usd": 0.10, "cost_partial": False, "cost_estimated": True})
+    _child(turn, "completed", {"total_cost_usd": 0.05, "cost_partial": False, "cost_estimated": False})
+    out = tm.terminal_cost(turn, {"reply": "ok", "total_cost_usd": 0.30}, router_fields={}, prerun_settled=None)
+    assert out["cost_estimated"] is True
+    assert "nested NExtSEEK turn's timed-out model calls" in out["cost_estimated_reason"]
+    assert out["ops_cost_usd"] == pytest.approx(0.15) and out["cost_partial"] is False
+
+
 def test_a_turn_without_an_estimate_says_not_estimated():
     _, _, _, turn = _row()
     out = tm.terminal_cost(turn, {"reply": "ok", "total_cost_usd": 0.30}, router_fields={}, prerun_settled=None)
