@@ -354,14 +354,19 @@ def test_the_floor_still_asserts_something_on_every_family_it_covers():
     assertion, just one its correct answers can satisfy."""
     merged = corpus.merged(CORPUS)
     expected = {
-        "graph_traversal": {"outcome_observed", "graph_truncation_disclosed"},
-        "sample_search": {"outcome_observed"},
+        "graph_traversal": {"outcome_observed", "graph_truncation_disclosed", "parser_plan.mode"},
+        "sample_search": {"outcome_observed", "parser_plan.mode"},
         "sample_retrieve": {"outcome_observed"},
-        "lineage_tree": {"outcome_observed"},
+        "lineage_tree": {"outcome_observed", "parser_plan.mode"},
         "project_summary_report": {"report_produced_output"},
         "submission_package": {"report_produced_output"},
         # 2026-09-23: added with the production researcher questions.
-        "publication_lookup": {"outcome_observed"},
+        "publication_lookup": {"outcome_observed", "parser_plan.mode"},
+        # 2026-10-07 test-set review (SPEC-2, graph-search grading): every sample-metadata question is graded as a graph search: four new floors.
+        "harmonization": {"parser_plan.mode"},
+        "person_lab_resolution": {"parser_plan.mode"},
+        "vocabulary_resolution": {"parser_plan.mode"},
+        "data_file_location": {"parser_plan.mode"},
     }
     assert set(expected) == set(corpus.load_family_floor(CORPUS).get("floors", {})), (
         "a family gained or lost a floor without this pin being updated")
@@ -382,6 +387,10 @@ def test_the_floor_never_mandates_a_particular_engine():
     check's clothes — which is precisely how three correct seed-6 answers went red.
 
     `reporting` is deliberately out of scope: it keeps `report_produced_output`.
+
+    2026-10-07 test-set review (SPEC-2, graph-search grading): the floors now also carry `parser_plan.mode eq graph_query` (the operator's ruling that
+    every sample-metadata question is graded as a graph search, which supersedes the engine-agnostic note of
+    2026-08-03 for the MODE; `api_ok` and `neo4j_ok` remain forbidden here).
     """
     floors = corpus.load_family_floor(CORPUS).get("floors", {})
     bad = [(fam, c["field"]) for fam in ENGINE_FLEXIBLE
@@ -652,9 +661,9 @@ def test_a_search_advanced_case_answered_by_the_graph_satisfies_its_floor():
     answer satisfies it."""
     v = next(v for v in corpus.merged(CORPUS) if v.id == "advanced.find_me_nhp_samples_from_study_2")
     floor = _floor_added(v)
-    assert {c.field for c in floor} == {"outcome_observed"}, [c.field for c in floor]
-    passed, _ = _evaluate(floor, {"graph_result": {"count": 408, "total": 408,
-                                                   "truncated": False}})
+    assert {c.field for c in floor} == {"outcome_observed", "parser_plan.mode"}, [c.field for c in floor]   # + the graph-search grading
+    passed, _ = _evaluate(floor, {"graph_result": {"count": 408, "total": 408, "truncated": False},
+                                  "parser_plan": {"mode": "graph_query"}})
     assert passed
 
 
@@ -935,7 +944,10 @@ def test_the_rest_mandates_are_gone_from_the_resolved_variant(vid):
     """The fix itself: no criterion the harness runs still demands the REST engine."""
     v = next(v for v in corpus.merged(CORPUS) if v.id == vid)
     fields = {c.field for t in v.turns for c in t.pass_criteria}
-    assert not (REST_MANDATES & fields), sorted(REST_MANDATES & fields)
+    # 2026-10-07 test-set review (SPEC-2, graph-search grading): parser_plan.mode is now asserted, as graph_query; what must stay gone is the REST mode (new_search)
+    assert not ((REST_MANDATES - {"parser_plan.mode"}) & fields), sorted(REST_MANDATES & fields)
+    modes = [(c.op, c.value) for t in v.turns for c in t.pass_criteria if c.field == "parser_plan.mode"]
+    assert all(m == ("eq", "graph_query") for m in modes), modes
     assert v.turns[-1].query == OVERRIDDEN_2026_08_03B[vid]
 
 
@@ -1045,7 +1057,8 @@ def test_seed6_the_overridden_cases_now_pass_on_the_real_evidence(vid):
 
 # A graph turn that answered correctly, in the shape `augment_debug` consumes.
 GOOD_DEBUG = {"graph_result": {"ok": True, "count": 1765, "total": 1765, "truncated": False},
-              "entity_result": {"sampletypes": [{"code": "D.SEQ"}]}}
+              "entity_result": {"sampletypes": [{"code": "D.SEQ"}]},
+              "parser_plan": {"mode": "graph_query"}}      # 2026-10-07 test-set review (SPEC-2, graph-search grading): the metadata questions are graded as a graph search
 
 GOOD_REPLY = {
     "advanced.find_me_sequencing_files_assoc":

@@ -292,7 +292,9 @@ def test_the_new_case_has_two_real_turns_on_nextseek_query():
     assert [t.query for t in v.turns] == [
         "Find the NDMA-treated mice.", "And how many of those were female?"]
     seed, follow = ([(c.field, c.op, c.value) for c in t.pass_criteria] for t in v.turns)
-    assert seed == [("route", "eq", "nextseek_query"), ("last_reply", "nonempty", None)]
+    # 2026-10-07 test-set review (SPEC-2, graph-search grading): the opening turn is a sample-metadata question: graded as a graph search
+    assert seed == [("route", "eq", "nextseek_query"), ("last_reply", "nonempty", None),
+                    ("parser_plan.mode", "eq", "graph_query")]
     assert follow == [("route", "eq", "nextseek_query"), ("last_reply", "nonempty", None),
                       ("last_reply", "matches_re", r"\b\d+\b")]
 

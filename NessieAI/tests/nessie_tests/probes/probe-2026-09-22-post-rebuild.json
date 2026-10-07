@@ -56,6 +56,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?s)\\A(?!.*constrained by)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -101,6 +106,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?s)\\A(?!.*graph query over the sample network)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -136,6 +146,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?<![\\w.,/-])745(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -171,6 +186,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "HeLa-(ActD|GSK|TSA)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -216,6 +236,11 @@
                   "field": "graph_cypher",
                   "op": "matches_re",
                   "value": "(?s)\\A(?!.*search_text)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -256,6 +281,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\(ENG\\)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -286,6 +316,11 @@
                   "field": "route",
                   "op": "eq",
                   "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             },

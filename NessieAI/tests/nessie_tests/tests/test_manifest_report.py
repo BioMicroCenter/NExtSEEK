@@ -239,7 +239,8 @@ def test_the_vacuous_turn_the_docs_promise_really_is_visible(tmp_path):
     # turn is what produces the outcome_observed skip; it fails exactly one criterion,
     # the route, and the skips are still counted apart from it.
     failed = [o for o in entry.observations if not o.passed and not o.skipped]
-    assert [(o.turn, o.field) for o in failed] == [("follow_up", "route")]
+    # 2026-10-07 test-set review (SPEC-2, graph-search grading): plus the follow-up turn's own mode check
+    assert [(o.turn, o.field) for o in failed] == [("follow_up", "route"), ("follow_up", "parser_plan.mode")]
     assert (f"{len(entry.observations)} criteria, {len(failed)} failed, "
             f"{len(skipped)} skipped") in doc
 

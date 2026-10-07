@@ -43,6 +43,11 @@
                   "field": "graph_cypher",
                   "op": "matches_re",
                   "value": "IN_PROJECT"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -83,6 +88,11 @@
                   "field": "graph_cypher",
                   "op": "matches_re",
                   "value": "uuid"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -118,6 +128,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?<![\\w.,/-])50,?639(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -158,6 +173,11 @@
                   "field": "graph_cypher",
                   "op": "matches_re",
                   "value": "toLower"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -198,6 +218,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?<![\\w.,/-])4,?154(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -233,6 +258,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "spell|spelling|variant|written|notation|form of"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -268,6 +298,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?<![\\w.,/-])1,?549(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -308,6 +343,11 @@
                   "field": "graph_cypher",
                   "op": "matches_re",
                   "value": "DERIVED_FROM"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -348,6 +388,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?s)\\A(?!.*no matches)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -383,6 +428,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?<![\\w.,/-])10(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -428,6 +478,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?<![\\w.,/-])198(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -468,6 +523,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?s)\\A(?!.*304,?062)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }

@@ -894,6 +894,11 @@
                   "field": "last_reply",
                   "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             },
@@ -982,6 +987,11 @@
                   "field": "last_reply",
                   "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             },
@@ -1039,6 +1049,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?is)\\A(?!.*(rows returned|couldn't build a search))"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -1182,6 +1197,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?is)\\A(?!.*(\\b[1-9]\\d* samples? (carry|carries)))"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }

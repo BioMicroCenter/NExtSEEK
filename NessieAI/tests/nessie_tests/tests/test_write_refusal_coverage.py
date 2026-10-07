@@ -908,8 +908,10 @@ def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
     # search, not api_ok (-4 api_ok); the SOP case asserts the graph route, not the sops endpoint (+1 mode, -1
     # endpoint).
     # -> [262, 163, 12, 13] on 2026-10-07, test-set review (SPEC-2): 75 curated variants retired into retired.json.
+    # -> [262, 239, 12, 13] on 2026-10-07, graph-search grading (SPEC-2 R5): every sample-metadata question asserts
+    # parser_plan.mode graph_query, which an all-CC simulation fails (+76 mode).
     assert [counts.get(f) for f in ("route", "parser_plan.mode", "api_ok",
-                                    "api_plan.endpoint")] == [262, 163, 12, 13], (
+                                    "api_plan.endpoint")] == [262, 239, 12, 13], (
         f"{counts} — update the four counts in nessie_tests/README.md and in "
         f"tests/test_evaluate.py's 'Fix round 1' comment")
 

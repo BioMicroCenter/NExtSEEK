@@ -202,7 +202,11 @@ def test_the_ab_list_asserts_answers_never_routes():
     for vid, v in _cases(AB).items():
         for turn in v["turns"]:
             fields = {c["field"] for c in turn["pass_criteria"]}
-            assert fields == {"last_reply"}, (vid, turn["label"], fields)
+            # 2026-10-07 test-set review (SPEC-2, graph-search grading): a fresh NExtSEEK search turn (the seed, or a fresh question) also asserts parser_plan.mode
+            # graph_query: the same in both arms, it grades the search, not a follow-up route
+            assert "last_reply" in fields and fields <= {"last_reply", "parser_plan.mode"}, (vid, turn["label"], fields)
+            assert all(c["op"] == "eq" and c["value"] == "graph_query"
+                       for c in turn["pass_criteria"] if c["field"] == "parser_plan.mode"), (vid, turn["label"])
 
 
 def test_refers_back_turn_four_names_hela_and_rejects_73():

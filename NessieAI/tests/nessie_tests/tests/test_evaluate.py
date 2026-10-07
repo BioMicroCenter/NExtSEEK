@@ -855,8 +855,9 @@ def test_the_one_mixed_route_variant_in_a_floored_family_now_passes():
         _TREE_CC_FOLLOWUP, list(follow.pass_criteria), OBS_CC,
         last_reply="38 of them are sequencing samples.")
     assert not follow_passed
+    # 2026-10-07 test-set review (SPEC-2, graph-search grading): the follow-up turn also carries its own follow-up mode check, which a CC-routed turn fails
     assert [r["field"] for r in follow_results
-            if not r["passed"] and not r.get("skipped")] == ["route"]
+            if not r["passed"] and not r.get("skipped")] == ["route", "parser_plan.mode"]
     assert {r["field"] for r in follow_results if r.get("skipped")} == {
         "chat_log.length", "outcome_observed"}
 

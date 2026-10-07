@@ -360,15 +360,16 @@ def test_the_family_floor_injects_the_numbers_the_docs_quote():
     # landed in floored families where their old ones had no floor (146 -> 150).
     # 207 -> 210: the family floor reaches 3 of the 25 variants added
     # 2026-08-06; the other 22 are in families the floor does not cover.
-    assert variants == 186, f"{variants} variants floored — update {_DOCS}"  # 242 -> 186: 2026-10-07 test-set review (SPEC-2): 56 floored variants retired. 226 -> 242: 2026-09-23: +50 variants for the 53 production researcher questions; the floor reaches the 16 in sample_search, publication_lookup, graph_traversal and lineage_tree (report.species_in_project is no_floor). Was: 210 -> 226: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert variants == 208, f"{variants} variants floored — update {_DOCS}"  # 186 -> 208: 2026-10-07 test-set review (SPEC-2, graph-search grading): the four new mode floors and the mode line on four old ones reach 22 more variants. 242 -> 186: 2026-10-07 test-set review (SPEC-2): 56 floored variants retired. 226 -> 242: 2026-09-23: +50 variants for the 53 production researcher questions; the floor reaches the 16 in sample_search, publication_lookup, graph_traversal and lineage_tree (report.species_in_project is no_floor). Was: 210 -> 226: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     # 2026-08-06: +3 outcome_observed and +1 graph_truncation_disclosed, from the
     # 3 added variants the floor reaches.
     # 153/57/48 -> 168/58/52. 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     # 168/58/52 -> 184/58/54. 2026-09-23: +50 production researcher cases: 16 gain outcome_observed, the 2 graph_traversal
     # ones graph_truncation_disclosed too.
     # 184/58/54 -> 145/41/46: 2026-10-07 test-set review (SPEC-2): retired variants no longer count.
+    # + parser_plan.mode 62: 2026-10-07 graph-search grading (the mode floor reaches 62 variants that do not already assert it).
     assert per_field == {"outcome_observed": 145, "report_produced_output": 41,
-                         "graph_truncation_disclosed": 46}, (
+                         "graph_truncation_disclosed": 46, "parser_plan.mode": 62}, (
         f"{per_field} — update {_DOCS}")
 
 

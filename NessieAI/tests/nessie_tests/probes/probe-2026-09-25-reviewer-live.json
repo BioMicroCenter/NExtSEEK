@@ -116,6 +116,11 @@
                   "field": "suggestions",
                   "op": "matches_re",
                   "value": "'expected_count': 10517"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             },
@@ -142,6 +147,11 @@
                   "field": "suggestions",
                   "op": "eq",
                   "value": null
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -187,6 +197,11 @@
                   "field": "suggestions",
                   "op": "eq",
                   "value": null
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -232,6 +247,11 @@
                   "field": "suggestions",
                   "op": "eq",
                   "value": null
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -272,6 +292,11 @@
                   "field": "suggestions",
                   "op": "matches_re",
                   "value": "'label': 'Only STAR 2-Pass"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -317,6 +342,11 @@
                   "field": "suggestions",
                   "op": "eq",
                   "value": null
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -357,6 +387,11 @@
                   "field": "suggestions",
                   "op": "eq",
                   "value": null
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -397,6 +432,11 @@
                   "field": "suggestions",
                   "op": "eq",
                   "value": null
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -437,6 +477,11 @@
                   "field": "suggestions",
                   "op": "eq",
                   "value": null
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -482,6 +527,11 @@
                   "field": "suggestions",
                   "op": "eq",
                   "value": null
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }

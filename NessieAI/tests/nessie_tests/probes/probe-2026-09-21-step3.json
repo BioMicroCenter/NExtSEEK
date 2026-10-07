@@ -56,6 +56,11 @@
                   "field": "last_reply",
                   "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             },
@@ -125,6 +130,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?<![\\w.,/-])482(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -154,6 +164,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?<![\\w.,/-])(?:13|20)(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }

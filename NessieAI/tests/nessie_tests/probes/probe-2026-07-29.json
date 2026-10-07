@@ -166,6 +166,11 @@
                   "field": "graph_result.count",
                   "op": "gte",
                   "value": 1
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             },

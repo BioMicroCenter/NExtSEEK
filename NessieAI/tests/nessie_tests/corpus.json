@@ -224,8 +224,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -266,8 +266,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -301,8 +301,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -337,8 +337,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -379,8 +379,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "last_reply",
@@ -414,8 +414,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "last_reply",
@@ -449,8 +449,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -479,8 +479,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -519,8 +519,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -553,8 +553,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -587,8 +587,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "last_reply",
@@ -622,8 +622,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -662,8 +662,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -691,8 +691,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -725,8 +725,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -759,8 +759,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -841,8 +841,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -875,8 +875,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "graph_cypher",
@@ -914,8 +914,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -948,8 +948,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -982,8 +982,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1016,8 +1016,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -1045,8 +1045,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1079,8 +1079,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -1109,8 +1109,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1143,8 +1143,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1178,8 +1178,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -1207,8 +1207,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1241,8 +1241,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1275,8 +1275,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -1304,8 +1304,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -1333,8 +1333,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1410,8 +1410,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -1439,8 +1439,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1473,8 +1473,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -1502,8 +1502,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -1533,8 +1533,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "last_reply",
@@ -1575,8 +1575,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "last_reply",
@@ -1770,7 +1770,8 @@
           "tags": [
             "nessie",
             "full",
-            "atlas"
+            "atlas",
+            "no_floor"
           ],
           "requires_env": [],
           "turns": [
@@ -2602,7 +2603,8 @@
           "tags": [
             "nessie",
             "full",
-            "prod_researcher"
+            "prod_researcher",
+            "no_floor"
           ],
           "id": "person.lab_code_full_name",
           "family": "person_lab_resolution",
@@ -2705,7 +2707,8 @@
           "tags": [
             "nessie",
             "full",
-            "prod_researcher"
+            "prod_researcher",
+            "no_floor"
           ],
           "id": "person.who_is_scientist",
           "family": "person_lab_resolution",
@@ -2759,7 +2762,8 @@
           "tags": [
             "nessie",
             "full",
-            "prod_researcher"
+            "prod_researcher",
+            "no_floor"
           ],
           "id": "person.who_is_pi",
           "family": "person_lab_resolution",
@@ -3605,6 +3609,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?is)CEL-260305GRI-1\\b"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -3745,6 +3754,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?is)(\\bnone\\b|\\bno\\b\\s+\\w*\\s*attribut|\\b0\\b|not use|aren.?t)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -3868,6 +3882,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?is)TEST_SOP"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -3895,8 +3914,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "last_reply",
@@ -3963,8 +3982,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -4036,8 +4055,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -4071,8 +4090,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -4105,8 +4124,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -4182,8 +4201,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -4216,8 +4235,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -4245,8 +4264,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -6149,8 +6168,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "last_reply",
@@ -6187,6 +6206,11 @@
                   "field": "route_source",
                   "op": "matches_re",
                   "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "matches_re",
+                  "value": "^(ask_about_last_results|refine_last_search)$"
                 }
               ]
             }
@@ -6320,8 +6344,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -6360,8 +6384,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -6390,8 +6414,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -6425,8 +6449,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -6455,8 +6479,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -6491,8 +6515,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "last_reply",
@@ -6526,8 +6550,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -6561,8 +6585,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -6595,8 +6619,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -6629,8 +6653,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -6663,8 +6687,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "matches_re",
-                  "value": "^(graph_query|new_search)$"
+                  "op": "eq",
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -7124,7 +7148,8 @@
           "name": "CC op: nextseek-sampletype-attrs \u2014 fetch a sample type's attribute schema",
           "tags": [
             "nessie",
-            "full"
+            "full",
+            "no_floor"
           ],
           "requires_env": [],
           "turns": [
@@ -7167,7 +7192,8 @@
           "name": "CC ops: nextseek-assay-resolve and nextseek-project-resolve",
           "tags": [
             "nessie",
-            "full"
+            "full",
+            "no_floor"
           ],
           "requires_env": [],
           "turns": [
@@ -7328,7 +7354,8 @@
           "is_bayesian": true,
           "tags": [
             "nessie",
-            "full"
+            "full",
+            "no_floor"
           ],
           "id": "vocab.raw_versus_analyzed_prefix",
           "family": "vocabulary_resolution",
@@ -7955,7 +7982,7 @@
                 {
                   "field": "parser_plan.mode",
                   "op": "eq",
-                  "value": "system_question"
+                  "value": "graph_query"
                 },
                 {
                   "field": "last_reply",
@@ -8326,6 +8353,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\b807\\b"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             },
@@ -8481,6 +8513,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\b745\\b"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             },
@@ -11396,6 +11433,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\b1,?551\\b"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -13249,6 +13291,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\b(2,?666|3,?321)\\b"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             },
@@ -13355,6 +13402,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\b807\\b"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             },
@@ -13435,6 +13487,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\b807\\b"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             },
@@ -13515,6 +13572,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\b745\\b"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             },
@@ -15681,6 +15743,11 @@
                   "field": "route",
                   "op": "eq",
                   "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -15721,6 +15788,11 @@
                   "field": "last_reply",
                   "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             },
@@ -15884,6 +15956,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\b890\\b"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             },
@@ -16225,6 +16302,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\b725\\b"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -16276,6 +16358,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?is)(endpoint|quer|search|cypher|api|/nextseek_api|sample.?type)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
@@ -16980,6 +17067,11 @@
           "field": "outcome_observed",
           "op": "true",
           "value": null
+        },
+        {
+          "field": "parser_plan.mode",
+          "op": "eq",
+          "value": "graph_query"
         }
       ],
       "sample_retrieve": [
@@ -16999,6 +17091,11 @@
           "field": "graph_truncation_disclosed",
           "op": "true",
           "value": null
+        },
+        {
+          "field": "parser_plan.mode",
+          "op": "eq",
+          "value": "graph_query"
         }
       ],
       "lineage_tree": [
@@ -17006,6 +17103,11 @@
           "field": "outcome_observed",
           "op": "true",
           "value": null
+        },
+        {
+          "field": "parser_plan.mode",
+          "op": "eq",
+          "value": "graph_query"
         }
       ],
       "project_summary_report": [
@@ -17027,10 +17129,44 @@
           "field": "outcome_observed",
           "op": "true",
           "value": null
+        },
+        {
+          "field": "parser_plan.mode",
+          "op": "eq",
+          "value": "graph_query"
+        }
+      ],
+      "harmonization": [
+        {
+          "field": "parser_plan.mode",
+          "op": "eq",
+          "value": "graph_query"
+        }
+      ],
+      "person_lab_resolution": [
+        {
+          "field": "parser_plan.mode",
+          "op": "eq",
+          "value": "graph_query"
+        }
+      ],
+      "vocabulary_resolution": [
+        {
+          "field": "parser_plan.mode",
+          "op": "eq",
+          "value": "graph_query"
+        }
+      ],
+      "data_file_location": [
+        {
+          "field": "parser_plan.mode",
+          "op": "eq",
+          "value": "graph_query"
         }
       ]
     },
-    "_2026_09_23_prod_researchers": "publication_lookup floors on outcome_observed: a paper lookup always runs a query, so a turn that observed no outcome is dead. person_lab_resolution, data_file_location and session_export get no floor, because who-is, where-is-the-file and export questions are answered from the lab record or the system context with no query outcome to observe; their cases assert content instead. report.species_in_project is tagged no_floor: project_summary_report floors on report_produced_output, and a species aggregation is a graph answer, not a reporter output."
+    "_2026_09_23_prod_researchers": "publication_lookup floors on outcome_observed: a paper lookup always runs a query, so a turn that observed no outcome is dead. person_lab_resolution, data_file_location and session_export get no floor, because who-is, where-is-the-file and export questions are answered from the lab record or the system context with no query outcome to observe; their cases assert content instead. report.species_in_project is tagged no_floor: project_summary_report floors on report_produced_output, and a species aggregation is a graph answer, not a reporter output.",
+    "_2026_10_07_graph_mode": "2026-10-07 test-set review (operator ruling, SPEC-2 R5): every sample-metadata question is graded as a graph search. `parser_plan.mode eq graph_query` is appended to the floors of graph_traversal, sample_search, lineage_tree and publication_lookup, and new floors on harmonization, person_lab_resolution, vocabulary_resolution and data_file_location carry it alone. This SUPERSEDES the 2026-08-03 engine-agnostic note: since round 4 a REST sample search is turned into a graph search in code, so the mode is the same on every engine that may answer a metadata question, and a metadata question answered as anything else is a routing defect. It also supersedes the 2026-09-23 note that person_lab_resolution and data_file_location get no floor. Questions that are not sample metadata (a person or lab record, the registered users, a title opt-out) carry the `no_floor` tag. The seven ids tagged no_floor, and the 44 opening turns that a route check which accepts Container-CC makes ungradeable, are listed in set-review/followups/graph-mode.json."
   },
   "consistency_groups": [
     {
