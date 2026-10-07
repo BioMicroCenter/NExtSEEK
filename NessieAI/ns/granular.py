@@ -529,13 +529,35 @@ def run_graph_question(
     return GraphAnswer(plan_dump, result, None, parser_plan, cypher, attempts, changed)
 
 
+def _uid_check(config, query, neo4j_exec):
+    """``(note for the graph agent, notes for the reply)``: the check the aggregate runs in its prelude. Nothing when the
+    question names no UID or the check fails (a failed check claims nothing either way)."""
+    from chat_nextseek.helpers.uid_check import check_uids, uid_notes, uids_in
+    try:
+        uids = uids_in(query)
+        if not uids:
+            return None, []
+        exec_fn = neo4j_exec
+        if exec_fn is None:
+            from chat_nextseek.helpers import tool_neo4j_query as exec_fn
+        return uid_notes(check_uids(config, uids, run=exec_fn))
+    except Exception:
+        return None, []
+
+
 def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
+    # Round 6: a UID typed without (or with) -PUB reaches the graph agent under the spelling the graph stores,
+    # and the reply says so (``notes``).
+    agent_note, reply_notes = _uid_check(config, args["query"], neo4j_exec)
     answer = run_graph_question(args["query"], config=config, session=session, write_gate=write_gate,
-                                neo4j_exec=neo4j_exec, fallback_budget_s=fallback_start_budget_s(limit_s), turn=turn)
+                                neo4j_exec=neo4j_exec, refine_context=agent_note,
+                                fallback_budget_s=fallback_start_budget_s(limit_s), turn=turn)
     # parser_plan: the plan this answer ran, as JSON, so nextseek-api-read can ask the same question of the REST API.
     out = {"plan": answer.plan, "result": answer.result, "parser_plan": _plan_json(answer.parser_plan)}
     if answer.fallback is not None:
         out["fallback"] = answer.fallback
+    if reply_notes:
+        out["notes"] = reply_notes
     return out
 
 

@@ -89,6 +89,7 @@ nextseek-graph --query "Which NHP samples have both CT scan data and sequencing 
     `response.data` with the same disclosure. If that fails too, report the refusal and both
     errors, and stop.
 - **Read `result.ok` and `result.data`.** An empty `data` is an answer: state it plainly.
+- **Relay every line of `notes`** (a UID stored under another spelling, or not found).
 - **`parser_plan`.** The plan the op's parser made for this question. Only when the user asks for the same records from the REST API (for example their full metadata), pass it as it is: `nextseek-api-read --parser-plan '<parser_plan, as JSON>'`; never run it to repeat a count the graph already gave.
 - **Refinement and follow-ups** ("which of those…", "only the female ones", "by sex"): start from
   the previous turn's files in `/data/previous_turns/`, in the order the container CLAUDE.md gives

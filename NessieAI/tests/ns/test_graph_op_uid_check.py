@@ -1,0 +1,67 @@
+"""Round 6: the graph op runs the UID check the aggregate runs (one read-only query) before its graph agent.
+
+Synthetic UIDs only. The chain (``run_graph_question``) is faked; the check itself runs through the stand-in
+``neo4j_exec`` the way ``aggregate._prelude`` runs it.
+"""
+from NessieAI.ns import granular
+
+
+def _answer():
+    return granular.GraphAnswer(plan={}, result={"ok": True, "data": []}, fallback=None, parser_plan=None, cypher=None)
+
+
+def test_the_graph_op_resolves_a_uid_typed_without_pub(monkeypatch):
+    seen = {}
+
+    def fake_chain(query, **kw):
+        seen["refine_context"] = kw.get("refine_context")
+        return _answer()
+
+    def exec_fn(config, cypher, params):
+        return {"ok": True, "data": [{"uid": "TIS-220101ABC-7", "exact": False, "base_uuid": None,
+                                      "suffixed": ["TIS-220101ABC-7-PUB"]}]}
+
+    monkeypatch.setattr(granular, "run_graph_question", fake_chain)
+    out = granular._graph({"query": "parents of TIS-220101ABC-7"}, None, None, lambda *a: None, exec_fn, None,
+                          limit_s=90.0)
+    assert "TIS-220101ABC-7-PUB" in seen["refine_context"]
+    assert any("TIS-220101ABC-7-PUB" in note for note in out["notes"])
+
+
+def test_a_uid_not_found_says_so(monkeypatch):
+    def fake_chain(query, **kw):
+        assert "was not found" in kw["refine_context"]
+        return _answer()
+
+    def exec_fn(config, cypher, params):
+        return {"ok": True, "data": [{"uid": "TIS-220101ABC-8", "exact": False, "base_uuid": None, "suffixed": []}]}
+
+    monkeypatch.setattr(granular, "run_graph_question", fake_chain)
+    out = granular._graph({"query": "parents of TIS-220101ABC-8"}, None, None, lambda *a: None, exec_fn, None)
+    assert any("was not found" in note for note in out["notes"])
+
+
+def test_a_failed_check_claims_nothing(monkeypatch):
+    def fake_chain(query, **kw):
+        assert kw.get("refine_context") is None
+        return _answer()
+
+    def exec_fn(config, cypher, params):
+        raise RuntimeError("neo4j down")
+
+    monkeypatch.setattr(granular, "run_graph_question", fake_chain)
+    out = granular._graph({"query": "parents of TIS-220101ABC-7"}, None, None, lambda *a: None, exec_fn, None)
+    assert "notes" not in out
+
+
+def test_a_question_without_a_uid_runs_no_check(monkeypatch):
+    def fake_chain(query, **kw):
+        assert kw.get("refine_context") is None
+        return _answer()
+
+    def exec_fn(config, cypher, params):
+        raise AssertionError("no UID, no check query")
+
+    monkeypatch.setattr(granular, "run_graph_question", fake_chain)
+    out = granular._graph({"query": "how many tissue samples"}, None, None, lambda *a: None, exec_fn, None)
+    assert "notes" not in out
