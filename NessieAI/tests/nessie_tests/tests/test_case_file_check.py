@@ -101,3 +101,38 @@ def test_the_cli_exit_codes(tmp_path, capsys):
     _v(bad, 1)["id"] = "ss.q1"
     assert K.main([str(write(tmp_path, bad))]) == 2
     assert "ERROR:" in capsys.readouterr().out
+
+
+# 2026-10-07 test-set review (SPEC-2, R3.1/R3.2): a `_measure` can hold two readings of one
+# number, an `eq` on graph_result.count carries its local, and a dev-absent case says so.
+def _each_spec(locals_, patterns, **extra):
+    spec = copy.deepcopy(GOOD)
+    turn = _v(spec)["turns"][0]
+    turn["pass_criteria"] = [{"field": "last_reply", "op": "nonempty", "value": None}] + patterns
+    spec["_measure"] = {"ss.q1": {"locals": locals_, "mode": "each", "cypher": ["RETURN 1", "RETURN 2"], **extra}}
+    return spec
+
+
+def _re(*values):
+    return {"field": "last_reply", "op": "matches_re", "value": number_pattern(list(values))}
+
+
+def test_a_local_can_hold_two_readings_of_one_number(tmp_path):
+    spec = _each_spec([[122, 123], 215], [_re(122, 123), _re(215)])
+    assert K.check(write(tmp_path, spec)).errors == []
+    spec["_measure"]["ss.q1"]["locals"] = [[122, 124], 215]
+    assert any("no criterion carries the pattern" in e for e in K.check(write(tmp_path, spec)).errors)
+
+
+def test_an_eq_on_graph_result_count_carries_its_local(tmp_path):
+    spec = _each_spec([2294], [{"field": "graph_result.count", "op": "eq", "value": 2294}])
+    assert K.check(write(tmp_path, spec)).errors == []
+    spec["_measure"]["ss.q1"]["locals"] = [2295]
+    assert any("no criterion carries the pattern" in e for e in K.check(write(tmp_path, spec)).errors)
+
+
+def test_a_dev_absent_case_needs_no_number_pattern(tmp_path):
+    spec = _each_spec([0], [{"field": "last_reply", "op": "matches_re", "value": "(?i)none found"}], absent=True)
+    assert K.check(write(tmp_path, spec)).errors == []
+    spec["_measure"]["ss.q1"]["locals"] = [3]
+    assert any("absent" in e for e in K.check(write(tmp_path, spec)).errors)

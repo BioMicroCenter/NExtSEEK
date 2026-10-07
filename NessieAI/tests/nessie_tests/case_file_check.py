@@ -109,12 +109,27 @@ def _measure(spec: dict, by_id: dict, r: Result) -> None:
             r.errors.append(f"_measure.{cid}: a `--` comment line: cypher-shell rejects it (use //)")
         locs = entry["locals"] if isinstance(entry["locals"], list) else [entry["locals"]]
         try:
-            groups = [[int(x)] for x in locs] if entry.get("mode") == "each" else [[int(x) for x in locs]]
+            # 2026-10-07 test-set review (SPEC-2, R3.1): in mode "each" a local can itself be a list,
+            # the two readings of one number, carried by one alternation criterion.
+            if entry.get("mode") == "each":
+                groups = [[int(y) for y in (x if isinstance(x, list) else [x])] for x in locs]
+            else:
+                groups = [[int(x) for x in locs]]
         except (TypeError, ValueError):
             r.errors.append(f"_measure.{cid}: locals must be whole numbers, got {locs!r}")
             continue
+        if entry.get("absent"):
+            # R3.2: the entity is not on this box, so the case expects "none found" and has no number.
+            if any(g != [0] for g in groups):
+                r.errors.append(f"_measure.{cid}: an absent case measures 0, got {locs!r}")
+            continue
         patterns = {c.value for t in by_id[cid].turns for c in t.pass_criteria if c.op == "matches_re"}
+        # R5: a count read from the graph row count (`graph_result.count eq N`) carries N too.
+        eq_counts = {c.value for t in by_id[cid].turns for c in t.pass_criteria
+                     if c.field == "graph_result.count" and c.op == "eq"}
         for g in groups:
+            if len(g) == 1 and g[0] in eq_counts:
+                continue
             if number_pattern(g) not in patterns:
                 r.errors.append(f"_measure.{cid}: no criterion carries the pattern for {g} (the pin script "
                                 "would refuse it; a case that states several numbers needs \"mode\": \"each\")")
