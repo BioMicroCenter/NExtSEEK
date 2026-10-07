@@ -84,6 +84,8 @@ def test_no_new_migrations():                        # Global Constraint
         # Pin updated for plan 04's turn memory: 0026 adds two CCTurn columns, ops_cost_partial and
         # vocabulary_resolutions; it touches no router table.
         "nextseek_api/migrations/0026_ccturn_ops_cost_partial.py",
+        # Pin updated for round 6: 0027 adds one CCTurn column, ops_cost_estimated; it touches no router table.
+        "nextseek_api/migrations/0027_ccturn_ops_cost_estimated.py",
         "nextseek_api/migrations/__init__.py",
         "nextseek_api/migrations/_cc_transcript_heal.py",
         "nextseek_api/migrations/_cc_turn_heal.py",

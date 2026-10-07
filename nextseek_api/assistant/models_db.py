@@ -108,6 +108,9 @@ class CCTurn(models.Model):
     #: True once an op's model calls were not all priced or seen, or an op's spend or strikes could not be written
     #: (NessieAI/ns/turn_memory.add_spend / mark_cost_partial): the turn's cost is then a floor (piece 3, plan 04).
     ops_cost_partial = models.BooleanField(default=False)
+    #: True once an op's timed-out model call was priced at an estimate (round 6, SPEC-1 T5): the turn's cost then
+    #: includes an estimate (NessieAI/ns/turn_memory.add_spend).
+    ops_cost_estimated = models.BooleanField(default=False)
     #: How many times an op resolved the turn's vocabulary itself (NessieAI/ns/turn_memory.count_vocabulary_resolution):
     #: with the pre-run, what the turn's "vocabulary_prerun" event reports as duplicate entity calls (plan 04).
     vocabulary_resolutions = models.PositiveSmallIntegerField(default=0)

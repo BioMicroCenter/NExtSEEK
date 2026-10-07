@@ -18,7 +18,7 @@ from django.contrib.auth import get_user_model
 
 from chat_nextseek import call_scope, model_prices, turn_spend
 from chat_nextseek import vocabulary as vocabulary_mod
-from chat_nextseek.llm_clients import LLMFatalError, LLMResponse
+from chat_nextseek.llm_clients import LLMFatalError, LLMResponse, LLMTimeoutError
 from chat_nextseek.schemas import EntityAgentOutput
 from chat_nextseek.schemas.router import ParserPlan
 from NessieAI.cc import prerun
@@ -267,6 +267,24 @@ def test_handing_a_finished_prerun_to_a_turn_stores_everything_at_once(monkeypat
     row = CCTurn.objects.get(pk=turn.pk)
     assert row.ops_cost_usd == Decimal(str(round(model_prices.call_cost(FLASH, USAGE).cost_usd, 6)))
     assert row.plans == {}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_prerun_estimate_reaches_the_turn(monkeypatch, fresh_pool):
+    """Round 6: an entity call that timed out is priced as an estimate and the turn says so."""
+    def hung_entity(session, config, query, *, diagnostics=None, **kw):
+        turn_spend.record_call({"agent": "entity", "provider": "gcp", "model": FLASH, "attempt": 1,
+                                "outcome": "timeout", "prompt_chars": 40_000},
+                               err=LLMTimeoutError("timed out"))
+        return EntityAgentOutput(keywords=[query])
+    monkeypatch.setattr(vocabulary_mod, "resolve_vocabulary", hung_entity)
+    turn = _turn("mice")
+    p = prerun.start_prerun(None, CONFIG, "mice", skip=False)
+    p.result(10)
+    assert p.spend_estimated is True and p.spend_partial is False
+    assert prerun.hand_to_turn(p, turn, user_question="mice", store_early_plan=False).is_set()
+    row = CCTurn.objects.get(pk=turn.pk)
+    assert row.ops_cost_estimated is True and row.ops_cost_partial is False and row.ops_cost_usd > 0
 
 
 @pytest.mark.django_db(transaction=True)

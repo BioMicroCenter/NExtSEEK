@@ -416,7 +416,7 @@ def _emit_query_complete(
     }
     record = turn_spend.turn_record()
     if record is not None:
-        for key in ("total_cost_usd", "cost_partial", "models_used", "model_fallback"):
+        for key in ("total_cost_usd", "cost_partial", "cost_estimated", "models_used", "model_fallback"):
             if key in record:
                 payload[key] = record[key]
         if isinstance(debug, dict):

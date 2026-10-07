@@ -908,6 +908,10 @@ def _call_with_recovery(
             timeout_seconds=_timeout, thinking_budget=fo.budget, deadline_capped=fo.capped,
             **kw, **fo.take_pending(),
         )
+        if outcome == "timeout":
+            # Round 6 (SPEC-1 T5): the prompt's size, so turn_spend can price a call nobody saw answer.
+            entry["prompt_chars"] = sum(len(str(m.get("content") or "")) for m in attempt_messages
+                                        if isinstance(m, dict))
         log_llm_call(config.LOG_DIR, entry)
         turn_spend.record_call(entry, resp=kw.get("resp"), err=kw.get("err"))
 

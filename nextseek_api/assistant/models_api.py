@@ -178,6 +178,8 @@ class QueryCompleteEvent(BaseModel):
     cost_partial: Optional[bool] = Field(None, description=(
         "True when some of the turn's spend was not seen (a call abandoned by its time limit, "
         "an unpriced model), so total_cost_usd is a floor"))
+    cost_estimated: Optional[bool] = Field(None, description=(
+        "True when total_cost_usd includes a timed-out call priced at its prompt's input cost"))
     models_used: Optional[List[str]] = Field(None, description="The model ids that answered the turn's calls")
     model_fallback: Optional[List[Dict[str, Any]]] = Field(None, description=(
         "Each move to a second model this turn: {agent, from, to, reason}; empty when nothing fell back"))
@@ -198,6 +200,8 @@ class QueryErrorEvent(BaseModel):
         "Each move to a second model before the turn ended: {agent, from, to, reason}"))
     total_cost_usd: Optional[float] = Field(None, description="What the turn spent before it ended, in USD")
     cost_partial: Optional[bool] = Field(None, description="True when total_cost_usd is a floor")
+    cost_estimated: Optional[bool] = Field(None, description=(
+        "True when total_cost_usd includes a timed-out call priced at its prompt's input cost"))
     models_used: Optional[List[str]] = Field(None, description="The model ids that answered before the turn ended")
 
     model_config = ConfigDict(extra="forbid")

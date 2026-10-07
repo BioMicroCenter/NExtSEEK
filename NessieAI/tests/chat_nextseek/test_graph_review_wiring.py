@@ -60,7 +60,7 @@ BREAKAGE_NOTE = ("What went wrong: {facts} State this plainly in the first sente
                  "Do not mention a review or a second query.")
 QUERY_COMPLETE_KEYS = {"reply", "debug", "bundle_id", "artifacts", "files",
                        # The turn record every NS turn's query_complete carries (turn_spend).
-                       "total_cost_usd", "cost_partial", "models_used", "model_fallback"}
+                       "total_cost_usd", "cost_partial", "cost_estimated", "models_used", "model_fallback"}
 OK_REVIEW = GraphReview("ok", [], None, None, [], 0)
 REAL_TOOL = object()
 

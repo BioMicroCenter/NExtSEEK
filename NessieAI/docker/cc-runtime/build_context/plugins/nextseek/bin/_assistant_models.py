@@ -88,6 +88,7 @@ class QueryCompleteEvent(BaseModel):
     # against this model so the next drift fails a lane instead of a paid turn.
     total_cost_usd: float | None = None
     cost_partial: bool | None = None
+    cost_estimated: bool | None = None
     models_used: list[str] | None = None
     model_fallback: list[dict[str, Any]] | None = None
 
@@ -109,6 +110,7 @@ class QueryErrorEvent(BaseModel):
     model_fallback: list[dict[str, Any]] | None = None
     total_cost_usd: float | None = None
     cost_partial: bool | None = None
+    cost_estimated: bool | None = None
     models_used: list[str] | None = None
 
 

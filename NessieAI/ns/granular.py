@@ -204,7 +204,8 @@ def _settle_turn(turn: Any, scope: Any, spend: Any) -> None:
         record = spend.summary()
         total = record.get("total_cost_usd")
         turn_memory.add_spend(turn, float(total or 0.0),
-                              partial=lost or bool(record.get("cost_partial")) or total is None)
+                              partial=lost or bool(record.get("cost_partial")) or total is None,
+                              estimated=bool(record.get("cost_estimated")))
     except Exception:  # noqa: BLE001
         logger.warning("could not record an op's spend in its turn; marking its cost partial", exc_info=True)
         try:

@@ -196,6 +196,7 @@ q -e "SELECT JSON_OBJECT(
                      JSON_UNQUOTE(JSON_EXTRACT(result,'\$.reply'))),
         'cost',    JSON_EXTRACT(result,'\$.total_cost_usd'),
         'cost_partial',   JSON_EXTRACT(result,'\$.cost_partial'),
+        'cost_estimated', JSON_EXTRACT(result,'\$.cost_estimated'),
         'ops_cost',         JSON_EXTRACT(result,'\$.ops_cost_usd'),
         'server_turn_cost', JSON_EXTRACT(result,'\$.turn_cost_usd'),
         'models_used',    JSON_EXTRACT(result,'\$.models_used'),

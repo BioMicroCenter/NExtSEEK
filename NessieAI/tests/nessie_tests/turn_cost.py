@@ -103,6 +103,7 @@ def read_turn(payload: dict) -> dict:
         "router_fallback": router_fallback if isinstance(router_fallback, dict) else None,
         "engine_cost": usd(end.get("total_cost_usd")),
         "cost_partial": end.get("cost_partial") is True,
+        "cost_estimated": end.get("cost_estimated") is True,
         # Plan 04: a Container-CC turn sums itself (ops, pre-run, router, nested NS turns); absent on NS turns and
         # on older servers.
         "ops_cost": usd(end.get("ops_cost_usd")),

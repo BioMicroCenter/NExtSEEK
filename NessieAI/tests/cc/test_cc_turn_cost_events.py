@@ -95,6 +95,21 @@ def test_any_part_not_counted_makes_the_turn_partial_and_says_which(setup, reaso
     assert isinstance(out["ops_cost_usd"], float) and isinstance(out["turn_cost_usd"], float)
 
 
+def test_an_estimated_op_spend_says_so_and_is_not_partial():
+    _, _, _, turn = _row()
+    tm.add_spend(turn, 0.05, estimated=True)
+    out = tm.terminal_cost(turn, {"reply": "ok", "total_cost_usd": 0.30}, router_fields={}, prerun_settled=None)
+    assert out["cost_estimated"] is True
+    assert "timed-out model calls are priced at an estimate" in out["cost_estimated_reason"]
+    assert out["cost_partial"] is False
+
+
+def test_a_turn_without_an_estimate_says_not_estimated():
+    _, _, _, turn = _row()
+    out = tm.terminal_cost(turn, {"reply": "ok", "total_cost_usd": 0.30}, router_fields={}, prerun_settled=None)
+    assert out["cost_estimated"] is False and "cost_estimated_reason" not in out
+
+
 def test_a_forced_turn_has_no_router_part():
     _, _, _, turn = _row()
     out = tm.terminal_cost(turn, {"reply": "ok", "total_cost_usd": 0.2}, router_fields={}, prerun_settled=None)

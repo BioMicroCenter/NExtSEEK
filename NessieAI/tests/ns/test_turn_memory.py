@@ -99,6 +99,14 @@ def test_spend_is_added_and_a_partial_op_marks_the_turn():
     assert row.ops_cost_partial is True
 
 
+def test_an_estimated_spend_marks_the_turn_estimated_not_partial():
+    turn = _turn()
+    tm.add_spend(turn, 0.09, estimated=True)
+    row = CCTurn.objects.get(pk=turn.pk)
+    assert row.ops_cost_estimated is True
+    assert row.ops_cost_partial is False
+
+
 def test_the_users_question_is_the_turns_own_task_query():
     assert tm.user_question(_turn("Find NHP samples")) == "Find NHP samples"
 

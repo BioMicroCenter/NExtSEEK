@@ -68,11 +68,11 @@ dual-homed service. Per-turn agent containers are spawned from the
 ## Approach 1 (unit B): first deploy and rollback
 
 Unit B (the turn pass, the direct ops road, the turn memory) changes the app,
-the agent image and the sidecar at once, and adds two migrations. Follow this
+the agent image and the sidecar at once, and adds three migrations. Follow this
 section the first time a box takes it; later redeploys use the Procedure above.
 
 **What ships together.** `app` (Django, the CC engine, migrations
-`0025_cc_turn` and `0026_ccturn_ops_cost_partial`, the committed chat bundle),
+`0025_cc_turn`, `0026_ccturn_ops_cost_partial` and `0027_ccturn_ops_cost_estimated`, the committed chat bundle),
 `cc-agent` (the plugin bins, the prompt hook, the skill and manifest, the
 container `CLAUDE.md`, the entrypoint and its baked `expected-settings.json`)
 and `nextseek-sidecar` (the turn-pass frame). Rebuild them with one verb,
@@ -151,7 +151,7 @@ Rebuild never re-renders that file.
    `[MIGRATE-FAILED]`. Migrate runs `0025_cc_turn` first: not atomic, it
    creates `assistant_cc_turn` with its chat column matched to the chat
    table's charset, then adds `parent_cc_turn` to `assistant_query_task` (the
-   table copy). Then `0026_ccturn_ops_cost_partial`. If 0025 stops part way
+   table copy). Then `0026_ccturn_ops_cost_partial` and `0027_ccturn_ops_cost_estimated`. If 0025 stops part way
    (usually disk), fix the cause and restart `nextseek`: the heal skips a table
    that is already there.
 3. If `static/` changed in the range (unit B's chat bundle did), run
@@ -162,7 +162,7 @@ Rebuild never re-renders that file.
 
 ```bash
 docker compose exec nextseek uv run manage.py showmigrations nextseek_api | tail -3
-# -> [X] 0025_cc_turn and [X] 0026_ccturn_ops_cost_partial
+# -> [X] 0025_cc_turn, [X] 0026_ccturn_ops_cost_partial and [X] 0027_ccturn_ops_cost_estimated
 docker compose exec nextseek uv run manage.py shell -c "from django.conf import settings as s; print(s.NEXTSEEK_CC_OPS_ROAD, s.NESSIE_VOCAB_PRERUN, s.NESSIE_PARSER_START)"
 # -> direct on after_route, unless a switch was set
 ```
@@ -192,11 +192,11 @@ sidecar this rebuild made; everything else stays on unit B.
    docker compose exec nextseek uv run manage.py migrate nextseek_api 0024
    ```
 
-   This drops 0026's two columns, the `parent_cc_turn` key and column, and the
+   This drops 0027's column, 0026's two columns, the `parent_cc_turn` key and column, and the
    `assistant_cc_turn` table with its rows: the turn memory and ops cost of
    every unit B turn (the pre-check dump is their copy). Do not restart
    `nextseek` between this step and step 4: the unit B image migrates at every
-   boot and would apply 0025 and 0026 again.
+   boot and would apply 0025, 0026 and 0027 again.
 2. Repoint the three images at the tags this rebuild printed (DEPLOYMENT.md
    §5.1):
 

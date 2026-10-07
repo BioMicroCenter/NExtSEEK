@@ -223,6 +223,10 @@ class Prerun:
         record = self.spend.summary()
         return bool(record.get("cost_partial")) or record.get("total_cost_usd") is None
 
+    @property
+    def spend_estimated(self) -> bool:
+        return bool(self.spend.summary().get("cost_estimated")) if self.spend is not None else False
+
     def on_done(self, fn: Callable[["Prerun"], None]) -> None:
         """Run ``fn(self)`` once the pre-run has finished: now, in this thread, when it already has; else in the pool
         thread, which then closes its database connection before and after."""
@@ -319,7 +323,7 @@ def hand_to_turn(prerun: Prerun, turn: Any, *, user_question: str, store_early_p
         try:
             lost = False
             try:
-                turn_memory.add_spend(turn, p.spend_usd, partial=p.spend_partial)
+                turn_memory.add_spend(turn, p.spend_usd, partial=p.spend_partial, estimated=p.spend_estimated)
             except Exception:  # noqa: BLE001
                 lost = True
                 logger.warning("could not record the pre-run's spend in its turn", exc_info=True)

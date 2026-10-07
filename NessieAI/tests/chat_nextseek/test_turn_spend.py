@@ -272,7 +272,8 @@ def test_a_structured_call_that_moved_on_an_empty_body_is_costed_on_both_models(
     assert record["cost_partial"] is False
 
 
-def test_a_text_call_that_timed_out_and_moved_is_partial():
+def test_a_text_call_that_timed_out_and_moved_is_estimated():
+    """Round 6: the real ladder logs the prompt size on a timeout, so the hung call is an estimate, not partial."""
     primary = _Client("bedrock", [LLMTimeoutError("LLM call timed out after 300 seconds")], BEDROCK_USAGE)
     fallback = _Client("gcp", ["the reply"], GEMINI_USAGE)
     with turn_spend.collecting():
@@ -280,9 +281,10 @@ def test_a_text_call_that_timed_out_and_moved_is_partial():
                              client=primary, model_name=OPUS, agent_label="chatter")
         record = turn_spend.turn_record()
     assert text == "the reply"
-    assert record["cost_partial"] is True
-    assert record["total_cost_usd"] == pytest.approx(_price(FLASH, GEMINI_USAGE), abs=1e-6)
-    assert record["cost"]["unobserved_calls"][0]["model"] == OPUS
+    assert record["cost_partial"] is False and record["cost_estimated"] is True
+    assert record["total_cost_usd"] > _price(FLASH, GEMINI_USAGE)
+    assert record["cost"]["estimated_calls"][0]["model"] == OPUS
+    assert record["cost"]["unobserved_calls"] == []
 
 
 def test_a_fatal_turn_still_counts_what_it_spent():
@@ -394,3 +396,28 @@ def test_inside_a_turn_the_cost_fields_are_the_running_turns():
         fields = turn_spend.cost_fields()
     assert fields["total_cost_usd"] == pytest.approx(_price(FLASH, GEMINI_USAGE), abs=1e-6)
     assert fields["models_used"] == [FLASH]
+
+
+def test_a_timeout_with_its_prompt_size_is_estimated_not_partial():
+    """Round 6 (operator Q1, 2026-10-07): a hung call is priced at its prompt's input cost and labelled."""
+    with turn_spend.collecting():
+        turn_spend.record_call(_entry(OPUS, agent="parser", outcome="timeout", provider="bedrock",
+                                      prompt_chars=68_000), err=LLMTimeoutError("timed out after 20 seconds"))
+        turn_spend.record_call(_entry(FLASH, agent="parser", attempt=2), resp=_resp(GEMINI_USAGE))
+        record = turn_spend.turn_record()
+    estimate = model_prices.call_cost(OPUS, {"prompt_tokens": 17_000, "completion_tokens": 0}).cost_usd
+    assert record["cost_partial"] is False
+    assert record["cost_estimated"] is True
+    assert record["total_cost_usd"] == pytest.approx(_price(FLASH, GEMINI_USAGE) + estimate, abs=1e-6)
+    (est,) = record["cost"]["estimated_calls"]
+    assert est["model"] == OPUS and est["prompt_tokens_est"] == 17_000
+    assert record["cost"]["estimated_usd"] == pytest.approx(estimate, abs=1e-6)
+
+
+def test_a_timeout_without_a_prompt_size_stays_unobserved():
+    with turn_spend.collecting():
+        turn_spend.record_call(_entry(OPUS, agent="followup", outcome="timeout", provider="bedrock"),
+                               err=LLMTimeoutError("t"))
+        record = turn_spend.turn_record()
+    assert record["cost_partial"] is True and record["cost_estimated"] is False
+    assert record["total_cost_usd"] is None

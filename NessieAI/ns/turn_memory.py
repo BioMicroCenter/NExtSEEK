@@ -146,8 +146,9 @@ def merge_strikes(turn, strikes: list[list[str]]) -> None:
             _rows(turn).update(strikes=have + added)
 
 
-def add_spend(turn, usd: float, *, partial: bool = False) -> None:
-    """Add ``usd`` to the turn's op spend with F(); ``partial`` marks that some of it was not seen."""
+def add_spend(turn, usd: float, *, partial: bool = False, estimated: bool = False) -> None:
+    """Add ``usd`` to the turn's op spend with F(); ``partial`` marks that some of it was not seen, ``estimated``
+    that some of it is a timed-out call priced at an estimate."""
     from django.db.models import F
     amount = Decimal(str(round(max(float(usd or 0.0), 0.0), 6)))
     fields: dict[str, Any] = {}
@@ -155,6 +156,8 @@ def add_spend(turn, usd: float, *, partial: bool = False) -> None:
         fields["ops_cost_usd"] = F("ops_cost_usd") + amount
     if partial:
         fields["ops_cost_partial"] = True
+    if estimated:
+        fields["ops_cost_estimated"] = True
     if fields:
         _rows(turn).update(**fields)
 
@@ -208,12 +211,19 @@ def terminal_cost(turn, data: dict, *, router_fields: dict, prerun_settled: Any)
     ``data``) plus that plus the router's (``router_fields``, empty on a
     forced turn). ``cost_partial`` is false only when every part was counted; ``cost_partial_reason`` says what was
     not. ``prerun_settled`` is the pre-run hand-off's event, or None when there was no pre-run."""
-    row = _rows(turn).values("ops_cost_usd", "ops_cost_partial", "ops_in_flight").first() or {}
+    row = _rows(turn).values("ops_cost_usd", "ops_cost_partial", "ops_cost_estimated",
+                                 "ops_in_flight").first() or {}
     nested, reasons = nested_turn_costs(turn)
     if row.get("ops_cost_partial"):
         reasons.append("an op's model calls were not all priced or seen")
     if (row.get("ops_in_flight") or 0) > 0:
         reasons.append("an op or NS query of this turn was still running when the turn ended")
+    estimated: list[str] = []
+    if row.get("ops_cost_estimated"):
+        estimated.append("an op's timed-out model calls are priced at an estimate")
+    from nextseek_api.assistant.models_db import QueryTask
+    if QueryTask.objects.filter(parent_cc_turn=turn, result__cost_estimated=True).exists():
+        estimated.append("a nested NExtSEEK turn's timed-out model calls are priced at an estimate")
     if prerun_settled is not None and not prerun_settled.is_set():
         reasons.append("the vocabulary pre-run had not finished")
     # One price table for the whole turn: Claude Code's number on the repo's table (translate.py), the same table the
@@ -241,4 +251,9 @@ def terminal_cost(turn, data: dict, *, router_fields: dict, prerun_settled: Any)
         out["cost_partial_reason"] = "; ".join(dict.fromkeys(reasons))
     else:
         out.pop("cost_partial_reason", None)
+    out["cost_estimated"] = bool(estimated)
+    if estimated:
+        out["cost_estimated_reason"] = "; ".join(estimated)
+    else:
+        out.pop("cost_estimated_reason", None)
     return out
