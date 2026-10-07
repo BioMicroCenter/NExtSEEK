@@ -7,6 +7,7 @@ from startup.steps.config import (
     ConfigValues,
     default_values,
     render_db_env,
+    ensure_seek_nginx_conf,
     render_nextseek_env,
     render_local_settings,
     csrf_origins_for_port,
@@ -320,3 +321,16 @@ def test_laya_env_and_models_are_gitignored() -> None:
     lines = (_REPO_ROOT / ".gitignore").read_text().splitlines()
     assert "docker/laya.env" in lines
     assert "docker/laya/models/" in lines
+
+
+def test_ensure_seek_nginx_conf_creates_file_and_keeps_content(tmp_path: Path) -> None:
+    p = ensure_seek_nginx_conf(tmp_path)
+    assert p.is_file() and p.stat().st_mode & 0o777 == 0o666
+    p.write_text("x")
+    ensure_seek_nginx_conf(tmp_path)
+    assert p.read_text() == "x"
+
+
+def test_ensure_seek_nginx_conf_replaces_empty_dir(tmp_path: Path) -> None:
+    (tmp_path / "docker" / "seek-nginx.conf").mkdir(parents=True)
+    assert ensure_seek_nginx_conf(tmp_path).is_file()

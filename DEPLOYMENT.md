@@ -301,7 +301,7 @@ git diff --name-only HEAD@{1} HEAD -- '*migrations*'
 #           account. A prod box never runs the lane.
 #       `./startup.sh doctor` reports the first two, read-only. Or skip CI:
 #       rebuild --no-ci. Or skip only the Nessie lane: rebuild --no-nessie.
-#    c. SEEK's config mount: docker/seek-nginx.conf is an untracked host file
+#    c. SEEK's config mount: docker/seek-nginx.conf is an untracked host file  (`./startup.sh install` now creates it)
 #       that SEEK's entrypoint (uid 33) rewrites on every start. It must exist as
 #       a FILE (chmod 666) before the seek service is ever recreated; if it is
 #       missing, Docker creates a directory there and SEEK crash-loops. Render it
