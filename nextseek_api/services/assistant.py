@@ -1257,6 +1257,7 @@ class AssistantViewSet(viewsets.ViewSet):
         return DictSessionAdapter(chat_session)
 
     def _run_granular_op(self, request, op: str) -> Response:
+        timing = [("view", time.monotonic())]
         authed, err = self._check_auth(request)
         if not authed:
             return err
@@ -1272,6 +1273,7 @@ class AssistantViewSet(viewsets.ViewSet):
         refused = _refuse_for_pass(op, req, turn)
         if refused is not None:
             return refused
+        timing.append(("checked", time.monotonic()))
 
         # Piece 4: the limit is the table's value capped by the turn's own deadline (a X-Nextseek-Deadline header may
         # only bring it forward), and on the sidecar road by the sidecar's wait. A model op with too little of it
@@ -1290,6 +1292,7 @@ class AssistantViewSet(viewsets.ViewSet):
             # The login held for the turn is gone: never run the op as the service login (plan 02's own guard).
             return op_error("AUTH_FAILED", status=HTTP_STATUS["AUTH_FAILED"])
         chat_config = _granular_chat_config(request, req)
+        timing.append(("config", time.monotonic()))
         # A BaseException, so the except Exception below never sees it (F6). Imported here:
         # this module keeps chat_nextseek out of its module scope (see the note on imports).
         from chat_nextseek.llm_clients import LLMFatalError
@@ -1303,12 +1306,13 @@ class AssistantViewSet(viewsets.ViewSet):
             session = self._granular_session(request, req) if op in ("parse", "graph", "aggregate") else None
             gate = build_gate(load_allowlist())
             args = _granular_args(op, req)
+            timing.append(("session", time.monotonic()))
             # The artifact ops persist real files, so they need a writable run-root under an
             # allowed artifact root.
             outputs_dir = _granular_outputs_dir() if op in _ARTIFACT_OPS else None
             result = run_op(
                 op, args, config=chat_config, session=session,
-                write_gate=gate, outputs_dir=outputs_dir, limit_s=limit_s, turn=turn,
+                write_gate=gate, outputs_dir=outputs_dir, limit_s=limit_s, turn=turn, timing=timing,
             )
             # The artifact ops register a bundle so their files are fetchable over HTTP via
             # download_artifact, and hand back the URLs.

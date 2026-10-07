@@ -41,7 +41,7 @@ import threading
 import time
 from typing import Any, Iterator
 
-__all__ = ["CallScope", "current", "scope", "limit_current", "time_left_for", "MOVE_RESERVE_S", "MIN_FIRST_TRY_S", "DEADLINE_FLOOR_S"]
+__all__ = ["CallScope", "current", "scope", "limit_current", "mark", "time_left_for", "MOVE_RESERVE_S", "MIN_FIRST_TRY_S", "DEADLINE_FLOOR_S"]
 
 _CURRENT: contextvars.ContextVar["CallScope | None"] = contextvars.ContextVar(
     "chat_nextseek_call_scope", default=None,
@@ -66,6 +66,7 @@ class CallScope:
     def __init__(self, deadline_s: float | None = None, *, op: bool = False) -> None:
         self._lock = threading.Lock()
         self._failed: dict[ModelKey, dict] = {}
+        self.marks: list[tuple[str, float]] = []
         self.total_s: float | None = None
         self.deadline: float | None = None
         #: True for a Container-CC op's scope (``NessieAI/ns/granular.run_op``): some agents cut their first try
@@ -74,6 +75,11 @@ class CallScope:
         self.is_op = op
         if deadline_s is not None:
             self.limit(deadline_s)
+
+    def mark(self, name: str) -> None:
+        """Record when a named step of the op happened (round 6 timing log); parts on pool threads share it."""
+        with self._lock:
+            self.marks.append((name, _monotonic()))
 
     def limit(self, seconds: float) -> None:
         """Answer within ``seconds`` from now; a deadline is only ever brought forward, never pushed back."""
@@ -123,6 +129,13 @@ class CallScope:
 def current() -> CallScope | None:
     """The scope of the turn or op running in this context, if any."""
     return _CURRENT.get()
+
+
+def mark(name: str) -> None:
+    """Mark a step on the running scope; nothing outside a scope."""
+    current_scope = _CURRENT.get()
+    if current_scope is not None:
+        current_scope.mark(name)
 
 
 def limit_current(seconds: float) -> CallScope | None:

@@ -38,6 +38,23 @@ from NessieAI.ns.write_gate import WriteBlockedError  # noqa: F401 (re-exported)
 
 logger = logging.getLogger(__name__)
 
+#: One line per op, on the 'dmac' logger tree, which dmac/settings.py writes to /app/logs/nextseek.log.
+_TIMING_LOG = logging.getLogger("dmac.op_timing")
+
+
+def _log_timing(op: str, turn: Any, limit: float, marks: list) -> None:
+    """Seconds from the first mark (the view taking the request) to each named step: where an op's time went.
+    Never raises: a logging fault must not cost the op's answer."""
+    try:
+        if not marks:
+            return
+        ordered = sorted(marks, key=lambda m: m[1])
+        t0 = ordered[0][1]
+        steps = " ".join(f"{name}={t - t0:.2f}" for name, t in ordered)
+        _TIMING_LOG.info("op_timing op=%s turn=%s limit=%.1f %s", op, getattr(turn, "pk", None), limit, steps)
+    except Exception:  # noqa: BLE001
+        pass
+
 
 class OpValidationError(ValueError):
     """Bad or missing op arguments. Maps to the VALIDATION error code.
@@ -110,8 +127,11 @@ def run_op(
     outputs_dir: str | None = None,
     limit_s: float | None = None,
     turn: Any = None,
+    timing: list | None = None,
 ) -> dict:
     """Dispatch a granular op to its handler and return its result dict.
+
+    ``timing``: the view's own marks, (name, monotonic seconds); the op logs them with its own (dmac.op_timing).
 
     The op runs inside its own ``call_scope`` (chat_nextseek) with ``limit_s``, the op's limit for this request
     (``NessieAI/ns/op_limits.py``; the view passes it, None means the table's value). A model that failed in one of the
@@ -133,22 +153,28 @@ def run_op(
     from chat_nextseek import call_scope, turn_spend
     from NessieAI.ns.op_limits import op_limit_s
     limit = op_limit_s(op, None, time.time()) if limit_s is None else float(limit_s)
+    marks = list(timing or [])
     slot = False
     if turn is not None:
         from NessieAI.ns.turn_memory import take_op_slot
         if not take_op_slot(turn):
             raise OpBusyError("this turn already has two ops running")
         slot = True
+        marks.append(("slot", time.monotonic()))
     late: list[LatePart] = []
     late_token = _LATE_PARTS.set(late)
     try:
         with turn_spend.collecting() as spend, call_scope.scope(deadline_s=limit, op=True) as scope:
+            scope.marks.extend(marks)
+            scope.mark("scope")
             if turn is not None:
                 from NessieAI.ns import turn_memory
                 scope.seed(turn_memory.load_strikes(turn))
             try:
                 return handler(args, config, session, write_gate, neo4j_exec, outputs_dir, limit_s=limit, turn=turn)
             finally:
+                scope.mark("end")
+                _log_timing(op, turn, limit, scope.marks)
                 if turn is not None:
                     _settle_turn(turn, scope, spend)
                     # Parts the op answered without are still running (aggregate at its deadline): the slot stays
@@ -454,6 +480,7 @@ def run_graph_question(
     ``turn`` (a Container-CC turn) supplies the vocabulary and the plan cache; ``parser_plan`` is a plan already made
     for ``query`` (the aggregate op reads the turn's before it starts its parts).
     """
+    from chat_nextseek import call_scope
     from chat_nextseek.portable import entity_agent, graph_agent, parser_agent
     now = clock or _monotonic
     if started is None:
@@ -469,7 +496,9 @@ def run_graph_question(
             parser_plan = _turn_plan(turn, query, lambda: parser_agent(session, config, query, entity_out))
         else:
             parser_plan = parser_agent(session, config, query, entity_out)
+    call_scope.mark("parser_end")
     brief = {"refine_context": refine_context} if refine_context else {}
+    call_scope.mark("graph_start")
     plan = graph_agent(config, query, entity_out, parser_plan, **brief)
     exec_fn = neo4j_exec
     if exec_fn is None:

@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
-from .. import cypher_text, graph_catalog, graph_context
+from .. import call_scope, cypher_text, graph_catalog, graph_context
 from ..graph_contract import schema
 from ..config import ChatConfig
 from ..schemas.schema_helper import call_llm_structured
@@ -2828,6 +2828,7 @@ def graph_agent(
     plan_dict = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else (parser_plan or {})
 
     context = resolve_catalog_context(config, user_query, entity_dict, plan_dict)
+    call_scope.mark("catalog_ready")
     catalog = context if isinstance(context, CatalogContext) else None
     context_mode = CONTEXT_CATALOG if catalog is not None else CONTEXT_FALLBACK
     # Why the committed schema stands in, and how old it is; logged already, carried on every plan returned below.
