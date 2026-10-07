@@ -8,9 +8,10 @@
 -- Production has its own copy of this table; this file is what gives the local
 -- and dev stacks one.
 --
--- The rows are two unreconciled sources merged: 80 carry sample types and no
--- internal_assay_id, 91 the reverse, 46 both, and 22 assay_name values appear
--- twice. The catalog page renders that as it is; it does not merge rows.
+-- The rows are two unreconciled sources merged: 14 carry sample types and no
+-- internal_assay_id, 6 the reverse, 118 both, 0 neither, and 0
+-- assay_name values appear twice. The catalog page renders that as it is; it
+-- does not merge rows.
 CREATE TABLE IF NOT EXISTS assay_context (
   id                           INT AUTO_INCREMENT PRIMARY KEY,
   assay_name                   VARCHAR(255) NULL,
