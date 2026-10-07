@@ -19,7 +19,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Callable
 
-from NessieAI.ns.reingest import derived, manifest, maps, parsers
+from NessieAI.ns.reingest import derived, manifest, mapper, maps, parsers
 
 # Each of these is used verbatim below -- never retyped as a second, separate
 # literal -- so the allowlist and what harvest_local actually reads can never
@@ -122,10 +122,22 @@ def staged_globs() -> tuple[str, ...]:
     4 MB per-file cap would reject most of them, but "rejected by a cap" is not
     the same as "never asked for", and a small one would come across as binary
     nothing parses. Inventory owns those extensions; this list is text.
+
+    Map patterns are brace-expanded here, before they leave the server and
+    before the inventory check. The stage script matches with pathlib's glob,
+    which has no ``{a,b}`` syntax, so a braced pattern reached it literally and
+    matched nothing: on a real rnaseq run,
+    ``{star_salmon,star_rsem,hisat2}/samtools_stats/*.{flagstat,idxstats,stats}``
+    matched 0 files and its plain forms 15. The inventory check compares file
+    names, so it must see ``*.flagstat``, not ``*.{flagstat,idxstats,stats}``.
+    The maps keep the braced form, which their output rules share.
+    test_no_staged_pattern_still_has_braces guards this.
     """
     inventory_names = {pattern.rsplit("/", 1)[-1] for pattern in INVENTORY_GLOBS}
     extra = tuple(
-        pattern for pattern in maps.all_harvest_globs()
+        pattern
+        for braced in maps.all_harvest_globs()
+        for pattern in mapper._expand_braces(braced)
         if pattern.rsplit("/", 1)[-1] not in inventory_names)
     return tuple(dict.fromkeys((*GENERIC_GLOBS, *extra)))
 

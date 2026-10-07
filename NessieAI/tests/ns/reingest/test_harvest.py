@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from NessieAI.ns.reingest import harvest, manifest, maps
+from NessieAI.ns.reingest import harvest, manifest, mapper, maps
 
 pytestmark = pytest.mark.django_db
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "nfcore_rnaseq_run"
@@ -887,9 +887,50 @@ def test_the_staged_list_is_the_generic_core_plus_the_maps_text_globs():
     for pattern in harvest.GENERIC_GLOBS:
         assert pattern in staged, "the generic core must survive"
     inventory_names = {p.rsplit("/", 1)[-1] for p in harvest.INVENTORY_GLOBS}
-    for pattern in maps.all_harvest_globs():
-        if pattern.rsplit("/", 1)[-1] not in inventory_names:
-            assert pattern in staged, "a map's text pattern must be staged"
+    for braced in maps.all_harvest_globs():
+        for pattern in mapper._expand_braces(braced):
+            if pattern.rsplit("/", 1)[-1] not in inventory_names:
+                assert pattern in staged, "a map's text pattern must be staged"
+
+
+def test_no_staged_pattern_still_has_braces():
+    """The stage script matches with pathlib's glob, which has no {a,b}
+    syntax: a braced pattern reaches it literally and matches nothing, with
+    no error. On a real rnaseq run the braced samtools pattern matched 0
+    files and its plain form 15. A new braced map pattern fails here, not
+    silently on the cluster."""
+    for pattern in harvest.staged_globs():
+        assert "{" not in pattern and "}" not in pattern, pattern
+
+
+def test_braced_map_patterns_are_staged_as_every_plain_variant():
+    """Two groups in one pattern cross-multiply: 3 aligners x 3 extensions."""
+    staged = harvest.staged_globs()
+    for aligner in ("star_salmon", "star_rsem", "hisat2"):
+        for ext in ("flagstat", "idxstats", "stats"):
+            assert f"{aligner}/samtools_stats/*.{ext}" in staged
+    assert "star_salmon/picard_metrics/*.MarkDuplicates.metrics.txt" in staged
+    assert "kallisto/*.merged.tx2gene.tsv" in staged
+
+
+def test_braced_patterns_match_real_paths_once_expanded(tmp_path):
+    """End to end against pathlib, the matcher the stage script uses."""
+    stats = tmp_path / "hisat2" / "samtools_stats"
+    stats.mkdir(parents=True)
+    (stats / "S1.sorted.bam.flagstat").write_text("")
+    (stats / "S1.sorted.bam.idxstats").write_text("")
+    matched = {p.relative_to(tmp_path).as_posix()
+               for pattern in harvest.staged_globs()
+               for p in tmp_path.glob(pattern)}
+    assert {"hisat2/samtools_stats/S1.sorted.bam.flagstat",
+            "hisat2/samtools_stats/S1.sorted.bam.idxstats"} <= matched
+
+
+def test_an_inventory_name_is_dropped_after_expansion_too():
+    """The inventory check runs on expanded patterns, so a braced filename
+    that expands to an inventory-owned one is still never staged."""
+    staged = harvest.staged_globs()
+    assert not any(p.endswith(".h5ad") for p in staged)
 
 
 def test_a_map_pattern_inventory_already_owns_is_not_staged():
