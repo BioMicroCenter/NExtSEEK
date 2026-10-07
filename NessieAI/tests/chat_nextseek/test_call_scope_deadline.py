@@ -350,3 +350,35 @@ def test_no_wait_starts_with_two_seconds_or_less_left(clock):
     with _op_scope(30.0):
         clock.now += 28.0
         assert call_scope.time_left_for(90.0) is None
+
+
+def _run_op_scope(seconds):
+    """What run_op opens since round 6: a deadline AND the op marker."""
+    return call_scope.scope(deadline_s=seconds, op=True)
+
+
+def test_inside_an_op_the_parser_gives_up_at_20_s(run, clock):
+    """Round 6 (SPEC-1 T1): no healthy Opus parser call took over 28.1 s in 420; a hang inside an op moves at 20 s."""
+    windows, behaviour = run
+    behaviour.update({OPUS: "stall", PRO: 6.0})
+    with _run_op_scope(90):
+        assert _call(_Config(), "parser", OPUS).mode == PRO
+    assert windows[0] == (OPUS, 20)
+    assert windows[1][0] == PRO
+
+
+def test_a_deadline_without_the_op_marker_keeps_the_parser_window(run, clock):
+    """The vocabulary pre-run and a nested NS turn have a deadline but are not ops: the parser keeps 50 s."""
+    windows, behaviour = run
+    behaviour.update({OPUS: "stall", PRO: 6.0})
+    with _op_scope(90):
+        _call(_Config(), "parser", OPUS)
+    assert windows[0] == (OPUS, 50)
+
+
+def test_an_op_scope_shared_by_an_inner_scope_stays_an_op(run, clock):
+    windows, behaviour = run
+    behaviour.update({OPUS: "stall", PRO: 6.0})
+    with _run_op_scope(90), call_scope.scope(deadline_s=80):
+        _call(_Config(), "parser", OPUS)
+    assert windows[0] == (OPUS, 20)

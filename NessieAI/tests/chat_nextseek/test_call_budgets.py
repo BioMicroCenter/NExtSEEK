@@ -278,3 +278,8 @@ def test_the_tool_loop_windows_come_from_the_table(tmp_path, monkeypatch, agent)
     expected = RULED.get(agent, (120, 120))
     assert client.calls == [OPUS, SONNET]
     assert seen == list(expected)
+
+
+def test_inside_an_op_only_the_parsers_cut_their_first_try_to_20_s():
+    cut = {agent: b.op_first_try_s for agent, b in CALL_BUDGETS.items() if b.op_first_try_s is not None}
+    assert cut == {"parser": 20, "multi_parser": 20}

@@ -22,7 +22,8 @@ whose primary and fallback both failed earlier fails at once without calling eit
   try that can still move gets at most what is left minus ``MOVE_RESERVE_S``, never below ``MIN_FIRST_TRY_S``,
   except for the agents whose budget says ``op_move_reserve=False`` (the graph agent and the report writer, whose
   move could not redo their work in that time), which get what is left; the moved call gets at most what is left;
-  with ``DEADLINE_FLOOR_S`` or less left no call starts. An NS turn opens
+  with ``DEADLINE_FLOOR_S`` or less left no call starts. Inside an op
+  (``scope(..., op=True)``, only ``run_op``) an agent's ``op_first_try_s`` caps its first try further. An NS turn opens
   its scope with no deadline, so nothing is cut. The waits that are not
   model calls (Neo4j, Django's own REST calls) read it through ``time_left_for``.
 * Threads: marks and reads take a lock. Only the caller's thread marks (the wall-clock worker threads never touch the
@@ -61,11 +62,15 @@ ModelKey = tuple[str, str]
 class CallScope:
     """The models that failed in one turn or op, and the deadline it must answer by (None: no deadline)."""
 
-    def __init__(self, deadline_s: float | None = None) -> None:
+    def __init__(self, deadline_s: float | None = None, *, op: bool = False) -> None:
         self._lock = threading.Lock()
         self._failed: dict[ModelKey, dict] = {}
         self.total_s: float | None = None
         self.deadline: float | None = None
+        #: True for a Container-CC op's scope (``NessieAI/ns/granular.run_op``): some agents cut their first try
+        #: further inside an op (``CallBudget.op_first_try_s``). A deadline alone (the pre-run, a nested NS turn)
+        #: is not an op.
+        self.is_op = op
         if deadline_s is not None:
             self.limit(deadline_s)
 
@@ -144,15 +149,18 @@ def time_left_for(base_s: float) -> float | None:
 
 
 @contextlib.contextmanager
-def scope(deadline_s: float | None = None) -> Iterator[CallScope]:
-    """Open a scope for a turn or an op; inside another scope, share that one (and bring its deadline forward)."""
+def scope(deadline_s: float | None = None, *, op: bool = False) -> Iterator[CallScope]:
+    """Open a scope for a turn or an op (``op=True`` only from run_op); inside another scope, share that one (and
+    bring its deadline forward, and mark it an op when ``op``)."""
     outer = _CURRENT.get()
     if outer is not None:
         if deadline_s is not None:
             outer.limit(deadline_s)
+        if op:
+            outer.is_op = True
         yield outer
         return
-    opened = CallScope(deadline_s)
+    opened = CallScope(deadline_s, op=op)
     token = _CURRENT.set(opened)
     try:
         yield opened

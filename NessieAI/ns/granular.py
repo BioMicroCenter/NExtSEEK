@@ -142,7 +142,7 @@ def run_op(
     late: list[LatePart] = []
     late_token = _LATE_PARTS.set(late)
     try:
-        with turn_spend.collecting() as spend, call_scope.scope(deadline_s=limit) as scope:
+        with turn_spend.collecting() as spend, call_scope.scope(deadline_s=limit, op=True) as scope:
             if turn is not None:
                 from NessieAI.ns import turn_memory
                 scope.seed(turn_memory.load_strikes(turn))
