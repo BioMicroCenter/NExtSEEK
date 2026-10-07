@@ -33,9 +33,9 @@ SIDECAR = "sidecar"
 #: NessieAI/ns/op_limits.py OP_LIMITS_S, copied; NessieAI/tests/cc/test_op_road_parity.py pins the two together.
 OP_LIMITS_S: dict[str, float] = {
     "entity": 55.0,
-    "parse": 55.0,
-    "graph": 55.0,
-    "aggregate": 55.0,
+    "parse": 90.0,
+    "graph": 90.0,
+    "aggregate": 90.0,
     "api-read": 55.0,
     "api-write": 55.0,
     "generate-submission": 150.0,

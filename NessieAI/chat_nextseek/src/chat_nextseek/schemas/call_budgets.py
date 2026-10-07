@@ -15,10 +15,11 @@ being down. A 5xx, a 429, a refusal or a connection error still marks.
 
 ``op_move_reserve`` False means that inside a Container-CC op the first try is not cut to leave the move its
 reserve (``call_scope.MOVE_RESERVE_S``): it gets its own budget or what is left of the op, whichever is less, as
-before 2026-09-28. For the graph agent (its repair calls too) and the report writer, whose moved call could not redo
+before 2026-09-28. For the report writer, whose moved call could not redo
 the work in 20 s (a 4k-token graph answer takes 30 to 50 s, a report longer): cutting them only broke healthy calls
 late in an op (operator ruling on review finding 1, option A, 2026-09-28). NS turns have no op deadline, so this
-changes nothing there.
+changes nothing there. Round 6 (operator, 2026-10-07): the graph agent and its repair keep the 20 s reserve inside
+an op; ops of 90 s still give their first try 50 s or more.
 
 An explicit ``timeout_seconds`` or ``timeout_retry_seconds`` from a caller still wins over this table. An agent the
 table does not name gets ``DEFAULT_BUDGET`` in the recovery ladder (report_coder and the plan-mode agents) and
@@ -77,7 +78,7 @@ CALL_BUDGETS: dict[str, CallBudget] = {
     "seqera_agent": CallBudget(first_try_s=30, moved_s=90),
     "system": CallBudget(first_try_s=45, moved_s=90),
     "memory_coder": CallBudget(first_try_s=45, moved_s=90),
-    "graph": CallBudget(first_try_s=60, moved_s=90, op_move_reserve=False),
+    "graph": CallBudget(first_try_s=60, moved_s=90),
     # Sonnet 5.5 primary (the legacy memory agent), Gemini 3.8 Flash fallback.
     "memory": CallBudget(first_try_s=60, moved_s=90),
     # Opus primaries, Gemini 3.1 Pro fallback. The first try was 35 s (ruling 9, 2026-09-25); run 2's always-thinking

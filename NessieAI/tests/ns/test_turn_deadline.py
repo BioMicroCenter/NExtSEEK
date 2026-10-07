@@ -38,7 +38,7 @@ def test_the_header_may_only_bring_the_deadline_forward():
 
 
 @pytest.mark.parametrize("into, op, limit", [
-    (60.0, "graph", 55.0),
+    (60.0, "graph", 75.0),
     (100.0, "graph", 35.0),
     (100.0, "generate-submission", 35.0),
     (130.0, "graph", None),          # 5 s usable

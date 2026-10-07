@@ -17,11 +17,12 @@ whose primary and fallback both failed earlier fails at once without calling eit
   strike: the first such failure marks (ruling D4). A timeout the op's deadline cut short marks nothing.
 * What resets it: only the end of the turn or op. A marked model gets no further call in this scope, so nothing
   could show it healthy again; the next turn starts clean, on a fresh socket.
-* The deadline (F4, ruling D5): a Container-CC op opens its scope with one (55 s, inside the sidecar's 60 s;
-  the aggregate op tightens it to its own 50 s), and the ladder cuts every attempt's wall clock to fit it. A first
+* The deadline (F4, ruling D5): a Container-CC op opens its scope with one (90 s for graph, parse and
+  aggregate, 55 s for entity and the API ops; on the sidecar road 55 s, inside the sidecar's 60 s; the aggregate op
+  tightens it to its own 85 s), and the ladder cuts every attempt's wall clock to fit it. A first
   try that can still move gets at most what is left minus ``MOVE_RESERVE_S``, never below ``MIN_FIRST_TRY_S``,
-  except for the agents whose budget says ``op_move_reserve=False`` (the graph agent and the report writer, whose
-  move could not redo their work in that time), which get what is left; the moved call gets at most what is left;
+  except for the agents whose budget says ``op_move_reserve=False`` (the report writer, whose
+  move could not redo its work in that time), which get what is left; the moved call gets at most what is left;
   with ``DEADLINE_FLOOR_S`` or less left no call starts. Inside an op
   (``scope(..., op=True)``, only ``run_op``) an agent's ``op_first_try_s`` caps its first try further. An NS turn opens
   its scope with no deadline, so nothing is cut. The waits that are not

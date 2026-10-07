@@ -1,7 +1,7 @@
 """Each Container-CC op carries its deadline into every model call it makes (F4, ruling D5, 2026-09-28).
 
 The sidecar waits 60 s for an op. ``run_op`` opens the op's ``call_scope`` with a 55 s deadline (5 s left for the
-Neo4j step and the answer), and the aggregate op, which answers at its own 50 s, tightens it to that. The ladder then
+Neo4j step and the answer), and the aggregate op, which answers at its own 85 s, tightens it to that. The ladder then
 cuts every attempt to fit (pinned in NessieAI/tests/chat_nextseek/test_call_scope_deadline.py). A part of the
 aggregate op that runs out of time before its model call could start is a ``timed_out`` part, as a part still
 running at the deadline always was, not a failed op. Every agent is faked; no model is called.
@@ -20,7 +20,7 @@ from chat_nextseek.llm_clients import LLMFatalError
 from chat_nextseek.schemas import GraphAgentPlan, ParserPlan
 from NessieAI.ns import aggregate, granular
 from NessieAI.ns.granular import run_op
-from NessieAI.ns.op_limits import OP_LIMITS_S
+from NessieAI.ns.op_limits import OP_LIMITS_S, SIDECAR_ROAD_CAP_S
 
 SIDECAR_CLIENT = Path(granular.__file__).resolve().parents[1] / "docker" / "ns-sidecar" / "app" / "ns_client.py"
 
@@ -40,12 +40,11 @@ class OpDeadlineTests(SimpleTestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_the_graph_op_limit_sits_inside_the_sidecars_wait(self):
+    def test_on_the_sidecar_road_the_graph_op_still_fits_the_sidecars_wait(self):
         sidecar_s = float(re.search(r"^_TIMEOUT = ([0-9.]+)", SIDECAR_CLIENT.read_text(), re.M).group(1))
         self.assertEqual(sidecar_s, 60.0)
-        self.assertEqual(OP_LIMITS_S["graph"], 55.0)
-        self.assertLess(OP_LIMITS_S["graph"], sidecar_s)
-        self.assertEqual(aggregate.op_deadline_s(None), 50.0)
+        self.assertLess(min(OP_LIMITS_S["graph"], SIDECAR_ROAD_CAP_S), sidecar_s)
+        self.assertEqual(aggregate.op_deadline_s(None), 85.0)
 
     def test_the_limit_passed_in_replaces_the_table(self):
         seen = []
@@ -96,7 +95,7 @@ class OpDeadlineTests(SimpleTestCase):
         self.assertEqual(out["deadline_s"], 35.0)
 
     def test_a_graph_op_with_a_short_limit_starts_no_fallback_late(self):
-        self.assertEqual(granular.fallback_start_budget_s(None), 25.0)
+        self.assertEqual(granular.fallback_start_budget_s(None), 60.0)
         self.assertEqual(granular.fallback_start_budget_s(40.0), 10.0)
         self.assertEqual(granular.fallback_start_budget_s(20.0), 0.0)
 
@@ -113,7 +112,7 @@ class OpDeadlineTests(SimpleTestCase):
 
         self.assertEqual(seen, [(55.0, pytest.approx(55.0))])
 
-    def test_the_aggregate_op_tightens_the_deadline_to_its_own_50_s(self):
+    def test_the_aggregate_op_tightens_the_deadline_to_its_own_85_s(self):
         seen = []
 
         def entity(config, query):
@@ -132,7 +131,7 @@ class OpDeadlineTests(SimpleTestCase):
                                                               "total": 1, "truncated": False,
                                                               "scope": {"decision": "proven"}})
 
-        self.assertEqual(seen, [pytest.approx(50.0)])
+        self.assertEqual(seen, [pytest.approx(85.0)])
 
     def test_a_part_that_ran_out_of_time_is_timed_out_not_a_failed_op(self):
         parts = ["How many TIS samples?", "How many NHP samples?"]

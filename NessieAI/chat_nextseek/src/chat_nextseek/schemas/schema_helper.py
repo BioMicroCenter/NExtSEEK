@@ -741,7 +741,7 @@ class _Failover:
 
         With no deadline it is the call's own window. Under one, a first try that can still
         move leaves ``MOVE_RESERVE_S`` for the move (never below ``MIN_FIRST_TRY_S``), unless
-        its agent's budget says ``op_move_reserve=False`` (the graph agent, the report writer),
+        its agent's budget says ``op_move_reserve=False`` (the report writer),
         and any attempt gets at most what is left. With ``DEADLINE_FLOOR_S`` or less left, no call
         starts: ``LLMFatalError`` with ``reason="deadline"``, and one ``deadline`` ledger record.
         Inside an op (``scope.is_op``) an agent with ``op_first_try_s`` gets at most that on its first try.

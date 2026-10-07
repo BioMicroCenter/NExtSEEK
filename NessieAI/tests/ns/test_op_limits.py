@@ -15,7 +15,7 @@ def test_every_op_has_a_limit():
 
 
 @pytest.mark.parametrize("op, seconds", [
-    ("graph", 55.0), ("aggregate", 55.0), ("parse", 55.0), ("entity", 55.0), ("api-read", 55.0),
+    ("graph", 90.0), ("aggregate", 90.0), ("parse", 90.0), ("entity", 55.0), ("api-read", 55.0),
     ("generate-submission", 150.0), ("report", 150.0),
     ("graph-schema", 60.0), ("run-ls", 60.0), ("build-upload-xlsx", 60.0),
 ])
@@ -27,7 +27,7 @@ def test_with_no_deadline_the_limit_is_the_table():
     assert op_limit_s("report", None, 1_000.0) == 150.0
 
 
-@pytest.mark.parametrize("elapsed, expected", [(0.0, 55.0), (100.0, 35.0), (130.0, 5.0), (170.0, -35.0)])
+@pytest.mark.parametrize("elapsed, expected", [(0.0, 90.0), (45.0, 90.0), (100.0, 35.0), (130.0, 5.0), (170.0, -35.0)])
 def test_the_turn_deadline_caps_the_limit(elapsed, expected):
     start = 1_800_000_000.0
     assert op_limit_s("graph", start + 180.0, start + elapsed) == pytest.approx(expected)

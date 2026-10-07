@@ -20,8 +20,8 @@ runs a superuser's statement as written and holds anyone else's to their project
 answered through graph_search, which applies the caller's projects on the server and returns a total, so a
 refused breakdown comes back as that total with a note saying the breakdown could not be computed.
 
-Time. ``run_op`` hands the op its limit (``NessieAI/ns/op_limits.py``: 55 s, capped by the turn). The op answers
-``ANSWER_MARGIN_S`` before it (``op_deadline_s``: 50 s of 55) with whatever has finished and names the other parts
+Time. ``run_op`` hands the op its limit (``NessieAI/ns/op_limits.py``: 90 s, capped by the turn). The op answers
+``ANSWER_MARGIN_S`` before it (``op_deadline_s``: 85 s of 90) with whatever has finished and names the other parts
 ``timed_out``; work already started finishes in the background, as the graph op's does. A retry or a fallback starts
 only while at least ``MIN_REMAINING_S`` remain. The op's call_scope carries the same deadline into every model call,
 Neo4j statement and REST call, so each is cut to fit it and none starts after it; a part (or the vocabulary) that ran

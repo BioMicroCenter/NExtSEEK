@@ -143,9 +143,9 @@ and both surfaces move through the same `_Failover` object:
   nothing. The ledger names a skip (`fallback_remembered`, and a `not_called` record for a
   fallback not asked); `model_fallback` items carry `remembered: true` when the primary was
   skipped (not a new failure) and `not_called: true` when the fallback was.
-- **An op's deadline.** A CC op's scope carries 55 s (the aggregate op's 50 s), and each
-  attempt is cut to fit it, leaving 20 s for the move; the graph agent and the report writer
-  leave none (`op_move_reserve` in the table: their move could not redo the work in 20 s). With
+- **An op's deadline.** A CC op's scope carries its limit (90 s for graph, parse and aggregate, 55 s for entity and
+  the API ops; the aggregate op answers at 85 s), and each attempt is cut to fit it, leaving 20 s for the move; the
+  report writer leaves none (`op_move_reserve` in the table: its move could not redo the work in 20 s). With
   2 s or less left no call starts.
 
 

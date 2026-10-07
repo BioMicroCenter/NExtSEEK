@@ -112,9 +112,9 @@ def test_only_the_artifact_ops_send_the_chat_session(env, monkeypatch):
 
 
 @pytest.mark.parametrize("op, left, expected", [
-    ("graph", None, 65.0),    # no turn deadline in the env: the limit plus 10 s
+    ("graph", None, 100.0),    # no turn deadline in the env: the limit plus 10 s
     ("report", None, 160.0),
-    ("graph", 200.0, 65.0),   # plenty of turn left: still the limit plus 10 s
+    ("graph", 200.0, 100.0),   # plenty of turn left: still the limit plus 10 s
     ("report", 120.0, 75.0),  # the turn ends first: what is left less the 45 s headroom
     ("graph", 20.0, 10.0),    # nearly out: today's 10 s floor (plan 04 replaces it with a refusal)
 ])
@@ -201,7 +201,7 @@ def test_a_403_without_a_code_says_the_user_may_not_use_the_project(env, monkeyp
 
 
 @pytest.mark.parametrize("left, fragment", [
-    (None, "NExtSEEK did not answer within 65 s."),
+    (None, "NExtSEEK did not answer within 100 s."),
     (60.0, "This turn was nearly out of time"),
     (100.0, "NExtSEEK did not answer within 55 s, and this turn has no time left for another try"),
 ])

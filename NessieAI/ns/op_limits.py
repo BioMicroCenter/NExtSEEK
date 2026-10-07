@@ -16,9 +16,9 @@ import math
 #: api-write, refused under a turn pass, gets the read ops' 55 s for the callers that may still send it.
 OP_LIMITS_S: dict[str, float] = {
     "entity": 55.0,
-    "parse": 55.0,
-    "graph": 55.0,
-    "aggregate": 55.0,
+    "parse": 90.0,
+    "graph": 90.0,
+    "aggregate": 90.0,
     "api-read": 55.0,
     "api-write": 55.0,
     "generate-submission": 150.0,

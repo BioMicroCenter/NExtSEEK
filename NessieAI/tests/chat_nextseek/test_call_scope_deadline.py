@@ -6,8 +6,8 @@ Django then kept spending model calls nobody read for about ten minutes. Each op
 deadline (``ns/granular.run_op``), and every attempt's wall clock is cut to fit it:
 
 * a first try with a move still possible: at most what is left minus 20 s (the reserve for the move), never below
-  5 s, never more than what is left. Not for the graph agent and the report writer (operator ruling on review
-  finding 1, option A): the move could not redo their work in 20 s, so their first try gets what is left, as before;
+  5 s, never more than what is left. Not for the report writer (operator ruling on review
+  finding 1, option A): the move could not redo its work in 20 s, so its first try gets what is left, as before;
 * the moved call, or a call with nowhere to move: at most what is left;
 * 2 s or less left before a call starts: no call; ``LLMFatalError`` with ``reason="deadline"`` (not unavailability:
   no model failed), and one ``deadline`` ledger record;
@@ -267,22 +267,24 @@ def test_the_tool_loop_ends_on_the_deadline_too(run, clock, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# Option A (operator ruling on review finding 1, 2026-09-28): no reserve for the graph agent and the report writer.
+# Option A (operator ruling on review finding 1, 2026-09-28): no reserve for the report writer. Round 6: the graph
+# agent no longer skips it.
 # --------------------------------------------------------------------------
 
-def test_a_healthy_graph_answer_late_in_an_op_is_no_longer_cut(run, clock):
-    """entity and parser took 20 s: 35 s are left. A genuine 4k-token graph answer takes 30 to 40 s; the reserve cut
-    the graph agent to 15 s, then moved it to Sonnet with 20 s, which cannot redo it, and the op failed."""
+def test_a_graph_answer_late_in_an_op_leaves_the_move_its_reserve(run, clock):
+    """entity and parser took 20 s: 35 s are left. Round 6: the graph agent keeps the move reserve, so its first
+    try gets min(60, max(35 - 20, 5)) = 15 s and the move keeps 20 s."""
     windows, behaviour = run
-    behaviour.update({FLASH: 32.0})
+    behaviour.update({FLASH: 10.0})
     with _op_scope(55):
         clock.now += 20
         assert _call(_Config(), "graph", FLASH).mode == FLASH
-    assert windows == [(FLASH, 35)], "what is left, as before F3-F5"
+    assert windows == [(FLASH, 15)], "what is left less the move reserve"
 
 
-def test_the_graph_agents_repair_calls_get_no_reserve_either(run, clock):
-    """The repair call runs on the same catalog key, so the same row: not cut to leave room for a move."""
+def test_the_graph_agents_repair_calls_keep_the_reserve_too(run, clock):
+    """The repair call runs on the same catalog key, so the same row (round 6: the graph agent keeps the move
+    reserve): cut to leave room for a move."""
     windows, behaviour = run
     behaviour.update({FLASH: 1.0})
     config = _Config()
@@ -290,18 +292,18 @@ def test_the_graph_agents_repair_calls_get_no_reserve_either(run, clock):
         clock.now += 20
         call_llm_structured(config, "q", _Plan, system="s", client=config.gcp, model_name=FLASH,
                             agent_label="graph", log_label="graph_agent_repair")
-    assert windows == [(FLASH, 35)]
+    assert windows == [(FLASH, 15)]
 
 
 def test_a_stalled_graph_agent_late_in_an_op_ends_on_the_deadline_not_as_an_outage(run, clock):
     windows, behaviour = run
-    behaviour.update({FLASH: "stall", SONNET: 1.0})
+    behaviour.update({FLASH: "stall", SONNET: "stall"})
     with _op_scope(55) as scope:
         clock.now += 20
         with pytest.raises(LLMFatalError) as excinfo:
             _call(_Config(), "graph", FLASH)
         assert scope.failed(("gcp", FLASH)) is None, "a window the deadline cut marks nothing"
-    assert windows == [(FLASH, 35)], "no call starts after the deadline"
+    assert windows == [(FLASH, 15), (SONNET, 20)], "round 6: the graph agent keeps the move reserve; no call starts after the deadline"
     assert excinfo.value.reason == "deadline" and excinfo.value.unavailable is False
 
 
