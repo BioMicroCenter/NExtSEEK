@@ -612,7 +612,19 @@ def test_third_example_is_not_emitted_and_top_two_win() -> None:
     assert ns_ok[2]["query_text"] not in actual
 
 
-def test_route_policy_and_plugin_json_do_not_move_families() -> None:
+def _edited_corpus_copy(directory: Path, corpus: dict) -> Path:
+    """A mutated copy of corpus.json next to a copy of retired.json. 2026-10-07 test-set review (SPEC-2): retired questions live in
+    retired.json beside the corpus, and the evidence is a recorded run that still names some of them; a copy without
+    it would make those ids look missing."""
+    import shutil
+
+    edited = directory / "corpus.json"
+    edited.write_text(json.dumps(corpus), encoding="utf-8")
+    shutil.copy(CORPUS_PATH.with_name("retired.json"), directory / "retired.json")
+    return edited
+
+
+def test_route_policy_and_plugin_json_do_not_move_families(tmp_path) -> None:
     evidence = load_committed_evidence(EVIDENCE_PATH)
     baseline = build_route_capabilities_payload(repo_root=REPO_ROOT, evidence=evidence)
     baseline_families = {
@@ -621,8 +633,7 @@ def test_route_policy_and_plugin_json_do_not_move_families() -> None:
     }
     corpus = json.loads(CORPUS_PATH.read_text(encoding="utf-8"))
     corpus["route_policy"]["families"]["sample_search"]["value"] = "container_cc"
-    tmp_corpus = Path("/tmp") / f"plan005-corpus-mut-{Path.cwd().name}.json"
-    tmp_corpus.write_text(json.dumps(corpus), encoding="utf-8")
+    tmp_corpus = _edited_corpus_copy(tmp_path, corpus)
     mutated_evidence = copy.deepcopy(evidence)
     mutated_evidence["corpus_fingerprint"] = nessie_runner.corpus_fingerprint(tmp_corpus)
     for record in mutated_evidence["records"]:
@@ -743,8 +754,7 @@ def test_a_corpus_edit_outside_the_evidence_keeps_the_evidence_valid(tmp_path):
     fam, var = _first_variant_not_in(corpus, named)
     var.setdefault("_why", "")
     var["_why"] += " edited"
-    edited = tmp_path / "corpus.json"
-    edited.write_text(json.dumps(corpus))
+    edited = _edited_corpus_copy(tmp_path, corpus)
     route_capabilities._validate_evidence_against_corpus(evidence, corpus_path=edited)  # no raise
 
 
@@ -753,7 +763,6 @@ def test_changed_evidence_text_still_refuses(tmp_path):
     evidence = json.loads(EVIDENCE_PATH.read_text())
     qid = evidence["records"][0]["query_id"]
     _variant_by_id(corpus, qid)["turns"][0]["query"] += " (changed)"
-    edited = tmp_path / "corpus.json"
-    edited.write_text(json.dumps(corpus))
+    edited = _edited_corpus_copy(tmp_path, corpus)
     with pytest.raises(route_capabilities.RouteCapabilitiesError, match="query_text drift"):
         route_capabilities._validate_evidence_against_corpus(evidence, corpus_path=edited)
