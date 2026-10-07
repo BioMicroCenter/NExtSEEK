@@ -29,7 +29,7 @@
   },
   "families": {
     "retrieval_path_selection": {
-      "description": "R4 smoke (prod)",
+      "description": "Which execution path inside the NExtSEEK engine a question takes.",
       "variants": [
         {
           "family": "retrieval_path_selection",
@@ -141,7 +141,7 @@
       ]
     },
     "sample_retrieve": {
-      "description": "R4 smoke (prod)",
+      "description": "Pull the full record for samples the user can already name.",
       "variants": [
         {
           "family": "sample_retrieve",
@@ -187,7 +187,7 @@
       ]
     },
     "person_lab_resolution": {
-      "description": "R4 smoke (prod)",
+      "description": "Resolve a person, lab or lab code the user names, then say who they are or what they hold: a PI's lab is the code at the UID's lab position, anyone else is the Scientist attribute, a code resolves to its lab record. Never an invented code or a text match.",
       "variants": [
         {
           "family": "person_lab_resolution",
@@ -233,7 +233,7 @@
       ]
     },
     "system_capability_question": {
-      "description": "R4 smoke (prod)",
+      "description": "What the system is and can do, which sample types and assays it defines, how to do something on the site (answered from the user docs), and who the user is signed in as and which projects they belong to.",
       "variants": [
         {
           "family": "system_capability_question",
@@ -407,7 +407,7 @@
       ]
     },
     "graph_traversal": {
-      "description": "R4 smoke (prod)",
+      "description": "Questions that follow the graph's structure: which study, investigation or project samples belong to and counts scoped to them, which samples went into or came out of an assay (Assay nodes joined by INPUT_TO and OUTPUT_OF), which protocols samples used, and which studies, projects or assays hold something.",
       "variants": [
         {
           "family": "graph_traversal",
@@ -815,7 +815,7 @@
       ]
     },
     "lineage_tree": {
-      "description": "R4 smoke (prod)",
+      "description": "Trace what came from what, in either direction.",
       "variants": [
         {
           "family": "lineage_tree",
@@ -866,7 +866,7 @@
       ]
     },
     "followup_over_results": {
-      "description": "R4 smoke (prod)",
+      "description": "Ask about results already returned, including aggregating an attribute over 'those'. Absorbs within-chat memory for both engines.",
       "variants": [
         {
           "family": "followup_over_results",
@@ -928,7 +928,7 @@
       ]
     },
     "artifact_delivery": {
-      "description": "R4 smoke (prod)",
+      "description": "Get the file the assistant just made out of the turn and to the user.",
       "variants": [
         {
           "family": "artifact_delivery",
@@ -1016,7 +1016,7 @@
       ]
     },
     "catalog_browse": {
-      "description": "R4 smoke (prod)",
+      "description": "List the platform's own objects: assays, projects, people, protocols, investigations.",
       "variants": [
         {
           "family": "catalog_browse",
@@ -1062,7 +1062,7 @@
       ]
     },
     "publication_lookup": {
-      "description": "R4 smoke (prod)",
+      "description": "Find the samples behind a paper named by PMID, DOI or title. The paper's study carries its PMID or DOI, and on some instances the samples carry it too, so a right answer matches the identifier exactly on either and never as free text.",
       "variants": [
         {
           "family": "publication_lookup",
@@ -1210,7 +1210,7 @@
       ]
     },
     "project_summary_report": {
-      "description": "R4 smoke (prod)",
+      "description": "The reporter's project view: a formal NIH, RPPR, annual or progress report, upload statistics over a time window, published sample counts, and the SOPs registered to a project. An open-ended summary of a whole project or investigation goes to Container-CC, and a plain count or breakdown is a graph question.",
       "variants": [
         {
           "family": "project_summary_report",

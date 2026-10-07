@@ -18,18 +18,11 @@
     "pbct.find_me_monkeys_that_have_both"
   ],
   "families": {
-    "probe_reingest": {
-      "description": "pipeline_output_reingest is declared in route_capabilities.json with three example queries and has ZERO variants in the corpus. Both probes carry a REAL run directory, because a path-free phrasing cannot distinguish 'routed correctly but found nothing' from 'reingest works'. The two openings are deliberately different in shape — one announces a finished run, one asks for an artefact — so a pass is not an artefact of matching one template.",
-      "_pair_design": "scrnaseq probe NAMES the target sample type (A.SCXP), rnaseq probe does NOT. That difference is the point: it tests whether reingest can infer the analysis type from the run outputs, or only when told.",
-      "_verified_2026_07_29": {
-        "reachability": "run-ls does NOT read these paths locally — granular._run_ls SSHes Luria and runs `ls -laR`. /net does not exist on fairdata-dev at all, which is expected and not a blocker.",
-        "path_guard": "_run_ls rejects anything not under <LURIA working_path>/runs. Dev box has LURIA_WORKING_PATH=/net/bmc-pub10/data1/bmc/pipeline_cd, so runs_root matches and both paths pass. The trailing slash on the rnaseq path is normalised away by os.path.normpath.",
-        "nfcore_gideon-4wk_260711_024438_0": "EXISTS on Luria. Contains alevin/, alevinqc/, fastqc/, gunzip/, multiqc/ — an alevin scrnaseq run, so the A.SCXP framing is right.",
-        "nfcore_rnaseq_260723_205359_0": "EXISTS on Luria. Contains salmon/, star_salmon/, trimgalore/, multiqc/, plus a fetchngs pre-stage (ids.csv, fetchngs.config). Real quant + alignment outputs to reingest."
-      },
+    "pipeline_output_reingest": {
+      "description": "Register a finished run's outputs back into NExtSEEK.",
       "variants": [
         {
-          "family": "probe_reingest",
+          "family": "pipeline_output_reingest",
           "id": "probe.reingest_scrnaseq_typed",
           "name": "Reingest a finished scrnaseq run, target sample type given",
           "tags": [
@@ -58,7 +51,7 @@
           ]
         },
         {
-          "family": "probe_reingest",
+          "family": "pipeline_output_reingest",
           "id": "probe.reingest_rnaseq_untyped",
           "name": "Reingest a finished rnaseq run, sample type left to infer",
           "tags": [
@@ -89,7 +82,7 @@
       ]
     },
     "harmonization": {
-      "description": "Three turns, operator-authored verbatim. Turn 1 makes the inconsistency visible; turn 2 asks for normalization; turn 3 converts it into a reingestable artefact. Crosses sample_search -> open_ended_analysis -> batch_upload_preparation, so it also exercises cross-mode memory. batch_upload_preparation already declares 'Build me an update sheet to normalize the genotypes in the database' as an example, so the capability is claimed but untested.",
+      "description": "Find near-duplicate attribute values, propose a canonical mapping, hand it to batch upload.",
       "variants": [
         {
           "family": "harmonization",
@@ -139,11 +132,11 @@
         }
       ]
     },
-    "cross_mode_memory": {
-      "description": "Two 2-turn pairs, one each direction. Each turn 2 is a VERBATIM example query of the other route's declared task family, so the routing expectation comes from route_capabilities.json rather than from a guess, and each turn 2 is unanswerable without the previous turn's result set.",
+    "followup_over_results": {
+      "description": "Ask about results already returned, including aggregating an attribute over 'those'. Absorbs within-chat memory for both engines.",
       "variants": [
         {
-          "family": "cross_mode_memory",
+          "family": "followup_over_results",
           "id": "probe.xmode_ns_then_cc",
           "name": "NS search, then a CC analysis over those results",
           "tags": [
@@ -193,7 +186,7 @@
           ]
         },
         {
-          "family": "cross_mode_memory",
+          "family": "followup_over_results",
           "id": "probe.xmode_cc_then_ns",
           "name": "CC study resolution, then an NS recall over those results",
           "tags": [

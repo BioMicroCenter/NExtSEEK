@@ -13,11 +13,11 @@
   "_criteria_note": "Negative criteria are written as a lookahead over the whole reply, because the DSL has matches_re and no not_matches_re. They are the point of several of these cases: the fixes remove sentences, and a reply can carry the right number and still be the old behaviour.",
   "include_ids": [],
   "families": {
-    "post_rebuild": {
-      "description": "One case per fix committed on 2026-09-22, in the order they were built.",
+    "graph_traversal": {
+      "description": "Questions that follow the graph's structure: which study, investigation or project samples belong to and counts scoped to them, which samples went into or came out of an assay (Assay nodes joined by INPUT_TO and OUTPUT_OF), which protocols samples used, and which studies, projects or assays hold something.",
       "variants": [
         {
-          "family": "post_rebuild",
+          "family": "graph_traversal",
           "id": "post.srp_count_answers_first",
           "name": "Ticket 1: the answer, and nothing about the query that found it",
           "_why": "Turn 1151 answered 'There are 57,441 samples in the SRP project. This count was determined by a graph query over the sample network, ...' on an image that already carried the prompt. Nothing about this result needs qualifying, so nothing about the search belongs in the reply.",
@@ -67,7 +67,62 @@
           ]
         },
         {
-          "family": "post_rebuild",
+          "family": "graph_traversal",
+          "id": "post.shoulders_by_project",
+          "name": "Ticket 2: an investigation or project in the vocabulary is matched structurally",
+          "_why": "The right answer, 568, reached through a text OR on the word 'Shoulders' after a scoped query found nothing. The number is not the test; the route to it is. 568 was already the right number, so only the query can show the difference: the relationship must be there and the text arm must not.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples are in the Shoulders project?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])568(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "IN_PROJECT|IN_INVESTIGATION"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*search_text)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "person_lab_resolution": {
+      "description": "Resolve a person, lab or lab code the user names, then say who they are or what they hold: a PI's lab is the code at the UID's lab position, anyone else is the Scientist attribute, a code resolves to its lab record. Never an invented code or a text match.",
+      "variants": [
+        {
+          "family": "person_lab_resolution",
           "id": "post.kamm_rna_names_a_type_once",
           "name": "Ticket 1: a type is named once, by its name or its code",
           "_why": "'The Kamm lab (KAM) has 140 RNA samples (RNA Sample), based on a graph query over the sample network' was 19 words, all of them machinery or duplication.",
@@ -117,137 +172,7 @@
           ]
         },
         {
-          "family": "post_rebuild",
-          "id": "post.cc_mice_by_genotype",
-          "name": "Ticket 2: the strain family is matched on Genotype, not as free text",
-          "_why": "Answered a confident 0 on 2026-09-21 against 737, now 745. The metadata write of 2026-09-22 tagged 209 of them, so 209 is the new wrong answer and is harder to spot.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "do you have any datasets with collaborative cross mice ?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])745(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "post_rebuild",
-          "id": "post.hela_names_its_variants",
-          "name": "Ticket 2: a count over a contained name returns the distinct values",
-          "_why": "'We have 4 HeLa cell-line samples' described HeLa, HeLa-ActD, HeLa-GSK and HeLa-TSA. The count was defensible; calling all four HeLa was not.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "How many HeLa cell-line samples do we have?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "HeLa-(ActD|GSK|TSA)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "post_rebuild",
-          "id": "post.shoulders_by_project",
-          "name": "Ticket 2: an investigation or project in the vocabulary is matched structurally",
-          "_why": "The right answer, 568, reached through a text OR on the word 'Shoulders' after a scoped query found nothing. The number is not the test; the route to it is. 568 was already the right number, so only the query can show the difference: the relationship must be there and the text arm must not.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "How many samples are in the Shoulders project?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])568(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "graph_cypher",
-                  "op": "matches_re",
-                  "value": "IN_PROJECT|IN_INVESTIGATION"
-                },
-                {
-                  "field": "graph_cypher",
-                  "op": "matches_re",
-                  "value": "(?s)\\A(?!.*search_text)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "post_rebuild",
+          "family": "person_lab_resolution",
           "id": "post.misspelled_lab_suggests_the_record",
           "name": "Item 7: a misspelled lab is asked about, not answered with zero",
           "_why": "'What samples do the engleward lab have?' answered 'There are no samples associated with the Engleward lab in the database.' Engelward is ENG and is on record; the resolver still must not guess the code, so the reply names it and asks.",
@@ -290,9 +215,99 @@
               ]
             }
           ]
+        }
+      ]
+    },
+    "sample_search": {
+      "description": "Find, count or break down samples by what is recorded on them: sample type, an attribute value, a keyword anywhere in the record, a number or date comparison, or a lab code or other text in the UID. A question that needs an assay, a study, an investigation, a project or a parent sample belongs to graph_traversal or lineage_tree.",
+      "variants": [
+        {
+          "family": "sample_search",
+          "id": "post.cc_mice_by_genotype",
+          "name": "Ticket 2: the strain family is matched on Genotype, not as free text",
+          "_why": "Answered a confident 0 on 2026-09-21 against 737, now 745. The metadata write of 2026-09-22 tagged 209 of them, so 209 is the new wrong answer and is harder to spot.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "do you have any datasets with collaborative cross mice ?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])745(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
         },
         {
-          "family": "post_rebuild",
+          "family": "sample_search",
+          "id": "post.hela_names_its_variants",
+          "name": "Ticket 2: a count over a contained name returns the distinct values",
+          "_why": "'We have 4 HeLa cell-line samples' described HeLa, HeLa-ActD, HeLa-GSK and HeLa-TSA. The count was defensible; calling all four HeLa was not.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many HeLa cell-line samples do we have?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "HeLa-(ActD|GSK|TSA)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "followup_over_results": {
+      "description": "Ask about results already returned, including aggregating an attribute over 'those'. Absorbs within-chat memory for both engines.",
+      "variants": [
+        {
+          "family": "followup_over_results",
           "id": "post.followup_downstream_types",
           "name": "Item 5: a follow-up that queried the graph is never answered from the bundle",
           "_why": "The seeded result holds five columns and no lineage. On 2026-09-22 the follow-up agent ran three correct DERIVED_FROM queries, exhausted its six iterations without answering, and the orchestrator threw them away and reported absence.",
@@ -356,9 +371,14 @@
               ]
             }
           ]
-        },
+        }
+      ]
+    },
+    "artifact_delivery": {
+      "description": "Get the file the assistant just made out of the turn and to the user.",
+      "variants": [
         {
-          "family": "post_rebuild",
+          "family": "artifact_delivery",
           "id": "post.cc_artifact_quotes_the_user_facing_path",
           "name": "Item 6: the path mapping the engine writes is the one the skill documents",
           "_why": "A CC turn said 'Host path: I couldn't translate it, DMAC_PATH_MAPPINGS was present but I couldn't parse a mapping from it'. The mapping was well formed; the instruction asked for a host path the cutover had removed. NEEDS THE CC-AGENT REBUILD.",

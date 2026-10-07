@@ -4,11 +4,11 @@
   "_run": "manage.py nessie --tier full --cases /app/NessieAI/tests/nessie_tests/probes/probe-followups-split.json --out /app/runs/split-<date> (copy the tree in first, NessieAI/tests/README.md 'Harness container lane'). 12 turns, 3 of them Container-CC (paid). With NESSIE_FOLLOWUP_ROUTING=cc the four NExtSEEK follow-ups go red on their route, which is the rollback check.",
   "_instance_warning": "NUMBERS: NDMA 207 is fairdata-dev's (2026-09-23); every other number was measured on production on 2026-09-23. Each _measure entry says where. Re-pin before the run on any box:\n  python NessieAI/tests/nessie_tests/scripts/pin_probe_truths.py --emit-cypher <this file>   (run the batch on the box, read-only)\n  python ... pin_probe_truths.py --pin <this file> --from measured.json\nCases in mode 'each' list their numbers in the order of their locals.\nThe reject-73 guard on split.sticky_after_container_cc turn 4 is written by hand and does not re-pin.",
   "families": {
-    "followup_split": {
-      "description": "Multi-turn: NExtSEEK seeds, then follow-ups routed by the follow-up split (routing review 5).",
+    "engine_routing": {
+      "description": "Which engine a turn reaches: BAML decision, heuristic fallback, the unrelated outcome, router history.",
       "variants": [
         {
-          "family": "followup_split",
+          "family": "engine_routing",
           "id": "split.nextseek_shaped_followups_stay",
           "name": "An NExtSEEK-shaped follow-up stays on nextseek_query: a breakdown, then a recall",
           "_why": "A breakdown of the earlier result by one field and a recall of the first search are follow-ups NExtSEEK can answer from the earlier result or by re-running its search, so under the split both stay on nextseek_query, decided by the router (route_source baml). 73 NHP with both flow and sequencing data; Macaca fascicularis 47, Macaca mulatta (Rhesus) 22, Macaca mulatta 4. Measured on production 2026-09-23 (also the workstation's numbers).",
@@ -115,7 +115,7 @@
           ]
         },
         {
-          "family": "followup_split",
+          "family": "engine_routing",
           "id": "split.plot_goes_to_container_cc",
           "name": "A plot of the earlier result goes to container_cc",
           "_why": "A chart needs more than a re-run of the search, so under the split the follow-up goes to container_cc (the router, or the code guard on the word 'plot'), and an image file is written.",
@@ -186,7 +186,7 @@
           ]
         },
         {
-          "family": "followup_split",
+          "family": "engine_routing",
           "id": "split.fresh_question_after_an_ns_follow_up",
           "name": "A fresh self-contained question after an NExtSEEK follow-up is routed as in a new chat",
           "_why": "The seed and its recall run on nextseek_query; the third message names its own subject and refers back to nothing, so the follow-up rule must leave it to the router. NDMA-treated mice: 207 on fairdata-dev (2026-09-23), 1,551 on production. HeLa samples: 4 (production 2026-09-23).",
@@ -288,7 +288,7 @@
           ]
         },
         {
-          "family": "followup_split",
+          "family": "engine_routing",
           "id": "split.sticky_after_container_cc",
           "name": "Sticky: after a Container-CC turn a later 'of those' stays on container_cc",
           "_why": "Turn 2 is a plot (container_cc). Turn 3 is self-contained and goes to nextseek_query as in a new chat. Turn 4 is NExtSEEK-shaped ('of those', a count) and refers to turn 3's HeLa result, but the chat already has a completed Container-CC turn, and NExtSEEK cannot see Container-CC's results, so it stays on container_cc. The answer is about the 4 HeLa samples (3 carry a treatment: HeLa-ActD, -GSK, -TSA), never the 73 NHP: on 2026-09-23 Container-CC bound 'those' to the wrong turn. The reject-73 guard is written by hand and does not re-pin.",

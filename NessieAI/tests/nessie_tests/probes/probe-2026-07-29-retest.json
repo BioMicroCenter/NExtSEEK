@@ -19,11 +19,11 @@
     "write.export_all_metadata_for_nhp_22"
   ],
   "families": {
-    "probe_reingest": {
-      "description": "Verbatim copies of the two reingest probes from probe-2026-07-29.json. Both run directories were verified live on Luria: the gideon one holds alevin/alevinqc output, the rnaseq one holds salmon/star_salmon/trimgalore. Both satisfy the _run_ls runs-root guard.",
+    "pipeline_output_reingest": {
+      "description": "Register a finished run's outputs back into NExtSEEK.",
       "variants": [
         {
-          "family": "probe_reingest",
+          "family": "pipeline_output_reingest",
           "id": "probe.reingest_scrnaseq_typed",
           "name": "Reingest a finished scrnaseq run, target sample type given",
           "tags": [
@@ -52,7 +52,7 @@
           ]
         },
         {
-          "family": "probe_reingest",
+          "family": "pipeline_output_reingest",
           "id": "probe.reingest_rnaseq_untyped",
           "name": "Reingest a finished rnaseq run, sample type left to infer",
           "tags": [

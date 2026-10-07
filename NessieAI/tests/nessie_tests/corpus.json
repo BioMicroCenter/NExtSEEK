@@ -205,7 +205,7 @@
   },
   "families": {
     "sample_search": {
-      "description": "Find samples by type, attribute, treatment, keyword, lab code or UID. No assay: assay lives on DERIVED_FROM and belongs to graph_traversal.",
+      "description": "Find, count or break down samples by what is recorded on them: sample type, an attribute value, a keyword anywhere in the record, a number or date comparison, or a lab code or other text in the UID. A question that needs an assay, a study, an investigation, a project or a parent sample belongs to graph_traversal or lineage_tree.",
       "variants": [
         {
           "id": "advanced.basic_ndma",
@@ -2186,7 +2186,7 @@
       ]
     },
     "publication_lookup": {
-      "description": "Find the samples behind a paper named by PMID, DOI or title: a study-level lookup on Study.PMID, Study.DOI or the study title, never a text search on the identifier.",
+      "description": "Find the samples behind a paper named by PMID, DOI or title. The paper's study carries its PMID or DOI, and on some instances the samples carry it too, so a right answer matches the identifier exactly on either and never as free text.",
       "variants": [
         {
           "artifact_expected": null,
@@ -3897,7 +3897,7 @@
       ]
     },
     "graph_traversal": {
-      "description": "Structural questions over the graph, including every assay and protocol traversal.",
+      "description": "Questions that follow the graph's structure: which study, investigation or project samples belong to and counts scoped to them, which samples went into or came out of an assay (Assay nodes joined by INPUT_TO and OUTPUT_OF), which protocols samples used, and which studies, projects or assays hold something.",
       "variants": [
         {
           "id": "advanced.nextseq_instrument",
@@ -7379,7 +7379,7 @@
       ]
     },
     "system_capability_question": {
-      "description": "What the system is, what it can do, what vocabulary exists.",
+      "description": "What the system is and can do, which sample types and assays it defines, how to do something on the site (answered from the user docs), and who the user is signed in as and which projects they belong to.",
       "variants": [
         {
           "id": "sys.dseq_definition",
@@ -11461,7 +11461,7 @@
       ]
     },
     "project_summary_report": {
-      "description": "How much data a project, lab or investigation holds. All four report modes.",
+      "description": "The reporter's project view: a formal NIH, RPPR, annual or progress report, upload statistics over a time window, published sample counts, and the SOPs registered to a project. An open-ended summary of a whole project or investigation goes to Container-CC, and a plain count or breakdown is a graph question.",
       "variants": [
         {
           "id": "report.samples_uploaded_impact",
@@ -15257,7 +15257,7 @@
       ]
     },
     "entity_write": {
-      "description": "Create, update or delete a record, or edit a sample type's attributes.",
+      "description": "A request to create, change or delete a stored record or a sample type's attributes. NExtSEEK has no write path, so a right answer refuses the change or prepares a dry run or upload sheet for review, and never says a write happened.",
       "variants": [
         {
           "id": "write.set_up_a_new_investigation_calle",
@@ -16530,7 +16530,7 @@
       ]
     },
     "unsupported": {
-      "description": "Refuse out-of-scope asks.",
+      "description": "Asks that no NExtSEEK path answers: charts, statistics, group comparisons and other analysis go to Container-CC, and weather, general science and other off-topic asks are routed unrelated or declined.",
       "variants": [
         {
           "id": "unsup.weather",

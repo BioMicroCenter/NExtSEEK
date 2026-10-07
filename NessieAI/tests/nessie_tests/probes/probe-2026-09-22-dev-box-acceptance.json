@@ -16,11 +16,11 @@
     "export.session_to_the_developers"
   ],
   "families": {
-    "post_rebuild": {
-      "description": "One case per fix committed on 2026-09-22, in the order they were built.",
+    "graph_traversal": {
+      "description": "Questions that follow the graph's structure: which study, investigation or project samples belong to and counts scoped to them, which samples went into or came out of an assay (Assay nodes joined by INPUT_TO and OUTPUT_OF), which protocols samples used, and which studies, projects or assays hold something.",
       "variants": [
         {
-          "family": "post_rebuild",
+          "family": "graph_traversal",
           "id": "post.srp_count_answers_first",
           "name": "Ticket 1: the answer, and nothing about the query that found it",
           "_why": "Turn 1151 answered 'There are 57,441 samples in the SRP project. This count was determined by a graph query over the sample network, ...' on an image that already carried the prompt. Nothing about this result needs qualifying, so nothing about the search belongs in the reply.",
@@ -70,137 +70,7 @@
           ]
         },
         {
-          "family": "post_rebuild",
-          "id": "post.kamm_rna_names_a_type_once",
-          "name": "Ticket 1: a type is named once, by its name or its code",
-          "_why": "'The Kamm lab (KAM) has 140 RNA samples (RNA Sample), based on a graph query over the sample network' was 19 words, all of them machinery or duplication.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "How many RNA samples does the Kamm lab have?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])140(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?s)\\A(?!.*\\(RNA Sample\\))"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?s)\\A(?!.*graph query over the sample network)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "post_rebuild",
-          "id": "post.cc_mice_by_genotype",
-          "name": "Ticket 2: the strain family is matched on Genotype, not as free text",
-          "_why": "Answered a confident 0 on 2026-09-21 against 737, now 745. The metadata write of 2026-09-22 tagged 209 of them, so 209 is the new wrong answer and is harder to spot.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "do you have any datasets with collaborative cross mice ?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])745(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "post_rebuild",
-          "id": "post.hela_names_its_variants",
-          "name": "Ticket 2: a count over a contained name returns the distinct values",
-          "_why": "'We have 4 HeLa cell-line samples' described HeLa, HeLa-ActD, HeLa-GSK and HeLa-TSA. The count was defensible; calling all four HeLa was not.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "How many HeLa cell-line samples do we have?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "HeLa-(ActD|GSK|TSA)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "post_rebuild",
+          "family": "graph_traversal",
           "id": "post.shoulders_by_project",
           "name": "Ticket 2: an investigation or project in the vocabulary is matched structurally",
           "_why": "The right answer, 568, reached through a text OR on the word 'Shoulders' after a scoped query found nothing. The number is not the test; the route to it is. 568 was already the right number, so only the query can show the difference: the relationship must be there and the text arm must not.",
@@ -250,7 +120,398 @@
           ]
         },
         {
-          "family": "post_rebuild",
+          "family": "graph_traversal",
+          "id": "srp2.project_scope",
+          "name": "Act 1: the project relationship, not a title match",
+          "_why": "57,426 is the project; 57,441 is what an OR against investigation titles returns. The 15-sample gap is the whole difference between a scope and a text search. Measured 2026-09-22: 57,426 is IN_PROJECT, and the 15 the OR adds are real samples whose study sits under the MIT_SRP investigation while their project is Training/Test (14) or IMPAcTb (1). Separately 1,742 of the 57,426 have NO study edge at all, so the two scopes disagree in both directions and neither number is a wrong answer. The prompt tells the agent to match the name against Study and Investigation too, so both pass and the query shape does the real work.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples are in the MIT_SRP project?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])(57,?426|57,?441)(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "IN_PROJECT"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "graph_traversal",
+          "id": "srp2.liver_folds_the_case",
+          "name": "Act 2: harmonization, the thing only the graph does",
+          "_why": "13,433 once the case is folded. Liver, LIVER and liver are three stored spellings, and 6,721 is the answer that takes only the capitalised one.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many tissue samples in the MIT_SRP project came from the liver?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])13,?433(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "toLower"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "graph_traversal",
+          "id": "srp2.ndma_mice_in_srp",
+          "name": "Act 3: the contaminant that runs through all three labs",
+          "_why": "1,549 MIT_SRP mice carry NDMA in a Treatment field, measured 2026-09-22. The first version pinned 2,111, which is `search_text CONTAINS 'ndma'` over the same mice: my measurement used a looser predicate than the question. A named field beats free text, which is the prompt's own rule, and the run answered 1,549 by exactly that route.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many mice in the MIT_SRP project were treated with NDMA?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])1,?549(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "graph_traversal",
+          "id": "srp2.cometchip_counts_samples_not_edges",
+          "name": "Act 4 stress test: rows are not samples",
+          "_why": "There is exactly one CometChip assay title, carrying 304,062 edges over 618 distinct parents and 2,270 distinct children (measured 2026-09-22; the exact-title and CONTAINS matches agree). 618 is the samples the assay was performed on, 2,270 the records it produced, and both are defensible readings of \"underwent\", so either passes. What must never appear is 304,062, the row count, wrong by a factor of 134, which is the rule this case tests.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples underwent the CometChip assay?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])(618|2,?270)(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*304,?062)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "graph_traversal",
+          "id": "bucket3.a_mixed_result_is_not_named_after_one_type",
+          "name": "Bucket 3: describe the result by its distribution, not by its first rows",
+          "_why": "53 distinct sample types sit under MIT_SRP, led by TIS 36,614, D.IMG 7,346 and MUS 3,589. The failure this replaces named a heterogeneous result after whichever type led the preview.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Break the MIT_SRP project down by sample type.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])36,?614(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(D\\.IMG|Imaging)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(MUS|Mouse|mice)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "graph_traversal",
+          "id": "bucket7.cc_aggregates_metadata",
+          "name": "Bucket 7: metadata aggregation by genotype, the shape the CC op was built for",
+          "_why": "schema 1.2 plus the Container-CC aggregate op exist and have never been proven against a real question. THE SECOND PAID CASE in this file, after the artifact one.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Group the MIT_SRP mice by genotype and tell me how many are in each of the five largest groups.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(aag|rosa26|gpt|CC0|wild)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])1,?111(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])626(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])508(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])218(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])211(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ],
+          "_criteria_note_2026_09_22": "Re-pinned from the totals (3,589 / 1,183 / 848) to the five group counts the question asks for: the local run answered 1,111 / 626 / 508 / 218 / 211, exactly the graph's top five, and failed on totals it was never asked. 355 mice with no Genotype are excluded (a group of missing values is not a genotype). Either engine may answer; this case does not by itself prove the CC aggregate op."
+        },
+        {
+          "family": "graph_traversal",
+          "id": "bucket7.species_over_a_project",
+          "name": "Bucket 7: the question the review recorded, aggregating metadata over a project",
+          "_why": "Turn 429 verbatim, the single question in that bucket: it matched 84,527 samples and answered that the data does not contain species names. Measured 2026-09-22: IMPAcTb holds 84,474 samples of which 892 carry a Species value, in at least eight spellings over four species plus the pathogen and one misspelling (macaca fascicularis 327, macaca mulatta (rhesus) 239, mus musculus 163, rhesus macaque 88, macaca mulatta 37, homo sapiens 16, mycobacterium tuberculosis 12, myobacterium tuberculosis 4). So the honest answer names the species AND says the field is filled on a small fraction; what it may never do is repeat that the data does not contain them. The question also says 'IMPACT' where the project is IMPAcTb, which the projects context carries as an alternative name, so resolving it is part of the test.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What species are the samples in the IMPACT project?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(macaca|macaque)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(mus musculus|mouse|mice)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*does not contain)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*no species)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "person_lab_resolution": {
+      "description": "Resolve a person, lab or lab code the user names, then say who they are or what they hold: a PI's lab is the code at the UID's lab position, anyone else is the Scientist attribute, a code resolves to its lab record. Never an invented code or a text match.",
+      "variants": [
+        {
+          "family": "person_lab_resolution",
+          "id": "post.kamm_rna_names_a_type_once",
+          "name": "Ticket 1: a type is named once, by its name or its code",
+          "_why": "'The Kamm lab (KAM) has 140 RNA samples (RNA Sample), based on a graph query over the sample network' was 19 words, all of them machinery or duplication.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many RNA samples does the Kamm lab have?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])140(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*\\(RNA Sample\\))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*graph query over the sample network)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "person_lab_resolution",
           "id": "post.misspelled_lab_suggests_the_record",
           "name": "Item 7: a misspelled lab is asked about, not answered with zero",
           "_why": "'What samples do the engleward lab have?' answered 'There are no samples associated with the Engleward lab in the database.' Engelward is ENG and is on record; the resolver still must not guess the code, so the reply names it and asks.",
@@ -295,7 +556,317 @@
           ]
         },
         {
-          "family": "post_rebuild",
+          "family": "person_lab_resolution",
+          "id": "srp2.engelward_lab_by_uid",
+          "name": "Act 1: a lab lives at the lab position of the UID",
+          "_why": "50,639. Needs SEEK's institution list to map the name to ENG, and that file is written at runtime and never baked, so a miss here can be the labs document rather than the rule. srp2.eng_code_in_uid is the control for exactly that.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples does the Engelward lab have?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])50,?639(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "uuid"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "person_lab_resolution",
+          "id": "srp2.swager_chemistry",
+          "name": "Act 4: same project, a completely different data shape",
+          "_why": "CHM 198, D.SPC 139, D.NMR 54 and the rest. The point is breadth, so the reply has to name the chemistry types rather than a single total. First version required the codes CHM and D.SPC/D.NMR and failed a reply that wrote \"Chemical Samples\" and \"Spectroscopy Data\": ticket 1 tells the chatter to name a type ONCE, by its name or its code, so demanding the code contradicts the fix. Either form now passes. The 198 needs the labs document present, since without it the lab is matched as text and the count differs (the run got 174).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What chemical characterization data does the Swager lab have?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(CHM|Chemical Sample)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(D\\.(SPC|NMR)|Spectroscopy|Nuclear Magnetic Resonance)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])198(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "person_lab_resolution",
+          "id": "bucket5.who_is_a_person",
+          "name": "Bucket 5: 'who is X' is still open, and this records it",
+          "_why": "The system agent no longer names a mechanism it did not observe, but the 'who is' path itself was never built. Tagged known_fail so it documents the gap instead of failing the gate; if it passes, the gate says so and the tag comes off.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Who is Engelward?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(ENG|lab|project|investigat)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*I do not have access)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\bENG\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b(professor|director of|department of)\\b)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "sample_search": {
+      "description": "Find, count or break down samples by what is recorded on them: sample type, an attribute value, a keyword anywhere in the record, a number or date comparison, or a lab code or other text in the UID. A question that needs an assay, a study, an investigation, a project or a parent sample belongs to graph_traversal or lineage_tree.",
+      "variants": [
+        {
+          "family": "sample_search",
+          "id": "post.cc_mice_by_genotype",
+          "name": "Ticket 2: the strain family is matched on Genotype, not as free text",
+          "_why": "Answered a confident 0 on 2026-09-21 against 737, now 745. The metadata write of 2026-09-22 tagged 209 of them, so 209 is the new wrong answer and is harder to spot.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "do you have any datasets with collaborative cross mice ?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])745(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "sample_search",
+          "id": "post.hela_names_its_variants",
+          "name": "Ticket 2: a count over a contained name returns the distinct values",
+          "_why": "'We have 4 HeLa cell-line samples' described HeLa, HeLa-ActD, HeLa-GSK and HeLa-TSA. The count was defensible; calling all four HeLa was not.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many HeLa cell-line samples do we have?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "HeLa-(ActD|GSK|TSA)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "sample_search",
+          "id": "srp2.eng_code_in_uid",
+          "name": "Act 1 control: the same answer without the institution list",
+          "_why": "Same number by the same rule, with the code handed over so nothing has to resolve a name. If this passes and the one above fails, the labs document is the problem.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples have ENG at the lab position of their UID?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])50,?639(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "sample_search",
+          "id": "srp2.aag_genotype_is_a_judgement",
+          "name": "Act 2: what curation is up against, scored on candour not on a number",
+          "_why": "The same genotype is written as 'aag -/-', spelled out in full, and abbreviated 'rgam'. There is no single right number, so the only thing worth asserting is that the reply says the spelling varies instead of picking one and sounding certain.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many Aag-knockout mice are there?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "spell|spelling|variant|written|notation|form of"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "followup_over_results": {
+      "description": "Ask about results already returned, including aggregating an attribute over 'those'. Absorbs within-chat memory for both engines.",
+      "variants": [
+        {
+          "family": "followup_over_results",
           "id": "post.followup_downstream_types",
           "name": "Item 5: a follow-up that queried the graph is never answered from the bundle",
           "_why": "The seeded result holds five columns and no lineage. On 2026-09-22 the follow-up agent ran three correct DERIVED_FROM queries, exhausted its six iterations without answering, and the orchestrator threw them away and reported absence.",
@@ -362,627 +933,7 @@
           "_route_note_2026_09_23": "Follow-up turns route to container_cc (operator ruling 2026-09-23: all follow-ups to CC)."
         },
         {
-          "family": "post_rebuild",
-          "id": "post.cc_artifact_quotes_the_user_facing_path",
-          "name": "Item 6: the path mapping the engine writes is the one the skill documents",
-          "_why": "A CC turn said 'Host path: I couldn't translate it, DMAC_PATH_MAPPINGS was present but I couldn't parse a mapping from it'. The mapping was well formed; the instruction asked for a host path the cutover had removed. NEEDS THE CC-AGENT REBUILD.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "Write a CSV of the samples in the Shoulders project and tell me exactly where the file is.",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "container_cc"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "/dmac/users/"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?s)\\A(?!.*couldn't parse a mapping)"
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    "srp_demo": {
-      "description": "Scope, harmonization, the NDMA chain, then breadth.",
-      "variants": [
-        {
-          "family": "srp_demo",
-          "id": "srp2.project_scope",
-          "name": "Act 1: the project relationship, not a title match",
-          "_why": "57,426 is the project; 57,441 is what an OR against investigation titles returns. The 15-sample gap is the whole difference between a scope and a text search. Measured 2026-09-22: 57,426 is IN_PROJECT, and the 15 the OR adds are real samples whose study sits under the MIT_SRP investigation while their project is Training/Test (14) or IMPAcTb (1). Separately 1,742 of the 57,426 have NO study edge at all, so the two scopes disagree in both directions and neither number is a wrong answer. The prompt tells the agent to match the name against Study and Investigation too, so both pass and the query shape does the real work.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "How many samples are in the MIT_SRP project?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])(57,?426|57,?441)(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "graph_cypher",
-                  "op": "matches_re",
-                  "value": "IN_PROJECT"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "srp_demo",
-          "id": "srp2.engelward_lab_by_uid",
-          "name": "Act 1: a lab lives at the lab position of the UID",
-          "_why": "50,639. Needs SEEK's institution list to map the name to ENG, and that file is written at runtime and never baked, so a miss here can be the labs document rather than the rule. srp2.eng_code_in_uid is the control for exactly that.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "How many samples does the Engelward lab have?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])50,?639(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "graph_cypher",
-                  "op": "matches_re",
-                  "value": "uuid"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "srp_demo",
-          "id": "srp2.eng_code_in_uid",
-          "name": "Act 1 control: the same answer without the institution list",
-          "_why": "Same number by the same rule, with the code handed over so nothing has to resolve a name. If this passes and the one above fails, the labs document is the problem.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "How many samples have ENG at the lab position of their UID?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])50,?639(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "srp_demo",
-          "id": "srp2.liver_folds_the_case",
-          "name": "Act 2: harmonization, the thing only the graph does",
-          "_why": "13,433 once the case is folded. Liver, LIVER and liver are three stored spellings, and 6,721 is the answer that takes only the capitalised one.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "How many tissue samples in the MIT_SRP project came from the liver?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])13,?433(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "graph_cypher",
-                  "op": "matches_re",
-                  "value": "toLower"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "srp_demo",
-          "id": "srp2.organ_spellings",
-          "name": "Act 2: the harmonization pitch in one answer",
-          "_why": "The folded distribution, not a single value. liver 13,433 and lung 8,998 are the two the reply must carry for this to be the list rather than a sample of it. First version demanded the folded totals 13,433 and 8,998 and failed a reply better than the criterion: it listed 25 raw spellings with counts, including Liver 6,721, LIVER 4,154 and liver 2,558, which sum to exactly the 13,433 I had measured. A spellings question is answered by the spellings, so it now asserts the two largest raw counts; matches_re is case-insensitive, so the casing itself cannot be asserted and the counts are the proxy.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "Which spellings of the Organ field are in use across the SRP tissues?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])6,?721(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])4,?154(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "srp_demo",
-          "id": "srp2.aag_genotype_is_a_judgement",
-          "name": "Act 2: what curation is up against, scored on candour not on a number",
-          "_why": "The same genotype is written as 'aag -/-', spelled out in full, and abbreviated 'rgam'. There is no single right number, so the only thing worth asserting is that the reply says the spelling varies instead of picking one and sounding certain.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "How many Aag-knockout mice are there?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "spell|spelling|variant|written|notation|form of"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "srp_demo",
-          "id": "srp2.ndma_mice_in_srp",
-          "name": "Act 3: the contaminant that runs through all three labs",
-          "_why": "1,549 MIT_SRP mice carry NDMA in a Treatment field, measured 2026-09-22. The first version pinned 2,111, which is `search_text CONTAINS 'ndma'` over the same mice: my measurement used a looser predicate than the question. A named field beats free text, which is the prompt's own rule, and the run answered 1,549 by exactly that route.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "How many mice in the MIT_SRP project were treated with NDMA?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])1,?549(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "srp_demo",
-          "id": "srp2.eng_tissues_with_sequencing",
-          "name": "Act 3: a real lineage traversal, which no keyword search can answer",
-          "_why": "982. A sequencing record does not carry its ancestor's organ or genotype, so this has to walk DERIVED_FROM.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "Which tissue samples from the Engelward lab have sequencing data downstream?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])982(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "graph_cypher",
-                  "op": "matches_re",
-                  "value": "DERIVED_FROM"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "srp_demo",
-          "id": "srp2.pmid_lookup",
-          "name": "Act 3: identifier lookup, which this round fixed",
-          "_why": "3,022 samples under PMID 36233095, the NDMA CometChip paper. The old failure was a substituted search on the word PMID.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "Find the samples associated with PMID 36233095",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])3,?022(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?s)\\A(?!.*no matches)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "srp_demo",
-          "id": "srp2.srp_papers",
-          "name": "Act 3: provenance",
-          "_why": "10 published studies under MIT_SRP. A study counts as published when it carries a DOI or a PMID, and the unset value is an empty string, not null.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "Which SRP papers have samples in NExtSEEK?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])10(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "srp_demo",
-          "id": "srp2.swager_chemistry",
-          "name": "Act 4: same project, a completely different data shape",
-          "_why": "CHM 198, D.SPC 139, D.NMR 54 and the rest. The point is breadth, so the reply has to name the chemistry types rather than a single total. First version required the codes CHM and D.SPC/D.NMR and failed a reply that wrote \"Chemical Samples\" and \"Spectroscopy Data\": ticket 1 tells the chatter to name a type ONCE, by its name or its code, so demanding the code contradicts the fix. Either form now passes. The 198 needs the labs document present, since without it the lab is matched as text and the count differs (the run got 174).",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "What chemical characterization data does the Swager lab have?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(CHM|Chemical Sample)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(D\\.(SPC|NMR)|Spectroscopy|Nuclear Magnetic Resonance)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])198(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "srp_demo",
-          "id": "srp2.cometchip_counts_samples_not_edges",
-          "name": "Act 4 stress test: rows are not samples",
-          "_why": "There is exactly one CometChip assay title, carrying 304,062 edges over 618 distinct parents and 2,270 distinct children (measured 2026-09-22; the exact-title and CONTAINS matches agree). 618 is the samples the assay was performed on, 2,270 the records it produced, and both are defensible readings of \"underwent\", so either passes. What must never appear is 304,062, the row count, wrong by a factor of 134, which is the rule this case tests.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "How many samples underwent the CometChip assay?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])(618|2,?270)(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?s)\\A(?!.*304,?062)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    "buckets": {
-      "description": "One case per bucket of the production review, per the 2026-09-22 commit review of what each one's code actually does.",
-      "variants": [
-        {
-          "family": "buckets",
-          "id": "bucket1.doi_form_of_the_same_paper",
-          "name": "Bucket 1: the other spelling of the same identifier",
-          "_why": "The PMID case is in the SRP arc; this is the DOI form of the same paper, which must return the same set. 3,022 samples, measured both ways on 2026-09-22. The failure this replaces was a substituted search on the word PMID.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "Find the samples associated with DOI 10.3390/ijms231911776",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])3,?022(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?s)\\A(?!.*no matches)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "buckets",
+          "family": "followup_over_results",
           "id": "bucket2.followup_sees_more_than_the_stored_rows",
           "name": "Bucket 2: the follow-up reads the whole result, not the stored preview",
           "_why": "The stored bundle keeps a preview; the read path was fixed to use the full rows and the follow-up agent can re-query. A liver count over 36,614 SRP tissues cannot come from a 20-row preview, so the number is the proof. 13,433 folded, measured 2026-09-22. The review's remaining OPEN item here is about disk, not the session: 'only 20 rows are still written to disk ... REST turns save every row; graph turns do not'. Reading the code, orchestrator.py:887's data[:20] is the DEBUG json's preview, and the rows themselves go to a separate graph_result artifact with every row, so the seed turn now asserts that file exists. If it passes, the OPEN item is stale; if it fails, the review was right and I was wrong. The basename carries bundle id 1, which holds for a fresh session's first graph result.",
@@ -1047,12 +998,17 @@
             }
           ],
           "_route_note_2026_09_23": "Follow-up turns route to container_cc (operator ruling 2026-09-23: all follow-ups to CC)."
-        },
+        }
+      ]
+    },
+    "artifact_delivery": {
+      "description": "Get the file the assistant just made out of the turn and to the user.",
+      "variants": [
         {
-          "family": "buckets",
-          "id": "bucket3.a_mixed_result_is_not_named_after_one_type",
-          "name": "Bucket 3: describe the result by its distribution, not by its first rows",
-          "_why": "53 distinct sample types sit under MIT_SRP, led by TIS 36,614, D.IMG 7,346 and MUS 3,589. The failure this replaces named a heterogeneous result after whichever type led the preview.",
+          "family": "artifact_delivery",
+          "id": "post.cc_artifact_quotes_the_user_facing_path",
+          "name": "Item 6: the path mapping the engine writes is the one the skill documents",
+          "_why": "A CC turn said 'Host path: I couldn't translate it, DMAC_PATH_MAPPINGS was present but I couldn't parse a mapping from it'. The mapping was well formed; the instruction asked for a host path the cutover had removed. NEEDS THE CC-AGENT REBUILD.",
           "tags": [
             "nessie",
             "probe",
@@ -1062,7 +1018,52 @@
           "turns": [
             {
               "label": "main",
-              "query": "Break the MIT_SRP project down by sample type.",
+              "query": "Write a CSV of the samples in the Shoulders project and tell me exactly where the file is.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "/dmac/users/"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*couldn't parse a mapping)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "harmonization": {
+      "description": "Find near-duplicate attribute values, propose a canonical mapping, hand it to batch upload.",
+      "variants": [
+        {
+          "family": "harmonization",
+          "id": "srp2.organ_spellings",
+          "name": "Act 2: the harmonization pitch in one answer",
+          "_why": "The folded distribution, not a single value. liver 13,433 and lung 8,998 are the two the reply must carry for this to be the list rather than a sample of it. First version demanded the folded totals 13,433 and 8,998 and failed a reply better than the criterion: it listed 25 raw spellings with counts, including Liver 6,721, LIVER 4,154 and liver 2,558, which sum to exactly the 13,433 I had measured. A spellings question is answered by the spellings, so it now asserts the two largest raw counts; matches_re is case-insensitive, so the casing itself cannot be asserted and the counts are the proxy.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which spellings of the Organ field are in use across the SRP tissues?",
               "pass_criteria": [
                 {
                   "field": "last_reply",
@@ -1077,17 +1078,112 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?<![\\w.,/-])36,?614(?![\\w]|[.,]\\d|[-/]\\d)"
+                  "value": "(?<![\\w.,/-])6,?721(?![\\w]|[.,]\\d|[-/]\\d)"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(D\\.IMG|Imaging)"
+                  "value": "(?<![\\w.,/-])4,?154(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "lineage_tree": {
+      "description": "Trace what came from what, in either direction.",
+      "variants": [
+        {
+          "family": "lineage_tree",
+          "id": "srp2.eng_tissues_with_sequencing",
+          "name": "Act 3: a real lineage traversal, which no keyword search can answer",
+          "_why": "982. A sequencing record does not carry its ancestor's organ or genotype, so this has to walk DERIVED_FROM.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which tissue samples from the Engelward lab have sequencing data downstream?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(MUS|Mouse|mice)"
+                  "value": "(?<![\\w.,/-])982(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "DERIVED_FROM"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "publication_lookup": {
+      "description": "Find the samples behind a paper named by PMID, DOI or title. The paper's study carries its PMID or DOI, and on some instances the samples carry it too, so a right answer matches the identifier exactly on either and never as free text.",
+      "variants": [
+        {
+          "family": "publication_lookup",
+          "id": "srp2.pmid_lookup",
+          "name": "Act 3: identifier lookup, which this round fixed",
+          "_why": "3,022 samples under PMID 36233095, the NDMA CometChip paper. The old failure was a substituted search on the word PMID.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find the samples associated with PMID 36233095",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])3,?022(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*no matches)"
                 },
                 {
                   "field": "parser_plan.mode",
@@ -1099,10 +1195,10 @@
           ]
         },
         {
-          "family": "buckets",
-          "id": "bucket5.who_is_a_person",
-          "name": "Bucket 5: 'who is X' is still open, and this records it",
-          "_why": "The system agent no longer names a mechanism it did not observe, but the 'who is' path itself was never built. Tagged known_fail so it documents the gap instead of failing the gate; if it passes, the gate says so and the tag comes off.",
+          "family": "publication_lookup",
+          "id": "srp2.srp_papers",
+          "name": "Act 3: provenance",
+          "_why": "10 published studies under MIT_SRP. A study counts as published when it carries a DOI or a PMID, and the unset value is an empty string, not null.",
           "tags": [
             "nessie",
             "probe",
@@ -1112,7 +1208,7 @@
           "turns": [
             {
               "label": "main",
-              "query": "Who is Engelward?",
+              "query": "Which SRP papers have samples in NExtSEEK?",
               "pass_criteria": [
                 {
                   "field": "last_reply",
@@ -1120,31 +1216,76 @@
                   "value": null
                 },
                 {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(ENG|lab|project|investigat)"
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?s)\\A(?!.*I do not have access)"
+                  "value": "(?<![\\w.,/-])10(?![\\w]|[.,]\\d|[-/]\\d)"
                 },
                 {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "\\bENG\\b"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?is)\\A(?!.*\\b(professor|director of|department of)\\b)"
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }
           ]
         },
         {
-          "family": "buckets",
+          "family": "publication_lookup",
+          "id": "bucket1.doi_form_of_the_same_paper",
+          "name": "Bucket 1: the other spelling of the same identifier",
+          "_why": "The PMID case is in the SRP arc; this is the DOI form of the same paper, which must return the same set. 3,022 samples, measured both ways on 2026-09-22. The failure this replaces was a substituted search on the word PMID.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find the samples associated with DOI 10.3390/ijms231911776",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])3,?022(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*no matches)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "data_file_location": {
+      "description": "Where a stored data file (sequencing, flow, a model) lives and how to get it: its File_PrimaryData and Link_PrimaryData fields. NExtSEEK holds the metadata, not the files.",
+      "variants": [
+        {
+          "family": "data_file_location",
           "id": "bucket6.download_every_file_for_a_project",
           "name": "Bucket 6: the download surface is not built, and this records it",
           "_why": "download-all-assets and the Nessie README exist only as corpus entries. Tagged known_fail: what it must never do is invent a link or a path, so the criteria are about honesty.",
@@ -1192,120 +1333,14 @@
               ]
             }
           ]
-        },
+        }
+      ]
+    },
+    "system_capability_question": {
+      "description": "What the system is and can do, which sample types and assays it defines, how to do something on the site (answered from the user docs), and who the user is signed in as and which projects they belong to.",
+      "variants": [
         {
-          "family": "buckets",
-          "id": "bucket7.cc_aggregates_metadata",
-          "name": "Bucket 7: metadata aggregation by genotype, the shape the CC op was built for",
-          "_why": "schema 1.2 plus the Container-CC aggregate op exist and have never been proven against a real question. THE SECOND PAID CASE in this file, after the artifact one.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "Group the MIT_SRP mice by genotype and tell me how many are in each of the five largest groups.",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(aag|rosa26|gpt|CC0|wild)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])1,?111(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])626(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])508(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])218(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])211(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ],
-          "_criteria_note_2026_09_22": "Re-pinned from the totals (3,589 / 1,183 / 848) to the five group counts the question asks for: the local run answered 1,111 / 626 / 508 / 218 / 211, exactly the graph's top five, and failed on totals it was never asked. 355 mice with no Genotype are excluded (a group of missing values is not a genotype). Either engine may answer; this case does not by itself prove the CC aggregate op."
-        },
-        {
-          "family": "buckets",
-          "id": "bucket7.species_over_a_project",
-          "name": "Bucket 7: the question the review recorded, aggregating metadata over a project",
-          "_why": "Turn 429 verbatim, the single question in that bucket: it matched 84,527 samples and answered that the data does not contain species names. Measured 2026-09-22: IMPAcTb holds 84,474 samples of which 892 carry a Species value, in at least eight spellings over four species plus the pathogen and one misspelling (macaca fascicularis 327, macaca mulatta (rhesus) 239, mus musculus 163, rhesus macaque 88, macaca mulatta 37, homo sapiens 16, mycobacterium tuberculosis 12, myobacterium tuberculosis 4). So the honest answer names the species AND says the field is filled on a small fraction; what it may never do is repeat that the data does not contain them. The question also says 'IMPACT' where the project is IMPAcTb, which the projects context carries as an alternative name, so resolving it is part of the test.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "What species are the samples in the IMPACT project?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(macaca|macaque)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(mus musculus|mouse|mice)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?s)\\A(?!.*does not contain)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?s)\\A(?!.*no species)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "buckets",
+          "family": "system_capability_question",
           "id": "bucket6.a_readme_for_what_nessie_is",
           "name": "Bucket 6: the README page, second of the three things to build",
           "_why": "Turn 120 ('How do I export?') and turn 503 ('how do i query/find those data in the database?'). The review's second TO BUILD is a README page, including that NExtSEEK does not house the data files. Tagged known_fail: the page does not exist, so what matters is that the reply says the honest thing rather than inventing a link.",

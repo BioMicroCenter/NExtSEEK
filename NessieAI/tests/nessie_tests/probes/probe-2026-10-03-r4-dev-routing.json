@@ -24,7 +24,7 @@
   },
   "families": {
     "retrieval_path_selection": {
-      "description": "R4 smoke (dev)",
+      "description": "Which execution path inside the NExtSEEK engine a question takes.",
       "variants": [
         {
           "family": "retrieval_path_selection",
@@ -65,7 +65,7 @@
       ]
     },
     "sample_retrieve": {
-      "description": "R4 smoke (dev)",
+      "description": "Pull the full record for samples the user can already name.",
       "variants": [
         {
           "family": "sample_retrieve",
@@ -111,7 +111,7 @@
       ]
     },
     "graph_traversal": {
-      "description": "R4 smoke (dev)",
+      "description": "Questions that follow the graph's structure: which study, investigation or project samples belong to and counts scoped to them, which samples went into or came out of an assay (Assay nodes joined by INPUT_TO and OUTPUT_OF), which protocols samples used, and which studies, projects or assays hold something.",
       "variants": [
         {
           "family": "graph_traversal",
@@ -177,7 +177,7 @@
       ]
     },
     "project_summary_report": {
-      "description": "R4 smoke (dev)",
+      "description": "The reporter's project view: a formal NIH, RPPR, annual or progress report, upload statistics over a time window, published sample counts, and the SOPs registered to a project. An open-ended summary of a whole project or investigation goes to Container-CC, and a plain count or breakdown is a graph question.",
       "variants": [
         {
           "family": "project_summary_report",

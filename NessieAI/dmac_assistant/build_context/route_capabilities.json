@@ -18,7 +18,7 @@
       "task_families": [
         {
           "name": "sample_search",
-          "description": "Find samples by type, attribute, treatment, keyword, lab code or UID. No assay: assay lives on DERIVED_FROM and belongs to graph_traversal.",
+          "description": "Find, count or break down samples by what is recorded on them: sample type, an attribute value, a keyword anywhere in the record, a number or date comparison, or a lab code or other text in the UID. A question that needs an assay, a study, an investigation, a project or a parent sample belongs to graph_traversal or lineage_tree.",
           "example_queries": [
             "Find me mice treated with NDMA.",
             "Do we have any western blot data"
@@ -42,7 +42,7 @@
         },
         {
           "name": "graph_traversal",
-          "description": "Structural questions over the graph, including every assay and protocol traversal.",
+          "description": "Questions that follow the graph's structure: which study, investigation or project samples belong to and counts scoped to them, which samples went into or came out of an assay (Assay nodes joined by INPUT_TO and OUTPUT_OF), which protocols samples used, and which studies, projects or assays hold something.",
           "example_queries": [
             "Find sequencing data generated on a NextSeq instrument.",
             "How many cell samples are in the Impact investigation?"
@@ -66,7 +66,7 @@
         },
         {
           "name": "system_capability_question",
-          "description": "What the system is, what it can do, what vocabulary exists.",
+          "description": "What the system is and can do, which sample types and assays it defines, how to do something on the site (answered from the user docs), and who the user is signed in as and which projects they belong to.",
           "example_queries": [
             "What can you do? List your capabilities.",
             "What is a D.SEQ sample?"
@@ -98,7 +98,7 @@
         },
         {
           "name": "project_summary_report",
-          "description": "How much data a project, lab or investigation holds. All four report modes.",
+          "description": "The reporter's project view: a formal NIH, RPPR, annual or progress report, upload statistics over a time window, published sample counts, and the SOPs registered to a project. An open-ended summary of a whole project or investigation goes to Container-CC, and a plain count or breakdown is a graph question.",
           "example_queries": [
             "Summarise the CSBC investigation for me.",
             "How many samples, protocols, and published datasets does the MetNet project have"
@@ -130,7 +130,7 @@
         },
         {
           "name": "entity_write",
-          "description": "Create, update or delete a record, or edit a sample type's attributes.",
+          "description": "A request to create, change or delete a stored record or a sample type's attributes. NExtSEEK has no write path, so a right answer refuses the change or prepares a dry run or upload sheet for review, and never says a write happened.",
           "example_queries": [
             "Before we change anything — what attributes does the MUS sample type have today?"
           ]
@@ -193,7 +193,7 @@
       "task_families": [
         {
           "name": "sample_search",
-          "description": "Find samples by type, attribute, treatment, keyword, lab code or UID. No assay: assay lives on DERIVED_FROM and belongs to graph_traversal.",
+          "description": "Find, count or break down samples by what is recorded on them: sample type, an attribute value, a keyword anywhere in the record, a number or date comparison, or a lab code or other text in the UID. A question that needs an assay, a study, an investigation, a project or a parent sample belongs to graph_traversal or lineage_tree.",
           "example_queries": [
             "Find me mice treated with NDMA.",
             "Do we have any western blot data"
@@ -217,7 +217,7 @@
         },
         {
           "name": "graph_traversal",
-          "description": "Structural questions over the graph, including every assay and protocol traversal.",
+          "description": "Questions that follow the graph's structure: which study, investigation or project samples belong to and counts scoped to them, which samples went into or came out of an assay (Assay nodes joined by INPUT_TO and OUTPUT_OF), which protocols samples used, and which studies, projects or assays hold something.",
           "example_queries": [
             "Find sequencing data generated on a NextSeq instrument.",
             "How many cell samples are in the Impact investigation?"
@@ -241,7 +241,7 @@
         },
         {
           "name": "system_capability_question",
-          "description": "What the system is, what it can do, what vocabulary exists.",
+          "description": "What the system is and can do, which sample types and assays it defines, how to do something on the site (answered from the user docs), and who the user is signed in as and which projects they belong to.",
           "example_queries": [
             "What can you do? List your capabilities.",
             "What is a D.SEQ sample?"
@@ -273,7 +273,7 @@
         },
         {
           "name": "project_summary_report",
-          "description": "How much data a project, lab or investigation holds. All four report modes.",
+          "description": "The reporter's project view: a formal NIH, RPPR, annual or progress report, upload statistics over a time window, published sample counts, and the SOPs registered to a project. An open-ended summary of a whole project or investigation goes to Container-CC, and a plain count or breakdown is a graph question.",
           "example_queries": [
             "Summarise the CSBC investigation for me.",
             "How many samples, protocols, and published datasets does the MetNet project have"
@@ -327,7 +327,7 @@
         },
         {
           "name": "entity_write",
-          "description": "Create, update or delete a record, or edit a sample type's attributes.",
+          "description": "A request to create, change or delete a stored record or a sample type's attributes. NExtSEEK has no write path, so a right answer refuses the change or prepares a dry run or upload sheet for review, and never says a write happened.",
           "example_queries": [
             "Before we change anything — what attributes does the MUS sample type have today?",
             "I want to merge the Scientist spelling \"Edward B. Irvine\" into \"Eddie Irvine\". Don't apply anything yet — just tell me exactly how many rows that would change."
@@ -381,7 +381,7 @@
         },
         {
           "name": "unsupported",
-          "description": "Refuse out-of-scope asks.",
+          "description": "Asks that no NExtSEEK path answers: charts, statistics, group comparisons and other analysis go to Container-CC, and weather, general science and other off-topic asks are routed unrelated or declined.",
           "example_queries": [
             "Explain what NDMA is and why it's carcinogenic.",
             "Is treatment A significantly better than treatment B based on our sequencing data?"

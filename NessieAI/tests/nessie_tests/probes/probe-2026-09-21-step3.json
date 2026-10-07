@@ -34,11 +34,11 @@
     "file.download_a_model_file"
   ],
   "families": {
-    "step3_user_questions": {
-      "description": "Part A: the production-review questions in the researchers' own words.",
+    "followup_over_results": {
+      "description": "Ask about results already returned, including aggregating an attribute over 'those'. Absorbs within-chat memory for both engines.",
       "variants": [
         {
-          "family": "step3_user_questions",
+          "family": "followup_over_results",
           "id": "step3.q17_dseq_sha_then_limit",
           "name": "T8 cap disclosure, then T13 invented mechanism",
           "tags": [
@@ -76,9 +76,14 @@
               ]
             }
           ]
-        },
+        }
+      ]
+    },
+    "artifact_delivery": {
+      "description": "Get the file the assistant just made out of the turn and to the user.",
+      "variants": [
         {
-          "family": "step3_user_questions",
+          "family": "artifact_delivery",
           "id": "step3.q19_table_for_excel",
           "name": "T9 rows + T11 delivery (STILL OPEN)",
           "tags": [
@@ -103,11 +108,11 @@
         }
       ]
     },
-    "step3_mixed": {
-      "description": "Part B's two Pilot A cases, which the nessie_tests corpus does not carry.",
+    "lineage_tree": {
+      "description": "Trace what came from what, in either direction.",
       "variants": [
         {
-          "family": "step3_mixed",
+          "family": "lineage_tree",
           "id": "step3.flow_from_rhesus_lymph_node",
           "name": "F10 synonym width: rhesus only (482), not widened to cynomolgus (929)",
           "tags": [
@@ -141,7 +146,7 @@
           ]
         },
         {
-          "family": "step3_mixed",
+          "family": "lineage_tree",
           "id": "step3.ivbcg_nhp_with_sequencing",
           "name": "F10 regression partner: the harmonised IV-BCG answer (operator accepted 20; key said 13)",
           "tags": [
@@ -176,11 +181,11 @@
         }
       ]
     },
-    "step3_cc_turn_limit": {
-      "description": "F20: the turn-limit question the set said it was missing.",
+    "turn_limits_and_failure": {
+      "description": "Timeout, budget cap, max turns, the error taxonomy and failover.",
       "variants": [
         {
-          "family": "step3_cc_turn_limit",
+          "family": "turn_limits_and_failure",
           "id": "step3.cc_big_csv_turn_limit",
           "name": "F20: a stopped Container-CC turn hands back what it had, with the 'say continue' wording",
           "tags": [
@@ -205,11 +210,11 @@
         }
       ]
     },
-    "step3_rest_path": {
-      "description": "Coverage, not a fix: F1's promotion sent every sample question to the graph, so this set made zero REST calls in 46 turns. A red here means the api path is unreachable, which is the finding, not that the answer is wrong.",
+    "sample_retrieve": {
+      "description": "Pull the full record for samples the user can already name.",
       "variants": [
         {
-          "family": "step3_rest_path",
+          "family": "sample_retrieve",
           "id": "step3.rest_full_record_by_uid",
           "name": "ANN-19: the whole record for one UID, the api_preferred shape F1 kept",
           "tags": [

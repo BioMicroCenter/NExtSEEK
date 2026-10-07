@@ -4,11 +4,11 @@
   "_run": "On fairdata-dev after rebuild 1 (rebuild the ns-sidecar too: the dev one had no aggregate op on 2026-09-23). Same image for both arms. Arm A: NESSIE_FOLLOWUP_ROUTING=cc in the app env, recreate the app container (then mkdir -p /app/runs and re-copy labs_db.json), and run manage.py nessie --tier full --cases /app/runs/fu-compare.json --pace 0 --user <account> --password-env <VAR> --out /app/runs/fu-compare-cc. Arm B: NESSIE_FOLLOWUP_ROUTING=split, recreate, same command with --out /app/runs/fu-compare-split. No --force-route in either arm (it would move the seeds too). --pace 0 is needed by ab.ns_chain_no_pause, the save-race case: the harness paces a whole run, not one case. PAID: 59 turns per arm, 34 after a seed; in arm A nearly all of those run on Container-CC (about $8-14 for the arm, routing review 5.6), in arm B only the controls, the table and what follows it.",
   "_instance_warning": "NUMBERS ARE KEYED FOR FAIRDATA-DEV WHERE A DEV MEASUREMENT EXISTS (NDMA 207, the TCGA LUAD and MSI cases: 2026-09-23 dev suite; Kamm RNA 38, MIT_SRP 7,769, MIT_SRP liver 971, MIT_SRP NDMA 195: 2026-09-22 dev-box pin) and are production's (2026-09-23) everywhere else; each _measure entry says which. Re-pin every case on the box before the run:\n  python NessieAI/tests/nessie_tests/scripts/pin_probe_truths.py --emit-cypher <this file>   (run the batch on the box, read-only)\n  python ... pin_probe_truths.py --pin <this file> --from measured.json\nCases in mode 'each' list their numbers in the order of their locals.\nWritten by hand and not re-pinned: the reject-73 guard (ab.refers_back_to_the_newest_result turn 4), the reject guard for unfiltered counts (ab.cc_mice_transcriptomic), the leads-with-122 criterion (ab.luad_smokers), and the names (ENG, the assay titles, the TCGA study codes, HeLa, MUS); check them against the re-pinned numbers.",
   "families": {
-    "followup_ab": {
-      "description": "Multi-turn follow-up cases for the A/B of the follow-up split: NExtSEEK seeds, follow-ups scored on the reply only.",
+    "followup_over_results": {
+      "description": "Ask about results already returned, including aggregating an attribute over 'those'. Absorbs within-chat memory for both engines.",
       "variants": [
         {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.species_of_those",
           "name": "Break down the previous result: the species among those 73",
           "_why": "From fu.species_of_those in the prod follow-ups probe of 2026-09-23 (R1), turn 563. NExtSEEK-shaped under the split (a breakdown by one field). Container-CC got it right (47 + 22 + 4 = 73, an operator highlight). Keys as that probe, production 2026-09-23.",
@@ -69,58 +69,7 @@
           ]
         },
         {
-          "family": "followup_ab",
-          "id": "ab.rerun_modified_cypher",
-          "name": "Rerun the earlier search with one requirement dropped",
-          "_why": "From fu.rerun_modified_cypher in the prod follow-ups probe of 2026-09-23 (R1). NExtSEEK-shaped under the split (a re-run with one filter removed). 351 NHP have sequencing data derived from them, against 73 with both; Container-CC answered 351 (an operator highlight).",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "seed",
-              "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            },
-            {
-              "label": "main",
-              "query": "Same search, but drop the flow cytometry requirement: only require sequencing data derived from them.",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])351(?![\\w]|[.,]\\d|[-/]\\d)"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.what_query_did_you_run",
           "name": "Recall: what query did you run to get those?",
           "_why": "From fu.what_query_did_you_run in the prod follow-ups probe of 2026-09-23 (R1). NExtSEEK-shaped under the split (recall of the stored query). The reply criteria are the answer: the query's labels and relationship. The NExtSEEK follow-up prompt does not quote Cypher today (FINDINGS L6), so this measures that gap.",
@@ -181,7 +130,7 @@
           ]
         },
         {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.plot_species_of_those",
           "name": "Plot the species of the previous result",
           "_why": "From fu.plot_species_of_those in the prod follow-ups probe of 2026-09-23 (R1). A control: Container-CC in both arms (a chart). Its trace criteria are replaced by the reply-level check that an image was named; the 2026-09-23 reply named an .svg.",
@@ -232,7 +181,7 @@
           ]
         },
         {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.file_from_previous_search",
           "name": "Open the results file of the previous search",
           "_why": "From fu.file_from_previous_search in the prod follow-ups probe of 2026-09-23 (R1). A control: Container-CC in both arms (it names a file). NDMA seed keyed for fairdata-dev (207); the female count 727 is production's and must be re-pinned (M 822, F 727, one 'F?', one 'DAM' on production).",
@@ -283,7 +232,7 @@
           ]
         },
         {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.break_those_down_by_sex",
           "name": "Break the previous result down by sex",
           "_why": "From fu.break_those_down_by_sex in the prod follow-ups probe of 2026-09-23 (R1). NExtSEEK-shaped under the split (a breakdown by one field). NDMA seed keyed for fairdata-dev (207); M 822 and F 727 are production's and must be re-pinned.",
@@ -339,7 +288,7 @@
           ]
         },
         {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.recall_that_number",
           "name": "Recall: remind me what that number was",
           "_why": "From fu.recall_that_number in the prod follow-ups probe of 2026-09-23 (R1). NExtSEEK-shaped under the split (recall). Kamm is a lab name already in the corpus. 38 RNA samples carry the KAM lab code on fairdata-dev (2026-09-22 pin; 140 on production).",
@@ -390,7 +339,7 @@
           ]
         },
         {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.aggregate_those_by_genotype",
           "name": "Aggregate the previous result by genotype: the five largest groups",
           "_why": "From fu.aggregate_those_by_genotype in the prod follow-ups probe of 2026-09-23 (R1). NExtSEEK-shaped under the split (a breakdown by one field). 3,591 MIT_SRP mice; genotype groups 1,111, 626, 508 and 219 (production 2026-09-23; Container-CC answered them, an operator highlight). Whether the missing-value bucket is a 'group' is a reading of the question, so only the numbers both readings share are pinned.",
@@ -456,7 +405,7 @@
           ]
         },
         {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.refers_back_to_the_newest_result",
           "name": "Refers back to the newest result: species of those, a fresh HeLa question, then 'of those'",
           "_why": "From fu.refers_back_stays_self_contained_leaves in the prod follow-ups probe of 2026-09-23 (R1). Turn 2 is NExtSEEK-shaped under the split (a breakdown); turn 3 is self-contained; turn 4 refers to turn 3's 4 HeLa samples (3 carry a treatment). On 2026-09-23 Container-CC answered turn 4 about the 73 NHP and passed on a stray 3, so turn 4 now names HeLa and rejects 73 (FINDINGS section 7). In arm A turn 4 follows a Container-CC turn and is sticky; in arm B no turn before it ran on Container-CC. The reject-73 guard is written by hand and does not re-pin.",
@@ -554,53 +503,7 @@
           ]
         },
         {
-          "family": "followup_ab",
-          "id": "ab.search_again_with_water",
-          "name": "Search again with one term swapped",
-          "_why": "From refrec.try_that_search_again_with_wat in the prod suite of 2026-09-23, seed 17 (R5), turn 684. NExtSEEK-shaped under the split (a re-run with one term swapped), but its premise ('Water Study') was never in the earlier search; Container-CC asked before running anything. Not keyed: judged in the blind review. NDMA keyed for fairdata-dev (207).",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "seed",
-              "query": "Find me mice treated with NDMA",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?<![\\w.,/-])207(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "graph_query"
-                }
-              ]
-            },
-            {
-              "label": "followup",
-              "query": "Try that search again with \"Water\" instead of \"Water Study\"",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.refine_to_4_week",
           "name": "Refine: just the 4 week ones",
           "_why": "From green.refine_recall in the prod suite of 2026-09-23, seed 17 (R5), turn 680. NExtSEEK-shaped under the split (a filter). Container-CC stalled for 300 s. Criteria as the corpus case, without its route.",
@@ -666,7 +569,7 @@
           ]
         },
         {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.sha_cap_and_limit",
           "name": "SHA in the UID: a filter, a re-search, a table, then the limit question",
           "_why": "From the prod USERS set 2 of 2026-09-23 (R4), production turns 111 and 115 to 118, asked as the original session did. Turn t115 is NExtSEEK-shaped under the split (a filter over the seed); t116 is a re-search over all D.SEQ; t117 asks for a table to download (Container-CC in both arms) and t118 asks about that turn, so it follows it. Criteria fixes (FINDINGS section 7): t116 and t117 expect 962, the SHA D.SEQ the graph turn found on production; t118 rejects the invented 'first 20 rows'. 962 was the production graph turn's answer, keyed by the operator's review; the Cypher below is the check to re-pin with.",
@@ -780,7 +683,7 @@
           ]
         },
         {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.investigators_distinct",
           "name": "Which investigators, after a count and with a number nobody returned",
           "_why": "From the prod USERS set 2 of 2026-09-23 (R4), production turns 444 and 445. The seed named a person in the original session; it is reworded to 'the lab' here. The follow-up quotes 1,411, which no earlier turn returned: the right move is to ask which set, or break down the Impact patients and say so. Not keyed: judged in the blind review. Container-CC dropped the Impact scope (1,562 patients).",
@@ -831,7 +734,7 @@
           ]
         },
         {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.cc_mice_transcriptomic",
           "name": "Of the CC mice, how many have transcriptomic data",
           "_why": "From the prod USERS set 2 of 2026-09-23 (R4), production turns 500 and 501. NExtSEEK-shaped under the split (a count over the earlier set), with a wrong premise: the seed returns 745 CC mice, not 1,206. Criteria fix (FINDINGS section 7): Container-CC dropped the CC filter and answered 1,442, so the reply rejects 1,442 (and the other unfiltered counts, 735 and 1,361) and accepts only a subset of the 745: 91 with an A.GEX, A.SCXP or A.SPTX descendant, or 105 with a D.SEQ descendant (both readings of 'transcriptomic', measured for the corpus case fu.cc_mice_with_transcriptomics on production 2026-09-23). The reject guard is written by hand and does not re-pin.",
@@ -892,7 +795,7 @@
           ]
         },
         {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.luad_smokers",
           "name": "LUAD patients, then the current smokers, then the women among them",
           "_why": "From tcga.fu_luad_smokers in the dev TCGA suite of 2026-09-23 (R6), turns 1228 and 1229 (an operator highlight: 585, then 122 and 53 on Container-CC). Both follow-ups are NExtSEEK-shaped under the split (a filter, then a filter of the filter). Criteria fix (FINDINGS section 7): the 'must not say 433' guard is dropped (the full breakdown legitimately contains it) and the reply leads with 122. Keys measured on fairdata-dev 2026-09-23; the leads-with criterion is written by hand and does not re-pin.",
@@ -964,7 +867,7 @@
           ]
         },
         {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.msi_by_study",
           "name": "MSI alignments, then the studies they come from",
           "_why": "From tcga.fu_msi_by_study in the dev TCGA suite of 2026-09-23 (R6), turn 1231. NExtSEEK-shaped under the split (a breakdown by one field over a count-only seed). Container-CC gave up on 2026-09-23. UCEC 299, STAD 206, COAD 175 of 758, measured on fairdata-dev 2026-09-23.",
@@ -1040,7 +943,7 @@
           ]
         },
         {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.capped_seed_liver",
           "name": "Capped seed: all MIT_SRP samples, then how many are liver tissues",
           "_why": "New (FINDINGS section 7). The seed is over the 5,000-row cap on fairdata-dev (7,769) and on production (58,142 by project), so the stored result holds only part of the set, and a liver count taken from the stored rows comes out low. FINDINGS names MIT_SRP tissues as the seed, but on fairdata-dev the MIT_SRP tissues are under the cap (the largest MIT_SRP type holds 1,548 samples, 2026-09-22 pin), so the seed asks for all MIT_SRP samples. 971 liver tissues on fairdata-dev with the case folded (Liver, LIVER and liver; 13,441 on production).",
@@ -1096,7 +999,7 @@
           ]
         },
         {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.followup_of_a_followup",
           "name": "Follow-up of a follow-up with a count in the middle",
           "_why": "New (FINDINGS section 7). Turn 2 is a count, so its result keeps no rows, and turn 3 refers to turn 2's set: the answer needs both filters (MIT_SRP and NDMA), which the NExtSEEK loop's own bundle does not keep today (FINDINGS L5). 195 NDMA-treated mice in MIT_SRP on fairdata-dev (2026-09-22 pin). The seed (3,591) and the sex split (M 822, F 727) are production's, where every NDMA mouse is in MIT_SRP; re-pin them.",
@@ -1168,7 +1071,7 @@
           ]
         },
         {
-          "family": "followup_ab",
+          "family": "followup_over_results",
           "id": "ab.ns_chain_no_pause",
           "name": "NS chain with no pause: breakdown, filter, recall",
           "_why": "New (FINDINGS section 7): three NExtSEEK-shaped follow-ups back to back, run at --pace 0, which is where the save race shows (a follow-up asked within a second of the previous answer read no stored result; the 2026-09-12 replies said 'no stored results'). Each follow-up reads the turn before it. LUAD on fairdata-dev 2026-09-23: 585 patients; TobaccoSmokingStatus 170 and 137 (the two reformed-smoker durations) and 122 current smokers, 53 of them female.",
@@ -1270,6 +1173,108 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?is)\\A(?!.*no stored results)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "search_refinement": {
+      "description": "Change one filter and re-run the previous search.",
+      "variants": [
+        {
+          "family": "search_refinement",
+          "id": "ab.rerun_modified_cypher",
+          "name": "Rerun the earlier search with one requirement dropped",
+          "_why": "From fu.rerun_modified_cypher in the prod follow-ups probe of 2026-09-23 (R1). NExtSEEK-shaped under the split (a re-run with one filter removed). 351 NHP have sequencing data derived from them, against 73 with both; Container-CC answered 351 (an operator highlight).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Same search, but drop the flow cytometry requirement: only require sequencing data derived from them.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])351(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "search_refinement",
+          "id": "ab.search_again_with_water",
+          "name": "Search again with one term swapped",
+          "_why": "From refrec.try_that_search_again_with_wat in the prod suite of 2026-09-23, seed 17 (R5), turn 684. NExtSEEK-shaped under the split (a re-run with one term swapped), but its premise ('Water Study') was never in the earlier search; Container-CC asked before running anything. Not keyed: judged in the blind review. NDMA keyed for fairdata-dev (207).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me mice treated with NDMA",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])207(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                }
+              ]
+            },
+            {
+              "label": "followup",
+              "query": "Try that search again with \"Water\" instead of \"Water Study\"",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
                 }
               ]
             }

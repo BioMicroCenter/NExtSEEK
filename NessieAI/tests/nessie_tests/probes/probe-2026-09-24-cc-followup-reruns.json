@@ -66,11 +66,11 @@
   }
  },
  "families": {
-  "cc_followup_reruns": {
-   "description": "Multi-turn: an NS graph seed, then Container-CC follow-ups that must work from the staged turns (samples.csv, their own earlier files, the stored Cypher) instead of re-running searches.",
+  "artifact_delivery": {
+   "description": "Get the file the assistant just made out of the turn and to the user.",
    "variants": [
     {
-     "family": "cc_followup_reruns",
+     "family": "artifact_delivery",
      "id": "ccfu.species_and_sex_file_from_samples_csv",
      "name": "Fix 1: a follow-up that needs a field the rows do not carry is answered from samples.csv",
      "_why": "The seed's rows carry the Cypher's projection only. The follow-up asks for sex as well as species and for a file, so it stays on Container-CC; every attribute of the 73 is in turn-NN/samples.csv, so the turn reads that file and makes no server call. Species 47 + 22 + 4 = 73, measured 2026-09-23 on the workstation graph (the r1-563 shape: +80 s and 3 exploration calls before).",
@@ -161,7 +161,7 @@
      ]
     },
     {
-     "family": "cc_followup_reruns",
+     "family": "artifact_delivery",
      "id": "ccfu.ndma_by_sex_file_from_samples_csv",
      "name": "Fix 1: a breakdown by a field the rows do not carry, from samples.csv",
      "_why": "The r1-573 shape (+46 s, an aggregate restating turn 1): the NDMA rows carry no Sex, samples.csv does. 1549 mice, 820 of one sex and 727 of the other, measured 2026-09-23.",
@@ -247,7 +247,7 @@
      ]
     },
     {
-     "family": "cc_followup_reruns",
+     "family": "artifact_delivery",
      "id": "ccfu.count_only_seed_keeps_its_filter",
      "name": "Fix 4 and fix 2: a count-only seed is broken down with its filter kept, and the next turn's trace is its own",
      "_why": "The r4-625 shape: a count keeps no UIDs, and the follow-up was rewritten from plain words and lost its filter. Now the stored Cypher is re-run with only its RETURN changed, so the sex counts still sum to the seed's 1549 (820 + 727); the counts of every mouse would be far larger. The third turn plots the table the second made: its trace must not show the second turn's graph call (the trace was the whole conversation before fix 2).",
@@ -349,7 +349,7 @@
      ]
     },
     {
-     "family": "cc_followup_reruns",
+     "family": "artifact_delivery",
      "id": "ccfu.count_only_breakdown_is_given_not_refused",
      "name": "Fix 4: a count-only seed broken down by project gives a breakdown",
      "_why": "The r6-1231 shape: after a count, 'which studies' went to nextseek-aggregate, failed, and the turn gave up. Now the stored Cypher is re-run with only its RETURN changed, and a failed step falls back to nextseek-graph with the stored Cypher. The per-project counts are not pinned (a sample can sit in two projects): the turn must publish the one named CSV, and the reply must not give up.",
@@ -435,7 +435,7 @@
      ]
     },
     {
-     "family": "cc_followup_reruns",
+     "family": "artifact_delivery",
      "id": "ccfu.newest_turn_after_ns_cc_ns",
      "name": "Fix 3: NS, CC, NS, CC in a row, the last CC turn works on the newest turn",
      "_why": "The r1-581 and r4-608 shape: a resumed CC turn skipped MANIFEST.md and answered about an older turn. Now the hook names the newest staged turn every turn, so the fourth turn reads the HeLa turn's files (turn 3), not the NHP turn's (turn 1), and makes no server call. 4 HeLa samples, measured 2026-09-23. The operator ruled on 2026-09-25 that this resumed turn need not read MANIFEST.md (the 09-25 dev run bound correctly from the hook note alone), so that criterion was dropped; the turn-03 and not-turn-01 criteria carry the case.",
@@ -563,7 +563,7 @@
      ]
     },
     {
-     "family": "cc_followup_reruns",
+     "family": "artifact_delivery",
      "id": "ccfu.own_previous_file_is_read_not_redone",
      "name": "Fix 3: the agent reads the file its own previous turn wrote",
      "_why": "The r6-1229 shape: its own previous turn's full.json was staged in turn-02/, and the resumed turn re-fetched all 585 samples instead. Here turn 2 writes nhp73.csv, and turn 3 must read it from /data/previous_turns/turn-NN/ with no server call.",
