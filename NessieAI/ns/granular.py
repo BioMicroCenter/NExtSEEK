@@ -471,8 +471,8 @@ def run_graph_question(
 
     ``_graph`` passes its UID check (round 6): the note as ``refine_context`` and the checks as ``uid_checks``, which
     write the parser plan's filters.uids as the graph stores them, as the NS path does. The aggregate op calls it
-    once per part and passes: ``entity_out`` (resolved once for the whole question), ``refine_context`` (its brief, handed
-    to every graph agent call), ``prepare_cypher`` (its row cap, applied to every statement before the tool sees
+    once per part and passes: ``entity_out`` (resolved once for the whole question), ``refine_context`` (its brief,
+    handed to every graph agent call), ``prepare_cypher`` (its row cap, applied to every statement before the tool sees
     it), ``retry`` (given the first result and the agent's own statement, it returns ``(reason, retry_context)``
     for at most one more statement, or None), and its own clock, start and fallback budget.
 
