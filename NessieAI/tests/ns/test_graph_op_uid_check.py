@@ -3,6 +3,10 @@
 Synthetic UIDs only. The chain (``run_graph_question``) is faked; the check itself runs through the stand-in
 ``neo4j_exec`` the way ``aggregate._prelude`` runs it.
 """
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from chat_nextseek.schemas import GraphAgentPlan, ParserFilters, ParserPlan
 from NessieAI.ns import granular
 
 
@@ -65,3 +69,31 @@ def test_a_question_without_a_uid_runs_no_check(monkeypatch):
     monkeypatch.setattr(granular, "run_graph_question", fake_chain)
     out = granular._graph({"query": "how many tissue samples"}, None, None, lambda *a: None, exec_fn, None)
     assert "notes" not in out
+
+
+def test_the_parser_plan_carries_the_stored_spelling():
+    """As the NS path (R4, ``plan_with_stored_uids``): the parser plan's filters.uids, handed to the graph agent and
+    back in ``parser_plan`` for nextseek-api-read, name the UID as the graph stores it, matching the UID CHECK note."""
+    plan = ParserPlan(mode="graph_query", filters=ParserFilters(uids=["TIS-220101ABC-7"]))
+    seen = {}
+
+    def graph_agent(config, query, entity_out, parser_plan, **kw):
+        seen["uids"] = list(parser_plan.filters.uids)
+        seen["note"] = kw.get("refine_context")
+        return GraphAgentPlan(cypher="MATCH (s:Sample) RETURN count(s) AS n", parameters={})
+
+    def exec_fn(config, cypher, params):
+        if "checks" in params:
+            return {"ok": True, "data": [{"uid": "TIS-220101ABC-7", "exact": False, "base_uuid": None,
+                                          "suffixed": ["TIS-220101ABC-7-PUB"]}]}
+        return {"ok": True, "data": [{"n": 1}]}
+
+    with patch("chat_nextseek.portable.entity_agent", return_value=SimpleNamespace(model_dump=lambda: {})), \
+         patch("chat_nextseek.portable.parser_agent", return_value=plan), \
+         patch("chat_nextseek.portable.graph_agent", side_effect=graph_agent):
+        out = granular._graph({"query": "parents of TIS-220101ABC-7"}, None, None, lambda *a: None, exec_fn, None,
+                              limit_s=90.0)
+    assert seen["uids"] == ["TIS-220101ABC-7-PUB"]
+    assert "TIS-220101ABC-7-PUB" in seen["note"]
+    assert out["parser_plan"]["filters"]["uids"] == ["TIS-220101ABC-7-PUB"]
+    assert plan.filters.uids == ["TIS-220101ABC-7"], "the parser's own plan (a turn's cached one) is not changed"

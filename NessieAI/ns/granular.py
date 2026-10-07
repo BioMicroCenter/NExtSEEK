@@ -464,11 +464,13 @@ def run_graph_question(
     fallback_budget_s: float | None = None,
     parser_plan: Any = None,
     turn: Any = None,
+    uid_checks: list | None = None,
 ) -> GraphAnswer:
     """The graph op's chain: parser, graph agent, the Neo4j tool, and graph_search on a scope refusal.
 
-    ``_graph`` calls it with no options and returns what it always returned. The aggregate op calls it once per
-    part and passes: ``entity_out`` (resolved once for the whole question), ``refine_context`` (its brief, handed
+    ``_graph`` passes its UID check (round 6): the note as ``refine_context`` and the checks as ``uid_checks``, which
+    write the parser plan's filters.uids as the graph stores them, as the NS path does. The aggregate op calls it
+    once per part and passes: ``entity_out`` (resolved once for the whole question), ``refine_context`` (its brief, handed
     to every graph agent call), ``prepare_cypher`` (its row cap, applied to every statement before the tool sees
     it), ``retry`` (given the first result and the agent's own statement, it returns ``(reason, retry_context)``
     for at most one more statement, or None), and its own clock, start and fallback budget.
@@ -497,6 +499,9 @@ def run_graph_question(
             parser_plan = _turn_plan(turn, query, lambda: parser_agent(session, config, query, entity_out))
         else:
             parser_plan = parser_agent(session, config, query, entity_out)
+    if uid_checks:
+        from chat_nextseek.helpers.uid_check import plan_with_stored_uids
+        parser_plan = plan_with_stored_uids(parser_plan, uid_checks)  # R4, as the NS path: filters.uids as stored
     call_scope.mark("parser_end")
     brief = {"refine_context": refine_context} if refine_context else {}
     call_scope.mark("graph_start")
@@ -530,27 +535,28 @@ def run_graph_question(
 
 
 def _uid_check(config, query, neo4j_exec):
-    """``(note for the graph agent, notes for the reply)``: the check the aggregate runs in its prelude. Nothing when the
-    question names no UID or the check fails (a failed check claims nothing either way)."""
+    """``(note for the graph agent, notes for the reply, the checks)``: the check the aggregate runs in its prelude.
+    Nothing when the question names no UID or the check fails (a failed check claims nothing either way)."""
     from chat_nextseek.helpers.uid_check import check_uids, uid_notes, uids_in
     try:
         uids = uids_in(query)
         if not uids:
-            return None, []
+            return None, [], None
         exec_fn = neo4j_exec
         if exec_fn is None:
             from chat_nextseek.helpers import tool_neo4j_query as exec_fn
-        return uid_notes(check_uids(config, uids, run=exec_fn))
+        checks = check_uids(config, uids, run=exec_fn)
+        return (*uid_notes(checks), checks)
     except Exception:
-        return None, []
+        return None, [], None
 
 
 def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
-    # Round 6: a UID typed without (or with) -PUB reaches the graph agent under the spelling the graph stores,
-    # and the reply says so (``notes``).
-    agent_note, reply_notes = _uid_check(config, args["query"], neo4j_exec)
+    # Round 6: a UID typed without (or with) -PUB reaches the graph agent under the spelling the graph stores, in
+    # the note and in the parser plan's filters, and the reply says so (``notes``).
+    agent_note, reply_notes, checks = _uid_check(config, args["query"], neo4j_exec)
     answer = run_graph_question(args["query"], config=config, session=session, write_gate=write_gate,
-                                neo4j_exec=neo4j_exec, refine_context=agent_note,
+                                neo4j_exec=neo4j_exec, refine_context=agent_note, uid_checks=checks,
                                 fallback_budget_s=fallback_start_budget_s(limit_s), turn=turn)
     # parser_plan: the plan this answer ran, as JSON, so nextseek-api-read can ask the same question of the REST API.
     out = {"plan": answer.plan, "result": answer.result, "parser_plan": _plan_json(answer.parser_plan)}
