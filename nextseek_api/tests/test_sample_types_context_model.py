@@ -34,5 +34,5 @@ def test_seed_ships_the_context_table_and_rows():
     assert "CREATE TABLE `sample_types_context`" in sql
     insert = [ln for ln in sql.splitlines() if ln.startswith("INSERT INTO `sample_types_context`")]
     assert insert, "seed has the table but no rows"
-    # 101 rows on production; the dump writes them as one extended INSERT.
-    assert insert[0].count("),(") == 100
+    # 107 rows in the 46cba3ac seed (was 101); the dump writes them as one extended INSERT.
+    assert insert[0].count("),(") == 106
