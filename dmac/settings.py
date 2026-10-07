@@ -29,6 +29,10 @@ ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '').split(' ')
 
 CSRF_TRUSTED_ORIGINS = os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(' ')
 
+# Hosts whose /sops/<id> URLs index OUR sops table even when this instance is
+# not that host: seeds taken from fairdata-dev carry dev URLs on every instance.
+FAIRDATA_SOP_HOSTS = os.getenv("FAIRDATA_SOP_HOSTS", "fairdata-dev.mit.edu fairdata.mit.edu").split()
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
