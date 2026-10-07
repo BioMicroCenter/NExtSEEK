@@ -129,6 +129,11 @@ def _local_url_hosts() -> Tuple[Set[str], Tuple[str, ...]]:
         if host:
             exact.add(host)
 
+    for raw in getattr(settings, "FAIRDATA_SOP_HOSTS", None) or []:
+        host = _hostname_of(str(raw))
+        if host:
+            exact.add(host)
+
     try:
         allowed = list(getattr(settings, "ALLOWED_HOSTS", None) or [])
     except Exception:
