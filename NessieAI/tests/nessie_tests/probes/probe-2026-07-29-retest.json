@@ -14,32 +14,72 @@
   },
   "_note_consistency": "cons.nhp_sequencing_engine will run anyway: nessie.py sets run_consistency = opts['consistency'] or tier == 'full', and there is no way to switch it off. Two cheap NS turns, ~$0.02, and it re-confirms the 408.",
   "_note": "repro.cypher_uid_dot was retired 2026-07-30 (issue #35 review, round 2). Its slot here is now advanced.basic_ndma so the running order keeps a search case. The behaviours it caught stay covered by chat_nextseek/tests/test_graph_canonical_uid.py and test_graph_property_guard.py.",
-
   "include_ids": [
     "advanced.basic_ndma",
     "write.export_all_metadata_for_nhp_22"
   ],
-
   "families": {
     "probe_reingest": {
       "description": "Verbatim copies of the two reingest probes from probe-2026-07-29.json. Both run directories were verified live on Luria: the gideon one holds alevin/alevinqc output, the rnaseq one holds salmon/star_salmon/trimgalore. Both satisfy the _run_ls runs-root guard.",
       "variants": [
-        {"family": "probe_reingest", "id": "probe.reingest_scrnaseq_typed",
-         "name": "Reingest a finished scrnaseq run, target sample type given",
-         "tags": ["nessie", "probe", "full"], "requires_env": [],
-         "turns": [{"label": "main",
-                    "query": "The scrnaseq run at /net/bmc-pub10/data1/bmc/pipeline_cd/runs/nfcore_gideon-4wk_260711_024438_0 has finished — register its outputs as new A.SCXP analysis samples.",
-                    "pass_criteria": [
-                      {"field": "route", "op": "eq", "value": "container_cc"},
-                      {"field": "last_reply", "op": "nonempty", "value": null}]}]},
-        {"family": "probe_reingest", "id": "probe.reingest_rnaseq_untyped",
-         "name": "Reingest a finished rnaseq run, sample type left to infer",
-         "tags": ["nessie", "probe", "full"], "requires_env": [],
-         "turns": [{"label": "main",
-                    "query": "Build me a NExtSEEK reingest upload sheet from the pipeline outputs in /net/bmc-pub10/data1/bmc/pipeline_cd/runs/nfcore_rnaseq_260723_205359_0/",
-                    "pass_criteria": [
-                      {"field": "route", "op": "eq", "value": "container_cc"},
-                      {"field": "last_reply", "op": "nonempty", "value": null}]}]}
+        {
+          "family": "probe_reingest",
+          "id": "probe.reingest_scrnaseq_typed",
+          "name": "Reingest a finished scrnaseq run, target sample type given",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "The scrnaseq run at /net/bmc-pub10/data1/bmc/pipeline_cd/runs/nfcore_gideon-4wk_260711_024438_0 has finished — register its outputs as new A.SCXP analysis samples.",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "probe_reingest",
+          "id": "probe.reingest_rnaseq_untyped",
+          "name": "Reingest a finished rnaseq run, sample type left to infer",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Build me a NExtSEEK reingest upload sheet from the pipeline outputs in /net/bmc-pub10/data1/bmc/pipeline_cd/runs/nfcore_rnaseq_260723_205359_0/",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        }
       ]
     }
   }
