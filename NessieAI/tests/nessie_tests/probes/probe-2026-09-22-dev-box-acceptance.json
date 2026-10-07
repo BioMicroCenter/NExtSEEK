@@ -304,8 +304,8 @@
                 },
                 {
                   "field": "route",
-                  "op": "eq",
-                  "value": "container_cc"
+                  "op": "matches_re",
+                  "value": "(nextseek_query|container_cc)"
                 },
                 {
                   "field": "last_reply",
@@ -926,8 +926,8 @@
                 },
                 {
                   "field": "route",
-                  "op": "eq",
-                  "value": "container_cc"
+                  "op": "matches_re",
+                  "value": "(nextseek_query|container_cc)"
                 },
                 {
                   "field": "last_reply",

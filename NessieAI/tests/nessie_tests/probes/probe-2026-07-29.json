@@ -236,7 +236,7 @@
                   "value": "nextseek_query"
                 },
                 {
-                  "field": "api_result_meta.row_count",
+                  "field": "graph_result.count",
                   "op": "gte",
                   "value": 1
                 }

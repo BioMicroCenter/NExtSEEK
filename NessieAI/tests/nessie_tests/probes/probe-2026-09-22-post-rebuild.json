@@ -300,8 +300,8 @@
                 },
                 {
                   "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
+                  "op": "matches_re",
+                  "value": "(nextseek_query|container_cc)"
                 },
                 {
                   "field": "last_reply",

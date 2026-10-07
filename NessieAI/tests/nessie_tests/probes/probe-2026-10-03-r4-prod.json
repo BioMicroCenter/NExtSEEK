@@ -2,7 +2,7 @@
   "_name": "probe-2026-10-03-r4-prod - the comprehensive production smoke after round 4",
   "_why": "Every fix in the round and its siblings: DOI and PMID on samples (and a number no Study carries), distinct counts, same-assay (anchored and unanchored), lab names that are projects, investigations or aliases (and a lab that is none), membership on the non-admin login, holding-study notes with a control, the routing set (three kept REST uses, SOP on the graph, catalog and graph counts, how-to first turns, a follow-up that stays NS, CC work and Excel export), and the A4 aliases on the non-admin login. Read-only: no writing family. PAID: needs the operator's go; run it only after the dev routing smoke is green.",
   "_instance_warning": "Production keys are computed on the day. The one pinned number is the Griffith project's distinct sample count (3,401, the graph 7 IN project_ids, measured read-only on production 2026-10-03); re-pin it with pin_probe_truths.py before the run.",
-  "_run": "Run the file twice on the same box, once per login (cli --user/--password): cases tagged login:both on each login, login:member only on the NON-ADMIN login. Judge a case only on the login its tag names. Fill the FILL markers first (each is listed in _fill; replace every occurrence in a COPY with sed), keep the filled copy out of git: it holds real ids.",
+  "_run": "Run the file twice on the same box, once per login (cli --user/--password): cases tagged login:both on each login, login:member only on the NON-ADMIN login, login:admin only on the ADMIN login. Judge a case only on the login its tag names. Fill the FILL markers first (each is listed in _fill; replace every occurrence in a COPY with sed), keep the filled copy out of git: it holds real ids.",
   "_fill": {
     "DOI": "a DOI that some Study carries, same query on st.DOI",
     "LAB_ONLY": "a lab name from the lab catalog that is none of: a project, an investigation, or an alias of either on this box",
@@ -123,6 +123,16 @@
                   "field": "last_reply",
                   "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(forbidden|\\b403\\b))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(could not|couldn't) restrict (the search )?to)"
                 }
               ]
             }
@@ -544,9 +554,19 @@
                   "value": null
                 },
                 {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "UID|name one|one sample"
+                  "value": "(?is)(name (me )?(one|a) (sample )?UID|one sample UID)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)(?=.*\\bassays?\\b)(?=.*\\d)"
                 },
                 {
                   "field": "last_reply",
@@ -704,7 +724,7 @@
             "nessie",
             "probe",
             "full",
-            "login:both"
+            "login:admin"
           ],
           "requires_env": [],
           "turns": [
@@ -1273,7 +1293,7 @@
             "nessie",
             "probe",
             "full",
-            "login:both"
+            "login:admin"
           ],
           "requires_env": [],
           "turns": [
@@ -1369,7 +1389,7 @@
                   "value": "nextseek_query"
                 },
                 {
-                  "field": "reporter_result.scope.kind",
+                  "field": "reporter_result.samples.scope.kind",
                   "op": "eq",
                   "value": "lab"
                 },

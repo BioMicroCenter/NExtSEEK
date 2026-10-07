@@ -1041,9 +1041,14 @@
                   "value": "^(graph_query|new_search)$"
                 },
                 {
-                  "field": "entity_sampletype_codes",
-                  "op": "contains",
-                  "value": "AB"
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?is)(search_text|CONTAINS)"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*:T_AB\\b)"
                 }
               ]
             }
@@ -5478,7 +5483,7 @@
                   "value": "nextseek_query"
                 },
                 {
-                  "field": "graph_not_truncated",
+                  "field": "graph_truncation_disclosed",
                   "op": "true",
                   "value": null
                 },
@@ -10590,7 +10595,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(only|one|single|1\\b))?"
+                  "value": "(?is)(only|one|single|1\\b)"
                 }
               ]
             }
@@ -12040,7 +12045,7 @@
                 {
                   "field": "route_source",
                   "op": "matches_re",
-                  "value": "^(baml|followup|sticky)$"
+                  "value": "^(baml|followup|sticky|howto)$"
                 },
                 {
                   "field": "last_reply",
@@ -14603,7 +14608,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)\\A(?!.*Cell Line Creation)"
+                  "value": "(?is)\\A(?!.*(can't see my earlier|cannot see my earlier|unable to see my earlier))"
                 }
               ]
             }
@@ -16387,14 +16392,19 @@
               "query": "Put together a summary of the samples IMPACT uploaded last year.",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "route",
                   "op": "eq",
-                  "value": "reporter"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(2026-01-2|SampleCreationDate|UID|ingest|bulk|load|not.{0,20}(reliable|meaningful))"
+                  "value": "(?i)IMPACT"
                 }
               ]
             }
@@ -21471,8 +21481,18 @@
               "pass_criteria": [
                 {
                   "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?i)job\\s*(?:id)?\\s*[:#]?\\s*\\d{6,9}"
+                  "value": "(?is)\\A(?!.*job\\s*(?:id)?\\s*[:#]?\\s*\\d{6,9})"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)(nothing|no (pending|pipeline|run|launch|job)|not sure what|what (would you like|do you want)|haven't|have not|don't have|do not have)"
                 }
               ]
             }

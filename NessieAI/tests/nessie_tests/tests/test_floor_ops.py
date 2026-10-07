@@ -1087,11 +1087,16 @@ def test_the_new_criteria_still_fail_a_confident_answer_about_the_wrong_entity(v
 def test_the_new_criteria_still_fail_a_silently_capped_graph_answer(vid):
     """`graph_not_truncated` is inert on a REST turn, which is why it is safe here —
     but on a graph turn that hit its LIMIT it is the whole reason it was kept."""
+    # 2026-10-07 test-set review (SPEC-2): advanced.find_me_sequencing_files_assoc asserts
+    # graph_truncation_disclosed (a capped result must report a total above its rows), so the
+    # capped fixture carries no total; the cap is undisclosed for both criteria.
     debug = {**GOOD_DEBUG,
-             "graph_result": {"ok": True, "count": 5000, "total": 12000, "truncated": True}}
+             "graph_result": {"ok": True, "count": 5000, "truncated": True}}
     passed, per_field = _evaluate(_resolved(vid), debug, last_reply=GOOD_REPLY[vid])
     assert not passed
-    assert per_field["graph_not_truncated"] is False
+    field = ("graph_truncation_disclosed" if vid == "advanced.find_me_sequencing_files_assoc"
+             else "graph_not_truncated")
+    assert per_field[field] is False
 
 
 @pytest.mark.parametrize("vid", sorted(OVERRIDDEN_2026_08_03B))
