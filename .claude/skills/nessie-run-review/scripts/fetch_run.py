@@ -399,12 +399,13 @@ def price_turns(turns: list[dict]) -> list[dict]:
     return turns
 
 
-def window_total(turns: list[dict]) -> tuple[float, int, int, int]:
-    """(total, priced, partial, nested): a nested NS turn (one with a parent) is already inside its parent's
-    turn_cost_usd, so it is counted once, through the parent."""
+def window_total(turns: list[dict]) -> tuple[float, int, int, int, int]:
+    """(total, priced, partial, estimated, nested): a nested NS turn (one with a parent) is already inside its
+    parent's turn_cost_usd, so it is counted once, through the parent. ``estimated``: turns whose timed-out calls
+    were priced at their prompt's input cost (round 6), counted apart from partial."""
     own = [t for t in turns if t["turn_cost"] is not None and not t.get("parent")]
     return (sum(t["turn_cost"] for t in own), len(own), sum(1 for t in own if t["turn_cost_partial"]),
-            sum(1 for t in turns if t.get("parent")))
+            sum(1 for t in own if t.get("cost_estimated") is True), sum(1 for t in turns if t.get("parent")))
 
 
 def _norm_id(task_id) -> str:
@@ -528,9 +529,9 @@ def main() -> None:
     if turn_cost is None:
         print("  cost    not priced: turn_cost.py was not found, see the warning above")
     else:
-        total, priced, partial, nested = window_total(turns)
+        total, priced, partial, estimated, nested = window_total(turns)
         print(f"  cost    ${total:.4f} on {priced} of {len(turns)} turns, {partial} of "
-              f"them partial; fell back {sum(1 for t in turns if t['fell_back'])}, "
+              f"them partial, {estimated} estimated; fell back {sum(1 for t in turns if t['fell_back'])}, "
               f"{nested} nested turns inside their parent's cost")
     if manifest is not None and turn_cost is not None:
         cases = case_costs(manifest, turns)

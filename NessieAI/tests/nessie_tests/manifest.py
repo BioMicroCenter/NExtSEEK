@@ -51,6 +51,9 @@ class TurnMeta(BaseModel):
     ops_cost: float | None = None
     server_turn_cost: float | None = None
     cost_partial: bool = False
+    # Round 6: a timed-out model call was priced at its prompt's input cost, so the cost is an estimate (a floor).
+    # Counted apart from partial, never folded into it.
+    cost_estimated: bool = False
     router_cost_partial: bool = False
     models_used: list[str] = Field(default_factory=list)
     model_fallback: list[dict] = Field(default_factory=list)

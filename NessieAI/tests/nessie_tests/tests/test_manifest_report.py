@@ -564,6 +564,18 @@ def test_remembered_skips_are_not_counted_as_more_failures():
     assert [i for i in turn.model_fallback if not i.get("remembered")] == [live]
 
 
+def test_a_turn_record_keeps_whether_its_cost_was_estimated():
+    """Round 6: a turn whose timed-out call was priced at its prompt's input cost says ``cost_estimated``; the
+    harness keeps it on the turn, apart from partial."""
+    def payload(**end):
+        return {"progress": [{"event": "query_complete", "data": {"total_cost_usd": 0.2, "cost_partial": False,
+                                                                   **end}}]}
+    estimated = M.TurnMeta.from_payload(payload(cost_estimated=True))
+    assert estimated.cost_estimated is True and estimated.cost_partial is False
+    assert estimated.model_dump()["cost_estimated"] is True
+    assert M.TurnMeta.from_payload(payload()).cost_estimated is False
+
+
 def test_a_run_that_recorded_no_turn_says_so_rather_than_no_fallback():
     assert M.fallback_summary([_e(0)])["fallback_display"] == "no turn recorded a model record"
 

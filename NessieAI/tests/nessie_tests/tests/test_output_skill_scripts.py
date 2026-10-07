@@ -648,8 +648,20 @@ def test_the_window_total_counts_a_nested_turn_once_through_its_parent():
         _pulled("c", route="nextseek_query", cost=0.2, parent="p"),
         _pulled("x", route="nextseek_query", cost=0.1),
     ])
-    total, priced, partial, nested = fetch_run.window_total(turns)
-    assert (total, priced, partial, nested) == (pytest.approx(0.8), 2, 1, 1)
+    total, priced, partial, estimated, nested = fetch_run.window_total(turns)
+    assert (total, priced, partial, estimated, nested) == (pytest.approx(0.8), 2, 1, 0, 1)
+
+
+def test_the_window_total_counts_estimated_turns_apart_from_partial():
+    """Round 6 (SPEC-1 T5): a turn whose timed-out call was priced at its prompt's input cost is estimated, not
+    partial; a nested turn's estimate is counted through its parent only."""
+    turns = fetch_run.price_turns([
+        _pulled("p", cost=0.5, router_cost=0.01, server_turn_cost=0.7, cost_estimated=True),
+        _pulled("c", route="nextseek_query", cost=0.2, parent="p", cost_estimated=True),
+        _pulled("q", cost=0.3, router_cost=0.01, server_turn_cost=0.4),
+    ])
+    total, priced, partial, estimated, nested = fetch_run.window_total(turns)
+    assert (total, priced, partial, estimated, nested) == (pytest.approx(1.1), 2, 0, 1, 1)
 
 
 def test_a_pulled_turn_and_the_harness_price_the_same_payload_the_same():
