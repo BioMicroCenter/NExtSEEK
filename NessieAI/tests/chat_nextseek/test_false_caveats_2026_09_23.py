@@ -131,7 +131,7 @@ def test_the_entity_prompt_reads_a_code_prefix_as_a_family():
 
     for phrase in ('"D. types"', '"D. file types"', '"D.* types"', '"data types starting with D."'):
         assert phrase in rule, phrase
-    assert "How many different D. file types exist?" in rule
+    assert "how many different D. types exist?" in rule
     assert "Emit NO sample type for a prefix family" in rule
     assert "never D.FILE" in rule
 

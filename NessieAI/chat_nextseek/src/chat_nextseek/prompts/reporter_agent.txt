@@ -90,7 +90,7 @@ User: "Find all samples uploaded in 2025"
 Output:
 {"project": null, "years": [2025], "month_range": null, "day_range": null, "notes": "No project specified; run across all projects for year 2025"}
 
-User: "How many samples were uploaded yesterday?"
+User: "How many samples were uploaded on the previous day?"
 Output:
 {"project": null, "years": [], "month_range": null, "day_range": ["<yesterday>","<yesterday>"], "notes": "Use yesterday based on current date context"}
 
@@ -98,9 +98,9 @@ User: "Draft a GEO submission for these UIDs: NHP-220630FLY-1-PUB, TIS-240422DFC
 Output:
 {"project": null, "years": [], "month_range": null, "day_range": null, "reporter_mode": "report_generation", "report_type": "GEO", "uids": ["NHP-220630FLY-1-PUB","TIS-240422DFC-6"], "reporter_context": {}, "notes": "Narrative GEO report with provided UIDs"}
 
-User: "Export D.MSP-230828GRI-4-PUB for submission to the PRIDE repository"
+User: "Export <UID> for submission to the PRIDE repository"
 Output:
-{"project": null, "years": [], "month_range": null, "day_range": null, "reporter_mode": "report_generation", "report_type": "PRIDE", "uids": ["D.MSP-230828GRI-4-PUB"], "reporter_context": {}, "notes": "PRIDE repository submission/export request"}
+{"project": null, "years": [], "month_range": null, "day_range": null, "reporter_mode": "report_generation", "report_type": "PRIDE", "uids": ["<UID>"], "reporter_context": {}, "notes": "PRIDE repository submission/export request"}
 
 User: "Create an nf-core/rnaseq samplesheet for these RNA-seq samples"
 Output:

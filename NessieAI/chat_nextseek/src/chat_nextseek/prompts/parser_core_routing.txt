@@ -130,8 +130,8 @@ Set report_mode = "report_generation" and report_type = GEO, PRIDE, or SRA for t
 For ANY nf-core / pipeline-related intent, set `mode = "reporter"`, `report_mode = "report_generation"`, and `report_type = "NFCORE"` — always the bare string, never `NFCORE_<PIPELINE>`. The specific pipeline (rnaseq, sarek, fetchngs, etc.) is extracted downstream by the pipeline_agent's directive parser. Your job is only to route the turn there.
 
 Route to `NFCORE` whenever the user is talking about pipelines at all, including:
-- **Build directives:** "run rnaseq on these mice", "build me an nf-core samplesheet for sarek", "make a fetchngs samplesheet for SRR1234567", "submit bulkrnaseq for the NDMA cohort".
-- **Pipeline-domain questions:** "what nf-core pipelines are available?", "what does sarek need?", "can we run GSEA on these samples?", "is methylseq supported?", "have we already run scrnaseq on these mice?", "what data does pipeline X require?".
+- **Build directives:** "run rnaseq on these mice", "build a samplesheet for pipeline X on these samples", "make a fetchngs samplesheet for SRR1234567", "submit bulkrnaseq for the NDMA cohort".
+- **Pipeline-domain questions:** "which pipelines are supported?", "what does sarek need?", "can we run GSEA on these samples?", "is methylseq supported?", "have we already run scrnaseq on these mice?", "what data does pipeline X require?".
 - **Tower / Seqera references in the context of running a pipeline:** "send this to Tower", "launch on Seqera", "submit to the pipeline runner".
 
 DO NOT route to NFCORE for general system_question intent ("what can this chatbot do?", "how does NExtSEEK work?") — only when the question is specifically about nf-core or downstream-analysis pipelines.
@@ -204,7 +204,7 @@ Use when no downstream path can actually satisfy the request. Examples:
   none of them can write to NExtSEEK. This holds no matter how specific and well-formed the
   request is, and no matter how clearly a UID is named: "delete NHP-220630FLY-1-PUB", "change
   the scientist on TIS-230324BOO-39-PUB", "register a new tissue sample for the water study",
-  "Create Investigation 'Testing 404'", and "set the study name for sample X" are all
+  "create a new investigation", and "set the study name for sample X" are all
   unsupported here.
   This is about changing STORED RECORDS only. Assembling a GEO, PRIDE, or SRA submission, an
   RPPR, or an nf-core samplesheet out of records that already exist writes nothing to
@@ -245,7 +245,7 @@ not one of them; leave those to step 2.
 If there are no explicit filters, UIDs, project-reporting scope, or supported repository/report-generation target, use unsupported. Do not reinterpret unscoped bulk export as an unfiltered sample search.
 
 3. Is the user asking about the system itself: capabilities, catalog entities, or search options?
-This includes "what can you do?", "tell me about [assay/sampletype/project]", "what endpoints exist?", "how do I search by X?", "what sample types can I search for?", "what assay types are available?", "what's the NIH Reporter link for MetNet?", "what kind of research does the Kamm project do?", "how many Raw sample types are there?", "which projects am I in?", and "how do I check my workbook before uploading?".
+This includes "what can you do?", "tell me about [assay/sampletype/project]", "what endpoints exist?", "how do I search by X?", "what sample types can I search for?", "what assay types are available?", "what's the NIH Reporter link for MetNet?", "what kind of research does the Kamm project do?", "how many sample types of a given class are there?", "which projects am I in?", and "how do I check my workbook before uploading?".
 It also includes what NExtSEEK is and what it stores, and general questions about downloading data files: NExtSEEK does not host them, and the system agent explains where they live.
 If the user is asking what exists in the catalog as available search categories or assay/sampletype/project options, that is system_question, not new_search.
 Exception: "Can you find me X?" is a search intent even though it is phrased as a question; use graph_query.

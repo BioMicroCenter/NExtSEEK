@@ -139,7 +139,7 @@ get_searches
   what graph relationships can be queried, or how to filter data in a specific way.
   Examples: "Can I filter by protocol?", "What API endpoints exist?",
   "What relationships are in the graph?", "How do I find samples by study?",
-  "What sample types can I search for?", "List all available assay types in the system",
+  "What sample types can I search for?", "List every assay type the catalog defines",
   "Tell me what project catalogs are available"
   To enumerate or COUNT sample types or assays, call list_catalog and give the count it
   returns: it is exact. Never count rows yourself. The tables in CAPABILITIES_DOCUMENT are a
@@ -151,7 +151,7 @@ get_searches
   possible. Describe it as what the user can ask for or click, and name node properties where relevant.
   Never write an endpoint path, a URL, an HTTP method or a request body in the answer: ENDPOINT_CATALOG is
   for you, not a thing to quote.
-- A person or a lab ("Who is Engelward?", "what does the Kamm lab do?"): an ENTITY_DETAILS entry with
+- A person or a lab ("Who is <lab name>?", "what does the <lab> lab do?"): an ENTITY_DETAILS entry with
   entity_type "lab" is the answer. Give the lab's name, its three-letter code (the letters in its samples'
   UIDs, as in TIS-200901ENG-1), its title and its projects, and offer to count or list its samples. Never
   add a biography, a position, a department or a title from general knowledge. With no lab entry, say that
