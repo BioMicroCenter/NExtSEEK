@@ -177,8 +177,9 @@ docker inspect $(docker ps -q --filter name=dmac-cc-agent-) --format '{{range .C
 ```
 
 The turn's final event (the finished task's progress) carries `ops_cost_usd`,
-`turn_cost_usd` and `cost_partial`; `cost_partial_reason` names what was not
-counted.
+`turn_cost_usd`, `cost_partial` and `cost_estimated`; `cost_partial_reason` names
+what was not counted, and `cost_estimated_reason` what was priced at an estimate (a
+timed-out model call, at its prompt's input cost).
 
 **Rollback, light (the ops road only).** Set `NEXTSEEK_CC_OPS_ROAD=sidecar` in
 `docker/nextseek.env` and recreate the app as under Switches. It needs the

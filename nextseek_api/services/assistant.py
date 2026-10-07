@@ -1420,8 +1420,8 @@ class AssistantViewSet(viewsets.ViewSet):
             "plain-language parts, each answered by the graph op's own chain in parallel, as a small table "
             "per part (`groups`, `sum_of_group_counts`, `groups_may_overlap`, `null_group`), never sample "
             "records; a breakdown's `sum_of_group_counts` counts a sample once per group it falls in, so it is "
-            "not a number of samples when `groups_may_overlap` is true. Answers what finished within "
-            "50 s and marks the rest `timed_out`. A part refused for its project scope carries the "
+            "not a number of samples when `groups_may_overlap` is true. Answers what finished 5 s inside "
+            "the op's time limit (85 s of 90 s) and marks the rest `timed_out`. A part refused for its project scope carries the "
             "project-scoped sample search's total only (`status` fallback). The body takes no Cypher and "
             "no scope."
         ),

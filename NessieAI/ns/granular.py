@@ -326,8 +326,9 @@ GRAPH_SCOPE_FALLBACK_RETRY_HINT = (
 )
 
 #: What an inline graph_search fallback needs of the op's limit: an API-agent model call and a graph_search request.
-#: It runs inline only when the refusal came at least this long before the op's limit (25 s into a 55 s graph op, as
-#: before); later, the op hands back the retargeted plan and the agent runs it with nextseek-api-read.
+#: It runs inline only when the refusal came at least this long before the op's limit (60 s into a 90 s graph op, 25 s
+#: into a 55 s one on the sidecar road); later, the op hands back the retargeted plan and the agent runs it with
+#: nextseek-api-read.
 GRAPH_FALLBACK_RESERVE_S = 30.0
 _monotonic = time.monotonic
 
