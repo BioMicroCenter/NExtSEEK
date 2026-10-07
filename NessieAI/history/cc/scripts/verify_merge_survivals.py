@@ -66,17 +66,17 @@ compose = (ROOT / "docker-compose.yml").read_text()
 compose_yml = yaml.safe_load(compose)
 check("S5", "compose keeps the dmac-cc-net name pin",
       re.search(r"dmac-cc-net:\s*\n\s*name:\s*dmac-cc-net", compose) is not None)
-check("S6", "CC identities never INSTANCE_PREFIXed",
-      compose_yml["services"]["nextseek-sidecar"].get("container_name") == "nextseek-sidecar"
-      and compose_yml["services"]["bedrock-proxy"].get("container_name") == "dmac-bedrock-proxy"
+check("S6", "CC container names keep their bare name once the (empty on prod/dev) INSTANCE_PREFIX is stripped",
+      str(compose_yml["services"]["nextseek-sidecar"].get("container_name")).removeprefix("${INSTANCE_PREFIX:-}") == "nextseek-sidecar"
+      and str(compose_yml["services"]["bedrock-proxy"].get("container_name")).removeprefix("${INSTANCE_PREFIX:-}") == "dmac-bedrock-proxy"
       and compose_yml["networks"]["dmac-cc-net"].get("name") == "dmac-cc-net")
-check("S7", "INSTANCE_PREFIX present on the 6 sanctioned container_names",
+check("S7", "INSTANCE_PREFIX present on the 8 sanctioned container_names",
       # compare the prefix-stripped container_name VALUES, not the service dict KEYS.
       sorted(
           str(svc["container_name"]).removeprefix("${INSTANCE_PREFIX:-}")
           for svc in compose_yml["services"].values()
           if str(svc.get("container_name", "")).startswith("${INSTANCE_PREFIX:-}")
-      ) == ["neo4j", "nextseek", "seek", "seek-mysql", "seek-solr", "seek-workers"])
+      ) == ["dmac-bedrock-proxy", "neo4j", "nextseek", "nextseek-sidecar", "seek", "seek-mysql", "seek-solr", "seek-workers"])
 check("S8", "orchestrator routes NFCORE -> pipeline_agent.start",
       python_calls_attr("chat_nextseek/src/chat_nextseek/orchestrator.py", "pipeline_agent", "start"))
 wizard_imports = [
