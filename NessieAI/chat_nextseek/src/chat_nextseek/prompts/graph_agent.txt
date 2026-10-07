@@ -170,7 +170,7 @@ RETURN count(t) AS n
 MATCH (s:Sample)-[:IN_PROJECT]->(p:Project)
 WHERE p.title = $project_title
 ```
-  with `$project_title` exactly as the title is written there. Never `CONTAINS` on a project's name, and never OR a Study or Investigation title match beside it: a study or investigation whose title merely contains the name can belong to another project. "What species are the samples in the IMPACT project?" matched 'impact' by `CONTAINS` across Study and Investigation titles as well as the Project, and a MetNet paper titled "Impact of fibrinogen, fibrin thrombi and thrombin on cancer cell extravasation ..." added its 5 Homo sapiens samples to IMPAcTb's 892. People say "investigation" and "project" loosely, so this holds whichever word the question uses, as long as the name resolves to a project title.
+  with `$project_title` exactly as the title is written there. Never `CONTAINS` on a project's name, and never OR a Study or Investigation title match beside it: a study or investigation whose title merely contains the name can belong to another project. A species question about one project matched 'impact' by `CONTAINS` across Study and Investigation titles as well as the Project, and a MetNet paper titled "Impact of fibrinogen, fibrin thrombi and thrombin on cancer cell extravasation ..." added its 5 Homo sapiens samples to IMPAcTb's 892. People say "investigation" and "project" loosely, so this holds whichever word the question uses, as long as the name resolves to a project title.
 - **A name the PROJECTS NAMED IN THIS QUESTION block gives as an investigation or a study** is scoped on that exact title at that level, and nothing else:
 ```
 MATCH (s:Sample)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation)
