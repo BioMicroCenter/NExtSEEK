@@ -136,3 +136,12 @@ def test_a_dev_absent_case_needs_no_number_pattern(tmp_path):
     assert K.check(write(tmp_path, spec)).errors == []
     spec["_measure"]["ss.q1"]["locals"] = [3]
     assert any("absent" in e for e in K.check(write(tmp_path, spec)).errors)
+
+
+def test_a_zero_local_is_carried_by_the_none_found_check(tmp_path):
+    """2026-10-07 (SPEC-2, R3.2): one number of a case that is really 0 on this box ("how many of those also have
+    sequencing": none) is checked as "the reply says there are none", not as the digit 0."""
+    spec = _each_spec([86, 0], [_re(86), {"field": "last_reply", "op": "matches_re", "value": K.NONE_FOUND}])
+    assert K.check(write(tmp_path, spec)).errors == []
+    spec["_measure"]["ss.q1"]["locals"] = [86, 5]
+    assert any("no criterion carries the pattern" in e for e in K.check(write(tmp_path, spec)).errors)

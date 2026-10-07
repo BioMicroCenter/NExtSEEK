@@ -26,6 +26,10 @@ from NessieAI.tests.nessie_tests import corpus as C
 from NessieAI.tests.nessie_tests.evaluate import is_unobservable
 from NessieAI.tests.nessie_tests.scripts.pin_probe_truths import number_pattern
 
+# 2026-10-07 test-set review (SPEC-2, R3.2): the check a measured 0 becomes ("the reply says there are none"). A `_measure`
+# local of 0 is carried by a criterion with exactly this pattern, not by the digit 0.
+NONE_FOUND = r"(?is)(\b0\b|\bno\b|\bnone\b|zero|not found|couldn.?t find)"
+
 # Families and ids that write or launch: never on production (the launch skill's rule).
 PROD_FORBIDDEN_FAMILIES = ("entity_write", "pipeline_launch", "pipeline_output_reingest",
                            "batch_upload_preparation")
@@ -129,6 +133,8 @@ def _measure(spec: dict, by_id: dict, r: Result) -> None:
                      if c.field == "graph_result.count" and c.op == "eq"}
         for g in groups:
             if len(g) == 1 and g[0] in eq_counts:
+                continue
+            if g == [0] and NONE_FOUND in patterns:
                 continue
             if number_pattern(g) not in patterns:
                 r.errors.append(f"_measure.{cid}: no criterion carries the pattern for {g} (the pin script "
