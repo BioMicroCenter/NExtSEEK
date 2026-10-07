@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import math
 
-#: Seconds each op may run. graph, aggregate, parse, entity and api-read keep the 55 s they had behind the sidecar;
-#: api-write, refused under a turn pass, gets the read ops' 55 s for the callers that may still send it.
+#: Seconds each op may run. Round 6 (operator, 2026-10-07): graph, parse and aggregate get 90 s, so a hung model
+#: call still leaves its backup room to answer; entity and api-read keep the 55 s they had behind the sidecar;
+#: api-write, refused under a turn pass, gets the read ops' 55 s for the callers that may still send it. On the
+#: sidecar road every op stays at SIDECAR_ROAD_CAP_S.
 OP_LIMITS_S: dict[str, float] = {
     "entity": 55.0,
     "parse": 90.0,

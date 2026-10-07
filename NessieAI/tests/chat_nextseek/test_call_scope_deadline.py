@@ -307,6 +307,17 @@ def test_a_stalled_graph_agent_late_in_an_op_ends_on_the_deadline_not_as_an_outa
     assert excinfo.value.reason == "deadline" and excinfo.value.unavailable is False
 
 
+def test_a_stalled_graph_agent_in_a_90_s_op_moves_and_answers(run, clock):
+    """Round 6 (SPEC-1 T2): 30 s into a 90 s op the graph agent hangs; its first try stops 20 s before the deadline
+    and the move answers. Before, the first try took all that was left and the move was never called."""
+    windows, behaviour = run
+    behaviour.update({FLASH: "stall", SONNET: 5.0})
+    with _op_scope(90):
+        clock.now += 30
+        assert _call(_Config(), "graph", FLASH).mode == SONNET
+    assert windows == [(FLASH, 40), (SONNET, 20)]
+
+
 def test_the_report_writer_in_generate_submission_gets_what_is_left(run, clock):
     """After 25 s of metadata and protocol preparation 30 s are left; the writer used to be cut to 10 s."""
     windows, behaviour = run
