@@ -136,14 +136,16 @@ services:
   # dmac-cc-net via the compose service DNS name `bedrock-proxy` (matches
   # cc_engine.DMAC_BEDROCK_PROXY_URL's default host) — never on the default
   # stack network, so it cannot be reached from db/seek/solr/neo4j either.
-  # `container_name: dmac-bedrock-proxy` is the HOST-side identity used only
+  # `container_name: ${INSTANCE_PREFIX:-}dmac-bedrock-proxy` is the HOST-side identity used only
   # for `docker logs`/`docker inspect`/`docker network inspect` (see
   # DMAC_PROXY_CONTAINER in test_cc_realstack.py) — never for in-network URLs.
+  # The prefix (empty on prod/dev) lets a second instance coexist; the service
+  # name, not the container name, is what resolves on dmac-cc-net.
   bedrock-proxy:
     build:
       context: ./NessieAI/docker/bedrock-proxy
     image: nextseek-bedrock-proxy:latest
-    container_name: dmac-bedrock-proxy
+    container_name: ${INSTANCE_PREFIX:-}dmac-bedrock-proxy
     restart: always
     env_file:
       - ./NessieAI/docker/bedrock-proxy/proxy-secret.env
@@ -189,7 +191,7 @@ services:
   # THE COMPOSE SERVICE NAME IS THE LOAD-BEARING IDENTITY: `nextseek-sidecar`
   # MUST equal `_sidecar_client.py`'s `NEXTSEEK_SIDECAR_HOST` default — that
   # is the Docker DNS alias agents actually resolve. `container_name:
-  # nextseek-sidecar` is pinned only for host-side ops (`docker logs` /
+  # ${INSTANCE_PREFIX:-}nextseek-sidecar` is named only for host-side ops (`docker logs` /
   # `docker inspect` / the validator's closed-set peer check), same pattern
   # as `dmac-bedrock-proxy` above.
   #
@@ -220,7 +222,7 @@ services:
     build:
       context: ./NessieAI/docker/ns-sidecar
     image: nextseek-ns-sidecar:latest
-    container_name: nextseek-sidecar
+    container_name: ${INSTANCE_PREFIX:-}nextseek-sidecar
     restart: unless-stopped
     deploy:
       resources:

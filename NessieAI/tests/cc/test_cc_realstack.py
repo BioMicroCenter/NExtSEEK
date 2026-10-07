@@ -54,7 +54,9 @@ from NessieAI.tests.cc.validate_step7_compose_deploy import (
 
 RUN = os.environ.get("RUN_REALSTACK") == "1"
 OPUS = "us.anthropic.claude-opus-5-5"
-PROXY_CONTAINER = os.environ.get("DMAC_PROXY_CONTAINER", "dmac-bedrock-proxy")
+PROXY_CONTAINER = os.environ.get(
+    "DMAC_PROXY_CONTAINER", os.environ.get("INSTANCE_PREFIX", "") + "dmac-bedrock-proxy"
+)
 NET = cc_engine.DEFAULT_NETWORK
 BUDGET_CAP = float(os.environ.get("NEXTSEEK_CC_MAX_BUDGET_USD", "2.0"))
 EVID_ROOT = Path(settings.BASE_DIR) / "outputs" / "cc_acceptance"

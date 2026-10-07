@@ -306,6 +306,7 @@ def _install_impl(
     config.render_db_env(REPO_ROOT, values)
     config.render_nextseek_env(REPO_ROOT, values)
     config.render_local_settings(REPO_ROOT, values)
+    config.ensure_seek_nginx_conf(REPO_ROOT)
 
     compose_env = state.compose_env()
     proxy_env_path = config.render_proxy_secret_env(REPO_ROOT)
@@ -313,7 +314,7 @@ def _install_impl(
     config.render_root_env(REPO_ROOT, compose_env, neo4j_password=values.neo4j_password)
     ui.ok(
         "docker/db.env, docker/nextseek.env, "
-        f"{layout.PROXY_SECRET_ENV.as_posix()}, dmac/local_settings.py, .env"
+        f"{layout.PROXY_SECRET_ENV.as_posix()}, docker/seek-nginx.conf, dmac/local_settings.py, .env"
     )
 
     # [5/9] Volumes

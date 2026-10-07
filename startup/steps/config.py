@@ -163,6 +163,22 @@ def render_nextseek_env(repo_root: Path, values: ConfigValues) -> Path:
     return output
 
 
+def ensure_seek_nginx_conf(repo_root: Path) -> Path:
+    """Make docker/seek-nginx.conf exist as a file (chmod 666), never overwriting it.
+
+    Compose bind-mounts it into `seek`; if absent Docker creates a directory there
+    and SEEK crash-loops. SEEK's entrypoint (uid 33) rewrites it on every start, so
+    an empty file is enough. An empty directory left by an earlier crash is replaced.
+    """
+    path = repo_root / "docker" / "seek-nginx.conf"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_dir():
+        path.rmdir()
+    path.touch(exist_ok=True)
+    path.chmod(0o666)
+    return path
+
+
 def render_local_settings(repo_root: Path, values: ConfigValues) -> Path:
     template = repo_root / "startup" / "templates" / "local_settings.py.template"
     output = repo_root / "dmac" / "local_settings.py"
