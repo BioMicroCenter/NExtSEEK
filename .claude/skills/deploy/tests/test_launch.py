@@ -411,7 +411,8 @@ def test_review_rules(tmp_path, capsys, mutate, needle):
 
 # --------------------------------------------------------------------------- runner
 def rendered_runner(tmp_path, capsys, **brief_over):
-    code, out, d = preflight(tmp_path, capsys, good_preflight(), **brief_over)
+    text = prod_preflight() if brief_over.get("instance") == "prod" else good_preflight()
+    code, out, d = preflight(tmp_path, capsys, text, **brief_over)
     assert code == 0, out.err
     code, out = run(["runner", "--brief", str(d / "brief.json")], capsys)
     assert code == 0, out.err
@@ -1154,3 +1155,150 @@ def test_the_prod_posterior_row_reads_a_quoted_value_and_a_real_1_still_stops(tm
                              instance="prod")
     rows = {r["id"]: r for r in json.loads((d / "preflight.json").read_text())["checks"]}
     assert rows["posterior_routing"]["verdict"] == verdict
+
+
+# --------------------------------------------------------------------------- prod, tonight's range (deploy_prod, 2026-10-07)
+SEED_DUMPS = ("startup/seed/neo4j.cypher.gz", "startup/seed/seek_production.sql.gz")
+
+
+def test_seed_tooling_and_docs_do_not_flag_but_seed_data_does():
+    for p in ("startup/seed/regenerate/run.sh", "startup/seed/regenerate/refresh/box/graph_export.py",
+              "startup/seed/README.md"):
+        assert rules.rule_for(p).flag is None, p
+    for p in (*SEED_DUMPS, "startup/seed/dmac.sql.gz", "startup/seed/sql/assay_context.sql"):
+        assert rules.rule_for(p).flag == "seed", p
+
+
+def prod_preflight(dirty_touched=SEED_DUMPS, seed_touched=SEED_DUMPS, **kv):
+    base = good_preflight(compose_config="ok", posterior_routing="unset", **kv)
+    lines = ["FILE present NessieAI/docker/bedrock-proxy/proxy-secret.env", "FILE present docker/seek-nginx.conf"]
+    lines += [f"DIRTY  M {p}" for p in SEED_DUMPS] + [f"DIRTY_TOUCHED {p}" for p in dirty_touched]
+    lines += [f"SEED_TOUCHED {p}" for p in seed_touched]
+    return base + "\n".join(lines) + "\n"
+
+
+def test_prod_preflight_passes_when_the_range_touches_only_the_two_dirty_dumps(tmp_path, capsys):
+    code, out, d = preflight(tmp_path, capsys, prod_preflight(), instance="prod")
+    assert code == 0, out.err
+    rows = {r["id"]: r for r in json.loads((d / "preflight.json").read_text())["checks"]}
+    assert rows["seed_touched"]["verdict"] == "ok" and rows["dirty_touched"]["verdict"] == "ok"
+
+
+def test_prod_preflight_still_stops_on_any_other_dirty_file_the_range_touches(tmp_path, capsys):
+    text = prod_preflight(dirty_touched=(*SEED_DUMPS, "dmac/local_settings.py"))
+    code, out, d = preflight(tmp_path, capsys, text, instance="prod")
+    assert code == 5 and "- dirty_touched:" in out.err
+    code, out, d = preflight(tmp_path / "b", capsys, prod_preflight(seed_touched=("startup/seed/dmac.sql.gz",)),
+                             instance="prod")
+    assert code == 5 and "- seed_touched:" in out.err
+
+
+def test_the_runner_sets_the_prod_dumps_aside_and_dev_has_nothing_to_set_aside(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path / "p", capsys, instance="prod")
+    assert f'SET_ASIDE="{" ".join(SEED_DUMPS)}"' in text and "set_aside || stop" in text
+    d, text = rendered_runner(tmp_path / "d", capsys)
+    assert 'SET_ASIDE=""' in text
+
+
+def _set_aside_run(tmp_path, dirty, range_touches):
+    """Run the runner's set_aside() on a real clone: `dirty` files carry a local edit, `range_touches` change upstream."""
+    up = tmp_path / "up"
+    up.mkdir()
+    g = lambda *a, cwd=up: subprocess.run(["git", "-C", str(cwd), *a], check=True, capture_output=True, text=True,
+                                          env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
+                                               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"}).stdout
+    g("init", "-q", "-b", "dev")
+    for p in SEED_DUMPS:
+        (up / p).parent.mkdir(parents=True, exist_ok=True)
+        (up / p).write_text("seed v1\n")
+    g("add", "."); g("commit", "-qm", "base")
+    box = tmp_path / "box"
+    subprocess.run(["git", "clone", "-q", str(up), str(box)], check=True)
+    for p in range_touches:
+        (up / p).write_text("seed v2\n")
+    g("commit", "-qam", "refresh"); exp = g("rev-parse", "HEAD").strip()
+    g("fetch", "-q", cwd=box)
+    for p in dirty:
+        (box / p).write_text("live prod dump\n")
+    d, text = rendered_runner(tmp_path / "r", None, instance="prod")
+    home = tmp_path / "home"
+    home.mkdir()
+    script = tmp_path / "sa.sh"
+    script.write_text(f'cd {box}; H={home}; TAG=t1; EXP={exp}; SET_ASIDE="{" ".join(SEED_DUMPS)}"; ST={home}/st\n'
+                      f"{_functions(text)}\nset_aside; echo rc=$?\n")
+    r = subprocess.run(["bash", str(script)], capture_output=True, text=True)
+    return box, home, r, g
+
+
+def test_set_aside_copies_the_dirty_dump_resets_it_and_lets_the_pull_through(tmp_path):
+    box, home, r, g = _set_aside_run(tmp_path, dirty=SEED_DUMPS, range_touches=SEED_DUMPS)
+    assert r.stdout.strip() == "rc=0", r.stderr
+    dest = home / "backups" / "seed-dirty-t1"
+    for p in SEED_DUMPS:
+        assert (dest / Path(p).name).read_text() == "live prod dump\n"
+        assert oct((dest / Path(p).name).stat().st_mode & 0o777) == "0o600"
+    assert oct(dest.stat().st_mode & 0o777) == "0o700"
+    assert (home / "st").read_text().count("SET_ASIDE") == 2
+    assert subprocess.run(["git", "-C", str(box), "merge", "--ff-only", "origin/dev"], capture_output=True).returncode == 0
+
+
+def test_set_aside_leaves_a_dump_the_range_does_not_change_and_a_clean_one_alone(tmp_path):
+    box, home, r, g = _set_aside_run(tmp_path, dirty=[SEED_DUMPS[0]], range_touches=[SEED_DUMPS[1]])
+    assert r.stdout.strip() == "rc=0", r.stderr
+    assert (box / SEED_DUMPS[0]).read_text() == "live prod dump\n"    # dirty, range leaves it: kept
+    assert not (home / "backups").exists()                           # the clean one needed nothing
+
+
+def _recording_box(monkeypatch, preflight_text, log):
+    """Replace subprocess.run for ssh/scp/tar only: record every argv, play the box's output; git runs for real."""
+    import base64
+    real = subprocess.run
+
+    def fake(cmd, **kw):
+        if cmd[0] in ("ssh", "scp", "tar"):
+            script = ""
+            if cmd[0] == "ssh":
+                m = re.search(r"echo ([A-Za-z0-9+/=]+) \| base64 -d", cmd[-1])
+                script = base64.b64decode(m.group(1)).decode() if m else ""
+            log.append({"argv": cmd[:-1] + [cmd[-1][:60] + ("..." if len(cmd[-1]) > 60 else "")] if cmd[0] == "ssh" else cmd,
+                        "script": script})
+            out = kw.get("stdout")
+            if out is not None and hasattr(out, "write"):
+                out.write(preflight_text.encode() if "KV done=yes" in script else
+                          b"ALL_DONE\n" if "ALL_DONE" in script else b"")
+            return subprocess.CompletedProcess(cmd, 0, stderr=b"")
+        return real(cmd, **kw)
+    monkeypatch.setattr(L.subprocess, "run", fake)
+
+
+def test_prod_short_form_dry_run_names_every_remote_command_and_touches_no_host(tmp_path, capsys, monkeypatch):
+    touch = (*SEED_DUMPS, "startup/seed/regenerate/run.sh", "nextseek_api/migrations/0099_x.py",
+             "docker-compose.yml", "nextseek_api/views.py")
+    repo, base, head = git_repo(tmp_path, n_commits=6, touch=touch)
+    subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", str(repo)], check=True)
+    log: list = []
+    _recording_box(monkeypatch, prod_preflight(expected=head, origin=head, head=base), log)
+    over = dict(instance="prod", expected_sha=head[:8], images=["app"], migrations_expected=True,
+                compose_change_expected=True, allowed_extras=["db backup ok"],
+                acknowledged_flags=[{"path": "startup/seed/neo4j.cypher.gz", "reason": "operator: runner sets the dump aside"},
+                                    {"path": "startup/seed/seek_production.sql.gz", "reason": "operator: runner sets the dump aside"}])
+    f = tmp_path / "brief-form.json"
+    f.write_text(json.dumps(brief_form(**over)))
+    d = tmp_path / "launch"
+    code, out = run(["prepare", "--form", str(f), "--out-dir", str(d), "--repo", str(repo), "--now", NOW_OK], capsys)
+    assert code == 0, out.err
+    assert "seed_touched" in out.out and "OK     seed_touched" in out.out
+    code, out = run(["start", "--brief", str(d / "brief.json"), "--form", str(filled_review(d)),
+                     "--now", NOW_OK], capsys)
+    assert code == 0, out.err
+    code, out = run(["finish", "--brief", str(d / "brief.json")], capsys)
+    purposes = [("scp" if e["argv"][0] == "scp" else "tar" if e["argv"][0] == "tar" else "ssh") for e in log]
+    assert purposes[:4] == ["ssh", "scp", "ssh", "ssh"], purposes   # preflight, scp runner, start, watch (pull next)
+    assert {e["argv"][-2] for e in log if e["argv"][0] == "ssh"} == {BOXES["instances"]["prod"]["ssh_host"]}
+    assert not any("sudo" in " ".join(e["argv"]) for e in log)        # prod is a direct login
+    runner = next(p for p in (d / "runner").glob("launch-*-run.sh"))
+    assert 'INSTANCE=prod' in runner.read_text() and "set_aside || stop" in runner.read_text()
+    transcript = tmp_path / "transcript.txt"
+    transcript.write_text("\n".join(f"{' '.join(e['argv'])}\n--- remote script ---\n{e['script']}" for e in log))
+    if os.environ.get("DEPLOY_DRYRUN_OUT"):
+        Path(os.environ["DEPLOY_DRYRUN_OUT"]).write_text(transcript.read_text() + "\n=== runner ===\n" + runner.read_text())

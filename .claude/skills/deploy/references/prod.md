@@ -13,6 +13,55 @@ then `start`, then `finish` (in the background), then `report`. In Ask mode each
 whole step; the step-by-step commands would ask about a dozen times. Read every output with the Read
 tool, never `cat` through Bash: auto mode refused even a local read of `$D/preflight.out`.
 
+### Which mode runs it (operator ruling 2026-10-07: an allow rule)
+
+Auto mode's classifier refused every prod step on 10-03, 10-04 and 10-05 (`brief` as "Production Deploy",
+the preflight and even a local `cat` of its output as "Production Reads"), and a spawned session is in auto
+mode. The operator's choice is an allow rule for exactly the four launch commands plus a Read of the launch
+folders. **Not verified**: whether the classifier honours it was not testable from the session that wrote
+this (it refused a docs lookup about itself), and a session may not add the rule itself (refused on 10-03
+as Self-Modification). The operator adds it to `~/.claude/settings.json` (or `.claude/settings.local.json`):
+
+```json
+{"permissions": {"allow": [
+  "Bash(uv run .claude/skills/deploy/scripts/launch.py prepare *)",
+  "Bash(uv run .claude/skills/deploy/scripts/launch.py start *)",
+  "Bash(uv run .claude/skills/deploy/scripts/launch.py finish *)",
+  "Bash(uv run .claude/skills/deploy/scripts/launch.py report *)",
+  "Read(//home/cdemurjian/code/dmac/docker/CI-reports/**)"
+]}}
+```
+
+The rule matches the command string, so run exactly that form (`uv run .claude/skills/deploy/scripts/launch.py
+prepare --form ...`, relative path, from the repo root; not `python`, not an absolute path). Leave the `start`
+line out to keep `start` (the one command that begins a rebuild) as the single thing the operator approves or
+types. **If a step is still refused: do not retry or rephrase.** The operator types the same command with a
+`!` in front (`! uv run .claude/skills/deploy/scripts/launch.py start ...`): it skips the classifier and its
+output lands in the chat, so nothing needs reading from a file. Ask mode (one approval per step) also works.
+
+### The range of 2026-10-07 (aa85faf9 to the round 6 tip), in order
+
+1. **Seed dumps.** The range changes `startup/seed/` data (seed refresh 46cba3ac), and prod holds LOCAL edits to
+   `neo4j.cypher.gz` and `seek_production.sql.gz` (its live dumps: passwords, sessions, emails). The runner now
+   copies those two to `~/backups/seed-dirty-<tag>/` (dir 0700, files 0600, byte-compared), resets them in git,
+   then pulls (status line `SET_ASIDE`). It does so only for a file the range changes. The brief acknowledges
+   the seed DATA paths `commits` lists (`dmac.sql.gz`, both dumps, `sql/assay_context.sql`) with the operator's
+   words in `acknowledged_flags`; seed tooling and docs no longer flag. Not covered: a prod edit to any OTHER
+   tracked file the range changes still stops at preflight (`dirty_touched`).
+2. **Migrations** (0025, 0026, and round 6's 0027): the brief needs `migrations_expected: true` and
+   `allowed_extras: ["db backup ok"]`. The skill takes no backup. The operator takes it by his runbook
+   (`mysqldump -h 127.0.0.1`, stored outside the checkout, 0600) BEFORE `start`; the extra only records that it is done, so write the dump's path in
+   the report. 0025 creates `assistant_cc_turn` and adds one column to an existing parent table; 0026
+   only adds columns to the new table.
+3. **Compose**: `docker-compose.yml` changed (laya-router behind profile `laya`, `${INSTANCE_PREFIX:-}` names),
+   so `compose_change_expected: true`. Container names are unchanged on prod (the prefix is empty). The
+   preflight `compose_config` row checks the file ALREADY on the box (the old one), not the incoming one; a
+   local `docker compose config -q` of the new file passes without `docker/laya.env`.
+4. **Images**: the range needs `app`, `cc-agent` and `nextseek-sidecar` (the sidecar was last rebuilt on prod
+   on 09-22). `commits` lists the newest 50 of ~220 commits; older ones go in `covers_skipped`.
+5. **Order and timing.** Backup (2), then `prepare` (its preflight must be under 90 min old at `start`), then
+   `start`. Prod has no stop window: do not start at the time of the nightly `mariadb-dump`.
+
 The full hand runbook, with a "found" line for every trap, is
 the operator's local prod-commands runbook (not in git). Its steps 2, 3, 5 and 8
 (backups, `.env` caps, context write, graph sync) are NOT part of a routine launch: run one only
@@ -53,7 +102,7 @@ There is no labs row on prod: labs load natively from SEEK's 54 institutions.
 
 **Known dirty on prod (leave alone, never commit, never print their contents):**
 ` M startup/seed/neo4j.cypher.gz`, ` M startup/seed/seek_production.sql.gz` (a real production
-dump: passwords, sessions, emails), `?? attributes_error.txt`, `?? dmac/local_settings.py.bk`,
+dump: passwords, sessions, emails; the runner sets them aside when a range changes them, see above), `?? attributes_error.txt`, `?? dmac/local_settings.py.bk`,
 `?? test.txt`, `?? logs/`, plus the context-refresh files the runner discards.
 
 ## 3. Runner

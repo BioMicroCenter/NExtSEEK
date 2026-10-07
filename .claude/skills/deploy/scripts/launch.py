@@ -642,7 +642,7 @@ def judge_preflight(p: dict, brief: BriefForm, tag: str) -> list[dict]:
     row("dirty", "; ".join(unknown_dirty) or "only the known list", not unknown_dirty,
         "git status shows only the instance's known-dirty files (never stash, commit or revert others)")
     bad_touch = [f for f in p["dirty_touched"]
-                 if not any(f.startswith(x) for x in inst.discard_before_pull)]
+                 if not any(f.startswith(x) for x in inst.discard_before_pull + inst.set_aside_before_pull)]
     row("dirty_touched", "; ".join(p["dirty_touched"]) or "none", not bad_touch,
         "the range touches no dirty file except the context refresh the runner discards")
     row("nextseek_env", kv.get("nextseek_env", "unknown"), kv.get("nextseek_env") == "ok",
@@ -672,8 +672,10 @@ def judge_preflight(p: dict, brief: BriefForm, tag: str) -> list[dict]:
     row("laya_mode", laya, laya_ok, "laya shadow is 0, 1 or absent and live is empty; a live value passes only "
         "when the brief's laya_live_revision names that revision; a value the rule cannot read stops")
     if inst.name == "prod":
-        row("seed_touched", "; ".join(p["seed_touched"]) or "none", not p["seed_touched"],
-            "the range does not touch the dirty production dumps")
+        loose = [f for f in p["seed_touched"] if f not in inst.set_aside_before_pull]
+        row("seed_touched", "; ".join(p["seed_touched"]) or "none", not loose,
+            "the range touches the dirty production dumps only where the runner sets them aside "
+            "(copy to ~/backups, reset, then pull)")
         missing_files = [f for f, s in p["files"].items() if s != "present"]
         row("compose_files", "; ".join(missing_files) or "present", not missing_files,
             "proxy-secret.env and seek-nginx.conf exist")
@@ -1099,6 +1101,7 @@ def runner_values(data: dict, brief: BriefForm, d: Path, exp_full: str, cases: l
         "SUMMARY_RED": rules.SUMMARY_RED,
         "WINDOWS": windows_hhmm(inst),
         "DISCARD": " ".join(inst.discard_before_pull),
+        "SET_ASIDE": " ".join(inst.set_aside_before_pull),
         "REFRESH_MARKER": "NessieAI/chat_nextseek/src/chat_nextseek/context/.context_db_refresh",
         "LOGNAME_CASES": "\n".join(f"  {c}) echo {rules.LOG_NAME[c]};;" for c in rules.COMPONENTS),
         "SUCCESS_CASES": "\n".join(f"  {c}) echo {shlex.quote(rules.SUCCESS_LINE[c])};;" for c in rules.COMPONENTS),

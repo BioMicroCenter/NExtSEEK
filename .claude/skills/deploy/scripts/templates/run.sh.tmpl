@@ -21,6 +21,7 @@ KNOWN_HEALTH_REDS='@@KNOWN_HEALTH_REDS@@'
 SUMMARY_RED='@@SUMMARY_RED@@'
 WINDOWS="@@WINDOWS@@"
 DISCARD="@@DISCARD@@"
+SET_ASIDE="@@SET_ASIDE@@"
 
 ST=$H/launch-$TAG.status; L=$H/launch-$TAG
 # >>> functions (tests/test_launch.py sources this block)
@@ -89,6 +90,16 @@ marker(){ # $1 container $2 file $3 fixed string
   n=$(docker exec "$1" grep -cF -- "$3" "$2" 2>/dev/null </dev/null)
   echo "MARKER count=${n:-0} container=$1 file=$2 pattern=$3"
 }
+set_aside(){ # local edits to files the range CHANGES: copy them to $H/backups/seed-dirty-$TAG (0600), then reset them
+  for p in $SET_ASIDE; do
+    [ -n "$(git status --short -- "$p")" ] || continue
+    git diff --quiet HEAD "$EXP" -- "$p" && continue   # the range leaves this file alone: keep the local edit
+    d=$H/backups/seed-dirty-$TAG
+    { mkdir -p "$d" && chmod 700 "$d" && cp -p "$p" "$d/" && chmod 600 "$d/$(basename "$p")" \
+      && cmp -s "$p" "$d/$(basename "$p")" && git checkout -- "$p"; } || return 1
+    say "SET_ASIDE $p -> $d"
+  done
+}
 # <<< functions
 
 mkdir -p "$L" "$H/backups"
@@ -102,6 +113,7 @@ busy=$(docker compose exec -T nextseek sh -c 'pgrep -af "manage.py (graph_sync -
 git fetch -q origin || stop "git fetch failed"
 [ "$(git rev-parse origin/dev)" = "$EXP" ] || stop "origin/dev is $(git rev-parse --short origin/dev), not the expected sha"
 for p in $DISCARD; do git checkout -- "$p" 2>/dev/null; done   # the app's daily context refresh only
+set_aside || stop "could not set the dirty $SET_ASIDE aside; nothing was reset past the failed file"
 rm -f @@REFRESH_MARKER@@
 git merge --ff-only "$EXP" >> "$L/pull.log" 2>&1 || stop "fast-forward refused, see $L/pull.log"
 [ "$(git rev-parse HEAD)" = "$EXP" ] || stop "HEAD $(git rev-parse --short HEAD) is not the expected sha"

@@ -142,6 +142,7 @@ class Instance:
     labs_copy: bool                # the runner re-copies /tmp/labs_db.json after an app rebuild
     known_dirty: tuple[str, ...]   # `git status --short` lines that are safe
     discard_before_pull: tuple[str, ...]  # the only paths the runner may reset
+    set_aside_before_pull: tuple[str, ...] = ()  # local edits the runner copies to ~/backups first, then resets
     known_reds: tuple[KnownRed, ...] = ()
     windows: tuple[Window, ...] = ()
     nessie_allowed_without_flag: bool = True
@@ -210,6 +211,9 @@ _INSTANCE_RULES = {
                      "?? attributes_error.txt", "?? dmac/local_settings.py.bk", "?? test.txt",
                      "?? logs/") + _REFRESH,
         discard_before_pull=(f"{_CONTEXT}/",),
+        # prod's two live dumps (passwords, sessions, emails): a range that changes them (seed refresh 46cba3ac)
+        # makes `merge --ff-only` refuse, so the runner copies them to ~/backups/seed-dirty-<tag>/ (0600) and resets
+        set_aside_before_pull=("startup/seed/neo4j.cypher.gz", "startup/seed/seek_production.sql.gz"),
         known_reds=(
             KnownRed("health", r"^no usable GHCR credential", "no GHCR credential file", "2026-09-23"),
         ),
@@ -264,7 +268,8 @@ IMAGE_RULES: tuple[PathRule, ...] = (
     PathRule(r"^docker/nginx\.conf$", (), "nginx",
              "single-file bind mount: needs an nginx --no-deps --force-recreate, only if allowed_extras says so"),
     PathRule(r"^docker-compose\.yml$", (), "compose", "a cap or env change may need a --no-deps recreate"),
-    PathRule(r"^startup/seed/", (), "seed", "the dirty production dumps on prod would collide"),
+    PathRule(r"^startup/seed/(regenerate/|README\.md$)", (), None, "seed refresh tooling and docs: nothing runs from them on a box"),
+    PathRule(r"^startup/seed/", (), "seed", "seed data: install loads it; on prod the runner sets the dirty dumps aside"),
     PathRule(r"(^|/)migrations/\d[^/]*\.py$", ("app",), "migration", "migrate runs at boot"),
     PathRule("^(" + "|".join(re.escape(p) for p in _SIX_CONTEXT) + ")$", ("app", "cc-agent"), None,
              "a canonical context file: skip the cc-agent and every 'cc-agent context' check fails"),
