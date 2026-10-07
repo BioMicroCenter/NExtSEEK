@@ -384,8 +384,24 @@ def test_a_turn_that_escapes_its_entry_point_takes_its_record_with_it():
     fields = turn_spend.cost_fields(caught.value)
     assert fields["total_cost_usd"] == pytest.approx(_price(OPUS, BEDROCK_USAGE), abs=1e-6)
     assert fields["cost_partial"] is False
-    assert set(fields) == {"total_cost_usd", "cost_partial", "models_used", "model_fallback"}
+    assert set(fields) == {"total_cost_usd", "cost_partial", "cost_estimated", "models_used", "model_fallback"}
+    assert fields["cost_estimated"] is False
     assert turn_spend.cost_fields(RuntimeError("no record")) == {}
+
+
+def test_a_crashed_turn_with_a_hung_call_says_its_cost_is_estimated():
+    """Round 6: the query_error a crash sends carries cost_estimated, as query_complete does."""
+    @turn_spend.collects_turn
+    def crash():
+        turn_spend.record_call(_entry(OPUS, agent="parser", outcome="timeout", provider="bedrock",
+                                      prompt_chars=68_000), err=LLMTimeoutError("timed out after 20 seconds"))
+        raise LLMFatalError("both models failed", agent="parser", unavailable=True)
+
+    with pytest.raises(LLMFatalError) as caught:
+        crash()
+    fields = turn_spend.cost_fields(caught.value)
+    assert fields["cost_estimated"] is True and fields["cost_partial"] is False
+    assert fields["total_cost_usd"] > 0
 
 
 def test_inside_a_turn_the_cost_fields_are_the_running_turns():

@@ -313,7 +313,8 @@ def cost_fields(exc: BaseException | None = None) -> dict[str, Any]:
         record = turn_record()
     if not isinstance(record, dict):
         return {}
-    return {key: record[key] for key in ("total_cost_usd", "cost_partial", "models_used", "model_fallback")
+    return {key: record[key] for key in ("total_cost_usd", "cost_partial", "cost_estimated", "models_used",
+                                         "model_fallback")
             if key in record}
 
 
