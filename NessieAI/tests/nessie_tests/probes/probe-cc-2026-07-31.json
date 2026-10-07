@@ -92,89 +92,12 @@
               ]
             }
           ]
-        },
-        {
-          "family": "harmonization",
-          "id": "cc.harmonize_scientist_irvine",
-          "name": "Scientist harmonization — the near-equal cluster",
-          "_why": "The sharpest single test available. Edward B. Irvine 379 vs Eddie Irvine 369 are near-equal, so a system that just picks the larger cluster gets Flynn right by luck and this one wrong. Verified against seek_production.",
-          "tags": [
-            "nessie",
-            "probe",
-            "cc",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "The Scientist field looks like it has the same people entered under different names. Which entries are duplicates of each other, and what should each one be?",
-              "pass_criteria": [
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "container_cc"
-                },
-                {
-                  "field": "route_source",
-                  "op": "eq",
-                  "value": "baml"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?i)Irvine"
-                }
-              ]
-            }
-          ]
         }
       ]
     },
     "batch_upload_preparation": {
       "description": "Build and validate a reviewable upload workbook from material the user has already agreed. Never uploads.",
       "variants": [
-        {
-          "family": "batch_upload_preparation",
-          "id": "cc.batch_upload_agreed_mapping",
-          "name": "Build the sheet for an already-agreed mapping (real, 1 run)",
-          "_why": "Verbatim shape of the operator's real turn. Enters the family at its declared tell: the user has ALREADY accepted the mapping and now wants the sheet, which is what separates it from harmonization.",
-          "tags": [
-            "nessie",
-            "probe",
-            "cc",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "RG = RaDR+/+; GPT+/+. Please produce the batch upload workbook for the Published Data project.",
-              "pass_criteria": [
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "container_cc"
-                },
-                {
-                  "field": "route_source",
-                  "op": "eq",
-                  "value": "baml"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                }
-              ]
-            }
-          ]
-        },
         {
           "family": "batch_upload_preparation",
           "id": "cc.batch_upload_correction_absorbed",
@@ -232,38 +155,6 @@
     "pipeline_output_reingest": {
       "description": "Register the outputs of a finished nf-core run as new A.* analysis samples.",
       "variants": [
-        {
-          "family": "pipeline_output_reingest",
-          "id": "cc.reingest_named_run",
-          "name": "Reingest a named run directory (real, 2 runs) — ROUTING ONLY",
-          "_why": "This family has NEVER completed a turn: killed by the $0.50 budget cap, then by 180s, then by 300s. docker/nextseek.env sets no timeout override, so cc_engine.py:76's 180s default is in force and clamp_turn_timeout bounds any UI override to it. The case therefore asserts that the question ROUTES correctly and expects the body to fail. Do not add a reply-content criterion until the timeout is raised.",
-          "tags": [
-            "nessie",
-            "probe",
-            "cc",
-            "full",
-            "known_fail"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "The scrnaseq run at /net/bmc-pub10/data1/bmc/pipeline_cd/runs/nfcore_gideon-4wk_260711_024438_0 has finished. Register its outputs as new A.SCXP analysis samples.",
-              "pass_criteria": [
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "container_cc"
-                },
-                {
-                  "field": "route_source",
-                  "op": "eq",
-                  "value": "baml"
-                }
-              ]
-            }
-          ]
-        },
         {
           "family": "pipeline_output_reingest",
           "id": "cc.reingest_bare_ask",
@@ -342,42 +233,6 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\b39\\b"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "open_ended_analysis",
-          "id": "cc.analysis_treatment_comparison",
-          "name": "Is treatment A better than B (real, 1 run)",
-          "_why": "The operator's real phrasing. Note this text also exists as an active corpus variant (unsup.is_treatment_a_significantly_b) with the same route assertion, so a disagreement between the two is itself informative.",
-          "tags": [
-            "nessie",
-            "probe",
-            "cc",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "Is treatment A significantly better than treatment B based on our sequencing results?",
-              "pass_criteria": [
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "container_cc"
-                },
-                {
-                  "field": "route_source",
-                  "op": "eq",
-                  "value": "baml"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
                 }
               ]
             }
@@ -605,5 +460,10 @@
         }
       ]
     }
-  }
+  },
+  "include_ids": [
+    "unsup.is_treatment_a_significantly_b",
+    "batch.rg_radr_gpt_please_produce_the_b",
+    "harmon.the_scientist_field_looks_like_i"
+  ]
 }

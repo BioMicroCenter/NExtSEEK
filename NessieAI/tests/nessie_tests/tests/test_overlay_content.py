@@ -290,7 +290,11 @@ def test_no_seed_turn_asserts_a_retired_rest_sample_search():
 
 def test_the_sop_case_asserts_the_graph_not_the_sops_endpoint():
     """R4 ruling 9: an SOP list or search is a protocol question for the graph; sops/ is download only."""
-    by = {(c.field, c.op): c.value for c in _merged()["path.what_sops_are_on_file"].turns[0].pass_criteria}
+    # 2026-10-07 test-set review (SPEC-2): path.what_sops_are_on_file was retired as a duplicate of r4p.sops_list, which asserts the same thing
+    import json
+    probe = json.loads((CORPUS.parent / "probes" / "probe-2026-10-03-r4-prod.json").read_text(encoding="utf-8"))
+    case = next(v for f in probe["families"].values() for v in f["variants"] if v["id"] == "r4p.sops_list")
+    by = {(c["field"], c["op"]): c["value"] for c in case["turns"][0]["pass_criteria"]}
     assert by[("parser_plan.mode", "eq")] == "graph_query"
-    assert ("api_plan.endpoint", "eq") not in by
+    assert ("api_plan.endpoint", "eq") not in by       # the endpoint is only excluded, never required
     assert not any(f == "last_reply" and v == "\\b593\\b" for (f, _), v in by.items())

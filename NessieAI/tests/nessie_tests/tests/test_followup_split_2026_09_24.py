@@ -102,7 +102,10 @@ NEW_TWO_TURNS = "route.ndma_mice_then_female_two_turns"
 
 def _raw():
     payload = json.loads(CORPUS.read_text(encoding="utf-8"))
-    return {v["id"]: v for fam in payload["families"].values() for v in fam["variants"]}
+    rows = [v for fam in payload["families"].values() for v in fam["variants"]]
+    # 2026-10-07 test-set review (SPEC-2): the retired definitions live in retired.json
+    rows += json.loads((CORPUS.parent / "retired.json").read_text(encoding="utf-8"))["retired"]
+    return {v["id"]: v for v in rows}
 
 
 def _route_rules(turn: dict) -> list[tuple[str, str]]:

@@ -627,7 +627,7 @@ def test_search_tree_got_stricter_not_looser_on_all_but_one_variant():
                if v.family == "lineage_tree" and v.id.startswith("tree.")
                and "no_floor" not in v.tags and "atlas" not in v.tags
                and v.id not in _ADDED_2026_08_06]
-    assert len(floored) == 13, [v.id for v in floored]
+    assert len(floored) == 9, [v.id for v in floored]   # 13 -> 9: 2026-10-07 test-set review (SPEC-2): four tree.* variants retired
 
     # 2026-09-23: every one of the 13 had its inline api_ok retired (the graph
     # answers lineage; prod suite, seed 17), so the "kept its inline api_ok" half of
@@ -947,7 +947,7 @@ def test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus():
     # 280 -> 283 on 2026-08-03: the create/update/delete refusal coverage came
     # back (one reinstated, two authored). This is the ONLY hardcoded corpus size
     # in the suite, so it is the one place that has to move.
-    assert len(merged) == 418  # 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) == 343  # 418 -> 343: 2026-10-07 test-set review (SPEC-2): 75 curated variants retired into retired.json. 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     ids = [v.id for v in merged]
     base_ids_all = {v.id for v in corpus.load_base()}
     defs = {v.id: v for v in corpus.load_all_definitions(CORPUS)}

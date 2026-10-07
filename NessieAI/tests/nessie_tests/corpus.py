@@ -135,16 +135,34 @@ def load_unified(path=None) -> list[Variant]:
     return _to_variants(_read_unified(path), include_retired=False)
 
 
+def _read_retired(path=None) -> list[dict]:
+    """The records in `retired.json`, next to the corpus. [] when there is no such file.
+
+    2026-10-07 test-set review (SPEC-2, REVIEW-RULINGS R1): every retired question lives in
+    `retired.json` with its full body and a retirement record, and `corpus.json` holds the active
+    variants only. This reader is for LOOKUPS ONLY (`load_all_definitions`, `variant_meta`, so an
+    old run report that names a retired id still resolves). It must never decide what is active or
+    what runs: a `retired.json` that a generator re-read was deleted on 2026-08-04 because it
+    resurrected retirements. `test_retired.py` pins that no selection path reads this file.
+    """
+    p = Path(path or _UNIFIED).with_name("retired.json")
+    if not p.exists():
+        return []
+    return json.loads(p.read_text(encoding="utf-8"))["retired"]
+
+
 def load_all_definitions(path=None) -> list[Variant]:
-    """Active AND retired. For tests that must inspect a retired definition."""
-    return _to_variants(_read_unified(path), include_retired=True)
+    """Active (corpus.json) AND retired (retired.json). For tests that must inspect a retired definition."""
+    out = _to_variants(_read_unified(path), include_retired=True)
+    out += _to_variants({"families": {"retired": {"variants": _read_retired(path)}}}, include_retired=True)
+    return out
 
 
 def variant_meta(path=None) -> dict[str, dict]:
     """id -> the nessie metadata block, for every definition including retired."""
     payload = _read_unified(path)
-    return {raw["id"]: {k: raw.get(k) for k in _META_KEYS}
-            for fam in payload["families"].values() for raw in fam["variants"]}
+    rows = [raw for fam in payload["families"].values() for raw in fam["variants"]] + _read_retired(path)
+    return {raw["id"]: {k: raw.get(k) for k in _META_KEYS} for raw in rows}
 
 
 _HIBAYES_KEYS = ("hibayes_subtype", "expected_behavior", "artifact_expected", "artifact_kind")
@@ -183,15 +201,16 @@ def hibayes_meta(variant_id: str, path=None) -> dict:
     `test_a_none_override_means_inherit_rather_than_null` owns the number.
     """
     payload = _read_unified(path)
-    for fam in payload["families"].values():
-        for raw in fam["variants"]:
-            if raw["id"] != variant_id:
-                continue
-            # Keyed on the variant's DECLARED family, never on the block it sits
-            # in: 3 variants differ, and the block is not always a real family.
-            defaults = payload.get("family_defaults", {}).get(raw["family"], {})
-            return {k: (raw.get(k) if raw.get(k) is not None else defaults.get(k))
-                    for k in _HIBAYES_KEYS}
+    # 2026-10-07: retired definitions live in retired.json; a lookup still resolves them (see _read_retired).
+    rows = [raw for fam in payload["families"].values() for raw in fam["variants"]] + _read_retired(path)
+    for raw in rows:
+        if raw["id"] != variant_id:
+            continue
+        # Keyed on the variant's DECLARED family, never on the block it sits
+        # in: 3 variants differ, and the block is not always a real family.
+        defaults = payload.get("family_defaults", {}).get(raw["family"], {})
+        return {k: (raw.get(k) if raw.get(k) is not None else defaults.get(k))
+                for k in _HIBAYES_KEYS}
     raise KeyError(f"no such variant: {variant_id}")
 
 

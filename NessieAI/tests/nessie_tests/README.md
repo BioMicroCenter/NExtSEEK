@@ -118,10 +118,20 @@ overlay files and their generator were deleted outright. `FAMILIES.json` declare
 for the production researcher questions)
 (`NessieAI/tests/nessie_tests/FAMILIES.json:4-5`, `NessieAI/tests/nessie_tests/scripts/remap_families.py:2`). `NessieAI/tests/nessie_tests/probes/` holds three
 hand-authored case files replayed by `NessieAI/tests/nessie_tests/tests/test_probe_files.py:1`.
-Measured 2026-09-30 against `NessieAI/tests/nessie_tests/corpus.json`: `merged` resolves 476
-variants over 542 turns; `curated`, which drops the unreviewed atlas set
-(`NessieAI/tests/nessie_tests/corpus.py:110-130`), leaves 418; `bayesian_ids` selects 153; one
-consistency group is defined; and 4 variants carry the `route_gate` tag.
+Measured 2026-10-07 against `NessieAI/tests/nessie_tests/corpus.json`: `merged` resolves 393
+variants over 453 turns; `curated`, which drops the unreviewed atlas set
+(`NessieAI/tests/nessie_tests/corpus.py:110-130`), leaves 343; `bayesian_ids` selects 142; one
+consistency group is defined; and 2 variants carry the `route_gate` tag.
+
+**Retired questions live in `NessieAI/tests/nessie_tests/retired.json`**, not in `corpus.json`: 251 records, each
+with the question's full body, a `retirement` record (`decided_by`, `family`, `reason`, `retired_on`, `source`, and
+`duplicate_of` naming the case that asks the question now) and where it came from (`lived_in`). The 2026-10-07 test-set
+review put 145 removals there (corpus variants, probe cases and cases that lived only in the round 5 sets, the round 4
+smoke files or the Container-CC seed) beside the 106 variants that were retired in `corpus.json` before. It is a record:
+nothing selects cases from it and no code path reads it to decide what is active (`tests/test_retired.py` pins that;
+the lookups `variant_meta`, `hibayes_meta` and `load_all_definitions` read it so an old run report that names a retired
+id still resolves). Reinstating a question is copying its body back into `corpus.json` with `status: "active"` and
+`retirement: null`, and deleting the record.
 
 **As two packaged skills.** Each carries its own SKILL.md and is not restated
 here. See `.claude/skills/nessie-run-review/SKILL.md:2-3` for turning a finished run
@@ -239,8 +249,9 @@ manifest, all host-safe under the unit lane's `--with` list.
 
 ## The selection
 
-`--bayesian` drives every variant flagged `is_bayesian` + `active`: **153 today**,
-the 149 of the 2026-08-06 question set plus one case from each of the four families added
+`--bayesian` drives every variant flagged `is_bayesian` + `active`: **142 today** (153 before the
+2026-10-07 test-set review retired 11 selected duplicates),
+the 149 of the 2026-08-06 question set, less the retired ones, plus one case from each of the four families added
 2026-09-23 (`pub.pmid_bare`, `person.lau_lab_samples`, `file.flow_file_for_a_patient`,
 `export.session_to_the_developers`), which that document does not list. 25 of the 26 task families, one distinct question per
 variant, and every one asserting a verified value on `last_reply` (the only field
@@ -252,7 +263,7 @@ per-family targets and the reasoning behind them, the three write/launch hazards
 and what was done about each, and the cost. It is meant to be reviewed and argued
 with before any paid turn.
 
-Budget: ~**$36.54** of CC arms (153 x $0.2388 observed) plus ~5.3 hours serial.
+Budget: ~**$33.91** of CC arms (142 x $0.2388 observed) plus ~5.3 hours serial.
 NS arms report $0.00. Suggested `--max-usd 45`.
 
 84 of the 149 keep their id AND their exact text from the 2026-08-06 run, 82 of
@@ -383,7 +394,7 @@ print(len(m), "resolved (what --scope all runs);",
 EOF
 ```
 
-(2026-09-30: 476 resolved / 418 curated. If that line and the pinned test ever
+(2026-10-07: 393 resolved / 343 curated. If that line and the pinned test ever
 disagree, this line is the stale one.)
 
 `--no-project` and the explicit `--with` list are load-bearing, not decoration.
@@ -528,10 +539,10 @@ NS turn the same four fields are real assertions and still fail.
 case in a floored family goes red, not all of them. Simulate every case in the
 curated corpus (the resolved corpus minus the atlas set: the frame every
 figure in this section uses, because the tests that pin them use it) routing CC
-and **416 of 418 are still red**, with all seven floored families at 100%. Four
+and **341 of 343 are still red**, with all seven floored families at 100%. Four
 criteria account for nearly all of it, and none of them is skipped: `route`
-fails on **329** variants, `parser_plan.mode` on **213**, `api_ok` on **17**
-and `api_plan.endpoint` on **18** (the last two fell from 128 and 104 on
+fails on **262** variants, `parser_plan.mode` on **163**, `api_ok` on **12**
+and `api_plan.endpoint` on **13** (the last two fell from 128 and 104 on
 2026-09-23, when the graph-answerable families stopped requiring the REST path, and again on 2026-10-03 when the
 REST sample-search seed turns and the SOP case moved to the graph). Those cases stay red until the corpus
 itself is settled.
@@ -557,8 +568,8 @@ scored, not because it started holding.
 
 **Every figure above is RECOMPUTED, not remembered**, in
 `tests/test_write_refusal_coverage.py`: the headline by
-`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (418 total /
-2 green / 416 red), the four per-criterion counts by
+`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (343 total /
+2 green / 341 red), the four per-criterion counts by
 `test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too`, and the
 two-frames claim by `test_the_cc_skip_turns_nothing_green_under_the_all_cc_simulation`.
 All three drive the curated corpus through `evaluate.evaluate_turn` with the real

@@ -258,14 +258,15 @@ def test_the_manifest_records_what_makes_a_diff_honest(tmp_path):
 
     m = runner.run_suite(
         base_url="http://dev:8000", auth_header="Basic x", tier="route", scope="specific",
-        corpus_path=CORPUS, out_dir=tmp_path, variant_id="route.ns_advanced",
+        corpus_path=CORPUS, out_dir=tmp_path, variant_id="route.ns_pipeline_by_question",  # 2026-10-07 test-set review (SPEC-2): route.ns_advanced was retired as a duplicate
+       
         post_query=lambda b: {"task_id": "t", "session_id": "s"},
         get_progress=lambda tid: ROUTED, sleep=lambda s: None, clock=lambda: 0.0,
         sample=0.1, seed=7)
 
     assert m.seed == 7
     assert m.sample == 0.1
-    assert m.selected_ids == ["route.ns_advanced"]
+    assert m.selected_ids == ["route.ns_pipeline_by_question"]
     assert m.base_url == "http://dev:8000"
     assert len(m.corpus_fingerprint) == 64
     # src != "baml" is an infrastructure condition, so the source must be recorded.

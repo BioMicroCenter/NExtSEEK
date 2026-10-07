@@ -1,5 +1,8 @@
-"""The two 2026-09-23 probes load, carry a _measure entry for every number they pin,
-and assert what the follow-up ruling needs: routes on every turn, reuse on the trace."""
+"""The 2026-09-23 forced aggregate probe loads and carries a _measure entry for every number it pins.
+
+2026-10-07 test-set review (SPEC-2): the other probe of the pair, probe-2026-09-23-followups-to-cc.json, asserted that
+every follow-up goes to Container-CC (the 09-23 ruling, replaced by the 09-24 split rule). All ten of its cases
+asked another case's question and were retired into retired.json; the file is gone and so are its tests."""
 from __future__ import annotations
 
 import copy
@@ -12,11 +15,10 @@ from NessieAI.tests.nessie_tests import corpus
 from NessieAI.tests.nessie_tests.scripts import pin_probe_truths as pin
 
 PROBES = Path(__file__).resolve().parents[1] / "probes"
-MAIN = PROBES / "probe-2026-09-23-followups-to-cc.json"
 FORCED = PROBES / "probe-2026-09-23-cc-aggregate-forced.json"
 
 
-@pytest.mark.parametrize("path", [MAIN, FORCED])
+@pytest.mark.parametrize("path", [FORCED])
 def test_the_probe_loads_as_a_case_file(path):
     include, variants = corpus.load_case_file(path)
     assert include == [] and variants
@@ -24,7 +26,7 @@ def test_the_probe_loads_as_a_case_file(path):
     assert {v.id for v in variants} == set(spec["_measure"])
 
 
-@pytest.mark.parametrize("path", [MAIN, FORCED])
+@pytest.mark.parametrize("path", [FORCED])
 def test_every_measured_number_is_a_criterion_and_repins(path):
     spec = json.loads(path.read_text())
     same = {cid: m["locals"] for cid, m in spec["_measure"].items()}
@@ -37,27 +39,6 @@ def test_every_measured_number_is_a_criterion_and_repins(path):
             for c in turn["pass_criteria"]:
                 if c["field"] == "last_reply" and c["value"] and c["value"].startswith("(?<![\\w.,/-])"):
                     assert c["value"] in owned, (v["id"], c["value"])
-
-
-def test_seeds_are_ns_followups_are_cc_and_reuse_is_asserted():
-    spec = json.loads(MAIN.read_text())
-    cases = list(pin.variants(spec))
-    assert 8 <= len(cases) <= 12
-    reuse = 0
-    for v in cases:
-        for turn in v["turns"]:
-            routes = [c["value"] for c in turn["pass_criteria"] if c["field"] == "route"]
-            assert len(routes) == 1, (v["id"], turn["label"])
-            if routes[0] == "container_cc":
-                fields = {c["field"] for c in turn["pass_criteria"]}
-                assert "route_source" in fields
-                reuse += "cc_trace_text" in fields
-    assert reuse >= 7
-    sticky = next(v for v in cases if v["id"] == "fu.refers_back_stays_self_contained_leaves")
-    assert [next(c["value"] for c in t["pass_criteria"] if c["field"] == "route")
-            for t in sticky["turns"]] == ["nextseek_query", "container_cc", "nextseek_query", "container_cc"]
-    negative = next(v for v in cases if v["id"] == "fu.fresh_session_first_question_stays_ns")
-    assert len(negative["turns"]) == 1
 
 
 def test_the_forced_probe_asserts_the_aggregate_op_and_no_route():

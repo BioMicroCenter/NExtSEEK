@@ -13,84 +13,11 @@
   "include_ids": [
     "advanced.basic_ndma",
     "advanced.find_me_mice",
-    "pbct.find_me_monkeys_that_have_both_2",
     "sys.what_kinds_of_reports_can_i_ge",
-    "write.export_all_metadata_for_nhp_22"
+    "write.export_all_metadata_for_nhp_22",
+    "pbct.find_me_monkeys_that_have_both"
   ],
   "families": {
-    "probe_endpoint_split": {
-      "description": "Issue #33 / cons.nhp_sequencing_engine. Both turns returned 408 = every NHP sample in the database, because advanced_search ORs a sampletype list instead of requiring a parent-child relationship. Ground truth is 139 via parents_by_child_types, corroborated by pbct returning 56 for [D.FLOW,D.SEQ] and 104 for [D.IMG,D.SEQ], both below 139. Written as two independent variants rather than a consistency group on purpose: agreement-only assertions cannot catch two identically-wrong turns, so this asserts a VALUE bound.",
-      "variants": [
-        {
-          "family": "probe_endpoint_split",
-          "id": "probe.nhp_seq_engine_q1",
-          "name": "NHP sequencing data (phrasing A) must not return every NHP sample",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "Find NHP sequencing data.",
-              "pass_criteria": [
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
-                },
-                {
-                  "field": "api_result_meta.row_count",
-                  "op": "lte",
-                  "value": 200
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "probe_endpoint_split",
-          "id": "probe.nhp_seq_engine_q2",
-          "name": "NHP sequencing data (phrasing B) must not return every NHP sample",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "Find sequencing data for non-human primates.",
-              "pass_criteria": [
-                {
-                  "field": "route",
-                  "op": "eq",
-                  "value": "nextseek_query"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
-                },
-                {
-                  "field": "api_result_meta.row_count",
-                  "op": "lte",
-                  "value": 200
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
     "probe_reingest": {
       "description": "pipeline_output_reingest is declared in route_capabilities.json with three example queries and has ZERO variants in the corpus. Both probes carry a REAL run directory, because a path-free phrasing cannot distinguish 'routed correctly but found nothing' from 'reingest works'. The two openings are deliberately different in shape — one announces a finished run, one asks for an artefact — so a pass is not an artefact of matching one template.",
       "_pair_design": "scrnaseq probe NAMES the target sample type (A.SCXP), rnaseq probe does NOT. That difference is the point: it tests whether reingest can infer the analysis type from the run outputs, or only when told.",

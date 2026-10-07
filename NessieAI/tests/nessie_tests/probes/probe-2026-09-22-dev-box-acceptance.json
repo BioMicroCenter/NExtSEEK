@@ -5,16 +5,15 @@
   "_gate_note": "Two cases are tagged known_fail on purpose (bucket 5 and bucket 6): the surfaces behind them were never built, so they record the gap without failing the gate. A known_fail that PASSES is reported as an xpass and means the expectation is stale, which is a finding in itself. cons.nhp_sequencing_engine will xpass for exactly that reason until the corpus keys are corrected.",
   "include_ids": [
     "harmon.organ_lung_case_split",
-    "search.hela_trap",
     "vocab.mtb_is_a_species_not_a_strain",
     "report.longest_running_investigation",
     "advanced.show_me_tis_samples_that_have",
     "report.shoulders_inventory",
-    "advanced.rna_from_the_kamm_lab",
     "memory.number_recall_within_chat",
     "memory.fresh_session_has_no_history",
     "harmon.immport_repository",
-    "cat.people_versus_scientists"
+    "cat.people_versus_scientists",
+    "export.session_to_the_developers"
   ],
   "families": {
     "post_rebuild": {
@@ -1215,51 +1214,6 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?s)\\A(?!.*/nextseek_api/)"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "family": "buckets",
-          "id": "bucket6.export_this_session",
-          "name": "Bucket 6: send us the chat link, third of the three things to build",
-          "_why": "Turn 498 ('Is there way to export this session to send to the development team for feedback?') was told there is no such feature, while the endpoint already returns a whole chat by id. Tagged known_fail until the wording is built; the failure to avoid is a flat denial of something that exists.",
-          "tags": [
-            "nessie",
-            "probe",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "Is there a way to export this session to send to the development team for feedback?",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?s)\\A(?!.*no such feature)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?s)\\A(?!.*not possible)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?i)all files"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?s)\\A(?!.*(can't turn that request|No downstream path|Reason from parser|can't do that one))"
                 }
               ]
             }

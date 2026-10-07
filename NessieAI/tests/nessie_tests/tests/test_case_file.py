@@ -21,8 +21,8 @@ block is a GBM question retired because the study does not exist, so the probe
 pays real money to ask questions whose only correct answer is zero. The bodies'
 `tags` come too, `known_fail` included, which nothing on the inline path
 interprets. Strip them, or use `include_ids`, which resolves against `merged()`
-and cannot select a retired case. Both hazards and that guarantee are measured by
-`test_copying_a_block_brings_retired_cases_and_their_tags` below — deliberately
+and cannot select a retired case. That guarantee is measured by
+`test_copying_a_block_cannot_bring_retired_cases` below (retired bodies now live in retired.json, so a copied block holds none) — deliberately
 not quoted as figures here, because a number in prose with nothing watching it
 goes quietly wrong the first time someone edits the corpus.
 
@@ -105,73 +105,28 @@ def test_include_ids_and_inline_variants_compose(tmp_path):
     assert [v.id for v in picked] == ["route.unrelated", "manual.x"]
 
 
-def test_copying_a_block_brings_retired_cases_and_their_tags(tmp_path):
-    """The footgun the module docstring warns about, held against the real corpus.
+def test_copying_a_block_cannot_bring_retired_cases(tmp_path):
+    """The footgun the module docstring used to warn about is gone with the retired bodies.
 
-    Two individually-correct things combine badly. `corpus.json` keeps retired
-    bodies in the same `families` block as active ones, because retirement is not
-    deletion — and `load_catalog` does not look at `status`, because a
-    hand-authored probe legitimately has none. So the obvious move, copy a block
-    and edit it, silently runs the retirements too.
-
-    Nothing here is hardcoded. The block, the counts and the reason text are all
-    derived from the corpus, so this cannot go stale the way the figures it
-    replaces would have: they were written into two docstrings with nothing
-    watching them, and `corpus.json` is hand-owned from Task 4 on.
-
-    It also pins the WAY OUT. `include_ids` resolves against `merged()`, which
-    returns active definitions only, so a retired id cannot be selected however
-    hard you try — that is what makes the docstring's advice actionable rather
-    than merely cautionary.
+    2026-10-07 test-set review (SPEC-2): `corpus.json` kept retired bodies in the same `families` block as active ones, and
+    `load_catalog` does not look at `status`, so copying a block silently ran the retirements too (and their
+    `known_fail` tags). Every retired question now lives in `retired.json`, so a copied block holds active
+    definitions only. Held against the real corpus: no block holds a retired body, a whole copied block runs only
+    active ids, and the way out still holds: `include_ids` resolves against `merged()`, so a retired id cannot be
+    selected however hard you try.
     """
     payload = json.loads(CORPUS.read_text(encoding="utf-8"))
     meta = corpus.variant_meta(CORPUS)
-    # The LARGEST block was the pick until the 2026-08-04 remap; `graph_traversal`
-    # now holds 25 retirements spanning 5 different reasons.
-    #
-    # Pick on the property assertion (c) needs and nothing else: a block holding a
-    # retired body tagged `known_fail`. The single-shared-reason filter went on
-    # 2026-08-06, when six more retirements meant no block satisfied BOTH — and it
-    # was never load-bearing anyway. Assertion (b) is about retirements being
-    # RECORDED judgements the probe would re-ask at full price, which is true of a
-    # block with five reasons exactly as much as one with a single reason.
-    def _has_known_fail(b):
-        return any(v["status"] == "retired" and "known_fail" in (v.get("tags") or [])
-                   for v in b["variants"])
-    candidates = {n: b for n, b in payload["families"].items() if _has_known_fail(b)}
-    assert candidates, "no block holds a retired body tagged known_fail"
-    name, block = max(candidates.items(), key=lambda kv: len(kv[1]["variants"]))
-    retired_in_block = [v["id"] for v in block["variants"] if v["status"] == "retired"]
-    assert retired_in_block, (
-        f"the chosen block ({name}) has no retired bodies, so this proves nothing. "
-        f"Pick a block that has some, or delete the warning this test backs.")
-
+    assert not [v["id"] for b in payload["families"].values() for v in b["variants"] if v["status"] != "active"]
+    name, block = max(payload["families"].items(), key=lambda kv: len(kv[1]["variants"]))
     path = _write(tmp_path, {"families": {name: block}})
     picked = corpus.select_cases(corpus.merged(CORPUS), *corpus.load_case_file(path))
-
-    # (a) the hazard: every retired body in the block came through and would run.
     assert len(picked) == len(block["variants"])
-    assert sorted(v.id for v in picked if meta[v.id]["status"] == "retired") \
-        == sorted(retired_in_block)
+    assert all(meta[v.id]["status"] == "active" for v in picked)
+    assert not any("known_fail" in v.tags for v in picked)
 
-    # (b) why it is worth money: every retirement in the block is a RECORDED
-    # judgement — a false premise, a nonexistent UID, an incoherent follow-up — so
-    # the probe pays full price to re-ask questions somebody already ruled out.
-    #
-    # The reason text is no longer pinned to the GBM string. The block this picks
-    # is whichever qualifying one is largest, and that moved when the 2026-08-06
-    # question set retired six more variants — anchoring on one family's prose made
-    # the test about which family happened to win rather than about the hazard.
-    reasons = {meta[i]["retirement"]["reason"] for i in retired_in_block}
-    assert reasons and all(len(r) > 20 for r in reasons), reasons
-
-    # (c) the sibling hazard: `tags` ride along, and `known_fail` means nothing on
-    # the inline path -- no floor, no route policy, and no expectation of failure.
-    assert any("known_fail" in v.tags for v in picked if meta[v.id]["status"] == "retired")
-
-    # (d) the way out. Asking for every retired id in the CORPUS, not just this
-    # block, so the guarantee is about `merged()` rather than about one family.
     all_retired = [vid for vid, m in meta.items() if m["status"] == "retired"]
+    assert all_retired, "guard: nothing retired means this test proves nothing"
     with pytest.raises(ValueError, match="not found in the corpus"):
         corpus.select_cases(corpus.merged(CORPUS), all_retired, [])
 

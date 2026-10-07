@@ -190,8 +190,9 @@ def test_a_self_contained_question_is_asserted_as_a_router_decision():
 # The A/B list
 # --------------------------------------------------------------------------- #
 
-def test_the_ab_list_has_the_twenty_five_cases():
-    assert len(_cases(AB)) == 25
+def test_the_ab_list_has_the_nineteen_cases():
+    # 25 -> 19: 2026-10-07 test-set review (SPEC-2): six cases asked another case's question and went to retired.json
+    assert len(_cases(AB)) == 19
 
 
 def test_the_ab_list_asserts_answers_never_routes():
@@ -244,7 +245,7 @@ def test_sha_expects_962_and_rejects_the_invented_first_20_rows():
 def test_ndma_seeds_are_keyed_for_the_dev_box():
     cases, measure = _cases(AB), _spec(AB)["_measure"]
     ndma = [vid for vid, v in cases.items() if "ndma" in v["turns"][0]["query"].lower()]
-    assert len(ndma) == 5, ndma
+    assert len(ndma) == 3, ndma   # 5 -> 3: 2026-10-07 test-set review (SPEC-2): ab.labs_of_those_mice and ab.three_assays_you_found were retired
     for vid in ndma:
         assert pin.number_pattern([NDMA_DEV]) in _values(cases[vid]["turns"][0]), vid
         assert NDMA_DEV in measure[vid]["locals"], vid
