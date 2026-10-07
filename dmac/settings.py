@@ -31,7 +31,9 @@ CSRF_TRUSTED_ORIGINS = os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(' ')
 
 # Hosts whose /sops/<id> URLs index OUR sops table even when this instance is
 # not that host: seeds taken from fairdata-dev carry dev URLs on every instance.
-FAIRDATA_SOP_HOSTS = os.getenv("FAIRDATA_SOP_HOSTS", "fairdata-dev.mit.edu fairdata.mit.edu").split()
+# Default is dev only; on a box seeded from prod, set FAIRDATA_SOP_HOSTS to
+# "fairdata-dev.mit.edu fairdata.mit.edu" (space-separated) to add the prod host.
+FAIRDATA_SOP_HOSTS = os.getenv("FAIRDATA_SOP_HOSTS", "fairdata-dev.mit.edu").split()
 
 DATABASES = {
     "default": {

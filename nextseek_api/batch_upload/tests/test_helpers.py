@@ -258,11 +258,11 @@ class TestParseProtocolValue:
             assert parse_protocol_value("http://127.0.0.1:8000/sops/5") == (5, None, None)
             assert parse_protocol_value("http://localhost/sops/5") == (5, None, None)
 
-    def test_fairdata_dev_and_prod_hosts_yield_the_id_but_foreign_does_not(self):
+    def test_fairdata_dev_host_yields_the_id_but_prod_and_foreign_do_not(self):
         """Seeds from fairdata-dev carry dev URLs (#132); other hosts stay no-id."""
         with override_settings(**_LOCAL):
             assert parse_protocol_value("https://fairdata-dev.mit.edu/sops/7") == (7, None, None)
-            assert parse_protocol_value("https://fairdata.mit.edu/fairdata/sops/8") == (8, None, None)
+            assert parse_protocol_value("https://fairdata.mit.edu/fairdata/sops/8").sop_id is None
             assert parse_protocol_value("http://localhost:3000/sops/5") == (5, None, None)
             assert parse_protocol_value("https://fairdomhub.org/sops/795").sop_id is None
 
