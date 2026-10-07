@@ -910,8 +910,10 @@ def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
     # -> [262, 163, 12, 13] on 2026-10-07, test-set review (SPEC-2): 75 curated variants retired into retired.json.
     # -> [262, 239, 12, 13] on 2026-10-07, graph-search grading (SPEC-2 R5): every sample-metadata question asserts
     # parser_plan.mode graph_query, which an all-CC simulation fails (+76 mode).
+    # -> [260, 239, 12, 13] on 2026-10-07, R7: the two open-ended summaries (Shoulders, longest-running) expect container_cc,
+    # which an all-CC simulation satisfies (-2 route).
     assert [counts.get(f) for f in ("route", "parser_plan.mode", "api_ok",
-                                    "api_plan.endpoint")] == [262, 239, 12, 13], (
+                                    "api_plan.endpoint")] == [260, 239, 12, 13], (
         f"{counts} — update the four counts in nessie_tests/README.md and in "
         f"tests/test_evaluate.py's 'Fix round 1' comment")
 
