@@ -621,6 +621,8 @@ class _Failover:
         # Round 6: inside an op some agents cut their first try further (call_budgets.CallBudget.op_first_try_s).
         # chain_label is the key budget_for is looked up by (call_llm_structured's _chain_key).
         self.op_first_s = budget_for(chain_label).op_first_try_s
+        # Round 6: the graph agent takes the move reserve only inside an op, never under a nested NS turn's deadline.
+        self.reserve_only_in_op = budget_for(chain_label).move_reserve_only_in_op
         self.scope = call_scope.current()
         self.attempt = 0  # the caller's attempt index, for a record written between attempts
         self.capped = False  # whether the scope's deadline cut this attempt's window
@@ -741,7 +743,8 @@ class _Failover:
 
         With no deadline it is the call's own window. Under one, a first try that can still
         move leaves ``MOVE_RESERVE_S`` for the move (never below ``MIN_FIRST_TRY_S``), unless
-        its agent's budget says ``op_move_reserve=False`` (the report writer),
+        its agent's budget says ``op_move_reserve=False`` (the report writer), or says
+        ``move_reserve_only_in_op`` (the graph agent) and the scope is not an op (a nested NS turn),
         and any attempt gets at most what is left. With ``DEADLINE_FLOOR_S`` or less left, no call
         starts: ``LLMFatalError`` with ``reason="deadline"``, and one ``deadline`` ledger record.
         Inside an op (``scope.is_op``) an agent with ``op_first_try_s`` gets at most that on its first try.
@@ -763,7 +766,8 @@ class _Failover:
         window = self.window
         if not self.switches and self.op_first_s is not None and self.scope.is_op:
             window = min(window, self.op_first_s)
-        if self.move_reserve and not self.switches and self._can_move():
+        reserve = self.move_reserve and (self.scope.is_op or not self.reserve_only_in_op)
+        if reserve and not self.switches and self._can_move():
             window = min(window, max(remaining - call_scope.MOVE_RESERVE_S, call_scope.MIN_FIRST_TRY_S))
         window = min(window, remaining)
         self.capped = window < self.window

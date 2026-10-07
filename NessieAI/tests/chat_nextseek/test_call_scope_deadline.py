@@ -6,8 +6,9 @@ Django then kept spending model calls nobody read for about ten minutes. Each op
 deadline (``ns/granular.run_op``), and every attempt's wall clock is cut to fit it:
 
 * a first try with a move still possible: at most what is left minus 20 s (the reserve for the move), never below
-  5 s, never more than what is left. Not for the report writer (operator ruling on review
-  finding 1, option A): the move could not redo its work in 20 s, so its first try gets what is left, as before;
+  5 s, never more than what is left. Not for the report writer (operator ruling on review finding 1, option A): the
+  move could not redo its work in 20 s, so its first try gets what is left, as before. The graph agent takes the
+  reserve only inside an op (round 6); under a deadline that is not an op it gets what is left;
 * the moved call, or a call with nowhere to move: at most what is left;
 * 2 s or less left before a call starts: no call; ``LLMFatalError`` with ``reason="deadline"`` (not unavailability:
   no model failed), and one ``deadline`` ledger record;
@@ -108,7 +109,8 @@ def _call(config, agent, model):
 
 
 def _op_scope(seconds):
-    """An op scope with a deadline: what run_op opens."""
+    """A scope with a deadline and no op marker: what a nested NS turn gets (``_limit_turn``), and what run_op opened
+    before round 6. ``_run_op_scope`` below is a real op."""
     return call_scope.scope(deadline_s=seconds)
 
 
@@ -267,24 +269,26 @@ def test_the_tool_loop_ends_on_the_deadline_too(run, clock, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# Option A (operator ruling on review finding 1, 2026-09-28): no reserve for the report writer. Round 6: the graph
-# agent no longer skips it.
+# Option A (operator ruling on review finding 1, 2026-09-28): no reserve for the graph agent and the report writer.
+# Round 6: the graph agent (and its repair) keeps the reserve inside an op; under a deadline that is not an op (a
+# nested NS turn's ``_limit_turn``) it gets what is left, as before. The report writer never takes it.
 # --------------------------------------------------------------------------
 
-def test_a_graph_answer_late_in_an_op_leaves_the_move_its_reserve(run, clock):
-    """entity and parser took 20 s: 35 s are left. Round 6: the graph agent keeps the move reserve, so its first
-    try gets min(60, max(35 - 20, 5)) = 15 s and the move keeps 20 s."""
+def test_a_healthy_graph_answer_late_in_an_op_is_no_longer_cut(run, clock):
+    """A deadline that is not an op (a nested NS turn): entity and parser took 20 s, 35 s are left. A genuine
+    4k-token graph answer takes 30 to 40 s; the reserve cut the graph agent to 15 s, then moved it to Sonnet with
+    20 s, which cannot redo it, and the op failed."""
     windows, behaviour = run
-    behaviour.update({FLASH: 10.0})
+    behaviour.update({FLASH: 32.0})
     with _op_scope(55):
         clock.now += 20
         assert _call(_Config(), "graph", FLASH).mode == FLASH
-    assert windows == [(FLASH, 15)], "what is left less the move reserve"
+    assert windows == [(FLASH, 35)], "what is left, as before F3-F5"
 
 
-def test_the_graph_agents_repair_calls_keep_the_reserve_too(run, clock):
-    """The repair call runs on the same catalog key, so the same row (round 6: the graph agent keeps the move
-    reserve): cut to leave room for a move."""
+def test_the_graph_agents_repair_calls_get_no_reserve_either(run, clock):
+    """A deadline that is not an op. The repair call runs on the same catalog key, so the same row: not cut to leave
+    room for a move."""
     windows, behaviour = run
     behaviour.update({FLASH: 1.0})
     config = _Config()
@@ -292,18 +296,55 @@ def test_the_graph_agents_repair_calls_keep_the_reserve_too(run, clock):
         clock.now += 20
         call_llm_structured(config, "q", _Plan, system="s", client=config.gcp, model_name=FLASH,
                             agent_label="graph", log_label="graph_agent_repair")
-    assert windows == [(FLASH, 15)]
+    assert windows == [(FLASH, 35)]
 
 
 def test_a_stalled_graph_agent_late_in_an_op_ends_on_the_deadline_not_as_an_outage(run, clock):
+    """A deadline that is not an op."""
     windows, behaviour = run
-    behaviour.update({FLASH: "stall", SONNET: "stall"})
+    behaviour.update({FLASH: "stall", SONNET: 1.0})
     with _op_scope(55) as scope:
         clock.now += 20
         with pytest.raises(LLMFatalError) as excinfo:
             _call(_Config(), "graph", FLASH)
         assert scope.failed(("gcp", FLASH)) is None, "a window the deadline cut marks nothing"
-    assert windows == [(FLASH, 15), (SONNET, 20)], "round 6: the graph agent keeps the move reserve; no call starts after the deadline"
+    assert windows == [(FLASH, 35)], "no call starts after the deadline"
+    assert excinfo.value.reason == "deadline" and excinfo.value.unavailable is False
+
+
+def test_a_graph_answer_late_in_an_op_leaves_the_move_its_reserve(run, clock):
+    """Inside an op, 35 s left. Round 6: the graph agent keeps the move reserve, so its first try gets
+    min(60, max(35 - 20, 5)) = 15 s and the move keeps 20 s."""
+    windows, behaviour = run
+    behaviour.update({FLASH: 10.0})
+    with _run_op_scope(55):
+        clock.now += 20
+        assert _call(_Config(), "graph", FLASH).mode == FLASH
+    assert windows == [(FLASH, 15)], "what is left less the move reserve"
+
+
+def test_the_graph_agents_repair_calls_keep_the_reserve_in_an_op(run, clock):
+    """Inside an op the repair call, on the same catalog key, is cut to leave room for a move too."""
+    windows, behaviour = run
+    behaviour.update({FLASH: 1.0})
+    config = _Config()
+    with _run_op_scope(55):
+        clock.now += 20
+        call_llm_structured(config, "q", _Plan, system="s", client=config.gcp, model_name=FLASH,
+                            agent_label="graph", log_label="graph_agent_repair")
+    assert windows == [(FLASH, 15)]
+
+
+def test_a_stalled_graph_agent_late_in_an_op_moves_then_ends_on_the_deadline(run, clock):
+    """Inside an op both models stall: the first try stops 20 s early, the move gets those 20 s, then the deadline."""
+    windows, behaviour = run
+    behaviour.update({FLASH: "stall", SONNET: "stall"})
+    with _run_op_scope(55) as scope:
+        clock.now += 20
+        with pytest.raises(LLMFatalError) as excinfo:
+            _call(_Config(), "graph", FLASH)
+        assert scope.failed(("gcp", FLASH)) is None, "a window the deadline cut marks nothing"
+    assert windows == [(FLASH, 15), (SONNET, 20)]
     assert excinfo.value.reason == "deadline" and excinfo.value.unavailable is False
 
 
@@ -312,7 +353,7 @@ def test_a_stalled_graph_agent_in_a_90_s_op_moves_and_answers(run, clock):
     and the move answers. Before, the first try took all that was left and the move was never called."""
     windows, behaviour = run
     behaviour.update({FLASH: "stall", SONNET: 5.0})
-    with _op_scope(90):
+    with _run_op_scope(90):
         clock.now += 30
         assert _call(_Config(), "graph", FLASH).mode == SONNET
     assert windows == [(FLASH, 40), (SONNET, 20)]
@@ -395,3 +436,12 @@ def test_an_op_scope_shared_by_an_inner_scope_stays_an_op(run, clock):
     with _run_op_scope(90), call_scope.scope(deadline_s=80):
         _call(_Config(), "parser", OPUS)
     assert windows[0] == (OPUS, 20)
+
+
+def test_an_op_run_inside_an_outer_scope_marks_it_an_op_only_while_it_runs():
+    """run_op inside a scope that is not an op (shared, never a new one) is an op while it runs; after it, the outer
+    scope is what it was."""
+    with call_scope.scope(deadline_s=120) as outer:
+        with call_scope.scope(deadline_s=90, op=True) as inner:
+            assert inner is outer and outer.is_op is True
+        assert outer.is_op is False

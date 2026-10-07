@@ -22,7 +22,9 @@ whose primary and fallback both failed earlier fails at once without calling eit
   tightens it to its own 85 s), and the ladder cuts every attempt's wall clock to fit it. A first
   try that can still move gets at most what is left minus ``MOVE_RESERVE_S``, never below ``MIN_FIRST_TRY_S``,
   except for the agents whose budget says ``op_move_reserve=False`` (the report writer, whose
-  move could not redo its work in that time), which get what is left; the moved call gets at most what is left;
+  move could not redo its work in that time), which get what is left, and the graph agent under a deadline that is
+  not an op (``move_reserve_only_in_op``: a nested NS turn), which gets what is left too; the moved call gets at
+  most what is left;
   with ``DEADLINE_FLOOR_S`` or less left no call starts. Inside an op
   (``scope(..., op=True)``, only ``run_op``) an agent's ``op_first_try_s`` caps its first try further. An NS turn opens
   its scope with no deadline, so nothing is cut. The waits that are not
@@ -165,14 +167,17 @@ def time_left_for(base_s: float) -> float | None:
 @contextlib.contextmanager
 def scope(deadline_s: float | None = None, *, op: bool = False) -> Iterator[CallScope]:
     """Open a scope for a turn or an op (``op=True`` only from run_op); inside another scope, share that one (and
-    bring its deadline forward, and mark it an op when ``op``)."""
+    bring its deadline forward, and mark it an op while this block runs when ``op``)."""
     outer = _CURRENT.get()
     if outer is not None:
         if deadline_s is not None:
             outer.limit(deadline_s)
-        if op:
-            outer.is_op = True
-        yield outer
+        was_op = outer.is_op
+        outer.is_op = was_op or op
+        try:
+            yield outer
+        finally:
+            outer.is_op = was_op
         return
     opened = CallScope(deadline_s, op=op)
     token = _CURRENT.set(opened)
