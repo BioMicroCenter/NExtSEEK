@@ -714,7 +714,7 @@ def test_the_total_checksum_budget_stops_hashing_but_the_manifest_is_still_usabl
 # the boundary so this test is about the handler's own logic, not staging).
 # ---------------------------------------------------------------------------
 
-def _patch_harvest(monkeypatch, *, failed=0, tmp_manifest_dir):
+def _patch_harvest(monkeypatch, *, failed=0, tmp_manifest_dir, pipeline=None):
     import NessieAI.ns.reingest.harvest as harvest_mod
     from NessieAI.ns.reingest import manifest as manifest_mod
 
@@ -731,6 +731,7 @@ def _patch_harvest(monkeypatch, *, failed=0, tmp_manifest_dir):
         return manifest_mod.RunManifest(
             run_dir=run_dir if run_dir is not None else root,
             execution=manifest_mod.ExecutionInfo(processes=3, failed=failed, non_terminal=0),
+            pipeline=pipeline or manifest_mod.PipelineInfo(),
         )
 
     monkeypatch.setattr(harvest_mod, "harvest_local", fake_harvest_local)
@@ -750,11 +751,17 @@ def _launch(run_dir="/net/cluster/runs/a", revision="3.18.0"):
 
 
 def test_run_harvest_refuses_a_run_with_no_launch_record(monkeypatch, tmp_path):
-    _patch_harvest(monkeypatch, tmp_manifest_dir=tmp_path)
+    seen = _patch_harvest(monkeypatch, tmp_manifest_dir=tmp_path)
+
+    def _no_staging(*a, **k):
+        pytest.fail("a run with no launch record must be refused before staging")
+
+    monkeypatch.setattr(g, "_stage_run_dir", _no_staging)
     with pytest.raises(g.OpValidationError,
                        match="reingest covers Nessie-launched runs; this run has no launch record"):
         _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/a"},
                   _Cfg(), None, None, None, None)
+    assert seen == {}
 
 
 def test_run_harvest_records_the_launch_and_fills_a_missing_version(monkeypatch, tmp_path):
@@ -764,6 +771,19 @@ def test_run_harvest_records_the_launch_and_fills_a_missing_version(monkeypatch,
                     _Cfg(), None, None, None, None)
     assert out["manifest"]["launch_record_id"] == run.pk
     assert out["manifest"]["pipeline"]["version"] == "3.18.0"
+    assert out["manifest"]["pipeline"]["name"] == "nf-core/rnaseq"
+
+
+def test_run_harvest_keeps_a_harvested_name_and_version(monkeypatch, tmp_path):
+    """The launch record fills only what the run's own files left empty."""
+    from NessieAI.ns.reingest import manifest as manifest_mod
+    _patch_harvest(monkeypatch, tmp_manifest_dir=tmp_path,
+                   pipeline=manifest_mod.PipelineInfo(name="nf-core/sarek", version="3.4.0"))
+    _launch(revision="3.18.0")
+    out = _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/a"},
+                    _Cfg(), None, None, None, None)
+    assert out["manifest"]["pipeline"]["name"] == "nf-core/sarek"
+    assert out["manifest"]["pipeline"]["version"] == "3.4.0"
 
 
 def test_harvest_local_alone_makes_a_test_only_manifest(tmp_path):

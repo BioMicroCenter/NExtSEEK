@@ -55,6 +55,55 @@ def test_an_approved_rule_makes_its_attribute_run_sourced():
     assert "FooRate" in answers.run_sourced_attributes(RNASEQ, {"FooRate": rule}, "D.SEQ")
 
 
+def _v2_map(rule: dict, **extra) -> maps.PipelineMap:
+    """A one-rule v2 map, for the v2 fields a committed map does not use yet."""
+    return maps.PipelineMap.model_validate({
+        "map_version": 2, "pipeline": "nf-core/rnaseq",
+        "outputs": [{"id": "r", "sample_type": "A.GEX", "primary_data": True, **rule}],
+        **extra})
+
+
+def test_a_second_candidate_makes_the_secondary_file_run_sourced():
+    """A losing candidate becomes a companion (spec G-4), so File_SecondaryData
+    comes from the run even when the rule declares no companions."""
+    pipeline_map = _v2_map({"candidates": ["a/*.tsv", "b/*.tsv"]})
+    sourced = answers.run_sourced_attributes(pipeline_map, {}, "A.GEX")
+    assert {"File_SecondaryData", "Checksum_SecondaryData"} <= sourced
+
+
+def test_a_single_candidate_without_companions_leaves_the_secondary_file_alone():
+    pipeline_map = _v2_map({"candidates": ["a/*.tsv"]})
+    assert "File_SecondaryData" not in answers.run_sourced_attributes(pipeline_map, {}, "A.GEX")
+
+
+def test_a_companion_slot_is_run_sourced():
+    pipeline_map = _v2_map({"candidates": ["a/*.tsv"],
+                            "companions": [{"glob": "a/*.rds", "slot": "ModelFile"}]})
+    sourced = answers.run_sourced_attributes(pipeline_map, {}, "A.GEX")
+    assert {"ModelFile", "File_SecondaryData"} <= sourced
+
+
+def test_a_dollar_row_default_is_run_sourced_for_a_type_the_map_has_rules_for():
+    pipeline_map = _v2_map({"candidates": ["a/*.tsv"]},
+                           row_defaults={"Genome": "$params.genome",
+                                         "Scientist": "@nextseek_user"})
+    sourced = answers.run_sourced_attributes(pipeline_map, {}, "A.GEX")
+    assert "Genome" in sourced
+    assert "Scientist" not in sourced   # @computed: session state, not a measurement
+    assert "Genome" not in answers.run_sourced_attributes(pipeline_map, {}, "A.ALN")
+
+
+def test_an_override_only_rule_is_run_sourced_in_the_effective_map():
+    pipeline_map = _v2_map({"candidates": ["a/*.tsv"]}, versions=[{
+        "range": ">=2", "outputs": [{
+            "id": "extra", "sample_type": "A.ALN", "primary_data": True,
+            "candidates": ["b/*.bam"], "attributes": {"Aligner": "$params.aligner"}}]}])
+    assert "File_PrimaryData" not in answers.run_sourced_attributes(pipeline_map, {}, "A.ALN")
+    effective, _ = maps.effective(pipeline_map, "2.0.0")
+    sourced = answers.run_sourced_attributes(effective, {}, "A.ALN")
+    assert {"File_PrimaryData", "Checksum_PrimaryData", "Aligner"} <= sourced
+
+
 def test_a_flagged_empty_person_field_is_fillable():
     rows = [MappedRow(sample_type="A.ALN")]
     findings = [_finding("A.ALN", "Scientist", 0, CATALOG_REQUIRED_MISSING, SOFT)]

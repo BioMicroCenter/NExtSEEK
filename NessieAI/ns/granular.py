@@ -912,6 +912,8 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
             pass
 
     run_manifest.launch_record_id = launch.pk
+    if not run_manifest.pipeline.name and launch.pipeline:
+        run_manifest.pipeline.name = launch.pipeline
     if not run_manifest.pipeline.version and launch.revision:
         run_manifest.pipeline.version = launch.revision
 
@@ -1441,6 +1443,11 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
     pipeline = run_manifest.pipeline.name or "nf-core/rnaseq"
     run_name = run_manifest.pipeline.run_name or manifest_id
     pipeline_map = maps.load(pipeline)
+    # The rules for this run's version. mapper.apply takes the base map and
+    # resolves the version itself; everything else here that reads rules (the
+    # assay per sample type, the curator-answer allowlist) reads this one, so
+    # a rule only a version override adds is not missed.
+    effective_map, _ = maps.effective(pipeline_map, run_manifest.pipeline.version)
     # Scientist is the person running the reingest, which is session state, not
     # anything the run directory knows. No session (a test, or the legacy rows
     # path) leaves it blank for a curator rather than attributing to nobody.
@@ -1505,7 +1512,7 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
     # is what every map did before the field existed.
     assay_name_by_type: dict[str, str] = {
         rule.sample_type: rule.assay
-        for rule in pipeline_map.outputs
+        for rule in effective_map.outputs
         if rule.assay
     }
     assay_cache: dict[tuple[str, str], list[int]] = {}
@@ -1733,7 +1740,7 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
                 mapped_by_type=first.mapped_by_type, unmapped=result.unmapped,
                 groups=list(first.ambiguous_primary_groups.values()),
                 run_sourced_for=lambda st: answers_mod.run_sourced_attributes(
-                    pipeline_map, approved, st),
+                    effective_map, approved, st),
                 attribute_exists=_attribute_exists,
                 existing_values=_existing_values)
         except answers_mod.AnswerRejected as exc:

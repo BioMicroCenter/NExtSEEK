@@ -118,6 +118,14 @@ def run_sourced_attributes(pipeline_map, approved_rules, sample_type: str) -> fr
     Derived from the map, so an attribute added to a map later is unwritable
     from chat by default. A ``@computed`` value (the session user, the run
     date, a name ordinal) is not a measurement and is not included.
+
+    Pass the map ``maps.effective`` returned for the run's version: a rule
+    that only a version override adds is otherwise missing here. Counted, for
+    each rule of ``sample_type``: its ``$`` attributes, with the map's
+    ``row_defaults`` and (if opted in) ``provenance_attributes`` under them;
+    the primary file and checksum; the secondary file and checksum when the
+    rule declares companions or more than one candidate (a losing candidate
+    becomes a companion, spec G-4); and every companion ``slot``.
     """
     out: set[str] = set()
     for name, rule in pipeline_map.qc_attributes.items():
@@ -129,14 +137,15 @@ def run_sourced_attributes(pipeline_map, approved_rules, sample_type: str) -> fr
     for rule in pipeline_map.outputs:
         if rule.sample_type != sample_type:
             continue
-        merged = ({**pipeline_map.provenance_attributes, **rule.attributes}
-                  if rule.include_provenance else dict(rule.attributes))
+        provenance = pipeline_map.provenance_attributes if rule.include_provenance else {}
+        merged = {**pipeline_map.row_defaults, **provenance, **rule.attributes}
         out |= {name for name, value in merged.items()
                 if isinstance(value, str) and value.startswith("$")}
         if rule.primary_data:
             out |= set(_PRIMARY)
-        if rule.companions:
+        if rule.companions or (rule.primary_data and len(rule.candidates) > 1):
             out |= set(_SECONDARY)
+        out |= {companion.slot for companion in rule.companions if companion.slot}
     return frozenset(out)
 
 

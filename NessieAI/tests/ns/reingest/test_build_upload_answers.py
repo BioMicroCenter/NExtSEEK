@@ -277,3 +277,50 @@ def test_parents_in_no_project_say_so(rows, tmp_path, monkeypatch):
     assert all(b["project_id"] is None
                and b["project_note"] == "the parent samples belong to no project"
                for b in result["builds"])
+
+
+def _gene_counts_only_in_an_override(monkeypatch):
+    """The committed rnaseq map with its A.GEX rule moved into a version
+    override (base outputs: A.ALN only). The manifest's 3.18.0 lands in the
+    override, so A.GEX rows come from a rule the base map does not have."""
+    from NessieAI.ns.reingest import maps
+    real_load = maps.load
+    base = real_load("nf-core/rnaseq").model_dump(by_alias=True)
+    gene_counts = next(r for r in base["outputs"] if r["sample_type"] == "A.GEX")
+    gene_counts["attributes"]["Software"] = "$params.aligner"
+    base["outputs"] = [r for r in base["outputs"] if r["sample_type"] != "A.GEX"]
+    base["versions"] = [{"range": ">=3.18,<3.19", "outputs": [gene_counts]}]
+    patched = maps.PipelineMap.model_validate(base)
+    monkeypatch.setattr(maps, "load",
+                        lambda p: patched if maps._slug(p) == "rnaseq" else real_load(p))
+
+
+@patch(CATALOG)
+def test_an_override_only_rules_attributes_are_run_sourced(rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    _gene_counts_only_in_an_override(monkeypatch)
+    with pytest.raises(g.OpValidationError) as exc:
+        _new(tmp_path, manifest_id, {"fill": [
+            {"sample_type": "A.GEX", "attribute": "File_PrimaryData", "value": "x.tsv"},
+            {"sample_type": "A.GEX", "attribute": "Software", "value": "star"}]})
+    message = str(exc.value)
+    assert "fill A.GEX.File_PrimaryData: this value comes from the run data" in message
+    assert "fill A.GEX.Software: this value comes from the run data" in message
+
+
+@patch(CATALOG)
+def test_an_override_only_rules_assay_is_looked_up(rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    _gene_counts_only_in_an_override(monkeypatch)
+    asked = []
+
+    def _assays(parent_uids, internal_assay_title):
+        asked.append(internal_assay_title)
+        return []
+
+    monkeypatch.setattr(
+        "nextseek_api.services.reingest_lookups.assay_ids_for_parents_strict", _assays)
+    _new(tmp_path, manifest_id)
+    assert "Gene Expression Analysis" in asked
