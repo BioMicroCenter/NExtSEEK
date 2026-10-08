@@ -7,9 +7,11 @@ file reviewable in a diff rather than a security surface.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Literal
 
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 MAPS_DIR = Path(__file__).resolve().parent.parent / "reingest_maps"
@@ -80,9 +82,43 @@ class UnknownPipelineMap(LookupError):
     """No committed map file for this pipeline."""
 
 
-class OutputRule(BaseModel):
+def expand_braces(pattern: str) -> list[str]:
+    """Expand every non-nested ``{a,b,c}`` group into every literal variant.
+
+    ``fnmatch`` and ``pathlib`` have no brace syntax. Groups expand left to
+    right and cross-multiply; a pattern with no ``{`` passes through.
+    """
+    if "{" not in pattern:
+        return [pattern]
+    before, _, rest = pattern.partition("{")
+    body, _, after = rest.partition("}")
+    return [expanded
+            for alt in body.split(",")
+            for expanded in expand_braces(before + alt + after)]
+
+
+_RULE_ID = re.compile(r"[a-z][a-z0-9_]*")
+
+
+class Companion(BaseModel):
+    """A file derived from a rule's primary output: a subset, an index, other
+    units, a model object. Never its own row. Placed by mapper in this order:
+    ``slot`` if set and the row's type has it, then ``File_SecondaryData``,
+    then appended to ``Notes`` (spec G-3)."""
     model_config = ConfigDict(extra="forbid")
     glob: str
+    slot: str | None = None
+
+
+class OutputRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Short name for the rule, unique in its map. Version overrides and fixture
+    # snapshots refer to rules by it. v1 maps get rule0, rule1, ... at load.
+    id: str = ""
+    # Ordered by preference, most-processed first. The first pattern with a
+    # match supplies the row's primary file; files matched by a later pattern
+    # become companions (spec G-4). v1's single `glob` reads as a one-item list.
+    candidates: list[str] = Field(min_length=1)
     sample_type: str
     # A typo here must fail map load loudly, not fall through to one branch
     # silently -- this repo has already been bitten by exactly that class of
@@ -95,7 +131,10 @@ class OutputRule(BaseModel):
     #   where per_run would keep the first and silently drop the rest.
     cardinality: Literal["per_sample", "per_run", "per_file"] = "per_sample"
     primary_data: bool = False
-    secondary_data_glob: str | None = None
+    companions: list[Companion] = Field(default_factory=list)
+    # A flag-dependent output (--cram, --tools salmon). Matching nothing is
+    # expected, so it is not reported as a miss (spec G-10).
+    optional: bool = False
     attributes: dict[str, str] = Field(default_factory=dict)
     # Whether this rule's rows also receive the map's `provenance_attributes`
     # (mapper.apply merges that one flat dict into every row of every output
@@ -118,18 +157,36 @@ class OutputRule(BaseModel):
     # rule -- the pre-existing behaviour, not an error.
     assay: str | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _v1_aliases(cls, data):
+        """v1 spelled one pattern as `glob` and one companion as
+        `secondary_data_glob`. Both still load, folded into the v2 fields."""
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        if "glob" in data:
+            if "candidates" in data:
+                raise ValueError("an output rule takes glob or candidates, not both")
+            data["candidates"] = [data.pop("glob")]
+        if "secondary_data_glob" in data:
+            secondary = data.pop("secondary_data_glob")
+            if secondary:
+                data["companions"] = [{"glob": secondary}, *data.get("companions", [])]
+        return data
+
     @model_validator(mode="after")
-    def per_file_needs_one_primary_file_per_row(self):
-        """A per_file rule counts its rows by the files its glob matches, so it
-        must declare primary data (or it matches nothing and emits nothing),
-        and it may not declare secondary data: nothing pairs one row's file
-        with its own secondary, so every row would get the first one."""
+    def per_file_rules(self):
+        """A per_file rule counts its rows by the files it matches, so it must
+        declare primary data. It takes exactly one candidate pattern: per-stem
+        candidate fallback is not supported. Companions pair with each row's
+        file by its stem (see mapper._pairs_with_row_file)."""
         if self.cardinality == "per_file":
             if not self.primary_data:
-                raise ValueError(f"per_file rule {self.glob!r} must set primary_data")
-            if self.secondary_data_glob:
+                raise ValueError(f"per_file rule {self.candidates[0]!r} must set primary_data")
+            if len(self.candidates) != 1:
                 raise ValueError(
-                    f"per_file rule {self.glob!r} cannot declare secondary_data_glob")
+                    f"per_file rule {self.candidates[0]!r} takes exactly one candidate pattern")
         return self
 
 
@@ -149,6 +206,15 @@ class UnmappedRuling(BaseModel):
     why: str
 
 
+class VersionOverride(BaseModel):
+    """Rules for one release range. An output with an existing id replaces that
+    base rule, a new id adds a rule, and `drop` removes base rules by id."""
+    model_config = ConfigDict(extra="forbid")
+    range: str
+    outputs: list[OutputRule] = Field(default_factory=list)
+    drop: list[str] = Field(default_factory=list)
+
+
 class PipelineMap(BaseModel):
     model_config = ConfigDict(extra="forbid")
     map_version: int = 1
@@ -157,6 +223,13 @@ class PipelineMap(BaseModel):
     harvest_globs: list[str] = Field(default_factory=list)
     derived_metrics: list[str] = Field(default_factory=list)
     outputs: list[OutputRule] = Field(default_factory=list)
+    # This map's own inventory patterns (listed by name and size, never copied).
+    # The stager lists the shared core plus every map's list (spec §4.1).
+    inventory_globs: list[str] = Field(default_factory=list)
+    # Merged into every output rule's attributes before the rule's own; an
+    # attribute the row's type lacks is dropped at map time (spec G-9).
+    row_defaults: dict[str, str] = Field(default_factory=dict)
+    versions: list[VersionOverride] = Field(default_factory=list)
     # Which sample types this pipeline's samplesheet can legitimately point
     # back to as a PARENT. `nextseek_api.services.reingest_lookups.
     # uids_by_primary_data`, the fastq-path fallback used when a run has no
@@ -211,9 +284,50 @@ class PipelineMap(BaseModel):
                 + "; ".join(bad))
         return self
 
+    @model_validator(mode="after")
+    def rule_ids_and_ranges(self):
+        if self.map_version >= 2:
+            missing = [r.candidates[0] for r in self.outputs if not r.id]
+            if missing:
+                raise ValueError(f"every v2 output rule needs an id; missing on {missing}")
+        else:
+            for index, rule in enumerate(self.outputs):
+                if not rule.id:
+                    rule.id = f"rule{index}"
+        ids = [r.id for r in self.outputs]
+        bad = [i for i in ids if not _RULE_ID.fullmatch(i)]
+        if bad:
+            raise ValueError(f"rule id must be lowercase word characters: {bad}")
+        dupes = sorted({i for i in ids if ids.count(i) > 1})
+        if dupes:
+            raise ValueError(f"duplicate rule id(s): {dupes}")
+        for spec in [self.applies_to_versions] if self.applies_to_versions else []:
+            _specifier(spec)
+        known = set(ids)
+        for override in self.versions:
+            _specifier(override.range)
+            unknown = [d for d in override.drop if d not in known]
+            if unknown:
+                raise ValueError(f"override {override.range!r} drops unknown rule(s) {unknown}")
+            replaced = {r.id for r in override.outputs}
+            if not all(replaced):
+                raise ValueError(f"override {override.range!r}: every output needs an id")
+            both = sorted(replaced & set(override.drop))
+            if both:
+                raise ValueError(
+                    f"override {override.range!r} both drops and replaces {both}")
+        return self
+
 
 def _slug(pipeline: str) -> str:
     return pipeline.split("/")[-1].strip().lower()
+
+
+def _specifier(text: str) -> SpecifierSet:
+    try:
+        return SpecifierSet(text)
+    except InvalidSpecifier as exc:
+        raise ValueError(f"not a version range: {text!r}") from exc
 
 
 def available() -> list[str]:

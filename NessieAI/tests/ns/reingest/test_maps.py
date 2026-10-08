@@ -108,18 +108,6 @@ def test_per_file_is_a_valid_cardinality():
     assert pipeline_map.outputs[0].cardinality == "per_file"
 
 
-def test_a_per_file_rule_cannot_declare_secondary_data():
-    # A secondary glob matches every row's secondary at once; nothing pairs one
-    # results table with its own index file, so the map must not pretend to.
-    with pytest.raises(pydantic.ValidationError):
-        maps.PipelineMap.model_validate({
-            "pipeline": "nf-core/differentialabundance",
-            "outputs": [{"glob": "*.results.tsv", "sample_type": "A.GEX",
-                         "cardinality": "per_file", "primary_data": True,
-                         "secondary_data_glob": "*.results.tsv.idx"}],
-        })
-
-
 def test_a_per_file_rule_must_declare_primary_data():
     # Its rows are counted by the files its glob matches; without primary data
     # no file is matched and the rule could only ever emit nothing.
@@ -149,3 +137,88 @@ def test_resolve_ref_cannot_reach_a_dunder_or_bound_method_on_a_model():
     # A genuine declared field on the same section must still resolve, so the
     # fix is a restriction to known fields, not a blanket rejection.
     assert maps.resolve_ref("$pipeline.name", run_manifest) == "nf-core/rnaseq"
+
+
+# ── schema v2 ────────────────────────────────────────────────────────────────
+
+def _v2(**overrides):
+    base = {"map_version": 2, "pipeline": "nf-core/x", "applies_to_versions": ">=1,<2",
+            "outputs": [{"id": "aln", "candidates": ["a/*.bam"], "sample_type": "A.ALN",
+                         "primary_data": True}]}
+    base.update(overrides)
+    return maps.PipelineMap.model_validate(base)
+
+
+def test_a_v1_glob_reads_as_one_candidate_and_secondary_as_one_companion():
+    m = maps.PipelineMap.model_validate({
+        "pipeline": "nf-core/x",
+        "outputs": [{"glob": "a/*.bam", "secondary_data_glob": "a/*.bam.bai",
+                     "sample_type": "A.ALN", "primary_data": True}]})
+    rule = m.outputs[0]
+    assert rule.candidates == ["a/*.bam"]
+    assert [(c.glob, c.slot) for c in rule.companions] == [("a/*.bam.bai", None)]
+    assert rule.id == "rule0"
+
+
+def test_glob_and_candidates_together_are_refused():
+    with pytest.raises(ValueError, match="glob or candidates"):
+        maps.PipelineMap.model_validate({"pipeline": "nf-core/x", "outputs": [
+            {"glob": "a", "candidates": ["b"], "sample_type": "A.ALN"}]})
+
+
+def test_a_v2_rule_must_have_an_id():
+    with pytest.raises(ValueError, match="needs an id"):
+        _v2(outputs=[{"candidates": ["a/*.bam"], "sample_type": "A.ALN"}])
+
+
+def test_rule_ids_must_be_unique_and_lowercase_words():
+    with pytest.raises(ValueError, match="duplicate"):
+        _v2(outputs=[{"id": "x", "candidates": ["a"], "sample_type": "A.ALN"},
+                     {"id": "x", "candidates": ["b"], "sample_type": "A.ALN"}])
+    with pytest.raises(ValueError, match="rule id"):
+        _v2(outputs=[{"id": "Bad-Id", "candidates": ["a"], "sample_type": "A.ALN"}])
+
+
+def test_an_empty_candidate_list_is_refused():
+    with pytest.raises(ValueError):
+        _v2(outputs=[{"id": "x", "candidates": [], "sample_type": "A.ALN"}])
+
+
+def test_a_per_file_rule_may_now_declare_companions():
+    m = _v2(outputs=[{"id": "de", "candidates": ["t/*.deseq2.results.tsv"],
+                      "sample_type": "A.GEX", "cardinality": "per_file",
+                      "primary_data": True,
+                      "companions": [{"glob": "t/*.results_filtered.tsv"}]}])
+    assert m.outputs[0].companions[0].glob == "t/*.results_filtered.tsv"
+
+
+def test_a_per_file_rule_takes_exactly_one_candidate():
+    with pytest.raises(ValueError, match="one candidate"):
+        _v2(outputs=[{"id": "de", "candidates": ["a/*.tsv", "b/*.tsv"],
+                      "sample_type": "A.GEX", "cardinality": "per_file",
+                      "primary_data": True}])
+
+
+def test_an_override_may_only_drop_rules_that_exist():
+    with pytest.raises(ValueError, match="drops unknown rule"):
+        _v2(versions=[{"range": ">=2", "drop": ["nope"]}])
+
+
+def test_an_override_may_not_drop_and_replace_the_same_rule():
+    with pytest.raises(ValueError, match="both drops and replaces"):
+        _v2(versions=[{"range": ">=2", "drop": ["aln"],
+                       "outputs": [{"id": "aln", "candidates": ["b/*.bam"],
+                                    "sample_type": "A.ALN"}]}])
+
+
+def test_a_bad_version_range_fails_at_load():
+    with pytest.raises(ValueError):
+        _v2(applies_to_versions="not a range")
+    with pytest.raises(ValueError):
+        _v2(versions=[{"range": "~~~"}])
+
+
+def test_expand_braces_moved_to_maps_and_mapper_keeps_the_alias():
+    from NessieAI.ns.reingest import mapper
+    assert maps.expand_braces("{a,b}/x.{c,d}") == ["a/x.c", "a/x.d", "b/x.c", "b/x.d"]
+    assert mapper._expand_braces is maps.expand_braces

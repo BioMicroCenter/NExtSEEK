@@ -290,32 +290,8 @@ def _with_build_local_ordinals(context: dict) -> dict:
     return {**context, "next_name_ordinal": next_ordinal}
 
 
-def _expand_braces(pattern: str) -> list[str]:
-    """Expand every non-nested ``{a,b,c}`` alternation in an output rule's
-    ``glob`` into every literal variant -- ``fnmatch`` itself has no brace
-    syntax. Every committed output rule's ``glob`` today (see
-    ``NessieAI/ns/reingest_maps/rnaseq.outputs.json``) uses at most one,
-    unnested group, e.g. ``"{star_salmon,star_rsem,hisat2}/*.bam"``, but the
-    SAME map file's ``harvest_globs`` already uses two in one pattern
-    (``"{star_salmon,star_rsem,hisat2}/samtools_stats/*.{flagstat,idxstats,stats}"``),
-    so two groups are an established habit in this map format, not a
-    hypothetical. Handling only the first group silently mismatches a
-    second: the residual ``{p,q}`` would reach ``fnmatch`` literally, match
-    nothing, and drop a checksum with no error or warning. This recurses
-    left-to-right instead, expanding one group per call and recursing on
-    the (still possibly braced) remainder, so any number of non-nested
-    groups fully cross-multiplies; a pattern with no ``{`` passes through
-    unchanged. A pattern with an unbalanced/nested ``{`` (no committed map
-    has one) falls through to ``partition``'s empty-string behaviour on a
-    missing ``}``, which is caught by whatever loads the map, not here.
-    """
-    if "{" not in pattern:
-        return [pattern]
-    before, _, rest = pattern.partition("{")
-    body, _, after = rest.partition("}")
-    return [expanded
-            for alt in body.split(",")
-            for expanded in _expand_braces(before + alt + after)]
+# Moved to maps.expand_braces; harvest.staged_globs and older tests use this name.
+_expand_braces = maps.expand_braces
 
 
 # ── computed values ("@name" in a map) ─────────────────────────────────────
@@ -718,7 +694,7 @@ def _primary_candidates(rule: maps.OutputRule, run_manifest: manifest.RunManifes
     """
     if not rule.primary_data:
         return []
-    patterns = _expand_braces(rule.glob)
+    patterns = [p for pattern in rule.candidates for p in _expand_braces(pattern)]
     return sorted(
         (o for o in run_manifest.outputs
          if (sample_name is None or o.sample == sample_name)
@@ -729,12 +705,12 @@ def _primary_candidates(rule: maps.OutputRule, run_manifest: manifest.RunManifes
 def _secondary_candidates(rule: maps.OutputRule,
                           run_manifest: manifest.RunManifest,
                           sample_name: str | None) -> list[manifest.OutputRecord]:
-    """Every inventoried output this rule's ``secondary_data_glob`` matches.
+    """Every inventoried output this rule's first companion glob matches.
 
     The sibling of ``_primary_candidates``, and deliberately shaped the same
     way: same brace expansion, same per-sample filter on the harvest-time
     ``OutputRecord.sample`` attribution, same sorted-by-path result. A rule
-    that declares no ``secondary_data_glob`` has no secondary data, exactly as
+    that declares no companion has no secondary data, exactly as
     a rule with ``primary_data: false`` has no primary -- empty, never an
     error.
 
@@ -743,9 +719,9 @@ def _secondary_candidates(rule: maps.OutputRule,
     secondary without a primary is a map mistake rather than something to
     honour half-way.
     """
-    if not rule.primary_data or not rule.secondary_data_glob:
+    if not rule.primary_data or not rule.companions:
         return []
-    patterns = _expand_braces(rule.secondary_data_glob)
+    patterns = _expand_braces(rule.companions[0].glob)
     return sorted(
         (o for o in run_manifest.outputs
          if (sample_name is None or o.sample == sample_name)
@@ -783,7 +759,7 @@ def _primary_output(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
                     sample_name: str | None) -> manifest.OutputRecord | None:
     """The one candidate from ``_primary_candidates`` to treat as this rule's
     primary file, so ``Checksum_PrimaryData`` can be looked up by the SAME
-    path ``run-checksum`` hashed -- reusing ``rule.glob``/``rule.primary_data``
+    path ``run-checksum`` hashed -- reusing ``rule.candidates``/``rule.primary_data``
     rather than a static ``$``-ref, since the harvested path is a run-time
     value no committed map can name in advance (see mapper.py's module
     docstring on why a map rule cannot express this directly).
@@ -1110,7 +1086,7 @@ def _per_file_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
     rows: list[MappedRow] = []
     for output in candidates:
         only_this_file = run_manifest.model_copy(update={"outputs": [output]})
-        row_context = {**(context or {}), "file_path": output.path, "file_glob": rule.glob,
+        row_context = {**(context or {}), "file_path": output.path, "file_glob": rule.candidates[0],
                        "all_outputs": list(run_manifest.outputs)}
         row = _per_run_row(rule, merged_attrs, only_this_file, row_context)
         if row is None:

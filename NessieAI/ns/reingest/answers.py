@@ -135,7 +135,7 @@ def run_sourced_attributes(pipeline_map, approved_rules, sample_type: str) -> fr
                 if isinstance(value, str) and value.startswith("$")}
         if rule.primary_data:
             out |= set(_PRIMARY)
-        if rule.secondary_data_glob:
+        if rule.companions:
             out |= set(_SECONDARY)
     return frozenset(out)
 

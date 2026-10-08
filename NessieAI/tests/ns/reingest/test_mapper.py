@@ -773,7 +773,7 @@ def test_a_checksum_for_a_path_the_rule_does_not_match_is_not_attached():
 
 
 def test_the_brace_glob_matches_whichever_aligner_directory_was_actually_used():
-    # rule.glob is "{star_salmon,star_rsem,hisat2}/*.markdup.sorted.bam" --
+    # rule.candidates[0] is "{star_salmon,star_rsem,hisat2}/*.markdup.sorted.bam" --
     # every alternative must match, not only the first.
     run = _multi_sample_run(
         manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
