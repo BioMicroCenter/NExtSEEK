@@ -1,0 +1,3 @@
+Workflow:
+  nf-core/rnavar: v1.3.0
+  Nextflow: 25.04.6
