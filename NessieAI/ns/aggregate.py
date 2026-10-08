@@ -36,6 +36,7 @@ from __future__ import annotations
 import contextvars
 import json
 import re
+import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Any, Callable
@@ -354,12 +355,14 @@ def _run_part(k: int, text: str, *, label: str, question: str, multi: bool, conf
 
 def _prelude(config: Any, question: str, parts: list[str], exec_fn: Callable, *, vocabulary: Any = None,
              vocabulary_question: str | None = None, session: Any = None, turn: Any = None, agent_plan: Any = None,
-             part_filters: list | None = None, deadline: float | None = None) -> tuple[Any, str | None, list[str], list, str]:
+             part_filters: list | None = None, deadline: float | None = None,
+             planning: threading.Event | None = None) -> tuple[Any, str | None, list[str], list, str]:
     """The vocabulary and the UID check (one read-only query). The vocabulary is the turn's when it has one
     (``vocabulary``), else resolved on the user's question (``vocabulary_question``, a Container-CC turn), else, with
     no turn, over the question and every part as before. Then the op's one plan (``granular.op_plan``): the agent's,
     else the turn's, else one parser call on the whole question with its parts listed, shared by all the parts. Each
-    part with filters of its own gets the plan with those filters. Returns the plan per part and its source."""
+    part with filters of its own gets the plan with those filters, checked before the plan is made. Returns the plan
+    per part and its source. ``planning`` is set when the plan step starts. Runs on an aggregate pool thread."""
     from chat_nextseek.helpers.uid_check import check_uids, uid_notes, uids_in
     from chat_nextseek.portable import entity_agent
 
@@ -380,9 +383,18 @@ def _prelude(config: Any, question: str, parts: list[str], exec_fn: Callable, *,
     if deadline is not None and deadline - _clock() < MIN_REMAINING_S:
         return entity_out, agent_note, reply_notes, [], None  # no part will start: spend no parser call
     from chat_nextseek.portable import parser_agent
-    base, source = op_plan(turn, agent_plan, entity_out, lambda: parser_agent(session, config, text, entity_out))
-    plans = [base if f is None else base.model_copy(update={"filters": plan_filters(
-        f, _vocabulary_model(entity_out), f"parts[{k}].filters")}) for k, f in enumerate(part_filters or [None] * len(parts))]
+    # A bad part is VALIDATION before any parser call, and never replaces the turn's plan.
+    own = [None if f is None else plan_filters(f, _vocabulary_model(entity_out), f"parts[{k}].filters")
+           for k, f in enumerate(part_filters or [None] * len(parts))]
+    if planning is not None:
+        planning.set()
+    try:
+        base, source = op_plan(turn, agent_plan, entity_out, lambda: parser_agent(session, config, text, entity_out))
+    finally:
+        if turn is not None:
+            from django.db import connection
+            connection.close()  # op_plan read and wrote the turn's row on this pool thread's own connection
+    plans = [base if f is None else base.model_copy(update={"filters": f}) for f in own]
     return entity_out, agent_note, reply_notes, plans, source
 
 
@@ -460,16 +472,18 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
             from NessieAI.ns import turn_memory
             turn_memory.count_vocabulary_resolution(turn)
         prelude_spend = turn_spend.TurnSpend()
+        planning = threading.Event()
         prelude = pool.submit(contextvars.copy_context().run, _in_own_collector, prelude_spend, _prelude,
                               config, question, parts, exec_fn, vocabulary=turn_vocabulary,
                               vocabulary_question=vocabulary_question if turn_vocabulary is None else None,
                               session=session, turn=turn, agent_plan=agent_plan, part_filters=part_filters,
-                              deadline=deadline)
+                              deadline=deadline, planning=planning)
         tasks[prelude] = prelude_spend
         if _wait_until({prelude}, deadline) or _out_of_time(prelude):
             vocabulary_late = True
-            notes.append(f"The question's vocabulary was not resolved within {deadline_s:.0f} s, so no part "
-                         "has an answer. Say so; never estimate one.")
+            late = "plan was not made" if planning.is_set() else "vocabulary was not resolved"
+            notes.append(f"The question's {late} within {deadline_s:.0f} s, so no part has an answer. Say so; "
+                         "never estimate one.")
         elif deadline - _clock() < MIN_REMAINING_S:
             prelude.result()  # an entity agent failure still fails the op
             vocabulary_late = True  # a part started now could only time out, after spending its model calls

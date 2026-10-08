@@ -240,6 +240,13 @@ class PlanTests(SimpleTestCase):
             self.assertEqual(ctx.exception.field, field)
             self.assertEqual((fakes.parser_calls, fakes.graph_calls), ([], []))
 
+    def test_a_bad_part_without_a_plan_is_refused_before_the_fallback_parse(self):
+        fakes = Fakes({"x": [COUNT]}, {"T_TIS": [_ok([{"n": 1}])]})
+        with self.assertRaises(OpValidationError) as ctx:
+            fakes.run("x", [{"question": "x", "filters": {"lab_codes": ["XYZ"]}}])
+        self.assertEqual(ctx.exception.field, "parts[0].filters.lab_codes")
+        self.assertEqual((fakes.parser_calls, fakes.graph_calls), ([], []))
+
 
 class ShapeTests(SimpleTestCase):
     def _one(self, cypher, result, q="q"):
@@ -603,6 +610,28 @@ class DeadlineTests(SimpleTestCase):
         self.assertFalse(out["complete"])
         self.assertEqual([p["status"] for p in out["parts"]], ["timed_out", "timed_out"])
         self.assertTrue(any("vocabulary" in note for note in out["notes"]))
+
+    def test_a_fallback_parse_past_the_deadline_names_the_plan_not_the_vocabulary(self):
+        q = "How many TIS samples?"
+        clock = _Clock()
+        release = threading.Event()
+        fakes = Fakes({q: [COUNT]}, {"T_TIS": [_ok([{"n": 1}])]})
+        parser = fakes.parser
+
+        def slow_parser(session, config, query, entity_out):
+            clock.now += aggregate.op_deadline_s(None) + 1
+            release.wait(10)
+            return parser(session, config, query, entity_out)
+
+        fakes.parser = slow_parser
+        try:
+            with patch("NessieAI.ns.aggregate._monotonic", clock):
+                out = fakes.run(q)
+            self.assertEqual([p["status"] for p in out["parts"]], ["timed_out"])
+            self.assertTrue(any("plan was not made" in note for note in out["notes"]), out["notes"])
+            self.assertFalse(any("vocabulary" in note for note in out["notes"]), out["notes"])
+        finally:
+            release.set()
 
     def test_a_part_that_raises_is_an_error_part_and_the_others_still_answer(self):
         parts = ["good part", "bad part"]

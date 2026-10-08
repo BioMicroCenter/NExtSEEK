@@ -97,3 +97,27 @@ def test_the_parser_plan_carries_the_stored_spelling():
     assert "TIS-220101ABC-7-PUB" in seen["note"]
     assert out["parser_plan"]["filters"]["uids"] == ["TIS-220101ABC-7-PUB"]
     assert plan.filters.uids == ["TIS-220101ABC-7"], "the parser's own plan (a turn's cached one) is not changed"
+
+
+def test_a_uid_only_in_the_agents_plan_is_checked_and_written_as_stored():
+    """Round 7 (T1): the agent may name the UID in its plan's filters.uids and not in the question."""
+    seen = {}
+
+    def graph_agent(config, query, entity_out, parser_plan, **kw):
+        seen["uids"] = list(parser_plan.filters.uids)
+        return GraphAgentPlan(cypher="MATCH (s:Sample) RETURN count(s) AS n", parameters={})
+
+    def exec_fn(config, cypher, params):
+        if "checks" in params:
+            return {"ok": True, "data": [{"uid": c["uid"], "exact": False, "base_uuid": None,
+                                          "suffixed": [c["uid"] + "-PUB"]} for c in params["checks"]]}
+        return {"ok": True, "data": [{"n": 1}]}
+
+    plan = '{"filters": {"uids": ["TIS-220101ABC-7"]}}'
+    with patch("chat_nextseek.portable.entity_agent", return_value=SimpleNamespace(model_dump=lambda: {})), \
+         patch("chat_nextseek.portable.parser_agent", side_effect=AssertionError("no parser call")), \
+         patch("chat_nextseek.portable.graph_agent", side_effect=graph_agent):
+        out = granular._graph({"query": "parents of that sample", "plan": plan}, None, None, lambda *a: None,
+                              exec_fn, None, limit_s=90.0)
+    assert seen["uids"] == ["TIS-220101ABC-7-PUB"]
+    assert out["parser_plan"]["filters"]["uids"] == ["TIS-220101ABC-7-PUB"]

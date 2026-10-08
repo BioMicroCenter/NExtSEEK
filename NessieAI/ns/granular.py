@@ -205,9 +205,15 @@ def parser_plan_from(agent_plan: Any, entity_out: Any):
                       filters=plan_filters(agent_plan.filters, resolved, "plan.filters"), resolved=resolved)
 
 
+def _failed_parse(plan: Any) -> bool:
+    """A parse that made no plan: parser_agent returns one with ``metadata.failure`` on a timeout or an error."""
+    return bool((getattr(plan, "metadata", None) or {}).get("failure"))
+
+
 def op_plan(turn: Any, agent_plan: Any, entity_out: Any, parse: Callable[[], Any]) -> tuple[Any, str]:
     """``(the plan this op runs, its source)``. The agent's plan when it sent one, else the turn's, else one fallback
-    parse (``parse()``). Under a turn the plan an op ran becomes the turn's, except a turn plan reused as it is."""
+    parse (``parse()``). Under a turn the plan an op ran becomes the turn's, except a turn plan reused as it is and a
+    failed parse, which is never stored and, stored, counts as none."""
     from chat_nextseek.schemas import ParserPlan
     from NessieAI.ns import turn_memory
     if agent_plan is not None:
@@ -220,9 +226,9 @@ def op_plan(turn: Any, agent_plan: Any, entity_out: Any, parse: Callable[[], Any
                 plan = ParserPlan.model_validate(stored)
             except Exception:  # noqa: BLE001 - parse again
                 logger.warning("the turn's stored plan did not load; parsing again", exc_info=True)
-        if plan is None:
+        if plan is None or _failed_parse(plan):
             plan, source = parse(), "parser"
-    if turn is not None and source != "turn":
+    if turn is not None and source != "turn" and not _failed_parse(plan):
         dumped = _plan_json(plan)
         if isinstance(dumped, dict):
             turn_memory.set_turn_plan(turn, dumped)
@@ -650,12 +656,13 @@ def run_graph_question(
     return GraphAnswer(plan_dump, result, None, parser_plan, cypher, attempts, changed, plan_source or "parser")
 
 
-def _uid_check(config, query, neo4j_exec):
-    """``(note for the graph agent, notes for the reply, the checks)``: the check the aggregate runs in its prelude.
-    Nothing when the question names no UID or the check fails (a failed check claims nothing either way)."""
+def _uid_check(config, query, neo4j_exec, filter_uids=None):
+    """``(note for the graph agent, notes for the reply, the checks)``: the check the aggregate runs in its prelude,
+    over the question's UIDs and ``filter_uids`` (the agent plan's). Nothing when neither names a UID or the check
+    fails (a failed check claims nothing either way)."""
     from chat_nextseek.helpers.uid_check import check_uids, uid_notes, uids_in
     try:
-        uids = uids_in(query)
+        uids = uids_in(query, filter_uids)
         if not uids:
             return None, [], None
         exec_fn = neo4j_exec
@@ -671,7 +678,8 @@ def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_
     # Round 6: a UID typed without (or with) -PUB reaches the graph agent under the spelling the graph stores, in
     # the note and in the parser plan's filters, and the reply says so (``notes``).
     agent_plan = parse_agent_plan(args.get("plan"))  # before any call: a bad plan is VALIDATION, never repaired
-    agent_note, reply_notes, checks = _uid_check(config, args["query"], neo4j_exec)
+    agent_note, reply_notes, checks = _uid_check(config, args["query"], neo4j_exec,
+                                                 agent_plan.filters.uids if agent_plan is not None else None)
     answer = run_graph_question(args["query"], config=config, session=session, write_gate=write_gate,
                                 neo4j_exec=neo4j_exec, refine_context=agent_note, uid_checks=checks,
                                 fallback_budget_s=fallback_start_budget_s(limit_s), turn=turn, agent_plan=agent_plan)

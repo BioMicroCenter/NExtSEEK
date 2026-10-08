@@ -191,6 +191,58 @@ def test_a_plan_is_checked_against_the_turns_stored_vocabulary(monkeypatch):
     assert tm.get_turn_plan(turn)["filters"]["lab_codes"] == ["WAD"], "a refused plan does not replace the turn's"
 
 
+def test_a_failed_parse_never_becomes_the_turns_plan_and_a_stored_one_counts_as_none(monkeypatch):
+    """parser_agent returns (does not raise) an unsupported plan with metadata.failure on a timeout or a fatal error;
+    a later plan-less op parses again instead of reusing that filterless plan."""
+    agents = Agents(monkeypatch)
+    turn = _turn(vocabulary=EntityAgentOutput().model_dump(mode="json"))
+
+    def parser(session, config, text, entity):
+        agents.parser_calls.append(text)
+        if text == "q1":
+            return ParserPlan(notes="timed out", metadata={"failure": "transport_timeout"})
+        return ParserPlan(mode="graph_query", intent_summary=text)
+    monkeypatch.setattr("chat_nextseek.portable.parser_agent", parser)
+
+    first = agents.op("graph", "q1", CCTurn.objects.get(pk=turn.pk))
+    assert tm.get_turn_plan(turn) is None
+    second = agents.op("graph", "q2", CCTurn.objects.get(pk=turn.pk))
+    assert agents.parser_calls == ["q1", "q2"]
+    assert (first["plan_source"], second["plan_source"]) == ("parser", "parser")
+    assert tm.get_turn_plan(turn)["intent_summary"] == "q2"
+
+    tm.set_turn_plan(turn, ParserPlan(metadata={"failure": "parse_error"}).model_dump(mode="json"))  # an older row's
+    third = agents.op("graph", "q3", CCTurn.objects.get(pk=turn.pk))
+    assert (third["plan_source"], agents.parser_calls[-1]) == ("parser", "q3")
+
+
+def test_an_aggregate_part_refused_for_its_lab_code_leaves_the_turns_plan_alone(monkeypatch):
+    from NessieAI.ns.granular import OpValidationError
+    agents = Agents(monkeypatch)
+    turn = _turn(vocabulary=EntityAgentOutput(lab_codes=["WAD"]).model_dump(mode="json"))
+    agents.op("graph", "q", CCTurn.objects.get(pk=turn.pk), plan=json.dumps({"intent_summary": "kept"}))
+
+    with pytest.raises(OpValidationError) as err:
+        agents.op("aggregate", "q", CCTurn.objects.get(pk=turn.pk), plan=json.dumps({"intent_summary": "new"}),
+                  parts=json.dumps([{"question": "p", "filters": {"lab_codes": ["XYZ"]}}]))
+    assert err.value.field == "parts[0].filters.lab_codes"
+    assert tm.get_turn_plan(turn)["intent_summary"] == "kept"
+    assert agents.parser_calls == []
+
+
+def test_aggregate_closes_the_connection_its_pool_thread_opened_for_the_plan(monkeypatch):
+    from unittest.mock import patch
+    agents = Agents(monkeypatch)
+    turn = _turn(vocabulary={"keywords": ["stored"]})
+    closed: list = []
+
+    with patch("django.db.connection") as conn:
+        conn.close.side_effect = lambda: closed.append(threading.current_thread().name)
+        agents.op("aggregate", "How many mice by sex?", turn)
+
+    assert closed and all(name.startswith("nextseek-aggregate") for name in closed), closed
+
+
 def test_two_first_ops_at_once_make_at_most_two_parser_calls_and_leave_one_turn_plan(monkeypatch):
     """Both ops find no plan and both parse (at most one parser call per concurrent first op); the row lock leaves one
     plan stored under the turn's key; a later op reuses it."""
