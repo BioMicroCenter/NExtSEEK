@@ -6,6 +6,7 @@
     "D.SEQ"
   ],
   "harvest_globs": [],
+  "inventory_globs": ["**/report/*.html", "**/report/*/*_differentialabundance_report.html", "**/processed_abundance/all.normalised_counts.tsv", "**/processed_abundance/*/all.normalised_counts.tsv", "**/tables/differential/*.deseq2.results.tsv", "**/tables/differential/*.limma.results.tsv", "**/tables/differential/*/*.deseq2.results.tsv", "**/tables/differential/*/*.limma.results.tsv", "**/tables/differential/*/*.dream.results.tsv"],
   "derived_metrics": [],
   "outputs": [
     {

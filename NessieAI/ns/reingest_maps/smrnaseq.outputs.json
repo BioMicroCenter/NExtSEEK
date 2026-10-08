@@ -4,6 +4,7 @@
   "applies_to_versions": ">=2.4,<3",
   "accepts_parent_types": ["D.SEQ"],
   "harvest_globs": [],
+  "inventory_globs": ["**/mirna_quant/mirtop/mirna.tsv"],
   "derived_metrics": [],
   "outputs": [
     {

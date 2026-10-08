@@ -114,7 +114,7 @@ def staged_globs() -> tuple[str, ...]:
     and yields nothing, so adding a pattern to a map's harvest_globs is a real
     cost, not free.
 
-    A map pattern whose FILENAME part is one `INVENTORY_GLOBS` already claims is
+    A map pattern whose FILENAME part is one `inventory_globs()` already claims is
     dropped, because staging and inventory are mutually exclusive by design:
     inventory files are listed and checksummed in place, never transferred. The
     scrnaseq map declares `**/*.h5ad` among its harvest_globs, and honouring that
@@ -133,7 +133,7 @@ def staged_globs() -> tuple[str, ...]:
     The maps keep the braced form, which their output rules share.
     test_no_staged_pattern_still_has_braces guards this.
     """
-    inventory_names = {pattern.rsplit("/", 1)[-1] for pattern in INVENTORY_GLOBS}
+    inventory_names = {pattern.rsplit("/", 1)[-1] for pattern in inventory_globs()}
     extra = tuple(
         pattern
         for braced in maps.all_harvest_globs()
@@ -144,7 +144,8 @@ def staged_globs() -> tuple[str, ...]:
 
 # A sibling to GENERIC_GLOBS, but for a completely different purpose:
 # GENERIC_GLOBS is small QC/metadata TEXT that gets staged (copied) and read
-# for content; INVENTORY_GLOBS is never staged (never copied back) -- it is
+# for content; the inventory (CORE_INVENTORY_GLOBS plus every map's
+# inventory_globs, via inventory_globs()) is never staged (never copied back) -- it is
 # LISTED (name + real size) by granular.py's _STAGE_SCRIPT, which walks the
 # run directory remotely and emits one inventory entry per match, subject to
 # the SAME containment guards (no symlinks, no escapes, no hardlinks) as
@@ -162,17 +163,12 @@ def staged_globs() -> tuple[str, ...]:
 # across every nf-core pipeline, the same as GENERIC_GLOBS -- a per-pipeline
 # map (docs/superpowers/specs/2026-09-15-nfcore-reingest-design.md appendix
 # A) narrows further downstream, against this inventory.
-INVENTORY_GLOBS: tuple[str, ...] = (
+CORE_INVENTORY_GLOBS: tuple[str, ...] = (
     # Alignment files and their indexes.
     "**/*.bam",
     "**/*.bam.bai",
     "**/*.cram",
     "**/*.cram.crai",
-    # Merged per-run count / abundance matrices.
-    "**/*.merged.gene_counts.tsv",
-    "**/*.merged.gene_tpm.tsv",
-    "**/*.merged.transcript_counts.tsv",
-    "**/*.merged.transcript_tpm.tsv",
     # Single-cell / R objects that become primary data or a named link.
     "**/*.h5ad",
     "**/*.mtx",
@@ -189,35 +185,18 @@ INVENTORY_GLOBS: tuple[str, ...] = (
     # nf-core/rnavar >=1.3 publishes its report under reports/, which the
     # pattern above (anchored at a top-level multiqc* folder) never reaches.
     "**/reports/multiqc/*multiqc_report.html",
-    # nf-core/differentialabundance's study report -- named link
-    # $outputs.differentialabundance_report_html. 1.x writes report/<study>.html;
-    # 2.0.0 writes report/<paramset>/<study>_differentialabundance_report.html.
-    # Never deeper: 1.5 and 2.0.0 also write hundreds of GSEA pages under report/gsea/.
-    "**/report/*.html",
-    "**/report/*/*_differentialabundance_report.html",
     # Contaminant screening reports -- named link $outputs.kraken2_report.
     "**/*.kraken2.report.txt",
-    # Text matrices whose names are not the rnaseq `*.merged.*` convention:
-    # nf-core/smrnaseq's merged miRNA counts, Salmon's per-sample
-    # quantification (one `quant.sf` per sample folder; the folder names the
-    # sample -- see _sample_for_output_path), and nf-core/differentialabundance's
-    # normalised matrix (`all.normalised_counts.tsv`) and per-contrast results
-    # tables (`<contrast>.{deseq2,limma,dream}.results.tsv`), which 1.x publishes
-    # flat and 2.0.0 under a `<paramset>/` folder (dream is 2.0.0 only). The
-    # `*.results_filtered.tsv` subsets and 2.0.0's `*.annotated.tsv` joins are
-    # left out. pathlib's "*" never crosses a "/", so each layout needs its own
-    # pattern. Exact names, not "*.tsv": every pipeline writes many TSVs, and
-    # the inventory count is capped.
-    "**/mirna_quant/mirtop/mirna.tsv",
-    "**/salmon/*/quant.sf",
-    "**/processed_abundance/all.normalised_counts.tsv",
-    "**/processed_abundance/*/all.normalised_counts.tsv",
-    "**/tables/differential/*.deseq2.results.tsv",
-    "**/tables/differential/*.limma.results.tsv",
-    "**/tables/differential/*/*.deseq2.results.tsv",
-    "**/tables/differential/*/*.limma.results.tsv",
-    "**/tables/differential/*/*.dream.results.tsv",
+    # Pipeline-specific patterns live in each map's inventory_globs.
 )
+
+
+def inventory_globs() -> tuple[str, ...]:
+    """What the stager lists (names and sizes, never copies): the shared core
+    plus every map's own ``inventory_globs``, brace-expanded because the stage
+    script uses pathlib's glob."""
+    extra = (p for braced in maps.all_inventory_globs() for p in maps.expand_braces(braced))
+    return tuple(dict.fromkeys((*CORE_INVENTORY_GLOBS, *extra)))
 
 MAX_FILE_BYTES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_FILE_BYTES", 4_000_000))
 MAX_TOTAL_BYTES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_TOTAL_BYTES", 32_000_000))
@@ -254,7 +233,7 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     primary UID source) silently resolves nothing.
 
     `inventory` is the OUTPUT-file listing (`[{"path", "bytes"}, ...]`) a
-    caller gathered remotely by matching INVENTORY_GLOBS against the real
+    caller gathered remotely by matching inventory_globs() against the real
     run directory -- see granular.py's `_STAGE_SCRIPT`. This function stays
     local-only and never sees that real directory (only `root`, a staged
     temp copy of the small GENERIC_GLOBS text files), so it cannot gather

@@ -4,6 +4,7 @@
   "applies_to_versions": ">=1.2,<2",
   "accepts_parent_types": ["D.SEQ"],
   "harvest_globs": [],
+  "inventory_globs": ["**/salmon/*/quant.sf"],
   "derived_metrics": [],
   "outputs": [
     {

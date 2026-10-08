@@ -17,6 +17,7 @@
     "trimgalore/*_trimming_report.txt",
     "{star_salmon,salmon,star_rsem,kallisto}/*.merged.tx2gene.tsv"
   ],
+  "inventory_globs": ["**/*.merged.gene_counts.tsv", "**/*.merged.gene_tpm.tsv", "**/*.merged.transcript_counts.tsv", "**/*.merged.transcript_tpm.tsv"],
 
   "derived_metrics": [
     "cds_pct", "utr_pct", "intron_pct", "intergenic_pct",

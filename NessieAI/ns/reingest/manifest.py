@@ -113,7 +113,7 @@ class RunManifest(BaseModel):
     software_versions_by_process: dict[str, dict[str, str]] = Field(default_factory=dict)
     samples: list[SampleRecord] = Field(default_factory=list)
     # `outputs` is the INVENTORY: one entry per candidate output file found by
-    # matching INVENTORY_GLOBS against a remote listing (see harvest.py) --
+    # matching inventory_globs() against a remote listing (see harvest.py) --
     # never the file's content, just its path and real size. The next reingest
     # plan matches its own per-pipeline globs (e.g.
     # "{star_salmon,star_rsem}/*.markdup.sorted.bam") against this list.

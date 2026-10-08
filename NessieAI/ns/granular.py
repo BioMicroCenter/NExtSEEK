@@ -563,7 +563,7 @@ def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir):
 #    2026-09-16 review.
 #
 # 3. The inventory (nfcore-reingest addendum). The same script also walks
-#    `harvest.INVENTORY_GLOBS` -- the candidate OUTPUT files (BAMs, merged
+#    `harvest.inventory_globs()` -- the candidate OUTPUT files (BAMs, merged
 #    matrices, h5ad/mtx/rds objects, VCFs, the MultiQC html report,
 #    contaminant reports) -- and emits one `{"path", "bytes"}` entry per
 #    match into the trailing report, alongside `skipped`. This is a LISTING
@@ -577,7 +577,7 @@ def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir):
 #    A candidate that fails any of those, or that arrives after
 #    `max_inventory_files` matches have already been listed, is skipped and
 #    reported exactly like a staging skip, never dropped silently. See
-#    `harvest.INVENTORY_GLOBS` and `manifest.RunManifest.outputs` /
+#    `harvest.inventory_globs()` and `manifest.RunManifest.outputs` /
 #    `.named_outputs` for the two different consumers this feeds.
 _STAGE_REPORT_NAME = "__nextseek_stage_report__.json"
 
@@ -776,7 +776,7 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
                     key_path: str) -> tuple[list[dict], list[dict]]:
     """Stage every ``harvest.GENERIC_GLOBS`` match from ``run_dir`` on Luria
     into ``staged_dir``, ready for ``harvest.harvest_local``, and separately
-    LIST (never stage) every ``harvest.INVENTORY_GLOBS`` match. See
+    LIST (never stage) every ``harvest.inventory_globs()`` match. See
     ``_STAGE_SCRIPT`` above for why this runs the glob matching remotely, in
     Python, and packs the staged matches into a single tar stream rather than
     an `ls` + per-file `cat`, and for the symlink/cap enforcement it does
@@ -805,7 +805,7 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
 
     from chat_nextseek.luria.ssh import ssh_run_bytes
     from NessieAI.ns.reingest.harvest import (
-        INVENTORY_GLOBS, MAX_FILE_BYTES, MAX_FILES, MAX_INVENTORY_FILES, MAX_TOTAL_BYTES,
+        MAX_FILE_BYTES, MAX_FILES, MAX_INVENTORY_FILES, MAX_TOTAL_BYTES, inventory_globs,
         staged_globs,
     )
 
@@ -814,6 +814,7 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
     # fetched. `len()` below tells the remote script where the stage patterns
     # end and the inventory patterns begin, so it must be this list's length.
     stage_patterns = staged_globs()
+    inventory_patterns = inventory_globs()
 
     remote_cmd = " ".join([
         "python3", "-c", shlex.quote(_STAGE_SCRIPT), shlex.quote(run_dir), shlex.quote(runs_root),
@@ -822,7 +823,7 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
         shlex.quote(str(_HARVEST_CHECKSUM_MAX_FILE_BYTES)), shlex.quote(str(_HARVEST_CHECKSUM_MAX_TOTAL_BYTES)),
         shlex.quote(_STAGE_REPORT_NAME), shlex.quote(str(len(stage_patterns))),
         *(shlex.quote(pattern) for pattern in stage_patterns),
-        *(shlex.quote(pattern) for pattern in INVENTORY_GLOBS),
+        *(shlex.quote(pattern) for pattern in inventory_patterns),
     ])
     # Bounded, not indefinite: see _HARVEST_SSH_TIMEOUT_S below for why this
     # backstops a stalled shared filesystem rather than an oversized
@@ -888,7 +889,7 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
             # Without this, the manifest and PipelineRun lookup are both keyed
             # off the temp staging path, which never matches the launch
             # record's run_dir (see harvest_local's docstring). `inventory` is
-            # the remote INVENTORY_GLOBS listing -- harvest_local never sees
+            # the remote inventory_globs() listing -- harvest_local never sees
             # `run_dir` (the real cluster directory) itself, only `staged`, so
             # it cannot gather that listing on its own.
             run_manifest = harvest.harvest_local(

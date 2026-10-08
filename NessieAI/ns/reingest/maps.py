@@ -400,6 +400,20 @@ def all_harvest_globs() -> tuple[str, ...]:
     return tuple(seen)
 
 
+def all_inventory_globs() -> tuple[str, ...]:
+    """Every committed map's ``inventory_globs``, deduplicated, stable order.
+    The union, for the same reason as ``all_harvest_globs``: the stager lists
+    files before the pipeline is known. A map that fails to load is skipped."""
+    seen: dict[str, None] = {}
+    for pipeline in available():
+        try:
+            for pattern in load(pipeline).inventory_globs:
+                seen.setdefault(pattern, None)
+        except Exception:
+            continue
+    return tuple(seen)
+
+
 def resolve_ref(ref: str, run_manifest, sample=None):
     """Resolve one map value. A non-`$` value is a literal and passes through.
 

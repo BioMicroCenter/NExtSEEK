@@ -886,7 +886,7 @@ def test_the_staged_list_is_the_generic_core_plus_the_maps_text_globs():
     staged = harvest.staged_globs()
     for pattern in harvest.GENERIC_GLOBS:
         assert pattern in staged, "the generic core must survive"
-    inventory_names = {p.rsplit("/", 1)[-1] for p in harvest.INVENTORY_GLOBS}
+    inventory_names = {p.rsplit("/", 1)[-1] for p in harvest.inventory_globs()}
     for braced in maps.all_harvest_globs():
         for pattern in mapper._expand_braces(braced):
             if pattern.rsplit("/", 1)[-1] not in inventory_names:
@@ -1068,7 +1068,7 @@ def test_a_prefixed_multiqc_report_is_inventoried_and_named(tmp_path, report):
     (root / report).parent.mkdir(parents=True, exist_ok=True)
     (root / report).write_text("<html></html>")
 
-    listed = {str(p.relative_to(root)) for pattern in harvest.INVENTORY_GLOBS
+    listed = {str(p.relative_to(root)) for pattern in harvest.inventory_globs()
               for p in root.glob(pattern)}
     assert report in listed
 
@@ -1090,7 +1090,7 @@ def test_the_differentialabundance_1x_report_is_inventoried_and_named(tmp_path):
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text("<html></html>")
 
-    listed = {str(p.relative_to(root)) for pattern in harvest.INVENTORY_GLOBS
+    listed = {str(p.relative_to(root)) for pattern in harvest.inventory_globs()
               for p in root.glob(pattern)}
     assert "report/250818Rib_diffabun.html" in listed
     assert not any(p.startswith("report/gsea/") for p in listed)
@@ -1286,3 +1286,37 @@ def test_a_contrasts_file_outside_the_run_folder_leaves_direction_blank_and_says
     assert got.contrasts == {}
     assert any("240404Kel_diffAbun_contrasts.csv" in w and "not in the run folder" in w
                for w in got.warnings)
+
+
+_OLD_INVENTORY = {
+    "**/*.bam", "**/*.bam.bai", "**/*.cram", "**/*.cram.crai",
+    "**/*.merged.gene_counts.tsv", "**/*.merged.gene_tpm.tsv",
+    "**/*.merged.transcript_counts.tsv", "**/*.merged.transcript_tpm.tsv",
+    "**/*.h5ad", "**/*.mtx", "**/*.mtx.gz", "**/*.rds", "**/*.RData",
+    "**/*.vcf", "**/*.vcf.gz",
+    "multiqc*/**/*multiqc_report.html", "**/reports/multiqc/*multiqc_report.html",
+    "**/report/*.html", "**/report/*/*_differentialabundance_report.html",
+    "**/*.kraken2.report.txt",
+    "**/mirna_quant/mirtop/mirna.tsv", "**/salmon/*/quant.sf",
+    "**/processed_abundance/all.normalised_counts.tsv",
+    "**/processed_abundance/*/all.normalised_counts.tsv",
+    "**/tables/differential/*.deseq2.results.tsv",
+    "**/tables/differential/*.limma.results.tsv",
+    "**/tables/differential/*/*.deseq2.results.tsv",
+    "**/tables/differential/*/*.limma.results.tsv",
+    "**/tables/differential/*/*.dream.results.tsv",
+}
+
+
+def test_the_inventory_union_lists_exactly_what_the_shared_list_did():
+    assert set(harvest.inventory_globs()) == _OLD_INVENTORY
+
+
+def test_pipeline_specific_patterns_live_in_their_maps_not_the_core():
+    core = set(harvest.CORE_INVENTORY_GLOBS)
+    assert "**/salmon/*/quant.sf" not in core
+    assert not any("differential" in p or "mirtop" in p or ".merged." in p for p in core)
+
+
+def test_no_inventory_pattern_still_has_braces():
+    assert not [p for p in harvest.inventory_globs() if "{" in p or "}" in p]
