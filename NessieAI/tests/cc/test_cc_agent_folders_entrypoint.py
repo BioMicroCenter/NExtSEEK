@@ -93,6 +93,8 @@ def test_a_first_start_installs_the_images_settings_and_plugin(tmp_path):
     settings = json.loads((claude / "settings.json").read_text())
     assert settings["permissions"]["allow"] == _setup_allow_list()
     assert settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"] == str(HOOK)
+    post = settings["hooks"]["PostToolUse"][0]
+    assert post["matcher"] == "*" and post["hooks"][0] == {"type": "command", "command": f"{HOOK} post", "timeout": 5}
     assert (claude / "settings.local.json").read_bytes() == (BAKED / "settings.local.json").read_bytes()
     local = claude / "plugins" / "local"
     assert sorted(p.name for p in local.iterdir()) == ["nextseek"]

@@ -31,7 +31,7 @@ consult each**. **Read `context/MANIFEST.md` before constructing any op call**, 
 specific file(s) it points you to. Never guess project/study/investigation names, sampletype
 codes, assays, or endpoints from memory — resolve them from these files.
 
-The NExtSEEK vocabulary for the user's question is resolved **automatically on every query** and injected into your context before you act (a UserPromptSubmit hook). Use those resolved
+The NExtSEEK vocabulary for the user's question is resolved **automatically on every query** and injected into your context as a note (a UserPromptSubmit hook, or, if it was not ready yet, a PostToolUse hook after one of your first commands). Never read a vocabulary file yourself. Use those resolved
 terms (and the manifest files) — e.g. expand abbreviations like **GBM → the Glioblastoma
 investigation** — rather than passing the user's raw phrasing straight to `graph`/`api-read`.
 

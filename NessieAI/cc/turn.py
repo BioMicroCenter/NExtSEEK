@@ -823,15 +823,15 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 # Piece 3: the vocabulary, waited for at most CC_WAIT_S past staging, into the turn's row and file.
                 # A late one still reaches the row (hand_to_turn); one still queued is cancelled there; the first op
                 # that needs it and finds none resolves it on the user's question.
-                vocabulary_json = None
+                vocabulary_slot = None
                 if prerun is not None and prerun.started:
+                    vocabulary_slot = cc_engine.TurnVocabulary()
                     out = prerun.result(prerun_mod.CC_WAIT_S)
                     cost_state["prerun_settled"] = prerun_mod.hand_to_turn(
                         prerun, cc_pass_row, user_question=req.query or "",
-                        store_early_plan=_early_plan_fits_ops(chat_session, chat_config, request.user, req))
-                    if out is not None:
-                        vocabulary_json = out.model_dump(mode="json")
-                    else:
+                        store_early_plan=_early_plan_fits_ops(chat_session, chat_config, request.user, req),
+                        slot=vocabulary_slot)
+                    if out is None:
                         # Late, failed or cancelled: the turn goes on without it, and "Reading your question" must
                         # not keep spinning over the whole trace (review W1-3). Same label; the outcome says why.
                         prerun.close_step()
@@ -867,7 +867,7 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     on_turn_complete=_append_cc_turn_complete,
                     turn_timeout=resolved_turn_timeout,
                     chat_session_id=cc_state_key,
-                    vocabulary=vocabulary_json,
+                    vocabulary_slot=vocabulary_slot,
                 )
         except Exception as exc:
             logger.exception("cc-assistant pipeline error")

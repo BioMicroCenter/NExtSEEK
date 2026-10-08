@@ -12,10 +12,20 @@
 #    abbreviations are expanded (e.g. "GBM" -> the Glioblastoma investigation). Django writes it
 #    to /data/turn/vocabulary.json, the turn's own read-only mount.
 #
+# "post" mode (PostToolUse): the vocabulary can be written while the container runs, when the
+# pre-run is slower than the start's wait. After a tool call, if the prompt run did not already
+# inject it and /data/turn/vocabulary.json is valid now, the same note is added once. The marker is
+# the container's own /tmp (a new container per turn): touching it only withholds the note from the
+# agent itself.
+#
 # Isolation (OI-3): reads two read-only mounts only. No credentials, no network, no bin call.
 # Fail-OPEN: a missing or malformed manifest or vocabulary file drops that note; with neither
 # note the hook emits nothing, and it can never block or break a turn.
 set -eu
+
+MODE="${1:-prompt}"
+MARKER="${NEXTSEEK_VOCAB_MARKER:-/tmp/nextseek-vocab-injected}"
+[ "$MODE" = post ] && [ -e "$MARKER" ] && { cat >/dev/null || true; exit 0; }
 
 cat >/dev/null || true   # the prompt on stdin is not needed: the vocabulary is the turn's own
 
@@ -25,7 +35,7 @@ VOCAB_FILE="${NEXTSEEK_TURN_VOCABULARY_FILE:-/data/turn/vocabulary.json}"
 
 # 1. The newest staged turn (manifest turns are newest first).
 PREV=""
-if [ -r "$PREV_DIR/manifest.json" ]; then
+if [ "$MODE" != post ] && [ -r "$PREV_DIR/manifest.json" ]; then
   PREV="$(jq -r '
     (.container_path // "/data/previous_turns") as $root
     | (if (.turns | type) == "array" then .turns else [] end) as $turns
@@ -68,7 +78,15 @@ if [ -r "$VOCAB_FILE" ] && jq -e . "$VOCAB_FILE" >/dev/null 2>&1; then
   ' "$VOCAB_FILE" 2>/dev/null || true)"
 fi
 
+if [ "$MODE" = post ]; then
+  [ -n "$VOCAB" ] || exit 0
+  jq -n -c --arg vocab "$VOCAB" '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $vocab}}' \
+    2>/dev/null && : >"$MARKER" 2>/dev/null || true
+  exit 0
+fi
+
 [ -n "$PREV$VOCAB" ] || exit 0
+[ -z "$VOCAB" ] || : >"$MARKER" 2>/dev/null || true
 
 jq -n -c --arg prev "$PREV" --arg vocab "$VOCAB" '{
   hookSpecificOutput: {

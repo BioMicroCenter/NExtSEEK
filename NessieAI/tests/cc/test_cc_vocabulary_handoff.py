@@ -78,7 +78,7 @@ def test_a_first_cc_turn_gets_the_vocabulary_in_its_row_and_its_container(monkey
 
     events = drive(monkeypatch, user=user, chat=chat, task=task, route=decision(cc_router.ROUTE_CC))
 
-    assert seen["vocabulary"]["keywords"] == ["how many mice"]
+    assert seen["vocabulary_slot"]._pending["keywords"] == ["how many mice"]   # offered before the start
     assert seen["previous_turns"] is False
     turn = CCTurn.objects.get(task=task)
     assert tm.get_vocabulary(turn)["keywords"] == ["how many mice"]
@@ -100,7 +100,7 @@ def test_the_cc_start_waits_at_most_the_wait_and_a_late_vocabulary_still_reaches
     events = drive(monkeypatch, user=user, chat=chat, task=task, route=decision(cc_router.ROUTE_CC))
 
     assert _closed_once(events, prerun.LATE), "W1-3: the turn gave up on it, and 'Reading your question' still closes"
-    assert seen["vocabulary"] is None
+    assert seen["vocabulary_slot"]._pending is None
     assert seen["started_at"] - t0 < 5
     turn = CCTurn.objects.get(task=task)
     assert tm.get_vocabulary(turn) is None
@@ -108,6 +108,8 @@ def test_the_cc_start_waits_at_most_the_wait_and_a_late_vocabulary_still_reaches
     # Wait for the pool thread's hand-off, not by polling: SQLite's shared cache fails a read that meets a write.
     assert settled and settled[0].wait(10)
     assert tm.get_vocabulary(turn)["keywords"] == ["how many mice"]
+    # T3: the late vocabulary also reaches the running turn's slot, to be written for the hook's PostToolUse note
+    assert seen["vocabulary_slot"]._pending["keywords"] == ["how many mice"]
 
 
 def test_an_early_plan_is_stored_under_the_users_question_on_a_first_turn(monkeypatch, tmp_path, settings):
@@ -150,7 +152,7 @@ def test_a_failed_prerun_still_closes_the_reading_step_on_a_cc_turn(monkeypatch,
 
     events = drive(monkeypatch, user=user, chat=chat, task=task, route=decision(cc_router.ROUTE_CC))
 
-    assert seen["vocabulary"] is None
+    assert seen["vocabulary_slot"]._pending is None
     assert _closed_once(events, prerun.FAILED)
 
 
@@ -161,7 +163,7 @@ def test_a_prerun_that_never_started_leaves_no_reading_step_to_close_on_a_cc_tur
 
     events = drive(monkeypatch, user=user, chat=chat, task=task, route=decision(cc_router.ROUTE_CC))
 
-    assert seen["vocabulary"] is None
+    assert seen["vocabulary_slot"] is None
     assert events.labels() == [prerun.CHOOSING_AN_ENGINE], "skipped: no 'Reading your question', so nothing to close"
 
 
@@ -178,7 +180,7 @@ def test_a_queued_prerun_given_up_on_by_a_cc_turn_still_closes_the_reading_step(
     blocker = prerun.start_prerun(None, SimpleNamespace(), "another turn", skip=False)
     try:
         events = drive(monkeypatch, user=user, chat=chat, task=task, route=decision(cc_router.ROUTE_CC))
-        assert seen["vocabulary"] is None
+        assert seen["vocabulary_slot"]._pending is None
         assert _closed_once(events, prerun.CANCELLED)
         assert [e["data"]["outcome"] for e in events.named("vocabulary_prerun")] == [prerun.CANCELLED]
     finally:

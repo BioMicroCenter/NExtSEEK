@@ -57,8 +57,18 @@ class _Container:
         pass
 
 
-def _run(tmp_path, monkeypatch, *, vocabulary, previous_turns=False):
+def _slot(vocabulary):
+    """A slot as the turn driver builds it, with the pre-run already done (or not) before the start."""
+    if vocabulary is None:
+        return None
+    slot = cc_engine.TurnVocabulary()
+    slot.offer(vocabulary)
+    return slot
+
+
+def _run(tmp_path, monkeypatch, *, vocabulary, previous_turns=False, slot=None, during=None):
     seen: dict = {}
+    slot = slot if slot is not None else _slot(vocabulary)
 
     class _Containers:
         def run(self, **kwargs):
@@ -66,8 +76,12 @@ def _run(tmp_path, monkeypatch, *, vocabulary, previous_turns=False):
             for m in kwargs["mounts"] or []:
                 if m["Target"] == cc_engine._CONTAINER_TURN:
                     backing = tmp_path / m["VolumeOptions"]["Subpath"]
-                    seen["file"] = json.loads((backing / cc_engine.VOCABULARY_FILE).read_text())
+                    if (backing / cc_engine.VOCABULARY_FILE).exists():
+                        seen["file"] = json.loads((backing / cc_engine.VOCABULARY_FILE).read_text())
                     seen["dir_mode"] = stat.S_IMODE(backing.stat().st_mode)
+                    if during:
+                        during()
+                        seen["file_after"] = json.loads((backing / cc_engine.VOCABULARY_FILE).read_text())
             return _Container()
 
     monkeypatch.setattr(docker_mod, "from_env", lambda: type("C", (), {"containers": _Containers()})())
@@ -77,7 +91,7 @@ def _run(tmp_path, monkeypatch, *, vocabulary, previous_turns=False):
         query="how many mice", model_id="opus", send_event=lambda e, d: events.append((e, d)), user_id="alice",
         project_dirname="1-testproj", run_id=RUN_ID,
         paths=CCPaths(users_volume="dmac-cc-users", user_root_mount=str(tmp_path)),
-        previous_turns=previous_turns, vocabulary=vocabulary)
+        previous_turns=previous_turns, vocabulary_slot=slot)
     return seen, events
 
 
@@ -117,7 +131,26 @@ def test_no_vocabulary_file_outlives_a_turn_that_fails_before_its_container_star
         cc_engine.run_cc_turn(
             query="how many mice", model_id="opus", send_event=lambda e, d: None, user_id="alice",
             project_dirname="1-testproj", run_id=RUN_ID,
-            paths=CCPaths(users_volume="dmac-cc-users", user_root_mount=str(tmp_path)), vocabulary=VOCAB)
+            paths=CCPaths(users_volume="dmac-cc-users", user_root_mount=str(tmp_path)), vocabulary_slot=_slot(VOCAB))
 
     vocabulary_file = tmp_path / f"1-testproj/alice/_turn/{RUN_ID}" / cc_engine.VOCABULARY_FILE
     assert not vocabulary_file.exists(), "written only inside the try whose finally removes it"
+
+
+def test_a_vocabulary_offered_while_the_container_runs_is_written_at_once(tmp_path, monkeypatch):
+    slot = cc_engine.TurnVocabulary()
+    late = {"keywords": ["late"]}
+    seen, events = _run(tmp_path, monkeypatch, vocabulary=None, slot=slot, during=lambda: slot.offer(late))
+    # nothing was there at the start, so the container's run saw the folder mounted and the file arrive
+    assert seen["file_after"] == late
+    assert any(m["Target"] == "/data/turn" and m["ReadOnly"] for m in seen["mounts"])
+    assert not (tmp_path / f"1-testproj/alice/_turn/{RUN_ID}").exists(), "removed after the container stopped"
+    assert events[-1][0] == "query_complete"
+
+
+def test_a_vocabulary_offered_after_the_turn_closed_writes_nothing(tmp_path, monkeypatch):
+    slot = cc_engine.TurnVocabulary()
+    _run(tmp_path, monkeypatch, vocabulary=None, slot=slot, during=lambda: slot.offer({"keywords": ["x"]}))
+    slot.offer({"keywords": ["too late"]})
+    folder = tmp_path / f"1-testproj/alice/_turn/{RUN_ID}"
+    assert not folder.exists() or not any(folder.iterdir())

@@ -304,11 +304,14 @@ def session_snapshot(session: Any) -> dict[str, Any]:
             "chat_log": list(session.get("chat_log") or [])}
 
 
-def hand_to_turn(prerun: Prerun, turn: Any, *, user_question: str, store_early_plan: bool) -> threading.Event:
+def hand_to_turn(prerun: Prerun, turn: Any, *, user_question: str, store_early_plan: bool,
+                 slot: Any = None) -> threading.Event:
     """Store the pre-run's vocabulary, failed models and spend on the Container-CC turn's row, and its early plan
     under the user's question when ``store_early_plan``; now if it has finished, else when it does. The returned
     event is set once that is done (the turn's cost is partial until then). A pre-run still queued is cancelled
-    here: the first op that needs the vocabulary resolves it (hand-off, 2026-09-30)."""
+    here: the first op that needs the vocabulary resolves it (hand-off, 2026-09-30). ``slot`` (the turn's
+    TurnVocabulary) is offered the vocabulary beside the row: before the container starts if the pre-run is done by
+    then, else from the pool thread while it runs."""
     from NessieAI.ns import turn_memory
 
     settled = threading.Event()
@@ -342,6 +345,8 @@ def hand_to_turn(prerun: Prerun, turn: Any, *, user_question: str, store_early_p
                 out = p._vocabulary(0)
                 if out is not None:
                     turn_memory.store_vocabulary(turn, out.model_dump(mode="json"))
+                    if slot is not None:
+                        slot.offer(out.model_dump(mode="json"))
                 if store_early_plan and isinstance(p.plan, dict):
                     turn_memory.store_plan(turn, user_question, p.plan)
             except Exception:  # noqa: BLE001

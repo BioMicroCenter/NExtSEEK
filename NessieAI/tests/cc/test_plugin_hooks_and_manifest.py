@@ -92,6 +92,7 @@ def test_entrypoint_registers_hook_in_user_settings():
     entrypoint = _entrypoint_text()
     hook_program = (paths.CC_RUNTIME_DIR / "container" / "claude-home" / "entity-hook.jq").read_text(encoding="utf-8")
     assert "UserPromptSubmit" in hook_program
+    assert "PostToolUse" in hook_program     # the late vocabulary note (round 7 T3)
     assert "entity-hook.jq" in entrypoint
     assert "entity_preamble.sh" in entrypoint
     assert "settings.json" in entrypoint

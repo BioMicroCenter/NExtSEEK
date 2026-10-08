@@ -84,14 +84,15 @@ def _spy_bin(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def _run(tmp_path: Path, *, staged: Path | None = None, vocab: Path | None = None,
-         prompt: str = "Break those down by sex") -> subprocess.CompletedProcess:
+         prompt: str = "Break those down by sex", mode: str = "") -> subprocess.CompletedProcess:
     env = dict(os.environ)
+    env["NEXTSEEK_VOCAB_MARKER"] = str(tmp_path / "marker")
     env["NEXTSEEK_PREVIOUS_TURNS_DIR"] = str(staged or tmp_path / "absent")
     env["NEXTSEEK_TURN_VOCABULARY_FILE"] = str(vocab or tmp_path / "no-such-file.json")
     stub, _ = _spy_bin(tmp_path)
     env["NEXTSEEK_ENTITY_EXTRACT_BIN"] = str(stub)
     env["PATH"] = f"{tmp_path}:{env.get('PATH', '')}"
-    return subprocess.run(["sh", str(HOOK)], input=json.dumps({"prompt": prompt}), env=env,
+    return subprocess.run(["sh", str(HOOK), *([mode] if mode else [])], input=json.dumps({"prompt": prompt}), env=env,
                           capture_output=True, text=True, timeout=30)
 
 
@@ -191,3 +192,42 @@ def test_the_hook_reads_the_file_the_engine_mounts(tmp_path):
     assert '${NEXTSEEK_TURN_VOCABULARY_FILE:-/data/turn/vocabulary.json}' in HOOK.read_text()
     ctx = _context(_run(tmp_path, vocab=_vocab_file(tmp_path, '{"keywords":["mice"]}')))
     assert ctx.endswith('{"keywords":["mice"]}')
+
+
+def _post_context(proc: subprocess.CompletedProcess) -> str:
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
+    return out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_post_mode_adds_the_late_vocabulary_once(tmp_path):
+    vocab = '{"keywords":["late"]}'
+    f = _vocab_file(tmp_path, vocab)
+    assert _post_context(_run(tmp_path, vocab=f, mode="post")) == NOTE_PREFIX + "\n" + vocab
+    assert (tmp_path / "marker").exists()
+    second = _run(tmp_path, vocab=f, mode="post")
+    assert second.returncode == 0 and second.stdout == ""
+
+
+def test_post_mode_says_nothing_after_the_prompt_run_injected_it(tmp_path):
+    f = _vocab_file(tmp_path, '{"keywords":["early"]}')
+    _context(_run(tmp_path, vocab=f))
+    assert (tmp_path / "marker").exists()
+    after = _run(tmp_path, vocab=f, mode="post")
+    assert after.returncode == 0 and after.stdout == ""
+
+
+def test_post_mode_waits_for_the_file_and_never_fails(tmp_path):
+    for payload in (None, "not json"):
+        f = _vocab_file(tmp_path, payload) if payload else tmp_path / "absent.json"
+        proc = _run(tmp_path, vocab=f, mode="post")
+        assert proc.returncode == 0 and proc.stdout == "" and not (tmp_path / "marker").exists()
+    late = _vocab_file(tmp_path, '{"keywords":["now"]}')           # it arrives later: the next call carries it
+    assert "now" in _post_context(_run(tmp_path, vocab=late, mode="post"))
+
+
+def test_post_mode_does_not_repeat_the_staged_turn_note_or_run_a_bin(tmp_path):
+    f = _vocab_file(tmp_path, '{"keywords":["k"]}')
+    ctx = _post_context(_run(tmp_path, staged=_manifest(tmp_path, NS_TURN), vocab=f, mode="post"))
+    assert "turn 3" not in ctx and not (tmp_path / "bin-ran").exists()

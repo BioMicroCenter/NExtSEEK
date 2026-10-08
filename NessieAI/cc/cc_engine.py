@@ -1292,6 +1292,41 @@ def _write_turn_vocabulary(mount_root: Path, turn_subpath: str, vocabulary: dict
         logger.warning("cc: the turn's vocabulary file was not written; the turn starts without it", exc_info=True)
 
 
+class TurnVocabulary:
+    """Where the pre-run's vocabulary meets the turn's /data/turn folder, whenever it is ready. Offered before the
+    container starts it is written at ``open`` (before the spawn); offered while the container runs (the pool thread)
+    it is written at once, and the hook's PostToolUse note picks it up; offered after ``close`` it is dropped. One
+    lock, so no write can land after ``close`` and the folder cannot be refilled once ``_remove_turn_files`` runs."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._pending: dict | None = None
+        self._target: tuple[Path, str] | None = None
+        self._closed = False
+
+    def offer(self, vocabulary: dict) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            if self._target is None:
+                self._pending = vocabulary
+            else:
+                _write_turn_vocabulary(*self._target, vocabulary)
+
+    def open(self, mount_root: Path, turn_subpath: str) -> None:
+        with self._lock:
+            self._target = (mount_root, turn_subpath)
+            if self._pending is not None:
+                _write_turn_vocabulary(mount_root, turn_subpath, self._pending)
+                self._pending = None
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            self._target = None
+            self._pending = None
+
+
 def _remove_turn_files(mount_root: Path, turn_subpath: str) -> None:
     """Remove the turn's own folder once its container has stopped. Never raises."""
     parts = tuple(turn_subpath.split("/"))
@@ -1385,7 +1420,7 @@ def run_cc_turn(
     user_query: str = "",
     on_turn_complete: Callable[..., None] | None = None,
     chat_session_id: str | None = None,
-    vocabulary: dict | None = None,
+    vocabulary_slot: TurnVocabulary | None = None,
 ) -> None:
     """Execute one Container-CC turn with scoped input/shared mounts + artifact publish.
 
@@ -1399,7 +1434,8 @@ def run_cc_turn(
     ``finally``, always before the transcript capture and the scrub (the turn driver revokes the pass there). A
     failure in either is logged and never fails or shortens the turn's clean-up.
 
-    ``vocabulary``: the turn's vocabulary (plan 04), written read-only at /data/turn/vocabulary.json when given.
+    ``vocabulary_slot``: where the turn's vocabulary (plan 04) is written, read-only for the container, at
+    /data/turn/vocabulary.json, whenever the pre-run offers it (before the start, or while the container runs).
     """
     import docker
     from docker.errors import APIError, NotFound
@@ -1437,7 +1473,7 @@ def run_cc_turn(
         cc_state_key=cc_state_key, run_id=run_id,
         transcripts_subpath=transcripts_subpath,
         previous_turns=previous_turns,
-        turn_files=vocabulary is not None,
+        turn_files=vocabulary_slot is not None,
     )
     for _m in mounts:
         _backing = mount_root / _m["VolumeOptions"]["Subpath"]
@@ -1571,8 +1607,8 @@ def run_cc_turn(
     container = None
     try:
         # Inside the try: its finally removes the file, whatever fails before the container starts.
-        if vocabulary is not None and dirs.turn_subpath:
-            _write_turn_vocabulary(mount_root, dirs.turn_subpath, vocabulary)
+        if vocabulary_slot is not None and dirs.turn_subpath:
+            vocabulary_slot.open(mount_root, dirs.turn_subpath)
         spawn_kwargs = _run_kwargs(
             image=image, command=command, environment=environment,
             mounts=mounts, run_id=run_id, user_id=user_id,
@@ -2003,7 +2039,8 @@ def run_cc_turn(
                         total_skipped, total_files, run_id)
         except Exception:  # noqa: BLE001
             logger.warning("cc #72: transcript store scrub failed", exc_info=True)
-        if vocabulary is not None and dirs.turn_subpath:
+        if vocabulary_slot is not None and dirs.turn_subpath:
+            vocabulary_slot.close()
             _remove_turn_files(mount_root, dirs.turn_subpath)
 
 
