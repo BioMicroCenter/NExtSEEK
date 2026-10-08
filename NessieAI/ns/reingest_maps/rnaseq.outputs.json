@@ -1,5 +1,5 @@
 {
-  "map_version": 1,
+  "map_version": 2,
   "pipeline": "nf-core/rnaseq",
   "applies_to_versions": ">=3.14,<4",
   "accepts_parent_types": ["D.SEQ"],
@@ -27,16 +27,16 @@
   ],
 
   "outputs": [
-    { "glob": "{star_salmon,star_rsem,hisat2}/*.markdup.sorted.bam",
+    { "id": "aln", "candidates": ["{star_salmon,star_rsem,hisat2}/*.markdup.sorted.bam"],
       "sample_type": "A.ALN", "assay": "Genome Alignment", "cardinality": "per_sample", "primary_data": true,
-      "secondary_data_glob": "{star_salmon,star_rsem,hisat2}/*.markdup.sorted.bam.bai",
+      "companions": [{"glob": "{star_salmon,star_rsem,hisat2}/*.markdup.sorted.bam.bai"}],
       "attributes": { "DataType": "BAM",
                       "Name": "@fastq_stem", "Scientist": "@nextseek_user",
                       "SampleCreationDate": "@run_date",
                       "Aligner": "$params.aligner", "Genome": "$params.genome",
                       "Software": "$software_versions.STAR" } },
 
-    { "glob": "{star_salmon,salmon,star_rsem,kallisto}/*.merged.gene_counts.tsv",
+    { "id": "gene_counts", "candidates": ["{star_salmon,salmon,star_rsem,kallisto}/*.merged.gene_counts.tsv"],
       "sample_type": "A.GEX", "assay": "Gene Expression Analysis", "cardinality": "per_run", "primary_data": true,
       "include_provenance": true,
       "attributes": { "Matrix": "gene_counts",

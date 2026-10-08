@@ -1,5 +1,5 @@
 {
-  "map_version": 1,
+  "map_version": 2,
   "pipeline": "nf-core/rnasplice",
   "applies_to_versions": ">=1.0,<2",
   "accepts_parent_types": ["D.SEQ"],
@@ -7,12 +7,13 @@
   "derived_metrics": [],
   "outputs": [
     {
-      "glob": "{star,star_salmon}/*_sorted.bam",
+      "id": "aln",
+      "candidates": ["{star,star_salmon}/*_sorted.bam"],
       "sample_type": "A.ALN",
       "assay": "Genome Alignment",
       "cardinality": "per_sample",
       "primary_data": true,
-      "secondary_data_glob": "{star,star_salmon}/*_sorted.bam.bai",
+      "companions": [{"glob": "{star,star_salmon}/*_sorted.bam.bai"}],
       "attributes": {
         "DataType": "BAM",
         "Name": "@fastq_stem",
@@ -23,7 +24,8 @@
       }
     },
     {
-      "glob": "{salmon,star_salmon}/tximport/salmon.merged.gene_counts.tsv",
+      "id": "gene_counts",
+      "candidates": ["{salmon,star_salmon}/tximport/salmon.merged.gene_counts.tsv"],
       "sample_type": "A.GEX",
       "assay": "Gene Expression Analysis",
       "cardinality": "per_run",

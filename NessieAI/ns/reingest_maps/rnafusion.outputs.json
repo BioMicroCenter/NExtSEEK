@@ -1,5 +1,5 @@
 {
-  "map_version": 1,
+  "map_version": 2,
   "pipeline": "nf-core/rnafusion",
   "applies_to_versions": ">=4.1,<5",
   "accepts_parent_types": ["D.SEQ", "A.ALN"],
@@ -7,12 +7,13 @@
   "derived_metrics": [],
   "outputs": [
     {
-      "glob": "star/*.Aligned.sortedByCoord.out.bam",
+      "id": "aln",
+      "candidates": ["star/*.Aligned.sortedByCoord.out.bam"],
       "sample_type": "A.ALN",
       "assay": "Genome Alignment",
       "cardinality": "per_sample",
       "primary_data": true,
-      "secondary_data_glob": "star/*.Aligned.sortedByCoord.out.bam.bai",
+      "companions": [{"glob": "star/*.Aligned.sortedByCoord.out.bam.bai"}],
       "attributes": {
         "DataType": "BAM",
         "Name": "@fastq_stem",

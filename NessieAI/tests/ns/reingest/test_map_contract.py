@@ -327,3 +327,35 @@ def test_live_every_provenance_attribute_exists_on_every_opted_in_output_sample_
                 f"{name}: provenance attribute {attribute!r} is merged into " \
                 f"every opted-in {target} output row but {target} has no " \
                 f"such attribute (live catalog)"
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_map_is_v2(name):
+    raw = json.loads((maps.MAPS_DIR / f"{name}.outputs.json").read_text())
+    assert raw["map_version"] == 2
+    assert not any("glob" in r or "secondary_data_glob" in r for r in raw.get("outputs", []))
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_companion_slot_exists_on_its_rules_type(name):
+    m = maps.load(name)
+    for rule in m.outputs + [r for o in m.versions for r in o.outputs]:
+        for companion in rule.companions:
+            if companion.slot:
+                assert companion.slot in ATTRS[rule.sample_type], \
+                    f"{name}:{rule.id}: slot {companion.slot} not on {rule.sample_type}"
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_row_default_exists_on_at_least_one_output_type(name):
+    m = maps.load(name)
+    types = {r.sample_type for r in m.outputs}
+    for attribute in m.row_defaults:
+        assert any(attribute in ATTRS[t] for t in types), \
+            f"{name}: row default {attribute} exists on none of {sorted(types)}"
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_inventory_glob_starts_with_a_double_star(name):
+    bad = [p for p in maps.load(name).inventory_globs if not p.startswith("**/")]
+    assert bad == [], f"{name}: inventory patterns must start with **/ (symlink safety): {bad}"

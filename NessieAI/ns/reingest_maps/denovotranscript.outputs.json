@@ -1,5 +1,5 @@
 {
-  "map_version": 1,
+  "map_version": 2,
   "pipeline": "nf-core/denovotranscript",
   "applies_to_versions": ">=1.2,<2",
   "accepts_parent_types": ["D.SEQ"],
@@ -8,7 +8,8 @@
   "derived_metrics": [],
   "outputs": [
     {
-      "glob": "salmon/*/quant.sf",
+      "id": "quant",
+      "candidates": ["salmon/*/quant.sf"],
       "sample_type": "A.GEX",
       "assay": "Gene Expression Analysis",
       "cardinality": "per_sample",

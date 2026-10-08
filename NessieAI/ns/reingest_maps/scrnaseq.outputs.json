@@ -1,5 +1,5 @@
 {
-  "map_version": 1,
+  "map_version": 2,
   "pipeline": "nf-core/scrnaseq",
   "applies_to_versions": ">=2.7",
   "accepts_parent_types": ["D.SEQ"],
@@ -10,7 +10,8 @@
   "derived_metrics": [],
   "outputs": [
     {
-      "glob": "{star,alevin,kallisto,cellranger}/mtx_conversions/combined_matrix.h5ad",
+      "id": "combined_matrix",
+      "candidates": ["{star,alevin,kallisto,cellranger}/mtx_conversions/combined_matrix.h5ad"],
       "sample_type": "A.SCXP",
       "cardinality": "per_run",
       "primary_data": true,
