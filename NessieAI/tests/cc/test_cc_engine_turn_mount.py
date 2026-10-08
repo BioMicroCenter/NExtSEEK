@@ -81,7 +81,8 @@ def _run(tmp_path, monkeypatch, *, vocabulary, previous_turns=False, slot=None, 
                     seen["dir_mode"] = stat.S_IMODE(backing.stat().st_mode)
                     if during:
                         during()
-                        seen["file_after"] = json.loads((backing / cc_engine.VOCABULARY_FILE).read_text())
+                        if (backing / cc_engine.VOCABULARY_FILE).exists():
+                            seen["file_after"] = json.loads((backing / cc_engine.VOCABULARY_FILE).read_text())
             return _Container()
 
     monkeypatch.setattr(docker_mod, "from_env", lambda: type("C", (), {"containers": _Containers()})())
@@ -154,3 +155,12 @@ def test_a_vocabulary_offered_after_the_turn_closed_writes_nothing(tmp_path, mon
     slot.offer({"keywords": ["too late"]})
     folder = tmp_path / f"1-testproj/alice/_turn/{RUN_ID}"
     assert not folder.exists() or not any(folder.iterdir())
+
+
+def test_a_slot_opened_with_nothing_pending_still_has_its_empty_folder_at_the_spawn(tmp_path, monkeypatch):
+    folder = tmp_path / f"1-testproj/alice/_turn/{RUN_ID}"
+    at_spawn: dict = {}
+    _run(tmp_path, monkeypatch, vocabulary=None, slot=cc_engine.TurnVocabulary(),
+         during=lambda: at_spawn.update(exists=folder.is_dir(), files=list(folder.iterdir())))
+    assert at_spawn == {"exists": True, "files": []}
+    assert not folder.exists(), "gone after the turn"

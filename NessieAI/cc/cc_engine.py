@@ -1316,6 +1316,12 @@ class TurnVocabulary:
     def open(self, mount_root: Path, turn_subpath: str) -> None:
         with self._lock:
             self._target = (mount_root, turn_subpath)
+            # The mount is a volume subpath: Docker refuses to create the container if the folder is missing, and a
+            # late pre-run leaves nothing to write yet. _remove_turn_files removes it, empty or not.
+            try:
+                os.close(safe_fs.open_dir(mount_root, tuple(turn_subpath.split("/")), create=True))
+            except Exception:  # noqa: BLE001
+                logger.warning("cc: the turn's folder was not created; the turn starts without it", exc_info=True)
             if self._pending is not None:
                 _write_turn_vocabulary(mount_root, turn_subpath, self._pending)
                 self._pending = None
