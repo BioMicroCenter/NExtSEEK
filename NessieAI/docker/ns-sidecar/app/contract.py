@@ -119,6 +119,13 @@ class _QueryArg(BaseModel):
     query: str
 
 
+class _GraphArgs(BaseModel):
+    """graph: the question, and optionally the agent's plan as JSON text (T1). The server validates its fields."""
+    model_config = ConfigDict(extra="forbid")
+    query: str
+    plan: str = ""
+
+
 class _ApiReadArgs(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     parser_plan: str
@@ -172,6 +179,7 @@ class _AggregateArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     query: str
     parts: str = ""
+    plan: str = ""
 
 
 class _RunLsArgs(BaseModel):
@@ -189,7 +197,7 @@ _OP_ARG_MODELS = {
     "aggregate": _AggregateArgs,
     "entity": _QueryArg,
     "parse": _QueryArg,
-    "graph": _QueryArg,
+    "graph": _GraphArgs,
     "graph-schema": _GraphSchemaArgs,
     "api-read": _ApiReadArgs,
     "api-write": ApiWriteArgs,

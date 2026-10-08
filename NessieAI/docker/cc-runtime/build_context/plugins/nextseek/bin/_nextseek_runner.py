@@ -277,7 +277,10 @@ def _dispatch_api_write(args):
 def _dispatch_graph(args):
     if _dry_run():  # pragma: no branch
         return {"cypher": "", "result": []}  # pragma: no cover
-    return _call_op("graph", {"query": args.query})
+    body = {"query": args.query}
+    if args.plan:
+        body["plan"] = args.plan
+    return _call_op("graph", body)
 
 
 def _dispatch_graph_schema(args):
@@ -300,6 +303,8 @@ def _dispatch_aggregate(args):
     body = {"query": args.query}
     if args.parts:
         body["parts"] = args.parts
+    if args.plan:
+        body["plan"] = args.plan
     return _call_op("aggregate", body)
 
 
@@ -554,6 +559,7 @@ def main() -> None:
     p.add_argument("--parser-plan")  # for api-read / api-write
     p.add_argument("--confirmed-write", action="store_true")
     p.add_argument("--types")  # for graph-schema (comma-separated sample type codes)
+    p.add_argument("--plan")  # for graph and aggregate (JSON {intent_summary, filters, notes})
     p.add_argument("--parts")  # for aggregate (JSON array of 1 to 4 sub-questions)
     p.add_argument("--mode")  # for report
     p.add_argument("--project")  # for report

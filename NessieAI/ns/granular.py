@@ -32,7 +32,9 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Annotated, Any, Callable, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 from NessieAI.ns.write_gate import WriteBlockedError  # noqa: F401 (re-exported)
 
@@ -114,6 +116,117 @@ def _load_parser_plan(args: dict) -> Any:
         return json.loads(args["parser_plan"])
     except ValueError as exc:  # json.JSONDecodeError is a ValueError subclass
         raise OpValidationError(f"parser_plan is not valid JSON: {exc}", field="parser_plan", error_type="invalid_json") from exc
+
+
+#: Caps on what an agent-supplied plan may hold (T1): a plan is data, never Cypher, scope or an endpoint.
+PLAN_MAX_ITEMS = 20
+PLAN_MAX_ITEM_CHARS = 200
+PLAN_MAX_TEXT_CHARS = 1000
+
+
+_Short = Annotated[str, StringConstraints(max_length=PLAN_MAX_ITEM_CHARS)]
+
+
+def _items() -> Any:
+    return Field(default_factory=list, max_length=PLAN_MAX_ITEMS)
+
+
+class AgentFilters(BaseModel):
+    sampletype_code: Optional[_Short] = None
+    assay_codes: list[_Short] = _items()
+    keywords: list[_Short] = _items()
+    uids: list[_Short] = _items()
+    lab_codes: list[_Short] = _items()
+    model_config = ConfigDict(extra="forbid")
+
+
+class AgentPlan(BaseModel):
+    """What the CC agent may send as ``--plan``. Anything else (mode, resolved, cypher, projects, target_endpoint,
+    ...) is refused; Django sets mode and resolved."""
+    intent_summary: str = Field("", max_length=PLAN_MAX_TEXT_CHARS)
+    filters: AgentFilters = Field(default_factory=AgentFilters)
+    notes: str = Field("", max_length=PLAN_MAX_TEXT_CHARS)
+    model_config = ConfigDict(extra="forbid")
+
+
+def _validate_agent(model, data: Any, field: str):
+    """``model`` of ``data``; a failure is an OpValidationError naming the first bad field, never repaired by a parse."""
+    try:
+        return model.model_validate(data)
+    except ValidationError as exc:
+        err = exc.errors()[0]
+        loc = ".".join([field, *(str(part) for part in err["loc"])])
+        raise OpValidationError(f"{loc}: {err['msg']}", field=loc, error_type=err["type"]) from exc
+
+
+def parse_agent_plan(raw: Any, field: str = "plan"):
+    """The agent's ``--plan`` as an ``AgentPlan``, or None when it sent none. Bad JSON, an unknown field, a wrong
+    type or an over-cap value raises OpValidationError (VALIDATION) naming the field; no model is called."""
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    if not isinstance(raw, str):
+        raise OpValidationError("plan must be JSON text", field=field, error_type="must_be_json_text")
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise OpValidationError(f"plan is not valid JSON: {exc}", field=field, error_type="invalid_json") from exc
+    return _validate_agent(AgentPlan, data, field)
+
+
+def parse_agent_filters(data: Any, field: str):
+    """A part's own ``filters`` object (aggregate ``--parts``), validated like the plan's."""
+    return _validate_agent(AgentFilters, data, field)
+
+
+def _vocabulary_model(entity_out: Any):
+    from chat_nextseek.schemas import EntityAgentOutput
+    if isinstance(entity_out, EntityAgentOutput):
+        return entity_out
+    return EntityAgentOutput.model_validate(_dump(entity_out))
+
+
+def plan_filters(filters: Any, resolved: Any, field: str):
+    """``filters`` as the parser's filters. A lab code the vocabulary did not match is refused, never dropped."""
+    from chat_nextseek.schemas import ParserFilters
+    known = set(resolved.lab_codes)
+    bad = [code for code in filters.lab_codes if code not in known]
+    if bad:
+        raise OpValidationError(f"lab code {bad[0]!r} is not in the turn's vocabulary", field=f"{field}.lab_codes",
+                                error_type="unknown_lab_code")
+    return ParserFilters(**filters.model_dump())
+
+
+def parser_plan_from(agent_plan: Any, entity_out: Any):
+    """The ParserPlan an agent plan stands for: Django sets ``mode`` and ``resolved`` (the turn's vocabulary); the
+    agent's ``intent_summary``, ``filters`` and ``notes`` are data."""
+    from chat_nextseek.schemas import ParserPlan
+    resolved = _vocabulary_model(entity_out)
+    return ParserPlan(mode="graph_query", intent_summary=agent_plan.intent_summary, notes=agent_plan.notes,
+                      filters=plan_filters(agent_plan.filters, resolved, "plan.filters"), resolved=resolved)
+
+
+def op_plan(turn: Any, agent_plan: Any, entity_out: Any, parse: Callable[[], Any]) -> tuple[Any, str]:
+    """``(the plan this op runs, its source)``. The agent's plan when it sent one, else the turn's, else one fallback
+    parse (``parse()``). Under a turn the plan an op ran becomes the turn's, except a turn plan reused as it is."""
+    from chat_nextseek.schemas import ParserPlan
+    from NessieAI.ns import turn_memory
+    if agent_plan is not None:
+        plan, source = parser_plan_from(agent_plan, entity_out), "agent"
+    else:
+        plan, source = None, "turn"
+        stored = turn_memory.get_turn_plan(turn) if turn is not None else None
+        if stored is not None:
+            try:
+                plan = ParserPlan.model_validate(stored)
+            except Exception:  # noqa: BLE001 - parse again
+                logger.warning("the turn's stored plan did not load; parsing again", exc_info=True)
+        if plan is None:
+            plan, source = parse(), "parser"
+    if turn is not None and source != "turn":
+        dumped = _plan_json(plan)
+        if isinstance(dumped, dict):
+            turn_memory.set_turn_plan(turn, dumped)
+    return plan, source
 
 
 def run_op(
@@ -423,6 +536,7 @@ class GraphAnswer:
     cypher: str | None
     attempts: list = field(default_factory=list)
     retry_changed_answer: bool = False
+    plan_source: str = "parser"
 
 
 def _attempt(reason: str, result: dict) -> dict:
@@ -466,6 +580,8 @@ def run_graph_question(
     parser_plan: Any = None,
     turn: Any = None,
     uid_checks: list | None = None,
+    agent_plan: Any = None,
+    plan_source: str | None = None,
 ) -> GraphAnswer:
     """The graph op's chain: parser, graph agent, the Neo4j tool, and graph_search on a scope refusal.
 
@@ -481,8 +597,9 @@ def run_graph_question(
     after a first query that matched nothing, found something. Whatever answers last and was refused for its scope
     goes to ``_graph_search_fallback``.
 
-    ``turn`` (a Container-CC turn) supplies the vocabulary and the plan cache; ``parser_plan`` is a plan already made
-    for ``query`` (the aggregate op reads the turn's before it starts its parts).
+    ``turn`` (a Container-CC turn) supplies the vocabulary and the turn's plan. The plan is, in order: ``parser_plan``
+    when handed one (the aggregate op makes one for all its parts; ``plan_source`` says where it came from), else the
+    agent's own (``agent_plan``, an ``AgentPlan``), else the turn's, else one parser call (``op_plan``).
     """
     from chat_nextseek import call_scope
     from chat_nextseek.portable import entity_agent, graph_agent, parser_agent
@@ -496,10 +613,8 @@ def run_graph_question(
     # Without the parser_plan the graph agent gets no PARSER PLAN block and emits
     # unbounded, pathological Cypher that overruns the 60s proxy timeout (#20).
     if parser_plan is None:
-        if turn is not None:
-            parser_plan = _turn_plan(turn, query, lambda: parser_agent(session, config, query, entity_out))
-        else:
-            parser_plan = parser_agent(session, config, query, entity_out)
+        parser_plan, plan_source = op_plan(turn, agent_plan, entity_out,
+                                           lambda: parser_agent(session, config, query, entity_out))
     if uid_checks:
         from chat_nextseek.helpers.uid_check import plan_with_stored_uids
         parser_plan = plan_with_stored_uids(parser_plan, uid_checks)  # R4, as the NS path: filters.uids as stored
@@ -531,8 +646,8 @@ def run_graph_question(
                                           budget_s=fallback_budget_s)
         hint = GRAPH_SCOPE_FALLBACK_HINT if fallback["ok"] else GRAPH_SCOPE_FALLBACK_RETRY_HINT
         result = {**result, "error": f"{result.get('error') or ''} {hint}".strip()}
-        return GraphAnswer(plan_dump, result, fallback, parser_plan, cypher, attempts, changed)
-    return GraphAnswer(plan_dump, result, None, parser_plan, cypher, attempts, changed)
+        return GraphAnswer(plan_dump, result, fallback, parser_plan, cypher, attempts, changed, plan_source or "parser")
+    return GraphAnswer(plan_dump, result, None, parser_plan, cypher, attempts, changed, plan_source or "parser")
 
 
 def _uid_check(config, query, neo4j_exec):
@@ -555,12 +670,14 @@ def _uid_check(config, query, neo4j_exec):
 def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     # Round 6: a UID typed without (or with) -PUB reaches the graph agent under the spelling the graph stores, in
     # the note and in the parser plan's filters, and the reply says so (``notes``).
+    agent_plan = parse_agent_plan(args.get("plan"))  # before any call: a bad plan is VALIDATION, never repaired
     agent_note, reply_notes, checks = _uid_check(config, args["query"], neo4j_exec)
     answer = run_graph_question(args["query"], config=config, session=session, write_gate=write_gate,
                                 neo4j_exec=neo4j_exec, refine_context=agent_note, uid_checks=checks,
-                                fallback_budget_s=fallback_start_budget_s(limit_s), turn=turn)
+                                fallback_budget_s=fallback_start_budget_s(limit_s), turn=turn, agent_plan=agent_plan)
     # parser_plan: the plan this answer ran, as JSON, so nextseek-api-read can ask the same question of the REST API.
-    out = {"plan": answer.plan, "result": answer.result, "parser_plan": _plan_json(answer.parser_plan)}
+    out = {"plan": answer.plan, "result": answer.result, "parser_plan": _plan_json(answer.parser_plan),
+           "plan_source": answer.plan_source}
     if answer.fallback is not None:
         out["fallback"] = answer.fallback
     if reply_notes:

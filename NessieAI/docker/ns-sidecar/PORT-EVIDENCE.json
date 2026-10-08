@@ -45,8 +45,8 @@
   },
   {
    "path": "app/contract.py",
-   "size_bytes": 6854,
-   "sha256": "d2b35fbf5efc8fbf246c82218b05da729b7fcc5378e380afdd86fb038bf356ee"
+   "size_bytes": 7100,
+   "sha256": "3e816c5766924085b144d319a6af79c87b4d1ade59bdd7ee416947fd6eb2c9a8"
   },
   {
    "path": "app/exceptions.py",
@@ -55,8 +55,8 @@
   },
   {
    "path": "app/granular_models.py",
-   "size_bytes": 9095,
-   "sha256": "d60c1a5c2200360d4b9cb99b9eba84b0602486b3d6ac5c82a988e1deefa891c2"
+   "size_bytes": 9185,
+   "sha256": "5f2205a9bbfa6b53356f9b34ea4c304a723320d50c188edba268bd1c778c32e4"
   },
   {
    "path": "app/healthcheck.py",
@@ -70,8 +70,8 @@
   },
   {
    "path": "app/ops.py",
-   "size_bytes": 9061,
-   "sha256": "39dfda4a8daebea45f44d02f58c817dd1accccdfac021eaffde8e5cb4da519b1"
+   "size_bytes": 9199,
+   "sha256": "20ceead5d96a50ac59daaf1e7b6f6bdf738818d10b5bd322255e6cd7875c6c0e"
   },
   {
    "path": "app/server.py",
@@ -179,15 +179,15 @@
  "local_additions_beyond_port_source": [
   {
    "path": "app/contract.py",
-   "addition": "Registered the reingest ops run-ls + build-upload-xlsx (KNOWN_OPS set, _RunLsArgs / _BuildUploadXlsxArgs models). NOT present in port_source_commit a429f137; added locally in the NExtSEEK tree for the reingest feature. 2026-09-17: registered graph-schema (SIDECAR_OPS, _GraphSchemaArgs), the read-only live-graph-schema op that replaces the neo4j_schema.json snapshot the cc-agent image used to bake. Also not upstream. 2026-09-18: registered aggregate (SIDECAR_OPS, _AggregateArgs), the read-only counts-and-breakdowns op (plan task 13b.4, decision D8). Also not upstream. 2026-10-02 (approach 1, piece 2): contract.py, exceptions.py, ns_client.py, ops.py, server.py and staging.py carry the turn pass instead of the login (the frame's ns_turn, the NextseekTurn header), pass NExtSEEK's op error code, reason and fixed message through, and staging.py names the drop folder after the hash of the pass (ruling R1). Kept one release behind NEXTSEEK_CC_OPS_ROAD, then removed with the sidecar. Pins and inventory updated consciously."
+   "addition": "Registered the reingest ops run-ls + build-upload-xlsx (KNOWN_OPS set, _RunLsArgs / _BuildUploadXlsxArgs models). NOT present in port_source_commit a429f137; added locally in the NExtSEEK tree for the reingest feature. 2026-09-17: registered graph-schema (SIDECAR_OPS, _GraphSchemaArgs), the read-only live-graph-schema op that replaces the neo4j_schema.json snapshot the cc-agent image used to bake. Also not upstream. 2026-09-18: registered aggregate (SIDECAR_OPS, _AggregateArgs), the read-only counts-and-breakdowns op (plan task 13b.4, decision D8). Also not upstream. 2026-10-02 (approach 1, piece 2): contract.py, exceptions.py, ns_client.py, ops.py, server.py and staging.py carry the turn pass instead of the login (the frame's ns_turn, the NextseekTurn header), pass NExtSEEK's op error code, reason and fixed message through, and staging.py names the drop folder after the hash of the pass (ruling R1). Kept one release behind NEXTSEEK_CC_OPS_ROAD, then removed with the sidecar. Pins and inventory updated consciously. 2026-10-08 (round 7 T1): the graph and aggregate forwarders and contract models carry the agent's optional plan (JSON text). Pins and inventory updated consciously."
   },
   {
    "path": "app/ops.py",
-   "addition": "Added the run-ls + build-upload-xlsx forwarders (_run_ls, _build_upload_xlsx) that proxy to the NExtSEEK /assistant/run-ls/ and /build-upload-xlsx/ endpoints. NOT present in port_source_commit a429f137; added locally for the reingest feature. 2026-09-17: added the graph-schema forwarder (_graph_schema) that proxies to the NExtSEEK /assistant/graph-schema/ endpoint. Also not upstream. 2026-09-18: added the aggregate forwarder (_aggregate) that proxies to the NExtSEEK /assistant/aggregate/ endpoint. Also not upstream. 2026-10-02 (approach 1, piece 2): contract.py, exceptions.py, ns_client.py, ops.py, server.py and staging.py carry the turn pass instead of the login (the frame's ns_turn, the NextseekTurn header), pass NExtSEEK's op error code, reason and fixed message through, and staging.py names the drop folder after the hash of the pass (ruling R1). Kept one release behind NEXTSEEK_CC_OPS_ROAD, then removed with the sidecar. Pins and inventory updated consciously."
+   "addition": "Added the run-ls + build-upload-xlsx forwarders (_run_ls, _build_upload_xlsx) that proxy to the NExtSEEK /assistant/run-ls/ and /build-upload-xlsx/ endpoints. NOT present in port_source_commit a429f137; added locally for the reingest feature. 2026-09-17: added the graph-schema forwarder (_graph_schema) that proxies to the NExtSEEK /assistant/graph-schema/ endpoint. Also not upstream. 2026-09-18: added the aggregate forwarder (_aggregate) that proxies to the NExtSEEK /assistant/aggregate/ endpoint. Also not upstream. 2026-10-02 (approach 1, piece 2): contract.py, exceptions.py, ns_client.py, ops.py, server.py and staging.py carry the turn pass instead of the login (the frame's ns_turn, the NextseekTurn header), pass NExtSEEK's op error code, reason and fixed message through, and staging.py names the drop folder after the hash of the pass (ruling R1). Kept one release behind NEXTSEEK_CC_OPS_ROAD, then removed with the sidecar. Pins and inventory updated consciously. 2026-10-08 (round 7 T1): the graph and aggregate forwarders and contract models carry the agent's optional plan (JSON text). Pins and inventory updated consciously."
   },
   {
    "path": "app/granular_models.py",
-   "addition": "2026-09-28 (approach 1, piece 2): granular_models.py's OpErrorResponse documents the optional reason and message fields NExtSEEK now sends. Pins and inventory updated consciously; the same TODO applies."
+   "addition": "2026-09-28 (approach 1, piece 2): granular_models.py's OpErrorResponse documents the optional reason and message fields NExtSEEK now sends. Pins and inventory updated consciously; the same TODO applies. 2026-10-08 (round 7 T1): the graph and aggregate forwarders and contract models carry the agent's optional plan (JSON text). Pins and inventory updated consciously."
   },
   {
    "path": "app/exceptions.py",

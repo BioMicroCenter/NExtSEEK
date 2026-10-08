@@ -108,12 +108,14 @@ def _select_chat_config(request, req) -> ChatConfig:
 
 def _granular_args(op: str, req) -> dict:
     """Project a validated request model into the op's chat_nextseek arg dict."""
-    if op in ("entity", "parse", "graph"):
+    if op in ("entity", "parse"):
         return {"query": req.query}
+    if op == "graph":
+        return {"query": req.query, "plan": req.plan}
     if op == "graph-schema":
         return {"types": req.types, "query": req.query}
     if op == "aggregate":
-        return {"query": req.query, "parts": req.parts}
+        return {"query": req.query, "parts": req.parts, "plan": req.plan}
     if op == "api-read":
         return {"parser_plan": req.parser_plan}
     if op == "api-write":

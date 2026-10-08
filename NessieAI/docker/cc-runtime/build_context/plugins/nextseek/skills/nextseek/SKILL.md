@@ -46,8 +46,8 @@ is the complete contract; there are no hidden flags.
 | `nextseek-parse` | Turn an NL question into a parser plan. | `--query "<text>"` | parser plan `{mode, target_endpoint, filters, ...}` |
 | `nextseek-api-read` | Execute a read-safe REST call from a parser plan. | `--parser-plan '<json>'` | API response |
 | `nextseek-api-write` | Refused: the server refuses every create, update and delete this op sends, so no write reaches NExtSEEK from this chat. Do not call it. | `--parser-plan '<json>' --confirmed-write` | API response (`ok: false`) |
-| `nextseek-graph` | Find and read samples from the graph: filter, lineage, attribute values of the samples found. Held to the user's projects; a query refused for its scope is answered through graph_search under `fallback`. How many and breakdowns go to `nextseek-aggregate`. | `--query "<text>"` | `{plan, result, fallback?}` |
-| `nextseek-aggregate` | **How many, broken down by what**: counts, breakdowns, tallies, histograms, distinct values. One call; the question alone, or 1 to 4 parts run in parallel. Each part is a small table with the sum of its group counts and its missing-value bucket, never sample records. Held to the user's projects. | `--query "<whole question>" [--parts '["<part>", ...]']` | `{question, complete, parts: [{status, kind, columns, groups, sum_of_group_counts, groups_may_overlap, null_group, truncated, fallback}], notes}` |
+| `nextseek-graph` | Find and read samples from the graph: filter, lineage, attribute values of the samples found. Held to the user's projects; a query refused for its scope is answered through graph_search under `fallback`. How many and breakdowns go to `nextseek-aggregate`. | `--query "<text>" --plan '<json>'` | `{plan, result, fallback?, plan_source}` |
+| `nextseek-aggregate` | **How many, broken down by what**: counts, breakdowns, tallies, histograms, distinct values. One call; the question alone, or 1 to 4 parts run in parallel. Each part is a small table with the sum of its group counts and its missing-value bucket, never sample records. Held to the user's projects. | `--query "<whole question>" [--parts '["<part>", ...]'] --plan '<json>'` | `{question, complete, parts: [{status, kind, columns, groups, sum_of_group_counts, groups_may_overlap, null_group, truncated, fallback}], notes}` |
 | `nextseek-report` | Project summary report. | `--mode {samples,protocols,published,rppr} --project <name>` | report `{summary, saved_files, rows}` |
 | `nextseek-generate-submission` | Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline. | `--type {GEO,SRA,NFCORE_RNASEQ,NFCORE_SCRNASEQ,PRIDE} --uids <csv>` | `{report, type}` |
 | `nextseek-pipeline` | **Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard. | `--message "<summary: explicit UIDs + species/genome + metadata + pipeline>"` | `{reply, debug, bundle_id}` |
@@ -67,11 +67,30 @@ sample's metadata as properties, not only its lineage, so one call answers the w
 it in full, in plain words:
 
 ```bash
-nextseek-graph --query "Which mouse samples treated with NDMA are female?"
-nextseek-graph --query "List the TIS samples in the MetNet project whose Organ is lung."
-nextseek-graph --query "Which NHP samples have both CT scan data and sequencing data derived from them?"
-# -> {"plan": {...}, "result": {"ok": true, "data": [...], "count": N, "scope": {...}}}
+nextseek-graph --query "Which mouse samples treated with NDMA are female?" \
+  --plan '{"intent_summary": "female mouse samples treated with NDMA", "filters": {"sampletype_code": "MUS", "keywords": ["NDMA"]}}'
+nextseek-graph --query "List the TIS samples in the MetNet project whose Organ is lung." \
+  --plan '{"intent_summary": "TIS samples with Organ lung", "filters": {"sampletype_code": "TIS"}}'
+# -> {"plan": {...}, "result": {"ok": true, "data": [...], "count": N, "scope": {...}}, "plan_source": "agent"}
 ```
+
+- **Always send `--plan`** (it replaces a 10 to 28 s server call; without it the server parses your
+  question itself). It is JSON data only, with exactly these fields, and nothing else is accepted:
+  `{"intent_summary": "<one line>", "filters": {"sampletype_code": "<code or null>", "assay_codes": [],
+  "keywords": [], "uids": [], "lab_codes": []}, "notes": "<optional>"}`. At most 20 items per list,
+  200 characters per item, 1,000 per summary and notes. Never put a project, Cypher or an endpoint in
+  it: the server holds the scope, and the plan only says what to look for.
+- **Plan filters.** Codes come only from the vocabulary of this turn. `sampletype_code` is the type of
+  the rows wanted (a parent type that only anchors a lineage stays in the question). Copy `lab_codes`
+  from the vocabulary exactly, never derive one from a lab or person name; a code the vocabulary does
+  not hold is refused. `uids` as typed. `keywords` hold only free text that is not a project, study,
+  investigation, person or sample type. Fill only what the question constrains.
+- **One plan per turn.** The server keeps the last plan an op ran and uses it for an op sent without
+  `--plan`. Send a new plan whenever the constraints change.
+- **`plan_source`** says who made the plan: `agent` (yours), `turn` (the turn's earlier one) or
+  `parser` (the server's fallback).
+- **A `VALIDATION` naming `plan.<field>`** means the plan was refused (bad JSON, an unknown field, too
+  long, an unknown lab code); nothing ran. Fix that field once and resend; do not retry unchanged.
 
 - **Scope.** The op is held to the user's projects on the server: a superuser's query runs as
   written; anyone else's is checked to stay inside their projects before it runs. Never try to
@@ -109,12 +128,17 @@ files, or its stored Cypher is re-run with a new RETURN (see "Refinement and fol
 count by pulling records and tallying them yourself: a page of records is not the population. Ask the
 whole question; when it needs more than one independent number
 or breakdown, also pass `--parts`, one plain-language sub-question per number, each complete on its
-own (restate the project, sample type and filters in every part):
+own (restate the project, sample type and filters in every part). Send `--plan` as for
+`nextseek-graph`, carrying what all the parts share; a part that differs carries its own `filters` as
+`{"question": "<part>", "filters": {...}}` in place of the string, and those filters replace the plan's
+for that part:
 
 ```bash
-nextseek-aggregate --query "What species are the samples in the IMPACT project?"
+nextseek-aggregate --query "What species are the samples in the IMPACT project?" \
+  --plan '{"intent_summary": "species of the samples", "filters": {}}'
 nextseek-aggregate --query "How many samples have no parent at all, and how many have nothing derived from them?" \
-  --parts '["How many samples have no parent sample?", "How many samples have no samples derived from them?"]'
+  --parts '["How many samples have no parent sample?", "How many samples have no samples derived from them?"]' \
+  --plan '{"intent_summary": "samples without a parent, and without children", "filters": {}}'
 # -> {"question": "...", "complete": true, "notes": [...], "parts": [{"part": 1, "status": "ok",
 #     "kind": "breakdown", "columns": ["species", "n"], "groups": [{"species": "...", "n": 327}, ...],
 #     "group_count": 5, "sum_of_group_counts": 704, "groups_may_overlap": true, "null_group": 13,

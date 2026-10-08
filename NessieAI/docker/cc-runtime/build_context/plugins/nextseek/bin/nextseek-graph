@@ -6,12 +6,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/_nextseek_common.sh"
 
 QUERY=""
+PLAN=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --query) QUERY="$2"; shift 2 ;;
     --query=*) QUERY="${1#--query=}"; shift ;;
+    --plan) PLAN="$2"; shift 2 ;;
+    --plan=*) PLAN="${1#--plan=}"; shift ;;
     --help)
-      echo "Usage: nextseek-graph --query \"<text>\""
+      echo "Usage: nextseek-graph --query \"<text>\" [--plan '<json>']"
+      echo "  --plan   {\"intent_summary\": \"...\", \"filters\": {\"sampletype_code\", \"assay_codes\", \"keywords\", \"uids\", \"lab_codes\"}, \"notes\": \"...\"}"
       exit 0
       ;;
     *) nextseek_die 3 "unknown arg: $1" ;;
@@ -19,4 +23,4 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$QUERY" ] || nextseek_die 3 "missing --query"
 
-exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent graph --query "$QUERY"
+exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent graph --query "$QUERY" --plan "$PLAN"

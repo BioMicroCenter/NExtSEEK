@@ -52,6 +52,23 @@ def test_plans_are_keyed_by_the_exact_question_and_the_first_stays():
     assert tm.plan_key("Ångström") == hashlib.sha256("Ångström".encode("utf-8")).hexdigest()
 
 
+def test_the_turn_has_one_plan_and_the_latest_replaces_it():
+    turn = _turn()
+    assert tm.get_turn_plan(turn) is None
+    tm.set_turn_plan(turn, {"mode": "graph_query", "n": 1})
+    tm.set_turn_plan(CCTurn.objects.get(pk=turn.pk), {"mode": "graph_query", "n": 2})
+    assert tm.get_turn_plan(turn) == {"mode": "graph_query", "n": 2}
+    assert list(CCTurn.objects.get(pk=turn.pk).plans) == [tm.TURN_PLAN_KEY]
+
+
+def test_the_turn_plan_sits_beside_the_text_keyed_parse_plans_without_touching_them():
+    turn = _turn()
+    tm.store_plan(turn, "How many mice by sex?", {"n": "parse"})
+    tm.set_turn_plan(turn, {"n": "turn"})
+    assert tm.get_plan(turn, "How many mice by sex?") == {"n": "parse"}
+    assert tm.get_turn_plan(turn) == {"n": "turn"}
+
+
 def test_whitespace_inside_a_quoted_literal_gives_a_different_plan_key():
     """A quoted value is matched as written ("wt  1" and "wt 1" are two sample titles), so its plan is its own."""
     two_spaces = 'Samples whose title is "wt  1"'
@@ -114,7 +131,7 @@ def test_the_users_question_is_the_turns_own_task_query():
 def serialize_turn_memory(monkeypatch) -> threading.Lock:
     """Run each turn_memory database call under one lock (SQLite shared cache; see the module docstring)."""
     lock = threading.Lock()
-    for name in ("get_vocabulary", "store_vocabulary", "get_plan", "store_plan", "load_strikes", "merge_strikes",
+    for name in ("get_vocabulary", "store_vocabulary", "get_plan", "store_plan", "get_turn_plan", "set_turn_plan", "load_strikes", "merge_strikes",
                  "add_spend", "mark_cost_partial", "count_vocabulary_resolution", "vocabulary_resolutions",
                  "user_question", "take_op_slot", "release_op_slot"):
         real = getattr(tm, name)

@@ -71,7 +71,7 @@ class GraphOpScopeTests(SimpleTestCase):
         out = self._run(config, neo4j_exec=MagicMock(return_value=_refused()))
 
         result, fallback = out["result"], out["fallback"]
-        self.assertEqual(set(out), {"plan", "result", "fallback", "parser_plan"})
+        self.assertEqual(set(out), {"plan", "result", "fallback", "parser_plan", "plan_source"})
         self.assertEqual(result["scope"]["decision"], "refused")
         self.assertTrue(result["error"].startswith(SCOPE_REFUSED))
         self.assertIn(GRAPH_SEARCH, result["error"])
@@ -93,6 +93,25 @@ class GraphOpScopeTests(SimpleTestCase):
         self.assertEqual(fallback["parser_plan"]["target_endpoint"], GRAPH_SEARCH)
         self.assertEqual(fallback["parser_plan"]["mode"], "new_search")
         json.dumps(fallback)  # the op's result crosses the wire as JSON
+
+    def test_a_scope_refusal_with_an_agent_plan_is_answered_the_same_way_and_the_plan_sets_no_scope_or_endpoint(self):
+        config = SimpleNamespace()
+        plan = json.dumps({"intent_summary": "tissue", "filters": {"sampletype_code": "TIS"}})
+        with patch("chat_nextseek.portable.entity_agent", return_value=_dumpable({})), \
+             patch("chat_nextseek.portable.parser_agent", side_effect=AssertionError("no parser")), \
+             patch("chat_nextseek.portable.graph_agent",
+                   return_value=_dumpable({"cypher": "MATCH (a:Attribute) RETURN a", "parameters": {}})), \
+             patch("chat_nextseek.portable.api_agent_build_request", self.build), \
+             patch("chat_nextseek.helpers.tool_nextseek_api_request", self.rest):
+            out = run_op("graph", {"query": "tissue", "plan": plan}, config=config, session=SimpleNamespace(),
+                         write_gate=self.write_gate, neo4j_exec=MagicMock(return_value=_refused()))
+
+        self.assertEqual(out["plan_source"], "agent")
+        self.assertTrue(out["fallback"]["ok"])
+        (built_config, built_plan), _ = self.build.call_args
+        self.assertIs(built_config, config)
+        self.assertEqual(built_plan.target_endpoint, GRAPH_SEARCH, "the endpoint is Django's fallback, not the plan's")
+        self.write_gate.assert_called_once_with("api-read", GRAPH_SEARCH, "POST", False)
 
     def test_a_graph_search_error_answer_is_a_failed_fallback(self):
         self.rest.return_value = {"ok": False, "status_code": 422,

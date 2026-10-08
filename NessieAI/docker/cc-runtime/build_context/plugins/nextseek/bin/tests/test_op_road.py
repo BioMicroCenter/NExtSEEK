@@ -80,12 +80,20 @@ def _stderr_error(capsys):
 READ_OPS = {
     "entity": ("_dispatch_entity", SimpleNamespace(query="mice"), {"query": "mice"}),
     "parse": ("_dispatch_parse", SimpleNamespace(query="mice"), {"query": "mice"}),
-    "graph": ("_dispatch_graph", SimpleNamespace(query="mice"), {"query": "mice"}),
+    "graph": ("_dispatch_graph", SimpleNamespace(query="mice", plan=""), {"query": "mice"}),
     "graph-schema": ("_dispatch_graph_schema", SimpleNamespace(types="TIS", query=""), {"types": "TIS"}),
-    "aggregate": ("_dispatch_aggregate", SimpleNamespace(query="how many", parts=""), {"query": "how many"}),
+    "aggregate": ("_dispatch_aggregate", SimpleNamespace(query="how many", parts="", plan=""), {"query": "how many"}),
     "api-read": ("_dispatch_api_read", SimpleNamespace(parser_plan="{}", confirmed_write=False), {"parser_plan": "{}"}),
     "run-ls": ("_dispatch_run_ls", SimpleNamespace(run_dir="/runs/r"), {"run_dir": "/runs/r"}),
 }
+
+
+def test_graph_forwards_the_agents_plan(env, monkeypatch):
+    server = _serve(monkeypatch, _NExtSEEK({f"{PREFIX}/graph/": _ok("graph", {"ok": True})}))
+
+    runner._dispatch_graph(SimpleNamespace(query="mice", plan='{"intent_summary": "m"}'))
+
+    assert json.loads(server.requests[0].content)["plan"] == '{"intent_summary": "m"}'
 
 
 @pytest.mark.parametrize("op", sorted(READ_OPS))
@@ -105,7 +113,7 @@ def test_only_the_artifact_ops_send_the_chat_session(env, monkeypatch):
     server = _serve(monkeypatch, _NExtSEEK({f"{PREFIX}/report/": _ok("report", {"saved_files": {}}),
                                             f"{PREFIX}/graph/": _ok("graph", {})}))
     runner._dispatch_report(SimpleNamespace(mode="samples", project="p"))
-    runner._dispatch_graph(SimpleNamespace(query="mice"))
+    runner._dispatch_graph(SimpleNamespace(query="mice", plan=""))
     report, graph = (json.loads(request.content) for request in server.requests)
     assert report == {"mode": "samples", "project": "p", "session_id": CHAT}
     assert "session_id" not in graph
@@ -141,7 +149,7 @@ def test_an_unknown_reason_never_reaches_stderr(env, monkeypatch, capsys):
     body = {"code": "AGENT_FAILED", "reason": "weird", "message": "m", "errors": []}
     _serve(monkeypatch, _NExtSEEK({f"{PREFIX}/graph/": httpx.Response(502, json=body)}))
     with pytest.raises(SystemExit) as exc:
-        runner._dispatch_graph(SimpleNamespace(query="mice"))
+        runner._dispatch_graph(SimpleNamespace(query="mice", plan=""))
     assert exc.value.code == 4
     assert "reason" not in _stderr_error(capsys)
 
@@ -157,7 +165,7 @@ def test_each_op_error_code_exits_with_its_number(env, monkeypatch, capsys, code
     _serve(monkeypatch, _NExtSEEK({f"{PREFIX}/graph/": httpx.Response(status, json=body)}))
 
     with pytest.raises(SystemExit) as exc:
-        runner._dispatch_graph(SimpleNamespace(query="mice"))
+        runner._dispatch_graph(SimpleNamespace(query="mice", plan=""))
 
     assert exc.value.code == _op_errors.EXIT[code]
     error = _stderr_error(capsys)
@@ -183,7 +191,7 @@ def test_a_reply_without_a_code_is_mapped_by_its_status(env, monkeypatch, capsys
              else httpx.Response(status, text="<html>error</html>"))
     _serve(monkeypatch, _NExtSEEK({f"{PREFIX}/graph/": reply}))
     with pytest.raises(SystemExit) as exc:
-        runner._dispatch_graph(SimpleNamespace(query="mice"))
+        runner._dispatch_graph(SimpleNamespace(query="mice", plan=""))
     assert exc.value.code == _op_errors.EXIT[code]
     assert _stderr_error(capsys)["code"] == code
 
@@ -193,7 +201,7 @@ def test_a_403_without_a_code_says_the_user_may_not_use_the_project(env, monkeyp
     reply = httpx.Response(403, json={"detail": "You do not have permission to perform this action."})
     _serve(monkeypatch, _NExtSEEK({f"{PREFIX}/graph/": reply}))
     with pytest.raises(SystemExit) as exc:
-        runner._dispatch_graph(SimpleNamespace(query="mice"))
+        runner._dispatch_graph(SimpleNamespace(query="mice", plan=""))
     assert exc.value.code == 12
     assert _stderr_error(capsys) == {
         "code": "PASS_NOT_ALLOWED",
@@ -210,7 +218,7 @@ def test_a_wait_that_runs_out_is_a_transport_error_that_says_why(env, monkeypatc
         monkeypatch.setenv(TURN_DEADLINE_ENV, str(int(NOW + left)))
     _serve(monkeypatch, _NExtSEEK({f"{PREFIX}/graph/": _stall}))
     with pytest.raises(SystemExit) as exc:
-        runner._dispatch_graph(SimpleNamespace(query="mice"))
+        runner._dispatch_graph(SimpleNamespace(query="mice", plan=""))
     assert exc.value.code == 7
     assert fragment in _stderr_error(capsys)["message"]
 
@@ -352,7 +360,7 @@ def test_anything_else_is_the_direct_road(env, monkeypatch, value):
     monkeypatch.setenv("NEXTSEEK_CC_OPS_ROAD", value)
     monkeypatch.setattr(sc, "call_op", lambda *a, **k: pytest.fail("the sidecar road was taken"))
     _serve(monkeypatch, _NExtSEEK({f"{PREFIX}/graph/": _ok("graph", {"ok": True})}))
-    assert runner._dispatch_graph(SimpleNamespace(query="mice")) == {"ok": True}
+    assert runner._dispatch_graph(SimpleNamespace(query="mice", plan="")) == {"ok": True}
 
 
 def test_the_sidecar_road_keeps_its_own_exit_codes(env, monkeypatch):
@@ -363,7 +371,7 @@ def test_the_sidecar_road_keeps_its_own_exit_codes(env, monkeypatch):
 
     monkeypatch.setattr(sc, "call_op", call_op)
     with pytest.raises(SystemExit) as exc:
-        runner._dispatch_graph(SimpleNamespace(query="mice"))
+        runner._dispatch_graph(SimpleNamespace(query="mice", plan=""))
     assert exc.value.code == 6
 
 

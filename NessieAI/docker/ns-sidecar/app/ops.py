@@ -88,7 +88,10 @@ def _parse(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
 
 
 def _graph(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
-    envelope = ns_client.call_op("graph", {"query": args["query"]},
+    body = {"query": args["query"]}
+    if args.get("plan"):
+        body["plan"] = args["plan"]
+    envelope = ns_client.call_op("graph", body,
                                  base_url=config.base_url, turn_pass=config.turn_pass)
     return envelope["result"]
 
@@ -108,6 +111,8 @@ def _aggregate(args, config, session, write_gate, stage, stage_bytes, commit_byt
     body = {"query": args["query"]}
     if args.get("parts"):
         body["parts"] = args["parts"]
+    if args.get("plan"):
+        body["plan"] = args["plan"]
     envelope = ns_client.call_op("aggregate", body,
                                  base_url=config.base_url, turn_pass=config.turn_pass)
     return envelope["result"]

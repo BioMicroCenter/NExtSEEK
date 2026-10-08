@@ -15,9 +15,10 @@ import _sidecar_client as sc  # noqa: E402
 
 
 class _Args:
-    def __init__(self, query, parts=None):
+    def __init__(self, query, parts=None, plan=None):
         self.query = query
         self.parts = parts
+        self.plan = plan
 
 
 class _Socket:
@@ -62,6 +63,16 @@ def test_no_parts_sends_no_parts_key(socket):
     runner._dispatch_aggregate(_Args("How many TIS samples?", ""))
 
     assert socket.sent["args"] == {"query": "How many TIS samples?"}
+
+
+def test_the_plan_is_forwarded_as_text_and_only_when_given(socket):
+    plan = json.dumps({"intent_summary": "TIS", "filters": {"sampletype_code": "TIS"}})
+
+    runner._dispatch_aggregate(_Args("How many TIS samples?", "", plan))
+    assert socket.sent["args"] == {"query": "How many TIS samples?", "plan": plan}
+
+    runner._dispatch_aggregate(_Args("How many TIS samples?", "", ""))
+    assert "plan" not in socket.sent["args"]
 
 
 def test_a_missing_query_is_a_validation_error(socket):

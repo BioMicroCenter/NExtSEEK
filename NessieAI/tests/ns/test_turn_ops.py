@@ -1,7 +1,7 @@
 """The ops of one Container-CC turn share its memory (plan 04, piece 3).
 
 With a turn: the vocabulary is the turn's (the first op that finds none resolves it on the user's question and stores
-it); a parser plan is reused by its exact question; a model that failed in one op is skipped in the next, on
+it); the turn has one parser plan (the agent's, else the first parse), which an op sent without a plan reuses; a model that failed in one op is skipped in the next, on
 another worker too; every op's spend is added to the turn. A reused plan still runs through the scoped Neo4j tool.
 Without a turn nothing changes. Agents are faked; no model is called. The test database is SQLite in memory with a
 shared cache, where two connections touching one table at the same moment fail at once, so the concurrency tests run
@@ -10,6 +10,7 @@ each turn-memory call under one lock (``serialize_turn_memory``) and overlap eve
 from __future__ import annotations
 
 import hashlib
+import json
 import threading
 import uuid
 from decimal import Decimal
@@ -147,33 +148,52 @@ def test_two_first_ops_at_once_store_one_vocabulary_and_both_use_it(monkeypatch)
     assert tm.vocabulary_resolutions(turn) == 2, "both resolutions are counted (one is a duplicate)"
 
 
-def test_a_repeated_op_question_reuses_its_plan_and_still_runs_through_the_scoped_tool(monkeypatch):
+def test_two_plan_less_ops_of_a_turn_make_one_parser_call_and_the_second_uses_the_turns_plan(monkeypatch):
     agents = Agents(monkeypatch)
     turn = _turn(vocabulary=EntityAgentOutput().model_dump(mode="json"))
 
-    for question in ("mice by sex", "mice by sex"):
-        agents.op("graph", question, CCTurn.objects.get(pk=turn.pk))
+    first = agents.op("graph", "mice by sex", CCTurn.objects.get(pk=turn.pk))
+    second = agents.op("graph", "mice by strain, rephrased", CCTurn.objects.get(pk=turn.pk))
 
-    assert agents.parser_calls == ["mice by sex"]
+    assert agents.parser_calls == ["mice by sex"], "the agent rephrases: the turn's one plan serves both ops"
     assert agents.graph_saw[1][2].intent_summary == "mice by sex"
+    assert (first["plan_source"], second["plan_source"]) == ("parser", "turn")
     assert agents.neo4j.call_count == 2, "a reused plan still runs through the scoped tool"
+    assert list(CCTurn.objects.get(pk=turn.pk).plans) == [tm.TURN_PLAN_KEY]
 
 
-def test_whitespace_inside_a_quoted_literal_is_parsed_as_its_own_question(monkeypatch):
-    """The plan key is the exact question: "wt  1" and "wt 1" are two titles, so neither reuses the other's plan."""
+def test_an_agent_plan_becomes_the_turns_plan_and_the_latest_one_replaces_it(monkeypatch):
     agents = Agents(monkeypatch)
-    turn = _turn(vocabulary={})
+    turn = _turn(vocabulary=EntityAgentOutput().model_dump(mode="json"))
+    plan = lambda summary: json.dumps({"intent_summary": summary, "filters": {"sampletype_code": "MUS"}})  # noqa: E731
 
-    agents.op("graph", 'Samples titled "wt  1"', turn)
-    agents.op("graph", 'Samples titled "wt 1"', CCTurn.objects.get(pk=turn.pk))
+    one = agents.op("graph", "q1", CCTurn.objects.get(pk=turn.pk), plan=plan("first"))
+    two = agents.op("graph", "q2", CCTurn.objects.get(pk=turn.pk), plan=plan("second"))
+    three = agents.op("graph", "q3", CCTurn.objects.get(pk=turn.pk))
 
-    assert agents.parser_calls == ['Samples titled "wt  1"', 'Samples titled "wt 1"']
-    assert len(CCTurn.objects.get(pk=turn.pk).plans) == 2
+    assert agents.parser_calls == []
+    assert (one["plan_source"], two["plan_source"], three["plan_source"]) == ("agent", "agent", "turn")
+    assert [saw[2].intent_summary for saw in agents.graph_saw] == ["first", "second", "second"]
 
 
-def test_two_first_ops_on_the_same_question_make_at_most_two_parser_calls_and_store_one_plan(monkeypatch):
-    """Both ops find no plan and both parse (at most one parser call per concurrent first op); the row lock keeps the
-    first plan stored and only that one; a later op on the question reuses it."""
+def test_a_plan_is_checked_against_the_turns_stored_vocabulary(monkeypatch):
+    from NessieAI.ns.granular import OpValidationError
+    agents = Agents(monkeypatch)
+    turn = _turn(vocabulary=EntityAgentOutput(lab_codes=["WAD"]).model_dump(mode="json"))
+
+    ok = agents.op("graph", "q", CCTurn.objects.get(pk=turn.pk),
+                   plan=json.dumps({"filters": {"lab_codes": ["WAD"]}}))
+    assert ok["plan_source"] == "agent"
+    with pytest.raises(OpValidationError) as err:
+        agents.op("graph", "q", CCTurn.objects.get(pk=turn.pk), plan=json.dumps({"filters": {"lab_codes": ["XYZ"]}}))
+    assert err.value.field == "plan.filters.lab_codes"
+    assert agents.parser_calls == []
+    assert tm.get_turn_plan(turn)["filters"]["lab_codes"] == ["WAD"], "a refused plan does not replace the turn's"
+
+
+def test_two_first_ops_at_once_make_at_most_two_parser_calls_and_leave_one_turn_plan(monkeypatch):
+    """Both ops find no plan and both parse (at most one parser call per concurrent first op); the row lock leaves one
+    plan stored under the turn's key; a later op reuses it."""
     agents = Agents(monkeypatch)
     turn = _turn(vocabulary={})
     both_parsing = threading.Barrier(2, timeout=10)
@@ -201,11 +221,11 @@ def test_two_first_ops_on_the_same_question_make_at_most_two_parser_calls_and_st
     assert agents.parser_calls == ["mice by sex", "mice by sex"]
     with lock:
         plans = CCTurn.objects.get(pk=turn.pk).plans
-    assert list(plans) == [tm.plan_key("mice by sex")]
+    assert list(plans) == [tm.TURN_PLAN_KEY]
     agents.on_parser = None
     with lock:
         row = CCTurn.objects.get(pk=turn.pk)
-    agents.op("graph", "mice by sex", row)
+    agents.op("graph", "something else", row)
     assert len(agents.parser_calls) == 2, "the stored plan is reused"
 
 
@@ -311,7 +331,7 @@ def test_two_ops_at_once_on_different_workers_lose_no_strike_plan_or_cost(monkey
     assert not errors, errors
 
     assert sorted(s[1] for s in tm.load_strikes(turn)) == ["model-a", "model-b"]
-    assert tm.get_plan(turn, "a") and tm.get_plan(turn, "b")
+    assert tm.get_turn_plan(turn), "one of the two plans is the turn's"
     assert CCTurn.objects.get(pk=turn.pk).ops_cost_usd == Decimal(str(round(2 * COST, 6)))
 
 
@@ -322,12 +342,12 @@ def test_the_entity_op_on_the_users_question_answers_with_the_turns_vocabulary(m
     assert agents.op("entity", "something else", turn)["keywords"] == ["legacy"]
 
 
-def test_aggregate_reads_the_turns_vocabulary_and_reuses_part_plans(monkeypatch):
+def test_aggregate_reads_the_turns_vocabulary_and_reuses_the_turns_plan(monkeypatch):
     agents = Agents(monkeypatch)
     turn = _turn("How many mice?", vocabulary={"keywords": ["stored"]})
 
     agents.op("aggregate", "How many mice by sex?", turn)
-    agents.op("aggregate", "How many mice by sex?", CCTurn.objects.get(pk=turn.pk))
+    agents.op("aggregate", "How many mice by strain?", CCTurn.objects.get(pk=turn.pk))
 
     assert agents.entity_calls == []
     assert agents.parser_calls == ["How many mice by sex?"]

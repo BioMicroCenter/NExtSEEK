@@ -40,10 +40,10 @@ def _refused(codes, reasons=("line 1, column 1: not allowed",)):
 class Fakes:
     """The agents and the Neo4j tool, scripted per part question; every call is recorded (thread-safe)."""
 
-    def __init__(self, cyphers, results, *, parser_hook=None):
+    def __init__(self, cyphers, results, *, part_hook=None):
         self.cyphers = cyphers          # part question -> [cypher for call 1, call 2, ...]
         self.results = results          # substring of a statement -> [result for run 1, run 2, ...]
-        self.parser_hook = parser_hook
+        self.part_hook = part_hook
         self.lock = threading.Lock()
         self.entity_calls, self.parser_calls, self.graph_calls, self.executed = [], [], [], []
         self.write_gate = MagicMock()
@@ -61,13 +61,14 @@ class Fakes:
     def parser(self, session, config, query, entity_out):
         with self.lock:
             self.parser_calls.append(query)
-        if self.parser_hook:
-            self.parser_hook(query)
         return ParserPlan(mode="graph_query", target_endpoint=None)
 
     def graph(self, config, query, entity_out, parser_plan, retry_context=None, refine_context=None):
+        if self.part_hook:
+            self.part_hook(query)
         with self.lock:
-            self.graph_calls.append({"query": query, "retry_context": retry_context, "refine_context": refine_context})
+            self.graph_calls.append({"query": query, "retry_context": retry_context, "refine_context": refine_context,
+                                     "parser_plan": parser_plan})
             n = sum(1 for c in self.graph_calls if c["query"] == query)
         script = self.cyphers[query]
         return GraphAgentPlan(cypher=script[min(n, len(script)) - 1], parameters={})
@@ -83,8 +84,9 @@ class Fakes:
                     return script[min(n, len(script)) - 1]
         raise AssertionError(f"no scripted result for {cypher!r}")
 
-    def run(self, query, parts=None, config=None):
-        args = {"query": query, "parts": json.dumps(parts) if parts is not None else ""}
+    def run(self, query, parts=None, config=None, plan=None):
+        args = {"query": query, "parts": json.dumps(parts) if parts is not None else "",
+                "plan": json.dumps(plan) if plan is not None else ""}
         with patch("chat_nextseek.portable.entity_agent", side_effect=self.entity), \
              patch("chat_nextseek.portable.parser_agent", side_effect=self.parser), \
              patch("chat_nextseek.portable.graph_agent", side_effect=self.graph), \
@@ -106,7 +108,7 @@ class PartsTests(SimpleTestCase):
         out = fakes.run(q)
 
         self.assertEqual(fakes.entity_calls, [q])
-        self.assertEqual(fakes.parser_calls, [q])
+        self.assertEqual(len(fakes.parser_calls), 1)
         self.assertEqual(len(out["parts"]), 1)
         part = out["parts"][0]
         self.assertEqual((part["part"], part["question"], part["status"]), (1, q, "ok"))
@@ -125,7 +127,7 @@ class PartsTests(SimpleTestCase):
                            session=SimpleNamespace(), write_gate=MagicMock(), neo4j_exec=fakes.neo4j)
         self.assertEqual(fakes.entity_calls, [])
 
-    def test_the_entity_agent_runs_once_and_the_parser_and_graph_agent_once_per_part(self):
+    def test_the_entity_agent_and_the_parser_run_once_and_the_graph_agent_once_per_part(self):
         parts = ["How many samples have no parent?", "How many samples have no children?", "How many TIS samples?"]
         fakes = Fakes({parts[0]: ["MATCH (s:Sample) WHERE NOT (s)-[:DERIVED_FROM]->() RETURN count(s) AS roots"],
                        parts[1]: ["MATCH (s:Sample) WHERE NOT ()-[:DERIVED_FROM]->(s) RETURN count(s) AS leaves"],
@@ -138,7 +140,10 @@ class PartsTests(SimpleTestCase):
         self.assertEqual(len(fakes.entity_calls), 1)
         for text in parts:
             self.assertIn(text, fakes.entity_calls[0])
-        self.assertEqual(sorted(fakes.parser_calls), sorted(parts))
+        self.assertEqual(len(fakes.parser_calls), 1, "one fallback parse for the whole question, shared by the parts")
+        for text in parts:
+            self.assertIn(text, fakes.parser_calls[0])
+        self.assertEqual({id(c["parser_plan"]) for c in fakes.graph_calls}, {id(fakes.graph_calls[0]["parser_plan"])})
         self.assertEqual(sorted(c["query"] for c in fakes.graph_calls), sorted(parts))
         self.assertEqual([p["part"] for p in out["parts"]], [1, 2, 3])
         self.assertEqual([p["question"] for p in out["parts"]], parts)
@@ -148,7 +153,7 @@ class PartsTests(SimpleTestCase):
         parts = ["part one", "part two", "part three"]
         barrier = threading.Barrier(3, timeout=5)
         fakes = Fakes({p: [COUNT] for p in parts}, {"T_TIS": [_ok([{"n": 1}])]},
-                      parser_hook=lambda query: barrier.wait())
+                      part_hook=lambda query: barrier.wait())
 
         out = fakes.run("three at once", parts)
 
@@ -173,6 +178,67 @@ class PartsTests(SimpleTestCase):
         fakes.run(q)
 
         self.assertEqual(fakes.graph_calls[0]["refine_context"], aggregate.AGGREGATE_BRIEF)
+
+
+class PlanTests(SimpleTestCase):
+    PLAN = {"intent_summary": "NHP samples", "filters": {"sampletype_code": "NHP", "keywords": ["k"]}}
+
+    def test_four_parts_with_a_plan_make_no_parser_call_and_each_part_gets_its_own_filters(self):
+        parts = ["p one", {"question": "p two", "filters": {"sampletype_code": "TIS", "uids": ["TIS-1"]}},
+                 "p three", {"question": "p four", "filters": {}}]
+        texts = ["p one", "p two", "p three", "p four"]
+        fakes = Fakes({t: [COUNT] for t in texts}, {"T_TIS": [_ok([{"n": 1}])]})
+
+        out = fakes.run("four parts", parts, plan=self.PLAN)
+
+        self.assertEqual(fakes.parser_calls, [])
+        self.assertEqual(out["plan_source"], "agent")
+        self.assertEqual([p["question"] for p in out["parts"]], texts)
+        sent = {c["query"]: c["parser_plan"] for c in fakes.graph_calls}
+        for text in ("p one", "p three"):
+            self.assertEqual(sent[text].filters.sampletype_code, "NHP")
+            self.assertEqual(sent[text].filters.keywords, ["k"])
+        self.assertEqual(sent["p two"].filters.sampletype_code, "TIS")
+        self.assertEqual(sent["p two"].filters.keywords, [], "a part's own filters replace the plan's")
+        self.assertEqual(sent["p two"].filters.uids, ["TIS-1"])
+        self.assertIsNone(sent["p four"].filters.sampletype_code)
+        for plan in sent.values():
+            self.assertEqual((plan.mode, plan.intent_summary), ("graph_query", "NHP samples"))
+
+    def test_without_a_plan_one_parse_covers_the_whole_question(self):
+        parts = ["a part", "b part"]
+        fakes = Fakes({p: [COUNT] for p in parts}, {"T_TIS": [_ok([{"n": 1}])]})
+        out = fakes.run("whole", parts)
+        self.assertEqual(len(fakes.parser_calls), 1)
+        self.assertEqual(out["plan_source"], "parser")
+
+    def test_bad_part_filters_and_bad_plans_are_validation_errors_with_no_model_call(self):
+        fakes = Fakes({}, {})
+        cases = [(["x"], "not json", "plan"),
+                 (["x"], {"cypher": "MATCH (n) RETURN n"}, "plan.cypher"),
+                 ([{"question": "x", "filters": {"cypher": "y"}}], None, "parts[0].filters.cypher"),
+                 ([{"question": "x", "projects": [1]}], None, "parts[0].projects"),
+                 ([{"filters": {}}], None, "parts")]
+        for parts, plan, field in cases:
+            with self.subTest(field=field), patch("chat_nextseek.portable.entity_agent", side_effect=fakes.entity), \
+                    patch("chat_nextseek.portable.parser_agent", side_effect=fakes.parser):
+                args = {"query": "q", "parts": json.dumps(parts), "plan": plan if isinstance(plan, str) else
+                        (json.dumps(plan) if plan else "")}
+                with self.assertRaises(OpValidationError) as ctx:
+                    run_op("aggregate", args, config=SimpleNamespace(), session=SimpleNamespace(),
+                           write_gate=MagicMock(), neo4j_exec=fakes.neo4j)
+                self.assertEqual(ctx.exception.field, field)
+        self.assertEqual((fakes.entity_calls, fakes.parser_calls), ([], []))
+
+    def test_a_lab_code_outside_the_vocabulary_is_refused_in_the_plan_and_in_a_part(self):
+        for plan, parts, field in (({"filters": {"lab_codes": ["XYZ"]}}, None, "plan.filters.lab_codes"),
+                                   ({}, [{"question": "x", "filters": {"lab_codes": ["XYZ"]}}],
+                                    "parts[0].filters.lab_codes")):
+            fakes = Fakes({"x": [COUNT]}, {"T_TIS": [_ok([{"n": 1}])]})
+            with self.subTest(field=field), self.assertRaises(OpValidationError) as ctx:
+                fakes.run("x", parts, plan=plan)
+            self.assertEqual(ctx.exception.field, field)
+            self.assertEqual((fakes.parser_calls, fakes.graph_calls), ([], []))
 
 
 class ShapeTests(SimpleTestCase):
@@ -473,10 +539,11 @@ class DeadlineTests(SimpleTestCase):
                 raise RuntimeError("released after the op answered")
 
         def graph(config, query, entity_out, parser_plan, retry_context=None, refine_context=None):
+            hook(query)
             fast_done.set()
             return GraphAgentPlan(cypher=COUNT, parameters={})
 
-        fakes = Fakes({}, {"T_TIS": [_ok([{"n": 2}])]}, parser_hook=hook)
+        fakes = Fakes({}, {"T_TIS": [_ok([{"n": 2}])]}, part_hook=hook)
         fakes.graph = graph
         wall = time.monotonic()
         with patch("NessieAI.ns.aggregate._monotonic", clock):
@@ -495,7 +562,7 @@ class DeadlineTests(SimpleTestCase):
         q = "How many HeLa samples?"
         clock = _Clock()
         fakes = Fakes({q: [COUNT, COUNT]}, {"T_TIS": [_ok([{"n": 0}])]},
-                      parser_hook=lambda query: setattr(clock, "now", clock.now + aggregate.op_deadline_s(None)
+                      part_hook=lambda query: setattr(clock, "now", clock.now + aggregate.op_deadline_s(None)
                                                         - aggregate.MIN_REMAINING_S + 1))
         with patch("NessieAI.ns.aggregate._monotonic", clock):
             part = fakes.run(q)["parts"][0]
@@ -507,7 +574,7 @@ class DeadlineTests(SimpleTestCase):
         q = "Studies of NHP samples"
         clock = _Clock()
         fakes = Fakes({q: ["MATCH (st:Study) RETURN count(st) AS n"]}, {"Study": [_refused(["unjoined_node"])]},
-                      parser_hook=lambda query: setattr(clock, "now", clock.now + aggregate.op_deadline_s(None)
+                      part_hook=lambda query: setattr(clock, "now", clock.now + aggregate.op_deadline_s(None)
                                                         - aggregate.MIN_REMAINING_S + 1))
         with patch("NessieAI.ns.aggregate._monotonic", clock):
             part = fakes.run(q)["parts"][0]
@@ -532,6 +599,7 @@ class DeadlineTests(SimpleTestCase):
             out = fakes.run("two parts, late", parts)
 
         self.assertEqual(fakes.parser_calls, [])  # no model call is spent on a part that cannot finish
+        self.assertEqual(fakes.graph_calls, [])
         self.assertFalse(out["complete"])
         self.assertEqual([p["status"] for p in out["parts"]], ["timed_out", "timed_out"])
         self.assertTrue(any("vocabulary" in note for note in out["notes"]))
@@ -543,7 +611,7 @@ class DeadlineTests(SimpleTestCase):
             if query == "bad part":
                 raise RuntimeError("model unavailable")
 
-        fakes = Fakes({"good part": [COUNT]}, {"T_TIS": [_ok([{"n": 9}])]}, parser_hook=hook)
+        fakes = Fakes({"good part": [COUNT]}, {"T_TIS": [_ok([{"n": 9}])]}, part_hook=hook)
 
         out = fakes.run("good and bad", parts)
 

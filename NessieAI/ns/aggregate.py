@@ -2,8 +2,9 @@
 
 A question such as "how many, broken down by what" gets one to four parts, written by the CC agent in plain
 language (``parts``; without them the question is the one part). The op resolves the vocabulary once, over the
-question and every part, so each part reads the same terms. Then each part runs the graph op's own chain
-(``granular.run_graph_question``) on a small thread pool: the parser, the graph agent with ``AGGREGATE_BRIEF``,
+question and every part, so each part reads the same terms. The op has one plan (T1): the agent's ``plan``, else the
+turn's, else one parser call on the whole question; a part's own filters replace the plan's for that part. Then each part runs the graph op's own chain
+(``granular.run_graph_question``) on a small thread pool: the graph agent with ``AGGREGATE_BRIEF``,
 the Neo4j tool, at most one retry, and the graph_search fallback on a scope refusal. What comes back is a small
 table per part (``groups``, ``sum_of_group_counts``, ``groups_may_overlap``, ``null_group``), never sample records:
 the agent charts or clusters it.
@@ -39,7 +40,8 @@ import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Any, Callable
 
-from NessieAI.ns.granular import GRAPH_SCOPE_FALLBACK_NOTE, OpValidationError, run_graph_question
+from NessieAI.ns.granular import (GRAPH_SCOPE_FALLBACK_NOTE, OpValidationError, _vocabulary_model, op_plan,
+                                  parse_agent_filters, parse_agent_plan, plan_filters, run_graph_question)
 
 #: The op answers this long before its limit, so its reply is on the wire before the limit passes.
 ANSWER_MARGIN_S = 5.0
@@ -86,26 +88,43 @@ def op_deadline_s(limit_s: float | None) -> float:
     return (OP_LIMITS_S["aggregate"] if limit_s is None else limit_s) - ANSWER_MARGIN_S
 
 
-def parse_parts(raw: Any, question: str) -> list[str]:
-    """The parts to answer: ``[question]`` when none were given, else 1 to ``MAX_PARTS`` non-empty strings."""
+def parse_part_specs(raw: Any, question: str) -> list[tuple[str, Any]]:
+    """The parts to answer, each ``(text, its own AgentFilters or None)``: ``[question]`` when none were given, else 1
+    to ``MAX_PARTS`` entries, each a non-empty string or a ``{"question", "filters"}`` object (T1: the filters
+    replace the op's plan's for that part)."""
     if raw is None or (isinstance(raw, str) and not raw.strip()):
-        return [question]
+        return [(question, None)]
     if not isinstance(raw, str):
         raise OpValidationError("parts must be a JSON array of strings, sent as text", field="parts", error_type="must_be_json_text")
     try:
         parts = json.loads(raw)
     except ValueError as exc:
         raise OpValidationError(f"parts is not valid JSON: {exc}", field="parts", error_type="invalid_json") from exc
-    if not isinstance(parts, list) or not all(isinstance(part, str) for part in parts):
-        raise OpValidationError("parts must be a JSON array of strings", field="parts", error_type="must_be_a_json_array_of_strings")
-    parts = [part.strip() for part in parts]
+    if not isinstance(parts, list) or not all(
+            isinstance(part, str) or (isinstance(part, dict) and isinstance(part.get("question"), str)) for part in parts):
+        raise OpValidationError("parts must be a JSON array of strings or {question, filters} objects", field="parts", error_type="must_be_a_json_array_of_strings")
     if not 1 <= len(parts) <= MAX_PARTS:
         raise OpValidationError(f"parts must hold 1 to {MAX_PARTS} sub-questions, not {len(parts)}", field="parts", error_type="must_hold_1_to_4_parts")
-    if not all(parts):
+    specs = []
+    for i, part in enumerate(parts):
+        if isinstance(part, dict):
+            extra = set(part) - {"question", "filters"}
+            if extra:
+                raise OpValidationError(f"parts[{i}].{sorted(extra)[0]} is not allowed", field=f"parts[{i}].{sorted(extra)[0]}", error_type="extra_forbidden")
+            filters = parse_agent_filters(part["filters"], f"parts[{i}].filters") if part.get("filters") is not None else None
+            specs.append((part["question"].strip(), filters))
+        else:
+            specs.append((part.strip(), None))
+    if not all(text for text, _ in specs):
         raise OpValidationError("every part must be a non-empty sub-question", field="parts", error_type="empty_part")
-    if any(len(part) > MAX_PART_CHARS for part in parts):
+    if any(len(text) > MAX_PART_CHARS for text, _ in specs):
         raise OpValidationError(f"a part may be at most {MAX_PART_CHARS} characters", field="parts", error_type="part_over_2000_characters")
-    return parts
+    return specs
+
+
+def parse_parts(raw: Any, question: str) -> list[str]:
+    """The parts' texts; see ``parse_part_specs``."""
+    return [text for text, _ in parse_part_specs(raw, question)]
 
 
 def _has_own_limit(cypher: str, masked: str) -> bool:
@@ -315,7 +334,7 @@ def _shape_part(k: int, text: str, answer, label: str) -> tuple[dict, list[str]]
 def _run_part(k: int, text: str, *, label: str, question: str, multi: bool, config: Any, session: Any,
               write_gate: Callable, exec_fn: Callable, entity_out: Any, uid_note: str | None, started: float,
               deadline: float, fallback_budget_s: float,
-              parser_plan: Any = None) -> tuple[dict, list[str], Any]:
+              parser_plan: Any = None, plan_source: str | None = None) -> tuple[dict, list[str], Any]:
     """One part through the graph op's chain; never raises (a failure is an ``error`` part)."""
     try:
         answer = run_graph_question(
@@ -323,7 +342,7 @@ def _run_part(k: int, text: str, *, label: str, question: str, multi: bool, conf
             entity_out=entity_out, refine_context=_brief(question, multi, uid_note), prepare_cypher=cap_rows,
             retry=lambda result, cypher: _retry_for(result, cypher, deadline),
             started=started, clock=_clock, fallback_budget_s=fallback_budget_s,
-            parser_plan=parser_plan,
+            parser_plan=parser_plan, plan_source=plan_source,
         )
         part, notes = _shape_part(k, text, answer, label)
         return part, notes, answer.parser_plan
@@ -334,10 +353,13 @@ def _run_part(k: int, text: str, *, label: str, question: str, multi: bool, conf
 
 
 def _prelude(config: Any, question: str, parts: list[str], exec_fn: Callable, *, vocabulary: Any = None,
-             vocabulary_question: str | None = None) -> tuple[Any, str | None, list[str]]:
+             vocabulary_question: str | None = None, session: Any = None, turn: Any = None, agent_plan: Any = None,
+             part_filters: list | None = None, deadline: float | None = None) -> tuple[Any, str | None, list[str], list, str]:
     """The vocabulary and the UID check (one read-only query). The vocabulary is the turn's when it has one
     (``vocabulary``), else resolved on the user's question (``vocabulary_question``, a Container-CC turn), else, with
-    no turn, over the question and every part as before."""
+    no turn, over the question and every part as before. Then the op's one plan (``granular.op_plan``): the agent's,
+    else the turn's, else one parser call on the whole question with its parts listed, shared by all the parts. Each
+    part with filters of its own gets the plan with those filters. Returns the plan per part and its source."""
     from chat_nextseek.helpers.uid_check import check_uids, uid_notes, uids_in
     from chat_nextseek.portable import entity_agent
 
@@ -355,7 +377,13 @@ def _prelude(config: Any, question: str, parts: list[str], exec_fn: Callable, *,
         agent_note, reply_notes = uid_notes(checks)
     except Exception:  # a failed check claims nothing either way
         agent_note, reply_notes = None, []
-    return entity_out, agent_note, reply_notes
+    if deadline is not None and deadline - _clock() < MIN_REMAINING_S:
+        return entity_out, agent_note, reply_notes, [], None  # no part will start: spend no parser call
+    from chat_nextseek.portable import parser_agent
+    base, source = op_plan(turn, agent_plan, entity_out, lambda: parser_agent(session, config, text, entity_out))
+    plans = [base if f is None else base.model_copy(update={"filters": plan_filters(
+        f, _vocabulary_model(entity_out), f"parts[{k}].filters")}) for k, f in enumerate(part_filters or [None] * len(parts))]
+    return entity_out, agent_note, reply_notes, plans, source
 
 
 def _in_own_collector(own: Any, fn: Callable, *args: Any, **kwargs: Any) -> Any:
@@ -384,27 +412,23 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
     question = str(args.get("query") or "").strip()
     if not question:
         raise OpValidationError("query is required", field="query", error_type="missing")
-    parts = parse_parts(args.get("parts"), question)
+    specs = parse_part_specs(args.get("parts"), question)
+    parts = [text for text, _ in specs]
+    part_filters = [f for _, f in specs]
+    agent_plan = parse_agent_plan(args.get("plan"))  # before any call: a bad plan is VALIDATION, never repaired
     multi = len(parts) > 1
     exec_fn = neo4j_exec
     if exec_fn is None:
         from chat_nextseek.helpers import tool_neo4j_query
         exec_fn = tool_neo4j_query
 
-    turn_vocabulary, vocabulary_question, cached_plans = None, None, {}
+    turn_vocabulary, vocabulary_question = None, None
     if turn is not None:
-        from chat_nextseek.schemas import EntityAgentOutput, ParserPlan
+        from chat_nextseek.schemas import EntityAgentOutput
         from NessieAI.ns import turn_memory
         stored = turn_memory.get_vocabulary(turn)
         turn_vocabulary = EntityAgentOutput.model_validate(stored) if stored is not None else None
         vocabulary_question = turn_memory.user_question(turn) or question
-        for k, text in enumerate(parts, 1):
-            plan = turn_memory.get_plan(turn, text)
-            if plan is not None:
-                try:
-                    cached_plans[k] = ParserPlan.model_validate(plan)
-                except Exception:  # noqa: BLE001 - that part parses again
-                    pass
 
     deadline_s = op_deadline_s(limit_s)
     started = _clock()
@@ -425,7 +449,8 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
     from chat_nextseek import turn_spend
     #: Every task the op submitted, with its own cost collector (settled after the pool is shut down).
     tasks: dict[Any, Any] = {}
-    made_plans: dict[int, Any] = {}
+    part_plans: list = []
+    plan_source = None
     pool = ThreadPoolExecutor(max_workers=len(parts), thread_name_prefix="nextseek-aggregate")
     try:
         # Each task runs in a copy of the op's context, so it sees the op's call_scope: a model the
@@ -437,7 +462,9 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
         prelude_spend = turn_spend.TurnSpend()
         prelude = pool.submit(contextvars.copy_context().run, _in_own_collector, prelude_spend, _prelude,
                               config, question, parts, exec_fn, vocabulary=turn_vocabulary,
-                              vocabulary_question=vocabulary_question if turn_vocabulary is None else None)
+                              vocabulary_question=vocabulary_question if turn_vocabulary is None else None,
+                              session=session, turn=turn, agent_plan=agent_plan, part_filters=part_filters,
+                              deadline=deadline)
         tasks[prelude] = prelude_spend
         if _wait_until({prelude}, deadline) or _out_of_time(prelude):
             vocabulary_late = True
@@ -450,7 +477,7 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
                          f"{deadline_s:.0f} s, so no part was started and none has an answer. Say so; never "
                          "estimate one.")
         else:
-            entity_out, uid_note, uid_reply_notes = prelude.result()  # an entity agent failure fails the op
+            entity_out, uid_note, uid_reply_notes, part_plans, plan_source = prelude.result()  # an entity agent or a bad plan fails the op
             if turn is not None and turn_vocabulary is None:
                 from NessieAI.ns.granular import _store_turn_vocabulary
                 entity_out = _store_turn_vocabulary(turn, entity_out)
@@ -462,7 +489,7 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
                             multi=multi, config=config, session=session, write_gate=write_gate, exec_fn=exec_fn,
                             entity_out=entity_out, uid_note=uid_note, started=started, deadline=deadline,
                             fallback_budget_s=deadline_s - MIN_REMAINING_S,
-                            parser_plan=cached_plans.get(k)): k
+                            parser_plan=part_plans[k - 1], plan_source=plan_source): k
                 for k, text in enumerate(parts, 1)
             }
             tasks.update({future: part_spend[k] for future, k in futures.items()})
@@ -470,7 +497,7 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
             part_notes: dict[int, list[str]] = {}
             for future, k in futures.items():
                 if future not in unfinished and not _out_of_time(future):
-                    answered[k], part_notes[k], made_plans[k] = future.result()
+                    answered[k], part_notes[k], _ = future.result()
             for k in sorted(part_notes):
                 notes.extend(part_notes[k])
     finally:
@@ -488,14 +515,6 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
                 op_spend.absorb(own)
         else:
             hand_over_late(future, own)
-    if turn is not None:
-        from NessieAI.ns import turn_memory
-        from NessieAI.ns.granular import _plan_json
-        for k, plan in made_plans.items():
-            dumped = _plan_json(plan)
-            if k not in cached_plans and isinstance(dumped, dict):
-                turn_memory.store_plan(turn, parts[k - 1], dumped)
-
     out_parts = []
     for k, text in enumerate(parts, 1):
         if k in answered:
@@ -517,4 +536,5 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
         "deadline_s": deadline_s,
         "parts": out_parts,
         "notes": notes,
+        "plan_source": plan_source,
     }

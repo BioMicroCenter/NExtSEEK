@@ -301,7 +301,9 @@ class ParseOpRequest(EntityOpRequest):
 
 
 class GraphOpRequest(EntityOpRequest):
-    """POST /assistant/graph/ body."""
+    """POST /assistant/graph/ body. ``plan`` is the agent's optional plan, JSON text (``granular.AgentPlan``)."""
+    plan: str = Field("", max_length=8000,
+                      description="Optional JSON plan {intent_summary, filters, notes} the agent sends so no parser runs.")
 
 
 class AggregateOpRequest(BaseModel):
@@ -313,7 +315,9 @@ class AggregateOpRequest(BaseModel):
     """
     query: str = Field(..., min_length=1, max_length=32000)
     parts: str = Field("", max_length=16000,
-                       description="JSON array of 1 to 4 sub-questions, as text; empty means the question alone.")
+                       description="JSON array of 1 to 4 sub-questions (strings or {question, filters}), as text; empty means the question alone.")
+    plan: str = Field("", max_length=8000,
+                      description="Optional JSON plan {intent_summary, filters, notes} the agent sends so no parser runs.")
     use_prod: bool = Field(False, description="Admin-only: route through the prod ChatConfig.")
     session_id: Optional[UUID] = Field(None, description="Optional session for parser continuity.")
     model_config = ConfigDict(extra="forbid")

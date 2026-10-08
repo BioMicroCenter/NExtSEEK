@@ -5,6 +5,7 @@ made. They prove the routing, argument order, result shape, and â€” critically â
 that the write gate fires BEFORE any agent/LLM call on an unconfirmed write.
 The real chat_nextseek runs only in the paid real-stack acceptance tier.
 """
+import json
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
@@ -101,6 +102,81 @@ class DispatchTests(SimpleTestCase):
             "graph_agent must receive the parser_plan positionally",
         )
         self.assertIs(gr.call_args.args[3], par.return_value)
+
+    # --- graph with the agent's own plan (round 7 T1) ---
+    def _graph_with_plan(self, plan, vocab=None, neo4j=None):
+        neo4j_exec = neo4j or MagicMock(return_value={"ok": True, "data": []})
+        vocab = vocab if vocab is not None else {"sampletypes": [], "lab_codes": ["WAD"]}
+        with patch("chat_nextseek.portable.entity_agent") as ent, \
+             patch("chat_nextseek.portable.parser_agent", side_effect=AssertionError("no parser call")) as par, \
+             patch("chat_nextseek.portable.graph_agent") as gr:
+            ent.return_value = _dumpable(vocab)
+            gr.return_value = _dumpable({"cypher": "MATCH (s:Sample) RETURN s", "parameters": {}})
+            args = {"query": "q", "plan": plan if isinstance(plan, str) else json.dumps(plan)}
+            out = self._run("graph", args, neo4j_exec=neo4j_exec)
+        return out, par, gr
+
+    def test_a_valid_plan_skips_the_parser_and_reaches_the_graph_agent_as_graph_query(self):
+        plan = {"intent_summary": "NHP at WAD", "notes": "n",
+                "filters": {"sampletype_code": "NHP", "keywords": ["x"], "lab_codes": ["WAD"], "uids": ["NHP-1"]}}
+        out, par, gr = self._graph_with_plan(plan)
+        par.assert_not_called()
+        sent = gr.call_args.args[3]
+        self.assertEqual(sent.mode, "graph_query")
+        self.assertEqual(sent.filters.sampletype_code, "NHP")
+        self.assertEqual(sent.filters.lab_codes, ["WAD"])
+        self.assertEqual(sent.intent_summary, "NHP at WAD")
+        self.assertEqual(sent.resolved.lab_codes, ["WAD"], "resolved is the vocabulary, set by Django")
+        self.assertEqual(out["plan_source"], "agent")
+
+    def test_every_invalid_plan_is_a_validation_error_naming_its_field_and_calls_no_model(self):
+        cases = {
+            "not json": "plan",
+            '{"mode": "graph_query"}': "plan.mode",
+            '{"resolved": {}}': "plan.resolved",
+            '{"filters": {"bogus": 1}}': "plan.filters.bogus",
+            '{"filters": {"keywords": "x"}}': "plan.filters.keywords",
+            '{"filters": {"keywords": ["x"] }, "intent_summary": 5}': "plan.intent_summary",
+            json.dumps({"filters": {"keywords": ["k"] * 21}}): "plan.filters.keywords",
+            json.dumps({"filters": {"uids": ["u" * 201]}}): "plan.filters.uids.0",
+            json.dumps({"intent_summary": "s" * 1001}): "plan.intent_summary",
+            json.dumps({"notes": "s" * 1001}): "plan.notes",
+            '[]': "plan",
+        }
+        for raw, field in cases.items():
+            with self.subTest(raw=raw[:40]), patch("chat_nextseek.portable.entity_agent") as ent, \
+                 patch("chat_nextseek.portable.parser_agent") as par, patch("chat_nextseek.portable.graph_agent") as gr:
+                with self.assertRaises(OpValidationError) as ctx:
+                    self._run("graph", {"query": "q", "plan": raw}, neo4j_exec=MagicMock())
+                self.assertEqual(ctx.exception.field, field)
+                for agent in (ent, par, gr):
+                    agent.assert_not_called()
+
+    def test_a_lab_code_outside_the_vocabulary_is_refused_not_dropped_and_no_graph_or_parser_call_is_made(self):
+        with patch("chat_nextseek.portable.entity_agent") as ent, \
+             patch("chat_nextseek.portable.parser_agent") as par, patch("chat_nextseek.portable.graph_agent") as gr:
+            ent.return_value = _dumpable({"lab_codes": ["WAD"]})
+            with self.assertRaises(OpValidationError) as ctx:
+                self._run("graph", {"query": "q", "plan": json.dumps({"filters": {"lab_codes": ["XYZ"]}})},
+                          neo4j_exec=MagicMock())
+        self.assertEqual(ctx.exception.field, "plan.filters.lab_codes")
+        self.assertEqual(ctx.exception.field_error()["type"], "unknown_lab_code")
+        par.assert_not_called()
+        gr.assert_not_called()
+
+    def test_cypher_projects_and_endpoint_in_a_plan_are_refused(self):
+        for key in ("cypher", "projects", "target_endpoint", "parameters"):
+            for raw in (json.dumps({key: "x"}), json.dumps({"filters": {key: "x"}})):
+                with self.subTest(raw=raw), patch("chat_nextseek.portable.graph_agent") as gr:
+                    with self.assertRaises(OpValidationError):
+                        self._run("graph", {"query": "q", "plan": raw}, neo4j_exec=MagicMock())
+                    gr.assert_not_called()
+
+    def test_an_agent_plan_runs_through_the_scoped_tool_like_any_other(self):
+        neo4j = MagicMock(return_value={"ok": True, "data": [{"uuid": "NHP-1"}]})
+        out, _, _ = self._graph_with_plan({"intent_summary": "x"}, neo4j=neo4j)
+        neo4j.assert_called_once()
+        self.assertEqual(out["result"]["data"], [{"uuid": "NHP-1"}])
 
     # --- api-read (allowlist-gated; builds plan then gates) ---
     def test_api_read_builds_plan_then_gates_then_requests(self):

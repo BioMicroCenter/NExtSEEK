@@ -43,6 +43,7 @@ class ParseOpRequest(EntityOpRequest):
 
 class GraphOpRequest(EntityOpRequest):
     """POST /assistant/graph/ body."""
+    plan: str = Field("", max_length=8000, description="Optional agent plan, JSON text.")
 
 
 class ApiReadRequest(BaseModel):

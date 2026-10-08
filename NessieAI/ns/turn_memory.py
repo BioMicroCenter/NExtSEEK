@@ -119,6 +119,25 @@ def store_plan(turn, question: str, plan: dict) -> None:
         _rows(turn).update(plans=plans)
 
 
+#: The one key the turn's plan lives under in ``CCTurn.plans``; a sha256 hex plan key (the REST parse op's) never equals it.
+TURN_PLAN_KEY = "turn"
+
+
+def get_turn_plan(turn) -> dict | None:
+    """The turn's one plan: the latest an op ran."""
+    plans = _rows(turn).values_list("plans", flat=True).first()
+    plan = plans.get(TURN_PLAN_KEY) if isinstance(plans, dict) else None
+    return plan if isinstance(plan, dict) else None
+
+
+def set_turn_plan(turn, plan: dict) -> None:
+    """Make ``plan`` the turn's plan under the row lock; the latest plan an op ran replaces the earlier one."""
+    from django.db import transaction
+    with transaction.atomic():
+        row = _locked(turn, "plans")
+        _rows(turn).update(plans={**(row.plans or {}), TURN_PLAN_KEY: plan})
+
+
 def _strike(item: Any) -> list[str] | None:
     if isinstance(item, (list, tuple)) and len(item) >= 3 and all(isinstance(p, str) and p for p in item[:3]):
         return [item[0], item[1], item[2]]
