@@ -329,11 +329,40 @@ def test_live_every_provenance_attribute_exists_on_every_opted_in_output_sample_
                 f"such attribute (live catalog)"
 
 
+def _v1_spellings(raw: dict) -> list[str]:
+    """Rule ids (or positions) still spelling v1's `glob`/`secondary_data_glob`."""
+    rules = list(raw.get("outputs", []))
+    rules += [r for o in raw.get("versions", []) for r in o.get("outputs", [])]
+    return [r.get("id") or str(i) for i, r in enumerate(rules)
+            if "glob" in r or "secondary_data_glob" in r]
+
+
+def _row_default_misses(m: maps.PipelineMap) -> list[str]:
+    """Row defaults that exist on none of the map's output types, base or override."""
+    types = {r.sample_type for r in m.outputs + [r for o in m.versions for r in o.outputs]}
+    return [a for a in m.row_defaults if not any(a in ATTRS[t] for t in types)]
+
+
+def test_the_v1_check_reads_version_overrides_too():
+    raw = {"map_version": 2, "outputs": [{"id": "a", "candidates": ["x"]}],
+           "versions": [{"range": ">=2", "outputs": [{"id": "b", "glob": "y"}]}]}
+    assert _v1_spellings(raw) == ["b"]
+
+
+def test_the_row_default_check_counts_override_only_types():
+    m = maps.PipelineMap.model_validate({
+        "map_version": 2, "pipeline": "nf-core/rnaseq", "row_defaults": {"Matrix": "x"},
+        "outputs": [{"id": "a", "sample_type": "A.ALN", "candidates": ["x"]}],
+        "versions": [{"range": ">=2", "outputs": [
+            {"id": "b", "sample_type": "A.GEX", "candidates": ["y"]}]}]})
+    assert _row_default_misses(m) == []
+
+
 @pytest.mark.parametrize("name", ALL_MAPS)
 def test_every_map_is_v2(name):
     raw = json.loads((maps.MAPS_DIR / f"{name}.outputs.json").read_text())
     assert raw["map_version"] == 2
-    assert not any("glob" in r or "secondary_data_glob" in r for r in raw.get("outputs", []))
+    assert _v1_spellings(raw) == []
 
 
 @pytest.mark.parametrize("name", ALL_MAPS)
@@ -349,10 +378,7 @@ def test_every_companion_slot_exists_on_its_rules_type(name):
 @pytest.mark.parametrize("name", ALL_MAPS)
 def test_every_row_default_exists_on_at_least_one_output_type(name):
     m = maps.load(name)
-    types = {r.sample_type for r in m.outputs}
-    for attribute in m.row_defaults:
-        assert any(attribute in ATTRS[t] for t in types), \
-            f"{name}: row default {attribute} exists on none of {sorted(types)}"
+    assert _row_default_misses(m) == [], f"{name}: row defaults on none of its output types"
 
 
 @pytest.mark.parametrize("name", ALL_MAPS)
