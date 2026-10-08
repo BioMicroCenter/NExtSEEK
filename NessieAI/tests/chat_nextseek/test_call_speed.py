@@ -76,8 +76,7 @@ def test_only_primary_first_tries_count(run, tmp_path):
     good = [_row("parser", OPUS, 6)] * 20
     noise = [_row("parser", OPUS, 40, attempt=2), _row("parser", OPUS, 40, fallback_from=OPUS),
              _row("parser", OPUS, 40, outcome="deadline"), _row("parser", PRO, 40),
-             _row("multi_parser", OPUS, 40), _row("parser", OPUS, 40, outcome="timeout", deadline_capped=True),
-             "{torn"]
+             _row("multi_parser", OPUS, 40), "{torn"]
     d = _ledger(tmp_path, good[:10] + noise + good[10:])
     assert call_speed.recent_first_tries(d, "parser", OPUS) == [6.0] * 20
     w = _stall(run)
@@ -89,6 +88,14 @@ def test_only_primary_first_tries_count(run, tmp_path):
 def test_a_timeout_counts_at_its_window(tmp_path):
     d = _ledger(tmp_path, [_row("parser", OPUS, 20, outcome="timeout")] * 20)
     assert call_speed.median_first_try(d, "parser", OPUS) == 20.0
+
+
+def test_a_window_the_rule_cut_still_counts(tmp_path):
+    """The rule's own window is written deadline_capped (shorter than the call's), so skipping those rows starved it."""
+    d = _ledger(tmp_path, [_row("parser", OPUS, 6, deadline_capped=True)] * 10
+                + [_row("parser", OPUS, 24, outcome="timeout", deadline_capped=True)] * 10)
+    assert call_speed.recent_first_tries(d, "parser", OPUS) == [6.0] * 10 + [24.0] * 10
+    assert call_speed.median_first_try(d, "parser", OPUS) == 15.0
 
 
 def test_an_ns_turn_ignores_the_ledger(run, tmp_path):

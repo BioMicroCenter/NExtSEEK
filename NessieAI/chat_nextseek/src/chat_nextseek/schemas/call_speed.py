@@ -17,7 +17,8 @@ def recent_first_tries(log_dir: str | None, agent: str, model: str, n: int = SAM
     """Seconds of the last ``n`` first tries of ``agent`` on ``model``, oldest first.
 
     A first try is a row with ``attempt`` 1 and no ``fallback_from``. An answered call counts its elapsed time, a
-    timed-out call the window it had (a window the op's deadline cut counts nothing: it says nothing about speed).
+    timed-out call the window it had. A ``deadline_capped`` row counts too: every window this rule shortens is
+    written capped, so skipping those would leave the rule no samples of its own.
     """
     if not log_dir:
         return []
@@ -35,8 +36,7 @@ def recent_first_tries(log_dir: str | None, agent: str, model: str, n: int = SAM
     for line in lines:
         try:
             r = json.loads(line)
-            if (r["agent"] != agent or r["model"] != model or r["attempt"] != 1 or r.get("fallback_from")
-                    or r.get("deadline_capped")):
+            if r["agent"] != agent or r["model"] != model or r["attempt"] != 1 or r.get("fallback_from"):
                 continue
             if r["outcome"] == "ok":
                 out.append(r["elapsed_ms"] / 1000)
