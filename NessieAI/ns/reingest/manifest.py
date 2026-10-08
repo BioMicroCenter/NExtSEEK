@@ -101,6 +101,11 @@ class RunManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     manifest_version: int = MANIFEST_VERSION
     run_dir: str
+    # The PipelineRun run-harvest found for this run_dir. Set only by the
+    # run-harvest op; None means the manifest was built some other way (local
+    # copies, fixtures, admin tests) and is test-only: buildable by a
+    # superuser, never uploadable (spec §6.1).
+    launch_record_id: int | None = None
     run_status: str = RUN_INCOMPLETE
     pipeline: PipelineInfo = Field(default_factory=PipelineInfo)
     params: dict = Field(default_factory=dict)

@@ -744,6 +744,33 @@ def _patch_harvest(monkeypatch, *, failed=0, tmp_manifest_dir):
     return seen
 
 
+def _launch(run_dir="/net/cluster/runs/a", revision="3.18.0"):
+    return PipelineRun.objects.create(run_dir=run_dir, run_name="a",
+                                      pipeline="nf-core/rnaseq", revision=revision)
+
+
+def test_run_harvest_refuses_a_run_with_no_launch_record(monkeypatch, tmp_path):
+    _patch_harvest(monkeypatch, tmp_manifest_dir=tmp_path)
+    with pytest.raises(g.OpValidationError,
+                       match="reingest covers Nessie-launched runs; this run has no launch record"):
+        _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/a"},
+                  _Cfg(), None, None, None, None)
+
+
+def test_run_harvest_records_the_launch_and_fills_a_missing_version(monkeypatch, tmp_path):
+    _patch_harvest(monkeypatch, tmp_manifest_dir=tmp_path)
+    run = _launch(revision="3.18.0")
+    out = _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/a"},
+                    _Cfg(), None, None, None, None)
+    assert out["manifest"]["launch_record_id"] == run.pk
+    assert out["manifest"]["pipeline"]["version"] == "3.18.0"
+
+
+def test_harvest_local_alone_makes_a_test_only_manifest(tmp_path):
+    got = harvest.harvest_local(str(tmp_path))
+    assert got.launch_record_id is None
+
+
 def test_run_harvest_passes_both_lookups_through(monkeypatch, tmp_path):
     """The QC backfill needs the parent's real sample type, and the parent
     lookup needs to reach the database. Both arrive as callables the op
@@ -751,6 +778,7 @@ def test_run_harvest_passes_both_lookups_through(monkeypatch, tmp_path):
     missing one is silent -- the backfill simply stops being written. Pin
     both here."""
     seen = _patch_harvest(monkeypatch, tmp_manifest_dir=tmp_path)
+    _launch()
     _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/a"},
               _Cfg(), None, None, None, None)
     assert seen["lookup_by_fastq"] is g._d_seq_by_fastq
@@ -759,6 +787,7 @@ def test_run_harvest_passes_both_lookups_through(monkeypatch, tmp_path):
 
 def test_run_harvest_refuses_a_failed_run_without_the_override(monkeypatch, tmp_path):
     _patch_harvest(monkeypatch, failed=1, tmp_manifest_dir=tmp_path)
+    _launch()
     with pytest.raises(g.OpValidationError) as err:
         _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/a"},
                   _Cfg(), None, None, None, None)
@@ -767,6 +796,7 @@ def test_run_harvest_refuses_a_failed_run_without_the_override(monkeypatch, tmp_
 
 def test_run_harvest_allows_a_failed_run_with_the_override(monkeypatch, tmp_path):
     _patch_harvest(monkeypatch, failed=1, tmp_manifest_dir=tmp_path)
+    _launch()
     result = _dispatch(
         "run-harvest", {"run_dir": "/net/cluster/runs/a", "allow_failed_run": True},
         _Cfg(), None, None, None, None)
@@ -777,6 +807,7 @@ def test_run_harvest_allows_a_failed_run_with_the_override(monkeypatch, tmp_path
 
 def test_run_harvest_succeeds_and_returns_manifest_id(monkeypatch, tmp_path):
     _patch_harvest(monkeypatch, failed=0, tmp_manifest_dir=tmp_path)
+    _launch()
     result = _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/a"},
                        _Cfg(), None, None, None, None)
     assert result["run_dir"] == "/net/cluster/runs/a"

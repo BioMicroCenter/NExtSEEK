@@ -206,7 +206,8 @@ def _sample_record(nfcore_sample: str, d_seq_uid: str, *, metrics=None) -> manif
         metrics=metrics or {})
 
 
-def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksums=None):
+def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksums=None,
+                   launch_record_id=1):
     # store._ROOT is resolved once at module-import time from an env var; a
     # module already imported by an earlier test would ignore a later
     # monkeypatch.setenv, so patch the module attribute directly instead
@@ -218,6 +219,7 @@ def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksu
     _patch_seek_assays(monkeypatch)
     run_manifest = manifest_mod.RunManifest(
         run_dir="/net/cluster/runs/r1",
+        launch_record_id=launch_record_id,
         pipeline=manifest_mod.PipelineInfo(
             name="nf-core/rnaseq", version="3.18.0", run_name="test_run_1"),
         params={"genome": "GRCh38", "aligner": "star_salmon"},
@@ -230,7 +232,8 @@ def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksu
     return store_mod.save_manifest(run_manifest)
 
 
-def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None, outputs=None):
+def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None, outputs=None,
+                         launch_record_id=1):
     """Same shape as `_save_manifest`, but with `n` distinct samples -- the
     only way to tell "iterate result.rows" (correct, one row per sample)
     apart from "iterate output rules" (the brief's buggy sketch, one row per
@@ -256,6 +259,7 @@ def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None, outputs=No
     ]
     run_manifest = manifest_mod.RunManifest(
         run_dir="/net/cluster/runs/r1",
+        launch_record_id=launch_record_id,
         pipeline=manifest_mod.PipelineInfo(
             name="nf-core/rnaseq", version="3.18.0", run_name="test_run_multi"),
         params={"genome": "GRCh38", "aligner": "star_salmon"},
@@ -867,3 +871,37 @@ def test_legacy_rows_path_still_works_without_a_manifest_id(tmp_path):
     assert set(result["saved_files"]) == {"reingest_A_SCXP"}
     assert "reply" not in result  # legacy envelope shape, unchanged
     assert "proposals" not in result
+
+
+def _admin_session(is_superuser):
+    from types import SimpleNamespace
+    return SimpleNamespace(user=SimpleNamespace(pk=7, is_superuser=is_superuser,
+                                                get_full_name=lambda: "Test Curator"))
+
+
+def test_a_non_admin_cannot_build_a_test_only_manifest(tmp_path, monkeypatch):
+    manifest_id = _save_manifest(tmp_path, monkeypatch, launch_record_id=None)
+    with pytest.raises(g.OpValidationError,
+                       match="only an admin can build it, for testing"):
+        _dispatch("build-upload-xlsx", {"manifest_id": manifest_id},
+                  session=_admin_session(False), outputs_dir=str(tmp_path))
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_an_admin_builds_a_test_only_manifest_marked_test_only(rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch, launch_record_id=None)
+    out = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id},
+                    session=_admin_session(True), outputs_dir=str(tmp_path))
+    assert out["builds"] and all(b["test_only"] is True for b in out["builds"])
+    assert out["reply"].startswith("TEST ONLY:")
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_a_launched_manifest_builds_are_not_test_only(rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    out = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id},
+                    session=_admin_session(False), outputs_dir=str(tmp_path))
+    assert all(b["test_only"] is False for b in out["builds"])
+    assert not out["reply"].startswith("TEST ONLY:")

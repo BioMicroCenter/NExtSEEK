@@ -72,6 +72,10 @@ def verify(build_ids: list[str], *, user_id) -> list[dict]:
         if record.get("build_id") != build_id:
             reasons.append(f"{key}: record does not match its id")
             continue
+        if record.get("test_only") is not False:
+            reasons.append(f"{key}: built from a run Nessie didn't launch (test only); "
+                           "it can't be uploaded")
+            continue
         safe = _safe_artifact_path(record.get("path"))
         if safe is None or not safe.is_file():
             reasons.append(f"{key}: workbook missing or outside the artifact root")

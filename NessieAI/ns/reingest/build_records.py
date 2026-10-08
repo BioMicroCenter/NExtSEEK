@@ -42,13 +42,14 @@ def _owner_dir(user_id) -> str:
 
 def write(*, path, artifact_key, sample_type, mode, manifest_id, disposition,
           open_warnings, row_count, project_id, project_note, answers_digest,
-          user_id) -> dict:
+          user_id, test_only) -> dict:
     record = {
         "build_id": sha256_of(path), "artifact_key": artifact_key,
         "sample_type": sample_type, "mode": mode, "manifest_id": manifest_id,
         "disposition": disposition, "open_warnings": list(open_warnings),
         "row_count": row_count, "project_id": project_id, "project_note": project_note,
         "answers_digest": answers_digest, "built_by_user_id": user_id,
+        "test_only": bool(test_only),
         "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "path": os.path.abspath(path),
     }

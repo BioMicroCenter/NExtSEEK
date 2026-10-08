@@ -20,7 +20,8 @@ def _write(root, user_id=7, name="wb.xlsx", data=b"PK\x03\x04 bytes"):
     return build_records.write(
         path=str(path), artifact_key="reingest_A_ALN", sample_type="A.ALN", mode="new",
         manifest_id="abc", disposition="SOFT_FLAG", open_warnings=["row 0: x"],
-        row_count=1, project_id=14, project_note="", answers_digest="d", user_id=user_id)
+        row_count=1, project_id=14, project_note="", answers_digest="d", user_id=user_id,
+        test_only=False)
 
 
 def test_the_public_record_hides_the_server_path_and_ids_by_hash(root):
@@ -94,7 +95,7 @@ def test_a_failed_dump_leaves_no_temp_and_no_record(root):
                 path=str(root / "wb.xlsx"), artifact_key="k", sample_type="A.ALN",
                 mode="new", manifest_id="m", disposition="CLEAN", open_warnings=[],
                 row_count=1, project_id=None, project_note="", answers_digest="d",
-                user_id=7)
+                user_id=7, test_only=False)
     assert list((root / "builds" / "7").iterdir()) == []
 
 
@@ -104,3 +105,21 @@ def test_a_failed_replace_leaves_no_temp_and_no_record(root, monkeypatch):
     with pytest.raises(OSError):
         _write(root)
     assert list((root / "builds" / "7").iterdir()) == []
+
+
+def test_a_record_carries_test_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_records, "_ROOT", str(tmp_path))
+    wb = tmp_path / "w.xlsx"; wb.write_bytes(b"x")
+    rec = build_records.write(path=str(wb), artifact_key="k", sample_type="A.ALN", mode="new",
+                              manifest_id="m", disposition="CLEAN", open_warnings=[],
+                              row_count=1, project_id=1, project_note="", answers_digest="",
+                              user_id=5, test_only=True)
+    assert rec["test_only"] is True
+
+
+def test_test_only_is_required():
+    with pytest.raises(TypeError):
+        build_records.write(path="x", artifact_key="k", sample_type="A.ALN", mode="new",
+                            manifest_id="m", disposition="CLEAN", open_warnings=[],
+                            row_count=1, project_id=1, project_note="", answers_digest="",
+                            user_id=5)

@@ -26,7 +26,7 @@ def env(tmp_path, monkeypatch):
 
 
 def _build(env, name, mode, *, user_id=7, project_id=14, disposition="SOFT_FLAG",
-           data=None, sample_type=None, manifest_id="abc"):
+           data=None, sample_type=None, manifest_id="abc", test_only=False):
     path = env / f"{name}.xlsx"
     path.write_bytes(data or name.encode())
     if sample_type is None:
@@ -35,7 +35,7 @@ def _build(env, name, mode, *, user_id=7, project_id=14, disposition="SOFT_FLAG"
         path=str(path), artifact_key=name, sample_type=sample_type,
         mode=mode, manifest_id=manifest_id, disposition=disposition, open_warnings=[],
         row_count=2, project_id=project_id, project_note="" if project_id else "no project",
-        answers_digest="d", user_id=user_id)
+        answers_digest="d", user_id=user_id, test_only=test_only)
 
 
 def _copy_stage(p):
@@ -334,3 +334,21 @@ def test_an_incomplete_record_is_refused(env, missing):
                        match=f"{new['build_id'][:12]}: record is incomplete"):
         _op({"build_ids": new["build_id"], "confirmed_write": True}, dispatch=dispatch)
     dispatch.assert_not_called()
+
+
+def test_a_test_only_build_is_refused_even_when_it_passed_qa(env):
+    build = _build(env, "reingest_A_ALN", "new", disposition="CLEAN", test_only=True)
+    with pytest.raises(upload.UploadRefused, match="test only"):
+        upload.verify([build["build_id"]], user_id=7)
+
+
+def test_a_record_written_before_test_only_existed_is_refused(env):
+    build = _build(env, "reingest_A_ALN", "new", disposition="CLEAN")
+    path = os.path.join(build_records._ROOT, "7", f"{build['build_id']}.json")
+    with open(path) as fh:
+        record = json.load(fh)
+    record.pop("test_only")
+    with open(path, "w") as fh:
+        json.dump(record, fh)
+    with pytest.raises(upload.UploadRefused, match="test only"):
+        upload.verify([build["build_id"]], user_id=7)

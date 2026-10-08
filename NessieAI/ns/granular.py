@@ -415,6 +415,12 @@ def _generate_submission(args, config, session, write_gate, neo4j_exec, outputs_
 _RUN_LS_CAP = 2_000_000  # bytes of `ls -laR` returned to CC before truncation (well under the 16 MiB WS cap)
 
 
+def _launch_record_for(run_dir: str):
+    """The PipelineRun Nessie recorded when it launched ``run_dir``, or None."""
+    from NessieAI.ns.reingest import launch_record
+    return launch_record.launch_record_for(run_dir)
+
+
 def _validate_run_dir(args: dict, config: Any) -> tuple[str, dict, str]:
     """Shared by run-ls / run-harvest / run-checksum: the run dir must be
     under the cluster runs root. An unvalidated run_dir is an arbitrary read
@@ -879,6 +885,10 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
     from NessieAI.ns.reingest.store import save_manifest
 
     run_dir, luria_env, runs_root = _validate_run_dir(args, config)
+    launch = _launch_record_for(run_dir)
+    if launch is None:
+        raise OpValidationError(
+            "reingest covers Nessie-launched runs; this run has no launch record")
     from chat_nextseek.luria.ssh import prepare_key
     key_path = prepare_key(luria_env["key"])
     try:
@@ -900,6 +910,10 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
             os.remove(key_path)
         except OSError:
             pass
+
+    run_manifest.launch_record_id = launch.pk
+    if not run_manifest.pipeline.version and launch.revision:
+        run_manifest.pipeline.version = launch.revision
 
     # Files the remote stage skipped (a symlink escaping run_dir, or a
     # size/count cap hit) must stay visible, not vanish quietly -- surfaced
@@ -1418,13 +1432,18 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
         run_manifest = load_manifest(manifest_id)
     except FileNotFoundError:
         raise OpValidationError(f"no manifest {manifest_id!r}")
+    user = getattr(session, "user", None)
+    test_only = run_manifest.launch_record_id is None
+    if test_only and not bool(getattr(user, "is_superuser", False)):
+        raise OpValidationError(
+            "this manifest is from a run Nessie didn't launch; only an admin can build it, "
+            "for testing")
     pipeline = run_manifest.pipeline.name or "nf-core/rnaseq"
     run_name = run_manifest.pipeline.run_name or manifest_id
     pipeline_map = maps.load(pipeline)
     # Scientist is the person running the reingest, which is session state, not
     # anything the run directory knows. No session (a test, or the legacy rows
     # path) leaves it blank for a curator rather than attributing to nobody.
-    user = getattr(session, "user", None)
     full_name = ""
     if user is not None:
         full_name = (getattr(user, "get_full_name", lambda: "")() or "").strip()
@@ -1433,12 +1452,27 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
     # `lookup_by_fastq`). It raises on an unreachable catalog by design: a
     # fabricated "1" is how two A.GEX rows end up sharing a Name.
     approved = proposals.approved_rules(pipeline)
+
+    # (sample_type, attribute) -> bool, memoised so a 20-sample backfill does
+    # not re-query the schema catalog once per sample for the same attribute.
+    exists_cache: dict[tuple[str, str], bool] = {}
+
+    def _attribute_exists(sample_type: str, attribute: str) -> bool:
+        key = (sample_type, attribute)
+        if key not in exists_cache:
+            # Deliberately not try/except'd: an outage (RuntimeError) must
+            # propagate, never be swallowed into a fabricated False -- see
+            # proposals.attribute_exists' own docstring.
+            exists_cache[key] = proposals.attribute_exists(sample_type, attribute)
+        return exists_cache[key]
+
     result = mapper.apply(run_manifest, pipeline_map,
                           approved_rules=approved,
                           context={"user_full_name": full_name,
                                    "next_name_ordinal": next_name_ordinal_strict,
                                    "lab_code_from_uid": lab_code_from_uid,
-                                   "lab_for_code": lab_for_code_strict})
+                                   "lab_for_code": lab_for_code_strict,
+                                   "has_attribute": _attribute_exists})
 
     # An entirely empty catalog is an outage signal (proposals.attribute_exists'
     # own contract, right above), never an answer -- so this must raise here
@@ -1464,19 +1498,7 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
 
     out_root = outputs_dir or os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs"
 
-    # (sample_type, attribute) -> bool, memoised so a 20-sample backfill does
-    # not re-query the schema catalog once per sample for the same attribute.
-    exists_cache: dict[tuple[str, str], bool] = {}
     today = datetime.date.today().isoformat()
-
-    def _attribute_exists(sample_type: str, attribute: str) -> bool:
-        key = (sample_type, attribute)
-        if key not in exists_cache:
-            # Deliberately not try/except'd: an outage (RuntimeError) must
-            # propagate, never be swallowed into a fabricated False -- see
-            # proposals.attribute_exists' own docstring.
-            exists_cache[key] = proposals.attribute_exists(sample_type, attribute)
-        return exists_cache[key]
 
     # Assay per sample type, by internal assay title, off the committed map.
     # A sample type with no `assay` declared resolves to no ASSAY rows, which
@@ -1759,7 +1781,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
             manifest_id=manifest_id, disposition=built.disposition,
             open_warnings=built.soft, row_count=len(type_rows),
             project_id=project_id, project_note=project_note,
-            answers_digest=answers.digest(), user_id=user_id))
+            answers_digest=answers.digest(), user_id=user_id,
+            test_only=test_only))
 
     # A HARD_REJECT sample type's own workbook was skipped above (the
     # `continue` two lines up), so asking the reader to confirm a
@@ -1797,6 +1820,11 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
         reports_by_type, saved_files, run_name, ambiguous_primary=ambiguous_primary,
         row_counts={st: len(rows) for st, rows in final.rows_by_type.items()},
         unmapped_count=len(result.unmapped or []))
+    if result.warnings:
+        reply += "\n\nMap notes:\n" + "\n".join(f"- {w}" for w in result.warnings)
+    if test_only:
+        reply = ("TEST ONLY: this run wasn't launched by Nessie. "
+                 "These workbooks can't be uploaded.\n\n" + reply)
 
     # A key the curator placed is still proposed: the placement covers this
     # run only, and making it a standing map rule is an admin's call.

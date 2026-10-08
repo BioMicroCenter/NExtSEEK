@@ -28,6 +28,13 @@ def read_cohort_sidecar(samplesheet_path: str) -> list[dict]:
         return []
 
 
+def launch_record_for(run_dir):
+    """The PipelineRun recorded for ``run_dir``, or None when Nessie never launched it."""
+    from nextseek_api.assistant.models_db import PipelineRun
+
+    return PipelineRun.objects.filter(run_dir=run_dir).first()
+
+
 def record_launch(*, run_dir, run_name, pipeline, revision, slurm_job_id,
                   user_id, cohort_entries):
     """Upsert the PipelineRun for ``run_dir``. Returns it, or None on any failure.
