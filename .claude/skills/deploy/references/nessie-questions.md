@@ -23,7 +23,7 @@ rate is a hint. The verdict comes from reading every reply and the task rows beh
 ## 2. The cases file
 
 The brief gives either a repo file (for example
-`NessieAI/tests/nessie_tests/probes/probe-2026-09-23-followups-to-cc.json`) or inline questions.
+`NessieAI/tests/nessie_tests/probes/probe-2026-09-24-cc-followup-reruns.json`) or inline questions.
 
 **A repo file** is already in the image at `/app/<same path>` for the deployed sha. Take it
 from that sha into your scratchpad anyway, so the run uses exactly what you read, and re-pin it

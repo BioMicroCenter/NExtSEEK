@@ -20,7 +20,8 @@ the preflight and even a local `cat` of its output as "Production Reads"), and a
 mode. The operator's choice is an allow rule for exactly the four launch commands plus a Read of the launch
 folders. **Not verified**: whether the classifier honours it was not testable from the session that wrote
 this (it refused a docs lookup about itself), and a session may not add the rule itself (refused on 10-03
-as Self-Modification). The operator adds it to `~/.claude/settings.json` (or `.claude/settings.local.json`):
+as Self-Modification). The operator adds it to `~/.claude/settings.json` (or `.claude/settings.local.json`), writing `<your-home>` as the
+absolute path of the home directory that holds the checkout (the `Read` rule takes an absolute path after `//`):
 
 ```json
 {"permissions": {"allow": [
@@ -28,7 +29,7 @@ as Self-Modification). The operator adds it to `~/.claude/settings.json` (or `.c
   "Bash(uv run .claude/skills/deploy/scripts/launch.py start *)",
   "Bash(uv run .claude/skills/deploy/scripts/launch.py finish *)",
   "Bash(uv run .claude/skills/deploy/scripts/launch.py report *)",
-  "Read(//home/cdemurjian/code/dmac/docker/CI-reports/**)"
+  "Read(//<your-home>/code/dmac/docker/CI-reports/**)"
 ]}}
 ```
 
