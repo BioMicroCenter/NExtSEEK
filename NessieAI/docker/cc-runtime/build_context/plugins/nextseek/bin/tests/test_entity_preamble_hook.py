@@ -64,6 +64,8 @@ NOTE_PREFIX = ("NExtSEEK vocabulary auto-resolved for this query (NExtSEEK resol
                "do not run nextseek-entity-extract again for it). Use these canonical terms, not the raw phrasing or "
                "abbreviations, when building op calls (investigation/project names, sampletype codes, assays, "
                "keywords). If a term you need is not here, consult context/MANIFEST.md:")
+#: Post mode adds the note after the turn started, so it says when NExtSEEK resolved it truthfully.
+POST_NOTE_PREFIX = NOTE_PREFIX.replace("before your turn started", "while your turn was starting")
 
 
 def _vocab_file(tmp_path: Path, payload: str) -> Path:
@@ -204,7 +206,7 @@ def _post_context(proc: subprocess.CompletedProcess) -> str:
 def test_post_mode_adds_the_late_vocabulary_once(tmp_path):
     vocab = '{"keywords":["late"]}'
     f = _vocab_file(tmp_path, vocab)
-    assert _post_context(_run(tmp_path, vocab=f, mode="post")) == NOTE_PREFIX + "\n" + vocab
+    assert _post_context(_run(tmp_path, vocab=f, mode="post")) == POST_NOTE_PREFIX + "\n" + vocab
     assert (tmp_path / "marker").exists()
     second = _run(tmp_path, vocab=f, mode="post")
     assert second.returncode == 0 and second.stdout == ""

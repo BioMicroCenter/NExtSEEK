@@ -270,6 +270,22 @@ def test_handing_a_finished_prerun_to_a_turn_stores_everything_at_once(monkeypat
 
 
 @pytest.mark.django_db(transaction=True)
+def test_the_slot_is_offered_the_vocabulary_the_turn_kept_when_an_op_stored_one_first(monkeypatch, fresh_pool):
+    """T1 checks a plan's lab codes against the stored vocabulary, so the agent's note shows that one, not the
+    pre-run's that lost the store."""
+    monkeypatch.setattr(vocabulary_mod, "resolve_vocabulary", _paid_entity())
+    turn = _turn("mice")
+    p = prerun.start_prerun(None, CONFIG, "mice", skip=False)
+    p.result(10)
+    assert tm.store_vocabulary(turn, {"keywords": ["the op's"]})
+    offered: list = []
+
+    assert prerun.hand_to_turn(p, turn, user_question="mice", store_early_plan=False,
+                               slot=SimpleNamespace(offer=offered.append)).is_set()
+    assert offered == [{"keywords": ["the op's"]}]
+
+
+@pytest.mark.django_db(transaction=True)
 def test_a_prerun_estimate_reaches_the_turn(monkeypatch, fresh_pool):
     """Round 6: an entity call that timed out is priced as an estimate and the turn says so."""
     def hung_entity(session, config, query, *, diagnostics=None, **kw):

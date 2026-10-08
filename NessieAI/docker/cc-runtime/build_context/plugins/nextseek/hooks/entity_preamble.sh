@@ -71,9 +71,11 @@ fi
 
 # 2. The vocabulary, when Django had it before the container started.
 VOCAB=""
+WHEN="before your turn started"
+[ "$MODE" = post ] && WHEN="while your turn was starting"
 if [ -r "$VOCAB_FILE" ] && jq -e . "$VOCAB_FILE" >/dev/null 2>&1; then
-  VOCAB="$(jq -r '
-    "NExtSEEK vocabulary auto-resolved for this query (NExtSEEK resolved it before your turn started; do not run nextseek-entity-extract again for it). Use these canonical terms, not the raw phrasing or abbreviations, when building op calls (investigation/project names, sampletype codes, assays, keywords). If a term you need is not here, consult context/MANIFEST.md:\n"
+  VOCAB="$(jq -r --arg when "$WHEN" '
+    "NExtSEEK vocabulary auto-resolved for this query (NExtSEEK resolved it \($when); do not run nextseek-entity-extract again for it). Use these canonical terms, not the raw phrasing or abbreviations, when building op calls (investigation/project names, sampletype codes, assays, keywords). If a term you need is not here, consult context/MANIFEST.md:\n"
     + tojson
   ' "$VOCAB_FILE" 2>/dev/null || true)"
 fi

@@ -344,9 +344,12 @@ def hand_to_turn(prerun: Prerun, turn: Any, *, user_question: str, store_early_p
             try:
                 out = p._vocabulary(0)
                 if out is not None:
-                    turn_memory.store_vocabulary(turn, out.model_dump(mode="json"))
+                    vocabulary = out.model_dump(mode="json")
+                    if not turn_memory.store_vocabulary(turn, vocabulary):
+                        # An op stored its own first: offer that one, the vocabulary plans are checked against.
+                        vocabulary = turn_memory.get_vocabulary(turn) or vocabulary
                     if slot is not None:
-                        slot.offer(out.model_dump(mode="json"))
+                        slot.offer(vocabulary)
                 if store_early_plan and isinstance(p.plan, dict):
                     turn_memory.store_plan(turn, user_question, p.plan)
             except Exception:  # noqa: BLE001
