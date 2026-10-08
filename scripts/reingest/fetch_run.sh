@@ -15,7 +15,8 @@
 # It mirrors what the real harvest does on the cluster:
 #   - copied:    the small text files the harvest reads (GENERIC_GLOBS plus every
 #                map's harvest_globs), each up to the harvest's 4 MB per-file cap
-#   - name only: the files the harvest only lists (INVENTORY_GLOBS: bam, h5ad,
+#   - name only: the files the harvest only lists (CORE_INVENTORY_GLOBS plus each
+#                map's inventory_globs; older refs used INVENTORY_GLOBS: bam, h5ad,
 #                rds, mtx, vcf, merged counts, quant.sf, MultiQC html) become
 #                empty files with the same name; nothing is downloaded
 #   - skipped:   everything else (plots, reports, DE tables, FastQC, ...)
@@ -23,7 +24,7 @@
 # (default feat/nfcore-reingest-integration), so they follow the branch.
 # The samplesheet is saved as <name>/samplesheet.csv. Safe to rerun.
 set -euo pipefail
-usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 into=""; args=()
 while [ $# -gt 0 ]; do
   case "$1" in

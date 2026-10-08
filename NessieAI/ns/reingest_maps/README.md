@@ -39,7 +39,8 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
   - `companions` — files derived from the row's primary file (a subset, an index,
     other units, a model object). A companion is never its own row. It goes into
     its `slot` if it names one, the row's type has it and it is empty; else
-    `File_SecondaryData`; else it is appended to `Notes` after "Also in run: ". A
+    `File_SecondaryData` (which also fills `Checksum_SecondaryData` when the manifest
+    has that file's checksum); else it is appended to `Notes` after "Also in run: ". A
     type without `Notes` sends the leftovers to the build report instead.
   - `optional` — a flag-dependent output (`--cram`, `--tools salmon`): matching
     nothing is expected, so it is not reported.
@@ -196,7 +197,7 @@ What blocks each row:
 | denovotranscript | `trinity/pooled_reads.fa.gz`, `rnaspades/pooled_reads.transcripts.fa.gz` (assemblies before redundancy reduction) | none | type, inventory, choice: whether to register pre-reduction assemblies at all |
 | denovotranscript | `tx2gene/*tx2gene.tsv` (unconfirmed name), as secondary data to `quant.sf` | A.GEX | inventory |
 | differentialabundance | `tables/differential/[<paramset>/]<contrast>.deseq2.results_filtered.tsv` (1.5+, a subset of the results table: a companion of the results row) | A.GEX | inventory |
-| differentialabundance | `tables/differential/<paramset>/<contrast>_<study>_<method>.annotated.tsv` (2.0.0: the results joined to gene annotation; a companion, but its file stem differs from the results row's, so check the pairing against a real run) | A.GEX | inventory |
+| differentialabundance | `tables/differential/<paramset>/<contrast>_<study>_<method>.annotated.tsv` (2.0.0: the results joined to gene annotation; a companion; its glob must carry the method in its suffix, `*_<method>.annotated.tsv`, as in the per_file companion paragraph above) | A.GEX | inventory |
 | differentialabundance | `other/dream/<paramset>/<contrast>_<study>.dream.model.txt`, and each method's `*.model.txt` | A.GEX | inventory |
 | differentialabundance | `MethodSettings` on 2.0.0 rows: each paramset has its own settings, which the run's params do not hold, so the field is blank there | A.GEX | inventory: the paramsets file |
 | differentialabundance | non-RNA-seq study types (`--study_type affy_array`, `geo_soft_file`, `maxquant`) are named in `Notes`; their `*.matrix.tsv` normalised matrix has no rule, maxquant's results are protein abundance filed as A.GEX, and their samplesheets name no FASTQ, so no parent resolves | A.GEX, other | type, parent |
