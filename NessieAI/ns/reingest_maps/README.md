@@ -24,13 +24,35 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
   `_matches_path` in `reingest_lookups.py`. Must be non-empty;
   `test_map_contract.py` enforces both that and that every entry names a
   real sample type in the catalog.
-- `outputs` — glob to SampleType, with `cardinality` `per_sample` (1 to 1),
-  `per_run` (many to 1, `Parent` semicolon-joined; only the first matching file),
-  or `per_file` (one per_run-shaped row per matching file, for outputs written
-  once per contrast). A `per_file` rule must set `primary_data` and cannot set
-  `secondary_data_glob`. Its rows can read `@file_stem`, the part of the file
-  name the glob's leading `*` matched (the contrast id for
-  `*.deseq2.results.tsv`).
+- `outputs` — the output rules, each with a unique `id` (`rule0`, `rule1`, ... for a
+  v1 map, which still loads: its `glob` reads as one candidate and its
+  `secondary_data_glob` as one companion).
+  - `candidates` — glob patterns ordered by preference, most-processed first. The
+    first pattern with a match supplies the row's primary file; files the later
+    patterns match become companions.
+  - `sample_type` and `cardinality`: `per_sample` (1 to 1), `per_run` (many to 1,
+    `Parent` semicolon-joined; only the first matching file), or `per_file` (one
+    per_run-shaped row per matching file, for outputs written once per contrast).
+    A `per_file` rule must set `primary_data` and takes exactly one candidate. Its
+    rows can read `@file_stem`, the part of the file name the glob's leading `*`
+    matched (the contrast id for `*.deseq2.results.tsv`).
+  - `companions` — files derived from the row's primary file (a subset, an index,
+    other units, a model object). A companion is never its own row. It goes into
+    its `slot` if it names one, the row's type has it and it is empty; else
+    `File_SecondaryData`; else it is appended to `Notes` after "Also in run: ". A
+    type without `Notes` sends the leftovers to the build report instead.
+  - `optional` — a flag-dependent output (`--cram`, `--tools salmon`): matching
+    nothing is expected, so it is not reported.
+  - `attributes`, `primary_data`, `include_provenance`, `assay` — as in the schema.
+
+  A `per_file` row takes a companion only when the companion's own
+  glob-captured stem equals the row's stem (the same logic as `@file_stem`) and the
+  file sits under the same wildcard folders. So a `per_file` companion glob must
+  end in a suffix as specific as the candidate's: candidate `*.deseq2.results.tsv`
+  pairs with companion `*.deseq2.results_filtered.tsv`, not with
+  `*.results_filtered.tsv`, whose captured stem would include `.deseq2` and never
+  equal the row's. A companion glob that is not `*` plus a literal suffix is
+  matched by prefix instead (the row's stem followed by `.` or `_`).
 - `provenance_attributes` — a single flat dict shared by the whole map, merged
   into a row only for the output rule(s) that opt in with
   `include_provenance: true` (default `false`). A rule that does not opt in
@@ -39,6 +61,17 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
   no-op — the contract test fails it deliberately, because that block would
   otherwise be merged into nothing.
 - `qc_attributes` — raw key to a sample attribute on an EXISTING sample type.
+- `inventory_globs` — this map's own inventory patterns (see "Inventory" below).
+  Each must start with `**/`; the stager lists the union of these across every map
+  and `harvest.CORE_INVENTORY_GLOBS`.
+- `row_defaults` — attribute to value, merged into every output rule's attributes
+  before the rule's own (the way to give every row a Scientist, Lab or
+  SampleCreationDate). An attribute the row's type lacks is dropped, never sent.
+- `versions` — release-specific differences. Each entry has a `range`, `outputs`
+  that replace a base rule with the same `id` or add a new one, and `drop`, a list
+  of base rule ids to remove. `maps.effective()` picks the first entry whose range
+  contains the run's release. A release outside `applies_to_versions` still maps,
+  with a warning that the rules are unchecked.
 - `deliberately_unmapped` — a ruling, with a real reason. Without it the agent
   re-proposes the same key on every run and the review queue fills with noise.
 
@@ -46,6 +79,11 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
 `software_versions`, `outputs`, `metrics`, `derived`). There is no evaluation.
 A map cannot compute; `derived_metrics` in `reingest/derived.py` is the only
 place reingest does arithmetic on a measurement.
+
+`@`-prefixed values are named tokens computed in code, in
+`NessieAI/ns/reingest/pipelines/`: `common.py` for every pipeline, and one module
+per pipeline that needs its own (`differentialabundance.py`). A map may use the
+common tokens and its own pipeline's, and no other pipeline's.
 
 A map's `from`/ref value can be wrong in a way no test catches: the contract
 test can confirm that a rule's *target* attribute exists on its sample type,
@@ -55,6 +93,23 @@ silently, forever. Verify a new `qc_attributes` entry against a real run
 before committing it, or leave the key to the approval queue instead of
 guessing (see "Filling in a stub" below).
 
+## General rulings
+
+Settled once for every pipeline in the design "Reingest general rulings and a data-driven
+map engine". Map rules follow them; a pipeline-specific exception is a new ruling, not
+a quiet departure.
+
+- **G-1 Scope.** Only Nessie-launched runs are uploaded; an admin (`is_superuser`) may build workbooks from local copies for testing, and those are test-only and refused at upload.
+- **G-2 Versions.** A release outside `applies_to_versions` still maps, with a warning; release differences go in `versions` overrides.
+- **G-3 Companions.** A file derived from a registered output is a companion of that row, never its own row: named slot, then `File_SecondaryData`, then `Notes`.
+- **G-4 Variants.** One row per sample per kind of output; `candidates` are listed most-processed first and the first present wins, the rest become companions.
+- **G-5 No fitting type.** Never stretch a type; the output has no rule until a specific sample type is requested and built.
+- **G-6 Outside the run folder.** The stager reads nothing outside `run_dir`; rows keep the sequencing samples as `Parent`.
+- **G-7 Evidence.** A rule merges when a committed fixture from an nf-core `-profile test` run, launched through Nessie, exercises it; flag-dependent outputs get a variant fixture or are `optional`.
+- **G-8 Discovery.** There is no approval queue for outputs and no list of unclaimed files; new outputs are noticed by reading the pipeline source and through the snapshot diff when a release's fixture lands.
+- **G-9 Row defaults.** Name, Scientist, Lab and SampleCreationDate come from the map's `row_defaults`, for every rule whose type has the attribute.
+- **G-10 Optional outputs.** Documented flag-dependent outputs (`--cram`, `--tools salmon`) get rules marked `optional: true`.
+
 ## Output rules are written by hand
 
 The approval queue only ever proposes raw QC keys (`mapper.apply` reports
@@ -62,10 +117,11 @@ The approval queue only ever proposes raw QC keys (`mapper.apply` reports
 so a map's `outputs` come from a person reading the pipeline, never from the
 queue. Two rules decide whether an output can have one:
 
-- The file must be in `harvest.INVENTORY_GLOBS`. A rule's `glob` is matched
-  only against that inventory, so a rule for anything else (a fusion table, an
-  HLA call, a miRNA count table, a DE results TSV) matches nothing, silently.
-  Extend the inventory first, in `harvest.py`.
+- The file must be inventoried: in `harvest.CORE_INVENTORY_GLOBS` or this map's
+  own `inventory_globs`. A rule's `candidates` and a companion's `glob` are
+  matched only against that inventory, so a rule for anything else (a fusion
+  table, an HLA call, a miRNA count table, a DE results TSV) matches nothing,
+  silently. Add the pattern to the map.
 - The output must have a sample type that means what it holds. A fusion VCF
   is not an `A.VCF` of variant calls, and an HLA-only BAM is not a genome
   alignment. No fitting type is a schema request, not a reason to stretch one.
@@ -73,8 +129,39 @@ queue. Two rules decide whether an output can have one:
 Write the rule from the pipeline's `conf/modules.config` (or its `main.nf`
 `output {}` block) at the pinned release, not from its output documentation
 alone: those docs are stale on filenames in several pipelines. Set
-`applies_to_versions` to the release you read. It is not enforced at runtime,
-so it records what was checked rather than gating anything.
+`applies_to_versions` to the release you read. It does not gate
+anything: a run outside it still maps, with a warning (G-2), so it records what
+was checked.
+
+### Inventory
+
+The inventory is the list of files the stager names (path and size) without
+copying them. `harvest.CORE_INVENTORY_GLOBS` holds the classes that can become
+primary data or a named link in any pipeline: alignment files and their indexes,
+single-cell and R objects, VCFs, the MultiQC html report and contaminant-screening
+reports. Everything pipeline-specific belongs in the map's `inventory_globs`.
+Shape a pattern like this:
+
+- Start with `**/`, and name the file exactly. Not `**/*.tsv`: every pipeline
+  writes many TSVs and the inventory is capped at `MAX_INVENTORY_FILES`.
+- A pattern's `*` never crosses a `/`, so each folder layout needs its own
+  pattern. differentialabundance 1.x publishes tables flat and 2.0.0 under a
+  `<paramset>/` folder, so it lists both.
+- Reach a report no deeper than its own folder. The study report is
+  `report/<study>.html` (1.x) or `report/<paramset>/<study>_differentialabundance_report.html`
+  (2.0.0). 1.5 and 2.0.0 also write hundreds of GSEA pages under `report/gsea/`,
+  which a deeper pattern would list.
+- Text matrices whose names are not rnaseq's `*.merged.*` convention need their own
+  entry: smrnaseq's merged miRNA counts, Salmon's per-sample `quant.sf` (one per
+  sample folder; the folder names the sample), and differentialabundance's
+  normalised matrix and per-contrast results tables.
+- A companion needs an inventory pattern too. differentialabundance's
+  `*.results_filtered.tsv` subsets and `*.annotated.tsv` joins are not listed yet.
+- The multiqc report patterns are in the core list because nf-core/scrnaseq
+  prefixes the file with the run name and nf-core/rnavar 1.3 and later publishes it
+  under `reports/`.
+- A file the inventory claims is listed, never staged: a pattern in `harvest_globs`
+  whose file name an inventory pattern already covers is dropped from staging.
 
 ## Outputs with no rule yet
 
@@ -89,41 +176,43 @@ before writing the rule.
 
 What blocks each row:
 
-- **ready**: in the inventory, with a fitting type. Only the rule is missing.
-- **inventory**: needs a pattern in `harvest.INVENTORY_GLOBS` first.
+- **ready**: in the inventory, with a fitting type. Only the rule is missing; a derived file is written as a companion on its row's rule, not as a row of its own.
+- **inventory**: needs a pattern in the map's `inventory_globs` first.
 - **type**: no sample type means what the file holds; a schema request.
 - **per contrast**: one file per contrast. A `per_file` rule gives each its own
   row (with `@contrast` for the id), so this no longer blocks on its own; the
   row still needs its other blockers cleared.
 - **parent**: the parent is an analysis sample (the input matrix's `A.GEX`),
   which the parent lookup cannot reach; it finds only the samplesheet's own files.
-- **choice**: a decision on whether, or which of several, to register.
+- **choice**: a ruling still open for that pipeline. The general rulings settled
+  the recurring cases: a derived file is a companion of the row it derives from
+  (G-3), and several variants of one output are candidates, most-processed first
+  (G-4).
 
 | Pipeline | Output | Type | Blocked by |
 |---|---|---|---|
 | denovotranscript | `evigene/okayset/all_assembled.okay.mrna` (the final assembly, FASTA) | none | type, inventory |
 | denovotranscript | `evigene/okayset/all_assembled.okay.aa` (its proteins) | none | type, inventory |
-| denovotranscript | `trinity/pooled_reads.fa.gz`, `rnaspades/pooled_reads.transcripts.fa.gz` (assemblies before redundancy reduction) | none | type, inventory, choice |
+| denovotranscript | `trinity/pooled_reads.fa.gz`, `rnaspades/pooled_reads.transcripts.fa.gz` (assemblies before redundancy reduction) | none | type, inventory, choice: whether to register pre-reduction assemblies at all |
 | denovotranscript | `tx2gene/*tx2gene.tsv` (unconfirmed name), as secondary data to `quant.sf` | A.GEX | inventory |
-| differentialabundance | `tables/differential/[<paramset>/]<contrast>.deseq2.results_filtered.tsv` (1.5+, a subset of the results table) | A.GEX | choice |
-| differentialabundance | `tables/differential/<paramset>/<contrast>_<study>_<method>.annotated.tsv` (2.0.0: the results joined to gene annotation) | A.GEX | choice |
-| differentialabundance | `other/dream/<paramset>/<contrast>_<study>.dream.model.txt`, and each method's `*.model.txt` | A.GEX | inventory, choice |
+| differentialabundance | `tables/differential/[<paramset>/]<contrast>.deseq2.results_filtered.tsv` (1.5+, a subset of the results table: a companion of the results row) | A.GEX | inventory |
+| differentialabundance | `tables/differential/<paramset>/<contrast>_<study>_<method>.annotated.tsv` (2.0.0: the results joined to gene annotation; a companion, but its file stem differs from the results row's, so check the pairing against a real run) | A.GEX | inventory |
+| differentialabundance | `other/dream/<paramset>/<contrast>_<study>.dream.model.txt`, and each method's `*.model.txt` | A.GEX | inventory |
 | differentialabundance | `MethodSettings` on 2.0.0 rows: each paramset has its own settings, which the run's params do not hold, so the field is blank there | A.GEX | inventory: the paramsets file |
-| differentialabundance | contrast direction on runs whose contrasts file is in the launch folder (every run before `--outdir .` launches): left blank | A.GEX | a curator fills it |
 | differentialabundance | non-RNA-seq study types (`--study_type affy_array`, `geo_soft_file`, `maxquant`) are named in `Notes`; their `*.matrix.tsv` normalised matrix has no rule, maxquant's results are protein abundance filed as A.GEX, and their samplesheets name no FASTQ, so no parent resolves | A.GEX, other | type, parent |
 | hlatyping | `optitype/<sample>/<sample>_result.tsv` (unconfirmed name) | none (HLA genotype) | type, inventory |
 | hlatyping | `hlahd/<sample>/<sample>_final.result.txt` (only with `--tools hlahd`) | none (HLA genotype) | type, inventory |
 | hlatyping | `yara/<sample>/<sample>.mapped.bam`, or `<sample>_1`/`_2.mapped.bam` when paired | A.ALN? | choice: HLA-only reference, and two BAMs per paired sample |
-| riboseq | `alignment/star/sorted/<sample>.transcriptome.sorted.bam` (+ `.bai`) | A.ALN | choice: a second A.ALN per sample |
-| riboseq | `alignment/star/deduplicated/<sample>.umi_dedup.genome.sorted.bam` (with `--with_umi`; unconfirmed name) | A.ALN | choice: preferred over the sorted BAM when present |
-| riboseq | `quantification/salmon/salmon.merged.{gene_tpm,transcript_counts,transcript_tpm}.tsv` | A.GEX | ready, choice |
-| riboseq | `quantification/salmon/salmon.merged.*.SummarizedExperiment.rds` | A.GEX | ready, choice |
-| riboseq | `quantification/salmon/<sample>/quant.sf` | A.GEX | ready, choice |
+| riboseq | `alignment/star/sorted/<sample>.transcriptome.sorted.bam` (+ `.bai`) | A.ALN | ready: a companion of the genome BAM's row |
+| riboseq | `alignment/star/deduplicated/<sample>.umi_dedup.genome.sorted.bam` (with `--with_umi`; unconfirmed name) | A.ALN | ready: a first candidate, ahead of the sorted BAM |
+| riboseq | `quantification/salmon/salmon.merged.{gene_tpm,transcript_counts,transcript_tpm}.tsv` | A.GEX | ready |
+| riboseq | `quantification/salmon/salmon.merged.*.SummarizedExperiment.rds` | A.GEX | ready |
+| riboseq | `quantification/salmon/<sample>/quant.sf` | A.GEX | ready |
 | riboseq | `translational_efficiency/anota2seq/<contrast>.*.anota2seq.results.tsv`, `*.Anota2seqDataSet.rds` | A.GEX | inventory, per contrast |
 | riboseq | `orf_predictions/ribotish/*_pred.txt`, `orf_predictions/ribotricer/*_translating_ORFs.tsv` (ORF calls) | none | type, inventory |
 | riboseq | `ribowaltz/*.psite.tsv`, `*.cds_coverage_psite.tsv` (P-site coverage) | none | type, inventory |
 | rnafusion | `fusionreport/<sample>/<sample>.fusionreport.tsv` (consensus across callers) | none (fusion calls) | type, inventory |
-| rnafusion | `arriba/`, `starfusion/`, `fusioncatcher/`, `fusioninspector/` per-caller tables | none (fusion calls) | type, inventory, choice |
+| rnafusion | `arriba/`, `starfusion/`, `fusioncatcher/`, `fusioninspector/` per-caller tables | none (fusion calls) | type, inventory |
 | rnafusion | `vcf/<sample>_fusion_data.vcf` (fusions written as VCF) | A.VCF by format only | type |
 | rnafusion | `star/<sample>.Aligned.sortedByCoord.out.cram` (with `--cram`) | A.ALN | ready: a second rule with `DataType` CRAM |
 | rnafusion | `salmon/<sample>/quant.sf` (with `--tools salmon`) | A.GEX | ready |
@@ -131,14 +220,14 @@ What blocks each row:
 | rnafusion | `stringtie/stringtie.merged.gtf` (unconfirmed path) | none | type, inventory |
 | rnafusion | `ctatsplicing/<sample>.cancer.introns` | none (splicing) | type, inventory |
 | rnasplice | `{salmon,star_salmon/salmon}/<sample>/quant.sf` | A.GEX | ready |
-| rnasplice | `*/tximport/salmon.merged.{gene_tpm,transcript_counts,transcript_tpm}.tsv` | A.GEX | ready, choice |
-| rnasplice | `*/tximport/salmon.merged.*.rds` (tximport objects) | A.GEX | ready, choice |
+| rnasplice | `*/tximport/salmon.merged.{gene_tpm,transcript_counts,transcript_tpm}.tsv` | A.GEX | ready |
+| rnasplice | `*/tximport/salmon.merged.*.rds` (tximport objects) | A.GEX | ready |
 | rnasplice | `<aligner>/dexseq_exon/counts/*.clean.count.txt` (exon-bin counts) | A.GEX | inventory |
 | rnasplice | DEXSeq, edgeR, DTU, rMATS and SUPPA2 results under `<aligner>/` | none (splicing) | type, inventory, per contrast |
-| rnavar | `annotation/<sample>/*.ann.vcf.gz` (snpEff/VEP/bcftools; unconfirmed names) | A.VCF | ready, choice: preferred over the filtered VCF when present |
-| rnavar | `variant_calling/<sample>/<sample>.haplotypecaller.vcf.gz` (raw calls, when filtering is skipped) | A.VCF | ready, choice |
-| rnavar | `preprocessing/<sample>/<sample>.md.bam` (when base recalibration is skipped) | A.ALN | ready, choice |
-| rnavar | gVCF with `--generate_gvcf` (unconfirmed name) | A.VCF secondary | choice |
+| rnavar | `annotation/<sample>/*.ann.vcf.gz` (snpEff/VEP/bcftools; unconfirmed names) | A.VCF | ready: a first candidate, ahead of the filtered VCF |
+| rnavar | `variant_calling/<sample>/<sample>.haplotypecaller.vcf.gz` (raw calls, when filtering is skipped) | A.VCF | ready: a later candidate, behind the filtered VCF |
+| rnavar | `preprocessing/<sample>/<sample>.md.bam` (when base recalibration is skipped) | A.ALN | ready: a later candidate, behind the recalibrated BAM |
+| rnavar | gVCF with `--generate_gvcf` (unconfirmed name) | A.VCF secondary | ready: a companion of the VCF row |
 | rnavar | `seq2hla/<sample>/*.HLAgenotype4digits` (with `--tools seq2hla`) | none (HLA genotype) | type, inventory |
 | smrnaseq | `mirna_quant/mirtop/joined_samples_mirtop.tsv` (isomiR counts) | A.GEX | inventory |
 | smrnaseq | `mirna_quant/edger_qc/{mature,hairpin}_normalized_CPM.txt` | A.GEX | inventory |
@@ -146,7 +235,13 @@ What blocks each row:
 | smrnaseq | `mirdeep2/**/result_*.csv` (novel miRNA calls) | none | type, inventory |
 | all | A.VCF rows link no assay where the house assay "Variant Calling Analysis" does not exist | A.VCF | a house assay to create |
 
-Ruled out on purpose, so not on the list above: differentialabundance's `all.vst.tsv` / `all.rlog.tsv` (regenerated from the normalised counts), its plots, Shiny app, `*.sizefactors.tsv` and session logs, and the upstream counts matrix as `Parent` (the stager reads nothing outside the run folder; rows keep the sequencing samples).
+Ruled out on purpose, so not on the list above: differentialabundance's `all.vst.tsv` / `all.rlog.tsv` (regenerated from the normalised counts), its plots, Shiny app, `*.sizefactors.tsv` and session logs, and the upstream counts matrix as `Parent` (G-6: the stager reads nothing outside the run folder; rows keep the sequencing samples).
+
+## Fixtures
+
+Evidence for a rule (G-7) is a fixture folder under
+`NessieAI/tests/ns/fixtures/reingest_runs/`; how to make one, and how its snapshot is
+regenerated, is in `NessieAI/tests/ns/fixtures/reingest_runs/README.md`.
 
 ## Filling in a stub
 

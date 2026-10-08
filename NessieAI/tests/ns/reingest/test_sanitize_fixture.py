@@ -74,3 +74,10 @@ def test_other_prefixes_are_rewritten_too(tmp_path):
     result = run(tmp_path, "/launch/dir", "/work/dir")
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "a.csv").read_text() == "/RUN/f,/RUN/g\n"
+
+
+def test_missing_arguments_print_usage_and_exit_2():
+    result = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True, text=True)
+    assert result.returncode == 2
+    assert "Usage: sanitize_fixture.py" in result.stderr
+    assert "Traceback" not in result.stderr

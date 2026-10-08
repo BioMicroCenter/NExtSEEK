@@ -30,6 +30,10 @@ def prefix_pattern(prefixes: list[str]) -> re.Pattern | None:
 
 
 def main() -> int:
+    if len(sys.argv) < 3:
+        usage = next(line for line in __doc__.splitlines() if line.startswith("Usage:"))
+        print(usage, file=sys.stderr)
+        return 2
     folder = pathlib.Path(sys.argv[1])
     prefixes = sorted({p.rstrip("/") for p in sys.argv[2:] if p.strip("/")},
                       key=len, reverse=True)

@@ -40,6 +40,7 @@ if [ ! -f "$stage/launch_record.json" ]; then
     "$remote" "$pipeline" "${version%%-*}" > "$stage/launch_record.json"
 fi
 python3 "$here/sanitize_fixture.py" "$stage" "$remote" "$@"
-mkdir -p "$(dirname "$dest")" && mv "$stage" "$dest"
+mkdir -p "$(dirname "$dest")"
+mv "$stage" "$dest"
 echo "fixture written: $dest"
 echo "next: run the fixture test, review snapshot.json, commit the folder"

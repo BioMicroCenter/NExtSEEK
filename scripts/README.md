@@ -34,7 +34,7 @@ directory. That is why the container lanes can run these files at all.
 
 ## Surface
 
-The surface is not a set of entry points behind a package boundary. It is ten purpose
+The surface is not a set of entry points behind a package boundary. It is eleven purpose
 groups, each defined by what it reads and what it writes.
 
 | Group | Files | Reads | Writes |
@@ -49,6 +49,7 @@ groups, each defined by what it reads and what it writes.
 | H. APOC schema prototype | `graph_schema_from_apoc.py` | a live Neo4j with APOC (read only), the committed graph schema files | one JSON file you name |
 | I. Download API parity | `sample_retrieve_parity.py` | a live stack's MySQL and Neo4j, read only | stdout, and one JSON-lines file you name |
 | J. Graph fallback files | `graph_schema_fallback.py` | a live Neo4j at schema 1.1 or later, read only | the three committed fallback files the graph agent reads when the live catalog fails |
+| K. Reingest testing | `reingest/`: admin-only reingest testing from local copies (`fetch_run.sh`, `folder_to_manifest.sh`; the manifests are test-only) and the fixture maker (`make_fixture.sh`, `sanitize_fixture.py`) | a local copy of a run folder; `fetch_run.sh` copies one from the cluster, and you run it yourself | a manifest in the running stack, a local test folder, a fixture folder under `NessieAI/tests/ns/fixtures/reingest_runs/` |
 
 **A. Repo-convention validators.** `scripts/validate_issue.py:4-6` and
 `scripts/validate_viewset_conventions.py:4-6` each declare themselves the single source of

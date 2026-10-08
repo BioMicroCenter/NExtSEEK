@@ -144,8 +144,7 @@ def staged_globs() -> tuple[str, ...]:
 
 # A sibling to GENERIC_GLOBS, but for a completely different purpose:
 # GENERIC_GLOBS is small QC/metadata TEXT that gets staged (copied) and read
-# for content; the inventory (CORE_INVENTORY_GLOBS plus every map's
-# inventory_globs, via inventory_globs()) is never staged (never copied back) -- it is
+# for content; the inventory is never staged (never copied back) -- it is
 # LISTED (name + real size) by granular.py's _STAGE_SCRIPT, which walks the
 # run directory remotely and emits one inventory entry per match, subject to
 # the SAME containment guards (no symlinks, no escapes, no hardlinks) as
@@ -154,15 +153,14 @@ def staged_globs() -> tuple[str, ...]:
 # to md5 it -- read remotely, never transferred. See MAX_INVENTORY_FILES
 # below for the ceilings, and _stage_run_dir's docstring for why.
 #
-# Covers the file classes that can become primary data (A.ALN, A.GEX, ...)
-# or a named single-file link (multiqc_report_html, kraken2_report,
-# deseq2_dds_rdata -- see _NAMED_OUTPUT_MATCHERS below): alignment files and
-# their indexes, merged per-run count/abundance matrices, single-cell/R
-# objects, VCFs, the MultiQC html report, and contaminant-screening reports.
-# Deliberately broad ("**") rather than per-pipeline: this layer is generic
-# across every nf-core pipeline, the same as GENERIC_GLOBS -- a per-pipeline
-# map (docs/superpowers/specs/2026-09-15-nfcore-reingest-design.md appendix
-# A) narrows further downstream, against this inventory.
+# The inventory is two lists. CORE_INVENTORY_GLOBS, below, is the generic part
+# every pipeline shares: the file classes that can become primary data (A.ALN,
+# A.VCF, ...) or a named single-file link (multiqc_report_html, kraken2_report,
+# deseq2_dds_rdata -- see _NAMED_OUTPUT_MATCHERS): alignment files and their
+# indexes, single-cell/R objects, VCFs, the MultiQC html report, and
+# contaminant-screening reports. Deliberately broad ("**"). Everything specific
+# to one pipeline is that pipeline map's own `inventory_globs`, and
+# inventory_globs() returns the union of the two -- the list the stager uses.
 CORE_INVENTORY_GLOBS: tuple[str, ...] = (
     # Alignment files and their indexes.
     "**/*.bam",
@@ -197,6 +195,7 @@ def inventory_globs() -> tuple[str, ...]:
     script uses pathlib's glob."""
     extra = (p for braced in maps.all_inventory_globs() for p in maps.expand_braces(braced))
     return tuple(dict.fromkeys((*CORE_INVENTORY_GLOBS, *extra)))
+
 
 MAX_FILE_BYTES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_FILE_BYTES", 4_000_000))
 MAX_TOTAL_BYTES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_TOTAL_BYTES", 32_000_000))

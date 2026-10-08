@@ -16,11 +16,12 @@ not values, so no measured number round-trips through a model.
 | `manifest.py` | `RunManifest`, the single structured artifact a harvest produces, plus `SampleRecord`, `PipelineInfo`, `OutputRecord` and the `RESOLUTION_*` constants. `outputs` is the file inventory; `named_outputs` is the dict a map's `$outputs.<key>` resolves against |
 | `parsers.py` | format-level parsers for `pipeline_info/` and MultiQC: params, software versions (flat and per process, with conflict detection), samplesheet, execution trace, general stats |
 | `derived.py` | `DERIVED_METRICS` and `compute`: the only place reingest does arithmetic on a measurement. RSeQC's `TSS_up_*`/`TES_down_*` windows are nested, so the read-distribution percentages sum the six non-nested groups |
-| `harvest.py` | `harvest_local` walks an allowlisted file set into a `RunManifest`. `GENERIC_GLOBS` is staged for content; `INVENTORY_GLOBS` is a listing only. `_NAMED_OUTPUT_MATCHERS` defines every key `$outputs.*` may name |
+| `harvest.py` | `harvest_local` walks an allowlisted file set into a `RunManifest`. `GENERIC_GLOBS` is staged for content; `CORE_INVENTORY_GLOBS` plus `inventory_globs()`, the union with every map's own `inventory_globs`, is a listing only. `_NAMED_OUTPUT_MATCHERS` defines every key `$outputs.*` may name |
 | `launch_record.py` | `record_launch` and `read_cohort_sidecar`: persist what a launch consumed, so reingest never has to guess it back |
 | `uid_resolve.py` | each nf-core sample back to its `D.SEQ`: launch record first, then fastq exact, then basename. Multi-run is rejected on purpose, and ambiguity is never guessed through |
-| `maps.py` | the map schema and loader. `$`-refs are lookups into one named manifest section and nothing else — no evaluation, no attribute traversal, no reachable Python object. That is what makes a map reviewable in a diff rather than a security surface |
-| `mapper.py` | `apply` joins a map to a manifest: `MapResult(rows, unmapped)`. Committed map rules beat approved database rules; `per_sample` output rules fan out one row per sample; `unmapped` is explicit, never silent |
+| `maps.py` | the map schema (v2; v1 `glob` and `secondary_data_glob` still load) and loader: `effective()` resolves a run's release to its rules and warnings, `all_inventory_globs()` collects every map's inventory patterns. `$`-refs are lookups into one named manifest section and nothing else — no evaluation, no attribute traversal, no reachable Python object. That is what makes a map reviewable in a diff rather than a security surface |
+| `pipelines/` | the `@` tokens a map may use: `common.py` for every pipeline, one module per pipeline that needs its own (`differentialabundance.py`) |
+| `mapper.py` | `apply` joins a map to a manifest: `MapResult(rows, unmapped, warnings)`. Committed map rules beat approved database rules; `per_sample` output rules fan out one row per sample; `unmapped` is explicit, never silent |
 | `proposals.py` | the approval queue's service: `record` (idempotent per `(pipeline, raw_key)`), `approved_rules`, `attribute_exists` |
 | `answers.py` | the fix loop's curator answers: `parse_answers`, `validate` (an allowlist from the first QA pass's findings), `apply_answers`. Pure, no I/O |
 | `build_records.py` | one JSON record per rendered workbook, keyed by the workbook's sha256 and filed under the building user. `write`, `load`, `sha256_of` |
@@ -32,7 +33,7 @@ Map files live beside this package in [`../reingest_maps/`](../reingest_maps/REA
 
 ## The fix loop and the upload
 
-`build-upload-xlsx` maps and QAs a run, and returns the findings. The curator answers in chat
+`build-upload-xlsx` maps and QAs a run, and returns the findings. The mapper's warnings (an unchecked release, a rule that matched nothing, a companion with nowhere to go) come back under "Map notes:"; a build from a manifest with no launch record opens with a "TEST ONLY:" line, and only a superuser can make one. The curator answers in chat
 and the op is called again with `answers`, validated against the first pass's findings. Three
 kinds, each licensed only by what that run flagged:
 
@@ -54,7 +55,7 @@ disposition, open warnings, the manifest id, a digest of the answers applied, an
 single SEEK project (or a note on why there is not one). Records are per user.
 
 `upload-reingest` takes `build_ids` and one `confirmed_write`. `upload.verify` loads each record
-for the caller, re-hashes the workbook, and refuses a changed, foreign, non-passing or
+for the caller, re-hashes the workbook, and refuses a changed, foreign, test-only, non-passing or
 project-less build, two builds of one sample type and mode, or builds from different runs; `upload.run` then stages every workbook and re-hashes each staged copy
 before any job starts. After that each workbook is its own batch-upload job through
 `dispatch_batch_job` (`nextseek_api/batch_upload/README.md`), new mode first, and a job that
@@ -66,6 +67,7 @@ per-job path cannot be listed until the allowlist supports patterns.
 
 ## Invariants
 
+- **Only Nessie-launched runs are uploaded.** See `NessieAI/ns/CLAUDE.md`.
 - **Reingest never invents a sample attribute.** Every target must already exist on its sample
   type. `NessieAI/tests/ns/reingest/test_map_contract.py` gates the committed maps in CI;
   the superuser approve endpoint gates database rules, because the CI test cannot see them.
