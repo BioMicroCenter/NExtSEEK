@@ -36,6 +36,7 @@
       "assay": "Gene Expression Analysis",
       "cardinality": "per_file",
       "primary_data": true,
+      "optional": true,
       "include_provenance": true,
       "attributes": {
         "Matrix": "deseq2_results",
@@ -62,6 +63,7 @@
       "assay": "Gene Expression Analysis",
       "cardinality": "per_file",
       "primary_data": true,
+      "optional": true,
       "include_provenance": true,
       "attributes": {
         "Matrix": "limma_results",
@@ -88,6 +90,7 @@
       "assay": "Gene Expression Analysis",
       "cardinality": "per_file",
       "primary_data": true,
+      "optional": true,
       "include_provenance": true,
       "attributes": {
         "Matrix": "dream_results",
