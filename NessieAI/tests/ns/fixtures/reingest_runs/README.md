@@ -9,9 +9,16 @@ folder.
 Make one with `scripts/reingest/make_fixture.sh` from a `-profile test` run
 launched through Nessie. It builds the fixture in a temporary folder, rewrites
 the run directory and any extra prefixes you give it to `/RUN`, and scans every
-file. If any absolute path remains, or any file cannot be read as UTF-8 text, it
-refuses and writes nothing into the repo. `launch_record.json` is a stub (empty
-cohort) to complete by hand from the PipelineRun.
+file. If any absolute path, email address or URL remains, or any file cannot be
+read as UTF-8 text, it refuses and writes nothing into the repo. `launch_record.json`
+is a stub (empty cohort) to complete by hand from the PipelineRun.
+
+The sanitizer refuses rather than edits, so before committing a fixture:
+
+1. Blank params such as `email`, `email_on_fail`, `hook_url` and `multiqc_title`
+   if present, in the params JSON and anywhere else they are echoed.
+2. Review every file in the folder by hand. The scan catches paths, addresses and
+   URLs, not lab sample names, user names or hostnames in free text.
 
 Regenerate snapshots after an intended change:
 `REINGEST_UPDATE_SNAPSHOTS=1` with the fixture test, then review the diff.

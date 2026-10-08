@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Rewrite every cluster path in a fixture folder to /RUN/..., then refuse if
-any absolute path outside /RUN remains. The repo is public: params, traces,
-samplesheets and launch records hold launch, work and home paths.
+any absolute path outside /RUN, any email address or any URL remains. The repo
+is public: params, traces, samplesheets and launch records hold launch, work and
+home paths, and params can hold a notification address or a webhook.
 
 Usage: sanitize_fixture.py <fixture-folder> <cluster-run-dir> [<other-prefix> ...]
 Each <other-prefix> (a launch or work dir) is rewritten to /RUN as well.
@@ -9,7 +10,8 @@ Each <other-prefix> (a launch or work dir) is rewritten to /RUN as well.
 Every file under the folder is read, whatever its name. A file that is not
 strict UTF-8 text is refused, never skipped or rewritten. A prefix matches whole
 path segments only (/a/b does not match /a/bc/x). Nothing is written unless
-every file passes, so a refusal leaves the folder as it was.
+every file passes, so a refusal leaves the folder as it was. An email address
+or a URL (any scheme://) is refused, never rewritten: blank that param by hand.
 """
 import pathlib
 import re
@@ -19,6 +21,9 @@ SEGMENT = r"[\w.@+-]"
 # An absolute path: a slash-led run of path characters, at least two segments.
 # /RUN is exempt only as a whole segment (/RUN/..., not /RUN-old/... or /RUN.x/...).
 ABSOLUTE = re.compile(rf"(?<![\w.:/])/(?!RUN(?!{SEGMENT}))({SEGMENT}+(?:/{SEGMENT}+)+)")
+EMAIL = re.compile(r"[\w.%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
+# Any scheme: http, https, s3, gs, ftp, file, ...
+URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s\"'<>]*")
 
 
 def prefix_pattern(prefixes: list[str]) -> re.Pattern | None:
@@ -39,7 +44,7 @@ def main() -> int:
                       key=len, reverse=True)
     pattern = prefix_pattern(prefixes)
     rewritten: dict[pathlib.Path, str] = {}
-    undecodable, leftovers = [], []
+    undecodable, leftovers, contacts = [], [], []
     for path in sorted(folder.rglob("*")):
         if not path.is_file():
             continue
@@ -53,13 +58,17 @@ def main() -> int:
         if text != original:
             rewritten[path] = text
         leftovers += [f"{rel}: /{m}" for m in ABSOLUTE.findall(text)]
-    if undecodable or leftovers:
+        contacts += [f"{rel}: {m}" for m in EMAIL.findall(text) + URL.findall(text)]
+    if undecodable or leftovers or contacts:
         if undecodable:
             print("refusing: not UTF-8 text (a fixture holds text files only):",
                   *undecodable, sep="\n  ", file=sys.stderr)
         if leftovers:
             print("refusing: absolute paths remain (add their prefix as an argument):",
                   *sorted(set(leftovers))[:50], sep="\n  ", file=sys.stderr)
+        if contacts:
+            print("refusing: email addresses or URLs remain (blank those params by hand):",
+                  *sorted(set(contacts))[:50], sep="\n  ", file=sys.stderr)
         return 1
     for path, text in rewritten.items():
         path.write_bytes(text.encode("utf-8"))

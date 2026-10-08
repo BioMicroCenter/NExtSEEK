@@ -1,5 +1,6 @@
 """scripts/reingest/sanitize_fixture.py: rewrite cluster prefixes to /RUN, refuse
-absolute paths that remain and files that are not UTF-8 text."""
+absolute paths that remain, email addresses, URLs, and files that are not UTF-8
+text."""
 import subprocess
 import sys
 from pathlib import Path
@@ -74,6 +75,34 @@ def test_other_prefixes_are_rewritten_too(tmp_path):
     result = run(tmp_path, "/launch/dir", "/work/dir")
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "a.csv").read_text() == "/RUN/f,/RUN/g\n"
+
+
+def test_an_email_address_is_refused_and_left_alone(tmp_path):
+    params = tmp_path / "pipeline_info" / "params_2026-01-01_00-00-00.json"
+    params.parent.mkdir()
+    body = '{"outdir": "/a/b/out", "email": "someone@example.org"}\n'
+    params.write_text(body)
+    result = run(tmp_path, "/a/b")
+    assert result.returncode == 1
+    assert "params_2026-01-01_00-00-00.json: someone@example.org" in result.stderr
+    assert params.read_text() == body
+
+
+def test_a_url_is_refused_and_left_alone(tmp_path):
+    params = tmp_path / "params.json"
+    body = '{"hook_url": "https://hooks.example/services/T000/B000/XXXX"}\n'
+    params.write_text(body)
+    result = run(tmp_path, "/RUN")
+    assert result.returncode == 1
+    assert "params.json: https://hooks.example/services/T000/B000/XXXX" in result.stderr
+    assert params.read_text() == body
+
+
+def test_a_url_of_any_scheme_is_refused(tmp_path):
+    (tmp_path / "params.json").write_text('{"igenomes_base": "s3://bucket/igenomes"}\n')
+    result = run(tmp_path, "/RUN")
+    assert result.returncode == 1
+    assert "params.json: s3://bucket/igenomes" in result.stderr
 
 
 def test_missing_arguments_print_usage_and_exit_2():
