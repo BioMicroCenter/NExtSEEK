@@ -408,10 +408,10 @@ def test_retiring_a_gone_types_samples_frees_its_title_for_the_recreated_type(st
 
 
 def test_an_investigation_held_only_by_a_gone_seek_studys_node_leaves_the_graph(studies_lane, tmp_path):
-    """SEEK deletes an investigation after its studies, and a Study node is not deleted in this release. The node
-    of a SEEK study that is gone no longer holds its Investigation: gate G reads it as one SEEK lacks, and the small
-    tables archive and delete it, the node staying without its IN_INVESTIGATION. A graph-only paper node and the node
-    of a study SEEK still has keep theirs."""
+    """SEEK deletes an investigation after its studies. The node of a SEEK study that is gone no longer holds its
+    Investigation: gate G reads it as one SEEK lacks, and the investigations write archives and deletes it, the node
+    left without its IN_INVESTIGATION (delete_gone_seek_study_nodes, run before it by the small tables, removes such a
+    node itself). A graph-only paper node and the node of a study SEEK still has keep theirs."""
     from nextseek_api.graph_sync import cypher as q
     from nextseek_api.graph_sync import writer
     _load(studies_lane, [
@@ -432,6 +432,42 @@ def test_an_investigation_held_only_by_a_gone_seek_studys_node_leaves_the_graph(
                              "RETURN COUNT { (st)-[:IN_INVESTIGATION]->() } AS n") == [{"n": 0}]
     lines = (tmp_path / writer.INVESTIGATIONS_DELETED_FILE).read_text(encoding="utf-8").splitlines()
     assert [line.split("\t")[:2] for line in lines[1:]] == [["9", "Gone with its study"]]
+
+
+def test_the_node_of_a_study_seek_deleted_goes_only_when_nothing_else_holds_it(studies_lane, tmp_path):
+    """The real statements: a gone SEEK study's node with only its IN_INVESTIGATION and RUN_IN is archived (with
+    both) and deleted; a gone one a sample still links to, a gone one that also has an `id`, a graph-only paper and
+    a study SEEK still has all stay, with every edge they had. The shared Assay node and its sample edges stay."""
+    from nextseek_api.graph_sync import cypher as q
+    from nextseek_api.graph_sync import writer
+    _load(studies_lane, [
+        "CREATE (inv:Investigation {id: 16, title: 'Copy'}), (real:Investigation {id: 4, title: 'Real'}), "
+        "(a:Assay {id: 3, title: 'Sequencing'}), (s1:Sample {id: 1})-[:INPUT_TO {seek_assay_ids: [9]}]->(a), "
+        "(gone:Study {seek_study_id: 17, title: 'A paper', description: 'copy'})-[:IN_INVESTIGATION]->(inv), "
+        "(a)-[:RUN_IN {seek_assay_ids: [185, 186]}]->(gone), "
+        "(linked:Study {seek_study_id: 18, title: 'Linked'})-[:IN_INVESTIGATION]->(inv), "
+        "(:Sample {id: 2})-[:IN_STUDY]->(linked), "
+        "(:Study {seek_study_id: 19, id: 19, title: 'Keyed twice'})-[:IN_INVESTIGATION]->(inv), "
+        "(paper:Study {id: 47, title: 'A paper', DOI: '10.1/x'})-[:IN_INVESTIGATION]->(real), "
+        "(s1)-[:IN_STUDY]->(paper), "
+        "(live:Study {seek_study_id: 6, title: 'Live'})-[:IN_INVESTIGATION]->(real), "
+        "(a)-[:RUN_IN {seek_assay_ids: [9]}]->(live)"])
+    counts = writer.delete_gone_seek_study_nodes(studies_lane.driver, DB, [6],
+                                                 str(tmp_path / writer.STUDIES_DELETED_FILE))
+    assert counts == {"seek_study_nodes_deleted": 1, "seek_study_nodes_not_in_seek_held": 2}
+    assert studies_lane.read("MATCH (st:Study) RETURN coalesce(st.seek_study_id, st.id) AS k ORDER BY k") == [
+        {"k": 6}, {"k": 18}, {"k": 19}, {"k": 47}]
+    assert studies_lane.read("MATCH ()-[r:RUN_IN]->(st:Study) RETURN st.seek_study_id AS k") == [{"k": 6}]
+    assert studies_lane.read("MATCH (:Sample)-[r]->(:Assay) RETURN count(r) AS n") == [{"n": 1}]
+    assert studies_lane.read("MATCH (i:Investigation) RETURN i.id AS id ORDER BY id") == [{"id": 4}, {"id": 16}]
+    lines = (tmp_path / writer.STUDIES_DELETED_FILE).read_text(encoding="utf-8").splitlines()
+    sid, title, invs, runs, props = lines[1].split("\t")
+    assert (len(lines), sid, title, invs) == (2, "17", "A paper", "16")
+    assert json.loads(runs) == [{"assay_id": 3, "seek_assay_ids": [185, 186]}]
+    assert json.loads(props) == {"seek_study_id": 17, "title": "A paper", "description": "copy"}
+    again = writer.delete_gone_seek_study_nodes(studies_lane.driver, DB, [6], str(tmp_path / "again.tsv"))
+    assert again == {"seek_study_nodes_deleted": 0, "seek_study_nodes_not_in_seek_held": 2}
+    assert len(studies_lane.read(q.SEEK_STUDY_NODES_GONE, {"study_ids": [6]})) == 2
 
 
 # --- the merge's statements on shapes the module's fixture lacks ----------------------------------------------------

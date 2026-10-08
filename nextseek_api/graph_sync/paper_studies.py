@@ -5,7 +5,8 @@
   ``REL_CHUNK``.
 - ``delete_empty_paper_study_nodes``: a graph-only paper Study (an ``id``, no ``seek_study_id``) that holds no
   IN_STUDY and nothing but its IN_INVESTIGATION, archived with its properties and investigations first. A SEEK
-  study's node is never deleted here: Study nodes of SEEK studies are not deleted (the studies release).
+  study's node is never deleted here: the small tables delete it once SEEK has deleted its study and nothing holds it
+  (``writer.delete_gone_seek_study_nodes``).
 - ``restore_paper_links``: rollback: the archived paper nodes, then the archived paper links, each only where
   missing; limited to ``paper_ids`` and, given ``sample_ids``, to those samples' links and the papers they name.
 

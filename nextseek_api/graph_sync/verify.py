@@ -926,7 +926,7 @@ def _check_studies(driver, db, checks: list, stats: dict) -> None:
              and s.legacy.in_study > 0 and s.seek_keyed is not None and s.seek_keyed.in_study > 0]
     candidates = [s.study_id for s in selections if s.kind in study_merge.ACTING]
     collisions = [s.study_id for s in selections if s.kind == study_merge.ID_COLLISION]
-    differ, not_in_seek = [], []
+    differ, not_in_seek, not_in_seek_empty = [], [], []
     keyed = {node.seek_study_id for node in index.nodes if _is_id(node.seek_study_id)}
     without_node = sorted(x for x in index.seek_studies if x not in keyed)
     for node in index.nodes:
@@ -935,7 +935,11 @@ def _check_studies(driver, db, checks: list, stats: dict) -> None:
             continue
         seek = index.seek_studies.get(key)
         if seek is None:
-            not_in_seek.append(key)
+            # writer.delete_gone_seek_study_nodes deletes the empty ones every run: only IN_INVESTIGATION and RUN_IN
+            # left on a node with no `id` (cypher._SEEK_STUDY_NODE_EMPTY).
+            empty = (node.id is None and node.in_study == 0
+                     and all(t == "RUN_IN" for t in node.other_relationships))
+            (not_in_seek_empty if empty else not_in_seek).append(key)
             continue
         wanted_inv = [] if seek.get("investigation_id") is None else [seek["investigation_id"]]
         if (node.title != seek.get("title")
@@ -978,6 +982,8 @@ def _check_studies(driver, db, checks: list, stats: dict) -> None:
     reported("id_collisions", len(collisions), collisions[:EXAMPLES])
     gated("nodes_differ_from_seek", len(differ), differ[:EXAMPLES])
     reported("nodes_not_in_seek", len(not_in_seek), not_in_seek[:EXAMPLES])
+    _check(checks, "12.studies.nodes_not_in_seek_empty", 0, len(not_in_seek_empty),
+           detail=not_in_seek_empty[:EXAMPLES])
     gated("seek_studies_without_node", len(without_node), without_node[:EXAMPLES])
     gated("in_study_missing", missing, examples["missing"])
     gated("in_study_extra", extra, examples["extra"])
@@ -1010,8 +1016,8 @@ def _check_in_project_edges(driver, db, checks: list, stats: dict) -> None:
 def _check_small_tables(driver, db, checks: list, stats: dict) -> None:
     """Family 14: the Project, Investigation, Person and MEMBER_OF nodes and edges equal SEEK's tables. Every check
     expects 0 and lists up to ``EXAMPLES``. An Investigation SEEK lacks that a Study still holds is kept by the small
-    tables (a Study node is not deleted in this release) and reported apart; only a Study of a SEEK study that still
-    exists, or a graph-only paper (no ``seek_study_id``), holds one. A ``group_memberships`` or
+    tables and reported apart; only a Study of a SEEK study that still exists, or a graph-only paper (no
+    ``seek_study_id``), holds one. A ``group_memberships`` or
     ``investigations_projects`` row naming a project SEEK's ``projects`` lacks is left out, as the writers leave it
     (they MATCH the Project node), and counted in the stats: SEEK data to fix, which no sync can clear."""
     seek_projects = {int(p["id"]): p.get("title") for p in sources.projects()}

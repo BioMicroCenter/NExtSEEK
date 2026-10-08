@@ -1120,6 +1120,9 @@ def _write(driver, db, chunk: int, run_dir: str, bench_keys, state_: _Preflight,
     _step(report, "attributes_declared", writer.write_attributes, driver, db, cat.attributes)
     _step(report, "projects", writer.write_projects, driver, db, sources.projects())
     _step(report, "people", writer.write_people_and_memberships, driver, db, sources.memberships())
+    # Before the investigations, so a deleted node's archive line still names its Investigation (as the small tables).
+    _step(report, "seek_studies_gone", writer.delete_gone_seek_study_nodes, driver, db,
+          [s["id"] for s in sources.studies()], os.path.join(run_dir, writer.STUDIES_DELETED_FILE))
     _step(report, "investigations", writer.write_investigation_projects, driver, db, sources.investigations(),
           sources.investigation_projects(), archive_path=os.path.join(run_dir, writer.INVESTIGATIONS_DELETED_FILE),
           seek_study_ids=[s["id"] for s in sources.studies()])

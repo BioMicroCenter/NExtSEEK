@@ -290,12 +290,16 @@ by-id sync, the nightly or the weekly sync):
 The line is exact because only graph_sync sets `synced_at`. With no `T_` label left on an orphan, a reader that
 starts from `MATCH (s:T_X)` never sees one.
 
-Two other nodes follow the same archive-then-delete rule. A SampleType SEEK no longer has and that no Sample reaches
-is deleted by the catalog step with its Attribute nodes, archived first to `sample_types_deleted.tsv` (one that still
-holds samples is kept and reported), and an Investigation SEEK no longer has and that no Study holds is deleted by
-the small tables, archived first to `investigations_deleted.tsv`. A Study holds it only while SEEK still has its
-study, or when it is a graph-only paper (no `seek_study_id`). Study nodes are not deleted: the node of a SEEK study
-that is gone stays, without its IN_INVESTIGATION.
+Three other nodes follow the same archive-then-delete rule. A SampleType SEEK no longer has and that no Sample
+reaches is deleted by the catalog step with its Attribute nodes, archived first to `sample_types_deleted.tsv` (one
+that still holds samples is kept and reported), and an Investigation SEEK no longer has and that no Study holds is
+deleted by the small tables, archived first to `investigations_deleted.tsv`. A Study holds it only while SEEK still
+has its study, or when it is a graph-only paper (no `seek_study_id`). The node of a SEEK study that is gone is
+deleted by the small tables and by the full sync, archived first to `studies_deleted.tsv` (its `seek_study_id`,
+title, Investigation ids, RUN_IN edges and every property), once nothing but what SEEK rebuilds is left on it: no
+`id`, and no relationship but its IN_INVESTIGATION and the RUN_IN the assay step replaces whole. One that still holds
+more (an IN_STUDY above all) is kept and reported. Restoring the study's rows in SEEK brings the node back at the
+next sync. A graph-only paper Study is never deleted by this rule.
 
 ### Study nodes and IN_STUDY
 

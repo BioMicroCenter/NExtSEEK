@@ -17,8 +17,9 @@ reverse from its journal.
    more, when an edge it would write under approval is not one the undo accounts for: the labels MySQL gives once the
    undo's own changes are made (read before the undo, saved in the run directory, and corrected by what the undo
    could not restore), against the graph's stored labels. Deleting that saved file and running again accepts them.
-   A deleted study's SEEK-keyed Study node stays (Study nodes of SEEK studies are not deleted; gate G reports it as
-   ``12.studies.nodes_not_in_seek``).
+   A deleted study's SEEK-keyed Study node goes at the next small tables once nothing holds it
+   (``writer.delete_gone_seek_study_nodes``); while a sample still links to it, gate G reports it as
+   ``12.studies.nodes_not_in_seek``.
 
 Every undo line carries the investigation it undoes (None for the whole run), so a second investigation's rollback
 still undoes its own parts, and apply and the graph step refuse only the scopes a rollback touched.

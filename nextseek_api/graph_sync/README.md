@@ -384,6 +384,7 @@ A dry run writes no file.
 | `study_links.json` | `--studies` | samples read and differing, links added, removed and withheld, paper samples, samples kept with no SEEK study, OrphanSample links |
 | `sample_types_deleted.tsv` | the catalog step (`--full`, `--catalog`, the reconcile, the drain) | each SampleType node deleted because SEEK lost it and no Sample reaches it: id, title, label, attribute keys |
 | `investigations_deleted.tsv` | the small tables (`--full`, the reconcile, the drain) | each Investigation node deleted because SEEK lost it and no Study holds it (only a Study node SEEK still has, or a graph-only paper Study node, holds one): id, title, project ids |
+| `studies_deleted.tsv` | the small tables (the reconcile, the drain, `--small-tables`) and `--full` | each Study node deleted because SEEK lost its study and nothing but its IN_INVESTIGATION and RUN_IN was left on it (no `id`): seek_study_id, title, Investigation ids, RUN_IN edges as JSON, every property as JSON |
 | `gate_g.json`, `catalog_sync.json` | `--verify`, `--catalog` | that run's report, with `--run-dir` |
 
 ## The modules

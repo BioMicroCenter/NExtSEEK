@@ -1894,23 +1894,42 @@ def test_small_tables_archive_then_delete_an_investigation_seek_lost_that_no_stu
     assert lines[1].split("\t")[:2] == ["9", "Gone"]
 
 
-def test_small_tables_delete_an_investigation_held_only_by_a_gone_seek_studys_node(env, tmp_path):
-    """SEEK deletes an investigation after its studies, and a Study node is not deleted in this release. A node
-    whose SEEK study is gone no longer holds its Investigation, which is archived and deleted; the node stays, without
-    its IN_INVESTIGATION. A paper node, and the node of a study SEEK still has, still hold theirs."""
+def test_small_tables_delete_an_investigation_and_the_node_of_a_study_seek_deleted(env, tmp_path):
+    """SEEK deletes an investigation after its studies. A node whose SEEK study is gone no longer holds its
+    Investigation, which is archived and deleted; then the node itself, holding nothing SEEK does not rebuild, is
+    archived and deleted. A paper node, and the node of a study SEEK still has, keep theirs and stay."""
     s = env.graph.study
     dead_inv = s.add_investigation(9, "Gone with its study")
     dead = s.add_study(seek_study_id=41, title="A gone study", investigation=dead_inv)
+    s.other_rels[dead] = ["RUN_IN"]                       # the RUN_IN the assay step would drop anyway
     paper_inv = s.add_investigation(8, "A paper's")
-    s.add_study(id=40, title="A paper", investigation=paper_inv)
+    paper = s.add_study(id=40, title="A paper", investigation=paper_inv)
     live_inv = s.add_investigation(7, "Left by study seventy")
-    s.add_study(seek_study_id=70, title="Study seventy", investigation=live_inv)
+    live = s.add_study(seek_study_id=70, title="Study seventy", investigation=live_inv)
     result = targeted.sync_small_tables(env.graph, DB, run_dir=str(tmp_path))
-    assert dead_inv not in s.investigations and dead in s.studies and s.in_investigation[dead] == []
-    assert paper_inv in s.investigations and live_inv in s.investigations
+    assert dead_inv not in s.investigations and dead not in s.studies
+    assert paper_inv in s.investigations and live_inv in s.investigations and {paper, live} <= set(s.studies)
     assert (result["investigations_deleted"], result["investigations_not_in_seek_held"]) == (1, 2)
+    assert (result["seek_study_nodes_deleted"], result["seek_study_nodes_not_in_seek_held"]) == (1, 0)
     lines = (tmp_path / writer.INVESTIGATIONS_DELETED_FILE).read_text(encoding="utf-8").splitlines()
     assert [line.split("\t")[:2] for line in lines[1:]] == [["9", "Gone with its study"]]
+    lines = (tmp_path / writer.STUDIES_DELETED_FILE).read_text(encoding="utf-8").splitlines()
+    assert [line.split("\t")[:3] for line in lines[1:]] == [["41", "A gone study", "9"]]
+
+
+def test_small_tables_keep_the_node_of_a_study_seek_deleted_while_anything_else_holds_it(env, tmp_path):
+    """A gone study's node a sample still links to, one that also carries an `id`, and one with a relationship SEEK
+    does not rebuild are kept and counted; nothing about them is archived."""
+    s = env.graph.study
+    linked = s.add_study(seek_study_id=41, title="Still linked")
+    s.link(s.add_sample(5001), linked)
+    keyed = s.add_study(seek_study_id=42, id=42, title="A 1.2-era node")
+    other = s.add_study(seek_study_id=43, title="Something else on it")
+    s.other_rels[other] = ["SOMETHING_ELSE"]
+    result = targeted.sync_small_tables(env.graph, DB, run_dir=str(tmp_path))
+    assert {linked, keyed, other} <= set(s.studies)
+    assert (result["seek_study_nodes_deleted"], result["seek_study_nodes_not_in_seek_held"]) == (0, 3)
+    assert not (tmp_path / writer.STUDIES_DELETED_FILE).exists()
 
 
 # --- the one MySQL reader of its own -------------------------------------------------------------

@@ -273,8 +273,9 @@ SET i.title = r.title, i.description = r.description, i.project_id = r.project_i
 """
 DELETE_INVESTIGATION_IN_PROJECT = "MATCH (:Investigation)-[e:IN_PROJECT]->(:Project) DELETE e"
 # A Study holds its Investigation while SEEK still has its study ($study_ids, SEEK's study ids) or when it is a
-# graph-only paper (no seek_study_id). SEEK deletes an investigation after its studies and a Study node is never
-# deleted here, so the node of a gone SEEK study holds nothing; it loses its IN_INVESTIGATION with the Investigation.
+# graph-only paper (no seek_study_id). SEEK deletes an investigation after its studies, so the node of a gone SEEK
+# study holds nothing: it loses its IN_INVESTIGATION with the Investigation, and SEEK_STUDY_NODES_GONE below deletes
+# it once nothing but what SEEK rebuilds is left on it.
 _INVESTIGATION_HELD = """EXISTS { (i)<-[:IN_INVESTIGATION]-(st:Study)
          WHERE st.seek_study_id IS NULL OR st.seek_study_id IN $study_ids }"""
 # Investigation nodes whose id SEEK no longer has: those no Study holds, with what their archive records, are deleted;
@@ -298,6 +299,29 @@ MATCH (i:Investigation {id: r.investigation_id})
 MATCH (p:Project {id: r.project_id})
 MERGE (i)-[:IN_PROJECT]->(p)
 RETURN count(*) AS linked
+"""
+# The node of a SEEK study SEEK no longer has ($study_ids, SEEK's study ids) goes only when nothing but what SEEK
+# rebuilds is left on it: its IN_INVESTIGATION and the RUN_IN the assay step replaces whole every run. A node that
+# also has an `id` (a 1.2-era node, or a graph-only paper the rekey keyed) or holds any other relationship (an
+# IN_STUDY from a Sample or an OrphanSample above all) is kept and counted, never deleted here.
+_SEEK_STUDY_NODE_EMPTY = """st.id IS NULL
+  AND COUNT { (st)--() } = COUNT { (st)-[:IN_INVESTIGATION]->(:Investigation) } + COUNT { (:Assay)-[:RUN_IN]->(st) }"""
+# Study nodes whose seek_study_id SEEK no longer has, each with what its archive records and whether it can go.
+SEEK_STUDY_NODES_GONE = """
+MATCH (st:Study) WHERE st.seek_study_id IS NOT NULL AND NOT st.seek_study_id IN $study_ids
+RETURN elementId(st) AS element_id, st.seek_study_id AS seek_study_id, st.title AS title, properties(st) AS props,
+       [(st)-[:IN_INVESTIGATION]->(i:Investigation) | i.id] AS investigation_ids,
+       [(a:Assay)-[r:RUN_IN]->(st) | {assay_id: a.id, seek_assay_ids: r.seek_assay_ids}] AS runs,
+       """ + _SEEK_STUDY_NODE_EMPTY + """ AS empty
+ORDER BY seek_study_id
+"""
+# Deletes an archived node only while it still qualifies: SEEK still lacks its study and nothing else came to hold it.
+DELETE_SEEK_STUDY_NODES = """
+UNWIND $element_ids AS eid
+MATCH (st:Study) WHERE elementId(st) = eid AND st.seek_study_id IS NOT NULL AND NOT st.seek_study_id IN $study_ids
+  AND """ + _SEEK_STUDY_NODE_EMPTY + """
+DETACH DELETE st
+RETURN count(*) AS deleted
 """
 
 # --- samples -------------------------------------------------------------------------------------

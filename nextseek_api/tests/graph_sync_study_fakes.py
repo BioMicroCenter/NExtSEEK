@@ -138,6 +138,8 @@ class StudyGraph:
             q.MERGE_INVESTIGATIONS: self._merge_investigations,
             q.INVESTIGATIONS_GONE: self._investigations_gone,
             q.DELETE_INVESTIGATIONS: self._delete_investigations,
+            q.SEEK_STUDY_NODES_GONE: self._seek_study_nodes_gone,
+            q.DELETE_SEEK_STUDY_NODES: self._delete_seek_study_nodes,
             q.MERGE_INVESTIGATION_IN_PROJECT: self._merge_investigation_in_project,
             q.SAMPLE_STUDIES_OF: self._studies_of,
             q.SAMPLE_STUDIES_PAGE: self._studies_page,
@@ -193,6 +195,31 @@ class StudyGraph:
                 del self.investigations[eid], self.inv_projects[eid]
                 for invs in self.in_investigation.values():            # DETACH DELETE: its IN_INVESTIGATION go too
                     invs[:] = [i for i in invs if i != eid]
+                deleted += 1
+        return [{"deleted": deleted}]
+
+    def _gone_seek_study(self, eid, study_ids) -> bool:
+        key = self.studies[eid].get("seek_study_id")
+        return key is not None and key not in study_ids
+
+    def _seek_study_node_empty(self, eid) -> bool:
+        """No `id`, no IN_STUDY, and nothing but RUN_IN among its other relationships (cypher._SEEK_STUDY_NODE_EMPTY)."""
+        return ("id" not in self.studies[eid] and not any(st == eid for _, st in self.in_study.values())
+                and all(t == "RUN_IN" for t in self.other_rels[eid]))
+
+    def _seek_study_nodes_gone(self, p):
+        return [{"element_id": e, "seek_study_id": s["seek_study_id"], "title": s.get("title"), "props": dict(s),
+                 "investigation_ids": [self.investigations[i]["id"] for i in self.in_investigation[e]],
+                 "runs": [], "empty": self._seek_study_node_empty(e)}
+                for e, s in sorted(self.studies.items(), key=lambda kv: kv[1].get("seek_study_id") or 0)
+                if self._gone_seek_study(e, p["study_ids"])]
+
+    def _delete_seek_study_nodes(self, p):
+        deleted = 0
+        for eid in p["element_ids"]:
+            if (eid in self.studies and self._gone_seek_study(eid, p["study_ids"])
+                    and self._seek_study_node_empty(eid)):
+                del self.studies[eid], self.in_investigation[eid], self.other_rels[eid]   # DETACH DELETE
                 deleted += 1
         return [{"deleted": deleted}]
 

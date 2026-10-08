@@ -724,7 +724,8 @@ def test_the_carried_probes_match_a_dynamic_name_and_stop_at_the_first_hit():
 # --- family 12: studies --------------------------------------------------------------------------------------------
 
 FAMILY_12 = ("switch", "seek_study_id_duplicates", "split_pairs", "merge_candidates", "id_collisions",
-             "nodes_differ_from_seek", "nodes_not_in_seek", "seek_studies_without_node", "in_study_missing",
+             "nodes_differ_from_seek", "nodes_not_in_seek", "nodes_not_in_seek_empty", "seek_studies_without_node",
+             "in_study_missing",
              "in_study_extra", "no_seek_study_kept", "orphan_in_study", "paper_samples")
 
 
@@ -751,8 +752,9 @@ def _family(graph, follow, monkeypatch):
 
 
 def _study_world(side):
-    """A split (1), a SEEK-keyed node whose title is not SEEK's (2), one SEEK lacks (77), a collision (8), a paper
-    (9); samples missing a link, holding a stale one, kept with no SEEK study, and on the paper; an orphan's link."""
+    """A split (1), a SEEK-keyed node whose title is not SEEK's (2), one SEEK lacks that a sample still holds (77), a
+    collision (8), a paper (9); samples missing a link, holding a stale one, kept with no SEEK study, and on the paper;
+    an orphan's link."""
     g = StudyGraph()
     inv = g.add_investigation(101, "Alder Investigation")
     side.studies = [{"id": 1, "title": "Alder Unpublished", "description": None, "investigation_id": 101},
@@ -761,7 +763,7 @@ def _study_world(side):
     l1 = g.add_study(id=1, title="Alder Unpublished", DOI="", investigation=inv)
     k1 = g.add_study(seek_study_id=1, title="Alder Unpublished", investigation=inv)
     k2 = g.add_study(seek_study_id=2, title="Old Birch title", investigation=inv)
-    g.add_study(seek_study_id=77, title="Gone", investigation=inv)
+    gone = g.add_study(seek_study_id=77, title="Gone", investigation=inv)
     g.add_study(id=8, title="An unrelated paper", DOI="10.9999/p8", investigation=inv)
     g.add_study(seek_study_id=8, title="Hazel Study", investigation=inv)
     paper = g.add_study(id=9, title="A paper", DOI="10.9999/p9", investigation=inv)
@@ -770,7 +772,7 @@ def _study_world(side):
     g.link(1001, l1)
     g.link(1002, k1)
     g.link(1003, k2)             # SEEK: 1 -> a missing link and a stale one
-    g.link(1004, k2)             # SEEK: none -> kept
+    g.link(1004, gone)           # SEEK: none -> kept, and it holds the node of a study SEEK lacks
     g.link(1005, paper)          # SEEK: 2 -> a paper sample
     g.link(g.add_sample(1006, label="OrphanSample"), k1)
     side.links = [(1001, 1), (1002, 1), (1003, 1), (1005, 2)]
@@ -784,11 +786,30 @@ def test_with_the_switch_off_only_the_duplicate_check_can_fail(seek_side, monkey
     assert checks["12.studies.switch"]["actual"] == "add"
     actual = {name: checks[f"12.studies.{name}"]["actual"] for name in FAMILY_12[1:]}
     assert actual == {"seek_study_id_duplicates": 0, "split_pairs": 1, "merge_candidates": 1, "id_collisions": 1,
-                      "nodes_differ_from_seek": 1, "nodes_not_in_seek": 1, "seek_studies_without_node": 0,
+                      "nodes_differ_from_seek": 1, "nodes_not_in_seek": 1, "nodes_not_in_seek_empty": 0,
+                      "seek_studies_without_node": 0,
                       "in_study_missing": 1, "in_study_extra": 1, "no_seek_study_kept": 1, "orphan_in_study": 1,
                       "paper_samples": 2}
     assert checks["12.studies.paper_samples"]["detail"]["withheld_links"] == 2
     assert checks["12.studies.paper_samples"]["detail"]["investigation_unknown"] == 0
+
+
+def test_an_empty_node_of_a_study_seek_lacks_fails_the_gate_whatever_the_switch(seek_side, monkeypatch):
+    """The small tables delete such a node every run, so one left behind is a failure on every box; a node that also
+    carries an `id`, or holds a link, is only reported."""
+    for follow in (False, True):
+        g = StudyGraph()
+        inv = g.add_investigation(101, "Alder Investigation")
+        seek_side.studies = [{"id": 1, "title": "Alder Unpublished", "description": None, "investigation_id": 101}]
+        g.add_study(seek_study_id=1, title="Alder Unpublished", investigation=inv)
+        empty = g.add_study(seek_study_id=77, title="Gone", investigation=inv)
+        g.other_rels[empty] = ["RUN_IN"]
+        g.add_study(seek_study_id=78, id=78, title="A 1.2-era node", investigation=inv)
+        checks = _family(g, follow, monkeypatch)
+        empty_check = checks["12.studies.nodes_not_in_seek_empty"]
+        assert (empty_check["pass"], empty_check["actual"], empty_check["detail"]) == (False, 1, [77])
+        assert checks["12.studies.nodes_not_in_seek"]["actual"] == 1
+        assert checks["12.studies.nodes_not_in_seek"]["pass"]
 
 
 def test_with_the_switch_on_the_checks_that_expect_0_fail(seek_side, monkeypatch):

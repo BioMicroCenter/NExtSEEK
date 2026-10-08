@@ -818,9 +818,9 @@ def test_a_gone_investigation_no_study_holds_is_archived_then_deleted_and_a_held
 
 
 def test_a_gone_investigation_is_held_only_by_a_live_seek_study_or_a_paper_node(tmp_path):
-    """SEEK deletes an investigation after its studies and this release deletes no Study node, so a node whose
-    SEEK study is gone does not hold its Investigation. The read and the delete's own re-check both take SEEK's study
-    ids; a Study with no seek_study_id (a graph-only paper) still holds."""
+    """SEEK deletes an investigation after its studies, so a node whose SEEK study is gone does not hold its
+    Investigation (delete_gone_seek_study_nodes removes that node itself). The read and the delete's own re-check
+    both take SEEK's study ids; a Study with no seek_study_id (a graph-only paper) still holds."""
     gone = [{"element_id": "4:i:7", "id": 7, "title": "Gone", "project_ids": [], "held": False}]
 
     def responder(query, params):
@@ -854,6 +854,70 @@ def test_an_empty_investigation_list_refuses_to_delete_every_investigation(tmp_p
         w.write_investigation_projects(driver, "neo4j", [], [], archive_path=str(tmp_path / "a.tsv"),
                                        seek_study_ids=[])
     assert q.DELETE_INVESTIGATIONS not in driver.queries() and q.MERGE_INVESTIGATIONS not in driver.queries()
+
+
+_GONE_STUDY_NODES = [
+    {"element_id": "4:s:17", "seek_study_id": 17, "title": "A copied\tpaper", "investigation_ids": [16],
+     "runs": [{"assay_id": 9, "seek_assay_ids": [186]}, {"assay_id": 3, "seek_assay_ids": [185]}],
+     "props": {"seek_study_id": 17, "title": "A copied\tpaper", "description": "Auto-created study"}, "empty": True},
+    {"element_id": "4:s:18", "seek_study_id": 18, "title": "Still linked", "investigation_ids": [], "runs": [],
+     "props": {"seek_study_id": 18, "title": "Still linked"}, "empty": False}]
+
+
+def test_a_gone_seek_studys_empty_node_is_archived_then_deleted_and_a_held_one_kept(tmp_path):
+    """The node of a study SEEK deleted goes, archived first with everything needed to see what it was; one that
+    still holds more than SEEK rebuilds is kept and counted."""
+    archive = tmp_path / w.STUDIES_DELETED_FILE
+    order = []
+
+    def responder(query, params):
+        if query == q.SEEK_STUDY_NODES_GONE:
+            return _GONE_STUDY_NODES
+        if query == q.DELETE_SEEK_STUDY_NODES:
+            order.append(archive.read_text(encoding="utf-8").count("\n"))   # the archive is on disk first
+            return [{"deleted": len(params["element_ids"])}]
+        return []
+
+    driver = FakeDriver(responder)
+    counts = w.delete_gone_seek_study_nodes(driver, "neo4j", [42, 3, 42], str(archive))
+    assert counts == {"seek_study_nodes_deleted": 1, "seek_study_nodes_not_in_seek_held": 1}
+    lines = archive.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == w.STUDIES_ARCHIVE_HEADER.rstrip("\n") and len(lines) == 2
+    sid, title, invs, runs, props = lines[1].split("\t")
+    assert (sid, title, invs) == ("17", "A copied\\tpaper", "16")
+    assert json.loads(runs) == [{"assay_id": 3, "seek_assay_ids": [185]}, {"assay_id": 9, "seek_assay_ids": [186]}]
+    assert json.loads(props)["description"] == "Auto-created study"
+    assert order == [2]
+    (read,), (delete,) = driver.calls_of(q.SEEK_STUDY_NODES_GONE), driver.calls_of(q.DELETE_SEEK_STUDY_NODES)
+    assert read.params == {"study_ids": [3, 42]}
+    assert delete.params == {"element_ids": ["4:s:17"], "study_ids": [3, 42]}
+
+
+def test_the_seek_study_node_delete_keeps_id_nodes_paper_nodes_and_anything_linked():
+    """Only a node keyed by a seek_study_id SEEK lacks, with no `id` and nothing but IN_INVESTIGATION and RUN_IN on
+    it, qualifies; the delete re-checks all of it, so a link that arrived after the read keeps the node."""
+    for statement in (q.SEEK_STUDY_NODES_GONE, q.DELETE_SEEK_STUDY_NODES):
+        flat = " ".join(statement.split())
+        assert "st.seek_study_id IS NOT NULL AND NOT st.seek_study_id IN $study_ids" in flat
+        assert "st.id IS NULL" in flat
+        assert ("COUNT { (st)--() } = COUNT { (st)-[:IN_INVESTIGATION]->(:Investigation) } "
+                "+ COUNT { (:Assay)-[:RUN_IN]->(st) }") in flat
+    assert "DETACH DELETE st" in q.DELETE_SEEK_STUDY_NODES
+
+
+def test_no_gone_seek_study_node_writes_nothing(tmp_path):
+    driver = FakeDriver(lambda query, params: [])
+    archive = tmp_path / w.STUDIES_DELETED_FILE
+    counts = w.delete_gone_seek_study_nodes(driver, "neo4j", [1], str(archive))
+    assert counts == {"seek_study_nodes_deleted": 0, "seek_study_nodes_not_in_seek_held": 0}
+    assert not archive.exists() and q.DELETE_SEEK_STUDY_NODES not in driver.queries()
+
+
+def test_an_empty_seek_study_list_refuses_to_delete_every_seek_study_node(tmp_path):
+    driver = FakeDriver(lambda query, params: _GONE_STUDY_NODES if query == q.SEEK_STUDY_NODES_GONE else [])
+    with pytest.raises(ValueError, match="every SEEK study's node"):
+        w.delete_gone_seek_study_nodes(driver, "neo4j", [], str(tmp_path / "s.tsv"))
+    assert q.DELETE_SEEK_STUDY_NODES not in driver.queries() and not (tmp_path / "s.tsv").exists()
 
 
 def test_write_projects_drops_none_and_deletes_gone_projects():

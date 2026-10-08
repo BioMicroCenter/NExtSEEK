@@ -10,7 +10,7 @@ bring part of the graph up to date without a full sync:
 - ``retire_samples(driver, db, ids)``: the deletion rule (section 9) for ids MySQL no longer holds.
 - ``relabel_for_maps(driver, db)``: the labels a change to the resolved assay map or to ``sops`` affects.
 - ``sync_small_tables(driver, db)``: projects, investigations, people and memberships, and every SEEK study's
-  node with its title, description and investigation.
+  node with its title, description and investigation; the node of a study SEEK deleted goes once it holds nothing.
 - ``sync_assays(driver, db)``: the assay layer (graph schema 1.3): the Assay nodes, the members of every SEEK assay
   whose mapping moved, RUN_IN, ACCEPTED_BY and GENERATES, and the Assays gone from ``internal_assays``.
 - ``sync_assay_edges(driver, db, ids)``: the INPUT_TO and OUTPUT_OF of those samples alone, with no partner step (the
@@ -1068,6 +1068,10 @@ def _small_tables(driver, db, ctx: _Context) -> dict:
     report = {"status": OK}
     studies = sources.studies()
     report.update(writer.write_projects(driver, db, sources.projects()))
+    # The node of every study SEEK deleted goes once nothing but derived edges holds it, archived first; before the
+    # investigations, so its archive line still names the Investigation it was under.
+    report.update(writer.delete_gone_seek_study_nodes(driver, db, [s["id"] for s in studies],
+                                                      ctx.archive(writer.STUDIES_DELETED_FILE)))
     report.update(writer.write_investigation_projects(driver, db, sources.investigations(),
                                                       sources.investigation_projects(),
                                                       archive_path=ctx.archive(writer.INVESTIGATIONS_DELETED_FILE),
@@ -1081,6 +1085,8 @@ def _small_tables(driver, db, ctx: _Context) -> dict:
 def sync_small_tables(driver, db, *, lock_timeout_s: float = LOCK_WAIT_S, run_dir: str | None = None) -> dict:
     """Rewrite the small tables from MySQL: Project nodes (a project gone from MySQL is deleted), Investigation nodes
     and their IN_PROJECT, Person nodes and MEMBER_OF, and the node of every SEEK study (made when missing) with SEEK's
-    title, description and investigation. Tens to hundreds of rows each, so every call rewrites them whole."""
+    title, description and investigation; the node of a study SEEK deleted is archived to ``studies_deleted.tsv`` and
+    deleted once nothing but derived edges holds it (``writer.delete_gone_seek_study_nodes``). Tens to hundreds of
+    rows each, so every call rewrites them whole."""
     ctx = _Context(run_dir)
     return _guarded(driver, db, lock_timeout_s, lambda: _small_tables(driver, db, ctx))

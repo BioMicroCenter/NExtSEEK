@@ -8,7 +8,7 @@ in the design's order:
 
     find_ghosts > delete_ghosts > relabel_orphans > archive_and_drop_child_of > ensure_constraints_v11 >
     write_sample_types > write_attributes > write_projects > write_people_and_memberships >
-    write_investigation_projects > write_samples (per chunk) > write_missing_lineage >
+    delete_gone_seek_study_nodes > write_investigation_projects > write_samples (per chunk) > write_missing_lineage >
     archive_and_drop_undeclared_derived_from > write_seek_studies (the full sync now runs
     study_links.rebuild_in_study instead) > write_assays > replace_assay_catalog_edges >
     replace_sample_assay_edges (per chunk) > replace_assay_runs > delete_gone_assays > write_attribute_counts >
@@ -19,7 +19,9 @@ Schema 1.2 adds what the by-id syncs need: ``retire_samples`` (the deletion rule
 ``archive_and_drop_undeclared_for_children``, ``sample_hashes`` (the ``(id, source_hash)`` stream) and ``graphmeta``.
 
 The studies release adds ``write_seek_study_nodes`` (every SEEK study's node, its investigation first) and
-``replace_seek_in_study`` (IN_STUDY follows SEEK, a removal archived to ``in_study_removed.tsv`` first). The studies
+``replace_seek_in_study`` (IN_STUDY follows SEEK, a removal archived to ``in_study_removed.tsv`` first);
+``delete_gone_seek_study_nodes`` removes the node of a study SEEK deleted once nothing but derived edges holds it,
+archived to ``studies_deleted.tsv`` first. The studies
 tool adds ``share_graph_check``, a read of how a share's samples stand.
 
 Schema 1.3 adds the assay layer: ``write_assays``, ``replace_assay_runs``, ``replace_assay_catalog_edges``,
@@ -69,6 +71,8 @@ SAMPLE_TYPES_DELETED_FILE = "sample_types_deleted.tsv"
 SAMPLE_TYPES_ARCHIVE_HEADER = "id\ttitle\tlabel\tattribute_keys\n"
 INVESTIGATIONS_DELETED_FILE = "investigations_deleted.tsv"
 INVESTIGATIONS_ARCHIVE_HEADER = "id\ttitle\tproject_ids\n"
+STUDIES_DELETED_FILE = "studies_deleted.tsv"
+STUDIES_ARCHIVE_HEADER = "seek_study_id\ttitle\tinvestigation_ids\truns\tprops\n"
 IN_STUDY_ARCHIVE_HEADER = "sample_id\tseek_study_id\tstudy_id\tedge_element_id\tpath\n"
 # replace_seek_in_study's counts, always all present.
 IN_STUDY_COUNTS = ("in_study_rows", "in_study_added", "in_study_removed", "in_study_stale",
@@ -588,9 +592,9 @@ def write_investigation_projects(driver, db, investigations: list[dict], links: 
     SEEK no longer has and that no Study holds is appended to that archive (id, title, project ids), flushed, and
     deleted; one a Study still holds is kept and counted in ``investigations_not_in_seek_held``. A Study holds it
     only while SEEK still has its study (``seek_study_ids``, every SEEK study id, required with ``archive_path``) or
-    when it is a graph-only paper (no ``seek_study_id``); the node of a gone SEEK study stays and loses its
-    IN_INVESTIGATION. An empty ``investigations`` with nodes to delete raises ValueError before anything is written,
-    as ``write_projects`` refuses an empty project list.
+    when it is a graph-only paper (no ``seek_study_id``); the node of a gone SEEK study loses its IN_INVESTIGATION
+    here and goes with ``delete_gone_seek_study_nodes``. An empty ``investigations`` with nodes to delete raises
+    ValueError before anything is written, as ``write_projects`` refuses an empty project list.
     """
     deleted = held = 0
     if archive_path:
@@ -631,6 +635,34 @@ def write_investigation_projects(driver, db, investigations: list[dict], links: 
     return {"investigations_written": len(rows), "investigation_links": linked,
             "investigation_links_dropped": len(link_rows) - linked, "investigations_deleted": deleted,
             "investigations_not_in_seek_held": held}
+
+
+def delete_gone_seek_study_nodes(driver, db, seek_study_ids, archive_path: str) -> dict:
+    """Archive, then delete, the node of every SEEK study SEEK no longer has (``seek_study_ids``, every SEEK study id)
+    that holds nothing SEEK does not rebuild: no ``id``, and no relationship but its IN_INVESTIGATION and the RUN_IN
+    the assay step replaces whole (``cypher.SEEK_STUDY_NODES_GONE``). Each line of ``archive_path`` holds the node's
+    ``seek_study_id``, title, Investigation ids, RUN_IN edges and every property, flushed before the delete; SEEK's
+    rows bring the node back, so restoring the study in SEEK restores it here. A gone study's node that still holds
+    more (an IN_STUDY from a sample, above all) is kept and counted in ``seek_study_nodes_not_in_seek_held``. An
+    empty ``seek_study_ids`` with nodes to delete raises ValueError before anything is written, as
+    ``write_projects`` refuses an empty project list."""
+    study_ids = sorted({int(s) for s in seek_study_ids})
+    gone = _records(_run(driver, db, q.SEEK_STUDY_NODES_GONE, {"study_ids": study_ids}, read=True))
+    deletable = [g for g in gone if g["empty"]]
+    if deletable and not study_ids:
+        raise ValueError("no SEEK study ids; refusing to delete every SEEK study's node")
+    deleted = 0
+    if deletable:
+        _append_rows(archive_path, STUDIES_ARCHIVE_HEADER, [
+            "\t".join([_tsv_field(g["seek_study_id"]), _tsv_field(g["title"]),
+                       ",".join(str(i) for i in sorted(g["investigation_ids"] or [])),
+                       json.dumps(sorted((dict(r) for r in g["runs"] or []), key=lambda r: str(r.get("assay_id"))),
+                                  sort_keys=True, default=str),
+                       _props_json(g["props"])]) + "\n" for g in deletable])
+        deleted = _one(_run(driver, db, q.DELETE_SEEK_STUDY_NODES,
+                            {"element_ids": [g["element_id"] for g in deletable], "study_ids": study_ids}),
+                       "deleted")
+    return {"seek_study_nodes_deleted": deleted, "seek_study_nodes_not_in_seek_held": len(gone) - len(deletable)}
 
 
 # --- samples, lineage, studies -------------------------------------------------------------------
