@@ -1585,3 +1585,45 @@ def test_tokens_resolve_by_the_maps_pipeline_not_the_manifests():
     (row,) = [r for r in result.rows
               if r.attributes.get("Matrix") and r.attributes["Matrix"].value == "deseq2_results"]
     assert row.attributes["Contrast"].value == "A_vs_B"
+
+
+def test_per_file_companions_pair_by_paramset_under_the_real_brace_glob():
+    """The committed differentialabundance glob expands flat-first, and the flat
+    "*" also matches a nested 2.0.0 path; the paramset filter must still hold."""
+    rule = {"id": "de", "sample_type": "A.GEX", "primary_data": True, "cardinality": "per_file",
+            "candidates": ["tables/differential/{,*/}*.deseq2.results.tsv"],
+            "companions": [{"glob": "tables/differential/{,*/}*.deseq2.results_filtered.tsv"}]}
+    run = _run_with([
+        "tables/differential/p1/A_vs_B.deseq2.results.tsv",
+        "tables/differential/p2/A_vs_B.deseq2.results.tsv",
+        "tables/differential/p1/A_vs_B.deseq2.results_filtered.tsv",
+        "tables/differential/p2/A_vs_B.deseq2.results_filtered.tsv"])
+    rows = _out_rows(mapper.apply(run, _v2map([rule])), "de")
+    assert len(rows) == 2
+    for row in rows:
+        paramset = row.attributes["File_PrimaryData"].source_file.split("/")[2]
+        assert row.attributes["File_SecondaryData"].source_file == (
+            f"tables/differential/{paramset}/A_vs_B.deseq2.results_filtered.tsv")
+        other = "p2" if paramset == "p1" else "p1"
+        notes = row.attributes.get("Notes")
+        assert notes is None or f"/{other}/" not in notes.value
+
+
+def test_per_file_companions_never_pair_a_contrast_with_a_longer_one():
+    rule = {"id": "de", "sample_type": "A.GEX", "primary_data": True, "cardinality": "per_file",
+            "candidates": ["tables/differential/*.deseq2.results.tsv"],
+            "companions": [{"glob": "tables/differential/*.deseq2.results_filtered.tsv"}]}
+    run = _run_with([
+        "tables/differential/A_vs_B.deseq2.results.tsv",
+        "tables/differential/A_vs_B_batch.deseq2.results.tsv",
+        "tables/differential/A_vs_B.deseq2.results_filtered.tsv",
+        "tables/differential/A_vs_B_batch.deseq2.results_filtered.tsv"])
+    rows = {r.attributes["File_PrimaryData"].value: r
+            for r in _out_rows(mapper.apply(run, _v2map([rule])), "de")}
+    plain = rows["A_vs_B.deseq2.results.tsv"]
+    batch = rows["A_vs_B_batch.deseq2.results.tsv"]
+    assert plain.attributes["File_SecondaryData"].value == "A_vs_B.deseq2.results_filtered.tsv"
+    assert batch.attributes["File_SecondaryData"].value == (
+        "A_vs_B_batch.deseq2.results_filtered.tsv")
+    assert "Notes" not in plain.attributes
+    assert "Notes" not in batch.attributes

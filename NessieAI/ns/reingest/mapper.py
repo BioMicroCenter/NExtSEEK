@@ -537,27 +537,41 @@ def _exists(context, sample_type: str, attribute: str) -> bool:
 def _wild_dirs(context) -> list[str]:
     """The folder names a per_file row's glob matched with a bare "*" segment
     (differentialabundance 2.0.0's paramset). A companion must sit under the
-    same ones, so p1's filtered table never pairs with p2's results."""
+    same ones, so p1's filtered table never pairs with p2's results.
+
+    fnmatch's "*" crosses "/", so a flat expansion ("tables/differential/
+    *.tsv") also matches a nested path; only an expansion with as many
+    segments as the path says which folders were wildcards."""
     path = str((context or {}).get("file_path") or "")
     glob = str((context or {}).get("file_glob") or "")
+    have = path.split("/")
     for pattern in _expand_braces(glob):
-        if fnmatch.fnmatch(path, pattern):
-            want, have = pattern.split("/"), path.split("/")
-            if len(want) != len(have):
-                return []
+        want = pattern.split("/")
+        if len(want) == len(have) and fnmatch.fnmatch(path, pattern):
             return [seg for seg, pat in zip(have[:-1], want[:-1]) if pat == "*"]
     return []
 
 
-def _pairs_with_row_file(path: str, context) -> bool:
-    """A per_file row's companion: same stem (followed by "." or "_") and the
-    same wildcard folders as the row's own file."""
+def _pairs_with_row_file(path: str, companion_glob: str, context) -> bool:
+    """A per_file row's companion: the same stem and the same wildcard folders
+    as the row's own file.
+
+    When the companion glob's file-name part is "*" plus a literal suffix, its
+    own stem is read the way ``@file_stem`` reads the row's, and the two must
+    be equal, so contrast "A_vs_B" never takes "A_vs_B_batch"'s table. Any
+    other companion glob falls back to a prefix test: the row's stem followed
+    by "." or "_"."""
     stem = common.file_stem(context)
     if not stem:
         return False
-    name = os.path.basename(path)
-    if not (name.startswith(stem + ".") or name.startswith(stem + "_")):
-        return False
+    own = common.file_stem({"file_path": path, "file_glob": companion_glob})
+    if own is not None:
+        if own != stem:
+            return False
+    else:
+        name = os.path.basename(path)
+        if not (name.startswith(stem + ".") or name.startswith(stem + "_")):
+            return False
     segments = path.split("/")
     return all(folder in segments for folder in _wild_dirs(context))
 
@@ -571,7 +585,7 @@ def _companion_outputs(glob: str, run_manifest, sample_name, context) -> list:
             continue
         if sample_name is not None and output.sample != sample_name:
             continue
-        if per_file and not _pairs_with_row_file(output.path, context):
+        if per_file and not _pairs_with_row_file(output.path, glob, context):
             continue
         found.append(output)
     return found
