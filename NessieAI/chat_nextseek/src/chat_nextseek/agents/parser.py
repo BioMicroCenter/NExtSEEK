@@ -1022,9 +1022,25 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
     entity_json = json.dumps(entity_payload, indent=2)
     endpoints_json = _endpoints_for_prompt(config, user_query)
 
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": config.PARSER_SYSTEM_PROMPT},
-    ]
+    # Static head first (prompt, endpoints, schema), then the cache point, then what varies per question.
+    # With a semantic endpoint shortlist the endpoints vary by question, so they follow the cache point.
+    endpoints_msg = {
+        "role": "system",
+        "content": "API ENDPOINT CATALOG (JSON array from min_api_endpoints_enriched.json):\n" + endpoints_json,
+    }
+    idx = getattr(config, "ENDPOINT_INDEX", None)
+    endpoints_vary = idx is not None and idx.ready
+    messages: list[dict[str, str]] = [{"role": "system", "content": config.PARSER_SYSTEM_PROMPT}]
+    if not endpoints_vary:
+        messages.append(endpoints_msg)
+    messages.append({
+        "role": "system",
+        "content": "GRAPH_SCHEMA (consult to determine graph_query vs. API routing):\n"
+        + json.dumps(config.MIN_GRAPH_SCHEMA, indent=2),
+        "cache_point": "1h",
+    })
+    if endpoints_vary:
+        messages.append(endpoints_msg)
     if chat_history:
         messages.append({"role": "system", "content": chat_history})
     messages.extend([
@@ -1035,15 +1051,6 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
         {
             "role": "system",
             "content": "ENTITY_RESULT (from Entity Agent):\n" + entity_json,
-        },
-        {
-            "role": "system",
-            "content": "API ENDPOINT CATALOG (JSON array from min_api_endpoints_enriched.json):\n" + endpoints_json,
-        },
-        {
-            "role": "system",
-            "content": "GRAPH_SCHEMA (consult to determine graph_query vs. API routing):\n"
-            + json.dumps(config.MIN_GRAPH_SCHEMA, indent=2),
         },
         {"role": "user", "content": user_query},
     ])

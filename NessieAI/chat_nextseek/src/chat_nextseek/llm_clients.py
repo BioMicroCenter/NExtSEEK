@@ -966,14 +966,23 @@ class BedrockClient(BaseLLMClient):
             return False
 
     def _convert_messages(self, messages: List[dict]) -> tuple[list[dict], list[dict]]:
-        """Split system messages out; convert the rest to Bedrock Converse format."""
+        """Split system messages out; convert the rest to Bedrock Converse format.
+
+        System messages become one text block. A system message carrying ``cache_point`` (a TTL,
+        "1h") ends the block after it and adds a cache point there: head block, cache point, tail block.
+        """
         system_parts: list[str] = []
+        system_blocks: list[dict] = []
         converted: list[dict] = []
         for msg in messages:
             role = (msg.get("role") or "").lower()
             content = msg.get("content") or ""
             if role == "system":
                 system_parts.append(str(content))
+                if msg.get("cache_point"):
+                    system_blocks.append({"text": "\n\n".join(system_parts)})
+                    system_blocks.append({"cachePoint": {"type": "default", "ttl": msg["cache_point"]}})
+                    system_parts = []
                 continue
             if role not in ("user", "assistant"):
                 continue
@@ -984,7 +993,8 @@ class BedrockClient(BaseLLMClient):
                 # prior empty response; substitute a placeholder so the block is valid.
                 text = "(no content)"
             converted.append({"role": role, "content": [{"text": text}]})
-        system_blocks = [{"text": "\n\n".join(system_parts)}] if system_parts else []
+        if system_parts:
+            system_blocks.append({"text": "\n\n".join(system_parts)})
         return system_blocks, converted
 
     def chat(
@@ -1039,8 +1049,22 @@ class BedrockClient(BaseLLMClient):
                 # max_tokens must cover thinking tokens + text output tokens
                 kwargs["inferenceConfig"]["maxTokens"] = max(self.max_output_tokens, thinking_budget + 2048)
 
+        # The TTL of the request's cache point, if the messages carried one (recorded on the usage).
+        cache_ttl = next((b["cachePoint"].get("ttl") for b in system_blocks if "cachePoint" in b), None)
         try:
-            resp = self.client.converse(**kwargs)
+            try:
+                resp = self.client.converse(**kwargs)
+            except ClientError as e:
+                # A 400 that names the cache point: send the same call once as the plain one-block
+                # request. Any other 400, or a second failure, goes the way it always did.
+                err = e.response.get("Error") or {}
+                if not (cache_ttl and err.get("Code") == "ValidationException"
+                        and re.search(r"cache ?point", str(e), re.IGNORECASE)):
+                    raise
+                print(f"[BEDROCK] model='{model}' refused the cache point, retrying without it: {e}")
+                kwargs["system"] = [{"text": "\n\n".join(b["text"] for b in system_blocks if "text" in b)}]
+                cache_ttl = None
+                resp = self.client.converse(**kwargs)
         except ClientError as e:
             code = e.response["Error"]["Code"]
             if code == "ThrottlingException":
@@ -1077,7 +1101,7 @@ class BedrockClient(BaseLLMClient):
 
         usage = None
         try:
-            usage = _converse_usage(resp)
+            usage = _converse_usage(resp, cache_ttl=cache_ttl)
         except Exception:
             pass
 

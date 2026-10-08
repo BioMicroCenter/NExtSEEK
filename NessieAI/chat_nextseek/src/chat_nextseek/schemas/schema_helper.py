@@ -12,6 +12,7 @@ from ..config import ChatConfig
 from .call_budgets import DEFAULT_BUDGET, budget_for
 from ..helpers import log_prompt, log_usage, log_llm_call, safe_parse_json
 from ..llm_clients import (
+    BedrockClient,
     LLMAPIConnectionError,
     LLMError,
     LLMModelUnusableError,
@@ -796,6 +797,16 @@ class _Failover:
                              model_fallback=self.moves, reason=reason)
 
 
+def _keeps_cache_point(current_client, current_model: str, client, model_name: str) -> bool:
+    """A cache point rides only on a Bedrock client that has not moved (the tool loop's rule)."""
+    return current_client is client and current_model == model_name and isinstance(client, BedrockClient)
+
+
+def _without_cache_point(messages: list[dict]) -> list[dict]:
+    return [{k: v for k, v in m.items() if k != "cache_point"} if isinstance(m, dict) and "cache_point" in m else m
+            for m in messages]
+
+
 def _call_with_recovery(
     config: ChatConfig,
     *,
@@ -930,7 +941,8 @@ def _call_with_recovery(
                 client=fo.client,
                 model_name=fo.model,
                 temperature=temperature,
-                messages=attempt_messages,
+                messages=attempt_messages if _keeps_cache_point(fo.client, fo.model, client, model_name)
+                else _without_cache_point(attempt_messages),
                 response_format=response_format,
                 timeout_seconds=_timeout,
                 thinking_budget=fo.budget,
