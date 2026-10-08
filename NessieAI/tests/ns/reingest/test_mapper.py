@@ -475,7 +475,9 @@ def test_an_unknown_parent_type_skips_the_backfill_row_and_warns_rather_than_gue
 def test_a_d_seq_parent_produces_no_warnings():
     # The regression guard from the other direction: the ordinary, unchanged
     # case -- every rnaseq qc_attributes rule targets D.SEQ, and the parent
-    # really is D.SEQ -- must not emit any of the new warnings.
+    # really is D.SEQ -- must not emit any of the QC-backfill warnings. This
+    # manifest has no outputs, so the output rules' "matched no file" warnings
+    # are expected and are not what this guards.
     result = mapper.apply(
         _run(metrics={"star-uniquely_mapped_percent": 91.4,
                       "kraken2-pct_unclassified": 4.5}),
@@ -483,7 +485,7 @@ def test_a_d_seq_parent_produces_no_warnings():
     row = next(r for r in result.rows if r.sample_type == "D.SEQ")
     assert row.attributes["MappedPercent"].value == 91.4
     assert row.attributes["ContamPercent"].value == 4.5
-    assert result.warnings == []
+    assert [w for w in result.warnings if "matched no file" not in w] == []
 
 
 def test_a_ruled_out_key_on_two_different_samples_stays_out_of_unmapped():
@@ -1037,20 +1039,17 @@ def test_another_samples_bai_is_never_attached_to_this_row():
     assert row.attributes["File_SecondaryData"].value == "CONTROL_REP1.markdup.sorted.bam.bai"
 
 
-def test_several_matching_secondaries_are_flagged_not_silently_picked():
-    """There is no winner to pick among secondaries, so the choice is surfaced.
-
-    Both paths really do match the rule's glob (`*.markdup.sorted.bam.bai`)
-    and both are attributed to the same sample, so the sorted-first pick is a
-    silent judgement call -- which is exactly what `candidates` exists to make
-    reviewable in the QA reply.
-    """
+def test_several_matching_secondaries_are_kept_not_silently_dropped():
+    """Both paths match the companion glob (`*.markdup.sorted.bam.bai`) for the
+    same sample. The sorted-first fills File_SecondaryData; the other is named
+    in Notes (spec G-3), so neither is silently lost."""
     run = _run_with_alignment_outputs(
         extra=["star_salmon/CONTROL_REP1.extra.markdup.sorted.bam.bai"])
     row = _aln_row(run)
     attr = row.attributes["File_SecondaryData"]
-    assert len(attr.candidates) == 2
     assert attr.value == "CONTROL_REP1.extra.markdup.sorted.bam.bai", "sorted-first"
+    assert row.attributes["Notes"].value == (
+        "Also in run: star_salmon/CONTROL_REP1.markdup.sorted.bam.bai")
 
 
 # ── computed "@name" values ────────────────────────────────────────────────
@@ -1411,3 +1410,178 @@ def test_a_non_rnaseq_study_is_named_in_notes():
     assert attrs["Notes"].startswith("study_type: maxquant")
     assert "protein" in attrs["Notes"]
 
+
+# ── v2: candidates, companions, row defaults, misses ─────────────────────────
+
+def _v2map(outputs, **extra):
+    return maps.PipelineMap.model_validate(
+        {"map_version": 2, "pipeline": "nf-core/x", "applies_to_versions": ">=1,<2",
+         "outputs": outputs, **extra})
+
+
+def _run_with(paths, version="1.0.0", samples=("S1",)):
+    return manifest.RunManifest(
+        run_dir="/net/cluster/runs/r",
+        pipeline=manifest.PipelineInfo(name="nf-core/x", version=version),
+        samples=[manifest.SampleRecord(nfcore_sample=s, d_seq_uid=f"D.SEQ-X-{i}",
+                                       uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD,
+                                       parent_sample_type="D.SEQ")
+                 for i, s in enumerate(samples)],
+        outputs=[manifest.OutputRecord(path=p, sample=next((s for s in samples if f"/{s}" in p
+                                                            or p.startswith(f"{s}.")), None))
+                 for p in paths])
+
+
+VCF_RULE = {"id": "vcf", "sample_type": "A.VCF", "primary_data": True,
+            "candidates": ["ann/*/*.ann.vcf.gz", "vc/*/*.filtered.vcf.gz", "vc/*/*.raw.vcf.gz"]}
+
+
+def _out_rows(result, rule_id):
+    return [r for r in result.rows if r.rule_id == rule_id]
+
+
+def test_the_first_candidate_present_wins_and_later_ones_become_companions():
+    run = _run_with(["vc/S1/S1.filtered.vcf.gz", "vc/S1/S1.raw.vcf.gz"])
+    result = mapper.apply(run, _v2map([VCF_RULE]))
+    (row,) = _out_rows(result, "vcf")
+    assert row.attributes["File_PrimaryData"].value == "S1.filtered.vcf.gz"
+    assert row.attributes["File_SecondaryData"].value == "S1.raw.vcf.gz"
+
+
+def test_the_most_processed_candidate_wins_when_all_are_present():
+    run = _run_with(["ann/S1/S1.ann.vcf.gz", "vc/S1/S1.filtered.vcf.gz"])
+    (row,) = _out_rows(mapper.apply(run, _v2map([VCF_RULE])), "vcf")
+    assert row.attributes["File_PrimaryData"].value == "S1.ann.vcf.gz"
+
+
+def test_companions_fill_the_named_slot_then_secondary_then_notes():
+    rule = {"id": "aln", "sample_type": "A.ALN", "primary_data": True,
+            "candidates": ["a/*.bam"],
+            "companions": [{"glob": "a/*.bam.bai"},
+                           {"glob": "a/*.tab", "slot": "Link_QC"},
+                           {"glob": "a/*.junction"}]}
+    run = _run_with(["a/S1.bam", "a/S1.bam.bai", "a/S1.tab", "a/S1.junction"])
+    (row,) = _out_rows(mapper.apply(run, _v2map([rule])), "aln")
+    assert row.attributes["File_SecondaryData"].value == "S1.bam.bai"
+    assert row.attributes["Link_QC"].value == "S1.tab"
+    assert row.attributes["Notes"].value == "Also in run: a/S1.junction"
+
+
+def test_a_slot_the_type_lacks_falls_through_to_secondary_then_notes():
+    rule = {"id": "vcf", "sample_type": "A.VCF", "primary_data": True,
+            "candidates": ["v/*.filtered.vcf.gz"],
+            "companions": [{"glob": "v/*.g.vcf.gz", "slot": "NoSuchField"}]}
+    run = _run_with(["v/S1.filtered.vcf.gz", "v/S1.g.vcf.gz"])
+    has = lambda st, attr: attr not in {"NoSuchField", "File_SecondaryData"}
+    result = mapper.apply(run, _v2map([rule]), context={"has_attribute": has})
+    (row,) = _out_rows(result, "vcf")
+    assert "NoSuchField" not in row.attributes
+    assert "File_SecondaryData" not in row.attributes
+    assert row.attributes["Notes"].value == "Also in run: v/S1.g.vcf.gz"
+
+
+def test_overflow_appends_after_an_existing_note():
+    rule = {"id": "g", "sample_type": "A.GEX", "primary_data": True, "cardinality": "per_run",
+            "candidates": ["m/counts.tsv"], "attributes": {"Notes": "study_type: x"},
+            "companions": [{"glob": "m/tpm.tsv"}, {"glob": "m/extra.tsv"}]}
+    run = _run_with(["m/counts.tsv", "m/tpm.tsv", "m/extra.tsv"])
+    (row,) = _out_rows(mapper.apply(run, _v2map([rule])), "g")
+    assert row.attributes["File_SecondaryData"].value == "tpm.tsv"
+    assert row.attributes["Notes"].value == "study_type: x; Also in run: m/extra.tsv"
+
+
+def test_overflow_on_a_type_without_notes_goes_to_the_warnings():
+    rule = {"id": "aln", "sample_type": "A.ALN", "primary_data": True,
+            "candidates": ["a/*.bam"],
+            "companions": [{"glob": "a/*.bam.bai"}, {"glob": "a/*.junction"}]}
+    run = _run_with(["a/S1.bam", "a/S1.bam.bai", "a/S1.junction"])
+    has = lambda st, attr: attr != "Notes"
+    result = mapper.apply(run, _v2map([rule]), context={"has_attribute": has})
+    (row,) = _out_rows(result, "aln")
+    assert "Notes" not in row.attributes
+    assert "S1: no Notes on A.ALN; also in run: a/S1.junction" in result.warnings
+
+
+def test_per_file_companions_pair_by_stem_and_paramset():
+    rule = {"id": "de", "sample_type": "A.GEX", "primary_data": True, "cardinality": "per_file",
+            "candidates": ["tables/differential/*/*.deseq2.results.tsv"],
+            "companions": [{"glob": "tables/differential/*/*.deseq2.results_filtered.tsv"}]}
+    run = _run_with([
+        "tables/differential/p1/A_vs_B.deseq2.results.tsv",
+        "tables/differential/p2/A_vs_B.deseq2.results.tsv",
+        "tables/differential/p1/A_vs_B.deseq2.results_filtered.tsv",
+        "tables/differential/p2/A_vs_B.deseq2.results_filtered.tsv",
+        "tables/differential/p1/C_vs_D.deseq2.results_filtered.tsv"])
+    rows = _out_rows(mapper.apply(run, _v2map([rule])), "de")
+    secondary = sorted(r.attributes["File_SecondaryData"].source_file for r in rows)
+    assert secondary == ["tables/differential/p1/A_vs_B.deseq2.results_filtered.tsv",
+                         "tables/differential/p2/A_vs_B.deseq2.results_filtered.tsv"]
+
+
+def test_row_defaults_fill_every_rule_and_the_rule_wins():
+    rules = [{"id": "aln", "sample_type": "A.ALN", "primary_data": True,
+              "candidates": ["a/*.bam"], "attributes": {"Scientist": "Rule Wins"}},
+             {"id": "vcf", "sample_type": "A.VCF", "primary_data": True,
+              "candidates": ["v/*.vcf.gz"]}]
+    run = _run_with(["a/S1.bam", "v/S1.vcf.gz"])
+    result = mapper.apply(run, _v2map(rules, row_defaults={"Scientist": "@nextseek_user",
+                                                           "Name": "@fastq_stem"}),
+                          context={"user_full_name": "Ada Lovelace"})
+    (aln,) = _out_rows(result, "aln")
+    (vcf,) = _out_rows(result, "vcf")
+    assert aln.attributes["Scientist"].value == "Rule Wins"
+    assert vcf.attributes["Scientist"].value == "Ada Lovelace"
+
+
+def test_a_row_default_the_type_lacks_is_dropped():
+    rule = {"id": "vcf", "sample_type": "A.VCF", "primary_data": True,
+            "candidates": ["v/*.vcf.gz"]}
+    run = _run_with(["v/S1.vcf.gz"])
+    has = lambda st, attr: attr != "Lab"
+    result = mapper.apply(run, _v2map([rule], row_defaults={"Lab": "Fixed Lab"}),
+                          context={"has_attribute": has})
+    (row,) = _out_rows(result, "vcf")
+    assert "Lab" not in row.attributes
+
+
+def test_a_non_optional_rule_that_matches_nothing_is_reported_and_optional_is_not():
+    rules = [{"id": "vcf", "sample_type": "A.VCF", "primary_data": True,
+              "candidates": ["v/*.vcf.gz"]},
+             {"id": "cram", "sample_type": "A.ALN", "primary_data": True,
+              "candidates": ["a/*.cram"], "optional": True}]
+    result = mapper.apply(_run_with([]), _v2map(rules))
+    assert 'rule "vcf" (A.VCF) matched no file' in result.warnings
+    assert not any('"cram"' in w for w in result.warnings)
+
+
+def test_apply_uses_the_version_override_and_carries_its_warning():
+    m = _v2map([{"id": "aln", "sample_type": "A.ALN", "primary_data": True,
+                 "candidates": ["old/*.bam"]}],
+               versions=[{"range": ">=2,<3", "outputs": [
+                   {"id": "aln", "sample_type": "A.ALN", "primary_data": True,
+                    "candidates": ["new/*.bam"]}]}])
+    (row,) = _out_rows(mapper.apply(_run_with(["new/S1.bam"], version="2.1.0"), m), "aln")
+    assert row.attributes["File_PrimaryData"].value == "S1.bam"
+    result = mapper.apply(_run_with(["old/S1.bam"], version="9.0.0"), m)
+    assert any("outside the checked range" in w for w in result.warnings)
+
+
+def test_every_output_row_names_its_rule():
+    result = mapper.apply(_run_with(["v/S1.vcf.gz"]), _v2map(
+        [{"id": "vcf", "sample_type": "A.VCF", "primary_data": True,
+          "candidates": ["v/*.vcf.gz"]}]))
+    assert {r.rule_id for r in result.rows if r.sample_type == "A.VCF"} == {"vcf"}
+
+
+def test_tokens_resolve_by_the_maps_pipeline_not_the_manifests():
+    """A manifest with no pipeline name, mapped with the differentialabundance
+    map, still resolves that pipeline's own @contrast token."""
+    run = manifest.RunManifest(
+        run_dir="/net/cluster/runs/r",
+        pipeline=manifest.PipelineInfo(name="", version="1.5.0"),
+        outputs=[manifest.OutputRecord(
+            path="tables/differential/A_vs_B.deseq2.results.tsv")])
+    result = mapper.apply(run, maps.load("differentialabundance"))
+    (row,) = [r for r in result.rows
+              if r.attributes.get("Matrix") and r.attributes["Matrix"].value == "deseq2_results"]
+    assert row.attributes["Contrast"].value == "A_vs_B"
