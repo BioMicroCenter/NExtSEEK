@@ -1,6 +1,7 @@
 import pytest
 
 from NessieAI.ns.reingest import manifest, mapper, maps
+from NessieAI.ns.reingest.pipelines import common
 
 
 def _run(metrics=None, derived=None, params=None, software_versions=None,
@@ -1053,13 +1054,8 @@ def test_several_matching_secondaries_are_flagged_not_silently_picked():
 
 
 # ── computed "@name" values ────────────────────────────────────────────────
-# A $ref resolves; these transform. Names in maps.COMPUTED_VALUES, bodies in
-# mapper._COMPUTED, and nothing may resolve to a placeholder.
-
-def test_every_declared_computed_name_has_an_implementation():
-    """The drift guard: names live in maps.py, bodies in mapper.py."""
-    assert set(maps.COMPUTED_VALUES) == set(mapper._COMPUTED)
-
+# A $ref resolves; these transform. Names and bodies in
+# the pipelines package, and nothing may resolve to a placeholder.
 
 def test_an_unknown_computed_name_fails_map_load_not_silently():
     with pytest.raises(Exception) as exc:
@@ -1070,7 +1066,8 @@ def test_an_unknown_computed_name_fails_map_load_not_silently():
 
 
 def _computed(name, run, sample=None, context=None):
-    return mapper._COMPUTED[name](run, sample, context)
+    from NessieAI.ns.reingest import pipelines
+    return pipelines.tokens_for("differentialabundance")[name](run, sample, context)
 
 
 @pytest.mark.parametrize("fastq_1, expected", [
@@ -1253,13 +1250,13 @@ def test_without_the_injected_lookups_lab_is_blank():
     (None, None),
 ])
 def test_a_reference_path_keeps_the_build_and_drops_the_rest(raw, expected):
-    assert mapper._redact_reference_path(raw) == expected
+    assert common._redact_reference_path(raw) == expected
 
 
 def test_no_identifying_component_survives_redaction():
     """The property that matters, stated as a property rather than a string."""
     raw = "/net/ostrich/data/bcc/someuser/Genomes/mm39_ens113/ref.fa"
-    got = mapper._redact_reference_path(raw)
+    got = common._redact_reference_path(raw)
     for identifying in ("net", "ostrich", "bcc", "someuser"):
         assert identifying not in got.split("/")
     assert got.startswith("Genomes/"), "the build directory is kept"
@@ -1340,7 +1337,7 @@ def test_a_basename_unique_to_its_sample_stays_bare():
 
 
 # --- differentialabundance: direction, paramset, settings, report, model object,
-# study type and the upstream parent, on each result row ---
+# study type, on each result row ---
 
 def _row(result, matrix, contrast=None):
     rows = [r for r in result.rows if r.sample_type == "A.GEX"
@@ -1414,20 +1411,3 @@ def test_a_non_rnaseq_study_is_named_in_notes():
     assert attrs["Notes"].startswith("study_type: maxquant")
     assert "protein" in attrs["Notes"]
 
-
-def test_a_resolved_upstream_matrix_is_the_parent_instead_of_the_sequencing_samples():
-    run = _differentialabundance_run(
-        "tables/processed_abundance/all.normalised_counts.tsv",
-        "tables/differential/LPS_vs_Ctrl.deseq2.results.tsv")
-    run.upstream_matrix = {"path": "/x/salmon.merged.gene_counts.tsv", "checksum": "c",
-                           "uid": "A.GEX-250818RIB-1-PUB"}
-    result = mapper.apply(run, maps.load("differentialabundance"))
-    assert _row(result, "deseq2_results")["Parent"] == "A.GEX-250818RIB-1-PUB"
-    assert _row(result, "normalised_counts")["Parent"] == "A.GEX-250818RIB-1-PUB"
-
-
-def test_an_unresolved_upstream_matrix_keeps_the_sequencing_samples_as_parents():
-    run = _differentialabundance_run("tables/differential/LPS_vs_Ctrl.deseq2.results.tsv")
-    run.upstream_matrix = {"path": "/x/m.tsv", "checksum": "c", "uid": None}
-    assert _row(mapper.apply(run, maps.load("differentialabundance")), "deseq2_results")["Parent"] \
-        == "D.SEQ-1;D.SEQ-2"

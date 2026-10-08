@@ -56,23 +56,8 @@ MAPS_DIR = Path(__file__).resolve().parent.parent / "reingest_maps"
 # key) -- `resolve_ref` below only ever does one dotted lookup, never a
 # lookup-of-a-lookup, so this is a real gap to design around, not one edit
 # away.
-# Map values beginning "@" are COMPUTED by `mapper.py`, not looked up: a `$ref`
-# is a literal or a single key lookup and cannot transform, but several real
-# attributes need exactly that -- a fastq basename with its extension stripped,
-# a date pulled out of a longer timestamp, a prefix joined to that date, the
-# name of whoever is running the reingest. Those live in code (`mapper._COMPUTED`),
-# where they are testable, rather than as string munging inside a map file.
-#
-# The NAMES live here and the IMPLEMENTATIONS in mapper.py, so a map can be
-# validated at load time without importing mapper (which imports this module).
-# `test_maps.py` asserts the two sets are identical, so adding one in only one
-# place fails loudly instead of resolving to None at runtime.
-COMPUTED_VALUES = ("fastq_stem", "run_date", "gex_name", "nextseek_user", "lab",
-                   "genome_path", "gtf_path", "file_stem", "contrast",
-                   "contrast_variable", "contrast_reference", "contrast_target",
-                   "paramset", "method_settings", "report_link", "model_object",
-                   "study_type_note", "upstream_parent")
-
+# Map values beginning "@" are computed tokens, declared and implemented in the
+# `pipelines` package (not looked up like a `$ref`); the validator below checks them.
 _RUN_SECTIONS = ("params", "pipeline", "software_versions", "outputs", "checksums")
 _SAMPLE_SECTIONS = ("metrics", "derived")
 _RUN_SECTION_ATTR = {"outputs": "named_outputs"}
@@ -261,27 +246,20 @@ class PipelineMap(BaseModel):
 
     @model_validator(mode="after")
     def computed_names_must_exist(self):
-        """An unknown "@name" fails map load rather than resolving to None.
-
-        Same reasoning as `OutputRule.cardinality` being a Literal: a typo in a
-        committed map must be loud at load, not a silently blank column a
-        curator would have to notice was missing.
-        """
-        bad = []
-        for rule in self.outputs:
-            for attr, value in rule.attributes.items():
-                if (isinstance(value, str) and value.startswith("@")
-                        and value[1:] not in COMPUTED_VALUES):
-                    bad.append(f"{rule.sample_type}::{attr} = {value!r}")
-        for attr, value in self.provenance_attributes.items():
-            if (isinstance(value, str) and value.startswith("@")
-                    and value[1:] not in COMPUTED_VALUES):
-                bad.append(f"provenance_attributes::{attr} = {value!r}")
+        """An unknown or foreign "@name" fails map load rather than resolving to
+        None. A map may use the common tokens and its own pipeline's only."""
+        from NessieAI.ns.reingest.pipelines import token_names_for
+        known = token_names_for(self.pipeline)
+        rules = list(self.outputs) + [r for o in self.versions for r in o.outputs]
+        values = [(f"{r.sample_type}::{a}", v) for r in rules for a, v in r.attributes.items()]
+        values += [(f"provenance_attributes::{a}", v) for a, v in self.provenance_attributes.items()]
+        values += [(f"row_defaults::{a}", v) for a, v in self.row_defaults.items()]
+        bad = [f"{where} = {value!r}" for where, value in values
+               if isinstance(value, str) and value.startswith("@") and value[1:] not in known]
         if bad:
             raise ValueError(
-                "unknown computed value(s); known: "
-                f"{', '.join('@' + n for n in COMPUTED_VALUES)} -- got "
-                + "; ".join(bad))
+                f"unknown computed value(s) for {self.pipeline}; known: "
+                f"{', '.join('@' + n for n in known)} -- got " + "; ".join(bad))
         return self
 
     @model_validator(mode="after")

@@ -24,7 +24,6 @@
         "DataType": "TSV",
         "Link_QualityControl": "@report_link",
         "Notes": "@study_type_note",
-        "Parent": "@upstream_parent",
         "Paramset": "@paramset"
       }
     },
@@ -45,7 +44,6 @@
         "DataType": "TSV",
         "Link_QualityControl": "@report_link",
         "Notes": "@study_type_note",
-        "Parent": "@upstream_parent",
         "Paramset": "@paramset",
         "ContrastVariable": "@contrast_variable",
         "ContrastReference": "@contrast_reference",
@@ -71,7 +69,6 @@
         "DataType": "TSV",
         "Link_QualityControl": "@report_link",
         "Notes": "@study_type_note",
-        "Parent": "@upstream_parent",
         "Paramset": "@paramset",
         "ContrastVariable": "@contrast_variable",
         "ContrastReference": "@contrast_reference",
@@ -97,7 +94,6 @@
         "DataType": "TSV",
         "Link_QualityControl": "@report_link",
         "Notes": "@study_type_note",
-        "Parent": "@upstream_parent",
         "Paramset": "@paramset",
         "ContrastVariable": "@contrast_variable",
         "ContrastReference": "@contrast_reference",
