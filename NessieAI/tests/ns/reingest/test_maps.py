@@ -222,3 +222,75 @@ def test_expand_braces_moved_to_maps_and_mapper_keeps_the_alias():
     from NessieAI.ns.reingest import mapper
     assert maps.expand_braces("{a,b}/x.{c,d}") == ["a/x.c", "a/x.d", "b/x.c", "b/x.d"]
     assert mapper._expand_braces is maps.expand_braces
+
+
+# ── Task 1 extra: override output id validation ────────────────────────────────
+
+def test_override_output_ids_must_match_rule_id_pattern():
+    with pytest.raises(ValueError, match="rule id must be lowercase word characters"):
+        _v2(versions=[{"range": ">=2", "outputs": [
+            {"id": "Bad-Id", "candidates": ["b/*.bam"], "sample_type": "A.ALN"}]}])
+
+
+def test_override_outputs_must_not_have_duplicate_ids():
+    with pytest.raises(ValueError, match="duplicate rule id"):
+        _v2(versions=[{"range": ">=2", "outputs": [
+            {"id": "x", "candidates": ["a/*.bam"], "sample_type": "A.ALN"},
+            {"id": "x", "candidates": ["b/*.bam"], "sample_type": "A.ALN"}]}])
+
+
+# ── Task 2: Version resolution ───────────────────────────────────────────────────
+
+def _versioned():
+    return _v2(
+        applies_to_versions=">=1.0,<2",
+        outputs=[{"id": "aln", "candidates": ["old/*.bam"], "sample_type": "A.ALN",
+                  "primary_data": True},
+                 {"id": "vcf", "candidates": ["v/*.vcf.gz"], "sample_type": "A.VCF",
+                  "primary_data": True}],
+        versions=[{"range": ">=2,<3",
+                   "outputs": [{"id": "aln", "candidates": ["new/*.bam"],
+                                "sample_type": "A.ALN", "primary_data": True},
+                               {"id": "cram", "candidates": ["new/*.cram"],
+                                "sample_type": "A.ALN", "primary_data": True,
+                                "optional": True}],
+                   "drop": ["vcf"]}])
+
+
+def test_effective_in_range_returns_the_base_rules_and_no_warning():
+    m, warnings = maps.effective(_versioned(), "1.4.0")
+    assert [r.id for r in m.outputs] == ["aln", "vcf"]
+    assert m.outputs[0].candidates == ["old/*.bam"]
+    assert warnings == []
+
+
+def test_effective_applies_the_matching_override_replace_add_and_drop():
+    m, warnings = maps.effective(_versioned(), "v2.0.1")
+    assert [r.id for r in m.outputs] == ["aln", "cram"]
+    assert m.outputs[0].candidates == ["new/*.bam"]
+    assert warnings == []
+
+
+def test_effective_out_of_range_applies_base_rules_with_a_warning():
+    m, warnings = maps.effective(_versioned(), "3.0.2")
+    assert [r.id for r in m.outputs] == ["aln", "vcf"]
+    assert warnings == ["nf-core/x 3.0.2 is outside the checked range >=1.0,<2; "
+                        "rules applied unchecked"]
+
+
+def test_effective_with_no_usable_version_warns_and_applies_base_rules():
+    for bad in ("", "not-a-version"):
+        m, warnings = maps.effective(_versioned(), bad)
+        assert [r.id for r in m.outputs] == ["aln", "vcf"]
+        assert warnings and "no usable pipeline version" in warnings[0]
+
+
+def test_effective_accepts_a_prerelease_inside_the_range():
+    _, warnings = maps.effective(_versioned(), "1.5.0dev")
+    assert warnings == []
+
+
+def test_effective_leaves_the_loaded_map_untouched():
+    base = _versioned()
+    maps.effective(base, "2.0.0")
+    assert [r.id for r in base.outputs] == ["aln", "vcf"]

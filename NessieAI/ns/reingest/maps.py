@@ -316,6 +316,15 @@ class PipelineMap(BaseModel):
             if both:
                 raise ValueError(
                     f"override {override.range!r} both drops and replaces {both}")
+            # Validate override output ids match the rule id pattern
+            bad_ids = [r.id for r in override.outputs if not _RULE_ID.fullmatch(r.id)]
+            if bad_ids:
+                raise ValueError(f"rule id must be lowercase word characters: {bad_ids}")
+            # Check for duplicate ids within the override
+            override_ids = [r.id for r in override.outputs]
+            override_dupes = sorted({i for i in override_ids if override_ids.count(i) > 1})
+            if override_dupes:
+                raise ValueError(f"duplicate rule id(s) in override {override.range!r}: {override_dupes}")
         return self
 
 
@@ -341,6 +350,48 @@ def load(pipeline: str) -> PipelineMap:
         raise UnknownPipelineMap(
             f"no map for {pipeline!r}; have {', '.join(available()) or 'none'}")
     return PipelineMap.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def effective(pipeline_map: PipelineMap, version: str) -> tuple[PipelineMap, list[str]]:
+    """The rules to apply to a run of ``version``, and a warning if it is unchecked.
+
+    Base rules, then the first ``versions`` override whose range contains the
+    version: an override output replaces the base rule with its id, a new id is
+    added, ``drop`` removes. A version outside ``applies_to_versions`` that no
+    override covers, or no usable version at all, still applies the base rules,
+    with one warning (spec G-2). Never raises on the version itself.
+    """
+    from packaging.version import InvalidVersion, Version
+
+    text = str(version or "").strip().lstrip("vV")
+    try:
+        parsed = Version(text) if text else None
+    except InvalidVersion:
+        parsed = None
+    name = pipeline_map.pipeline
+    if parsed is None:
+        return pipeline_map, [
+            f"{name}: no usable pipeline version ({version!r}); rules applied unchecked"]
+
+    def contains(spec: str) -> bool:
+        return _specifier(spec).contains(parsed, prereleases=True)
+
+    override = next((o for o in pipeline_map.versions if contains(o.range)), None)
+    checked = pipeline_map.applies_to_versions
+    warnings: list[str] = []
+    if override is None and not (checked and contains(checked)):
+        warnings.append(f"{name} {text} is outside the checked range "
+                        f"{checked or '(none)'}; rules applied unchecked")
+    if override is None:
+        return pipeline_map, warnings
+    replacing = {rule.id: rule for rule in override.outputs}
+    outputs = []
+    for rule in pipeline_map.outputs:
+        if rule.id in override.drop:
+            continue
+        outputs.append(replacing.pop(rule.id, rule))
+    outputs.extend(replacing.values())
+    return pipeline_map.model_copy(update={"outputs": outputs}), warnings
 
 
 def all_harvest_globs() -> tuple[str, ...]:
