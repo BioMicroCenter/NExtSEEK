@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 
 from .. import call_scope, turn_spend
 from ..config import ChatConfig
+from . import call_speed
 from .call_budgets import DEFAULT_BUDGET, budget_for
 from ..helpers import log_prompt, log_usage, log_llm_call, safe_parse_json
 from ..llm_clients import (
@@ -624,6 +625,10 @@ class _Failover:
         self.op_first_s = budget_for(chain_label).op_first_try_s
         # Round 6: the graph agent takes the move reserve only inside an op, never under a nested NS turn's deadline.
         self.reserve_only_in_op = budget_for(chain_label).move_reserve_only_in_op
+        # Round 7 (T4): inside an op the first try follows the measured speed (call_budgets.CallBudget.op_speed_k).
+        self.op_speed_k = budget_for(chain_label).op_speed_k
+        self.op_speed_floor_s = budget_for(chain_label).op_speed_floor_s
+        self.op_speed_median_s: float | None = None  # the median the window followed, for the ledger record
         self.scope = call_scope.current()
         self.attempt = 0  # the caller's attempt index, for a record written between attempts
         self.capped = False  # whether the scope's deadline cut this attempt's window
@@ -767,6 +772,11 @@ class _Failover:
         window = self.window
         if not self.switches and self.op_first_s is not None and self.scope.is_op:
             window = min(window, self.op_first_s)
+        if not self.switches and self.op_speed_k is not None and self.scope.is_op:
+            median = call_speed.median_first_try(getattr(self.config, "LOG_DIR", None), self.agent_label, self.model)
+            self.op_speed_median_s = median
+            if median is not None:
+                window = min(self.window, max(self.op_speed_k * median, self.op_speed_floor_s))
         reserve = self.move_reserve and (self.scope.is_op or not self.reserve_only_in_op)
         if reserve and not self.switches and self._can_move():
             window = min(window, max(remaining - call_scope.MOVE_RESERVE_S, call_scope.MIN_FIRST_TRY_S))
@@ -923,6 +933,8 @@ def _call_with_recovery(
             timeout_seconds=_timeout, thinking_budget=fo.budget, deadline_capped=fo.capped,
             **kw, **fo.take_pending(),
         )
+        if fo.op_speed_median_s is not None and not fo.switches:
+            entry["op_speed_median_s"] = fo.op_speed_median_s
         if outcome == "timeout":
             # Round 6 (SPEC-1 T5): the prompt's size, so turn_spend can price a call nobody saw answer.
             entry["prompt_chars"] = sum(len(str(m.get("content") or "")) for m in attempt_messages

@@ -65,6 +65,11 @@ class CallBudget:
     #: 2026-10-07): no healthy Opus 5.5 parser call of 420 finished between 28.1 and 50 s, so inside an op a parser
     #: call past 20 s is a hang and moves to Gemini 3.1 Pro (6 to 12 s). None: the first try keeps ``first_try_s``.
     op_first_try_s: float | None = None
+    #: Round 7 (T4, operator 2026-10-08), inside an op, first try only: the window is
+    #: clamp(op_speed_k x median of this agent's last 20 first tries on its primary model on this box (the LLM
+    #: ledger), op_speed_floor_s, first_try_s). Under 20 rows the constant stands. Evidence: .claude/work/2026-10-08-cc-slow/analysis/t4_windows.py.
+    op_speed_k: float | None = None
+    op_speed_floor_s: float = 20
 
 
 #: Unlisted agents in the recovery ladder: the budgets every agent had before this table.
@@ -83,13 +88,15 @@ CALL_BUDGETS: dict[str, CallBudget] = {
     "seqera_agent": CallBudget(first_try_s=30, moved_s=90),
     "system": CallBudget(first_try_s=45, moved_s=90),
     "memory_coder": CallBudget(first_try_s=45, moved_s=90),
-    "graph": CallBudget(first_try_s=60, moved_s=90, move_reserve_only_in_op=True),
+    "graph": CallBudget(first_try_s=60, moved_s=90, move_reserve_only_in_op=True, op_speed_k=5),
     # Sonnet 5.5 primary (the legacy memory agent), Gemini 3.8 Flash fallback.
     "memory": CallBudget(first_try_s=60, moved_s=90),
     # Opus primaries, Gemini 3.1 Pro fallback. The first try was 35 s (ruling 9, 2026-09-25); run 2's always-thinking
     # Opus 5.5 gets 50 s (operator, 2026-09-28). The move keeps 60 s, and a timeout here still marks nothing (D3).
-    "parser": CallBudget(first_try_s=50, moved_s=60, timeout_marks_model=False, op_first_try_s=20),
-    "multi_parser": CallBudget(first_try_s=50, moved_s=60, timeout_marks_model=False, op_first_try_s=20),
+    "parser": CallBudget(first_try_s=50, moved_s=60, timeout_marks_model=False, op_first_try_s=20,
+                           op_speed_k=4),
+    "multi_parser": CallBudget(first_try_s=50, moved_s=60, timeout_marks_model=False, op_first_try_s=20,
+                           op_speed_k=4),
     "report_writer": CallBudget(first_try_s=240, moved_s=180, op_move_reserve=False),
     # The tool loops, per step. Opus 5.5 primary (sized on Opus 4.7 without thinking), Sonnet 5.5 fallback (the
     # catalog's _fallback block).

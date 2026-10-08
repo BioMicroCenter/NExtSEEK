@@ -283,6 +283,11 @@ def test_the_tool_loop_windows_come_from_the_table(tmp_path, monkeypatch, agent)
     assert seen == list(expected)
 
 
+def test_inside_an_op_the_parsers_and_the_graph_agent_follow_the_measured_speed():
+    k = {agent: (b.op_speed_k, b.op_speed_floor_s) for agent, b in CALL_BUDGETS.items() if b.op_speed_k is not None}
+    assert k == {"parser": (4, 20), "multi_parser": (4, 20), "graph": (5, 20)}
+
+
 def test_inside_an_op_only_the_parsers_cut_their_first_try_to_20_s():
     cut = {agent: b.op_first_try_s for agent, b in CALL_BUDGETS.items() if b.op_first_try_s is not None}
     assert cut == {"parser": 20, "multi_parser": 20}
