@@ -20,6 +20,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from chat_nextseek import graph_catalog
 from chat_nextseek import graph_review_counts as counts
 from chat_nextseek import orchestrator as orch
 from chat_nextseek.cypher_scope import Refused, scope_cypher
@@ -556,9 +557,9 @@ def test_a_slow_statement_gets_the_late_tier1_budget(monkeypatch):
     assert [c["inp"].elapsed_ms for c in tier2_calls] == [5001]
 
 
-def test_a_turn_past_45_seconds_gets_the_late_tier1_budget_and_runs_no_count(monkeypatch):
+def test_a_turn_past_45_seconds_keeps_the_full_tier1_budget_and_runs_no_count(monkeypatch):
     review, live_calls, tier2_calls = _direct(monkeypatch, elapsed_ms=120, turn_age_s=46)
-    assert live_calls == [{"budget_s": orch.REVIEW_TIER1_LATE_BUDGET_S}]
+    assert live_calls == [{"budget_s": orch.REVIEW_TIER1_BUDGET_S}]
     assert tier2_calls == []
     assert review.verdict == "suggest" and review.disclosure == TIFF_FACT
 
@@ -682,3 +683,45 @@ def test_a_free_text_match_offers_a_chip_whose_click_is_direct_or_the_graph_agen
     assert review["fired"] == ["unapplied_value"]
     assert review["suggestion"]["label"] == "Only RNA-Seq"
     assert review["suggestion"]["rerun"]["mode"] == mode
+
+
+# --------------------------------------------------------------------------- #
+# A slow turn must not starve the reviewer's catalog reads (dev chat 0a68924d, 2026-10-08)
+# --------------------------------------------------------------------------- #
+
+def test_a_turn_past_45_seconds_with_slow_probes_still_offers_only_rna_seq(monkeypatch):
+    """The turn was 89.5 s old, so Tier 1 got the late budget; the T_PAT and T_A_ALN probes took 1.18 s between
+    them and the DataType values read found no budget left. With no stored values the reviewer never saw that
+    'rna-seq' also matches 'miRNA-Seq', so the turn got no disclosure and no chip. The real provider, a slow tool."""
+    clock = SimpleNamespace(t=100.0)
+    calls = []
+
+    def slow_tool(config, cypher, parameters=None, *, timeout_s=None, total_only=False):
+        calls.append(cypher)
+        if cypher.startswith("RETURN EXISTS"):                      # an attribute probe
+            clock.t += 0.731 if len(calls) == 1 else 0.446
+            return {"ok": True, "data": [{"a0": True}], "count": 1}
+        clock.t += 0.1                                              # the DataType values read
+        return {"ok": True, "data": [{"v": v, "n": n} for v, n in RNA_CATALOG["T_A_ALN.DataType"]], "count": 4}
+
+    row = graph_catalog.TypeIndexRow(title="A.ALN", label="T_A_ALN", name="Sequence Alignment Analysis", clade=None,
+                                     sample_count=None, deprecated=False, attributes_with_values=1)
+    pat = graph_catalog.TypeIndexRow(title="PAT", label="T_PAT", name="Patient", clade=None,
+                                     sample_count=None, deprecated=False, attributes_with_values=1)
+    snapshot = graph_catalog.CatalogSnapshot(catalog_hash="h", synced_at=None, has_usage=False, index=(row, pat),
+                                             guard={"T_A_ALN": frozenset({"DataType"}),
+                                                    "T_PAT": frozenset({"Classification"})})
+    counts.reset_values_cache()
+    monkeypatch.setattr(counts, "_clock", lambda: clock.t)
+    monkeypatch.setattr(counts, "tool_neo4j_query", slow_tool)
+    monkeypatch.setattr(graph_catalog, "get_snapshot", lambda config: snapshot)
+    monkeypatch.setattr(graph_catalog, "get_seekable", lambda config: None)
+    monkeypatch.setattr(orch, "run_tier2", lambda config, inp, review, **k: review, raising=False)
+    config = SimpleNamespace(NEO4J_URI="bolt://graph:7687", NEO4J_USER="u", NEO4J_PASSWORD="p",
+                             NEO4J_DATABASE="neo4j", **{SCOPE_ATTR: MEMBER})
+    cypher, params = _TXT_TWO_BLOCKS, {"rnaseq": "rna-seq", "investigation": "TCGA"}
+    review = orch._review_graph_turn(
+        config, RNA_Q, GraphAgentPlan(cypher=cypher, parameters=params), _graph_result(cypher, params, [{"n": 10761}]),
+        elapsed_ms=1209, t_turn_start=time.perf_counter() - 89.5)
+    assert review.lookups["late"] is True
+    assert review.verdict == "suggest" and review.suggestion["label"] == "Only RNA-Seq", review.lookups

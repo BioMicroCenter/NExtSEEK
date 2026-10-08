@@ -1188,13 +1188,16 @@ BREAKAGE_NOTE = ("What went wrong: {facts} State this plainly in the first sente
 REVIEW_NOTE_MAX = 399
 #: The reviewer's wall clock, both tiers together.
 REVIEW_BUDGET_S = 8.0
-#: A turn this old runs no count variant and reads only cached catalog values.
+#: A turn this old runs no count variant (Tier 2). Tier 1 still gets its full budget: with today's slow APIs most
+#: turns are this old, and the 1.0 s late budget was spent by two attribute probes (1.18 s on dev chat 0a68924d),
+#: so the DataType values read found none and the "Only RNA-Seq" chip never came (2026-10-08).
 REVIEW_LATE_TURN_S = 45
 #: The Tier 1 checks that have a Tier 2 count variant (graph_review_counts._BUILDERS).
 REVIEW_VARIANT_CHECKS = frozenset({"stem_miss", "all_question_narrowed", "zero_unproven_base", "unapplied_value"})
 #: Tier 1's time for uncached catalog reads (value lists, value probes), and the smaller one it gets when the
-#: kept statement took over SKIP_AFTER_MS or the turn is past REVIEW_LATE_TURN_S. Cache only there made the reviewer
-#: silent on the turns it was built for (2026-09-25); a value probe of three types costs about 0.1 s warm on dev.
+#: kept statement took over SKIP_AFTER_MS. Cache only there made the reviewer silent on the turns it was built for
+#: (2026-09-25); a value probe of three types costs about 0.1 s warm on dev. Worst case added to any turn: the budget
+#: plus one statement's overshoot (under 0.5 s), so about 2.5 s, and 1.5 s after a slow statement.
 REVIEW_TIER1_BUDGET_S = 2.0
 REVIEW_TIER1_LATE_BUDGET_S = 1.0
 
@@ -1314,7 +1317,7 @@ def _review_graph_turn(config, user_text: str, graph_plan, graph_result: dict, *
     Tier 1 (``review_tier1``) reads the question, the statement the model wrote with its parameters, and the rows
     and counts, against the stored values the caller can see: one ``live_values`` provider per turn, whose uncached
     reads get ``REVIEW_TIER1_BUDGET_S``, or ``REVIEW_TIER1_LATE_BUDGET_S`` when the statement took over
-    ``SKIP_AFTER_MS`` or the turn has already run ``REVIEW_LATE_TURN_S``. What the provider read, and why it read no
+    ``SKIP_AFTER_MS``; the turn's age does not cut Tier 1. What the provider read, and why it read no
     more, goes to ``review.lookups`` with the turn's age and those two flags. Tier 2 (``run_tier2``, bounded count
     variants) runs only when a check that has a variant fired and the turn is younger than ``REVIEW_LATE_TURN_S``,
     inside what Tier 1 left of ``REVIEW_BUDGET_S``.
@@ -1333,7 +1336,7 @@ def _review_graph_turn(config, user_text: str, graph_plan, graph_result: dict, *
         inp = _review_input(user_text, graph_plan, graph_result, elapsed_ms)
         slow = isinstance(elapsed_ms, int) and elapsed_ms > SKIP_AFTER_MS
         late = t0 - t_turn_start > REVIEW_LATE_TURN_S
-        catalog = live_values(config, budget_s=REVIEW_TIER1_LATE_BUDGET_S if slow or late else REVIEW_TIER1_BUDGET_S)
+        catalog = live_values(config, budget_s=REVIEW_TIER1_LATE_BUDGET_S if slow else REVIEW_TIER1_BUDGET_S)
         review = _with_lookups(review_tier1(inp, catalog), catalog,
                                turn_age_s=round(t0 - t_turn_start, 1), slow=slow, late=late)
         fired = {check.name for check in review.checks if check.fired}
