@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shutil
+import threading
 import types
 from pathlib import Path
 
@@ -244,6 +245,14 @@ def harness(monkeypatch, clock):
     h = Harness()
     monkeypatch.setattr(gc, "_make_driver", h.factory)
     return h
+
+
+@pytest.fixture
+def spawned(monkeypatch):
+    """Replace the thread start: the refresh functions queue here and a test runs them."""
+    queue = []
+    monkeypatch.setattr(gc, "_spawn", queue.append)
+    return queue
 
 
 # --- the interface --------------------------------------------------------------------------------------------------
@@ -600,12 +609,12 @@ def test_vocabulary_lives_an_hour(harness, clock):
     gc.get_vocabulary(cfg())
     assert [n for n in harness.graph.names() if n.startswith("VOCAB_")] == reads
 
-    clock[0] += 1
+    clock[0] += gc.VOCAB_TTL_S + 1  # past twice its life the read is inline (T5: before that, a refresh behind)
     gc.get_vocabulary(cfg())
     assert len([n for n in harness.graph.names() if n.startswith("VOCAB_")]) == 2 * len(reads)
 
 
-def test_a_failed_vocabulary_source_is_empty_and_retried_after_the_failure_window(harness, clock):
+def test_a_failed_vocabulary_source_is_empty_and_retried_after_the_failure_window(harness, clock, spawned):
     harness.graph.fail_on = {"VOCAB_EDGES"}
     vocab = gc.get_vocabulary(cfg())
 
@@ -618,6 +627,8 @@ def test_a_failed_vocabulary_source_is_empty_and_retried_after_the_failure_windo
     clock[0] += gc.FAILURE_MEMORY_S - 1
     assert gc.get_vocabulary(cfg()).assay_titles == ()
     clock[0] += 1
+    assert gc.get_vocabulary(cfg()).assay_titles == ()  # stale: served at once, a refresh starts behind it
+    spawned.pop()()
     assert gc.get_vocabulary(cfg()).assay_titles == ("Flow Cytometry", "Short Read Sequencing")
 
 
@@ -955,3 +966,135 @@ def test_the_admin_vocabulary_offers_only_containers_a_sample_reaches():
     """Every SEEK study has a node now; an empty investigation or study is no scope to offer the model."""
     assert "EXISTS { MATCH (i)<-[:IN_INVESTIGATION]-(:Study)<-[:IN_STUDY]-(:Sample) }" in gc.VOCAB_INVESTIGATIONS
     assert "EXISTS { MATCH (s)<-[:IN_STUDY]-(:Sample) }" in gc.VOCAB_STUDIES
+
+
+# --- round 7 T5: the admin vocabulary refreshes ahead --------------------------------------------------------------
+
+
+def _vocab_reads(harness) -> int:
+    return len([n for n in harness.graph.names() if n.startswith("VOCAB_")])
+
+
+def test_an_expired_admin_vocabulary_returns_at_once_and_two_calls_start_one_refresh(harness, clock, spawned):
+    first = gc.get_vocabulary(cfg())
+    reads = _vocab_reads(harness)
+    clock[0] += gc.VOCAB_TTL_S
+    assert gc.get_vocabulary(cfg()) is first
+    assert gc.get_vocabulary(cfg()) is first
+    assert _vocab_reads(harness) == reads and len(spawned) == 1
+
+
+def test_the_refresh_swaps_the_new_vocabulary_in(harness, clock, spawned):
+    gc.get_vocabulary(cfg())
+    harness.graph.vocab["VOCAB_PROJECTS"] = [{"title": "Project C"}]
+    clock[0] += gc.VOCAB_TTL_S
+    gc.get_vocabulary(cfg())
+    spawned.pop()()
+    assert gc.get_vocabulary(cfg()).project_titles == ("Project C",)
+    clock[0] += gc.VOCAB_TTL_S - 1
+    assert gc.get_vocabulary(cfg()).project_titles == ("Project C",) and not spawned
+
+
+def test_a_refresh_that_lost_a_source_keeps_the_old_vocabulary_and_retries_later(harness, clock, spawned):
+    old = gc.get_vocabulary(cfg())
+    clock[0] += gc.VOCAB_TTL_S
+    gc.get_vocabulary(cfg())
+    harness.graph.fail_on = {"VOCAB_EDGES"}
+    spawned.pop()()
+    assert gc.get_vocabulary(cfg()) is old and not spawned
+    harness.graph.fail_on = set()
+    clock[0] += gc.FAILURE_MEMORY_S
+    assert gc.get_vocabulary(cfg()) is old and len(spawned) == 1
+    spawned.pop()()
+    assert gc.get_vocabulary(cfg()).assay_titles == ("Flow Cytometry", "Short Read Sequencing")
+
+
+def test_the_snapshot_is_served_while_a_refresh_is_reading(harness, clock, spawned):
+    gc.get_vocabulary(cfg())
+    clock[0] += gc.VOCAB_TTL_S
+    gc.get_vocabulary(cfg())
+    refresh = spawned.pop()
+    entered, release, done = threading.Event(), threading.Event(), threading.Event()
+    real = gc._read_vocabulary
+
+    def slow(*args, **kwargs):
+        entered.set()
+        release.wait(5)
+        return real(*args, **kwargs)
+
+    gc._read_vocabulary = slow
+    try:
+        worker = threading.Thread(target=lambda: (refresh(), done.set()), daemon=True)
+        worker.start()
+        assert entered.wait(5)
+        got = []
+        reader = threading.Thread(target=lambda: got.append(gc.get_snapshot(cfg())), daemon=True)
+        reader.start()
+        reader.join(2)
+        assert got, "get_snapshot waited on the refresh's read"
+    finally:
+        release.set()
+        worker.join(5)
+        gc._read_vocabulary = real
+
+
+def test_past_twice_its_life_the_read_is_inline(harness, clock, spawned):
+    gc.get_vocabulary(cfg())
+    reads = _vocab_reads(harness)
+    clock[0] += 2 * gc.VOCAB_TTL_S + 1
+    harness.graph.vocab["VOCAB_PROJECTS"] = [{"title": "Project C"}]
+    assert gc.get_vocabulary(cfg()).project_titles == ("Project C",)
+    assert _vocab_reads(harness) == 2 * reads and not spawned
+
+
+def test_a_cold_vocabulary_is_read_inline(harness, spawned):
+    assert gc.get_vocabulary(cfg()).project_titles == ("Project A", "Project B")
+    assert not spawned
+
+
+def test_an_expired_scoped_vocabulary_is_read_inline(harness, clock, spawned):
+    scoped = with_scope(cfg(), GraphScope.for_projects([1, 2], "test"))
+    gc.get_vocabulary(scoped)
+    reads = _vocab_reads(harness)
+    clock[0] += gc.SCOPED_VOCAB_TTL_S
+    gc.get_vocabulary(scoped)
+    assert _vocab_reads(harness) == 2 * reads and not spawned
+
+
+def test_warm_fills_the_cache(harness, spawned):
+    gc.warm(cfg())
+    reads = _vocab_reads(harness)
+    assert reads and gc.get_vocabulary(cfg()).investigation_titles == ("GBM_BTC", "MetNet")
+    assert _vocab_reads(harness) == reads
+
+
+def test_warm_swallows_an_unavailable_catalog_and_retries(harness, monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(gc, "_sleep", sleeps.append)
+    harness.graph.error = FakeServiceUnavailable("down")
+    gc.warm(cfg())
+    assert sleeps and set(sleeps) == {gc.FAILURE_MEMORY_S}
+    harness.graph.error = None
+    sleeps.clear()
+    gc.reset_cache()
+    gc.warm(cfg())
+    assert not sleeps and _vocab_reads(harness)
+
+
+def test_gunicorn_conf_warms_each_worker(monkeypatch):
+    import runpy
+    import threading as th
+    started = []
+
+    class FakeThread:
+        def __init__(self, target=None, daemon=None, **kw):
+            started.append((target, daemon))
+
+        def start(self):
+            started.append("start")
+
+    monkeypatch.setattr(th, "Thread", FakeThread)
+    path = paths.REPO_ROOT / "gunicorn.conf.py"
+    runpy.run_path(str(path))["post_worker_init"](object())
+    assert started[-1] == "start" and started[0][1] is True
+    assert "GraphScope.admin" in path.read_text()

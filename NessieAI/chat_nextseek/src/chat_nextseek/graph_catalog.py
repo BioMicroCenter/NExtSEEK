@@ -77,6 +77,13 @@ def schema_version_supported(value) -> bool:
 
 # The clock; tests patch this name.
 _now = time.monotonic
+_sleep = time.sleep
+
+
+def _spawn(fn) -> None:
+    """Run ``fn`` on a daemon thread; tests replace this name."""
+    threading.Thread(target=fn, daemon=True, name="graph-catalog-refresh").start()
+
 
 
 # --- statements (docs/neo4j-schema.md "v1.1" property names) --------------------------------------------------------
@@ -355,6 +362,8 @@ class _Entry:
     vocab_at: float | None = None
     vocab_ttl: float = VOCAB_TTL_S
     vocab_failed: tuple[str, ...] = ()
+    refreshing: bool = False  # a background refresh of the admin vocabulary is running
+    refresh_after: float = 0.0  # no refresh starts before this time (a refresh that lost a source waits)
     scoped_vocab: dict = field(default_factory=dict)  # project ids -> (read_at, ttl, Vocabulary)
     seekable: tuple | None = None  # (catalog_hash, read_at, Mapping[label, frozenset[attribute]])
     seekable_failed_at: float | None = None
@@ -628,8 +637,15 @@ def get_vocabulary(config) -> Vocabulary:
             return EMPTY_VOCABULARY
         now = _now()
         if scope.is_admin:
-            if entry.vocab is not None and entry.vocab_at is not None and now - entry.vocab_at < entry.vocab_ttl:
-                return entry.vocab
+            if entry.vocab is not None and entry.vocab_at is not None:
+                age = now - entry.vocab_at
+                if age < entry.vocab_ttl:
+                    return entry.vocab
+                if age < 2 * entry.vocab_ttl:  # stale: answer now, refresh behind the caller
+                    if not entry.refreshing and now >= entry.refresh_after:
+                        entry.refreshing = True
+                        _spawn(lambda: _refresh_vocabulary(entry, key, config))
+                    return entry.vocab
             vocab, failed = _read_vocabulary(_driver_locked(entry, config), key[1], _VOCAB_SOURCES, None)
             entry.vocab, entry.vocab_at = vocab, now
             entry.vocab_ttl = FAILURE_MEMORY_S if failed else VOCAB_TTL_S
@@ -646,6 +662,44 @@ def get_vocabulary(config) -> Vocabulary:
             entry.scoped_vocab.pop(min(entry.scoped_vocab, key=lambda k: entry.scoped_vocab[k][0]))
         entry.scoped_vocab[ids] = (now, FAILURE_MEMORY_S if failed else SCOPED_VOCAB_TTL_S, vocab)
         return vocab
+
+
+def _refresh_vocabulary(entry: _Entry, key: tuple[str, str], config) -> None:
+    """The background read of the admin vocabulary. The statements run outside ``entry.lock`` (they take 20 s; the
+    snapshot getter must not wait on them); only the driver and the swap are under it. A read that lost a source
+    keeps the old vocabulary and waits ``FAILURE_MEMORY_S``."""
+    try:
+        with entry.lock:
+            driver = _driver_locked(entry, config)
+        vocab, failed = _read_vocabulary(driver, key[1], _VOCAB_SOURCES, None)
+        with entry.lock:
+            now = _now()
+            if failed:
+                entry.refresh_after = now + FAILURE_MEMORY_S
+            else:
+                entry.vocab, entry.vocab_at, entry.vocab_ttl, entry.vocab_failed = vocab, now, VOCAB_TTL_S, ()
+    except Exception as exc:  # noqa: BLE001 (the old vocabulary still serves)
+        log.warning("graph catalog vocabulary refresh failed: %s", _read_failed(exc)[:300])
+        with entry.lock:
+            entry.refresh_after = _now() + FAILURE_MEMORY_S
+    finally:
+        with entry.lock:
+            entry.refreshing = False
+
+
+def warm(config, attempts: int = 4) -> None:
+    """Fill the cache before the first op asks (a worker's start). Never raises; the catalog may not be up yet
+    (compose does not wait for Neo4j), so ``CatalogUnavailable`` is retried every ``FAILURE_MEMORY_S``."""
+    for attempt in range(attempts):
+        try:
+            get_vocabulary(config)
+            return
+        except CatalogUnavailable:
+            if attempt + 1 < attempts:
+                _sleep(FAILURE_MEMORY_S)
+        except Exception:  # noqa: BLE001 (a warm-up must never take the worker down)
+            log.exception("graph catalog warm-up failed")
+            return
 
 
 def _is_bucket(title) -> bool:

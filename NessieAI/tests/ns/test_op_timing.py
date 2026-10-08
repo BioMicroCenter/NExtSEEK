@@ -34,3 +34,17 @@ def test_a_logging_fault_never_costs_the_answer(monkeypatch):
     out = granular.run_op("graph", {"query": "q"}, config=None, session=None, write_gate=lambda *a: None,
                           limit_s=90.0, timing=[("view", time.monotonic())])
     assert out == {"ok": True}
+
+
+def test_the_catalog_read_marks_its_three_steps_in_order(monkeypatch):
+    from chat_nextseek import call_scope, graph_catalog
+    from chat_nextseek.agents import graph
+    from chat_nextseek.graph_catalog import CatalogSnapshot
+
+    snapshot = CatalogSnapshot("h", None, False, (), {})
+    monkeypatch.setattr(graph_catalog, "get_snapshot", lambda config: snapshot)
+    monkeypatch.setattr(graph_catalog, "get_type_details", lambda config, codes: [])
+    monkeypatch.setattr(graph_catalog, "get_vocabulary", lambda config: graph_catalog.EMPTY_VOCABULARY)
+    with call_scope.scope() as scope:
+        graph.resolve_catalog_context(None, "q", {}, {})
+    assert [name for name, _ in scope.marks] == ["snapshot", "details", "vocab"]

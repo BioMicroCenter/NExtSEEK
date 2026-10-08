@@ -2510,10 +2510,13 @@ def resolve_catalog_context(config: ChatConfig, user_query: str, entity_result, 
     try:
         entity_dict, plan_dict = _plain(entity_result), _plain(parser_plan)
         snapshot = graph_catalog.get_snapshot(config)
+        call_scope.mark("snapshot")
         codes = graph_context.resolved_type_codes(plan_dict, entity_dict, {row.title for row in snapshot.index})
         details = graph_catalog.get_type_details(config, codes) if codes else []
+        call_scope.mark("details")
         schema = graph_context.render_graph_context(snapshot, details, structure=_variant_structure(config))
         vocab = graph_catalog.get_vocabulary(config)
+        call_scope.mark("vocab")
         vocabulary = graph_context.render_vocabulary(vocab, user_query or "")
         hits = _resolved_project_titles(config, entity_dict, plan_dict, vocab)
         block = graph_context.render_project_titles({n: t for n, (_lv, t, _own) in hits.items()},
