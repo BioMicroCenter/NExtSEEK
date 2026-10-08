@@ -120,7 +120,10 @@ if reports:
 PY
 echo "== $name"
 { cat "$work/match.py"; echo; echo "__SPEC__"; cat "$work/patterns.json"; } > "$work/remote_input"
-ssh "$REINGEST_SSH_HOST" "python3 -c \"import sys; src, spec = sys.stdin.read().split('__SPEC__', 1); sys.argv = ['m', '$remote']; sys.stdin = __import__('io').StringIO(spec); exec(src)\"" \
+# The remote dir goes through the remote shell: quote it, and hand it to python as
+# its own argument (sys.argv[1]) rather than splicing it into the python source.
+remote_q="$(printf '%q' "$remote")"
+ssh "$REINGEST_SSH_HOST" "python3 -c \"import sys; src, spec = sys.stdin.read().split('__SPEC__', 1); sys.argv = ['m', sys.argv[1]]; sys.stdin = __import__('io').StringIO(spec); exec(src)\" $remote_q" \
   < "$work/remote_input" > "$work/matches.tsv"
 
 max=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["max_file_bytes"])' "$work/patterns.json")

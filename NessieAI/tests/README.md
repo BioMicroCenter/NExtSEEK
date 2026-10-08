@@ -15,7 +15,7 @@ There is no `conftest.py` at `NessieAI/tests/` itself; that keeps the harness ho
 | `cc/` | the CC engine, op registry, port and compose guards, step 7 gate tooling (`step7_catalog/`, `scripts/`); `NessieAI/tests/cc/step7_catalog/R26-live-gate-prereqs-runbook.md` holds the prerequisites for the live Step 7 gate; generated run bundles land in `acceptance_evidence/step7/` (`NessieAI/tests/cc/acceptance_evidence/step7/README.md`) |
 | `router/` | the router, route capabilities, posterior routing; `fixtures/` holds the flag-off baseline |
 | `hibayes/` | HiBayes |
-| `ns/` | the granular ops and write gate |
+| `ns/` | the granular ops and write gate; `ns/reingest/` holds the reingest tests, and the run fixtures they check are described in `NessieAI/tests/ns/fixtures/reingest_runs/README.md` |
 | `api/` | the AI HTTP and websocket surface, and `test_nessie_boundaries.py` |
 | `schema_rag/` | schema retrieval |
 | `chat_nextseek/` | the NS engine, including `evaluator/` |

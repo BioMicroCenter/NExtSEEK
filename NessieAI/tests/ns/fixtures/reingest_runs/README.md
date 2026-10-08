@@ -7,8 +7,11 @@ and `snapshot.json` (the expected row shape). `test_fixture_runs.py` checks ever
 folder.
 
 Make one with `scripts/reingest/make_fixture.sh` from a `-profile test` run
-launched through Nessie. Every cluster path is rewritten to `/RUN/...`, and the
-script refuses to write a fixture that still holds another absolute path.
+launched through Nessie. It builds the fixture in a temporary folder, rewrites
+the run directory and any extra prefixes you give it to `/RUN`, and scans every
+file. If any absolute path remains, or any file cannot be read as UTF-8 text, it
+refuses and writes nothing into the repo. `launch_record.json` is a stub (empty
+cohort) to complete by hand from the PipelineRun.
 
 Regenerate snapshots after an intended change:
 `REINGEST_UPDATE_SNAPSHOTS=1` with the fixture test, then review the diff.

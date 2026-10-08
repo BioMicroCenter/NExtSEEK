@@ -5,33 +5,60 @@ samplesheets and launch records hold launch, work and home paths.
 
 Usage: sanitize_fixture.py <fixture-folder> <cluster-run-dir> [<other-prefix> ...]
 Each <other-prefix> (a launch or work dir) is rewritten to /RUN as well.
+
+Every file under the folder is read, whatever its name. A file that is not
+strict UTF-8 text is refused, never skipped or rewritten. A prefix matches whole
+path segments only (/a/b does not match /a/bc/x). Nothing is written unless
+every file passes, so a refusal leaves the folder as it was.
 """
 import pathlib
 import re
 import sys
 
-TEXT_SUFFIXES = {".json", ".yml", ".yaml", ".csv", ".tsv", ".txt"}
+SEGMENT = r"[\w.@+-]"
 # An absolute path: a slash-led run of path characters, at least two segments.
-ABSOLUTE = re.compile(r"(?<![\w.:/])/(?!RUN\b)[\w.@+-]+(?:/[\w.@+-]+)+")
+# /RUN is exempt only as a whole segment (/RUN/..., not /RUN-old/... or /RUN.x/...).
+ABSOLUTE = re.compile(rf"(?<![\w.:/])/(?!RUN(?!{SEGMENT}))({SEGMENT}+(?:/{SEGMENT}+)+)")
+
+
+def prefix_pattern(prefixes: list[str]) -> re.Pattern | None:
+    """Longest prefix first, matched on whole segments on both sides."""
+    if not prefixes:
+        return None
+    alternatives = "|".join(re.escape(p) for p in prefixes)
+    return re.compile(rf"(?<!{SEGMENT})(?<!/)(?:{alternatives})(?!{SEGMENT})")
 
 
 def main() -> int:
     folder = pathlib.Path(sys.argv[1])
     prefixes = sorted({p.rstrip("/") for p in sys.argv[2:] if p.strip("/")},
                       key=len, reverse=True)
-    leftovers = []
+    pattern = prefix_pattern(prefixes)
+    rewritten: dict[pathlib.Path, str] = {}
+    undecodable, leftovers = [], []
     for path in sorted(folder.rglob("*")):
-        if not path.is_file() or path.suffix not in TEXT_SUFFIXES:
+        if not path.is_file():
             continue
-        text = path.read_text(encoding="utf-8", errors="replace")
-        for prefix in prefixes:
-            text = text.replace(prefix, "/RUN")
-        path.write_text(text, encoding="utf-8")
-        leftovers += [f"{path.relative_to(folder)}: {m}" for m in ABSOLUTE.findall(text)]
-    if leftovers:
-        print("refusing: absolute paths remain (add their prefix as an argument):",
-              *sorted(set(leftovers))[:50], sep="\n  ", file=sys.stderr)
+        rel = path.relative_to(folder)
+        try:
+            original = path.read_bytes().decode("utf-8")
+        except UnicodeDecodeError:
+            undecodable.append(str(rel))
+            continue
+        text = pattern.sub("/RUN", original) if pattern else original
+        if text != original:
+            rewritten[path] = text
+        leftovers += [f"{rel}: /{m}" for m in ABSOLUTE.findall(text)]
+    if undecodable or leftovers:
+        if undecodable:
+            print("refusing: not UTF-8 text (a fixture holds text files only):",
+                  *undecodable, sep="\n  ", file=sys.stderr)
+        if leftovers:
+            print("refusing: absolute paths remain (add their prefix as an argument):",
+                  *sorted(set(leftovers))[:50], sep="\n  ", file=sys.stderr)
         return 1
+    for path, text in rewritten.items():
+        path.write_bytes(text.encode("utf-8"))
     print(f"sanitized {folder}")
     return 0
 
