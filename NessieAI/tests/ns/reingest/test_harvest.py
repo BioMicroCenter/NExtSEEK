@@ -1257,7 +1257,7 @@ def test_a_clean_run_gets_no_retry_warning(tmp_path):
     assert not [w for w in got.warnings if "retried" in w or "verdict" in w]
 
 
-# --- nf-core/differentialabundance: the contrasts file and the upstream matrix ---
+# --- nf-core/differentialabundance: the contrasts file ---
 
 def _da_params(root, **params):
     import json as _json
@@ -1286,43 +1286,3 @@ def test_a_contrasts_file_outside_the_run_folder_leaves_direction_blank_and_says
     assert got.contrasts == {}
     assert any("240404Kel_diffAbun_contrasts.csv" in w and "not in the run folder" in w
                for w in got.warnings)
-
-
-def test_the_upstream_matrix_resolves_to_its_registered_gex_by_checksum(tmp_path):
-    root = tmp_path / "run"
-    _minimal_run(root)
-    matrix = "/net/x/250818Rib/star_salmon/salmon.merged.gene_counts.tsv"
-    _da_params(root, matrix=matrix)
-    looked_up = []
-
-    def by_checksum(checksum):
-        looked_up.append(checksum)
-        return ["A.GEX-250818RIB-1-PUB"]
-
-    got = harvest.harvest_local(
-        str(root), lookup_by_fastq=lambda p, types=None: [],
-        upstream_matrix_checksum="0123abcd", lookup_gex_by_checksum=by_checksum)
-    assert looked_up == ["0123abcd"]
-    assert got.upstream_matrix == {"path": matrix, "checksum": "0123abcd",
-                                   "uid": "A.GEX-250818RIB-1-PUB"}
-
-
-def test_an_upstream_checksum_matching_no_or_several_gex_resolves_nothing(tmp_path):
-    root = tmp_path / "run"
-    _minimal_run(root)
-    _da_params(root, matrix="/net/x/m.tsv")
-    for found in ([], ["A.GEX-1", "A.GEX-2"]):
-        got = harvest.harvest_local(
-            str(root), lookup_by_fastq=lambda p, types=None: [],
-            upstream_matrix_checksum="ffff", lookup_gex_by_checksum=lambda c, f=found: f)
-        assert got.upstream_matrix["uid"] is None
-        assert any("upstream matrix" in w for w in got.warnings)
-
-
-def test_without_an_upstream_checksum_nothing_is_looked_up(tmp_path):
-    root = tmp_path / "run"
-    _minimal_run(root)
-    _da_params(root, matrix="/net/x/m.tsv")
-    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [],
-                                lookup_gex_by_checksum=lambda c: pytest.fail("looked up"))
-    assert got.upstream_matrix == {}

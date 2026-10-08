@@ -29,4 +29,7 @@ def load_manifest(manifest_id: str):
         raise ValueError(f"bad manifest_id: {manifest_id!r}")
     path = os.path.join(_ROOT, f"{manifest_id}.json")
     with open(path, encoding="utf-8") as handle:
-        return RunManifest.model_validate_json(handle.read())
+        data = json.loads(handle.read())
+    # Removed field (G-6): manifests saved before its removal still load.
+    data.pop("upstream_matrix", None)
+    return RunManifest.model_validate(data)

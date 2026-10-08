@@ -239,48 +239,6 @@ def uids_by_primary_data(path: str, types=("D.SEQ",)) -> list[str]:
         return []
 
 
-def gex_uids_by_checksum(checksum: str) -> list[str]:
-    """UIDs of A.GEX samples whose Checksum_PrimaryData is ``checksum``.
-
-    How a downstream analysis (nf-core/differentialabundance) finds the matrix
-    it was computed from: every nf-core/rnaseq counts matrix has the same file
-    name, so only the file's checksum identifies which registered A.GEX it is.
-    The whole value must match (case-insensitively, as hex digests are written
-    either way), never a substring. Returns every match, sorted; the caller
-    decides what more than one means and must never pick.
-
-    Read-only, like ``uids_by_primary_data``: any failure costs this one lookup
-    and returns [], never raises.
-    """
-    wanted = (checksum or "").strip().lower()
-    if not wanted:
-        return []
-    try:
-        from seek.models import Sample_types, Samples
-
-        type_ids = list(
-            Sample_types.objects.filter(title__in=["A.GEX"]).values_list("id", flat=True)
-        )
-        if not type_ids:
-            return []
-        matches: set[str] = set()
-        rows = Samples.objects.filter(
-            sample_type_id__in=type_ids, json_metadata__icontains=wanted
-        ).values_list("uuid", "json_metadata")
-        for uid, raw in rows:
-            try:
-                meta = json.loads(raw) if raw else {}
-            except ValueError:
-                continue
-            if (uid and isinstance(meta, dict)
-                    and str(meta.get("Checksum_PrimaryData") or "").strip().lower() == wanted):
-                matches.add(str(uid))
-        return sorted(matches)
-    except Exception:
-        log.exception("gex_uids_by_checksum: lookup failed")
-        return []
-
-
 def sample_types_for_uids(uids: list[str]) -> dict[str, str]:
     """The SampleType title per UID. A UID whose type cannot be determined is
     OMITTED.

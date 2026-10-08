@@ -108,7 +108,6 @@ What blocks each row:
 | differentialabundance | `tables/differential/[<paramset>/]<contrast>.deseq2.results_filtered.tsv` (1.5+, a subset of the results table) | A.GEX | choice |
 | differentialabundance | `tables/differential/<paramset>/<contrast>_<study>_<method>.annotated.tsv` (2.0.0: the results joined to gene annotation) | A.GEX | choice |
 | differentialabundance | `other/dream/<paramset>/<contrast>_<study>.dream.model.txt`, and each method's `*.model.txt` | A.GEX | inventory, choice |
-| differentialabundance | the upstream counts matrix as `Parent` (`@upstream_parent`, by checksum): wired, but no checksum is taken, because `params.matrix` sits in the upstream run's folder and the stage script reads nothing outside `run_dir`. Rows keep the sequencing samples as parents | A.GEX | a ruling on hashing that one file |
 | differentialabundance | `MethodSettings` on 2.0.0 rows: each paramset has its own settings, which the run's params do not hold, so the field is blank there | A.GEX | inventory: the paramsets file |
 | differentialabundance | contrast direction on runs whose contrasts file is in the launch folder (every run before `--outdir .` launches): left blank | A.GEX | a curator fills it |
 | differentialabundance | non-RNA-seq study types (`--study_type affy_array`, `geo_soft_file`, `maxquant`) are named in `Notes`; their `*.matrix.tsv` normalised matrix has no rule, maxquant's results are protein abundance filed as A.GEX, and their samplesheets name no FASTQ, so no parent resolves | A.GEX, other | type, parent |
@@ -147,7 +146,7 @@ What blocks each row:
 | smrnaseq | `mirdeep2/**/result_*.csv` (novel miRNA calls) | none | type, inventory |
 | all | A.VCF rows link no assay where the house assay "Variant Calling Analysis" does not exist | A.VCF | a house assay to create |
 
-Ruled out on purpose, so not on the list above: differentialabundance's `all.vst.tsv` / `all.rlog.tsv` (regenerated from the normalised counts), its plots, Shiny app, `*.sizefactors.tsv` and session logs.
+Ruled out on purpose, so not on the list above: differentialabundance's `all.vst.tsv` / `all.rlog.tsv` (regenerated from the normalised counts), its plots, Shiny app, `*.sizefactors.tsv` and session logs, and the upstream counts matrix as `Parent` (the stager reads nothing outside the run folder; rows keep the sequencing samples).
 
 ## Filling in a stub
 

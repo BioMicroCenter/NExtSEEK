@@ -455,35 +455,3 @@ def test_project_ids_are_read_from_the_seek_connection(settings):
     [(alias, _sql, params)] = recorder.calls
     assert alias == "seek"
     assert params == ["D.SEQ-1"]
-
-
-class TestGexUidsByChecksum:
-    """A downstream run's input matrix -> the A.GEX it is, by Checksum_PrimaryData."""
-
-    def test_matches_the_whole_checksum_case_insensitively(self):
-        with patch("seek.models.Sample_types.objects") as sample_types, \
-                patch("seek.models.Samples.objects") as samples:
-            sample_types.filter.return_value.values_list.return_value = [9]
-            samples.filter.return_value.values_list.return_value = [
-                _metadata_row("A.GEX-1", Checksum_PrimaryData="ABC123"),
-                # A checksum that merely contains this one is a different file.
-                _metadata_row("A.GEX-2", Checksum_PrimaryData="00abc12300"),
-            ]
-            assert reingest_lookups.gex_uids_by_checksum("abc123") == ["A.GEX-1"]
-            sample_types.filter.assert_called_once_with(title__in=["A.GEX"])
-
-    def test_returns_every_match_for_the_caller_to_judge(self):
-        with patch("seek.models.Sample_types.objects") as sample_types, \
-                patch("seek.models.Samples.objects") as samples:
-            sample_types.filter.return_value.values_list.return_value = [9]
-            samples.filter.return_value.values_list.return_value = [
-                _metadata_row("A.GEX-2", Checksum_PrimaryData="abc123"),
-                _metadata_row("A.GEX-1", Checksum_PrimaryData="abc123"),
-            ]
-            assert reingest_lookups.gex_uids_by_checksum("abc123") == ["A.GEX-1", "A.GEX-2"]
-
-    def test_a_blank_checksum_or_a_failed_lookup_finds_nothing(self):
-        assert reingest_lookups.gex_uids_by_checksum("") == []
-        with patch("seek.models.Sample_types.objects") as sample_types:
-            sample_types.filter.side_effect = RuntimeError("db down")
-            assert reingest_lookups.gex_uids_by_checksum("abc123") == []

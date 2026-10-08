@@ -725,12 +725,9 @@ def _patch_harvest(monkeypatch, *, failed=0, tmp_manifest_dir):
     seen: dict = {}
 
     def fake_harvest_local(root, *, lookup_by_fastq=None, sample_type_lookup=None,
-                           inventory=None, run_dir=None, upstream_matrix_checksum=None,
-                           lookup_gex_by_checksum=None):
+                           inventory=None, run_dir=None):
         seen["lookup_by_fastq"] = lookup_by_fastq
         seen["sample_type_lookup"] = sample_type_lookup
-        seen["lookup_gex_by_checksum"] = lookup_gex_by_checksum
-        seen["upstream_matrix_checksum"] = upstream_matrix_checksum
         return manifest_mod.RunManifest(
             run_dir=run_dir if run_dir is not None else root,
             execution=manifest_mod.ExecutionInfo(processes=3, failed=failed, non_terminal=0),
@@ -758,10 +755,6 @@ def test_run_harvest_passes_both_lookups_through(monkeypatch, tmp_path):
               _Cfg(), None, None, None, None)
     assert seen["lookup_by_fastq"] is g._d_seq_by_fastq
     assert seen["sample_type_lookup"] is g._sample_types_for_uids
-    assert seen["lookup_gex_by_checksum"] is g._gex_by_checksum
-    # No checksum of an upstream matrix is taken yet: that file sits outside
-    # run_dir, and the stage script reads nothing outside run_dir.
-    assert seen["upstream_matrix_checksum"] is None
 
 
 def test_run_harvest_refuses_a_failed_run_without_the_override(monkeypatch, tmp_path):

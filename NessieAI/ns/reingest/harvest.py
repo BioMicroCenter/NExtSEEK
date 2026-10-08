@@ -238,9 +238,7 @@ _PER_READ_ROW_PREFIXES = ("fastqc_raw-", "fastqc_trimmed-", "cutadapt-")
 
 def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
                    sample_type_lookup=None,
-                   run_dir: str | None = None,
-                   upstream_matrix_checksum: str | None = None,
-                   lookup_gex_by_checksum=None) -> manifest.RunManifest:
+                   run_dir: str | None = None) -> manifest.RunManifest:
     """`root` stays the filesystem read root -- it is where every glob below
     actually looks for files, local disk only, no SSH, no network.
 
@@ -381,7 +379,6 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
         out.params = parsers.parse_params(text)
 
     _read_contrasts(out, base, read, sources, warnings)
-    _resolve_upstream_matrix(out, upstream_matrix_checksum, lookup_gex_by_checksum, warnings)
 
     found = first(_SOFTWARE_VERSIONS_GLOB) or first(_COLLATED_VERSIONS_GLOB)
     has_versions = found is not None
@@ -688,30 +685,6 @@ def _read_contrasts(out: manifest.RunManifest, base: Path, read,
         return
     out.contrasts = parsed
     sources["contrasts"] = name
-
-
-def _resolve_upstream_matrix(out: manifest.RunManifest, checksum: str | None,
-                             lookup_gex_by_checksum, warnings: list[str]) -> None:
-    """Find the registered A.GEX this run's input matrix is, by checksum.
-
-    differentialabundance computes from another run's counts matrix
-    (``params.matrix``). That file's name is the same in every nf-core/rnaseq
-    run, so only its checksum identifies it: the one A.GEX whose
-    Checksum_PrimaryData equals it is the analysis this run descends from. No
-    match, or more than one, resolves nothing and says so; rows then keep the
-    sequencing samples as parents.
-    """
-    if not checksum:
-        return
-    found = list(lookup_gex_by_checksum(checksum)) if callable(lookup_gex_by_checksum) else []
-    path = str((out.params or {}).get("matrix") or "")
-    uid = found[0] if len(found) == 1 else None
-    out.upstream_matrix = {"path": path, "checksum": checksum, "uid": uid}
-    if uid is None:
-        what = "no registered A.GEX" if not found else f"{len(found)} registered A.GEX"
-        warnings.append(
-            f"upstream matrix {Path(path).name or '(unnamed)'} matches {what} by "
-            "checksum; rows keep the sequencing samples as parents")
 
 
 def _find_samplesheet(base: Path, read) -> tuple[str, str] | None:

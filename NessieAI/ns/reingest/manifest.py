@@ -165,12 +165,6 @@ class RunManifest(BaseModel):
     # (parsers.parse_contrasts). Empty when the file sits outside the run
     # folder, as older runs keep it -- the direction is then blank, never guessed.
     contrasts: dict[str, dict[str, str]] = Field(default_factory=dict)
-    # The analysis input this run was computed from, for a pipeline that starts
-    # from another run's matrix (differentialabundance's --matrix):
-    # {path, checksum, uid}, uid being the registered A.GEX whose
-    # Checksum_PrimaryData equals the matrix's own checksum, or None. Empty when
-    # no checksum of the matrix was taken.
-    upstream_matrix: dict = Field(default_factory=dict)
     execution: ExecutionInfo = Field(default_factory=ExecutionInfo)
     sources: dict[str, str] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
