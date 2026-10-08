@@ -104,10 +104,12 @@ ASSAY_GAP_KEYS = ("assay_edges_dropped", "assay_runs_dropped")
 # IN_STUDY row, a Study node for one of its SEEK studies, a Study's IN_INVESTIGATION, or an INPUT_TO or OUTPUT_OF whose
 # Assay node is missing (ASSAY_GAP_KEYS; sync_assays reports the same two keys as gaps of its own). A sample a report
 # names in structural_gap_samples is not done (the drain fails it on a row of its own, and its source_hash stays null
-# for the nightly); every other sample of the call is. A parent not yet uploaded (lineage_dropped) and an edge gone
-# before its label was written (labels_edges_missing) are expected states instead.
+# for the nightly); every other sample of the call is. An edge gone before its label was written
+# (labels_edges_missing) is an expected state instead. A declared parent with no node yet (lineage_dropped) is a gap
+# of its child: the pair is retried on the child's own row and the nightly reads the child as changed, so the edge is
+# written once the parent has its node.
 STRUCTURAL_GAP_KEYS = ("untyped", "in_project_missing", "in_study_samples_missing", "in_study_studies_missing",
-                       "seek_study_investigation_missing", *ASSAY_GAP_KEYS)
+                       "seek_study_investigation_missing", "lineage_dropped", *ASSAY_GAP_KEYS)
 # How a gap the reads cannot trace to its samples names them: every written sample of its chunk carries it.
 UNTRACED_MARK = "not traced to a sample"
 UNTRACED_GAP = "{part} {count} in its chunk, " + UNTRACED_MARK
@@ -412,6 +414,8 @@ def _lineage(driver, db, rows, tokens, ctx: _Context) -> dict:
     index = sources.uuid_to_ids_for(uids) if uids else {}
     pairs = sorted(set(sources.declared_lineage(rows, index)))
     report = writer.write_missing_lineage(driver, db, pairs)
+    # A child whose parent has no node yet is half written: its hash goes, so the nightly syncs it again.
+    writer.clear_source_hashes(driver, db, report.get("lineage_dropped_children", ()))
     report.update(writer.archive_and_drop_undeclared_for_children(
         driver, db, [r["id"] for r in rows], set(pairs), ctx.archive(DERIVED_FROM_ARCHIVE_FILE)))
     return report
@@ -518,7 +522,8 @@ def _sync_ids(driver, db, wanted: list[int], ctx: _Context) -> dict:
         parts = {key: int(report[key]) for key in STRUCTURAL_GAP_KEYS if report.get(key)}
         report.update(structural_gaps=sum(parts.values()), structural_gap_parts=parts)
         if parts:
-            report["structural_gap_samples"] = _gap_samples(driver, db, parts, projections, links, ctx.seek_tables())
+            report["structural_gap_samples"] = _gap_samples(driver, db, parts, projections, links, ctx.seek_tables(),
+                                                            report.get("lineage_dropped_children", ()))
         return report
 
 
@@ -530,7 +535,7 @@ def _project_text(ids, in_seek) -> str:
         "no Project node for " + ", ".join(map(str, other)) if other else "") if text)
 
 
-def _gap_samples(driver, db, parts: dict, projections, links, tables) -> dict[int, str]:
+def _gap_samples(driver, db, parts: dict, projections, links, tables, lineage_children=()) -> dict[int, str]:
     """Sample id to why the chunk's structural gaps (``parts``) name it, read after the writes under the same lock
     and only when a gap was counted: no SampleType node for its type; IN_PROJECT to project ids with no Project node,
     those SEEK's ``projects`` lacks named so; one of its SEEK studies whose Investigation node is missing. A part
@@ -588,6 +593,9 @@ def _gap_samples(driver, db, parts: dict, projections, links, tables) -> dict[in
                 why = (f"investigation {inv}, which SEEK lacks" if inv not in in_seek
                        else f"no Investigation node for {inv}")
                 name(link["sample_id"], f"seek_study_investigation_missing (study {study_id}: {why})")
+    if parts.get("lineage_dropped"):
+        for child in lineage_children:
+            name(child, "lineage_dropped (a declared parent has no node in the graph yet)")
     for part in ("in_study_samples_missing", "in_study_studies_missing", *ASSAY_GAP_KEYS):
         if parts.get(part):
             untraced(part)

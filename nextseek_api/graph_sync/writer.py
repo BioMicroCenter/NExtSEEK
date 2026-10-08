@@ -661,10 +661,12 @@ def write_missing_lineage(driver, db, pairs: Iterable[tuple[int, int]], chunk: i
 
     A new edge records ``child_id`` and ``parent_id`` in the form existing edges use (sample ids, or uuids when the
     first existing edge has a string ``child_id``). ``lineage_dropped`` counts pairs with an endpoint missing from
-    the graph. ``pairs`` may be any iterable; repeats within a chunk are sent once.
+    the graph, and ``lineage_dropped_children`` (present only then) names their children, ascending, so a caller can
+    keep them for a retry. ``pairs`` may be any iterable; repeats within a chunk are sent once.
     """
     sent = matched = created = 0
     by_uuid = None
+    dropped_children: set[int] = set()
     for batch in _batches(pairs, chunk):
         if by_uuid is None:
             form = _one(_run(driver, db, q.DERIVED_FROM_ID_FORM, read=True), "child_id", default=None)
@@ -672,10 +674,23 @@ def write_missing_lineage(driver, db, pairs: Iterable[tuple[int, int]], chunk: i
         rows = [list(pair) for pair in dict.fromkeys((int(c), int(p)) for c, p in batch)]
         result = _run(driver, db, q.WRITE_MISSING_LINEAGE, {"rows": rows, "by_uuid": by_uuid})
         sent += len(rows)
-        matched += _one(result, "matched")
+        got = _one(result, "matched")
+        matched += got
         created += _counter(result, "relationships_created")
-    return {"lineage_pairs": sent, "lineage_matched": matched, "lineage_created": created,
-            "lineage_dropped": sent - matched}
+        if got < len(rows):
+            unmatched = _run(driver, db, q.LINEAGE_UNMATCHED_CHILDREN, {"rows": rows}, read=True)
+            dropped_children.update(int(r["child"]) for r in _records(unmatched))
+    report = {"lineage_pairs": sent, "lineage_matched": matched, "lineage_created": created,
+              "lineage_dropped": sent - matched}
+    if dropped_children:
+        report["lineage_dropped_children"] = sorted(dropped_children)
+    return report
+
+
+def clear_source_hashes(driver, db, ids: Iterable[int]) -> int:
+    """Null the ``source_hash`` of these samples, so the nightly reconcile syncs them again; returns how many."""
+    ids = sorted({int(i) for i in ids})
+    return _one(_run(driver, db, q.CLEAR_SOURCE_HASH, {"ids": ids}), "n") if ids else 0
 
 
 def _tsv_field(value) -> str:

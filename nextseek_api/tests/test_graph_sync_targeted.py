@@ -134,6 +134,8 @@ class FakeGraph:
             q.WRITE_SAMPLES: self._write_samples,
             q.DERIVED_FROM_ID_FORM: lambda p: [],
             q.WRITE_MISSING_LINEAGE: self._write_missing_lineage,
+            q.LINEAGE_UNMATCHED_CHILDREN: self._lineage_unmatched_children,
+            q.CLEAR_SOURCE_HASH: self._clear_source_hash,
             q.DERIVED_FROM_OF_CHILDREN: self._edges_of_children,
             q.DELETE_UNDECLARED_DERIVED_FROM: self._delete_edges,
             q.EDGES_INCIDENT: self._edges_incident,
@@ -290,6 +292,16 @@ class FakeGraph:
                     self.add_edge(child, parent)
                     created += 1
         return [{"matched": matched}], {"relationships_created": created}
+
+    def _lineage_unmatched_children(self, p):
+        return [{"child": c} for c in sorted({c for c, parent in p["rows"]
+                                              if not (self._is_sample(c) and self._is_sample(parent))})]
+
+    def _clear_source_hash(self, p):
+        hit = [i for i in p["ids"] if i in self.nodes]
+        for i in hit:
+            self.nodes[i]["props"]["source_hash"] = None
+        return [{"n": len(hit)}]
 
     def _edge_record(self, eid, e):
         return {"child_id": e["child"], "parent_id": e["parent"], "child_uuid": f"u-{e['child']}",
@@ -898,6 +910,28 @@ def test_creates_a_missing_declared_edge_and_labels_it_in_the_same_call(env, tmp
     assert result["lineage_created"] == 1
     assert result["labels_new"] == 1 and result["labels_written"] == 1
     assert env.graph.first(q.WRITE_MISSING_LINEAGE) < env.graph.first(q.WRITE_EDGE_LABELS_NEW)
+
+
+def test_a_child_synced_before_its_parent_has_a_node_is_retried_not_forgotten(env, tmp_path):
+    """The 10-07 dev gap: sample 11 names 10, whose node is not in the graph yet. The pair is dropped, 11 is named
+    as a structural gap and loses its source_hash (so its row retries and the nightly reconcile reads it as changed);
+    once 10 has its node the same sync writes the edge and clears the gap."""
+    del env.graph.nodes[10]
+
+    first = targeted.sync_samples(env.graph, DB, [11], run_dir=str(tmp_path))
+
+    assert env.graph.edge(11, 10) is None
+    assert first["lineage_dropped"] == 1
+    assert first["structural_gaps"] == 1 and first["structural_gap_parts"] == {"lineage_dropped": 1}
+    assert list(first["structural_gap_samples"]) == [11]
+    assert env.graph.nodes[11]["props"]["source_hash"] is None
+
+    env.graph.add_sample(10, 26)
+    second = targeted.sync_samples(env.graph, DB, [11], run_dir=str(tmp_path))
+
+    assert env.graph.edge(11, 10) is not None
+    assert second["lineage_dropped"] == 0 and second["structural_gaps"] == 0
+    assert env.graph.nodes[11]["props"].get("source_hash") is not None
 
 
 def test_archives_then_deletes_an_undeclared_edge_from_a_given_child(env, tmp_path):

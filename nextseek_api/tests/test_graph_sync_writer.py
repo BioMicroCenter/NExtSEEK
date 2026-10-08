@@ -915,6 +915,25 @@ def test_write_missing_lineage_follows_the_existing_edge_form(existing, by_uuid)
 
 
 
+def test_write_missing_lineage_names_the_children_of_dropped_pairs():
+    def responder(query, params):
+        if query == q.WRITE_MISSING_LINEAGE:
+            return [{"matched": 1}]
+        if query == q.LINEAGE_UNMATCHED_CHILDREN:
+            return [{"child": 3}]
+        return []
+
+    counts = w.write_missing_lineage(FakeDriver(responder), "neo4j", [(1, 2), (3, 4)], chunk=10)
+    assert counts["lineage_dropped"] == 1
+    assert counts["lineage_dropped_children"] == [3]
+
+
+def test_clear_source_hashes_nulls_the_hashes_of_the_ids():
+    driver = FakeDriver(lambda query, params: [{"n": len(params["ids"])}])
+    assert w.clear_source_hashes(driver, "neo4j", [5, 3, 5]) == 2
+    assert w.clear_source_hashes(driver, "neo4j", []) == 0
+
+
 def test_write_attribute_counts_sets_counts_and_zeroes_the_rest():
     driver = FakeDriver(lambda query, params: [{"n": len(params.get("rows", []))}]
                         if query == q.SET_ATTRIBUTE_COUNTS else [{"n": 7}])

@@ -357,6 +357,21 @@ ON CREATE SET e.child_id = CASE WHEN $by_uuid THEN c.uuid ELSE c.id END,
               e.parent_id = CASE WHEN $by_uuid THEN p.uuid ELSE p.id END
 RETURN count(e) AS matched
 """
+# The children of the (child id, parent id) rows $rows whose pair WRITE_MISSING_LINEAGE could not match: one of the
+# two Sample nodes is not in the graph (yet). Read only when a write matched fewer rows than it sent.
+LINEAGE_UNMATCHED_CHILDREN = """
+UNWIND $rows AS r
+OPTIONAL MATCH (c:Sample {id: r[0]})
+OPTIONAL MATCH (p:Sample {id: r[1]})
+WITH r, c, p WHERE c IS NULL OR p IS NULL
+RETURN DISTINCT r[0] AS child ORDER BY child
+"""
+# Null the source_hash of these samples, so the nightly reconcile reads them as changed and syncs them again.
+CLEAR_SOURCE_HASH = """
+MATCH (s:Sample) WHERE s.id IN $ids
+SET s.source_hash = null
+RETURN count(s) AS n
+"""
 # Every DERIVED_FROM between two Sample nodes, read a page of child ids at a time (writer.read_sample_pages; gate G
 # check 1 reads the same pattern). An OrphanSample no longer carries Sample, so an edge touching one is neither read
 # nor deleted here.
