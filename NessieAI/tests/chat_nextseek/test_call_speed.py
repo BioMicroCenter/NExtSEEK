@@ -9,7 +9,7 @@ from chat_nextseek import call_scope
 from chat_nextseek.schemas import call_speed
 from chat_nextseek.schemas.schema_helper import call_llm_structured
 
-from test_call_scope_deadline import FLASH, OPUS, PRO, SONNET, _Config, _Plan, clock, run  # noqa: F401
+from .test_call_scope_deadline import FLASH, OPUS, PRO, SONNET, _Config, _Plan, clock, run  # noqa: F401
 
 
 def _row(agent, model, secs, outcome="ok", **kw):
