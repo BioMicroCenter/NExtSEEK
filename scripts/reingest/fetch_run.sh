@@ -21,7 +21,7 @@
 #                empty files with the same name; nothing is downloaded
 #   - skipped:   everything else (plots, reports, DE tables, FastQC, ...)
 # The patterns are read from the reingest code at $REINGEST_REF
-# (default feat/nfcore-reingest-integration), so they follow the branch.
+# (default HEAD, the checked-out commit), so they follow the code you have.
 # The samplesheet is saved as <name>/samplesheet.csv. Safe to rerun.
 set -euo pipefail
 usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
@@ -38,7 +38,7 @@ set -- ${args[@]+"${args[@]}"}
 name=$1 remote=$2 sheet=$3 contrasts=${4:-}
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(git -C "$here" rev-parse --show-toplevel)"
-ref=${REINGEST_REF:-feat/nfcore-reingest-integration}
+ref=${REINGEST_REF:-HEAD}
 out="${into:-$repo/.claude/reingest-local-test}/$name"
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 

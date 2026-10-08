@@ -28,11 +28,11 @@ MAPS_DIR = Path(__file__).resolve().parent.parent / "reingest_maps"
 #
 # No committed map (rnaseq.outputs.json included) actually spells a
 # "$checksums.<path>" ref today, and none is expected to: an output rule's
-# `glob` matches a harvest-time path that varies per run (per sample, even),
+# `candidates` match a harvest-time path that varies per run (per sample, even),
 # so no map file authored ahead of time can name it literally. That is
 # exactly why `Checksum_PrimaryData` is wired the other way --
 # `mapper._attach_checksum` re-derives the SAME path from the rule's own
-# `glob`/`primary_data` and looks it up in `RunManifest.checksums` directly,
+# `candidates`/`primary_data` and looks it up in `RunManifest.checksums` directly,
 # bypassing `resolve_ref` entirely -- and is the checksum wiring's real,
 # reachable, tested consumer (test_mapper.py, and the rendered-workbook
 # round-trip in test_build_upload_manifest.py). "checksums" stays in
@@ -48,7 +48,7 @@ MAPS_DIR = Path(__file__).resolve().parent.parent / "reingest_maps"
 # matching a SUFFIX against whatever the run's inventory actually contains
 # (e.g. anything ending `.dds.rdata` or `.dds.rds`), so
 # `deseq2_dds_rdata`'s real path is exactly as run-time-variable as an
-# output rule's own `glob` match -- no committed map can spell it literally
+# output rule's own `candidates` match -- no committed map can spell it literally
 # any more than it can spell a per-sample BAM path. A future
 # "DESeqFile_Checksum" entry would need a deref form this module does not
 # have, e.g. `$checksums.$outputs.deseq2_dds_rdata` (look up

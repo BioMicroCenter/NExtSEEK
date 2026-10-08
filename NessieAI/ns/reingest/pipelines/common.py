@@ -77,7 +77,7 @@ def _computed_gex_name(run_manifest, sample, context) -> str | None:
 
 
 def _computed_nextseek_user(run_manifest, sample, context) -> str | None:
-    """The full name of whoever is running the reingest, e.g. "Forrest Hopkins".
+    """The full name of whoever is running the reingest, e.g. "Ada Lovelace".
 
     Comes from the chat session's user, threaded in by
     ``granular._build_upload_xlsx``; None when there is no session (a test, or
