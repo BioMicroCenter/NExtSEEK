@@ -587,9 +587,14 @@ def _build_graph_refine_context(last_bundle: dict) -> str:
 
 
 #: Leads the earlier search's context on a graph_query turn that refers back to it (``_followup_graph_context``).
-FOLLOWUP_GRAPH_LEAD = ("This question refers back to the previous answer. The set it points at is the one the "
-                       "earlier search below found: keep that search's filters for it, and change only what this "
-                       "question asks.\n")
+#: Conditional, because the back-reference test also fires on a few self-contained questions ("in these projects:
+#: IMPACT and TB"), which must not inherit the earlier filters.
+FOLLOWUP_GRAPH_LEAD = ("If this question points at the set the previous answer found (\"those\", \"them\", \"that "
+                       "list\"), that set is the one the earlier search below found: keep that search's filters for "
+                       "it, and change only what this question asks. If the question names its own set, ignore the "
+                       "earlier search.\n")
+#: Follows the earlier Cypher with its values: a filter written as ``$inv`` is no filter without its value.
+FOLLOWUP_GRAPH_PARAMETERS = "\nIts parameters, which the new query needs too: "
 
 
 def _followup_graph_context(session, user_text: str) -> tuple[str, dict] | None:
@@ -598,26 +603,36 @@ def _followup_graph_context(session, user_text: str) -> tuple[str, dict] | None:
     The parser can understand a follow-up ("those 351 nhps") and still call it a graph_query rather than a refine or
     ask_about_last_results (prod chat d01fdd43). The graph agent sees neither the parser's notes nor the chat, so
     without this it answers for every matching sample. "Refers back" is the router's own test
-    (``NessieAI.router.followup.followup_cue``); the earlier search is the newest stored result, carried as a refine
-    carries it (``_build_graph_refine_context``), and only when it is the newest turn's: a Container-CC turn writes
-    no bundle, so after one the newest bundle is an older answer than the one the question points at. Returns
-    (context, debug record)."""
-    history = session.get("results_history") or []
-    last = history[-1] if history else None
-    log = session.get(CHAT_LOG_KEY) or []
-    newest = log[-1] if log and isinstance(log[-1], dict) else None
-    if not isinstance(last, dict) or not last.get("user_query") or newest is None \
-            or newest.get("bundle_id") != last.get("id"):
-        return None
+    (``NessieAI.router.followup.followup_cue``). The earlier search is the newest turn's bundle, carried as a refine
+    carries it (``_build_graph_refine_context``) plus its parameters: a Container-CC turn or an aside writes no
+    bundle, so after one there is no context rather than an older answer than the one the question points at. A
+    statement bound to ``$uids`` is not carried: the session keeps those UIDs only as a placeholder.
+    Returns (context, debug record)."""
     try:
+        log = [e for e in session.get(CHAT_LOG_KEY) or [] if isinstance(e, dict)]
+        if not log:
+            return None
+        newest = max(log, key=lambda e: e["turn_id"] if isinstance(e.get("turn_id"), int) else -1)
+        bid = newest.get("bundle_id")
+        last = next((b for b in session.get("results_history") or []
+                     if isinstance(b, dict) and bid is not None and b.get("id") == bid), None)
+        if last is None or not last.get("user_query"):
+            return None
         from NessieAI.router.followup import followup_cue
         cue = followup_cue(user_text)
+        if not cue:
+            return None
+        plan = last.get("graph_plan") or {}
+        cypher = plan.get("cypher") or ""
+        if re.search(r"\$uids\b", cypher):
+            return None
+        context = FOLLOWUP_GRAPH_LEAD + _build_graph_refine_context(last)
+        if cypher and plan.get("parameters"):
+            context += FOLLOWUP_GRAPH_PARAMETERS + json.dumps(plan["parameters"], default=str, sort_keys=True)
     except Exception as exc:  # the earlier search is help, never the reason a turn fails
-        print(f"[DEBUG][FOLLOWUP] could not check for a back-reference: {exc!r}")
+        print(f"[DEBUG][FOLLOWUP] could not build the earlier search's context: {exc!r}")
         return None
-    if not cue:
-        return None
-    return FOLLOWUP_GRAPH_LEAD + _build_graph_refine_context(last), {"cue": cue, "bundle_id": last.get("id")}
+    return context, {"cue": cue, "bundle_id": bid}
 
 
 #: The refine context of a follow-up query rebuilt from the stored query (``seed_mode``

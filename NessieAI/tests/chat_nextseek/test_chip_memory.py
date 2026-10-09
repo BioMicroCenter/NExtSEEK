@@ -67,6 +67,45 @@ def test_the_list_form_reads_the_stored_values_live(monkeypatch):
     assert _check(rv, "unapplied_value").fired and rv.suggestion["label"] == "Only RNA-Seq"
 
 
+def _turn(cy, params=None, *, count=7, catalog=None, question="How many alignments are RNA-Seq?"):
+    from chat_nextseek.graph_review import DictCatalog, ReviewInput
+    inp = ReviewInput(question=question, cypher=cy, parameters=params or {}, keyword_fields={}, rows=[{"n": count}],
+                      count=1, total=1, ok=True, error=None, reply_draft=None)
+    return review_tier1(inp, DictCatalog(catalog or {}))
+
+
+def test_a_not_any_list_is_what_the_query_leaves_out():
+    """``NOT any(t IN $ex ...)`` excludes its terms: no chip may narrow to the excluded value."""
+    from chat_nextseek.graph_review import _excluded_terms
+    cy = ("MATCH (s:T_A_ALN) WHERE toLower(s.DataType) CONTAINS 'rna' "
+          "AND NOT any(t IN $ex WHERE toLower(s.DataType) CONTAINS t) RETURN count(s) AS n")
+    params = {"ex": ["mirna", "small rna"]}
+    assert [term for *_x, term in _list_terms_of(cy, params)] == []
+    assert _excluded_terms(cy, params) == {("s", "DataType", "mirna"), ("s", "DataType", "small rna")}
+    rv = _turn(cy, params, catalog={"T_A_ALN.@name": [["Sequence Alignment Analysis", 1]],
+                                    "T_A_ALN.*": [["DataType", 3]],
+                                    "T_A_ALN.DataType": [["RNA-Seq", 5], ["miRNA-Seq", 4], ["small RNA", 2]]})
+    assert not (rv.suggestion or {}).get("label", "").startswith("Only miRNA")
+
+
+def _list_terms_of(cy, params):
+    from chat_nextseek.graph_review import _list_terms
+    return _list_terms(cy, params)
+
+
+def test_a_stem_another_item_of_the_list_matches_is_no_stem_miss():
+    cy = "MATCH (f:T_D_IMG) WHERE any(t IN ['tiff', 'tif'] WHERE toLower(f.FileFormat) CONTAINS t) RETURN count(f) AS n"
+    rv = _turn(cy, catalog={"T_D_IMG.@name": [["Imaging Data", 1]], "T_D_IMG.*": [["FileFormat", 2]],
+                            "T_D_IMG.FileFormat": [["tif", 5], ["tiff", 4]]}, question="How many TIFF files?")
+    assert not _check(rv, "stem_miss").fired
+
+
+def test_a_zero_behind_one_list_of_spellings_is_one_filter():
+    cy = "MATCH (s:T_A_ALN) WHERE any(t IN $terms WHERE toLower(s.search_text) CONTAINS t) RETURN count(s) AS n"
+    rv = _turn(cy, {"terms": ["rna-seq", "rnaseq"]}, count=0)
+    assert not _check(rv, "zero_unproven_base").fired
+
+
 # --------------------------------------------------------------------------- #
 # 2. the chip is saved with its turn
 # --------------------------------------------------------------------------- #
@@ -132,6 +171,42 @@ def test_a_follow_up_after_a_container_cc_turn_gets_no_older_search(click_turn):
                 "router_choice": "container_cc", "assistant_reply": "Here is the chart.", "bundle_id": None})
     second = click_turn(session, NHP_FOLLOWUP, question_cypher=NHP_CYPHER, parameters={})
     assert second.calls.graph_agent == [None] and "followup_context" not in second.debug
+
+
+def test_the_earlier_query_comes_with_its_parameters(click_turn):  # noqa: F811
+    session: dict = {}
+    click_turn(session, NHP_Q, question_cypher=NHP_CYPHER + " ", parameters={"inv": "IMPAcTb"})
+    second = click_turn(session, NHP_FOLLOWUP, question_cypher=NHP_CYPHER, parameters={})
+    [context] = second.calls.graph_agent
+    assert '{"inv": "IMPAcTb"}' in context
+
+
+def test_a_back_reference_misfire_is_told_to_ignore_the_earlier_search(click_turn):  # noqa: F811
+    """"in these projects: IMPACT and TB" matches the cue but names its own set: the context must say so."""
+    from chat_nextseek import orchestrator as orch
+    session: dict = {}
+    click_turn(session, NHP_Q, question_cypher=NHP_CYPHER, parameters={})
+    second = click_turn(session, "How many D.SEQ files exist in these projects: IMPACT and TB?",
+                        question_cypher=NHP_CYPHER, parameters={})
+    [context] = second.calls.graph_agent
+    assert context.startswith(orch.FOLLOWUP_GRAPH_LEAD) and "names its own set, ignore" in context
+
+
+def test_an_earlier_query_bound_to_uids_is_not_carried(click_turn):  # noqa: F811
+    session: dict = {}
+    click_turn(session, NHP_Q, question_cypher="MATCH (s:T_NHP) WHERE s.id IN $uids RETURN s.id AS id",
+               parameters={"uids": ["x"]})
+    second = click_turn(session, NHP_FOLLOWUP, question_cypher=NHP_CYPHER, parameters={})
+    assert second.calls.graph_agent == [None]
+
+
+def test_the_wizard_caps_a_large_carried_set(monkeypatch):
+    monkeypatch.setattr(pipeline_agent, "_run_loop", lambda session, config, **k: {"action": "ask", "reply": ""})
+    uids = [f"NHP-220630FLY-{i}" for i in range(1, 61)]
+    session: dict = {}
+    pipeline_agent.start(session, SimpleNamespace(), user_query="yes, build it", parser_plan={"filters": {"uids": uids}})
+    seed = session[pipeline_agent.PIPELINE_AGENT_KEY]["messages"][0]["content"]
+    assert "NHP-220630FLY-50," in seed and "NHP-220630FLY-51" not in seed and seed.endswith("and 10 more")
 
 
 def test_the_wizard_starts_with_the_samples_the_parser_carried_over(monkeypatch):

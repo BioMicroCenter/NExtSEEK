@@ -365,11 +365,14 @@ def _resolve(tok: str, params: dict) -> str | None:
     return None
 
 
-def _list_terms(cy: str, params: dict) -> list[tuple[str, str, str, str]]:
+def _list_terms(cy: str, params: dict, *, negated: bool = False) -> list[tuple[str, str, str, str]]:
     """[(var, attr, the list as written, term)] for every ``any(t IN $terms WHERE ...var.attr...) CONTAINS t)``: one
-    term per item of the list, a ``$param`` or a literal ``['a', 'b']`` (dev QueryTask 1917 wrote RNA-Seq this way)."""
+    term per item of the list, a ``$param`` or a literal ``['a', 'b']`` (dev QueryTask 1917 wrote RNA-Seq this way).
+    ``negated`` picks the ``NOT any(...)`` ones instead: what the query leaves out, never what it matches."""
     out = []
-    for m in re.finditer(r"any\(\s*(\w+)\s+IN\s+(\$\w+|\[[^\]]*\])\s+WHERE\b", cy):
+    for m in re.finditer(r"\bany\(\s*(\w+)\s+IN\s+(\$\w+|\[[^\]]*\])\s+WHERE\b", cy, re.I):
+        if bool(re.search(r"\bNOT\s*\(?\s*$", cy[:m.start()], re.I)) != negated:
+            continue
         loop, tok = m.group(1), m.group(2)
         depth, end = 1, m.end()
         while end < len(cy) and depth:      # the body runs to the paren that closes ``any(``
@@ -410,7 +413,7 @@ def _name_words(cy: str) -> set[str]:
 
 def _excluded_terms(cy: str, params: dict) -> set[tuple[str, str, str]]:
     """{(var, attr, term)} for every ``NOT ...var.attr...) CONTAINS term`` (or STARTS WITH): what the query leaves out."""
-    out = set()
+    out = {(var, attr, term) for var, attr, _tok, term in _list_terms(cy, params, negated=True)}
     for var, attr, tok in re.findall(r"\bNOT\s*\(?\s*(?:\w+\(\s*)*(\w+)\.(\w+)\s*\)*\s+(?:CONTAINS|STARTS\s+WITH)\s+"
                                      + TERM, cy):
         term = _resolve(tok, params)
@@ -676,7 +679,9 @@ def _value_checks(t: _Turn) -> dict[str, _Finding]:
                                                   fact, _split_suggestion(t, term, matched, fact, False, attr))
         # a stored value is a shorter stem of the term (tif for tiff), so CONTAINS misses it
         stems = [v for v in names if 3 <= len(v.strip(".").lower()) < len(term)
-                 and term.startswith(v.strip(".").lower()) and term not in v.lower()]
+                 and term.startswith(v.strip(".").lower()) and term not in v.lower()
+                 # another term on the same field (a list such as ['tiff', 'tif']) already matches it
+                 and not any(x in v.lower() for v2, a2, x in t.cf if (v2, a2) == (var, attr))]
         if stems and "stem_miss" not in out:
             fact = f"The search matched '{term}' only; stored values also include {_quoted(stems[:4])}."
             stem = min((s.strip(".").lower() for s in stems), key=len)
@@ -758,7 +763,9 @@ def _zero_unproven_base(t: _Turn) -> _Finding | None:
         stored = t.vals(t.vl.get(var), attr)
         if stored and len(stored) < VALUES_CAP and term not in {str(v).lower() for v, _n in stored}:
             return None
-    n_filters = len(t.cf) + len(t.eq) + len(re.findall(r"\bEXISTS\s*\{", t.cy))
+    lists = _list_terms(t.cy, t.params)     # a list of spellings is one filter, however many items it has
+    n_cf = len(t.cf) - len(lists) + len({(v, a, tok) for v, a, tok, _term in lists})
+    n_filters = n_cf + len(t.eq) + len(re.findall(r"\bEXISTS\s*\{", t.cy))
     if not t.cf or n_filters < 2:
         return None
     if t.inp.reply_draft and DROP_FILTER_OFFER.search(t.inp.reply_draft):

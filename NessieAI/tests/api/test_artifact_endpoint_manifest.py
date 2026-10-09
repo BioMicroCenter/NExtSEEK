@@ -175,3 +175,14 @@ class ReloadKeepsDownloadsTests(TestCase):
             [(a["artifact_type"], a["key"]) for a in artifacts],
             [("file", "api_result")],
         )
+
+    def test_a_reloaded_graph_turn_keeps_its_chip(self):
+        chip = {"id": "b1-r0", "source": "reviewer", "kind": "narrow_value", "label": "Only RNA-Seq",
+                "query": "How many? Count only RNA-Seq.", "reason": "r"}
+        cs = ChatSession.objects.create(
+            user=self.user, title="Graph chat",
+            results_history=[{"id": 1, "user_query": "how many?", "reply": "10,761.", "mode": "graph_query",
+                              "suggestions": [chip]}],
+        )
+        body = self.client.get(f"/nextseek_api/assistant/sessions/{cs.session_id}/?include=turns").json()
+        self.assertEqual(body["turns"][0]["suggestions"], [chip])

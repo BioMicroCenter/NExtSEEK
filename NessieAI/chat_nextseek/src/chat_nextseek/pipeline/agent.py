@@ -18,7 +18,6 @@ Public surface (unchanged contract with the orchestrator):
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -29,6 +28,7 @@ if TYPE_CHECKING:
 from .agent_tools import build_pipeline_tool_schemas, dispatch_pipeline_tool_call, format_luria_followup
 from ..tool_loop import call_tools
 from ..helpers import summarize_pinned_bundle
+from ..helpers.uid_check import uids_in
 from ..seqera.catalog import catalog_for_prompt
 
 PIPELINE_AGENT_KEY = "pipeline_agent"
@@ -79,13 +79,16 @@ def _text_of(content: list) -> str:
     return "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text").strip()
 
 
+#: The most carried UIDs the seed lists; the rest are counted, so a 351-sample set does not flood the build.
+CARRIED_UIDS_MAX = 50
+
+
 def _carried_uids(parser_plan: Any, user_query: str) -> list[str]:
-    """The UIDs in ``parser_plan.filters.uids`` that ``user_query`` does not already name."""
+    """The UIDs in ``parser_plan.filters.uids`` that ``user_query`` does not already name, upper-cased, once each."""
     plan = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else parser_plan
     uids = ((plan or {}).get("filters") or {}).get("uids") if isinstance(plan, dict) else None
-    text = user_query or ""
-    return [u for u in uids or [] if isinstance(u, str) and u
-            and not re.search(rf"(?<![\w.-]){re.escape(u)}(?![\w-])", text)]
+    named = set(uids_in(user_query or ""))
+    return [u for u in uids_in("", [u for u in uids or [] if isinstance(u, str)]) if u not in named]
 
 
 def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any = None,
@@ -105,7 +108,9 @@ def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any = 
         seed += f"\n\n[context] {pinned}"
     carried = _carried_uids(parser_plan, user_query)
     if carried:
-        seed += "\n\n[context] samples from the earlier turn: " + ", ".join(carried)
+        more = len(carried) - CARRIED_UIDS_MAX
+        seed += ("\n\n[context] samples from the earlier turn: " + ", ".join(carried[:CARRIED_UIDS_MAX])
+                 + (f", and {more} more" if more > 0 else ""))
     state = {
         "active": True,
         "messages": [{"role": "user", "content": seed}],
