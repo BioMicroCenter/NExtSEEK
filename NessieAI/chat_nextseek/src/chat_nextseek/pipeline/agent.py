@@ -18,6 +18,7 @@ Public surface (unchanged contract with the orchestrator):
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -78,17 +79,33 @@ def _text_of(content: list) -> str:
     return "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text").strip()
 
 
+def _carried_uids(parser_plan: Any, user_query: str) -> list[str]:
+    """The UIDs in ``parser_plan.filters.uids`` that ``user_query`` does not already name."""
+    plan = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else parser_plan
+    uids = ((plan or {}).get("filters") or {}).get("uids") if isinstance(plan, dict) else None
+    text = user_query or ""
+    return [u for u in uids or [] if isinstance(u, str) and u
+            and not re.search(rf"(?<![\w.-]){re.escape(u)}(?![\w-])", text)]
+
+
 def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any = None,
           reporter_plan: Any = None, log_dir: str | None = None,
           send_event=None) -> dict[str, Any]:
     """Launch a fresh pipeline conversation.
 
-    ``parser_plan``/``reporter_plan`` are accepted for the reporter-branch caller
-    (orchestrator.py) but are unused — the wizard seeds from ``user_query`` + pinned
-    context only. The CC bridge (run_pipeline_launch) calls this with neither.
+    The wizard seeds from ``user_query``, the pinned results bundle, and the sample UIDs
+    ``parser_plan`` carried that the text does not name: a follow-up such as "yes, build it"
+    names no samples, and the parser copies the earlier turn's into ``filters.uids`` (dev
+    chat 0ddfba7a). ``reporter_plan`` is unused. The CC bridge (run_pipeline_launch) calls
+    this with neither.
     """
+    seed = user_query
     pinned = summarize_pinned_bundle(session)
-    seed = user_query if not pinned else f"{user_query}\n\n[context] {pinned}"
+    if pinned:
+        seed += f"\n\n[context] {pinned}"
+    carried = _carried_uids(parser_plan, user_query)
+    if carried:
+        seed += "\n\n[context] samples from the earlier turn: " + ", ".join(carried)
     state = {
         "active": True,
         "messages": [{"role": "user", "content": seed}],

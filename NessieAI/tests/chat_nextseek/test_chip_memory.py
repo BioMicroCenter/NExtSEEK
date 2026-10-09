@@ -142,3 +142,12 @@ def test_an_existing_chats_last_chip_shows_from_the_copy_kept_for_the_click(clic
         bundle.pop("suggestions", None)                       # as a bundle written before this change
     [turn] = _reloaded(session)
     assert turn["suggestions"] == live and "rerun" in session["pending_suggestions"]["items"][0]
+
+
+def test_the_wizard_adds_only_the_carried_samples_the_text_does_not_name(monkeypatch):
+    monkeypatch.setattr(pipeline_agent, "_run_loop", lambda session, config, **k: {"action": "ask", "reply": ""})
+    plan = ParserPlan(mode="reporter", filters={"uids": ["D.SEQ-250409KAM-2", "D.SEQ-250409KAM-20"]})
+    session: dict = {}
+    pipeline_agent.start(session, SimpleNamespace(), user_query="Build rnaseq for D.SEQ-250409KAM-20.", parser_plan=plan)
+    seed = session[pipeline_agent.PIPELINE_AGENT_KEY]["messages"][0]["content"]
+    assert seed.endswith("[context] samples from the earlier turn: D.SEQ-250409KAM-2")

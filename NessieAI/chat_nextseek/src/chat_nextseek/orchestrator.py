@@ -586,6 +586,35 @@ def _build_graph_refine_context(last_bundle: dict) -> str:
     )
 
 
+#: Leads the earlier search's context on a graph_query turn that refers back to it (``_followup_graph_context``).
+FOLLOWUP_GRAPH_LEAD = ("This question refers back to the previous answer. The set it points at is the one the "
+                       "earlier search below found: keep that search's filters for it, and change only what this "
+                       "question asks.\n")
+
+
+def _followup_graph_context(session, user_text: str) -> tuple[str, dict] | None:
+    """The earlier search, as a graph agent context, when a graph_query turn refers back to it; else None.
+
+    The parser can understand a follow-up ("those 351 nhps") and still call it a graph_query rather than a refine or
+    ask_about_last_results (prod chat d01fdd43). The graph agent sees neither the parser's notes nor the chat, so
+    without this it answers for every matching sample. "Refers back" is the router's own test
+    (``NessieAI.router.followup.followup_cue``); the earlier search is the newest stored result, carried as a refine
+    carries it (``_build_graph_refine_context``). Returns (context, debug record)."""
+    history = session.get("results_history") or []
+    last = history[-1] if history else None
+    if not isinstance(last, dict) or not last.get("user_query"):
+        return None
+    try:
+        from NessieAI.router.followup import followup_cue
+        cue = followup_cue(user_text)
+    except Exception as exc:  # the earlier search is help, never the reason a turn fails
+        print(f"[DEBUG][FOLLOWUP] could not check for a back-reference: {exc!r}")
+        return None
+    if not cue:
+        return None
+    return FOLLOWUP_GRAPH_LEAD + _build_graph_refine_context(last), {"cue": cue, "bundle_id": last.get("id")}
+
+
 #: The refine context of a follow-up query rebuilt from the stored query (``seed_mode``
 #: "stored_query"). The stored Cypher follows it on the next line.
 STORED_QUERY_REFINE_LEAD = "Start from this earlier query and add the new condition; keep every filter it has:\n"
@@ -2639,11 +2668,15 @@ def run_query(
         scope_notes: list[str] = []
         if mode == "graph_query":
             current_agent = "graph"
+            followup = _followup_graph_context(session, user_text)
+            if followup:
+                debug_payload["followup_context"] = followup[1]
             outcome = _execute_graph_turn(
                 config=config, session=session, user_text=user_text,
                 entity_result=entity_result, plan=plan, log_dir=log_dir,
                 artifact_store=artifact_store, send_event=send_event,
                 debug_payload=debug_payload, t_total_start=_t_total_start,
+                refine_context=followup[0] if followup else None,
                 note_agent=_note_agent, offer_suggestions=accepted_suggestion is None,
             )
             if not isinstance(outcome, GraphScopeFallback):
