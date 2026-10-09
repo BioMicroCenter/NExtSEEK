@@ -1786,6 +1786,8 @@ def _execute_graph_turn(
     suggestions = _suggestions_for(debug_payload.get("graph_review"), bundle_id) if offer_suggestions else []
     if suggestions:
         debug_payload["suggestions"] = [public_chip(chip) for chip in suggestions]
+        # Saved with the turn, so a reloaded chat shows the chip again (session_export.turn_rows).
+        bundle["suggestions"] = debug_payload["suggestions"]
 
     _on("chatter")
     send_event("agent_started", {"agent": "chatter", "mode": "graph_query"})

@@ -131,3 +131,14 @@ def test_the_wizard_starts_with_the_samples_the_parser_carried_over(monkeypatch)
                          parser_plan=plan)
     seed = session[pipeline_agent.PIPELINE_AGENT_KEY]["messages"][0]["content"]
     assert "D.SEQ-250409KAM-2" in seed and "D.SEQ-250409KAM-20" in seed
+
+
+def test_an_existing_chats_last_chip_shows_from_the_copy_kept_for_the_click(click_turn):  # noqa: F811
+    """A chat answered before chips were saved with their turn: its newest turn's chip comes from
+    pending_suggestions (operator, 2026-10-09: "Last turn too"), without the rerun."""
+    session: dict = {}
+    live = click_turn(session, RNA_Q).debug["suggestions"]
+    for bundle in session["results_history"]:
+        bundle.pop("suggestions", None)                       # as a bundle written before this change
+    [turn] = _reloaded(session)
+    assert turn["suggestions"] == live and "rerun" in session["pending_suggestions"]["items"][0]

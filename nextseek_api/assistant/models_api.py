@@ -156,6 +156,8 @@ class Turn(BaseModel):
     #: the NS progress events are ephemeral, so these are reconstructed on read.
     #: Entries are {agent, summary}; the frontend supplies the timestamp.
     debug_entries: Optional[List[Dict[str, Any]]] = None
+    #: The reviewer's chips the turn offered, as the live ``debug.suggestions`` carried them (no ``rerun``).
+    suggestions: Optional[List[Dict[str, Any]]] = None
 
     model_config = ConfigDict(extra="forbid")
 

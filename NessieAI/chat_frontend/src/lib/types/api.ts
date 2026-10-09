@@ -216,6 +216,8 @@ export interface Turn {
    * hydrate path stamps these with the turn's own `ts`.
    */
   debug_entries?: HydratedDebugEntry[];
+  /** The reviewer's chips (#128) the turn offered, saved with it. */
+  suggestions?: Suggestion[];
 }
 
 // A debug entry as it arrives from the server, before the client adds a Date.
