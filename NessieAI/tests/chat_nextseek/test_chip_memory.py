@@ -121,6 +121,19 @@ def test_a_self_contained_question_gets_no_earlier_query(click_turn):  # noqa: F
     assert second.calls.graph_agent == [None]
 
 
+def test_a_follow_up_after_a_container_cc_turn_gets_no_older_search(click_turn):  # noqa: F811
+    """A Container-CC turn writes a chat_log entry and no bundle: the newest bundle is then an older answer than the
+    one "those" points at (prod users 501, 502), so the graph agent is handed none."""
+    from chat_nextseek.chat_memory import CHAT_LOG_KEY, next_turn_id
+    session: dict = {}
+    click_turn(session, NHP_Q, question_cypher=NHP_CYPHER, parameters={})
+    log = session[CHAT_LOG_KEY]
+    log.append({"turn_id": next_turn_id(log), "user_query": "plot those by study", "mode": "container_cc",
+                "router_choice": "container_cc", "assistant_reply": "Here is the chart.", "bundle_id": None})
+    second = click_turn(session, NHP_FOLLOWUP, question_cypher=NHP_CYPHER, parameters={})
+    assert second.calls.graph_agent == [None] and "followup_context" not in second.debug
+
+
 def test_the_wizard_starts_with_the_samples_the_parser_carried_over(monkeypatch):
     """Dev chat 0ddfba7a turn 2: "Yes, build it me nf-core/rna-seq then". The parser copied turn 1's two UIDs into
     filters.uids; the wizard started from the new text alone and asked for samples."""

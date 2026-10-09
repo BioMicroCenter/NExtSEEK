@@ -599,10 +599,15 @@ def _followup_graph_context(session, user_text: str) -> tuple[str, dict] | None:
     ask_about_last_results (prod chat d01fdd43). The graph agent sees neither the parser's notes nor the chat, so
     without this it answers for every matching sample. "Refers back" is the router's own test
     (``NessieAI.router.followup.followup_cue``); the earlier search is the newest stored result, carried as a refine
-    carries it (``_build_graph_refine_context``). Returns (context, debug record)."""
+    carries it (``_build_graph_refine_context``), and only when it is the newest turn's: a Container-CC turn writes
+    no bundle, so after one the newest bundle is an older answer than the one the question points at. Returns
+    (context, debug record)."""
     history = session.get("results_history") or []
     last = history[-1] if history else None
-    if not isinstance(last, dict) or not last.get("user_query"):
+    log = session.get(CHAT_LOG_KEY) or []
+    newest = log[-1] if log and isinstance(log[-1], dict) else None
+    if not isinstance(last, dict) or not last.get("user_query") or newest is None \
+            or newest.get("bundle_id") != last.get("id"):
         return None
     try:
         from NessieAI.router.followup import followup_cue
