@@ -25,8 +25,8 @@ the graph_search proof of concept
 | Layer | When | Sees |
 |---|---|---|
 | Hooks | after every write NExtSEEK code makes | exactly what that writer changed: one outbox row, drained within seconds |
-| The nightly targeted sync (`--reconcile`) | 02:00 UTC | every sample whose content differs from what its node was written from, however it changed |
-| The weekly full sync (`--full`) | Sunday 03:00 UTC | everything, the graph-only nodes and the statistics included |
+| The nightly targeted sync (`--reconcile`) | 02:00 US Eastern (06:00Z summer, 07:00Z winter) | every sample whose content differs from what its node was written from, however it changed |
+| The weekly full sync (`--full`) | Sunday 03:00 US Eastern | everything, the graph-only nodes and the statistics included |
 
 A hook never calls Neo4j inside a request: it writes one row to `graph_sync_outbox` after its own commit and
 returns. The loop drains that row through the same functions the nightly and weekly syncs use, so there is one
@@ -124,7 +124,7 @@ connections only around a web request, so a connection MySQL dropped for idling 
 with "Server has gone away". Before this, the loop never recovered by itself: every pass failed with MySQL error 2006
 until the process was restarted. A child run also ends with the same refresh, since it can hold the loop for hours.
 
-| Cadence | When (UTC) | Fresh for |
+| Cadence | When (US Eastern) | Fresh for |
 |---|---|---|
 | `reconcile` | 02:00 daily | 26 hours |
 | `drift` | 02:30 daily | 26 hours (a run that ended `ok` or `drift`) |

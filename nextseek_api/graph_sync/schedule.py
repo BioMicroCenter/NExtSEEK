@@ -16,16 +16,30 @@ does and more; nothing satisfies a drift check but a drift check, which reads an
 boundary unmet and asks for one run, not one per day it missed: the sync that run performs reads everything that
 changed while the loop was down.
 
-Every time is UTC. A naive datetime is read as UTC, an aware one is converted, so a caller cannot shift the schedule
-by handing it a local clock.
+A cadence's hour and minute are US Eastern wall-clock time (America/New_York, DST-aware): 02:00 is 06:00Z in summer
+and 07:00Z in winter. Everything else is UTC: ``now``, the run records, and the boundary this module returns. A naive
+datetime is read as UTC, an aware one is converted, so a caller cannot shift the schedule by handing it a local clock.
+A time the clocks skip (spring forward, 02:00-03:00) still comes round once: it is read with the old offset, so it
+falls an hour later. A time they repeat (fall back, 01:00-02:00; none of these cadences sits there) would be its first
+occurrence. A daily slot key is the
+Eastern date of its boundary, a weekly one the ISO week of that Eastern date.
+
+A run counts toward a boundary up to ``_GRACE`` before it, so the night this schedule first runs, a last run at the
+old 02:00Z (22:00 or 21:00 Eastern the evening before) satisfies the 06:00Z/07:00Z boundary: no double run that day,
+no night skipped after it.
 """
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 UTC = timezone.utc
+EASTERN = ZoneInfo("America/New_York")
+# ponytail: 5 h is the widest gap between the old 02:00Z and the Eastern boundary (07:00Z); a hand run that early
+# also counts. Drop it once the first Eastern night has passed everywhere.
+_GRACE = timedelta(hours=5)
 
 MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY = range(7)   # as ``datetime.weekday()`` numbers them
 
@@ -50,7 +64,7 @@ class Cadence:
             raise ValueError(f"not a minute of the hour: {self.minute!r}")
 
 
-# The spec's schedule (R9): the nightly reconcile, the drift check half an hour behind it, the weekly full sync.
+# The spec's schedule (R9), in US Eastern time: the nightly reconcile, the drift check half an hour behind it, the weekly full sync.
 DEFAULT_CADENCES: tuple[Cadence, ...] = (
     Cadence("reconcile", None, 2, 0),
     Cadence("drift", None, 2, 30),
@@ -82,18 +96,23 @@ def _utc(when: datetime) -> datetime:
 
 
 def last_boundary(cadence: Cadence, now: datetime) -> datetime:
-    """The last time ``cadence`` came round at or before ``now``, in UTC.
+    """The last time ``cadence`` came round (Eastern wall-clock) at or before ``now``, in UTC.
 
     The whole span from one boundary to the next belongs to the earlier one, so a pass at any hour of the day asks
     for the slot that opened at the cadence's time.
     """
     now = _utc(now)
-    at = now.replace(hour=cadence.hour, minute=cadence.minute, second=0, microsecond=0)
+
+    def at(day) -> datetime:   # fold=0: a skipped time takes the old offset, a repeated one its first occurrence
+        return datetime(day.year, day.month, day.day, cadence.hour, cadence.minute, tzinfo=EASTERN).astimezone(UTC)
+
+    day = now.astimezone(EASTERN).date()
     if cadence.weekday is not None:
-        at -= timedelta(days=(at.weekday() - cadence.weekday) % 7)
-    if at > now:
-        at -= timedelta(days=1 if cadence.weekday is None else 7)
-    return at
+        day -= timedelta(days=(day.weekday() - cadence.weekday) % 7)
+    boundary = at(day)
+    if boundary > now:
+        boundary = at(day - timedelta(days=1 if cadence.weekday is None else 7))
+    return boundary
 
 
 def slot_key(cadence: Cadence, boundary: datetime) -> str:
@@ -102,17 +121,17 @@ def slot_key(cadence: Cadence, boundary: datetime) -> str:
     The ISO week is the boundary's own, so a Sunday belongs to the week that began the Monday before it, and the
     turn of the ISO year is not the turn of the calendar year.
     """
-    boundary = _utc(boundary)
+    local = _utc(boundary).astimezone(EASTERN).date()
     if cadence.weekday is None:
-        return f"slot:{boundary.date().isoformat()}"
-    iso_year, iso_week, _ = boundary.isocalendar()
+        return f"slot:{local.isoformat()}"
+    iso_year, iso_week, _ = local.isocalendar()
     return f"slot:{iso_year:04d}-W{iso_week:02d}"
 
 
 def _is_satisfied(kind: str, boundary: datetime, last_ok_started: Mapping[str, datetime | None]) -> bool:
     for other in satisfied_by(kind):
         started = last_ok_started.get(other)
-        if started is not None and _utc(started) >= boundary:
+        if started is not None and _utc(started) >= boundary - _GRACE:
             return True
     return False
 

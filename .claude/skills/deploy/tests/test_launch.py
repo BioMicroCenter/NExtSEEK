@@ -136,7 +136,7 @@ def test_stop_rules_exit_5_with_the_exact_problem(tmp_path, capsys, over_fn, nee
 @pytest.mark.parametrize("now,ok", [
     ("2026-09-26T05:00:00Z", False),   # inside the dump lock
     ("2026-09-26T03:50:00Z", False),   # would run into it
-    ("2026-09-26T01:20:00Z", False),   # would run into the graph sync
+    ("2026-09-26T01:20:00Z", True),    # the graph sync is 05:45Z-07:45Z now, inside the dump lock
     ("2026-09-26T12:05:00Z", True),
     ("2026-09-26T22:00:00Z", True),
 ])
@@ -147,6 +147,16 @@ def test_the_dev_time_windows(tmp_path, capsys, now, ok):
     assert (code == 0) is ok, out
     if not ok:
         assert code == 6 and "WINDOW" in out.err
+
+
+def test_the_graph_sync_window_covers_01_45_to_02_45_eastern_in_summer_and_winter():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    (w,) = [w for w in rules.INSTANCES["dev"].windows if "graph sync" in w.why]
+    for month in (1, 7):
+        for hm in ((1, 45), (2, 45)):
+            utc = datetime(2026, month, 15, *hm, tzinfo=ZoneInfo("America/New_York")).astimezone(ZoneInfo("UTC"))
+            assert w.start_utc <= (utc.hour, utc.minute) <= w.end_utc
 
 
 def test_prod_has_no_dev_windows(tmp_path, capsys):
@@ -428,7 +438,7 @@ def test_the_runner_renders_and_parses(tmp_path, capsys):
     assert 'COMPONENTS="app cc-agent"' in text          # rules order, not the brief's
     assert "--no-nessie" in text and "DO_NESSIE=0" in text and "DO_LABS=1" in text
     assert "test_route_is_reachable" in text            # the known dev CI reds
-    assert "0400-1200" in text and "0145-0245" in text  # the stop windows
+    assert "0400-1200" in text and "0545-0745" in text  # the stop windows
     assert "marker nextseek /app/NessieAI/cc/translate.py 'cost_by_price_table_usd'" in text
 
 

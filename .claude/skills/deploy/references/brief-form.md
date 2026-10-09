@@ -64,7 +64,7 @@ compose, migration or seed change the brief did not name).
 ## The window (exit 6)
 
 On dev nothing heavy may overlap 04:00Z-12:00Z (the hung nightly dump holds a table lock on every
-dmac table) or 01:45Z-02:45Z (the nightly graph sync). The script adds up the brief's steps
+dmac table) or 05:45Z-07:45Z (the nightly graph sync, 01:45-02:45 US Eastern). The script adds up the brief's steps
 (app 15 min, cc-agent 5, sidecar 3, proxy 3, collectstatic 1, labs 2, CI 13, Nessie 1.2 per case)
 and refuses a start whose run would touch either. It prints the next allowed start. The runner
 checks the clock again on the box, and `ssh --purpose start` checks it a third time.

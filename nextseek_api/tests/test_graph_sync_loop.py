@@ -28,9 +28,9 @@ from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
 DB = "neo4j"
 DRIVER = object()
 
-# A Tuesday at 04:00 UTC: past that day's reconcile boundary (02:00) and drift boundary (02:30), and past the
+# A Tuesday at 04:00 EDT (08:00Z): past that day's reconcile boundary (02:00 Eastern) and drift boundary (02:30), and past the
 # weekly full sync's, which was Sunday 2026-09-13 at 03:00, in ISO week 2026-W37.
-T0 = datetime(2026, 9, 15, 4, 0, tzinfo=dt_timezone.utc)
+T0 = datetime(2026, 9, 15, 8, 0, tzinfo=dt_timezone.utc)
 TODAY, THIS_WEEK = "slot:2026-09-15", "slot:2026-W37"
 
 

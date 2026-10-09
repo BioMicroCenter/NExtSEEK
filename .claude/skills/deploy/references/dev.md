@@ -10,7 +10,7 @@ Box facts as of 2026-09-25:
 | Containers | `nextseek`, `nextseek-nextseek_nginx-1`, `nextseek-sidecar`, `dmac-bedrock-proxy`, `neo4j`, `seek`, `seek-workers`, `seek-mysql`, `seek-solr` |
 | Ports on the box | app nginx `127.0.0.1:8000`, SEEK `127.0.0.1:3000` (`localhost:80` 404s and proves nothing) |
 | Data | TCGA (918,519 of 985,179 samples) plus one project, "Published Data". SEEK holds one institution, so labs are copied in (section 5). Corpus answer keys are PRODUCTION numbers |
-| Windows | 04:00Z-12:00Z the hung nightly dump holds LOCK TABLES READ on every dmac table (blocks logins, chat writes, CI); about 02:00Z the nightly graph sync. The brief, the runner and `ssh --purpose start` all refuse a heavy step that would touch either |
+| Windows | 04:00Z-12:00Z the hung nightly dump holds LOCK TABLES READ on every dmac table (blocks logins, chat writes, CI); 05:45Z-07:45Z the nightly graph sync (02:00 US Eastern). The brief, the runner and `ssh --purpose start` all refuse a heavy step that would touch either |
 
 ## 1. Transport
 
