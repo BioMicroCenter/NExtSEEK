@@ -1,5 +1,5 @@
 {
-  "fetched_at": "2026-10-03T04:13:15.645002+00:00",
+  "fetched_at": "2026-10-09T03:25:30.497400+00:00",
   "connections": [
     {
       "assay": "Agglutination Assay",
@@ -250,6 +250,11 @@
       "assay": "Cell Extraction",
       "parent_type": "TIS",
       "child_type": "CEX"
+    },
+    {
+      "assay": "Cell Imaging",
+      "parent_type": "AB",
+      "child_type": "D.IMG"
     },
     {
       "assay": "Cell Imaging",
@@ -708,6 +713,11 @@
     },
     {
       "assay": "Immunohistochemistry",
+      "parent_type": "AB",
+      "child_type": "D.IMG"
+    },
+    {
+      "assay": "Immunohistochemistry",
       "parent_type": "TIS",
       "child_type": "D.IMG"
     },
@@ -752,7 +762,7 @@
       "child_type": "RNA"
     },
     {
-      "assay": "Library Prep",
+      "assay": "Library Preparation",
       "parent_type": "DNA",
       "child_type": "DNA"
     },
@@ -907,16 +917,6 @@
       "child_type": "A.SPC"
     },
     {
-      "assay": "Microfluidic Device Creation",
-      "parent_type": "CEL",
-      "child_type": "CEL"
-    },
-    {
-      "assay": "Microfluidic Device Creation",
-      "parent_type": "CEL",
-      "child_type": "OOC"
-    },
-    {
       "assay": "Migration Assay Analysis",
       "parent_type": "D.IMG",
       "child_type": "A.MIGR"
@@ -928,6 +928,21 @@
     },
     {
       "assay": "Mutational Spectra Analysis",
+      "parent_type": "A.MUSP",
+      "child_type": "A.MUSP"
+    },
+    {
+      "assay": "Mutational Spectra Analysis",
+      "parent_type": "A.VCF",
+      "child_type": "A.MUSP"
+    },
+    {
+      "assay": "Mutational Spectra Analysis",
+      "parent_type": "A.VCF",
+      "child_type": "A.VCF"
+    },
+    {
+      "assay": "Mutational Spectra Analysis",
       "parent_type": "D.SEQ",
       "child_type": "A.ALN"
     },
@@ -935,21 +950,6 @@
       "assay": "Mutational Spectra Analysis",
       "parent_type": "D.SEQ",
       "child_type": "A.MUSP"
-    },
-    {
-      "assay": "Mutational Spectral Analysis",
-      "parent_type": "A.MUSP",
-      "child_type": "A.MUSP"
-    },
-    {
-      "assay": "Mutational Spectral Analysis",
-      "parent_type": "A.VCF",
-      "child_type": "A.MUSP"
-    },
-    {
-      "assay": "Mutational Spectral Analysis",
-      "parent_type": "A.VCF",
-      "child_type": "A.VCF"
     },
     {
       "assay": "Nuclear Magnetic Resonance Spectroscopy",
@@ -1160,6 +1160,11 @@
       "assay": "Single Cell Expression Analysis",
       "parent_type": "D.SEQ",
       "child_type": "A.ALN"
+    },
+    {
+      "assay": "Single Cell Expression Analysis",
+      "parent_type": "D.SEQ",
+      "child_type": "A.GEX"
     },
     {
       "assay": "Single Cell Expression Analysis",
