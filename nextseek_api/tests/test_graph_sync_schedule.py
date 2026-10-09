@@ -172,8 +172,14 @@ def test_a_run_of_the_kind_at_or_after_the_boundary_satisfies_the_slot():
 
 
 def test_a_run_that_started_before_the_boundary_leaves_the_slot_due():
-    last_ok = {"reconcile": et(2026, 9, 14, 20, 59, 59)}   # one second outside the five hour grace
+    last_ok = {"reconcile": et(2026, 9, 15, 1, 59, 59)}
     assert kinds_and_keys(schedule.due_slots((RECONCILE,), et(2026, 9, 15, 4, 0), last_ok)) == [
+        ("reconcile", "slot:2026-09-15")]
+
+
+def test_a_hand_run_the_evening_before_does_not_cancel_the_night_s_run():
+    last_ok = {"reconcile": et(2026, 9, 14, 22, 0)}
+    assert kinds_and_keys(schedule.due_slots((RECONCILE,), et(2026, 9, 15, 2, 0), last_ok)) == [
         ("reconcile", "slot:2026-09-15")]
 
 
@@ -297,18 +303,12 @@ def test_the_weekly_full_sync_is_sunday_3am_eastern_across_the_changes():
     assert schedule.slot_key(FULL, dt(2026, 11, 1, 8, 0)) == "slot:2026-W44"
 
 
-def test_the_night_the_eastern_schedule_deploys_neither_double_runs_nor_skips():
-    """The last run was at the old 02:00Z. Deployed on the evening before and the morning after, nothing is owed
-    until the first Eastern boundary, and then it is owed exactly once."""
-    old_run = {"reconcile": dt(2026, 9, 15, 2, 0), "drift": dt(2026, 9, 15, 2, 30), "full": dt(2026, 9, 13, 3, 0)}
-    # Deploy at 12:00Z on the 15th (08:00 EDT): the 06:00Z boundary of the 15th has passed; 02:00Z satisfies it.
-    assert schedule.due_slots(schedule.DEFAULT_CADENCES, dt(2026, 9, 15, 12, 0), old_run) == ()
-    # Deploy at 04:00Z on the 15th (00:00 EDT): the last boundary is the 14th's, also met; nothing owed.
-    assert schedule.due_slots(schedule.DEFAULT_CADENCES, dt(2026, 9, 15, 4, 0), old_run) == ()
-    # The next night: the 16th's boundary (06:00Z) is owed, once.
-    due = schedule.due_slots((RECONCILE,), dt(2026, 9, 16, 6, 0), old_run)
-    assert kinds_and_keys(due) == [("reconcile", "slot:2026-09-16")]
-    # Winter, same thing: old 02:00Z run satisfies the 07:00Z boundary.
-    assert schedule.due_slots((RECONCILE,), dt(2027, 1, 15, 12, 0), {"reconcile": dt(2027, 1, 15, 2, 0)}) == ()
-    assert kinds_and_keys(schedule.due_slots((RECONCILE,), dt(2027, 1, 16, 7, 0), {"reconcile": dt(2027, 1, 15, 2, 0)})) \
-        == [("reconcile", "slot:2027-01-16")]
+@pytest.mark.parametrize("now, old_keys", [
+    (dt(2026, 9, 20, 12, 0), {"reconcile": "slot:2026-09-20", "drift": "slot:2026-09-20", "full": "slot:2026-W38"}),
+    (dt(2027, 1, 10, 12, 0), {"reconcile": "slot:2027-01-10", "drift": "slot:2027-01-10", "full": "slot:2027-W01"}),
+])
+def test_a_day_s_eastern_slot_has_the_key_the_utc_schedule_gave_that_day(now, old_keys):
+    """The outbox keeps a done row's key, so the old 02:00Z run's row stops the same day's Eastern slot from running
+    again the day the change deploys (the loop test proves it on real rows)."""
+    for cadence in schedule.DEFAULT_CADENCES:
+        assert schedule.slot_key(cadence, schedule.last_boundary(cadence, now)) == old_keys[cadence.kind]

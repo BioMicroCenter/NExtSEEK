@@ -130,6 +130,24 @@ def test_a_drift_check_that_found_drift_still_satisfies_its_slot(work):
 
 
 @pytest.mark.django_db
+def test_the_day_the_eastern_schedule_deploys_the_old_utc_runs_are_not_repeated(work):
+    """The old schedule ran this day's reconcile and drift at 02:00Z/02:30Z and the week's full sync on Sunday 03:00Z,
+    each before its Eastern boundary. Their done rows hold the keys the Eastern slots get, so nothing runs again."""
+    old = {("reconcile", TODAY): datetime(2026, 9, 15, 2, 0, tzinfo=dt_timezone.utc),
+           ("drift", TODAY): datetime(2026, 9, 15, 2, 30, tzinfo=dt_timezone.utc),
+           ("full", THIS_WEEK): datetime(2026, 9, 13, 3, 0, tzinfo=dt_timezone.utc)}
+    for (kind, key), started in old.items():
+        GraphSyncOutbox.objects.create(kind=kind, key=key, enqueued_at=started, done_at=started + timedelta(minutes=5))
+        GraphSyncRun.objects.create(kind=kind, started_at=started, finished_at=started + timedelta(minutes=5),
+                                    status="ok", counts_json={"trigger": "loop"})
+
+    report = one_pass(work)
+
+    assert report["slots_enqueued"] == [] and modes(work) == []
+    assert GraphSyncOutbox.objects.count() == 3
+
+
+@pytest.mark.django_db
 def test_a_slot_already_in_the_outbox_is_left_exactly_as_it_is(work):
     state.enqueue("reconcile", TODAY, now=before(minutes=90))
     claim = state.claim_next("other", now=before(minutes=30))

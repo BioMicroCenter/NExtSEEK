@@ -21,12 +21,10 @@ and 07:00Z in winter. Everything else is UTC: ``now``, the run records, and the 
 datetime is read as UTC, an aware one is converted, so a caller cannot shift the schedule by handing it a local clock.
 A time the clocks skip (spring forward, 02:00-03:00) still comes round once: it is read with the old offset, so it
 falls an hour later. A time they repeat (fall back, 01:00-02:00; none of these cadences sits there) would be its first
-occurrence. A daily slot key is the
-Eastern date of its boundary, a weekly one the ISO week of that Eastern date.
+occurrence. A daily slot key is the Eastern date of its boundary, a weekly one the ISO week of that Eastern date.
 
-A run counts toward a boundary up to ``_GRACE`` before it, so the night this schedule first runs, a last run at the
-old 02:00Z (22:00 or 21:00 Eastern the evening before) satisfies the 06:00Z/07:00Z boundary: no double run that day,
-no night skipped after it.
+The move from UTC needs nothing of its own: a day's Eastern slot has the key the UTC schedule gave that day, and the
+outbox keeps a done row's key, so the old 02:00Z run's row stops the same day's Eastern slot from running again.
 """
 from __future__ import annotations
 
@@ -37,9 +35,6 @@ from zoneinfo import ZoneInfo
 
 UTC = timezone.utc
 EASTERN = ZoneInfo("America/New_York")
-# ponytail: 5 h is the widest gap between the old 02:00Z and the Eastern boundary (07:00Z); a hand run that early
-# also counts. Drop it once the first Eastern night has passed everywhere.
-_GRACE = timedelta(hours=5)
 
 MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY = range(7)   # as ``datetime.weekday()`` numbers them
 
@@ -131,7 +126,7 @@ def slot_key(cadence: Cadence, boundary: datetime) -> str:
 def _is_satisfied(kind: str, boundary: datetime, last_ok_started: Mapping[str, datetime | None]) -> bool:
     for other in satisfied_by(kind):
         started = last_ok_started.get(other)
-        if started is not None and _utc(started) >= boundary - _GRACE:
+        if started is not None and _utc(started) >= boundary:
             return True
     return False
 
