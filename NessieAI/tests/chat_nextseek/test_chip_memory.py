@@ -47,6 +47,12 @@ def test_a_literal_term_list_is_read_too():
     assert [term for _v, _t, term in _free_text_terms(cy, {})] == ["rna-seq", "rnaseq"]
 
 
+def test_a_term_list_over_a_named_field_is_a_contains_filter():
+    from chat_nextseek.graph_review import _contains_filters
+    cy = "MATCH (s:T_A_ALN) WHERE any(t IN $kinds WHERE toLower(s.DataType) CONTAINS t) RETURN count(s)"
+    assert _contains_filters(cy, {"kinds": ["RNA-Seq", 7]}) == [("s", "DataType", "rna-seq")]
+
+
 def test_the_list_form_offers_only_rna_seq():
     rv = review_tier1(_inp(_qt1917(), reply=False), _catalog(_qt1917()))
     assert _check(rv, "unapplied_value").fired, rv.checks

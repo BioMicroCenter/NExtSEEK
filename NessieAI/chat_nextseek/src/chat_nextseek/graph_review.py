@@ -365,9 +365,31 @@ def _resolve(tok: str, params: dict) -> str | None:
     return None
 
 
-def _contains_filters(cy: str, params: dict) -> list[tuple[str, str, str]]:
-    """[(var, attr, term)] for every ``...var.attr...) CONTAINS term`` and the ``any(v IN [s.a, s.b] ...)`` form."""
+def _list_terms(cy: str, params: dict) -> list[tuple[str, str, str, str]]:
+    """[(var, attr, the list as written, term)] for every ``any(t IN $terms WHERE ...var.attr...) CONTAINS t)``: one
+    term per item of the list, a ``$param`` or a literal ``['a', 'b']`` (dev QueryTask 1917 wrote RNA-Seq this way)."""
     out = []
+    for m in re.finditer(r"any\(\s*(\w+)\s+IN\s+(\$\w+|\[[^\]]*\])\s+WHERE\b", cy):
+        loop, tok = m.group(1), m.group(2)
+        depth, end = 1, m.end()
+        while end < len(cy) and depth:      # the body runs to the paren that closes ``any(``
+            depth += {"(": 1, ")": -1}.get(cy[end], 0)
+            end += 1
+        if tok.startswith("$"):
+            items = params.get(tok[1:])
+            items = [i for i in items if isinstance(i, str)] if isinstance(items, list) else []
+        else:
+            items = re.findall(r"'([^']*)'", tok)
+        for var, attr in re.findall(r"(\w+)\.(\w+)\s*\)*\s+CONTAINS\s+(?:toLower\(\s*)?(?:trim\(\s*)?" + re.escape(loop)
+                                    + r"\b", cy[m.end():end]):
+            out += [(var, attr, tok, i.lower()) for i in items if i]
+    return out
+
+
+def _contains_filters(cy: str, params: dict) -> list[tuple[str, str, str]]:
+    """[(var, attr, term)] for every ``...var.attr...) CONTAINS term``, the ``any(v IN [s.a, s.b] ...)`` form and a
+    list of terms (``_list_terms``)."""
+    out = [(var, attr, term) for var, attr, _tok, term in _list_terms(cy, params)]
     for var, attr, tok in re.findall(r"(\w+)\.(\w+)\s*\)*\s+CONTAINS\s+" + TERM, cy):
         term = _resolve(tok, params)
         if term:
@@ -398,8 +420,9 @@ def _excluded_terms(cy: str, params: dict) -> set[tuple[str, str, str]]:
 
 
 def _free_text_terms(cy: str, params: dict) -> list[tuple[str, str, str]]:
-    """[(var, the term as written, term)] for every ``var.search_text CONTAINS term``."""
-    out = []
+    """[(var, the term as written, term)] for every ``var.search_text CONTAINS term``, a list of terms included (the
+    list as written, once per item: ``_list_terms``)."""
+    out = [(var, tok, term) for var, attr, tok, term in _list_terms(cy, params) if attr == "search_text"]
     for var, attr, tok in re.findall(r"(\w+)\.(\w+)\s*\)*\s+CONTAINS\s+" + TERM, cy):
         term = _resolve(tok, params)
         if attr == "search_text" and term:
