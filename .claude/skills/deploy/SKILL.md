@@ -78,7 +78,8 @@ but produces a loud banner and red doctor check. Do not bypass this with raw
 7. Paid/live lanes (`RUN_REALSTACK=1`, `-k realstack`) require explicit
    per-run owner approval. Free lanes and the §6 checklist do not.
 8. Do not prune images/tags/volumes without per-item owner approval:
-   rollback tags are backups.
+   rollback tags are backups. The `clean_up` skill is how to ask: it names each item and
+   runs only on the owner's go.
 
 After any deploy: run the DEPLOYMENT.md §6 checklist end-to-end and report
 the results honestly, including anything skipped.
