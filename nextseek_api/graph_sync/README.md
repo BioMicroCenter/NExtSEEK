@@ -218,7 +218,9 @@ dry run's approval line is not empty: its approval, the merge, `--studies` again
 the samples that merge took off a paper), and another merge dry run. Turn the switch on only when a merge dry run's
 approval line is empty: with `follow`, gate G's `12.studies.merge_candidates` fails on any id the merge would still
 act on, and so does every later drift check and rebuild. While the switch is off, family
-`12.studies` fails only on two Study nodes sharing a `seek_study_id`, so it stays green on a box that has not merged.
+`12.studies` fails only on two Study nodes sharing a `seek_study_id`, or on the node of a study SEEK deleted that
+nothing holds (`nodes_not_in_seek_empty`: the small tables delete those every run), so it stays green on a box that
+has not merged.
 To roll back once it is on, turn it off first (remove the line or set `add`, and recreate the container), then run
 `--unmerge-studies`.
 

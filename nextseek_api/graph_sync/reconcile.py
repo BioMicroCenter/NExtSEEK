@@ -328,7 +328,11 @@ def _reconcile(driver, db, report: dict, opts: _Options, now: datetime | None = 
             return
     if not _new_parents(driver, db, report, opts, found, ids):
         return
-    _study_links(driver, db, report, opts)
+    if not _study_links(driver, db, report, opts) or opts.dry_run:
+        return
+    # A study's node the sample steps or the IN_STUDY rebuild just emptied goes tonight, not at the next run (the
+    # small tables deleted the ones already empty in step 2), so the drift after the reconcile reads none.
+    _step(report, "seek_studies_gone_after_links", targeted.sync_gone_study_nodes, driver, db, run_dir=opts.run_dir)
 
 
 # --- the entry point -----------------------------------------------------------------------------

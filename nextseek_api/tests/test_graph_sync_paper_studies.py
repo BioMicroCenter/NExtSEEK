@@ -131,8 +131,8 @@ def test_an_empty_paper_node_is_archived_then_deleted_one_holding_links_is_kept(
 
 
 def test_a_seek_keyed_node_is_never_deleted_even_when_empty(graph, tmp_path):
-    """Study nodes of SEEK studies are not deleted yet (operator ruling of 2026-09-30): a node keyed only by
-    seek_study_id never matches, whatever ids are named."""
+    """The paper-node delete never takes a SEEK study's node (the small tables own that one,
+    writer.delete_gone_seek_study_nodes): a node keyed only by seek_study_id never matches, whatever ids are named."""
     report = paper_studies.delete_empty_paper_study_nodes(graph, DB, [500, 501],
                                                     archive_path=tmp_path / paper_studies.STUDY_NODES_REMOVED_FILE)
     assert report == {"study_nodes_empty": 0, "study_nodes_deleted": 0}

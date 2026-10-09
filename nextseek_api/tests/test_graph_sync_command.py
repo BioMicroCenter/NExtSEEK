@@ -594,7 +594,7 @@ class GraphWorld:
         if query == q.GRAPH_MEMBER_OF:
             return [{"person_id": m["person_id"], "project_id": m["project_id"], "has_left": m["has_left"]}
                     for m in MEMBERSHIPS]
-        if query in (q.STUDY_NODES, q.STUDY_SEEK_ID_DUPLICATES, q.SAMPLE_STUDIES_PAGE):
+        if query in (q.STUDY_NODES, q.STUDY_SEEK_ID_DUPLICATES, q.SAMPLE_STUDIES_PAGE, q.SEEK_STUDY_NODES_GONE):
             return []
         if query == q.ORPHAN_IN_STUDY:
             return [{"n": 0}]

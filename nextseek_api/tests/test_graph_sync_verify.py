@@ -254,7 +254,7 @@ class GateWorld:
             return [{"n": len(self.t_labelled)}]
         if query == verify.T_LABEL_WITHOUT_SAMPLE_EXAMPLES:
             return self.t_labelled[:params["limit"]]
-        if query in (q.STUDY_NODES, q.STUDY_SEEK_ID_DUPLICATES, q.SAMPLE_STUDIES_PAGE):
+        if query in (q.STUDY_NODES, q.STUDY_SEEK_ID_DUPLICATES, q.SAMPLE_STUDIES_PAGE, q.SEEK_STUDY_NODES_GONE):
             return []
         if query == q.IN_PROJECT_DEGREES:
             degrees = Counter(p for n in nodes.values() for p in set(n["props"]["project_ids"]))

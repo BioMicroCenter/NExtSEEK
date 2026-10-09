@@ -67,7 +67,7 @@ def test_rollback_undoes_the_run_in_reverse(undo_env):
     assert outbox_of(undo_env.engine)[-1] == ("samples", "batch:studies:run-1:undo:1", [2, 3])
     keys = {(r.kind, r.key) for r in GraphSyncOutbox.objects.all()}
     assert ("samples", "batch:studies:run-1:undo:pubs:0") in keys and ("isa", "*") in keys
-    # the live labels are checked first; study 100's node stays: Study nodes are not deleted
+    # the live labels are checked first; study 100's node is left to the small tables (it goes once nothing holds it)
     assert undo_env.calls == [("preview", [2, 3]), ("sync", [2, 3], True)]
     parts = [json.loads(l)["part"] for l in (run_dir / JOURNAL_FILE).read_text().splitlines()
              if json.loads(l)["step"] == "undo" and json.loads(l)["event"] == "done"]

@@ -1082,6 +1082,16 @@ def _small_tables(driver, db, ctx: _Context) -> dict:
     return report
 
 
+def sync_gone_study_nodes(driver, db, *, lock_timeout_s: float = LOCK_WAIT_S, run_dir: str | None = None) -> dict:
+    """Archive, then delete, the node of every study SEEK deleted that nothing but derived edges holds
+    (``writer.delete_gone_seek_study_nodes``), as one write unit. The small tables do it first; the reconcile runs it
+    again after its IN_STUDY rebuild, so a node the sample steps or that rebuild just emptied goes the same night."""
+    ctx = _Context(run_dir)
+    return _guarded(driver, db, lock_timeout_s, lambda: {
+        "status": OK, **writer.delete_gone_seek_study_nodes(driver, db, [s["id"] for s in sources.studies()],
+                                                            ctx.archive(writer.STUDIES_DELETED_FILE))})
+
+
 def sync_small_tables(driver, db, *, lock_timeout_s: float = LOCK_WAIT_S, run_dir: str | None = None) -> dict:
     """Rewrite the small tables from MySQL: Project nodes (a project gone from MySQL is deleted), Investigation nodes
     and their IN_PROJECT, Person nodes and MEMBER_OF, and the node of every SEEK study (made when missing) with SEEK's

@@ -376,7 +376,8 @@ def test_full_sync_runs_its_steps_in_order(world, monkeypatch, tmp_path, lock):
         "write_people_and_memberships", "delete_gone_seek_study_nodes", "write_investigation_projects",
         "write_samples", "write_samples",
         "write_missing_lineage", "archive_and_drop_undeclared_derived_from", "write_edge_labels",
-        "rebuild_in_study", "write_assays", "replace_assay_catalog_edges", "sample_ids_with_assay_edges",
+        "rebuild_in_study", "delete_gone_seek_study_nodes", "write_assays", "replace_assay_catalog_edges",
+        "sample_ids_with_assay_edges",
         "replace_sample_assay_edges", "replace_assay_runs", "delete_gone_assays",
         "write_attributes", "write_attribute_counts", "write_sample_type_counts",
         "ensure_index_budget", "ensure_fulltext", "await_indexes", "write_graphmeta"]
@@ -1078,11 +1079,11 @@ def test_the_sample_types_and_investigations_steps_archive_what_they_delete_in_t
     _full(graph, tmp_path)
     (types,) = writers.of("write_sample_types")
     (invs,) = writers.of("write_investigation_projects")
-    (studies,) = writers.of("delete_gone_seek_study_nodes")
+    first, after_links = writers.of("delete_gone_seek_study_nodes")   # before the investigations, after IN_STUDY
     assert types.kwargs == {"archive_path": str(tmp_path / writer.SAMPLE_TYPES_DELETED_FILE)}
     assert invs.kwargs == {"archive_path": str(tmp_path / writer.INVESTIGATIONS_DELETED_FILE),
                            "seek_study_ids": [7, 8, 9]}
-    assert studies.args[2:] == ([7, 8, 9], str(tmp_path / writer.STUDIES_DELETED_FILE))
+    assert first.args[2:] == after_links.args[2:] == ([7, 8, 9], str(tmp_path / writer.STUDIES_DELETED_FILE))
 
 
 def test_the_rekey_statements_keep_id_and_read_an_empty_doi_as_no_paper():

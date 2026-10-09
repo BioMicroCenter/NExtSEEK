@@ -915,9 +915,9 @@ def _check_assays(driver, db, st, mysql: _MySQLSide, assays: dict, sampled: dict
 
 def _check_studies(driver, db, checks: list, stats: dict) -> None:
     """Family 12: the Study layer follows SEEK (docs/neo4j-schema.md, v1.2 "Study nodes and IN_STUDY"). The duplicate
-    check always expects 0; the checks of ``STUDY_CHECKS_ENFORCED_WHEN_FOLLOWING`` expect 0 only where the box's
-    switch says ``follow`` and report otherwise, so a box rebuilt before its merge keeps a green drift check; the
-    rest always report. Reads only."""
+    check and ``nodes_not_in_seek_empty`` always expect 0; the checks of ``STUDY_CHECKS_ENFORCED_WHEN_FOLLOWING``
+    expect 0 only where the box's switch says ``follow`` and report otherwise, so a box rebuilt before its merge keeps
+    a green drift check; the rest always report. Reads only."""
     follow = study_links.follows_seek()
     index = study_merge.read_index(driver, db)
     selections = [study_merge.classify(index, x) for x in study_merge.study_ids(index)]
@@ -926,7 +926,12 @@ def _check_studies(driver, db, checks: list, stats: dict) -> None:
              and s.legacy.in_study > 0 and s.seek_keyed is not None and s.seek_keyed.in_study > 0]
     candidates = [s.study_id for s in selections if s.kind in study_merge.ACTING]
     collisions = [s.study_id for s in selections if s.kind == study_merge.ID_COLLISION]
-    differ, not_in_seek, not_in_seek_empty = [], [], []
+    differ = []
+    # The nodes of studies SEEK lacks, split by the writer's own read: delete_gone_seek_study_nodes deletes the empty
+    # ones every run, so one left is a failure; the others are held (an IN_STUDY above all) and reported.
+    gone = _records(_run(driver, db, q.SEEK_STUDY_NODES_GONE, {"study_ids": sorted(index.seek_studies)}, read=True))
+    not_in_seek_empty = sorted(g["seek_study_id"] for g in gone if g["empty"])
+    not_in_seek = sorted(g["seek_study_id"] for g in gone if not g["empty"])
     keyed = {node.seek_study_id for node in index.nodes if _is_id(node.seek_study_id)}
     without_node = sorted(x for x in index.seek_studies if x not in keyed)
     for node in index.nodes:
@@ -935,11 +940,6 @@ def _check_studies(driver, db, checks: list, stats: dict) -> None:
             continue
         seek = index.seek_studies.get(key)
         if seek is None:
-            # writer.delete_gone_seek_study_nodes deletes the empty ones every run: only IN_INVESTIGATION and RUN_IN
-            # left on a node with no `id` (cypher._SEEK_STUDY_NODE_EMPTY).
-            empty = (node.id is None and node.in_study == 0
-                     and all(t == "RUN_IN" for t in node.other_relationships))
-            (not_in_seek_empty if empty else not_in_seek).append(key)
             continue
         wanted_inv = [] if seek.get("investigation_id") is None else [seek["investigation_id"]]
         if (node.title != seek.get("title")

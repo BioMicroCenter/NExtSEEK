@@ -732,7 +732,8 @@ RETURN count(DISTINCT x) AS restored
 """
 # Re-create archived IN_STUDY links: rows are {sample_id, study_id, seek_study_id} as in_study_removed.tsv holds
 # them. A Study is found by id when the archive names one, else by seek_study_id on a node with no id; a sample or a
-# Study that is gone restores nothing. The count is of rows that found their link's two ends, not of MERGE's rows.
+# Study that is gone restores nothing (the node of a study SEEK deleted goes with SEEK_STUDY_NODES_GONE, and follow
+# mode would remove such a link again). The count is of rows that found their link's two ends, not of MERGE's rows.
 RESTORE_IN_STUDY = """
 UNWIND $rows AS r
 MATCH (s:Sample {id: r.sample_id})
@@ -781,8 +782,8 @@ DELETE e
 RETURN count(*) AS deleted
 """
 # Graph-only paper Study nodes (an `id`, no `seek_study_id`) that hold no IN_STUDY and nothing but their
-# IN_INVESTIGATION, each with what restoring it needs. A SEEK study's node is never one of them: Study nodes of SEEK
-# studies are not deleted (the studies release).
+# IN_INVESTIGATION, each with what restoring it needs. A SEEK study's node is never one of them: the small tables
+# delete that one once SEEK has deleted its study (SEEK_STUDY_NODES_GONE).
 EMPTY_PAPER_STUDY_NODES = """
 UNWIND $ids AS id
 MATCH (st:Study {id: id})

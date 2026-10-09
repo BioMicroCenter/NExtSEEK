@@ -887,6 +887,13 @@ def rekey_seek_studies(driver, db, plan: dict) -> dict:
     return {"studies_rekeyed": moved, "study_ids_left_keyed_by_id": _cap(plan["left_ids"])}
 
 
+def _gone_after_links(driver, db, seek_study_ids, archive_path: str) -> dict:
+    """``writer.delete_gone_seek_study_nodes`` after the SEEK studies step, its counts under their own names so the
+    report keeps the first call's."""
+    out = writer.delete_gone_seek_study_nodes(driver, db, seek_study_ids, archive_path)
+    return {f"{key}_after_links": value for key, value in out.items()}
+
+
 def _seek_studies(driver, db, run_dir: str) -> dict:
     """The SEEK studies step: ``study_links.rebuild_in_study`` inside the full sync's own hold of the lock, removal
     as the box's switch says, archived in the run directory. It checks no schema version: GraphMeta is written last."""
@@ -1120,12 +1127,13 @@ def _write(driver, db, chunk: int, run_dir: str, bench_keys, state_: _Preflight,
     _step(report, "attributes_declared", writer.write_attributes, driver, db, cat.attributes)
     _step(report, "projects", writer.write_projects, driver, db, sources.projects())
     _step(report, "people", writer.write_people_and_memberships, driver, db, sources.memberships())
+    seek_study_ids = [s["id"] for s in sources.studies()]
+    studies_archive = os.path.join(run_dir, writer.STUDIES_DELETED_FILE)
     # Before the investigations, so a deleted node's archive line still names its Investigation (as the small tables).
-    _step(report, "seek_studies_gone", writer.delete_gone_seek_study_nodes, driver, db,
-          [s["id"] for s in sources.studies()], os.path.join(run_dir, writer.STUDIES_DELETED_FILE))
+    _step(report, "seek_studies_gone", writer.delete_gone_seek_study_nodes, driver, db, seek_study_ids, studies_archive)
     _step(report, "investigations", writer.write_investigation_projects, driver, db, sources.investigations(),
           sources.investigation_projects(), archive_path=os.path.join(run_dir, writer.INVESTIGATIONS_DELETED_FILE),
-          seek_study_ids=[s["id"] for s in sources.studies()])
+          seek_study_ids=seek_study_ids)
 
     label_sources = _timed(report, "read_label_maps", LabelSources.read)
     label_maps_hash = label_sources.maps_hash()
@@ -1157,6 +1165,8 @@ def _write(driver, db, chunk: int, run_dir: str, bench_keys, state_: _Preflight,
     plan = _timed(report, "study_rekey_plan", _study_rekey_plan, driver, db)
     _step(report, "study_rekey", rekey_seek_studies, driver, db, plan)
     _step(report, "seek_studies", _seek_studies, driver, db, run_dir)
+    # Again after the IN_STUDY rebuild: a node it just emptied goes in this run, its counts kept apart.
+    _step(report, "seek_studies_gone_after_links", _gone_after_links, driver, db, seek_study_ids, studies_archive)
     roles = role_holder.pop() if role_holder else RoleCodes(assay_state.internal_by_seek)
     _step(report, "assays", assay_layer, driver, db, assay_state, runs=False, delete_gone=False)
     _step(report, "sample_assay_edges", write_sample_assay_edges, driver, db, roles, chunk)

@@ -72,7 +72,7 @@ def steps(monkeypatch):
     """
     rec = SimpleNamespace(calls=[], detection=_detection(), naming=[],
                           catalog=None, small=None, relabel=None, sync=None, retire=None, study_links=None,
-                          assays=None)
+                          studies_gone=None, assays=None)
 
     def catalog_sync(driver, db, dry_run=False, *, record=True, trigger="command", run_dir=None, **kwargs):
         rec.calls.append(SimpleNamespace(name="catalog", dry_run=dry_run, record=record, trigger=trigger,
@@ -117,7 +117,13 @@ def steps(monkeypatch):
                                          lock=lock))
         return _answer(rec.study_links, {"status": "ok", "in_study_added": 0, "in_study_removed": 0})
 
+    def sync_gone_study_nodes(driver, db, *, run_dir=None, **kwargs):
+        rec.calls.append(SimpleNamespace(name="studies_gone", run_dir=run_dir))
+        return _answer(rec.studies_gone, {"status": "ok", "seek_study_nodes_deleted": 0,
+                                          "seek_study_nodes_not_in_seek_held": 0})
+
     monkeypatch.setattr(study_links, "rebuild_in_study", rebuild_in_study)
+    monkeypatch.setattr(targeted, "sync_gone_study_nodes", sync_gone_study_nodes)
     monkeypatch.setattr(run, "catalog_sync", catalog_sync)
     monkeypatch.setattr(run, "build_catalog", build_catalog)
     monkeypatch.setattr(targeted, "sync_small_tables", sync_small_tables)
@@ -154,11 +160,11 @@ def test_runs_every_step_in_the_designs_order(steps, tmp_path):
 
     assert result["status"] == "ok"
     assert _names(steps) == ["catalog", "small_tables", "relabel", "assays", "build_catalog", "detect",
-                             "sync_samples", "retire", "samples_naming", "sync_samples", "study_links"]
+                             "sync_samples", "retire", "samples_naming", "sync_samples", "study_links", "studies_gone"]
     assert result["mode"] == "reconcile"
     assert result["schema_version"] == writer.SCHEMA_VERSION == schema.SCHEMA_VERSION
     assert set(result["steps"]) == {"catalog", "small_tables", "relabel", "assays", "samples", "retire",
-                                    "new_parents", "study_links"}
+                                    "new_parents", "study_links", "seek_studies_gone_after_links"}
     assert result["timings_s"]["detection"] >= 0
 
 
@@ -314,7 +320,8 @@ def test_the_study_links_step_runs_last_with_the_switch_and_the_lock_per_chunk(s
     result = _reconcile(tmp_path, run_dir=run_dir)
 
     assert result["status"] == "ok"
-    assert _names(steps)[-1] == "study_links"
+    assert _names(steps)[-2:] == ["study_links", "studies_gone"]   # the gone nodes the links step emptied go too
+    assert _one(steps, "studies_gone").run_dir == os.path.abspath(run_dir)
     call = _one(steps, "study_links")
     assert (call.remove, call.run_dir, call.lock, call.dry_run) == (remove, os.path.abspath(run_dir), "chunk", False)
     assert "study_links" in result["timings_s"]
@@ -349,7 +356,7 @@ def test_a_samples_step_that_left_structural_gaps_does_not_stop_the_run(steps, t
     result = _reconcile(tmp_path)
     assert result["status"] == "ok"
     assert result["steps"]["samples"]["structural_gaps"] == 1
-    assert _names(steps)[-2:] == ["retire", "study_links"]
+    assert _names(steps)[-3:] == ["retire", "study_links", "studies_gone"]
 
 
 # --- dry runs ------------------------------------------------------------------------------------
@@ -431,7 +438,7 @@ def test_a_catalog_refused_only_for_title_conflicts_retires_then_tries_once_more
     assert "problems" not in result and "stopped_at" not in result
     assert result["catalog_retried"] == [_CONFLICT]
     assert _names(steps) == ["catalog", "small_tables", "relabel", "assays", "build_catalog", "detect", "retire",
-                             "catalog", "sync_samples", "study_links"]
+                             "catalog", "sync_samples", "study_links", "studies_gone"]
     assert _one(steps, "retire").ids == [3, 9] and _one(steps, "sync_samples").ids == [11]
     assert set(result["steps"]) >= {"small_tables", "relabel", "retire", "catalog_retry", "samples", "study_links"}
 
@@ -507,6 +514,9 @@ def test_a_catalog_step_that_found_the_lock_busy_is_a_lock_timeout_not_a_refusal
     ("sync", "samples", ["catalog", "small_tables", "relabel", "assays", "build_catalog", "detect", "sync_samples"]),
     ("study_links", "study_links", ["catalog", "small_tables", "relabel", "assays", "build_catalog", "detect",
                                     "sync_samples", "retire", "samples_naming", "study_links"]),
+    ("studies_gone", "seek_studies_gone_after_links",
+     ["catalog", "small_tables", "relabel", "assays", "build_catalog", "detect", "sync_samples", "retire",
+      "samples_naming", "study_links", "studies_gone"]),
 ])
 def test_a_step_that_cannot_take_the_lock_stops_the_run(steps, tmp_path, field, stopped, ran):
     steps.detection = _detection(changed=[11], extra=[9], new_uuids=["a-1"])

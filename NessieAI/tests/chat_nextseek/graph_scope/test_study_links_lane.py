@@ -470,6 +470,29 @@ def test_the_node_of_a_study_seek_deleted_goes_only_when_nothing_else_holds_it(s
     assert len(studies_lane.read(q.SEEK_STUDY_NODES_GONE, {"study_ids": [6]})) == 2
 
 
+def test_the_delete_keeps_a_node_any_other_relationship_holds_and_rechecks_before_it_deletes(studies_lane, tmp_path):
+    """A gone SEEK study's node held by a relationship that is not IN_STUDY stays; a node that qualified when read but
+    gained a link before the delete stays too (the delete re-checks per node); and gate G's read, the same
+    SEEK_STUDY_NODES_GONE, agrees with what the writer did."""
+    from nextseek_api.graph_sync import cypher as q
+    from nextseek_api.graph_sync import writer
+    _load(studies_lane, [
+        "CREATE (inv:Investigation {id: 16, title: 'Copy'}), "
+        "(:Thing {k: 1})-[:POINTS_AT]->(:Study {seek_study_id: 20, title: 'Held by something else'}), "
+        "(late:Study {seek_study_id: 21, title: 'Linked after the read'})-[:IN_INVESTIGATION]->(inv), "
+        "(:Study {seek_study_id: 22, title: 'Empty'})-[:IN_INVESTIGATION]->(inv)"])
+    read = {r["seek_study_id"]: r for r in studies_lane.read(q.SEEK_STUDY_NODES_GONE, {"study_ids": []})}
+    assert {k: r["empty"] for k, r in read.items()} == {20: False, 21: True, 22: True}
+    studies_lane.write("MATCH (st:Study {seek_study_id: 21}) CREATE (:Sample {id: 9})-[:IN_STUDY]->(st)")
+    records, _, _ = studies_lane.driver.execute_query(
+        q.DELETE_SEEK_STUDY_NODES, {"element_ids": [read[21]["element_id"]], "study_ids": [1]}, database_=DB)
+    assert records[0]["deleted"] == 0
+    counts = writer.delete_gone_seek_study_nodes(studies_lane.driver, DB, [1], str(tmp_path / "s.tsv"))
+    assert counts == {"seek_study_nodes_deleted": 1, "seek_study_nodes_not_in_seek_held": 2}
+    assert studies_lane.read("MATCH (st:Study) RETURN st.seek_study_id AS k ORDER BY k") == [{"k": 20}, {"k": 21}]
+    assert [r["empty"] for r in studies_lane.read(q.SEEK_STUDY_NODES_GONE, {"study_ids": [1]})] == [False, False]
+
+
 # --- the merge's statements on shapes the module's fixture lacks ----------------------------------------------------
 
 _SPLIT_PAIR = (
