@@ -381,3 +381,12 @@ def test_no_other_test_in_those_modules_is_host_only():
         "over-marked host_only in the IMAGE_ABSENT_INPUTS modules (#89) -- "
         + "; ".join(problems)
     )
+
+
+def test_the_app_image_and_ci_pin_the_same_python():
+    """Unpinned, uv builds with the newest Python requires-python allows; on 2026-10-12
+    that became 3.15, which torch has no wheel for, and every app build failed."""
+    image = re.search(r"^ENV UV_PYTHON=(\S+)$", (REPO_ROOT / "Dockerfile").read_text(), re.M)
+    ci = re.search(r'^\s*UV_PYTHON:\s*"([^"]+)"', (REPO_ROOT / ".github/workflows/ci-pytest.yml").read_text(), re.M)
+    assert image and ci, "both the Dockerfile and ci-pytest.yml must pin UV_PYTHON"
+    assert image.group(1) == ci.group(1)

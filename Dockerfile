@@ -7,6 +7,12 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+# The image's Python. uv takes the newest Python that requires-python (">=3.14")
+# allows and downloads it at build time; that became 3.15, which torch publishes
+# no wheel for, so every app build failed at `uv sync` (2026-10-12). Keep it equal
+# to UV_PYTHON in .github/workflows/ci-pytest.yml (pinned by
+# nextseek_api/tests/repo_guards/test_build_context_env_guard.py).
+ENV UV_PYTHON=3.14
 
 # ssh/scp client for the Luria SLURM launch backend (NessieAI/chat_nextseek/src/chat_nextseek/luria/ssh.py).
 # Required only when PIPELINE_LAUNCH_MODE=luria; harmless otherwise.
