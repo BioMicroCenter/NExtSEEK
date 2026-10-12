@@ -2860,9 +2860,9 @@ def graph_agent(
 
     # T2 (2026-10-12): the prompt and the schema head (heading, structure, type index) are the same for every
     # question; the resolved types' sections vary, so they follow a 1 h cache point on the head (the parser's T6
-    # mechanism). Both clients join system messages with a blank line, so the text the model reads is unchanged
-    # and a Gemini move (the marker stripped) reads the one message it read before. A repair appends to this
-    # list, so it keeps the head.
+    # mechanism). Both clients join system messages with a blank line and the Bedrock head block ends with one,
+    # so the text the model reads is unchanged and a Gemini move (the marker stripped) reads the one message it
+    # read before. A repair appends to this list, so it keeps the head.
     head, found, sections = schema_message.partition("\n\n" + graph_context.RESOLVED_TYPES_HEADING)
     messages = [
         {"role": "system", "content": config.GRAPH_AGENT_SYSTEM_PROMPT},

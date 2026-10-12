@@ -109,7 +109,8 @@ def test_a_marked_list_sends_head_cache_point_tail():
     seen = []
     client = _bedrock(lambda **kw: seen.append(kw) or OK)
     resp = client.chat(messages=_marked(), model=OPUS55)
-    assert seen[0]["system"] == [{"text": "PROMPT\n\nSCHEMA"}, CP, {"text": "TAIL"}]
+    # The head keeps its trailing blank line: head + tail is the one-block text whatever joins the blocks.
+    assert seen[0]["system"] == [{"text": "PROMPT\n\nSCHEMA\n\n"}, CP, {"text": "TAIL"}]
     assert resp.usage["cache_ttl"] == "1h"
 
 

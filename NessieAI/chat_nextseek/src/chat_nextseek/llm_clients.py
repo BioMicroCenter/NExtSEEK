@@ -969,7 +969,8 @@ class BedrockClient(BaseLLMClient):
         """Split system messages out; convert the rest to Bedrock Converse format.
 
         System messages become one text block. A system message carrying ``cache_point`` (a TTL,
-        "1h") ends the block after it and adds a cache point there: head block, cache point, tail block.
+        "1h") ends the block after it and adds a cache point there: head block (ending with the blank
+        line that joined the parts), cache point, tail block.
         """
         system_parts: list[str] = []
         system_blocks: list[dict] = []
@@ -980,7 +981,9 @@ class BedrockClient(BaseLLMClient):
             if role == "system":
                 system_parts.append(str(content))
                 if msg.get("cache_point"):
-                    system_blocks.append({"text": "\n\n".join(system_parts)})
+                    # The head block keeps the blank line that separated it from what follows in the
+                    # one-block request, so the model reads the same text however Bedrock joins blocks.
+                    system_blocks.append({"text": "\n\n".join(system_parts) + "\n\n"})
                     system_blocks.append({"cachePoint": {"type": "default", "ttl": msg["cache_point"]}})
                     system_parts = []
                 continue
@@ -1062,7 +1065,7 @@ class BedrockClient(BaseLLMClient):
                         and re.search(r"cache ?point", str(e), re.IGNORECASE)):
                     raise
                 print(f"[BEDROCK] model='{model}' refused the cache point, retrying without it: {e}")
-                kwargs["system"] = [{"text": "\n\n".join(b["text"] for b in system_blocks if "text" in b)}]
+                kwargs["system"] = [{"text": "".join(b["text"] for b in system_blocks if "text" in b)}]
                 cache_ttl = None
                 resp = self.client.converse(**kwargs)
         except ClientError as e:

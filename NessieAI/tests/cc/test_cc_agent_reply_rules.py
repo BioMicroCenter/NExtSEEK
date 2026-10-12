@@ -98,7 +98,7 @@ def test_the_skill_example_says_each_placeholder_is_a_real_value():
 
 
 MODEL_RULE = (
-    "- **The model is chosen for you.** Every turn starts on the same model through the "
+    "- **The model is chosen for you.** Every turn starts on the same Opus model through the "
     "Bedrock proxy; the router does not choose it. If that model is unavailable, the turn can "
     "switch to a second model partway through. Nothing for you to do."
 )

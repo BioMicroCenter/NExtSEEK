@@ -268,6 +268,9 @@ def test_an_attribute_the_type_lacks_is_repaired_once_then_refused(monkeypatch, 
     out = run(monkeypatch, llm)
     assert len(llm.calls) == 2
     assert "TIS.Sequencer" in llm.calls[1]["messages"][-1]["content"]
+    # T2: the repair call reuses the list, so the schema head keeps its cache point (test_graph_prompt_cache.py).
+    assert llm.calls[1]["messages"][1].get("cache_point") == "1h"
+    assert llm.calls[1]["messages"][1]["content"].startswith("GRAPH SCHEMA (")
     assert out.cypher == ""
     assert "TIS.Sequencer" in out.explanation
     assert out.context_mode == "catalog"

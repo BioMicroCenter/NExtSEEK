@@ -528,8 +528,8 @@ def _cc_classifier_model_id(override: str = "") -> str | None:
     """The auto-mode classifier's model id, or None. Never raises.
 
     ``override`` (``NEXTSEEK_CC_DEFAULT_SONNET_MODEL``) wins when it passes the model
-    map's own ``us.anthropic.`` id check; otherwise, with a warning when it was set but
-    malformed, the map's ``sonnet`` id.
+    map's own Bedrock id check (a ``us.`` or ``global.`` ``anthropic.`` profile); otherwise,
+    with a warning when it was set but malformed, the map's ``sonnet`` id.
     """
     try:
         from dmac_assistant.router.models import is_bedrock_model_id, resolve_cc_classifier_model
@@ -537,7 +537,7 @@ def _cc_classifier_model_id(override: str = "") -> str | None:
         if override:
             if is_bedrock_model_id(override):
                 return override
-            logger.warning("cc: ignoring %s=%r (not a Bedrock-qualified us.anthropic. id); "
+            logger.warning("cc: ignoring %s=%r (not a Bedrock-qualified us./global. anthropic. id); "
                            "using the model map's sonnet id", _CC_SONNET_MODEL_ENV, override)
         return resolve_cc_classifier_model()
     except Exception as exc:  # noqa: BLE001
