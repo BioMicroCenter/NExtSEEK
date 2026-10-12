@@ -28,7 +28,7 @@
   "file_inventory": [
     {"path": "__init__.py", "size_bytes": 145, "sha256": "6e20c439586b2f237ade5334ec7f4d62d57903f527bceea74fc1841a93fba069"},
     {"path": "app/__init__.py", "size_bytes": 46, "sha256": "e81e6cfec1157608321d2166cda98f3376486f49308c7ea80038fc1fb6bd86fd"},
-    {"path": "app/config.py", "size_bytes": 4273, "sha256": "09c0283b782059bb166d8c80fd7e72012163b31abad6fe5abadae3db42409451"},
+    {"path": "app/config.py", "size_bytes": 4370, "sha256": "1b9b8e7baa486036cad858c99fb1d2c316af32f55cb2efa26b92b12f43438de8"},
     {"path": "app/proxy.py", "size_bytes": 16248, "sha256": "fcd40ca1ae9a670e7e49dd073cb95b6054c94376fcec39ca3d277fb5458e41bf"},
     {"path": "proxy-secret.env.example", "size_bytes": 821, "sha256": "fdbf6c5cb8184158faf9ea06668d2dcf2aee21a37516103142040cfd02bf1d16"},
     {"path": "Dockerfile", "size_bytes": 2398, "sha256": "8449007570f2dfb9227c028d04ae2edf39fed879ed141c0a6668105af35f2a83"},
@@ -37,7 +37,7 @@
   "mapping_table": [
     {"dest": "docker/bedrock-proxy/__init__.py", "source": "bedrock-proxy/__init__.py", "status": "byte-identical"},
     {"dest": "docker/bedrock-proxy/app/__init__.py", "source": "bedrock-proxy/app/__init__.py", "status": "byte-identical"},
-    {"dest": "docker/bedrock-proxy/app/config.py", "source": "bedrock-proxy/app/config.py", "status": "byte-identical at the port; changed on 2026-09-25 and twice on 2026-09-28, see post_port_changes"},
+    {"dest": "docker/bedrock-proxy/app/config.py", "source": "bedrock-proxy/app/config.py", "status": "byte-identical at the port; changed on 2026-09-25, twice on 2026-09-28 and on 2026-10-12, see post_port_changes"},
     {"dest": "docker/bedrock-proxy/app/proxy.py", "source": "bedrock-proxy/app/proxy.py", "status": "byte-identical at the port; changed on 2026-09-28, see post_port_changes"},
     {"dest": "docker/bedrock-proxy/proxy-secret.env.example", "source": "bedrock-proxy/proxy-secret.env.example", "status": "byte-identical"},
     {"dest": "docker/bedrock-proxy/Dockerfile", "source": "bedrock-proxy/Dockerfile", "status": "adapted (COPY path only, see adapted_files)"},
@@ -71,6 +71,16 @@
       "path": "app/config.py",
       "change": "_DEFAULT_ALLOWED_MODELS gains us.anthropic.claude-opus-5-5, now first, and keeps us.anthropic.claude-opus-4-8, us.anthropic.claude-opus-4-7 and us.anthropic.claude-sonnet-4-6. Only that assignment and the comment above it changed.",
       "why": "Run 2's model switch (operator rulings 5 and 6, 2026-09-25): the Container-CC model map names Opus 5.5 as its main model and Opus 4.8 as its fallback. Opus 4.7, run 1's fallback, stays allowed so an app image rolled back to run 1's map is not refused.",
+      "guards": [
+        "NessieAI/tests/cc/test_cc_proxy_allow_list.py",
+        "NessieAI/tests/cc/test_step7_proxy_port.py"
+      ]
+    },
+    {
+      "date": "2026-10-12",
+      "path": "app/config.py",
+      "change": "_DEFAULT_ALLOWED_MODELS gains global.anthropic.claude-sonnet-5-5, now first, and keeps us.anthropic.claude-opus-4-8, us.anthropic.claude-opus-5-5, us.anthropic.claude-opus-4-7 and us.anthropic.claude-sonnet-4-6. Only that assignment and the comment above it changed.",
+      "why": "T7 (operator ruling 2026-10-12): the Container-CC model map names Sonnet 5.5, a global inference profile (the loader's id check now accepts global. beside us.), as its main model and keeps Opus 4.8 as its fallback. Opus 5.5, the map before it, stays allowed so an app image rolled back to that map is not refused.",
       "guards": [
         "NessieAI/tests/cc/test_cc_proxy_allow_list.py",
         "NessieAI/tests/cc/test_step7_proxy_port.py"

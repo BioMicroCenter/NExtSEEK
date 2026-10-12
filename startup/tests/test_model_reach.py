@@ -183,12 +183,13 @@ def _copy_tree(tmp_path: Path) -> Path:
 def test_the_run_2_switch_needs_no_edit_to_the_check():
     """The operator's run-2 rulings, now in the real files (2026-09-28): NS Opus 4.7 ->
     Opus 5.5 and NS Gemini 3.5 Flash -> 3.8 Flash in the catalog (BAML unchanged), CC
-    main Opus 5.5 with fallback Opus 4.8. The check, unedited, lists what the switch
-    calls. (Before the switch this test made the same edits to copies of the files.)"""
+    main Opus 5.5 with fallback Opus 4.8; then T7 (2026-10-12) moved CC main to Sonnet
+    5.5's global profile. The check, unedited, lists what the switch calls. (Before the switch this test made the same edits to copies of the files.)"""
     report = mr.derive(REPO_ROOT, CREDS)
 
     assert "parser" in _users(report, "us.anthropic.claude-opus-5-5", mr.BEDROCK)
-    assert _users(report, "us.anthropic.claude-opus-5-5", mr.PROXY) == ["CC main"]
+    # T7 (2026-10-12): the CC main model is Sonnet 5.5's global profile; the fallback stays Opus 4.8.
+    assert _users(report, "global.anthropic.claude-sonnet-5-5", mr.PROXY) == ["CC main"]
     assert _users(report, "us.anthropic.claude-opus-4-8", mr.PROXY) == ["CC fallback"]
     assert {"entity", "fallback of memory"} <= set(_users(report, "gemini-3.8-flash", mr.GEMINI))
     # Gemini 3.5 Flash is left only where BAML names it
