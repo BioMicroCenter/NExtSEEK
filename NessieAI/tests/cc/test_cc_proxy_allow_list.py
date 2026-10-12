@@ -1,14 +1,15 @@
 """The Bedrock proxy allows every model a Container-CC turn can ask for, and no other.
 
-The CC 503 fallback makes a turn name three models: its main Opus id (``--model``),
+The CC 503 fallback makes a turn name three models: its main model id (``--model``),
 the fallback (``--fallback-model``, the map's ``opus_fallback``) and the auto-mode
 classifier's Sonnet (``ANTHROPIC_DEFAULT_SONNET_MODEL``, the map's ``sonnet``). The
 proxy refuses any other id with a 403 before Bedrock is reached, and Claude Code never
 falls back on a 403, so an id missing here would turn every fallback into a failure.
 
-Run 2 (2026-09-28) moved the map to Opus 5.5 with Opus 4.8 as its fallback. Run 1's
-fallback, Opus 4.7, stays allowed (``ROLLBACK_IDS``): an app image rolled back to run 1's
-map must not be refused by a proxy that was not rolled back with it.
+T7 (2026-10-12) moved the map to Sonnet 5.5 with Opus 4.8 as its fallback. The ids of the
+maps before it, Opus 5.5 (run 2's main model) and Opus 4.7 (run 1's fallback), stay allowed
+(``ROLLBACK_IDS``): an app image rolled back to an earlier map must not be refused by a
+proxy that was not rolled back with it.
 
 Read from ``app/config.py`` with ``ast``: the proxy directory is hyphenated and is not
 an importable package here.
@@ -42,7 +43,7 @@ def test_the_main_cc_model_is_allowed_and_listed_first():
 
 
 #: Allowed although no CC turn of the current map names them: the ids of the map before it.
-ROLLBACK_IDS = {"us.anthropic.claude-opus-4-7"}
+ROLLBACK_IDS = {"us.anthropic.claude-opus-4-7", "us.anthropic.claude-opus-5-5"}
 
 
 def test_the_allow_list_is_the_models_a_cc_turn_names_and_the_rollback_ids():

@@ -33,7 +33,8 @@ Rules that span units (the box env, the one BAML tree both images build from) ar
   side and a model outage silently becomes a full-rate CC bill.
 - **Model ids belong in `build_context/router_model_class_map.json` and nowhere
   else.** Each of the three enum members must have a value matching the
-  `us.anthropic.` pattern or the loader raises before returning
+  `us.anthropic.` or `global.anthropic.` pattern (Sonnet 5.5 is a global profile only)
+  or the loader raises before returning
   (`NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:44-57`), and the bedrock
   proxy's default allowlist holds the ids a Container-CC turn names: the `opus`
   entry first, then `opus_fallback` (its `--fallback-model`) and `sonnet` (its auto-mode

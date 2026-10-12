@@ -27,7 +27,8 @@ from dmac_assistant.router.baml_client.types import ModelClass
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 _DEFAULT_PATH = _REPO_ROOT / "build_context" / "router_model_class_map.json"
 _ENV_VAR = "DMAC_ROUTER_MODEL_CLASS_MAP_FILE"
-_BEDROCK_ID_RE = re.compile(r"^us\.anthropic\.[a-z0-9.\-:]+$")
+# A cross-region (``us.``) or a global (``global.``) inference profile: Sonnet 5.5 is global only (2026-10-12).
+_BEDROCK_ID_RE = re.compile(r"^(us|global)\.anthropic\.[a-z0-9.\-:]+$")
 
 _cache: dict[str, str] | None = None
 
@@ -105,9 +106,10 @@ def resolve_cc_model() -> str:
     """Return the fixed Bedrock-qualified model id for every container_cc turn.
 
     The router no longer selects a model class for the CC route (OI-5): CC
-    always runs on the single auto-mode-capable Opus tier. The id lives ONLY
-    in build_context/router_model_class_map.json (DD-08) under the "opus"
-    key; this reads it rather than hardcoding the literal.
+    always runs on one auto-mode-capable model. The id lives ONLY in
+    build_context/router_model_class_map.json (DD-08) under the "opus" key
+    (the ModelClass member's name; since 2026-10-12 it names Sonnet 5.5);
+    this reads it rather than hardcoding the literal.
     """
     return _ensure_cache()["opus"]
 
@@ -120,7 +122,7 @@ _CC_FALLBACK_KEY = "opus_fallback"
 
 
 def is_bedrock_model_id(value: object) -> bool:
-    """True when ``value`` passes the same ``us.anthropic.`` id check the loader applies.
+    """True when ``value`` passes the same ``us.``/``global.`` ``anthropic.`` id check the loader applies.
 
     For a caller that takes a model id from somewhere other than the map (an env
     override) and must hold it to the map's rule.

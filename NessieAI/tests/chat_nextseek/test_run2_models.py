@@ -101,10 +101,11 @@ def test_the_gemini_default_model_is_3_8_flash():
     assert source.count("gemini-3.5-flash") == 1
 
 
-def test_container_cc_runs_opus_5_5_and_falls_back_to_opus_4_8():
+def test_container_cc_runs_sonnet_5_5_and_falls_back_to_opus_4_8():
+    """T7 (2026-10-12): the CC agent on Sonnet 5.5 (its global profile), the fallback kept on Opus 4.8."""
     model_map = json.loads((paths.DMAC_BUILD_CONTEXT / "router_model_class_map.json").read_text())
     assert (model_map["opus"], model_map["opus_fallback"], model_map["sonnet"]) == (
-        OPUS55, "us.anthropic.claude-opus-4-8", SONNET_46)
+        SONNET, "us.anthropic.claude-opus-4-8", SONNET_46)
 
 
 def test_the_entity_call_carries_medium_thinking_from_the_catalog_to_the_gemini_request():
