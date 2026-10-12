@@ -84,11 +84,16 @@ Key facts every operator must internalize:
   sitting at its cap stalls every process in memory reclaim (SEEK answered nothing
   for 7 minutes on a dev box, 2026-10-12). So the `seek` command also recycles
   any puma worker over `${SEEK_WORKER_MAX_MB:-2500}` MB of RSS: it gets SIGTERM,
-  finishes its request, and puma forks a fresh one; `docker logs seek` shows each
-  `recycling puma worker` line. Choose both per box so that workers x
-  `SEEK_WORKER_MAX_MB` plus about 0.5 GB for the master stays well under
-  `SEEK_MEMORY`, leaving room for one request's peak: 8 x 2500 MB under 24G, 6 x
-  2500 MB under 20G. The users admin API writes through a fresh `bin/rails runner`
+  puma forks a fresh one at once, and the old one has puma's
+  `worker_shutdown_timeout` (30 s) to finish its request before puma SIGKILLs
+  it, so a request still running 30 s after a recycle (a long blob download) is
+  cut off. `docker logs seek` shows each `recycling puma worker` line. Set
+  `SEEK_MEMORY`, `SEEK_PUMA_WORKERS` and `SEEK_WORKER_MAX_MB` together, per box,
+  so that workers x `SEEK_WORKER_MAX_MB` plus about 0.5 GB for the master stays
+  well under `SEEK_MEMORY`, leaving room for one request's peak: 8 x 2500 MB
+  under 24G, 6 x 2500 MB under 20G. At the compose defaults (a 4G cap) the cap
+  is reached before any worker passes 2500 MB, so the recycler never acts there.
+  The users admin API writes through a fresh `bin/rails runner`
   in this container, so near the cap that is killed too: the write answers 502
   and its detail says the runner exited 137.
 - The `neo4j` container is capped at `${NEO4J_MEMORY:-6G}`, its heap and page

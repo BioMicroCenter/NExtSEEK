@@ -410,14 +410,18 @@ services:
     container_name: ${INSTANCE_PREFIX:-}seek
     # The image's docker/entrypoint.sh (puma in the background, nginx in the
     # foreground), plus a recycler: every 30 s any puma worker over
-    # SEEK_WORKER_MAX_MB of RSS gets SIGTERM. Puma lets it finish its request and
-    # forks a fresh worker from the preloaded app at once ("booted in 0.0s").
+    # SEEK_WORKER_MAX_MB of RSS gets SIGTERM. Puma forks a fresh worker from the
+    # preloaded app at once ("booted in 0.0s") and gives the old one
+    # worker_shutdown_timeout (puma's default, 30 s; the image's puma.rb does not
+    # set it) to finish its request, then SIGKILLs it: a request still running
+    # 30 s after its worker is recycled is cut off. A ceiling that is not a whole
+    # number of MB falls back to 2500 rather than failing the container.
     # Without it the workers only grow until the cgroup sits at its cap, where on
     # 2026-10-12 every process stalled in memory reclaim and SEEK answered nothing
     # for 7 minutes until the kernel OOM-killed a worker. The loop exits 1 when the
     # entrypoint does, so `restart: always` still covers the container (pinned by
     # nextseek_api/tests/repo_guards/test_compose_seek_worker_recycler.py).
-    command: ["bash", "-c", "docker/entrypoint.sh & ep=$$!; while kill -0 $$ep 2>/dev/null; do sleep $${SEEK_WORKER_CHECK_S:-30}; for p in $$(pgrep -f '^puma: cluster worker'); do kb=$$(awk '/^VmRSS:/ {print $$2}' /proc/$$p/status 2>/dev/null); if [ $${kb:-0} -gt $$(( $${SEEK_WORKER_MAX_MB:-2500} * 1024 )) ]; then echo \"[seek] recycling puma worker $$p at $$(( kb / 1024 )) MB\" >&2; kill -TERM $$p; fi; done; done; echo '[seek] docker/entrypoint.sh exited' >&2; exit 1"]
+    command: ["bash", "-c", "docker/entrypoint.sh & ep=$$!; m=$${SEEK_WORKER_MAX_MB:-2500}; case $$m in ''|*[!0-9]*|0*) echo \"[seek] SEEK_WORKER_MAX_MB=$$m is not a whole number of MB; using 2500\" >&2; m=2500;; esac; while kill -0 $$ep 2>/dev/null; do sleep $${SEEK_WORKER_CHECK_S:-30} & wait -n $$ep $$!; for p in $$(pgrep -f '^puma: cluster worker'); do kb=$$(awk '/^VmRSS:/ {print $$2}' /proc/$$p/status 2>/dev/null); if [ $${kb:-0} -gt $$(( m * 1024 )) ]; then echo \"[seek] recycling puma worker $$p at $$(( kb / 1024 )) MB\" >&2; kill -TERM $$p; fi; done; done; echo '[seek] docker/entrypoint.sh exited' >&2; exit 1"]
     restart: always
 
     # SEEK's puma workers grow with every request they serve and never give the
@@ -444,9 +448,11 @@ services:
       # Raise it per box with SEEK_PUMA_WORKERS in the project-root .env (pinned by
       # nextseek_api/tests/repo_guards/test_compose_app_memory_cap.py).
       PUMA_WORKERS_NUM: "${SEEK_PUMA_WORKERS:-4}"
-      # The recycler's per-worker ceiling (the command above). Keep workers x this
-      # well under SEEK_MEMORY: 4 x 2500 MB fits a 20G cap with room for one
-      # request's peak. Set it per box with SEEK_WORKER_MAX_MB in the project-root .env.
+      # The recycler's per-worker ceiling (the command above). Set it per box with
+      # SEEK_PUMA_WORKERS and SEEK_MEMORY, all three together, so that workers x
+      # this plus ~0.5G for the master stays well under SEEK_MEMORY (8 x 2500 MB
+      # under 24G, 6 x 2500 MB under 20G). At the defaults (4G cap) the cap is
+      # reached before any worker passes 2500 MB, so the recycler never acts there.
       SEEK_WORKER_MAX_MB: "${SEEK_WORKER_MAX_MB:-2500}"
       # glibc's per-thread malloc arenas fragment a long-lived Ruby heap; 2 is the
       # usual setting for Rails. The image ships no jemalloc.
