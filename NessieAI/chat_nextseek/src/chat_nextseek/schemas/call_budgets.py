@@ -88,6 +88,8 @@ CALL_BUDGETS: dict[str, CallBudget] = {
     "seqera_agent": CallBudget(first_try_s=30, moved_s=90),
     "system": CallBudget(first_try_s=45, moved_s=90),
     "memory_coder": CallBudget(first_try_s=45, moved_s=90),
+    # The graph agent: Sonnet 5.5 primary on prod and dev since 2026-10-09 (the box catalog; the repo default
+    # follows with #133), Gemini 3.8 Flash the move. 60 s clears Sonnet's prod max (12 s) and T4 takes over.
     "graph": CallBudget(first_try_s=60, moved_s=90, move_reserve_only_in_op=True, op_speed_k=5),
     # Sonnet 5.5 primary (the legacy memory agent), Gemini 3.8 Flash fallback.
     "memory": CallBudget(first_try_s=60, moved_s=90),

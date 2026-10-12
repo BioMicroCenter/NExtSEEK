@@ -414,6 +414,11 @@ def structure_for(structure: str | None, schema_version: Any) -> str:
     return text
 
 
+#: The heading the resolved types' sections start with. The graph agent splits its schema message here: what
+#: precedes it (structure, type index) is the same for every question and sits under a cache point (agents/graph.py).
+RESOLVED_TYPES_HEADING = "## Resolved sample types: "
+
+
 def _assemble(structure: str, index: str, titles: list[str], sections: list[str], k: int, tail_counts: bool,
               omitted: list[str]) -> str:
     parts = [structure, index]
@@ -424,7 +429,7 @@ def _assemble(structure: str, index: str, titles: list[str], sections: list[str]
         else:
             how = "attribute names only" + ("," + with_n if with_n else "")
         parts.append(
-            f"## Resolved sample types: {', '.join(titles)} ({how}; per attribute: [value type] n=samples "
+            f"{RESOLVED_TYPES_HEADING}{', '.join(titles)} ({how}; per attribute: [value type] n=samples "
             "holding a value | range | meaning)")
         parts += sections
     if omitted:

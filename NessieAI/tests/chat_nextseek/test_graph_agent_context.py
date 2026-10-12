@@ -158,7 +158,9 @@ def test_a_live_catalog_sends_the_rendering(monkeypatch, live):
     out = run(monkeypatch, llm, entity={"sampletypes": [{"code": "TIS"}]})
     assert out.cypher == GOOD
     assert out.context_mode == graph_mod.CONTEXT_CATALOG == "catalog"
-    schema = llm.calls[0]["messages"][1]["content"]
+    # The schema is two system messages since T2: the head (structure, type index) under a cache point, then the
+    # resolved types' sections (test_graph_prompt_cache.py); joined with a blank line they are the rendering.
+    schema = "\n\n".join(m["content"] for m in llm.calls[0]["messages"][1:3])
     assert gctx.load_structure() in schema
     assert gctx.render_type_index(SNAPSHOT.index) in schema
     assert "### TIS :T_TIS" in schema
