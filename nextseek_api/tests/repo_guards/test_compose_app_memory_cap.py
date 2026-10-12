@@ -60,6 +60,14 @@ def test_seek_cannot_swap_past_its_cap():
     assert _service("seek").get("memswap_limit") == SEEK_CAP
 
 
+def test_seek_runs_a_bounded_number_of_puma_workers():
+    """Unset, the image's puma.rb starts one worker per CPU: 16 on our hosts,
+    each growing until the cap kills it. Both Rails services cap malloc arenas."""
+    assert _service("seek")["environment"].get("PUMA_WORKERS_NUM") == "${SEEK_PUMA_WORKERS:-4}"
+    for name in ("seek", "seek_workers"):
+        assert _service(name)["environment"].get("MALLOC_ARENA_MAX") == "2", name
+
+
 def test_neo4j_has_a_memory_cap_an_operator_can_tune():
     """Unbounded, one transaction can grow into the whole host: the first sync at
     schema 1.2 needed more than 512 MiB for a single 5,000-sample write."""

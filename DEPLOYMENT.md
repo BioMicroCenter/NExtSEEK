@@ -77,7 +77,10 @@ Key facts every operator must internalize:
   with nothing free. The kernel kills a runaway worker inside the container
   instead, and puma respawns it. Raise `SEEK_MEMORY` in the project-root
   `.env` on a box serving real SEEK traffic; the cap takes effect when `seek`
-  is recreated. The users admin API writes through a fresh `bin/rails runner`
+  is recreated. The image starts one single-threaded puma worker per CPU unless
+  told otherwise, so compose sets `PUMA_WORKERS_NUM` from `${SEEK_PUMA_WORKERS:-4}`
+  and `MALLOC_ARENA_MAX=2` on both SEEK services; fewer workers is what keeps the
+  sum under the cap. The users admin API writes through a fresh `bin/rails runner`
   in this container, so near the cap that is killed too: the write answers 502
   and its detail says the runner exited 137.
 - The `neo4j` container is capped at `${NEO4J_MEMORY:-6G}`, its heap and page

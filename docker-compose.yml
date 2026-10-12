@@ -427,6 +427,15 @@ services:
       SOLR_HOST: solr
       NO_ENTRYPOINT_WORKERS: 1
       RAILS_LOG_LEVEL: info # debug, info, warn, error or fatal
+      # The image's docker/puma.rb starts one single-threaded worker per CPU when
+      # this is unset: 16 on a 16-vCPU host, each growing to 1.4-2.2 GB until the
+      # cap above kills it (on 2026-10-12 one box had killed 437 in three days).
+      # Raise it per box with SEEK_PUMA_WORKERS in the project-root .env (pinned by
+      # nextseek_api/tests/repo_guards/test_compose_app_memory_cap.py).
+      PUMA_WORKERS_NUM: "${SEEK_PUMA_WORKERS:-4}"
+      # glibc's per-thread malloc arenas fragment a long-lived Ruby heap; 2 is the
+      # usual setting for Rails. The image ships no jemalloc.
+      MALLOC_ARENA_MAX: "2"
     env_file:
       - ./docker/db.env
     volumes:
@@ -455,6 +464,7 @@ services:
         SOLR_HOST: solr
         RAILS_LOG_LEVEL: info # debug, info, warn, error or fatal
         QUIET_SUPERCRONIC: 1 # remove to show supercronic activity logs
+        MALLOC_ARENA_MAX: "2" # same Rails heap as `seek`, same fragmentation
       # The delayed-job workers are the same Rails process as `seek` and bloat the
       # same way. On 2026-09-16 the two SEEK services together held 11.2 GiB
       # across 24 `bundle` processes when the host ran out; `seek` was capped and
