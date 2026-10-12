@@ -458,7 +458,17 @@ services:
 
       image: fairdom/seek:1.15.1
       container_name: ${INSTANCE_PREFIX:-}seek-workers
-      command: docker/start_workers.sh
+      # The image's docker/start_workers.sh ends in `tail -f`, so when the
+      # delayed_job workers lose MySQL they log "MySQL client is not connected"
+      # on every poll, never reconnect, and the container stays up: a
+      # `docker restart seek-mysql` on 2026-10-09 left 909 jobs stuck that way.
+      # This exits on the first such line instead, and `restart: always` brings
+      # the workers back (start_workers.sh waits for MySQL first). `tail -n0`
+      # skips lines from before this start. The process substitution lets the
+      # script exit as soon as grep matches, whether or not this tail notices its
+      # reader has gone (pinned by
+      # nextseek_api/tests/repo_guards/test_compose_seek_workers_watchdog.py).
+      command: ["bash", "-c", "docker/start_workers.sh & grep -q 'MySQL client is not connected' < <(tail -n0 -F log/production.log 2>/dev/null); echo '[seek_workers] lost MySQL: exiting so docker restarts the workers' >&2; exit 1"]
       restart: always
       environment:
         RAILS_ENV: production
