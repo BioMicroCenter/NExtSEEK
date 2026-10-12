@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 580" width="1000" height="580" font-family="Helvetica, Arial, sans-serif">
 <rect width="1000" height="580" fill="#ffffff"/>
-<text x="500.0" y="24" text-anchor="middle" font-size="16" font-weight="bold" fill="#222">NExtSEEK code communities (file-level graph, commit 496990d3)</text>
+<text x="500.0" y="24" text-anchor="middle" font-size="16" font-weight="bold" fill="#222">NExtSEEK code communities (file-level graph, commit 16d7f524)</text>
 <line x1="302" y1="180" x2="498" y2="282" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="6.0"><title>Graph search and sync - nextseek_api core: 161</title></line>
 <line x1="302" y1="282" x2="498" y2="282" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="5.8"><title>SEEK pages and table layer - nextseek_api core: 132</title></line>
 <line x1="498" y1="486" x2="302" y2="486" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="5.4"><title>NS engine - Pipeline launch: 88</title></line>
