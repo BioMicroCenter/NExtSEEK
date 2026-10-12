@@ -29,7 +29,12 @@ variable (`set $upstream "nextseek"`), so Docker's embedded resolver re-resolves
 It maps the WebSocket `Upgrade` header, forces a Django-safe upstream `Host` (the compose service
 name contains an underscore), and includes `/etc/nginx/optional/*.conf`.
 
-The one shipped drop-in, `docker/nginx-optional/neo4j.conf.example`, is a Neo4j Browser and HTTP
+One drop-in ships enabled: `docker/nginx-optional/error-pages.conf` answers a 502 (the app container
+restarting) with a short self-reloading page instead of nginx's bare one, keeping the 502 status and an
+HTML body. The folder is a directory mount, so a changed drop-in reaches a running nginx with
+`docker compose exec nextseek_nginx nginx -t` and then `nginx -s reload`, with no recreate.
+
+The other shipped drop-in, `docker/nginx-optional/neo4j.conf.example`, is a Neo4j Browser and HTTP
 Query API reverse proxy. It is inert until copied to a `*.conf` name, and enabled copies are
 untracked (`docker/nginx-optional/.gitignore`). `docs/neo4j-programmatic-access.md` covers using it.
 
