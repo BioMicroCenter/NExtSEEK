@@ -258,7 +258,7 @@ _SIX_CONTEXT = tuple(f"{_CONTEXT}/{f}" for f in (
 class PathRule:
     pattern: str                 # regex over the repo-relative path
     images: tuple[str, ...]
-    flag: str | None = None      # nginx | nginx_reload | compose | migration | seed | out_of_scope
+    flag: str | None = None      # nginx | nginx_reload | host_nginx | compose | migration | seed | out_of_scope
     note: str = ""
 
 
@@ -267,6 +267,8 @@ IMAGE_RULES: tuple[PathRule, ...] = (
              "single-file bind mount: needs an nginx --no-deps --force-recreate, only if allowed_extras says so"),
     PathRule(r"^docker/nginx-optional/[^/]+\.conf$", (), "nginx_reload",
              "directory mount: the pull delivers it, nginx -t then nginx -s reload applies it, no recreate"),
+    PathRule(r"^docker/host-nginx-restart-page\.conf$", (), "host_nginx",
+             "the host nginx's copy: the operator reinstalls it by hand as root"),
     PathRule(r"^docker-compose\.yml$", (), "compose", "a cap or env change may need a --no-deps recreate"),
     PathRule(r"^startup/seed/(regenerate/|README\.md$)", (), None, "seed refresh tooling and docs: nothing runs from them on a box"),
     PathRule(r"^startup/seed/", (), "seed", "seed data: install loads it; on prod the runner sets the dirty dumps aside"),

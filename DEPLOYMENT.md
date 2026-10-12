@@ -448,7 +448,15 @@ server also `location /fairdata/` in `<app-vhost>.conf`:
 
 Do not put the file in `conf.d/` (it is included at `http` level there, where
 a named location is refused), and do not add the intercept line to any `:8000`
-location. Check and reload:
+location.
+
+Where the page's 502s are logged: the named location logs to its server
+block's `access_log`. A server block with none at server level (each location
+sets its own) logs them to the http-level `/var/log/nginx/access.log`, so a
+restart window measured from a location's log looks shorter than it was. Read
+that file for those 502s, or add an `access_log` at server level.
+
+Check and reload:
 
 ```bash
 sudo nginx -t && sudo systemctl reload nginx
@@ -460,9 +468,15 @@ To see the page, restart SEEK in a quiet minute (`docker compose -p nextseek
 restart seek`) and load `https://<seek-host>/`: it shows "NExtSEEK is
 not answering right now" until SEEK is back; Reload then shows SEEK again.
 
-Rollback, on the same server:
+Rollback, on the same server. First check that nothing else changed in the
+vhost files since the install (a `certbot --nginx` run or a hand edit would be
+lost by copying the backups back): each diff must show only the `include` line
+and the `proxy_intercept_errors` lines. If it shows more, delete those lines by
+hand with `sudo -e` instead of copying.
 
 ```bash
+sudo diff /root/<app-vhost>.conf.bak /etc/nginx/conf.d/<app-vhost>.conf
+sudo diff /root/<seek-vhost>.conf.bak /etc/nginx/conf.d/<seek-vhost>.conf
 sudo cp -a /root/<app-vhost>.conf.bak /etc/nginx/conf.d/<app-vhost>.conf
 sudo cp -a /root/<seek-vhost>.conf.bak /etc/nginx/conf.d/<seek-vhost>.conf
 sudo restorecon -v /etc/nginx/conf.d/<app-vhost>.conf /etc/nginx/conf.d/<seek-vhost>.conf

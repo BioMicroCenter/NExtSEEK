@@ -362,8 +362,16 @@ def test_a_tracked_nginx_drop_in_warns_to_reload_but_does_not_stop(tmp_path, cap
     assert "nginx -s reload" in warnings
 
 
+def test_the_host_copy_of_the_page_warns_to_reinstall_but_does_not_stop(tmp_path, capsys):
+    code, out, d = commits_setup(tmp_path, capsys, touch=("docker/host-nginx-restart-page.conf",), images=[])
+    assert code == 0, out.err
+    warnings = json.dumps(json.loads((d / "commit-review-form.json").read_text())["derived"]["warnings"])
+    assert "reinstalls it as root" in warnings
+
+
 @pytest.mark.parametrize("path, images, flag", [
     ("docker/nginx-optional/error-pages.conf", (), "nginx_reload"),
+    ("docker/host-nginx-restart-page.conf", (), "host_nginx"),
     ("docker/scripts/entrypoint.sh", ("app",), None),
     ("docker/scripts/attribute_runtime_healthcheck.py", ("app",), None),
     ("docker/scripts/db/01-ensure-nextseek-db.sh", (), None),

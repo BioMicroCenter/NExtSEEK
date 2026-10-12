@@ -777,6 +777,10 @@ def range_problems(brief: BriefForm, cls: dict) -> tuple[list[str], list[str]]:
             warns.append(f"the range changes {', '.join(paths[:3])}: after the pull run "
                          "`nginx -t` then `nginx -s reload` in nextseek_nginx, or it stays off until nginx restarts")
             continue
+        if flag == "host_nginx":  # the host's copy: no stop, but someone must reinstall it
+            warns.append(f"the range changes {', '.join(paths[:3])}: the host nginx keeps the old page until the "
+                         "operator reinstalls it as root (DEPLOYMENT.md \"Host nginx restart page\")")
+            continue
         open_paths = [p for p in paths if p not in acked]
         for p in paths:
             if p in acked:
