@@ -29,6 +29,10 @@ jobs:
   pytest:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # uv takes the newest Python that requires-python (">=3.14") allows. That became 3.15, which
+    # torch publishes no wheel for, so every run failed at install. The app image pins its own Python.
+    env:
+      UV_PYTHON: "3.14"
     steps:
       - uses: actions/checkout@v4
 
