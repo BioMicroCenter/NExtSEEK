@@ -14,9 +14,12 @@ network) so the contract cannot be gamed by source-string tweaks.
 """
 from __future__ import annotations
 
+import json
 import os
+import re
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -139,3 +142,63 @@ class TestDbReadinessProbe:
         assert proc.returncode != 0
         assert "[DB-UNREACHABLE]" in proc.stderr
         assert calls.count("MySQLdb.connect") == 3
+
+
+# The stub tests above only see the probe's command line. These run its Python
+# against a fake MySQLdb: a misspelt key would otherwise pass every test and
+# crash-loop a box with [DB-UNREACHABLE].
+_FAKE_MYSQLDB = """import json, os
+class _Conn:
+    def close(self):
+        pass
+def connect(**kw):
+    if os.environ.get("FAKE_DB_DOWN"):
+        raise OSError("connection refused")
+    with open(os.environ["PROBE_LOG"], "w") as fh:
+        json.dump(kw, fh)
+    return _Conn()
+"""
+
+
+def _db_probe_code() -> str:
+    match = re.search(r"^_DB_PROBE='(.*)'$", ENTRYPOINT.read_text(), re.M)
+    assert match, "entrypoint.sh no longer defines _DB_PROBE on one line"
+    return match.group(1)
+
+
+def _run_probe(tmp_path, **extra_env):
+    (tmp_path / "MySQLdb.py").write_text(_FAKE_MYSQLDB)
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(tmp_path),
+        "PROBE_LOG": str(tmp_path / "kw.json"),
+        "MYSQL_HOST": "db",
+        "MYSQL_USER": 'seek "user"',
+        "MYSQL_PASSWORD": "pa$s w'rd",
+        "NEXTSEEK_MYSQL_DATABASE": "dmac",
+        **extra_env,
+    }
+    return subprocess.run([sys.executable, "-c", _db_probe_code()], env=env, capture_output=True, text=True)
+
+
+class TestDbProbeCode:
+    def test_probe_connects_with_the_values_from_the_environment(self, tmp_path):
+        proc = _run_probe(tmp_path)
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads((tmp_path / "kw.json").read_text()) == {
+            "host": "db", "port": 3306, "user": 'seek "user"', "password": "pa$s w'rd",
+            "database": "dmac", "connect_timeout": 5,
+        }
+
+    def test_probe_reads_the_names_django_reads_for_the_default_database(self):
+        settings = (REPO_ROOT / "dmac" / "settings.py").read_text()
+        default = re.search(r'"default":\s*\{(.*?)\}', settings, re.S).group(1)
+        code = _db_probe_code()
+        for key, var in (("NAME", "NEXTSEEK_MYSQL_DATABASE"), ("USER", "MYSQL_USER"),
+                         ("PASSWORD", "MYSQL_PASSWORD"), ("HOST", "MYSQL_HOST")):
+            assert f'"{key}": os.getenv("{var}")' in default, key
+            assert f'os.environ["{var}"]' in code, var
+        assert '"PORT": "3306"' in default and "port=3306" in code
+
+    def test_probe_fails_when_the_database_refuses(self, tmp_path):
+        assert _run_probe(tmp_path, FAKE_DB_DOWN="1").returncode != 0

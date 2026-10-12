@@ -31,7 +31,7 @@ It maps the WebSocket `Upgrade` header, forces a Django-safe upstream `Host` (th
 name contains an underscore), and includes `/etc/nginx/optional/*.conf`.
 
 One drop-in ships enabled: `docker/nginx-optional/error-pages.conf` answers a 502 (the app container
-restarting) with a short self-reloading page instead of nginx's bare one, keeping the 502 status and an
+restarting) with a short page and a Reload link instead of nginx's bare one, keeping the 502 status and an
 HTML body. The folder is a directory mount, so a changed drop-in reaches a running nginx with
 `docker compose exec nextseek_nginx nginx -t` and then `nginx -s reload`, with no recreate.
 
@@ -53,8 +53,9 @@ container:
 - the sample-share worker, `run_share_jobs` (the studies tool's share mode).
 
 It then waits on all of them, so any one exiting takes the container down for compose to restart,
-and it hands a `docker stop` SIGTERM on to all of them (bash as PID 1 would otherwise ignore it and be
-killed after docker's 10 s). The probe opens one MySQL connection without starting Django, and the
+and it hands a `docker stop` SIGTERM on to all of them but the graph-sync loop's run, which is killed
+with the container as before (bash as PID 1 would otherwise ignore the signal and be killed after
+docker's 10 s). The probe opens one MySQL connection without starting Django, and the
 image ships compiled bytecode (the `Dockerfile`), so the boot starts Django only twice before serving.
 The attribute runtimes used to be separate compose services; the comment block in the script
 records what folding them in gave up.

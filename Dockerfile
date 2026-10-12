@@ -30,7 +30,16 @@ RUN mkdir -p /app/NessieAI/dmac_assistant/src/dmac_assistant/router && \
 
 # The app's own source, including the BAML client just generated (uv compiles only
 # the venv). compileall writes explicitly, which PYTHONDONTWRITEBYTECODE allows.
-RUN /app/.venv/bin/python -m compileall -q -j 0 -x '/\.venv/' /app
+# Bytecode is only a speed-up, so a file that does not compile (an untracked
+# scratch file in a box's checkout) must not fail the build: Python compiles it
+# on import, as it did before.
+RUN /app/.venv/bin/python -m compileall -q -j 0 -x '/\.venv/' /app \
+    || echo "compileall: some files did not compile; they compile on import instead"
+
+# The venv is final here (the first-party packages are editable installs of this
+# tree), so no `uv run` in a running container syncs: a sync re-installs those
+# two packages, and on a box without network it fails after a long wait.
+ENV UV_NO_SYNC=1
 
 EXPOSE 8000
 

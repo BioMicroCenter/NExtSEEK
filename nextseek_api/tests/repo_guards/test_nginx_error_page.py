@@ -1,7 +1,7 @@
 """The page nginx shows while the app restarts must still read as a failure.
 
 `docker/nginx-optional/error-pages.conf` replaces nginx's bare 502 with a short
-self-reloading page. `ci/smoke/assertions.py` `check_gateway` tells a dead
+page and a Reload link. `ci/smoke/assertions.py` `check_gateway` tells a dead
 stack (a non-JSON 502 from nginx) from an application 502 (a JSON envelope),
 and health probes count any 502 as down. Both hold only while the page keeps
 the 502 status and an HTML body, so these guards pin that, and pin that git
@@ -67,3 +67,10 @@ def test_host_snippet_never_intercepts_upstream_errors_itself():
     text = _directives(HOST_CONF)
     assert "proxy_intercept_errors" not in text
     assert "proxy_pass" not in text
+
+
+def test_the_app_nginx_includes_the_drop_in_folder_inside_its_server_block():
+    nginx_conf = _directives(REPO_ROOT / "docker" / "nginx.conf")
+    assert "include /etc/nginx/optional/*.conf;" in nginx_conf[nginx_conf.index("server {"):]
+    compose = (REPO_ROOT / "docker-compose.yml").read_text()
+    assert "./docker/nginx-optional:/etc/nginx/optional:ro" in compose

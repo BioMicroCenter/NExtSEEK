@@ -168,6 +168,9 @@ fi
 # `docker stop` sends SIGTERM to PID 1, which is this script. Without a trap,
 # bash as PID 1 ignores it, so every stop waited out docker's 10 s and ended in
 # SIGKILL with gunicorn and the workers never told. Hand it on and wait for them.
+# The graph-sync loop is the exception: its subshell dies on the signal and the
+# sync it was running is killed with the container, as before (the loop has no
+# shutdown handler; an interrupted run is picked up by the next schedule).
 trap 'kill -TERM $(jobs -p) 2>/dev/null; wait; exit 143' TERM INT
 
 wait -n

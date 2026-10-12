@@ -258,13 +258,15 @@ _SIX_CONTEXT = tuple(f"{_CONTEXT}/{f}" for f in (
 class PathRule:
     pattern: str                 # regex over the repo-relative path
     images: tuple[str, ...]
-    flag: str | None = None      # nginx | compose | migration | seed | out_of_scope
+    flag: str | None = None      # nginx | nginx_reload | compose | migration | seed | out_of_scope
     note: str = ""
 
 
 IMAGE_RULES: tuple[PathRule, ...] = (
     PathRule(r"^docker/nginx\.conf$", (), "nginx",
              "single-file bind mount: needs an nginx --no-deps --force-recreate, only if allowed_extras says so"),
+    PathRule(r"^docker/nginx-optional/[^/]+\.conf$", (), "nginx_reload",
+             "directory mount: the pull delivers it, nginx -t then nginx -s reload applies it, no recreate"),
     PathRule(r"^docker-compose\.yml$", (), "compose", "a cap or env change may need a --no-deps recreate"),
     PathRule(r"^startup/seed/(regenerate/|README\.md$)", (), None, "seed refresh tooling and docs: nothing runs from them on a box"),
     PathRule(r"^startup/seed/", (), "seed", "seed data: install loads it; on prod the runner sets the dirty dumps aside"),
@@ -280,6 +282,8 @@ IMAGE_RULES: tuple[PathRule, ...] = (
     PathRule(r"^themes/NextSeek/", (), None, "bind-mounted: live after the pull; static needs collectstatic"),
     PathRule(r"^(ci|startup)/", (), None, "CI and the CLI run from the host checkout"),
     PathRule(r"\.(md|txt)$", (), None, "documentation"),
+    PathRule(r"^docker/scripts/db/", (), None, "MySQL init scripts: run only when the database volume is created"),
+    PathRule(r"^docker/scripts/", ("app",), None, "baked into the app image (the entrypoint, the healthcheck)"),
     PathRule(r"^NessieAI/tests/", ("app",), None, "baked into the app image (the harness runs from /app)"),
     PathRule(r"^(nextseek_api|seek|dmac|NessieAI)/", ("app",)),
     PathRule(r"^(pyproject\.toml|uv\.lock|Dockerfile|manage\.py|gunicorn\.conf\.py)$", ("app",)),

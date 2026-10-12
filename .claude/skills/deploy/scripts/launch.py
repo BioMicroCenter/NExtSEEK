@@ -773,6 +773,10 @@ def range_problems(brief: BriefForm, cls: dict) -> tuple[list[str], list[str]]:
                 "migration": brief.migrations_expected, "seed": False}
     acked = {a.path: a.reason for a in brief.acknowledged_flags}
     for flag, paths in cls["flags"].items():
+        if flag == "nginx_reload":  # a tracked drop-in: no stop, but the launch must apply it
+            warns.append(f"the range changes {', '.join(paths[:3])}: after the pull run "
+                         "`nginx -t` then `nginx -s reload` in nextseek_nginx, or it stays off until nginx restarts")
+            continue
         open_paths = [p for p in paths if p not in acked]
         for p in paths:
             if p in acked:

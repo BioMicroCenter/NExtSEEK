@@ -355,6 +355,25 @@ def test_an_acknowledged_flagged_path_does_not_stop_the_launch(tmp_path, capsys)
     assert code == 5 and "other.sql" in out.err
 
 
+def test_a_tracked_nginx_drop_in_warns_to_reload_but_does_not_stop(tmp_path, capsys):
+    code, out, d = commits_setup(tmp_path, capsys, touch=("docker/nginx-optional/error-pages.conf",), images=[])
+    assert code == 0, out.err
+    warnings = json.dumps(json.loads((d / "commit-review-form.json").read_text())["derived"]["warnings"])
+    assert "nginx -s reload" in warnings
+
+
+@pytest.mark.parametrize("path, images, flag", [
+    ("docker/nginx-optional/error-pages.conf", (), "nginx_reload"),
+    ("docker/scripts/entrypoint.sh", ("app",), None),
+    ("docker/scripts/attribute_runtime_healthcheck.py", ("app",), None),
+    ("docker/scripts/db/01-ensure-nextseek-db.sh", (), None),
+])
+def test_docker_folder_paths(path, images, flag):
+    rule = rules.rule_for(path)
+    assert (rule.images, rule.flag) == (images, flag)
+    assert rules.rule_for("docker/nginx-optional/neo4j.conf.example") is None
+
+
 def test_acknowledged_flags_are_validated(tmp_path, capsys):
     code, out, d = make_brief(tmp_path, capsys, acknowledged_flags=[{"path": SEED, "reason": "x"}])
     assert code == 2 and "reason" in out.err

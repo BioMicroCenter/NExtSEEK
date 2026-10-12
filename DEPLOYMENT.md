@@ -409,7 +409,7 @@ prior image + rollback tag are your way back.
 The system nginx on each server (TLS on 80/443, vhost files under
 `/etc/nginx/conf.d/`) answers a bare "502 Bad Gateway" while SEEK or the app
 container restarts. `docker/host-nginx-restart-page.conf` gives it the same
-self-reloading page as the app's own nginx: status 502, text/html. It is not
+page as the app's own nginx (a Reload link, no auto-refresh): status 502, text/html. It is not
 picked up by any deploy; install it by hand, as root, once per server, on the
 dev server first and on prod only after dev checks out.
 
@@ -458,7 +458,7 @@ curl -sI https://<app-host>/  | head -1
 
 To see the page, restart SEEK in a quiet minute (`docker compose -p nextseek
 restart seek`) and load `https://<seek-host>/`: it shows "NExtSEEK is
-restarting" and reloads by itself until SEEK is back.
+not answering right now" until SEEK is back; Reload then shows SEEK again.
 
 Rollback, on the same server:
 
