@@ -35,6 +35,8 @@ OUT = Path("docs/graph")
 IMPORTS = {"imports", "imports_from", "re_exports", "dynamic_import"}
 RELATIONS = IMPORTS | {"calls", "inherits"}
 SHADOWED = set(sys.stdlib_module_names) | {"neo4j"}
+# graphify (0.9.42 and later) also extracts these; the graph is of code only.
+NOT_CODE = (".md", ".json", ".toml")
 RESOLUTION = 0.6
 # Inside one Louvain community, an area holding at least this many of its files keeps its own name.
 SPLIT_MIN = 8
@@ -167,7 +169,8 @@ def main() -> int:
     tracked.discard("")
     commit = subprocess.run(["git", "rev-parse", "--short=8", "HEAD"], capture_output=True, text=True).stdout.strip()
     raw = json.loads(SOURCE.read_text(encoding="utf-8"))
-    file_of = {n["id"]: n.get("source_file") for n in raw["nodes"]}
+    file_of = {n["id"]: n.get("source_file") for n in raw["nodes"]
+               if not (n.get("source_file") or "").endswith(NOT_CODE)}
     files = sorted({f for f in file_of.values() if f in tracked})
 
     texts: dict[str, str] = {}

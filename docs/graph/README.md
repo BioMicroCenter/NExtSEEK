@@ -35,6 +35,10 @@ From the repo root, after the code changed:
 python3 scripts/graph_files.py  # stdlib only; rewrites the three files here
 ```
 
+Outside Claude Code, `graphify update .` (the `graphifyy` CLI) does the same code-only, AST-only build,
+first build included, with no API key. graphify 0.9.42 and later also extract `.md`, `.json` and `.toml`
+files; `scripts/graph_files.py` drops them (`NOT_CODE`), so the graph stays one of code.
+
 A first build (no `graphify-out/` yet) is `/graphify .`; it applies `.graphifyignore` on its own. Commit the
 three files together; the commit they describe is printed in `graph-files.json` and in the
 title of the svg and the page.
