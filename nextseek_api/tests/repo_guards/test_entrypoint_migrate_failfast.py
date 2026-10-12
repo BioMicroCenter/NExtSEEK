@@ -25,7 +25,7 @@ ENTRYPOINT = REPO_ROOT / "docker" / "scripts" / "entrypoint.sh"
 _UV_STUB = """#!/usr/bin/env bash
 echo "uv $*" >> "$CALL_LOG"
 case "$*" in
-  *"ensure_connection"*) exit "${DB_PROBE_EXIT:-0}" ;;
+  *"MySQLdb.connect"*) exit "${DB_PROBE_EXIT:-0}" ;;
   *"manage.py collectstatic"*) exit "${COLLECTSTATIC_EXIT:-0}" ;;
   *"manage.py migrate"*) exit "${MIGRATE_EXIT:-0}" ;;
   *) exit 0 ;;
@@ -124,7 +124,7 @@ class TestDbReadinessProbe:
     def test_db_ready_then_migrate_runs(self, tmp_path):
         proc, calls = _run_entrypoint(tmp_path, db_probe_exit=0, migrate_exit=0)
         assert proc.returncode == 0
-        assert "ensure_connection" in calls
+        assert "MySQLdb.connect" in calls
         assert "manage.py migrate" in calls
         assert "gunicorn" in calls
 
@@ -138,4 +138,4 @@ class TestDbReadinessProbe:
         proc, calls = _run_entrypoint(tmp_path, db_probe_exit=1, db_wait_attempts=3)
         assert proc.returncode != 0
         assert "[DB-UNREACHABLE]" in proc.stderr
-        assert calls.count("ensure_connection") == 3
+        assert calls.count("MySQLdb.connect") == 3

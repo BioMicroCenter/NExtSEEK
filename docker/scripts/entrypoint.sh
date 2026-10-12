@@ -10,7 +10,12 @@ mkdir -p /media/download /media/uploads /media/uploads/production /media/dropbox
 # collectstatic failure boots the site with missing/stale static (empty volume
 # -> sitewide 404s; post-rebuild -> chat-assistant bundle 404s). Under compose
 # `restart: always` this crash-loops until fixed (chosen: loud-over-up).
-uv run manage.py collectstatic --noinput || {
+#
+# Every `uv run` on the boot path passes `--no-sync`, like the loops below: the
+# image's venv is final (the first-party packages are editable installs of the
+# tree), and a sync re-installs those two packages on each new container's first
+# command, which is time between a restart and the first served request.
+uv run --no-sync manage.py collectstatic --noinput || {
   echo "[COLLECTSTATIC-FAILED] FATAL: manage.py collectstatic exited non-zero;" \
        "refusing to start servers with missing/stale static assets." \
        "Common cause is a full disk (ENOSPC) on the static volume." >&2
@@ -20,9 +25,13 @@ uv run manage.py collectstatic --noinput || {
 # R3: bounded DB-readiness probe. Distinguishes a transient cold-boot ordering
 # gap (db container up but mysqld not yet accepting connections) from a real
 # migration wedge, so the two don't share the [MIGRATE-FAILED] marker/triage.
+# It opens one connection through Django's own driver (mysqlclient) with the
+# values DATABASES["default"] reads, instead of starting Django to do the same:
+# a Django start costs 5-10 s, on every boot, before the site can serve.
+_DB_PROBE='import os, MySQLdb; MySQLdb.connect(host=os.environ["MYSQL_HOST"], port=3306, user=os.environ["MYSQL_USER"], password=os.environ["MYSQL_PASSWORD"], database=os.environ["NEXTSEEK_MYSQL_DATABASE"], connect_timeout=5).close()'
 _db_ready=0
 for _i in $(seq 1 "${DB_WAIT_ATTEMPTS:-30}"); do
-  if uv run manage.py shell -c "from django.db import connection; connection.ensure_connection()" >/dev/null 2>&1; then
+  if uv run --no-sync python -c "$_DB_PROBE" >/dev/null 2>&1; then
     _db_ready=1
     break
   fi
@@ -44,7 +53,7 @@ fi
 # fixed. If the failure is the heal's orphan guard, the remediation is manual
 # row triage (inspect/delete/reparent orphaned assistant_cc_transcript rows);
 # NEVER `migrate --fake` — that is what produced the FK-less fourth state.
-uv run manage.py migrate --noinput || {
+uv run --no-sync manage.py migrate --noinput || {
   echo "[MIGRATE-FAILED] FATAL: manage.py migrate exited non-zero;" \
        "refusing to start servers on an unmigrated schema." \
        "Fix the migration wedge (for the cc-transcript orphan guard: manual" \
@@ -59,12 +68,12 @@ uv run manage.py migrate --noinput || {
 #              auto-falls back to HTTP polling (chatApi.ts), so the assistant
 #              still works; lower-risk drop-in for a shared/multi-user instance.
 if [ "${NEXTSEEK_SERVER:-daphne}" = "gunicorn" ]; then
-  uv run gunicorn dmac.wsgi &
+  uv run --no-sync gunicorn dmac.wsgi &
 else
-  uv run daphne -b 0.0.0.0 -p 8000 dmac.asgi:application &
+  uv run --no-sync daphne -b 0.0.0.0 -p 8000 dmac.asgi:application &
 fi
 
-uv run celery -A nextseek_api.batch_upload.celery_app worker \
+uv run --no-sync celery -A nextseek_api.batch_upload.celery_app worker \
               --loglevel=info \
               -Q batch_upload \
               --concurrency=1 &
@@ -155,6 +164,11 @@ if [ "${NEXTSEEK_GRAPH_SYNC_LOOP:-1}" = "1" ]; then
   ( while :; do uv run --no-sync python manage.py graph_sync --loop; sleep "${GRAPH_SYNC_RESTART_DELAY:-60}"; done ) &
 fi
 # --- graph sync loop (END) -------------------------------------------------
+
+# `docker stop` sends SIGTERM to PID 1, which is this script. Without a trap,
+# bash as PID 1 ignores it, so every stop waited out docker's 10 s and ended in
+# SIGKILL with gunicorn and the workers never told. Hand it on and wait for them.
+trap 'kill -TERM $(jobs -p) 2>/dev/null; wait; exit 143' TERM INT
 
 wait -n
 

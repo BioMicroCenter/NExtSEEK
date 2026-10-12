@@ -51,7 +51,10 @@ container:
 - the assay-registration drain loop, `run_assay_registration_jobs`;
 - the sample-share worker, `run_share_jobs` (the studies tool's share mode).
 
-It then waits on all of them, so any one exiting takes the container down for compose to restart.
+It then waits on all of them, so any one exiting takes the container down for compose to restart,
+and it hands a `docker stop` SIGTERM on to all of them (bash as PID 1 would otherwise ignore it and be
+killed after docker's 10 s). The probe opens one MySQL connection without starting Django, and the
+image ships compiled bytecode (the `Dockerfile`), so the boot starts Django only twice before serving.
 The attribute runtimes used to be separate compose services; the comment block in the script
 records what folding them in gave up.
 
