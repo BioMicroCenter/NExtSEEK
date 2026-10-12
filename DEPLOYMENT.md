@@ -79,8 +79,16 @@ Key facts every operator must internalize:
   `.env` on a box serving real SEEK traffic; the cap takes effect when `seek`
   is recreated. The image starts one single-threaded puma worker per CPU unless
   told otherwise, so compose sets `PUMA_WORKERS_NUM` from `${SEEK_PUMA_WORKERS:-4}`
-  and `MALLOC_ARENA_MAX=2` on both SEEK services; fewer workers is what keeps the
-  sum under the cap. The users admin API writes through a fresh `bin/rails runner`
+  and `MALLOC_ARENA_MAX=2` on both SEEK services. Fewer workers alone does not
+  keep the sum under the cap: under load each worker still grows, and a cgroup
+  sitting at its cap stalls every process in memory reclaim (SEEK answered nothing
+  for 7 minutes on a dev box, 2026-10-12). So the `seek` command also recycles
+  any puma worker over `${SEEK_WORKER_MAX_MB:-2500}` MB of RSS: it gets SIGTERM,
+  finishes its request, and puma forks a fresh one; `docker logs seek` shows each
+  `recycling puma worker` line. Choose both per box so that workers x
+  `SEEK_WORKER_MAX_MB` plus about 0.5 GB for the master stays well under
+  `SEEK_MEMORY`, leaving room for one request's peak: 8 x 2500 MB under 24G, 6 x
+  2500 MB under 20G. The users admin API writes through a fresh `bin/rails runner`
   in this container, so near the cap that is killed too: the write answers 502
   and its detail says the runner exited 137.
 - The `neo4j` container is capped at `${NEO4J_MEMORY:-6G}`, its heap and page

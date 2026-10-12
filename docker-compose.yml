@@ -408,7 +408,16 @@ services:
     image: fairdom/seek:1.15.1
 
     container_name: ${INSTANCE_PREFIX:-}seek
-    command: docker/entrypoint.sh
+    # The image's docker/entrypoint.sh (puma in the background, nginx in the
+    # foreground), plus a recycler: every 30 s any puma worker over
+    # SEEK_WORKER_MAX_MB of RSS gets SIGTERM. Puma lets it finish its request and
+    # forks a fresh worker from the preloaded app at once ("booted in 0.0s").
+    # Without it the workers only grow until the cgroup sits at its cap, where on
+    # 2026-10-12 every process stalled in memory reclaim and SEEK answered nothing
+    # for 7 minutes until the kernel OOM-killed a worker. The loop exits 1 when the
+    # entrypoint does, so `restart: always` still covers the container (pinned by
+    # nextseek_api/tests/repo_guards/test_compose_seek_worker_recycler.py).
+    command: ["bash", "-c", "docker/entrypoint.sh & ep=$$!; while kill -0 $$ep 2>/dev/null; do sleep $${SEEK_WORKER_CHECK_S:-30}; for p in $$(pgrep -f '^puma: cluster worker'); do kb=$$(awk '/^VmRSS:/ {print $$2}' /proc/$$p/status 2>/dev/null); if [ $${kb:-0} -gt $$(( $${SEEK_WORKER_MAX_MB:-2500} * 1024 )) ]; then echo \"[seek] recycling puma worker $$p at $$(( kb / 1024 )) MB\" >&2; kill -TERM $$p; fi; done; done; echo '[seek] docker/entrypoint.sh exited' >&2; exit 1"]
     restart: always
 
     # SEEK's puma workers grow with every request they serve and never give the
@@ -435,6 +444,10 @@ services:
       # Raise it per box with SEEK_PUMA_WORKERS in the project-root .env (pinned by
       # nextseek_api/tests/repo_guards/test_compose_app_memory_cap.py).
       PUMA_WORKERS_NUM: "${SEEK_PUMA_WORKERS:-4}"
+      # The recycler's per-worker ceiling (the command above). Keep workers x this
+      # well under SEEK_MEMORY: 4 x 2500 MB fits a 20G cap with room for one
+      # request's peak. Set it per box with SEEK_WORKER_MAX_MB in the project-root .env.
+      SEEK_WORKER_MAX_MB: "${SEEK_WORKER_MAX_MB:-2500}"
       # glibc's per-thread malloc arenas fragment a long-lived Ruby heap; 2 is the
       # usual setting for Rails. The image ships no jemalloc.
       MALLOC_ARENA_MAX: "2"
