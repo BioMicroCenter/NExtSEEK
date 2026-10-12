@@ -198,9 +198,6 @@ _INSTANCE_RULES = {
                      "2026-10-05"),
         ),
         windows=(
-            Window((4, 0), (12, 0), "the nightly mariadb-dump hangs on a stuck NFS mount and holds "
-                   "LOCK TABLES READ on every dmac table until wait_timeout drops it (blocks logins, "
-                   "chat writes, CI)", "stop"),
             Window((5, 45), (7, 45), "the nightly graph sync runs 02:00-02:30 US Eastern (06:00Z in summer, "
                    "07:00Z in winter); a rebuild kills it",
                    "stop"),
