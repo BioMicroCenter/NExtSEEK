@@ -404,6 +404,77 @@ Then §6. Remember the entrypoint reruns migrate/collectstatic on every start;
 a config typo that breaks Django settings shows up as a crash-loop, and the
 prior image + rollback tag are your way back.
 
+### Host nginx restart page
+
+The system nginx on each server (TLS on 80/443, vhost files under
+`/etc/nginx/conf.d/`) answers a bare "502 Bad Gateway" while SEEK or the app
+container restarts. `docker/host-nginx-restart-page.conf` gives it the same
+self-reloading page as the app's own nginx: status 502, text/html. It is not
+picked up by any deploy; install it by hand, as root, once per server, on the
+dev server first and on prod only after dev checks out.
+
+What it changes: in every server block that includes it, a 502 the host nginx
+makes itself (connection refused, the upstream container is down) gets the
+page. In a location that also sets `proxy_intercept_errors on`, a 502 the
+upstream sends gets the page too; every other upstream status passes through.
+Set that line **only** in locations that proxy to `127.0.0.1:3000` (SEEK),
+never in one that proxies to `127.0.0.1:8000`: the app sends real JSON 502s
+that clients must see unchanged.
+
+Install, from the deploy clone, on `<host>` (dev first):
+
+```bash
+sudo install -m 644 -o root -g root docker/host-nginx-restart-page.conf /etc/nginx/nextseek-restart-page.conf
+sudo restorecon -v /etc/nginx/nextseek-restart-page.conf    # SELinux: httpd_config_t
+sudo cp -a /etc/nginx/conf.d/<app-vhost>.conf /root/<app-vhost>.conf.bak
+sudo cp -a /etc/nginx/conf.d/<seek-vhost>.conf /root/<seek-vhost>.conf.bak
+```
+
+Then edit both vhost files (`sudo -e`). In the HTTPS `server { ... }` block of
+each (the one with `listen 443 ssl`, not the port-80 redirect block), add
+directly under `server_name`:
+
+```nginx
+    include /etc/nginx/nextseek-restart-page.conf;
+```
+
+and add as the first line inside every `location` whose `proxy_pass` is
+`http://127.0.0.1:3000`: `location /` in `<seek-vhost>.conf`, and on the dev
+server also `location /fairdata/` in `<app-vhost>.conf`:
+
+```nginx
+        proxy_intercept_errors on;
+```
+
+Do not put the file in `conf.d/` (it is included at `http` level there, where
+a named location is refused), and do not add the intercept line to any `:8000`
+location. Check and reload:
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+curl -sI https://<seek-host>/ | head -1     # still 200 or 302 with SEEK up
+curl -sI https://<app-host>/  | head -1
+```
+
+To see the page, restart SEEK in a quiet minute (`docker compose -p nextseek
+restart seek`) and load `https://<seek-host>/`: it shows "NExtSEEK is
+restarting" and reloads by itself until SEEK is back.
+
+Rollback, on the same server:
+
+```bash
+sudo cp -a /root/<app-vhost>.conf.bak /etc/nginx/conf.d/<app-vhost>.conf
+sudo cp -a /root/<seek-vhost>.conf.bak /etc/nginx/conf.d/<seek-vhost>.conf
+sudo restorecon -v /etc/nginx/conf.d/<app-vhost>.conf /etc/nginx/conf.d/<seek-vhost>.conf
+sudo nginx -t && sudo systemctl reload nginx
+sudo rm /etc/nginx/nextseek-restart-page.conf
+```
+
+A later change to the page: edit both copies (the guard
+`nextseek_api/tests/repo_guards/test_nginx_error_page.py` fails if their bodies
+differ), then repeat only the `install`, `restorecon`, `nginx -t` and reload
+steps.
+
 ---
 
 ## 5. Rollback

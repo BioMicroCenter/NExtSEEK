@@ -15,6 +15,7 @@ also live here, untracked: the startup CLI renders them from `startup/templates/
 |---|---|---|
 | `docker/nginx.conf` | compose service `nextseek_nginx`, mounted as `/etc/nginx/nginx.conf` | the front proxy for the app |
 | `docker/nginx-optional/` | compose service `nextseek_nginx`, mounted as `/etc/nginx/optional` | operator drop-ins; one example ships |
+| `docker/host-nginx-restart-page.conf` | the servers' host nginx, installed by hand as `/etc/nginx/nextseek-restart-page.conf` | the same restart page for the host nginx in front of SEEK and the app (`DEPLOYMENT.md` "Host nginx restart page") |
 | `docker/scripts/entrypoint.sh` | the app image (the repo-root `Dockerfile` copies the whole tree) | the `nextseek` container's start command |
 | `docker/scripts/attribute_runtime_healthcheck.py` | the `nextseek` service's healthcheck | probes the attribute runtimes without starting a second Django process |
 | `docker/scripts/db/` | compose service `db`, mounted as `/docker-entrypoint-initdb.d` | creates the NExtSEEK schema and its grants at first MySQL start |
