@@ -265,8 +265,8 @@ def test_title_race_preserves_at_most_one():
     services = FakeServices(lock_schema_values=["before", "winner-state"])
     first = TypePlan(7, idempotency_key="a")
     assert execute_type_plan(first, services)["status"] == "succeeded"
-    second = TypePlan(7, expected_after_semantic_fingerprint="other", idempotency_key="b")
-    with pytest.raises(ExecutionConflict):
+    second = TypePlan(7, idempotency_key="b")
+    with pytest.raises(ExecutionConflict, match="type schema changed after planning"):
         execute_type_plan(second, services)
 
 
