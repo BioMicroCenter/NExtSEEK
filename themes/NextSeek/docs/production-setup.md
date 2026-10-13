@@ -20,11 +20,11 @@ In `docker/nextseek.env`, leave `DJANGO_DEBUG` unset, set `DJANGO_ALLOWED_HOSTS`
 
 ### 3. Set the public SEEK address
 
-SEEK is served on its own host name. Set it once, at the first install, with `./startup.sh install --seek-public-url https://seek.example.org` (host only, no path; leave it out on a laptop), so that NExtSEEK's links and SEEK's own identifiers agree. Do this before items 2, 4 and 6: running install again writes the config files again from their templates, which undoes those edits. Details: [NExtSTEPS 1d](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#1d-set-the-browser-reachable-seek-url---seek-public-url).
+SEEK is served on its own host name. Set it once, at the first install, with `./startup.sh install --seek-public-url https://seek.example.org` (host only, no path; leave it out on a laptop), so that NExtSEEK's links and SEEK's own identifiers agree. Running install again keeps it, and keeps your edits from items 2, 4 and 6. Details: [NExtSTEPS 1d](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#1d-set-the-browser-reachable-seek-url---seek-public-url).
 
 ### 4. Rotate credentials
 
-- **MySQL.** Change the passwords inside the running database, then in `docker/db.env`, and recreate the services that read it. Leave user names and database names alone, and do not use `reset --keep-config` for this: it writes the demo passwords back. Commands: [NExtSTEPS 2a](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#2a-mysql-dockerdbenv).
+- **MySQL.** Change the passwords inside the running database, then in `docker/db.env`, and recreate the services that read it. Leave user names and database names alone, and do not use `reset --keep-config` for this: it drops the volumes and re-seeds, which erases your data. Commands: [NExtSTEPS 2a](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#2a-mysql-dockerdbenv).
 - **Neo4j.** The password lives in the Neo4j volume after the first start, so editing files alone does nothing. Steps: [NExtSTEPS 2b](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#2b-neo4j).
 - **Django secret key.** Install generates one. If it was ever logged or shared, replace it; everyone is signed out and old password-reset links stop working. Steps: [NExtSTEPS 3](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#3-django-secret-key).
 

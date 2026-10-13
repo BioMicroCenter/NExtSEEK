@@ -57,7 +57,7 @@ Nine phases, in order:
 8. Verify the demo users.
 9. Run health checks.
 
-Running it again keeps your data: the volumes stay, and each seed is skipped when its database already holds data. It does write the three config files below again from their templates, so your edits to them are lost and the Django secret key changes. Redo those edits afterwards.
+Running it again keeps your data and your settings: the volumes stay, each seed is skipped when its database already holds data, and the config files below keep the values you set in them. Install lists any value it rewrites. An existing `dmac/local_settings.py` is never overwritten: when the template differs, the new version is written beside it as `dmac/local_settings.py.new` for you to compare.
 
 ## Configuration
 
@@ -72,7 +72,7 @@ Install writes three files for you to edit. All are ignored by git:
 Edit a file, then apply it with `docker compose up -d --no-deps --force-recreate nextseek`.
 
 !!! warning
-    Do not use `./startup.sh reset` to re-render config. `reset` drops the Docker volumes and re-seeds, which erases your data. It also writes the config files back to the demo values, even with `--keep-config`.
+    Do not use `./startup.sh reset` to re-render config. `reset` drops the Docker volumes and re-seeds, which erases your data. Without `--keep-config` it also writes the config files back to the demo values, keeping only the host names the site is served on.
 
 ## Day-to-day commands
 
@@ -80,7 +80,7 @@ Edit a file, then apply it with `docker compose up -d --no-deps --force-recreate
 |---|---|
 | `./startup.sh doctor` | Read-only check of prerequisites and health. Run this first when something is wrong |
 | `./startup.sh rebuild` | Rebuild and restart the app image without touching data, then run the smoke tests (`--no-ci` skips them). Pass `--component` to pick another: `app` (the default), `cc-agent`, `nextseek-sidecar`, `bedrock-proxy` or `custom-stack` |
-| `./startup.sh reset` | **Destructive.** Drops the volumes, re-seeds and writes the config files again (also with `--keep-config`) |
+| `./startup.sh reset` | **Destructive.** Drops the volumes and re-seeds. Without `--keep-config` it also writes the config files back to the demo values |
 | `./startup.sh ci` | Run the smoke test suite against the running stack |
 | `./startup.sh seed-filestore` | Load the SEEK file blobs into a running stack (skipped if the volume already has files, unless you pass `--force`) |
 | `./startup.sh dump-db` | For maintainers: regenerate the seed dumps |
