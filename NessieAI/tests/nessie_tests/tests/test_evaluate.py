@@ -1281,3 +1281,41 @@ def test_cannot_do_this_analysis_cases_cap_the_reply_length():
     walk(raw)
     crits = found[0]["turns"][0]["pass_criteria"]
     assert {"field": "last_reply.lines", "op": "lte", "value": 12} in crits
+
+
+# 2026-10-13 harmo_onto review S6: a harmonize turn must not pass on a reply that only re-lists the
+# stored values and offers to act, nor on a proposal that does not ask before the workbook.
+_ONTO_TURNS = {  # case id -> (turn index, a re-list with an offer, a proposal from the ontology, its ask)
+    "harmon.onto_imaging_datatype_house_terms": (0,
+        "DataType values: tif 1,754, TIF 1, czi 69, .czi 360, CZI 2. Would you like me to harmonize them?",
+        "| Before | Samples | After | Ontology id |\n|---|---|---|---|\n| tif | 1,754 | TIF | EDAM:format_3591 |\n"
+        "| .czi | 360 | CZI | |\nThe house list spells file types in capitals.", "Shall I build the workbook?"),
+    "harmon.onto_cell_species": (0,
+        "Species values: Homo sapiens 191, homo sapiens 154, Homo Sapiens 9. Should I harmonize them?",
+        "| Before | Samples | After | Ontology id |\n|---|---|---|---|\n| homo sapiens | 154 | Homo sapiens | "
+        "NCBITaxon:9606 |", "Shall I build the update workbook?"),
+    "harmon.onto_mouse_genotype_slide": (1,
+        "Genotypes: RaDR+/+; GPT+/+ 1,111; RGAM 141; RG 95. Want me to harmonize them?",
+        "| Before | Samples | After | Ontology id |\n|---|---|---|---|\n| RG | 95 | RaDR+/+; GPT+/+ | |\n"
+        "RGAM (141) fits no term: is it RaDR+/+; GPT+/+; Aag -/-; Mgmt-/-.", "Shall I go ahead?"),
+    "harmon.onto_library_layout": (0,
+        None,  # no re-list check: the house term is also the most common spelling, so no reply text tells them apart
+        "| Before | Samples | After | Ontology id |\n|---|---|---|---|\n| PAIRED | 705 | Paired End | |\n"
+        "3DGE (384) fits no layout term: it is a prep method.", "Shall I build the update workbook?"),
+}
+
+
+def _onto_turn_passes(vid, reply):
+    from NessieAI.tests.nessie_tests import corpus
+    v = next(x for x in corpus.merged(Path(corpus.__file__).parent / "corpus.json") if x.id == vid)
+    crits = list(v.turns[_ONTO_TURNS[vid][0]].pass_criteria)
+    return evaluate.evaluate_turn(_cc_payload(reply=reply), crits, OBS_CC, last_reply=reply)[0]
+
+
+@pytest.mark.parametrize("vid", sorted(_ONTO_TURNS))
+def test_a_harmonize_turn_passes_only_on_an_ontology_proposal_that_asks(vid):
+    _, relist, proposal, ask = _ONTO_TURNS[vid]
+    if relist:
+        assert not _onto_turn_passes(vid, relist)
+    assert not _onto_turn_passes(vid, proposal)
+    assert _onto_turn_passes(vid, proposal + "\n" + ask)
