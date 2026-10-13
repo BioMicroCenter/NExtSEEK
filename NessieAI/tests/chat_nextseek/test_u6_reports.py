@@ -130,6 +130,26 @@ def test_scope_kind_word(q, kind):
 
 
 # --- fix 11 ---
+# N2: a localhost link in the writer's input becomes this box's public address, never another box's host.
+@pytest.mark.parametrize("url", ["https://box-one.example.org", "https://box-two.example.org/"])
+def test_sanitized_protocol_links_use_the_boxs_public_address(monkeypatch, url):
+    from chat_nextseek.reports.protocols import sanitize_protocols_for_llm
+    monkeypatch.setenv("SEEK_PUBLIC_URL", url)
+    out = sanitize_protocols_for_llm({"P.X": {"link": "http://localhost:3000/sops/5",
+                                              "files": ["http://127.0.0.1/sops/6/content_blobs/2"],
+                                              "kept": "https://elsewhere.example.org/sops/7"}})["P.X"]
+    base = url.rstrip("/")
+    assert out == {"link": f"{base}/sops/5", "files": [f"{base}/sops/6/content_blobs/2"],
+                   "kept": "https://elsewhere.example.org/sops/7"}
+
+
+def test_with_no_public_address_a_sanitized_link_keeps_only_its_path(monkeypatch):
+    from chat_nextseek.reports.protocols import sanitize_protocols_for_llm
+    monkeypatch.delenv("SEEK_PUBLIC_URL", raising=False)
+    out = sanitize_protocols_for_llm({"P.X": {"link": "http://localhost:3000/sops/5"}})["P.X"]
+    assert out == {"link": "/sops/5"}
+
+
 @pytest.mark.parametrize("url", ["https://box-one.example.org", "https://box-two.example.org/"])
 def test_protocol_links_use_the_boxs_public_address(monkeypatch, url):
     monkeypatch.setenv("SEEK_PUBLIC_URL", url)
