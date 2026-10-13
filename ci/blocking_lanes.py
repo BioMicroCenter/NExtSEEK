@@ -46,6 +46,9 @@ BLOCKING_GLOBS = (
     # The Container-CC transcript recover endpoint (#98): the caller's own turn, 200 for a failed turn, 404 when
     # absent, pre-#68 cumulative rows served as stored. SQLite and stubs only.
     "nextseek_api/tests/test_services_cc_transcript_recover.py",
+    # The attributes viewset's own suite (#98). Its conftest used to declare pytest_plugins below the rootdir, so
+    # CI never collected it. The tests that need the author's evidence rig are strict xfails there (conftest.py).
+    "nextseek_api/attributes/tests/test_*.py",
     # The user docs at /docs/: every page renders and its links, anchors and images
     # resolve; and Nessie's docs snapshot is regenerated whenever a page changes.
     "seek/tests/test_docs_*.py",

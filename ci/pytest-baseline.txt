@@ -30,8 +30,7 @@
 #   73 errors in 6m17s
 # 361 unique IDs in that run (358 since the update below). The 7 without "::"
 # are collection-level and each hides an
-# unknown number of tests. nextseek_api/attributes/tests is an evidence lane
-# that cannot run off its author's machine.
+# unknown number of tests. (nextseek_api/attributes/tests was one of them until #98: it now collects.)
 #
 # Where the gate lane differs from CI:
 #   - No BAML client. The read-only tree has none, and the moved dmac_assistant
@@ -293,7 +292,6 @@ NessieAI/tests/schema_rag/test_schema_rag_integration.py::SchemaRAGFullModeInteg
 NessieAI/tests/schema_rag/test_schema_rag_integration.py::SchemaRAGIntegrationTests::test_retrieve_after_ingest
 NessieAI/tests/schema_rag/test_schema_rag_integration.py::SchemaRAGIntegrationTests::test_retrieve_with_schema_url
 NessieAI/tests/schema_rag/test_schema_rag_integration.py::SchemaRAGIntegrationTests::test_retrieve_with_session_id
-nextseek_api/attributes/tests
 nextseek_api/batch_upload/tests/test_neo4j_integration.py::TestInStudyIntegration::test_creates_in_study_relationship
 nextseek_api/batch_upload/tests/test_neo4j_integration.py::TestInStudyIntegration::test_idempotent_merge
 nextseek_api/batch_upload/tests/test_neo4j_integration.py::TestOfTypeIntegration::test_creates_of_type_relationship
