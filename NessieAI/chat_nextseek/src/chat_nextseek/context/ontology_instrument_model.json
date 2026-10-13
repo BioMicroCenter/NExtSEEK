@@ -569,28 +569,28 @@
  {
   "TERM": "GS111",
   "DEF": "Genapsys sequencing instrument.",
-  "ONT_SOURCE": "SRA",
+  "ONT_SOURCE": "GEO",
   "ONT_ID": null,
   "SYNONYMS": []
  },
  {
   "TERM": "Tapestri",
   "DEF": "Tapestri sequencing instrument.",
-  "ONT_SOURCE": "SRA",
+  "ONT_SOURCE": "GEO",
   "ONT_ID": null,
   "SYNONYMS": []
  },
  {
   "TERM": "UG 100",
   "DEF": "Ultima sequencing instrument.",
-  "ONT_SOURCE": "SRA",
+  "ONT_SOURCE": "GEO",
   "ONT_ID": null,
   "SYNONYMS": []
  },
  {
   "TERM": "Sentosa SQ301",
   "DEF": "Vela Diagnostics sequencing instrument.",
-  "ONT_SOURCE": "SRA",
+  "ONT_SOURCE": "GEO",
   "ONT_ID": null,
   "SYNONYMS": []
  },
