@@ -5908,12 +5908,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)\\b8,?37[25]\\b\\D{0,60}samples?|\\b10,?872\\b\\D{0,60}records?"
+                  "value": "(?is)\\b8,?37[25]\\b\\D{0,60}samples?|\\b1(0,?872|2,?244)\\b\\D{0,60}records?"
                 }
               ]
             }
           ],
-          "_why": "8,372 distinct IMPAcTb samples have a D.FLOW or D.CYTOF descendant, 8,375 counting D.FCS too. The data records themselves are D.FLOW 10,838, D.FCS 1,372 and D.CYTOF 34. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: Sample IN_PROJECT IMPAcTb WITH DISTINCT s WHERE EXISTS { (x)-[:DERIVED_FROM*1..12]->(s) WHERE x:T_D_FLOW OR x:T_D_CYTOF }. || WAS: the query searched D.FLOW and D.CYTOF descendants (7,992 then) but the reply called the data D.FCS (B8). || TESTS: the count of samples, not data records, over the whole project.",
+          "_why": "8,372 distinct IMPAcTb samples have a D.FLOW or D.CYTOF descendant, 8,375 counting D.FCS too. The data records themselves are D.FLOW 10,838, D.FCS 1,372 and D.CYTOF 34. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: Sample IN_PROJECT IMPAcTb WITH DISTINCT s WHERE EXISTS { (x)-[:DERIVED_FROM*1..12]->(s) WHERE x:T_D_FLOW OR x:T_D_CYTOF }. || WAS: the query searched D.FLOW and D.CYTOF descendants (7,992 then) but the reply called the data D.FCS (B8). || TESTS: the count of samples, not data records, over the whole project. || 2026-10-13 (review R10): the records branch also accepts 12,244 (D.FLOW + D.FCS + D.CYTOF, the count fix 7 asks for).",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 437 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         }
       ]
@@ -7079,7 +7079,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(390|1,?826|2,?711|2,?906)\\b"
+                  "value": "\\b(1,?826|2,?906)\\b"
                 },
                 {
                   "field": "last_reply",
@@ -7103,7 +7103,7 @@
           },
           "_promoted_2026_08_06": "Reviewed and grounded. PBMC is a site-specific vocabulary term that maps to the TIS sample type: 653 TIS samples mention PBMC (and 511 D.FLOW, 1,172 in all). The existing entity_sampletype_codes criterion is correct but is stripped on a forced CC arm, so a reply-level criterion is added to make the case measurable on both engines.",
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 457 TIS rows have Type exactly 'PBMC'; 653 TIS rows mention PBMC anywhere (301 more say 'Peripheral Blood Mononuclear Cells', 6 lowercase). There is no PBMC sample TYPE \u2014 PBMC is a tissue. || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Type='PBMC' = 457; TIS blob LIKE '%PBMC%' = 653; also D.FLOW 511, ABP 4, A.FLOW 3, A.COMC 1.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_TIS Type = 'PBMC' exactly 390; T_TIS search_text CONTAINS 'pbmc' 2,711 (Neo4j cypher-shell, read-only); same two predicates as before. Other TIS Type values: 'Peripheral Blood Mononuclear Cells' 1,430, 'PBMC Plasma' 889, 'Peripheral blood mononuclear cells' 6; was 457/653."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_TIS Type = 'PBMC' exactly 390; T_TIS search_text CONTAINS 'pbmc' 2,711 (Neo4j cypher-shell, read-only); same two predicates as before. Other TIS Type values: 'Peripheral Blood Mononuclear Cells' 1,430, 'PBMC Plasma' 889, 'Peripheral blood mononuclear cells' 6; was 457/653. || 2026-10-13 (review R10): 390 (Type 'PBMC' only, too narrow) and 2,711 (text 'pbmc' only) are the answers before the fix, so they no longer pass; 1,826 and 2,906 stay."
         },
         {
           "id": "entity.find_pbmcs_that_were_sequenced_u",
@@ -7715,13 +7715,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "system_question"
+                  "op": "matches_re",
+                  "value": "^(system_question|graph_query)$"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b49\\b"
+                  "value": "\\b54\\b"
                 },
                 {
                   "field": "last_reply",
@@ -7740,7 +7740,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. NHP declares 47 attributes; 44 distinct keys are observed in the data. Species, Sex, Origin, Facility, Supplier, Study and Cohort are the populated discriminators. Note `Cohort` (355 rows) is NOT declared on NHP at all. || VERIFIED: seek_production MySQL, verified 2026-08-06: sample_attributes for NHP = 47; JSON_KEYS distinct = 44; per-key fill counts.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): NHP declares 49 sample_attributes and 49 distinct keys appear in NHP json_metadata (seek_production MySQL, read-only); NHP no longer carries a Cohort key (the CD8 and 4-week groupings live in Study and Arm); was 47/44."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): NHP declares 49 sample_attributes and 49 distinct keys appear in NHP json_metadata (seek_production MySQL, read-only); NHP no longer carries a Cohort key (the CD8 and 4-week groupings live in Study and Arm); was 47/44. || Re-keyed 2026-10-13: prod read 2026-10-13 15:32Z (fairdata, read-only, builders/U7-reads-prod2.out) (read E): the graph's NHP SampleType has 54 HAS_ATTRIBUTE (54 declared, 52 with values) and SEEK sample_attributes for type 41 NHP = 54; was 49. || 2026-10-13 route ruling: Operator 2026-10-13, 'Either route': system_question or graph_query is the right parser mode; the number and the Species/Sex criteria still check the answer."
         },
         {
           "id": "sys.what_sample_types_can_i_search",
@@ -10157,6 +10157,16 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(Cell Isolation|Patient-Derived Xenograft|PDX)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b467\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b934\\b)"
                 }
               ]
             },
@@ -10192,7 +10202,7 @@
               ]
             }
           ],
-          "_why": "Between T_CEL and T_MUS there are two titled assays: 'Cell Isolation' on 32 CEL->MUS DERIVED_FROM edges (a cell derived from a mouse) and 'Patient-Derived Xenograft (PDX) Cell Line Generation' on 467 MUS->CEL edges, plus 20 MUS->CEL edges with no title. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (a:T_CEL)-[r:DERIVED_FROM]->(b:T_MUS) RETURN r.internal_assay_title, count(*), and the reverse. 'Cell Line Creation', which the old reply named, is not an assay title anywhere in the graph. The question's 'three' echoes a row count the old seed reported; the follow-up must answer from what was found, not agree with the premise. Follow-ups route to container_cc (operator ruling 2026-09-23). || WAS: the seed said '3 matches' and the follow-up said 'Only two assays were found (not three)', contradicting it (B12). || TESTS: a follow-up names what the previous turn returned. || 2026-09-24: follow-up split (routing review 5): recall of what the earlier turn found, so the follow-up asserts nextseek_query (was container_cc).",
+          "_why": "Between T_CEL and T_MUS there are two titled assays: 'Cell Isolation' on 32 CEL->MUS DERIVED_FROM edges (a cell derived from a mouse) and 'Patient-Derived Xenograft (PDX) Cell Line Generation' on 467 MUS->CEL edges, plus 20 MUS->CEL edges with no title. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (a:T_CEL)-[r:DERIVED_FROM]->(b:T_MUS) RETURN r.internal_assay_title, count(*), and the reverse. 'Cell Line Creation', which the old reply named, is not an assay title anywhere in the graph. The question's 'three' echoes a row count the old seed reported; the follow-up must answer from what was found, not agree with the premise. Follow-ups route to container_cc (operator ruling 2026-09-23). || WAS: the seed said '3 matches' and the follow-up said 'Only two assays were found (not three)', contradicting it (B12). || TESTS: a follow-up names what the previous turn returned. || 2026-09-24: follow-up split (routing review 5): recall of what the earlier turn found, so the follow-up asserts nextseek_query (was container_cc). || 2026-10-13: prod read 2026-10-13 15:32Z (fairdata, read-only, builders/U7-reads-prod2.out) (read G): MUS from CEL, Patient-Derived Xenograft (PDX) Cell Line Generation 467 edges and 20 untitled; CEL from MUS, Cell Isolation 32 and Cell Line Creation 8. The seed must give 467 and never 934 (each edge counted twice, fix 6).",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 131 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else.",
           "_deselected_2026_09_23_prod_researchers": "Not in the paid paired selection: added with the production researcher questions, whose purpose is regression cover in the full tier. The follow-up families are already represented in the selection."
         },
@@ -11243,8 +11253,8 @@
               "pass_criteria": [
                 {
                   "field": "route",
-                  "op": "eq",
-                  "value": "container_cc"
+                  "op": "matches_re",
+                  "value": "^(nextseek_query|container_cc)$"
                 },
                 {
                   "field": "last_reply",
@@ -11272,7 +11282,8 @@
             "assertion": "parser_plan.mode eq reporter"
           },
           "_promoted_2026_08_06": "Reviewed, with the reporter-mode criterion supplemented. Impact holds 24 studies and 33,089 samples; a summary that names neither is not a summary. Note the date words are deliberate: samples.created_at is 2026 for all 50,887 rows (bulk seed load), so 'last year' can only be answered from the UID date code or SampleCreationDate.",
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. There is no honest answer from `created_at`: all 50,887 rows load as 2026-01-27 in a 54-second bulk ingest. The real dates are either the UID date code or SampleCreationDate (populated on 57.9% of Impact). || VERIFIED: seek_production MySQL, verified 2026-08-06: SELECT YEAR(created_at) -> 2026 for every row; Impact created_at range 2026-01-27 10:25:32 to 2026-04-30."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. There is no honest answer from `created_at`: all 50,887 rows load as 2026-01-27 in a 54-second bulk ingest. The real dates are either the UID date code or SampleCreationDate (populated on 57.9% of Impact). || VERIFIED: seek_production MySQL, verified 2026-08-06: SELECT YEAR(created_at) -> 2026 for every row; Impact created_at range 2026-01-27 10:25:32 to 2026-04-30.",
+          "_why": "2026-10-13: prod read 2026-10-13 15:32Z (fairdata, read-only, builders/U7-reads-prod2.out) (read F): IMPAcTb samples whose UID date is 2025 = 21,141 in 39 sample types. No number is pinned on this case. || 2026-10-13 route ruling: Operator 2026-10-13, 'Either route': nextseek_query or container_cc is the right route; the reply criteria still check the answer."
         },
         {
           "id": "path.i_don_t_trust_that_impact_number",
@@ -11521,7 +11532,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(58,?142|58,?157)\\b"
+                  "value": "\\b7,?354\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\b10\\b\\W{0,3}(?:\\w+\\W+){0,2}?stud(?:y|ies)"
                 }
               ]
             }
@@ -11535,7 +11551,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 6,708 samples in SRP across 32 sample types, 12 studies, 61 assays, 22 SOPs. Every sample in this deployment is in the single 'Published Data' project, so 'published' adds no filter. || VERIFIED: seek_production MySQL, verified 2026-08-06 and Neo4j cypher-shell, verified 2026-08-06 agree on 6,708.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): prod has no project titled SRP; project MIT_SRP holds 58,142, and 58,157 with the MIT_SRP study and investigation scopes added (Neo4j cypher-shell, read-only; the same two readings as the prod probe pin srp2.project_scope); was 6,708."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): prod has no project titled SRP; project MIT_SRP holds 58,142, and 58,157 with the MIT_SRP study and investigation scopes added (Neo4j cypher-shell, read-only; the same two readings as the prod probe pin srp2.project_scope); was 6,708. || Re-keyed 2026-10-13: prod read 2026-10-13 15:32Z (fairdata, read-only, builders/U7-reads-prod2.out), the published runner's own rule (read B): 7,354 published samples in 10 studies of MIT_SRP. 58,142 is the whole project, not its published samples."
         },
         {
           "_why": "The base asserted reporter_plan.project == 'Kamm', but Kamm is modelled as a LAB. The real defect: reporter_result came back project_id null with 50,886 rows \u2014 the entire database \u2014 for a Kamm-scoped RPPR. || Re-keyed 2026-09-23 against production (fairdata): 9,821 samples with lab code KAM in the UID (Neo4j cypher-shell, read-only: uuid =~ '^[^-]+-[0-9]{6}KAM-.*'); the uuids_saved lte 20000 bound still holds; was 7,269.",
@@ -12421,12 +12437,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b8\\b"
+                  "value": "(?is)D\\.IMG\\D{0,60}\\b428\\b|\\b428\\b\\D{0,60}D\\.IMG"
                 }
               ]
             }
           ],
-          "_why": "Shoulders: 568 samples, 8 sample types, 1 study, 8 assays, 4 SOPs. || VERIFIED: seek_production MySQL, verified 2026-08-06 and Neo4j cypher-shell, verified 2026-08-06 agree on 568. || TESTS: a second small investigation on a different axis, so the family is not one investigation asked four ways.",
+          "_why": "Shoulders: 568 samples, 8 sample types, 1 study, 8 assays, 4 SOPs. || VERIFIED: seek_production MySQL, verified 2026-08-06 and Neo4j cypher-shell, verified 2026-08-06 agree on 568. || TESTS: a second small investigation on a different axis, so the family is not one investigation asked four ways. || 2026-10-13: prod read 2026-10-13 15:32Z (fairdata, read-only, builders/U7-reads-prod2.out) (read C): Shoulders Independent Projects holds 568 samples, D.IMG 428 the largest type; no investigation title holds SHOULDERS (only 13 'Collagen Study'), so the reporter keeps the project. The bare \\b8\\b passed on any lone 8 and is replaced by the D.IMG count.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {

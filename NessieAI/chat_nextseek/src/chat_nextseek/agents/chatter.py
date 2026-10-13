@@ -139,8 +139,10 @@ def _breakdown_sum(rows: list) -> tuple[str, int | float] | None:
 
 
 # Fix 6: a sample sits in several projects, studies or investigations, and a link can carry several assay titles.
-# When the groups come from such a relationship, adding the group counts counts the shared item once per group.
-_TO_MANY_GROUPS = re.compile(r"\[[a-z_]*:(IN_PROJECT|IN_STUDY|IN_INVESTIGATION)\b|\bUNWIND\b", re.IGNORECASE)
+# When the rows are grouped by such a container, adding the group counts counts the shared item once per group.
+# R4: decided on the rows' group column, not the Cypher: a scope through IN_PROJECT (STEP 5's standard scope) with
+# rows by type is still a disjoint breakdown whose sum is the total.
+_CONTAINER_COLUMN = re.compile(r"project|study|investigation|title|assay|group", re.IGNORECASE)
 _OVERLAP_SUM_NOTE = (
     "The rows are groups a sample or link can belong to more than once (projects, studies, investigations or "
     "titles), so this sum counts a shared item once per group and is NOT a count of distinct samples or links. "
@@ -149,8 +151,8 @@ _OVERLAP_SUM_NOTE = (
 )
 
 
-def _groups_may_overlap(cypher: str) -> bool:
-    return bool(_TO_MANY_GROUPS.search(cypher or ""))
+def _groups_may_overlap(rows: list, count_column: str) -> bool:
+    return any(_CONTAINER_COLUMN.search(k) for k in (rows[0] if rows else {}) if k != count_column)
 
 
 def _attached_rows_line(shown: int, attached: int, total, truncated: bool) -> str:
@@ -893,7 +895,7 @@ def chatter_agent_answer(
         data_section = (
             f"{heading}\n{preview_json}\n"
             + (f"Sum of {breakdown[0]} across all {len(records)} rows: {breakdown[1]:,}. "
-               + (_OVERLAP_SUM_NOTE if _groups_may_overlap(str((graph_plan or {}).get("cypher") or ""))
+               + (_OVERLAP_SUM_NOTE if _groups_may_overlap(records, breakdown[0])
                   else "When the question asks how many, give this total first, then the breakdown.")
                + "\n" if breakdown else "")
             + _attached_rows_line(len(records), len(all_rows), total_matches, graph_truncated)

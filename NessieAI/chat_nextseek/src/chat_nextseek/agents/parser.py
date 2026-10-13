@@ -40,7 +40,8 @@ def _endpoints_for_prompt(config, user_text: str) -> str:
 
     With SEMANTIC_ENDPOINTS_ENABLED=true, semantically shortlists endpoints
     against user_text using the cached embedding index. Otherwise dumps
-    the full catalog (today's behavior, byte-identical).
+    the full catalog (today's behavior, byte-identical). A shortlist that keeps
+    nothing falls back to the full catalog: the parser is never shown "[]".
     """
     idx = getattr(config, "ENDPOINT_INDEX", None)
     if idx is not None and idx.ready:
@@ -52,7 +53,8 @@ def _endpoints_for_prompt(config, user_text: str) -> str:
             min_k=getattr(config, "SEMANTIC_MIN_K", 10),
             max_k=getattr(config, "SEMANTIC_MAX_K", 80),
         )
-        return json.dumps(kept, indent=2)
+        if kept:
+            return json.dumps(kept, indent=2)
     return json.dumps(config.MIN_API_ENDPOINTS, indent=2)
 
 

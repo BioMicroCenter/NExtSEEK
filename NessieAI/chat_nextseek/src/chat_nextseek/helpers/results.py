@@ -72,8 +72,23 @@ def _is_empty(value: object) -> bool:
 
 
 def _drop_empty(record: dict) -> dict:
-    """The record without its empty fields (None, "", [], {}). The group label stays."""
-    return {k: v for k, v in record.items() if k == _GROUP_LABEL_KEY or not _is_empty(v)}
+    """The record without its empty fields (None, "", [], {}), one level into a nested dict too: a retrieve record
+    holds every attribute under ``metadata`` (R8). The group label stays."""
+    out = {}
+    for k, v in record.items():
+        if isinstance(v, dict):
+            v = {ik: iv for ik, iv in v.items() if not _is_empty(iv)}
+        if k == _GROUP_LABEL_KEY or not _is_empty(v):
+            out[k] = v
+    return out
+
+
+#: Named records shown in full in a retrieve preview; any more are listed by UID and type in ``also_named`` (R8).
+_PINNED_MAX = 20
+
+
+def _record_uid(record: dict) -> str:
+    return next((str(record[f]) for f in ("uid", "UID", "uuid", "sample_uid", "id") if record.get(f) is not None), "?")
 
 
 def _named_identifiers(api_plan: dict | None) -> list[str]:
@@ -314,9 +329,16 @@ def slim_api_result_for_llm(
         flat = [_drop_empty(r) for r in _flatten_groups(groups)]
         # Records the request named (retrieve by UID) always lead the preview and
         # are never cut by the row cap, so a second named record cannot drop out.
-        flat, pinned = _order_named_first(flat, _named_identifiers(api_plan))
+        # A UID named without its suffix comes back under its stored spelling (`resolved_as`), and is pinned as that.
+        resolved = {str(k).strip().lower(): str(v).strip().lower()
+                    for k, v in ((data.get("resolved_as") if isinstance(data, dict) else None) or {}).items()}
+        flat, pinned = _order_named_first(flat, [resolved.get(n, n) for n in _named_identifiers(api_plan)])
+        shown, also_named = flat, []
+        if pinned > _PINNED_MAX:
+            also_named = [f"{_record_uid(r)} ({r.get(_GROUP_LABEL_KEY)})" for r in flat[_PINNED_MAX:pinned]]
+            shown, pinned = flat[:_PINNED_MAX] + flat[pinned:], _PINNED_MAX
         preview_key = "samples_preview"
-        preview_items = flat[:max(max_rows, pinned)]
+        preview_items = shown[:max(max_rows, pinned)]
         preview_rows = len(preview_items)
         new_data = {
             **{k: v for k, v in data.items() if k != "data"},
@@ -330,6 +352,7 @@ def slim_api_result_for_llm(
             },
             "samples_preview": preview_items,
             "samples_truncated": len(preview_items) < len(flat),
+            **({"also_named": "also named, not shown in full: " + ", ".join(also_named)} if also_named else {}),
         }
         truncated_key = "samples_truncated"
     elif isinstance(data, dict):
@@ -482,7 +505,10 @@ def _shrink_preview_to_budget(
 
 
 def _trim_long_fields(record: dict, cap: int) -> dict:
-    return {k: (v[:cap] + "...[trimmed]" if isinstance(v, str) and len(v) > cap else v) for k, v in record.items()}
+    """Long text cut to ``cap``, one level into a nested dict too (a retrieve record's ``metadata``, R8)."""
+    def trim(v):
+        return v[:cap] + "...[trimmed]" if isinstance(v, str) and len(v) > cap else v
+    return {k: ({ik: trim(iv) for ik, iv in v.items()} if isinstance(v, dict) else trim(v)) for k, v in record.items()}
 
 
 def collect_bundle_files(bundle: dict) -> list[tuple[str, str]]:

@@ -24,6 +24,7 @@ Register in Claude Desktop ~/.config/claude/claude_desktop_config.json:
 """
 
 import contextlib
+import json
 import sys
 from pathlib import Path
 
@@ -194,7 +195,8 @@ def context_resource(name: str) -> str:
             return live
     path = Path(_cfg().CONTEXT_DIR) / filename
     text = path.read_text()
-    return known_titles.fill(_cfg(), text) if name == "graph-schema" else text
+    # The graph schema is JSON: its titles are filled JSON-escaped, so a title with a quote cannot break it (N4).
+    return known_titles.schema_json(_cfg(), json.loads(text)) if name == "graph-schema" else text
 
 
 # ── Prompts — agent system prompts ────────────────────────────────────────────

@@ -169,8 +169,9 @@ class UserInParticipatingProject(BasePermission):
             cache_key = f"assistant_participating:{user.pk}"
             if cache.get(cache_key):
                 return True
-        # Told apart on purpose: SEEK that ANSWERED without the project is a refusal (403); SEEK that did not answer
-        # (no reply, a 5xx, an unreadable 200) is an outage and answers a retryable code. Neither ever allows.
+        # Told apart on purpose: SEEK that did not answer (no reply, a 5xx) is an outage and answers a retryable code.
+        # SEEK that ANSWERED without the project, or with a 200 that is not a person record (its HTML page for a
+        # wrong password), is a refusal (403). Neither ever allows.
         try:
             reply = SeekAPIClient().get_current_person(request)
             # (content, status, headers, response); only the content is guaranteed by older callers.
@@ -188,7 +189,7 @@ class UserInParticipatingProject(BasePermission):
             project_ids = set(map(lambda project: project['id'], projects))
         except Exception:
             logger.warning("participating-project check: SEEK sent an unreadable person record", exc_info=True)
-            raise SeekNotAnswering() from None
+            return False
         allowed = project_ids & ASSISTANT_PARTICIPATING_PROJECTS != set()
         # Cache only positive results: a transient SEEK failure must re-check, and a
         # newly-added member should not be blocked for the TTL.
@@ -196,8 +197,8 @@ class UserInParticipatingProject(BasePermission):
             cache.set(cache_key, True, self._CACHE_TTL_SECONDS)
         return allowed
 
-    def has_object_permission(self, request, view):
-        return self.has_permissions(request, view)
+    def has_object_permission(self, request, view, obj):
+        return self.has_permission(request, view)
 
 def _most_recent_session(user) -> "ChatSession | None":
     """The user's most recently updated ChatSession, or None.

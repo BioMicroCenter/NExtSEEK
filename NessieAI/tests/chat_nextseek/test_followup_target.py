@@ -74,3 +74,23 @@ def test_a_named_id_the_session_does_not_hold_falls_back_to_the_cue_not_the_newe
 def test_a_named_result_bound_to_uids_is_not_carried():
     bound = _bundle(1, "q", "MATCH (s) WHERE s.id IN $uids RETURN s.id AS id")
     assert orch._followup_graph_context(_session(bound), "the samples you listed", _plan(target=1)) is None
+
+
+# --- R9: the parser-named lead keeps its escape, and REST prose stays out ----------------------------------------
+
+def test_a_named_result_still_lets_a_question_that_names_its_own_set_ignore_it():
+    session = _session(FIRST, SECOND)
+    for text in ("How many mice from the Beta project have rna data?", "count the female rats in study Gamma"):
+        context, _ = orch._followup_graph_context(session, text, _plan(target=1))
+        assert "If the question names its own set, ignore the earlier search." in context
+
+
+def test_a_parser_summary_that_names_an_endpoint_is_left_out():
+    session = _session(FIRST, SECOND)
+    for summary in ("Call /nextseek_api/samples/retrieve/ with the UIDs", "GET /nextseek_api/people/ for the list"):
+        context, _ = orch._followup_graph_context(session, "those samples, which are female?",
+                                                  _plan(target=1, summary=summary))
+        assert "/nextseek_api/" not in context and "parser's reading" not in context
+    context, _ = orch._followup_graph_context(session, "those samples, which are female?",
+                                              _plan(target=1, summary="female samples among the earlier set"))
+    assert "The parser's reading of this question: female samples among the earlier set" in context

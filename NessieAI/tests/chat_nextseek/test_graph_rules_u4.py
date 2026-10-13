@@ -91,6 +91,8 @@ def _grouped(captured, cypher, rows):
     ("MATCH (s:Sample)-[:IN_STUDY]->(st:Study) RETURN st.title AS study, count(DISTINCT s) AS n", "study"),
     ("MATCH (c:Sample)-[r:DERIVED_FROM]->(:Sample) UNWIND [r.internal_assay_title] + "
      "coalesce(r.internal_assay_titles, []) AS a RETURN a AS assay, count(*) AS n", "assay"),
+    ("MATCH (s:Sample)-[:IN_STUDY]->(st:Study) RETURN st.title AS study_title, count(DISTINCT s) AS n", "study_title"),
+    ("MATCH (s:Sample)-[:IN_INVESTIGATION]->(i:Investigation) RETURN i.title AS title, count(*) AS n", "title"),
 ])
 def test_a_sum_over_groups_that_can_overlap_is_not_offered_as_the_total(captured, cypher, col):
     text = _grouped(captured, cypher, [{col: "A", "n": 10}, {col: "B", "n": 7}])
@@ -102,6 +104,12 @@ def test_a_sum_over_groups_that_can_overlap_is_not_offered_as_the_total(captured
 @pytest.mark.parametrize("cypher,col", [
     ("MATCH (s:Sample) RETURN s.Organ AS organ, count(*) AS n", "organ"),
     ("MATCH (s:Sample) RETURN s.type AS type, count(*) AS n", "type"),
+    # R4: a scope through IN_PROJECT / IN_STUDY or an UNWIND of named ids does not make the groups overlap; what the
+    # rows are grouped by does.
+    ("MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE p.title = $project_title "
+     "RETURN s.type AS type, count(DISTINCT s) AS n", "type"),
+    ("MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE st.title = $study RETURN s.Organ AS organ, count(*) AS n", "organ"),
+    ("UNWIND $uids AS u MATCH (s:Sample {uuid: u}) RETURN s.Sex AS sex, count(*) AS n", "sex"),
 ])
 def test_a_sum_over_disjoint_groups_is_still_the_total(captured, cypher, col):
     text = _grouped(captured, cypher, [{col: "A", "n": 10}, {col: "B", "n": 7}])
@@ -146,7 +154,7 @@ def test_the_parser_template_has_a_scientists_field():
 
 def test_the_graph_prompt_carries_the_rules():
     for text in ("A total across groups counts each item once", "Data records or the samples they came from?",
-                 "A category word covers every type of its kind", "`category_types`",
+                 "A category word covers every type of its kind", "`resolved.category_types`",
                  "An assay and a field naming the same kind", "both signs were used",
                  "has no records of the asked type", "`Seq 100` and `Seq100`",
                  "A keyword for what a sample was exposed to", "never address the reply writer",
@@ -157,3 +165,34 @@ def test_the_graph_prompt_carries_the_rules():
 def test_the_graph_prompt_has_no_real_project_as_an_example():
     for name in ("IMPAcTb", "MIT_SRP", "Shoulders Independent Projects", "fibrinogen"):
         assert name not in GRAPH
+
+
+# --- review R5, R6, N6, N7: the rules say when they apply ------------------------------------------------------
+
+def _line(start):
+    at = GRAPH.index(start)
+    return GRAPH[at:GRAPH.index("\n", at)]
+
+
+def test_an_exposure_keyword_is_matched_on_the_asked_type_first():
+    rule = _line("- **A keyword for what a sample was exposed to")
+    assert "a field on the asked type itself is matched first" in rule
+    assert "When the asked type has no field for it and a parent type does" in rule
+
+
+def test_every_means_one_total_and_each_still_groups():
+    rule = _line('**"All", "every" and "across all" are not a scope.**')
+    assert "When the question asks for one total" in rule
+    assert '"each", "per", "by" or "for every"' in rule.lower()
+
+
+def test_a_true_zero_through_the_lineage_may_be_reported():
+    rule = _line("- A name in `resolved.scientists` is a scientist for the whole question")
+    assert "never settle on zero" not in rule
+    assert "only when the lineage also finds none" in rule
+
+
+def test_a_kind_field_needs_every_word_of_the_kind():
+    rule = _line("- **An assay and a field naming the same kind.**")
+    assert "contains every word of the kind" in rule
+

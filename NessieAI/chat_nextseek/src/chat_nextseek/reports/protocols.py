@@ -248,13 +248,15 @@ def _extract_pdf_text(content: bytes) -> str | None:
 def sanitize_protocols_for_llm(protocol_payloads: dict) -> dict:
     """
     Sanitize protocol payloads for LLM consumption:
-    - Replace localhost URLs with fairdata-dev.mit.edu
+    - Replace localhost URLs with this box's SEEK_PUBLIC_URL (the path alone when none is set)
     - Remove internal fields not needed by the LLM
     Returns a cleaned copy of the protocol payloads.
     Keeps URLs model-safe while preserving useful content for prompt context.
     """
     if not protocol_payloads:
         return {}
+    # N2: the same address protocol_link_note gives the writer; never another box's host.
+    base = os.getenv("SEEK_PUBLIC_URL", "").strip().rstrip("/")
 
     def fix_url(url: str | None) -> str | None:
         if not url:
@@ -262,7 +264,7 @@ def sanitize_protocols_for_llm(protocol_payloads: dict) -> dict:
         if "localhost" in url or "127.0.0.1" in url:
             path_match = re.search(r"https?://[^/]+(/.*)", url)
             if path_match:
-                return f"https://fairdata-dev.mit.edu{path_match.group(1)}"
+                return f"{base}{path_match.group(1)}"
         return url
 
     def sanitize_dict(d: dict) -> dict:
