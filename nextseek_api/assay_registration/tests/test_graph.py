@@ -10,8 +10,9 @@ and the tests that pinned them went with them --
 replaced them, and `nextseek_api/tests/test_graph_sync_labels.py` covers the
 rule itself.
 
-What is left is SQL. assay_assets is still the source of truth, and these two
-readers still resolve a sample's assays and their internal-assay mapping, so
+What is left is SQL. assay_assets is still the source of truth, and the one
+reader left still resolves a sample's assays (`resolve_internal`, a copy of
+batch upload's SEEK-id fallback that nothing called, went with #124), so
 trap 1 in the module docstring is still live and still the reason every one of
 them is tested: the `default` alias is dmac, whose assay_assets table EXISTS but
 is EMPTY, so the wrong alias returns a confident and entirely wrong answer.
@@ -104,24 +105,6 @@ class TestAssaysBySample:
             assert graph.assays_by_sample({100}) == {}
 
 
-class TestResolveInternal:
-    def test_the_junction_table_answers_first(self):
-        cursor = MagicMock()
-        cursor.fetchall.side_effect = [[(351, 9, "Flow Cytometry")], []]
-        with patch.object(graph, "_seek_cursor",
-                          return_value=(cursor, "seek_production")):
-            assert graph.resolve_internal({351}) == {351: (9, "Flow Cytometry")}
-
-    def test_an_assay_with_no_internal_mapping_falls_back_to_its_own_id(self):
-        """Drop the fallback pass and an unmapped assay vanishes from the
-        answer, so its caller sees a sample as belonging to nothing at all."""
-        cursor = MagicMock()
-        cursor.fetchall.side_effect = [[], [(742, "Bulk RNA-seq")]]
-        with patch.object(graph, "_seek_cursor",
-                          return_value=(cursor, "seek_production")):
-            assert graph.resolve_internal({742}) == {742: (742, "Bulk RNA-seq")}
-
-
 class TestTheChunkConstant:
     def test_the_chunk_size_is_named_and_is_the_size_actually_used(self):
         """`BATCH_SIZE = 1000` was dead while the real chunk was a repeated 5000
@@ -145,25 +128,6 @@ class TestTheChunkConstant:
             [1, 2], [3, 4], [5],
         ]
 
-    def test_resolve_internal_chunks_at_that_size_in_BOTH_loops(self):
-        """The previous version of this test exercised only assays_by_sample, so
-        shadowing SQL_CHUNK at either of resolve_internal's two loops survived.
-        That was a gap in mutation SELECTION, not in the arithmetic. Every row
-        comes back unresolved, so both the junction loop and the id-fallback loop
-        run over all five ids: three chunks each, six round trips.
-        """
-        cursor = MagicMock()
-        cursor.fetchall.return_value = []
-        with patch.object(graph, "SQL_CHUNK", 2), \
-             patch.object(graph, "_seek_cursor",
-                          return_value=(cursor, "seek_production")):
-            graph.resolve_internal({1, 2, 3, 4, 5})
-
-        assert cursor.execute.call_count == 6
-        assert [c.args[1] for c in cursor.execute.call_args_list] == [
-            [1, 2], [3, 4], [5], [1, 2], [3, 4], [5],
-        ]
-
 
 class TestTheWritePathIsGone:
     """The one rule that owns DERIVED_FROM labels lives in graph_sync now.
@@ -177,7 +141,7 @@ class TestTheWritePathIsGone:
 
     def test_no_cypher_and_no_recompute_are_left_in_this_module(self):
         for name in ("RECOMPUTE_CYPHER", "_EDGES_FOR_SAMPLES",
-                     "recompute_for_samples"):
+                     "recompute_for_samples", "resolve_internal"):
             assert not hasattr(graph, name), f"{name} belongs to graph_sync now"
 
     def test_the_module_opens_no_graph_session(self):
