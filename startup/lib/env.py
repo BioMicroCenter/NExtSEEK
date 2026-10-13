@@ -8,13 +8,7 @@ from pathlib import Path
 _LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
 
 
-def _unquote(raw: str) -> str:
-    raw = raw.rstrip()
-    if len(raw) < 2 or raw[0] != raw[-1] or raw[0] not in ("'", '"'):
-        return raw
-    inner = raw[1:-1]
-    if raw[0] != '"':
-        return inner
+def _unescape(inner: str) -> str:
     # Reverse _quote()'s escaping: undo \" and \\ in one left-to-right pass
     # so consecutive backslashes don't get double-handled.
     result: list[str] = []
@@ -39,19 +33,50 @@ def _quote(value: str) -> str:
     return f'"{escaped}"'
 
 
+def _closing_quote(rest: str) -> int | None:
+    """Index of the quote that closes rest[0], skipping \\-escapes inside double quotes."""
+    i = 1
+    while i < len(rest):
+        if rest[0] == '"' and rest[i] == "\\":
+            i += 2
+        elif rest[i] == rest[0]:
+            return i
+        else:
+            i += 1
+    return None
+
+
+def parse_line(line: str) -> tuple[str, str, str] | None:
+    """(key, value, quote) for one KEY=VALUE line, read the way compose reads an env_file.
+
+    The one parser for the rendered env files (#103): read_env, install's
+    read-back and its keep-what-is-on-disk render all go through it.
+    ``quote`` is the value's quote character, or "" when it is unquoted.
+    Single quotes are literal; double quotes undo ``\\"`` and ``\\\\``; text after
+    the closing quote, and an unquoted value's `` #`` comment, are dropped.
+    ``$`` is left as written: compose's interpolation is not resolved here.
+    Comments, blanks and anything that is not an assignment give None.
+    """
+    match = _LINE_RE.match(line.strip())
+    if not match:
+        return None
+    key, rest = match.groups()
+    if rest[:1] in ("'", '"'):
+        end = _closing_quote(rest)
+        if end is not None:
+            inner = rest[1:end]
+            return key, (_unescape(inner) if rest[0] == '"' else inner), rest[0]
+    return key, re.split(r"\s+#", rest, maxsplit=1)[0].rstrip(), ""
+
+
+def read_env_text(text: str) -> dict[str, str]:
+    """Return {key: value} from env-file text; the last line for a key wins, as in compose."""
+    return {p[0]: p[1] for p in map(parse_line, text.splitlines()) if p}
+
+
 def read_env(path: Path) -> dict[str, str]:
     """Return {key: value} from the env file. Comments and blanks are dropped."""
-    if not path.exists():
-        return {}
-    result: dict[str, str] = {}
-    for line in path.read_text().splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        match = _LINE_RE.match(line)
-        if match:
-            result[match.group(1)] = _unquote(match.group(2))
-    return result
+    return read_env_text(path.read_text()) if path.exists() else {}
 
 
 def write_env(path: Path, values: dict[str, str]) -> None:

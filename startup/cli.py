@@ -9,7 +9,7 @@ import typer
 from rich.markup import escape
 
 from startup.lib import layout, ui
-from startup.lib.env import read_env
+from startup.lib.env import read_env, write_env
 from startup.lib.instance import (
     InstanceState,
     resolve_instance_name,
@@ -236,6 +236,14 @@ def _install_impl(
     except config.InvalidSeekPublicUrl as exc:
         ui.fail(str(exc))
         raise typer.Exit(code=2)
+    # Install keeps every value already on disk (#103). The credentials and host
+    # keys are read back here, before anything is written, so one that compose
+    # would read differently stops the install with nothing changed.
+    try:
+        kept = config.kept_values(REPO_ROOT)
+    except config.UnsafeKeptValue as exc:
+        ui.fail(str(exc))
+        raise typer.Exit(code=2)
 
     state = InstanceState(
         name=name,
@@ -266,7 +274,13 @@ def _install_impl(
         ui.console.print("  Default credentials (rotate after install per NExtSTEPS.md):")
         ui.console.print(f"    demo / demopassword   (admin)")
         ui.console.print(f"    user / userpassword   (regular)")
-        ui.console.print(f"    neo4j / demopassword")
+        if kept.get("NEXTSEEK_NEO4J_PASSWORD", "demopassword") == "demopassword":
+            ui.console.print(f"    neo4j / demopassword")
+        else:
+            ui.console.print("    neo4j / the password kept in docker/nextseek.env")
+        if kept:
+            # Names only: these are the box's credentials.
+            ui.console.print(f"  Kept from disk      {', '.join(kept)}")
         ui.console.print(f"  CI profile          {ci_profile}  (which routes ./startup.sh ci may call)")
         if no_seed:
             ui.console.print(f"  Seed import         [yellow]SKIPPED (--no-seed)[/yellow]")
@@ -298,23 +312,34 @@ def _install_impl(
 
     # [4/9] Config templates
     ui.step(4, total, "Writing config templates")
-    # Read the two host keys back before anything is written, so a box's public
-    # host and origin survive the re-render (#103).
+    # The files on disk win over the templates (#103): the kept credentials and
+    # host keys feed every file, and render_db_env/render_nextseek_env keep each
+    # line already there, re-rendering only what config._render_keeping names.
     values = config.default_values(
         nextseek_port=ports["nextseek"],
         seek_port=ports["seek"],
         seek_public_url=state.seek_public_url,
-        django_allowed_hosts=config.read_rendered_value(REPO_ROOT, "DJANGO_ALLOWED_HOSTS"),
-        django_csrf_trusted_origins=config.read_rendered_value(
-            REPO_ROOT, "DJANGO_CSRF_TRUSTED_ORIGINS"
-        ),
+        kept=kept,
+        previous_ports=existing.ports if existing else None,
     )
+    changes = config.preview_changed_keys(REPO_ROOT, values)
+    if changes["kept_differs_from_template"]:
+        ui.info("kept from the files on disk (differs from a fresh install): "
+                + ", ".join(changes["kept_differs_from_template"]))
+    if changes["rerendered"]:
+        ui.warn("re-rendered from the templates over the files on disk: "
+                + ", ".join(changes["rerendered"]))
     config.render_db_env(REPO_ROOT, values)
     config.render_nextseek_env(REPO_ROOT, values)
-    config.render_local_settings(REPO_ROOT, values)
+    if config.render_local_settings(REPO_ROOT, values).name == "local_settings.py.new":
+        ui.warn("dmac/local_settings.py kept as it is; the template's version is in "
+                "dmac/local_settings.py.new: diff the two and merge by hand")
     config.ensure_seek_nginx_conf(REPO_ROOT)
 
     compose_env = state.compose_env()
+    # Install's own database steps log in with the passwords the files hold, not
+    # the demo ones. The root .env still gets compose_env (its allowlist).
+    db_env = {**compose_env, "MYSQL_ROOT_PASSWORD": values.mysql_root_password}
     proxy_env_path = config.render_proxy_secret_env(REPO_ROOT)
     _warn_if_proxy_token_empty(proxy_env_path)
     config.render_root_env(REPO_ROOT, compose_env, neo4j_password=values.neo4j_password)
@@ -337,32 +362,34 @@ def _install_impl(
     ui.step(6, total, "Importing seed databases")
     if no_seed:
         ui.warn("--no-seed: starting database containers only, no seed import")
-        build.start_databases(REPO_ROOT, compose_env)
+        build.start_databases(REPO_ROOT, db_env, neo4j_password=values.neo4j_password)
         ui.ok("databases up (empty — populate them yourself or re-run without --no-seed)")
     else:
         missing = seed.seed_files_present(REPO_ROOT)
         if missing:
             ui.fail(f"missing seed files: {', '.join(missing)}")
             raise typer.Exit(code=1)
-        build.start_databases(REPO_ROOT, compose_env)
-        if seed.mysql_db_is_populated("dmac", REPO_ROOT, compose_env):
+        build.start_databases(REPO_ROOT, db_env, neo4j_password=values.neo4j_password)
+        if seed.mysql_db_is_populated("dmac", REPO_ROOT, db_env):
             ui.ok("dmac already populated; skipping")
         else:
             with ui.spinner("loading dmac.sql.gz"):
-                seed.load_mysql_dump(REPO_ROOT / "startup" / "seed" / "dmac.sql.gz", "dmac", REPO_ROOT, compose_env)
+                seed.load_mysql_dump(REPO_ROOT / "startup" / "seed" / "dmac.sql.gz", "dmac", REPO_ROOT, db_env)
             ui.ok("dmac loaded")
-        if seed.mysql_db_is_populated("seek_production", REPO_ROOT, compose_env):
+        if seed.mysql_db_is_populated("seek_production", REPO_ROOT, db_env):
             ui.ok("seek_production already populated; skipping")
         else:
             with ui.spinner("loading seek_production.sql.gz"):
-                seed.load_mysql_dump(REPO_ROOT / "startup" / "seed" / "seek_production.sql.gz", "seek_production", REPO_ROOT, compose_env)
+                seed.load_mysql_dump(REPO_ROOT / "startup" / "seed" / "seek_production.sql.gz", "seek_production", REPO_ROOT, db_env)
             ui.ok("seek_production loaded")
         if seed.neo4j_is_populated(values.neo4j_password, REPO_ROOT, compose_env):
             ui.ok("neo4j already populated; skipping")
         else:
             ui.info("neo4j.cypher.gz — bulk-loaded via UNWIND batches (~1-2 min)")
             ui.info(f"watch progress in the Neo4j browser at http://localhost:{ports['neo4j_http']}/")
-            ui.info(f"  log in as neo4j / {values.neo4j_password}, then run:  MATCH (n) RETURN count(n);")
+            # Never the password itself: once kept, it is the box's real one.
+            ui.info("  log in as neo4j with NEXTSEEK_NEO4J_PASSWORD from docker/nextseek.env, "
+                    "then run:  MATCH (n) RETURN count(n);")
             with ui.spinner("loading neo4j.cypher.gz via UNWIND batches"):
                 seed.load_neo4j_dump(REPO_ROOT / "startup" / "seed" / "neo4j.cypher.gz", values.neo4j_password, REPO_ROOT, compose_env)
             ui.ok("neo4j loaded")
@@ -371,7 +398,7 @@ def _install_impl(
     # existing populated DB also self-heal. apply_all is idempotent + skips
     # entries whose target table doesn't exist (e.g., post --no-seed on a
     # fresh volume — there's nothing to fix up yet).
-    for fqn, status in schema_fixups.apply_all(REPO_ROOT, compose_env):
+    for fqn, status in schema_fixups.apply_all(REPO_ROOT, db_env):
         (ui.ok if status not in {"applied", "constraints reset"} else ui.warn)(
             f"schema fixup {fqn}: {status}"
         )
@@ -384,7 +411,7 @@ def _install_impl(
     # and no restart is ever needed. Set-if-absent: an existing row is an admin
     # decision and is reported, never overwritten.
     site_status = seek_settings.apply_site_base_host(
-        REPO_ROOT, compose_env, state.seek_public_url
+        REPO_ROOT, db_env, state.seek_public_url
     )
     (ui.warn if site_status.startswith("differs") else ui.ok)(
         f"SEEK site_base_host: {site_status}"
@@ -432,13 +459,13 @@ def _install_impl(
     # when the nextseek container starts — i.e., during phase 7. Running this
     # earlier hits MySQL error 1054 (Unknown column 'title') because the seed
     # dump's CREATE TABLE predates that migration.
-    stale_chats = seed_cleanup.clear_stale_chat_sessions(REPO_ROOT, compose_env)
+    stale_chats = seed_cleanup.clear_stale_chat_sessions(REPO_ROOT, db_env)
     if stale_chats > 0:
         ui.ok(f"cleared {stale_chats} stale chat session(s) with no title")
 
     # [8/9] Users
     ui.step(8, total, "Verifying test users")
-    missing_users = users.verify_users_present(REPO_ROOT, compose_env)
+    missing_users = users.verify_users_present(REPO_ROOT, db_env)
     if missing_users:
         ui.warn(f"missing users: {', '.join(missing_users)} (seed dump should include them; investigate)")
     else:
@@ -446,7 +473,7 @@ def _install_impl(
 
     # [9/9] Validate
     ui.step(9, total, "Health checks")
-    results = validate.run_all_health_checks(ports, REPO_ROOT, compose_env)
+    results = validate.run_all_health_checks(ports, REPO_ROOT, db_env)
     failed_checks = [r for r in results if not r.ok]
     _print_health_results(results)
     if failed_checks:
@@ -570,6 +597,13 @@ def reset(
 
     if not keep_config:
         ui.step(2, 3, "Removing config files")
+        # The two host keys go across the wipe like the SEEK URL below: the
+        # re-install reads them back from a docker/nextseek.env holding only them.
+        carried = {
+            key: value
+            for key in ("DJANGO_ALLOWED_HOSTS", "DJANGO_CSRF_TRUSTED_ORIGINS")
+            if (value := config.read_rendered_value(REPO_ROOT, key))
+        }
         for p in [
             REPO_ROOT / "docker" / "db.env",
             REPO_ROOT / "docker" / "nextseek.env",
@@ -578,12 +612,16 @@ def reset(
             # to remove config, so it must not leave the real token behind.
             layout.legacy_proxy_secret_env(REPO_ROOT),
             REPO_ROOT / "dmac" / "local_settings.py",
+            REPO_ROOT / "dmac" / "local_settings.py.new",
             REPO_ROOT / ".env",
             REPO_ROOT / "startup" / ".instance.json",
         ]:
             if p.exists():
                 p.unlink()
                 ui.ok(f"removed {p.relative_to(REPO_ROOT)}")
+        if carried:
+            write_env(REPO_ROOT / "docker" / "nextseek.env", carried)
+            ui.ok(f"carried {', '.join(carried)} into the re-install")
     else:
         ui.step(2, 3, "Keeping config files (--keep-config)")
 

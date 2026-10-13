@@ -89,13 +89,19 @@ def wait_for_neo4j(
     )
 
 
-def start_databases(repo_root: Path, env: dict[str, str]) -> None:
-    """Start MySQL and Neo4j, then wait until both accept connections."""
+def start_databases(
+    repo_root: Path, env: dict[str, str], neo4j_password: str = "demopassword"
+) -> None:
+    """Start MySQL and Neo4j, then wait until both accept connections.
+
+    The waits log in with the passwords the box's files hold: MYSQL_ROOT_PASSWORD
+    in ``env`` (as the seed and fixup steps read it) and ``neo4j_password`` (#103).
+    """
     compose_up(services=["db", "neo4j"], project_dir=repo_root, env=env)
     with ui.spinner("waiting for MySQL to accept connections"):
-        wait_for_mysql(repo_root, env)
+        wait_for_mysql(repo_root, env, env.get("MYSQL_ROOT_PASSWORD", "seek_root"))
     with ui.spinner("waiting for Neo4j to accept connections"):
-        wait_for_neo4j(repo_root, env)
+        wait_for_neo4j(repo_root, env, neo4j_password)
 
 
 def wait_for_seek_filestore(repo_root: Path, env: dict[str, str]) -> None:

@@ -162,6 +162,8 @@ cython_debug/
 
 dmac/local_settings.py
 local_settings.py
+# install's copy of the template beside an existing one (#103)
+local_settings.py.new
 .DS_Store
 
 # Real env files are gitignored: secrets must never land in git.

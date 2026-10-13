@@ -1,6 +1,7 @@
 """Render startup-managed env files and Django settings."""
 from __future__ import annotations
 
+import dataclasses
 import os
 import re
 import secrets
@@ -10,7 +11,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from string import Template
 
-from startup.lib.env import read_env, write_env
+from startup.lib import env_registry
+from startup.lib.env import parse_line, read_env, read_env_text, write_env
+from startup.lib.instance import load_instance
 from startup.lib.layout import legacy_proxy_secret_env, proxy_secret_env
 
 
@@ -28,6 +31,9 @@ class ConfigValues:
     # real hostnames; a laptop install reaches it on the published port. Defaults
     # via default_values(); resolve_seek_public_url() decides the actual value.
     seek_public_url: str = ""
+    # The ports the files on disk were rendered for (startup/.instance.json before
+    # this install). A value install derived from them is re-rendered for the new ones.
+    previous_ports: dict[str, int] | None = None
 
 
 DEFAULT_SEEK_PUBLIC_URL_HOST = "http://localhost"
@@ -50,27 +56,71 @@ def _valid_seek_public_url(value: str | None) -> bool:
 def read_rendered_value(repo_root: Path, key: str) -> str | None:
     """Read one value back out of an already-rendered docker/nextseek.env.
 
-    This is what makes a re-run of `install` non-destructive for that key: an
-    operator's hand-set value is read back and re-rendered as-is instead of being
-    reset to the default. Mirrors the render_proxy_secret_env precedent (D2).
-    The last matching line wins, as it does for compose; a quoted value may be
-    followed by an inline comment.
+    Read with startup.lib.env's parser, as compose reads it: the last line for
+    the key wins, and an inline comment is dropped. None for a missing, empty
+    or placeholder value.
     """
-    env_path = repo_root / "docker" / "nextseek.env"
-    if not env_path.exists():
-        return None
-    line_re = re.compile(
-        rf"^\s*{re.escape(key)}=\s*(?:\"([^\"]*)\"|'([^']*)'|([^#]*))"
-    )
-    raw = None
-    for line in env_path.read_text().splitlines():
-        match = line_re.match(line)
-        if match:
-            raw = next(g for g in match.groups() if g is not None).strip()
-    # A half-rendered file still carrying ${...} is not a real value.
-    if not raw or "${" in raw:
-        return None
-    return raw
+    raw = read_env(repo_root / "docker" / "nextseek.env").get(key, "").strip()
+    return raw if raw and not _is_placeholder(raw) else None
+
+
+def _is_placeholder(value: str) -> bool:
+    """A template placeholder, or a half-rendered ${...}: never a value to keep.
+
+    An empty value is not one: it can be an operator's deliberate "off"."""
+    return (value != "" and value in env_registry.PLACEHOLDERS) or "${" in value
+
+
+# What install reads back into ConfigValues before it renders: key -> (the file
+# it is read from, the ConfigValues field it feeds). Every file and install's own
+# database steps then take the password from one place, so they cannot disagree (#103).
+_KEPT_FROM = {
+    "MYSQL_ROOT_PASSWORD": ("db.env", "mysql_root_password"),
+    "MYSQL_PASSWORD": ("db.env", "mysql_password"),
+    "NEXTSEEK_NEO4J_PASSWORD": ("nextseek.env", "neo4j_password"),
+    "DJANGO_SECRET_KEY": ("nextseek.env", "django_secret_key"),
+    "DJANGO_ALLOWED_HOSTS": ("nextseek.env", "django_allowed_hosts"),
+    "DJANGO_CSRF_TRUSTED_ORIGINS": ("nextseek.env", "django_csrf_trusted_origins"),
+}
+
+
+class UnsafeKeptValue(ValueError):
+    """A value install would keep cannot be read back the way compose reads it."""
+
+
+def _env_lines(path: Path) -> dict[str, tuple[str, str, str]]:
+    """{key: (line, value, quote)} of a rendered env file, the last line per key."""
+    if not path.exists():
+        return {}
+    out: dict[str, tuple[str, str, str]] = {}
+    for line in path.read_text().splitlines():
+        parsed = parse_line(line)
+        if parsed:
+            out[parsed[0]] = (line, parsed[1], parsed[2])
+    return out
+
+
+def kept_values(repo_root: Path) -> dict[str, str]:
+    """The credentials and host keys already on disk, for default_values(kept=...).
+
+    Raises UnsafeKeptValue, naming the key and never the value, for a ``$``
+    outside single quotes: compose expands it, so the password the containers
+    were given is not the text in the file, and install's own database steps
+    would use the wrong one.
+    """
+    files = {name: _env_lines(repo_root / "docker" / name) for name in ("db.env", "nextseek.env")}
+    kept = {}
+    for key, (name, _field) in _KEPT_FROM.items():
+        _line, value, quote = files[name].get(key, ("", "", ""))
+        if not value or _is_placeholder(value):
+            continue
+        if "$" in value and quote != "'":
+            raise UnsafeKeptValue(
+                f"docker/{name}: {key} holds a $ outside single quotes, which compose "
+                f"expands. Write it as {key}='...' (single quotes are literal), then re-run"
+            )
+        kept[key] = value
+    return kept
 
 
 def read_rendered_seek_public_url(repo_root: Path) -> str | None:
@@ -136,18 +186,25 @@ def default_values(
     nextseek_port: int,
     seek_port: int,
     seek_public_url: str | None = None,
-    django_allowed_hosts: str | None = None,
-    django_csrf_trusted_origins: str | None = None,
+    kept: Mapping[str, str] | None = None,
+    previous_ports: Mapping[str, int] | None = None,
 ) -> ConfigValues:
-    # The two host values are read back from the rendered file by install, so a
-    # box's public host and origin survive a re-run (#103).
+    # `kept` is kept_values(): what install read back from the files on disk, so
+    # a re-run keeps a box's credentials, secret key, public host and origin (#103).
+    kept = kept or {}
+    origins = kept.get("DJANGO_CSRF_TRUSTED_ORIGINS", "")
+    if previous_ports and previous_ports.get("nextseek") not in (None, nextseek_port):
+        # The port moved: install's loopback pair for the old one moves with it.
+        old_pair = csrf_origins_for_port(previous_ports["nextseek"]).split()
+        origins = " ".join(o for o in origins.split() if o not in old_pair)
     return ConfigValues(
-        mysql_root_password="seek_root",
-        mysql_password="seek_db_password",
-        neo4j_password="demopassword",
-        django_secret_key=_generate_secret_key(),
-        django_csrf_trusted_origins=_with_loopback(django_csrf_trusted_origins or "", nextseek_port),
-        django_allowed_hosts=django_allowed_hosts or "127.0.0.1 localhost",
+        mysql_root_password=kept.get("MYSQL_ROOT_PASSWORD") or "seek_root",
+        mysql_password=kept.get("MYSQL_PASSWORD") or "seek_db_password",
+        neo4j_password=kept.get("NEXTSEEK_NEO4J_PASSWORD") or "demopassword",
+        django_secret_key=kept.get("DJANGO_SECRET_KEY") or _generate_secret_key(),
+        django_csrf_trusted_origins=_with_loopback(origins, nextseek_port),
+        django_allowed_hosts=kept.get("DJANGO_ALLOWED_HOSTS") or "127.0.0.1 localhost",
+        previous_ports=dict(previous_ports) if previous_ports else None,
         nextseek_port=nextseek_port,
         seek_port=seek_port,
         # Callers that resolve a per-instance value pass it in; the fallback keeps
@@ -173,20 +230,122 @@ def _render(template_path: Path, values: ConfigValues) -> str:
     return Template(text).safe_substitute(substitutions)
 
 
-def render_db_env(repo_root: Path, values: ConfigValues) -> Path:
-    template = repo_root / "startup" / "templates" / "db.env.template"
-    output = repo_root / "docker" / "db.env"
+# Lines whose value install read back from the same line (kept_values, or
+# resolve_seek_public_url for the SEEK URL): key -> ConfigValues field. The old
+# line stays unless install changed the value on purpose (the CSRF loopback pair,
+# --seek-public-url).
+_SELF_KEPT = {key: field for key, (_name, field) in _KEPT_FROM.items()} | {
+    "SEEK_PUBLIC_URL": "seek_public_url"
+}
+_PORT_PLACEHOLDERS = ("${NEXTSEEK_PORT}", "${SEEK_PORT}")
+
+
+def env_drop_keys(repo_root: Path) -> frozenset[str]:
+    """Keys install re-renders whatever is on disk: a value naming a pre-NessieAI
+    path, which install's own health check fails on, and a registry `forbidden` key."""
+    # Imported here: validate imports this module.
+    from startup.steps.validate import find_stale_nessie_env_lines
+
+    stale = {key for _, key, _ in find_stale_nessie_env_lines(repo_root / "docker" / "nextseek.env")}
+    forbidden = {key for key, entry in env_registry.load().items() if entry.forbidden}
+    return frozenset(stale | forbidden)
+
+
+def _render_keeping(repo_root: Path, name: str, values: ConfigValues) -> str:
+    """Render templates/<name>.template, keeping every value already in docker/<name>.
+
+    A template key already on disk keeps its old line verbatim (the last one when
+    it is written twice), so compose reads exactly what it read before. Re-rendered
+    instead: a key in env_drop_keys, a placeholder or half-rendered value, a port
+    line still holding install's value for the previous ports, and a _SELF_KEPT
+    line whose value install changed on purpose. Keys the template does not name
+    follow the render under one header, in their old order. Rendering the result
+    again gives the same bytes.
+    """
+    template = repo_root / "startup" / "templates" / f"{name}.template"
+    old = _env_lines(repo_root / "docker" / name)
+    drop = env_drop_keys(repo_root)
+    port_keys = {
+        p[0] for line in template.read_text().splitlines()
+        if any(ph in line for ph in _PORT_PLACEHOLDERS) and (p := parse_line(line))
+    }
+    prev = values.previous_ports
+    old_port_render = read_env_text(_render(template, dataclasses.replace(
+        values, nextseek_port=prev.get("nextseek", values.nextseek_port),
+        seek_port=prev.get("seek", values.seek_port),
+    ))) if prev else {}
+
+    def keep(key: str) -> bool:
+        _line, value, _quote = old[key]
+        if key in drop or _is_placeholder(value):
+            return False
+        if key in port_keys and value == old_port_render.get(key):
+            return False
+        # Against the intended value, not the rendered text: a template that
+        # double-quotes a line would misread a value holding a quote.
+        return key not in _SELF_KEPT or value == getattr(values, _SELF_KEPT[key])
+
+    out: list[str] = []
+    for line in _render(template, values).splitlines():
+        parsed = parse_line(line)
+        if parsed and parsed[0] in old and keep(parsed[0]):
+            line = old[parsed[0]][0]
+        out.append(line)
+    named = {p[0] for p in map(parse_line, out) if p}
+    extra = [line for key, (line, _v, _q) in old.items() if key not in named and key not in drop]
+    if extra:
+        out += ["", f"# Kept from the previous docker/{name} by ./startup.sh install", *extra]
+    return "\n".join(out) + "\n"
+
+
+def _write_keeping(repo_root: Path, name: str, values: ConfigValues) -> Path:
+    output = repo_root / "docker" / name
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(_render(template, values))
+    # write_text, never a rename: the file keeps its mode.
+    output.write_text(_render_keeping(repo_root, name, values))
     return output
+
+
+def render_db_env(repo_root: Path, values: ConfigValues) -> Path:
+    return _write_keeping(repo_root, "db.env", values)
 
 
 def render_nextseek_env(repo_root: Path, values: ConfigValues) -> Path:
-    template = repo_root / "startup" / "templates" / "nextseek.env.template"
-    output = repo_root / "docker" / "nextseek.env"
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(_render(template, values))
-    return output
+    return _write_keeping(repo_root, "nextseek.env", values)
+
+
+def preview_changed_keys(
+    repo_root: Path, values: ConfigValues | None = None
+) -> dict[str, list[str]]:
+    """What install would change in docker/db.env and docker/nextseek.env. Names only; writes nothing.
+
+    ``rerendered``: keys on disk whose value install would replace.
+    ``kept_differs_from_template``: keys install writes with a value a fresh
+    install would not (hand-set, kept, or an older template's default).
+    Without ``values`` it builds them as install would, with the ports in
+    startup/.instance.json, never allocate_ports.
+    """
+    if values is None:
+        state = load_instance(repo_root)
+        ports = state.ports if state else {"nextseek": 8000, "seek": 3000}
+        url = resolve_seek_public_url(
+            repo_root, None, state.seek_public_url if state else None, ports["seek"]
+        )
+        values = default_values(ports["nextseek"], ports["seek"], url,
+                                kept=kept_values(repo_root), previous_ports=ports)
+    fresh_values = dataclasses.replace(
+        default_values(values.nextseek_port, values.seek_port, values.seek_public_url),
+        django_secret_key=values.django_secret_key,  # random per call, never a template default
+    )
+    changes: dict[str, list[str]] = {"rerendered": [], "kept_differs_from_template": []}
+    for name in ("db.env", "nextseek.env"):
+        template = repo_root / "startup" / "templates" / f"{name}.template"
+        old = read_env(repo_root / "docker" / name)
+        new = read_env_text(_render_keeping(repo_root, name, values))
+        fresh = read_env_text(_render(template, fresh_values))
+        changes["rerendered"] += [k for k, v in old.items() if new.get(k) != v]
+        changes["kept_differs_from_template"] += [k for k, v in new.items() if fresh.get(k) != v]
+    return changes
 
 
 def ensure_seek_nginx_conf(repo_root: Path) -> Path:
@@ -206,10 +365,22 @@ def ensure_seek_nginx_conf(repo_root: Path) -> Path:
 
 
 def render_local_settings(repo_root: Path, values: ConfigValues) -> Path:
+    """Write dmac/local_settings.py, or leave an existing one alone (#103).
+
+    An existing file is the operator's: it may hold a filled PROD block or
+    settings knobs. When the template's render differs from it, the render goes
+    to dmac/local_settings.py.new beside it, for a diff by hand. Returns the
+    path written, or the existing file when nothing changed.
+    """
     template = repo_root / "startup" / "templates" / "local_settings.py.template"
     output = repo_root / "dmac" / "local_settings.py"
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(_render(template, values))
+    text = _render(template, values)
+    if output.exists():
+        if output.read_text() == text:
+            return output
+        output = output.with_name("local_settings.py.new")
+    output.write_text(text)
     return output
 
 

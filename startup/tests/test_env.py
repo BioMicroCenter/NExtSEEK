@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from startup.lib.env import read_env, write_env, update_env
+from startup.lib.env import parse_line, read_env, write_env, update_env
 
 
 def test_read_simple_keyvalue(tmp_path: Path) -> None:
@@ -82,3 +82,35 @@ def test_quote_refuses_newlines(tmp_path: Path) -> None:
         write_env(p, {"BAD": "line1\nline2"})
     with pytest.raises(ValueError, match="newlines"):
         write_env(p, {"BAD": "line1\rline2"})
+
+
+# --- #103 Task 4: one line parser for every reader of the rendered env files.
+# It reads a line the way compose reads an env_file, so what install keeps is
+# what the containers were given.
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ('KEY="a b" # space-separated', ("KEY", "a b", '"')),
+        ("KEY='p$ss #w' # note", ("KEY", "p$ss #w", "'")),
+        ("KEY = v", ("KEY", "v", "")),
+        ("  KEY=v", ("KEY", "v", "")),
+        ("KEY=v # note", ("KEY", "v", "")),
+        ("KEY=a#b", ("KEY", "a#b", "")),
+        ('KEY="a\\"b\\\\c"', ("KEY", 'a"b\\c', '"')),
+        ("KEY=", ("KEY", "", "")),
+        ("KEY=$OTHER", ("KEY", "$OTHER", "")),
+        ("# KEY=v", None),
+        ("", None),
+        ("not an assignment", None),
+    ],
+)
+def test_parse_line_reads_a_line_the_way_compose_does(line: str, expected) -> None:
+    assert parse_line(line) == expected
+
+
+def test_read_env_drops_an_inline_comment_after_a_quoted_value(tmp_path: Path) -> None:
+    p = tmp_path / "x.env"
+    p.write_text('HOSTS="a.example.org localhost" # Space-separated\nPW=\'x\'  # note\n')
+    assert read_env(p) == {"HOSTS": "a.example.org localhost", "PW": "x"}

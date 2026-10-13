@@ -166,9 +166,9 @@ def check_proxy_token(repo_root: Path) -> HealthResult:
 
 # A rendered docker/nextseek.env value that still points into a Nessie unit's
 # pre-move location (/app/<unit> for chat_nextseek, dmac_assistant and
-# nessie_tests, all now under /app/NessieAI/). The file is gitignored, rebuild never
-# re-renders it, and install rewrites it whole (rotating DJANGO_SECRET_KEY), so
-# nothing in git ever fixes these lines on a box. A superset of
+# nessie_tests, all now under /app/NessieAI/). The file is gitignored and rebuild never
+# re-renders it, so nothing in git ever fixes these lines on a box; install re-renders
+# just these lines from the template and keeps the rest (#103). A superset of
 # ^[A-Z_]+=.*?/app/(chat_nextseek|dmac_assistant|nessie_tests)/ : digits are
 # allowed in the key, and the unit name may also end at a quote, a colon,
 # whitespace or the end of the line.
@@ -239,7 +239,7 @@ def check_stale_nessie_env(repo_root: Path) -> HealthResult:
         detail=(
             "docker/nextseek.env still names the pre-NessieAI layout, which a "
             "rebuild would load into nextseek. Edit it by hand (rebuild never "
-            "re-renders it, and install rotates DJANGO_SECRET_KEY): "
+            "re-renders it): "
             f"{fixes}. A rebuild then recreates nextseek, which re-reads the file"
         ),
     )

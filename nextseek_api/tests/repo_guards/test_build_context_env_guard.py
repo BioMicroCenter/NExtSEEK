@@ -83,6 +83,9 @@ MUST_BE_EXCLUDED = [
     # operator moves it by hand, so it must stay excluded too
     "docker/bedrock-proxy/proxy-secret.env",
     "dmac/local_settings.py",
+    # install's copy of the template beside an existing one, and backups of it (#103)
+    "dmac/local_settings.py.new",
+    "dmac/local_settings.py.bak.20261013",
     # the ad-hoc operator copies that actually leaked into an image (2026-07-29)
     "docker/nextseek.env.bak-pre-seekpublicurl",
     "docker/nextseek.env.bak.20260727123629",
