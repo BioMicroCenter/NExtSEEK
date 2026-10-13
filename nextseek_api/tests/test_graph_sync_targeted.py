@@ -1369,15 +1369,14 @@ def test_sync_samples_of_type_stops_at_a_refused_chunk(env, tmp_path):
 
 @pytest.fixture
 def labelled(env):
-    """Edges labelled by the old maps: 11 -> 10 and 13 -> 11 with assay 5, 14 -> 12 with assay 6 (unchanged)."""
+    """Edges labelled by the old maps: 11 -> 10 and 13 -> 11 with assay 5; 14 -> 12 shares only the unmapped assay 6,
+    so it carries no assay label (#124) and stays unchanged."""
     env.graph.add_sample(14, 26)
     env.mysql.samples.append(_sample(14, "TIS-220119FLY-5", 26, {"Name": "liver-3"}))
     env.mysql.assays[14] = [6]
     env.graph.add_edge(11, 10, **_as_set(LABEL_11_10))
     env.graph.add_edge(13, 11, **_as_set(LABEL_13_11))
-    label_6 = {"assay_id": 6, "internal_assay_id": 6, "internal_assay_title": "Seq run", "internal_assay_ids": [6],
-               "internal_assay_titles": ["Seq run"]}
-    env.graph.add_edge(14, 12, **label_6)
+    env.graph.add_edge(14, 12, internal_assay_ids=[], internal_assay_titles=[])
     env.graph.meta["label_maps_hash"] = labels.label_maps_hash(ASSAY_MAP, SOPS)
     return env
 
@@ -1407,6 +1406,34 @@ def test_relabel_for_maps_touches_only_the_members_of_a_changed_assay(labelled):
     assert (result["labels_written"], result["labels_refreshed"]) == (0, 2)
     assert result["label_differences"]["renamed"] == {"internal_assay_title": 2, "internal_assay_titles": 2}
     assert labelled.graph.edge(11, 10)["internal_assay_title"] == "Patient Visit v2"
+
+
+def test_resolution_of_an_unmapped_assay_is_none():
+    """#124: the nightly relabel's mirror of the rule; an unmapped assay resolves to nothing, as the rule labels it."""
+    assert targeted._resolution(20, {20: (None, "X")}) is None
+    assert targeted._resolution(5, ASSAY_MAP) == (99, "Patient Visit")
+    assert targeted._resolution(7, ASSAY_MAP) is None
+
+
+def test_relabel_for_maps_flags_a_fallback_label_and_clears_it_only_with_approval(labelled):
+    """An edge still holding an unmapped assay's own SEEK id and title (written before #124) makes that assay a
+    changed assay; its edge classes `cleared`, which is counted and not written without approval."""
+    fallback = {"assay_id": 6, "internal_assay_id": 6, "internal_assay_title": "Seq run", "internal_assay_ids": [6],
+                "internal_assay_titles": ["Seq run"]}
+    labelled.graph.edge(14, 12).update(fallback)
+    labelled.graph.meta["label_maps_hash"] = "an older map"
+    result = targeted.relabel_for_maps(labelled.graph, DB)
+
+    assert result["changed_assays"] == [6]
+    assert labelled.mysql.reads["_assay_members"] == [[6]]
+    assert (result["labels_cleared"], result["labels_written"]) == (1, 0)
+    assert labelled.graph.edge(14, 12)["internal_assay_title"] == "Seq run"
+
+    labelled.graph.meta["label_maps_hash"] = "an older map"
+    result = targeted.relabel_for_maps(labelled.graph, DB, apply_label_changes=True)
+    assert result["labels_written"] == 1
+    assert "internal_assay_title" not in labelled.graph.edge(14, 12)
+    assert labelled.graph.edge(14, 12)["internal_assay_ids"] == []
 
 
 def test_relabel_for_maps_writes_the_rename_with_apply_label_changes(labelled):

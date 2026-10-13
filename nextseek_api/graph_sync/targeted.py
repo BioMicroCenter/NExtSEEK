@@ -786,12 +786,13 @@ def _edge(record, props) -> dict:
 
 def _resolution(assay_id: int, assay_map) -> tuple | None:
     """The ``(internal_assay_id, internal_assay_title)`` an edge won by the SEEK assay ``assay_id`` carries under the
-    rule (``labels.edge_labels``), or None when the map no longer holds the assay."""
+    rule (``labels.edge_labels``), or None when the map no longer holds the assay or holds it with no internal
+    mapping (an unmapped assay labels nothing, #124)."""
     entry = assay_map.get(assay_id)
     if entry is None:
         return None
     internal_id, title = entry
-    return (assay_id, title or "") if internal_id is None else (internal_id, title)
+    return None if internal_id is None else (internal_id, title)
 
 
 def _changed_assays(driver, db, assay_map) -> list[int]:
