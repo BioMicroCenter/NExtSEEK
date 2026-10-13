@@ -75,7 +75,7 @@ def test_every_retired_definition_is_still_loadable():
     someone reinstates it."""
     retired = [v for v in corpus.load_all_definitions(CORPUS)
                if corpus.variant_meta(CORPUS)[v.id]["status"] == "retired"]
-    assert len(retired) == 251  # 106 -> 251: 2026-10-07 test-set review (SPEC-2): the 106 moved to retired.json and this review retired 145 more (83 corpus, 62 probe and run-set cases). 105 -> 106: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic.
+    assert len(retired) == 252  # 251 -> 252: 2026-10-13 fix 6 retired green.refine_recall. 106 -> 251: 2026-10-07 test-set review (SPEC-2): the 106 moved to retired.json and this review retired 145 more (83 corpus, 62 probe and run-set cases). 105 -> 106: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic.
     for v in retired:
         assert v.turns, f"{v.id} has no turns"
         assert all(t.query for t in v.turns), f"{v.id} has an empty query"
@@ -94,7 +94,7 @@ def test_every_id_is_defined_exactly_once():
 
 def test_retired_ids_carry_their_full_retirement_record():
     retired = _retired_records()
-    assert len(retired) == 251  # 106 -> 251: 2026-10-07 test-set review (SPEC-2), see test_every_retired_definition_is_still_loadable.
+    assert len(retired) == 252  # 251 -> 252: 2026-10-13 fix 6. 106 -> 251: 2026-10-07 test-set review (SPEC-2), see test_every_retired_definition_is_still_loadable.
     for v in retired:
         rec = v["retirement"]
         assert rec and rec["reason"] and rec["retired_on"] and rec["decided_by"], v["id"]
@@ -104,7 +104,7 @@ def test_load_unified_returns_the_active_variants_only():
     # 283 -> 308: +25 from the 2026-08-06 additive pass (16 promoted out of the
     # atlas set into the curated one, 9 written fresh). Nothing was removed.
     active = corpus.curated(corpus.load_unified(UNIFIED))
-    assert len(active) == 343  # 418 -> 343: 2026-10-07 test-set review (SPEC-2): 75 corpus variants retired into retired.json (83 removals, 8 of them atlas). 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(active) == 342  # 343 -> 342: 2026-10-13 fix 6. 418 -> 343: 2026-10-07 test-set review (SPEC-2): 75 corpus variants retired into retired.json (83 removals, 8 of them atlas). 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_load_all_definitions_returns_active_plus_retired():
@@ -115,7 +115,7 @@ def test_unified_resolution_preserves_turn_count():
     # 314 -> 343. The 25 additions carry 29 turns between them: several are
     # genuinely multi-turn, and three atlas variants were REPAIRED on promotion
     # because they had a multi-turn script flattened into one literal query.
-    assert sum(len(v.turns) for v in corpus.curated(corpus.merged_from_unified(UNIFIED))) == 403  # 484 -> 403: 2026-10-07 test-set review (SPEC-2): 75 curated corpus variants retired (81 turns). 480 -> 484: 2026-09-30: the 1 + 3 turns of the two nf-core selection variants. 478 -> 480: 2026-09-24: the two turns of fix 9's route.ndma_mice_then_female_two_turns. 413 -> 478: 2026-09-23: +50 variants for the 53 production researcher questions, 12 of them multi-turn (65 turns). 343 -> 413: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. 15 of the 58 additions are multi-turn, and 3 edits split a flattened script into real turns.
+    assert sum(len(v.turns) for v in corpus.curated(corpus.merged_from_unified(UNIFIED))) == 401  # 403 -> 401: 2026-10-13 fix 6 (refine_recall, 2 turns). 484 -> 403: 2026-10-07 test-set review (SPEC-2): 75 curated corpus variants retired (81 turns). 480 -> 484: 2026-09-30: the 1 + 3 turns of the two nf-core selection variants. 478 -> 480: 2026-09-24: the two turns of fix 9's route.ndma_mice_then_female_two_turns. 413 -> 478: 2026-09-23: +50 variants for the 53 production researcher questions, 12 of them multi-turn (65 turns). 343 -> 413: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. 15 of the 58 additions are multi-turn, and 3 edits split a flattened script into real turns.
 
 
 def test_the_hand_written_annotations_survived_adoption():

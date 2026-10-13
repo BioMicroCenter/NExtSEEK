@@ -96,7 +96,3 @@ def test_the_summary_case_expects_container_cc_and_no_reporter_plan():
     assert any(c.field == "last_reply" and c.op == "matches_re" and "MetNet" in c.value
                for c in _merged()[SUMMARY].turns[0].pass_criteria)
 
-
-def test_the_refine_recall_seed_accepts_either_route():
-    assert _route(REFINE_RECALL, 0) == EITHER
-    assert _overrides().get(REFINE_RECALL) == {"op": EITHER[0], "value": EITHER[1]}

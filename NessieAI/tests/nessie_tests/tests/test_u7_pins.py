@@ -51,3 +51,10 @@ def test_flow_rejects_a_count_that_does_not_say_which():
     assert not _passes(FLOW, "10,872 samples have flow cytometry or CyTOF data.")
     assert not _passes(FLOW, "The answer is 10,872.")
     assert not _passes(FLOW, "8,372.")
+
+
+def test_refine_recall_is_retired_with_a_reason_and_not_active():
+    ret = json.loads((CORPUS.parent / "retired.json").read_text())["retired"]
+    rec = next(r for r in ret if r["id"] == "green.refine_recall")
+    assert rec["status"] == "retired" and rec["retirement"]["reason"]
+    assert _case("green.refine_recall") is None or _case("green.refine_recall")["status"] == "retired"
