@@ -7715,8 +7715,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "system_question"
+                  "op": "matches_re",
+                  "value": "^(system_question|graph_query)$"
                 },
                 {
                   "field": "last_reply",
@@ -7740,7 +7740,8 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. NHP declares 47 attributes; 44 distinct keys are observed in the data. Species, Sex, Origin, Facility, Supplier, Study and Cohort are the populated discriminators. Note `Cohort` (355 rows) is NOT declared on NHP at all. || VERIFIED: seek_production MySQL, verified 2026-08-06: sample_attributes for NHP = 47; JSON_KEYS distinct = 44; per-key fill counts.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): NHP declares 49 sample_attributes and 49 distinct keys appear in NHP json_metadata (seek_production MySQL, read-only); NHP no longer carries a Cohort key (the CD8 and 4-week groupings live in Study and Arm); was 47/44."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): NHP declares 49 sample_attributes and 49 distinct keys appear in NHP json_metadata (seek_production MySQL, read-only); NHP no longer carries a Cohort key (the CD8 and 4-week groupings live in Study and Arm); was 47/44.",
+          "_route_ruling_2026_10_13": "Operator 2026-10-13, 'Either route': system_question or graph_query is the right parser mode; the number and the Species/Sex criteria still check the answer."
         },
         {
           "id": "sys.what_sample_types_can_i_search",
@@ -11243,8 +11244,8 @@
               "pass_criteria": [
                 {
                   "field": "route",
-                  "op": "eq",
-                  "value": "container_cc"
+                  "op": "matches_re",
+                  "value": "^(nextseek_query|container_cc)$"
                 },
                 {
                   "field": "last_reply",
@@ -11272,7 +11273,8 @@
             "assertion": "parser_plan.mode eq reporter"
           },
           "_promoted_2026_08_06": "Reviewed, with the reporter-mode criterion supplemented. Impact holds 24 studies and 33,089 samples; a summary that names neither is not a summary. Note the date words are deliberate: samples.created_at is 2026 for all 50,887 rows (bulk seed load), so 'last year' can only be answered from the UID date code or SampleCreationDate.",
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. There is no honest answer from `created_at`: all 50,887 rows load as 2026-01-27 in a 54-second bulk ingest. The real dates are either the UID date code or SampleCreationDate (populated on 57.9% of Impact). || VERIFIED: seek_production MySQL, verified 2026-08-06: SELECT YEAR(created_at) -> 2026 for every row; Impact created_at range 2026-01-27 10:25:32 to 2026-04-30."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. There is no honest answer from `created_at`: all 50,887 rows load as 2026-01-27 in a 54-second bulk ingest. The real dates are either the UID date code or SampleCreationDate (populated on 57.9% of Impact). || VERIFIED: seek_production MySQL, verified 2026-08-06: SELECT YEAR(created_at) -> 2026 for every row; Impact created_at range 2026-01-27 10:25:32 to 2026-04-30.",
+          "_route_ruling_2026_10_13": "Operator 2026-10-13, 'Either route': nextseek_query or container_cc is the right route; the reply criteria still check the answer."
         },
         {
           "id": "path.i_don_t_trust_that_impact_number",
