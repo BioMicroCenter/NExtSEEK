@@ -526,3 +526,20 @@ def test_a_model_name_not_in_the_image_logs_an_error_at_init(tmp_path, monkeypat
     errors = [r for r in caplog.records if r.levelname == "ERROR"]
     assert len(errors) == 1
     assert "org/not-baked" in errors[0].getMessage()
+    assert "rebuild the app image" in errors[0].getMessage()
+
+
+def test_an_init_failure_that_is_not_the_model_does_not_blame_the_model(tmp_path, caplog):
+    """A catalog row the doc function cannot read is no reason to rebuild the image (#28 review R3)."""
+    def unreadable_row(item):
+        raise KeyError("text")
+
+    caplog.set_level("WARNING", logger="chat_nextseek.helpers.tools.catalog_semantic")
+    idx = SemanticIndex(catalog=[{"id": "a"}], name="badrow", doc_fn=unreadable_row, id_fn=lambda x: x["id"],
+                        cache_dir=tmp_path, model_name="org/baked-model", encoder=_fake_encoder())
+    assert idx.ready is False
+    assert "KeyError" in idx.fail_reason
+    errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert len(errors) == 1
+    assert "badrow" in errors[0] and "KeyError" in errors[0]
+    assert "did not load" not in errors[0] and "rebuild" not in errors[0]
