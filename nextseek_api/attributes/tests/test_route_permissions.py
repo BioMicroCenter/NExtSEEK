@@ -9,8 +9,8 @@ from unittest.mock import patch
 import pytest
 from rest_framework.test import APIRequestFactory, force_authenticate
 
-from nextseek_api.attributes.auth import AuthenticatedSeekPerson
-from nextseek_api.attributes.views import AttributeViewSet
+from nextseek_api.attributes import auth
+from nextseek_api.attributes import views
 
 JOB = "00000000-0000-0000-0000-000000000001"
 WRITES = [
@@ -25,9 +25,10 @@ def _call(action, method, body=None, *, superuser, person_id=42, **kwargs):
     force_authenticate(
         request,
         user=SimpleNamespace(is_authenticated=True, is_superuser=superuser),
-        token=AuthenticatedSeekPerson(person_id, 84, "svc", "session"),
+        token=auth.AuthenticatedSeekPerson(  # looked up now: test_mutants reloads the module
+            person_id, 84, "svc", "session"),
     )
-    return AttributeViewSet.as_view({method: action})(request, **kwargs)
+    return views.AttributeViewSet.as_view({method: action})(request, **kwargs)
 
 
 @pytest.fixture
