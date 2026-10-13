@@ -6,8 +6,7 @@
 * POST /nextseek_api/cc-assistant/upload/ and its alias POST /nextseek_api/nessie/uploads/.
 * The transcript recover route's size cap.
 
-The api-write caller carries its own SEEK login (patched), so these tests hold whether or not the op falls back to
-the shared login for a caller without one.
+The api-write caller carries its own SEEK login (patched).
 """
 import os
 import shutil
@@ -41,8 +40,7 @@ class ApiWriteTests(TestCase):
         self.client.force_authenticate(user=self.user)
         for target, value in (
             ("nextseek_api.services.assistant.UserInParticipatingProject.has_permission", True),
-            # The caller's own SEEK login, which a real sign-in leaves in the session and force_authenticate does
-            # not: the op refuses a caller without one rather than act as the shared login.
+            # The caller's own SEEK login: a real sign-in leaves it in the session, force_authenticate does not.
             ("nextseek_api.services.assistant._request_login", ("writer", "pw")),
             ("nextseek_api.services.assistant._granular_chat_config", MagicMock()),
         ):
