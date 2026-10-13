@@ -8,8 +8,11 @@ are faked, so these pin the statement the enrichment runs; the MySQL syntax itse
 
 The scope is a ``CASE`` on the title in the select list, never a condition on the outer join to ``studies``: MySQL 8.0
 may run an ``EXISTS`` in a ``LEFT JOIN ... ON`` as a semijoin, and its answer then depends on the plan it picks.
+The test is an uncorrelated ``s.id IN (SELECT ...)`` so MySQL runs the subquery once; a correlated ``EXISTS`` in the
+select list ran once per joined row and table-scanned ``projects_samples`` each time (issue #64 follow-up).
 """
 
+import re
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -79,11 +82,18 @@ def _titles(statement):
 def _assert_scoped_to(sql_call, projects):
     statement, params = sql_call
     titles = _titles(statement)
-    assert titles.startswith("GROUP_CONCAT(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM "), titles
+    assert titles.startswith("GROUP_CONCAT(DISTINCT CASE WHEN s.id IN (SELECT va.study_id FROM "), titles
     assert "projects_samples" in titles and "assay_assets" in titles, titles
-    assert "study_id = s.id" in titles and "project_id IN (%s, %s)" in titles, titles
+    assert "asset_type = 'Sample'" in titles and "project_id IN (%s, %s)" in titles, titles
     assert titles.endswith(") THEN s.title END SEPARATOR '; ')"), titles
     assert params == list(projects)
+    _assert_uncorrelated(titles)
+
+
+def _assert_uncorrelated(titles):
+    """The IN ( ... ) subquery names no column of the outer query, so MySQL runs it once, not once per joined row."""
+    inner = titles[titles.index("s.id IN (") + len("s.id IN ("):titles.index(") THEN s.title END")]
+    assert not re.search(r"(?<![\w.])s\.", inner) and "= s.id" not in inner, inner
 
 
 def _assert_join_is_plain(statement):
@@ -157,3 +167,22 @@ def test_lineage_include_attributes_reads_study_titles_through_the_callers_proje
     assert resp.status_code == 200
     _assert_scoped_to(sql.enrichment(), MEMBER.project_ids)
     _assert_join_is_plain(sql.enrichment()[0])
+
+
+def test_many_internal_assays_still_run_one_enrichment_with_the_projects_once(edges):
+    sql, scope = edges
+    scope.return_value = MEMBER
+    ids = list(range(1, 81))
+    driver_rows = [{"source": "A", "target": "B", "annotation": "RNA-Seq", "internal_assay_id": 7 if i == 80 else i} for i in ids]
+    with patch(f"{_MOD}.GraphDatabase") as gd:
+        driver = MagicMock()
+        driver.execute_query.return_value = (driver_rows, None, None)
+        gd.driver.return_value.__enter__ = Mock(return_value=driver)
+        gd.driver.return_value.__exit__ = Mock(return_value=False)
+        resp = _viewset().list_edge_attributes(_request())
+    assert resp.status_code == 200
+    statement, params = sql.enrichment()
+    titles = _titles(statement)
+    assert statement.count("project_id IN (") == 1 and titles.count("%s") == 2, statement
+    assert params[-2:] == list(MEMBER.project_ids)
+    _assert_scoped_to((statement, list(MEMBER.project_ids)), MEMBER.project_ids)
