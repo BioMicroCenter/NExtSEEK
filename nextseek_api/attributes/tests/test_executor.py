@@ -21,6 +21,7 @@ disposable-DB nodes only, never mock-based here).
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 from contextlib import contextmanager
 from dataclasses import dataclass, is_dataclass, asdict
@@ -162,7 +163,9 @@ class FakeServices:
         return {**committed, "reconciled": True}
 
     def record_commit(self, plan, bindings, fingerprint, outcome):
-        self.calls.append(("record_commit", plan, bindings, fingerprint, outcome))
+        # A copy: the real adapter persists the outcome at call time, so a later
+        # change to the returned dict must not show up in what was recorded.
+        self.calls.append(("record_commit", plan, bindings, fingerprint, copy.deepcopy(outcome)))
 
     def record_reconciliation(self, plan, bindings, fingerprint, outcome):
         self.calls.append(("record_reconciliation", plan, bindings, fingerprint, outcome))
