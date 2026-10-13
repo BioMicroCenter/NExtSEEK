@@ -123,12 +123,19 @@ _WORK_REQUEST = re.compile(
     r"generate|fix)\b|\bdo\s+it\s+for\s+me\b",
     re.IGNORECASE | re.DOTALL,
 )
+# Fix 20: a how-to that asks to analyse, reanalyse, apply, reproduce or replicate a named method, paper, protocol, study
+# or pipeline is science, not a site question; the docs cannot answer it, so Container-CC keeps it.
+_METHOD_VERB = re.compile(r"\b(?:re-?analy[sz]\w*|analy[sz]\w*|apply(?!\s+for)\w*|reproduc\w*|replicat\w*)", re.IGNORECASE)
+_METHOD_NOUN = re.compile(
+    r"\b(?:method|technique|approach|paper|protocol|study|pipeline|pmid\s*:?\s*\d+|doi\b|10\.\d{4,9}/\S+)", re.IGNORECASE)
 
 
 def _is_site_howto(query: str | None) -> bool:
     """True for a how-to question that supplies nothing to work on and asks for no work."""
     q = query or ""
     if not _HOWTO_OPENER.search(q):
+        return False
+    if _METHOD_VERB.search(q) and _METHOD_NOUN.search(q):
         return False
     if _SUPPLIED_CONTENT.search(q) or len([ln for ln in q.splitlines() if ln.strip()]) > 2:
         return False

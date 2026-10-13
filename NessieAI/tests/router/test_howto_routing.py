@@ -122,6 +122,27 @@ def test_an_analysis_request_is_a_cc_cue(query):
 
 
 # ------------------------------------------------------------------ U7-04..09: text
+@pytest.mark.parametrize("query", [
+    "How do I apply the Seq-Well protocol to my tissue samples?",
+    "How do I reanalyze the data from PMID 12345678 with a newer aligner?",
+    "How should I reproduce the clustering approach from that paper on my own cohort?",
+    "How can we replicate the pipeline from doi 10.1234/abcd.5678 on our mice?",
+])
+def test_a_method_howto_stays_on_cc(monkeypatch, query):
+    sent = _says(monkeypatch, cc_router.ROUTE_CC)
+    assert _route(query) is sent
+
+
+@pytest.mark.parametrize("query", [
+    "How do I analyze my upload workbook for errors before submitting?",   # a site check: no method named
+    "How do I apply for access to a project?",
+    "How can I check my workbook before uploading it?",
+])
+def test_site_howtos_with_analysis_words_still_move(monkeypatch, query):
+    _says(monkeypatch, cc_router.ROUTE_CC)
+    assert _route(query).source == "howto"
+
+
 def _baml():
     return (paths.DMAC_ASSISTANT_DIR / "baml_src" / "router.baml").read_text(encoding="utf-8")
 
