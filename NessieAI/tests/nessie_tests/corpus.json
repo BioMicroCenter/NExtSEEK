@@ -5908,7 +5908,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(8,?372|8,?375)\\b"
+                  "value": "(?is)\\b8,?37[25]\\b\\D{0,60}samples?|\\b10,?872\\b\\D{0,60}records?"
                 }
               ]
             }
@@ -7079,7 +7079,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(390|2,?711)\\b"
+                  "value": "\\b(390|1,?826|2,?711|2,?715)\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)(PBMC|Peripheral Blood Mononuclear).*(\\bTIS\\b|tissue)|(\\bTIS\\b|tissue).*(PBMC|Peripheral Blood Mononuclear)"
                 }
               ]
             }
