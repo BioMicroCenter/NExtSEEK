@@ -92,8 +92,11 @@ Notes:
 
 - **Host only, no path** (`https://seek.example.com`, not `.../seek`).
 - **Omit it on a laptop**: it defaults to `http://localhost:<seek port>`.
-- **A hand-edited `SEEK_PUBLIC_URL` in `docker/nextseek.env` is preserved**: a
-  re-run of `install` reads it back rather than resetting it to the default.
+- **A hand-edited `SEEK_PUBLIC_URL`, `DJANGO_ALLOWED_HOSTS` or
+  `DJANGO_CSRF_TRUSTED_ORIGINS` in `docker/nextseek.env` is preserved**: a re-run
+  of `install` reads each back rather than resetting it to the default. A kept
+  `DJANGO_CSRF_TRUSTED_ORIGINS` gains the loopback pair for the install's port.
+  Every other key in that file is still re-rendered.
 - **An existing `site_base_host` is never overwritten** by startup. If SEEK
   already has one (e.g. an admin set it in *Server admin → Settings → Site base
   Hostname*), startup reports the mismatch and leaves SEEK's value alone.

@@ -23,6 +23,7 @@ class ConfigValues:
     django_csrf_trusted_origins: str
     nextseek_port: int
     seek_port: int
+    django_allowed_hosts: str = "127.0.0.1 localhost"
     # Browser-reachable SEEK base URL. Per-instance: dev and prod front SEEK on
     # real hostnames; a laptop install reaches it on the published port. Defaults
     # via default_values(); resolve_seek_public_url() decides the actual value.
@@ -46,26 +47,34 @@ def _valid_seek_public_url(value: str | None) -> bool:
     return bool(value) and bool(_SEEK_PUBLIC_URL_RE.match(value))
 
 
-def read_rendered_seek_public_url(repo_root: Path) -> str | None:
-    """Read SEEK_PUBLIC_URL back out of an already-rendered docker/nextseek.env.
+def read_rendered_value(repo_root: Path, key: str) -> str | None:
+    """Read one value back out of an already-rendered docker/nextseek.env.
 
-    This is what makes a re-run of `install` non-destructive: an operator's
-    hand-set value is read back and re-rendered as-is instead of being reset to
-    the localhost default. Mirrors the render_proxy_secret_env precedent (D2).
+    This is what makes a re-run of `install` non-destructive for that key: an
+    operator's hand-set value is read back and re-rendered as-is instead of being
+    reset to the default. Mirrors the render_proxy_secret_env precedent (D2).
+    The last matching line wins, as it does for compose; a quoted value may be
+    followed by an inline comment.
     """
     env_path = repo_root / "docker" / "nextseek.env"
     if not env_path.exists():
         return None
+    line_re = re.compile(
+        rf"^\s*{re.escape(key)}=\s*(?:\"([^\"]*)\"|'([^']*)'|([^#]*))"
+    )
+    raw = None
     for line in env_path.read_text().splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("SEEK_PUBLIC_URL="):
-            continue
-        raw = stripped.split("=", 1)[1].strip().strip('"').strip("'")
-        # A half-rendered file still carrying ${SEEK_PORT} is not a real value.
-        if not raw or "${" in raw:
-            return None
-        return raw
-    return None
+        match = line_re.match(line)
+        if match:
+            raw = next(g for g in match.groups() if g is not None).strip()
+    # A half-rendered file still carrying ${...} is not a real value.
+    if not raw or "${" in raw:
+        return None
+    return raw
+
+
+def read_rendered_seek_public_url(repo_root: Path) -> str | None:
+    return read_rendered_value(repo_root, "SEEK_PUBLIC_URL")
 
 
 def resolve_seek_public_url(
@@ -114,15 +123,31 @@ def csrf_origins_for_port(port: int) -> str:
     return f"http://127.0.0.1:{port} http://localhost:{port}"
 
 
+def _with_loopback(origins: str, port: int) -> str:
+    """Kept origins plus this port's loopback pair, deduped, order kept.
+
+    A re-install can move the port, and a kept list without the new pair would
+    lock out the loopback login.
+    """
+    return " ".join(dict.fromkeys(origins.split() + csrf_origins_for_port(port).split()))
+
+
 def default_values(
-    nextseek_port: int, seek_port: int, seek_public_url: str | None = None
+    nextseek_port: int,
+    seek_port: int,
+    seek_public_url: str | None = None,
+    django_allowed_hosts: str | None = None,
+    django_csrf_trusted_origins: str | None = None,
 ) -> ConfigValues:
+    # The two host values are read back from the rendered file by install, so a
+    # box's public host and origin survive a re-run (#103).
     return ConfigValues(
         mysql_root_password="seek_root",
         mysql_password="seek_db_password",
         neo4j_password="demopassword",
         django_secret_key=_generate_secret_key(),
-        django_csrf_trusted_origins=csrf_origins_for_port(nextseek_port),
+        django_csrf_trusted_origins=_with_loopback(django_csrf_trusted_origins or "", nextseek_port),
+        django_allowed_hosts=django_allowed_hosts or "127.0.0.1 localhost",
         nextseek_port=nextseek_port,
         seek_port=seek_port,
         # Callers that resolve a per-instance value pass it in; the fallback keeps
@@ -140,6 +165,7 @@ def _render(template_path: Path, values: ConfigValues) -> str:
         "NEO4J_PASSWORD": values.neo4j_password,
         "DJANGO_SECRET_KEY": values.django_secret_key,
         "DJANGO_CSRF_TRUSTED_ORIGINS": values.django_csrf_trusted_origins,
+        "DJANGO_ALLOWED_HOSTS": values.django_allowed_hosts,
         "NEXTSEEK_PORT": str(values.nextseek_port),
         "SEEK_PORT": str(values.seek_port),
         "SEEK_PUBLIC_URL": values.seek_public_url,

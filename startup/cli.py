@@ -298,10 +298,16 @@ def _install_impl(
 
     # [4/9] Config templates
     ui.step(4, total, "Writing config templates")
+    # Read the two host keys back before anything is written, so a box's public
+    # host and origin survive the re-render (#103).
     values = config.default_values(
         nextseek_port=ports["nextseek"],
         seek_port=ports["seek"],
         seek_public_url=state.seek_public_url,
+        django_allowed_hosts=config.read_rendered_value(REPO_ROOT, "DJANGO_ALLOWED_HOSTS"),
+        django_csrf_trusted_origins=config.read_rendered_value(
+            REPO_ROOT, "DJANGO_CSRF_TRUSTED_ORIGINS"
+        ),
     )
     config.render_db_env(REPO_ROOT, values)
     config.render_nextseek_env(REPO_ROOT, values)

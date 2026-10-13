@@ -334,3 +334,102 @@ def test_ensure_seek_nginx_conf_creates_file_and_keeps_content(tmp_path: Path) -
 def test_ensure_seek_nginx_conf_replaces_empty_dir(tmp_path: Path) -> None:
     (tmp_path / "docker" / "seek-nginx.conf").mkdir(parents=True)
     assert ensure_seek_nginx_conf(tmp_path).is_file()
+
+
+# --- #103 Task 1: install keeps the two Django host keys an operator set by hand.
+# The template used to write DJANGO_ALLOWED_HOSTS as a literal and CSRF from the
+# port alone, so every re-run of install reset a box's public host and origin.
+
+from startup.steps.config import read_rendered_value  # noqa: E402
+
+
+def _repo_with_rendered_env(tmp_path: Path, body: str) -> Path:
+    repo = tmp_path / "repo"
+    (repo / "docker").mkdir(parents=True)
+    (repo / "docker" / "nextseek.env").write_text(body)
+    return repo
+
+
+def test_read_rendered_value_reads_quoted_and_unquoted(tmp_path: Path) -> None:
+    repo = _repo_with_rendered_env(
+        tmp_path, 'DJANGO_ALLOWED_HOSTS="a.example.org 127.0.0.1"\nOTHER=x y\n'
+    )
+    assert read_rendered_value(repo, "DJANGO_ALLOWED_HOSTS") == "a.example.org 127.0.0.1"
+    assert read_rendered_value(repo, "OTHER") == "x y"
+    assert read_rendered_value(repo, "MISSING") is None
+
+
+def test_read_rendered_value_last_line_wins_like_compose(tmp_path: Path) -> None:
+    repo = _repo_with_rendered_env(
+        tmp_path, 'DJANGO_ALLOWED_HOSTS="old.example.org"\nDJANGO_ALLOWED_HOSTS="new.example.org"\n'
+    )
+    assert read_rendered_value(repo, "DJANGO_ALLOWED_HOSTS") == "new.example.org"
+
+
+def test_read_rendered_value_drops_an_inline_comment(tmp_path: Path) -> None:
+    repo = _repo_with_rendered_env(
+        tmp_path, 'DJANGO_ALLOWED_HOSTS="a.example.org localhost" # space-separated\n'
+    )
+    assert read_rendered_value(repo, "DJANGO_ALLOWED_HOSTS") == "a.example.org localhost"
+
+
+def test_half_rendered_value_is_not_kept(tmp_path: Path) -> None:
+    repo = _repo_with_rendered_env(
+        tmp_path,
+        'DJANGO_ALLOWED_HOSTS="${DJANGO_ALLOWED_HOSTS}"\n'
+        'DJANGO_CSRF_TRUSTED_ORIGINS="${DJANGO_CSRF_TRUSTED_ORIGINS}"\n',
+    )
+    assert read_rendered_value(repo, "DJANGO_ALLOWED_HOSTS") is None
+    assert read_rendered_value(repo, "DJANGO_CSRF_TRUSTED_ORIGINS") is None
+
+
+def test_fresh_install_host_defaults() -> None:
+    v = default_values(nextseek_port=8000, seek_port=3000)
+    assert v.django_allowed_hosts == "127.0.0.1 localhost"
+    assert v.django_csrf_trusted_origins == csrf_origins_for_port(8000)
+
+
+def test_given_allowed_hosts_wins_over_the_default() -> None:
+    v = default_values(8000, 3000, django_allowed_hosts="nextseek.example.org 127.0.0.1 localhost")
+    assert v.django_allowed_hosts == "nextseek.example.org 127.0.0.1 localhost"
+
+
+def test_kept_csrf_is_kept_as_is_on_the_same_port() -> None:
+    kept = "https://nextseek.example.org http://127.0.0.1:8000 http://localhost:8000"
+    v = default_values(8000, 3000, django_csrf_trusted_origins=kept)
+    assert v.django_csrf_trusted_origins == kept
+
+
+def test_kept_csrf_gains_the_new_port_loopback_pair() -> None:
+    kept = "https://nextseek.example.org http://127.0.0.1:8000 http://localhost:8000"
+    v = default_values(8001, 3001, django_csrf_trusted_origins=kept)
+    assert v.django_csrf_trusted_origins.split() == [
+        "https://nextseek.example.org",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8001",
+        "http://localhost:8001",
+    ]
+
+
+def test_real_template_renders_kept_host_keys(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / "docker").mkdir(parents=True)
+    (repo / "startup" / "templates").mkdir(parents=True)
+    (repo / "startup" / "templates" / "nextseek.env.template").write_text(
+        (_REPO_ROOT / "startup" / "templates" / "nextseek.env.template").read_text()
+    )
+    render_nextseek_env(
+        repo,
+        default_values(
+            8000, 3000,
+            django_allowed_hosts="nextseek.example.org 127.0.0.1 localhost",
+            django_csrf_trusted_origins="https://nextseek.example.org",
+        ),
+    )
+    rendered = (repo / "docker" / "nextseek.env").read_text()
+    assert 'DJANGO_ALLOWED_HOSTS="nextseek.example.org 127.0.0.1 localhost"' in rendered
+    assert (
+        'DJANGO_CSRF_TRUSTED_ORIGINS="https://nextseek.example.org '
+        'http://127.0.0.1:8000 http://localhost:8000"'
+    ) in rendered

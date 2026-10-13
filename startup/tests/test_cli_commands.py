@@ -1981,3 +1981,31 @@ def test_install_stops_when_the_preflight_refuses(repo: Path, steps) -> None:
     result = runner.invoke(cli.app, ["install", "--yes"])
     assert result.exit_code == 1
     steps.build.build_and_start_nextseek.assert_not_called()
+
+
+def test_reinstall_keeps_hand_set_django_host_keys(repo: Path, steps, monkeypatch) -> None:
+    """#103: install renders the real templates and keeps the box's host keys.
+
+    The real config module runs (only the step modules around it stay mocked),
+    so this pins the step-4 wiring: the values are read back before the write.
+    """
+    import shutil
+
+    from startup.steps import config as real_config
+
+    shutil.copytree(Path(__file__).resolve().parents[1] / "templates", repo / "startup" / "templates")
+    monkeypatch.setattr(cli, "config", real_config)
+    monkeypatch.setattr(real_config, "render_proxy_secret_env",
+                        lambda _root: repo / "docker" / "proxy-secret.env")
+    hosts = "nextseek.example.org 127.0.0.1 localhost"
+    origins = "https://nextseek.example.org http://127.0.0.1:8000 http://localhost:8000"
+    (repo / "docker" / "nextseek.env").write_text(
+        f'DJANGO_ALLOWED_HOSTS="{hosts}"\nDJANGO_CSRF_TRUSTED_ORIGINS="{origins}"\n'
+    )
+
+    result = runner.invoke(cli.app, ["install", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    rendered = (repo / "docker" / "nextseek.env").read_text()
+    assert f'DJANGO_ALLOWED_HOSTS="{hosts}"' in rendered
+    assert f'DJANGO_CSRF_TRUSTED_ORIGINS="{origins}"' in rendered
