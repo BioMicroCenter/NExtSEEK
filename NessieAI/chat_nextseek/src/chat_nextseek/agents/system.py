@@ -99,7 +99,7 @@ def build_messages(config: ChatConfig, user_query: str, entity_dict: dict, plan_
     # Build full entity details for any resolved catalog codes using pre-built maps from config
     entity_details: dict = {}
     sampletypes_map = _as_map(getattr(config, "FULL_SAMPLETYPES_MAP", None))
-    assays_map = _as_map(getattr(config, "FULL_ASSAYS_MAP", None))
+    assays_map = {row["Name"]: row for row in system_tools.assay_rows(config)}
     for st in entity_dict.get("sampletypes", []):
         code = st.get("code")
         if code and code in sampletypes_map:

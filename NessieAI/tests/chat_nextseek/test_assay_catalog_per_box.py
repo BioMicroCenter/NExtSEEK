@@ -184,3 +184,58 @@ def test_shortlist_never_surfaces_an_index_only_assay():
     out, _ = _hybrid_shortlist("assay", box_rows, index, id_field="Name", lex_doc_fn=lambda i: (i["Name"], set()),
                                code_key=None, ratio=0.7, min_k=1, max_k=5)
     assert [i["Name"] for i in out] == ["Alpha Assay"]
+
+
+# --- the system agent answers "which assays are registered" from the same list ---------------------------------------
+
+def _system_config(box_titles):
+    from unittest.mock import MagicMock
+    full = [{"Name": "Alpha Assay", "Alternative Assay Names": "AA, alpha run", "Description": "From the catalog."},
+            {"Name": "Gone Assay", "Alternative Assay Names": None, "Description": "Only in the catalog."}]
+    c = MagicMock()
+    c.FULL_SAMPLETYPES_MAP, c.FULL_PROJECTS_MAP, c.FULL_INVESTIGATIONS_MAP, c.LABS = {}, {}, {}, []
+    c.FULL_ASSAYS_MAP = {r["Name"]: r for r in full}
+    c.MIN_ASSAYS = [{"Name": t, "Description": None, "Tags": None} for t in box_titles]
+    c.MIN_SAMPLETYPES, c.MIN_API_ENDPOINTS = [], []
+    c.CAPABILITIES_DOC, c.NEO4J_SCHEMA, c.SYSTEM_AGENT_SYSTEM_PROMPT = "caps", {}, "system prompt"
+    return c
+
+
+def test_the_system_agent_counts_this_boxs_assays():
+    from chat_nextseek import system_tools
+    out = system_tools.list_catalog(_system_config(["Alpha Assay", "Box Only Panel"]), "assay")
+    assert out["count"] == 2
+    assert [r["name"] for r in out["rows"]] == ["Alpha Assay", "Box Only Panel"]
+    assert out["counts"] == "2 assay definitions in the catalog"
+
+
+def test_the_system_agents_index_names_only_this_boxs_assays():
+    from chat_nextseek import system_tools
+    index = system_tools.catalog_index(_system_config(["Alpha Assay", "Box Only Panel"]))
+    assert "Assays (2):" in index and "- Box Only Panel" in index
+    assert "Gone Assay" not in index
+
+
+def test_an_assay_only_the_catalog_has_is_not_found():
+    from chat_nextseek import system_tools
+    out = system_tools.get_catalog_entry(_system_config(["Alpha Assay"]), "assay", "Gone Assay")
+    assert out["ok"] is False
+
+
+def test_a_box_title_in_other_case_keeps_the_catalogs_other_names():
+    from chat_nextseek import system_tools
+    entry = system_tools.get_catalog_entry(_system_config(["alpha assay"]), "assay", "alpha run")
+    assert entry["ok"] is True
+    assert entry["row"]["Name"] == "alpha assay" and entry["row"]["Description"] == "From the catalog."
+
+
+def test_the_system_agent_gets_details_only_for_this_boxs_assays(monkeypatch):
+    from chat_nextseek.agents import system as system_mod
+    from chat_nextseek.schemas import ParserPlan
+    monkeypatch.setattr(system_mod, "live_catalog_context", lambda *args, **kwargs: None)
+    entity = {"assays": [{"code": "alpha assay"}, {"code": "Gone Assay"}]}
+    messages = system_mod.build_messages(_system_config(["alpha assay"]), "what is it", entity,
+                                         ParserPlan(mode="system_question").model_dump(), pages={})
+    block = next(m["content"] for m in messages if m["content"].startswith("ENTITY_DETAILS"))
+    details = json.loads(block.split("\n", 1)[1])
+    assert list(details) == ["alpha assay"] and details["alpha assay"]["Description"] == "From the catalog."

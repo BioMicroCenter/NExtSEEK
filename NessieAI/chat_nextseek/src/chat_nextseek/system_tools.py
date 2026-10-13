@@ -123,14 +123,26 @@ def _names(value: Any) -> list[str]:
     return [n for n in _as_list(value) if isinstance(n, str) and n.strip()]
 
 
+def assay_rows(config) -> list[dict]:
+    """This box's assays (``config.MIN_ASSAYS``, built from its ``dmac.internal_assays``), each as its full catalog
+    row when the catalog has that assay (matched ignoring case, named as the box names it), else as the box's row."""
+    full = {str(k).casefold(): v for k, v in _as_map(getattr(config, "FULL_ASSAYS_MAP", None)).items()}
+    out = []
+    for row in _as_list(getattr(config, "MIN_ASSAYS", None)):
+        name = row.get("Name") if isinstance(row, dict) else None
+        if isinstance(name, str) and name.strip():
+            match = full.get(name.casefold())
+            out.append(row if match is None else dict(match, Name=name))
+    return out
+
+
 def _rows(config, kind: str) -> list[tuple[list[str], dict]]:
     """(the keys a row answers to, the row) for one kind of catalog entry."""
     if kind == "sample_type":
         rows = _as_map(getattr(config, "FULL_SAMPLETYPES_MAP", None)).values()
         return [([r.get("SampleType"), r.get("Name")], r) for r in rows]
     if kind == "assay":
-        rows = _as_map(getattr(config, "FULL_ASSAYS_MAP", None)).values()
-        return [([r.get("Name"), *_names(r.get("Alternative Assay Names"))], r) for r in rows]
+        return [([r.get("Name"), *_names(r.get("Alternative Assay Names"))], r) for r in assay_rows(config)]
     if kind in ("project", "investigation"):
         attr = "FULL_PROJECTS_MAP" if kind == "project" else "FULL_INVESTIGATIONS_MAP"
         rows = _as_map(getattr(config, attr, None)).values()
