@@ -116,8 +116,9 @@ function getRelationship(child, parent) {
 
 function relsToHtml(rel) {
   let relStr = ""
-  // An unmapped assay labels nothing (#124): no assay line, never "undefined".
-  const assay = 'internal_assay_title' in rel ? rel['internal_assay_title'] : rel['assay_title']
+  // An unmapped assay labels nothing (#124): no assay line, never "undefined",
+  // and never the legacy edge property assay_title, which holds a raw SEEK title.
+  const assay = rel['internal_assay_title']
   if (assay) {
     relStr += `<p><strong>Assay:</strong> ${assay}</p>`
   }
