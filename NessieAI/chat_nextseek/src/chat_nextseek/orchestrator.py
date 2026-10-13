@@ -91,6 +91,7 @@ from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_
 from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
+from .schemas.entity import EntityItem
 from .schemas.graph import GraphAgentPlan
 from .session import SessionState
 from .vocabulary import resolve_vocabulary, take as take_vocabulary
@@ -1067,7 +1068,8 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
     prompt still teaches a surname-to-code rule: a scientist, or a lab whose SEEK title did
     not parse, could come back as a guessed code. Everything downstream (the API and graph
     agents, the empty-result retry ladder, the reply's scope note) reads the plan, so the
-    clamp runs once, straight after the parser. Nothing but the codes changes.
+    clamp runs once, straight after the parser. Nothing but the codes changes, apart from the scientists and
+    category types the parser's echo has no slot for, which are restored from the entity result.
     """
     if isinstance(entity_result, dict):
         matched = entity_result.get("lab_codes")
@@ -1087,12 +1089,27 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
     resolved_update: dict[str, Any] = {"lab_codes": _clamp(plan.resolved.lab_codes)}
     # Fix 8: the parser's echo of the entity result has no `scientists` slot, so a person the entity step resolved
     # as a scientist reached the graph agent only as a keyword. The entity result is the source of truth.
-    if isinstance(entity_result, dict):
-        entity_scientists = entity_result.get("scientists")
-    else:
-        entity_scientists = getattr(entity_result, "scientists", None)
+    def _entity(name):
+        return entity_result.get(name) if isinstance(entity_result, dict) else getattr(entity_result, name, None)
+    entity_scientists = _entity("scientists")
     if entity_scientists and not plan.resolved.scientists:
         resolved_update["scientists"] = list(entity_scientists)
+    # R2: nor a `category_types` slot, so the graph agent (which reads the parser plan) never saw the category's
+    # types. Restore the map and add any of its codes the echo left out of `sampletypes`.
+    categories = _entity("category_types") or {}
+    if categories:
+        resolved_update["category_types"] = {w: list(codes) for w, codes in categories.items()}
+        names = {}
+        for item in _entity("sampletypes") or []:
+            item = item if isinstance(item, dict) else item.model_dump()
+            names[item.get("code")] = item.get("name")
+        types = list(plan.resolved.sampletypes)
+        have = {t.code for t in types}
+        for code in (c for codes in categories.values() for c in codes):
+            if code not in have:
+                types.append(EntityItem(code=code, name=names.get(code)))
+                have.add(code)
+        resolved_update["sampletypes"] = types
     updates: dict[str, Any] = {
         "resolved": plan.resolved.model_copy(update=resolved_update),
     }

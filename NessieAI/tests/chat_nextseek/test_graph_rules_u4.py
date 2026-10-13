@@ -146,7 +146,7 @@ def test_the_parser_template_has_a_scientists_field():
 
 def test_the_graph_prompt_carries_the_rules():
     for text in ("A total across groups counts each item once", "Data records or the samples they came from?",
-                 "A category word covers every type of its kind", "`category_types`",
+                 "A category word covers every type of its kind", "`resolved.category_types`",
                  "An assay and a field naming the same kind", "both signs were used",
                  "has no records of the asked type", "`Seq 100` and `Seq100`",
                  "A keyword for what a sample was exposed to", "never address the reply writer",
