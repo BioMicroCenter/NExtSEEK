@@ -172,13 +172,21 @@ def test_router_and_route_text_send_a_named_sops_file_to_ns():
 
 
 # ------------------------------------------------------------------ 2026-10-13 harmo_onto: harmonize requests
-def test_route_text_sends_a_request_to_harmonize_stored_values_to_cc():
-    """Operator ruling 2026-10-13: counts across spellings stay in the graph; a request to harmonize
-    stored values is container_cc's. route_capabilities.json follows at its next regeneration."""
+def test_route_text_splits_harmonization_by_intent():
+    """Operator rulings 2026-10-13: asking which values or spellings exist (and how many) is a graph
+    search on NS; asking to harmonize, merge or map them to the house terms is container_cc's, and a
+    chat that asked what exists on NS pivots there with that result. Both the registry text and the
+    generated route_capabilities.json carry it."""
     from NessieAI.cc.op_registry.routes import CONTAINER_CC_ROUTE
 
     text = " ".join(CONTAINER_CC_ROUTE.not_for.split())
     assert "counts and breakdowns, including counts across spellings, all run in the graph." in text
-    assert ("A request to harmonize stored values (a proposal against the house ontologies and its update "
-            "workbook) is this route.") in text
+    assert "Harmonization is judged by its intent" in text
+    assert ("asking which values, spellings or types an attribute holds, and how many of each, is a "
+            "NExtSEEK graph search on the NS route") in text
+    assert ("asking to harmonize, merge or map them to the house terms, or to build the update workbook "
+            "that does it, is this route.") in text
+    assert "then asks to harmonize it comes here with that earlier result" in text
     assert "harmonisation over metadata" not in text
+    path = paths.DMAC_ASSISTANT_DIR / "build_context" / "route_capabilities.json"
+    assert "Harmonization is judged by its intent" in path.read_text(encoding="utf-8")
