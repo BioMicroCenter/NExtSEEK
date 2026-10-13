@@ -1,10 +1,21 @@
 """Regression tests for startup-generated deploy gap files."""
 from __future__ import annotations
 
+import dataclasses
+import importlib.util
+import shutil
 from pathlib import Path
 
 from startup.lib.env import read_env
-from startup.steps.config import render_proxy_secret_env, render_root_env
+from startup.steps.config import (
+    default_values,
+    render_db_env,
+    render_nextseek_env,
+    render_proxy_secret_env,
+    render_root_env,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Pinned literally rather than read from startup.lib.layout, so moving the
 # constant alone cannot move these expectations with it.
@@ -220,3 +231,43 @@ def test_render_root_env_persists_db_port(tmp_path: Path) -> None:
     )
 
     assert read_env(repo / ".env")["DB_PORT"] == "3307"
+
+
+def test_render_root_env_escapes_dollar_in_neo4j_password(tmp_path: Path) -> None:
+    """Compose interpolates $ in .env, even inside double quotes; $$ is a literal $."""
+    repo = tmp_path / "repo"
+
+    render_root_env(repo, {"COMPOSE_PROJECT_NAME": "x"}, neo4j_password="pa$word$1")
+
+    assert 'NEO4J_PASSWORD="pa$$word$$1"' in (repo / ".env").read_text()
+
+
+def test_dollar_neo4j_password_reaches_server_and_app_through_compose(tmp_path: Path) -> None:
+    """#112: the rendered files, parsed the way compose parses them, give the
+    server (root .env) and the app (docker/nextseek.env) the same password.
+
+    Uses the repo's own emulation of compose's env-file rules
+    (scripts/graph_search/nessie_venue_check.py), fed the way nessie_venue.sh
+    feeds it: the root .env as the lookup, then db.env and nextseek.env.
+    """
+    path = REPO_ROOT / "scripts" / "graph_search" / "nessie_venue_check.py"
+    spec = importlib.util.spec_from_file_location("nessie_venue_check", path)
+    venue = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(venue)
+
+    repo = tmp_path / "repo"
+    shutil.copytree(REPO_ROOT / "startup" / "templates", repo / "startup" / "templates")
+    password = "$Abc_d$1"  # leading $ as in the issue; $1 is not a name, so compose keeps it
+    values = dataclasses.replace(default_values(8000, 3000), neo4j_password=password)
+    render_db_env(repo, values)
+    render_nextseek_env(repo, values)
+    render_root_env(repo, {"COMPOSE_PROJECT_NAME": "x"}, neo4j_password=password)
+
+    lookup = venue.dotenv_values((repo / ".env").read_text())
+    env, _ = venue.compose_env(
+        [(repo / "docker" / name).read_text() for name in ("db.env", "nextseek.env")], lookup
+    )
+
+    assert lookup["NEO4J_PASSWORD"] == password  # NEO4J_AUTH seeds the server from this
+    assert env["NEXTSEEK_NEO4J_PASSWORD"] == password
+    assert env["NEO4J_PASSWORD"] == password

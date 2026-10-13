@@ -268,7 +268,10 @@ def render_root_env(
         write_env(output, values)
         return output
 
-    values["NEO4J_PASSWORD"] = neo4j_password
+    # Compose interpolates $ in .env even inside double quotes; $$ is a literal $.
+    # Its other reader, nessie_venue.sh, applies compose's rules too; startup
+    # never parses it back.
+    values["NEO4J_PASSWORD"] = neo4j_password.replace("$", "$$")
     write_env(output, values)
     output.chmod(0o600)  # now carries a credential
     return output
