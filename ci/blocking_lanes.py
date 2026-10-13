@@ -50,7 +50,8 @@ BLOCKING_GLOBS = (
     # alias, and the transcript size cap (#98). SQLite and stubs only.
     "nextseek_api/tests/test_services_cc_assistant_routes.py",
     # The attributes viewset's own suite (#98). Its conftest used to declare pytest_plugins below the rootdir, so
-    # CI never collected it. The tests that need the author's evidence rig are strict xfails there (conftest.py).
+    # CI never collected it. Its conftest.py skips the tests that need the author's evidence rig where the rig's
+    # variables are absent.
     "nextseek_api/attributes/tests/test_*.py",
     # The user docs at /docs/: every page renders and its links, anchors and images
     # resolve; and Nessie's docs snapshot is regenerated whenever a page changes.
