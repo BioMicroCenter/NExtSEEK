@@ -70,6 +70,8 @@ def test_the_app_code_roots_exist_and_the_context_files_are_left_out():
     assert len(paths) > 500
     assert "seek/views/search.py" in paths
     assert "static/js/chat_assistant/.vite/manifest.json" in paths
+    # the embedding model pins the app image bakes (#28): a pulled pin bump reads as STALE
+    assert "docker/models/bge-small-en-v1.5.manifest.json" in paths
     assert not [p for p in paths if p.startswith("NessieAI/history/")]
     assert not [p for p in paths if "/chat_nextseek/context/" in p]
 

@@ -397,8 +397,9 @@ def check_cc_models(repo_root: Path, env: dict[str, str], checkout: Path) -> tup
 # --------------------------------------------------------------------------- #
 
 # What the app image is built from (`COPY . /app/`) and runs. Tracked files only.
+# docker/models holds the embedding model pins the image bakes (#28).
 APP_CODE_ROOTS = ("dmac", "seek", "nextseek_api", "NessieAI",
-                  "static/js/chat_assistant", "manage.py", "gunicorn.conf.py")
+                  "static/js/chat_assistant", "manage.py", "gunicorn.conf.py", "docker/models")
 # Tracked paths the image does not carry (.dockerignore) or rewrites at run time:
 # the chat_nextseek context files are refreshed from the database inside the
 # container, and the cc-agent context check already compares them.

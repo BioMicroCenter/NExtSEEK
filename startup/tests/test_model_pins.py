@@ -118,3 +118,9 @@ def test_the_dev_provisioning_script_reads_the_moved_bge_pin_and_the_one_verifie
     assert 'MANIFEST="${REPO_ROOT}/docker/models/bge-small-en-v1.5.manifest.json"' in script
     assert 'VERIFIER="${REPO_ROOT}/docker/models/verify_models.py"' in script
     assert (MODELS / "bge-small-en-v1.5.manifest.json").is_file()
+
+
+def test_the_dev_provisioning_download_turns_the_image_offline_flag_off():
+    """The app image sets HF_HUB_OFFLINE=1; the script's download fallback runs through that image."""
+    script = (REPO_ROOT / "startup" / "dev" / "provision_embedding_model.sh").read_text()
+    assert "-e HF_HUB_OFFLINE=0" in script

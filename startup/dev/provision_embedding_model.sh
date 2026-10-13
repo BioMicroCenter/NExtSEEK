@@ -172,9 +172,10 @@ print(j.loads(open(sys.argv[1], "rb").read())["revision"])' "${MANIFEST}")"
         echo "ERROR: docker not available for the download fallback; re-run with --seed <dir>" >&2
         exit 1
     fi
+    # The app image sets HF_HUB_OFFLINE=1 (it bakes its own models); this download needs it off.
     if ! docker run --rm \
         --user "$(id -u):$(id -g)" \
-        -e HOME=/tmp -e HF_HOME=/tmp/hf \
+        -e HOME=/tmp -e HF_HOME=/tmp/hf -e HF_HUB_OFFLINE=0 \
         -v "${CACHE_DIR}:/provision_cache" \
         --entrypoint /app/.venv/bin/python \
         nextseek-nextseek:latest \
