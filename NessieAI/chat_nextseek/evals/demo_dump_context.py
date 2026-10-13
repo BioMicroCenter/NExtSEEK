@@ -172,21 +172,6 @@ as the D.SEQ-level grouping candidate(s) for this cohort. Whatever this is
 nothing in this dump manufactures a contrast variable that isn't actually
 there.
 
-## The blob-URL download workaround
-
-Protocol attachment downloads 404 through the shipped code path inside this
-container, because of a real bug (being filed as a separate GitHub issue):
-SEEK returns blob links as `http://127.0.0.1:8000/sops/...`, and the
-existing localhost-rewrite logic rewrites that loopback link using
-`config.NEXTSEEK_BASE_URL`, which is *also* `http://127.0.0.1:8000` inside
-this container — loopback rewritten to loopback. `demo_cohort_real.py`
-works around this in the demo only (no shipped code was changed): it wraps
-`fetch_protocols` and rewrites each payload's `source_base_url` to the real
-public host before handing it to the unmodified download/extract step. See
-the `REAL_BLOB_HOST` constant and `_fetch_protocols_with_fixed_blob_host` in
-that file for exactly what it does and why it's safe to delete once the
-underlying bug is fixed upstream.
-
 ## 01-atlas.json — the curated pipeline knowledge
 
 A hand-written reference comparing {len(ctx.atlas['pipelines'])} nf-core RNA

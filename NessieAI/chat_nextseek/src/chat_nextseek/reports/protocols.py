@@ -281,6 +281,15 @@ def sanitize_protocols_for_llm(protocol_payloads: dict) -> dict:
     return {pid: sanitize_dict(resp) if isinstance(resp, dict) else resp for pid, resp in protocol_payloads.items()}
 
 
+def _sop_download_request(source_base_url: str | None, link: str | None) -> tuple[str, dict] | None:
+    """URL and body of POST /nextseek_api/sops/download/ on the record's host for a SEEK SOP blob link, else None."""
+    match = re.search(r"/sops/(\d+)/content_blobs/(\d+)", urlparse(link or "").path)
+    if not (match and source_base_url):
+        return None
+    body = {"uid_or_id": match.group(1), "blob_id": int(match.group(2))}
+    return f"{source_base_url.rstrip('/')}/nextseek_api/sops/download/", body
+
+
 def download_and_extract_protocol_blobs(
     protocol_payloads: dict,
     base_dir: str | Path,
@@ -325,8 +334,11 @@ def download_and_extract_protocol_blobs(
         blobs = attrs.get("content_blobs") or []
         for idx, blob in enumerate(blobs):
             link = blob.get("link") or blob.get("url")
-            # Fix localhost URLs - content blobs are served from fairdata-dev.mit.edu
-            if link and ("localhost" in link or "127.0.0.1" in link):
+            # A NExtSEEK record carries SEEK's own blob link, on SEEK's site_base_host, which the app container
+            # may not reach (http://localhost:3000 by default). Download it through the record's own host
+            # instead, with the record's credentials: the app's SOP download endpoint streams it from SEEK (#91).
+            via_api = None if source_host == "fairdomhub.org" else _sop_download_request(source_base_url, link)
+            if via_api is None and link and ("localhost" in link or "127.0.0.1" in link):
                 path_match = re.search(r"https?://[^/]+(/.*)", link)
                 if path_match and source_base_url:
                     link = f"{source_base_url}{path_match.group(1)}"
@@ -338,14 +350,18 @@ def download_and_extract_protocol_blobs(
             try:
                 content_resp = None
                 attempted = []
-                for candidate in (f"{link}/download", f"{link}?download=1", link):
+                for candidate in [via_api[0]] if via_api else [f"{link}/download", f"{link}?download=1", link]:
                     timeout = 30
                     if deadline is not None:
                         timeout = min(30, deadline - time.monotonic())
                         if timeout <= 0:
                             break
                     attempted.append(candidate)
-                    r = session.get(candidate, timeout=timeout)
+                    if via_api:
+                        # Not the session: no cookie may turn this Basic call into a CSRF-checked session call.
+                        r = requests.post(candidate, json=via_api[1], auth=session.auth, timeout=timeout)
+                    else:
+                        r = session.get(candidate, timeout=timeout)
                     ctype_hdr = (r.headers.get("Content-Type") or "").lower()
                     looks_json = ctype_hdr.startswith("application/vnd.api+json") or r.content[:1] in (b"{", b"[")
                     is_ok = r.status_code == 200 and not looks_json
