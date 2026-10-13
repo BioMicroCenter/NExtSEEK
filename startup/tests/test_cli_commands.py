@@ -2148,6 +2148,24 @@ def test_reset_keep_config_refuses_a_dollar_before_dropping_the_volumes(
 
 
 @patch("startup.lib.docker_ops.compose_down")
+def test_plain_reset_still_runs_with_a_dollar_in_a_config_file(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch
+) -> None:
+    """The $ refusal is for --keep-config only: a plain reset deletes the file that
+    holds the $, so it is the way out for a box whose config install refuses."""
+    _real_config(repo, monkeypatch)
+    _saved_state(repo)
+    (repo / "docker" / "db.env").write_text('MYSQL_ROOT_PASSWORD="ab$cd"\n')
+
+    result = runner.invoke(cli.app, ["reset", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    mock_down.assert_called_once()
+    assert read_env(repo / "docker" / "db.env")["MYSQL_ROOT_PASSWORD"] == "seek_root"
+    steps.build.start_databases.assert_called_once()
+
+
+@patch("startup.lib.docker_ops.compose_down")
 def test_reset_keep_config_keeps_every_value(
     mock_down: MagicMock, repo: Path, steps, monkeypatch
 ) -> None:
