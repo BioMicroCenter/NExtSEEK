@@ -138,6 +138,22 @@ def _breakdown_sum(rows: list) -> tuple[str, int | float] | None:
     return col, sum(r[col] for r in rows)
 
 
+def _attached_rows_line(shown: int, attached: int, total, truncated: bool) -> str:
+    """What the writer may say about the table attached to a graph turn. Fix 5: a result that stopped at the row
+    cap is a capped part of the answer, so it is never called the full list; the reply says how many came back of
+    how many."""
+    if shown >= attached:
+        return ""
+    if truncated or (isinstance(total, int) and total > attached):
+        of = f" of {total:,}" if isinstance(total, int) else ""
+        return (f"The table and downloadable file attached to the turn hold only {attached:,}{of} rows: the "
+                f"result stopped at the row cap. Say {attached:,}{of} came back, never call it the full list, "
+                "and never say there is nothing to narrow.\n")
+    return ("Every row of this result is attached to the turn as a table and a downloadable "
+            "file, so say the full list is available rather than offering to re-run the "
+            "query or telling the user to narrow it.\n")
+
+
 def _type_histogram_block(all_rows: list, shown: int) -> str:
     """How the sample types are distributed across the WHOLE result, not the preview.
 
@@ -863,9 +879,7 @@ def chatter_agent_answer(
             f"{heading}\n{preview_json}\n"
             + (f"Sum of {breakdown[0]} across all {len(records)} rows: {breakdown[1]:,}. When the question "
                "asks how many, give this total first, then the breakdown.\n" if breakdown else "")
-            + ("Every row of this result is attached to the turn as a table and a downloadable "
-               "file, so say the full list is available rather than offering to re-run the "
-               "query or telling the user to narrow it.\n" if len(records) < len(all_rows) else "")
+            + _attached_rows_line(len(records), len(all_rows), total_matches, graph_truncated)
             + _type_histogram_block(all_rows, len(records))
             + _value_counts_block(all_rows, len(records),
                                   capped=graph_truncated or (isinstance(total_matches, int)
