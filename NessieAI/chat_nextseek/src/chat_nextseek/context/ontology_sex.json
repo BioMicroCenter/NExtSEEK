@@ -1,0 +1,52 @@
+[
+ {
+  "TERM": "female",
+  "DEF": "Biological sex female.",
+  "ONT_SOURCE": "PATO",
+  "ONT_ID": "PATO:0000383",
+  "SYNONYMS": [
+   "F"
+  ]
+ },
+ {
+  "TERM": "male",
+  "DEF": "Biological sex male.",
+  "ONT_SOURCE": "PATO",
+  "ONT_ID": "PATO:0000384",
+  "SYNONYMS": [
+   "M"
+  ]
+ },
+ {
+  "TERM": "pooled male and female",
+  "DEF": "A pool or group holding both sexes.",
+  "ONT_SOURCE": "PATO",
+  "ONT_ID": "PATO:0001338",
+  "SYNONYMS": [
+   "Female and male in equal ratios",
+   "mixed sex",
+   "mixed"
+  ]
+ },
+ {
+  "TERM": "hermaphrodite",
+  "DEF": "Both male and female reproductive organs.",
+  "ONT_SOURCE": "PATO",
+  "ONT_ID": "PATO:0001340",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "intersex",
+  "DEF": "Sex characteristics not typical of either sex.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "neuter",
+  "DEF": "Gonads removed or absent.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ }
+]

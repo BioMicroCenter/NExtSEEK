@@ -75,7 +75,7 @@ Breaking one is a regression, not a refactor.
   cannot pass without them. `--no-nessie` skips that step, and a component rebuild
   never runs it.
 - **The cc-agent context check reads the built image and never runs it**
-  (`validate.check_cc_agent_context`, through `docker_ops.copy_from_image`). The six
+  (`validate.check_cc_agent_context`, through `docker_ops.copy_from_image`). The
   canonical context files (`CANONICAL_CONTEXT_FILES` in `startup/lib/layout.py`, pinned
   to gen_op_surfaces and the cc-agent Dockerfile by `startup/tests/test_layout.py`) are
   baked into both the app image and `dmac-assistant:poc`. A bare `rebuild` refreshes only

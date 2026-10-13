@@ -331,6 +331,8 @@ def test_more_than_fifty_commits_lists_the_latest_fifty(tmp_path, capsys):
     (("docker/nginx.conf",), ["app"], "(nginx)"),
     (("nextseek_api/migrations/0042_x.py",), ["app"], "(migration)"),
     (("NessieAI/chat_nextseek/src/chat_nextseek/context/projects_db.json",), ["app"], "needs cc-agent"),
+    # an ontology file added later is baked like the listed ones (harmo_onto review S7)
+    (("NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_new_thing.json",), ["app"], "needs cc-agent"),
 ])
 def test_the_range_and_the_brief_must_agree(tmp_path, capsys, touch, images, needle):
     code, out, d = commits_setup(tmp_path, capsys, touch=touch, images=images)

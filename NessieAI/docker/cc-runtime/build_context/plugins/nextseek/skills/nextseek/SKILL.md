@@ -310,6 +310,7 @@ Compose the user-facing answer from each op's JSON output.
   words. Say each thing once. No headings, and no table for fewer than four rows. Aim for ten lines or fewer. Do not
   describe which calls you made, which failed or which you retried, unless the answer is incomplete because of it;
   then say in one sentence what is missing.
+- When the reply lists the stored values of one attribute, `context/ONTOLOGIES.json` covers that attribute, and some listed values are not house `TERM`s, end with one line offering to harmonize them to the house terms. No table and no workbook until the user asks (harmonizing is a `nextseek-batch-upload` task).
 - Do not fabricate counts, UIDs, or fields, or fill in numbers from prior knowledge — report only
   what the op returned. State an empty result plainly.
 - Quote the **user-facing path** of any artifact produced (submission workbook, report, file

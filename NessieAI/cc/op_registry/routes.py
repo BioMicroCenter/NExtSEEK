@@ -58,8 +58,10 @@ CONTAINER_CC_ROUTE = RouteSpec(
         "on the NS route. Having a shell is not a reason to route here when "
         "NExtSEEK already holds the answer. The dividing line: a question "
         "answerable from sample metadata alone is the NS route, however large or "
-        "analytical -- counts, breakdowns and harmonisation over metadata all run "
-        "in the graph. It is only a question needing a source the graph does not "
+        "analytical -- counts and breakdowns, including counts across spellings, all "
+        "run in the graph. A request to harmonize stored values (a proposal against "
+        "the house ontologies and its update workbook) is this route. It is only a "
+        "question needing a source the graph does not "
         "hold, a produced file, an open-ended project or investigation summary, or a "
         "follow-up the follow-up rule sends here."
     ),

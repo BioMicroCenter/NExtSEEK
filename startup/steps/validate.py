@@ -445,7 +445,7 @@ def check_cc_agent_context(
 ) -> HealthResult:
     """Whether the cc-agent image still bakes the checkout's canonical context.
 
-    The six chat_nextseek context files (``startup/lib/layout.py``) are baked
+    The chat_nextseek context files (``startup/lib/layout.py``) are baked
     into the app image and, through the Compose named context
     ``chat_nextseek``, into the cc-agent image. A bare ``./startup.sh rebuild``
     builds only the first, so editing one of them and skipping

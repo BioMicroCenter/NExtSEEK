@@ -72,8 +72,8 @@ own discovery (`NessieAI/build_tools/gen_op_surfaces/skills.py:149-169`), and th
 Compose and container-`CLAUDE.md` blocks only when both markers are already present
 in the file (`NessieAI/build_tools/gen_op_surfaces/emit.py:115-202`).
 
-The chat_nextseek context files the agent image bakes (`capabilities.md`, `projects_db.json`
-and four `min_*.json` catalogs) have one copy each, under `NessieAI/chat_nextseek/`
+The chat_nextseek context files the agent image bakes (`capabilities.md`, `projects_db.json`,
+four `min_*.json` catalogs and the ontology files) have one copy each, under `NessieAI/chat_nextseek/`
 (`CANONICAL_CONTEXT_FILES` at `NessieAI/build_tools/gen_op_surfaces/constants.py:21-37`). The
 Dockerfile first copies the plugin directory, whose `context/` holds no copy of them, and then
 COPYs each from the named `chat_nextseek` build context to its in-image path

@@ -75,6 +75,22 @@ CANONICAL_CONTEXT_NAMES = (
     "min_api_endpoints_enriched.json",
     "min_sampletypes_db.json",
     "projects_db.json",
+    "ONTOLOGIES.json",
+    "ontology_species.json",
+    "ontology_sex.json",
+    "ontology_organ.json",
+    "ontology_disease.json",
+    "ontology_units.json",
+    "ontology_mouse_genotype.json",
+    "ontology_mouse_strain.json",
+    "ontology_library_strategy.json",
+    "ontology_library_source.json",
+    "ontology_library_selection.json",
+    "ontology_library_layout.json",
+    "ontology_extracted_molecule.json",
+    "ontology_instrument_model.json",
+    "ontology_file_format.json",
+    "ontology_genome_assembly.json",
 )
 CANONICAL_CONTEXT_COPY_BLOCK = "".join(
     f"COPY --from={NAMED_CONTEXT} src/chat_nextseek/context/{name} "

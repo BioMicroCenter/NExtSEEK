@@ -940,14 +940,12 @@ def test_no_term_would_be_mangled_on_its_way_into_a_cell():
             assert _safe_cell_value(term) == term
 
 
-def test_the_variants_block_documents_only_real_vocabularies():
-    """It is documentation, but documentation that drifts is worse than none."""
+def test_every_governed_column_maps_to_a_real_vocabulary():
+    """The file is generated from the ontology files; its field_map must point at its vocabularies."""
     import json
     from nextseek_api.services.sample_workbook import CV_PATH
     doc = json.loads(CV_PATH.read_text())
-    documented = set(doc["variants"]) - {"_excluded"}
-    assert documented <= set(doc["vocabularies"])
-    assert set(doc["variants"]["_excluded"]) <= set(doc["vocabularies"])
+    assert set(doc["field_map"].values()) <= set(doc["vocabularies"])
 
 
 # ---------------------------------------------------------------------------

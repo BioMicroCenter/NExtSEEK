@@ -1,11 +1,11 @@
 """The cc-agent image must bake the canonical context files the checkout holds.
 
-The six chat_nextseek context files are baked into both the app image and the
+The chat_nextseek context files are baked into both the app image and the
 cc-agent image. ``./startup.sh rebuild`` builds only the first, so an edit to one
 of them followed by an app rebuild alone leaves the CC agent serving its old
 copy, indefinitely, while every checkout-level guard stays green: they compare
 files in the tree, never the tree against the image. ``check_cc_agent_context``
-reads the six files out of the built image and compares bytes.
+reads the files out of the built image and compares bytes.
 
 Hermetic: docker is never asked. ``image_exists`` and ``copy_from_image`` are
 replaced, and the fake copy lays down whatever bytes the test says the image
@@ -24,7 +24,7 @@ IMAGE = "dmac-assistant:poc"
 
 
 def _checkout(tmp_path: Path, files: dict[str, bytes] | None = None) -> Path:
-    """A checkout holding the six canonical files, overridden or dropped by `files`."""
+    """A checkout holding the canonical files, overridden or dropped by `files`."""
     repo = tmp_path / "checkout"
     context = repo / layout.CANONICAL_CONTEXT_DIR
     context.mkdir(parents=True)
@@ -87,9 +87,9 @@ def test_names_every_file_the_image_bakes_differently(monkeypatch, tmp_path):
     assert result.ok is False
     assert "capabilities.md" in result.detail
     assert "projects_db.json" in result.detail
-    # The three that match are not reported as problems.
+    # The others match and are not reported as problems.
     assert "min_sampletypes_db.json" not in result.detail
-    assert "2 of 5" in result.detail
+    assert f"2 of {len(layout.CANONICAL_CONTEXT_FILES)}" in result.detail
     assert "./startup.sh rebuild --component cc-agent" in result.detail
 
 

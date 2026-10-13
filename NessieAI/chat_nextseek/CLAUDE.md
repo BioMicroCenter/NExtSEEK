@@ -66,7 +66,7 @@ without an error at the point of the change.
   keys tool exposure off that; a partially configured box silently hands the
   model a build it cannot submit.
 - **This directory owns the context files the CC agent image bakes.** `capabilities.md`,
-  `projects_db.json` and the three `min_*.json` catalogs named by `CANONICAL_CONTEXT_FILES`
+  `projects_db.json`, the three `min_*.json` catalogs and the ontology files (`ONTOLOGIES.json`, `ontology_*.json`) named by `CANONICAL_CONTEXT_FILES`
   in `NessieAI/build_tools/gen_op_surfaces/constants.py` exist only under
   `NessieAI/chat_nextseek/src/chat_nextseek/context/`. The cc-agent Dockerfile COPYs each
   from the Compose named context `chat_nextseek` to `/app/plugins/nextseek/context/`, and

@@ -1,0 +1,205 @@
+{
+ "_about": "House ontologies for harmonizing sample attribute values. Each entry names one ontology file in this folder: a JSON list of records with the keys TERM, DEF, ONT_SOURCE, ONT_ID and SYNONYMS. The files are the source of truth; nextseek_api/services/controlled_vocabularies.json (the upload-sheet dropdowns) is generated from the entries that name an upload_vocabulary.",
+ "record_keys": {
+  "TERM": "The house spelling. A harmonized value equals it exactly.",
+  "DEF": "One-line definition.",
+  "ONT_SOURCE": "Where the term comes from: house, SRA, GEO, or an OBO ontology prefix (NCBITaxon, PATO, UBERON, MONDO, UO, EDAM).",
+  "ONT_ID": "The OBO id (for example NCBITaxon:10090) when ONT_SOURCE is an OBO ontology, else null.",
+  "SYNONYMS": "Other spellings known to mean exactly this term."
+ },
+ "matching": "Trim the stored value and collapse inner spaces. It matches a record when it equals the TERM or one of the SYNONYMS, compared case-insensitively unless the entry is case_sensitive. A value equal to the TERM exactly is already harmonized. No match means no term fits: never stretch one.",
+ "attributes_pattern": "<sample type>.<attribute>; * matches any sample type, and *X any attribute ending in X.",
+ "ontologies": [
+  {
+   "id": "species",
+   "title": "Species",
+   "file": "ontology_species.json",
+   "attributes": [
+    "*.Species"
+   ],
+   "source": "NCBITaxon (NCBI scientific names)",
+   "version": "2026-10-13; ncbitaxon 2026-07-12",
+   "licence": "ids and labels from ncbitaxon (CC0 1.0); definitions are the house's own. House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
+   "case_sensitive": false
+  },
+  {
+   "id": "sex",
+   "title": "Sex",
+   "file": "ontology_sex.json",
+   "attributes": [
+    "*.Sex"
+   ],
+   "source": "SRA BioSample sex list, PATO ids",
+   "version": "2026-10-13; pato 2026-10-01",
+   "licence": "ids and labels from pato (CC BY 3.0); definitions are the house's own. House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
+   "case_sensitive": false
+  },
+  {
+   "id": "organ",
+   "title": "Organ and tissue",
+   "file": "ontology_organ.json",
+   "attributes": [
+    "*.Organ",
+    "CEL.Tissue"
+   ],
+   "source": "UBERON",
+   "version": "2026-10-13; uberon http://purl.obolibrary.org/obo/uberon/releases/2026-10-01/uberon.owl",
+   "licence": "ids and labels from uberon (CC BY 3.0); definitions are the house's own. House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
+   "case_sensitive": false
+  },
+  {
+   "id": "disease",
+   "title": "Disease",
+   "file": "ontology_disease.json",
+   "attributes": [
+    "*.Disease"
+   ],
+   "source": "MONDO",
+   "version": "2026-10-13; mondo 2026-10-06",
+   "licence": "ids and labels from mondo (CC BY 4.0); definitions are the house's own. House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
+   "case_sensitive": false
+  },
+  {
+   "id": "units",
+   "title": "Units",
+   "file": "ontology_units.json",
+   "attributes": [
+    "*.*Units"
+   ],
+   "source": "UO (Units of Measurement Ontology); house symbols",
+   "version": "2026-10-13; uo 2026-07-31",
+   "licence": "ids and labels from uo (CC BY 4.0); definitions are the house's own. House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
+   "case_sensitive": true
+  },
+  {
+   "id": "mouse_genotype",
+   "title": "Mouse genotypes",
+   "file": "ontology_mouse_genotype.json",
+   "attributes": [
+    "MUS.Genotype"
+   ],
+   "source": "house",
+   "version": "2026-10-13",
+   "licence": "House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
+   "case_sensitive": false
+  },
+  {
+   "id": "mouse_strain",
+   "title": "Mouse strains",
+   "file": "ontology_mouse_strain.json",
+   "attributes": [
+    "MUS.Strain",
+    "MUS.Genotype",
+    "CEL.Strain"
+   ],
+   "source": "house, MGI strain nomenclature",
+   "version": "2026-10-13",
+   "licence": "House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
+   "case_sensitive": false
+  },
+  {
+   "id": "library_strategy",
+   "title": "Library strategy",
+   "file": "ontology_library_strategy.json",
+   "attributes": [
+    "D.SEQ.LibraryStrategy"
+   ],
+   "source": "house + SRA library strategy list",
+   "version": "2026-10-13",
+   "licence": "House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
+   "case_sensitive": false,
+   "upload_vocabulary": "library_strategy"
+  },
+  {
+   "id": "library_source",
+   "title": "Library source",
+   "file": "ontology_library_source.json",
+   "attributes": [
+    "D.SEQ.LibrarySource"
+   ],
+   "source": "house + SRA library source list",
+   "version": "2026-10-13",
+   "licence": "House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
+   "case_sensitive": false,
+   "upload_vocabulary": "library_source"
+  },
+  {
+   "id": "library_selection",
+   "title": "Library selection",
+   "file": "ontology_library_selection.json",
+   "attributes": [
+    "D.SEQ.LibrarySelection"
+   ],
+   "source": "house + SRA library selection list",
+   "version": "2026-10-13",
+   "licence": "House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
+   "case_sensitive": false,
+   "upload_vocabulary": "library_selection"
+  },
+  {
+   "id": "library_layout",
+   "title": "Library layout",
+   "file": "ontology_library_layout.json",
+   "attributes": [
+    "D.SEQ.LibraryDesign"
+   ],
+   "source": "house + SRA/GEO layout",
+   "version": "2026-10-13",
+   "licence": "House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
+   "case_sensitive": false,
+   "upload_vocabulary": "library_layout"
+  },
+  {
+   "id": "extracted_molecule",
+   "title": "Extracted molecule",
+   "file": "ontology_extracted_molecule.json",
+   "attributes": [
+    "D.SEQ.ExtractedMolecule"
+   ],
+   "source": "GEO molecule list",
+   "version": "2026-10-13",
+   "licence": "House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
+   "case_sensitive": false
+  },
+  {
+   "id": "instrument_model",
+   "title": "Sequencing instrument",
+   "file": "ontology_instrument_model.json",
+   "attributes": [
+    "D.SEQ.Sequencer"
+   ],
+   "source": "house + SRA/GEO instrument models",
+   "version": "2026-10-13",
+   "licence": "House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
+   "case_sensitive": false,
+   "upload_vocabulary": "instrument_model"
+  },
+  {
+   "id": "file_format",
+   "title": "Data file format",
+   "file": "ontology_file_format.json",
+   "attributes": [
+    "*.DataType",
+    "*.*DataType"
+   ],
+   "source": "house + EDAM format ids + SRA/GEO file types",
+   "version": "2026-10-13; edam 1.25-20260626T1230Z",
+   "licence": "ids and labels from edam (CC BY-SA 4.0); definitions are the house's own. House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
+   "case_sensitive": false,
+   "upload_vocabulary": "filetype"
+  },
+  {
+   "id": "genome_assembly",
+   "title": "Reference genome assembly",
+   "file": "ontology_genome_assembly.json",
+   "attributes": [
+    "*.Genome",
+    "*.ReferenceGenome"
+   ],
+   "source": "house, GRC/NCBI assembly names",
+   "version": "2026-10-13",
+   "licence": "House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
+   "case_sensitive": false
+  }
+ ]
+}

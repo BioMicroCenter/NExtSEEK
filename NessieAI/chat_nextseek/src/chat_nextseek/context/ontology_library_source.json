@@ -1,0 +1,65 @@
+[
+ {
+  "TERM": "Genomic",
+  "DEF": "Genomic DNA (includes PCR products from genomic DNA).",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Transcriptomic",
+  "DEF": "Transcription products or non-genomic DNA (EST, cDNA, RT-PCR, screened libraries).",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "METAGENOMIC",
+  "DEF": "Mixed material from metagenome.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "METATRANSCRIPTOMIC",
+  "DEF": "Transcription products from community targets.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "SYNTHETIC",
+  "DEF": "Synthetic DNA.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "VIRAL RNA",
+  "DEF": "Viral RNA.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "GENOMIC SINGLE CELL",
+  "DEF": "Genomic DNA from single cells.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "TRANSCRIPTOMIC SINGLE CELL",
+  "DEF": "Transcription products from single cells.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "OTHER",
+  "DEF": "Other, unspecified, or unknown library source material (please include additional info in the “design description”).",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ }
+]

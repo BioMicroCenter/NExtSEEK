@@ -15214,6 +15214,261 @@
           ],
           "_why": "'tif' 3,969 + 'TIF' 1,656 + '.tif' 24 = 5,649. The same file type also appears with a leading dot only in the czi family ('czi' 417 + '.czi' 348 + 'CZI' 217 = 982). || VERIFIED: seek_production MySQL, verified 2026-08-06: D.IMG $.DataType grouped, 19 distinct values. || TESTS: a three-way split combining case AND a leading-dot punctuation variant. || Re-keyed 2026-09-23 against production (fairdata): T_D_IMG DataType CONTAINS 'tif' (Neo4j cypher-shell, read-only): 'tif' 5,877 + 'TIF' 2,447 + 'tiff' 666 + '.tif' 24 + 'TIFF' 4 + 'ome.tif' 3 = 9,021 TIFF files; 'tiff_metadata.xml' 636 is not a TIFF and is excluded; was 5,649.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
+        },
+        {
+          "id": "harmon.onto_imaging_datatype_house_terms",
+          "family": "harmonization",
+          "name": "DataType harmonized to the house file-type terms (capitals, no dot)",
+          "tags": [
+            "nessie",
+            "full",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Can you harmonize the DataType values of the MetNet imaging (D.IMG) samples?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?-i:\\bTIF\\b)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?-i:\\bCZI\\b)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*(?:->|\u2192)\\s*(?-i:tif)\\b)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "EDAM:format_3591"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)(confirm|shall I|should I|want me to|would you like|go ahead|proceed)"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": true,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Proves the file-type ontology reaches Container-CC: tif/.tif/TIF fold to TIF and czi/.czi to CZI, the house spelling, and nothing is proposed in lower case. It asks the user to confirm before any workbook. EDAM:format_3591 (TIF's id) comes only from the ontology file, so a reply that only re-lists the stored spellings fails. Its container_cc criterion stands on the container_cc route text (operator ruling 2026-10-13): a request to harmonize stored values, a proposal against the house ontologies and its update workbook, is container_cc's, while counts across spellings stay on nextseek_query. For the post-rebuild run (harmo_onto): needs the cc-agent image with the ontology files. Tagged no_floor because the family floor asks for parser_plan.mode graph_query, which a Container-CC turn does not set. Criteria carry no counts so they hold on dev and prod."
+        },
+        {
+          "id": "harmon.onto_cell_species",
+          "family": "harmonization",
+          "name": "Species spellings folded to the NCBITaxon term",
+          "tags": [
+            "nessie",
+            "full",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "The Species values on our cell line samples are spelled several ways. Please harmonize them.",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "Homo sapiens"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "NCBITaxon:9606"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)(confirm|shall I|should I|want me to|would you like|go ahead|proceed)"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": true,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Proves the species ontology is used: case variants of the human species name map to the house term with its ontology id (only the ontology file gives NCBITaxon:9606), and the agent asks before any workbook. Its container_cc criterion stands on the container_cc route text (operator ruling 2026-10-13): a request to harmonize stored values, a proposal against the house ontologies and its update workbook, is container_cc's, while counts across spellings stay on nextseek_query. For the post-rebuild run (harmo_onto): needs the cc-agent image with the ontology files. Tagged no_floor because the family floor asks for parser_plan.mode graph_query, which a Container-CC turn does not set. Criteria carry no counts so they hold on dev and prod."
+        },
+        {
+          "id": "harmon.onto_mouse_genotype_slide",
+          "family": "harmonization",
+          "name": "Genotype harmonization after a listing: map the synonym, ask about the rest",
+          "tags": [
+            "nessie",
+            "full",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "list",
+              "query": "What mouse genotypes exist in the SRP project?",
+              "pass_criteria": []
+            },
+            {
+              "label": "harmonize",
+              "query": "Can you harmonize these genotype values?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "RaDR\\+/\\+; GPT\\+/\\+"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?-i:\\bRG(?:A|M|AM|ATG)\\b)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?m)^[^\\n]*\\bRG\\b[^\\n]*RaDR\\+/\\+; GPT\\+/\\+"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)(confirm|shall I|should I|want me to|would you like|go ahead|proceed)"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": true,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Proves a follow-up 'harmonize these' reuses the previous listing, maps a listed synonym to the house genotype term, and names an unlisted variant as a question instead of mapping it, then asks before any workbook. The unlisted variant is any of RGA, RGM, RGAM or RGATG: prod's SRP project holds RGAM, RGA and RGM, dev's SRP investigation RGA, RGATG and RGM and no RGAM (read-only reads 2026-10-13). RG and its house term on one line (a table row or an arrow) comes from the ontology's synonym, so a reply that only re-lists the stored values fails. Turn 1 is a plain listing and asserts no route: the router sends a question answerable from sample metadata alone to nextseek_query. Turn 2 has the shape of prod turn 1315 ('can you harmonize these values?'), an NS-shaped follow-up the code guard leaves to the router, which sends a request to harmonize stored values to container_cc. For the post-rebuild run (harmo_onto): needs the cc-agent image with the ontology files. Tagged no_floor because the family floor asks for parser_plan.mode graph_query, which a Container-CC turn does not set. Criteria carry no counts so they hold on dev and prod."
+        },
+        {
+          "id": "harmon.onto_library_layout",
+          "family": "harmonization",
+          "name": "Library layout spellings folded; a prep method is not forced into a layout term",
+          "tags": [
+            "nessie",
+            "full",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Harmonize the LibraryDesign values on our sequencing data samples.",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "Paired End"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "3DGE"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)(confirm|shall I|should I|want me to|would you like|go ahead|proceed)"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": true,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Proves the library-layout ontology folds Paired spellings to Paired End and that 3DGE, a prep method, is named as not fitting rather than mapped, and that the agent asks before any workbook. No criterion tells the ontology path from a re-list here: the house term is also the most common spelling and the layout list carries no ontology id. Its container_cc criterion stands on the container_cc route text (operator ruling 2026-10-13): a request to harmonize stored values, a proposal against the house ontologies and its update workbook, is container_cc's, while counts across spellings stay on nextseek_query. For the post-rebuild run (harmo_onto): needs the cc-agent image with the ontology files. Tagged no_floor because the family floor asks for parser_plan.mode graph_query, which a Container-CC turn does not set. Criteria carry no counts so they hold on dev and prod."
+        },
+        {
+          "id": "harmon.onto_offer_after_listing",
+          "family": "harmonization",
+          "name": "A values listing ends with an offer to harmonize",
+          "tags": [
+            "nessie",
+            "full",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "list",
+              "query": "What Sex values do our mouse samples hold, with counts?",
+              "pass_criteria": []
+            },
+            {
+              "label": "csv",
+              "query": "List those values with their counts and send them to me as a CSV file.",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)harmoni[sz]"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": true,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Proves the nextseek skill's reply rule: when a Container-CC reply lists the stored values of one attribute that an ontology covers and some are not house terms, it ends with one line offering to harmonize. Turn 1 is the plain listing (it may run on nextseek_query, so it asserts nothing); turn 2 asks for those values as a CSV file, a follow-up the code guard sends to container_cc, so the offer is checked on a turn Container-CC really answers. The query never says 'harmonize'. For the post-rebuild run (harmo_onto): needs the cc-agent image with the ontology files. Tagged no_floor because the family floor asks for parser_plan.mode graph_query, which a Container-CC turn does not set. Criteria carry no counts so they hold on dev and prod."
         }
       ]
     },

@@ -87,7 +87,8 @@ reads what those two wrote back out, normalized for retry by `NessieAI/ns/retry.
 | `nextseek_api/services/content_blobs.py` | `download_single` at `nextseek_api/services/content_blobs.py:191`, `download_batch` at `nextseek_api/services/content_blobs.py:276`, `upload_content_blobs` at `nextseek_api/services/content_blobs.py:417` | the SOP and DataFile proxies |
 | `nextseek_api/services/seek_rails_runner.py` | `run_seek_rails_runner` at `nextseek_api/services/seek_rails_runner.py:85` | the Users admin ViewSet |
 
-**The data file.** `nextseek_api/services/controlled_vocabularies.json` is load-bearing
+**The data file.** `nextseek_api/services/controlled_vocabularies.json` is generated from the
+ontology files by `python -m NessieAI.build_tools.gen_house_vocabularies` (never hand-edit it) and is load-bearing
 input, not scratch: `nextseek_api/services/sample_workbook.py:76` binds it by
 `Path(__file__).with_name(...)` and every dropdown in every downloaded workbook comes from
 it. The loader swallows a read failure and returns empty maps
