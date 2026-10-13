@@ -1,4 +1,4 @@
-"""Read assay_assets and the internal-assay mapping. Nothing here writes a graph.
+"""Read assay_assets. Nothing here writes a graph.
 
 This module used to recompute DERIVED_FROM assay labels and write them itself.
 One rule owns those labels now, for every writer
