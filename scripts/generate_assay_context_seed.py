@@ -8,6 +8,7 @@ NessieAI/chat_nextseek/src/chat_nextseek/config.py::map_assay.
 Run from the repo root:  python scripts/generate_assay_context_seed.py
 """
 import json
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,9 +46,10 @@ DDL = """\
 -- Production has its own copy of this table; this file is what gives the local
 -- and dev stacks one.
 --
--- The rows are two unreconciled sources merged: 80 carry sample types and no
--- internal_assay_id, 91 the reverse, 46 both, and 22 assay_name values appear
--- twice. The catalog page renders that as it is; it does not merge rows.
+-- The rows are two unreconciled sources merged: {types_only} carry sample types and no
+-- internal_assay_id, {id_only} the reverse, {both} both, {neither} neither, and {dupes}
+-- assay_name values appear twice. The catalog page renders that as it is; it
+-- does not merge rows.
 CREATE TABLE IF NOT EXISTS assay_context (
   id                           INT AUTO_INCREMENT PRIMARY KEY,
   assay_name                   VARCHAR(255) NULL,
@@ -90,10 +92,22 @@ def literal(value):
     return "'" + text + "'"
 
 
+def summarize(rows):
+    """The row counts the header comment states, computed so they cannot go stale."""
+    kinds = ("Required Parent Sample Types", "Optional Parent Sample Types", "Children Sample Types")
+    n = {"types_only": 0, "id_only": 0, "both": 0, "neither": 0}
+    for r in rows:
+        types, has_id = any(r.get(k) for k in kinds), bool(r.get("Internal Assay ID"))
+        n["both" if types and has_id else "types_only" if types else "id_only" if has_id else "neither"] += 1
+    names = Counter(r["Name"] for r in rows if r.get("Name"))
+    n["dupes"] = sum(c > 1 for c in names.values())
+    return n
+
+
 def main():
     rows = json.loads(EXPORT.read_text())
     cols = ", ".join("`%s`" % db for _, db in COLUMNS)
-    lines = [DDL]
+    lines = [DDL.format(**summarize(rows))]
     for row in rows:
         values = ", ".join(literal(row.get(src)) for src, _ in COLUMNS)
         lines.append(f"INSERT INTO `assay_context` ({cols}) VALUES ({values});")

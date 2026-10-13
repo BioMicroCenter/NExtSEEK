@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import time
+import functools
 import json
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from streamlit.runtime.state.session_state_proxy import SessionStateProxy
 
+from .. import known_titles
 from ..session import SessionState
 from ..config import ChatConfig
 from ..helpers import (
     build_recent_results_summary,
 )
-from ..llm_clients import LLMTimeoutError
+from ..helpers.query_scope import PEOPLE_KIND_WORDS, names_only_the_kind
+from ..llm_clients import LLMTimeoutError, model_traits
 from ..schemas.schema_helper import call_llm_structured, empty_output_problem
 from ..schemas import (
     ContextEngineerOutput,
@@ -35,7 +40,8 @@ def _endpoints_for_prompt(config, user_text: str) -> str:
 
     With SEMANTIC_ENDPOINTS_ENABLED=true, semantically shortlists endpoints
     against user_text using the cached embedding index. Otherwise dumps
-    the full catalog (today's behavior, byte-identical).
+    the full catalog (today's behavior, byte-identical). A shortlist that keeps
+    nothing falls back to the full catalog: the parser is never shown "[]".
     """
     idx = getattr(config, "ENDPOINT_INDEX", None)
     if idx is not None and idx.ready:
@@ -47,7 +53,8 @@ def _endpoints_for_prompt(config, user_text: str) -> str:
             min_k=getattr(config, "SEMANTIC_MIN_K", 10),
             max_k=getattr(config, "SEMANTIC_MAX_K", 80),
         )
-        return json.dumps(kept, indent=2)
+        if kept:
+            return json.dumps(kept, indent=2)
     return json.dumps(config.MIN_API_ENDPOINTS, indent=2)
 
 
@@ -325,8 +332,8 @@ def _fallback_multi_parser_plan(
         resolved=entity_out,
         candidates=[
             _fill_candidate_defaults(ParserCandidate(
-                mode="new_search",
-                target_endpoint="/nextseek_api/samples/advanced_search/",
+                mode="graph_query",
+                target_endpoint=None,
                 tool_query=user_query,
                 rationale=f"fallback after multi_parser error: {error}",
                 confidence=0.5,
@@ -373,10 +380,10 @@ def _canonical_multi_parse(
     recent_summary = build_recent_results_summary(session)
     chat_history = history_block(session)
     endpoints_json = _endpoints_for_prompt(config, user_query)
-    graph_schema_json = json.dumps(config.MIN_GRAPH_SCHEMA, indent=2) if config.MIN_GRAPH_SCHEMA else "{}"
+    graph_schema_json = known_titles.schema_json(config, config.MIN_GRAPH_SCHEMA) if config.MIN_GRAPH_SCHEMA else "{}"
 
     messages: list[dict[str, str]] = [
-        {"role": "system", "content": config.MULTI_PARSER_SYSTEM_PROMPT},
+        {"role": "system", "content": known_titles.fill(config, config.MULTI_PARSER_SYSTEM_PROMPT)},
     ]
     if chat_history:
         messages.append({"role": "system", "content": chat_history})
@@ -396,7 +403,7 @@ def _canonical_multi_parse(
             config=config,
             prompt=user_query,
             model=MultiParserPlan,
-            system=config.MULTI_PARSER_SYSTEM_PROMPT,
+            system=known_titles.fill(config, config.MULTI_PARSER_SYSTEM_PROMPT),
             messages=messages,
             model_name=mp_model,
             temperature=0,
@@ -405,19 +412,18 @@ def _canonical_multi_parse(
             usage_label="MULTI_PARSER",
             thinking_budget=mp_budget,
             client=mp_client,
-            timeout_seconds=35,
-            timeout_retry_seconds=60,
+            # 50 s first try (20 s inside a Container-CC op), 60 s for the move: the parsers' row of call_budgets.CALL_BUDGETS.
             result_check=_empty_multi_plan_problem,
         )
         normalized_candidates = [_fill_candidate_defaults(c) for c in result.candidates]
         result = result.model_copy(update={"candidates": normalized_candidates})
-        result = _apply_multi_parser_guardrails(user_query, result)
+        result = _apply_multi_parser_guardrails(user_query, result, config)
         print(f"[DEBUG][MULTI_PARSER] intent={result.intent_summary!r}, candidates={len(result.candidates)}")
         for c in result.candidates:
             print(f"[DEBUG][MULTI_PARSER]   candidate: mode={c.mode}, endpoint={c.target_endpoint}, confidence={c.confidence}")
         return result
     except Exception as e:
-        print(f"[DEBUG][MULTI_PARSER] Failed: {e!r}; falling back to single new_search candidate")
+        print(f"[DEBUG][MULTI_PARSER] Failed: {e!r}; falling back to single graph_query candidate")
         return _fallback_multi_parser_plan(user_query, entity_result, e)
 
 
@@ -429,8 +435,8 @@ def _candidate_to_parser_plan(
     """Project canonical candidate 0 into the legacy ParserPlan shape used by the standard pipeline."""
     candidate = _fill_candidate_defaults(parser_plan.candidates[0]) if parser_plan.candidates else _fill_candidate_defaults(
         ParserCandidate(
-            mode="new_search",
-            target_endpoint="/nextseek_api/samples/advanced_search/",
+            mode="graph_query",
+            target_endpoint=None,
             tool_query=user_query,
             rationale="fallback candidate missing from canonical parser output",
             confidence=0.5,
@@ -653,6 +659,243 @@ def _force_parser_mode(plan: ParserPlan, force_mode: str | None) -> ParserPlan:
     return plan.model_copy(update=updates)
 
 
+#: The REST sample searches the parser may no longer route to (routing review 6a, 2026-09-24): every sample
+#: question goes to the graph. None of them is in the catalog the parser reads any more, but nothing checks its
+#: chosen endpoint against that catalog, and an old chat's recent-results summary still shows these paths.
+#: Only this set and "no endpoint" are caught, not "anything outside the catalog": the old retrieve alias must
+#: stay readable so saved chats replay.
+RETIRED_SAMPLE_SEARCH_ENDPOINTS = frozenset({
+    "/nextseek_api/samples/advanced_search/",
+    "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+    "/nextseek_api/samples/graph_search/",   # code still sets it after this guard (the scope fallback)
+})
+#: Names no retired endpoint: a note naming advanced_search once steered the graph agent wrong.
+RETIRED_SEARCH_NOTE = "sent to graph_query: every sample question goes to the graph (the REST sample searches are retired)"
+
+
+def _refine_prior_endpoint(
+    session: "SessionState | SessionStateProxy | None", plan: ParserPlan
+) -> str | None:
+    """The endpoint of the stored result a refine modifies, or None.
+
+    Read as the orchestrator's refine branch reads it: the bundle ``select_refine_bundle`` picks (the one the
+    parser named in ``target_result_id``, else the newest), then that bundle's ``parser_plan.target_endpoint``,
+    else its ``search_context.endpoint``. No session, an unreadable one, or no bundle is None.
+    """
+    if session is None:
+        return None
+    try:
+        history = session.get("results_history", []) or []
+    except Exception:
+        return None
+    from ..chat_memory import select_refine_bundle
+
+    prior, _chosen = select_refine_bundle(history, plan.target_result_id)
+    if not prior:
+        return None
+    prev_plan = prior.get("parser_plan") or {}
+    search_context = prior.get("search_context") or {}
+    return (
+        (prev_plan.get("target_endpoint") if isinstance(prev_plan, dict) else None)
+        or (search_context.get("endpoint") if isinstance(search_context, dict) else None)
+    )
+
+
+def _route_retired_sample_search(
+    session: "SessionState | SessionStateProxy | None", plan: ParserPlan
+) -> ParserPlan:
+    """Send a sample search the REST path no longer serves to the graph, keeping its filters.
+
+    A new_search that names a retired sample search, or no endpoint at all, becomes graph_query. A refine of a
+    stored retired-search result (named on the plan, else the stored bundle's endpoint) keeps its mode and is
+    marked ``refine_engine="graph"``, so the orchestrator's graph refine re-runs it with the prior turn's filters.
+    Everything else is returned as the same object.
+    """
+    note = ((plan.notes + " | ") if plan.notes else "") + RETIRED_SEARCH_NOTE
+    if plan.mode == "new_search" and (not plan.target_endpoint or plan.target_endpoint in RETIRED_SAMPLE_SEARCH_ENDPOINTS):
+        print(f"[DEBUG][PARSER] {RETIRED_SEARCH_NOTE} (endpoint={plan.target_endpoint!r})")
+        return plan.model_copy(update={"mode": "graph_query", "target_endpoint": None, "notes": note})
+    if plan.mode == "refine_last_search" and plan.refine_engine != "graph":
+        endpoint = plan.target_endpoint or _refine_prior_endpoint(session, plan)
+        if endpoint in RETIRED_SAMPLE_SEARCH_ENDPOINTS:
+            print(f"[DEBUG][PARSER] refine of a retired sample search re-run on the graph (endpoint={endpoint!r})")
+            return plan.model_copy(update={"refine_engine": "graph", "target_endpoint": None, "notes": note})
+    return plan
+
+
+#: A question SHAPE, not a wording: it asks WHICH (or WHAT) attributes, fields or columns of the sample types have
+#: some property, a verb of having or marking followed by at least one more word. That is the Attribute catalog:
+#: the graph's for an admin (it refuses the label to anyone else), the system agent's catalog row for a non-admin
+#: ("What fields does X have?" names no property).
+_WHICH_ATTRIBUTES_RE = re.compile(
+    r"\b(which|what)\b[^?.]*\b(attributes?|fields?|columns?)\b[^?.]*"
+    r"\b(use|uses|carry|carries|hold|holds|are|is|have|has|need|needs|take|takes|marked|required)\s+\w",
+    re.IGNORECASE)
+_SAMPLE_WORD_RE = re.compile(r"\bsamples?\b", re.IGNORECASE)
+ATTRIBUTE_CATALOG_NOTE = "which attributes of the sample types have a property is the Attribute catalog"
+
+#: R4 routing (ruling 9): REST answers three things only. The retrieve alias stays readable so saved chats replay;
+#: graph_search is set after the guards by the scope fallback, never chosen. sops/ is for DOWNLOADING one named SOP,
+#: never for listing or searching them; people/ is the list of registered accounts.
+RETRIEVE_PATHS = frozenset({"/nextseek_api/samples/retrieve/", "/nextseek_api/admin/samples/retrieve/"})
+SOPS_PATH = "/nextseek_api/sops/"
+PEOPLE_PATH = "/nextseek_api/people/"
+KEPT_REST = RETRIEVE_PATHS | {SOPS_PATH, PEOPLE_PATH}
+_PEOPLE_NOUNS = PEOPLE_KIND_WORDS
+#: Where a plan naming any other endpoint goes, by prefix so an old chat's sample-tree/<uid>/tree/ matches.
+#: "catalog" is system_question, or graph_query when the question has a sample word.
+REROUTE = (("/nextseek_api/sample-tree/", "graph_query"), ("/nextseek_api/investigations/", "graph_query"),
+           ("/nextseek_api/projects/", "graph_query"), ("/nextseek_api/assays/", "catalog"),
+           ("/nextseek_api/sample_types/", "catalog"))
+_SAMPLE_WORD = re.compile(r"\bsamples\b|\bsample\b(?!\s+types?\b)|\b(?:data|used|unused|empty)\b", re.I)
+#: A catalog count needs a definitional tail ("are there", "does the catalog define"); a "what ... exist" question
+#: ends on it, so "What assays exist for the Zeta tissue?" stays a graph question (review F2).
+_CATALOG_COUNT = re.compile(
+    r"\bhow\s+many\b[^?.]{0,40}\b(?:sample\s+types?|assay\s+(?:types?|kinds?)|assays?|clades?)\b[^?.]{0,30}"
+    r"\b(?:are\s+there|exist|are\s+defined|in\s+the\s+catalog|does\s+nextseek\s+(?:have|define|support)"
+    r"|the\s+catalog\s+define)\b"
+    r"|\bwhat\s+(?:sample\s+types|assays|assay\s+types)\b[^?.]{0,30}\b(?:are\s+there|exist|are\s+defined)\b"
+    r"(?:\s+in\s+(?:the\s+catalog|nextseek))?\s*[?.!]*\s*$", re.I)
+#: "Am I a member of Zeta?" names a project by its nature, so it holds even when the plan resolved one.
+_MEMBER_OF = re.compile(r"\bam\s+i\s+(?:a\s+)?member\s+of\b", re.I)
+#: A question about the signed-in user. "my projects" counts only as the whole request ("What are my projects?",
+#: "List my projects"); "How many mice are in my projects?" is a graph question (review F2).
+_CALLER = re.compile(
+    r"\bwho\s+am\s+i\b|\b(?:signed|logged)\s+in\s+as\b|\bam\s+i\s+(?:an?\s+)?(?:admin|superuser)\b"
+    r"|\bwho\s+is\s+logged\s+in\b|" + _MEMBER_OF.pattern +
+    r"|\b(?:projects?|groups?)\b[^?.]{0,30}\b(?:am\s+i|i\s*(?:'m|am))\s+(?:in|a\s+member|part)\b"
+    r"|\b(?:projects?|groups?)\b[^?.]{0,30}\bi\s+(?:belong|can\s+see|have\s+access)\b"
+    r"|\bmy\s+(?:account|login|username|role|permissions)\b"
+    r"|^\W*(?:(?:what|which)\s+are|list|show(?:\s+me)?|give\s+me|tell\s+me)\s+(?:all\s+)?my\s+"
+    r"(?:projects|memberships?)\s*[?.!]*\s*$", re.I)
+#: The SOP an SOP download names: "SOP 142", "SOP id 142", "sops/142".
+_SOP_ID = re.compile(r"\bsops?\s*(?:id\s*)?[#/]?\s*(\d+)\b", re.I)
+_WELL_FORMED_ANY_UID = re.compile(r"\b[A-Z][A-Z.]{1,6}-\d{6}[A-Z]{3}-\d+(?:-PUB\d*)?\b", re.I)
+
+
+#: A quoted SOP title ("..." or '...', 3+ characters; an apostrophe inside a word opens nothing), and the words after
+#: "titled", "called" or "named", read to a "?", "!", a line end or a sentence-ending period: a title such as
+#: "P.ABC-990101-V1_x.docx" keeps its dots (fix round 4.1).
+_SOP_QUOTED = re.compile(r"[\"\u201c\u201d]([^\"\u201c\u201d]{3,})[\"\u201c\u201d]|(?<!\w)'([^']{3,})'(?!\w)")
+_SOP_NAMED = re.compile(r"\b(?:titled|called|named)\s+(.+?)\s*(?:[?!\n]|\.(?=\s|$)|$)", re.I)
+_SOP_FILE_WORD = re.compile(r"\b(?:download|file|pdf|docx?|document|attachment)\b", re.I)
+
+
+def sop_id_in(text: str) -> str | None:
+    """The SEEK id of the SOP a question names ("Download SOP 142"), else None."""
+    m = _SOP_ID.search(text or "")
+    return m.group(1) if m else None
+
+
+def sop_ref_in(text: str) -> str | None:
+    """The SOP a question names: its id, else a quoted title, else the words after "titled", "called" or "named"
+    (at most 120 characters). The API resolves an exact title itself (review F5)."""
+    sop_id = sop_id_in(text)
+    if sop_id:
+        return sop_id
+    m = _SOP_QUOTED.search(text or "") or _SOP_NAMED.search(text or "")
+    ref = next((g for g in m.groups() if g), "").strip()[:120].strip() if m else ""
+    return ref or None
+
+
+def _to(plan, mode: str, note: str, **extra):
+    print(f"[DEBUG][PARSER] route by kind: {note} (endpoint={plan.target_endpoint!r})")
+    field = "notes" if hasattr(plan, "notes") else "rationale"  # a ParserCandidate keeps its note in rationale
+    old = getattr(plan, field) or ""
+    return plan.model_copy(update={"mode": mode, "target_endpoint": None, field: (old + " | " if old else "") + note, **extra})
+
+
+def _route_by_kind(user_query: str, plan, config=None, resolved=None):
+    """Hold each question to the engine that answers its KIND, whatever endpoint the model picked.
+
+    Works on a ParserPlan or a ParserCandidate (``resolved`` is the plan's, for a candidate). REST is limited to
+    samples/retrieve, an SOP download by id, and the people list; any other new_search goes to the catalog (system
+    agent) or the graph, and a guard that fails sends a new_search to the graph. Steps, in order:
+    1 a caller question -> system_question; 2 a catalog count -> system_question (1 and 2 are skipped when the plan
+    names UIDs, labs or projects, except that "am I a member of <project>" keeps 1); 3 the which-attributes shape ->
+    system_question for a caller who cannot see all projects, graph_query for one who can; 4 an endpoint not kept ->
+    by prefix; 5 sops/ with no named SOP and people/ with a condition other than a name -> graph (reporter for a
+    project's SOPs).
+    """
+    try:
+        out = _route_by_kind_steps(user_query, plan, config, resolved if resolved is not None else getattr(plan, "resolved", None))
+    except Exception as e:  # fail safe: never let the guard take the turn down, and never leave a bad REST call
+        print(f"[DEBUG][PARSER] route-by-kind guard failed: {e!r}")
+        out = plan
+        if plan.mode == "new_search" and plan.target_endpoint not in KEPT_REST:
+            out = _to(plan, "graph_query", "sent to graph_query: the routing check failed")
+    return _without_kind_keywords(out)
+
+
+def _without_kind_keywords(plan):
+    """A graph plan never filters on a word that names the kind being listed ("SOPs", "protocols", "researchers"):
+    such a keyword leaves its filters and its resolved keywords, so "What SOPs are on file?" lists every protocol
+    title (fix round 4.1). An unchanged plan is returned as the same object."""
+    if plan.mode != "graph_query":
+        return plan
+    update = {}
+    for name in ("filters", "resolved"):  # a ParserCandidate has no resolved
+        holder = getattr(plan, name, None)
+        words = list(getattr(holder, "keywords", None) or [])
+        kept = [k for k in words if not names_only_the_kind(k)]
+        if kept != words:
+            update[name] = holder.model_copy(update={"keywords": kept})
+    if update:
+        print(f"[DEBUG][PARSER] kind words are not filters: kept {update.get('filters', plan.filters).keywords!r}")
+    return plan.model_copy(update=update) if update else plan
+
+
+def _route_by_kind_steps(user_query, plan, config, resolved):
+    from ..graph_scope import sees_all
+
+    q = user_query or ""
+    has_sample = bool(_SAMPLE_WORD.search(q))
+    filters = plan.filters
+    projects = list(getattr(resolved, "projects", None) or [])
+    # A plan that names UIDs, labs or projects is about them, not about the caller or the catalog (review F2).
+    named = bool(filters.uids or filters.lab_codes)
+    if (plan.mode in ("new_search", "graph_query", "system_question") and _CALLER.search(q) and not has_sample
+            and not named and (not projects or _MEMBER_OF.search(q))):
+        if plan.mode == "system_question":
+            return plan
+        return _to(plan, "system_question", "sent to system_question: a question about the signed-in user is answered from the session")
+    if (plan.mode in ("new_search", "graph_query") and not has_sample and not named and not projects
+            and _CATALOG_COUNT.search(q)):
+        return _to(plan, "system_question", "sent to system_question: what the catalog defines, and how many, is the catalog's")
+    if plan.mode in ("new_search", "graph_query") and _WHICH_ATTRIBUTES_RE.search(q) and _SAMPLE_WORD_RE.search(q):
+        if not sees_all(config):
+            return _to(plan, "system_question", ATTRIBUTE_CATALOG_NOTE + " (the system agent answers from the catalog for this caller)")
+        if plan.mode == "new_search":
+            return _to(plan, "graph_query", "sent to graph_query: " + ATTRIBUTE_CATALOG_NOTE)
+    if plan.mode == "new_search":
+        ep = plan.target_endpoint
+        if ep not in KEPT_REST:
+            kind = next((k for prefix, k in REROUTE if (ep or "").startswith(prefix)), "graph_query")
+            if kind == "catalog":
+                kind = "graph_query" if has_sample else "system_question"
+            extra = {}
+            if not filters.uids and _WELL_FORMED_ANY_UID.search(q):
+                extra["filters"] = filters.model_copy(update={"uids": list(dict.fromkeys(_WELL_FORMED_ANY_UID.findall(q)))})
+            return _to(plan, kind, f"sent to {kind}: no REST list answers this", **extra)
+        if ep == SOPS_PATH:
+            # A named SOP (an id, or a title with a file word) wins over a project and every other filter; the
+            # request builder reads it from filters.keywords (review F5, F6).
+            ref = sop_ref_in(q)
+            if ref and (ref.isdigit() or _SOP_FILE_WORD.search(q)):
+                print(f"[DEBUG][PARSER] route by kind: one SOP's file, named {ref!r}")
+                return plan.model_copy(update={"filters": filters.model_copy(update={"keywords": [ref]})})
+            if projects:
+                return _to(plan, "reporter", "sent to reporter: the SOPs registered to a project are the project report's", report_mode="summary")
+            return _to(plan, "graph_query", "sent to graph_query: SOPs are searched and listed on the graph; REST only downloads one named SOP")
+        elif ep == PEOPLE_PATH:
+            # Keywords alone are names to find on the list, matched in code (review F8); anything else is a
+            # condition the list cannot hold.
+            if (filters.uids or filters.lab_codes or filters.sampletype_code or filters.assay_codes or projects
+                    or has_sample):
+                return _to(plan, "graph_query", "sent to graph_query: the people list cannot apply a condition")
+    return plan
+
+
 #: Modes the parser may emit that the orchestrator dispatches under another name.
 #: ``schemas/router.py`` has documented ``memory_lookup`` as an alias of
 #: ``ask_about_last_results`` since it was added, and nothing ever performed the
@@ -678,15 +921,27 @@ def _apply_parser_guardrails(
     plan: ParserPlan,
     session: "SessionState | SessionStateProxy | None" = None,
     force_mode: str | None = None,
+    config: Any = None,
+    trace: list[str] | None = None,
 ) -> ParserPlan:
     """Apply narrow deterministic safety checks after LLM routing.
 
-    ``force_mode`` is the evaluation switch (``_force_parser_mode``); it runs last,
-    after every product guardrail, and is None outside an evaluation run.
+    ``trace``, when given, collects the name of each guardrail that changed the mode (telemetry only).
+
+    After the bulk-export check, a sample search the REST path no longer serves goes to the
+    graph (``_route_retired_sample_search``). ``force_mode`` is the evaluation switch
+    (``_force_parser_mode``); it runs last, after every product guardrail, and is None
+    outside an evaluation run.
     """
-    plan = _normalise_mode_aliases(plan)
-    plan = _note_refine_without_bundle(session, plan)
-    plan = _force_graph_for_uid_lineage(user_query, plan)
+    def _seen(name: str, before: ParserPlan, after: ParserPlan) -> ParserPlan:
+        if trace is not None and after.mode != before.mode:
+            trace.append(name)
+        return after
+
+    plan = _seen("mode_aliases", plan, _normalise_mode_aliases(plan))
+    plan = _seen("refine_without_bundle", plan, _note_refine_without_bundle(session, plan))
+    plan = _seen("uid_lineage", plan, _force_graph_for_uid_lineage(user_query, plan))
+    before_bulk = plan
     if _is_unscoped_bulk_export_request(user_query, plan.mode, plan.filters):
         plan = ParserPlan(
             mode="unsupported",
@@ -705,13 +960,20 @@ def _apply_parser_guardrails(
             report_mode=None,
             report_type=None,
         )
-    return _force_parser_mode(plan, force_mode)
+    plan = _seen("unscoped_bulk_export", before_bulk, plan)
+    plan = _seen("retired_sample_search", plan, _route_retired_sample_search(session, plan))
+    plan = _seen("route_by_kind", plan, _route_by_kind(user_query, plan, config))
+    return _seen("force_mode", plan, _force_parser_mode(plan, force_mode))
 
 
-def _apply_multi_parser_guardrails(user_query: str, plan: MultiParserPlan) -> MultiParserPlan:
+def _apply_multi_parser_guardrails(user_query: str, plan: MultiParserPlan, config: Any = None) -> MultiParserPlan:
     """Apply narrow deterministic safety checks to parser candidates."""
     if not plan.candidates:
         return plan
+    # Every candidate is held to the REST scope (_route_by_kind); an unchanged candidate is kept as the same object.
+    routed = [_route_by_kind(user_query, c, config, plan.resolved) for c in plan.candidates]
+    if any(r is not c for r, c in zip(routed, plan.candidates)):
+        plan = plan.model_copy(update={"candidates": routed})
     top = _fill_candidate_defaults(plan.candidates[0])
     if not _is_unscoped_bulk_export_request(user_query, top.mode, top.filters):
         return plan
@@ -745,9 +1007,11 @@ def _empty_plan_problem(plan: ParserPlan) -> str | None:
     )
 
 
-def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, user_query: str, entity_result: EntityAgentOutput | dict) -> ParserPlan:
+def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, user_query: str, entity_result: EntityAgentOutput | dict, decision: dict | None = None) -> ParserPlan:
     """
     Invoke the single-path parser used by the standard pipeline.
+    ``decision``, when given, is filled with telemetry: raw_mode (the LLM's pick), final_mode,
+    guardrails_changed (guardrails that changed the mode, in order) and llm_ms. No question text.
     Embeds recent session context plus catalog endpoints into the prompt and returns a ParserPlan.
     """
     from ..chat_memory import history_block
@@ -761,9 +1025,25 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
     entity_json = json.dumps(entity_payload, indent=2)
     endpoints_json = _endpoints_for_prompt(config, user_query)
 
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": config.PARSER_SYSTEM_PROMPT},
-    ]
+    # Static head first (prompt, endpoints, schema), then the cache point, then what varies per question.
+    # With a semantic endpoint shortlist the endpoints vary by question, so they follow the cache point.
+    endpoints_msg = {
+        "role": "system",
+        "content": "API ENDPOINT CATALOG (JSON array from min_api_endpoints_enriched.json):\n" + endpoints_json,
+    }
+    idx = getattr(config, "ENDPOINT_INDEX", None)
+    endpoints_vary = idx is not None and idx.ready
+    messages: list[dict[str, str]] = [{"role": "system", "content": known_titles.fill(config, config.PARSER_SYSTEM_PROMPT)}]
+    if not endpoints_vary:
+        messages.append(endpoints_msg)
+    messages.append({
+        "role": "system",
+        "content": "GRAPH_SCHEMA (consult to determine graph_query vs. API routing):\n"
+        + known_titles.schema_json(config, config.MIN_GRAPH_SCHEMA),
+        "cache_point": "1h",
+    })
+    if endpoints_vary:
+        messages.append(endpoints_msg)
     if chat_history:
         messages.append({"role": "system", "content": chat_history})
     messages.extend([
@@ -775,25 +1055,16 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
             "role": "system",
             "content": "ENTITY_RESULT (from Entity Agent):\n" + entity_json,
         },
-        {
-            "role": "system",
-            "content": "API ENDPOINT CATALOG (JSON array from min_api_endpoints_enriched.json):\n" + endpoints_json,
-        },
-        {
-            "role": "system",
-            "content": "GRAPH_SCHEMA (consult to determine graph_query vs. API routing):\n"
-            + json.dumps(config.MIN_GRAPH_SCHEMA, indent=2),
-        },
         {"role": "user", "content": user_query},
     ])
 
     parser_client, parser_model_name, parser_thinking_budget = config.get_agent_model("parser")
-    # Log the *effective* temperature, not the requested one. Opus 4.7 and Mythos are
-    # adaptive-thinking-only (llm_clients.py), so temperature is never sent and routing
-    # samples between runs. Without this line a routing flip that was really a sample
-    # gets attributed to a code change — which is exactly what happened between the
-    # 2026-07-24 and 2026-07-27 runs for repro.cypher_uid_dot.
-    _adaptive_only = any(tag in parser_model_name for tag in ("opus-4-7", "mythos"))
+    # Log the *effective* temperature, not the requested one. Opus 4.7 and later, Fable and
+    # Mythos are adaptive-thinking-only (llm_clients.model_traits), so temperature is never
+    # sent and routing samples between runs. Without this line a routing flip that was
+    # really a sample gets attributed to a code change, which is exactly what happened
+    # between the 2026-07-24 and 2026-07-27 runs for repro.cypher_uid_dot.
+    _adaptive_only = model_traits(parser_model_name).adaptive_only
     print(
         f"[DEBUG][PARSER] model={parser_model_name} "
         f"temperature={'UNSET (adaptive-thinking-only; routing may vary run to run)' if _adaptive_only else 0} "
@@ -803,12 +1074,13 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
         print(f"[DEBUG][PARSER] Extended thinking enabled: budget={parser_thinking_budget} tokens, model={parser_model_name}")
 
     print("\n[DEBUG][PARSER] User query:", user_query)
+    _llm_t0 = time.perf_counter()
     try:
         plan_model = call_llm_structured(
             config=config,
             prompt=user_query,
             model=ParserPlan,
-            system=config.PARSER_SYSTEM_PROMPT,
+            system=known_titles.fill(config, config.PARSER_SYSTEM_PROMPT),
             messages=messages,
             model_name=parser_model_name,
             temperature=0,
@@ -817,8 +1089,7 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
             usage_label="PARSER",
             thinking_budget=parser_thinking_budget,
             client=parser_client,
-            timeout_seconds=35,
-            timeout_retry_seconds=60,
+            # 50 s first try (20 s inside a Container-CC op), 60 s for the move: the parsers' row of call_budgets.CALL_BUDGETS.
             result_check=_empty_plan_problem,
         )
     except LLMTimeoutError as e:
@@ -842,11 +1113,18 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
             metadata={"failure": "parse_error", "error": repr(e)},
         )
 
+    _llm_ms = int((time.perf_counter() - _llm_t0) * 1000)
     print("[DEBUG][PARSER] Parsed plan:", json.dumps(plan_model.model_dump(), indent=2))
+    _raw_mode = plan_model.mode
+    _changed: list[str] = []
     plan_model = _apply_parser_guardrails(
         user_query, plan_model, session=session,
-        force_mode=getattr(config, "FORCE_PARSER_MODE", None),
+        force_mode=getattr(config, "FORCE_PARSER_MODE", None), config=config,
+        trace=_changed,
     )
+    if decision is not None:
+        decision.update(raw_mode=_raw_mode, final_mode=plan_model.mode,
+                        guardrails_changed=_changed, llm_ms=_llm_ms)
     if plan_model.mode == "unsupported":
         print("[DEBUG][PARSER] Guardrailed plan:", json.dumps(plan_model.model_dump(), indent=2))
     return plan_model
@@ -860,8 +1138,8 @@ def _synthesize_top_candidate_plan(
     """Build a one-step planner output from canonical candidate 0."""
     top_candidate = _fill_candidate_defaults(parser_plan.candidates[0]) if parser_plan.candidates else _fill_candidate_defaults(
         ParserCandidate(
-            mode="new_search",
-            target_endpoint="/nextseek_api/samples/advanced_search/",
+            mode="graph_query",
+            target_endpoint=None,
             tool_query=user_query,
             rationale="planner synthesis fallback without parser candidates",
             confidence=0.5,

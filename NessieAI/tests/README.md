@@ -12,15 +12,15 @@ There is no `conftest.py` at `NessieAI/tests/` itself; that keeps the harness ho
 
 | Folder | Tests |
 |---|---|
-| `cc/` | the CC engine, op registry, port and compose guards, step 7 gate tooling (`step7_catalog/`, `scripts/`); `NessieAI/tests/cc/step7_catalog/R26-live-gate-prereqs-runbook.md` holds the prerequisites for the live Step 7 gate; generated run bundles land in `acceptance_evidence/step7/` (`NessieAI/tests/cc/acceptance_evidence/step7/README.md`) |
+| [`cc/`](cc/README.md) | the CC engine, op registry, port and compose guards, step 7 gate tooling (`step7_catalog/`, `scripts/`); `NessieAI/tests/cc/step7_catalog/R26-live-gate-prereqs-runbook.md` holds the prerequisites for the live Step 7 gate; generated run bundles land in `acceptance_evidence/step7/` (`NessieAI/tests/cc/acceptance_evidence/step7/README.md`) |
 | `router/` | the router, route capabilities, posterior routing; `fixtures/` holds the flag-off baseline |
 | `hibayes/` | HiBayes |
 | `ns/` | the granular ops and write gate |
 | `api/` | the AI HTTP and websocket surface, and `test_nessie_boundaries.py` |
 | `schema_rag/` | schema retrieval |
-| `chat_nextseek/` | the NS engine, including `evaluator/` |
+| [`chat_nextseek/`](chat_nextseek/README.md) | the NS engine, including `evaluator/` |
 | `build_tools/` | the surface generators |
-| `e2e/` | the catalog-driven end-to-end DSL (`python -m NessieAI.tests.e2e`) |
+| [`e2e/`](e2e/README.md) | the catalog-driven end-to-end DSL (`python -m NessieAI.tests.e2e`) |
 | `nessie_tests/` | the router-aware harness, its corpus and the two review playbooks |
 
 ## Lanes
@@ -28,6 +28,7 @@ There is no `conftest.py` at `NessieAI/tests/` itself; that keeps the harness ho
 | Lane | Runtime | Command | Where to run | Cost |
 |---|---|---|---|---|
 | Django AI suites | app image | "Django lane" block below, with one or more `NessieAI/tests/<area>` paths | host, throwaway container | free |
+| MySQL concurrency lane (lane M) | app image beside a throwaway MySQL 8.0 | "MySQL concurrency lane" block below | host, over a writable copy | free |
 | CC clean lane | live app container | "CC clean lane" block below | inside `nextseek`, which runs the baked image | free |
 | CC hermetic | host uv | "CC hermetic lane" block below | repo root | free |
 | Graph scope lane | app image beside a throwaway Neo4j | "Graph scope lane" block below | host, over an exported tree | free |
@@ -35,13 +36,15 @@ There is no `conftest.py` at `NessieAI/tests/` itself; that keeps the harness ho
 | Harness DB/contract tests | live app container | "Harness container lane" block below | inside `nextseek` | free |
 | Harness route tier | host uv, or the app container | host: `uv run --no-project --with pydantic --with requests --with beautifulsoup4 --with orjson python -m NessieAI.tests.nessie_tests --base-url http://localhost:8000 --tier route --scope specific`; container: `docker exec nextseek uv run manage.py nessie --tier route` | repo root, or inside `nextseek` | cheap, not free: the router runs on every turn |
 | Harness full tier | app container only | `docker exec nextseek uv run manage.py nessie --base-url http://localhost:8000 --tier full --scope all` | inside `nextseek` | PAID, approval per run |
-| Paired `--bayesian` run | host | `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md` | repo root | PAID, approval per run |
+| Paired `--bayesian` run | host | `.claude/skills/nessie-bayes-report/SKILL.md` | repo root | PAID, approval per run |
 | Forced NS arms (graph agent against API agent) | app image, in the evaluation venue | `scripts/graph_search/nessie_venue.sh run <name> --cases /venue/cases/<file>.json --force-route ns --arms graph,api`, then the scorer; the runbook, with turn counts, caps and stop rules, is stage P of `docs/superpowers/plans/2026-09-15-graph-search-nessie.md`, and the flags are in `NessieAI/tests/nessie_tests/README.md` "Comparing the graph and API agents" | the venue `gs-nessie-venue`, which only the operator starts | PAID, launched by the operator only |
 | Catalog E2E | host | `python -m NessieAI.tests.e2e` (needs a seeded instance and live LLM credentials) | repo root | PAID |
 | Real-stack acceptance | live app container | "Paid acceptance" block below | inside `nextseek` | PAID, approval per run |
 | Acceptance bundle re-check | host or container | "Bundle re-check" block below | repo root | free |
 | cc-runtime unit | cc-runtime uv env | `cd NessieAI/docker/cc-runtime && uv run --no-project --with pytest --with polars --with fastexcel --with xlsxwriter --with orjson --with pydantic --with httpx --with websockets python -m pytest tests/unit -q -o addopts=""` | host | free |
 | Plugin `bin/` dispatch | cc-runtime uv env | `cd NessieAI/docker/cc-runtime && uv run --no-project --with pytest --with httpx --with pydantic --with websockets python -m pytest build_context/plugins/nextseek/bin/tests -q -o addopts=""` | host | free |
+| Container start reset | host uv (needs `sh` and `jq`; the app image has no `jq`) | `PYTHONPATH="$PWD" uv run --no-project --with pytest python -m pytest NessieAI/tests/cc/test_cc_agent_folders_entrypoint.py --noconftest -p no:cacheprovider -q` | repo root | free |
+| Resume after the reset (opt-in) | docker + network: a throwaway node:22 container with the pinned Claude Code and a local Messages API stand-in | `RUN_CC_RESUME_CHECK=1 PYTHONPATH="$PWD" uv run --no-project --with pytest python -m pytest NessieAI/tests/cc/test_cc_resume_after_reset.py --noconftest -p no:cacheprovider -q -s` | repo root | free: no model is called |
 | Chat panel unit | Node | `cd NessieAI/chat_frontend && npm ci && npm run test` | host | free |
 | Chat panel build | Node | `cd NessieAI/chat_frontend && npm run build:embedded` (type-checks, then writes `static/js/chat_assistant/`) | host | free |
 | Chat panel browser | Node + Playwright | `cd NessieAI/chat_frontend && npm run test:e2e` (mock project; real-backend projects need a flag and a deployed instance) | host | free |
@@ -61,8 +64,9 @@ docker run --rm -i --network none -e LOG_DIR=/tmp/nextseek-logs \
 
 - The image's editable `chat_nextseek` and `dmac_assistant` installs point at the image's own copy. To test uncommitted engine source, either mount a writable copy of `NessieAI/chat_nextseek` over `/app/NessieAI/chat_nextseek`, or put the checkout's copies first on the path with `-e PYTHONPATH=/src:/src/NessieAI/chat_nextseek/src:/src/NessieAI/dmac_assistant/src`.
 - `ns` and `api` need a writable copy of the checkout, mounted at `/src`, with `startup/dev/lane_local_settings.py` copied to `dmac/local_settings.py`, plus `-e GCP_API_KEY=dummy -e CATALOG_FILE=/src/NessieAI/chat_nextseek/agent_model_catalog.json`. `CATALOG_FILE` must match the mount: `startup/dev/run_full_test_lane.sh`, the script that drives this lane end to end, mounts its tree at `/work` and sets it to match.
-- `schema_rag` needs the embedding-model cache, provisioned once per checkout with `startup/dev/provision_embedding_model.sh`, and `-e HF_HUB_OFFLINE=1`. Its live module runs only with `RUN_SCHEMA_RAG_LIVE=1` and egress to fairdomhub.org.
+- `schema_rag` needs the embedding-model cache, provisioned once per checkout with `startup/dev/provision_embedding_model.sh`, and `-e HF_HUB_OFFLINE=1`. An app image built with the models baked in (`docker/README.md` "Embedding models") sets both itself (`SENTENCE_TRANSFORMERS_HOME=/opt/models` and `HF_HUB_OFFLINE=1`). Its live module runs only with `RUN_SCHEMA_RAG_LIVE=1` and egress to fairdomhub.org.
 - `hibayes` has tests that need an external delivery directory or a migrated MySQL store; their MySQL lane script is archived under `NessieAI/history/plan018/`.
+- Tests marked `mysql_lane` (`NessieAI/tests/ns/test_mysql_lane.py`: the op slots and the chat's bundle ids raced on separate connections) run only under lane M: the Django lane's `ns` setup with `DJANGO_SETTINGS_MODULE=dmac.test_settings_mysql`, a throwaway MySQL 8.0 container (1 GB, on an internal Docker network, never the stack's database) reached through `LANE_MYSQL_HOST` and `LANE_MYSQL_PASSWORD`. The first run applies every migration (a few minutes); a failing migration is a defect, not a reason for `--nomigrations`. In every other lane `NessieAI/tests/ns/conftest.py` skips them. Run at most one lane M at a time (RAM).
 - CI runs these areas by name from `.github/workflows/ci-pytest.yml`, diffed against `ci/pytest-baseline.txt`.
 
 ### CC clean lane

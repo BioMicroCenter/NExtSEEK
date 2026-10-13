@@ -6,7 +6,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
-from .. import cypher_text, graph_catalog, graph_context
+from .. import call_scope, cypher_text, graph_catalog, graph_context
+from ..graph_contract import schema
 from ..config import ChatConfig
 from ..schemas.schema_helper import call_llm_structured
 from ..schemas import (
@@ -302,48 +303,37 @@ def repair_optional_match_filters(cypher: str | None) -> tuple[str | None, list[
 
 CONTEXT_CATALOG, CONTEXT_FALLBACK = "catalog", "fallback"
 
-# docs/neo4j-schema.md "v1.1", Nodes: the system properties every Sample carries.
-V11_SYSTEM_PROPERTIES = frozenset({"id", "uuid", "type", "title", "project_ids", "search_text", "synced_at"})
+# docs/neo4j-schema.md "v1.1", Nodes: the system properties every Sample carries (the contract's 1.1 group).
+V11_SYSTEM_PROPERTIES = schema.SAMPLE_SYSTEM_PROPERTIES_V11
 
 # docs/neo4j-schema.md "v1.2: what the sync adds". graph_sync writes three more system properties on every Sample:
 # `source_hash` (the digest it re-syncs on) and the projection-owned `parent_titles` / `parent_title_hashes`. The
 # guard must allow them or it refuses correct Cypher against the graph that is actually deployed, and the agent
 # reads that refusal as its own query being wrong: it repairs once, then is refused again. V11_SYSTEM_PROPERTIES
-# stays as the v1.1 record because a test pins it to the v1.1 section of the document.
-V12_SYSTEM_PROPERTIES = V11_SYSTEM_PROPERTIES | {"source_hash", "parent_titles", "parent_title_hashes"}
+# stays the v1.1 group on its own; this adds the contract's 1.2 group.
+V12_SYSTEM_PROPERTIES = V11_SYSTEM_PROPERTIES | schema.SAMPLE_SYSTEM_PROPERTIES_V12
 
-# docs/neo4j-schema.md "v1.1", Relationships; DERIVED_FROM keeps its v1.0 properties.
+# docs/neo4j-schema.md "v1.1", Relationships; DERIVED_FROM keeps its v1.0 properties (the contract's 1.1 group).
 V11_RELATIONSHIP_PROPERTIES: dict[str, frozenset[str]] = {
-    "DERIVED_FROM": frozenset({"child_id", "parent_id", "assay_id", "internal_assay_id", "internal_assay_title",
-                               "protocol_id", "protocol_title", "internal_assay_ids", "internal_assay_titles"}),
-    "OF_TYPE": frozenset(),
-    "HAS_ATTRIBUTE": frozenset(),
-    "IN_PROJECT": frozenset(),
-    "MEMBER_OF": frozenset({"has_left", "time_left_at"}),
-    "IN_STUDY": frozenset(),
-    "IN_INVESTIGATION": frozenset(),
+    **schema.RELATIONSHIPS_V11,
+    # docs/neo4j-schema.md "v1.3: assay nodes", Relationships. Only INPUT_TO and OUTPUT_OF reach a non-admin (the
+    # scope prover refuses the other three), but an admin's query may read any of them.
+    **schema.RELATIONSHIPS_V13,
 }
 
 # docs/neo4j-schema.md "v1.1", Nodes, for every label but Sample (whose metadata is the catalog's) and
 # OrphanSample (which keeps whatever the former Sample carried, so it is checked against everything). Attribute also
-# carries the statistics graph_catalog.TYPES_ADMIN reads when present (graph_search follow-up 2 writes them).
+# carries the statistics graph_catalog.TYPES_ADMIN reads when present (the contract's LEGACY_ATTRIBUTE_STATS), and
+# GraphMeta the 1.2 label_maps_hash: the contract's 1.1 groups, widened by its 1.2 groups.
 V11_NODE_PROPERTIES: dict[str, frozenset[str]] = {
-    "SampleType": frozenset({"id", "title", "label", "uuid", "seek_description", "deprecated", "sample_count",
-                             "attribute_count", "has_context", "name", "summary", "tags", "curated_parents",
-                             "curated_children", "clade"}),
-    "Attribute": frozenset({"key", "id", "sample_type_id", "sample_type", "title", "pos", "required", "is_title",
-                            "base_type", "value_type", "declared", "seek_description", "meaning", "role", "unit_key",
-                            "needs_backticks", "sample_count", "top_values", "top_counts", "num_min", "num_max",
-                            "date_min", "date_max"}),
-    "Project": frozenset({"id", "title"}),
-    "Person": frozenset({"id"}),
-    "Study": frozenset({"id", "title", "description", "DOI", "PMID", "seek_study_id"}),
-    "Investigation": frozenset({"id", "title", "description", "project_id"}),
-    # v1.2 adds label_maps_hash here; writer.GRAPHMETA_KEYS is the source of truth for this node.
-    "GraphMeta": frozenset({"schema_version", "catalog_hash", "label_maps_hash", "synced_at"}),
+    **{label: props | schema.NODE_PROPERTIES_V12.get(label, frozenset())
+       | (schema.LEGACY_ATTRIBUTE_STATS if label == schema.ATTRIBUTE else frozenset())
+       for label, props in schema.NODE_PROPERTIES_V11.items()},
+    # docs/neo4j-schema.md "v1.3: assay nodes", Nodes: one per internal assay, catalog facts only.
+    **schema.NODE_PROPERTIES_V13,
 }
 
-_KNOWN_LABELS = frozenset({"Sample", "OrphanSample"}) | frozenset(V11_NODE_PROPERTIES) | frozenset(
+_KNOWN_LABELS = frozenset({schema.SAMPLE, schema.ORPHAN_SAMPLE}) | frozenset(V11_NODE_PROPERTIES) | frozenset(
     V11_RELATIONSHIP_PROPERTIES)
 _ALL_V11_PROPERTIES = (V12_SYSTEM_PROPERTIES.union(*V11_NODE_PROPERTIES.values())
                        .union(*V11_RELATIONSHIP_PROPERTIES.values()))
@@ -372,10 +362,18 @@ _NOT_A_PROJECTION = frozenset({
     "EXISTS", "COUNT", "COLLECT", "CALL", "WHERE", "AND", "OR", "XOR", "NOT", "RETURN", "WITH", "IN", "THEN", "ELSE",
     "CASE", "WHEN", "DISTINCT", "YIELD", "UNWIND", "AS", "SET", "MERGE", "CREATE", "MATCH", "OPTIONAL", "UNION",
 })
-# Relationships whose source node is a Sample (DERIVED_FROM: both ends).
-_SAMPLE_SOURCE_RELATIONSHIPS = frozenset({"IN_STUDY", "OF_TYPE"})
+# Relationships whose source node is a Sample (DERIVED_FROM: both ends). INPUT_TO and OUTPUT_OF run from a Sample to
+# its Assay (graph schema 1.3). Policy (the contract spec, D6): contract constants, pinned by a literal in the tests.
+_SAMPLE_SOURCE_RELATIONSHIPS = frozenset({schema.IN_STUDY, schema.OF_TYPE, schema.INPUT_TO, schema.OUTPUT_OF})
+# Labels that are never a Sample, whatever relationship they start: a source labelled Assay is the Assay, not a
+# sample, even on a relationship whose source is a Sample by name.
+_NEVER_A_SAMPLE = frozenset({schema.ASSAY})
 _WHOLE_NODE_ALTERNATIVE = (
     "return s.id, s.uuid, s.type and the named properties the question needs, and count with count(*)")
+# A path variable (or nodes(p) shipped whole) gets its own hint: the path never goes back, its length and node ids do.
+_WHOLE_PATH_ALTERNATIVE = (
+    "return length({p}) AS hops and the uuids of the variables at the path's ends (a.uuid, b.uuid), and test the "
+    "path with {p} IS NOT NULL; never the path variable or nodes({p}) itself")
 
 
 @dataclass
@@ -398,6 +396,11 @@ class _Scan:
     # Filled only when the turn's variant allows procedures (_scan_procedure_yields):
     proc_paths: set[str] = field(default_factory=set)  # a procedure's YIELD path (apoc.path.spanningTree, ...)
     node_lists: set[str] = field(default_factory=set)  # a procedure's YIELD nodes (apoc.path.subgraphAll)
+
+
+def _never_a_sample(scan: "_Scan", var: str) -> bool:
+    """Whether ``var`` carries a label that is never a Sample (``Assay``), anywhere in the query."""
+    return bool(_NEVER_A_SAMPLE.intersection(scan.node_labels.get(var, {})))
 
 
 def _label_names(text: str | None) -> list[str]:
@@ -453,6 +456,32 @@ def _items(masked: str, start: int, end: int) -> list[tuple[int, int]]:
             item_start = i + 1
     spans.append((item_start, end))
     return spans
+
+
+#: Words that may directly precede a node pattern's `(`; any other name there is a function being called.
+_WORDS_BEFORE_A_PATTERN = frozenset({
+    "match", "optional", "merge", "create", "where", "and", "or", "xor", "not", "return", "with", "unwind",
+    "in", "delete", "detach", "set", "remove", "exists", "case", "when", "then", "else", "as", "distinct",
+    "union", "all", "call", "yield", "on", "foreach", "by", "is", "null", "true", "false",
+})
+
+
+def _follows_a_function_name(masked: str, paren: int) -> bool:
+    """Whether the `(` at ``paren`` opens a function call's arguments: a name that is not a clause word precedes it.
+
+    Prod retest 2026-09-23: `date({year: ..., month: ..., day: ...})`, the shape the graph prompt teaches for a
+    UID date, matched the node-pattern regex as the anonymous `({year: ...})`, and its keys were refused as the
+    properties of an unlabelled node. Only a pattern with neither a variable nor a label reaches this test, so a
+    real anonymous pattern (`MATCH ({year: 1})`, after the clause word) is still checked.
+    """
+    k = paren - 1
+    while k >= 0 and masked[k].isspace():
+        k -= 1
+    end = k + 1
+    while k >= 0 and (masked[k].isalnum() or masked[k] == "_"):
+        k -= 1
+    word = masked[k + 1:end]
+    return bool(word) and not word[0].isdigit() and word.lower() not in _WORDS_BEFORE_A_PATTERN
 
 
 def _map_keys(masked: str, original: str, start: int, end: int) -> list[tuple[int, str]]:
@@ -551,6 +580,8 @@ def _scan(cypher: str, procedures: frozenset[str] = frozenset()) -> _Scan:
         props = m.group("props")
         if props and _projection_items(masked, cypher, m.start("props") + 1, m.end("props") - 1):
             continue  # `(s {.Organ})` is a map projection inside a call, not a node pattern
+        if props and not m.group("var") and not m.group("labels") and _follows_a_function_name(masked, m.start()):
+            continue  # `date({year: 2020, ...})` passes a map literal to a function, not a node pattern
         var, labels = m.group("var"), _label_names(m.group("labels"))
         scan.label_uses += [(m.start(), label) for label in labels]
         if var:
@@ -649,10 +680,10 @@ def _scan(cypher: str, procedures: frozenset[str] = frozenset()) -> _Scan:
             continue
         rtype, into_right, into_left = rel[4][0], ">" in after, "<" in before
         if rtype == "DERIVED_FROM":
-            scan.samples.update(v for v in (left[3], right[3]) if v)
+            scan.samples.update(v for v in (left[3], right[3]) if v and not _never_a_sample(scan, v))
         elif rtype in _SAMPLE_SOURCE_RELATIONSHIPS and into_right != into_left:
             source = left[3] if into_right else right[3]
-            if source:
+            if source and not _never_a_sample(scan, source):
                 scan.samples.add(source)
     for source, alias in scan.aliases:
         if source in scan.samples:
@@ -907,8 +938,8 @@ def whole_node_returns(cypher: str, procedures=()) -> list[str]:
 
     ``RETURN s``, ``RETURN *``, ``collect(s)`` anywhere, ``s {.*}``, ``properties(s)`` and ``nodes(p)``; a RETURN
     inside a CALL or EXISTS subquery is not sent to the caller and does not count. A Sample variable is one labelled
-    ``Sample`` or ``T_<code>``, an end of DERIVED_FROM, the source of IN_STUDY or OF_TYPE, a fulltext hit, or a bare
-    alias of one of these.
+    ``Sample`` or ``T_<code>``, an end of DERIVED_FROM, the source of IN_STUDY, OF_TYPE, INPUT_TO or OUTPUT_OF, a
+    fulltext hit, or a bare alias of one of these; a variable labelled ``Assay`` never is.
 
     ``procedures`` is the turn's variant allowlist (``cypher_text.variant_procedures``). When it names any procedure,
     a procedure's ``YIELD node`` / ``nodes`` / ``path`` count as well (``apoc.path.subgraphNodes(...) YIELD node
@@ -982,7 +1013,7 @@ def _call_lines(calls: list[str]) -> list[str]:
 
 
 def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot, calls: list[str] = (),
-                            shapes: list = ()) -> str:
+                            shapes: list = (), cypher: str | None = None) -> str:
     """The one repair prompt: every problem once, and the property names valid for each label involved.
 
     ``shapes`` are the query-shape guard's problems (P6a, P6b), repaired in the same round: alone they get their own
@@ -1000,8 +1031,15 @@ def _catalog_repair_message(problems: list[_Problem], whole: list[str], snapshot
         lines.append("- labels that name no sample type: " + ", ".join(labels) + " (a type label is T_ plus the "
                      "code with every character outside [A-Za-z0-9_] replaced by _; see the type index)")
     if whole:
-        lines.append("- " + ", ".join(f"whole node {v}" for v in whole) + ": never return or collect a whole "
-                     f"Sample node; {_WHOLE_NODE_ALTERNATIVE}")
+        scan = _scan(cypher) if cypher else None
+        path_vars = [v for v in whole if scan and v in (scan.paths | scan.proc_paths)]
+        node_vars = [v for v in whole if v not in path_vars]
+        if node_vars:
+            lines.append("- " + ", ".join(f"whole node {v}" for v in node_vars) + ": never return or collect a whole "
+                         f"Sample node; {_WHOLE_NODE_ALTERNATIVE}")
+        if path_vars:
+            lines.append("- " + ", ".join(f"whole path {v}" for v in path_vars) + ": never return or collect a path; "
+                         + _WHOLE_PATH_ALTERNATIVE.format(p=path_vars[0]))
     lines += _call_lines(list(calls))
     lines += _shape_lines(list(shapes))
     owners = list(dict.fromkeys(owner for p in problems if p.kind == "property" for owner in p.owners))
@@ -1100,7 +1138,7 @@ _LUCENE_WORD_RE = re.compile(r"\w+(?:[.'\u2019]\w+)*")  # \u2019 is the typograp
 
 class _Shape(NamedTuple):
     pos: int
-    kind: str  # 'unbounded_path' | 'unanchored_path' | 'unscoped_fulltext'
+    kind: str  # 'unbounded_path' | 'unanchored_path' | 'unscoped_fulltext' | 'assay_join'
     text: str  # the offending fragment, verbatim from the Cypher
     detail: str  # why it is one: the bound, the ends, the words the index would search
 
@@ -1798,11 +1836,418 @@ def _fulltext_problems(scan: _Scan, cypher: str, parameters) -> list[_Shape]:
     return problems
 
 
+# ------------------------------------------------------------------------------ assay_join: pairs through one Assay
+#
+# Graph schema 1.3 gives every internal assay one node, and every run of that kind hangs off it: a sample that went into
+# a run points at it with INPUT_TO, a sample that came out of one with OUTPUT_OF. Two samples on one Assay did not come
+# from each other, so a query that pairs them through it reads lineage that is not there: on the local graph (schema
+# 1.2, 2026-09-25) pairing every output with every input of one Assay reads 46,206,841,781 pairs where DERIVED_FROM
+# holds 1,998,154. Lineage is DERIVED_FROM only (docs/superpowers/specs/2026-09-25-graph-assay-nodes-design.md
+# section 6.3).
+#
+# One pairing is allowed (round 4, ruling 1): when one of the samples is pinned by UID (`{uuid: $x}`, or `s.uuid = $x`
+# as a top-level AND conjunct of a WHERE in the pair's own row scope, never inside CALL { }), it pairs with exactly
+# one other sample on that Assay, and the last top-level RETURN gives a distinct list or count (`RETURN DISTINCT`,
+# `count(DISTINCT ..)`, `collect(DISTINCT ..)`), the answer is bounded by that sample's own Assay. An unpinned pairing
+# stays refused.
+#
+# `assay_join` refuses a statement in which, in one row scope, two distinct sample variables reach the same Assay
+# variable through INPUT_TO or OUTPUT_OF, however it is written: one pattern, comma-joined parts, separate MATCH or
+# OPTIONAL MATCH clauses, a variable carried by WITH (bare or aliased), an undirected or alternated relationship, an
+# untyped or variable-length relationship to an Assay, a variable-length INPUT_TO or OUTPUT_OF path between two
+# samples (the Assay unnamed in the middle), shortestPath, and one Assay node pattern written twice with the same
+# inline map. An anonymous sample node is a sample of its own.
+#
+# A row scope is the statement between UNIONs. An EXISTS, COUNT or COLLECT subquery and a pattern comprehension are
+# scopes of their own: a link inside one whose two ends are both bound outside it constrains the outer rows too, so it
+# counts there as well. A link whose sample is local to an EXISTS makes no pairs outside it; one whose sample is local
+# to a COUNT, a COLLECT or a comprehension, on an Assay bound outside it, pairs with every outer sample on that Assay,
+# since it gives one value per outer row. Names follow Cypher's scoping: a WITH
+# keeps what it carries (a bare name or `x AS y`) and ends the rest; a later pattern that reuses an ended name binds
+# a new variable.
+
+_ASSAY_LABEL = schema.ASSAY   # the graph contract's name
+# A policy set (the contract spec, D6): contract constants, pinned by a literal in test_graph_shape_guard.py.
+_ASSAY_RELATIONSHIPS = frozenset({schema.INPUT_TO, schema.OUTPUT_OF})
+_QUANT = r"(?P<q>\{[^{}]*\}|\+|\*)?"
+_BARE_HOP_RE = re.compile(rf"\s*(?P<left><)?\s*-\s*-\s*(?P<right>>)?\s*{_QUANT}\s*")
+_HOP_BEFORE_RE = re.compile(r"\s*(?P<left><)?\s*-\s*")
+_HOP_AFTER_RE = re.compile(rf"\s*-\s*(?P<right>>)?\s*{_QUANT}\s*")
+_SUBQUERY_WORDS = frozenset({"EXISTS", "COUNT", "COLLECT"})
+
+
+class _Hop(NamedTuple):
+    pos: int  # where the relationship starts
+    left: tuple  # the node elements on either side, as in _Scan.elements
+    right: tuple
+    types: tuple[str, ...]  # () when untyped
+    varlen: bool
+    into_left: bool
+    into_right: bool
+    text: str  # the relationship, verbatim
+
+
+def _hops(scan: _Scan, cypher: str) -> list[_Hop]:
+    """Every relationship written between two node patterns: `-[...]-` in any direction, and the bare `--` arrows."""
+    masked = scan.masked
+    nodes = _node_patterns(scan)
+    rels = [e for e in scan.elements if e[2] == "rel"]
+    hops = []
+    for left, right in zip(nodes, nodes[1:]):
+        between = masked[left[1]:right[0]]
+        bare = _BARE_HOP_RE.fullmatch(between)
+        if bare:
+            hops.append(_Hop(left[1], left, right, (), bool(bare.group("q")), bool(bare.group("left")),
+                             bool(bare.group("right")), " ".join(cypher[left[1]:right[0]].split())))
+            continue
+        inside = [r for r in rels if left[1] <= r[0] and r[1] <= right[0]]
+        if len(inside) != 1:
+            continue
+        rel = inside[0]
+        before = _HOP_BEFORE_RE.fullmatch(masked[left[1]:rel[0]])
+        after = _HOP_AFTER_RE.fullmatch(masked[rel[1]:right[0]])
+        if not before or not after:
+            continue
+        m = _REL_PATTERN_RE.match(masked, rel[0])
+        hops.append(_Hop(rel[0], left, right, tuple(rel[4]), bool(m and m.group("hops")) or bool(after.group("q")),
+                         bool(before.group("left")), bool(after.group("right")),
+                         " ".join(cypher[rel[0]:rel[1]].split())))
+    return hops
+
+
+def _node_labels_of(scan: _Scan, node: tuple) -> set[str]:
+    return set(node[4]) | (set(scan.node_labels.get(node[3], {})) if node[3] else set())
+
+
+def _an_assay(scan: _Scan, node: tuple) -> bool:
+    return _ASSAY_LABEL in _node_labels_of(scan, node)
+
+
+def _a_sample(scan: _Scan, node: tuple) -> bool:
+    labels = _node_labels_of(scan, node)
+    if _NEVER_A_SAMPLE & labels:
+        return False
+    return node[3] in scan.samples or "Sample" in labels or any(label.startswith("T_") for label in labels)
+
+
+def _never_on_an_assay_edge(scan: _Scan, node: tuple) -> bool:
+    """A node whose label no INPUT_TO or OUTPUT_OF edge starts from (Study, Project, SampleType, ...)."""
+    return any(label in V11_NODE_PROPERTIES for label in _node_labels_of(scan, node))
+
+
+def _assay_links(scan: _Scan, cypher: str) -> list[tuple[int, tuple, tuple, str]]:
+    """(position, sample node, Assay node or a hidden Assay's key, the Assay's text) for each sample that reaches an
+    Assay through INPUT_TO or OUTPUT_OF (or a relationship that could be one of them)."""
+    links = []
+    for hop in _hops(scan, cypher):
+        typed = set(hop.types)
+        only_assay = bool(typed) and typed <= _ASSAY_RELATIONSHIPS
+        if typed and not typed & _ASSAY_RELATIONSHIPS:
+            continue  # DERIVED_FROM, IN_STUDY, ...: never reaches an Assay
+        left, right = _an_assay(scan, hop.left), _an_assay(scan, hop.right)
+        if left and right:
+            continue
+        if not left and not right:
+            if hop.varlen and typed:
+                # a variable-length INPUT_TO or OUTPUT_OF path between two samples: an Assay unnamed in the middle
+                if _a_sample(scan, hop.left) and _a_sample(scan, hop.right):
+                    hidden = ("#assay", hop.pos)
+                    links += [(hop.pos, hop.left, hidden, hop.text), (hop.pos, hop.right, hidden, hop.text)]
+                continue
+            if not only_assay:
+                continue  # untyped, and no Assay named at either end
+            if hop.into_left != hop.into_right:
+                assay = hop.right if hop.into_right else hop.left  # INPUT_TO and OUTPUT_OF end at the Assay
+            elif _a_sample(scan, hop.left) != _a_sample(scan, hop.right):
+                assay = hop.right if _a_sample(scan, hop.left) else hop.left
+            else:
+                continue
+        else:
+            assay = hop.left if left else hop.right
+        sample = hop.right if assay is hop.left else hop.left
+        if _a_sample(scan, sample) or (only_assay and not _never_on_an_assay_edge(scan, sample)):
+            links.append((hop.pos, sample, assay, " ".join(cypher[assay[0]:assay[1]].split())))
+    return links
+
+
+def _subquery_spans(scan: _Scan) -> list[tuple[int, int, bool]]:
+    """(open, close, gives a value per row) of every EXISTS, COUNT and COLLECT subquery and every pattern
+    comprehension. All but EXISTS give one value per outer row built from their own matches; EXISTS only filters."""
+    masked = scan.masked
+    spans = []
+    for start, end, _kind in _brace_kinds(masked):
+        word = re.search(rf"({_NAME})\s*$", masked[:start])
+        if word and word.group(1).upper() in _SUBQUERY_WORDS:
+            spans.append((start, end, word.group(1).upper() != "EXISTS"))
+    rel_starts = [e[0] for e in scan.elements if e[2] == "rel"]
+    opened: list[int] = []
+    for i, ch in enumerate(masked):
+        if ch == "[":
+            opened.append(i)
+        elif ch == "]" and opened:
+            start = opened.pop()
+            if start not in rel_starts and any(start < r < i for r in rel_starts):
+                spans.append((start, i, True))  # a list that holds a relationship pattern: a pattern comprehension
+    return spans
+
+
+def _with_carried(scan: _Scan, body_start: int, body_end: int, alive: dict, fresh) -> dict:
+    """The names a top-level WITH keeps: ``*`` keeps all; a bare name or ``name AS alias`` keeps its variable; any
+    other item binds a new one."""
+    masked = scan.masked
+    carried: dict = {}
+    for s, e in _items(masked, body_start, body_end):
+        item = _ITEM_ALIAS_RE.match(masked[s:e].strip())
+        if not item:
+            continue
+        expr, alias = item.group("expr").strip(), item.group("alias")
+        if expr == "*":
+            carried.update(alive)
+        elif _NAME_RE.fullmatch(expr) and expr in alive:
+            carried[alias or expr] = alive[expr]
+        elif alias:
+            carried[alias] = fresh(alias)
+    return carried
+
+
+_UID_PIN_RE = re.compile(r"\buuid\s*:\s*(?:\$\w+|'[^']*'|\"[^\"]*\")")
+_DISTINCT_RESULT_RE = re.compile(r"\bRETURN\s+DISTINCT\b|\b(?:count|collect)\s*\(\s*DISTINCT\b", re.IGNORECASE)
+_PIN_CONJUNCT_RE = re.compile(r"(\w+)\.uuid\s*=\s*(?:\$\w+|'[^']*'|\"[^\"]*\")")
+_WHERE_STOPS = frozenset({"RETURN", "WITH", "MATCH", "OPTIONAL", "CALL", "UNWIND", "ORDER", "LIMIT", "SKIP"})
+
+
+def _uid_pinned(scan: _Scan, cypher: str, element: tuple) -> bool:
+    """A sample node pattern pinned by its inline map: `(s {uuid: $x})`."""
+    m = _NODE_PATTERN_RE.match(scan.masked, element[0])
+    return bool(m and m.group("props") and _UID_PIN_RE.search(cypher[m.start("props"):m.end("props")]))
+
+
+def _where_pins(scan: _Scan, cypher: str) -> list[tuple[int, str]]:
+    """(position, variable) of every `v.uuid = $x` (or a string literal) that is a top-level AND conjunct of a WHERE
+    clause. A WHERE with OR or XOR at its top level has no such conjunct (AND binds tighter), and one under NOT is
+    not one; a WHERE inside a list, a comprehension or a node pattern is not a clause."""
+    masked, pins = scan.masked, []
+    for m in re.finditer(r"\bWHERE\b", masked, re.IGNORECASE):
+        if _keyword_is_name(masked, m.start(), m.end()):
+            continue
+        opened = []
+        for ch in masked[:m.start()]:
+            if ch in "([{":
+                opened.append(ch)
+            elif ch in ")]}" and opened:
+                opened.pop()
+        if opened and opened[-1] != "{":
+            continue
+        spans, start, depth, alone, i = [], m.end(), 0, True, m.end()
+        while i < len(masked):
+            ch = masked[i]
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif depth == 0 and ch.isalpha() and not (masked[i - 1].isalnum() or masked[i - 1] in "_.$"):
+                word = re.match(r"\w+", masked[i:i + 12]).group(0).upper()
+                if word in _WHERE_STOPS and not (
+                        word == "WITH" and re.search(r"\b(?:STARTS|ENDS)\s*$", masked[:i], re.IGNORECASE)):
+                    break
+                if word in ("OR", "XOR"):
+                    alone = False
+                elif word == "AND":
+                    spans.append((start, i))
+                    start = i + 3
+                i += len(word)
+                continue
+            i += 1
+        spans.append((start, i))
+        if not alone:
+            continue
+        for s, e in spans:
+            text = cypher[s:e]
+            s, e = s + len(text) - len(text.lstrip()), e - len(text) + len(text.rstrip())
+            while e - s > 1 and masked[s] == "(" and cypher_text._matching_paren(masked, s) == e - 1:
+                text = cypher[s + 1:e - 1]  # outer parentheses stripped
+                s, e = s + 1 + len(text) - len(text.lstrip()), e - 1 - len(text) + len(text.rstrip())
+            pin = _PIN_CONJUNCT_RE.fullmatch(cypher[s:e])
+            if pin:
+                pins.append((s, pin.group(1)))
+    return pins
+
+
+def _call_spans(masked: str) -> list[tuple[int, int]]:
+    """(open, close) of every CALL { } subquery body."""
+    return [(start, end) for start, end, kind in _brace_kinds(masked)
+            if kind == "subquery" and re.search(r"\bCALL\s*(?:\([^()]*\)\s*)?$", masked[:start], re.IGNORECASE)]
+
+
+def _distinct_result(masked: str) -> bool:
+    """Whether the last top-level RETURN gives distinct rows (`RETURN DISTINCT`, `count(DISTINCT ..)`,
+    `collect(DISTINCT ..)`); a DISTINCT inside a subquery or a CALL does not count."""
+    returns = [m.start() for m in re.finditer(r"\bRETURN\b", masked, re.IGNORECASE)
+               if not _keyword_is_name(masked, m.start(), m.end()) and _depth(masked, m.start()) == 0]
+    return bool(returns) and bool(_DISTINCT_RESULT_RE.search(masked[returns[-1]:]))
+
+
+def _assay_join_problems(scan: _Scan, cypher: str) -> list[_Shape]:
+    """assay_join: every Assay that two distinct samples reach in one row scope (the section comment has the rule)."""
+    links = _assay_links(scan, cypher)
+    if not links:
+        return []
+    masked = scan.masked
+    subqueries = sorted(_subquery_spans(scan))
+    stops = _clause_stops(scan)
+    counter = iter(range(1, 1 << 30))
+
+    def fresh(name):
+        return (name, next(counter))
+
+    def chain(pos):
+        return [span for span in subqueries if span[0] < pos < span[1]]
+
+    # Walk the top level in order: node patterns bind, a WITH keeps what it carries, UNION starts a new part.
+    events = []
+    for keyword, kw_start, body_start, body_end in scan.clauses:
+        if kw_start in stops and not chain(kw_start) and keyword in ("WITH", "UNION", "UNWIND"):
+            events.append((kw_start, 0, keyword, body_start, body_end))
+    for element in _node_patterns(scan):
+        events.append((element[0], 1, "node", element, None))
+    for start, _open, _close, hit, _fulltext in _procedure_yields(scan):
+        if hit:
+            events.append((start, 1, "yield", hit, None))
+    calls = _call_spans(masked)
+    for pos, name in _where_pins(scan, cypher):
+        if not any(c[0] < pos < c[1] for c in calls):  # a pin inside CALL { } bounds nothing outside it
+            events.append((pos, 1, "pin", name, None))
+    pins: set = set()  # (sample key, the scope its pin is in)
+    part, alive = 0, {}
+    scopes: dict = {}  # a subquery's own names: ("sub", open) -> {name: key}
+    home: dict = {}  # key -> the scope it was bound in
+    keys: dict = {}  # a node element's start -> its key
+    for pos, _order, kind, a, b in sorted(events, key=lambda e: (e[0], e[1])):
+        where = chain(pos)
+        if kind == "UNION":
+            part, alive = part + 1, {}
+            continue
+        if kind == "WITH":
+            alive = _with_carried(scan, a, b, alive, fresh)
+            for key in alive.values():
+                home.setdefault(key, ("part", part))
+            continue
+        if kind == "UNWIND":
+            m = re.search(rf"\bAS\s+({_NAME})\s*$", masked[a:b], re.IGNORECASE)
+            if m:
+                alive[m.group(1)] = key = fresh(m.group(1))
+                home[key] = ("part", part)
+            continue
+        if kind == "pin":
+            key = alive.get(a) if not where or a in alive else None
+            for span in where:
+                key = key or scopes.get(("sub", span[0]), {}).get(a)
+            if key is not None:
+                pins.add((key, ("sub", where[-1][0]) if where else ("part", part)))
+            continue
+        name = a if kind == "yield" else a[3]
+        if kind == "node" and not name:
+            keys[a[0]] = key = ("#node", a[0])
+            home[key] = ("sub", where[-1][0]) if where else ("part", part)
+            continue
+        key = alive.get(name) if not where or name in alive else None
+        for span in where:
+            key = key or scopes.get(("sub", span[0]), {}).get(name)
+        if key is None:
+            key = fresh(name)
+            if where:
+                scopes.setdefault(("sub", where[-1][0]), {})[name] = key
+                home[key] = ("sub", where[-1][0])
+            else:
+                alive[name] = key
+                home[key] = ("part", part)
+        if kind == "node":
+            keys[a[0]] = key
+
+    def part_at(pos):
+        return sum(1 for keyword, kw_start, _, _ in scan.clauses
+                   if keyword == "UNION" and kw_start in stops and kw_start < pos and not chain(kw_start))
+
+    # An Assay node pattern written twice with the same inline map, `(:Assay {title: $x})`, named or not, is one Assay
+    # in its row scope: both patterns share one key. Equal maps are compared as written, whitespace aside; an equality
+    # in WHERE, a collect or an UNWIND is not followed.
+    same: dict = {}
+    for element in _node_patterns(scan):
+        m = _NODE_PATTERN_RE.match(masked, element[0])
+        if not (_an_assay(scan, element) and m and m.group("props")):
+            continue
+        where = chain(element[0])
+        scope = ("sub", where[-1][0]) if where else ("part", part_at(element[0]))
+        written = re.sub(r"\s+", "", cypher[m.start("props"):m.end("props")])
+        same[keys.get(element[0], ("#node", element[0]))] = map_key = ("#map", written, scope)
+        home.setdefault(map_key, scope)
+
+    pairs: dict = {}  # (scope, Assay key) -> {sample key: (position, display)}
+    valued: dict = {}  # the same, for a sample local to a COUNT, a COLLECT or a comprehension, at each outer scope
+    shown: dict = {}  # Assay key -> its text
+    for pos, sample, assay, assay_text in links:
+        s_key = keys.get(sample[0], ("#node", sample[0]))
+        a_key = assay if assay[0] == "#assay" else keys.get(assay[0], ("#node", assay[0]))
+        a_key = same.get(a_key, a_key)
+        home.setdefault(a_key, ("sub", chain(pos)[-1][0]) if chain(pos) else ("part", part_at(pos)))
+        shown.setdefault(a_key, assay_text)
+        display = sample[3] or " ".join(cypher[sample[0]:sample[1]].split())
+        levels = [("part", part_at(pos))] + [("sub", span[0]) for span in chain(pos)]
+        for depth in range(len(levels) - 1, -1, -1):
+            visible = set(levels[:depth + 1])
+            if depth < len(levels) - 1 and not (home.get(s_key) in visible and home.get(a_key) in visible):
+                break
+            pairs.setdefault((levels[depth], a_key), {}).setdefault(s_key, (pos, display))
+        # A sample local to a subquery that gives a value per outer row (not EXISTS), on an Assay bound outside it,
+        # pairs with every outer sample on that Assay: COUNT { (p)-[:INPUT_TO]->(a) } beside (c)-[:OUTPUT_OF]->(a)
+        # reads what c was made from through the Assay.
+        spans = chain(pos)
+        local = next((k for k, span in enumerate(spans) if home.get(s_key) == ("sub", span[0])), None)
+        if local is not None and spans[local][2]:
+            for depth in range(local, -1, -1):
+                if home.get(a_key) not in set(levels[:depth + 1]):
+                    break
+                valued.setdefault((levels[depth], a_key), {}).setdefault(s_key, (pos, display))
+    for key, local_samples in valued.items():
+        if pairs.get(key):
+            pairs[key] = {**pairs[key], **local_samples}
+    for e in _node_patterns(scan):
+        if _uid_pinned(scan, cypher, e) and not any(c[0] < e[0] < c[1] for c in calls):
+            where = chain(e[0])
+            pins.add((keys.get(e[0], ("#node", e[0])), ("sub", where[-1][0]) if where else ("part", part_at(e[0]))))
+    distinct = _distinct_result(masked)
+    problems = []
+    for (scope, a_key), samples in pairs.items():
+        if len(samples) < 2:
+            continue
+        # A pin bounds a pair only in the pair's own scope or the part around it; one pinned sample bounds one other.
+        around = {scope, scope if scope[0] == "part" else ("part", part_at(scope[1]))}
+        pinned = {key for key, pin_scope in pins if pin_scope in around}
+        if distinct and pinned and len(set(samples) - pinned) <= 1:
+            continue  # one sample named by UID: bounded by its own Assay (round 4, ruling 1)
+        ordered = sorted(samples.values())
+        names = [display for _, display in ordered]
+        both = "both" if len(names) == 2 else "all"
+        problems.append(_Shape(ordered[1][0], "assay_join", shown[a_key],
+                               f"the samples {', '.join(names[:-1])} and {names[-1]} {both} reach it through "
+                               "INPUT_TO or OUTPUT_OF, which pairs every sample on one side of an assay with every "
+                               "sample on the other; two samples on one Assay did not come from each other"))
+    unique: dict = {}
+    for problem in sorted(problems):
+        unique.setdefault((problem.text, problem.detail), problem)
+    return list(unique.values())
+
+
+
+
 # ------------------------------------------------------------------------------ the guard's surface
 
 
 def query_shape_problems(cypher: str | None, parameters=None) -> list[_Shape]:
-    """P6a and P6b: the shapes this graph must not be asked to run, in the order they appear in the Cypher.
+    """P6a, P6b and assay_join: the shapes this graph must not be asked to run, in the order they appear in the
+    Cypher.
 
     ``parameters`` is the plan's parameter map, which the fulltext check reads the search term from. A guard that
     breaks on a query says nothing about it rather than refusing it.
@@ -1811,7 +2256,8 @@ def query_shape_problems(cypher: str | None, parameters=None) -> list[_Shape]:
         return []
     try:
         scan = _scan(cypher)
-        problems = _path_problems(scan, cypher) + _fulltext_problems(scan, cypher, parameters)
+        problems = (_path_problems(scan, cypher) + _fulltext_problems(scan, cypher, parameters)
+                    + _assay_join_problems(scan, cypher))
     except Exception as e:  # noqa: BLE001 (never refuse a query because the guard itself broke)
         print(f"[DEBUG][GRAPH][SHAPE_GUARD] guard failed, allowing the query: {e!r}")
         return []
@@ -1860,6 +2306,20 @@ def _shape_lines(shapes: list[_Shape]) -> list[str]:
         if any("cannot be read" in p.detail for p in fulltext):
             lines.append("Pass the search term as one parameter the plan binds, or as a literal string, so it can be "
                          "checked before the query runs.")
+    if "assay_join" in kinds:
+        lines.append(
+            "Lineage is DERIVED_FROM only. An Assay is one node per assay kind and every run of that kind hangs off "
+            "it, so two samples on one Assay did not come from each other, and matching both pairs every sample on "
+            "one side with every sample on the other. Keep the lineage on DERIVED_FROM "
+            "((child:Sample)-[:DERIVED_FROM]->(parent:Sample)), and test an assay on one sample at a time: "
+            "WHERE EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }. To count what went into and "
+            "what came out of one Assay, count each in its own COUNT { } subquery. The one pairing that is allowed "
+            "starts from a sample the question names by UID: `MATCH (s:Sample {uuid: $uid})-[:INPUT_TO|OUTPUT_OF]->"
+            "(a:Assay)<-[:INPUT_TO|OUTPUT_OF]-(o:Sample) RETURN DISTINCT o.uuid AS uuid` (or "
+            "`count(DISTINCT o)`), and for the same run add the shared seek_assay_ids id on the two edges. With no "
+            "sample named by UID, never list pairs: group by Assay and count, `MATCH (s:Sample)-[:INPUT_TO|OUTPUT_OF]->"
+            "(a:Assay) RETURN a.title AS assay, count(DISTINCT s) AS samples ORDER BY samples DESC LIMIT 50`, and say "
+            "in the explanation that pairs are not listed and one UID gives its partners.")
     return lines
 
 
@@ -1879,9 +2339,55 @@ def _shape_refusal_parts(shapes: list[_Shape]) -> list[str]:
                          f"both ends anchored (bound it at *1..{_MAX_HOPS})")
         elif p.kind == "unanchored_path":
             parts.append(f"the path {p.text} expands from every sample: {p.detail}")
+        elif p.kind == "assay_join":
+            parts.append(f"the query pairs samples through the Assay {p.text}: {p.detail}; lineage is DERIVED_FROM")
         else:
             parts.append(f"the unscoped fulltext call {p.text} {p.detail}")
     return parts
+
+
+#: What the user is told for each refused kind (round 4, U2.2): the reason in plain words and the shape that is allowed.
+#: Code-owned; the graph agent's own explanation names catalog properties and repair steps and is never shown.
+REFUSAL_REPLIES = {
+    "assay_join": (
+        "I can't match samples to each other just because they went through the same assay. Name one sample by its "
+        "UID and I can list the other samples that went through its assay, or ask which samples went through a "
+        "named assay."),
+    "lineage_path": (
+        "That question would follow lineage from every sample at once, which is too large to run. Name a sample by "
+        "its UID or a sample type, and say how many steps to follow."),
+    "unbounded_path": (
+        "That question would follow lineage with no limit on the steps, which is too large to run. Name a sample by "
+        "its UID or a sample type, and say how many steps to follow."),
+    "fulltext": (
+        "That wording would search every sample's text for several words at once and would match far too much. Name "
+        "the sample type, project or field you mean, or ask about one word or phrase."),
+    "whole_node": (
+        "I can't return whole samples for that question. Ask for a count, or for the fields you need, such as the "
+        "UID, the type and named attributes."),
+}
+_REFUSAL_PRIORITY = ("assay_join", "lineage_path", "unbounded_path", "fulltext", "whole_node")
+#: A shape kind's reply kind: an unanchored path is "lineage_path" (from every sample at once), a path with no step
+#: limit "unbounded_path" (review N3).
+_SHAPE_REPLY_KIND = {"assay_join": "assay_join", "unscoped_fulltext": "fulltext", "unbounded_path": "unbounded_path",
+                     "unanchored_path": "lineage_path"}
+
+
+def refusal_kinds(problems=(), whole=(), calls=(), shapes=()) -> list[str]:
+    """The reply kinds (``REFUSAL_REPLIES``) for what the guards refused; a kind with no entry has no reply of its own."""
+    kinds = {_SHAPE_REPLY_KIND.get(s.kind, "lineage_path") for s in shapes}
+    if whole:
+        kinds.add("whole_node")
+    if problems:
+        kinds.add("catalog")
+    if calls:
+        kinds.add("procedure")
+    return [k for k in (*_REFUSAL_PRIORITY, "catalog", "procedure") if k in kinds]
+
+
+def refusal_reply(kinds) -> str | None:
+    """The user-facing reply for a refusal's most specific kind, or None when only the generic reply applies."""
+    return next((REFUSAL_REPLIES[k] for k in kinds or () if k in REFUSAL_REPLIES), None)
 
 
 def _shape_refusal(shapes: list[_Shape]) -> str:
@@ -1894,18 +2400,42 @@ def _shape_refusal(shapes: list[_Shape]) -> str:
 # --------------------------------------------------------------------------- #
 
 
+# The graph agent's schema message heading, on a live turn and on a fallback alike: both send the structure, the
+# sample type index and the resolved types' sections (none on a fallback), rendered the same way. It names the version
+# the structure names (graph_context.schema_version_named): the graph's GraphMeta.schema_version on a live turn, the
+# committed file's on a fallback (_committed_version).
+SCHEMA_HEADING = ("GRAPH SCHEMA (v{version} structure, sample type index and the resolved sample types; this is the "
+                  "schema):\n")
+# The vocabulary message heading, on a live turn and on an admin's fallback alike (_committed_vocabulary).
+VOCABULARY_HEADING = "GRAPH VOCABULARY (values stored in the graph; match names against these):\n"
+
+
 class CatalogContext(NamedTuple):
     """The live catalog for one question: the snapshot the guard checks, and the two texts the agents read."""
 
     snapshot: Any
     schema: str  # structure, type index and the resolved types (graph_context.render_graph_context)
     vocabulary: str  # the question's vocabulary blocks, "" when none applies
+    #: Each resolved project name mapped to the Project.title it is stored under (``_resolved_project_titles``).
+    project_titles: dict = {}
 
 
 def _plain(value) -> dict:
     if value is None:
         return {}
     return value.model_dump() if hasattr(value, "model_dump") else dict(value)
+
+
+def _committed_version(config):
+    """The committed ``neo4j_schema.json``'s ``schema_version``: the version of the graph it was captured from."""
+    raw = getattr(config, "NEO4J_SCHEMA", None)
+    return raw.get("schema_version") if isinstance(raw, dict) else None
+
+
+def schema_heading(schema_version) -> str:
+    """``SCHEMA_HEADING`` for a graph at ``schema_version``: ``GRAPH SCHEMA (v1.3 structure, ...`` on a 1.3 graph, and
+    v1.2 for an older or unknown version, as the structure's own first line says (``graph_context.structure_for``)."""
+    return SCHEMA_HEADING.format(version=graph_context.schema_version_named(schema_version))
 
 
 def _variant_structure(config) -> str | None:
@@ -1941,6 +2471,34 @@ def _catalog_fallback(config, reason: str, reader: str) -> CatalogFallback:
     return CatalogFallback(reason, fetched_at)
 
 
+def _resolved_project_titles(config, entity_dict: dict, plan_dict: dict, vocab) -> dict[str, tuple[str, str, bool]]:
+    """The resolved names' ``(level, title, own)`` in this graph, through the projects catalog
+    (``graph_context.container_titles_for``): the Study, Investigation or Project title that exists, narrowest first.
+
+    "What species are the samples in the IMPACT project?" answered 897 against a true 892 (P1, 2026-09-22): the
+    entity step resolved the catalog name "Impact", the graph agent matched 'impact' by CONTAINS across Study and
+    Investigation titles as well as the Project, and a paper titled "Impact of fibrinogen, ..." added 5 Homo sapiens
+    samples from another project. The project's title is "IMPAcTb", one of the catalog row's alternative names,
+    which the graph agent is never shown; this hands it the title. An investigation row carries its owner's names
+    too, so its names reach a Project title only as a broader container (``own`` False: the query may use it, and
+    the scope check still reports the investigation as not applied). Only titles in the caller's vocabulary can be
+    named.
+    """
+    names: list[str] = []
+    for source in ((plan_dict.get("resolved") or {}).get("projects"), entity_dict.get("projects")):
+        for name in source or ():
+            if isinstance(name, str) and name.strip() and name not in names:
+                names.append(name)
+    rows = getattr(config, "FULL_PROJECTS_MAP", None)
+    if not names or not isinstance(rows, dict):
+        return {}
+    investigations = getattr(config, "FULL_INVESTIGATIONS_MAP", None)
+    all_rows = list(rows.values()) + (list(investigations.values()) if isinstance(investigations, dict) else [])
+    return graph_context.container_titles_for(names, all_rows, {
+        "study": getattr(vocab, "study_titles", ()), "investigation": getattr(vocab, "investigation_titles", ()),
+        "project": getattr(vocab, "project_titles", ())})
+
+
 def resolve_catalog_context(config: ChatConfig, user_query: str, entity_result, parser_plan, *,
                             reader: str = "graph agent") -> CatalogContext | CatalogFallback:
     """The rendered v1.1 catalog for this question, or the ``CatalogFallback`` saying why the committed JSON must be
@@ -1952,17 +2510,28 @@ def resolve_catalog_context(config: ChatConfig, user_query: str, entity_result, 
     try:
         entity_dict, plan_dict = _plain(entity_result), _plain(parser_plan)
         snapshot = graph_catalog.get_snapshot(config)
+        call_scope.mark("snapshot")
         codes = graph_context.resolved_type_codes(plan_dict, entity_dict, {row.title for row in snapshot.index})
         details = graph_catalog.get_type_details(config, codes) if codes else []
+        call_scope.mark("details")
         schema = graph_context.render_graph_context(snapshot, details, structure=_variant_structure(config))
-        vocabulary = graph_context.render_vocabulary(graph_catalog.get_vocabulary(config), user_query or "")
+        vocab = graph_catalog.get_vocabulary(config)
+        call_scope.mark("vocab")
+        vocabulary = graph_context.render_vocabulary(vocab, user_query or "")
+        hits = _resolved_project_titles(config, entity_dict, plan_dict, vocab)
+        block = graph_context.render_project_titles({n: t for n, (_lv, t, _own) in hits.items()},
+                                                    {n: lv for n, (lv, _t, _own) in hits.items()})
+        # Only a title that scopes the named container itself lets the scope check call it applied.
+        project_titles = {n: t for n, (_lv, t, own) in hits.items() if own}
+        if block:
+            vocabulary = f"{vocabulary}\n\n{block}" if vocabulary else block
     except graph_catalog.CatalogUnavailable as exc:
         return _catalog_fallback(config, str(exc), reader)
     except Exception as exc:  # noqa: BLE001 (a catalog defect must cost the context, not the turn)
         return _catalog_fallback(config, f"graph catalog context failed: {type(exc).__name__}: {exc}", reader)
     print(f"[DEBUG][GRAPH] Catalog context: {len(schema.encode('utf-8'))} bytes, types {codes}, "
           f"catalog_hash {str(snapshot.catalog_hash)[:12]}")
-    return CatalogContext(snapshot, schema, vocabulary)
+    return CatalogContext(snapshot, schema, vocabulary, project_titles)
 
 
 def live_catalog_context(config: ChatConfig, user_query: str, entity_result, parser_plan, *,
@@ -1980,14 +2549,16 @@ def graph_schema_snapshot(config: ChatConfig, *, types=(), question: str = "") -
     ``graph_catalog`` (the Container-CC agent) describes the graph that is deployed rather than a snapshot
     baked into its image. It spends no model call: the catalog reads and the renderers, nothing else.
 
-    ``types`` names sample type codes to render in full (their attributes, value types and most frequent
-    values); ``question`` gates the vocabulary blocks exactly as a graph turn does. A code the catalog does
-    not know is returned in ``unknown_types`` rather than guessed at.
+    ``types`` names sample type codes to render in full (their attributes, value types and numeric or date
+    bounds, never the values themselves); ``question`` gates the vocabulary blocks exactly as a graph turn
+    does. A code the catalog does not know is returned in ``unknown_types`` rather than guessed at.
 
     ``source`` is ``catalog`` when the answer is the live graph and ``fallback`` when it is the committed
     ``context/neo4j_schema.json``, and a fallback carries both why (``unavailable_reason``) and how stale the
     file is (``fallback_fetched_at``). A caller that ignores ``source`` is describing a graph that may not
     exist, which is the failure this op was added to end.
+
+    ``assays`` is this box's assay list (``_assay_titles``), on both paths.
     """
     requested = list(dict.fromkeys(str(t).strip() for t in (types or ()) if str(t).strip()))
     try:
@@ -2014,15 +2585,26 @@ def graph_schema_snapshot(config: ChatConfig, *, types=(), question: str = "") -
         "vocabulary": vocabulary,
         "unavailable_reason": None,
         "fallback_fetched_at": None,
+        "assays": _assay_titles(config),
     }
 
 
+def _assay_titles(config) -> list[str]:
+    """This box's assay titles (``config.MIN_ASSAYS``, from its ``dmac.internal_assays``) for the op's ``assays``.
+
+    The same list for every caller, as the entity and system agents read it: it names kinds of assay, never a
+    project's records. It does not come from the graph, so a graph outage leaves it in place.
+    """
+    rows = getattr(config, "MIN_ASSAYS", None)
+    if not isinstance(rows, list):
+        return []
+    return [r["Name"] for r in rows if isinstance(r, dict) and isinstance(r.get("Name"), str) and r["Name"].strip()]
+
+
 def _fallback_schema_snapshot(config: ChatConfig, question: str, requested: list[str], reason: str) -> dict:
-    """The committed ``neo4j_schema.json`` as the answer, saying so and saying why (and logging it as a WARNING)."""
+    """The committed ``neo4j_schema.json`` as the answer, rendered as the live schema is (``_render_committed_schema``),
+    saying so and saying why (and logging it as a WARNING)."""
     fallback = _catalog_fallback(config, reason, "graph-schema op")
-    shown = graph_catalog.committed_schema(config) or {}  # without its vocabulary for a caller who is not an admin
-    vocabulary = (_fallback_vocabulary(config, question or "")
-                  if graph_catalog.shows_committed_vocabulary(config) else [])
     return {
         "source": CONTEXT_FALLBACK,
         "schema_version": None,
@@ -2031,18 +2613,108 @@ def _fallback_schema_snapshot(config: ChatConfig, question: str, requested: list
         "sample_types": 0,
         "resolved_types": [],
         "unknown_types": list(requested),
-        "schema": json.dumps(shown, indent=2) if shown else "{}",
-        "vocabulary": "\n\n".join(vocabulary),
+        "schema": _render_committed_schema(config),
+        "vocabulary": _committed_vocabulary(config, question),
         "unavailable_reason": reason,
         "fallback_fetched_at": fallback.fallback_fetched_at,
+        "assays": _assay_titles(config),
     }
 
 
-def _fallback_vocabulary(config: ChatConfig, user_query: str) -> list[str]:
+# SCH-F13: the committed schema in the live schema's shape. graph_catalog's rule for a property name that must be
+# backticked, copied rather than imported across a module's private names; a type's label is the contract's rule.
+_COMMITTED_PLAIN_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+COMMITTED_PROPERTIES_HEADING = "## Sample properties (names only)"
+
+
+def _committed_strings(values) -> list[str]:
+    """The distinct non-empty strings of a committed list, stripped, in the file's order; [] for anything else."""
+    if not isinstance(values, list):
+        return []
+    return list(dict.fromkeys(v.strip() for v in values if isinstance(v, str) and v.strip()))
+
+
+def _render_committed_schema(config) -> str:
+    """The committed ``neo4j_schema.json`` rendered in the live schema's shape, for the graph agent's schema message
+    and the graph-schema op's ``schema`` when the live catalog is unavailable (SCH-F13).
+
+    A live turn reads the structure text, the sample type index and the resolved types' sections
+    (``graph_context.render_graph_context``); this is the same text but for freshness, joined as that is joined:
+
+    1. the structure: an evaluation prompt variant's (``_variant_structure``), else the file, fitted to the committed
+       file's ``schema_version`` by ``graph_context.structure_for`` (the version its first line names, and the Assay
+       section from 1.3 on), as a live turn fits it to the graph's;
+    2. the type index, one line per code of the file's ``vocabulary.sampletype_titles`` in the file's order;
+    3. the file's ``node_properties.Sample`` names as one names-only block. The committed file carries no per-type
+       attributes, so a fallback turn has no resolved sections; without this block the model would see no attribute
+       name at all, while the fallback guard checks names against this same list.
+
+    Two fields of the file are read. The property names come through ``graph_catalog.committed_schema(config)``, the
+    caller's view every reader of the committed file goes through. The type codes come from the raw file
+    (``config.NEO4J_SCHEMA``) for every caller, and nothing else of its ``vocabulary`` is read here: sample type codes
+    are catalog-level and the live index shows them to everyone, while ``committed_schema`` drops the whole vocabulary
+    for a caller who is not an admin because its project, study, investigation and assay titles were read over every
+    project. An admin's titles go in the vocabulary message instead (``_committed_vocabulary``), as on a live turn.
+
+    The text stays within ``graph_context.BUDGET_BYTES``: the structure and the index are always sent, and the names
+    block is cut to fit, ending with how many names it left out. A missing or malformed file renders the structure
+    and an index that says it lists no sample types; it never raises.
+    """
+    structure = graph_context.structure_for(_variant_structure(config), _committed_version(config))
+
+    raw = getattr(config, "NEO4J_SCHEMA", None)
+    vocabulary = raw.get("vocabulary") if isinstance(raw, dict) else None
+    codes = _committed_strings(vocabulary.get("sampletype_titles") if isinstance(vocabulary, dict) else None)
+    # The index lines are written here rather than by graph_context.render_type_index, which always writes
+    # "N attributes with values" from each row's attributes_with_values: the committed file does not know that count,
+    # and a row without it would claim "0 attributes with values", telling the model every type is empty. The heading
+    # is render_type_index's own, and each line is its shape without that claim: code, :label, and the sample count
+    # a row with no count renders ("sample count unknown"). The label is graph_catalog's rule for a row with none.
+    lines = [graph_context.render_type_index(())]
+    lines += [f"{code} :{schema.type_label(code)}, sample count unknown" for code in codes]
+    if not codes:
+        lines.append("The committed capture lists no sample types.")
+    parts = [structure, "\n".join(lines)]
+
+    shown = graph_catalog.committed_schema(config)
+    node_properties = shown.get("node_properties") if isinstance(shown, dict) else None
+    names = [name if _COMMITTED_PLAIN_NAME.fullmatch(name) else "`" + name.replace("`", "``") + "`"
+             for name in _committed_strings(node_properties.get("Sample") if isinstance(node_properties, dict)
+                                            else None)]
+    if names:
+        parts.append(_fit_committed_names(parts, names))
+    return "\n\n".join(parts) + "\n"
+
+
+def _fit_committed_names(parts: list[str], names: list[str]) -> str:
+    """The names-only block: every name when the whole text fits ``graph_context.BUDGET_BYTES``, else the first names
+    that fit with room for ``... and N more`` naming how many were left out (none at all when ``parts`` alone are
+    over the budget)."""
+    head = COMMITTED_PROPERTIES_HEADING + "\n"
+    used = len(("\n\n".join(parts) + "\n\n" + head + "\n").encode("utf-8"))
+    whole = ", ".join(names)
+    if used + len(whole.encode("utf-8")) <= graph_context.BUDGET_BYTES:
+        return head + whole
+    kept: list[str] = []
+    size = 0  # bytes of ", ".join(kept)
+    for name in names:
+        grown = size + (2 if kept else 0) + len(name.encode("utf-8"))
+        tail = f", ... and {len(names) - len(kept) - 1} more"  # what would be left out with this name kept
+        if used + grown + len(tail.encode("utf-8")) > graph_context.BUDGET_BYTES:
+            break
+        kept.append(name)
+        size = grown
+    left_out = f"... and {len(names) - len(kept)} more"
+    return head + (", ".join(kept) + ", " + left_out if kept else left_out)
+
+
+def _fallback_vocabulary(config: ChatConfig, user_query: str, *,
+                         budget: int = graph_context.VOCAB_BUDGET_BYTES) -> list[str]:
     """The committed protocol and assay-connection blocks, gated and bounded as on the catalog path.
 
     The gate is ``graph_context.mentions`` and the bound ``graph_context.fit_vocabulary``: the blocks together stay
-    within ``VOCAB_BUDGET_BYTES``, and an entry sharing a word with the question is never cut for one that does not.
+    within ``budget`` (``VOCAB_BUDGET_BYTES`` unless ``_committed_vocabulary`` passes what the committed titles
+    leave), and an entry sharing a word with the question is never cut for one that does not.
     """
     blocks = []
     query = user_query or ""
@@ -2059,7 +2731,47 @@ def _fallback_vocabulary(config: ChatConfig, user_query: str) -> list[str]:
                 "ASSAY-SAMPLE CONNECTIONS (assay → parent_type → child_type, use to determine which side a sample "
                 "type sits on for a given assay):", connections))
             print(f"[DEBUG][GRAPH] Including assay-sample connections ({len(connections)} entries)")
-    return graph_context.fit_vocabulary(blocks, query)
+    return graph_context.fit_vocabulary(blocks, query, budget=budget)
+
+
+def _committed_titles(values) -> list[str]:
+    """The distinct non-empty strings of a committed title list, exactly as stored, in the file's order."""
+    if not isinstance(values, list):
+        return []
+    return list(dict.fromkeys(v for v in values if isinstance(v, str) and v))
+
+
+def _committed_vocabulary(config: ChatConfig, question: str) -> str:
+    """An admin's vocabulary on a fallback, in the live shape and gated as live; "" for anyone else (SCH-F13).
+
+    First ``graph_context.render_vocabulary`` over the committed file's titles, the live path's renderer and gate:
+    investigation and project titles always, study titles on a study word, the internal assay titles (as the assay
+    titles) on an assay word. Then the committed protocol and assay-connection blocks (``_fallback_vocabulary``),
+    which are left out of the render_vocabulary call so nothing is sent twice. The whole text stays within
+    ``graph_context.VOCAB_BUDGET_BYTES``, the live bound: the titles are rendered first and the two committed blocks
+    are fitted into what they leave, so the large protocol and connection lists give way before the titles, as the
+    largest blocks do on a live turn.
+
+    The titles come through ``graph_catalog.committed_schema(config)`` and only for an admin
+    (``graph_catalog.shows_committed_vocabulary``): they were read over every project, so a caller who is not an
+    admin is sent no vocabulary at all, as before.
+    """
+    if not graph_catalog.shows_committed_vocabulary(config):
+        return ""
+    query = question or ""
+    shown = graph_catalog.committed_schema(config)
+    committed = shown.get("vocabulary") if isinstance(shown, dict) else None
+    committed = committed if isinstance(committed, dict) else {}
+    titles = graph_context.render_vocabulary({
+        "investigation_titles": _committed_titles(committed.get("investigation_titles")),
+        "project_titles": _committed_titles(committed.get("project_titles")),
+        "study_titles": _committed_titles(committed.get("study_titles")),
+        "assay_titles": _committed_titles(committed.get("internal_assay_titles")),
+    }, query)
+    parts = [titles] if titles else []
+    room = graph_context.VOCAB_BUDGET_BYTES - sum(len((part + "\n\n").encode("utf-8")) for part in parts)
+    parts += _fallback_vocabulary(config, query, budget=max(room, 0))
+    return "\n\n".join(parts)
 
 
 # --------------------------------------------------------------------------- #
@@ -2124,7 +2836,8 @@ def graph_agent(
 
     The schema is the live v1.1 catalog rendered as text when it is available (with the
     per-label property guard and the whole-node guard), else the committed JSON schema
-    with the type-blind guard (spec D7). Every returned plan records which in
+    rendered in the same shape (``_render_committed_schema``, SCH-F13) with the type-blind
+    guard (spec D7). Every returned plan records which in
     ``context_mode`` (spec D15), and a fallback plan records why and how old the committed
     schema is in ``context_fallback``; the fallback is also logged as a WARNING.
     """
@@ -2134,22 +2847,22 @@ def graph_agent(
     plan_dict = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else (parser_plan or {})
 
     context = resolve_catalog_context(config, user_query, entity_dict, plan_dict)
+    call_scope.mark("catalog_ready")
     catalog = context if isinstance(context, CatalogContext) else None
     context_mode = CONTEXT_CATALOG if catalog is not None else CONTEXT_FALLBACK
     # Why the committed schema stands in, and how old it is; logged already, carried on every plan returned below.
     context_fallback = None if catalog is not None else context._asdict()
     if catalog is not None:
-        schema_message = ("GRAPH SCHEMA (v1.1 structure, sample type index and the resolved sample types; this is "
-                          "the schema):\n" + catalog.schema)
-        vocabulary_messages = (["GRAPH VOCABULARY (values stored in the graph; match names against these):\n"
-                                + catalog.vocabulary] if catalog.vocabulary else [])
+        schema_message = schema_heading(getattr(catalog.snapshot, "schema_version", None)) + catalog.schema
+        vocabulary_messages = [VOCABULARY_HEADING + catalog.vocabulary] if catalog.vocabulary else []
     else:
-        # The committed schema, without its vocabulary for a caller who is not an admin (graph_catalog).
-        committed = graph_catalog.committed_schema(config)
-        schema_json = json.dumps(committed, indent=2) if committed else "{}"
-        schema_message = "GRAPH SCHEMA (node labels, relationships, properties, vocabulary):\n" + schema_json
-        vocabulary_messages = (_fallback_vocabulary(config, user_query)
-                               if graph_catalog.shows_committed_vocabulary(config) else [])
+        # The committed schema rendered in the live shape under the live heading (SCH-F13), so the model reads what
+        # it reads on a live turn but for freshness. It says nothing to the model about the fallback: that is loud
+        # already in the WARNING and the turn's debug (context_fallback). The schema text reads only the type codes
+        # from the committed vocabulary; an admin's committed titles are the vocabulary message, as live.
+        schema_message = schema_heading(_committed_version(config)) + _render_committed_schema(config)
+        committed_vocabulary = _committed_vocabulary(config, user_query)
+        vocabulary_messages = [VOCABULARY_HEADING + committed_vocabulary] if committed_vocabulary else []
 
     # Use full parser plan when available (contains resolved entities + routing intent + filters)
     # Fall back to raw entity dict when called without a parser plan
@@ -2161,11 +2874,19 @@ def graph_agent(
         entity_json = json.dumps(entity_dict, indent=2)
         upstream_context = "RESOLVED ENTITIES (from Entity Agent — no parser plan available):\n" + entity_json
 
+    # T2 (2026-10-12): the prompt and the schema head (heading, structure, type index) are the same for every
+    # question; the resolved types' sections vary, so they follow a 1 h cache point on the head (the parser's T6
+    # mechanism). Both clients join system messages with a blank line and the Bedrock head block ends with one,
+    # so the text the model reads is unchanged and a Gemini move (the marker stripped) reads the one message it
+    # read before. A repair appends to this list, so it keeps the head.
+    head, found, sections = schema_message.partition("\n\n" + graph_context.RESOLVED_TYPES_HEADING)
     messages = [
         {"role": "system", "content": config.GRAPH_AGENT_SYSTEM_PROMPT},
-        {"role": "system", "content": schema_message},
-        {"role": "system", "content": upstream_context},
+        {"role": "system", "content": head, "cache_point": "1h"},
     ]
+    if found:
+        messages.append({"role": "system", "content": graph_context.RESOLVED_TYPES_HEADING + sections})
+    messages.append({"role": "system", "content": upstream_context})
     for block in vocabulary_messages:
         messages.append({"role": "system", "content": block})
     if retry_context:
@@ -2189,6 +2910,8 @@ def graph_agent(
             model_name=graph_model,
             temperature=0,
             response_format={"type": "json_object"},
+            # The catalog key finds the provider chain; the log label names the ledger entry.
+            agent_label="graph",
             log_label=log_label,
             thinking_budget=graph_budget,
             client=graph_client,
@@ -2218,11 +2941,12 @@ def graph_agent(
             calls = _procedure_problems(result.cypher, procedures)
             shapes = query_shape_problems(result.cypher, result.parameters)
             if problems or whole or calls or shapes:
+                attempted = result.cypher
                 print(f"[DEBUG][GRAPH] Catalog guard: {[p.text for p in problems]} whole nodes {whole}"
                       + (f" calls {calls}" if calls else "") + (f" shapes {[p.kind for p in shapes]}" if shapes else "")
                       + "; attempting repair")
                 messages.append({"role": "system", "content": _catalog_repair_message(
-                    problems, whole, catalog.snapshot, calls, shapes)})
+                    problems, whole, catalog.snapshot, calls, shapes, result.cypher)})
                 result = call("Regenerate the Cypher.", "graph_agent_repair")
                 result.cypher, _ = canonicalize_sample_uid_property(result.cypher)
                 print(f"[DEBUG][GRAPH] Repaired cypher: {result.cypher!r}")
@@ -2236,7 +2960,9 @@ def graph_agent(
                           + (f" shapes {[p.kind for p in shapes]}" if shapes else "") + "; returning empty plan")
                     return GraphAgentPlan(cypher="", explanation=_catalog_refusal(problems, whole, calls, shapes),
                                           parameters={}, context_mode=context_mode,
-                                          context_fallback=context_fallback)
+                                          context_fallback=context_fallback,
+                                          refusal_kinds=refusal_kinds(problems, whole, calls, shapes),
+                                          attempted_cypher=attempted, repaired_cypher=result.cypher)
         else:
             # Schema guard: reject Cypher that filters on properties no node actually has
             # (e.g. a hallucinated `s.Lab`). Re-prompt once with the error + valid props;
@@ -2244,11 +2970,15 @@ def graph_agent(
             # rather than running a query that can only match nothing. A variant that allows
             # procedures adds the procedure guard to the same round, the query-shape guard
             # (P6a, P6b) joins it on every turn, and the repair is re-checked by all of them.
-            known = known_node_properties(config.NEO4J_SCHEMA) | known_relationship_properties(config.NEO4J_SCHEMA)
+            # Every relationship property of the documented schema is known too, as insurance for a committed file
+            # captured before a property existed (DERIVED_FROM.internal_assay_titles, SCH-F13).
+            known = (known_node_properties(config.NEO4J_SCHEMA) | known_relationship_properties(config.NEO4J_SCHEMA)
+                     | set().union(*V11_RELATIONSHIP_PROPERTIES.values()))
             unknown = unknown_cypher_properties(result.cypher, known)
             calls = _procedure_problems(result.cypher, procedures)
             shapes = query_shape_problems(result.cypher, result.parameters)
             if unknown or calls or shapes:
+                attempted = result.cypher
                 print(f"[DEBUG][GRAPH] Unknown properties in cypher: {unknown}"
                       + (f" calls {calls}" if calls else "") + (f" shapes {[p.kind for p in shapes]}" if shapes else "")
                       + "; attempting repair")
@@ -2286,6 +3016,8 @@ def graph_agent(
                         parameters={},
                         context_mode=context_mode,
                         context_fallback=context_fallback,
+                        refusal_kinds=refusal_kinds(still, [], calls, shapes),
+                        attempted_cypher=attempted, repaired_cypher=result.cypher,
                     )
 
         # Filter guard: an OPTIONAL MATCH immediately followed by WHERE folds the
@@ -2302,6 +3034,7 @@ def graph_agent(
             print(f"[DEBUG][GRAPH] Guarded cypher: {result.cypher!r}")
         result.context_mode = context_mode
         result.context_fallback = context_fallback
+        result.project_titles = dict(catalog.project_titles) if catalog is not None else {}
         return result
     except Exception as e:
         print(f"[DEBUG][GRAPH] graph_agent failed: {e!r}")

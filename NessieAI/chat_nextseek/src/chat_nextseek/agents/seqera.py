@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 from ..config import ChatConfig
+from ..llm_clients import LLMFatalError
 from ..schemas.schema_helper import call_llm_structured
 from ..schemas import (
     SeqeraLaunchPlan,
@@ -70,6 +71,13 @@ def seqera_agent(
             f"params={final.params} revision={final.pipeline_revision} profile={final.profile}"
         )
         return final
+    except LLMFatalError as fatal:
+        # Both models failed (D2, 2026-09-28): the catalog-default plan needs no model, so it
+        # still answers. A fatal that is not unavailability (a 400) ends the turn as before.
+        if not getattr(fatal, "unavailable", False):
+            raise
+        print(f"[DEBUG][SEQERA_AGENT] models unavailable: {fatal}; using fallback plan.")
+        return fallback
     except Exception as e:
         print(f"[DEBUG][SEQERA_AGENT] LLM failed: {e!r}; using fallback plan.")
         return fallback

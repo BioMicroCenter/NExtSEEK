@@ -19,10 +19,17 @@ from nextseek_api.services.uid_suffix import PUB_SUFFIX, resolve_uid_with_suffix
 
 class TestSpellings:
     def test_a_bare_uid_also_tries_the_suffixed_one(self):
-        assert uid_spellings("D.SEQ-240910LAU-1") == ["D.SEQ-240910LAU-1", "D.SEQ-240910LAU-1-PUB"]
+        assert uid_spellings("D.SEQ-240910LAU-1")[:2] == ["D.SEQ-240910LAU-1", "D.SEQ-240910LAU-1-PUB"]
 
     def test_a_suffixed_uid_also_tries_the_bare_one(self):
-        assert uid_spellings("D.SEQ-240910LAU-1-PUB") == ["D.SEQ-240910LAU-1-PUB", "D.SEQ-240910LAU-1"]
+        assert uid_spellings("D.SEQ-240910LAU-1-PUB")[:2] == ["D.SEQ-240910LAU-1-PUB", "D.SEQ-240910LAU-1"]
+
+    @pytest.mark.parametrize("uid", ["PAT-230522GRI-7", "PAT-230522GRI-7-PUB", "PAT-230522GRI-7-PUB1", "PAT-230522GRI-7-PUB3"])
+    def test_every_pub_spelling_of_one_sample_reaches_every_other(self, uid):
+        """-PUB and -PUB<n> are the same sample as the bare UID, whichever of them was typed."""
+        got = {s.upper() for s in uid_spellings(uid)}
+        assert {"PAT-230522GRI-7", "PAT-230522GRI-7-PUB", "PAT-230522GRI-7-PUB1", "PAT-230522GRI-7-PUB2"} <= got
+        assert uid_spellings(uid)[0] == uid
 
     def test_what_the_user_wrote_is_always_tried_first(self):
         """An exact match must never be displaced by a guess."""
@@ -37,11 +44,16 @@ class TestSpellings:
         assert uid_spellings(None) == []
 
     def test_the_suffix_is_recognised_whatever_its_case(self):
-        assert uid_spellings("A-1-pub") == ["A-1-pub", "A-1"]
+        assert uid_spellings("A-1-pub")[:2] == ["A-1-pub", "A-1"]
+        assert uid_spellings("A-1-Pub2")[:2] == ["A-1-Pub2", "A-1"]
 
     def test_no_spelling_is_tried_twice(self):
-        for uid in ("A-1", "A-1-PUB", "4711"):
-            assert len(uid_spellings(uid)) == len(set(uid_spellings(uid))), uid
+        for uid in ("A-1", "A-1-PUB", "A-1-PUB1", "4711"):
+            folded = [s.casefold() for s in uid_spellings(uid)]
+            assert len(folded) == len(set(folded)), uid
+
+    def test_a_uid_that_is_only_a_suffix_has_no_stem_to_try(self):
+        assert uid_spellings("-PUB1")[0] == "-PUB1" and "" not in uid_spellings("-PUB1")
 
 
 class TestResolution:
@@ -92,3 +104,15 @@ class TestResolution:
         calls = []
         assert resolve_uid_with_suffix(empty, lambda s: calls.append(s)) == (None, None)
         assert calls == []
+
+
+def test_a_numbered_publication_resolves_from_the_bare_uid():
+    found, spelling = resolve_uid_with_suffix("PAT-230522GRI-7", lambda s: "5" if s == "PAT-230522GRI-7-PUB1" else None)
+    assert (found, spelling) == ("5", "PAT-230522GRI-7-PUB1")
+
+
+def test_as_written_only_tries_one_spelling():
+    assert uid_spellings("A-1-PUB2", as_written_only=True) == ["A-1-PUB2"]
+    seen = []
+    assert resolve_uid_with_suffix("A-1", lambda s: seen.append(s), as_written_only=True) == (None, None)
+    assert seen == ["A-1"]

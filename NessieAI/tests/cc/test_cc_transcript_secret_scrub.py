@@ -239,15 +239,16 @@ def test_source_scrub_covers_every_session_in_the_store(tmp_path):
 # a clean store.
 
 
-def _explode_on(name: str, method: str, monkeypatch, exc):
-    real = getattr(Path, method)
+def _fail_safe_fs(monkeypatch, function: str, rel_suffix: str, exc):
+    """Make ``cc_engine.safe_fs.<function>`` raise ``exc`` for one transcript."""
+    real = getattr(cc_engine.safe_fs, function)
 
-    def boom(self, *args, **kwargs):
-        if self.name.startswith(name):
+    def boom(root, rel, *args, **kwargs):
+        if str(rel).endswith(rel_suffix):
             raise exc
-        return real(self, *args, **kwargs)
+        return real(root, rel, *args, **kwargs)
 
-    monkeypatch.setattr(Path, method, boom)
+    monkeypatch.setattr(cc_engine.safe_fs, function, boom)
 
 
 def test_unreadable_transcript_is_logged_and_counted(tmp_path, monkeypatch, caplog):
@@ -255,8 +256,7 @@ def test_unreadable_transcript_is_logged_and_counted(tmp_path, monkeypatch, capl
 
     good = _write_store(tmp_path, "good.jsonl")
     bad = _write_store(tmp_path, "bad.jsonl")
-    _explode_on("bad.jsonl", "read_bytes", monkeypatch,
-                PermissionError(13, "Permission denied"))
+    _fail_safe_fs(monkeypatch, "read_file", "bad.jsonl", PermissionError(13, "Permission denied"))
 
     with caplog.at_level(logging.WARNING,
                          logger="NessieAI.cc.cc_engine"):
@@ -278,8 +278,7 @@ def test_a_failed_rewrite_counts_as_skipped(tmp_path, monkeypatch, caplog):
     import logging
 
     path = _write_store(tmp_path, "sess-a.jsonl")
-    _explode_on("sess-a.jsonl.scrub-tmp", "write_bytes", monkeypatch,
-                OSError(28, "No space left on device"))
+    _fail_safe_fs(monkeypatch, "write_file_atomic", "sess-a.jsonl", OSError(28, "No space left on device"))
 
     with caplog.at_level(logging.WARNING,
                          logger="NessieAI.cc.cc_engine"):
@@ -450,7 +449,7 @@ def test_stale_plaintext_is_replaced_even_when_the_scrub_is_length_neutral(tmp_p
     change and never overwrites it, so the plaintext is republished to every
     later agent forever.
     """
-    source = tmp_path / "state" / "sess-a.jsonl"
+    source = tmp_path / "state" / "projects" / "-home-user" / "sess-a.jsonl"
     source.parent.mkdir(parents=True)
     source.write_bytes(TRANSCRIPT10)
     staging = tmp_path / "staging"
@@ -478,7 +477,8 @@ def test_stale_unscrubbed_copy_is_replaced_when_the_source_changes_in_place(tmp_
     without necessarily changing its size, so this is the very same event seen
     from the ``scrub=None`` branch.
     """
-    source = tmp_path / "sess-a.jsonl"
+    source = tmp_path / "state" / "projects" / "-home-user" / "sess-a.jsonl"
+    source.parent.mkdir(parents=True)
     source.write_bytes(b'{"content":"AAAA"}\n')
     staging = tmp_path / "staging"
     cc_memory_io.stage_transcripts([_Meta("sess-a", source)], staging)
@@ -511,12 +511,12 @@ def test_sweep_reads_clean_bytes_after_the_source_scrub(tmp_path):
     """cc_sweep has no credentials of its own (it iterates every user with no
     request in scope), so it CANNOT scrub at its own read point. Its safety
     comes entirely from the source being clean on disk — this asserts exactly
-    the read cc_sweep._run_sweep performs: Path(transcript_path).read_bytes().
+    the read cc_sweep._run_sweep performs: cc_session.read_store_transcript(path).
     """
     path = _write_store(tmp_path)
     cc_engine.scrub_transcript_store(tmp_path, ENV)
 
-    raw = Path(path).read_bytes()  # the literal cc_sweep.py:39 read
+    raw = cc_engine.cc_session.read_store_transcript(path)  # the read cc_sweep performs
 
     assert _leaks(raw) == []
     assert b"<REDACTED>" in raw

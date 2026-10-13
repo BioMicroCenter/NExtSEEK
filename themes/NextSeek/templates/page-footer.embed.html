@@ -1,4 +1,4 @@
-{% load static %}
+{% load static i18n %}
 <div class="footer-content">
     <div class="footer-brand">
         <img src="{% static 'img/fairdata_logo01-300x52.png' %}" alt="FAIRDATA">
@@ -6,4 +6,9 @@
     <div class="footer-text">
         &copy; {% now "Y" %} NExtSEEK - MIT BioMicro Center
     </div>
+    <nav class="footer-links" aria-label="{% trans 'Site' %}">
+        <a href="/docs/">{% trans "Docs" %}</a>
+        <a href="https://bmcwiki.mit.edu/index.php/BioMicroCenter:People" target="_blank" rel="noopener">{% trans "People" %}</a>
+        <a href="mailto:fairdata@mit.edu">{% trans "Contact" %}</a>
+    </nav>
 </div>

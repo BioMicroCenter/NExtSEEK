@@ -24,14 +24,20 @@ def test_every_definition_carries_its_origin_as_a_tag():
     out of the machine-generated set IS the move from one tag to the other.
     """
     defs = corpus.load_all_definitions(CORPUS)
+    # 2026-10-07 test-set review (SPEC-2): retired.json also holds retired probe and run-set cases, which never
+    # carried a corpus origin; the invariant is about the definitions that live in the corpus
+    from_corpus = {r["id"] for r in __import__("json").loads((CORPUS.parent / "retired.json").read_text())["retired"]
+                   if "corpus" in r.get("lived_in", ["corpus"])} | {v.id for v in corpus.load_unified(CORPUS)}
+    defs = [v for v in defs if v.id in from_corpus]
     for v in defs:
         # "atlas" is the third origin, added 2026-08-04: generated variants, one
         # per expressible capability assertion. See corpus.curated.
         assert {"base", "overlay", "atlas"} & set(v.tags), f"{v.id} carries no origin tag"
-    assert len([v for v in defs if "overlay" in v.tags]) == 134  # 72 -> 134: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
-    assert len([v for v in defs if "atlas" in v.tags]) == 59  # 63 -> 59: four atlas
+    assert len([v for v in defs if "overlay" in v.tags]) == 202  # big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 188 -> 195: unchanged by the 2026-10-07 test-set review (SPEC-2): the retired ones moved to retired.json and still count here. 186 -> 188: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 184 -> 186: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set, so both carry the overlay tag. 134 -> 184: 2026-09-23: +50 variants for the 53 production researcher questions. Was: 72 -> 134: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len([v for v in defs if "atlas" in v.tags]) == 58  # unchanged: the 8 atlas removals are in retired.json and still count here. 59 -> 58: 2026-09-24, fix 9: the retired atlas case was read and ruled on. 63 -> 59: four atlas
     # variants were read, ground-truthed and put in the paid selection, which
-    # is an origin AND tag flip. `_atlas` provenance is kept on all 80.
+    # is an origin AND tag flip. `_atlas` provenance is kept on all 80 (81 since
+    # 2026-09-24: fix 9's new case keeps the retired case's).
 
 
 def test_merged_is_exactly_the_active_definitions():
@@ -40,10 +46,10 @@ def test_merged_is_exactly_the_active_definitions():
     definition per id now, so the whole of resolution is a status filter."""
     all_defs = corpus.load_all_definitions(CORPUS)
     meta = corpus.variant_meta(CORPUS)
-    retired = {vid for vid, m in meta.items() if m["status"] == "retired"}
     merged = corpus.curated(corpus.merged(CORPUS))
     all_defs = corpus.curated(all_defs)
-    assert len(merged) == len(all_defs) - len(retired) == 365  # 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    retired = {vid for vid, m in meta.items() if m["status"] == "retired"} & {v.id for v in all_defs}  # 2026-10-07: curated ones
+    assert len(merged) == len(all_defs) - len(retired) == 356  # big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). big merge 2026-10-13: fix 19 (mj-routing) and fix 6 (nessie_fixes, retired green.refine_recall) together. fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 343 -> 350: 418 -> 343: 2026-10-07 test-set review (SPEC-2): 75 curated variants retired into retired.json. 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. Was: 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     assert len({v.id for v in merged}) == len(merged)  # no duplicate ids
     assert not ({v.id for v in merged} & retired)
 
@@ -218,8 +224,8 @@ def test_every_floored_family_exists_in_the_corpus():
 # --------------------------------------------------------------------------- #
 # Figures quoted in the docs, recomputed.
 #
-# Every number below appears as PROSE in README.md, output-skill/SKILL.md or
-# output-skill/REFERENCE.md, and two of them had already gone false three commits
+# Every number below appears as PROSE in README.md, nessie-run-review/SKILL.md or
+# nessie-run-review/REFERENCE.md, and two of them had already gone false three commits
 # after being written — inside the branch that was written to stop exactly that.
 # The rule this section encodes: a number a triager will act on either gets
 # recomputed by a test that names the file to update, or it does not get written
@@ -232,7 +238,7 @@ def test_every_floored_family_exists_in_the_corpus():
 # misroute.
 # --------------------------------------------------------------------------- #
 
-_DOCS = "NessieAI/tests/nessie_tests/README.md, output-skill/SKILL.md and output-skill/REFERENCE.md"
+_DOCS = "NessieAI/tests/nessie_tests/README.md, nessie-run-review/SKILL.md and nessie-run-review/REFERENCE.md"
 
 
 def _prepolicy():
@@ -282,7 +288,7 @@ def test_every_resolved_variant_carries_a_route_criterion():
     with_route = [v for v in expected
                   if any(c.field == "route" for t in v.turns for c in t.pass_criteria)]
 
-    assert len(with_route) == len(expected) == 320, (  # 288 -> 320: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(with_route) == len(expected) == 304, (  # big merge 2026-10-13: fix 19 (mj-routing) and fix 6 (nessie_fixes, retired green.refine_recall) together. 370 -> 298: 2026-10-07 test-set review (SPEC-2): 72 curated variants with a route criterion retired. 368 -> 370: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 367 -> 368: 2026-09-24: fix 9's route.ndma_mice_then_female_two_turns is a curated engine_routing case and asserts its route. 320 -> 367: 2026-09-23: +50 variants for the 53 production researcher questions, 47 of them outside the unsettled artifact_delivery family. Was: 288 -> 320: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
         f"{len(with_route)} of {len(expected)} carry a route criterion — update {_DOCS}")
 
     # The exemption is real and bounded: nothing outside those 8 families may skip
@@ -295,12 +301,16 @@ def test_every_resolved_variant_carries_a_route_criterion():
         f"route_policy entry (drop it from the set) or a new one lost its criterion")
 
 
-def test_only_three_variants_are_route_gate():
+def test_only_four_variants_are_route_gate():
     """The number the "asserted only on the route_gate variants" claim rested on."""
     gates = sorted(v.id for v in corpus.merged(CORPUS) if "route_gate" in v.tags)
 
-    assert gates == ["route.ns_advanced", "route.ns_plain_study_membership",
-                     "route.unrelated"], f"route_gate set changed — update {_DOCS}"
+    # 3 -> 4: 2026-09-30: route.ns_pipeline_by_question, the nf-core selection route gate.
+    # 4 -> 2: 2026-10-07 test-set review (SPEC-2): route.ns_advanced and route.ns_plain_study_membership were duplicates.
+    # 2 -> 9: 2026-10-13 fix 19: the seven unsup.method_* and unsup.offtopic_* route-only cases.
+    assert gates == sorted(["route.ns_pipeline_by_question", "route.unrelated", "unsup.method_paper_new_strain",
+                            "unsup.method_lab_own_cohort", "unsup.method_reanalyze_pmid", "unsup.method_refusal_not_sticky",
+                            "unsup.method_talk_then_reanalyze", "unsup.offtopic_sports", "unsup.offtopic_film_actor"]), f"route_gate set changed — update {_DOCS}"
 
 
 def test_the_route_policy_injects_the_number_the_docs_quote():
@@ -323,8 +333,8 @@ def test_the_route_policy_injects_the_number_the_docs_quote():
 
     injected = corpus.curated(injected)
     inline = corpus.curated(inline)
-    assert len(injected) == 305, f"{len(injected)} injected — update {_DOCS}"  # 273 -> 305: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
-    assert len(inline) == 15, f"{len(inline)} inline — update {_DOCS}"
+    assert len(injected) == 222, f"{len(injected)} injected — update {_DOCS}"  # 281 -> 222: 2026-10-07 test-set review (SPEC-2): 59 injected variants retired. 280 -> 281: 2026-09-30: pipeline.selection_verdict_recorded, whose seed turn has no inline route. # 305 -> 280: 2026-09-23: the REST-plumbing retirement wrote route nextseek_query inline on the seed of 25 multi-turn variants (follow-ups route container_cc per the operator ruling). # 273 -> 305: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(inline) == 91, f"{len(inline)} inline — update {_DOCS}"  # big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). big merge 2026-10-13: fix 19 (mj-routing) and fix 6 (nessie_fixes, retired green.refine_recall) together. 80 -> 87: 2026-10-13 fix 19, +7 unsup.* cases. 92 -> 80: 2026-10-07 test-set review (SPEC-2): 12 inline-route variants retired. 91 -> 92: 2026-09-30: route.ns_pipeline_by_question writes its route inline. # 90 -> 91: 2026-09-24: fix 9's route.ndma_mice_then_female_two_turns writes its route inline on its first turn. # 65 -> 90: 2026-09-23: those same 25 seeds. # 15 -> 65: 2026-09-23: +50 variants for the 53 production researcher questions, every one writing its route inline on its first turn
 
 
 def test_the_family_floor_injects_the_numbers_the_docs_quote():
@@ -353,12 +363,16 @@ def test_the_family_floor_injects_the_numbers_the_docs_quote():
     # landed in floored families where their old ones had no floor (146 -> 150).
     # 207 -> 210: the family floor reaches 3 of the 25 variants added
     # 2026-08-06; the other 22 are in families the floor does not cover.
-    assert variants == 226, f"{variants} variants floored — update {_DOCS}"  # 210 -> 226: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert variants == 208, f"{variants} variants floored — update {_DOCS}"  # 186 -> 208: 2026-10-07 test-set review (SPEC-2, graph-search grading): the four new mode floors and the mode line on four old ones reach 22 more variants. 242 -> 186: 2026-10-07 test-set review (SPEC-2): 56 floored variants retired. 226 -> 242: 2026-09-23: +50 variants for the 53 production researcher questions; the floor reaches the 16 in sample_search, publication_lookup, graph_traversal and lineage_tree (report.species_in_project is no_floor). Was: 210 -> 226: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     # 2026-08-06: +3 outcome_observed and +1 graph_truncation_disclosed, from the
     # 3 added variants the floor reaches.
     # 153/57/48 -> 168/58/52. 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
-    assert per_field == {"outcome_observed": 168, "report_produced_output": 58,
-                         "graph_truncation_disclosed": 52}, (
+    # 168/58/52 -> 184/58/54. 2026-09-23: +50 production researcher cases: 16 gain outcome_observed, the 2 graph_traversal
+    # ones graph_truncation_disclosed too.
+    # 184/58/54 -> 145/41/46: 2026-10-07 test-set review (SPEC-2): retired variants no longer count.
+    # + parser_plan.mode 62: 2026-10-07 graph-search grading (the mode floor reaches 62 variants that do not already assert it).
+    assert per_field == {"outcome_observed": 145, "report_produced_output": 41,
+                         "graph_truncation_disclosed": 46, "parser_plan.mode": 62}, (
         f"{per_field} — update {_DOCS}")
 
 

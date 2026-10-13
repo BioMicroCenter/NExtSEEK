@@ -133,9 +133,13 @@ def _cfg(scope, **overrides):
 # --------------------------------------------------------------------------- #
 
 def test_the_signature_is_unchanged():
+    # The positional contract is unchanged; the only additions are the graph reviewer's keyword-only timeout_s and
+    # total_only. A scope is never a parameter: it rides on the config.
     params = inspect.signature(tool_neo4j_query).parameters
-    assert list(params) == ["config", "cypher", "parameters"]
+    assert list(params) == ["config", "cypher", "parameters", "timeout_s", "total_only"]
     assert params["parameters"].default is None
+    assert params["timeout_s"].kind is inspect.Parameter.KEYWORD_ONLY and params["timeout_s"].default is None
+    assert params["total_only"].kind is inspect.Parameter.KEYWORD_ONLY and params["total_only"].default is False
 
 
 def test_the_refusal_texts():

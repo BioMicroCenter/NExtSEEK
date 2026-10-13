@@ -3,11 +3,11 @@
   "upstream_sha": "a429f1372a075e5db586a1b6efc8c3b1663e211a",
   "upstream_files": [
     {
-      "path": "/home/taishajo/work/dmac-assistant/tools/e2e/run_t18_rewire_e2e.py",
+      "path": "<source-checkout>/tools/e2e/run_t18_rewire_e2e.py",
       "sha256": "extracted-at-gate-3c"
     },
     {
-      "path": "/home/taishajo/work/dmac-assistant/tools/e2e/run_router_e2e.py",
+      "path": "<source-checkout>/tools/e2e/run_router_e2e.py",
       "sha256": "extracted-at-gate-3c"
     }
   ],

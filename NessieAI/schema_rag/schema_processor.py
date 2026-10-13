@@ -63,6 +63,17 @@ def _own_public_hosts() -> set:
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
+def _http_only_loader(uri: str, **kwargs):
+    """jsonref's loader for a remote ``$ref``, over http and https only.
+
+    Any other scheme, or none, is refused before anything is opened.
+    """
+    scheme = urlsplit(uri).scheme.lower()
+    if scheme not in _DEFAULT_PORTS:
+        raise ValueError(f"$ref scheme {scheme or '(none)'!r} is not allowed: only http and https")
+    return jsonref.jsonloader(uri, **kwargs)
+
+
 def _add_origin(origins: set, entry: str) -> None:
     """Record the (host, port) pair an env value or ALLOWED_HOSTS entry names.
 
@@ -356,7 +367,7 @@ class OpenAPISchemaProcessor:
             SchemaFetchError: If $ref resolution fails.
         """
         try:
-            resolved = jsonref.replace_refs(parsed)
+            resolved = jsonref.replace_refs(parsed, loader=_http_only_loader)
             # Convert back to regular dict (jsonref returns proxy objects)
             # Use recursive conversion to handle circular references
             return self._convert_jsonref_to_dict(resolved)

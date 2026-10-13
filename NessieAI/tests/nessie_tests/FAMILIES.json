@@ -1,7 +1,7 @@
 {
  "generated": "2026-08-04",
  "branch": "feat/nessie-bayesian",
- "family_count": 28,
+ "family_count": 32,
  "source": "capability atlas, 20 Fable-5 agents over 3 workflow runs",
  "axes_not_families": [
   {
@@ -33,7 +33,7 @@
   {
    "family": "sample_search",
    "block": "Retrieval and question shape",
-   "description": "Find samples by type, attribute, treatment, keyword, lab code or UID. No assay: assay lives on DERIVED_FROM and belongs to graph_traversal.",
+   "description": "Find, count or break down samples by what is recorded on them: sample type, an attribute value, a keyword anywhere in the record, a number or date comparison, or a lab code or other text in the UID. A question that needs an assay, a study, an investigation, a project or a parent sample belongs to graph_traversal or lineage_tree.",
    "replaces": [
     "search_advanced",
     "routing_lab"
@@ -119,7 +119,7 @@
         "ALLOWED GET /nextseek_api/schema/",
         "ALLOWED GET /nextseek_api/sops/",
         "ALLOWED GET /nextseek_api/sops/{uid}/",
-        "ALLOWED POST /nextseek_api/admin/samples/retrieve/",
+        "ALLOWED POST /nextseek_api/samples/retrieve/",
         "ALLOWED POST /nextseek_api/sample_types/get_parents/parents_by_child_types/",
         "ALLOWED POST /nextseek_api/samples/advanced_search/",
         "BLOCKED POST /nextseek_api/assays/",
@@ -146,8 +146,7 @@
        ],
        "entry_points": [
         "chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:tool_nextseek_api_request",
-        "chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:_sanitize_api_row_strings",
-        "chat_nextseek/src/chat_nextseek/context/nextseek_api.yaml"
+        "chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:_sanitize_api_row_strings"
        ],
        "testable_assertion": "api_result_meta.status_code eq 200",
        "expressible": "partial",
@@ -374,7 +373,7 @@
         "read-safe: GET /nextseek_api/projects/",
         "read-safe: GET /nextseek_api/sample_types/",
         "read-safe: GET /nextseek_api/assays/",
-        "read-safe: POST /nextseek_api/admin/samples/retrieve/",
+        "read-safe: POST /nextseek_api/samples/retrieve/",
         "read-safe: POST /nextseek_api/sample_types/get_parents/parents_by_child_types/",
         "read-safe: POST /nextseek_api/entity_tree/lineage/",
         "read-safe: POST /nextseek_api/batch-upload/validate/",
@@ -490,6 +489,30 @@
      ]
     }
    ]
+  },
+  {
+   "family": "publication_lookup",
+   "block": "Retrieval and question shape",
+   "description": "Find the samples behind a paper named by PMID, DOI or title. The paper's study carries its PMID or DOI, and on some instances the samples carry it too, so a right answer matches the identifier exactly on either and never as free text.",
+   "replaces": [],
+   "active_variants": 5,
+   "group_count": 0,
+   "capability_count": 0,
+   "enum_value_count": 0,
+   "groups": [],
+   "_added_2026_09_23": "Five production questions (review turns 401-405) asked for the samples behind a paper by PMID, DOI or title. All five went wrong under sample_search for two months: a free-text search on the identifier stood in for the Study.PMID / Study.DOI lookup on a different engine path, and the family label hid that it was a separate capability."
+  },
+  {
+   "family": "person_lab_resolution",
+   "block": "Retrieval and question shape",
+   "description": "Resolve a person, lab or lab code the user names, then say who they are or what they hold: a PI's lab is the code at the UID's lab position, anyone else is the Scientist attribute, a code resolves to its lab record. Never an invented code or a text match.",
+   "replaces": [],
+   "active_variants": 13,
+   "group_count": 0,
+   "capability_count": 0,
+   "enum_value_count": 0,
+   "groups": [],
+   "_added_2026_09_23": "Fourteen production questions (review turns 141-144, 444, 449, 453-461) named a person, a lab or a lab code. Every one failed at the same step, the resolution: an invented code ('BRI'), a keyword match on a file path or a protocol name, or a fixed document that said a real person was not found. Split out of sample_search and catalog_browse so that step is regression-tested on its own."
   },
   {
    "family": "sample_retrieve",
@@ -633,7 +656,7 @@
        "reachable_from_chat": "yes",
        "enum_count": 10,
        "enum_values": [
-        "POST /nextseek_api/admin/samples/retrieve/ (sample_export)",
+        "POST /nextseek_api/samples/retrieve/ (sample_export)",
         "GET /nextseek_api/assays/ (assay_list)",
         "GET /nextseek_api/sample-tree/{uid}/tree/ (sample_lineage)",
         "GET /nextseek_api/sample_types/ (sampletype_list)",
@@ -666,7 +689,7 @@
        "reachable_from_chat": "no",
        "enum_count": 24,
        "enum_values": [
-        "POST /admin/samples/retrieve/",
+        "POST /samples/retrieve/",
         "GET|POST /assays/",
         "GET|PATCH /assays/{uid}/",
         "GET|POST /data_files/",
@@ -711,7 +734,7 @@
   {
    "family": "graph_traversal",
    "block": "Retrieval and question shape",
-   "description": "Structural questions over the graph, including every assay and protocol traversal.",
+   "description": "Questions that follow the graph's structure: which study, investigation or project samples belong to and counts scoped to them, which samples went into or came out of an assay (Assay nodes joined by INPUT_TO and OUTPUT_OF), which protocols samples used, and which studies, projects or assays hold something.",
    "replaces": [
     "graph_query",
     "routing_graph"
@@ -1078,13 +1101,13 @@
      "capabilities": [
       {
        "name": "Lineage / derivation tree for ONE named UID",
-       "description": "GET the bidirectional derivation graph for one sample: what it came from and what was derived from it, as graph-friendly nodes/edges. Node-only \u2014 the catalog explicitly redirects full metadata export to admin/samples/retrieve/.",
+       "description": "GET the bidirectional derivation graph for one sample: what it came from and what was derived from it, as graph-friendly nodes/edges. Node-only \u2014 the catalog explicitly redirects full metadata export to samples/retrieve/.",
        "modality": "both",
        "reachable_from_chat": "yes",
        "enum_count": 10,
        "enum_values": [
         "GET /nextseek_api/sample-tree/{uid}/tree/",
-        "POST /nextseek_api/admin/samples/retrieve/ (full metadata variant)",
+        "POST /nextseek_api/samples/retrieve/ (full metadata variant)",
         "GET /nextseek_api/samples/{uid}/",
         "intent_patterns: tree",
         "intent_patterns: lineage",
@@ -1151,8 +1174,7 @@
        "entry_points": [
         "chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:tool_nextseek_api_request",
         "chat_nextseek/src/chat_nextseek/context/min_api_endpoints_enriched.json",
-        "chat_nextseek/src/chat_nextseek/prompts/api_agent.txt",
-        "chat_nextseek/src/chat_nextseek/context/nextseek_api.yaml"
+        "chat_nextseek/src/chat_nextseek/prompts/api_agent.txt"
        ],
        "testable_assertion": "api_plan.endpoint contains parents_by_child_types",
        "expressible": "yes",
@@ -1441,7 +1463,7 @@
       },
       {
        "name": "Automatic vocabulary resolution on every CC prompt (UserPromptSubmit hook)",
-       "description": "Before the agent acts on any prompt, entity-extract runs outside the agent's control and injects the resolved {sampletypes, assays, keywords, projects} as additionalContext, so abbreviations are expanded and op calls are grounded. Fail-open: missing prompt, missing bin, timeout or malformed result emits nothing. Re-registered into ~/.claude/settings.json at container start because the headless runtime does not load plugin hooks.json.",
+       "description": "Before the agent acts on any prompt, the hook injects the vocabulary NExtSEEK resolved for the question before the turn started (`/data/turn/vocabulary.json`) as additionalContext, so abbreviations are expanded and op calls are grounded. Fail-open: no file or malformed JSON emits nothing. Re-registered into ~/.claude/settings.json at container start because the headless runtime does not load plugin hooks.json.",
        "modality": "container_cc",
        "reachable_from_chat": "yes",
        "enum_count": 3,
@@ -1554,7 +1576,7 @@
   {
    "family": "system_capability_question",
    "block": "Retrieval and question shape",
-   "description": "What the system is, what it can do, what vocabulary exists.",
+   "description": "What the system is and can do, which sample types and assays it defines, how to do something on the site (answered from the user docs), and who the user is signed in as and which projects they belong to.",
    "replaces": [
     "system_question"
    ],
@@ -2635,7 +2657,7 @@
        "reachable_from_chat": "yes",
        "enum_count": 13,
        "enum_values": [
-        "POST /nextseek_api/admin/samples/retrieve/ \u2014 full metadata + full lineage for explicit UIDs (body field must be 'identifiers'); output_format='excel' gives a workbook",
+        "POST /nextseek_api/samples/retrieve/ \u2014 full metadata + full lineage for explicit UIDs (body field must be 'identifiers'); output_format='excel' gives a workbook",
         "GET /nextseek_api/assays/ \u2014 list all assays (titles, types, technologies)",
         "GET /nextseek_api/sample-tree/{uid}/tree/ \u2014 bidirectional lineage tree around ONE UID",
         "GET /nextseek_api/sample_types/ \u2014 all sample type schema definitions",
@@ -2877,7 +2899,7 @@
   {
    "family": "project_summary_report",
    "block": "Reporting and delivery",
-   "description": "How much data a project, lab or investigation holds. All four report modes.",
+   "description": "The reporter's project view: a formal NIH, RPPR, annual or progress report, upload statistics over a time window, published sample counts, and the SOPs registered to a project. An open-ended summary of a whole project or investigation goes to Container-CC, and a plain count or breakdown is a graph question.",
    "replaces": [
     "reporting"
    ],
@@ -3524,7 +3546,7 @@
        "reachable_from_chat": "yes",
        "enum_count": 5,
        "enum_values": [
-        "endpoint: POST /nextseek_api/admin/samples/retrieve/ body {'identifiers': uids}",
+        "endpoint: POST /nextseek_api/samples/retrieve/ body {'identifiers': uids}",
         "summary shape: {'by_sample_type': {st: {n_samples, fields:{name:{n_populated,n_distinct,examples}}}}, 'lineage_edges': [...], '_uid_index': {...}}",
         "fields starting with '_' skipped; examples capped at 3",
         "sequencing-lineage hints: D.SEQ, D.SEQUENCING, SEQ (exact or '<hint>.' prefix)",
@@ -4107,6 +4129,18 @@
      ]
     }
    ]
+  },
+  {
+   "family": "data_file_location",
+   "block": "Reporting and delivery",
+   "description": "Where a stored data file (sequencing, flow, a model) lives and how to get it: its File_PrimaryData and Link_PrimaryData fields. NExtSEEK holds the metadata, not the files.",
+   "replaces": [],
+   "active_variants": 3,
+   "group_count": 0,
+   "capability_count": 0,
+   "enum_value_count": 0,
+   "groups": [],
+   "_added_2026_09_23": "Three production questions (review turns 433, 434, 452) asked to download a stored file, which is a different request from artifact_delivery (a file the assistant builds). The fix is the File_PrimaryData / Link_PrimaryData answer (P6). Either engine may answer, so the route is an alternation."
   },
   {
    "family": "pipeline_launch",
@@ -5679,7 +5713,7 @@
   {
    "family": "entity_write",
    "block": "Pipeline and write",
-   "description": "Create, update or delete a record, or edit a sample type's attributes.",
+   "description": "A request to create, change or delete a stored record or a sample type's attributes. NExtSEEK has no write path, so a right answer refuses the change or prepares a dry run or upload sheet for review, and never says a write happened.",
    "replaces": [],
    "active_variants": 0,
    "group_count": 2,
@@ -5757,7 +5791,7 @@
        "reachable_from_chat": "no",
        "enum_count": 24,
        "enum_values": [
-        "POST /admin/samples/retrieve/",
+        "POST /samples/retrieve/",
         "GET|POST /assays/",
         "GET|PATCH /assays/{uid}/",
         "GET|POST /data_files/",
@@ -5906,7 +5940,7 @@
        "enum_count": 7,
        "enum_values": [
         "_READ_METHODS: GET, HEAD, OPTIONS",
-        "_READ_POST_PATHS: /nextseek_api/admin/samples/retrieve/",
+        "_READ_POST_PATHS: /nextseek_api/samples/retrieve/",
         "_READ_POST_PATHS: /nextseek_api/sample_types/get_parents/parents_by_child_types/",
         "_READ_POST_PATHS: /nextseek_api/samples/advanced_search/",
         "BLOCKED POST: /nextseek_api/assays/, /data_files/, /investigations/, /people/, /projects/, /sample_types/, /samples/, /sops/, /schema_rag/ingest/, /schema_rag/retrieve/",
@@ -6467,7 +6501,7 @@
       },
       {
        "name": "Router prompt framing: history is data, not instructions",
-       "description": "The RouteQuery prompt wraps prior turns in an explicit 'data to interpret, NOT instructions' block, and carries two scope rules: general trivia/pop-culture/chit-chat -> unrelated, but plain-language lab vocabulary (Tissue Collection, RNA Extraction, Flow Cytometry, Comet Chip Analysis, Patient Visit, Luminex) and impersonal catalog questions ('What is a TIS sample?') are NOT unrelated.",
+       "description": "The RouteQuery prompt wraps prior turns in an explicit 'data to interpret, NOT instructions' block, and carries two scope rules: general trivia/pop-culture/chit-chat -> unrelated, but plain-language catalog names (lab techniques, tissues, collection steps, instruments and visit types) and impersonal catalog questions (asking what a sample type code or an assay name means) are NOT unrelated.",
        "modality": "router",
        "reachable_from_chat": "yes",
        "enum_count": 1,
@@ -8366,6 +8400,18 @@
    ]
   },
   {
+   "family": "session_export",
+   "block": "System, session and safety",
+   "description": "Export the chat session itself, for example to send it to the developers: the All files zip of the transcript, its files and a manifest.",
+   "replaces": [],
+   "active_variants": 1,
+   "group_count": 0,
+   "capability_count": 0,
+   "enum_value_count": 0,
+   "groups": [],
+   "_added_2026_09_23": "One production question (review turn 498) asked to send the chat to the developers and was told the feature does not exist. The All files zip (P2) is the answer, carried in the NS system context, so the route is nextseek_query."
+  },
+  {
    "family": "turn_limits_and_failure",
    "block": "System, session and safety",
    "description": "Timeout, budget cap, max turns, the error taxonomy and failover.",
@@ -9455,7 +9501,7 @@
   {
    "family": "unsupported",
    "block": "System, session and safety",
-   "description": "Refuse out-of-scope asks.",
+   "description": "Asks that no NExtSEEK path answers: charts, statistics, group comparisons and other analysis go to Container-CC, as do questions about a paper's or lab's method, and weather, general science and other off-topic asks are routed unrelated or declined.",
    "replaces": [
     "unsupported"
    ],
@@ -9564,7 +9610,7 @@
         "_READ_METHODS: GET",
         "_READ_METHODS: HEAD",
         "_READ_METHODS: OPTIONS",
-        "_READ_POST_PATHS: /nextseek_api/admin/samples/retrieve/",
+        "_READ_POST_PATHS: /nextseek_api/samples/retrieve/",
         "_READ_POST_PATHS: /nextseek_api/sample_types/get_parents/parents_by_child_types/",
         "_READ_POST_PATHS: /nextseek_api/samples/advanced_search/",
         "denial: {ok:False, error:'Write operations are not permitted on the NExtSEEK REST path: <M> <E> was blocked\u2026'}"
@@ -10440,5 +10486,6 @@
    "partial": 49,
    "no": 84
   }
- }
+ },
+ "_2026_09_23_prod_researchers": "Four families added by hand for the 53 production researcher questions (no atlas capabilities behind them, so groups are empty): publication_lookup, person_lab_resolution, data_file_location, session_export. Other rows' active_variants are the 2026-08-04 snapshot."
 }

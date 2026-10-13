@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { ChevronDown, Search } from "lucide-react";
+import { useState, useMemo, useId } from "react";
+import { ChevronDown, CornerDownRight, Info, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/lib/types/chat";
 import { Badge } from "@/components/ui/badge";
@@ -55,10 +55,26 @@ interface MessageBubbleProps {
   index?: number;
   onArtifactDownload?: (bundleId: number, artifactKey: string) => void;
   onCcArtifactDownload?: (artifactKey: string) => void;
+  /** Sends a suggestion chip's query as the next message. */
+  onSuggestion?: (query: string) => void;
+  /** A turn is in flight: the chips show but cannot be clicked. */
+  disabled?: boolean;
+  /** This is the newest assistant reply, the only one whose chips show. */
+  isLast?: boolean;
 }
 
-export function MessageBubble({ message, index, onArtifactDownload, onCcArtifactDownload }: MessageBubbleProps) {
+export function MessageBubble({
+  message,
+  index,
+  onArtifactDownload,
+  onCcArtifactDownload,
+  onSuggestion,
+  disabled,
+  isLast,
+}: MessageBubbleProps) {
   const [debugOpen, setDebugOpen] = useState(false);
+  const [reasonOpen, setReasonOpen] = useState<number | null>(null);
+  const detailsId = useId();
 
   // Strip debug sections from assistant messages
   const { cleanContent, extractedSections } = useMemo(() => {
@@ -92,6 +108,14 @@ export function MessageBubble({ message, index, onArtifactDownload, onCcArtifact
   const hasExtracted = extractedSections.length > 0;
   const hasCcTrace = !message.isUser && (message.ccTraces?.length ?? 0) > 0;
   const hasSearchDetails = hasDebug || hasExtracted || hasCcTrace;
+  // The reviewer's chips (#128): under the newest reply only, and only those with
+  // a label to show and a query to send, since the list comes from the server.
+  const chips =
+    !message.isUser && isLast && onSuggestion && Array.isArray(message.suggestions)
+      ? message.suggestions.filter(
+          (s) => typeof s?.label === "string" && s.label !== "" && typeof s.query === "string" && s.query !== "",
+        )
+      : [];
 
   return (
     <div
@@ -106,7 +130,8 @@ export function MessageBubble({ message, index, onArtifactDownload, onCcArtifact
       {/* Message bubble */}
       <div
         className={cn(
-          "max-w-[80%] px-4 py-2 text-lg",
+          "px-4 py-2 text-lg md:max-w-[80%]",
+          message.isUser ? "max-w-[85%]" : "max-w-full",
           message.isUser
             ? "whitespace-pre-wrap rounded-2xl rounded-br-sm bg-primary text-primary-foreground"
             : "rounded-2xl rounded-bl-sm border bg-card",
@@ -123,14 +148,62 @@ export function MessageBubble({ message, index, onArtifactDownload, onCcArtifact
         )}
       </div>
 
+      {/* Suggested next questions. Label and reason are React text, never markup. */}
+      {chips.length > 0 && (
+        <div
+          role="group"
+          aria-label="Suggested next questions"
+          className="mt-1.5 flex max-w-full flex-wrap gap-1.5 md:max-w-[80%]"
+        >
+          {chips.map((s, i) => (
+            <div key={s.id || i} className="flex flex-col">
+              <div className="flex items-stretch gap-0.5">
+                <button
+                  type="button"
+                  data-testid="suggestion-chip"
+                  data-source={s.source}
+                  data-suggestion-id={s.id}
+                  disabled={disabled}
+                  onClick={() => onSuggestion?.(s.query)}
+                  className="flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-left text-xs text-muted-foreground transition-colors enabled:hover:bg-muted/60 enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 [@media(pointer:coarse)]:min-h-11"
+                >
+                  <CornerDownRight className="h-3 w-3 shrink-0" />
+                  <span>{s.label}</span>
+                </button>
+                {s.reason && (
+                  <button
+                    type="button"
+                    data-testid="suggestion-reason-toggle"
+                    aria-label={`Why: ${s.label}`}
+                    aria-expanded={reasonOpen === i}
+                    aria-controls={`${detailsId}-reason-${i}`}
+                    onClick={() => setReasonOpen((v) => (v === i ? null : i))}
+                    className="flex items-center rounded-md px-1.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 [@media(pointer:coarse)]:justify-center"
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              {s.reason && reasonOpen === i && (
+                <p id={`${detailsId}-reason-${i}`} className="mt-1 max-w-xs text-xs text-muted-foreground">
+                  {s.reason}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Search Details (assistant messages only) */}
       {hasSearchDetails && (
-        <div className="mt-1.5 flex max-w-[80%] flex-col gap-1.5">
+        <div className="mt-1.5 flex max-w-full flex-col gap-1.5 md:max-w-[80%]">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setDebugOpen((v) => !v)}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+              aria-expanded={debugOpen}
+              aria-controls={detailsId}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs [@media(pointer:coarse)]:min-h-11 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
             >
               <Search className="h-3 w-3" />
               <span>Search Details</span>
@@ -145,7 +218,7 @@ export function MessageBubble({ message, index, onArtifactDownload, onCcArtifact
 
           {/* Collapsible details panel */}
           {debugOpen && hasSearchDetails && (
-            <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+            <div id={detailsId} className="rounded-lg border border-border/60 bg-muted/20 p-3">
               {/* Extracted markdown sections (search summary, API preview) */}
               {extractedSections.map((section, i) => (
                 <div key={i} className="mb-2 text-xs last:mb-0">
@@ -158,7 +231,7 @@ export function MessageBubble({ message, index, onArtifactDownload, onCcArtifact
                 <div className={cn("space-y-2", hasExtracted && "mt-2 border-t border-border/40 pt-2")}>
                   {message.debugEntries!.map((entry, i) => (
                     <div key={i} className="flex items-start gap-2">
-                      <Badge variant="secondary" className="shrink-0 text-[10px] font-mono">
+                      <Badge variant="secondary" className="shrink-0 text-xs font-mono">
                         {entry.agent}
                       </Badge>
                       <p className="text-xs leading-relaxed text-muted-foreground">

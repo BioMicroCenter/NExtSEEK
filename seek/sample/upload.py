@@ -149,6 +149,15 @@ class SampleUploadMixin:
         uid = record_new['uuid']
         msg, status, sample_id = self.storeOneRecord(username, record_new)
         logger.debug(f"Username {username} storing record {record_new}")
+        # A failed insert comes back as id 0 (or -1) with status 1; linking it would write rows for sample 0.
+        # An existing sample's id comes back as a str ("42"), so compare it as an int.
+        try:
+            has_id = int(sample_id) > 0
+        except (TypeError, ValueError):
+            has_id = False
+        if status and not has_id:
+            status = 0
+            msg = msg or 'insert returned no sample id;'
         if status:
             if newSample:
                 self._updateSampleProject(creator, sample_id)
@@ -372,9 +381,6 @@ class SampleUploadMixin:
                 nright += 1
                 if samplename not in uids_predefined:
                     uids_predefined[samplename] = uid
-                #with ThreadPoolExecutor() as executor:
-                #    sample_id = self.getSampleID(uid)
-                #    executor.submit(updateTrees, sample_id)
             else:
                 statusTest = False
                 msg0 += msgi +  '<br/>'

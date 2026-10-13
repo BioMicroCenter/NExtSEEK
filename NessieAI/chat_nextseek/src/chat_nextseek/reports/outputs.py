@@ -6,9 +6,11 @@ Moved out of ``helpers.py`` during Phase 2 of the src/ restructure.
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any, Callable
 
+from .. import call_scope
 from ..artifacts import ArtifactStore
 from ..config import ChatConfig
 from ..schemas import ReportWriterPlan, ReportWriterOutput, ReportWriterOutputGEO
@@ -224,13 +226,16 @@ def generate_report_outputs(
             key = (ref.get("source", ""), ref.get("value", ""))
             if key[1]:
                 all_protocol_refs[key] = ref
-    protocol_payloads = fetch_protocols(config, list(all_protocol_refs.values())) if all_protocol_refs else {}
+    # Inside an op the fetches and downloads stop at its deadline (approach 1, piece 2); an NS turn sets none.
+    left = call_scope.time_left_for(float("inf"))
+    deadline = None if left == float("inf") else time.monotonic() + (left or 0.0)
+    protocol_payloads = fetch_protocols(config, list(all_protocol_refs.values()), deadline=deadline) if all_protocol_refs else {}
     if protocol_payloads:
         ok_ids = [pid for pid, resp in protocol_payloads.items() if isinstance(resp, dict) and resp.get("ok")]
         print("[DEBUG][REPORTER_PROTOCOL] Protocol fetch complete. ok:", ok_ids, "total:", len(protocol_payloads))
     else:
         print("[DEBUG][REPORTER_PROTOCOL] No protocols discovered.")
-    protocol_files = download_and_extract_protocol_blobs(protocol_payloads, log_dir, config=config) if protocol_payloads else {}
+    protocol_files = download_and_extract_protocol_blobs(protocol_payloads, log_dir, config=config, deadline=deadline) if protocol_payloads else {}
     if protocol_files:
         print("[DEBUG][REPORTER_PROTOCOL] Downloaded/extracted protocol files for IDs:", list(protocol_files.keys()))
 

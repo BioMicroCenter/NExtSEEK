@@ -57,7 +57,7 @@ from ci.writers import GRAPH_SOURCE_TABLES  # noqa: E402
 
 # Everything the application, its tools and its installer hold. docs/ is scanned
 # for .sql only: the publication rollout's hand SQL is archived there.
-SCAN_ROOTS = ("nextseek_api", "seek", "dmac", "api_app", "NessieAI", "scripts", "startup", "ci", "docker")
+SCAN_ROOTS = ("nextseek_api", "nextseek_graph", "seek", "dmac", "NessieAI", "scripts", "startup", "ci", "docker")
 SQL_ROOTS = ("docs",)
 SKIP_PARTS = frozenset({".git", ".venv", "__pycache__", "node_modules", "migrations", "history", "baml_client"})
 

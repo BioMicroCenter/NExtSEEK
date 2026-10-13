@@ -175,8 +175,12 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
               </li>
               <li>
                 A step-by-step task takes longer and can run for up to about three minutes. At
-                three minutes it is stopped, and the chat shows an error saying the turn
-                &ldquo;exceeded the 180s limit and was stopped&rdquo;.
+                three minutes it is stopped, and the chat says it took longer than the 3-minute
+                limit. Say continue and it carries on from where it got to.
+              </li>
+              <li>
+                If the AI model is unavailable, Nessie tries a second one. If that fails too, the
+                chat says so; ask again in a few minutes.
               </li>
               <li>
                 While Nessie works, the progress steps in the chat show what is running, and the

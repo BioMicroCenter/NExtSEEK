@@ -58,7 +58,7 @@ def test_the_protocol_gate(question, fires):
 
 
 def test_the_gate_word_lists():
-    assert gc.PROTOCOL_WORDS == ("protocol", "method", "procedure", "technique")
+    assert gc.PROTOCOL_WORDS == ("protocol", "sop", "method", "procedure", "technique")  # "sop": 2026-09-24, SOP == protocol
     assert gc.ASSAY_WORDS == ("assay", "sequencing", "cytometry", "spectrometry", "imaging", "data", "dataset",
                               "processed", "associated", "underwent", "via", "collection", "extraction")
 
@@ -154,7 +154,8 @@ def test_a_vocabulary_under_budget_renders_as_before():
         'INVESTIGATION TITLES (Investigation.title):\n"Impact", "MetNet"\n\n'
         'PROJECT TITLES (Project.title):\n"Core"\n\n'
         'STUDY TITLES (Study.title):\n"A lung paper"\n\n'
-        'PUBLISHED STUDIES (Study nodes with a DOI or PMID):\n- "A lung paper", DOI 10.1/x, PMID 123\n\n'
+        'PUBLISHED STUDIES (a DOI or PMID on the study, or on most of its samples):\n'
+        '- "A lung paper", DOI 10.1/x, PMID 123\n\n'
         'ASSAY TITLES (DERIVED_FROM.internal_assay_title values):\n"Bulk RNA Sequencing", "Flow Cytometry"\n\n'
         "ASSAY-SAMPLE CONNECTIONS (assay: parent type -> child type; shows which side of an assay a sample type "
         'sits on):\n- "Bulk RNA Sequencing": RNA -> D.SEQ, TIS -> D.SEQ\n\n'

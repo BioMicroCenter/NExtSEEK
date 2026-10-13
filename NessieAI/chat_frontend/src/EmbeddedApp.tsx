@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMessages, useProcessingState } from "@/hooks";
 import { useChatRoute } from "@/hooks/useChatRoute";
+import { PHONE_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 import { useSessions } from "@/hooks/useSessions";
 import { NextseekApiService } from "@/lib/services/chatApi";
 import { SessionAuthService } from "@/lib/services/sessionAuth";
@@ -20,6 +21,7 @@ import type {
   QueryCompleteData,
   QueryErrorData,
   RouteDecidedData,
+  PreludeStepData,
   CcTurnMetaData,
   Turn,
 } from "@/lib/types/api";
@@ -30,6 +32,8 @@ import { debugForTurns } from "@/lib/debugForTurns";
 export function EmbeddedApp() {
   const [rightOpen, setRightOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const isPhone = useMediaQuery(PHONE_QUERY);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("chat.sidebar.collapsed") === "1";
   });
@@ -38,17 +42,21 @@ export function EmbeddedApp() {
   const sessionAuthRef = useRef(new SessionAuthService());
   const serviceRef = useRef(new NextseekApiService(sessionAuthRef.current));
   const [isQuerying, setIsQuerying] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdminUser, setIsAdmin] = useState(false);
+  // The admin controls are hidden below 768px, so no stored override applies there either.
+  const isAdmin = isAdminUser && !isPhone;
 
   const { messages, addUserMessage, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, hydrateFromTurns } = useMessages();
   const pendingDebugRef = useRef<DebugEntry[]>([]);
   const {
     processingState,
+    handlePreludeStep,
     handleRouteDecided,
     handleAgentStarted,
     handleAgentComplete,
     handleSearchStarted,
     handleSearchComplete,
+    handleSelectionEvent,
     resetProcessing,
   } = useProcessingState();
 
@@ -121,6 +129,10 @@ export function EmbeddedApp() {
           setDebugData((prev) => ({ ...prev, entries: [...prev.entries, entry] }));
           break;
         }
+        case "prelude_step": {
+          handlePreludeStep(event.data as PreludeStepData);
+          break;
+        }
         case "route_decided": {
           handleRouteDecided(event.data as RouteDecidedData);
           const entry = makeDebugEntry("router", routeDecidedSummary(event.data as RouteDecidedData));
@@ -142,6 +154,15 @@ export function EmbeddedApp() {
           handleSearchComplete(event.data as SearchCompleteData);
           break;
         }
+        // The nf-core pipeline agent's select_pipeline step: a digest build plus
+        // its own ~84k-token model call, and the one part of a pipeline turn long
+        // enough that dropping these would leave the user watching nothing.
+        case "selection_started":
+        case "selection_evidence_ready":
+        case "selection_done": {
+          handleSelectionEvent(event.event, event.data);
+          break;
+        }
         case "query_complete": {
           const d = event.data as QueryCompleteData;
           addAssistantMessage(d.reply);
@@ -150,6 +171,9 @@ export function EmbeddedApp() {
           const artifacts = d.artifacts ?? null;
           const ccTraces = d.cc_traces ?? undefined;
           const mode = d.mode ?? undefined;
+          // The reviewer's chips (#128), on an NS turn only: a CC turn carries no
+          // debug, so its reply gets none. Kept in step with AppLayout.
+          const suggestions = d.debug?.suggestions ?? undefined;
           queueMicrotask(() => {
             updateLastAssistantMessage({
               debugEntries: captured,
@@ -157,6 +181,7 @@ export function EmbeddedApp() {
               artifacts,
               ccTraces,
               mode,
+              suggestions,
             });
           });
           resetProcessing();
@@ -186,7 +211,7 @@ export function EmbeddedApp() {
         }
       }
     },
-    [handleRouteDecided, handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, sessions],
+    [handlePreludeStep, handleRouteDecided, handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, handleSelectionEvent, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, sessions],
   );
 
   const handleQueryError = useCallback(
@@ -265,12 +290,13 @@ export function EmbeddedApp() {
   }, [sessions.activeSessionId, addSystemMessage]);
 
   const toggleSidebar = useCallback(() => {
+    if (isPhone) { setSheetOpen((o) => !o); return; }
     setSidebarCollapsed((prev) => {
       const next = !prev;
       localStorage.setItem("chat.sidebar.collapsed", next ? "1" : "0");
       return next;
     });
-  }, []);
+  }, [isPhone]);
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
@@ -279,11 +305,13 @@ export function EmbeddedApp() {
         onLeftToggle={toggleSidebar}
         onAboutOpen={() => setAboutOpen(true)}
       />
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <SessionSidebar
           sessions={sessions.sessions}
           activeSessionId={sessions.activeSessionId}
           collapsed={sidebarCollapsed}
+          sheetOpen={sheetOpen}
+          onSheetOpenChange={setSheetOpen}
           inFlight={isQuerying || sessions.isHydrating}
           onNewChat={sessions.newChat}
           onSelect={(id) => sessions.setActive(id).catch(() => addSystemMessage("Couldn't load this conversation."))}

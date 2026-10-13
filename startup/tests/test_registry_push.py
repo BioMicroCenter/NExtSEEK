@@ -55,6 +55,12 @@ def _stub_the_rebuild_ci_hook(monkeypatch: pytest.MonkeyPatch) -> None:
             advisory=(),
         ),
     )
+    # Nor may one ask a real app container how its graph sync is doing. These tests run `rebuild` on the real
+    # checkout, whose docker-compose.yml lets that check reach a real docker daemon on any profile.
+    monkeypatch.setattr(
+        validate, "check_graph_sync_health",
+        lambda repo_root, env: validate.HealthResult("graph sync health", True, "not asked in this test"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +151,16 @@ def test_gate_passes_with_only_env_example(mock_run: MagicMock) -> None:
     mock_run.side_effect = _gate_run_dispatcher("/app/docker/nextseek.env.example\n")
     ok, detail = baked_secret_gate("img:latest")
     assert ok is True
+
+
+@patch("startup.steps.registry_push.subprocess.run")
+def test_gate_passes_with_the_laya_env_example(mock_run: MagicMock) -> None:
+    # docker/laya.env.example holds only a placeholder LAYA_API_KEY, like nextseek.env.example.
+    mock_run.side_effect = _gate_run_dispatcher(
+        "/app/docker/nextseek.env.example\n/app/docker/laya.env.example\n"
+    )
+    ok, detail = baked_secret_gate("img:latest")
+    assert ok is True, detail
 
 
 @patch("startup.steps.registry_push.subprocess.run")

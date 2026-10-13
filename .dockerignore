@@ -41,7 +41,8 @@ logs/
 .claude/
 
 # Local runtime config / secrets — provided at runtime, never needed in the image:
-#   dmac/local_settings.py  is bind-mounted over /app/dmac/local_settings.py
+#   dmac/local_settings.py  is bind-mounted over /app/dmac/local_settings.py (and
+#     install writes the template's version beside it as local_settings.py.new)
 #   docker/db.env, docker/nextseek.env  are injected via compose env_file
 #   NessieAI/docker/bedrock-proxy/proxy-secret.env  is the proxy's env_file (real
 #     Bedrock token); matched at any depth, so a moved directory stays covered
@@ -50,7 +51,7 @@ logs/
 # rotation backups, a root .env) carry the same secrets and must never enter the
 # build context either. Committed *.example templates are re-included explicitly
 # (last matching rule wins).
-dmac/local_settings.py
+dmac/local_settings.py*
 docker/db.env*
 docker/nextseek.env*
 !docker/nextseek.env.example

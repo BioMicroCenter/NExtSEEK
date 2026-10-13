@@ -26,8 +26,10 @@ from chat_nextseek.cypher_scope import (
     Scoped,
     scope_cypher,
 )
+from chat_nextseek.graph_contract import schema
 from chat_nextseek.graph_scope import SCOPE_PARAM, GraphScope
 
+from NessieAI.tests.chat_nextseek.graph_scope import fixture_graph
 from NessieAI.tests.chat_nextseek.graph_scope.battery import (
     ACCEPTED,
     TAUGHT,
@@ -130,12 +132,16 @@ def test_every_injected_line_is_in_the_text(case):
 def test_report_statements_are_proven(tmp_path):
     captured = report_statements(tmp_path)
     assert len(captured) == 3
-    for cypher, params in captured:
+    for n, (cypher, params) in enumerate(captured):
         assert cypher.startswith("MATCH (inv:Investigation)<-[:IN_INVESTIGATION]-(study:Study)<-[:IN_STUDY]-(s:Sample)")
         out = scope_cypher(cypher, params, CALLER)
         assert isinstance(out, Scoped), getattr(out, "reasons", out)
-        assert out.injected == ("s: sample clause",)
-        assert out.joined == ("inv (Investigation): joined to study", "study (Study): joined to s")
+        # the published report (the third statement) matches the investigations of the project its name resolved to,
+        # and also asks whether a sample sits in a paper study
+        project = ("proj: project clause",) if n == 2 else ()
+        assert out.injected == ("s: sample clause",) + project
+        paper = ("pub (Study): joined to s",) if n == 2 else ()
+        assert out.joined == ("inv (Investigation): joined to study", "study (Study): joined to s") + paper
         assert out.parameters == {**params, SCOPE_PARAM: [1, 3]}
 
 
@@ -181,14 +187,36 @@ def test_function_allowlist_pin():
 
 
 def test_label_and_relationship_tables_pin():
-    assert cypher_scope.SAMPLE_LABEL == "Sample"
-    assert cypher_scope.SAMPLE_TYPE_LABEL_PREFIX == "T_"
-    assert cypher_scope.PROJECT_LABEL == "Project"
+    # The names are the contract's own objects.
+    assert cypher_scope.SAMPLE_LABEL is schema.SAMPLE
+    assert cypher_scope.SAMPLE_TYPE_LABEL_PREFIX is schema.TYPE_LABEL_PREFIX
+    assert cypher_scope.PROJECT_LABEL is schema.PROJECT
+    assert cypher_scope.LINEAGE_RELATIONSHIP is schema.DERIVED_FROM
+    assert cypher_scope.FULLTEXT_INDEX is schema.FULLTEXT_INDEX
+    # Python interns short identifier-like strings, so `is` holds for a restated literal too: the assignments
+    # themselves must read the contract.
+    import ast
+    import inspect
+
+    bound = {target.id: ast.unparse(node.value) for node in ast.parse(inspect.getsource(cypher_scope)).body
+             if isinstance(node, ast.Assign) for target in node.targets if isinstance(target, ast.Name)}
+    assert bound["SAMPLE_LABEL"] == "schema.SAMPLE"
+    assert bound["SAMPLE_TYPE_LABEL_PREFIX"] == "schema.TYPE_LABEL_PREFIX"
+    assert bound["PROJECT_LABEL"] == "schema.PROJECT"
+    assert bound["LINEAGE_RELATIONSHIP"] == "schema.DERIVED_FROM"
+    assert bound["FULLTEXT_INDEX"] == "schema.FULLTEXT_INDEX"
+    # The policy sets keep their literal pins, and name only labels and relationship types the graph has.
     assert cypher_scope.JOINED_LABELS == frozenset({"Study", "Investigation", "Person"})
-    assert cypher_scope.LINEAGE_RELATIONSHIP == "DERIVED_FROM"
-    assert cypher_scope.FIXED_RELATIONSHIPS == frozenset({"IN_STUDY", "IN_INVESTIGATION", "IN_PROJECT", "MEMBER_OF"})
+    assert cypher_scope.JOINED_LABELS <= schema.LABELS_V11
+    assert cypher_scope.ASSAY_LABEL is schema.ASSAY
+    assert cypher_scope.FIXED_RELATIONSHIPS == frozenset({"IN_STUDY", "IN_INVESTIGATION", "IN_PROJECT", "MEMBER_OF",
+                                                          "INPUT_TO", "OUTPUT_OF"})
+    assert cypher_scope.ASSAY_RELATIONSHIPS == frozenset({"INPUT_TO", "OUTPUT_OF"})
+    # K3's pin, widened: the fixed relationships are relationship types of 1.1 or 1.3, the Assay ones of 1.3.
+    assert cypher_scope.FIXED_RELATIONSHIPS <= set(schema.RELATIONSHIPS_V11) | set(schema.RELATIONSHIPS_V13)
+    assert cypher_scope.ASSAY_RELATIONSHIPS <= set(schema.RELATIONSHIPS_V13)
+    # A Neo4j procedure, not a graph name.
     assert cypher_scope.FULLTEXT_PROCEDURE == "db.index.fulltext.queryNodes"
-    assert cypher_scope.FULLTEXT_INDEX == "sample_search_text"
 
 
 @pytest.mark.parametrize("name", ["apoc.text.join", "apoc.coll.toSet", "apoc.date.format", "toLower", "TOUPPER",
@@ -203,12 +231,38 @@ def test_prover_module_is_pure():
     import ast
     import inspect
 
-    tree = ast.parse(inspect.getsource(cypher_scope))
-    imported: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imported.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            imported.add(("." * node.level) + (node.module or ""))
-    allowed = {"__future__", "dataclasses", "typing", "collections.abc", ".graph_scope"}
+    from chat_nextseek import graph_contract
+
+    def imports_of(module) -> set[str]:
+        imported: set[str] = set()
+        for node in ast.walk(ast.parse(inspect.getsource(module))):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imported.add(("." * node.level) + (node.module or ""))
+        return imported
+
+    imported = imports_of(cypher_scope)
+    # .graph_contract is chat_nextseek's one door to the graph contract, names and not behaviour.
+    allowed = {"__future__", "dataclasses", "typing", "collections.abc", ".graph_scope", ".graph_contract"}
     assert imported <= allowed, imported - allowed
+    # The door imports nextseek_graph.schema (standard library only, nothing done at import) or loads that file by its
+    # path, and nothing else: no driver, Django, agent or config reaches the prover through it.
+    assert imports_of(graph_contract) == {"__future__", "importlib.util", "pathlib", "types", "nextseek_graph"}
+
+
+# --------------------------------------------------------------------------- #
+# The lane fixture's Assay layer (graph schema 1.3)
+# --------------------------------------------------------------------------- #
+
+def test_the_lane_fixture_s_assay_layer_follows_the_role_rule():
+    links = {(link["uuid"], link["role"], link["assay"]): link["runs"] for link in fixture_graph.assay_links()}
+    for k, (child, parent, assay, _protocol) in enumerate(fixture_graph.DERIVED_FROM):
+        assert fixture_graph.RUN_BASE + k in links[(child, "OUTPUT_OF", assay)]
+        assert fixture_graph.RUN_BASE + k in links[(parent, "INPUT_TO", assay)]
+    assert not {uuid for uuid, _, _ in links} & {orphan["uuid"] for orphan in fixture_graph.ORPHANS}
+    assert {a["title"] for a in fixture_graph.ASSAYS} == {row[2] for row in fixture_graph.DERIVED_FROM}
+    assert fixture_graph.forbidden_markers(repr(fixture_graph.ASSAYS), ()) == [], "every caller may read an Assay"
+    assert fixture_graph.GRAPH_META["schema_version"] == "1.3"
+    staining = {uuid for (uuid, role, assay) in links if role == "INPUT_TO" and assay == "Staining"}
+    assert staining == {"TIS-230102AAA-2", "TIS-230202BBB-2", "TIS-230402DDD-2"}

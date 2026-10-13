@@ -489,6 +489,28 @@ def test_cost_only_and_checks_print_and_write_nothing(tmp_path, capsys):
     assert _tree(tmp_path) == before
 
 
+@pytest.mark.parametrize("query_error, outaged", [
+    ({"error": "The AI models we use were unavailable, so I could not finish your question.",
+      "reason": "model_unavailable", "detail": "HTTP 503"}, True),
+    ({"error": "Internal", "detail": "All provider fallbacks exhausted: agent 'graph': 503"}, True),
+    ({"error": "Internal pipeline error", "agent": "unknown"}, False),
+    (None, False),
+], ids=["reason", "old-phrase-in-detail", "other-error", "none"])
+def test_an_attempt_whose_turn_ended_only_in_a_query_error_is_read_by_its_reason(
+        tmp_path, query_error, outaged):
+    """A stored payload with no reply still says why through its `query_error`, even when
+    the manifest entry predates the runner reading it."""
+    payload = {"query_complete": {}, "query_error": query_error}
+    attempt = ec.Attempt(tmp_path, "graph", {"outage": False}, {"main": payload})
+    assert attempt.outage is outaged
+
+
+def test_a_payload_stored_before_the_query_error_key_still_loads(tmp_path):
+    attempt = ec.Attempt(tmp_path, "graph", {"outage": False},
+                         {"main": {"query_complete": {"reply": "408 samples"}}})
+    assert attempt.outage is False
+
+
 def test_the_scorer_pins_the_harness_names():
     from NessieAI.tests.nessie_tests import outage, preflight, runner
     assert ec.FORCE_NOTE_MARKER == preflight.FORCE_NOTE_MARKER
@@ -496,3 +518,17 @@ def test_the_scorer_pins_the_harness_names():
     for name in ("q.one", "a b/c", "..", "", "x!!y"):
         assert ec.safe_name(name) == runner._safe_name(name)
     assert ec.PAYLOADS_DIR == runner.PAYLOADS_DIR and ec.ARMS_FILE == runner.ARMS_FILE
+
+
+def test_a_graph_refusal_is_recognised_from_the_debug_marker(tmp_path):
+    """Since 2026-09-23 the reply no longer quotes the guard ("Graph agent could not generate a
+    query"); the turn carries `debug.graph_refusal` instead, and the scorer reads it."""
+    outputs = tmp_path / "outputs"
+    truth = _write_truth(tmp_path / "truth", "B", [
+        _truth_q("q1", "graph_traversal", group="B", value=22734)])
+    payload = _payload(outputs, "q1", "graph", preview=(),
+                       reply="I couldn't build a search for that question. Try naming the sample type.")
+    payload["query_complete"]["debug"]["graph_refusal"] = "properties ['node.year'] are not in the catalog"
+    run = _run(tmp_path / "run", ["graph"], {"q1": {"graph": payload}})
+    doc = ec.score(ec.load_runs([run]), ec.load_truth_questions(truth, "B"), "b", outputs, PRICES)
+    assert doc["questions"][0]["outcome"] == "failed"

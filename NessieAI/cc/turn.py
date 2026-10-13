@@ -24,21 +24,31 @@ import copy
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 
 from nextseek_api.assistant.models_db import CCSessionTranscript, ChatSession
+# Spec piece 1: the Container-CC turn issues, dates and revokes its turn pass (a frozen edge in
+# NessieAI/tests/api/test_nessie_boundaries.py).
+from nextseek_api.assistant import turn_pass as cc_turn_pass
 
 from chat_nextseek.agents.parser import FORCE_MODES as PARSER_FORCE_MODES
 from chat_nextseek import prompt_variants
 from chat_nextseek.prompt_variants import VARIANT_NAMES as PROMPT_VARIANT_NAMES
 from chat_nextseek.chat_memory import next_turn_id
-from chat_nextseek.orchestrator import run_query, run_query_plan
+from chat_nextseek.orchestrator import run_query, run_query_plan, vocabulary_not_needed
+from chat_nextseek import turn_spend
 
 from NessieAI.router import router as cc_router
 from NessieAI.router import router_context
-from NessieAI.router.policy import _decide_route, _record_ledger_row
-from NessieAI.ns.turn import _auto_title_if_unset, _select_chat_config
+from NessieAI.router.policy import (
+    _decide_route,
+    _fallback_when_cc_unavailable,
+    _record_ledger_row,
+)
+from NessieAI.ns.turn import _auto_title_if_unset, _error_tracking_send_event, _select_chat_config
 from NessieAI.cc import cc_engine
+from NessieAI.cc import prerun as prerun_mod
 from NessieAI.cc import cc_config
 from NessieAI.cc import cc_session
 from NessieAI.cc import cc_summary
@@ -47,22 +57,48 @@ from NessieAI.cc import cc_memory_io
 from NessieAI.cc import ns_digest
 from NessieAI.cc import ns_turn_context
 from NessieAI.cc import cc_turn_context
+from NessieAI.cc import prior_turns
 from NessieAI.cc.cc_turn_complete import (
     TurnCompletePayload,
     apply_turn_to_extra_state,
 )
 from NessieAI.cc import cc_turn_complete
 from NessieAI.cc import cc_transcript_store
+from NessieAI.cc import safe_fs
 
 logger = logging.getLogger(__name__)
 
 MAX_CC_CHAT_LOG_TURNS = 50  # match chat_nextseek/chat_memory.py MAX_TURNS
+
+
+def _save_before_complete(send_event, adapter):
+    """The NS turn's session is written BEFORE query_complete is sent.
+
+    The task row turns `completed` on query_complete and the client sends the next question at once; the save used
+    to run later, in `_run`'s finally, so a follow-up within a second read a session without the turn it followed
+    (HeLa, 2026-09-23: 0.97 s). Saving twice is harmless: save() merges history by bundle id.
+    """
+    def wrapped(event, data):
+        if event == "query_complete":
+            try:
+                adapter.save()
+            except Exception:  # noqa: BLE001 - the finally save still runs
+                logger.warning("pre-complete session save failed", exc_info=True)
+        return send_event(event, data)
+    return wrapped
 
 # Evaluation only (the graph_search Nessie POC): the process flag that lets a
 # superuser's QueryRequest.force_parser_mode reach the NS parser, and its
 # QueryRequest.prompt_variant reach the NS agents. The venue sets it; no compose
 # file or env template does.
 EVAL_PARSER_FORCE_ENV = "NEXTSEEK_EVAL_PARSER_FORCE"
+
+# Shown when this server cannot issue a turn pass (it has no Django secret key): the turn stops before any
+# container starts.
+TURN_PASS_SETUP_ERROR = (
+    "Container-CC is not set up on this server (it has no secret key to protect the turn with). "
+    "Please tell the NExtSEEK administrator."
+)
 
 
 def _merge_extra_state(session, **updates) -> None:
@@ -171,19 +207,23 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
         if not session_project:
             continue
         dirs = build_user_dirs(paths, session_project, user.username, session_id=sid)
-        store = Path(dirs.cc_state_mnt) / "projects"
-        jsonls = sorted(store.rglob("*.jsonl"), key=lambda p: p.stat().st_mtime,
-                        reverse=True) if store.is_dir() else []
+        # The session folder (registered by build_user_dirs) is the trusted root; projects/ is the
+        # agent's and is listed and read below it without following a link.
+        cc_state = Path(dirs.cc_state_mnt)
+        try:
+            newest = cc_engine._newest_jsonl_under(cc_state, (cc_engine._TRANSCRIPT_STORE_DIRNAME,))
+        except OSError:
+            newest = None
         # G7-10: transcript_path is the nextseek-container MOUNT path (under
         # user_root_mount, inside the dmac-cc-users volume) — no host bind exists
         # any more, so cc_sweep / the sync summarizer read it directly with no
         # mount->host translation.
-        transcript_mount_path = str(jsonls[0]) if jsonls else None
+        transcript_mount_path = str(newest) if newest else None
         prev_fp = es.get("summary_fingerprint")
         changed = False
-        if transcript_mount_path:
+        if newest:
             try:
-                raw = Path(transcript_mount_path).read_bytes()
+                raw = safe_fs.read_file(cc_state, newest.relative_to(cc_state))
                 changed = cc_summary.is_changed(prev_fp, cc_summary.fingerprint(raw))
             except OSError:
                 changed = False
@@ -222,9 +262,9 @@ def _summarize_sync_target(user, tgt, mem_cfg, scrub) -> bool:
     from django.utils import timezone
 
     try:
-        # G7-10: transcript_path is already the mount path inside the volume —
-        # read directly, no host translation.
-        raw = Path(tgt.transcript_path).read_bytes()
+        # G7-10: transcript_path is the mount path inside the volume. Read from its
+        # store down, never through a link: the store is another session's agent folder.
+        raw = cc_session.read_store_transcript(tgt.transcript_path)
         prov = cc_summary.SummaryProvenance(
             chat_session_id=tgt.session_id,
             claude_session_id=(tgt.summary or {}).get("claude_session_id"),
@@ -316,14 +356,146 @@ def _with_prompt_variant(chat_config, user, req):
         return chat_config
 
 
+def _scoped_graph_query(chat_config, graph_scope):
+    """The graph read ``prior_turns`` stages ``samples.csv`` with (CC-RERUN-FINDINGS fix 1).
+
+    ``tool_neo4j_query`` with its default arguments, on a per-request copy of the NS config that
+    carries this caller's scope, so the write check and the scope prover apply exactly as they
+    do on the caller's own graph turns. ``graph_scope`` is the ViewSet's plain data; anything
+    that is not a well-formed scope becomes None, which refuses every statement. The reader's
+    ``cache_key`` names the scope and the graph, so a samples.csv read under one is never reused
+    under another. None when the reader cannot be built: staging must never fail the turn.
+    """
+    try:
+        import json as _json
+        from collections.abc import Mapping
+
+        from chat_nextseek import helpers
+        from chat_nextseek.graph_scope import GraphScope, with_scope
+
+        scope = graph_scope if isinstance(graph_scope, GraphScope) else None
+        if scope is None and isinstance(graph_scope, Mapping):
+            try:
+                scope = GraphScope.from_plain(graph_scope)
+            except ValueError:
+                logger.warning("cc: malformed graph scope; the previous turns get no samples.csv")
+        scoped = with_scope(chat_config, scope)
+
+        def query(cypher: str, parameters: dict) -> dict:
+            return helpers.tool_neo4j_query(scoped, cypher, parameters)
+        query.cache_key = _json.dumps({
+            "admin": None if scope is None else scope.is_admin,
+            "projects": None if scope is None else list(scope.project_ids),
+            "graph": str(getattr(chat_config, "NEO4J_URI", "") or ""),
+        }, sort_keys=True)
+        return query
+    except Exception:  # noqa: BLE001 - the turn runs without samples.csv
+        logger.warning("cc: could not build the samples.csv reader", exc_info=True)
+        return None
+
+
 def _eval_config(chat_config, user, req):
     """Both evaluation switches on one per-request copy: the parser force, then the prompt variant."""
     return _with_prompt_variant(_with_parser_force(chat_config, user, req), user, req)
 
 
+def _prerun_skip_reason(req, adapter, api_user, api_pass) -> str | None:
+    """Why this question gets no vocabulary pre-run, or None: the switch is off, ``use_prod`` (the prod config would
+    not match), no complete login (the NS turn refuses anyway), or an open wizard or chip click will take the turn
+    without a vocabulary (a read-only check: the chip offer stays in place). Every forced route uses the vocabulary."""
+    if not prerun_mod.enabled():
+        return "switched off"
+    if getattr(req, "use_prod", False):
+        return "use_prod"
+    if not (api_user and api_pass):
+        return "no login"
+    if vocabulary_not_needed(adapter, getattr(req, "query", "") or ""):
+        return "a wizard or chip takes the turn"
+    return None
+
+
+def _prerun_config(chat_config, user, req, api_user, api_pass, graph_scope):
+    """The NS turn's own config (``_eval_config``; plan mode: the prompt variant only, as ``_run`` runs it), bound to
+    the caller's own login and project scope exactly as ``run_query`` binds it. Never the prod-credential swap."""
+    from chat_nextseek.orchestrator import _identity_gate
+    base = (_with_prompt_variant(chat_config, user, req) if getattr(req, "mode", "standard") == "plan"
+            else _eval_config(chat_config, user, req))
+    scope_kw = {} if graph_scope is None else {"graph_scope": graph_scope}
+    bound, refusal = _identity_gate(None, base, {"api_user": api_user, "api_pass": api_pass}, None,
+                                    entry_point="vocabulary_prerun", **scope_kw)
+    return None if refusal is not None else bound
+
+
+def _start_vocabulary(request, req, chat_config, adapter, api_user, api_pass, graph_scope) -> prerun_mod.Prerun:
+    """Start this question's vocabulary pre-run, or return one that never starts. Never raises."""
+    try:
+        reason = _prerun_skip_reason(req, adapter, api_user, api_pass)
+        if reason is not None:
+            logger.info("vocabulary pre-run skipped: %s", reason)
+            return prerun_mod.start_prerun(None, None, "", skip=True)
+        config = _prerun_config(chat_config, request.user, req, api_user, api_pass, graph_scope)
+        early = getattr(req, "mode", "standard") != "plan" and prerun_mod.parser_start() == "early"
+        return prerun_mod.start_prerun(prerun_mod.session_snapshot(adapter) if early else None, config,
+                                       getattr(req, "query", "") or "", skip=config is None, early_parser=early)
+    except Exception:  # noqa: BLE001 - the turn resolves its vocabulary itself
+        logger.warning("vocabulary pre-run could not start", exc_info=True)
+        return prerun_mod.start_prerun(None, None, "", skip=True)
+
+
+def _with_prerun_outcome(send_event, state: dict):
+    """Wrap ``send_event`` so the turn's first ``query_complete`` or ``query_error`` is preceded by one
+    ``vocabulary_prerun`` event: how the pre-run ended (``prerun.OUTCOMES``), how long it took, and how many times the
+    turn resolved the vocabulary again (the NS turn's own resolution, or a Container-CC turn's ops', read off its
+    ``CCTurn``). That is the turn's end: a pre-run still queued is cancelled first. Turn thread only; never raises."""
+
+    def wrapped(event, data):
+        if event in ("query_complete", "query_error") and not state.get("reported"):
+            state["reported"] = True
+            p = state.get("prerun")
+            if p is not None:
+                try:
+                    p.cancel()
+                    if state.get("cc_turn") is not None:
+                        from NessieAI.ns import turn_memory
+                        resolutions = turn_memory.vocabulary_resolutions(state["cc_turn"])
+                    else:
+                        resolutions = p.turn_resolutions
+                    send_event("vocabulary_prerun", {"outcome": p.final_outcome(), "elapsed_s": p.elapsed_s,
+                                                     "duplicate_entity_calls": p.duplicate_entity_calls(resolutions)})
+                except Exception:  # noqa: BLE001 - the answer goes out either way
+                    logger.warning("cc: could not report the vocabulary pre-run", exc_info=True)
+        return send_event(event, data)
+    return wrapped
+
+
+def _early_plan_fits_ops(chat_session, chat_config, user, req) -> bool:
+    """Whether a plan the pre-run made early is the plan an op would make for the same question: only on a chat with
+    no earlier turn (the ops' parser runs on a throwaway session, with no history) and with no evaluation switch."""
+    es = chat_session.extra_state or {}
+    return (not es.get("chat_log") and not (chat_session.results_history or [])
+            and _eval_config(chat_config, user, req) is chat_config)
+
+
+def _costed_terminal(send_event, state: dict):
+    """Wrap ``send_event`` so a Container-CC turn's ``query_complete`` or ``query_error`` carries the whole turn's
+    cost (``turn_memory.terminal_cost``), once the Container-CC branch has its ``CCTurn`` (``state["turn"]``); every
+    other event, and every NS or unrelated turn, passes through unchanged. Never raises."""
+    from NessieAI.ns import turn_memory
+
+    def wrapped(event, data):
+        if event in ("query_complete", "query_error") and state.get("turn") is not None and isinstance(data, dict):
+            try:
+                data = turn_memory.terminal_cost(state["turn"], data, router_fields=state.get("router") or {},
+                                                 prerun_settled=state.get("prerun_settled"))
+            except Exception:  # noqa: BLE001 - the event goes out as it was
+                logger.warning("cc: could not add the turn's cost to its %s", event, exc_info=True)
+        return send_event(event, data)
+    return wrapped
+
+
 def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                send_event, adapter, api_user, api_pass,
-               resolved_session_id: str, graph_scope=None) -> None:
+               resolved_session_id: str, graph_scope=None, caller=None) -> None:
     """Run one routed chat turn on a daemon thread; return at once.
 
     The body of ``CCAssistantViewSet._start_task``, which keeps every HTTP
@@ -342,6 +514,14 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
     scope_kw = {} if graph_scope is None else {"graph_scope": graph_scope}
     terminal_seen = cc_turn_complete.new_terminal_tracker()
     send_event = cc_turn_complete.wrap_send_event(send_event, terminal_seen)
+    # Whether a query_error already went out, so the catch-all in _run never sends a
+    # second one over the real error (F13): the NS endpoints' guard.
+    send_event, error_state = _error_tracking_send_event(send_event)
+    # Piece 3: the pre-run's outcome goes out once, right before the turn's answer (_with_prerun_outcome).
+    cost_state: dict = {"turn": None, "router": None, "prerun_settled": None}  # Task 10 reads it
+    prerun_state: dict = {"prerun": None, "cc_turn": None, "reported": False}
+    send_event = _with_prerun_outcome(send_event, prerun_state)
+    send_event = _costed_terminal(send_event, cost_state)
     user_api_user, user_api_pass = api_user, api_pass
     chat_config = _select_chat_config(request, req)
 
@@ -351,6 +531,11 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
     if prod_config is not None and chat_config is prod_config:
         if chat_config.API_USER and chat_config.API_PASS:
             api_user, api_pass = chat_config.API_USER, chat_config.API_PASS
+    if caller:
+        # The system agent's CALLER block (round 4): this user's own session, on a per-request copy so the
+        # shared config never carries one user's details. Resolved by the ViewSet, as graph_scope is.
+        chat_config = copy.copy(chat_config)
+        chat_config.CALLER = caller
 
     mode = getattr(req, "mode", "standard")
     # Capture identity for the CC route (scoped Dropbox mounts + output).
@@ -371,15 +556,57 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
     def _run() -> None:
         ran_ns = False
         decision = None
+        prerun = None
+        cc_pass_row = None
         try:
-            history = router_context.build_history(
-                (chat_session.extra_state or {}).get("chat_log") or []
-            )
-            decision = _decide_route(request.user, req, force_cc=force_cc, session=adapter, history=history)
+            # Fresh state per turn: the adapter was built in the request thread, possibly while the
+            # previous turn's save was still in flight. reload() refreshes chat_session itself (the
+            # adapter wraps the same object), so the chat_log read below is fresh too. Fakes without
+            # reload() are tolerated; a failed reload must not fail the turn.
+            _reload = getattr(adapter, "reload", None)
+            if _reload is not None:
+                try:
+                    _reload()
+                except Exception:  # noqa: BLE001 - run on the request-time snapshot
+                    logger.warning("session reload at turn start failed", exc_info=True)
+            chat_log = (chat_session.extra_state or {}).get("chat_log") or []
+            history = router_context.build_history(chat_log)
+            # The whole chat_log too: stickiness holds for the rest of the chat, not
+            # only while a CC turn is inside the router's 5-turn window.
+            # Piece 3: the vocabulary starts now, beside the router, on the caller's own login. Only this thread
+            # reports it: the pool thread sends nothing (QueryTask.progress is saved without a lock).
+            prerun = _start_vocabulary(request, req, chat_config, adapter, user_api_user, user_api_pass, graph_scope)
+            prerun_state["prerun"] = prerun
+            prerun.announce = lambda: send_event("prelude_step", {"label": prerun_mod.VOCABULARY_READY,
+                                                                  "elapsed_s": prerun.elapsed_s,
+                                                                  "outcome": prerun.outcome or prerun_mod.LATE})
+            if prerun.started:
+                send_event("prelude_step", {"label": prerun_mod.READING_YOUR_QUESTION})
+            send_event("prelude_step", {"label": prerun_mod.CHOOSING_AN_ENGINE})
+            _t_route = time.monotonic()
+            decision = _decide_route(request.user, req, force_cc=force_cc, session=adapter,
+                                     history=history, chat_log=chat_log)
+            # A turn the policy moved to CC (sticky, follow-up) goes back to NExtSEEK
+            # for this one turn when the CC runner is down, rather than erroring.
+            decision = _fallback_when_cc_unavailable(decision, cc_engine.cc_runner_available)
+            router_elapsed_s = round(time.monotonic() - _t_route, 3)
+            if prerun.done():
+                prerun.result(0)  # "Vocabulary ready", from this thread (announce)
 
             send_event("route_decided", {
                 "route": decision.route, "model_class": decision.model_class,
                 "source": decision.source, "reasoning": decision.reasoning,
+                # Which router model answered, and whether it fell back (fix 5): None
+                # when the keyword rules decided or the turn was forced.
+                "router_model": getattr(decision, "router_model", None),
+                "router_fallback": getattr(decision, "router_fallback", None),
+                # What the router's model calls cost (fix 6a): router_cost_usd,
+                # router_cost_partial and router_usage. Absent on a forced turn, which made
+                # no router call; present on every routed one, unrelated included.
+                **cc_router.router_cost_fields(decision),
+                # Piece 3: how long the router took, and the vocabulary pre-run when it was already in.
+                "router_elapsed_s": router_elapsed_s,
+                "vocabulary_elapsed_s": prerun.elapsed_s if prerun.done() else None,
             })
             _record_ledger_row(chat_session, decision, query_task=query_task)
 
@@ -401,15 +628,17 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
             if decision.route == cc_router.ROUTE_NS:
                 ran_ns = True
                 creds = {"api_user": api_user, "api_pass": api_pass}
+                ns_send = _save_before_complete(send_event, adapter)
+                vocab_kw = {"vocabulary": prerun} if prerun.started else {}
                 try:
                     if mode == "plan":
                         run_query_plan(adapter, _with_prompt_variant(chat_config, request.user, req),
-                                       req.query, send_event, credentials=creds, **scope_kw)
+                                       req.query, ns_send, credentials=creds, **vocab_kw, **scope_kw)
                     else:
                         # The evaluation switches: a per-request copy, made after the
                         # PROD identity check above has compared the singleton.
                         run_query(adapter, _eval_config(chat_config, request.user, req),
-                                  req.query, send_event, credentials=creds, **scope_kw)
+                                  req.query, ns_send, credentials=creds, **vocab_kw, **scope_kw)
                 finally:
                     # In a `finally` deliberately. run_query resolves
                     # run_root_dir three statements in (orchestrator.py:620),
@@ -426,6 +655,36 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     # docstring), so consumers must de-duplicate on run_root.
                     _emit_ns_run_root(send_event, adapter)
             else:
+                # Spec piece 1: the container gets a one-turn pass, never the user's password. Issued before any
+                # early return below, so the finally revokes it on every way out. The row holds the caller's OWN
+                # login (user_api_*), never the prod-config swap above.
+                if not (user_api_user and user_api_pass):
+                    # No stored login: a pass would carry an empty login and every op would 401, so the turn
+                    # stops here, before any pass or container.
+                    send_event("query_error", {
+                        "error": (
+                            "You are not signed in to NExtSEEK for this chat, so this turn did not start. "
+                            "Please sign in again, then ask your question again."
+                        ),
+                        "agent": "container_cc", "session_id": resolved_session_id,
+                    })
+                    return
+                try:
+                    cc_pass_row, cc_pass_raw = cc_turn_pass.issue_pass(
+                        task=query_task, chat=chat_session, user=request.user,
+                        login=(user_api_user or "", user_api_pass or ""),
+                    )
+                except cc_turn_pass.TurnPassError:
+                    logger.error("cc: no turn pass could be issued (no server secret key); the turn stops")
+                    send_event("query_error", {
+                        "error": TURN_PASS_SETUP_ERROR,
+                        "agent": "container_cc", "session_id": resolved_session_id,
+                    })
+                    return
+                cost_state["turn"] = cc_pass_row
+                cost_state["router"] = cc_router.router_cost_fields(decision)
+                # Task 6's end-of-turn report reads the ops' own vocabulary resolutions off this row.
+                prerun_state["cc_turn"] = cc_pass_row
                 ok, detail = cc_engine.cc_runner_available()
                 if not ok:
                     send_event("query_error", {
@@ -509,11 +768,8 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     # those bytes (to a third-party model / to a later agent
                     # container), and the engine's in-place source scrub
                     # covers neither for a session that never runs again.
-                    transcript_scrub = cc_engine.transcript_scrubber({
-                        "NEXTSEEK_USERNAME": user_api_user or "",
-                        "NEXTSEEK_PASSWORD": user_api_pass or "",
-                        "API_PASS": user_api_pass or "",
-                    })
+                    transcript_scrub = cc_engine.transcript_scrubber(
+                        cc_engine.scrub_secrets(api_user=user_api_user, api_pass=user_api_pass))
                     metas = _session_metas(
                         request.user, cc_state_key, paths, mem_cfg, project_dirname)
                     tgt = cc_memory.select_sync_target(metas, current_id=cc_state_key)
@@ -544,10 +800,41 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                         session_id=str(chat_session.session_id)),
                     cc_turn_context.build_cc_contexts(
                         (chat_session.extra_state or {}).get("chat_log") or []))
+                # 2026-09-23: every follow-up comes here, so the previous turns' Search
+                # details, rows and downloads are staged for this turn to read, from this
+                # chat only and through the download endpoint's own guard (prior_turns).
+                # Within-chat, so a fresh_session turn gets them too, like the digest.
+                # samples.csv: every stored property of the samples an NS turn returned, read
+                # once through the caller's own scoped graph tool.
+                staged_prior = prior_turns.stage_prior_turns(
+                    chat_log=(chat_session.extra_state or {}).get("chat_log") or [],
+                    results_history=chat_session.results_history or [],
+                    dest_dir=Path(dirs.previous_turns_mnt),
+                    cc_artifacts_root=Path(dirs.output_mnt) / "artifacts",
+                    graph_query=_scoped_graph_query(chat_config, graph_scope),
+                )
+                within_chat_md = "\n\n".join(
+                    p for p in (prior_turns.memory_pointer(staged_prior), within_chat_md) if p)
                 combined = ns_digest.compose_turn_claude_md(within_chat_md, memory_md)
                 written = cc_memory_io.write_memory_file(mem_root / "CLAUDE.md", combined)
                 if written:
                     memory_claude_md = str(written)
+
+                # Piece 3: the vocabulary, waited for at most CC_WAIT_S past staging, into the turn's row and file.
+                # A late one still reaches the row (hand_to_turn); one still queued is cancelled there; the first op
+                # that needs it and finds none resolves it on the user's question.
+                vocabulary_slot = None
+                if prerun is not None and prerun.started:
+                    vocabulary_slot = cc_engine.TurnVocabulary()
+                    out = prerun.result(prerun_mod.CC_WAIT_S)
+                    cost_state["prerun_settled"] = prerun_mod.hand_to_turn(
+                        prerun, cc_pass_row, user_question=req.query or "",
+                        store_early_plan=_early_plan_fits_ops(chat_session, chat_config, request.user, req),
+                        slot=vocabulary_slot)
+                    if out is None:
+                        # Late, failed or cancelled: the turn goes on without it, and "Reading your question" must
+                        # not keep spinning over the whole trace (review W1-3). Same label; the outcome says why.
+                        prerun.close_step()
 
                 # Surface the CC turn's parameters in the Debug panel (#4):
                 # model, resume session, budget cap, and the resolved
@@ -570,20 +857,44 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     cc_state_key=cc_state_key,
                     memory_claude_md=memory_claude_md,
                     transcripts_subpath=transcripts_subpath,
+                    previous_turns=staged_prior is not None,
                     api_user=user_api_user, api_pass=user_api_pass,
+                    turn_pass=cc_pass_raw,
+                    on_deadline=lambda epoch: cc_turn_pass.set_deadline(cc_pass_row, epoch),
+                    on_turn_end=lambda: cc_turn_pass.revoke(cc_pass_row),
                     chat_session=chat_session,
                     user_query=req.query or "",
                     on_turn_complete=_append_cc_turn_complete,
                     turn_timeout=resolved_turn_timeout,
                     chat_session_id=cc_state_key,
+                    vocabulary_slot=vocabulary_slot,
                 )
-        except Exception:
+        except Exception as exc:
             logger.exception("cc-assistant pipeline error")
-            send_event("query_error", {
-                "error": "Internal pipeline error", "agent": "unknown",
-                "session_id": resolved_session_id,
-            })
+            # run_query sends its own query_error (the real message, with the turn's cost)
+            # before it re-raises, and the task keeps the last one: a second, generic one
+            # here would replace the real error the user needs to see (F13).
+            if not error_state["sent"]:
+                send_event("query_error", {
+                    "error": "Internal pipeline error", "agent": "unknown",
+                    # This is then the turn's last event, and the harness reads a turn's
+                    # cost off the last query_error: a turn that crashed carries what it
+                    # spent, taken out on the exception (turn_spend.collects_turn). Empty
+                    # otherwise.
+                    **turn_spend.cost_fields(exc),
+                    "session_id": resolved_session_id,
+                })
         finally:
+            # The turn's end: a pre-run still waiting for a place in the pool is dropped (it never ran).
+            if prerun is not None:
+                prerun.cancel()
+            if cc_pass_row is not None:
+                # Idempotent: run_cc_turn revoked it once the container stopped. This covers every return and
+                # exception between the issue and the engine.
+                try:
+                    cc_turn_pass.revoke(cc_pass_row)
+                except Exception:  # noqa: BLE001 - the next issue_pass wipes an expired row
+                    logger.warning("cc: revoking the turn pass failed", exc_info=True)
             unrelated = decision is not None and decision.route == cc_router.ROUTE_UNRELATED
             if cc_turn_complete.should_append_non_answer(terminal_seen, unrelated=unrelated):
                 from django.utils import timezone

@@ -1,9 +1,11 @@
 """Django-free filesystem glue for Step 1c memory mounts: atomic rendered-file
-write + copy-on-change transcript staging. Kept import-light (pathlib/os/shutil)."""
+write + copy-on-change transcript staging. Kept import-light (pathlib/os and the stdlib-only ``safe_fs`` through ``cc_session``)."""
 from __future__ import annotations
 
 import os
 from pathlib import Path
+
+from .cc_session import read_store_transcript
 
 
 def write_memory_file(dest: Path, markdown: str) -> Path | None:
@@ -84,11 +86,12 @@ def stage_transcripts(window, staging_dir: Path, scrub=None) -> Path | None:
     staging_dir.mkdir(parents=True, exist_ok=True)
     staged = 0
     for sid, src in wanted.items():
-        src_p = Path(src)
-        if not src_p.is_file():
+        try:
+            # The source is another session's store, an agent's folder: never read through a link.
+            payload = read_store_transcript(src)
+        except OSError:
             continue
         dst = staging_dir / f"{sid}.jsonl"
-        payload = src_p.read_bytes()
         if scrub is not None:
             payload = scrub(payload)
         if _is_stale(dst, payload):

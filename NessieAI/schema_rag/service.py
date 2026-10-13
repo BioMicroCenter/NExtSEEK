@@ -146,7 +146,14 @@ def _get_embedder() -> SentenceTransformer:
         model_name = settings.SCHEMA_RAG_EMBEDDING_MODEL_NAME
         cache_folder = settings.SCHEMA_RAG_EMBEDDING_MODEL_PATH
         logger.info("Loading embedding model: %s", model_name)
-        _EMBEDDER = SentenceTransformer(model_name, cache_folder=cache_folder)
+        try:
+            _EMBEDDER = SentenceTransformer(model_name, cache_folder=cache_folder)
+        except Exception as exc:
+            logger.error(
+                "Embedding model %s did not load from %s (%s: %s). The app image bakes it there: "
+                "rebuild the app image.", model_name, cache_folder, type(exc).__name__, exc,
+            )
+            raise
     return _EMBEDDER
 
 

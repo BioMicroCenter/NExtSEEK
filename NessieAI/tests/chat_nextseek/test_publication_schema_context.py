@@ -44,5 +44,5 @@ def test_triggers_cover_both_directions():
 
 
 def test_generated_schema_files_are_not_hand_edited():
-    for name in ("neo4j_schema.json", "neo4j_schema_dev.json", "neo4j_schema_prod.json"):
+    for name in ("neo4j_schema.json", "neo4j_protocol_schema.json", "neo4j_assay-sample-conn.json"):
         assert "fetched_at" in json.loads((CONTEXT / name).read_text())

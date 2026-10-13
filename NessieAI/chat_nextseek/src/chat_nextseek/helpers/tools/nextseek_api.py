@@ -8,6 +8,7 @@ from typing import Any
 
 import requests
 
+from ... import call_scope
 from ...chat_memory import MEMORY_WINDOW
 from ...config import ChatConfig
 from ...cypher_text import mask_cypher
@@ -19,10 +20,10 @@ from ..results import DEFAULT_API_PAGE_SIZE
 # Write boundary: this tool is READ-ONLY.
 #
 # `method` arrives straight from the api_agent's plan, so a single mis-parsed turn
-# could otherwise issue DELETE against a live sample record. Mutation belongs on the
-# container_cc path, where `nextseek-api-write` exits WRITE_BLOCKED without an
-# explicit `--confirmed-write` and the skill demands plain-text confirmation first.
-# On this path there is no confirmation step, so there is no write.
+# could otherwise issue DELETE against a live sample record. No write reaches NExtSEEK
+# from chat at all: on the container_cc path the server refuses what `nextseek-api-write`
+# sends too, and the user is told the change is made in NExtSEEK itself. On this path
+# there is not even a confirmation step, so there is no write.
 #
 # This mirrors the Neo4j tool, which has always been hard-blocked before the driver
 # opens (`helpers/tools/neo4j.py`, `_WRITE_KEYWORDS`). The asymmetry was the bug.
@@ -37,12 +38,19 @@ _READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 # The only POSTs that are reads. Everything else that POSTs — notably
 # `/nextseek_api/samples/`, which CREATES a sample and is one path segment away from
 # `/nextseek_api/samples/advanced_search/` — is denied.
+# admin/samples/retrieve/ is the download API's deprecated alias: a stored chat replays the endpoint it saved, so
+# the old path stays readable while such chats exist.
 _READ_POST_PATHS = frozenset({
+    "/nextseek_api/samples/retrieve/",
     "/nextseek_api/admin/samples/retrieve/",
     "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
     "/nextseek_api/samples/advanced_search/",
     "/nextseek_api/samples/graph_search/",
 })
+
+
+# The sample download API, by its name and by its deprecated alias.
+_RETRIEVE_PATHS = frozenset({"/nextseek_api/samples/retrieve/", "/nextseek_api/admin/samples/retrieve/"})
 
 
 def _normalize_endpoint_path(endpoint: str) -> str:
@@ -101,9 +109,9 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
     if not _is_read_only_pair(verb, path):
         msg = (
             f"Write operations are not permitted on the NExtSEEK REST path: "
-            f"{method} {endpoint} was blocked. This tool is read-only; sample "
-            f"creation, modification and deletion must go through the confirmed-write "
-            f"path, not the assistant's REST corridor."
+            f"{method} {endpoint} was blocked. This tool is read-only, and no write "
+            f"reaches NExtSEEK from this chat: the change is made in NExtSEEK itself, "
+            f"on the record's own page, or with a batch-upload workbook for samples."
         )
         print(f"[DEBUG][API] Blocked write request: {method} {endpoint!r}")
         return {
@@ -136,6 +144,14 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
     request_timeout = 90
     if path == "/nextseek_api/samples/advanced_search/":
         request_timeout = 120
+
+    # An op's limit caps this wait too (approach 1, piece 2): a request still running after the op has answered only
+    # holds a worker. An NS turn has no deadline: 90 s (120 s for advanced_search), as before.
+    capped = call_scope.time_left_for(float(request_timeout))
+    if capped is None:
+        print(f"[DEBUG][API] {OUT_OF_TIME_NOT_SENT}")
+        return {"ok": False, "error": OUT_OF_TIME_NOT_SENT, "endpoint": endpoint, "method": method}
+    request_timeout = capped
 
     print("[DEBUG][API] Request:")
     print(f"  METHOD: {verb}")
@@ -188,6 +204,7 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
 
 _API_HTML_PATTERN = re.compile(r"<[^>]+>")
 _API_UID_LIKE_FIELDS = {"uid", "uuid", "title", "idlink", "idurl"}
+OUT_OF_TIME_NOT_SENT = "The op ran out of time before this request could be sent, so it was not sent."
 
 
 def _sanitize_api_row_strings(payload: Any) -> Any:
@@ -249,8 +266,13 @@ def log_api_call(
 
 def fix_sample_endpoint(plan: dict) -> dict:
     """
-    Auto-correct admin retrieve endpoint selections when no UIDs are provided.
-    Rewrites to advanced_search and annotates notes to avoid invalid admin calls while keeping other fields intact.
+    Send a sample-retrieve plan that carries no UIDs to the graph.
+
+    retrieve needs UIDs, so "full records for every RNA sample" is a sample search, and every sample search runs
+    on the graph (routing review 6a, 2026-09-24). A new search becomes graph_query; a refine keeps its mode and is
+    marked ``refine_engine="graph"``, so the orchestrator's graph refine re-runs it with the prior turn's filters.
+    The endpoint is cleared and the notes say why; every other field is kept. A retrieve with UIDs, and every
+    other plan, is returned unchanged.
     """
     endpoint = plan.get("target_endpoint")
     mode = plan.get("mode")
@@ -259,13 +281,17 @@ def fix_sample_endpoint(plan: dict) -> dict:
 
     if (
         mode in ("new_search", "refine_last_search")
-        and endpoint == "/nextseek_api/admin/samples/retrieve/"
+        and endpoint in _RETRIEVE_PATHS
         and not uids
     ):
-        print("[DEBUG][PARSER_FIX] Rewriting endpoint from admin retrieve to samples/advanced_search")
-        plan["target_endpoint"] = "/nextseek_api/samples/advanced_search/"
+        print("[DEBUG][PARSER_FIX] samples/retrieve with no UIDs; sending it to the graph")
+        if mode == "refine_last_search":
+            plan["refine_engine"] = "graph"   # the orchestrator's graph refine keeps the prior turn's filters
+        else:
+            plan["mode"] = "graph_query"
+        plan["target_endpoint"] = None
         notes = plan.get("notes", "")
-        plan["notes"] = (notes + " | endpoint auto-corrected to /samples/advanced_search/").strip(" |")
+        plan["notes"] = (notes + " | retrieve needs UIDs; sent to the graph").strip(" |")
 
     return plan
 

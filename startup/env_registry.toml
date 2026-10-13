@@ -1,0 +1,1028 @@
+# One declaration per env var and Django setting (#103). Schema: startup/lib/env_registry.py.
+# Checked against the code, compose, the entrypoint, the templates and the examples by
+# startup/tests/test_env_registry_drift.py, which names the line to add when it fails.
+# Never put a real value here: a secret has no default.
+
+# --- docker/db.env (startup/templates/db.env.template) -----------------------------------------------
+
+[MYSQL_HOST]
+files = ["db.env"]
+required = true
+doc = "MySQL host, the db container's name."
+
+[MYSQL_ROOT_PASSWORD]
+files = ["db.env"]
+secret = true
+required = true
+doc = "MySQL root password. Install renders the public demo value; rotate it on any exposed box."
+
+[MYSQL_DATABASE]
+files = ["db.env"]
+required = true
+doc = "SEEK's database name."
+
+[NEXTSEEK_MYSQL_DATABASE]
+files = ["db.env"]
+required = true
+doc = "NExtSEEK's own database name."
+
+[MYSQL_USER]
+files = ["db.env"]
+required = true
+doc = "Application user for NExtSEEK and SEEK."
+
+[MYSQL_PASSWORD]
+files = ["db.env"]
+secret = true
+required = true
+doc = "Application user's password. Install renders the public demo value; rotate it on any exposed box."
+
+# --- docker/nextseek.env, written by install (startup/templates/nextseek.env.template) ---------------
+
+[SEEK_HOST]
+files = ["nextseek.env"]
+required = true
+doc = "SEEK container name; switches on the SEEK settings in dmac/settings.py."
+
+[SEEK_HOSTNAME]
+files = ["nextseek.env"]
+required = true
+doc = "Internal SEEK base URL, http://seek:3000."
+
+[SEEK_PUBLIC_URL]
+files = ["nextseek.env"]
+default = ""
+doc = "Browser-reachable SEEK base URL for links. Install keeps a hand-set value."
+
+[NEXTSEEK_HOSTNAME]
+files = ["nextseek.env"]
+required = true
+doc = "NExtSEEK host and published port; NEXTSEEK_BASE_URL derives from it."
+
+[NEXTSEEK_NEO4J_PASSWORD]
+files = ["nextseek.env"]
+secret = true
+required = true
+doc = "Neo4j password the app uses. Must match NEO4J_PASSWORD in the root .env."
+
+[NEXTSEEK_NEO4J_HOST]
+files = ["nextseek.env"]
+required = true
+doc = "Neo4j container name; switches on the graph settings."
+
+[DJANGO_SECRET_KEY]
+files = ["nextseek.env"]
+secret = true
+required = true
+doc = "Django signing key. Install generates a new one."
+
+[DJANGO_ALLOWED_HOSTS]
+files = ["nextseek.env"]
+default = ""
+required = true
+doc = "Space-separated Django allowed hosts. Install keeps a hand-set value."
+
+[DJANGO_CSRF_TRUSTED_ORIGINS]
+files = ["nextseek.env"]
+default = ""
+required = true
+doc = "Space-separated trusted origins. Install keeps a hand-set value and adds its port's loopback pair."
+
+[NEXTSEEK_BASE_URL]
+files = ["nextseek.env", "internal"]
+doc = "Public NExtSEEK base URL, derived from NEXTSEEK_HOSTNAME. cc_engine hands the agent its own copy."
+
+[NEXTSEEK_INTERNAL_BASE_URL]
+files = ["nextseek.env"]
+doc = "Container-internal URL for chat_nextseek's REST self-calls; preferred over NEXTSEEK_BASE_URL."
+
+[LOG_DIR]
+files = ["nextseek.env"]
+default = "/app/logs"
+doc = "Log folder inside the app container."
+
+[NEXTSEEK_OUTPUTS_DIR]
+files = ["nextseek.env"]
+doc = "Per-turn output folder inside the app container."
+
+[CATALOG_FILE]
+files = ["nextseek.env"]
+doc = "The agent model catalog Nessie loads; must point under /app/NessieAI/chat_nextseek/ on a box."
+
+[NEXTSEEK_POSTERIOR_ROUTING_ENABLED]
+files = ["nextseek.env"]
+doc = "Posterior routing switch; off unless 1, true or yes."
+
+[NESSIE_LAYA_SHADOW]
+files = ["nextseek.env"]
+default = "0"
+doc = "Log laya's route next to the BAML router's without routing on it."
+
+[NESSIE_LAYA_LIVE]
+files = ["nextseek.env"]
+default = ""
+doc = "Route on laya when it equals the calibrated revision; empty is off."
+
+[LAYA_API_KEY]
+files = ["nextseek.env", "laya.env"]
+secret = true
+doc = "Shared key between the app and the laya sidecar."
+
+[GCP_API_KEY]
+files = ["nextseek.env"]
+secret = true
+doc = "Gemini API key."
+
+[AWS_BEARER_TOKEN_BEDROCK]
+files = ["nextseek.env", "proxy-secret.env"]
+secret = true
+doc = "Bedrock bearer token, for the app and for the Container-CC proxy."
+
+[FDH_API]
+files = ["nextseek.env"]
+secret = true
+doc = "FAIRDOMHub API token for protocol downloads."
+
+[NEXTSEEK_CC_MAX_BUDGET_USD]
+files = ["nextseek.env"]
+default = "0.50"
+doc = "Per-turn spend cap for a Container-CC turn; 0 disables it. A security control."
+
+[NEXTSEEK_CC_TIMEOUT_HARD_MAX]
+files = ["nextseek.env"]
+default = "180"
+doc = "Hard ceiling in seconds on one Container-CC turn."
+
+[SESSION_DB_TYPE]
+files = ["nextseek.env"]
+default = "sqlite"
+doc = "chat_nextseek session store, mysql or sqlite."
+
+[SESSION_DB_HOST]
+files = ["nextseek.env"]
+doc = "chat_nextseek session store host; the template interpolates MYSQL_HOST."
+
+[SESSION_DB_USER]
+files = ["nextseek.env"]
+doc = "chat_nextseek session store user; the template interpolates MYSQL_USER."
+
+[SESSION_DB_PASSWORD]
+files = ["nextseek.env"]
+secret = true
+alias_of = "MYSQL_PASSWORD"
+doc = "chat_nextseek session store password; the template interpolates MYSQL_PASSWORD."
+
+[SESSION_DB_NAME]
+files = ["nextseek.env"]
+doc = "chat_nextseek session store database; the template interpolates NEXTSEEK_MYSQL_DATABASE."
+
+[MYSQL_HOST_PROD]
+files = ["nextseek.env"]
+doc = "ChatConfig's prod-mode MySQL host; install writes the local value."
+
+[MYSQL_PROD_PASSWORD]
+files = ["nextseek.env"]
+secret = true
+doc = "ChatConfig's prod-mode MySQL password; install writes the local value. Chosen by mode, not an alias."
+
+[MYSQL_HOST_DEV]
+files = ["nextseek.env"]
+doc = "ChatConfig's dev-mode MySQL host; install writes the local value."
+
+[MYSQL_DEV_PASSWORD]
+files = ["nextseek.env"]
+secret = true
+doc = "ChatConfig's dev-mode MySQL password; install writes the local value. Chosen by mode, not an alias."
+
+[NEO4J_URI]
+files = ["nextseek.env"]
+default = "bolt://localhost:7687"
+doc = "Neo4j URI for chat_nextseek; the same server as NEXTSEEK_NEO4J_HOST in another shape."
+
+[NEO4J_USER]
+files = ["nextseek.env"]
+default = "neo4j"
+doc = "Neo4j user for chat_nextseek."
+
+[NEO4J_PASSWORD]
+files = ["nextseek.env", "root.env"]
+secret = true
+required = true
+alias_of = "NEXTSEEK_NEO4J_PASSWORD"
+doc = "Neo4j password: chat_nextseek's copy in nextseek.env, and compose's seed for a new neo4j-data volume in the root .env."
+
+[NEXTSEEK_GRAPH_SYNC_STUDY_LINKS]
+files = ["nextseek.env"]
+doc = "graph_sync: follow also removes IN_STUDY links SEEK no longer holds. Set only after the box's study merge."
+
+[NEO4J_TIMEOUT_SECONDS]
+files = ["nextseek.env"]
+default = "5"
+doc = "Seconds the sample download's lineage lookup may run before falling back to Parent."
+
+# --- docker/nextseek.env, optional: read by the app with a code default, set by hand -----------------
+
+[DJANGO_DEBUG]
+files = ["nextseek.env"]
+doc = "Django debug mode; on only for 1, true or yes."
+
+[DJANGO_SESSION_COOKIE_DOMAIN]
+files = ["nextseek.env"]
+doc = "Session cookie domain; unset on a local install."
+
+[FAIRDATA_SOP_HOSTS]
+files = ["nextseek.env"]
+doc = "Space-separated hosts whose SOP links the app may fetch. The code default names one host."
+
+[PROJECT_CONNECTIONS_CACHE_SECONDS]
+files = ["nextseek.env"]
+default = "3600"
+doc = "Cache lifetime in seconds for project connections."
+
+[NESSIE_VOCAB_PRERUN]
+files = ["nextseek.env"]
+default = "on"
+doc = "Nessie: run the vocabulary step before routing, on or off."
+
+[NESSIE_PARSER_START]
+files = ["nextseek.env"]
+default = "after_route"
+doc = "Nessie: when the parser starts relative to the router."
+
+[NEXTSEEK_CC_OPS_ROAD]
+files = ["nextseek.env", "internal"]
+default = ""
+doc = "Container-CC op road, direct or sidecar; cc_engine hands it to the agent."
+
+[GS_RUN_DIR]
+files = ["nextseek.env"]
+doc = "graph_sync run directories; unset means graph_sync under the log folder."
+
+[NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES]
+files = ["nextseek.env"]
+default = ""
+doc = "graph_sync loop: label-change handling switch."
+
+[SEEK_CONTAINER_NAME]
+files = ["nextseek.env"]
+doc = "SEEK container the rails runner execs into; the code default is the unprefixed name."
+
+[SEEK_RAILS_RUNNER_TIMEOUT]
+files = ["nextseek.env"]
+doc = "Seconds a SEEK rails runner call may take."
+
+[ATTRIBUTE_MUTATION_AFFECTED_ROW_THRESHOLD]
+files = ["nextseek.env"]
+default = "5000"
+doc = "Rows above which an attribute change runs as a background job."
+
+[ATTRIBUTE_MUTATION_IN_JOB_PARALLELISM]
+files = ["nextseek.env"]
+default = "1"
+doc = "Parallelism inside one attribute mutation job."
+
+[ASSAY_REGISTRATION_SYNC_ROW_THRESHOLD]
+files = ["nextseek.env"]
+default = "5000"
+doc = "Rows above which an assay registration runs as a background job."
+
+[ATTRIBUTE_MUTATION_OUTBOX_BATCH_SIZE]
+files = ["nextseek.env"]
+default = "50"
+doc = "Attribute job outbox batch size."
+
+[ATTRIBUTE_MUTATION_OUTBOX_IDLE_SECONDS]
+files = ["nextseek.env"]
+default = "0.5"
+doc = "Attribute job outbox idle wait in seconds."
+
+[ATTRIBUTE_WORKER_TELEMETRY_RESULTS]
+files = ["nextseek.env"]
+doc = "Turns on attribute worker telemetry results (dmac/attribute_performance_settings.py)."
+
+[BATCH_UPLOAD_MAX_TOTAL_BYTES]
+files = ["nextseek.env"]
+doc = "Largest batch upload in bytes; the code default is 200 MB."
+
+[BATCH_UPLOAD_MAX_ROWS]
+files = ["nextseek.env"]
+doc = "Rows per batch-upload batch."
+
+[BATCH_UPLOAD_MEM_LIMIT_MB]
+files = ["nextseek.env"]
+doc = "Memory limit in MB for one batch upload; unset is none."
+
+[BATCH_UPLOAD_UPDATE_EXISTING]
+files = ["nextseek.env"]
+doc = "Batch upload updates rows that already exist."
+
+[ENABLE_AUTO_PERMISSIONS]
+files = ["nextseek.env"]
+doc = "Batch upload sets SEEK permissions on what it creates."
+
+[PERMISSIONS_DEFAULT_ACCESS_TYPE]
+files = ["nextseek.env"]
+doc = "Batch upload's default SEEK access type."
+
+[PERMISSIONS_DEFAULT_CONTRIBUTOR_TYPE]
+files = ["nextseek.env"]
+doc = "Batch upload's default SEEK contributor type."
+
+[ASSAY_CACHE_MAX]
+files = ["nextseek.env"]
+doc = "Batch upload assay cache size."
+
+[TITLE_TO_ID_CACHE_MAX]
+files = ["nextseek.env"]
+doc = "Batch upload title-to-id cache size."
+
+[ATTRIBUTE_CACHE_MAX]
+files = ["nextseek.env"]
+doc = "Batch upload attribute cache size."
+
+[NEO4J_NODE_CHUNK]
+files = ["nextseek.env"]
+default = "10000"
+doc = "Batch upload Neo4j node write chunk."
+
+[NEO4J_REL_CHUNK]
+files = ["nextseek.env"]
+default = "20000"
+doc = "Batch upload Neo4j relationship write chunk."
+
+[BATCH_TASK_SOFT_LIMIT]
+files = ["nextseek.env"]
+default = "7200"
+doc = "Celery soft time limit in seconds for a batch task."
+
+[BATCH_TASK_HARD_LIMIT]
+files = ["nextseek.env"]
+default = "7800"
+doc = "Celery hard time limit in seconds for a batch task."
+
+[CELERY_BROKER_URL]
+files = ["nextseek.env", "internal"]
+default = "sqla+sqlite:////var/celery/broker.sqlite"
+doc = "Batch upload Celery broker; the entrypoint sets its own for the attribute workers."
+
+[CELERY_RESULT_BACKEND]
+files = ["nextseek.env"]
+default = "db+sqlite:////var/celery/results.sqlite"
+doc = "Batch upload Celery result backend."
+
+[NEXTSEEK_MODE]
+files = ["nextseek.env"]
+doc = "ChatConfig model mode; unset or invalid falls back."
+
+[NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS]
+files = ["nextseek.env"]
+default = ""
+doc = "Comma-separated umbrella projects treated as published."
+
+[CHAT_NEXTSEEK_CONFIG_VERBOSE]
+files = ["nextseek.env"]
+doc = "ChatConfig prints where each value came from."
+
+[CHAT_NEXTSEEK_CONFIG_SOURCE_ENV_NAMES]
+files = ["nextseek.env"]
+doc = "JSON map of config value to env name, for the config report."
+
+[XDG_STATE_HOME]
+files = ["nextseek.env"]
+default = "~/.local/state"
+doc = "Standard XDG state folder; chat_nextseek's fallback log, output and session paths sit under it."
+
+[PROMPTS_DIR]
+files = ["nextseek.env"]
+doc = "chat_nextseek prompts folder; defaults beside the package."
+
+[CONTEXT_DIR]
+files = ["nextseek.env"]
+doc = "chat_nextseek context folder; defaults beside the package."
+
+[NESSIE_DOCS_DIR]
+files = ["nextseek.env"]
+doc = "User docs folder Nessie reads; defaults to themes/NextSeek/docs."
+
+[SEQ_TEMPLATE_PATH]
+files = ["nextseek.env"]
+doc = "GEO submission template workbook."
+
+[AGENT_MODEL_CATALOG]
+files = ["nextseek.env"]
+doc = "Inline JSON agent model catalog; wins over CATALOG_FILE when set."
+
+[SESSION_DB_PATH]
+files = ["nextseek.env"]
+doc = "chat_nextseek SQLite session store path when SESSION_DB_TYPE is sqlite."
+
+[SESSION_DB_PORT]
+files = ["nextseek.env"]
+default = "3306"
+doc = "chat_nextseek session store port."
+
+[MYSQL_PORT]
+files = ["nextseek.env"]
+doc = "ChatConfig's MySQL port."
+
+[NEO4J_DATABASE]
+files = ["nextseek.env"]
+default = "neo4j"
+doc = "Neo4j database name for chat_nextseek."
+
+[ANTHROPIC_API_KEY]
+files = ["nextseek.env"]
+secret = true
+doc = "Anthropic API key, for an anthropic model mode."
+
+[OPENAI_API_KEY]
+files = ["nextseek.env"]
+secret = true
+doc = "OpenAI API key, for an openai model mode."
+
+[OPENAI_BASE_URL]
+files = ["nextseek.env"]
+doc = "OpenAI-compatible base URL."
+
+[OPENAI_API_BASE]
+files = ["nextseek.env"]
+doc = "Older name of OPENAI_BASE_URL, read as a fallback."
+
+[AWS_REGION]
+files = ["nextseek.env", "proxy-secret.env", "internal"]
+default = "us-east-1"
+doc = "Bedrock region: the app's calls, the proxy's upstream host, and the agent's copy."
+
+[AWS_DEFAULT_REGION]
+files = ["nextseek.env"]
+doc = "Fallback for AWS_REGION."
+
+[GCP_LLM_MODEL]
+files = ["nextseek.env"]
+doc = "Gemini model override for a gcp model mode."
+
+[ANTH_LLM_MODEL]
+files = ["nextseek.env"]
+doc = "Anthropic model override for an anthropic model mode."
+
+[BEDROCK_LLM_MODEL]
+files = ["nextseek.env"]
+doc = "Bedrock model override for a bedrock model mode."
+
+[NEXTSEEK_LLM_MODEL]
+files = ["nextseek.env"]
+default = "gpt-5.2"
+doc = "Model for the openai model mode."
+
+[NEXTSEEK_LLM_LOG]
+files = ["nextseek.env"]
+doc = "Also append every LLM prompt and reply to this file."
+
+[API_USER]
+files = ["nextseek.env", "internal"]
+default = ""
+doc = "chat_nextseek's REST user; cc_engine hands the agent the turn's user under this name."
+
+[API_PASS]
+files = ["nextseek.env"]
+secret = true
+doc = "chat_nextseek's REST password."
+
+[SEMANTIC_SHORTLIST_ENABLED]
+files = ["nextseek.env"]
+doc = "Semantic catalog shortlist for sample types and assays; off by default."
+
+[SEMANTIC_ENDPOINTS_ENABLED]
+files = ["nextseek.env"]
+doc = "Semantic shortlist for the parser's API endpoints; off by default."
+
+[SEMANTIC_MODEL_NAME]
+files = ["nextseek.env"]
+default = "sentence-transformers/all-MiniLM-L6-v2"
+doc = "Sentence-transformers model for the semantic shortlist."
+
+[SEMANTIC_RATIO]
+files = ["nextseek.env"]
+default = "0.7"
+doc = "Semantic shortlist: keep items scoring at least this share of the top score."
+
+[SEMANTIC_MIN_K]
+files = ["nextseek.env"]
+default = "10"
+doc = "Semantic shortlist: always keep at least this many items."
+
+[SEMANTIC_MAX_K]
+files = ["nextseek.env"]
+default = "80"
+doc = "Semantic shortlist: never keep more than this many items."
+
+[PIPELINE_LAUNCH_MODE]
+files = ["nextseek.env"]
+doc = "Where nf-core pipelines launch, luria or tower."
+
+[LURIAKEY]
+files = ["nextseek.env", "root.env"]
+default = "/dev/null"
+doc = "Path of the Luria SSH key file; compose mounts it at the same path. A path, not the key."
+
+[LURIA_USER]
+files = ["nextseek.env"]
+doc = "Luria cluster user."
+
+[LURIA_WORKING_PATH]
+files = ["nextseek.env"]
+doc = "Luria cluster working folder."
+
+[LURIA_CONDA_ENV]
+files = ["nextseek.env"]
+doc = "Conda environment a Luria run script activates."
+
+[LURIA_MAIL_USER]
+files = ["nextseek.env"]
+doc = "Mail recipient for Luria job notices."
+
+[SEQERA_AUTO_LAUNCH]
+files = ["nextseek.env"]
+doc = "Launch a Seqera pipeline without a confirmation."
+
+[TOWER_ACCESS_TOKEN]
+files = ["nextseek.env"]
+secret = true
+doc = "Seqera Platform (Tower) access token."
+
+[TOWER_WORKSPACE_ID]
+files = ["nextseek.env"]
+doc = "Seqera Platform workspace id."
+
+[TOWER_API_ENDPOINT]
+files = ["nextseek.env"]
+doc = "Seqera Platform API endpoint."
+
+[SEQERA_COMPUTE_ENV]
+files = ["nextseek.env"]
+doc = "Seqera compute environment."
+
+[SEQERA_WORK_BUCKET]
+files = ["nextseek.env"]
+doc = "Seqera work bucket."
+
+[SEQERA_PIPELINE_REVISIONS_JSON]
+files = ["nextseek.env"]
+doc = "JSON map of pipeline to pinned revision for Seqera launches."
+
+[SEQERA_DEFAULT_PROFILE]
+files = ["nextseek.env"]
+doc = "Default Nextflow profile for Seqera launches."
+
+[SEQERA_INPUT_DIR]
+files = ["nextseek.env"]
+doc = "Input folder for Seqera launches."
+
+[NEXTSEEK_EVALUATOR_MODE]
+files = ["nextseek.env"]
+doc = "Model mode for the chat_nextseek evaluator."
+
+[NEXTSEEK_PROD_URL]
+files = ["nextseek.env"]
+doc = "Evaluator: the prod NExtSEEK URL it compares against."
+
+[API_PASS_PROD]
+files = ["nextseek.env"]
+secret = true
+doc = "Evaluator: the prod REST password."
+
+[NEO4J_PASSWORD_PROD]
+files = ["nextseek.env"]
+secret = true
+doc = "Evaluator: the prod Neo4j password."
+
+[NEO4J_PASSSWORD_PROD]
+files = ["nextseek.env"]
+secret = true
+doc = "Known misspelling (three S) of NEO4J_PASSWORD_PROD, read as spelt by the evaluator and the Nessie CLI; declared as is by ruling."
+
+[CHAT_NEXTSEEK_GRAPH_ADMIN]
+files = ["nextseek.env"]
+doc = "Operator opt-in, exactly 1, for unscoped graph reads in the evaluator; no served process reads it."
+
+[NESSIE_FOLLOWUP_ROUTING]
+files = ["nextseek.env"]
+doc = "How the router treats a follow-up (NessieAI/router/followup.py)."
+
+[NEXTSEEK_CC_IMAGE]
+files = ["nextseek.env"]
+default = "dmac-assistant:poc"
+doc = "Image a Container-CC turn runs in."
+
+[NEXTSEEK_CC_NETWORK]
+files = ["nextseek.env"]
+default = "dmac-cc-net"
+doc = "Docker network a Container-CC turn joins."
+
+[DMAC_BEDROCK_PROXY_URL]
+files = ["nextseek.env"]
+default = "http://bedrock-proxy:8080"
+doc = "Bedrock proxy URL the agent calls."
+
+[NEXTSEEK_CC_MAX_TURNS]
+files = ["nextseek.env"]
+default = "50"
+doc = "Most agent turns in one Container-CC turn."
+
+[NEXTSEEK_CC_TIMEOUT_SECONDS]
+files = ["nextseek.env"]
+doc = "Default length in seconds of one Container-CC turn."
+
+[NEXTSEEK_CC_MEM_LIMIT]
+files = ["nextseek.env"]
+default = "4g"
+doc = "Memory limit of the agent container."
+
+[NEXTSEEK_CC_NANO_CPUS]
+files = ["nextseek.env"]
+doc = "CPU limit of the agent container, in nano CPUs."
+
+[NEXTSEEK_CC_PIDS_LIMIT]
+files = ["nextseek.env"]
+default = "512"
+doc = "Process limit of the agent container."
+
+[NEXTSEEK_CC_FSIZE_BYTES]
+files = ["nextseek.env"]
+doc = "Largest file the agent may write, in bytes; the code default is 10 GiB."
+
+[NEXTSEEK_CC_MAX_RETRIES]
+files = ["nextseek.env"]
+doc = "Claude Code request retries inside a turn."
+
+[NEXTSEEK_CC_API_TIMEOUT_MS]
+files = ["nextseek.env"]
+doc = "Claude Code request timeout in milliseconds."
+
+[NEXTSEEK_CC_DEFAULT_SONNET_MODEL]
+files = ["nextseek.env"]
+doc = "Classifier model id Claude Code uses; must be one the proxy allows."
+
+[NEXTSEEK_SIDECAR_HOST]
+files = ["nextseek.env", "internal"]
+default = "nextseek-sidecar"
+doc = "Sidecar host for the sidecar op road; cc_engine hands it to the agent."
+
+[NEXTSEEK_SIDECAR_PORT]
+files = ["nextseek.env", "internal"]
+default = "8765"
+doc = "Sidecar port for the sidecar op road; cc_engine hands it to the agent."
+
+[NEXTSEEK_URL]
+files = ["nextseek.env", "internal"]
+doc = "Last fallback for the NExtSEEK URL; cc_engine hands the agent the URL under this name."
+
+[DMAC_USER_ROOT_MOUNT]
+files = ["nextseek.env"]
+doc = "Mount point of the Container-CC users volume inside the app container."
+
+[DMAC_CC_MEMORY_WINDOW]
+files = ["nextseek.env"]
+default = "10"
+doc = "Container-CC memory: turns kept in the window."
+
+[DMAC_CC_MEMORY_MAX_ITEMS]
+files = ["nextseek.env"]
+default = "8"
+doc = "Container-CC memory: most items kept."
+
+[DMAC_CC_MEMORY_TRUNCATE_CHARS]
+files = ["nextseek.env"]
+default = "500"
+doc = "Container-CC memory: characters kept per item."
+
+[DMAC_CC_MEMORY_SWEEP_IDLE_SECONDS]
+files = ["nextseek.env"]
+default = "900"
+doc = "Container-CC memory: idle seconds before a sweep."
+
+[DMAC_CC_MEMORY_SUMMARY_MODEL]
+files = ["nextseek.env"]
+default = "gemini-flash"
+doc = "Container-CC memory: summary model."
+
+[STEP7_LLM_LEDGER]
+files = ["nextseek.env"]
+doc = "Container-CC: write the per-call LLM cost ledger when 1."
+
+[DJANGO_BASE_DIR]
+files = ["nextseek.env"]
+default = "/app"
+doc = "App root the LLM cost ledger writes under."
+
+[NESSIE_TESTQUESTIONS_DIR]
+files = ["nextseek.env"]
+default = "testquestions-2026-08-07"
+doc = "Folder of the paired-evidence test questions archive."
+
+[NEXTSEEK_EVAL_PARSER_FORCE]
+files = ["nextseek.env"]
+doc = "Eval opt-in, 1, that lets a superuser force the parser."
+
+[DMAC_USERS]
+files = ["nextseek.env"]
+secret = true
+doc = "dmac_assistant bridge users as JSON, each with a password."
+
+[DMAC_BRIDGE_HOST]
+files = ["nextseek.env"]
+default = "127.0.0.1"
+doc = "dmac_assistant bridge listen host."
+
+[DMAC_BRIDGE_PORT]
+files = ["nextseek.env"]
+default = "8000"
+doc = "dmac_assistant bridge listen port."
+
+[DMAC_SIDECAR_NETWORK]
+files = ["nextseek.env"]
+doc = "dmac_assistant bridge: docker network of the sidecar."
+
+[DMAC_DEV_MODE]
+files = ["nextseek.env"]
+default = ""
+doc = "dmac_assistant bridge dev mode; on only for a true value."
+
+# --- Must not be set in a box env file (NessieAI/CLAUDE.md "Box env") --------------------------------
+
+[DMAC_ROUTE_CAPABILITIES_FILE]
+files = ["internal"]
+forbidden = true
+doc = "Override of the route capabilities file. On a box it beats the package default and routing drops to the heuristic."
+
+[DMAC_ROUTER_MODEL_CLASS_MAP_FILE]
+files = ["internal"]
+forbidden = true
+doc = "Override of the router model class map. On a box every CC turn loses its model id."
+
+# --- Root .env, read by compose for ${KEY} interpolation (.env.example) ------------------------------
+
+[COMPOSE_PROJECT_NAME]
+files = ["root.env"]
+default = "nextseek"
+doc = "Compose project name; install writes it per instance."
+
+[INSTANCE_PREFIX]
+files = ["root.env"]
+default = ""
+doc = "Prefix for container and volume names of a second instance; install writes it."
+
+[NEXTSEEK_PORT]
+files = ["root.env"]
+default = "8000"
+doc = "Host port of the published nginx; install writes it."
+
+[SEEK_PORT]
+files = ["root.env"]
+default = "3000"
+doc = "Host port of SEEK; install writes it."
+
+[DB_PORT]
+files = ["root.env"]
+default = "3306"
+doc = "Host port of MySQL; install writes it."
+
+[NEO4J_HTTP_PORT]
+files = ["root.env"]
+default = "7474"
+doc = "Host port of the Neo4j browser; install writes it."
+
+[NEO4J_BOLT_PORT]
+files = ["root.env"]
+default = "7687"
+doc = "Host port of Neo4j bolt; install writes it."
+
+[NEXTSEEK_MEMORY]
+files = ["root.env"]
+default = "16G"
+doc = "Memory cap of the app container."
+
+[SEEK_MEMORY]
+files = ["root.env"]
+default = "4G"
+doc = "Memory cap of SEEK."
+
+[SEEK_PUMA_WORKERS]
+files = ["root.env"]
+default = "4"
+doc = "SEEK puma workers. Set with SEEK_MEMORY and SEEK_WORKER_MAX_MB."
+
+[SEEK_WORKER_MAX_MB]
+files = ["root.env"]
+default = "2500"
+doc = "RSS in whole MB at which the recycler restarts a SEEK puma worker."
+
+[SEEK_WORKERS_MEMORY]
+files = ["root.env"]
+default = "3G"
+doc = "Memory cap of the SEEK job workers."
+
+[SEEK_DB_MEMORY]
+files = ["root.env"]
+default = "2G"
+doc = "Memory cap of MySQL."
+
+[NEO4J_MEMORY]
+files = ["root.env"]
+default = "6G"
+doc = "Memory cap of Neo4j."
+
+[NEO4J_HEAP]
+files = ["root.env"]
+default = "2g"
+doc = "Neo4j heap size."
+
+[NEO4J_PAGECACHE]
+files = ["root.env"]
+default = "2g"
+doc = "Neo4j page cache size."
+
+[NEO4J_TRANSACTION_MAX]
+files = ["root.env"]
+default = "1g"
+doc = "Neo4j memory cap per transaction."
+
+[NEO4J_PLUGINS]
+files = ["root.env"]
+default = ""
+doc = "Neo4j plugins to load, for example the read-only APOC families."
+
+[NEO4J_PROCEDURES_ALLOWLIST]
+files = ["root.env"]
+default = "*"
+doc = "Neo4j procedures allowlist."
+
+[SOLR_MEMORY]
+files = ["root.env"]
+default = "2G"
+doc = "Memory cap of Solr."
+
+[SIDECAR_MEMORY]
+files = ["root.env"]
+default = "1G"
+doc = "Memory cap of the Nessie sidecar."
+
+[LAYA_CPUS]
+files = ["root.env"]
+default = "4"
+doc = "CPU cap of the laya router."
+
+[LAYA_MEMORY]
+files = ["root.env"]
+default = "3500M"
+doc = "Memory cap of the laya router."
+
+[LAYA_REVISION]
+files = ["root.env"]
+default = "unset"
+doc = "laya model revision the router loads."
+
+[ATTRIBUTE_MUTATION_WORKER_CONCURRENCY]
+files = ["root.env"]
+default = "1"
+doc = "Attribute mutation worker concurrency; compose passes it into the app container."
+
+# --- Django settings, set in dmac/local_settings.py (read with getattr(settings, ...)) ---------------
+
+[CC_PERSIST_STRICT]
+files = ["local_settings"]
+default = "False"
+doc = "Container-CC: a failed transcript save fails the turn."
+
+[CC_TRANSCRIPT_MAX_BYTES]
+files = ["local_settings"]
+doc = "Largest stored Container-CC transcript in bytes."
+
+[NEXTSEEK_CHAT_CONFIG_PROD]
+files = ["local_settings"]
+secret = true
+doc = "The prod ChatConfig local_settings builds from its PROD overrides; holds prod credentials."
+
+[NEXTSEEK_RISK_OVERLAY_ENABLED]
+files = ["local_settings"]
+default = "False"
+doc = "Router risk overlay switch."
+
+[NEXTSEEK_EXPORT_ROOT]
+files = ["local_settings"]
+doc = "Folder the SEEK exports page writes to."
+
+[BATCH_UPLOAD_JOB_TTL_HOURS]
+files = ["local_settings"]
+doc = "Hours a batch upload job record is kept."
+
+[SAMPLE_RETRIEVE_NEO4J_CONNECT_TIMEOUT]
+files = ["local_settings"]
+doc = "Sample retrieve: Neo4j connect timeout in seconds."
+
+[SAMPLE_RETRIEVE_NEO4J_QUERY_TIMEOUT]
+files = ["local_settings"]
+doc = "Sample retrieve: Neo4j query timeout in seconds."
+
+# --- Set by the image: the Dockerfile, compose environment: or the entrypoint ------------------------
+
+[DJANGO_SETTINGS_MODULE]
+files = ["image", "internal"]
+default = "dmac.settings"
+doc = "Django settings module; asgi and wsgi set it, tests set their own."
+
+[DMAC_CC_USERS_VOLUME]
+files = ["image"]
+doc = "Container-CC users volume name; compose sets it with INSTANCE_PREFIX, so a nextseek.env line is ignored."
+
+[SIDECAR_STAGING_DIR]
+files = ["image"]
+doc = "Nessie sidecar staging folder; compose sets it."
+
+[SIDECAR_WS_PORT]
+files = ["image"]
+default = "8765"
+doc = "Nessie sidecar websocket port; compose sets it."
+
+[SENTENCE_TRANSFORMERS_HOME]
+files = ["image"]
+doc = "Folder of the embedding models baked into the app image; the Dockerfile sets /opt/models (#28). Unset, schema_rag reads schema_rag/embedding_models."
+
+# --- docker/nextseek.env, optional: read by docker/scripts/entrypoint.sh -----------------------------
+
+[NEXTSEEK_SERVER]
+files = ["nextseek.env"]
+default = "daphne"
+doc = "App server the entrypoint starts, daphne or gunicorn."
+
+[NEXTSEEK_GRAPH_SYNC_LOOP]
+files = ["nextseek.env"]
+default = "1"
+doc = "Entrypoint starts the graph_sync loop unless 0."
+
+[GRAPH_SYNC_RESTART_DELAY]
+files = ["nextseek.env"]
+default = "60"
+doc = "Entrypoint: seconds before a stopped graph_sync loop restarts."
+
+[DB_WAIT_ATTEMPTS]
+files = ["nextseek.env"]
+default = "30"
+doc = "Entrypoint: database probe attempts before giving up."
+
+[DB_WAIT_INTERVAL]
+files = ["nextseek.env"]
+default = "2"
+doc = "Entrypoint: seconds between database probes."
+
+# --- Internal: set by code for a child process, or by a test harness; never by an operator -----------
+
+[NEXTSEEK_USERNAME]
+files = ["internal"]
+doc = "The turn's user, which cc_engine hands the agent."
+
+[NEXTSEEK_TURN_PASS]
+files = ["internal"]
+secret = true
+doc = "The one-turn pass cc_engine hands the agent; its one credential."
+
+[NEXTSEEK_CHAT_SESSION_ID]
+files = ["internal"]
+default = ""
+doc = "The live chat session id cc_engine hands the agent."
+
+[NEXTSEEK_CC_TURN_DEADLINE_EPOCH]
+files = ["internal"]
+default = ""
+doc = "Unix time by which the agent's turn stops; cc_engine sets it."
+
+[NEXTSEEK_ASSISTANT_PREFIX]
+files = ["internal"]
+default = "nextseek_api/assistant"
+doc = "API prefix the agent's op tools call."
+
+[NEXTSEEK_SCRATCH_DIR]
+files = ["internal"]
+default = "/data/scratch"
+doc = "The agent's scratch folder."
+
+[NEXTSEEK_DRY_RUN]
+files = ["internal"]
+doc = "The agent's op tools return a stub when 1 (tests)."
+
+[NEXTSEEK_SKIP_SCHEMA_WARM]
+files = ["internal"]
+doc = "Skip the schema warm-up at app start; the test settings set it."
+
+[TESTING]
+files = ["internal"]
+default = "0"
+doc = "Test-run flag the batch upload policies read."
+
+[ATTRIBUTE_TEST_FAULT_CONTROL]
+files = ["internal"]
+doc = "Fault-injection control for the attribute worker tests."
+
+[CHAT_NEXTSEEK_SKIP_BAML_BOOTSTRAP]
+files = ["internal"]
+doc = "Skip the evaluator's BAML bootstrap (tests)."

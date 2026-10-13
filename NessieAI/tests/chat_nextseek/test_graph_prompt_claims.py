@@ -35,7 +35,30 @@ MIN_SCHEMA_PATH = PACKAGE / "context" / "min_graph_schema.json"
 #     and a count across every type.
 #   api_preferred triggers 5 -> 4: the three sample-search ones go, replaced by catalog records, the full record or
 #     an export by UID, and "any NON-METADATA intent that maps cleanly to a known endpoint".
-FROZEN_ROUTING_SHA256 = "c7d01c88e6d5423790af2562358cac2f5186acfa8ac11d28768cc48f1f908c47"
+#
+# Re-pinned a third time, reviewed: the export rule names the download API by its new path, samples/retrieve
+# (admin/samples/retrieve is its deprecated alias). Checked by replacing that one string in the old frozen JSON,
+# which then equals the new one exactly; no rule or trigger changed (was c7d01c88e6d5...f908c47).
+#
+# Re-pinned a fourth time, reviewed (operator 2026-09-24, schema flag F2): the "Investigation titles to recognize"
+# rule gained the five live titles it lacked (Griffith, Impact, RMS-NGC, SRP, Shoulders; the local graph holds 15,
+# less one test record). Checked by replacing that one string in the old frozen JSON, which then equals the new one
+# exactly; no other rule or trigger changed (was 7273608d61fa...bb3673a).
+#
+# Re-pinned a fifth time, reviewed (operator, the studies release): DOI and PMID are sample attributes, so the
+# paper trigger reads s.DOI / s.PMID on the sample and st.DOI / st.PMID on a paper study, and the DOI rule says they
+# live on samples and on paper studies. Checked by replacing those two strings in the old frozen JSON, which then
+# equals the new one exactly; no other rule or trigger changed (was 0cf426479396...c19659e1251f).
+# Re-pinned a sixth time (round 4, unit B, reviewed by the judge): api_preferred_triggers shrink to retrieve, one SOP's
+# file and the user list; the assay rule points at the Assay node; two disambiguation rules (catalog counts and the
+# signed-in user go to the system agent) are added; the DOI rule says paper studies and MAY be samples.
+# Re-pinned a seventh time (round 4 fix F5, supervisor): the SOP trigger names the file of one SOP by its id OR its
+# exact title, as the parser prompt and the code-built request now do. Checked by replacing that one string in the
+# old frozen JSON, which then equals the new one exactly (was f9352f09158f...c58cf8e462).
+# Re-pinned an eighth time (nessie_fixes fix 9): the "Investigation titles to recognize" rule carries the placeholder
+# {{KNOWN_INVESTIGATION_TITLES}}, filled from each box's graph at call time. Checked by replacing the placeholder with
+# the old title list in the new JSON, which then equals the old frozen JSON exactly (was 715d61922825...cadd71a99d526).
+FROZEN_ROUTING_SHA256 = "08e1ec92558896e259d03c9a89c7679407771bec287c51a1c7f9b494410b40c3"
 DESCRIPTIVE_RULE_PREFIX = "If the query filters or reports on a descriptive sample attribute"
 
 
@@ -135,3 +158,32 @@ def test_the_routing_rules_are_unchanged():
     # to advanced_search now sends it to the graph. This is the rule the promotion exists to change;
     # it is excluded from the frozen hash above precisely because it moves.
     assert "→ graph_query" in rules[descriptive]
+
+
+def test_a_collection_date_question_reads_the_uid_date():
+    """Operator ruling 2026-09-23 (supersedes the SampleCreationDate reading of 2026-09-22): "collection
+    dates" means the YYMMDD in TYPE-YYMMDDLAB-n, which every sample carries. The local run asked for the
+    longest span of collection dates and the agent used CollectionDate (134 samples)."""
+    assert "**Which date.**" in PROMPT
+    rule = PROMPT.split("**Which date.**", 1)[1].split("\n", 1)[0]
+    assert "TYPE-YYMMDDLAB-n" in rule and "split(s.uuid, '-')[1]" in rule
+    assert "only when the user names that attribute" in rule
+    assert "s.CollectionDate STARTS WITH" not in PROMPT
+
+
+def test_a_file_type_is_matched_in_the_type_field_and_the_file_name_and_kept_apart():
+    assert ("- **A file type or format is recorded in two places**: a type or format field (`DataType`) and the "
+            "file name's extension (`File_PrimaryData`). Match both and keep them apart: "
+            "`WHERE toLower(toString(s.DataType)) CONTAINS $term OR any(e IN $exts WHERE "
+            "toLower(toString(s.File_PrimaryData)) ENDS WITH e) RETURN coalesce(toString(s.DataType), '(file name only)') AS value, count(*) AS n "
+            "ORDER BY n DESC`, so the reply can give the total with and without the records known only by "
+            "their file name.") in PROMPT
+
+
+def test_both_attributes_the_file_type_bullet_names_are_real_on_more_than_one_sample_type():
+    import json
+
+    rows = json.loads((PACKAGE / "context" / "sampletypes_db.json").read_text(encoding="utf-8"))
+    rows = rows if isinstance(rows, list) else next(iter(rows.values()))
+    for attribute in ("DataType", "File_PrimaryData"):
+        assert sum(attribute in json.dumps(r) for r in rows) > 1, attribute

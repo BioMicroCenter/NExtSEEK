@@ -4,7 +4,7 @@
 #SBATCH -p bcc
 #SBATCH --job-name=nfcore_scrnaseq_star
 #SBATCH --output=RUN_DIR/nfcore_scrnaseq_star.out
-#SBATCH --mail-user=cdemu@mit.edu
+# For job mail, submit with: sbatch --mail-user="$SLURM_MAIL_USER" ... (SLURM_MAIL_USER is unset by default; #SBATCH lines cannot expand variables).
 # Phase-1 validation run: STARsolo on the 6 whitelist-less seqwell samples via the vendored
 # patched clone. Stage this into a fresh run dir with RUN_DIR replaced by that dir's absolute path.
 module add miniconda3/v4

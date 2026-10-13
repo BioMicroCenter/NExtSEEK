@@ -25,6 +25,9 @@ class GraphSyncOutbox(models.Model):
     lease_expires_at = models.DateTimeField(null=True, blank=True)
     attempts = models.PositiveIntegerField(default=0)
     last_error = models.TextField(null=True, blank=True)
+    # The first failure since the row last succeeded; kept across later failures, re-enqueues and deferrals, cleared
+    # when the row is done. How long a row has been failing, which neither enqueued_at nor attempts can say.
+    failing_since = models.DateTimeField(null=True, blank=True)
     done_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

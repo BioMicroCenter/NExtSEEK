@@ -30,8 +30,12 @@ dependencies = [
 # fails closed unless this extra is installed. onnxruntime floor: markitdown
 # -> magika pulls onnxruntime; the floor keeps uv on a version that ships
 # wheels for the image's Python. Kept out of the host/build tree deliberately.
+# matplotlib (it brings Pillow) is for the agent's own charts: without it every
+# chart turn of the 2026-09-25 dev run hand-encoded a PNG or wrote an SVG by hand,
+# and one tried `pip install` twice and spent 96 s and 11 model turns on 3 bars.
 container = [
     "markitdown==0.1.6",
+    "matplotlib>=3.10.7",
     "onnxruntime>=1.24.1",
 ]
 

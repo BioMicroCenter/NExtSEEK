@@ -6,9 +6,10 @@ import sys
 from pathlib import Path
 
 import typer
+from rich.markup import escape
 
 from startup.lib import layout, ui
-from startup.lib.env import read_env
+from startup.lib.env import read_env, write_env
 from startup.lib.instance import (
     InstanceState,
     resolve_instance_name,
@@ -119,7 +120,8 @@ def _disk_preflight_or_exit(
 def _print_health_results(results: list[validate.HealthResult]) -> None:
     for r in results:
         printer = ui.warn if getattr(r, "warn", False) else (ui.ok if r.ok else ui.fail)
-        printer(f"{r.name}: {r.detail}")
+        # Escaped: a detail can carry an error text, and rich reads "[/x]" in one as a closing tag and raises.
+        printer(escape(f"{r.name}: {r.detail}"))
 
 
 def _reject_leaked_option_defaults(received: dict[str, object]) -> None:
@@ -234,6 +236,14 @@ def _install_impl(
     except config.InvalidSeekPublicUrl as exc:
         ui.fail(str(exc))
         raise typer.Exit(code=2)
+    # Install keeps every value already on disk (#103). The credentials and host
+    # keys are read back here, before anything is written, so one that compose
+    # would read differently stops the install with nothing changed.
+    try:
+        kept = config.kept_values(REPO_ROOT)
+    except config.UnsafeKeptValue as exc:
+        ui.fail(str(exc))
+        raise typer.Exit(code=2)
 
     state = InstanceState(
         name=name,
@@ -264,7 +274,13 @@ def _install_impl(
         ui.console.print("  Default credentials (rotate after install per NExtSTEPS.md):")
         ui.console.print(f"    demo / demopassword   (admin)")
         ui.console.print(f"    user / userpassword   (regular)")
-        ui.console.print(f"    neo4j / demopassword")
+        if kept.get("NEXTSEEK_NEO4J_PASSWORD", "demopassword") == "demopassword":
+            ui.console.print(f"    neo4j / demopassword")
+        else:
+            ui.console.print("    neo4j / the password kept in docker/nextseek.env")
+        if kept:
+            # Names only: these are the box's credentials.
+            ui.console.print(f"  Kept from disk      {', '.join(kept)}")
         ui.console.print(f"  CI profile          {ci_profile}  (which routes ./startup.sh ci may call)")
         if no_seed:
             ui.console.print(f"  Seed import         [yellow]SKIPPED (--no-seed)[/yellow]")
@@ -296,22 +312,40 @@ def _install_impl(
 
     # [4/9] Config templates
     ui.step(4, total, "Writing config templates")
+    # The files on disk win over the templates (#103): the kept credentials and
+    # host keys feed every file, and render_db_env/render_nextseek_env keep each
+    # line already there, re-rendering only what config._render_keeping names.
     values = config.default_values(
         nextseek_port=ports["nextseek"],
         seek_port=ports["seek"],
         seek_public_url=state.seek_public_url,
+        kept=kept,
+        previous_ports=existing.ports if existing else None,
     )
+    changes = config.preview_changed_keys(REPO_ROOT, values)
+    if changes["kept_differs_from_template"]:
+        ui.info("kept from the files on disk (differs from a fresh install): "
+                + ", ".join(changes["kept_differs_from_template"]))
+    if changes["rerendered"]:
+        ui.warn("re-rendered from the templates over the files on disk: "
+                + ", ".join(changes["rerendered"]))
     config.render_db_env(REPO_ROOT, values)
     config.render_nextseek_env(REPO_ROOT, values)
-    config.render_local_settings(REPO_ROOT, values)
+    if config.render_local_settings(REPO_ROOT, values).name == "local_settings.py.new":
+        ui.warn("dmac/local_settings.py kept as it is; the template's version is in "
+                "dmac/local_settings.py.new: diff the two and merge by hand")
+    config.ensure_seek_nginx_conf(REPO_ROOT)
 
     compose_env = state.compose_env()
+    # Install's own database steps log in with the passwords the files hold, not
+    # the demo ones. The root .env still gets compose_env (its allowlist).
+    db_env = {**compose_env, "MYSQL_ROOT_PASSWORD": values.mysql_root_password}
     proxy_env_path = config.render_proxy_secret_env(REPO_ROOT)
     _warn_if_proxy_token_empty(proxy_env_path)
     config.render_root_env(REPO_ROOT, compose_env, neo4j_password=values.neo4j_password)
     ui.ok(
         "docker/db.env, docker/nextseek.env, "
-        f"{layout.PROXY_SECRET_ENV.as_posix()}, dmac/local_settings.py, .env"
+        f"{layout.PROXY_SECRET_ENV.as_posix()}, docker/seek-nginx.conf, dmac/local_settings.py, .env"
     )
 
     # [5/9] Volumes
@@ -328,32 +362,34 @@ def _install_impl(
     ui.step(6, total, "Importing seed databases")
     if no_seed:
         ui.warn("--no-seed: starting database containers only, no seed import")
-        build.start_databases(REPO_ROOT, compose_env)
+        build.start_databases(REPO_ROOT, db_env, neo4j_password=values.neo4j_password)
         ui.ok("databases up (empty — populate them yourself or re-run without --no-seed)")
     else:
         missing = seed.seed_files_present(REPO_ROOT)
         if missing:
             ui.fail(f"missing seed files: {', '.join(missing)}")
             raise typer.Exit(code=1)
-        build.start_databases(REPO_ROOT, compose_env)
-        if seed.mysql_db_is_populated("dmac", REPO_ROOT, compose_env):
+        build.start_databases(REPO_ROOT, db_env, neo4j_password=values.neo4j_password)
+        if seed.mysql_db_is_populated("dmac", REPO_ROOT, db_env):
             ui.ok("dmac already populated; skipping")
         else:
             with ui.spinner("loading dmac.sql.gz"):
-                seed.load_mysql_dump(REPO_ROOT / "startup" / "seed" / "dmac.sql.gz", "dmac", REPO_ROOT, compose_env)
+                seed.load_mysql_dump(REPO_ROOT / "startup" / "seed" / "dmac.sql.gz", "dmac", REPO_ROOT, db_env)
             ui.ok("dmac loaded")
-        if seed.mysql_db_is_populated("seek_production", REPO_ROOT, compose_env):
+        if seed.mysql_db_is_populated("seek_production", REPO_ROOT, db_env):
             ui.ok("seek_production already populated; skipping")
         else:
             with ui.spinner("loading seek_production.sql.gz"):
-                seed.load_mysql_dump(REPO_ROOT / "startup" / "seed" / "seek_production.sql.gz", "seek_production", REPO_ROOT, compose_env)
+                seed.load_mysql_dump(REPO_ROOT / "startup" / "seed" / "seek_production.sql.gz", "seek_production", REPO_ROOT, db_env)
             ui.ok("seek_production loaded")
         if seed.neo4j_is_populated(values.neo4j_password, REPO_ROOT, compose_env):
             ui.ok("neo4j already populated; skipping")
         else:
             ui.info("neo4j.cypher.gz — bulk-loaded via UNWIND batches (~1-2 min)")
             ui.info(f"watch progress in the Neo4j browser at http://localhost:{ports['neo4j_http']}/")
-            ui.info(f"  log in as neo4j / {values.neo4j_password}, then run:  MATCH (n) RETURN count(n);")
+            # Never the password itself: once kept, it is the box's real one.
+            ui.info("  log in as neo4j with NEXTSEEK_NEO4J_PASSWORD from docker/nextseek.env, "
+                    "then run:  MATCH (n) RETURN count(n);")
             with ui.spinner("loading neo4j.cypher.gz via UNWIND batches"):
                 seed.load_neo4j_dump(REPO_ROOT / "startup" / "seed" / "neo4j.cypher.gz", values.neo4j_password, REPO_ROOT, compose_env)
             ui.ok("neo4j loaded")
@@ -362,7 +398,7 @@ def _install_impl(
     # existing populated DB also self-heal. apply_all is idempotent + skips
     # entries whose target table doesn't exist (e.g., post --no-seed on a
     # fresh volume — there's nothing to fix up yet).
-    for fqn, status in schema_fixups.apply_all(REPO_ROOT, compose_env):
+    for fqn, status in schema_fixups.apply_all(REPO_ROOT, db_env):
         (ui.ok if status not in {"applied", "constraints reset"} else ui.warn)(
             f"schema fixup {fqn}: {status}"
         )
@@ -375,7 +411,7 @@ def _install_impl(
     # and no restart is ever needed. Set-if-absent: an existing row is an admin
     # decision and is reported, never overwritten.
     site_status = seek_settings.apply_site_base_host(
-        REPO_ROOT, compose_env, state.seek_public_url
+        REPO_ROOT, db_env, state.seek_public_url
     )
     (ui.warn if site_status.startswith("differs") else ui.ok)(
         f"SEEK site_base_host: {site_status}"
@@ -423,13 +459,13 @@ def _install_impl(
     # when the nextseek container starts — i.e., during phase 7. Running this
     # earlier hits MySQL error 1054 (Unknown column 'title') because the seed
     # dump's CREATE TABLE predates that migration.
-    stale_chats = seed_cleanup.clear_stale_chat_sessions(REPO_ROOT, compose_env)
+    stale_chats = seed_cleanup.clear_stale_chat_sessions(REPO_ROOT, db_env)
     if stale_chats > 0:
         ui.ok(f"cleared {stale_chats} stale chat session(s) with no title")
 
     # [8/9] Users
     ui.step(8, total, "Verifying test users")
-    missing_users = users.verify_users_present(REPO_ROOT, compose_env)
+    missing_users = users.verify_users_present(REPO_ROOT, db_env)
     if missing_users:
         ui.warn(f"missing users: {', '.join(missing_users)} (seed dump should include them; investigate)")
     else:
@@ -437,7 +473,7 @@ def _install_impl(
 
     # [9/9] Validate
     ui.step(9, total, "Health checks")
-    results = validate.run_all_health_checks(ports, REPO_ROOT, compose_env)
+    results = validate.run_all_health_checks(ports, REPO_ROOT, db_env)
     failed_checks = [r for r in results if not r.ok]
     _print_health_results(results)
     if failed_checks:
@@ -528,7 +564,9 @@ def doctor(
         raise typer.Exit(code=2) from exc
     any_failed = False
     for name, ok, detail in results:
-        if ok:
+        if ok and detail.startswith("warning: "):
+            ui.warn(escape(f"{name}: {detail}"))
+        elif ok:
             ui.ok(f"{name}: {detail}")
         else:
             ui.fail(f"{name}: {detail}")
@@ -551,6 +589,14 @@ def reset(
         ui.fail("no instance to reset — startup/.instance.json missing")
         raise typer.Exit(code=1)
 
+    if keep_config:
+        # The re-install would refuse it after the volumes are gone: refuse it now.
+        try:
+            config.kept_values(REPO_ROOT)
+        except config.UnsafeKeptValue as exc:
+            ui.fail(str(exc))
+            raise typer.Exit(code=2)
+
     if not yes:
         ui.warn(f"This will DROP all data for instance '{state.name}' (volumes: {state.prefix}*)")
         typer.confirm("Continue?", abort=True)
@@ -561,6 +607,13 @@ def reset(
 
     if not keep_config:
         ui.step(2, 3, "Removing config files")
+        # The two host keys go across the wipe like the SEEK URL below: the
+        # re-install reads them back from a docker/nextseek.env holding only them.
+        carried = {
+            key: value
+            for key in ("DJANGO_ALLOWED_HOSTS", "DJANGO_CSRF_TRUSTED_ORIGINS")
+            if (value := config.read_rendered_value(REPO_ROOT, key))
+        }
         for p in [
             REPO_ROOT / "docker" / "db.env",
             REPO_ROOT / "docker" / "nextseek.env",
@@ -569,12 +622,16 @@ def reset(
             # to remove config, so it must not leave the real token behind.
             layout.legacy_proxy_secret_env(REPO_ROOT),
             REPO_ROOT / "dmac" / "local_settings.py",
+            REPO_ROOT / "dmac" / "local_settings.py.new",
             REPO_ROOT / ".env",
             REPO_ROOT / "startup" / ".instance.json",
         ]:
             if p.exists():
                 p.unlink()
                 ui.ok(f"removed {p.relative_to(REPO_ROOT)}")
+        if carried:
+            write_env(REPO_ROOT / "docker" / "nextseek.env", carried)
+            ui.ok(f"carried {', '.join(carried)} into the re-install")
     else:
         ui.step(2, 3, "Keeping config files (--keep-config)")
 
@@ -778,6 +835,12 @@ def rebuild(
     if graph_drift is not None:
         _print_health_results([graph_drift])
 
+    # How is the graph sync itself doing? Every profile, production included, where nothing else
+    # checks it. Advisory, like drift: the suite still runs, and the rebuild exits red on it at the end.
+    graph_sync_health = _graph_sync_health(state, stack_is_up=health.testable)
+    if graph_sync_health is not None:
+        _print_health_results([graph_sync_health])
+
     # Off-box rollback baselines (DEPLOYMENT.md §5.2). Non-fatal by contract,
     # and belt-and-braces guarded: the deploy is never hostage to the registry.
     if registry_push:
@@ -831,7 +894,7 @@ def rebuild(
                 label=prepared[0].tag if prepared else None,
                 image_ref=image_ref, image_id=image_id,
                 profile=state.ci_profile,
-                health=_health_rows(health),
+                health=_health_rows(health) + _result_rows(graph_sync_health),
                 graph_drift=_graph_drift_row(graph_drift),
                 # nessie_ran as well as the summary: a lane that died before its
                 # summary still left evidence for the record to file.
@@ -853,10 +916,25 @@ def rebuild(
                 raise typer.Exit(code=rc)
             ui.ok(f"CI passed: {outcome}")
 
-    if not health.ok or (graph_drift is not None and not graph_drift.ok):
+    if (not health.ok or (graph_drift is not None and not graph_drift.ok)
+            or (graph_sync_health is not None and not graph_sync_health.ok)):
         # The build itself succeeded; the box is nonetheless short an image, a
         # service, or the front door, which only a user would otherwise report,
-        # or its graph no longer matches MySQL, which nobody would report at all.
+        # or its graph no longer matches MySQL, which nobody would report at all,
+        # or its graph sync is failing, which on production nothing else would report.
+        # Said last, after the suite's green line, so a terminal ends on the reason for the exit.
+        red = [name for name, bad in (
+            ("stack health", not health.ok),
+            ("graph drift", graph_drift is not None and not graph_drift.ok),
+            ("graph sync health", graph_sync_health is not None and not graph_sync_health.ok),
+        ) if bad]
+        if health.testable:
+            ending = ("No rollback is needed: the build and restart succeeded, only the health "
+                      "judgement is red.")
+        else:
+            # The app or the front door is not up: a rollback may be what is needed.
+            ending = "The app or front door is not up; see DEPLOYMENT.md section 5 (Rollback)."
+        ui.fail(f"Rebuild finished but is red: {', '.join(red)}. {ending}")
         raise typer.Exit(code=1)
 
 
@@ -878,17 +956,39 @@ def _graph_drift(state: InstanceState, *, app_rebuild: bool = True,
     recorded: a box outside GRAPH_DRIFT_PROFILES, a component whose image says
     nothing about the graph, or a stack whose app container is down, which the
     health report has already said in its own words.
+
+    When it is asked, the app container first rewrites the graph's small tables
+    from SEEK (``validate.refresh_graph_small_tables``, printed, never red by
+    itself), so an edit made in SEEK's own UI since the nightly does not fail
+    the rebuild as drift.
     """
     if not app_rebuild or not stack_is_up:
         return None
     if (state.ci_profile or DEFAULT_CI_PROFILE) not in GRAPH_DRIFT_PROFILES:
         return None
+    _print_health_results([validate.refresh_graph_small_tables(REPO_ROOT, state.compose_env())])
     return validate.check_graph_drift(REPO_ROOT, state.compose_env())
 
 
 def _graph_drift_row(result) -> tuple[str, bool, str] | None:
     """The drift check as the plain tuple the CI record takes."""
     return None if result is None else (result.name, result.ok, result.detail)
+
+
+def _graph_sync_health(state: InstanceState, *, stack_is_up: bool = True) -> "validate.HealthResult | None":
+    """Ask the app container how the graph sync is doing, or None.
+
+    None only when the app container is down, which the health report has already said. Every profile and every
+    component: it reads two tables through manage.py, needs no login, and on production is the only check of the sync.
+    """
+    if not stack_is_up:
+        return None
+    return validate.check_graph_sync_health(REPO_ROOT, state.compose_env())
+
+
+def _result_rows(result) -> list[tuple[str, bool, str]]:
+    """A health line as rows of the CI record's stack health: none when it was not asked."""
+    return [] if result is None else [(result.name, result.ok, result.detail)]
 
 
 # The profiles the Nessie lane may run under. It writes (a chat) and pays for model
@@ -1056,7 +1156,7 @@ def ci(
         confirm_force = True
 
     # Step 1: stack health. Only a down app or front door stops the run; the
-    # rest is printed and recorded, but `ci` answers what the suite says.
+    # rest is printed and recorded; only the graph sync line (Step 1c) also fails `ci`.
     health = validate.stack_health(REPO_ROOT, state.compose_env(),
                                    state.compose_project_name)
     _report_health(health)
@@ -1066,11 +1166,19 @@ def ci(
         raise typer.Exit(code=1)
 
     # Step 1b: does the graph still equal MySQL (CI-4)? Printed and recorded here
-    # and no more than that. `ci` answers one question, what the suite says;
-    # `rebuild` is the command that exits red on drift.
+    # and no more than that: this line itself never fails `ci`. `rebuild` is the command that exits red on it.
+    # But on local and dev this run records itself as the latest drift run, and the graph sync health line
+    # below (step 1c) fails `ci` on a latest drift run that found drift.
     graph_drift = _graph_drift(state)
     if graph_drift is not None:
         _print_health_results([graph_drift])
+
+    # Step 1c: how is the graph sync itself doing? Unlike drift above this one is part of the
+    # answer: a red line fails `ci` after the suite, even a suite that passed, since on production nothing else
+    # checks the sync.
+    graph_sync_health = _graph_sync_health(state, stack_is_up=health.testable)
+    if graph_sync_health is not None:
+        _print_health_results([graph_sync_health])
 
     # Step 2, with the Nessie lane on: its own prerequisites, which unlike the
     # advisory CC checks above do stop the run (spec decision 6).
@@ -1091,7 +1199,7 @@ def ci(
     image_ref, image_id = runner.running_image()
     record = runner.write_report(REPO_ROOT, image_ref=image_ref, image_id=image_id,
                                  profile=state.ci_profile, command=cmd,
-                                 health=_health_rows(health),
+                                 health=_health_rows(health) + _result_rows(graph_sync_health),
                                  graph_drift=_graph_drift_row(graph_drift),
                                  nessie_ran=nessie_on,
                                  nessie_summary=(runner.read_nessie_summary(REPO_ROOT)
@@ -1103,6 +1211,10 @@ def ci(
         if runner.junit_path(REPO_ROOT).is_file():
             ui.info(f"report: {runner.junit_path(REPO_ROOT)}")
         raise typer.Exit(code=rc)
+    if graph_sync_health is not None and not graph_sync_health.ok:
+        ui.fail(f"CI failed: the suite passed ({outcome}), but the graph sync health line failed "
+                "(see the ✗ above).")
+        raise typer.Exit(code=1)
     ui.ok(f"CI passed: {outcome}")
 
 

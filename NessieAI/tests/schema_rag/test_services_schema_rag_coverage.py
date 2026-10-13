@@ -14,13 +14,13 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 
 class TestSchemaRAGViewSet:
 
-    def _make_user(self):
+    def _make_user(self, superuser=False):
         user = MagicMock()
         user.pk = 9999
         user.is_authenticated = True
         user.is_active = True
         user.is_staff = False
-        user.is_superuser = False
+        user.is_superuser = superuser
         return user
 
     def _get_view(self, action):
@@ -49,7 +49,7 @@ class TestSchemaRAGViewSet:
             {"bad_field": "value"},
             format="json",
         )
-        force_authenticate(request, user=self._make_user())
+        force_authenticate(request, user=self._make_user(superuser=True))
         response = view(request)
         assert response.status_code == 422
 
@@ -73,7 +73,7 @@ class TestSchemaRAGViewSet:
             {"schema_url": "http://bad-url.com/schema.yaml"},
             format="json",
         )
-        force_authenticate(request, user=self._make_user())
+        force_authenticate(request, user=self._make_user(superuser=True))
         response = view(request)
         assert response.status_code == 502
 

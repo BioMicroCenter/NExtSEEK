@@ -6,7 +6,7 @@ def test_start_accepts_message_without_plans(monkeypatch):
     import chat_nextseek.pipeline.agent as pa
     captured = {}
 
-    def fake_run_loop(session, config, *, log_dir):
+    def fake_run_loop(session, config, *, log_dir, send_event=None):
         captured["messages"] = session["pipeline_agent"]["messages"]
         return {"action": "ask", "reply": "ok", "params": None}
 

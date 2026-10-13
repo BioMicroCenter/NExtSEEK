@@ -62,9 +62,9 @@ function mouseOverNode(e, d) {
         d3.select(this).select("circle")
           .attr("fill", "white")
 
-        tooltip.html(`<p>ID: ${d.data.id}</p>
-                      <p>UUID: ${d.data.uuid}</p>
-                      <p>TYPE: ${d.data.sample_type}</p>`)
+        tooltip.html(`<p>ID: ${escapeHtml(d.data.id)}</p>
+                      <p>UUID: ${escapeHtml(d.data.uuid)}</p>
+                      <p>TYPE: ${escapeHtml(d.data.sample_type)}</p>`)
                .style("visibility", "visible")
                .style("left", (e.pageX + 10) + "px")
                .style("top", (e.pageY + 10) + "px")
@@ -114,16 +114,22 @@ function getRelationship(child, parent) {
   })[0]
 }
 
+// Graph values (SEEK titles, user-typed) go into tooltip HTML as text, never markup.
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[c])
+}
+
 function relsToHtml(rel) {
   let relStr = ""
-  if ('internal_assay_title' in rel) {
-    relStr += `<p><strong>Assay:</strong> ${rel['internal_assay_title']}</p>`
-  } else {
-    relStr += `<p><strong>Assay:</strong> ${rel['assay_title']}</p>`
+  // An unmapped assay labels nothing (#124): no assay line, never "undefined",
+  // and never the legacy edge property assay_title, which holds a raw SEEK title.
+  const assay = rel['internal_assay_title']
+  if (assay) {
+    relStr += `<p><strong>Assay:</strong> ${escapeHtml(assay)}</p>`
   }
 
   if ('protocol_title' in rel) {
-    relStr += `<p><strong>Protocol:</strong> ${rel['protocol_title']}</p>`
+    relStr += `<p><strong>Protocol:</strong> ${escapeHtml(rel['protocol_title'])}</p>`
   }
   
   return relStr

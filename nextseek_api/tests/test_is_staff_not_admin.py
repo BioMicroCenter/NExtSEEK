@@ -7,52 +7,48 @@ therefore equivalent to ``IsAuthenticated``.
 
 Two distinct shapes are guarded here, and they fail in opposite directions:
 
-* **#74 — a query-branch selector.** ``AdminSampleViewSet.admin_retrieve_samples``
-  is ``[IsAuthenticated]`` by design (``IsAdminUser`` was removed deliberately in
-  2690598). Its admin flag picks between the unfiltered and the project-joined
-  branch of ``getChildrenUIDs``. Accepting ``is_staff`` there made project scope
+* **#74 — a query-branch selector.** The sample download API
+  (``samples/retrieve/`` and its ``admin/samples/retrieve/`` alias) is
+  ``[IsAuthenticated]`` by design (``IsAdminUser`` was removed deliberately in
+  2690598). Its admin flag (``resolve_scope``) picks between unscoped rows and
+  the caller's projects. Accepting ``is_staff`` there made project scope
   a no-op for every account. Nobody is denied by the fix — they are scoped.
 * **#75 — a gate.** ``EvaluatorViewSet``'s read endpoints return other users'
   assistant prompts and result bundles. Accepting ``is_staff`` there exposed
   them to every authenticated account. The fix denies.
 """
 
-import ast
-import inspect
 import pathlib
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 
 
 class StaffIsNotAdminForSampleScope(SimpleTestCase):
-    """#74 — the sample-retrieve admin flag must read is_superuser alone."""
+    """#74 — the sample download API's admin flag must read is_superuser alone."""
 
-    def _admin_flag_expression(self) -> str:
-        """Return the source line assigning `is_superuser` in admin_retrieve_samples."""
-        from nextseek_api.views import AdminSampleViewSet
+    def _scope(self, **flags):
+        from types import SimpleNamespace
+        from unittest.mock import patch
 
-        src = inspect.getsource(AdminSampleViewSet.admin_retrieve_samples)
-        tree = ast.parse(inspect.cleandoc(src))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
-                if "is_superuser" in targets:
-                    return ast.unparse(node.value)
-        self.fail("no `is_superuser = ...` assignment found in admin_retrieve_samples")
+        from nextseek_api.services import sample_retrieve
+
+        user = SimpleNamespace(username="someone", **flags)
+        # A non-superuser's membership read is stubbed: the question here is only whether they are unscoped.
+        with patch("nextseek_api.graph_search.scope.connections") as conns:
+            cursor = conns.__getitem__.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.return_value = (100,)
+            cursor.fetchall.return_value = [(2,)]
+            return sample_retrieve._caller_scope(SimpleNamespace(user=user))
 
     def test_admin_flag_does_not_accept_is_staff(self):
-        expr = self._admin_flag_expression()
-        self.assertNotIn(
-            "is_staff",
-            expr,
-            "admin_retrieve_samples derives its admin flag from is_staff, which every "
-            f"SEEK-synced user has — project scoping is a no-op. Got: {expr}",
-        )
+        scope = self._scope(is_staff=True, is_superuser=False)
+        self.assertFalse(scope.is_admin, "is_staff made the download API unscoped: every SEEK user has it")
+        self.assertEqual(scope.project_ids, (2,))
 
     def test_admin_flag_reads_is_superuser(self):
-        self.assertIn("is_superuser", self._admin_flag_expression())
+        self.assertTrue(self._scope(is_staff=False, is_superuser=True).is_admin)
 
     def test_retrieve_endpoint_is_not_gated_shut(self):
         """The #74 fix must SCOPE, never DENY.
@@ -63,12 +59,13 @@ class StaffIsNotAdminForSampleScope(SimpleTestCase):
         """
         from rest_framework.permissions import IsAuthenticated
 
-        from nextseek_api.views import AdminSampleViewSet
+        from nextseek_api.views import AdminSampleViewSet, SampleRetrieveViewSet
 
-        names = {c.__name__ for c in AdminSampleViewSet.permission_classes}
-        self.assertIn(IsAuthenticated.__name__, names)
-        self.assertNotIn("IsAdminUser", names)
-        self.assertNotIn("IsSuperUser", names)
+        for viewset in (SampleRetrieveViewSet, AdminSampleViewSet):
+            names = {c.__name__ for c in viewset.permission_classes}
+            self.assertIn(IsAuthenticated.__name__, names)
+            self.assertNotIn("IsAdminUser", names)
+            self.assertNotIn("IsSuperUser", names)
 
     def test_project_scoped_branch_still_exists(self):
         """The `else` branch the fix switches traffic onto must remain intact."""
@@ -124,11 +121,10 @@ class StaffIsNotAdminForEvaluatorReads(SimpleTestCase):
 
 
 class StaffAdminWideningIsConfinedToCapabilities(SimpleTestCase):
-    """Document where `is_staff or is_superuser` deliberately survives.
+    """Pin that no `is_staff or is_superuser` site is left.
 
-    These are capability toggles and a static catalog, not data scope, so #74/#75
-    do not change them. This test pins the inventory: if a new data-scope site
-    starts accepting is_staff, the count moves and someone has to look.
+    The inventory is empty: every admin test reads is_superuser alone. If a site
+    starts accepting is_staff again, the count moves and someone has to look.
     """
 
     ALLOWED = {
@@ -138,7 +134,8 @@ class StaffAdminWideningIsConfinedToCapabilities(SimpleTestCase):
         # Admin badge AND the Debug panel (PROD toggle, force_route, max-turn-length),
         # and the PROD toggle selects a ChatConfig that authenticates as a superuser
         # service account -- so it was a privilege escalation, not a capability toggle.
-        ("nextseek_api/services/assistant.py", "static test-case catalog"),
+        # The static test-case catalog (assistant/test-cases/) is superuser only
+        # since #64, so it left this inventory too.
     }
 
     def test_known_capability_sites_only(self):
@@ -172,3 +169,36 @@ class StaffAdminWideningIsConfinedToCapabilities(SimpleTestCase):
             "capability toggle, never a data-scope decision — a data-scope site here is "
             f"a #74 regression. Found: {found}",
         )
+
+
+class TestCasesCatalogIsSuperuserOnly(TestCase):
+    """#64: assistant/test-cases/ answers a superuser only, never a staff account."""
+
+    def setUp(self):
+        from unittest.mock import patch
+
+        p = patch("nextseek_api.services.assistant.UserInParticipatingProject.has_permission", return_value=True)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def _get(self, **flags):
+        from django.contrib.auth.models import User
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(user=User.objects.create_user("someone", password="p", **flags))
+        return client.get("/nextseek_api/assistant/test-cases/")
+
+    def test_a_staff_account_is_refused(self):
+        self.assertEqual(self._get(is_staff=True, is_superuser=False).status_code, 403)
+
+    def test_a_superuser_is_answered(self):
+        self.assertEqual(self._get(is_staff=False, is_superuser=True).status_code, 200)
+
+    def test_the_ci_registry_expects_the_sweep_account_to_be_refused(self):
+        """ci/routes.py declares the answer the post-deploy sweep's account, a SEEK login (staff, not a superuser),
+        gets here."""
+        from ci.routes import REGISTRY
+        entry = next(r for r in REGISTRY if r.path == "/nextseek_api/assistant/test-cases/")
+        refused = self._get(is_staff=True, is_superuser=False).status_code
+        self.assertEqual((entry.auth, entry.expect), ("smoke", refused))

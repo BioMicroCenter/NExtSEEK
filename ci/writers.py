@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# What graph schema 1.2 reads, per nextseek_api/graph_sync/sources.py and the
+# What graph schema 1.3 reads, per nextseek_api/graph_sync/sources.py and the
 # edge-label writers. `people` is here because it is a SEEK table the graph used
 # to read: Person nodes come from group_memberships.person_id today, which is why
 # the people proxy is declared NO_GRAPH_EFFECT rather than hooked.
@@ -37,7 +37,7 @@ GRAPH_SOURCE_TABLES = frozenset({
     "assay_assets", "sops",
     # dmac
     "sample_types_context", "sample_types_clades", "clades", "sample_attributes_unique", "assays_internal_assays",
-    "internal_assays",
+    "internal_assays", "assay_context",
 })
 
 # How a writer writes. The first seven are what the scan can see and are the kinds
@@ -163,7 +163,7 @@ WRITERS: tuple[Writer, ...] = (
                 "hook writes it after the commit when that was refused"),
     Writer(id="WR-02",
            sites=("nextseek_api/batch_upload/update.py::bulk_update_samples",
-                  "nextseek_api/batch_upload/update.py::_bulk_delete_assay_links"),
+                  "nextseek_api/batch_upload/update.py::delete_assay_links"),
            tables=("samples", "assay_assets"),
            how=("sql",),
            hook="hooks.enqueue", hook_site="nextseek_api/batch_upload/insert.py::process_batches",
@@ -235,7 +235,8 @@ WRITERS: tuple[Writer, ...] = (
                   "nextseek_api/services/projects.py::ProjectProxyViewSet.create",
                   "nextseek_api/services/projects.py::ProjectProxyViewSet.partial_update",
                   "nextseek_api/services/sops.py::SopProxyViewSet.create",
-                  "nextseek_api/services/sops.py::SopProxyViewSet.partial_update"),
+                  "nextseek_api/services/sops.py::SopProxyViewSet.partial_update",
+                  "nextseek_api/services/sops.py::SopProxyViewSet._delete_unused"),
            tables=("assays", "assay_assets", "studies", "investigations", "investigations_projects", "projects",
                    "work_groups", "sops"),
            how=("seek_client",),
@@ -249,7 +250,8 @@ WRITERS: tuple[Writer, ...] = (
                       "nextseek_api/services/projects.py::ProjectProxyViewSet.create",
                       "nextseek_api/services/projects.py::ProjectProxyViewSet.partial_update",
                       "nextseek_api/services/sops.py::SopProxyViewSet.create",
-                      "nextseek_api/services/sops.py::SopProxyViewSet.partial_update"),
+                      "nextseek_api/services/sops.py::SopProxyViewSet.partial_update",
+                      "nextseek_api/services/sops.py::SopProxyViewSet._delete_unused"),
            note="the ISA and SOP proxies; the tables are declared because the route trace corrected the guesses "
                 "a table map made (the project proxy cannot write memberships)"),
     Writer(id="WR-10",
@@ -327,13 +329,17 @@ WRITERS: tuple[Writer, ...] = (
            note="the internal-assay admin pages; a renamed internal assay moves the labels of every edge that "
                 "names it, which is what the assay_map kind is for"),
     Writer(id="WR-16",
-           sites=("nextseek_api/management/commands/backfill_publication_attributes.py::Command.handle",),
+           sites=("nextseek_api/management/commands/backfill_publication_attributes.py::write_publication_attributes",
+                  "nextseek_api/management/commands/backfill_publication_attributes.py::restore_publication_text"),
            tables=("samples",),
            how=("sql",),
            hook="enqueue_graph_sync",
-           hook_site="nextseek_api/management/commands/backfill_publication_attributes.py::Command.handle",
-           note="the publication backfill command with --apply; it does not bump updated_at, so without the "
-                "hook only a full sync would ever see it"),
+           hook_site=("nextseek_api/management/commands/backfill_publication_attributes.py"
+                      "::write_publication_attributes",
+                      "nextseek_api/management/commands/backfill_publication_attributes.py::restore_publication_text"),
+           note="the publication backfill command with --apply, and the studies tool's publication step and its "
+                "rollback through the same two functions; they do not bump updated_at, so without the hook only a "
+                "full sync would ever see them"),
     Writer(id="WR-18",
            sites=("startup/steps/seed.py::load_neo4j_dump",),
            tables=(),
@@ -342,12 +348,15 @@ WRITERS: tuple[Writer, ...] = (
            note="the install seed: load_mysql_dump feeds both schema dumps to the database client and "
                 "load_neo4j_dump loads a graph into an empty Neo4j, both before the operator's first full sync"),
     Writer(id="WR-19",
-           sites=(),
-           tables=("sample_attributes_unique",),
-           how=("sql",),
+           sites=("startup/seed/sql/assay_context.sql",
+                  "scripts/generate_assay_context_seed.py::main"),
+           tables=("sample_attributes_unique", "assay_context"),
+           how=("sql", "sql_file"),
            reconcile="RECONCILE_INSTALL",
            note="the install schema fixups create the dmac context tables when they are missing; their "
-                "statements build the table name at run time, so they are listed in UNRESOLVED_SITES"),
+                "statements build the table name at run time, so they are listed in UNRESOLVED_SITES. The assay "
+                "catalog seed they load is a file of its own, and generate_assay_context_seed.py rewrites that "
+                "file from a JSON export without touching a database"),
     Writer(id="WR-20",
            sites=("startup/seed/sql/sample_attributes_description.sql",
                   "startup/seed/sql/ROLLBACK_sample_attributes_description.sql",
@@ -360,12 +369,16 @@ WRITERS: tuple[Writer, ...] = (
            note="hand SQL kept in the tree; nothing in the code applies any of these five files"),
     Writer(id="WR-21",
            sites=("scripts/context_gen.py::_mapping_parts",
-                  "startup/seed/sql/sample_types_context.curated.sql"),
-           tables=("sample_types_context", "internal_assays", "assays_internal_assays"),
+                  "scripts/context_gen.py::<module>",
+                  "startup/seed/sql/sample_types_context.curated.sql",
+                  "startup/seed/sql/assay_context.curated.sql"),
+           tables=("sample_types_context", "internal_assays", "assays_internal_assays", "assay_context"),
            how=("sql_file", "sql", "external"),
            reconcile="RECONCILE_OPERATOR",
            note="the curated context tables. scripts/context_gen.py turns context/*.json into SQL but never "
-                "connects to a database, so the write is always an operator applying that SQL by hand; "
+                "connects to a database, so the write is always an operator applying that SQL by hand. Its "
+                "_RELINK_ASSAYS statement, a module constant, relinks assay_context rows to internal assays by "
+                "title; "
                 "render_update and render_seed build the table name at run time and are in UNRESOLVED_SITES. "
                 "The .curated.sql seed files are held: no install step reads them until the curated content is "
                 "signed off, and switching them on registers them as schema fixups (WR-19's mechanism). Every one "
@@ -436,8 +449,8 @@ WRITERS: tuple[Writer, ...] = (
            tables=("samples", "assay_assets"),
            how=("dbtable", "sql"),
            reconcile="RECONCILE_DEAD",
-           note="dead code: the first two are reached only from api_app, which is never mounted, and the other "
-                "two have no caller"),
+           note="dead code: the first two were reached only from the retired api_app and have no caller left, "
+                "and the other two have no caller either"),
     Writer(id="WR-29",
            sites=("nextseek_api/services/people.py::PeopleProxyViewSet.create",
                   "nextseek_api/services/people.py::PeopleProxyViewSet.partial_update"),
@@ -455,12 +468,13 @@ WRITERS: tuple[Writer, ...] = (
            note="the data-file proxy, split out of inventory WR-09: the assay_assets rows it makes link a data "
                 "file to an assay, and the graph reads only a sample's"),
     Writer(id="WR-31",
-           sites=("startup/seed/regenerate/dump_neo4j.py::main",),
+           sites=("startup/seed/regenerate/dump_neo4j.py::main",
+                  "startup/seed/regenerate/refresh/box/graph_export.py::main"),
            tables=(),
            how=("cypher",),
            reconcile="RECONCILE_INSTALL",
-           note="the seed dump regenerator writes the Cypher file WR-18 installs; it reads a live graph and "
-                "writes no graph of its own"),
+           note="the seed dump regenerator and the refresh kit's on-box exporter write the Cypher file WR-18 "
+                "installs; they read a live graph and write no graph of their own"),
     Writer(id="WR-32",
            sites=("NessieAI/chat_nextseek/src/chat_nextseek/cypher_scope.py::<module>",),
            tables=(),
@@ -468,15 +482,48 @@ WRITERS: tuple[Writer, ...] = (
            reconcile="NO_GRAPH_EFFECT",
            note="the graph agent's Cypher scope prover: a pure module with no driver, whose keyword list names "
                 "the write clauses it refuses; it sends no statement"),
+    Writer(id="WR-33",
+           sites=("nextseek_api/studies/seek.py::SeekSession.create_study",
+                  "nextseek_api/studies/seek.py::SeekSession.create_assay",
+                  "nextseek_api/studies/seek.py::SeekSession.delete_study",
+                  "nextseek_api/studies/seek.py::SeekSession.delete_assay",
+                  "nextseek_api/studies/mapping.py::insert_clone_mappings",
+                  "nextseek_api/studies/mapping.py::delete_clone_mappings",
+                  "nextseek_api/studies/links.py::undo_link_unit",
+                  "nextseek_api/studies/links.py::unlink_clone_sops"),
+           tables=("studies", "assays", "assay_assets", "assays_internal_assays", "samples", "projects_samples"),
+           how=("seek_client", "orm", "sql", "none"),
+           hook="hooks.enqueue",
+           hook_site=("nextseek_api/studies/apply.py::apply_study_moves",
+                      "nextseek_api/studies/rollback.py::rollback_study_moves",
+                      "nextseek_api/studies/share_apply.py::apply_step",
+                      "nextseek_api/studies/share_apply.py::run_share_unit"),
+           note="the studies tool (manage.py studies): SEEK studies and cloned assays as the operator, the clones' "
+                "internal-assay rows, and sample links moved through WR-01's and WR-02's functions, and project "
+                "rows for a share through WR-01's batch_insert_projects_samples; a link unit writes its own samples "
+                "outbox rows in its transaction (after the commit when refused), and so does its undo; rollback "
+                "deletes the SOP links a clone copied (Sop rows, which the graph does not read) before it deletes "
+                "the clone"),
+    Writer(id="WR-34",
+           sites=("startup/seed/regenerate/refresh/graph.py::load",
+                  "startup/seed/regenerate/refresh/graph.py::load.flush_nodes",
+                  "startup/seed/regenerate/refresh/graph.py::load.flush_rels",
+                  "startup/seed/regenerate/refresh/graph.py::kill.batched"),
+           tables=(),
+           how=("cypher",),
+           reconcile="RECONCILE_INSTALL",
+           note="the seed refresh kit loads a box's graph copy into a throwaway container and removes nodes there; "
+                "it never touches a stack's graph, and what it leaves is dumped into the seed WR-18 installs"),
 )
 
 
 # Sites where the scan can see a write but not which table it is on, because the
 # table name is built at run time. None of them is a writer of its own: each is a
 # generic record layer a declared writer above calls, or a write to a table the
-# graph does not read. The gate diffs this list against the scan too, so a new
+# graph does not read, or (the seed refresh kit) an operator tool that writes only a
+# throwaway copy. The gate diffs this list against the scan too, so a new
 # module writing SQL through a variable table name fails until somebody says which
-# of the two it is.
+# of these it is.
 UNRESOLVED_SITES: tuple[str, ...] = (
     # The generic record layers. The caller holds the table name, and the caller's
     # own site is declared above: this is where WR-06, WR-12, WR-13, WR-14 and
@@ -497,25 +544,6 @@ UNRESOLVED_SITES: tuple[str, ...] = (
     "dmac/dbconn_mysql.py::DBconn_mysql.updateOneRecord",
     "dmac/dbconn_mysql.py::DBconn_mysql.__deleteRecords",
     "dmac/datagrid_custom.py::DataGrid.__save",
-    # The same two layers again inside api_app, which is installed and imported but
-    # never mounted, plus its sample-tree writer on a table the graph does not read.
-    "api_app/dbconn_mysql.py::DBconn_mysql.__insertOneRecord",
-    "api_app/dbconn_mysql.py::DBconn_mysql.__insertRecords",
-    "api_app/dbconn_mysql.py::DBconn_mysql.__updateRecords",
-    "api_app/dbconn_mysql.py::DBconn_mysql.updateOneRecord",
-    "api_app/dbconn_mysql.py::DBconn_mysql.__deleteRecords",
-    "api_app/remoteJob/dbconn_mysql.py::DBconn_mysql.__insertOneRecord",
-    "api_app/remoteJob/dbconn_mysql.py::DBconn_mysql.__insertRecords",
-    "api_app/remoteJob/dbconn_mysql.py::DBconn_mysql.__updateRecords",
-    "api_app/remoteJob/dbconn_mysql.py::DBconn_mysql.updateOneRecord",
-    "api_app/remoteJob/dbconn_mysql.py::DBconn_mysql.__deleteRecords",
-    "api_app/updateTrees.py::saveSampleTree",
-    "api_app/updateTrees.py::saveTreesToDB",
-    "api_app/remoteJob/updateTrees.py::saveSampleTree",
-    "api_app/remoteJob/updateTrees.py::saveTreesToDB",
-    # A module the scan cannot parse, so cannot clear: it is Python 2, under the
-    # app that is never mounted.
-    "api_app/api_sampleParser.py",
     # The context generator's two table-agnostic renderers (WR-21). Both take the
     # table as an argument and read its name off cg.TABLES, so the scan sees a
     # statement with no literal table; and neither writes anything anyway, they
@@ -531,6 +559,12 @@ UNRESOLVED_SITES: tuple[str, ...] = (
     # Batch upload's own outbox row, written on the batch's connection inside the
     # batch's transaction. The table is graph_sync's, not a graph source.
     "nextseek_api/batch_upload/insert.py::enqueue_samples_outbox",
+    # The seed refresh kit (WR-34's MySQL half): kill sets and needles in its own work schema, and DELETEs on a
+    # throwaway copy of a box's databases, never a stack's. What survives is dumped into the seeds WR-18 installs.
+    "startup/seed/regenerate/refresh/kill.py::add",
+    "startup/seed/regenerate/refresh/kill.py::execute",
+    "startup/seed/regenerate/refresh/kill.py::execute.run_batched",
+    "startup/seed/regenerate/refresh/search.py::capture",
 )
 
 

@@ -95,6 +95,12 @@ services:
         limits:
           memory: "${NEXTSEEK_MEMORY:-16G}"
     memswap_limit: "${NEXTSEEK_MEMORY:-16G}"
+    # JevLevROUTING: the laya router sidecar is reachable only over the
+    # internal `laya-net`. No depends_on on it: it is off by default (profile
+    # `laya`) and the app reads a missing sidecar as "laya off" for the turn.
+    networks:
+      - default
+      - laya-net
 
   nextseek_nginx:
     image: nginx:latest
@@ -106,9 +112,11 @@ services:
       - "127.0.0.1:${NEXTSEEK_PORT:-8000}:80"
     volumes:
       - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro,z
-      # Optional drop-ins, included by nginx.conf as /etc/nginx/optional/*.conf.
-      # Ships only *.conf.example, so the directory is inert until an operator
-      # copies one to *.conf. See docker/nginx-optional/neo4j.conf.example.
+      # Drop-ins, included by nginx.conf as /etc/nginx/optional/*.conf. One ships
+      # enabled, error-pages.conf (the page shown instead of a bare 502 while the
+      # app restarts; a directory mount, so a new version needs only `nginx -s
+      # reload`). The rest ship as *.conf.example, inert until an operator copies
+      # one to *.conf. See docker/nginx-optional/neo4j.conf.example.
       - ./docker/nginx-optional:/etc/nginx/optional:ro,z
       - nextseek-static-files:/static:ro
     depends_on:
@@ -130,14 +138,16 @@ services:
   # dmac-cc-net via the compose service DNS name `bedrock-proxy` (matches
   # cc_engine.DMAC_BEDROCK_PROXY_URL's default host) — never on the default
   # stack network, so it cannot be reached from db/seek/solr/neo4j either.
-  # `container_name: dmac-bedrock-proxy` is the HOST-side identity used only
+  # `container_name: ${INSTANCE_PREFIX:-}dmac-bedrock-proxy` is the HOST-side identity used only
   # for `docker logs`/`docker inspect`/`docker network inspect` (see
   # DMAC_PROXY_CONTAINER in test_cc_realstack.py) — never for in-network URLs.
+  # The prefix (empty on prod/dev) lets a second instance coexist; the service
+  # name, not the container name, is what resolves on dmac-cc-net.
   bedrock-proxy:
     build:
       context: ./NessieAI/docker/bedrock-proxy
     image: nextseek-bedrock-proxy:latest
-    container_name: dmac-bedrock-proxy
+    container_name: ${INSTANCE_PREFIX:-}dmac-bedrock-proxy
     restart: always
     env_file:
       - ./NessieAI/docker/bedrock-proxy/proxy-secret.env
@@ -183,7 +193,7 @@ services:
   # THE COMPOSE SERVICE NAME IS THE LOAD-BEARING IDENTITY: `nextseek-sidecar`
   # MUST equal `_sidecar_client.py`'s `NEXTSEEK_SIDECAR_HOST` default — that
   # is the Docker DNS alias agents actually resolve. `container_name:
-  # nextseek-sidecar` is pinned only for host-side ops (`docker logs` /
+  # ${INSTANCE_PREFIX:-}nextseek-sidecar` is named only for host-side ops (`docker logs` /
   # `docker inspect` / the validator's closed-set peer check), same pattern
   # as `dmac-bedrock-proxy` above.
   #
@@ -214,7 +224,7 @@ services:
     build:
       context: ./NessieAI/docker/ns-sidecar
     image: nextseek-ns-sidecar:latest
-    container_name: nextseek-sidecar
+    container_name: ${INSTANCE_PREFIX:-}nextseek-sidecar
     restart: unless-stopped
     deploy:
       resources:
@@ -252,6 +262,46 @@ services:
       timeout: 8s
       retries: 6
       start_period: 20s
+
+  # laya router sidecar (JevLevROUTING, SPEC s10). Off by default: only
+  # `docker compose --profile laya up -d laya-router` starts it, so a plain
+  # `up -d` and `./startup.sh rebuild` never do. Internal network only, NO
+  # `ports:` (port rule), so no egress and no route from the per-turn CC agents.
+  # Its only secret is LAYA_API_KEY in docker/laya.env (never nextseek.env).
+  # The fine-tuned checkpoint is mounted read-only from the folder LAYA_REVISION
+  # names; no weights in the image. The wrapper never logs request bodies.
+  laya-router:
+    build:
+      context: ./docker/laya
+    image: nextseek-laya-router:latest
+    # No container_name: compose names it per project (like nextseek_nginx), and
+    # the INSTANCE_PREFIX names are a pinned set (cc lane, merge-survival S7).
+    # The app reaches it by the service name, which needs no container_name.
+    profiles: ["laya"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${LAYA_CPUS:-4}"
+          memory: "${LAYA_MEMORY:-3500M}"
+    memswap_limit: "${LAYA_MEMORY:-3500M}"
+    env_file:
+      - ./docker/laya.env
+    environment:
+      LAYA_THREADS: "4"
+      HF_HUB_OFFLINE: "1"
+      LAYA_MODEL_DIR: /models
+      LAYA_REVISION: "${LAYA_REVISION:-unset}"
+    volumes:
+      - ./docker/laya/models/${LAYA_REVISION:-unset}:/models:ro,z
+    networks:
+      - laya-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4).status == 200 else 1)"]
+      interval: 15s
+      timeout: 6s
+      retries: 6
+      start_period: 90s
 
   db: # Database implementation, in this case MySQL
     image: mysql:8.0
@@ -358,7 +408,20 @@ services:
     image: fairdom/seek:1.15.1
 
     container_name: ${INSTANCE_PREFIX:-}seek
-    command: docker/entrypoint.sh
+    # The image's docker/entrypoint.sh (puma in the background, nginx in the
+    # foreground), plus a recycler: every 30 s any puma worker over
+    # SEEK_WORKER_MAX_MB of RSS gets SIGTERM. Puma forks a fresh worker from the
+    # preloaded app at once ("booted in 0.0s") and gives the old one
+    # worker_shutdown_timeout (puma's default, 30 s; the image's puma.rb does not
+    # set it) to finish its request, then SIGKILLs it: a request still running
+    # 30 s after its worker is recycled is cut off. A ceiling that is not a whole
+    # number of MB falls back to 2500 rather than failing the container.
+    # Without it the workers only grow until the cgroup sits at its cap, where on
+    # 2026-10-12 every process stalled in memory reclaim and SEEK answered nothing
+    # for 7 minutes until the kernel OOM-killed a worker. The loop exits 1 when the
+    # entrypoint does, so `restart: always` still covers the container (pinned by
+    # nextseek_api/tests/repo_guards/test_compose_seek_worker_recycler.py).
+    command: ["bash", "-c", "docker/entrypoint.sh & ep=$$!; m=$${SEEK_WORKER_MAX_MB:-2500}; case $$m in ''|*[!0-9]*|0*) echo \"[seek] SEEK_WORKER_MAX_MB=$$m is not a whole number of MB; using 2500\" >&2; m=2500;; esac; while kill -0 $$ep 2>/dev/null; do sleep $${SEEK_WORKER_CHECK_S:-30} & wait -n $$ep $$!; for p in $$(pgrep -f '^puma: cluster worker'); do kb=$$(awk '/^VmRSS:/ {print $$2}' /proc/$$p/status 2>/dev/null); if [ $${kb:-0} -gt $$(( m * 1024 )) ]; then echo \"[seek] recycling puma worker $$p at $$(( kb / 1024 )) MB\" >&2; kill -TERM $$p; fi; done; done; echo '[seek] docker/entrypoint.sh exited' >&2; exit 1"]
     restart: always
 
     # SEEK's puma workers grow with every request they serve and never give the
@@ -379,6 +442,21 @@ services:
       SOLR_HOST: solr
       NO_ENTRYPOINT_WORKERS: 1
       RAILS_LOG_LEVEL: info # debug, info, warn, error or fatal
+      # The image's docker/puma.rb starts one single-threaded worker per CPU when
+      # this is unset: 16 on a 16-vCPU host, each growing to 1.4-2.2 GB until the
+      # cap above kills it (on 2026-10-12 one box had killed 437 in three days).
+      # Raise it per box with SEEK_PUMA_WORKERS in the project-root .env (pinned by
+      # nextseek_api/tests/repo_guards/test_compose_app_memory_cap.py).
+      PUMA_WORKERS_NUM: "${SEEK_PUMA_WORKERS:-4}"
+      # The recycler's per-worker ceiling (the command above). Set it per box with
+      # SEEK_PUMA_WORKERS and SEEK_MEMORY, all three together, so that workers x
+      # this plus ~0.5G for the master stays well under SEEK_MEMORY (8 x 2500 MB
+      # under 24G, 6 x 2500 MB under 20G). At the defaults (4G cap) the cap is
+      # reached before any worker passes 2500 MB, so the recycler never acts there.
+      SEEK_WORKER_MAX_MB: "${SEEK_WORKER_MAX_MB:-2500}"
+      # glibc's per-thread malloc arenas fragment a long-lived Ruby heap; 2 is the
+      # usual setting for Rails. The image ships no jemalloc.
+      MALLOC_ARENA_MAX: "2"
     env_file:
       - ./docker/db.env
     volumes:
@@ -399,7 +477,17 @@ services:
 
       image: fairdom/seek:1.15.1
       container_name: ${INSTANCE_PREFIX:-}seek-workers
-      command: docker/start_workers.sh
+      # The image's docker/start_workers.sh ends in `tail -f`, so when the
+      # delayed_job workers lose MySQL they log "MySQL client is not connected"
+      # on every poll, never reconnect, and the container stays up: a
+      # `docker restart seek-mysql` on 2026-10-09 left 909 jobs stuck that way.
+      # This exits on the first such line instead, and `restart: always` brings
+      # the workers back (start_workers.sh waits for MySQL first). `tail -n0`
+      # skips lines from before this start. The process substitution lets the
+      # script exit as soon as grep matches, whether or not this tail notices its
+      # reader has gone (pinned by
+      # nextseek_api/tests/repo_guards/test_compose_seek_workers_watchdog.py).
+      command: ["bash", "-c", "docker/start_workers.sh & grep -q 'MySQL client is not connected' < <(tail -n0 -F log/production.log 2>/dev/null); echo '[seek_workers] lost MySQL: exiting so docker restarts the workers' >&2; exit 1"]
       restart: always
       environment:
         RAILS_ENV: production
@@ -407,6 +495,7 @@ services:
         SOLR_HOST: solr
         RAILS_LOG_LEVEL: info # debug, info, warn, error or fatal
         QUIET_SUPERCRONIC: 1 # remove to show supercronic activity logs
+        MALLOC_ARENA_MAX: "2" # same Rails heap as `seek`, same fragmentation
       # The delayed-job workers are the same Rails process as `seek` and bloat the
       # same way. On 2026-09-16 the two SEEK services together held 11.2 GiB
       # across 24 `bundle` processes when the host ran out; `seek` was capped and
@@ -450,6 +539,10 @@ services:
       - /opt/solr/server/solr/configsets/seek_config
 
 networks:
+  # JevLevROUTING: no gateway, so the laya sidecar has no egress. Members:
+  # laya-router and nextseek only.
+  laya-net:
+    internal: true
   # Container-CC segmented network (OI-3). Compose-managed but pinned to the
   # literal name `dmac-cc-net` (no project-name prefix) so it matches
   # cc_engine.DEFAULT_NETWORK / NEXTSEEK_CC_NETWORK exactly. Members: this

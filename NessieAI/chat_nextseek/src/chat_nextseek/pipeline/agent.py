@@ -2,14 +2,16 @@
 
 One BedrockClient.chat_with_tools conversation per session. The LLM picks the
 pipeline, judges data-type fit, builds cohorts, and asks the user when unsure.
-Five tools (resolve_samples, write_samplesheet, configure_run, submit_to_luria,
-conclude) do the deterministic I/O; write_samplesheet builds the CSV (rejecting
-refs the agent didn't resolve), configure_run builds params.yml + launch.yml.
+Six tools (select_pipeline, resolve_samples, write_samplesheet, configure_run,
+submit_to_luria, conclude) do the deterministic I/O; select_pipeline judges the
+pipeline from the cohort's own evidence, write_samplesheet builds the CSV
+(rejecting refs the agent didn't resolve), configure_run builds params.yml +
+launch.yml.
 
 Public surface (unchanged contract with the orchestrator):
 - is_active(session) -> bool
-- start(session, config, *, user_query, parser_plan, reporter_plan, log_dir=None) -> {action, reply, params}
-- handle_turn(session, config, user_text, *, log_dir=None) -> {action, reply, params}
+- start(session, config, *, user_query, parser_plan, reporter_plan, log_dir=None, send_event=None) -> {action, reply, params}
+- handle_turn(session, config, user_text, *, log_dir=None, send_event=None) -> {action, reply, params}
 - clear(session)
 - snapshot_for_chat_log(session) -> dict
 """
@@ -23,13 +25,17 @@ if TYPE_CHECKING:
     from ..config import ChatConfig
     from ..session import SessionState
 
-from .agent_tools import build_pipeline_tool_schemas, dispatch_pipeline_tool_call
+from .agent_tools import build_pipeline_tool_schemas, dispatch_pipeline_tool_call, format_luria_followup
 from ..tool_loop import call_tools
 from ..helpers import summarize_pinned_bundle
+from ..helpers.uid_check import uids_in
 from ..seqera.catalog import catalog_for_prompt
 
 PIPELINE_AGENT_KEY = "pipeline_agent"
-MAX_ITER = 12
+# 12 covered the five-tool loop. select_pipeline consumes one more before
+# resolve_samples ever runs, and a 'fork' verdict spends a further round-trip
+# waiting for the user, so the old budget would run out mid-build.
+MAX_ITER = 13
 CANCEL_TOKENS = {"cancel", "/cancel", "abort", "never mind", "drop", "drop it"}
 
 
@@ -58,6 +64,7 @@ def snapshot_for_chat_log(session) -> dict[str, Any]:
     return {
         "active": state.get("active"),
         "pipeline_key": state.get("pipeline_key"),
+        "selection": state.get("selection") or {},
         "cohort_count": len(artifacts.get("cohorts") or []),
         "message_count": len(state.get("messages") or []),
     }
@@ -72,16 +79,38 @@ def _text_of(content: list) -> str:
     return "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text").strip()
 
 
+#: The most carried UIDs the seed lists; the rest are counted, so a 351-sample set does not flood the build.
+CARRIED_UIDS_MAX = 50
+
+
+def _carried_uids(parser_plan: Any, user_query: str) -> list[str]:
+    """The UIDs in ``parser_plan.filters.uids`` that ``user_query`` does not already name, upper-cased, once each."""
+    plan = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else parser_plan
+    uids = ((plan or {}).get("filters") or {}).get("uids") if isinstance(plan, dict) else None
+    named = set(uids_in(user_query or ""))
+    return [u for u in uids_in("", [u for u in uids or [] if isinstance(u, str)]) if u not in named]
+
+
 def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any = None,
-          reporter_plan: Any = None, log_dir: str | None = None) -> dict[str, Any]:
+          reporter_plan: Any = None, log_dir: str | None = None,
+          send_event=None) -> dict[str, Any]:
     """Launch a fresh pipeline conversation.
 
-    ``parser_plan``/``reporter_plan`` are accepted for the reporter-branch caller
-    (orchestrator.py) but are unused — the wizard seeds from ``user_query`` + pinned
-    context only. The CC bridge (run_pipeline_launch) calls this with neither.
+    The wizard seeds from ``user_query``, the pinned results bundle, and the sample UIDs
+    ``parser_plan`` carried that the text does not name: a follow-up such as "yes, build it"
+    names no samples, and the parser copies the earlier turn's into ``filters.uids`` (dev
+    chat 0ddfba7a). ``reporter_plan`` is unused. The CC bridge (run_pipeline_launch) calls
+    this with neither.
     """
+    seed = user_query
     pinned = summarize_pinned_bundle(session)
-    seed = user_query if not pinned else f"{user_query}\n\n[context] {pinned}"
+    if pinned:
+        seed += f"\n\n[context] {pinned}"
+    carried = _carried_uids(parser_plan, user_query)
+    if carried:
+        more = len(carried) - CARRIED_UIDS_MAX
+        seed += ("\n\n[context] samples from the earlier turn: " + ", ".join(carried[:CARRIED_UIDS_MAX])
+                 + (f", and {more} more" if more > 0 else ""))
     state = {
         "active": True,
         "messages": [{"role": "user", "content": seed}],
@@ -90,10 +119,11 @@ def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any = 
         "pipeline_key": None,
     }
     _save(session, state)
-    return _run_loop(session, config, log_dir=log_dir)
+    return _run_loop(session, config, log_dir=log_dir, send_event=send_event)
 
 
-def handle_turn(session, config: "ChatConfig", user_text: str, *, log_dir: str | None = None) -> dict[str, Any]:
+def handle_turn(session, config: "ChatConfig", user_text: str, *, log_dir: str | None = None,
+                send_event=None) -> dict[str, Any]:
     state = _state(session)
     if not state.get("active"):
         return {"action": "passthrough", "reply": "", "params": None}
@@ -102,10 +132,10 @@ def handle_turn(session, config: "ChatConfig", user_text: str, *, log_dir: str |
         return {"action": "cancel", "reply": "Cancelled. Ask me a fresh question whenever you're ready.", "params": None}
     state.setdefault("messages", []).append({"role": "user", "content": user_text})
     _save(session, state)
-    return _run_loop(session, config, log_dir=log_dir)
+    return _run_loop(session, config, log_dir=log_dir, send_event=send_event)
 
 
-def _run_loop(session, config: "ChatConfig", *, log_dir: str | None) -> dict[str, Any]:
+def _run_loop(session, config: "ChatConfig", *, log_dir: str | None, send_event=None) -> dict[str, Any]:
     state = _state(session)
     client, model_name, _ = config.get_agent_model(PIPELINE_AGENT_KEY)
     if not callable(getattr(client, "chat_with_tools", None)):
@@ -158,7 +188,9 @@ def _run_loop(session, config: "ChatConfig", *, log_dir: str | None) -> dict[str
                 return {"action": "passthrough", "reply": "", "params": None}
             try:
                 result = dispatch_pipeline_tool_call(config=config, session=session, state=state,
-                                                     name=name, tool_input=tool_input, log_dir=log_resolved_dir)
+                                                     name=name, tool_input=tool_input,
+                                                     log_dir=log_resolved_dir,
+                                                     send_event=send_event)
             except Exception as exc:
                 result = json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
             tool_results.append({"type": "tool_result", "tool_use_id": tuid, "content": result})
@@ -177,7 +209,10 @@ def _conclude(session, state: dict, tool_input: dict) -> dict[str, Any]:
     state["active"] = False
     _save(session, state)
     if outcome == "submitted":
-        return {"action": "execute", "reply": message, "params": {"artifacts": artifacts}}
+        followup = format_luria_followup(artifacts.get("luria_runs"),
+                                         artifacts.get("luria_ssh_target"))
+        return {"action": "execute", "reply": (message + "\n" + followup) if followup else message,
+                "params": {"artifacts": artifacts}}
     if outcome == "cancelled":
         return {"action": "cancel", "reply": message or "Cancelled.", "params": None}
     return {"action": "ask", "reply": message, "params": None}

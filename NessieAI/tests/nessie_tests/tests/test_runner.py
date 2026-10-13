@@ -1077,6 +1077,280 @@ def test_an_unrelated_gate_is_unmeasured_rather_than_free(tmp_path, monkeypatch)
     assert s["total_cost"] is None
 
 
+# --------------------------------------------------------------------------- #
+# Fix 6a: a case costs the SUM of its turns, the router's call included.
+#
+# `run_case` used to do `v_cost = qc.get("total_cost_usd", v_cost)` per turn:
+# last write wins. A case of three CC turns reported only the third, an NS turn
+# (no key) carried the previous value forward, and a key present with a null
+# erased an earlier cost. The 2026-09-25 dev run printed $1.57 for cases that
+# cost $2.49. The rules themselves are pinned in tests/test_turn_cost.py; these
+# pin that the runner applies them to every turn it drives.
+# --------------------------------------------------------------------------- #
+
+def _turn(route="container_cc", cost=None, router_cost=None, *, cost_key=True,
+          rd_extra=None, **qc_extra):
+    rd = {"route": route, "model_class": "opus" if route == "container_cc" else None,
+          "source": "baml", "reasoning": ""}
+    if router_cost is not None:
+        rd["router_cost_usd"] = router_cost
+    rd.update(rd_extra or {})
+    qc = {"reply": "done", **qc_extra}
+    if cost_key:
+        qc["total_cost_usd"] = cost
+    return {"status": "completed", "progress": [
+        {"event": "route_decided", "data": rd}, {"event": "query_complete", "data": qc}]}
+
+
+REPLY_OK = {"field": "last_reply", "op": "nonempty"}
+
+
+def test_a_multi_turn_case_costs_the_sum_of_its_turns(tmp_path, monkeypatch):
+    """The 2026-09-25 shape: three CC turns, and the manifest kept only the third."""
+    m = _run(tmp_path, monkeypatch, _variant("cc.three", REPLY_OK, turns=3),
+             [_turn(cost=0.5, router_cost=0.01), _turn(cost=0.6, router_cost=0.01),
+              _turn(cost=0.7, router_cost=0.01)])
+
+    e = m.entries[0]
+    assert e.cost == pytest.approx(1.83)
+    assert e.cost_partial is False
+    assert e.turns_sent == 3
+    assert [t.cost for t in e.turns_meta] == [pytest.approx(0.51), pytest.approx(0.61),
+                                             pytest.approx(0.71)]
+    assert [t.turn for t in e.turns_meta] == ["t0", "t1", "t2"]
+    assert all(t.task_id == "t" for t in e.turns_meta)
+
+
+def test_an_ns_turn_without_a_cost_does_not_carry_the_previous_turn_forward(
+        tmp_path, monkeypatch):
+    m = _run(tmp_path, monkeypatch, _variant("mixed.two", REPLY_OK, turns=2),
+             [_turn(cost=0.5, router_cost=0.01),
+              _turn(route="nextseek_query", router_cost=0.01, cost_key=False)])
+
+    e = m.entries[0]
+    assert e.cost == pytest.approx(0.52), "the NS turn's router call is spend too"
+    assert e.cost_partial is True, "the NS engine's spend was never observed"
+    assert e.turns_meta[1].engine_cost is None and e.turns_meta[1].partial is True
+
+
+def test_a_null_cost_key_does_not_erase_an_earlier_turn(tmp_path, monkeypatch):
+    m = _run(tmp_path, monkeypatch, _variant("cc.null", REPLY_OK, turns=2),
+             [_turn(cost=0.5), _turn(cost=None)])
+
+    e = m.entries[0]
+    assert e.cost == 0.5
+    assert e.cost_partial is True
+
+
+def test_a_turn_that_says_its_cost_is_partial_makes_the_case_partial(tmp_path, monkeypatch):
+    m = _run(tmp_path, monkeypatch, _variant("ns.partial", REPLY_OK),
+             [_turn(route="nextseek_query", cost=0.2, router_cost=0.01, cost_partial=True)])
+
+    e = m.entries[0]
+    assert e.cost == pytest.approx(0.21)
+    assert e.cost_partial is True
+    assert e.turns_meta[0].cost_partial is True
+
+
+def test_a_router_attempt_it_could_not_price_makes_the_case_partial(tmp_path, monkeypatch):
+    """Contract addendum: `router_cost_partial` on `route_decided`."""
+    m = _run(tmp_path, monkeypatch, _variant("cc.rpartial", REPLY_OK),
+             [_turn(cost=0.2, router_cost=0.01, rd_extra={"router_cost_partial": True})])
+
+    assert m.entries[0].cost_partial is True
+    assert m.entries[0].turns_meta[0].router_cost_partial is True
+
+
+def test_a_fully_priced_case_is_not_partial(tmp_path, monkeypatch):
+    m = _run(tmp_path, monkeypatch, _variant("ns.priced", REPLY_OK),
+             [_turn(route="nextseek_query", cost=0.2, router_cost=0.01, cost_partial=False)])
+
+    s = runner.classify_entries(m)
+    assert m.entries[0].cost == pytest.approx(0.21)
+    assert m.entries[0].cost_partial is False
+    assert s["cost_partial"] is False and s["cost_partial_cases"] == 0
+    assert "PARTIAL" not in s["cost_display"]
+
+
+def test_a_route_tier_gate_now_counts_the_router_cost_it_saw(tmp_path, monkeypatch):
+    """The client stops at `route_decided`, and the router's price is on that event.
+    The engine keeps running and billing out of sight, so the case is partial."""
+    gate_payload = {"status": "running", "progress": [
+        {"event": "route_decided", "data": {**CC_ROUTED["progress"][0]["data"],
+                                            "router_cost_usd": 0.004}}]}
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_cc_gate()])
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
+        corpus_path=CORPUS, out_dir=tmp_path,
+        post_query=_post(), get_progress=lambda tid: gate_payload,
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    e = m.entries[0]
+    assert e.cost == 0.004 and e.cost_partial is True
+    s = runner.classify_entries(m)
+    assert s["total_cost"] == 0.004
+    assert s["cost_partial"] is True and s["cost_partial_cases"] == 1
+
+
+def test_an_unrelated_gate_with_a_router_price_is_fully_measured(tmp_path, monkeypatch):
+    """`unrelated` calls no engine after `route_decided`, so the router is the whole bill."""
+    from NessieAI.tests.e2e.catalog import Variant, Turn
+    gate = Variant(
+        family="nessie_route", id="gate.unrelated", name="unrelated gate",
+        tags=["nessie", "route_gate", "overlay"], requires_env=[],
+        turns=[Turn(label="m", query="what is the weather",
+                    pass_criteria=[{"field": "route", "op": "eq", "value": "unrelated"}])])
+    payload = {"status": "running", "progress": [
+        {"event": "route_decided", "data": {"route": "unrelated", "model_class": None,
+                                            "source": "baml", "reasoning": "",
+                                            "router_cost_usd": 0.003}}]}
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [gate])
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
+        corpus_path=CORPUS, out_dir=tmp_path,
+        post_query=_post(), get_progress=lambda tid: payload,
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    assert m.entries[0].cost == 0.003 and m.entries[0].cost_partial is False
+
+
+def test_every_turn_records_its_models_and_fallbacks(tmp_path, monkeypatch):
+    fb = {"agent": "container_cc", "from": "us.anthropic.claude-opus-4-8",
+          "to": "us.anthropic.claude-opus-4-7", "reason": "server_error"}
+    rfb = {"from": "gemini-3.1-pro-preview", "to": "gemini-3.5-flash", "reason": "timeout"}
+    m = _run(tmp_path, monkeypatch, _variant("cc.fb", REPLY_OK, turns=3), [
+        _turn(cost=0.5, router_cost=0.01, models_used=["us.anthropic.claude-opus-4-7"],
+              model_fallback=[fb], rd_extra={"router_model": "gemini-3.1-pro-preview",
+                                             "router_fallback": None}),
+        _turn(cost=0.4, router_cost=0.002, model_fallback=[],
+              rd_extra={"router_model": "gemini-3.5-flash", "router_fallback": rfb}),
+        _turn(cost=0.3, router_cost=0.01, model_fallback=[],
+              rd_extra={"router_model": "gemini-3.1-pro-preview", "router_fallback": None}),
+    ])
+
+    e = m.entries[0]
+    t0, t1, t2 = e.turns_meta
+    assert t0.models_used == ["us.anthropic.claude-opus-4-7"] and t0.model_fallback == [fb]
+    assert t0.router_model == "gemini-3.1-pro-preview" and t0.router_fallback is None
+    assert t1.router_model == "gemini-3.5-flash" and t1.router_fallback == rfb
+    assert [t.fell_back for t in (t0, t1, t2)] == [True, True, False]
+    assert e.fallback_turns == 2
+    s = runner.classify_entries(m)
+    assert s["fallback_turns"] == 2
+    assert [x.id for x in s["fallback_cases"]] == ["cc.fb"]
+    assert "2 of 3 turn(s) fell back" in s["fallback_display"]
+
+
+def test_a_turn_from_an_older_server_is_not_read_as_no_fallback(tmp_path, monkeypatch):
+    m = _run(tmp_path, monkeypatch, _variant("cc.old", REPLY_OK), [_turn(cost=0.5)])
+
+    assert m.entries[0].turns_meta[0].fallback_reported is False
+    s = runner.classify_entries(m)
+    assert s["fallback_turns"] == 0
+    assert "1 turn(s) did not report" in s["fallback_display"]
+
+
+def test_a_turn_the_driver_lost_mid_case_marks_the_case_partial(tmp_path, monkeypatch):
+    """The second turn's request went out and its polling died: it may have billed,
+    and nothing about it was observed. The first turn's cost still stands."""
+    calls = {"n": 0}
+
+    def get_progress(_tid):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _turn(cost=0.5, router_cost=0.01)
+        raise ConnectionError("endpoint down")
+
+    monkeypatch.setattr(runner.corpus, "select",
+                        lambda *a, **k: [_variant("cc.lost", REPLY_OK, turns=2)])
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, post_query=_post(),
+        get_progress=get_progress, sleep=lambda s: None, clock=lambda: 0.0)
+
+    e = m.entries[0]
+    assert e.status == "error"
+    assert e.cost == pytest.approx(0.51)
+    assert e.cost_partial is True
+    assert len(e.turns_meta) == 1
+    # Recorded, so a later pull that joins by task id knows a turn is missing: the
+    # lost turn has no task id to join on.
+    assert e.turns_sent == 2 and e.task_ids == ["t"]
+
+
+def test_a_consistency_group_costs_the_sum_of_its_queries(monkeypatch, tmp_path):
+    """Groups never set a cost at all; each query is a paid turn like any other."""
+    group = {"id": "cons.priced", "tags": [], "queries": ["a", "b"],
+             "assert": {"same_route": True}}
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [])
+    monkeypatch.setattr("NessieAI.tests.nessie_tests.corpus.load_consistency_groups",
+                        lambda p: [group])
+    fb = {"agent": "graph", "from": "x", "to": "y", "reason": "timeout"}
+    payloads = iter([
+        _turn(route="nextseek_query", cost=0.2, router_cost=0.01, cost_partial=False,
+              model_fallback=[fb]),
+        _turn(route="nextseek_query", cost=0.3, router_cost=0.01, cost_partial=False,
+              model_fallback=[]),
+    ])
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, post_query=_post(),
+        get_progress=lambda tid: next(payloads),
+        sleep=lambda s: None, clock=lambda: 0.0, run_consistency=True)
+
+    e = next(x for x in m.entries if x.id == "cons.priced")
+    assert e.cost == pytest.approx(0.52)
+    assert e.cost_partial is False
+    assert [t.turn for t in e.turns_meta] == ["a", "b"]
+    assert e.fallback_turns == 1
+
+
+def test_a_consistency_group_that_raised_mid_way_keeps_what_it_saw(monkeypatch, tmp_path):
+    group = {"id": "cons.lost", "tags": [], "queries": ["a", "b"],
+             "assert": {"same_route": True}}
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [])
+    monkeypatch.setattr("NessieAI.tests.nessie_tests.corpus.load_consistency_groups",
+                        lambda p: [group])
+    calls = {"n": 0}
+
+    def get_progress(_tid):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _turn(route="nextseek_query", cost=0.2, router_cost=0.01,
+                         cost_partial=False)
+        raise ConnectionError("endpoint down")
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, post_query=_post(),
+        get_progress=get_progress, sleep=lambda s: None, clock=lambda: 0.0,
+        run_consistency=True)
+
+    e = next(x for x in m.entries if x.id == "cons.lost")
+    assert e.status == "error"
+    assert e.cost == pytest.approx(0.21) and e.cost_partial is True
+    assert e.turns_sent == 2 and len(e.turns_meta) == 1
+
+
+def test_old_manifests_load_without_the_turn_record(tmp_path):
+    from NessieAI.tests.nessie_tests import manifest as M
+
+    p = tmp_path / "manifest.json"
+    p.write_text(
+        '{"started_at":"a","ended_at":"b","tier":"full","scope":"all","entries":'
+        '[{"id":"c0","family":"f","tier":"full","status":"passed","cost":0.3}]}',
+        encoding="utf-8")
+
+    e = M.load_manifest(p).entries[0]
+    assert e.turns_meta == [] and e.cost_partial is False and e.fallback_turns == 0
+    assert e.turns_sent == 0
+    s = runner.classify_entries(M.load_manifest(p))
+    assert s["total_cost"] == 0.3 and s["cost_partial"] is False
+
+
 # ── forcing a normal run (graph_search Nessie POC) ──────────────────────────
 
 _FORCED_DONE = {"status": "completed", "progress": [

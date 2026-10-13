@@ -18,6 +18,7 @@ result shapes.
 2026-08-03 adds a fourth: the floor must not mandate an ENGINE either. See the
 ``outcome_observed`` section below.
 """
+import os
 import ast
 import json
 import pathlib
@@ -353,12 +354,19 @@ def test_the_floor_still_asserts_something_on_every_family_it_covers():
     assertion, just one its correct answers can satisfy."""
     merged = corpus.merged(CORPUS)
     expected = {
-        "graph_traversal": {"outcome_observed", "graph_truncation_disclosed"},
-        "sample_search": {"outcome_observed"},
+        "graph_traversal": {"outcome_observed", "graph_truncation_disclosed", "parser_plan.mode"},
+        "sample_search": {"outcome_observed", "parser_plan.mode"},
         "sample_retrieve": {"outcome_observed"},
-        "lineage_tree": {"outcome_observed"},
+        "lineage_tree": {"outcome_observed", "parser_plan.mode"},
         "project_summary_report": {"report_produced_output"},
         "submission_package": {"report_produced_output"},
+        # 2026-09-23: added with the production researcher questions.
+        "publication_lookup": {"outcome_observed", "parser_plan.mode"},
+        # 2026-10-07 test-set review (SPEC-2, graph-search grading): every sample-metadata question is graded as a graph search: four new floors.
+        "harmonization": {"parser_plan.mode"},
+        "person_lab_resolution": {"parser_plan.mode"},
+        "vocabulary_resolution": {"parser_plan.mode"},
+        "data_file_location": {"parser_plan.mode"},
     }
     assert set(expected) == set(corpus.load_family_floor(CORPUS).get("floors", {})), (
         "a family gained or lost a floor without this pin being updated")
@@ -379,6 +387,10 @@ def test_the_floor_never_mandates_a_particular_engine():
     check's clothes — which is precisely how three correct seed-6 answers went red.
 
     `reporting` is deliberately out of scope: it keeps `report_produced_output`.
+
+    2026-10-07 test-set review (SPEC-2, graph-search grading): the floors now also carry `parser_plan.mode eq graph_query` (the operator's ruling that
+    every sample-metadata question is graded as a graph search, which supersedes the engine-agnostic note of
+    2026-08-03 for the MODE; `api_ok` and `neo4j_ok` remain forbidden here).
     """
     floors = corpus.load_family_floor(CORPUS).get("floors", {})
     bad = [(fam, c["field"]) for fam in ENGINE_FLEXIBLE
@@ -467,7 +479,26 @@ _ADDED_2026_08_06 = {
     v["id"]
     for fam in json.loads(CORPUS.read_text(encoding="utf-8"))["families"].values()
     for v in fam["variants"]
-    if any(k.startswith(("_promoted_2026_08_06", "_added_2026_08_06")) for k in v)
+    # 2026-09-23: the production researcher questions are later additions too, and are
+    # excluded from the historical measurements below for the same reason.
+    if any(k.startswith(("_promoted_2026_08_06", "_added_2026_08_06",
+                         "_added_2026_09_23_prod_researchers")) for k in v)
+}
+
+# The variants whose inline REST-path plumbing (api_ok, api_plan.endpoint,
+# api_result_meta.*, parser mode new_search) was retired on 2026-09-23 because the
+# graph answers them (prod suite, seed 17). The measurements below are evidence
+# about the floor as it met cases that asserted `api_ok` in their own text, so they
+# are excluded for the same reason as the later additions above: folded in, the
+# retired floor would "reach" them only because their inline assertion was
+# deliberately removed, not because the floor change took anything away.
+_RETIRED_PLUMBING_2026_09_23 = {
+    v["id"]
+    for fam in json.loads(CORPUS.read_text(encoding="utf-8"))["families"].values()
+    for v in fam["variants"]
+    if "2026-09-23: REST-path plumbing criteria retired" in (v.get("_why") or "")
+    # R4, 2026-10-03: the seed turns that moved from a REST sample search to the graph search.
+    or "REST sample searches are retired" in (v.get("_why_r4") or "")
 }
 
 RETIRED_FLOOR = {
@@ -570,9 +601,11 @@ def test_the_retired_floor_entries_were_inert_almost_everywhere():
     # rewrite the evidence set without changing what it is evidence for.
     added = _floor_added_under(RETIRED_FLOOR)
     added = {vid: f for vid, f in added.items()
-             if vid in _CURATED_IDS and vid not in _ADDED_2026_08_06}
-    assert {vid for vid, f in added.items() if "neo4j_ok" in f} == LOST_NEO4J_OK
-    assert {vid for vid, f in added.items() if "api_ok" in f} == LOST_API_OK
+             if vid in _CURATED_IDS and vid not in _ADDED_2026_08_06
+             and vid not in _RETIRED_PLUMBING_2026_09_23}
+    retired = _RETIRED_PLUMBING_2026_09_23
+    assert {vid for vid, f in added.items() if "neo4j_ok" in f} == LOST_NEO4J_OK - retired
+    assert {vid for vid, f in added.items() if "api_ok" in f} == LOST_API_OK - retired
 
     # The mirror above must reproduce the real corpus, or none of this is measuring
     # the corpus the harness actually runs.
@@ -603,15 +636,22 @@ def test_search_tree_got_stricter_not_looser_on_all_but_one_variant():
                if v.family == "lineage_tree" and v.id.startswith("tree.")
                and "no_floor" not in v.tags and "atlas" not in v.tags
                and v.id not in _ADDED_2026_08_06]
-    assert len(floored) == 13, [v.id for v in floored]
+    assert len(floored) == 9, [v.id for v in floored]   # 13 -> 9: 2026-10-07 test-set review (SPEC-2): four tree.* variants retired
 
-    traded = {v.id for v in floored if "api_ok" not in _inline_fields(v.id)}
-    assert traded == {"tree.then_ask_about"}
+    # 2026-09-23: every one of the 13 had its inline api_ok retired (the graph
+    # answers lineage; prod suite, seed 17), so the "kept its inline api_ok" half of
+    # this measurement has no members left. The half that guards the floor still
+    # holds on all 13: each gains `outcome_observed`, so a turn with no outcome fails.
+    retired = {v.id for v in floored if v.id in _RETIRED_PLUMBING_2026_09_23}
+    traded = {v.id for v in floored if "api_ok" not in _inline_fields(v.id)} - retired
+    assert traded <= {"tree.then_ask_about"}
 
     for v in floored:
         fields = {c.field for c in v.turns[-1].pass_criteria}
         assert "outcome_observed" in fields, v.id
-        if v.id not in traded:
+        if v.id in retired:
+            assert "api_ok" not in fields, f"{v.id} still asserts the retired api_ok"
+        elif v.id not in traded:
             assert "api_ok" in fields, f"{v.id} lost its inline api_ok"
 
 
@@ -621,9 +661,9 @@ def test_a_search_advanced_case_answered_by_the_graph_satisfies_its_floor():
     answer satisfies it."""
     v = next(v for v in corpus.merged(CORPUS) if v.id == "advanced.find_me_nhp_samples_from_study_2")
     floor = _floor_added(v)
-    assert {c.field for c in floor} == {"outcome_observed"}, [c.field for c in floor]
-    passed, _ = _evaluate(floor, {"graph_result": {"count": 408, "total": 408,
-                                                   "truncated": False}})
+    assert {c.field for c in floor} == {"outcome_observed", "parser_plan.mode"}, [c.field for c in floor]   # + the graph-search grading
+    passed, _ = _evaluate(floor, {"graph_result": {"count": 408, "total": 408, "truncated": False},
+                                  "parser_plan": {"mode": "graph_query"}})
     assert passed
 
 
@@ -683,7 +723,7 @@ def test_a_graph_query_case_answered_by_rest_satisfies_its_floor():
 # case rewritten. Collapsing them into one "all green" claim would lose the fact
 # that the floor change on its own was not enough.
 
-_EVIDENCE = pathlib.Path("/home/cdemu/nessie-run-seed6b")
+_EVIDENCE = pathlib.Path(os.environ.get("NESSIE_SEED6B_DIR", "nessie-run-seed6b"))
 _MANIFEST = _EVIDENCE / "manifest.json"
 _TURNS = _EVIDENCE / "turns.json"
 
@@ -904,7 +944,10 @@ def test_the_rest_mandates_are_gone_from_the_resolved_variant(vid):
     """The fix itself: no criterion the harness runs still demands the REST engine."""
     v = next(v for v in corpus.merged(CORPUS) if v.id == vid)
     fields = {c.field for t in v.turns for c in t.pass_criteria}
-    assert not (REST_MANDATES & fields), sorted(REST_MANDATES & fields)
+    # 2026-10-07 test-set review (SPEC-2, graph-search grading): parser_plan.mode is now asserted, as graph_query; what must stay gone is the REST mode (new_search)
+    assert not ((REST_MANDATES - {"parser_plan.mode"}) & fields), sorted(REST_MANDATES & fields)
+    modes = [(c.op, c.value) for t in v.turns for c in t.pass_criteria if c.field == "parser_plan.mode"]
+    assert all(m == ("eq", "graph_query") for m in modes), modes
     assert v.turns[-1].query == OVERRIDDEN_2026_08_03B[vid]
 
 
@@ -916,7 +959,7 @@ def test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus():
     # 280 -> 283 on 2026-08-03: the create/update/delete refusal coverage came
     # back (one reinstated, two authored). This is the ONLY hardcoded corpus size
     # in the suite, so it is the one place that has to move.
-    assert len(merged) == 365  # 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) == 356  # big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). big merge 2026-10-13: fix 19 (mj-routing) and fix 6 (nessie_fixes, retired green.refine_recall) together. fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 343 -> 350: 418 -> 343: 2026-10-07 test-set review (SPEC-2): 75 curated variants retired into retired.json. 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     ids = [v.id for v in merged]
     base_ids_all = {v.id for v in corpus.load_base()}
     defs = {v.id: v for v in corpus.load_all_definitions(CORPUS)}
@@ -1014,14 +1057,15 @@ def test_seed6_the_overridden_cases_now_pass_on_the_real_evidence(vid):
 
 # A graph turn that answered correctly, in the shape `augment_debug` consumes.
 GOOD_DEBUG = {"graph_result": {"ok": True, "count": 1765, "total": 1765, "truncated": False},
-              "entity_result": {"sampletypes": [{"code": "D.SEQ"}]}}
+              "entity_result": {"sampletypes": [{"code": "D.SEQ"}]},
+              "parser_plan": {"mode": "graph_query"}}      # 2026-10-07 test-set review (SPEC-2, graph-search grading): the metadata questions are graded as a graph search
 
 GOOD_REPLY = {
     "advanced.find_me_sequencing_files_assoc":
         "A total of 1,765 Sequencing Data (D.SEQ) files are associated with Short "
         "Read Sequencing.\n\n- D.SEQ-230512FOR-287-PUB",
     "advanced.find_me_d_seq_samples_in_proje":
-        "A total of 1,858 Sequencing Data (D.SEQ) samples match project IMPACT.\n\n"
+        "A total of 4,658 Sequencing Data (D.SEQ) samples match project IMPACT.\n\n"
         "* `D.SEQ-220823SHA-9-PUB`",
 }
 
@@ -1056,11 +1100,16 @@ def test_the_new_criteria_still_fail_a_confident_answer_about_the_wrong_entity(v
 def test_the_new_criteria_still_fail_a_silently_capped_graph_answer(vid):
     """`graph_not_truncated` is inert on a REST turn, which is why it is safe here —
     but on a graph turn that hit its LIMIT it is the whole reason it was kept."""
+    # 2026-10-07 test-set review (SPEC-2): advanced.find_me_sequencing_files_assoc asserts
+    # graph_truncation_disclosed (a capped result must report a total above its rows), so the
+    # capped fixture carries no total; the cap is undisclosed for both criteria.
     debug = {**GOOD_DEBUG,
-             "graph_result": {"ok": True, "count": 5000, "total": 12000, "truncated": True}}
+             "graph_result": {"ok": True, "count": 5000, "truncated": True}}
     passed, per_field = _evaluate(_resolved(vid), debug, last_reply=GOOD_REPLY[vid])
     assert not passed
-    assert per_field["graph_not_truncated"] is False
+    field = ("graph_truncation_disclosed" if vid == "advanced.find_me_sequencing_files_assoc"
+             else "graph_not_truncated")
+    assert per_field[field] is False
 
 
 @pytest.mark.parametrize("vid", sorted(OVERRIDDEN_2026_08_03B))

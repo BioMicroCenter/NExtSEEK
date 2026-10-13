@@ -29,9 +29,16 @@ def _compose() -> dict:
     return yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
 
 
+#: The only profiled service (JevLevROUTING). It is built and started by hand
+#: (`docker compose --profile laya build|up -d laya-router`), never by a rebuild, so
+#: it is outside the custom-stack build set on purpose.
+PROFILED_SERVICES = {"laya-router"}
+
+
 def test_every_compose_build_target_is_owned_by_custom_stack() -> None:
     build_targets = {
-        name for name, service in _compose()["services"].items() if "build" in service
+        name for name, service in _compose()["services"].items()
+        if "build" in service and name not in PROFILED_SERVICES
     }
     policy = component_policies("nextseek")["custom-stack"]
     assert set(policy.build_services) == build_targets
@@ -84,10 +91,14 @@ def test_app_runtime_services_ignores_compose_profiles(monkeypatch) -> None:
 def test_no_service_declares_a_compose_profile() -> None:
     """A `profiles:` key is how a service leaves the default bring-up, and
     leaving the default bring-up is how it ends up outside the restart set. The
-    stack has no profiled services; adding one is the decision this test asks a
-    future author to make deliberately."""
+    stack has one profiled service, the laya sidecar (off until an operator starts
+    it); adding another is the decision this test asks a future author to make
+    deliberately."""
     for name, service in _compose()["services"].items():
-        assert "profiles" not in service, name
+        if name in PROFILED_SERVICES:
+            assert service["profiles"] == ["laya"], name
+        else:
+            assert "profiles" not in service, name
 
 
 def test_the_front_door_comes_back_after_a_crash_or_a_reboot() -> None:

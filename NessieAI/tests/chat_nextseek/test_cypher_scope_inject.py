@@ -14,8 +14,11 @@ Spec: docs/superpowers/specs/2026-09-18-graph-cypher-scope.md sections 5.6, 5.7 
 from __future__ import annotations
 
 import re
+from collections import namedtuple
 
 import pytest
+from neo4j.spatial import CartesianPoint, WGS84Point
+from neo4j.time import Duration
 
 from chat_nextseek import cypher_scope
 from chat_nextseek.cypher_scope import (
@@ -320,6 +323,17 @@ def test_strip_hidden_walks_lists_tuples_and_maps():
         "n": 3,
         "m": {"x": {"uuid": "D", "Organ": "Lung"}},
     }]
+
+
+def test_strip_hidden_walks_a_named_tuple():
+    Pair = namedtuple("Pair", ["s", "n"])
+    assert strip_hidden(Pair(_sample("A"), 1)) == ({"uuid": "A", "Organ": "Lung"}, 1)
+
+
+@pytest.mark.parametrize("value", [Duration(days=3), CartesianPoint((1.0, 2.0)), WGS84Point((71.0, 42.0))],
+                         ids=["duration", "cartesian_point", "wgs84_point"])
+def test_strip_hidden_passes_the_drivers_tuple_values(value):
+    assert strip_hidden(value) is value
 
 
 @pytest.mark.parametrize("value", [None, 1, 2.5, "parent_titles", True, [], {}, ("a",)])

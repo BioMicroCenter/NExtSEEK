@@ -12,6 +12,7 @@ The page is rendered with the real template, so a template syntax error fails he
 """
 
 import json
+import logging
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -94,9 +95,30 @@ def test_it_is_still_the_one_sample_search_page_with_its_four_tabs():
     # nextseek.css scopes its layout fix to #search_tab; without it the grids collapse.
     assert 'id="search_tab"' in body
     for button in ("simple_downloadSamples(", "simple_deleteSamples(", "simple_exportSamples(",
-                   "showTimeline(", "downloadSamples0(", "deleteSamples(", "publishSamples(",
+                   "showTimeline(", "downloadSamples0(", "advanced_deleteSamples(",
                    "sendSamples("):
         assert button in body, button
+
+
+def test_no_two_scripts_on_the_page_define_the_same_function():
+    """UI-060: the Advanced "Delete samples" was replaced by the Deletion tab's
+    function of the same name, loaded later, and never deleted anything."""
+    import collections, re
+    _, body = _render()
+    names = collections.Counter(re.findall(r"\bfunction\s+(\w+)\s*\(", body))
+    assert [n for n, c in names.items() if c > 1] == []
+
+
+def test_publish_buttons_are_gone_and_send_to_retrieval_fills_the_retrieval_box():
+    """UI-061: publishing pointed at a route that never existed. UI-062: the send
+    wrote to an element that is not on the page and called an undefined function."""
+    _, body = _render()
+    assert "Publish samples to FairdomHub" not in body
+    assert "publishlist" not in body
+    send = body[body.index("function sendSamples("):]
+    send = send[:send.index("\n}")]
+    assert "#retrieval_uids" in send
+    assert "input_searchUIDs" not in send and "retriveAdvanced" not in send
 
 
 def test_both_boxes_and_the_phone_form_search_through_graph_search():
@@ -227,6 +249,52 @@ def test_without_the_catalog_the_page_still_renders_with_codes(mock_db, mock_typ
     resp = seek.views.search.searchAdvanced(_get())
     options = json.loads(re.search(r"var type_options = (\[.*?\]);", resp.content.decode()).group(1))
     assert resp.status_code == 200 and [o["name"] for o in options] == ["", ""]
+
+
+# ---- the phone form's Sample type dropdown: one option per type, no traceback per character ----
+
+RESOLVE_FAILED = "Exception while resolving variable"
+
+
+def _phone_options(body):
+    select = re.search(r'<select id="m_sampletype">(.*?)</select>', body, re.S)
+    assert select, "no phone Sample type dropdown"
+    return re.findall(r'<option value="([^"]*)">([^<]*)</option>', select.group(1))
+
+
+def test_the_phone_dropdown_has_one_option_per_sample_type():
+    """Valued by id and labelled by code, as the desktop box's combobox is (valueField 'id',
+    textField 'title'), so SampleSearchCore.typeTitle turns the chosen value back into the code
+    graph_search takes. It used to loop over the JSON string of the options: one option per
+    character, every one with an empty value, so the phone filter never applied."""
+    _, body = _render()
+    options = _phone_options(body)
+    assert options == [("0", "All types"), ("26", "TIS"), ("11", "D.SEQ")]
+    assert all(value for value, _ in options)
+
+
+def test_the_page_renders_without_a_failed_variable_lookup(caplog):
+    """Django logs every template variable it cannot resolve at DEBUG with a traceback
+    (django.template.base). The phone loop over a JSON string failed one lookup per character,
+    about 10,000 per load, and formatting their tracebacks was 8 s of every request."""
+    caplog.set_level(logging.DEBUG, logger="django.template")
+    _render()
+    failed = [r.getMessage() for r in caplog.records if r.getMessage().startswith(RESOLVE_FAILED)]
+    assert failed == []
+
+
+def test_a_failed_variable_lookup_formats_no_traceback(caplog):
+    """dmac/settings.py LOGGING runs django.template at INFO. The django logger above it runs at
+    DEBUG, and at DEBUG Django formats a full traceback for every variable a template cannot
+    resolve, on any page, before a handler can drop the record: that is how one loop cost this
+    page 8 s. At INFO the record is never built."""
+    from django.conf import settings
+    from django.template import Context, Template
+
+    assert settings.LOGGING["loggers"].get("django.template", {}).get("level") == "INFO"
+    assert not logging.getLogger("django.template.base").isEnabledFor(logging.DEBUG)
+    Template("{% for c in s %}{{ c.id }}{% endfor %}").render(Context({"s": "abc"}))
+    assert not [r for r in caplog.records if r.getMessage().startswith(RESOLVE_FAILED)]
 
 
 # ---- the separate Graph Search page is retired: Sample Search is the one search page ----

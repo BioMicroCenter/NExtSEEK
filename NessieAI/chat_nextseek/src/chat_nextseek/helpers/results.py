@@ -13,9 +13,9 @@ from ..artifacts import load_api_result_full
 DEFAULT_API_PAGE_SIZE = 1000
 
 
-#: `POST admin/samples/retrieve/` answers `{total_samples, total_sample_types,
-#: total_children, failed_uids, data: [{sample_type, n_samples, samples: [...]}]}`
-#: (`AdminSampleRetrieveResponse`, `nextseek_api/models.py`). `data["data"]` is a list,
+#: `POST samples/retrieve/` (and its alias `admin/samples/retrieve/`) answers `{total_samples,
+#: total_sample_types, total_children, failed_uids, data: [{sample_type, n_samples, samples: [...]}],
+#: lineage_complete}` (`SampleRetrieveResponse`, `nextseek_api/models.py`). `data["data"]` is a list,
 #: so every row-counting and row-previewing helper below "recognised" it and then
 #: counted and previewed the sample TYPES rather than the samples.
 _GROUP_LABEL_KEY = "sample_type"
@@ -65,6 +65,63 @@ def _flatten_groups(groups: list[dict]) -> list[dict]:
             if index < len(rows):
                 out.append(rows[index])
     return out
+
+
+def _is_empty(value: object) -> bool:
+    return value is None or value == "" or value == [] or value == {}
+
+
+def _drop_empty(record: dict) -> dict:
+    """The record without its empty fields (None, "", [], {}), one level into a nested dict too: a retrieve record
+    holds every attribute under ``metadata`` (R8). The group label stays."""
+    out = {}
+    for k, v in record.items():
+        if isinstance(v, dict):
+            v = {ik: iv for ik, iv in v.items() if not _is_empty(iv)}
+        if k == _GROUP_LABEL_KEY or not _is_empty(v):
+            out[k] = v
+    return out
+
+
+#: Named records shown in full in a retrieve preview; any more are listed by UID and type in ``also_named`` (R8).
+_PINNED_MAX = 20
+
+
+def _record_uid(record: dict) -> str:
+    return next((str(record[f]) for f in ("uid", "UID", "uuid", "sample_uid", "id") if record.get(f) is not None), "?")
+
+
+def _named_identifiers(api_plan: dict | None) -> list[str]:
+    """Identifiers the request named (a retrieve body's ``identifiers``), lower-cased."""
+    body = (api_plan or {}).get("requestBody")
+    ids = body.get("identifiers") if isinstance(body, dict) else None
+    if not isinstance(ids, list):
+        return []
+    return [str(i).strip().lower() for i in ids if str(i).strip()]
+
+
+def _record_keys(record: dict) -> set[str]:
+    """Every identifier a record answers to: its uid fields and its SEEK id."""
+    keys = set()
+    for field in ("uid", "UID", "uuid", "sample_uid", "id"):
+        value = record.get(field)
+        if value is not None and not isinstance(value, (dict, list)):
+            keys.add(re.sub(r"<[^>]+>", "", str(value)).strip().lower())
+    return keys
+
+
+def _order_named_first(flat: list[dict], named: list[str]) -> tuple[list[dict], int]:
+    """Records the request named first (in the order named), then the rest. Returns the order and the named count."""
+    if not named:
+        return flat, 0
+    rank = {n: i for i, n in enumerate(named)}
+    hits = []
+    rest = []
+    for record in flat:
+        found = [rank[k] for k in _record_keys(record) if k in rank]
+        (hits if found else rest).append((min(found), record) if found else record)
+    hits.sort(key=lambda pair: pair[0])
+    return [r for _, r in hits] + rest, len(hits)
 
 
 def _group_record_count(groups: list[dict]) -> int:
@@ -269,9 +326,19 @@ def slim_api_result_for_llm(
         # reach: how many samples of each type there are (B7's missing sentence,
         # "1,904 records, 40 of them PAT"), and a preview whose every record names
         # the type it came from (B8's fix, "name types from the query that ran").
-        flat = _flatten_groups(groups)
+        flat = [_drop_empty(r) for r in _flatten_groups(groups)]
+        # Records the request named (retrieve by UID) always lead the preview and
+        # are never cut by the row cap, so a second named record cannot drop out.
+        # A UID named without its suffix comes back under its stored spelling (`resolved_as`), and is pinned as that.
+        resolved = {str(k).strip().lower(): str(v).strip().lower()
+                    for k, v in ((data.get("resolved_as") if isinstance(data, dict) else None) or {}).items()}
+        flat, pinned = _order_named_first(flat, [resolved.get(n, n) for n in _named_identifiers(api_plan)])
+        shown, also_named = flat, []
+        if pinned > _PINNED_MAX:
+            also_named = [f"{_record_uid(r)} ({r.get(_GROUP_LABEL_KEY)})" for r in flat[_PINNED_MAX:pinned]]
+            shown, pinned = flat[:_PINNED_MAX] + flat[pinned:], _PINNED_MAX
         preview_key = "samples_preview"
-        preview_items = flat[:max_rows]
+        preview_items = shown[:max(max_rows, pinned)]
         preview_rows = len(preview_items)
         new_data = {
             **{k: v for k, v in data.items() if k != "data"},
@@ -285,6 +352,7 @@ def slim_api_result_for_llm(
             },
             "samples_preview": preview_items,
             "samples_truncated": len(preview_items) < len(flat),
+            **({"also_named": "also named, not shown in full: " + ", ".join(also_named)} if also_named else {}),
         }
         truncated_key = "samples_truncated"
     elif isinstance(data, dict):
@@ -337,6 +405,7 @@ def slim_api_result_for_llm(
     if preview_key:
         slimmed, preview_rows = _shrink_preview_to_budget(
             slimmed, preview_key, max_chars, truncated_key=truncated_key,
+            pinned=pinned if groups is not None else 0,
         )
 
     # Row counts come from the ORIGINAL result; `preview_rows` is what actually
@@ -345,7 +414,54 @@ def slim_api_result_for_llm(
     if preview_rows is None:
         preview_rows = _rows_actually_returned(slimmed)
     slimmed.update(build_result_disclosure(api_result, api_plan, preview_rows=preview_rows))
+    slimmed.update(_rest_list_flags(api_result, api_plan))
     return slimmed
+
+
+#: The two REST answers that are a single record or a whole list rather than a sample page (R4, U3b).
+_PEOPLE_LIST = "/nextseek_api/people/"
+_SOPS_RECORD = "/nextseek_api/sops/"
+
+
+def _rest_list_flags(api_result: dict, api_plan: dict | None) -> dict:
+    """``full_list_attached`` + ``rows_returned`` for the people list (the table under the reply holds every row, so
+    the chatter gives the total and never "the first N"), with ``match_terms`` + ``matching_rows`` when the request
+    looks for names; ``download_links`` for one SOP record (the file it offers)."""
+    endpoint = str((api_plan or {}).get("endpoint") or "").split("?", 1)[0]
+    data = api_result.get("data") if isinstance(api_result, dict) else None
+    if endpoint.rstrip("/") + "/" == _PEOPLE_LIST:
+        rows = data.get("data") if isinstance(data, dict) else data
+        if isinstance(rows, list):
+            flags = {"full_list_attached": True, "rows_returned": len(rows)}
+            terms = [str(t) for t in (api_plan or {}).get("match_terms") or [] if str(t).strip()]
+            if terms:
+                # Review F8: an account matches a term when its name holds every word of it, any case.
+                flags["match_terms"] = terms
+                flags["matching_rows"] = [
+                    {"id": row.get("id"), "title": title} for row in rows if isinstance(row, dict)
+                    for title in [str((row.get("attributes") or {}).get("title") or "")]
+                    if title and any(all(w in title.lower() for w in t.lower().split()) for t in terms)]
+            return flags
+    elif endpoint.startswith(_SOPS_RECORD.rstrip("/") + "/") and isinstance(data, dict):
+        record = data.get("data") if isinstance(data.get("data"), dict) else data
+        links = _download_links(record)
+        return {"download_links": links} if links else {}
+    return {}
+
+
+def _download_links(record: dict) -> list[dict]:
+    """The file(s) an SOP record offers: each content blob's name and link, as the record states them."""
+    blobs = ((record.get("attributes") or {}).get("content_blobs")) or []
+    out = []
+    for blob in blobs if isinstance(blobs, list) else []:
+        if not isinstance(blob, dict):
+            continue
+        link = blob.get("link") or (blob.get("links") or {}).get("download") or (blob.get("links") or {}).get("self")
+        if link:
+            # SEEK serves the blob resource at the link and the file at <link>/download (content_blobs.py, review N8).
+            link = re.sub(r"(/content_blobs/\d+)/?$", r"\1/download", str(link))
+            out.append({"file": blob.get("original_filename") or blob.get("title"), "link": link})
+    return out
 
 
 def _shrink_preview_to_budget(
@@ -354,6 +470,7 @@ def _shrink_preview_to_budget(
     max_chars: int,
     *,
     truncated_key: str | None = None,
+    pinned: int = 0,
 ) -> tuple[dict, int | None]:
     """Drop previewed rows until the payload fits, keeping at least one.
 
@@ -371,14 +488,27 @@ def _shrink_preview_to_budget(
         return slimmed, None
 
     items = list(data[preview_key])
-    while len(items) > 1 and len(json.dumps(slimmed, default=str)) > max_chars:
+    while len(items) > max(1, pinned) and len(json.dumps(slimmed, default=str)) > max_chars:
         items = items[:-1]
         data = {**data, preview_key: items,
                 "note": f"Result truncated for LLM context (>{max_chars} chars)."}
         if truncated_key:
             data[truncated_key] = True
         slimmed = {**slimmed, "data": data}
+    # Pinned (named) records are never dropped: trim their long text instead.
+    for cap in (400, 200, 100, 50):
+        if not pinned or len(json.dumps(slimmed, default=str)) <= max_chars:
+            break
+        items = [_trim_long_fields(r, cap) if i < pinned else r for i, r in enumerate(items)]
+        slimmed = {**slimmed, "data": {**slimmed["data"], preview_key: items, "fields_trimmed": True}}
     return slimmed, len(items)
+
+
+def _trim_long_fields(record: dict, cap: int) -> dict:
+    """Long text cut to ``cap``, one level into a nested dict too (a retrieve record's ``metadata``, R8)."""
+    def trim(v):
+        return v[:cap] + "...[trimmed]" if isinstance(v, str) and len(v) > cap else v
+    return {k: ({ik: trim(iv) for ik, iv in v.items()} if isinstance(v, dict) else trim(v)) for k, v in record.items()}
 
 
 def collect_bundle_files(bundle: dict) -> list[tuple[str, str]]:

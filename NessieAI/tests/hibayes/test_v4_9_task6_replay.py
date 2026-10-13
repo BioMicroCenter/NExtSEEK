@@ -8,7 +8,7 @@ from pathlib import Path
 from NessieAI.hibayes.task6_replay import run_task6_replay
 
 
-DELIVERY = Path("/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07")
+DELIVERY = Path(os.environ.get("NESSIE_TESTQUESTIONS_DIR", "testquestions-2026-08-07"))
 
 
 def test_authenticated_stored_evidence_to_local_routing_chain():

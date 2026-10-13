@@ -15,8 +15,8 @@
 # HOW (seed-first, download-fallback; precedent: startup/seed/ ships local
 # seed data and falls back to a network download only when needed)
 #   1. If <repo>/schema_rag/embedding_models already matches the manifest
-#      (startup/dev/bge-small-en-v1.5.manifest.json, committed next to this
-#      script: pinned repo_id + revision + per-file SHA-256s), exit 0.
+#      (docker/models/bge-small-en-v1.5.manifest.json, the pin the app image
+#      bakes too: pinned repo_id + revision + per-file SHA-256s), exit 0.
 #      This path is network-free and safe to run inside `--network none`.
 #   2. Else, if --seed <dir> is given: verify the seed against the manifest,
 #      copy it into the cache, and re-verify the copy. Network-free.
@@ -48,7 +48,9 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MANIFEST="${SCRIPT_DIR}/bge-small-en-v1.5.manifest.json"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+MANIFEST="${REPO_ROOT}/docker/models/bge-small-en-v1.5.manifest.json"
+VERIFIER="${REPO_ROOT}/docker/models/verify_models.py"
 
 SEED_DIR=""
 TARGET_ROOT=""
@@ -92,83 +94,11 @@ if [ -z "${PY}" ]; then
 fi
 
 # verify_cache <cache-dir>
-# Prints one "OK <sha256>  <file>" line per manifest file; on any problem
-# prints the offending path and returns 1. Also checks refs/<default> points
-# at the pinned revision and that the snapshot contains NO extra files.
+# The image's verifier (docker/models/verify_models.py, standard library only):
+# every pinned SHA-256, refs/main at the pinned revision, and NO extra files in
+# the snapshot. On any problem it prints the offending path and returns 1.
 verify_cache() {
-    "${PY}" - "$1" "${MANIFEST}" <<'PYEOF'
-import hashlib, os, sys
-
-try:
-    import orjson as _json  # repo convention: prefer orjson when available
-    _loads = _json.loads
-except ImportError:
-    import json as _json
-    _loads = _json.loads
-
-cache_dir, manifest_path = sys.argv[1], sys.argv[2]
-with open(manifest_path, "rb") as fh:
-    manifest = _loads(fh.read())
-
-repo_id = manifest["repo_id"]
-revision = manifest["revision"]
-files = manifest["files"]
-
-model_dir = os.path.join(cache_dir, "models--" + repo_id.replace("/", "--"))
-snapshot_dir = os.path.join(model_dir, "snapshots", revision)
-ref_path = os.path.join(model_dir, "refs", "main")
-
-failed = False
-
-def fail(msg):
-    global failed
-    failed = True
-    print("VERIFY FAIL: " + msg, file=sys.stderr)
-
-if not os.path.isdir(cache_dir):
-    fail("cache dir missing: " + cache_dir)
-    sys.exit(1)
-if not os.path.isdir(snapshot_dir):
-    fail("snapshot dir missing: " + snapshot_dir)
-    sys.exit(1)
-
-# refs/main must pin the manifest revision (HF hub resolves 'main' via it)
-if not os.path.isfile(ref_path):
-    fail("ref missing: " + ref_path)
-else:
-    with open(ref_path, "r") as fh:
-        ref = fh.read().strip()
-    if ref != revision:
-        fail("ref mismatch: %s contains %r, manifest revision is %r"
-             % (ref_path, ref, revision))
-
-# per-file SHA-256 (hashing follows the snapshot->blob symlinks)
-for rel in sorted(files):
-    path = os.path.join(snapshot_dir, rel)
-    if not os.path.isfile(path):  # broken symlink or missing file
-        fail("missing file: " + path)
-        continue
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    digest = h.hexdigest()
-    if digest != files[rel]:
-        fail("hash mismatch: %s (got %s, manifest %s)" % (path, digest, files[rel]))
-    else:
-        print("OK %s  %s" % (digest, rel))
-
-# no extra files may hide in the pinned snapshot
-manifest_set = {os.path.normpath(rel) for rel in files}
-for root, _dirs, names in os.walk(snapshot_dir):
-    for name in names:
-        full = os.path.join(root, name)
-        rel = os.path.normpath(os.path.relpath(full, snapshot_dir))
-        if rel not in manifest_set:
-            fail("extra file not in manifest: " + full)
-
-sys.exit(1 if failed else 0)
-PYEOF
+    "${PY}" "${VERIFIER}" "$1" "${MANIFEST}"
 }
 
 # ---------------------------------------------------------------------------
@@ -191,7 +121,7 @@ fi
 # provisioning mode
 # ---------------------------------------------------------------------------
 if [ -z "${TARGET_ROOT}" ]; then
-    TARGET_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+    TARGET_ROOT="${REPO_ROOT}"
 fi
 CACHE_DIR="${TARGET_ROOT}/schema_rag/embedding_models"
 
@@ -242,9 +172,10 @@ print(j.loads(open(sys.argv[1], "rb").read())["revision"])' "${MANIFEST}")"
         echo "ERROR: docker not available for the download fallback; re-run with --seed <dir>" >&2
         exit 1
     fi
+    # The app image sets HF_HUB_OFFLINE=1 (it bakes its own models); this download needs it off.
     if ! docker run --rm \
         --user "$(id -u):$(id -g)" \
-        -e HOME=/tmp -e HF_HOME=/tmp/hf \
+        -e HOME=/tmp -e HF_HOME=/tmp/hf -e HF_HUB_OFFLINE=0 \
         -v "${CACHE_DIR}:/provision_cache" \
         --entrypoint /app/.venv/bin/python \
         nextseek-nextseek:latest \

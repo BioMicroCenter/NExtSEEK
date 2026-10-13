@@ -35,6 +35,19 @@ UNIFIED = ROOT / "corpus.json"
 CORPUS = UNIFIED
 
 
+def _retired_records():
+    return json.loads((ROOT / "retired.json").read_text(encoding="utf-8"))["retired"]
+
+
+def _corpus_origin_definitions():
+    """Every definition that ever lived in corpus.json: the active ones, plus the retired records that
+    came out of it (the 106 moved as they were, and this review's corpus removals).
+    """
+    payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
+    rows = [v for fam in payload["families"].values() for v in fam["variants"]]
+    return rows + [r for r in _retired_records() if "corpus" in r.get("lived_in", ["corpus"])]
+
+
 def test_corpus_json_exists_and_parses():
     assert UNIFIED.is_file(), "NessieAI/tests/nessie_tests/corpus.json is missing; it is hand-owned and nothing regenerates it"
     json.loads(UNIFIED.read_text(encoding="utf-8"))
@@ -51,10 +64,8 @@ def test_unified_holds_every_definition():
     Nothing was retired, deselected or edited, because every one of those voids
     a human grade that has already been paid for.
     """
-    payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
-    ids = {v["id"] for fam in payload["families"].values() for v in fam["variants"]
-           if v.get("origin") != "atlas"}
-    assert len(ids) == 470  # 408 -> 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    ids = {v["id"] for v in _corpus_origin_definitions() if v.get("origin") != "atlas"}
+    assert len(ids) == 538  # big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 524 -> 531: unchanged by the 2026-10-07 test-set review (the retired ones moved to retired.json, none were lost). 522 -> 524: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 520 -> 522: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set (origin overlay). 470 -> 520: 2026-09-23: +50 variants for the 53 production researcher questions. 408 -> 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_every_retired_definition_is_still_loadable():
@@ -64,7 +75,7 @@ def test_every_retired_definition_is_still_loadable():
     someone reinstates it."""
     retired = [v for v in corpus.load_all_definitions(CORPUS)
                if corpus.variant_meta(CORPUS)[v.id]["status"] == "retired"]
-    assert len(retired) == 105  # 100 -> 105: 2026-08-06 question set: +58 new variants, +6 retirements, 76 deselections (is_bayesian only, still active).
+    assert len(retired) == 252  # 251 -> 252: 2026-10-13 fix 6 retired green.refine_recall. 106 -> 251: 2026-10-07 test-set review (SPEC-2): the 106 moved to retired.json and this review retired 145 more (83 corpus, 62 probe and run-set cases). 105 -> 106: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic.
     for v in retired:
         assert v.turns, f"{v.id} has no turns"
         assert all(t.query for t in v.turns), f"{v.id} has an empty query"
@@ -75,16 +86,15 @@ def test_every_id_is_defined_exactly_once():
     overlay.json and retired.json) is structurally impossible here. Editing the
     wrong copy silently had no effect; there is now only one copy."""
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
-    ids = [v["id"] for fam in payload["families"].values() for v in fam["variants"]]
+    ids = [v["id"] for fam in payload["families"].values() for v in fam["variants"]] \
+        + [r["id"] for r in _retired_records()]       # 2026-10-07: and nothing is both active and retired
     assert len(ids) == len(set(ids)), \
         f"duplicated ids: {sorted({i for i in ids if ids.count(i) > 1})}"
 
 
 def test_retired_ids_carry_their_full_retirement_record():
-    payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
-    retired = [v for fam in payload["families"].values()
-               for v in fam["variants"] if v["status"] == "retired"]
-    assert len(retired) == 105  # 100 -> 105: 2026-08-06 question set: +58 new variants, +6 retirements, 76 deselections (is_bayesian only, still active).
+    retired = _retired_records()
+    assert len(retired) == 252  # 251 -> 252: 2026-10-13 fix 6. 106 -> 251: 2026-10-07 test-set review (SPEC-2), see test_every_retired_definition_is_still_loadable.
     for v in retired:
         rec = v["retirement"]
         assert rec and rec["reason"] and rec["retired_on"] and rec["decided_by"], v["id"]
@@ -94,18 +104,18 @@ def test_load_unified_returns_the_active_variants_only():
     # 283 -> 308: +25 from the 2026-08-06 additive pass (16 promoted out of the
     # atlas set into the curated one, 9 written fresh). Nothing was removed.
     active = corpus.curated(corpus.load_unified(UNIFIED))
-    assert len(active) == 365  # 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(active) == 356  # big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). big merge 2026-10-13: fix 19 (mj-routing) and fix 6 (nessie_fixes, retired green.refine_recall) together. fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 343 -> 350: 418 -> 343: 2026-10-07 test-set review (SPEC-2): 75 corpus variants retired into retired.json (83 removals, 8 of them atlas). 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_load_all_definitions_returns_active_plus_retired():
-    assert len(corpus.curated(corpus.load_all_definitions(UNIFIED))) == 470  # 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(corpus.curated(corpus.load_all_definitions(UNIFIED))) == 600  # fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 586 -> 593: 524 -> 586: 2026-10-07 test-set review (SPEC-2): the 62 probe and run-set removals now have a body in retired.json too. 522 -> 524: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 520 -> 522: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set. 2026-09-23: +50 variants for the 53 production researcher questions. 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_unified_resolution_preserves_turn_count():
     # 314 -> 343. The 25 additions carry 29 turns between them: several are
     # genuinely multi-turn, and three atlas variants were REPAIRED on promotion
     # because they had a multi-turn script flattened into one literal query.
-    assert sum(len(v.turns) for v in corpus.curated(corpus.merged_from_unified(UNIFIED))) == 413  # 343 -> 413: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. 15 of the 58 additions are multi-turn, and 3 edits split a flattened script into real turns.
+    assert sum(len(v.turns) for v in corpus.curated(corpus.merged_from_unified(UNIFIED))) == 419  # big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). big merge 2026-10-13: fix 19 (mj-routing) and fix 6 (nessie_fixes, retired green.refine_recall) together. fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 403 -> 412: 484 -> 403: 2026-10-07 test-set review (SPEC-2): 75 curated corpus variants retired (81 turns). 480 -> 484: 2026-09-30: the 1 + 3 turns of the two nf-core selection variants. 478 -> 480: 2026-09-24: the two turns of fix 9's route.ndma_mice_then_female_two_turns. 413 -> 478: 2026-09-23: +50 variants for the 53 production researcher questions, 12 of them multi-turn (65 turns). 343 -> 413: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. 15 of the 58 additions are multi-turn, and 3 edits split a flattened script into real turns.
 
 
 def test_the_hand_written_annotations_survived_adoption():
@@ -116,8 +126,7 @@ def test_the_hand_written_annotations_survived_adoption():
     the one guarding that the DELETE case (which targets a REAL uid) warns it can
     destroy real data. Counted here so a regenerate that loses them again says so.
     """
-    payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
-    variants = [v for fam in payload["families"].values() for v in fam["variants"]]
+    variants = _corpus_origin_definitions()        # 2026-10-07: the retired ones are in retired.json now
     counts = collections.Counter(k for v in variants for k in v if k.startswith("_"))
     # `_atlas` is machine provenance ({capability, assertion}) on the generated
     # variants, under ONE key so it cannot drown the signal this test exists for:
@@ -134,8 +143,31 @@ def test_the_hand_written_annotations_survived_adoption():
     # `_deselected_2026_08_06_qset` 76 and `_promoted_2026_08_06_qset` 4. Every
     # deselection and every retirement records a written reason; that is what makes
     # the selection reviewable without a diff.
-    assert counts == {"_why": 101, "_why_superseded_2026_08_03": 1,
-                      "_2026_07_28": 1, "_atlas": 80,
+    # 2026-09-23 production re-key: `_why` 101 -> 135. Every re-keyed variant got a
+    # dated line appended to its `_why`, and the 34 that had none got one.
+    # 2026-09-23 production researcher questions: `_why` 135 -> 185 (one per case), plus
+    # `_added_2026_09_23_prod_researchers` 50 (the review turn ids each case covers) and
+    # `_deselected_2026_09_23_prod_researchers` 7 (the follow-up and refinement cases left
+    # out of the paid selection, each with its reason).
+    # 2026-09-23 REST-path plumbing retirement: `_why` 185 -> 292. Every variant whose
+    # engine plumbing criteria were retired got one dated line, and the 107 that had
+    # no `_why` got one.
+    # 2026-09-24 route rulings: `_why` 292 -> 294. Six cases got a dated line; the MetNet
+    # summary and the GEO submission had none and got one.
+    # 2026-09-24 follow-up split: `_why` 294 -> 295. The 31 cases whose follow-up route moved
+    # already had a `_why` and got a dated line; fix 9's new case got one. `_atlas` 80 -> 81:
+    # that case keeps the provenance of the atlas case it replaces.
+    # 2026-09-30 nf-core selection: `_why` 295 -> 297 and `_added_2026_09_30_selection` 2,
+    # one each on the two new overlay variants.
+    # 2026-10-03 round 4: `_why_r4` 7, one dated line on each case re-keyed off the retired REST sample search,
+    # the REST-era assay and SOP numbers, or the investigations route.
+    # big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). 2026-10-13 nessie_fixes fix round: `_why` 297 -> 298. The prod-read re-pins and the two "either route" rulings
+    # got dated lines; path.put_together_a_summary_of_the_sa had none and got one.
+    assert counts == {"_why_r4": 7, "_why": 305, "_why_superseded_2026_08_03": 1,
+                      "_added_2026_09_30_selection": 2,
+                      "_added_2026_09_23_prod_researchers": 50,
+                      "_deselected_2026_09_23_prod_researchers": 7,
+                      "_2026_07_28": 1, "_atlas": 81,
                       "_promoted_2026_08_06": 17, "_added_2026_08_06": 8,
                       "_added_2026_08_06_qset": 58, "_edited_2026_08_06_qset": 86,
                       "_deselected_2026_08_06_qset": 76,
@@ -160,7 +192,7 @@ def test_fingerprint_is_over_the_unified_corpus_only():
 def test_variant_meta_covers_every_definition():
     meta = corpus.variant_meta(UNIFIED)
     curated_ids = {v.id for v in corpus.curated(corpus.load_all_definitions(UNIFIED))}
-    assert len({k for k in meta if k in curated_ids}) == 470  # 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len({k for k in meta if k in curated_ids}) == 600  # big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 586 -> 593: 524 -> 586: 2026-10-07 test-set review (SPEC-2), see test_load_all_definitions_returns_active_plus_retired. 522 -> 524: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 520 -> 522: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set. 2026-09-23: +50 variants for the 53 production researcher questions. 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     assert meta["repro.cypher_uid_dot"]["status"] == "retired"
     assert meta["green.mus_ndma"]["status"] == "active"
     # `is_bayesian` used to be pinned False on this variant, which was a pin on
@@ -243,7 +275,7 @@ def test_defaults_cover_the_retired_only_families_too():
     # 13 -> 21. The 2026-08-06 pass promoted atlas variants in 8 previously
     # atlas-only families into the curated set, so those families now hold an
     # active CURATED variant. The gap this test records shrank by exactly 8.
-    assert len(active) == 25, sorted(active)  # 21 -> 25: the question set covers
+    assert len(active) == 30, sorted(active)  # 29 -> 30: 2026-09-24, engine_routing holds a curated case for the first time (fix 9). 25 -> 29: 2026-09-23, the four families added for the production researcher questions (publication_lookup, person_lab_resolution, data_file_location, session_export). 21 -> 25: the question set covers
     # pipeline_output_reingest, session_lifecycle, cross_session_memory and
     # entity_write for the first time.
     # pipeline_output_reingest and entity_write hold one RETIRED variant each and
@@ -261,7 +293,7 @@ def test_defaults_cover_the_retired_only_families_too():
     # point of the 2026-08-04 remap -- and a family without defaults would fail
     # the moment its first case is written.
     blocks = set(payload["families"])
-    assert len(blocks) == 28, sorted(blocks)
+    assert len(blocks) == 32, sorted(blocks)  # 28 -> 32: the four families added 2026-09-23
     assert declared <= blocks
     assert {k for k in payload["family_defaults"] if not k.startswith("_")} == blocks
     assert set(corpus.load_family_defaults(UNIFIED)) == blocks
@@ -295,8 +327,9 @@ def test_every_reporting_deposit_variant_overrides_its_family_default():
     kinds = {"GEO": ("Report-GEO", "GEO_XLSX"), "SRA": ("Report-SRA", "SRA_PACKAGE"),
              "PRIDE": ("Report-PRIDE", "PRIDE_PACKAGE")}
     seen = collections.Counter()
+    origin_ids = {r["id"] for r in _corpus_origin_definitions()}   # 2026-10-07: retired.json also holds probe-origin cases
     for v in corpus.curated(corpus.load_all_definitions(UNIFIED)):
-        if v.family != "submission_package":
+        if v.family != "submission_package" or v.id not in origin_ids:
             continue
         hit = [k for k in kinds if k in v.turns[0].query.upper()]
         if not hit:
@@ -391,10 +424,19 @@ def test_bayesian_selection_is_nonempty_active_and_family_balanced():
     # populates have no bayesian member and never should until someone reads them.
     active = corpus.curated(active)
     fams = {v.family for v in active if v.id in set(ids)}
-    measurable = {v.family for v in active if "route_gate" not in v.tags}
+    # 2026-09-24: engine_routing holds a curated case for the first time (fix 9) and
+    # none in the selection, on purpose. The family asserts WHICH engine a turn reaches;
+    # the paired run forces the engine and strips the route criteria, so its cases would
+    # measure nothing they were written for (the reason
+    # test_the_atlas_set_is_additive_and_inert gives for the family). Exempt by name, as
+    # the route gates are by tag.
+    not_measurable_under_forcing = {"engine_routing"}
+    measurable = ({v.family for v in active if "route_gate" not in v.tags}
+                  - not_measurable_under_forcing)
     assert fams == measurable, \
         f"families with no bayesian variant: {sorted(measurable - fams)}"
-    gate_only = {v.family for v in active} - measurable
+    assert not fams & not_measurable_under_forcing, "a route-only case is in the paid selection"
+    gate_only = {v.family for v in active} - measurable - not_measurable_under_forcing
     assert gate_only == set(), (
         f"a gate-only family appeared: {sorted(gate_only)}. Confirm it really has "
         f"nothing measurable in it before widening this.\n"
@@ -499,7 +541,8 @@ def test_every_deselected_refine_and_recall_member_records_why():
     for half in halves:
         assert any(v["family"] == half for v in selected), half
     unexplained = [v["id"] for v in members
-                   if v["id"] not in ids and not v.get("_deselected_2026_08_06_qset")]
+                   if v["id"] not in ids
+                   and not any(k.startswith("_deselected_") and v[k] for k in v)]
     assert not unexplained, (
         f"deselected without a written reason: {sorted(unexplained)}")
 
@@ -709,7 +752,7 @@ def test_the_atlas_set_is_additive_and_inert():
     active variant at all now hold one. That gap was the point of the whole
     2026-08-04 remap, so closing part of it is the deliverable, not a side effect.
     """
-    defs = corpus.load_all_definitions(UNIFIED)
+    defs = corpus.load_unified(UNIFIED)   # 2026-10-07: the active definitions (8 atlas variants were retired into retired.json)
     atlas = [v for v in defs if "atlas" in v.tags]
     # 79 -> 63. On 2026-08-06, 16 were READ, ground-truthed, repaired where wrong
     # and promoted into the curated set, which is exactly the exit `corpus.curated`
@@ -720,7 +763,10 @@ def test_the_atlas_set_is_additive_and_inert():
     # selected four more of them, which is an origin AND tag flip; `_atlas`
     # provenance is kept on all 80 so where the question came from is still on
     # the record.
-    assert len(atlas) == 59
+    # 59 -> 58 on 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic, which
+    # was read and ruled on, so it left the set (origin and tag); `_atlas` stays on it.
+    # 58 -> 50 on 2026-10-07 (test-set review, SPEC-2): 8 atlas variants were removed as duplicates.
+    assert len(atlas) == 50
 
     assert all(v.turns and len(v.turns) == 1 for v in atlas), "one turn each"
     assert all(len(v.turns[0].pass_criteria) >= 1 for v in atlas), "every one asserts something"
@@ -759,4 +805,10 @@ def test_the_atlas_set_is_additive_and_inert():
     #
     # `engine_routing` remains, and remains for the original reason: asserting a
     # route the harness itself forced is tautological.
-    assert newly == {"engine_routing"}, sorted(newly)
+    #
+    # -> 0 on 2026-09-24: fix 9 wrote route.ndma_mice_then_female_two_turns into
+    # engine_routing as a curated case (two real turns in place of the retired atlas
+    # case that pasted them into one message). The reason above still holds for the
+    # paid selection: the case is not `is_bayesian`, see
+    # test_bayesian_selection_is_nonempty_active_and_family_balanced.
+    assert newly == set(), sorted(newly)

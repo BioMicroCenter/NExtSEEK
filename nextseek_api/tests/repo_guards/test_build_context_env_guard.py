@@ -83,6 +83,9 @@ MUST_BE_EXCLUDED = [
     # operator moves it by hand, so it must stay excluded too
     "docker/bedrock-proxy/proxy-secret.env",
     "dmac/local_settings.py",
+    # install's copy of the template beside an existing one, and backups of it (#103)
+    "dmac/local_settings.py.new",
+    "dmac/local_settings.py.bak.20261013",
     # the ad-hoc operator copies that actually leaked into an image (2026-07-29)
     "docker/nextseek.env.bak-pre-seekpublicurl",
     "docker/nextseek.env.bak.20260727123629",
@@ -381,3 +384,53 @@ def test_no_other_test_in_those_modules_is_host_only():
         "over-marked host_only in the IMAGE_ABSENT_INPUTS modules (#89) -- "
         + "; ".join(problems)
     )
+
+
+def test_the_app_image_and_ci_pin_the_same_python():
+    """Unpinned, uv builds with the newest Python requires-python allows; on 2026-10-12
+    that became 3.15, which torch has no wheel for, and every app build failed."""
+    image = re.search(r"^ENV UV_PYTHON=(\S+)$", (REPO_ROOT / "Dockerfile").read_text(), re.M)
+    ci = re.search(r'^\s*UV_PYTHON:\s*"([^"]+)"', (REPO_ROOT / ".github/workflows/ci-pytest.yml").read_text(), re.M)
+    assert image and ci, "both the Dockerfile and ci-pytest.yml must pin UV_PYTHON"
+    assert image.group(1) == ci.group(1)
+
+
+def _dockerfile_stages():
+    """[(FROM line, its index, the lines after it up to the next FROM)]."""
+    lines = (REPO_ROOT / "Dockerfile").read_text().splitlines()
+    starts = [i for i, line in enumerate(lines) if line.startswith("FROM ")]
+    return [(lines[s], s, lines[s + 1:e]) for s, e in zip(starts, starts[1:] + [len(lines)])]
+
+
+def test_the_models_stage_comes_first_and_is_pinned():
+    """#28: the embedding models are baked by their own first stage. `COPY --from` must name an
+    earlier stage, and compose builds the last one, so the app stage stays last."""
+    stages = _dockerfile_stages()
+    assert len(stages) == 2, [s[0] for s in stages]
+    (models_from, _, models_body), (app_from, _, _) = stages
+    assert models_from.endswith(" AS models") and "AS models" not in app_from
+    assert not [line for line in models_body if line.startswith("ARG ")], "no build-time override of a pin"
+    copies = [line.split()[1:-1] for line in models_body if line.startswith("COPY ")]
+    assert copies and all(src.endswith((".json", ".py")) for srcs in copies for src in srcs), (
+        "the stage COPYs named files, not the folder, so a doc edit there does not re-download the models")
+    runs = [line for line in models_body if line.startswith("RUN ")]
+    assert len(runs) == 1 and "fetch_models.py" in runs[0]
+    assert re.search(r"--with huggingface-hub==\d+(\.\d+)+ ", runs[0]), "an exact downloader version"
+    assert re.search(r"--python 3\.\d+ ", runs[0]), "the stage pins its Python on the RUN, not with a second ENV UV_PYTHON"
+
+
+def test_the_app_stage_bakes_the_models_offline_and_loads_them_after_uv_sync():
+    text = (REPO_ROOT / "Dockerfile").read_text()
+    lines = text.splitlines()
+
+    def at(prefix):
+        return next(i for i, line in enumerate(lines) if line.startswith(prefix))
+
+    app_from = _dockerfile_stages()[-1][1]
+    copy_tree = at("COPY . /app/")
+    assert app_from < at("COPY --from=models /opt/models /opt/models") < copy_tree
+    assert app_from < at("ENV SENTENCE_TRANSFORMERS_HOME=/opt/models HF_HUB_OFFLINE=1") < copy_tree
+    load = at("RUN /app/.venv/bin/python /app/docker/models/verify_models.py --load /opt/models ")
+    assert at("RUN UV_COMPILE_BYTECODE=1 uv sync") < load, "the load step needs the venv"
+    assert len(re.findall(r"^ENV UV_PYTHON=", text, re.M)) == 1, (
+        "test_the_app_image_and_ci_pin_the_same_python reads the first ENV UV_PYTHON line")

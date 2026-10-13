@@ -1,8 +1,9 @@
 """
-``POST /nextseek_api/admin/samples/retrieve/``: a UID outside the caller's projects answers exactly as an unknown one.
+``DBtable_sample.getChildrenUIDs``: a UID outside the caller's projects answers exactly as an unknown one.
 
-The export walks DERIVED_FROM from the requested samples (``getChildrenUIDs`` in ``seek/sample/trees.py``) and keeps
-what ``projects_samples`` places in the caller's projects. It used to walk from every requested UID and filter only
+``getChildrenUIDs`` (``seek/sample/trees.py``) walks DERIVED_FROM from the requested samples and keeps what
+``projects_samples`` places in the caller's projects; it was the download API's data path until
+``nextseek_api/services/sample_retrieve.py`` replaced it, which keeps the same rule. It used to walk from every requested UID and filter only
 afterwards, so a foreign UID answered 200 with the caller's own samples related to it (its parents and children in
 their projects), and 404 only when it had none: that confirmed the foreign sample exists and how it relates to the
 caller's samples. For anyone but a superuser the walk now starts only from requested samples in the caller's projects,
@@ -11,11 +12,9 @@ so a foreign UID is dropped before the graph is read, exactly as an unknown one 
 Hermetic: Neo4j is a fake adjacency, MySQL a fake ``projects_samples``, SEEK's project list a stub.
 """
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from rest_framework.test import APIRequestFactory
 
 from seek.sample.table import DBtable_sample
 
@@ -129,55 +128,5 @@ def test_a_superuser_walks_from_every_requested_uid(world):
     assert world.walked == [["TIS-FOR-1"]]
 
 
-# --------------------------------------------------------------------------- the endpoint
-
-
-def _retrieve(identifiers, superuser=False):
-    from nextseek_api.views import AdminSampleViewSet
-
-    req = APIRequestFactory().post("/")
-    req.user = SimpleNamespace(is_authenticated=True, is_staff=True, is_superuser=superuser)
-    req.data = {"identifiers": list(identifiers)}
-    vs = AdminSampleViewSet()
-    vs.format_kwarg, vs.kwargs, vs.request = None, {}, req
-    seekdb = MagicMock()
-    seekdb.getCurrentUser.return_value = {
-        "data": {"relationships": {"projects": {"data": [{"id": p} for p in MEMBER_PROJECTS]}}}}
-    by_id = {str(sid): uuid for uuid, (sid, _) in SAMPLES.items()}
-
-    def _connect(**_):
-        cursor = MagicMock()
-        cursor.execute.side_effect = lambda sql, *a: setattr(
-            cursor, "_rows", [(int(i), by_id[i]) for i in sql.split("IN (")[1].rstrip(")\n ").split(", ")
-                              if i in by_id])
-        cursor.fetchall.side_effect = lambda: cursor._rows
-        return MagicMock(cursor=MagicMock(return_value=cursor))
-
-    with patch("nextseek_api.views.resolve_seek_auth", return_value=(("member", "pw"), {})), \
-            patch("nextseek_api.views.SeekDB", return_value=seekdb), \
-            patch("nextseek_api.views.DBtable_sample", side_effect=_dbs), \
-            patch("nextseek_api.views.MySQLdb", connect=MagicMock(side_effect=_connect)):
-        resp = vs.admin_retrieve_samples(req)
-    return resp.status_code, resp.data
-
-
-@pytest.mark.parametrize("foreign, unknown", [("TIS-FOR-1", "TIS-NOPE"), ("21", "99")], ids=["uid", "seek-id"])
-def test_the_endpoint_answers_a_foreign_identifier_as_an_unknown_one(world, foreign, unknown):
-    assert _retrieve([foreign]) == _retrieve([unknown])
-    assert _retrieve([foreign])[0] == 404
-
-
-def test_the_endpoint_answers_a_mixed_request_as_if_the_foreign_uid_were_unknown(world):
-    with_foreign = _retrieve(["TIS-VIS-1", "TIS-FOR-1"])
-    with_unknown = _retrieve(["TIS-VIS-1", "TIS-NOPE"])
-
-    assert with_foreign == with_unknown
-    assert with_foreign[0] == 200
-    assert with_foreign[1]["total_samples"] == 2 and with_foreign[1]["failed_uids"] == 1
-
-
-def test_the_endpoint_still_exports_a_superusers_request_whole(world):
-    status, data = _retrieve(["TIS-FOR-1"], superuser=True)
-
-    assert status == 200
-    assert data["total_samples"] == 3
+# The endpoint-level half of this guard (a foreign identifier answers as an unknown one, over both routes) moved
+# with the download API to nextseek_api/tests/test_sample_retrieve.py, which no longer calls getChildrenUIDs.

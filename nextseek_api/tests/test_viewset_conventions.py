@@ -13,7 +13,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VALIDATOR_PATH = REPO_ROOT / "scripts" / "validate_viewset_conventions.py"
-SKILL = REPO_ROOT / ".claude" / "skills" / "nextseek-viewset" / "SKILL.md"
+SKILL = REPO_ROOT / ".claude" / "skills" / "nextseek-create-endpoint" / "SKILL.md"
 AGENTS_MD = REPO_ROOT / "AGENTS.md"
 
 
@@ -413,7 +413,7 @@ class TestValidatorHelpers:
 class TestSkillAndPointers:
     def test_skill_exists_with_frontmatter(self):
         text = SKILL.read_text(encoding="utf-8")
-        assert text.startswith("---\n") and "name: nextseek-viewset" in text
+        assert text.startswith("---\n") and "name: nextseek-create-endpoint" in text
         assert "validate_viewset_conventions.py" in text
         assert "endpoint_descriptions" in text
         assert "descriptions_cc.py" in text
@@ -426,7 +426,7 @@ class TestSkillAndPointers:
 
     def test_agents_md_points_at_skill(self):
         text = AGENTS_MD.read_text(encoding="utf-8")
-        assert "nextseek-viewset" in text
+        assert "nextseek-create-endpoint" in text
         assert "validate_viewset_conventions.py" in text
 
 

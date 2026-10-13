@@ -25,7 +25,9 @@ An **assay** is the experiment that turns one sample into another. Each assay na
 
 **NExtSEEK does not host the data files.** Raw and processed data (FASTQ, BAM, FCS, images, spreadsheets of results) live on the storage of the lab or the core facility that produced them, or in a public repository. NExtSEEK holds the metadata that points to them. Every data and analysis record names its file in `File_PrimaryData`, says where that file is stored in `Link_PrimaryData`, and usually carries its checksum in `Checksum_PrimaryData`; some also have `File_SecondaryData` and `Link_SecondaryData`, or a `Path_PrimaryData`. A record deposited publicly names the repository in `Repository` and its accession in `RepositoryID`.
 
-What can be downloaded from here is metadata: search results as spreadsheets, the reports and submission workbooks the assistant builds, and a whole chat's files. To get the data files themselves, find their locations first, then fetch them from there and check each one against its checksum.
+What can be downloaded from here is metadata: search results as spreadsheets, the reports and submission workbooks the assistant builds, and a whole chat's files.
+
+A whole chat downloads as one zip from the **All files** button in the chat's right-hand panel: the transcript, every file its turns wrote, and a manifest. That zip is also how to send a conversation to the development team for feedback: download it and attach it to the message. To get the data files themselves, find their locations first, then fetch them from there and check each one against its checksum.
 
 When someone asks to download a data file, or asks where the raw data is, say that NExtSEEK does not host files: it holds the metadata that points to where each file lives. Then offer to look up the file names and locations (`File_PrimaryData`, `Link_PrimaryData`, `Checksum_PrimaryData`) for the samples they care about. If the question already names samples, those locations are the answer.
 
@@ -53,20 +55,22 @@ You can also search for parents that have children of multiple types — for exa
 
 ### 2. Graph Queries
 
-The knowledge graph captures organizational structure and biological relationships that the REST API cannot express. It stores three main node types:
+The knowledge graph captures organizational structure and biological relationships that the REST API cannot express. Its main node types:
 
-- **Sample** — an individual registered sample record (identified by its type code, e.g. `NHP`, `TIS`, `D.SEQ`).
-- **Study** — a named experimental study grouping related samples (e.g., "GBM Cohort 2023"). Samples belong to studies via the `IN_STUDY` relationship.
-- **Publication** — the paper a study was published as. Held as the `DOI` and
-  `PMID` properties on the Study node (uppercase; empty string when unset), so a
-  sample inherits the paper of every study it belongs to. You can ask which paper
-  a sample appears in, or which samples a paper used, by title, DOI or PMID. Most
-  studies are unpublished; that is expected, not a gap.
-- **Investigation** — a project-level grouping of studies (e.g., "Impactb Investigation", "MIT_SRP", "GBM_BTC"). Studies belong to investigations via the `IN_INVESTIGATION` relationship.
+- **Sample**: an individual registered sample record, with its sample type code (e.g. `NHP`, `TIS`, `D.SEQ`) and every metadata attribute it holds.
+- **SampleType** and **Attribute**: the catalog of sample types and the attributes each one carries.
+- **Study**: a named study grouping related samples. Samples belong to studies via the `IN_STUDY` relationship.
+  The samples of a published study may carry the paper's `DOI` and `PMID` (uppercase; absent on a sample with no paper); which of the sample or its study holds them differs by instance, so a question matches the sample or its study.
+  A paper study that is not yet a SEEK study carries them too, and on some instances so does a SEEK study that was a
+  paper study, so you can ask which paper a sample appears in, which samples are in a paper's study, or which samples
+  carry its DOI or PMID in any study. Most studies are unpublished; that is expected, not a gap.
+- **Investigation**: a grouping of studies within a project (e.g., "Impactb Investigation", "MIT_SRP", "GBM_BTC"). Studies belong to investigations via the `IN_INVESTIGATION` relationship.
+- **Project**: a SEEK project. Samples and investigations belong to it via the `IN_PROJECT` relationship.
+- **Assay** (graph schema 1.3 and later): one node per kind of assay in the internal assay catalog, with its title, other names, description, and the sample types it takes and makes. A sample points at it with `INPUT_TO` (the sample went into a run of that assay) or `OUTPUT_OF` (it came out of one), and each link lists the SEEK assay runs. Two samples on one Assay did not come from each other: lineage stays on `DERIVED_FROM`.
 
-Derivation (lineage) between samples is encoded on the `DERIVED_FROM` relationship, which also carries assay and protocol metadata.
+Derivation (lineage) between samples is encoded on the `DERIVED_FROM` relationship, which also carries the assays and the protocol used.
 
-Use graph queries when your question involves named studies or investigations, cross-study aggregation, derivation chains, or filtering by which assay or protocol produced a sample.
+Use graph queries when your question involves named studies or investigations, cross-study aggregation, derivation chains, filtering by which assay or protocol produced a sample, or which samples went into or came out of an assay and what an assay takes and makes.
 
 **Example queries:**
 - "What samples are in the GBM study?"
@@ -75,6 +79,7 @@ Use graph queries when your question involves named studies or investigations, c
 - "Show me all NHP samples in the MIT_SRP investigation."
 - "What projects have mouse samples?"
 - "Find all samples that underwent single cell sequencing."
+- "Which samples went into Short Read Sequencing, and which sample types does it make?"
 - "How many studies are in the CSBC project?"
 - "Show me the derivation lineage for sample NHP-220630FLY-5-PUB."
 - "Find tissues associated with flow cytometry protocols."
@@ -230,13 +235,13 @@ Use these names exactly when asking graph questions scoped to one investigation.
 
 ## What the System Cannot Do
 
-The system retrieves, filters, and summarizes data from NExtSEEK. It does not perform analysis or answer general science questions. Specifically, it cannot:
+The system retrieves, filters, and summarizes data from NExtSEEK. The chat search itself does not perform analysis or answer general science questions, but Nessie can make charts (heatmaps, scatter and bar plots) and run statistics (differential expression, clustering, fold-change, survival analysis) through Container-CC, which runs code on the data it retrieves. Specifically, the chat search cannot:
 
-- **Generate visualizations or charts.** It has no plotting or rendering capability. Even if the underlying data exists, asking for a heatmap, scatter plot, or bar chart is not supported.
-- **Perform statistical analysis.** Differential expression, clustering, fold-change calculations, dimensionality reduction, survival analysis, and other computational methods are outside scope. The system can tell you where the data files are stored; it does not host them and cannot run pipelines on them.
+- **Generate visualizations or charts.** The chat search has no plotting or rendering step; Nessie makes the heatmap, scatter plot or bar chart through Container-CC.
+- **Perform statistical analysis.** Differential expression, clustering, fold-change calculations, dimensionality reduction, survival analysis, and other computational methods are run through Container-CC, not in the chat search. The system can tell you where the data files are stored; it does not host them and cannot run pipelines on them.
 - **Explain external scientific concepts.** It cannot explain what a gene encodes, why a molecule is carcinogenic, how a signaling pathway works, or what a disease mechanism is. These are knowledge questions unrelated to the repository.
 - **Answer questions about data outside NExtSEEK.** It only knows what is registered in the NExtSEEK repository. It cannot query external databases (GEO, SRA, UniProt, etc.) except to generate a submission package from NExtSEEK records.
-- **Compare groups analytically.** Asking "which group had higher expression levels" or "is there a significant difference between condition A and B" requires computation the system cannot do.
+- **Compare groups analytically.** Asking "which group had higher expression levels" or "is there a significant difference between condition A and B" requires computation, which Nessie runs through Container-CC rather than the chat search.
 
 ---
 

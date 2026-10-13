@@ -59,6 +59,15 @@ def _find_function(tree: ast.AST, name: str) -> ast.FunctionDef:
     )
 
 
+def _stub_env_reads(monkeypatch) -> None:
+    """These tests run install against this checkout: never read its real env files (#103)."""
+    monkeypatch.setattr(cli.config, "kept_values", lambda root: {})
+    monkeypatch.setattr(
+        cli.config, "preview_changed_keys",
+        lambda root, values=None: {"rerendered": [], "kept_differs_from_template": []},
+    )
+
+
 def test_install_calls_all_render_and_cc_phases() -> None:
     tree = ast.parse(CLI_PATH.read_text())
     impl = _find_function(tree, "_install_impl")
@@ -93,7 +102,10 @@ def test_install_calls_render_start_health_in_order(monkeypatch) -> None:
     # dmac/local_settings.py.
     monkeypatch.setattr(cli.config, "render_db_env", lambda root, values: None)
     monkeypatch.setattr(cli.config, "render_nextseek_env", lambda root, values: None)
-    monkeypatch.setattr(cli.config, "render_local_settings", lambda root, values: None)
+    monkeypatch.setattr(
+        cli.config, "render_local_settings", lambda root, values: root / "dmac" / "local_settings.py"
+    )
+    _stub_env_reads(monkeypatch)
     monkeypatch.setattr(
         cli.config,
         "render_proxy_secret_env",
@@ -111,7 +123,7 @@ def test_install_calls_render_start_health_in_order(monkeypatch) -> None:
 
     # --- [6/9] Seeds: no_seed=True still starts the DB containers on the
     # real path, and schema fixups query the live DB -- stub both.
-    monkeypatch.setattr(cli.build, "start_databases", lambda root, env: None)
+    monkeypatch.setattr(cli.build, "start_databases", lambda root, env, **_kw: None)
     monkeypatch.setattr(cli.schema_fixups, "apply_all", lambda root, env: [])
     # Same reason: the site_base_host apply queries the live SEEK DB.
     monkeypatch.setattr(
@@ -162,12 +174,13 @@ def test_install_applies_site_base_host_before_seek_first_boot(monkeypatch) -> N
     monkeypatch.setattr(cli, "save_instance", lambda root, state: None)
     monkeypatch.setattr(cli, "allocate_ports", lambda desired: dict(desired))
     for name in ("render_db_env", "render_nextseek_env", "render_local_settings"):
-        monkeypatch.setattr(cli.config, name, lambda root, values: None)
+        monkeypatch.setattr(cli.config, name, lambda root, values: root / "dmac" / "local_settings.py")
+    _stub_env_reads(monkeypatch)
     monkeypatch.setattr(cli.config, "render_proxy_secret_env", lambda root: root / "p.env")
     monkeypatch.setattr(cli.config, "render_root_env", lambda root, env, **_kw: root / ".env")
     monkeypatch.setattr(cli.volumes, "ensure_volumes", lambda prefix: [])
     monkeypatch.setattr(cli.volumes, "ensure_cc_staging_dir", lambda prefix: None)
-    monkeypatch.setattr(cli.build, "start_databases", lambda root, env: None)
+    monkeypatch.setattr(cli.build, "start_databases", lambda root, env, **_kw: None)
     monkeypatch.setattr(cli.schema_fixups, "apply_all", lambda root, env: [])
     monkeypatch.setattr(
         cli.seek_settings,
@@ -271,12 +284,13 @@ def test_reset_reinstall_requests_seeding(monkeypatch) -> None:
     monkeypatch.setattr(cli, "save_instance", lambda root, state: None)
     monkeypatch.setattr(cli, "allocate_ports", lambda desired: dict(desired))
     for name in ("render_db_env", "render_nextseek_env", "render_local_settings"):
-        monkeypatch.setattr(cli.config, name, lambda root, values: None)
+        monkeypatch.setattr(cli.config, name, lambda root, values: root / "dmac" / "local_settings.py")
+    _stub_env_reads(monkeypatch)
     monkeypatch.setattr(cli.config, "render_proxy_secret_env", lambda root: root / "p.env")
     monkeypatch.setattr(cli.config, "render_root_env", lambda root, env, **_kw: root / ".env")
     monkeypatch.setattr(cli.volumes, "ensure_volumes", lambda prefix: [])
     monkeypatch.setattr(cli.volumes, "ensure_cc_staging_dir", lambda prefix: None)
-    monkeypatch.setattr(cli.build, "start_databases", lambda root, env: None)
+    monkeypatch.setattr(cli.build, "start_databases", lambda root, env, **_kw: None)
     monkeypatch.setattr(cli.schema_fixups, "apply_all", lambda root, env: [])
     monkeypatch.setattr(
         cli.seek_settings, "apply_site_base_host", lambda root, env, url: "applied"

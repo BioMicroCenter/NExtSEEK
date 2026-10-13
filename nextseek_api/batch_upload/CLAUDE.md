@@ -95,19 +95,20 @@ lineage, and none of them fails loudly.
 - **A graph failure does not fail the job, and the job reports it in one word.**
   `nextseek_api/batch_upload/orchestrator.py:606-609` logs the exception and returns a
   status, so the task still reports SUCCESS with the SQL rows committed. What tells you
-  which happened is the `graph:` line in the totals and the summary CSV: `synced (N)` means
-  those samples are in the graph, `pending (N)` means the outbox rows are still owed and the
-  sync loop holds them. A graph not yet at schema 1.2, a busy graph-write lock, a Neo4j that
-  is down and no Neo4j configured at all all read as `pending`, so a run of `pending` jobs
-  is a question about the loop, not about this package.
+  which happened is the `graph:` line in the totals and the summary CSV: `synced (N)`
+  means those samples are in the graph, `pending (N)` means the outbox rows are still owed
+  and the sync loop holds them. A graph not yet at graph_sync's schema version
+  (`writer.SCHEMA_VERSION`), a busy graph-write lock, a Neo4j that is down and no Neo4j
+  configured at all all read as `pending`, so a run of `pending` jobs is a question about
+  the loop, not about this package.
 - **A parent this sheet does not resolve is still reported here, but the edge is no longer
-  this package's to write.** `nextseek_api/batch_upload/neo4j_sync.py:689`, called at
-  `nextseek_api/batch_upload/neo4j_sync.py:1062`, puts every child whose parent could not be
-  resolved into the job's errors. The edge itself is created by graph_sync from what MySQL's
-  parent tokens declare, and gate G check 1 fails on a declared pair the graph lacks, so a
-  parent that arrives in a later upload is repaired by orphan resolution and the nightly
-  sync instead of being dropped by a Cypher MATCH that found nothing. Reading this reporter
-  as the writer sends you looking for a statement that is gone.
+  this package's to write.** Stage 2 puts every row whose parent UID is in neither the batch
+  nor the database into the job's errors ("Parent UID(s) not found in batch or database;
+  treating as root sample", `nextseek_api/batch_upload/orchestrator.py:452-464`). The edge
+  itself is created by graph_sync from what MySQL's parent tokens declare, and gate G check 1
+  fails on a declared pair the graph lacks, so a parent that arrives in a later upload is
+  repaired by orphan resolution and the nightly sync instead of being dropped by a Cypher
+  MATCH that found nothing.
 - **Nothing under `MEDIA_ROOT` survives a container rebuild.**
   `dmac/settings.py:95` puts it at a path the `nextseek` service never mounts: a
   case-insensitive grep for `media` over the whole of `docker-compose.yml` matched nothing on
@@ -163,15 +164,6 @@ lineage, and none of them fails loudly.
   `docker-compose.yml`). Copy-pasting that command fails on a missing interpreter.
   `nextseek_api/batch_upload/tests/WAVE3_LIVE_TESTING.md` already runs its lane with
   `/app/.venv/bin/python` inside the `nextseek` container.
-- **`nextseek_api/batch_upload/neo4j_sync.py` writes nothing to Neo4j, although its name
-  still says it does.** `upload_all`, the bulk merges, the constraint and index DDL, both
-  `DERIVED_FROM` deleters and the two read-only endpoint audits were deleted when stage 6
-  moved to `nextseek_api/graph_sync/targeted.py`. What stays reads MySQL and builds
-  payloads, and `nextseek_api/graph_sync/labels.py` and `nextseek_api/graph_sync/sources.py`
-  are checked against it on the same fixtures, so it is the reference for a lineage edge's
-  labels rather than a second writer. Reach in here for a writer and you will find a
-  payload builder no graph ever sees.
-
 ## Test command
 
 ```

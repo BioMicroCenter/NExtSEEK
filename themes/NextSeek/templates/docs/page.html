@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{{ title }} - {% trans "NExtSEEK docs" %}{% endblock %}
+
+{% block main %}
+<div class="docs">
+
+  <details class="docs-nav" id="docs-nav" open>
+    <summary>{% trans "All docs pages" %}</summary>
+    <nav aria-label="{% trans 'Documentation' %}">
+      {% for section, pages in toc %}
+      <p class="docs-nav-section">{{ section }}</p>
+      <ul>
+        {% for page_slug, page_title in pages %}
+        <li><a href="/docs/{{ page_slug }}/"{% if page_slug == slug %} aria-current="page"{% endif %}>{{ page_title }}</a></li>
+        {% endfor %}
+      </ul>
+      {% endfor %}
+      <p class="docs-nav-section">{% trans "Get in touch" %}</p>
+      <ul>
+        <li><a href="https://bmcwiki.mit.edu/index.php/BioMicroCenter:People" target="_blank" rel="noopener">{% trans "People" %}</a></li>
+        <li><a href="mailto:fairdata@mit.edu">{% trans "Contact the data team" %}</a></li>
+      </ul>
+    </nav>
+  </details>
+
+  <article class="docs-article">
+    {{ body|safe }}
+
+    <nav class="docs-pager" aria-label="{% trans 'Previous and next page' %}">
+      {% if prev %}<a class="docs-pager-prev" href="/docs/{{ prev.0 }}/"><span>{% trans "Previous" %}</span>{{ prev.1 }}</a>{% endif %}
+      {% if next %}<a class="docs-pager-next" href="/docs/{{ next.0 }}/"><span>{% trans "Next" %}</span>{{ next.1 }}</a>{% endif %}
+    </nav>
+  </article>
+
+  {% if outline %}
+  <aside class="docs-outline" aria-label="{% trans 'On this page' %}">
+    <p class="docs-nav-section">{% trans "On this page" %}</p>
+    <ul>
+      {% for item in outline %}<li><a href="#{{ item.id }}">{{ item.name|safe }}</a></li>{% endfor %}
+    </ul>
+  </aside>
+  {% endif %}
+
+</div>
+<script>
+  // Phones: the page list starts folded so the article comes first; wide screens always show it.
+  (function () {
+    var nav = document.getElementById("docs-nav"), narrow = window.matchMedia("(max-width: 991.98px)");
+    nav.open = !narrow.matches;
+    narrow.addEventListener("change", function (e) { nav.open = !e.matches; });
+  })();
+</script>
+{% endblock %}

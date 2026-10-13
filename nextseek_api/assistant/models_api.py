@@ -156,6 +156,8 @@ class Turn(BaseModel):
     #: the NS progress events are ephemeral, so these are reconstructed on read.
     #: Entries are {agent, summary}; the frontend supplies the timestamp.
     debug_entries: Optional[List[Dict[str, Any]]] = None
+    #: The reviewer's chips the turn offered, as the live ``debug.suggestions`` carried them (no ``rerun``).
+    suggestions: Optional[List[Dict[str, Any]]] = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -169,6 +171,20 @@ class QueryCompleteEvent(BaseModel):
     artifacts: Optional[List[Union[ArtifactTable, ArtifactFile]]] = Field(
         None, description="Table data and file download references for the frontend"
     )
+    files: Optional[List[Dict[str, Any]]] = Field(
+        None, description="The turn's downloadable files (a manifest entry per file)"
+    )
+    total_cost_usd: Optional[float] = Field(None, description=(
+        "What the turn's model calls cost in USD, priced on NessieAI/chat_nextseek/model_prices.json; "
+        "null when no call could be priced"))
+    cost_partial: Optional[bool] = Field(None, description=(
+        "True when some of the turn's spend was not seen (a call abandoned by its time limit, "
+        "an unpriced model), so total_cost_usd is a floor"))
+    cost_estimated: Optional[bool] = Field(None, description=(
+        "True when total_cost_usd includes a timed-out call priced at its prompt's input cost"))
+    models_used: Optional[List[str]] = Field(None, description="The model ids that answered the turn's calls")
+    model_fallback: Optional[List[Dict[str, Any]]] = Field(None, description=(
+        "Each move to a second model this turn: {agent, from, to, reason}; empty when nothing fell back"))
 
     model_config = ConfigDict(extra="forbid")
 
@@ -178,6 +194,17 @@ class QueryErrorEvent(BaseModel):
     error: str
     agent: Optional[str] = None
     session_id: Optional[str] = None
+    fatal: Optional[bool] = Field(None, description="True when a model failure ended the turn")
+    reason: Optional[str] = Field(None, description=(
+        "Why the turn ended, when known: model_unavailable when the AI models did not answer"))
+    detail: Optional[str] = Field(None, description="The raw technical error behind the plain `error` text")
+    model_fallback: Optional[List[Dict[str, Any]]] = Field(None, description=(
+        "Each move to a second model before the turn ended: {agent, from, to, reason}"))
+    total_cost_usd: Optional[float] = Field(None, description="What the turn spent before it ended, in USD")
+    cost_partial: Optional[bool] = Field(None, description="True when total_cost_usd is a floor")
+    cost_estimated: Optional[bool] = Field(None, description=(
+        "True when total_cost_usd includes a timed-out call priced at its prompt's input cost"))
+    models_used: Optional[List[str]] = Field(None, description="The model ids that answered before the turn ended")
 
     model_config = ConfigDict(extra="forbid")
 
@@ -276,7 +303,9 @@ class ParseOpRequest(EntityOpRequest):
 
 
 class GraphOpRequest(EntityOpRequest):
-    """POST /assistant/graph/ body."""
+    """POST /assistant/graph/ body. ``plan`` is the agent's optional plan, JSON text (``granular.AgentPlan``)."""
+    plan: str = Field("", max_length=8000,
+                      description="Optional JSON plan {intent_summary, filters, notes} the agent sends so no parser runs.")
 
 
 class AggregateOpRequest(BaseModel):
@@ -288,7 +317,9 @@ class AggregateOpRequest(BaseModel):
     """
     query: str = Field(..., min_length=1, max_length=32000)
     parts: str = Field("", max_length=16000,
-                       description="JSON array of 1 to 4 sub-questions, as text; empty means the question alone.")
+                       description="JSON array of 1 to 4 sub-questions (strings or {question, filters}), as text; empty means the question alone.")
+    plan: str = Field("", max_length=8000,
+                      description="Optional JSON plan {intent_summary, filters, notes} the agent sends so no parser runs.")
     use_prod: bool = Field(False, description="Admin-only: route through the prod ChatConfig.")
     session_id: Optional[UUID] = Field(None, description="Optional session for parser continuity.")
     model_config = ConfigDict(extra="forbid")
@@ -439,6 +470,7 @@ class GraphPlanModel(BaseModel):
 class GraphResult(BaseModel):
     plan: GraphPlanModel
     result: Dict[str, Any] = Field(default_factory=dict)
+    parser_plan: Optional[Dict[str, Any]] = None  # the plan the answer ran (plan 04): pass it to api-read
     model_config = ConfigDict(extra="allow")
 
 
@@ -511,6 +543,8 @@ class GraphSchemaResult(BaseModel):
     vocabulary: str = ""
     unavailable_reason: Optional[str] = None
     fallback_fetched_at: Optional[str] = None
+    assays: List[str] = Field(default_factory=list,
+                              description="This instance's assay titles (its dmac.internal_assays), the same for every caller.")
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
@@ -597,12 +631,15 @@ class SubmissionResponse(BaseModel):
 
 
 class OpErrorResponse(BaseModel):
-    """Error envelope for a granular op.
+    """Error envelope for a granular op (approach 1, piece 2; nextseek_api/assistant/op_errors.py).
 
-    Carries the NExtSEEK ``errors`` list AND the canonical dmac error ``code``
-    (CONFIG_MISSING / VALIDATION / AGENT_FAILED / WRITE_BLOCKED / CONFIG_ERROR /
-    AUTH_FAILED) so the dmac thin client can map it to its CLI exit taxonomy.
+    ``code`` is closed; ``reason`` only with AGENT_FAILED; ``message`` a fixed sentence per code and reason, never an
+    exception's text; ``errors`` for VALIDATION lists each refused field and its error type (never the value), and for
+    any other code one ``{title, detail}`` item that repeats the message (kept for the sidecar, one release).
     """
-    code: str
+    code: Literal["VALIDATION", "WRITE_BLOCKED", "AUTH_FAILED", "PASS_NOT_ALLOWED", "BUSY", "TIME_UP", "AGENT_FAILED",
+                  "TRANSPORT_ERROR"]
+    reason: Optional[Literal["model_unavailable", "deadline", "bad_output", "internal"]] = None
+    message: str
     errors: List[Dict[str, Any]]
     model_config = ConfigDict(extra="forbid")

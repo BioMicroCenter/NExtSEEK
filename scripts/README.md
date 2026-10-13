@@ -34,7 +34,7 @@ directory. That is why the container lanes can run these files at all.
 
 ## Surface
 
-The surface is not a set of entry points behind a package boundary. It is eight purpose
+The surface is not a set of entry points behind a package boundary. It is twelve purpose
 groups, each defined by what it reads and what it writes.
 
 | Group | Files | Reads | Writes |
@@ -46,7 +46,13 @@ groups, each defined by what it reads and what it writes.
 | E. Live batch-upload E2E | `test_batch_upload_e2e.py` | the SEEK database, a deployed host | Neo4j, the upload API |
 | F. NessieAI codemod | `nessieai_codemod.py` | every tracked `*.py` outside `NessieAI/history/` | those files, in place |
 | G. graph_search lane | `graph_search/` (see [its README](graph_search/README.md)) | the scratch MySQL, a throwaway Neo4j, seeds outside the repository | throwaway `gs-*` containers, reports outside the repository |
-| H. APOC schema prototype | `graph_schema_from_apoc.py` | a live Neo4j with APOC (read only), the committed graph schema files | one JSON file you name |
+| H. Download API parity | `sample_retrieve_parity.py` | a live stack's MySQL and Neo4j, read only | stdout, and one JSON-lines file you name |
+| I. Graph fallback files | `graph_schema_fallback.py` | a live Neo4j at schema 1.1 or later, read only | the three committed fallback files the graph agent reads when the live catalog fails |
+| J. File-level code graph | `graph_files.py` | `graphify-out/graph.json` (local, from graphify) | `docs/graph/graph-files.json`, `graph.html`, `architecture.svg` ([docs/graph/README.md](../docs/graph/README.md)) |
+| K. Citation converter | `line_cites.py` | a markdown doc, its git blame and the cited `.py` files at those commits | nothing by default (`--report`); the doc in place with `--apply` |
+| L. laya router tools | `laya/` (see [its README](laya/README.md)) | run `turns.json` files, the corpus, the router prompt files, scored rows | option texts and the calibration file in `NessieAI/router/`; the training view, held-out files and reports outside every git repo |
+
+**K. `line_cites.py`.** Use it once, when the operator says the graph program's branch has landed, to turn `path.py:N` citations in a doc into `path.py` plus the enclosing symbol, so edits stop breaking them. `python3 scripts/line_cites.py --report DOC.md` counts what would change; `--apply` rewrites; `--self-check` runs its built-in check. It leaves unresolvable citations as they are and lists them.
 
 **A. Repo-convention validators.** `scripts/validate_issue.py:4-6` and
 `scripts/validate_viewset_conventions.py:4-6` each declare themselves the single source of
@@ -98,7 +104,7 @@ and `projects_db.json` from `context/`, field for field with `map_sampletype`,
 `map_sampletype_min`, `map_assay`, `map_assay_min` and `map_project` in `config.py`. Inside the
 **app** `_fetch_context_files_from_db` rewrites them from the context tables once per UTC day, so
 the app converges on the database and these copies are only its fallback. The **cc-agent** does
-not: its Dockerfile COPYs three of them out of the checkout at build time
+not: its Dockerfile COPYs two of them out of the checkout at build time
 (`startup/lib/layout.py::CANONICAL_CONTEXT_FILES`), the container holds no database connection,
 and its own `MANIFEST.md` sends the agent to `min_sampletypes_db.json` to map a kind of sample to
 its code. So run `--emit exports` in the same change as `--emit update` and rebuild both images:
@@ -204,13 +210,11 @@ a read-only mount of this checkout, with secrets and memory caps read from a wor
 directory outside the repository. The folder's other scripts (the TCGA merge, graph
 load and dump, parity, the benchmark) run through it. Its README is the reference.
 
-**H. APOC schema prototype.** `scripts/graph_schema_from_apoc.py` is a prototype, not
-wired into the product: it builds the graph's structural schema from `apoc.meta.stats`,
-`apoc.meta.schema` and `apoc.meta.nodeTypeProperties` (`--full` scans every node), reads
-the catalog graph_sync writes, and compares both with `graph_schema_structure.txt`,
-`min_graph_schema.json` and the guard's property sets in `agents/graph.py`. Every
-statement is a READ transaction with a timeout, and it calls no path procedure. Its
-docstring has the `docker run` line.
+**I. Graph fallback files.** `scripts/graph_schema_fallback.py` regenerates
+`neo4j_schema.json`, `neo4j_protocol_schema.json` and `neo4j_assay-sample-conn.json` in
+`NessieAI/chat_nextseek/src/chat_nextseek/context/`, the files the graph agent falls back to
+when the live catalog cannot be read. Nothing else refreshes them. Every statement is a READ
+transaction; its docstring has the `docker exec` line and says what each file holds.
 
 ## Running and testing
 
@@ -288,7 +292,7 @@ Depended on by:
   through the dotted namespace-package spelling
   (`nextseek_api/tests/test_attribute_api_db_lane.py:43`).
 - The committed ViewSet skill, which tells an author to run the conventions validator
-  before finishing (`.claude/skills/nextseek-viewset/SKILL.md:18`), and
+  before finishing (`.claude/skills/nextseek-create-endpoint/SKILL.md:18`), and
   `docs/ISSUE-CONVENTIONS.md`, which names the issue validator and the label seeder as the
   taxonomy's source and its downstream (`docs/ISSUE-CONVENTIONS.md:8-12`).
 - Group B, reached only by prose: `nextseek_api/README.md` "Running and testing" and the

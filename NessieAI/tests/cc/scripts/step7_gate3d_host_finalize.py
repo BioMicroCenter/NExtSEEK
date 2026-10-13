@@ -39,7 +39,7 @@ from NessieAI.tests.cc.validate_step7_compose_deploy import (  # noqa: E402
 
 _REPO_ROOT = paths.REPO_ROOT
 
-PORT_SOURCE = os.environ.get("DMAC_PORT_SOURCE", "/home/taishajo/work/dmac-assistant")
+PORT_SOURCE = os.environ.get("DMAC_PORT_SOURCE", "<source-checkout>")
 
 
 def _write_json(path: Path, obj: object) -> None:
@@ -59,9 +59,9 @@ def collect_and_write_preflight(bundle: Path, *, repo_root: Path) -> dict:
         pass
     env = os.environ.copy()
     if "INTEGRATION_PLAN_PATH" not in env:
-        default_plan = Path("/home/taishajo/work/state/integration-plan.json")
+        default_plan = Path("integration-plan.json")
         if default_plan.is_file():
-            env["INTEGRATION_PLAN_PATH"] = str(default_plan)
+            env["INTEGRATION_PLAN_PATH"] = str(default_plan.resolve())
     data = preflight_mod.collect_preflight(
         repo_root=repo_root,
         git=git,

@@ -48,6 +48,8 @@ DEFAULTS = {
 }
 PLACEHOLDER = "{{PARSER_CORE_ROUTING}}"
 GRAPH_SEARCH = "/nextseek_api/samples/graph_search/"
+# Not a variant file: only the scope fallback reads it (ChatConfig.FALLBACK_API_ENDPOINTS), never the parser.
+SCOPE_FALLBACK = CONTEXT / "scope_fallback_endpoints.json"
 
 
 def read(path: Path) -> str:
@@ -55,8 +57,9 @@ def read(path: Path) -> str:
 
 
 def shipped(name: str) -> str:
-    """A prompt or context file as it ships, by path from this checkout."""
-    return read(DEFAULTS[name])
+    """A prompt or context file as it ships, by path from this checkout: from the loader's contract, else prompts/
+    (the Assay section, which no variant may carry)."""
+    return read(DEFAULTS.get(name, PROMPTS / name))
 
 
 # --- the files are well formed ---------------------------------------------------------------------------------------
@@ -69,7 +72,9 @@ def test_the_wrappers_compose_with_the_shipped_routing_core(wrapper):
     core = shipped("parser_core_routing.txt")
     composed = default.replace(PLACEHOLDER, core)
     assert PLACEHOLDER not in composed
-    assert "{{" not in composed and "}}" not in composed
+    # The only markers left are the two known-title ones, filled from the box's graph at call time (fix 9).
+    leftover = composed.replace("{{KNOWN_INVESTIGATION_TITLES}}", "").replace("{{KNOWN_PROJECT_TITLES}}", "")
+    assert "{{" not in leftover and "}}" not in leftover
     assert core in composed
 
 
@@ -77,18 +82,20 @@ def test_the_wrappers_compose_with_the_shipped_routing_core(wrapper):
                                   "api_agent.txt"])
 def test_no_text_override_carries_a_template_marker(name):
     # Only the two parser wrappers are templated ({{NAME}} markers), and v2 overrides neither. JSON braces are fine.
-    assert not re.search(r"\{\{[A-Z_]+\}\}", shipped(name))
+    text = shipped(name).replace("{{KNOWN_INVESTIGATION_TITLES}}", "").replace("{{KNOWN_PROJECT_TITLES}}", "")
+    assert not re.search(r"\{\{[A-Z_]+\}\}", text)
 
 
-def test_the_context_json_parses_and_carries_graph_search():
+def test_the_context_json_parses_and_keeps_graph_search_out_of_the_catalog():
     schema = json.loads(shipped("min_graph_schema.json"))
     assert isinstance(schema, dict) and schema
 
     endpoints = json.loads(shipped("min_api_endpoints_enriched.json"))
     assert isinstance(endpoints, list) and endpoints
     assert all(isinstance(e, dict) and e.get("path") and e.get("method") for e in endpoints)
-    # 7.1 falls back to graph_search from the shipped prompts, so the catalog must advertise it.
-    assert GRAPH_SEARCH in {e["path"] for e in endpoints}
+    # Routing review 6a (2026-09-24): every sample question goes to the graph, so the catalog the parser chooses
+    # from has no sample search. 7.1's fallback builds graph_search from its own file instead (below).
+    assert GRAPH_SEARCH not in {e["path"] for e in endpoints}
 
 
 # --- the routing core sends metadata to the graph -----------------------------------------------------------------------------------
@@ -132,7 +139,8 @@ def test_the_parser_graph_view_is_schema_1_2_and_no_rule_sends_metadata_to_rest(
 # --- the graph agent's prompt agrees with the guards that check its output -------------------------------------------
 
 
-GRAPH_FILES = ("graph_agent.txt", "graph_schema_structure.txt")
+GRAPH_FILES = ("graph_agent.txt", "graph_schema_structure.txt", "graph_schema_structure_assays.txt")
+STRUCTURE_FILES = GRAPH_FILES[1:]
 
 
 def _fenced(text: str) -> list[str]:
@@ -183,8 +191,9 @@ def test_the_system_properties_the_prompt_names_are_the_guard_s():
         assert re.search(rf"\b{prop}\b", sample), prop
 
 
-def test_every_property_the_structure_lists_on_another_label_is_allowed_by_the_guard():
-    structure = shipped("graph_schema_structure.txt")
+@pytest.mark.parametrize("name", STRUCTURE_FILES)
+def test_every_property_the_structure_lists_on_another_label_is_allowed_by_the_guard(name):
+    structure = shipped(name)
     for label, props in re.findall(r"\(:([A-Za-z]+) \{([^}]*)\}", structure):
         names = {p.strip() for p in props.replace("\n", " ").split(",") if p.strip()}
         allowed = V11_NODE_PROPERTIES.get(label) or V11_RELATIONSHIP_PROPERTIES.get(label)
@@ -220,7 +229,7 @@ def test_person_names_never_go_to_person_nodes_or_the_people_endpoint():
 def test_the_prompt_never_promises_a_values_list_the_catalog_does_not_render():
     # No Attribute node carries top_values on the 1.2 graph, so the renderer prints none: the prompt must say the
     # spellings are unknown rather than tell the agent to read them off a list.
-    for name in GRAPH_FILES:
+    for name in ("graph_agent.txt", "graph_schema_structure.txt"):  # rule 2's files; the Assay section lists no value
         assert "unknown, not absent" in shipped(name)
     assert "listed values show the spellings in use" not in shipped("graph_schema_structure.txt")
 
@@ -235,7 +244,7 @@ def test_the_prompt_ends_open_so_a_variant_can_append_a_section():
 
 
 def test_graph_search_is_advertised_and_the_read_only_tool_permits_it():
-    endpoints = {e["path"]: e for e in json.loads(shipped("min_api_endpoints_enriched.json"))}
+    endpoints = {e["path"]: e for e in json.loads(read(SCOPE_FALLBACK))}
     entry = endpoints[GRAPH_SEARCH]
     assert entry["method"] == "POST"
     assert set(entry["request_body"]) >= {"filter_searchText", "extensions"}
@@ -266,3 +275,16 @@ def test_the_api_prompt_discloses_that_total_and_rows_can_disagree():
     api = shipped("api_agent.txt")
     assert "total is the graph's count of every match" in api
     assert "rows are one page read from the database" in api
+
+
+# --- graph schema 1.3: the capabilities document names the Assay ------------------------------------------------------
+
+
+def test_the_capabilities_graph_section_names_the_assay():
+    caps = read(CONTEXT / "capabilities.md")
+    graph = caps[caps.index("### 2. Graph Queries"):caps.index("### 3. Sample Lineage")]
+    assert "- **Assay** (graph schema 1.3 and later)" in graph
+    assert "`INPUT_TO`" in graph and "`OUTPUT_OF`" in graph
+    assert "Two samples on one Assay did not come from each other" in graph
+    for admin_only in ("RUN_IN", "ACCEPTED_BY", "GENERATES"):
+        assert admin_only not in caps, admin_only

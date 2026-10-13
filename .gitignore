@@ -162,12 +162,17 @@ cython_debug/
 
 dmac/local_settings.py
 local_settings.py
+# install's copy of the template beside an existing one (#103)
+local_settings.py.new
 .DS_Store
 
 # Real env files are gitignored: secrets must never land in git.
 # See docker/nextseek.env.example for the template.
 docker/nextseek.env
 docker/db.env
+# laya sidecar's own key file and the (large) fine-tuned checkpoints.
+docker/laya.env
+docker/laya/models/
 # Ad-hoc backup copies of rendered env files (nextseek.env.bak.<date>, …):
 # same secrets, same rule, any depth.
 *.env.bak*
@@ -239,6 +244,7 @@ docs/superpowers/specs/*
 !docs/superpowers/specs/2026-09-16-graph-behaviour-tests-design.md
 !docs/superpowers/specs/2026-09-16-ci-coverage-gaps-design.md
 !docs/superpowers/specs/2026-09-18-graph-cypher-scope.md
+!docs/superpowers/specs/2026-09-25-graph-assay-nodes-design.md
 # Exception: the association-workbench design, cited by seek/views/admin.py and by the
 # workbench CSS block in themes/NextSeek/static/css/nextseek.css. Same public-repo review
 # applied: no environment concretes, no credentials, no unresolved-issue reproduction.
@@ -264,6 +270,8 @@ docs/superpowers/plans/*
 # on S3 and downloaded on demand by the startup CLI. See startup/seed/README.md.
 /filestore/
 startup/seed/filestore.tar.gz
+# a dump-db run's in-progress temp files (dump_mysql.sh, dump_neo4j.py): unscrubbed until moved into place
+startup/seed/*.tmp.*
 
 # Paired --bayesian run directories: manifests are ~800K and the artifacts/
 # tree is ~325M per run. They are deliverables, not source, and a `git add -A`
@@ -290,3 +298,16 @@ ci.env
 # Superpowers working state (brainstorm mockups, SDD ledgers) is local only. A finished
 # ledger worth keeping is filed under docs/archive/<yyyy-mm>/ instead.
 .superpowers/
+
+# CI write-lane run file (startup ci), never committed
+startup/.ci-write-run.xml
+
+# The checkout's log directory (LOG_DIR=./logs in docker-compose.yml): graph_sync's run directories, journals and
+# archives are written there.
+/logs/
+
+# nf-core selection evals: outputs built from production metadata and SOP text. Never commit them.
+NessieAI/chat_nextseek/evals/prod_digests*.json
+NessieAI/chat_nextseek/evals/demo-output-*/
+NessieAI/chat_nextseek/evals/team_questions.json
+NessieAI/tests/evals/seqtype_fix/snapshot-*.json

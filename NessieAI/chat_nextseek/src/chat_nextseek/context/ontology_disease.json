@@ -1,0 +1,106 @@
+[
+ {
+  "TERM": "Tuberculosis",
+  "DEF": "Infection with Mycobacterium tuberculosis complex.",
+  "ONT_SOURCE": "MONDO",
+  "ONT_ID": "MONDO:0018076",
+  "SYNONYMS": [
+   "TB"
+  ]
+ },
+ {
+  "TERM": "Glioblastoma",
+  "DEF": "Grade 4 astrocytic glioma.",
+  "ONT_SOURCE": "MONDO",
+  "ONT_ID": "MONDO:0018177",
+  "SYNONYMS": [
+   "GBM",
+   "Glioblastoma (GBM)",
+   "glioblastoma multiforme"
+  ]
+ },
+ {
+  "TERM": "Glioma",
+  "DEF": "A tumor of glial cells.",
+  "ONT_SOURCE": "MONDO",
+  "ONT_ID": "MONDO:0021042",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Astrocytoma",
+  "DEF": "A glioma of astrocytic origin.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Oligodendroglioma",
+  "DEF": "A glioma of oligodendroglial origin.",
+  "ONT_SOURCE": "MONDO",
+  "ONT_ID": "MONDO:0016695",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Melanoma",
+  "DEF": "A malignant tumor of melanocytes.",
+  "ONT_SOURCE": "MONDO",
+  "ONT_ID": "MONDO:0005105",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Non-small cell lung carcinoma",
+  "DEF": "Lung cancer that is not small cell.",
+  "ONT_SOURCE": "MONDO",
+  "ONT_ID": "MONDO:0005233",
+  "SYNONYMS": [
+   "NSCLC",
+   "non-small cell lung cancer"
+  ]
+ },
+ {
+  "TERM": "Adenocarcinoma",
+  "DEF": "A carcinoma of glandular origin.",
+  "ONT_SOURCE": "MONDO",
+  "ONT_ID": "MONDO:0004970",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Carcinoma",
+  "DEF": "A malignant tumor of epithelial origin.",
+  "ONT_SOURCE": "MONDO",
+  "ONT_ID": "MONDO:0004993",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Renal cell carcinoma",
+  "DEF": "A carcinoma of the renal tubule.",
+  "ONT_SOURCE": "MONDO",
+  "ONT_ID": "MONDO:0005086",
+  "SYNONYMS": [
+   "RCC"
+  ]
+ },
+ {
+  "TERM": "Osteosarcoma",
+  "DEF": "A malignant bone-forming tumor.",
+  "ONT_SOURCE": "MONDO",
+  "ONT_ID": "MONDO:0009807",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Endometriosis",
+  "DEF": "Endometrial tissue outside the uterus.",
+  "ONT_SOURCE": "MONDO",
+  "ONT_ID": "MONDO:0005133",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Idiopathic pulmonary fibrosis",
+  "DEF": "Progressive lung fibrosis of unknown cause.",
+  "ONT_SOURCE": "MONDO",
+  "ONT_ID": "MONDO:0800504",
+  "SYNONYMS": [
+   "IPF"
+  ]
+ }
+]

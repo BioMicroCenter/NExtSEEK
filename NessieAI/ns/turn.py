@@ -35,7 +35,11 @@ from django.conf import settings
 from nextseek_api.assistant.session_adapter import SessionSaveError
 
 from chat_nextseek.config import ChatConfig
+from chat_nextseek.failure_replies import fatal_query_error
+from chat_nextseek.llm_clients import LLMFatalError
 from chat_nextseek.orchestrator import run_query, run_query_plan, run_pipeline_launch
+from chat_nextseek import turn_spend
+from NessieAI.ns.turn_memory import release_op_slot
 
 logger = logging.getLogger(__name__)
 
@@ -104,12 +108,14 @@ def _select_chat_config(request, req) -> ChatConfig:
 
 def _granular_args(op: str, req) -> dict:
     """Project a validated request model into the op's chat_nextseek arg dict."""
-    if op in ("entity", "parse", "graph"):
+    if op in ("entity", "parse"):
         return {"query": req.query}
+    if op == "graph":
+        return {"query": req.query, "plan": req.plan}
     if op == "graph-schema":
         return {"types": req.types, "query": req.query}
     if op == "aggregate":
-        return {"query": req.query, "parts": req.parts}
+        return {"query": req.query, "parts": req.parts, "plan": req.plan}
     if op == "api-read":
         return {"parser_plan": req.parser_plan}
     if op == "api-write":
@@ -182,11 +188,33 @@ def _error_tracking_send_event(send_event):
     state = {"sent": False}
 
     def wrapped(event_type: str, data: dict[str, Any]) -> None:
+        send_event(event_type, data)
+        # Only once the send returned: a query_error whose send raised never reached the
+        # user, so the caller's generic one must still go out.
         if event_type == "query_error":
             state["sent"] = True
-        send_event(event_type, data)
 
     return wrapped, state
+
+
+def _report_fatal(fatal: LLMFatalError, send_event, error_state, session_id) -> None:
+    """End a turn that an ``LLMFatalError`` escaped from with the orchestrator's own query_error.
+
+    ``LLMFatalError`` is a ``BaseException``, so the bodies' ``except Exception`` never saw
+    it. ``run_query`` and ``run_query_plan`` answer it themselves, but ``run_pipeline_launch``
+    calls the pipeline agent unguarded, and a pipeline tool loop whose models both fail
+    raises it: the thread died with no terminal event and the ``QueryTask`` stayed
+    running. The event is the one the orchestrator's fatal handlers send
+    (``chat_nextseek.failure_replies.fatal_query_error``): the plain text with
+    ``reason: model_unavailable`` for unavailability, the raw message otherwise.
+    """
+    logger.error("Pipeline ended by a fatal model error: %s", fatal)
+    if error_state["sent"]:
+        return
+    _, data = fatal_query_error(fatal, agent=getattr(fatal, "agent", None) or "unknown")
+    # What the turn spent before it failed, carried out on the fatal by the entry point
+    # (turn_spend.collects_turn): this event is the turn's last, so it holds the cost.
+    send_event("query_error", {**data, **turn_spend.cost_fields(fatal), "session_id": session_id})
 
 
 def _scope_kwargs(graph_scope) -> dict:
@@ -217,12 +245,16 @@ def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pas
                 run_query_plan(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
             case _:
                 run_query(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
-    except Exception:
+    except LLMFatalError as fatal:
+        _report_fatal(fatal, send_event, error_state, resolved_session_id)
+    except Exception as exc:
         logger.exception("Unhandled pipeline error")
         if not error_state["sent"]:
             send_event("query_error", {
                 "error": "Internal pipeline error",
                 "agent": "unknown",
+                # What the turn spent, taken out on the exception (turn_spend.collects_turn).
+                **turn_spend.cost_fields(exc),
                 "session_id": resolved_session_id,
             })
     finally:
@@ -232,16 +264,22 @@ def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pas
 
 
 def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pass,
-                       chat_session, resolved_session_id, graph_scope=None) -> None:
+                       chat_session, resolved_session_id, graph_scope=None, parent_cc_turn=None,
+                       deadline_epoch=None) -> None:
     """Pipeline body of the ``query/async`` endpoint, run on its daemon thread.
 
     Runs the orchestrator for ``req.mode`` (``plan``, ``pipeline`` or
     standard), turns an unhandled error into a ``query_error`` event, and
     saves the turn. Progress reaches the client only through ``send_event``.
     ``graph_scope`` is the caller's project scope (``_scope_kwargs``).
+    ``parent_cc_turn``: the Container-CC turn whose pass started this child turn (query_async took one of its two
+    slots for it), or None. The slot is given back in the finally, after the save, however the child ended.
+    ``deadline_epoch``: a nested turn's Unix deadline (NessieAI/ns/op_limits.nested_deadline), or None.
     """
     tracked_send_event, error_state = _error_tracking_send_event(send_event)
     scope_kw = _scope_kwargs(graph_scope)
+    if deadline_epoch is not None:
+        scope_kw = {**scope_kw, "deadline_epoch": deadline_epoch}
     try:
         match getattr(req, "mode", "standard"):
             case "plan":
@@ -250,14 +288,24 @@ def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_p
                 run_pipeline_launch(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
             case _:
                 run_query(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
-    except Exception:
+    except LLMFatalError as fatal:
+        _report_fatal(fatal, send_event, error_state, resolved_session_id)
+    except Exception as exc:
         logger.exception("Unhandled pipeline error (async)")
         if not error_state["sent"]:
             send_event("query_error", {
                 "error": "Internal pipeline error",
                 "agent": "unknown",
+                # What the turn spent, taken out on the exception (turn_spend.collects_turn).
+                **turn_spend.cost_fields(exc),
                 "session_id": resolved_session_id,
             })
     finally:
-        _save_session_or_report(
-            adapter, chat_session, send_event, resolved_session_id)
+        try:
+            _save_session_or_report(
+                adapter, chat_session, send_event, resolved_session_id)
+        finally:
+            if parent_cc_turn is not None:
+                # A child turn a Container-CC pass started holds one of that turn's two slots (operator ruling
+                # 2026-09-30); it gives it back here, done, failed or interrupted. Never raises.
+                release_op_slot(parent_cc_turn)

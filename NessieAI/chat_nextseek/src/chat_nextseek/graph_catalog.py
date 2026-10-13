@@ -7,8 +7,8 @@ This module reads it for the graph agent: the type index and the per-label prope
 (``get_vocabulary``). ``graph_context.py`` renders them; ``agents/graph.py`` checks Cypher against them.
 
 Lazy and read-only: nothing runs at ``ChatConfig`` construction, nothing is written to disk, and every statement runs
-as ``session.execute_read`` with ``QUERY_TIMEOUT_S``. The cache is keyed by ``(NEO4J_URI, NEO4J_DATABASE)``, with
-one driver per key:
+as ``session.execute_read`` with ``QUERY_TIMEOUT_S`` (the vocabulary statements with ``VOCAB_QUERY_TIMEOUT_S``).
+The cache is keyed by ``(NEO4J_URI, NEO4J_DATABASE)``, with one driver per key:
 
 - the snapshot re-reads ``GraphMeta`` at most every ``HASH_RECHECK_S``, and the index and the guard only when
   ``catalog_hash`` has changed (a new hash also drops the cached type details);
@@ -49,13 +49,17 @@ from typing import Any, Iterable, Mapping
 
 from . import graph_scope
 from .cypher_scope import SCOPE_CLAUSE_TEMPLATE
+from .graph_contract import schema
 
 log = logging.getLogger(__name__)
 
-# The minimum GraphMeta.schema_version this reader accepts. Later versions are read as they are: 1.2 (the sync work)
-# adds Sample.source_hash and GraphMeta.label_maps_hash and leaves the catalog as v1.1 defines it.
-SCHEMA_VERSION = "1.1"
+# The minimum GraphMeta.schema_version this reader accepts (the contract's READER_MIN_VERSION). Later versions are read
+# as they are: 1.2 (the sync work) adds Sample.source_hash and GraphMeta.label_maps_hash and leaves the catalog as v1.1
+# defines it.
+SCHEMA_VERSION = schema.READER_MIN_VERSION
 HASH_RECHECK_S, DETAIL_TTL_S, VOCAB_TTL_S, FAILURE_MEMORY_S, QUERY_TIMEOUT_S = 60, 600, 3600, 60, 10
+# The VOCAB_* statements only: dev's graph measured them at 11-14 s, and their result is cached for VOCAB_TTL_S.
+VOCAB_QUERY_TIMEOUT_S = 30
 # How many callers' project sets keep a scoped vocabulary at once; the oldest read is dropped first.
 SCOPED_VOCAB_MAX = 256
 # How long a caller's scoped vocabulary lives. A sample-level sync stamps nothing the cache could watch (only a full
@@ -64,23 +68,22 @@ SCOPED_VOCAB_MAX = 256
 # 120,000-sample graph (7.1 red team, finding N4), so minutes, not the admin form's hour.
 SCOPED_VOCAB_TTL_S = 300
 
-_VERSION_RE = re.compile(r"^(\d+)\.(\d+)$")
-
-
-def _version_tuple(value) -> tuple[int, int] | None:
-    match = _VERSION_RE.match(str(value).strip()) if value is not None else None
-    return (int(match.group(1)), int(match.group(2))) if match else None
-
-
 def schema_version_supported(value) -> bool:
     """True when ``value`` is a ``major.minor`` version at or above ``SCHEMA_VERSION`` ("1.2" and "1.10" are)."""
-    version = _version_tuple(value)
-    return version is not None and version >= _version_tuple(SCHEMA_VERSION)
+    return schema.at_least(value, SCHEMA_VERSION)
 
-# The catalog keeps at most ten top values per attribute; TYPES_ADMIN never reads more.
+# The catalog holds no attribute values: graph_sync writes none, and the reader of the old top_values was removed
+# (889abe89). Stored values are read per caller, through the graph tool, by the graph reviewer (graph_review_counts).
 
 # The clock; tests patch this name.
 _now = time.monotonic
+_sleep = time.sleep
+
+
+def _spawn(fn) -> None:
+    """Run ``fn`` on a daemon thread; tests replace this name."""
+    threading.Thread(target=fn, daemon=True, name="graph-catalog-refresh").start()
+
 
 
 # --- statements (docs/neo4j-schema.md "v1.1" property names) --------------------------------------------------------
@@ -129,8 +132,18 @@ RETURN t.title AS title, t.label AS label, t.name AS name, t.summary AS summary,
 ORDER BY title
 """.strip()
 
+# The range indexes graph_sync builds (writer.ensure_index_budget): one per (type label, attribute) that qualifies.
+# Schema, the same for every caller, like the guard map: the graph reviewer seeks a value by it (get_seekable).
+SEEKABLE = """
+SHOW INDEXES YIELD labelsOrTypes, properties, type, state, entityType
+WHERE type = 'RANGE' AND entityType = 'NODE' AND state = 'ONLINE'
+RETURN labelsOrTypes, properties
+""".strip()
+
+# Only containers a sample reaches: every SEEK study has a node now, and an empty one is no scope to offer.
 VOCAB_INVESTIGATIONS = """
 MATCH (i:Investigation) WHERE i.title IS NOT NULL
+  AND EXISTS { MATCH (i)<-[:IN_INVESTIGATION]-(:Study)<-[:IN_STUDY]-(:Sample) }
 RETURN DISTINCT i.title AS title ORDER BY title
 """.strip()
 
@@ -141,6 +154,7 @@ RETURN DISTINCT p.title AS title ORDER BY title
 
 VOCAB_STUDIES = """
 MATCH (s:Study) WHERE s.title IS NOT NULL
+  AND EXISTS { MATCH (s)<-[:IN_STUDY]-(:Sample) }
 RETURN DISTINCT s.title AS title ORDER BY title
 """.strip()
 
@@ -151,13 +165,48 @@ WHERE coalesce(s.DOI, '') <> '' OR coalesce(s.PMID, '') <> ''
 RETURN s.title AS title, s.DOI AS doi, s.PMID AS pmid ORDER BY title
 """.strip()
 
+# What the samples record (the studies release: DOI and PMID are sample attributes, and a paper that moves into SEEK
+# leaves its graph-only Study node): per SEEK-keyed Study, each (DOI, PMID) pair more than half of its samples carry,
+# counting only samples on no graph-only paper study. A sample in several papers holds their DOIs '; '-joined with its
+# PMIDs at the same positions, so each position is one pair; a sample counts once for a pair however often its list
+# repeats it, and once in the study's total (its first position, i = 0). Each row carries its pair's sample count and
+# the study's total, from which _published keeps one study per paper. A bucket (a title ending in "Unpublished") is
+# never published; trim() here keeps a no-break space, so _published applies the exact rule to what comes back.
+_PUBLISHED_SAMPLES_TAIL = """
+WITH st, s, split(coalesce(toString(s.DOI), ''), ';') AS dois, split(coalesce(toString(s.PMID), ''), ';') AS pmids
+UNWIND range(0, CASE WHEN size(dois) > size(pmids) THEN size(dois) ELSE size(pmids) END - 1) AS i
+WITH st, s, i, trim(coalesce(dois[i], '')) AS doi, trim(coalesce(pmids[i], '')) AS pmid
+WITH st, doi, pmid, count(DISTINCT s) AS n, sum(CASE WHEN i = 0 THEN 1 ELSE 0 END) AS firsts
+WITH st, collect({doi: doi, pmid: pmid, n: n}) AS pairs, sum(firsts) AS total
+UNWIND pairs AS pair
+WITH st, pair, total WHERE (pair.doi <> '' OR pair.pmid <> '') AND pair.n * 2 > total
+RETURN st.title AS title, pair.doi AS doi, pair.pmid AS pmid, pair.n AS n, total AS total ORDER BY title
+"""
+_PUBLISHED_SAMPLES_HEAD = """
+MATCH (st:Study)<-[:IN_STUDY]-(s:Sample)
+WHERE st.seek_study_id IS NOT NULL AND st.title IS NOT NULL AND NOT toLower(trim(st.title)) ENDS WITH 'unpublished'
+  AND NOT EXISTS { MATCH (s)-[:IN_STUDY]->(p:Study) WHERE p.seek_study_id IS NULL }"""
+VOCAB_PUBLISHED_SAMPLES = (_PUBLISHED_SAMPLES_HEAD + _PUBLISHED_SAMPLES_TAIL).strip()
+
 # One pass over DERIVED_FROM gives the assay titles, the protocol titles and the assay connections, with no cap
 # (the old connection fetch stopped at LIMIT 300). Only Sample-to-Sample edges: no search sees an OrphanSample.
-VOCAB_EDGES = """
-MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample)
-WHERE r.internal_assay_title IS NOT NULL OR r.protocol_title IS NOT NULL
-RETURN DISTINCT r.internal_assay_title AS assay, r.protocol_title AS protocol,
+# internal_assay_title names one assay; an edge several assays share lists all of them in internal_assay_titles, which
+# some edges lack, and some titles exist only there. So each edge gives one row per title from either (DISTINCT drops
+# the repeats, and the placeholder '' a list holds for an untitled assay is no title), and an edge with a protocol
+# but no assay gives one row whose assay is null.
+_EDGE_HAS_PLURAL_TITLE = "any(t IN coalesce(r.internal_assay_titles, []) WHERE t <> '')"
+_EDGE_ROWS = """
+WITH c, r, p, [t IN [r.internal_assay_title] + coalesce(r.internal_assay_titles, []) WHERE t IS NOT NULL AND t <> '']
+     AS titles
+UNWIND CASE WHEN size(titles) = 0 THEN [null] ELSE titles END AS title
+RETURN DISTINCT title AS assay, r.protocol_title AS protocol,
        p.type AS parent_type, c.type AS child_type
+""".strip()
+
+VOCAB_EDGES = f"""
+MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample)
+WHERE r.internal_assay_title IS NOT NULL OR r.protocol_title IS NOT NULL OR {_EDGE_HAS_PLURAL_TITLE}
+{_EDGE_ROWS}
 """.strip()
 
 
@@ -195,23 +244,26 @@ WHERE (coalesce(st.DOI, '') <> '' OR coalesce(st.PMID, '') <> '')
 RETURN st.title AS title, st.DOI AS doi, st.PMID AS pmid ORDER BY title
 """.strip()
 
+VOCAB_PUBLISHED_SAMPLES_SCOPED = (_PUBLISHED_SAMPLES_HEAD + f"\n  AND {_visible('s')}" +
+                                  _PUBLISHED_SAMPLES_TAIL).strip()
+
 VOCAB_EDGES_SCOPED = f"""
 MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample)
-WHERE (r.internal_assay_title IS NOT NULL OR r.protocol_title IS NOT NULL)
+WHERE (r.internal_assay_title IS NOT NULL OR r.protocol_title IS NOT NULL OR {_EDGE_HAS_PLURAL_TITLE})
   AND {_visible("c")} AND {_visible("p")}
-RETURN DISTINCT r.internal_assay_title AS assay, r.protocol_title AS protocol,
-       p.type AS parent_type, c.type AS child_type
+{_EDGE_ROWS}
 """.strip()
 
 # (field, statement) per source, for every project and for a caller's projects.
 _VOCAB_SOURCES = (
     ("investigation_titles", VOCAB_INVESTIGATIONS), ("project_titles", VOCAB_PROJECTS),
-    ("study_titles", VOCAB_STUDIES), ("published_studies", VOCAB_PUBLISHED), ("assay_connections", VOCAB_EDGES),
+    ("study_titles", VOCAB_STUDIES), ("published_studies", VOCAB_PUBLISHED),
+    ("published_from_samples", VOCAB_PUBLISHED_SAMPLES), ("assay_connections", VOCAB_EDGES),
 )
 _SCOPED_VOCAB_SOURCES = (
     ("investigation_titles", VOCAB_INVESTIGATIONS_SCOPED), ("project_titles", VOCAB_PROJECTS_SCOPED),
     ("study_titles", VOCAB_STUDIES_SCOPED), ("published_studies", VOCAB_PUBLISHED_SCOPED),
-    ("assay_connections", VOCAB_EDGES_SCOPED),
+    ("published_from_samples", VOCAB_PUBLISHED_SAMPLES_SCOPED), ("assay_connections", VOCAB_EDGES_SCOPED),
 )
 
 
@@ -310,7 +362,11 @@ class _Entry:
     vocab_at: float | None = None
     vocab_ttl: float = VOCAB_TTL_S
     vocab_failed: tuple[str, ...] = ()
+    refreshing: bool = False  # a background refresh of the admin vocabulary is running
+    refresh_after: float = 0.0  # no refresh starts before this time (a refresh that lost a source waits)
     scoped_vocab: dict = field(default_factory=dict)  # project ids -> (read_at, ttl, Vocabulary)
+    seekable: tuple | None = None  # (catalog_hash, read_at, Mapping[label, frozenset[attribute]])
+    seekable_failed_at: float | None = None
 
 
 _ENTRIES: dict[tuple[str, str], _Entry] = {}
@@ -342,11 +398,13 @@ def _row(record) -> dict:
     return data() if callable(data) else dict(record)
 
 
-def _read(driver, database: str, statement: str, params: dict | None = None) -> list[dict]:
-    """Run one statement in a managed READ transaction with the catalog timeout; the rows as dicts."""
+def _read(driver, database: str, statement: str, params: dict | None = None, *,
+          timeout_s: float = QUERY_TIMEOUT_S) -> list[dict]:
+    """Run one statement in a managed READ transaction with ``timeout_s`` (the catalog timeout unless the caller
+    says otherwise); the rows as dicts."""
     from neo4j import READ_ACCESS, unit_of_work  # noqa: PLC0415
 
-    @unit_of_work(timeout=QUERY_TIMEOUT_S)
+    @unit_of_work(timeout=timeout_s)
     def work(tx):
         return [_row(record) for record in tx.run(statement, params or {})]
 
@@ -512,6 +570,48 @@ def get_type_details(config, titles: Iterable[str]) -> list[TypeDetail]:
     return details if graph_scope.sees_all(config) else [_redacted_detail(detail) for detail in details]
 
 
+def get_seekable(config) -> Mapping[str, frozenset[str]] | None:
+    """Each T_ label's attributes that carry an online single-property RANGE index, so an equality on them is an index
+    seek; None when that cannot be read.
+
+    graph_sync indexes a string attribute only once it is on 1,000 samples or more, and every numeric or date one that
+    holds a value (``writer.ensure_index_budget``). The graph reviewer reads this to decide which attributes it may
+    look a value up in cheaply (``graph_review_counts``): on the dev graph an unindexed attribute of a large type costs
+    about 2 microseconds a node, an indexed one a seek. Index names, labels and properties are schema, the same for
+    every caller, as the guard map is, so the map is not redacted.
+
+    Cached per catalog hash for ``DETAIL_TTL_S``. A failed read is remembered for ``FAILURE_MEMORY_S`` and returns
+    None; it never marks the catalog unavailable or closes the driver, since nothing else depends on it. An
+    unavailable catalog is None too."""
+    key = _key(config)
+    entry = _entry_for(key)
+    with entry.lock:
+        try:
+            snapshot = _snapshot_locked(entry, key, config)
+        except CatalogUnavailable:
+            return None
+        now = _now()
+        cached = entry.seekable
+        if cached is not None and cached[0] == snapshot.catalog_hash and now - cached[1] < DETAIL_TTL_S:
+            return cached[2]
+        if entry.seekable_failed_at is not None and now - entry.seekable_failed_at < FAILURE_MEMORY_S:
+            return None
+        try:
+            rows = _read(_driver_locked(entry, config), key[1], SEEKABLE)
+        except Exception as exc:  # noqa: BLE001 (schema metadata only: the caller reads every attribute instead)
+            entry.seekable_failed_at = now
+            log.warning("graph index list unavailable for %ss: %s", FAILURE_MEMORY_S, _read_failed(exc)[:300])
+            return None
+        found: dict[str, set[str]] = {}
+        for row in rows:
+            labels, props = row.get("labelsOrTypes") or [], row.get("properties") or []
+            if len(labels) == 1 and len(props) == 1 and str(labels[0]).startswith("T_"):
+                found.setdefault(str(labels[0]), set()).add(str(props[0]))
+        seekable = MappingProxyType({label: frozenset(props) for label, props in found.items()})
+        entry.seekable, entry.seekable_failed_at = (snapshot.catalog_hash, now, seekable), None
+        return seekable
+
+
 #: What a caller who sees no project is given: nothing, and no statement runs for it.
 EMPTY_VOCABULARY = Vocabulary((), (), (), (), (), (), ())
 
@@ -537,8 +637,15 @@ def get_vocabulary(config) -> Vocabulary:
             return EMPTY_VOCABULARY
         now = _now()
         if scope.is_admin:
-            if entry.vocab is not None and entry.vocab_at is not None and now - entry.vocab_at < entry.vocab_ttl:
-                return entry.vocab
+            if entry.vocab is not None and entry.vocab_at is not None:
+                age = now - entry.vocab_at
+                if age < entry.vocab_ttl:
+                    return entry.vocab
+                if age < 2 * entry.vocab_ttl:  # stale: answer now, refresh behind the caller
+                    if not entry.refreshing and now >= entry.refresh_after:
+                        entry.refreshing = True
+                        _spawn(lambda: _refresh_vocabulary(entry, key, config))
+                    return entry.vocab
             vocab, failed = _read_vocabulary(_driver_locked(entry, config), key[1], _VOCAB_SOURCES, None)
             entry.vocab, entry.vocab_at = vocab, now
             entry.vocab_ttl = FAILURE_MEMORY_S if failed else VOCAB_TTL_S
@@ -557,13 +664,90 @@ def get_vocabulary(config) -> Vocabulary:
         return vocab
 
 
+def _refresh_vocabulary(entry: _Entry, key: tuple[str, str], config) -> None:
+    """The background read of the admin vocabulary. The statements run outside ``entry.lock`` (they take 20 s; the
+    snapshot getter must not wait on them); only the driver and the swap are under it. A read that lost a source
+    keeps the old vocabulary and waits ``FAILURE_MEMORY_S``."""
+    try:
+        with entry.lock:
+            driver = _driver_locked(entry, config)
+        vocab, failed = _read_vocabulary(driver, key[1], _VOCAB_SOURCES, None)
+        with entry.lock:
+            now = _now()
+            if failed:
+                entry.refresh_after = now + FAILURE_MEMORY_S
+            else:
+                entry.vocab, entry.vocab_at, entry.vocab_ttl, entry.vocab_failed = vocab, now, VOCAB_TTL_S, ()
+    except Exception as exc:  # noqa: BLE001 (the old vocabulary still serves)
+        log.warning("graph catalog vocabulary refresh failed: %s", _read_failed(exc)[:300])
+        with entry.lock:
+            entry.refresh_after = _now() + FAILURE_MEMORY_S
+    finally:
+        with entry.lock:
+            entry.refreshing = False
+
+
+def warm(config, attempts: int = 4) -> None:
+    """Fill the cache before the first op asks (a worker's start). Never raises; the catalog may not be up yet
+    (compose does not wait for Neo4j), so ``CatalogUnavailable`` is retried every ``FAILURE_MEMORY_S``."""
+    for attempt in range(attempts):
+        try:
+            get_vocabulary(config)
+            return
+        except CatalogUnavailable:
+            if attempt + 1 < attempts:
+                _sleep(FAILURE_MEMORY_S)
+        except Exception:  # noqa: BLE001 (a warm-up must never take the worker down)
+            log.exception("graph catalog warm-up failed")
+            return
+
+
+def _is_bucket(title) -> bool:
+    """A holding study whose samples move out on publication: its title ends in "Unpublished", surrounding
+    whitespace and case aside (the studies tool's rule)."""
+    return (title or "").strip().casefold().endswith("unpublished")
+
+
+def _paper(row) -> str:
+    """The paper a row names: its DOI, lowercased, or its PMID where it has no DOI."""
+    doi = str(row.get("doi") or "").strip().lower()
+    return doi or "pmid " + str(row.get("pmid") or "").strip()
+
+
+def _published(node_rows, sample_rows) -> tuple[dict, ...]:
+    """The published studies. A SEEK study is a candidate for a paper only when more than half of its samples carry
+    it, and a bucket never is. Then each paper is listed for one study. A Study node carrying a DOI or PMID is that
+    paper's own study. Any other paper goes to the candidate holding the most of its samples, a tie to the one where
+    it is on the larger share of its own samples, then to the first title in order. A caller who sees only a paper's
+    samples shared into another study, which holds nothing else that caller sees, meets an exact tie there, so title
+    order names the study. Each (title, lowercased DOI, PMID) is listed once, the Study node's spelling first."""
+    node_rows = list(node_rows)
+    taken, chosen = {_paper(r) for r in node_rows}, []
+    ranked = sorted((r for r in sample_rows if not _is_bucket(r.get("title"))),
+                    key=lambda r: (-(r.get("n") or 0), -(r.get("n") or 0) / (r.get("total") or 1),
+                                   str(r.get("title") or ""), str(r.get("doi") or ""), str(r.get("pmid") or "")))
+    for row in ranked:
+        if _paper(row) not in taken:
+            taken.add(_paper(row))
+            chosen.append(row)
+    seen, out = set(), []
+    for row in node_rows + chosen:
+        entry = {"title": _opt_str(row.get("title")), "doi": row.get("doi"), "pmid": row.get("pmid")}
+        key = (entry["title"], str(entry["doi"] or "").lower(), str(entry["pmid"] or ""))
+        if key not in seen:
+            seen.add(key)
+            out.append(entry)
+    return tuple(sorted(out, key=lambda e: (e["title"] or "", str(e["doi"] or ""), str(e["pmid"] or ""))))
+
+
 def _read_vocabulary(driver, database: str, sources, params: dict | None) -> tuple[Vocabulary, list[str]]:
-    """One read per source; a source whose read fails is empty and named in the returned list."""
+    """One read per source, each with ``VOCAB_QUERY_TIMEOUT_S``; a source whose read fails is empty and named in the
+    returned list."""
     failed: list[str] = []
 
     def read(name: str, statement: str) -> list[dict]:
         try:
-            return _read(driver, database, statement, params)
+            return _read(driver, database, statement, params, timeout_s=VOCAB_QUERY_TIMEOUT_S)
         except Exception as exc:  # noqa: BLE001 (one source failing leaves the others usable)
             failed.append(name)
             log.warning("graph catalog vocabulary %s unavailable: %s", name, _read_failed(exc)[:300])
@@ -575,10 +759,7 @@ def _read_vocabulary(driver, database: str, sources, params: dict | None) -> tup
         investigation_titles=_titles(rows["investigation_titles"]),
         project_titles=_titles(rows["project_titles"]),
         study_titles=_titles(rows["study_titles"]),
-        published_studies=tuple(
-            {"title": _opt_str(r.get("title")), "doi": r.get("doi"), "pmid": r.get("pmid")}
-            for r in rows["published_studies"]
-        ),
+        published_studies=_published(rows["published_studies"], rows["published_from_samples"]),
         assay_titles=_titles({"title": r.get("assay")} for r in edges),
         protocol_titles=_titles({"title": r.get("protocol")} for r in edges),
         assay_connections=_connections(edges),
@@ -649,7 +830,6 @@ def reset_cache() -> None:
 # --- row conversion -------------------------------------------------------------------------------------------------
 
 _PLAIN_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_LABEL_UNSAFE = re.compile(r"[^A-Za-z0-9_]")
 
 
 def _age(now: float, then: float | None) -> float | None:
@@ -698,7 +878,7 @@ def _index_row(row: dict) -> TypeIndexRow:
     title = str(row["title"])
     return TypeIndexRow(
         title=title,
-        label=str(row.get("label") or "T_" + _LABEL_UNSAFE.sub("_", title)),
+        label=str(row.get("label") or schema.type_label(title)),
         name=_opt_str(row.get("name")),
         clade=_opt_str(row.get("clade")),
         sample_count=_opt_int(row.get("sample_count")),
@@ -740,7 +920,7 @@ def _type_detail(row: dict) -> TypeDetail:
     title = str(row["title"])
     return TypeDetail(
         title=title,
-        label=str(row.get("label") or "T_" + _LABEL_UNSAFE.sub("_", title)),
+        label=str(row.get("label") or schema.type_label(title)),
         name=_opt_str(row.get("name")),
         summary=_opt_str(row.get("summary")),
         clade=_opt_str(row.get("clade")),

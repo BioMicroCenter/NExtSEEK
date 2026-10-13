@@ -226,7 +226,7 @@ class _Adapter(dict):
         pass
 
 
-def _run_start_task(monkeypatch, *, user, req, chat_config, plan_mode=False):
+def _run_start_task(monkeypatch, *, user, req, chat_config, plan_mode=False, caller=None):
     from django.conf import settings
 
     seen = {}
@@ -253,7 +253,7 @@ def _run_start_task(monkeypatch, *, user, req, chat_config, plan_mode=False):
         query_task=SimpleNamespace(task_id="t-1"),
         send_event=lambda ev, data: events.append(ev),
         adapter=_Adapter(), api_user="caller", api_pass="caller-pw",
-        resolved_session_id="s-1",
+        resolved_session_id="s-1", caller=caller,
     )
     assert "query_complete" in events
     return seen
@@ -286,3 +286,14 @@ def test_start_task_hands_a_non_superuser_the_singleton_itself(monkeypatch, vari
     config = _Config()
     seen = _run_start_task(monkeypatch, user=STAFF, req=_req("v2_apoc"), chat_config=config)
     assert seen["config"] is config
+
+
+def test_start_task_puts_the_caller_block_on_a_copy_never_on_the_singleton(monkeypatch, variants):
+    """Round 4 U5.1: CALLER rides a per-request copy, so one user's details never sit on the shared config."""
+    config = _Config()
+    block = {"username": "bob_member", "is_admin": False, "projects": [{"id": 77, "name": "Proj Gamma"}]}
+
+    seen = _run_start_task(monkeypatch, user=STAFF, req=_req("v2_apoc"), chat_config=config, caller=block)
+
+    assert seen["config"] is not config and seen["config"].CALLER == block
+    assert not hasattr(config, "CALLER")

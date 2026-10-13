@@ -15,6 +15,7 @@ export interface ProgressEvent {
     | QueryCompleteData
     | QueryErrorData
     | RouteDecidedData
+    | PreludeStepData
     | CcTurnMetaData
     | Record<string, unknown>;
 }
@@ -25,6 +26,17 @@ export interface RouteDecidedData {
   model_class?: string;
   source?: string;
   reasoning?: string;
+  router_elapsed_s?: number;
+  vocabulary_elapsed_s?: number | null;
+}
+
+/** A routing step reported before the engine runs (Reading your question, Choosing an engine, Vocabulary ready). */
+export interface PreludeStepData {
+  label: string;
+  /** Seconds the vocabulary took, on "Vocabulary ready". */
+  elapsed_s?: number | null;
+  /** How the vocabulary pre-run ended, on "Vocabulary ready": completed, late, failed, cancelled, skipped. */
+  outcome?: string | null;
 }
 
 /** Container-CC turn parameters, emitted just before the CC turn starts. */
@@ -80,11 +92,47 @@ export interface SearchCompleteData {
   [extra: string]: unknown;
 }
 
-import type { Artifact, CCTrace } from "./chat";
+/**
+ * The nf-core pipeline agent's `select_pipeline` step, which profiles the cohort
+ * and makes its own model call before any tool runs. It is the one step in a
+ * pipeline turn long enough to need progress of its own — a digest build plus an
+ * ~84k-token model call — so all three events exist to fill that silence.
+ *
+ * Emitted in order: `selection_started` → `selection_evidence_ready` →
+ * `selection_done`. A malformed tool call emits none of them; every other path,
+ * including each way selection can decline, reaches `selection_done`.
+ */
+export interface SelectionStartedData {
+  n_uids: number;
+  [extra: string]: unknown;
+}
+
+/** The assembled evidence payload's size report, straight from the backend. */
+export interface SelectionEvidenceData {
+  est_tokens?: number;
+  total_chars?: number;
+  sections?: string[];
+  [extra: string]: unknown;
+}
+
+/**
+ * `verdict` is the selector's four-way outcome. `out_of_scope` is not a failure:
+ * it means the agent chooses from the catalog itself, exactly as it did before
+ * this step existed.
+ */
+export interface SelectionDoneData {
+  verdict: "chosen" | "fork" | "refused" | "out_of_scope" | string;
+  pipelines?: string[];
+  [extra: string]: unknown;
+}
+
+import type { Artifact, CCTrace, Suggestion } from "./chat";
 
 export interface QueryCompleteData {
   reply: string;
-  debug: Record<string, unknown>;
+  /** An NS turn's debug; a Container-CC turn may carry none. `suggestions` only
+   * when the graph-result reviewer offered a next question (#128). */
+  debug?: Record<string, unknown> & { suggestions?: Suggestion[] };
   bundle_id: number;
   artifacts?: Artifact[] | null;
   cc_traces?: CCTrace[];
@@ -98,9 +146,15 @@ export interface QueryErrorData {
   session_id?: string;
   reason?: string;
   /**
+   * The raw technical message behind `error`, which is plain text for the user when
+   * the reason is `model_unavailable`. Shown in the Debug panel only.
+   */
+  detail?: string;
+  /**
    * Files a Container-CC turn published before its wall clock stopped it
-   * (reason `exec_timeout`), in the shape a completed CC turn's carry. No other
-   * error carries any.
+   * (reason `exec_timeout`, or `model_unavailable` when it was stopped while a
+   * model call was being retried), in the shape a completed CC turn's carry. No
+   * other error carries any.
    */
   artifacts?: Artifact[] | null;
 }
@@ -162,6 +216,8 @@ export interface Turn {
    * hydrate path stamps these with the turn's own `ts`.
    */
   debug_entries?: HydratedDebugEntry[];
+  /** The reviewer's chips (#128) the turn offered, saved with it. */
+  suggestions?: Suggestion[];
 }
 
 // A debug entry as it arrives from the server, before the client adds a Date.

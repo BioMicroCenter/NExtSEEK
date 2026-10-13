@@ -23,6 +23,12 @@ Hardening over the feasibility spike:
     passed to any logging call.
   * Upstream connect/timeout errors → controlled 502/504 JSON, never a stack
     trace.
+  * Two failures Claude Code would not fall back on are relayed as ones it does
+    (2026-09-28, operator rulings D6 and D7): a STREAMED invoke whose response
+    headers do not arrive within ``config.stream_headers_timeout`` (45 s) gets a
+    504, and an upstream 429 is relayed as a 503 with the same body and
+    ``x-nextseek-upstream-status: 429``. The access log records both, and the
+    time each request waited for its headers.
   * ``/healthz`` is excluded from auth + the allowlist and returns 200 with no
     token.
 
@@ -30,7 +36,9 @@ The upstream host is fixed from ``AWS_REGION`` at config load (no SSRF).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 
 import httpx
 from fastapi import FastAPI, Request, Response
@@ -82,13 +90,33 @@ _DROP_HEADERS = {
 _logger = logging.getLogger("bedrock_proxy.access")
 
 
-def _log_access(method: str, canonical_path: str, status: int) -> None:
-    """Emit a single access line: method + canonical path + status only.
+def _log_access(method: str, canonical_path: str, status: int, *,
+                headers_s: float | None = None, upstream_status: int | None = None) -> None:
+    """Emit a single access line: method + canonical path + status, and two scalars.
 
-    Structurally cannot emit the Authorization header or the body — neither is
-    a parameter. Do NOT add a headers/body parameter to this function.
+    ``headers_s`` is how long the request waited for the upstream's response
+    headers; ``upstream_status`` is the upstream's own status when the relay
+    answered with another. Both are numbers the relay measured, never request
+    data. Structurally cannot emit the Authorization header or the body —
+    neither is a parameter. Do NOT add a headers/body parameter to this function.
     """
-    _logger.info("%s %s -> %d", method, canonical_path, status)
+    extra = ""
+    if headers_s is not None:
+        extra += f" headers={headers_s:.1f}s"
+    if upstream_status is not None:
+        extra += f" upstream={upstream_status}"
+    _logger.info("%s %s -> %d%s", method, canonical_path, status, extra)
+
+
+def _is_stream_invoke(method: str, canonical_path: str) -> bool:
+    """A streamed model call: the only request whose headers arrive before the answer."""
+    return method == "POST" and canonical_path.endswith("/invoke-with-response-stream")
+
+
+#: Relayed as another status so Claude Code falls back to its second model (D7): it
+#: switches on a 5xx but never on a 429. The header names what Bedrock really said.
+_RELAYED_AS = {429: 503}
+_UPSTREAM_STATUS_HEADER = "x-nextseek-upstream-status"
 
 
 # ---------------------------------------------------------------------------
@@ -275,8 +303,20 @@ async def relay(full_path: str, request: Request) -> Response:
         method, fwd_path, headers=out_headers, content=body
     )
 
+    streamed = _is_stream_invoke(method, canonical_path)
+    started = time.monotonic()
     try:
-        upstream = await _client.send(upstream_req, stream=True)
+        sending = _client.send(upstream_req, stream=True)
+        if streamed:
+            # A stalled upstream never sends headers; answer 504 before Claude Code's own
+            # per-request limit so it moves to its second model (D6). wait_for cancels
+            # the upstream request.
+            upstream = await asyncio.wait_for(sending, timeout=config.stream_headers_timeout)
+        else:
+            upstream = await sending
+    except asyncio.TimeoutError:
+        _log_access(method, canonical_path, 504, headers_s=time.monotonic() - started)
+        return JSONResponse({"error": "upstream timeout"}, status_code=504)
     except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
         _log_access(method, canonical_path, 502 if isinstance(exc, httpx.ConnectError) else 504)
         status = 502 if isinstance(exc, httpx.ConnectError) else 504
@@ -302,10 +342,16 @@ async def relay(full_path: str, request: Request) -> Response:
         if k.lower() not in _DROP_HEADERS
         and k.lower() not in ("content-length", "content-encoding")
     }
-    _log_access(method, canonical_path, upstream.status_code)
+    status = _RELAYED_AS.get(upstream.status_code, upstream.status_code)
+    upstream_status = None
+    if status != upstream.status_code:
+        upstream_status = upstream.status_code
+        resp_headers[_UPSTREAM_STATUS_HEADER] = str(upstream.status_code)
+    _log_access(method, canonical_path, status, headers_s=time.monotonic() - started,
+                upstream_status=upstream_status)
     return StreamingResponse(
         upstream.aiter_raw(),
-        status_code=upstream.status_code,
+        status_code=status,
         headers=resp_headers,
         background=BackgroundTask(upstream.aclose),
     )

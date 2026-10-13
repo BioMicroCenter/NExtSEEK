@@ -224,6 +224,7 @@ def plan_evaluator_agent(
             messages=messages,
             model_name=evaluator_model,
             temperature=0,
+            agent_label="evaluator",
             log_label="plan_evaluator",
             log_payload_extra={"user_query": user_query, "stop_reason": stop_reason},
             usage_label="PLAN_EVALUATOR",

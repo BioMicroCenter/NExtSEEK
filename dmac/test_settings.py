@@ -15,6 +15,9 @@ import tempfile
 # an explicit LOG_DIR in the environment still wins.
 os.environ.setdefault("LOG_DIR", os.path.join(tempfile.gettempdir(), "nextseek-test-logs"))
 
+# The app-ready hook prefetches nf-core schemas over HTTPS. Tests must not.
+os.environ.setdefault("NEXTSEEK_SKIP_SCHEMA_WARM", "1")
+
 from dmac.settings import *  # noqa: E402, F401, F403
 
 # Override databases to use SQLite for tests
@@ -78,3 +81,7 @@ STORAGES = {
         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
     },
 }
+
+# No test starts a background model call unless it asks to: the vocabulary pre-run is off here, and the tests of it
+# switch it on (NessieAI/cc/prerun.py).
+NESSIE_VOCAB_PRERUN = "off"

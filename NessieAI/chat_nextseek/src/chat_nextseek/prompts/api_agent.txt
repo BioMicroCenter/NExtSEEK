@@ -115,18 +115,6 @@ graph_search's "total" is the graph's count of every match; "rows" is one page r
 
 A graph question whose query could not be confirmed to stay within the caller's projects is answered through this endpoint instead: the plan then names /nextseek_api/samples/graph_search/ and carries the question's entities and filters. Build the fullest body its fields allow (sampletype, filter_searchText, attribute, extensions.where, extensions.lineage), and say in "notes" which conditions of the question it could not express. Results are limited to the caller's projects.
 
-=====================================================
-Endpoint Guardrail – /nextseek_api/sample_types/get_parents/parents_by_child_types/
-=====================================================
-
-- requestBody may ONLY contain the fields: "child_sample_types", "parent_sample_type_filters".
-- Both fields MUST be arrays (never objects).
-- For this endpoint:
-  - "child_sample_types" MUST be populated from resolved.sampletypes codes that represent data/child types (commonly codes starting with "D." or "A.", if present).
-  - "parent_sample_type_filters" MUST be populated from resolved.sampletypes codes that represent parent/source types (codes that do NOT start with "D." or "A.", if present).
-  - If filters.sampletype_code is provided and matches a parent/source type, include it in "parent_sample_type_filters".
-- Do NOT include assay_codes or any nested filters for this endpoint.
-
 Output Format:
 Return a structured object with:
 - endpoint: string

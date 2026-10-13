@@ -1,50 +1,24 @@
-"""Pin the GitBook site-index plus Markdown-page source contract."""
+"""Pin the in-repo docs source contract: README.md lists pages, each starts with an H1."""
 from __future__ import annotations
 
-import json
+from pathlib import Path
 
-import pytest
-
+from NessieAI import paths
 from NessieAI.build_tools.ingest_nextseek_docs import fetch as fetch_module
-
-SITE_INDEX_URL = (
-    "https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/"
-    "~gitbook/site-index"
-)
+from NessieAI.build_tools.ingest_nextseek_docs.split import split_by_h1
 
 
-def test_markdown_source_loader_uses_dynamic_site_index_titles(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    site_index = json.dumps(
-        {
-            "version": 1,
-            "pages": [
-                {
-                    "title": "Dynamic Landing",
-                    "pathname": "/mit-data-management-analysis-core",
-                },
-                {
-                    "title": "New Child Page",
-                    "pathname": "/mit-data-management-analysis-core/new-child-page",
-                },
-            ],
-        }
-    ).encode("utf-8")
-    responses = {
-        SITE_INDEX_URL: site_index,
-        "https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/dynamic-landing.md": (
-            b"# Dynamic Landing\n\nRoot page body.\n"
-        ),
-        "https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/new-child-page.md": (
-            b"# New Child Page\n\nChild page body.\n"
-        ),
-    }
+def test_loader_corpus_splits_into_one_section_per_page(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("## A\n\n- [Alpha](alpha.md)\n- [Beta](beta.md)\n")
+    (tmp_path / "alpha.md").write_text("# Alpha\n\nAlpha body.\n")
+    (tmp_path / "beta.md").write_text("# Beta\n\nBeta body.\n")
 
-    monkeypatch.setattr(fetch_module, "fetch_source_bytes", lambda url: responses[url])
+    sections = split_by_h1(fetch_module.load_repo_docs_corpus(str(tmp_path)))
 
-    corpus = fetch_module.load_gitbook_markdown_corpus(SITE_INDEX_URL)
+    assert [s.title for s in sections] == ["Alpha", "Beta"]
 
-    assert "# Dynamic Landing" in corpus
-    assert "# New Child Page" in corpus
-    assert corpus.index("# Dynamic Landing") < corpus.index("# New Child Page")
+
+def test_default_source_exists_and_has_a_readme() -> None:
+    from NessieAI.build_tools.ingest_nextseek_docs.constants import DEFAULT_SOURCE
+
+    assert (paths.REPO_ROOT / DEFAULT_SOURCE / "README.md").is_file()

@@ -33,6 +33,42 @@ def test_the_sample_search_page_tests_block():
     assert "seek/tests/test_sample_search_page.py" in paths
 
 
+def test_the_agent_folder_tests_block():
+    assert "NessieAI/tests/cc/test_cc_agent_folders_*.py" in blocking_lanes.BLOCKING_GLOBS
+    paths = blocking_lanes.expand(ROOT)
+    assert "NessieAI/tests/cc/test_cc_agent_folders_every_folder.py" in paths
+    assert "NessieAI/tests/cc/test_cc_agent_folders_entrypoint.py" in paths
+
+
+def test_the_studies_tool_tests_block():
+    assert "nextseek_api/studies/tests/test_*.py" in blocking_lanes.BLOCKING_GLOBS
+    paths = blocking_lanes.expand(ROOT)
+    assert "nextseek_api/studies/tests/test_buckets.py" in paths
+    assert "nextseek_api/studies/tests/test_models.py" in paths
+
+
+def test_the_entity_tree_tests_block():
+    assert "nextseek_api/tests/test_services_entity_tree.py" in blocking_lanes.BLOCKING_GLOBS
+    assert "nextseek_api/tests/test_entity_tree_read_routing.py" in blocking_lanes.BLOCKING_GLOBS
+    paths = blocking_lanes.expand(ROOT)
+    assert "nextseek_api/tests/test_services_entity_tree.py" in paths
+    assert "nextseek_api/tests/test_entity_tree_read_routing.py" in paths
+
+
+def test_the_transcript_recover_tests_block():
+    assert "nextseek_api/tests/test_services_cc_transcript_recover.py" in blocking_lanes.BLOCKING_GLOBS
+    assert "nextseek_api/tests/test_services_cc_transcript_recover.py" in blocking_lanes.expand(ROOT)
+
+
+def test_the_assistant_route_tests_block():
+    assert "nextseek_api/tests/test_services_cc_assistant_routes.py" in blocking_lanes.expand(ROOT)
+
+
+def test_the_attributes_tests_block():
+    assert "nextseek_api/attributes/tests/test_*.py" in blocking_lanes.BLOCKING_GLOBS
+    assert "nextseek_api/attributes/tests/test_views.py" in blocking_lanes.expand(ROOT)
+
+
 def test_the_expansion_is_sorted_relative_test_modules():
     paths = blocking_lanes.expand(ROOT)
     assert paths == sorted(set(paths))

@@ -1,0 +1,332 @@
+[
+ {
+  "TERM": "FASTQ",
+  "DEF": "Sequencing reads with per-base quality.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_1930",
+  "SYNONYMS": [
+   "fastq.gz",
+   "fq",
+   "fq.gz"
+  ]
+ },
+ {
+  "TERM": "BAM",
+  "DEF": "Binary sequence alignment map.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_2572",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "FAST5",
+  "DEF": "Oxford Nanopore raw signal (HDF5-based).",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "POD5",
+  "DEF": "Oxford Nanopore raw signal (Arrow-based).",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "H5AD",
+  "DEF": "AnnData single-cell matrix (HDF5-based).",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "H5",
+  "DEF": "HDF5 container.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3590",
+  "SYNONYMS": [
+   "HDF5"
+  ]
+ },
+ {
+  "TERM": "MTX",
+  "DEF": "Matrix Market sparse matrix.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3916",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "MCOOL",
+  "DEF": "Multi-resolution cooler contact matrix (Hi-C).",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "HIC",
+  "DEF": "Juicer .hic contact matrix (Hi-C).",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "RDS",
+  "DEF": "Serialized R object.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "MZML",
+  "DEF": "Mass spectrometry data in mzML.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3244",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "TIF",
+  "DEF": "Tagged Image File Format raster image.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3591",
+  "SYNONYMS": [
+   "tiff",
+   ".tif",
+   "ome.tif"
+  ]
+ },
+ {
+  "TERM": "OIB",
+  "DEF": "Olympus FluoView binary image.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "OIF",
+  "DEF": "Olympus FluoView image file set.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "LIF",
+  "DEF": "Leica Image File.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   ".lif"
+  ]
+ },
+ {
+  "TERM": "CZI",
+  "DEF": "Carl Zeiss Image.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   ".czi"
+  ]
+ },
+ {
+  "TERM": "ND2",
+  "DEF": "Nikon NIS-Elements image.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "DICOM",
+  "DEF": "Medical imaging (DICOM).",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3548",
+  "SYNONYMS": [
+   ".dcm"
+  ]
+ },
+ {
+  "TERM": "NII",
+  "DEF": "NIfTI neuroimaging volume.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3549",
+  "SYNONYMS": [
+   "nii.gz"
+  ]
+ },
+ {
+  "TERM": "JPG",
+  "DEF": "JPEG compressed image.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3579",
+  "SYNONYMS": [
+   "JPEG"
+  ]
+ },
+ {
+  "TERM": "PNG",
+  "DEF": "Portable Network Graphics image.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3603",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AVI",
+  "DEF": "Audio Video Interleave movie.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3990",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "MOV",
+  "DEF": "QuickTime movie.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "CSV",
+  "DEF": "Comma-separated values.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3752",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "TSV",
+  "DEF": "Tab-separated values.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3475",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "TXT",
+  "DEF": "Plain text.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_2330",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "XLSX",
+  "DEF": "Excel workbook.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3620",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "XML",
+  "DEF": "Extensible Markup Language.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_2332",
+  "SYNONYMS": [
+   "tiff_metadata.xml"
+  ]
+ },
+ {
+  "TERM": "PDF",
+  "DEF": "Portable Document Format.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3508",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "DOCX",
+  "DEF": "Word document.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3506",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "PPTX",
+  "DEF": "PowerPoint presentation.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3838",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "PZFX",
+  "DEF": "GraphPad Prism project.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "SLX",
+  "DEF": "Applied Biosystems qPCR run file.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "SBD",
+  "DEF": "BioTek Gen5 plate-reader data.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "CRAM",
+  "DEF": "Reference-compressed alignment (CRAM).",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3462",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "SRA",
+  "DEF": "NCBI Sequence Read Archive format.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3698",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "SRF",
+  "DEF": "Sequence Read Format.",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3017",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "SFF",
+  "DEF": "Standard Flowgram Format (454).",
+  "ONT_SOURCE": "EDAM",
+  "ONT_ID": "EDAM:format_3284",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "454_native",
+  "DEF": "Roche 454 native output.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Helicos_native",
+  "DEF": "Helicos native output.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "SOLiD_native",
+  "DEF": "ABI SOLiD native output.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "PacBio_HDF5",
+  "DEF": "PacBio HDF5 output.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "CompleteGenomics_native",
+  "DEF": "Complete Genomics native output.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "OxfordNanopore_native",
+  "DEF": "Oxford Nanopore native output.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ }
+]

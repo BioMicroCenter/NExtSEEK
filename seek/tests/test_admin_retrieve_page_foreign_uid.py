@@ -1,6 +1,6 @@
 """``POST /seek/admin/retrieve/`` (``seek.views.admin.get_children_uids``): a foreign UID reads as an unknown one.
 
-The twin of ``getChildrenUIDs`` behind ``/nextseek_api/admin/samples/retrieve/``
+The twin of ``getChildrenUIDs``, once behind the download API (``/nextseek_api/samples/retrieve/``)
 (``nextseek_api/tests/test_admin_retrieve_foreign_uid.py``), and it had the same defect: the graph walk started from
 every requested UID and only the final SELECT was scoped, so a UID outside the caller's projects produced a file with
 the caller's own samples related to it. For anyone but a superuser the walk now starts only from requested samples in

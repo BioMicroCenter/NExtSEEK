@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import pytest
 from NessieAI.tests.nessie_tests import manifest as M
@@ -202,9 +203,12 @@ def test_the_vacuous_turn_the_docs_promise_really_is_visible(tmp_path):
     ns_seed = {"status": "completed", "progress": [
         {"event": "route_decided", "data": {"route": "nextseek_query", "source": "baml"}},
         {"event": "query_complete", "data": {
-            "reply": "Here is the tree.",
-            "debug": {"api_plan": {"endpoint": "/nextseek_api/sample-tree/"},
-                      "api_result_meta": {"ok": True, "row_count": 7}}}}]}
+            # 2026-09-23: graph-answered, as on production, since the corpus retired
+            # the seed's REST-path plumbing criteria.
+            "reply": "There are 242 samples that descend from NHP-220630FLY-5.",
+            "debug": {"parser_plan": {"mode": "graph_query"},
+                      "graph_result": {"ok": True, "count": 242, "total": 242,
+                                       "truncated": False}}}}]}
     cc_follow = {"status": "completed", "progress": [
         {"event": "route_decided", "data": {"route": "container_cc", "source": "baml"}},
         {"event": "query_complete", "data": {
@@ -230,7 +234,15 @@ def test_the_vacuous_turn_the_docs_promise_really_is_visible(tmp_path):
 
     doc = (tmp_path / "report.html").read_text(encoding="utf-8")
     assert "SKIPPED" in doc, "the report gives no signal that a whole turn asserted nothing"
-    assert f"{len(entry.observations)} criteria, {len(skipped)} skipped" in doc
+    # 2026-09-24, follow-up split (routing review 5): the corpus now expects this
+    # follow-up on nextseek_query. The container_cc fixture is kept because a CC-routed
+    # turn is what produces the outcome_observed skip; it fails exactly one criterion,
+    # the route, and the skips are still counted apart from it.
+    failed = [o for o in entry.observations if not o.passed and not o.skipped]
+    # 2026-10-07 test-set review (SPEC-2, graph-search grading): plus the follow-up turn's own mode check
+    assert [(o.turn, o.field) for o in failed] == [("follow_up", "route"), ("follow_up", "parser_plan.mode")]
+    assert (f"{len(entry.observations)} criteria, {len(failed)} failed, "
+            f"{len(skipped)} skipped") in doc
 
 
 # --------------------------------------------------------------------------- #
@@ -247,14 +259,15 @@ def test_the_manifest_records_what_makes_a_diff_honest(tmp_path):
 
     m = runner.run_suite(
         base_url="http://dev:8000", auth_header="Basic x", tier="route", scope="specific",
-        corpus_path=CORPUS, out_dir=tmp_path, variant_id="route.ns_advanced",
+        corpus_path=CORPUS, out_dir=tmp_path, variant_id="route.ns_pipeline_by_question",  # 2026-10-07 test-set review (SPEC-2): route.ns_advanced was retired as a duplicate
+       
         post_query=lambda b: {"task_id": "t", "session_id": "s"},
         get_progress=lambda tid: ROUTED, sleep=lambda s: None, clock=lambda: 0.0,
         sample=0.1, seed=7)
 
     assert m.seed == 7
     assert m.sample == 0.1
-    assert m.selected_ids == ["route.ns_advanced"]
+    assert m.selected_ids == ["route.ns_pipeline_by_question"]
     assert m.base_url == "http://dev:8000"
     assert len(m.corpus_fingerprint) == 64
     # src != "baml" is an infrastructure condition, so the source must be recorded.
@@ -318,7 +331,7 @@ def test_an_outaged_known_fail_is_not_rendered_as_xfail(tmp_path):
 # change still load.
 # --------------------------------------------------------------------------- #
 
-SEED6B = Path("/home/cdemu/nessie-run-seed6b/manifest.json")
+SEED6B = Path(os.environ.get("NESSIE_SEED6B_DIR", "nessie-run-seed6b"), "manifest.json")
 
 
 def test_route_sources_defaults_to_empty_so_old_manifests_still_load(tmp_path):
@@ -458,6 +471,140 @@ def test_cost_summary_of_an_empty_run_is_a_truthful_zero():
 
     assert s["total_cost"] == 0.0
     assert "unmeasured" not in s["cost_display"]
+
+
+def _e(i, cost=None, partial=False, status="passed", turns=()):
+    return M.NessieManifestEntry(id=f"c{i}", family="f", tier="full", status=status,
+                                 cost=cost, cost_partial=partial, turns_meta=list(turns))
+
+
+def test_cost_summary_counts_partial_cases_apart_from_unmeasured_ones():
+    """A case measured in part is a number, but a floor. The summary says how many."""
+    s = M.cost_summary([_e(0, 0.5), _e(1, 0.2, partial=True), _e(2, None)])
+
+    assert s["total_cost"] == 0.7, "the run total is still the sum of observed case costs"
+    assert s["cost_observed"] == 2
+    assert s["cost_partial_cases"] == 1
+    assert s["cost_unmeasured"] == 1
+    assert s["cost_partial"] is True
+    assert "PARTIAL" in s["cost_display"]
+    assert "1 case(s) measured only in part" in s["cost_display"]
+    assert "1 reported no cost" in s["cost_display"]
+    assert "\u2014" not in s["cost_display"], "no em-dash in printed text"
+
+
+def test_a_run_whose_only_gap_is_a_partial_case_is_still_partial():
+    """Every case reported a number, and one of those numbers is a floor."""
+    s = M.cost_summary([_e(0, 0.5), _e(1, 0.2, partial=True)])
+
+    assert s["cost_unmeasured"] == 0
+    assert s["cost_partial"] is True
+    assert "PARTIAL" in s["cost_display"]
+    assert "all 2 executed case(s) reported a cost" not in s["cost_display"]
+
+
+def test_an_unmeasured_case_is_never_counted_as_partial_too():
+    s = M.cost_summary([_e(0, None, partial=True)])
+
+    assert s["cost_partial_cases"] == 0 and s["cost_unmeasured"] == 1
+    assert s["total_cost"] is None
+
+
+def _turn(fb=None, rfb=None, reported=True):
+    return M.TurnMeta(model_fallback=[fb] if fb else [], router_fallback=rfb,
+                      fallback_reported=reported)
+
+
+def test_the_fallback_summary_counts_turns_and_names_the_cases():
+    fb = {"agent": "graph", "from": "a", "to": "b", "reason": "timeout"}
+    entries = [_e(0, turns=[_turn(fb), _turn()]),
+               _e(1, turns=[_turn(rfb={"from": "a", "to": "heuristic", "reason": "error"})]),
+               _e(2, turns=[_turn(reported=False)])]
+    for e in entries:
+        e.fallback_turns = sum(1 for t in e.turns_meta if t.fell_back)
+
+    s = M.fallback_summary(entries)
+
+    assert s["fallback_turns"] == 2
+    assert [e.id for e in s["fallback_cases"]] == ["c0", "c1"]
+    assert s["fallback_unreported_turns"] == 1
+    assert s["fallback_display"] == ("2 of 4 turn(s) fell back to another model, in 2 case(s); "
+                                     "1 turn(s) did not report whether they fell back")
+
+
+def test_remembered_skips_are_not_counted_as_more_failures():
+    """Since F3-F5 (2026-09-28) a model that failed is remembered for the rest of the turn: every later call
+    whose primary it is starts on its fallback and adds a ``model_fallback`` item with ``remembered: true``.
+    Those items are skips, not failures. One failure in a turn is still one fallback turn in the case, however
+    many calls skipped the failed model afterwards, and a case whose turn fell back once counts once."""
+    live = {"agent": "entity", "from": "gemini-3.8-flash", "to": "us.anthropic.claude-sonnet-4-6",
+            "reason": "timeout"}
+    skips = [{**live, "agent": agent, "remembered": True} for agent in ("graph", "chatter")]
+    payload = {"progress": [
+        {"event": "route_decided", "data": {"route": "nextseek_query", "source": "baml",
+                                            "router_cost_usd": 0.01, "router_fallback": None}},
+        {"event": "query_complete", "data": {"total_cost_usd": 0.2, "cost_partial": False,
+                                             "models_used": ["us.anthropic.claude-sonnet-4-6"],
+                                             "model_fallback": [live, *skips]}}]}
+    turn = M.TurnMeta.from_payload(payload, turn="t1")
+    quiet = M.TurnMeta.from_payload({"progress": [
+        {"event": "route_decided", "data": {"route": "nextseek_query", "source": "baml",
+                                            "router_cost_usd": 0.01, "router_fallback": None}},
+        {"event": "query_complete", "data": {"total_cost_usd": 0.1, "cost_partial": False,
+                                             "models_used": ["gemini-3.8-flash"], "model_fallback": []}}]},
+        turn="t2")
+
+    money = M.case_money([turn, quiet], turns_sent=2)
+    assert turn.model_fallback == [live, *skips]  # every item is kept for the reader
+    assert money["fallback_turns"] == 1
+    e = _e(0, money["cost"], turns=money["turns_meta"])
+    e.fallback_turns = money["fallback_turns"]
+    s = M.fallback_summary([e])
+    assert s["fallback_turns"] == 1
+    assert s["fallback_display"] == "1 of 2 turn(s) fell back to another model, in 1 case(s)"
+    # The failures in the turn are the items that are not skips: one.
+    assert [i for i in turn.model_fallback if not i.get("remembered")] == [live]
+
+
+def test_a_turn_record_keeps_whether_its_cost_was_estimated():
+    """Round 6: a turn whose timed-out call was priced at its prompt's input cost says ``cost_estimated``; the
+    harness keeps it on the turn, apart from partial."""
+    def payload(**end):
+        return {"progress": [{"event": "query_complete", "data": {"total_cost_usd": 0.2, "cost_partial": False,
+                                                                   **end}}]}
+    estimated = M.TurnMeta.from_payload(payload(cost_estimated=True))
+    assert estimated.cost_estimated is True and estimated.cost_partial is False
+    assert estimated.model_dump()["cost_estimated"] is True
+    assert M.TurnMeta.from_payload(payload()).cost_estimated is False
+
+
+def test_a_run_that_recorded_no_turn_says_so_rather_than_no_fallback():
+    assert M.fallback_summary([_e(0)])["fallback_display"] == "no turn recorded a model record"
+
+
+def test_a_manifest_that_kept_the_count_but_not_the_turns_does_not_contradict_itself():
+    """A manifest rebuilt by a tool that dropped `turns_meta` still says how many
+    turns fell back, rather than claiming no turn was recorded."""
+    e = _e(0)
+    e.fallback_turns = 2
+
+    s = M.fallback_summary([e])
+
+    assert s["fallback_turns"] == 2
+    assert s["fallback_display"] == ("2 turn(s) fell back to another model, in 1 case(s); "
+                                     "the per-turn records were not kept")
+
+
+def test_the_report_states_partial_cost_and_the_fallback_turns(tmp_path):
+    fb = {"agent": "graph", "from": "a", "to": "b", "reason": "timeout"}
+    e = _e(0, 0.2, partial=True, turns=[_turn(fb)])
+    e.fallback_turns = 1
+    m = M.NessieManifest(started_at="t0", ended_at="t1", tier="full", scope="all", entries=[e])
+
+    doc = report.generate_html(m, tmp_path).read_text(encoding="utf-8")
+
+    assert "PARTIAL" in doc
+    assert "1 of 1 turn(s) fell back" in doc
 
 
 @pytest.mark.skipif(not SEED6B.exists(), reason=f"stored run evidence absent: {SEED6B}")

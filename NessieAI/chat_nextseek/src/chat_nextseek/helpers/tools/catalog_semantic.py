@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -202,7 +203,8 @@ class SemanticIndex:
             self._initialize()
         except Exception as exc:  # noqa: BLE001
             self._fail_reason = f"{type(exc).__name__}: {exc}"
-            _LOG.warning("SemanticIndex[%s] initialization failed: %s", name, self._fail_reason)
+            _LOG.error("SemanticIndex[%s] initialization failed (%s); the shortlist falls back to lexical.",
+                       name, self._fail_reason)
             self._ready = False
 
     @property
@@ -223,7 +225,9 @@ class SemanticIndex:
         if not self._ready or self._embeddings is None or self._embeddings.size == 0:
             return []
         if self._encoder is None:
-            self._encoder = self._load_default_encoder()
+            self._encoder = self._load_encoder_or_report()
+            if self._encoder is None:
+                return []
         encoder = self._encoder
         try:
             q = encoder([text])
@@ -273,7 +277,9 @@ class SemanticIndex:
             self._ready = True
             return
 
-        encoder = self._encoder if self._encoder is not None else self._load_default_encoder()
+        encoder = self._encoder if self._encoder is not None else self._load_encoder_or_report()
+        if encoder is None:
+            return
         embeddings = encoder(docs)
         embeddings = np.asarray(embeddings, dtype=np.float32)
         embeddings = self._l2_normalize(embeddings)
@@ -298,6 +304,24 @@ class SemanticIndex:
         self._items_by_id = {
             self._id_fn(item): item for item in self._catalog
         }
+
+    def _load_encoder_or_report(self) -> Optional[Callable[[list[str]], np.ndarray]]:
+        """The model's encoder, or None after one ERROR with the index marked not ready.
+
+        The app image bakes its models (#28), so a model that will not load means the image lacks it.
+        """
+        try:
+            return self._load_default_encoder()
+        except Exception as exc:  # noqa: BLE001
+            self._fail_reason = f"{type(exc).__name__}: {exc}"
+            self._ready = False
+            _LOG.error(
+                "SemanticIndex[%s] model %s did not load from %s (%s); the shortlist falls back to lexical. "
+                "The app image bakes its models: rebuild the app image, or set SEMANTIC_MODEL_NAME to a baked model.",
+                self._name, self._model_name,
+                os.environ.get("SENTENCE_TRANSFORMERS_HOME") or "the library default", self._fail_reason,
+            )
+            return None
 
     def _load_default_encoder(self) -> Callable[[list[str]], np.ndarray]:
         """Lazy-load the real sentence-transformers model."""

@@ -1,4 +1,4 @@
-"""The graph-schema op for a caller who is not a superuser: the live schema without counts, values or ranges.
+"""The graph-schema op for a caller who is not a superuser: the live schema without counts or ranges.
 
 Spec: ``docs/superpowers/specs/2026-09-18-graph-cypher-scope.md`` sections 8 and 11.3. The op serves
 ``graph_schema_snapshot``, which reads the catalog through ``graph_catalog.get_snapshot`` and ``get_type_details``
@@ -34,7 +34,7 @@ ROWS = {
         "clade": "Source", "sample_count": 72614, "curated_parents": None, "curated_children": None,
         "attributes": [
             {"title": "Organ", "value_type": "string", "declared": True, "needs_backticks": False,
-             "sample_count": 8093, "top_values": ["marker-organ-value"], "top_counts": [6158]},
+             "sample_count": 8093},
             {"title": "Weight", "value_type": "number", "declared": True, "needs_backticks": False,
              "sample_count": 2471, "num_min": 0.125, "num_max": 804.5},
         ],
@@ -54,8 +54,11 @@ ROWS = {
 }
 STATEMENTS = {getattr(gc, name): name for name in ROWS if isinstance(getattr(gc, name, None), str)}
 FOREIGN_TITLES = ("Investigation of another project", "Another project")
-ADMIN_ONLY_TEXT = ("72,614", "8,093", "6,158", "2,471", "0.125", "804.5", "marker-organ-value")
-COLUMN_TOKENS = ("n=", "values:", "range")
+# 6,158 and marker-organ-value were the Organ attribute's example top value. No Attribute node ever carried one
+# (no writer), so 889abe89 removed the reader, the renderer and the "values:" column; there is no value left for
+# the redaction to strip. The counts and ranges it strips are real.
+ADMIN_ONLY_TEXT = ("72,614", "8,093", "2,471", "0.125", "804.5")
+COLUMN_TOKENS = ("n=", "range")
 LEGEND_PREFIX = "## Resolved sample types:"  # names the columns for every caller (graph_context._assemble)
 
 
@@ -64,7 +67,7 @@ def stub_reader(monkeypatch):
     gc.reset_cache()
     monkeypatch.setattr(gc, "_now", lambda: 1000.0)
     monkeypatch.setattr(gc, "_make_driver", lambda config: object())
-    monkeypatch.setattr(gc, "_read", lambda driver, database, statement, params=None: [
+    monkeypatch.setattr(gc, "_read", lambda driver, database, statement, params=None, *, timeout_s=None: [
         dict(row) for row in ROWS[STATEMENTS[statement]]])
     yield
     gc.reset_cache()
@@ -89,7 +92,7 @@ def _schema(config) -> dict:
     return out
 
 
-def test_an_admin_schema_carries_counts_values_and_ranges():
+def test_an_admin_schema_carries_counts_and_ranges():
     # The control: what the non-admin test looks for is really there for an admin.
     text = _schema(with_scope(_base(), GraphScope.admin("test")))["schema"]
 
@@ -114,7 +117,7 @@ def test_an_admin_schema_carries_every_projects_vocabulary():
     _base,
     _magicmock,
 ], ids=["non_admin", "no_projects", "scope_none", "no_scope_attribute", "magicmock_config"])
-def test_a_non_admin_schema_has_no_counts_values_or_ranges(make_config):
+def test_a_non_admin_schema_has_no_counts_or_ranges(make_config):
     out = _schema(make_config())
     text = out["schema"]
 
@@ -149,3 +152,27 @@ def test_a_non_admin_schema_carries_only_its_own_projects_vocabulary():
 ], ids=["no_projects", "scope_none", "no_scope_attribute", "magicmock_config"])
 def test_a_caller_who_sees_no_project_gets_no_vocabulary(make_config):
     assert _schema(make_config())["vocabulary"] == ""
+
+
+# --- the box's assay list (fix 21) ---------------------------------------------------------------------------------
+
+BOX_ASSAYS = [{"Name": "Alpha Assay", "Description": None, "Tags": None},
+              {"Name": "Beta Panel", "Description": "Made up.", "Tags": "made, up"}]
+
+
+@pytest.mark.parametrize("scope", [
+    GraphScope.admin("test"),
+    GraphScope.for_projects([1, 3], source="test"),
+    GraphScope.for_projects([], source="test"),
+    None,
+], ids=["admin", "non_admin", "no_projects", "scope_none"])
+def test_every_caller_is_shown_this_boxs_assay_titles(scope):
+    """The box's assay catalog (``config.MIN_ASSAYS``) names kinds of assay, not a project's records, so every caller
+    gets the same titles, as the entity and system agents do. Container-CC reads them here, not from a baked file."""
+    config = with_scope(_base(), scope)
+    config.MIN_ASSAYS = BOX_ASSAYS
+    assert _schema(config)["assays"] == ["Alpha Assay", "Beta Panel"]
+
+
+def test_a_config_with_no_assay_list_is_shown_none():
+    assert _schema(_magicmock())["assays"] == []

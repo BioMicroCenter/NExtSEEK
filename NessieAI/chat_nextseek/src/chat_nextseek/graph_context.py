@@ -6,9 +6,11 @@ module only turns them into compact text. The rows are read by field name, so an
 
 The text has three parts (spec section 4.2):
 
-1. the structure, hand-owned text in ``prompts/graph_schema_structure.txt``, kept consistent with
-   ``docs/neo4j-schema.md`` v1.1 by a test;
-2. the type index, one line per non-deprecated sample type;
+1. the structure, hand-owned text in ``prompts/graph_schema_structure.txt``, kept consistent with the graph
+   contract by its test; on a graph at 1.3 or later ``prompts/graph_schema_structure_assays.txt`` (the Assay
+   section, held to the contract's 1.3 names by the same test) is appended, and the first line names the graph's
+   version (``structure_for``);
+2. the type index, one line per sample type (a deprecated one only while it still holds samples);
 3. at most ``MAX_TYPES`` resolved types, each with its K most-filled attributes in full and the rest by name,
    each with its sample count.
 
@@ -27,7 +29,15 @@ import re
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from chat_nextseek.graph_contract import schema
+
 STRUCTURE_PATH: Path = Path(__file__).resolve().parent / "prompts" / "graph_schema_structure.txt"
+# The Assay section (graph schema 1.3). Appended to the structure only for a graph at ASSAY_SCHEMA_VERSION or later, on
+# the default prompts and on every prompt variant alike (spec 2026-09-25-graph-assay-nodes-design.md section 6.1).
+ASSAY_STRUCTURE_PATH: Path = STRUCTURE_PATH.with_name("graph_schema_structure_assays.txt")
+ASSAY_SCHEMA_VERSION = "1.3"   # compared with schema.at_least, the contract's version rule
+# The version the structure file describes (its first line names it), and the oldest version a rendering names.
+STRUCTURE_SCHEMA_VERSION = (1, 2)
 BUDGET_BYTES = 32_768
 K_STEPS = (25, 15, 10, 0)  # 0 means names only
 # The vocabulary blocks' own bound (render_vocabulary, and the committed-files path in agents/graph.py). Set from
@@ -41,7 +51,7 @@ SUMMARY_MAX = 240  # a summary's first sentence is cut here, so one long summary
 
 # The keyword gates of the protocol and assay blocks, on both the catalog path and the committed-files path
 # (agents/graph.py), matched by ``mentions``. "dataset" is here because "data" no longer fires inside "datasets".
-PROTOCOL_WORDS = ("protocol", "method", "procedure", "technique")
+PROTOCOL_WORDS = ("protocol", "sop", "method", "procedure", "technique")
 ASSAY_WORDS = ("assay", "sequencing", "cytometry", "spectrometry", "imaging", "data", "dataset", "processed",
                "associated", "underwent", "via", "collection", "extraction")
 # Studies and published studies: study, paper, publication (and publish), DOI, PMID, as whole words.
@@ -54,6 +64,7 @@ _STOP_RE = re.compile(r"[.;!?](?=\s|$)")
 _KEY_PREFIX_RE = re.compile(r"^\d+:")
 _BLOCK_JOIN = "\n\n"
 _WORD_RE = re.compile(r"[a-z0-9]+")
+_TITLE_VERSION_RE = re.compile(r"\A(# NExtSEEK graph schema v)\d+\.\d+")
 # Words that name no vocabulary entry: the English glue of a question, and the words nearly every question
 # uses to ask for a block at all (sample, data, study, assay, protocol and the like).
 _PLAIN_WORDS = frozenset("""
@@ -63,7 +74,7 @@ _PLAIN_WORDS = frozenset("""
     only other our over per see shall she should show some such tell than that the their them then there these
     they this those too total under use used using very want was were what when where whether which while who
     whom whose why will with within without would you your
-    assay data database dataset investigation method procedure project protocol publication published sample
+    assay data database dataset investigation method procedure project protocol publication published sample sop
     study studies technique type kind associated underwent processed paper
 """.split())
 
@@ -267,10 +278,20 @@ def _index_line(row: Any) -> str:
     return ", ".join(parts)
 
 
+def _still_indexed(row: Any) -> bool:
+    """A non-deprecated type, or a deprecated one that still holds samples (fix 7 item 5, 2026-09-24:
+    LYS is deprecated but 12 samples carry :T_LYS, and hiding the type made lysate questions miss them)."""
+    if not _get(row, "deprecated", False):
+        return True
+    return (_get(row, "sample_count") or 0) > 0
+
+
 def render_type_index(rows) -> str:
-    """One line per non-deprecated sample type, in the order given, under a heading."""
+    """One line per sample type, in the order given, under a heading. A deprecated type is listed only
+    while it still holds samples, and its line says so."""
     lines = ["## Sample types (code :label \"name\" clade, samples, attributes with values)"]
-    lines += [_index_line(row) for row in rows or () if not _get(row, "deprecated", False)]
+    lines += [_index_line(row) + (", deprecated" if _get(row, "deprecated", False) else "")
+              for row in rows or () if _still_indexed(row)]
     return "\n".join(lines)
 
 
@@ -365,6 +386,39 @@ def load_structure() -> str:
     return STRUCTURE_PATH.read_text(encoding="utf-8").strip()
 
 
+def load_assay_structure() -> str:
+    """The hand-owned Assay section (graph schema 1.3), without trailing blank lines."""
+    return ASSAY_STRUCTURE_PATH.read_text(encoding="utf-8").strip()
+
+
+def schema_version_named(schema_version: Any) -> str:
+    """The version the structure names for a graph at ``schema_version`` (``GraphMeta.schema_version``, or the
+    committed file's): the graph's own ``major.minor``, or 1.2, the version the structure file describes, when the
+    graph's is older, unknown or not a version at all."""
+    major, minor = max(schema.version_tuple(schema_version) or STRUCTURE_SCHEMA_VERSION, STRUCTURE_SCHEMA_VERSION)
+    return f"{major}.{minor}"
+
+
+def structure_for(structure: str | None, schema_version: Any) -> str:
+    """The structure text for a graph at ``schema_version``.
+
+    ``structure`` is an evaluation prompt variant's text, None for the file. Its first line, when it is the file's
+    title, names the graph's version (``schema_version_named``); on a graph at ``ASSAY_SCHEMA_VERSION`` or later the
+    Assay section follows it, whichever structure was given. An unknown version gets no Assay section.
+    """
+    text = load_structure() if structure is None else structure
+    named = schema_version_named(schema_version)
+    text = _TITLE_VERSION_RE.sub(lambda m: m.group(1) + named, text, count=1)
+    if schema.at_least(schema_version, ASSAY_SCHEMA_VERSION):
+        text = text + "\n\n" + load_assay_structure()
+    return text
+
+
+#: The heading the resolved types' sections start with. The graph agent splits its schema message here: what
+#: precedes it (structure, type index) is the same for every question and sits under a cache point (agents/graph.py).
+RESOLVED_TYPES_HEADING = "## Resolved sample types: "
+
+
 def _assemble(structure: str, index: str, titles: list[str], sections: list[str], k: int, tail_counts: bool,
               omitted: list[str]) -> str:
     parts = [structure, index]
@@ -375,7 +429,7 @@ def _assemble(structure: str, index: str, titles: list[str], sections: list[str]
         else:
             how = "attribute names only" + ("," + with_n if with_n else "")
         parts.append(
-            f"## Resolved sample types: {', '.join(titles)} ({how}; per attribute: [value type] n=samples "
+            f"{RESOLVED_TYPES_HEADING}{', '.join(titles)} ({how}; per attribute: [value type] n=samples "
             "holding a value | range | meaning)")
         parts += sections
     if omitted:
@@ -430,9 +484,11 @@ def fit_graph_context(snapshot, details, *, k: int = 25, budget: int = BUDGET_BY
     budget only when they alone do. Anything given up is in the result (``stepped_down``) and printed.
 
     ``structure`` replaces the hand-owned structure file for one call: an evaluation prompt variant's
-    ``graph_schema_structure.txt`` (``prompt_variants.py``). None, the default, reads the file.
+    ``graph_schema_structure.txt`` (``prompt_variants.py``). None, the default, reads the file. Either way
+    ``structure_for`` fits it to the snapshot's ``schema_version``: the version its first line names, and the Assay
+    section from 1.3 on.
     """
-    structure = load_structure() if structure is None else structure
+    structure = structure_for(structure, _get(snapshot, "schema_version"))
     index = render_type_index(_get(snapshot, "index") or ())
     details = list(details or ())[:MAX_TYPES]
     titles = [str(_get(d, "title")) for d in details]
@@ -650,7 +706,8 @@ def _published_block(studies) -> VocabularyBlock | None:
         lines.append("- " + ", ".join(bits))
     if not lines:
         return None
-    return VocabularyBlock("PUBLISHED STUDIES (Study nodes with a DOI or PMID):\n", tuple(lines), "\n")
+    heading = "PUBLISHED STUDIES (a DOI or PMID on the study, or on most of its samples):\n"
+    return VocabularyBlock(heading, tuple(lines), "\n")
 
 
 def _connections_block(connections) -> VocabularyBlock | None:
@@ -699,3 +756,102 @@ def render_vocabulary(vocab, question: str, *, budget: int = VOCAB_BUDGET_BYTES)
         blocks.append(_title_block("PROTOCOL TITLES (DERIVED_FROM.protocol_title values)",
                                    _get(vocab, "protocol_titles")))
     return _BLOCK_JOIN.join(fit_vocabulary(blocks, q, budget=budget))
+
+
+def _fold_title(text: Any) -> str:
+    """Case and every character outside [a-z0-9] dropped: "MIT SRP", "MIT_SRP" and "mit-srp" are one name."""
+    return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
+
+
+#: The container levels a name can be stored under in the graph, narrowest first.
+CONTAINER_LEVELS = ("study", "investigation", "project")
+
+
+def container_titles_for(names, rows, titles_by_level) -> dict[str, tuple[str, str, bool]]:
+    """Each name the entity step resolved as a project, mapped to ``(level, title, own)`` for the container
+    title that EXISTS in this graph.
+
+    ``rows`` are the projects catalog rows (project and investigation); ``titles_by_level`` maps ``study``,
+    ``investigation`` and ``project`` to the titles the caller can see. A name a PROJECT row holds is a project
+    (an investigation row with a ``parent_project`` is an investigation, any other row a project): it maps to a
+    Project title only, through the project rows' names, as before any other level was read. An investigation row
+    lists its owner's names among its alternative names too, so those never make a project name an investigation.
+    A name only investigation rows hold maps to an Investigation title: the name itself or the row's own name
+    first (``own`` True), then a Project title that is the name itself (``own`` True, as before any other level was
+    read), then an alternative name that one investigation row holds and no project row does (``own`` True: it is
+    not the owner's), then the row's other alternative names (``own`` False: they can be the owner's names), then, with ``own``
+    False, a Project title through those names or the ``parent_project``, which is never tried as an investigation
+    title. A name with no row may sit at any level, narrowest first. ``own`` False means the query may use the
+    title but it does not scope the name itself, so the scope check still reports it. Anything ambiguous, and any
+    name that reaches no title, is left out.
+    """
+    pools: dict[str, dict[str, set[str]]] = {}
+    for level in CONTAINER_LEVELS:
+        by_fold: dict[str, set[str]] = {}
+        for title in (titles_by_level or {}).get(level) or ():
+            if isinstance(title, str) and title.strip():
+                by_fold.setdefault(_fold_title(title), set()).add(title)
+        pools[level] = by_fold
+
+    def folded(values) -> set[str]:
+        return {_fold_title(n) for n in values if isinstance(n, str) and n.strip()}
+
+    def row_names(row) -> set[str]:
+        return folded([row.get("name"), *(row.get("alternative_names") or [])])
+
+    def is_investigation(row) -> bool:
+        return (str(row.get("entity_type") or "").strip().lower() == "investigation"
+                and bool(str(row.get("parent_project") or "").strip()))
+
+    out: dict[str, tuple[str, str, bool]] = {}
+    for name in names or ():
+        if not isinstance(name, str) or not name.strip() or name in out:
+            continue
+        key = _fold_title(name)
+        matched = [row for row in rows or () if isinstance(row, dict) and key in row_names(row)]
+        projects = [row for row in matched if not is_investigation(row)]
+        if projects:
+            # An investigation titled with the name itself is the fallback when this box has no such project.
+            attempts = [("project", {key}, True),
+                        ("project", set().union(*(row_names(r) for r in projects)), True),
+                        ("investigation", {key}, True)]
+        elif matched:
+            own_names = {key} | folded(r.get("name") for r in matched)
+            aliases = set().union(*(row_names(r) for r in matched))
+            parents = folded(r.get("parent_project") for r in matched)
+            held_by = {a: [r for r in rows or () if isinstance(r, dict) and a in row_names(r)] for a in aliases}
+            sole = {a for a, holders in held_by.items() if len(holders) == 1 and is_investigation(holders[0])}
+            attempts = [("investigation", {key}, True), ("investigation", own_names, True), ("project", {key}, True),
+                        ("investigation", sole, True), ("investigation", aliases, False),
+                        ("project", aliases | parents, False)]
+        else:
+            attempts = [(level, {key}, True) for level in CONTAINER_LEVELS]
+        for level, wanted, own in attempts:
+            found = set().union(*(pools[level].get(f, set()) for f in wanted))
+            if len(found) == 1:
+                out[name] = (level, next(iter(found)), own)
+            if found:
+                break
+    return out
+
+
+def project_titles_for(names, project_rows, titles) -> dict[str, str]:
+    """Each project name the entity step resolved, mapped to the title it is stored under.
+
+    The entity step resolves a project to the projects catalog's name ("Impact"), and the graph stores the SEEK
+    title ("IMPAcTb"). The Project-only view of ``container_titles_for``: only titles in ``titles`` are named.
+    """
+    hits = container_titles_for(names, project_rows, {"project": titles})
+    return {name: title for name, (_level, title, _own) in hits.items()}
+
+
+def render_project_titles(mapping: dict[str, str], levels: dict[str, str] | None = None) -> str:
+    """The block telling the graph agent which title, at which level, each resolved project is stored under
+    ("" for none)."""
+    if not mapping:
+        return ""
+    lines = [f"- {_quote(name)} is the {(levels or {}).get(name, 'project')} titled {_quote(title)}"
+             for name, title in mapping.items()]
+    return ("PROJECTS NAMED IN THIS QUESTION (the exact title each is stored under and whether it is a project, an "
+            "investigation or a study, found through the project catalog's names and alternative names; scope on "
+            "this title, STEP 5):\n" + "\n".join(lines))

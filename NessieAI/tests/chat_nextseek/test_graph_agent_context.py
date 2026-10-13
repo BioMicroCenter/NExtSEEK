@@ -1,13 +1,16 @@
-"""The graph agent's context: the rendered catalog when it is live, the committed JSON when it is not (spec 4.2 to 4.3).
+"""The graph agent's context: the rendered catalog when it is live, the committed schema rendered in the same shape
+when it is not (spec 4.2 to 4.3, SCH-F13).
 
-The committed JSON carries a vocabulary read over every project (study, investigation and protocol titles, assay
-connections), so only an admin is sent it; anyone else gets the committed structure alone
+The committed files carry a vocabulary read over every project (study, investigation and protocol titles, assay
+connections), so only an admin is sent the committed protocol and assay blocks; anyone else gets the committed structure
+alone. The committed schema text itself reads only the sample type codes from that vocabulary, for every caller
 (docs/superpowers/specs/2026-09-18-graph-cypher-scope.md section 8). The configs below are admins unless a test says
 otherwise.
 
 Every test drives a fake LLM client and a patched catalog reader; nothing reaches Neo4j or a model.
 """
 
+import dataclasses
 import importlib.util
 import json
 import re
@@ -23,14 +26,18 @@ from chat_nextseek import orchestrator as orch
 from chat_nextseek.agents import graph as graph_mod
 from chat_nextseek.agents import system as system_mod
 from chat_nextseek.graph_scope import GraphScope
-from chat_nextseek.schemas import EntityAgentOutput, GraphAgentPlan, ParserPlan, SystemAgentOutput
+from chat_nextseek.schemas import EntityAgentOutput, GraphAgentPlan, ParserPlan
 
 FALLBACK_SCHEMA = {
     "fetched_at": "2026-08-21T00:00:00Z",
     "node_properties": {"Sample": ["uuid", "type", "id"], "Study": ["title"]},
     "relationship_properties": {"DERIVED_FROM": ["internal_assay_title", "protocol_title"]},
-    "vocabulary": {"investigation_titles": ["FallbackOnly"]},
+    "vocabulary": {"investigation_titles": ["FallbackOnly"], "project_titles": ["FallbackProject"],
+                   "study_titles": ["FallbackStudy"]},
 }
+# The committed Sample property names as the fallback renders them (agents/graph.py, _render_committed_schema).
+FALLBACK_PROPERTIES = "## Sample properties (names only)\nuuid, type, id"
+VOCABULARY_HEADING = "GRAPH VOCABULARY (values stored in the graph; match names against these):\n"
 
 
 def _label(title):
@@ -81,7 +88,7 @@ NOT_ADMIN = {
     "no_projects": GraphScope.for_projects([], source="test"),
     "no_scope": None,
 }
-COMMITTED_VOCABULARY = ("FallbackOnly", "Old protocol", "Old assay")
+COMMITTED_VOCABULARY = ("FallbackOnly", "FallbackProject", "FallbackStudy", "Old protocol", "Old assay")
 
 
 def _config(scope=ADMIN):
@@ -151,7 +158,9 @@ def test_a_live_catalog_sends_the_rendering(monkeypatch, live):
     out = run(monkeypatch, llm, entity={"sampletypes": [{"code": "TIS"}]})
     assert out.cypher == GOOD
     assert out.context_mode == graph_mod.CONTEXT_CATALOG == "catalog"
-    schema = llm.calls[0]["messages"][1]["content"]
+    # The schema is two system messages since T2: the head (structure, type index) under a cache point, then the
+    # resolved types' sections (test_graph_prompt_cache.py); joined with a blank line they are the rendering.
+    schema = "\n\n".join(m["content"] for m in llm.calls[0]["messages"][1:3])
     assert gctx.load_structure() in schema
     assert gctx.render_type_index(SNAPSHOT.index) in schema
     assert "### TIS :T_TIS" in schema
@@ -160,15 +169,33 @@ def test_a_live_catalog_sends_the_rendering(monkeypatch, live):
     assert "Old assay" not in blob and "Old protocol" not in blob
 
 
-def test_an_unavailable_catalog_sends_the_committed_json(monkeypatch, down):
+def test_the_live_schema_header_names_the_structure_it_wraps(monkeypatch, live):
+    # SCH-F9: the structure text says schema v1.2, and the header around it said v1.1.
+    llm = FakeLLM(GOOD)
+    run(monkeypatch, llm, entity={"sampletypes": [{"code": "TIS"}]})
+    header = llm.calls[0]["messages"][1]["content"].splitlines()[0]
+    assert header.startswith("GRAPH SCHEMA (v1.2 structure, ")
+    assert "v1.1" not in header
+
+
+def test_an_unavailable_catalog_sends_the_committed_schema_rendered_like_the_live_one(monkeypatch, down):
+    # SCH-F13: the structure, a type index and the committed property names, never a JSON dump of the file.
     llm = FakeLLM(GOOD.replace("s:T_TIS", "s:Sample"))
     out = run(monkeypatch, llm, query="which protocol and assay made these samples")
     assert out.context_mode == graph_mod.CONTEXT_FALLBACK == "fallback"
+    schema = llm.calls[0]["messages"][1]["content"]
+    assert gctx.load_structure() in schema
+    assert gctx.render_type_index(()) in schema
+    assert FALLBACK_PROPERTIES in schema
     blob = llm.blob()
-    assert '"node_properties"' in blob
+    assert "node_properties" not in blob
     assert "Old protocol" in blob and "Old assay" in blob
-    assert "FallbackOnly" in blob
-    assert "## Sample types" not in blob
+    # An admin's fallback keeps the committed titles in one live-shaped vocabulary message, gated as live (SCH-F13):
+    # the project and investigation titles always, the study titles only on a study word.
+    vocabulary = [m["content"] for m in llm.calls[0]["messages"] if m["content"].startswith(VOCABULARY_HEADING)]
+    assert len(vocabulary) == 1
+    assert '"FallbackOnly"' in vocabulary[0] and '"FallbackProject"' in vocabulary[0]
+    assert "FallbackStudy" not in blob, "no study word"
 
 
 @pytest.mark.parametrize("scope", list(NOT_ADMIN.values()), ids=list(NOT_ADMIN))
@@ -177,7 +204,8 @@ def test_an_unavailable_catalog_sends_a_non_admin_the_committed_structure_only(m
     out = run(monkeypatch, llm, query="which study, protocol and assay made these samples", scope=scope)
     assert out.context_mode == "fallback"
     blob = llm.blob()
-    assert '"node_properties"' in blob and '"relationship_properties"' in blob
+    assert gctx.load_structure() in blob and FALLBACK_PROPERTIES in blob
+    assert "node_properties" not in blob
     for value in COMMITTED_VOCABULARY:
         assert value not in blob, value
 
@@ -187,7 +215,7 @@ def test_a_failed_type_detail_read_falls_back_for_the_whole_turn(monkeypatch, li
     llm = FakeLLM("MATCH (s:Sample) RETURN count(*) AS n")
     out = run(monkeypatch, llm, entity={"sampletypes": [{"code": "TIS"}]})
     assert out.context_mode == "fallback"
-    assert '"node_properties"' in llm.blob()
+    assert FALLBACK_PROPERTIES in llm.blob()
 
 
 def test_an_unexpected_catalog_error_falls_back(monkeypatch, live):
@@ -240,6 +268,9 @@ def test_an_attribute_the_type_lacks_is_repaired_once_then_refused(monkeypatch, 
     out = run(monkeypatch, llm)
     assert len(llm.calls) == 2
     assert "TIS.Sequencer" in llm.calls[1]["messages"][-1]["content"]
+    # T2: the repair call reuses the list, so the schema head keeps its cache point (test_graph_prompt_cache.py).
+    assert llm.calls[1]["messages"][1].get("cache_point") == "1h"
+    assert llm.calls[1]["messages"][1]["content"].startswith("GRAPH SCHEMA (")
     assert out.cypher == ""
     assert "TIS.Sequencer" in out.explanation
     assert out.context_mode == "catalog"
@@ -351,16 +382,10 @@ def _system_config(scope=ADMIN):
 
 
 def _system_schema_block(monkeypatch, scope=ADMIN):
-    seen = {}
-
-    def fake(**kwargs):
-        seen["messages"] = kwargs["messages"]
-        return SystemAgentOutput(mode="get_capabilities", narrative="ok")
-
-    monkeypatch.setattr(system_mod, "call_llm_structured", fake)
-    system_mod.system_agent(_system_config(scope), "what is a tissue sample", {"sampletypes": [{"code": "TIS"}]},
-                            ParserPlan(mode="system_question"))
-    return next(m["content"] for m in seen["messages"] if m["content"].startswith("GRAPH_SCHEMA"))
+    messages = system_mod.build_messages(_system_config(scope), "what is a tissue sample",
+                                         {"sampletypes": [{"code": "TIS"}]},
+                                         ParserPlan(mode="system_question").model_dump())
+    return next(m["content"] for m in messages if m["content"].startswith("GRAPH_SCHEMA"))
 
 
 def test_the_system_agent_sends_the_rendering_when_the_catalog_is_live(monkeypatch, live):
@@ -454,11 +479,24 @@ def test_the_schema_snapshot_falls_back_loudly_when_the_graph_is_down(down):
     assert out["fallback_fetched_at"] == "2026-08-21T00:00:00Z", (
         "how stale the committed file is must be in the answer, not left to be guessed"
     )
-    assert '"node_properties"' in out["schema"]
+    assert out["schema"].startswith(gctx.load_structure()) and FALLBACK_PROPERTIES in out["schema"]
+    assert "node_properties" not in out["schema"]
     assert out["resolved_types"] == []
     assert out["unknown_types"] == ["TIS"]
     assert "Old protocol" in out["vocabulary"]
-    assert "FallbackOnly" in out["schema"]
+    # An admin's fallback keeps the committed titles, gated as live (SCH-F13): the project and investigation titles
+    # always, the study titles only on a study word.
+    assert '"FallbackOnly"' in out["vocabulary"] and '"FallbackProject"' in out["vocabulary"]
+    assert "FallbackStudy" not in out["vocabulary"], "no study word"
+
+
+def test_an_unavailable_catalog_sends_an_admin_the_study_titles_on_a_study_word(monkeypatch, down):
+    question = "which study holds these samples"
+    llm = FakeLLM("MATCH (s:Sample) RETURN count(*) AS n")
+    run(monkeypatch, llm, query=question)
+    assert 'STUDY TITLES (Study.title):\n"FallbackStudy"' in llm.blob()
+    out = graph_mod.graph_schema_snapshot(_config(), question=question)
+    assert 'STUDY TITLES (Study.title):\n"FallbackStudy"' in out["vocabulary"]
 
 
 @pytest.mark.parametrize("scope", list(NOT_ADMIN.values()), ids=list(NOT_ADMIN))
@@ -466,7 +504,7 @@ def test_the_schema_snapshot_fallback_sends_a_non_admin_the_committed_structure_
     out = graph_mod.graph_schema_snapshot(_config(scope), types=["TIS"], question="which study, protocol and assay")
     assert out["source"] == graph_mod.CONTEXT_FALLBACK
     assert out["fallback_fetched_at"] == "2026-08-21T00:00:00Z"
-    assert '"node_properties"' in out["schema"]
+    assert out["schema"].startswith(gctx.load_structure()) and FALLBACK_PROPERTIES in out["schema"]
     assert out["vocabulary"] == ""
     for value in COMMITTED_VOCABULARY:
         assert value not in json.dumps(out), value
@@ -487,3 +525,32 @@ def test_the_schema_snapshot_is_exported_as_portable():
 
     assert portable.graph_schema_snapshot is graph_mod.graph_schema_snapshot
     assert "graph_schema_snapshot" in portable.__all__
+
+
+# --- graph schema 1.3: the live turn, the graph-schema op and the MCP resource read the Assay section ---------------
+
+
+def test_the_schema_snapshot_of_a_13_graph_carries_the_assay_section(monkeypatch, live):
+    monkeypatch.setattr(gcat, "get_snapshot", lambda config: dataclasses.replace(SNAPSHOT, schema_version="1.3"))
+    out = graph_mod.graph_schema_snapshot(_config(), types=["TIS"])
+    assert out["schema_version"] == "1.3"
+    assert out["schema"].startswith(gctx.structure_for(None, "1.3") + "\n\n")
+
+
+def test_the_live_schema_header_names_a_13_graphs_version(monkeypatch, live):
+    monkeypatch.setattr(gcat, "get_snapshot", lambda config: dataclasses.replace(SNAPSHOT, schema_version="1.3"))
+    llm = FakeLLM(GOOD)
+    run(monkeypatch, llm, entity={"sampletypes": [{"code": "TIS"}]})
+    schema = llm.calls[0]["messages"][1]["content"]
+    assert schema.splitlines()[0].startswith("GRAPH SCHEMA (v1.3 structure, ")
+    assert schema.splitlines()[1] == "# NExtSEEK graph schema v1.3, for writing read-only Cypher"
+    assert gctx.load_assay_structure() in schema
+
+
+def test_the_mcp_neo4j_schema_resource_on_a_13_graph(monkeypatch, tmp_path):
+    server = _mcp_server()
+    (tmp_path / "neo4j_schema.json").write_text('{"from": "the committed file"}', encoding="utf-8")
+    monkeypatch.setattr(server, "_cfg", lambda: SimpleNamespace(CONTEXT_DIR=str(tmp_path)))
+    monkeypatch.setattr(gcat, "get_snapshot", lambda config: dataclasses.replace(SNAPSHOT, schema_version="1.3"))
+    text = server.context_resource("neo4j-schema")
+    assert text.startswith(gctx.structure_for(None, "1.3") + "\n\n" + gctx.render_type_index(SNAPSHOT.index))

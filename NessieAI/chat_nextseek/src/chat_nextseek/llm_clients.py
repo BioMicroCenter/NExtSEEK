@@ -5,8 +5,10 @@ Lightweight provider adapters so agents can call OpenAI, GCP Gemini, or Anthropi
 without changing prompts or core logic.
 """
 
+import base64
 import dataclasses
 import inspect
+import re
 from typing import Any, List
 
 __all__ = [
@@ -15,6 +17,7 @@ __all__ = [
     "LLMAPIConnectionError",
     "LLMTimeoutError",
     "LLMServiceUnavailableError",
+    "LLMModelUnusableError",
     "LLMStructuredUnsupportedError",
     "LLMFatalError",
     "LLMResponse",
@@ -23,6 +26,9 @@ __all__ = [
     "GeminiClient",
     "AnthropicClient",
     "BedrockClient",
+    "ModelTraits",
+    "model_traits",
+    "without_reasoning_blocks",
     "pydantic_to_tool_schema",
     "build_llm_client",
 ]
@@ -49,10 +55,31 @@ class LLMFatalError(BaseException):
     Inherits from BaseException (not Exception) so it bypasses all bare 'except Exception'
     handlers in agent code and propagates straight to the orchestrator.
     Set by: rate limits (429) after all retries, and unclassified bare LLMError.
+
+    ``unavailable`` is True when the call ended because the models did not answer (a 5xx,
+    an empty body, a 429, a timeout or a connection error, on the one provider move as
+    well when there was one), and False for anything else (a bare 400). The orchestrator
+    tells the user a different thing for each. ``model_fallback`` lists the provider
+    move the call made before it gave up, as ``{"agent", "from", "to", "reason"}``
+    items; it is empty when no second model was tried. ``reason`` names the failure that
+    ended the call, as the ladder's ``FALLBACK_REASONS`` spell it (``timeout`` for both
+    models timing out, ``unavailable``, ``rate_limited``, ...), or None when it was not a
+    model failure the ladder classifies (a 400).
     """
-    def __init__(self, message: str, *, agent: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        agent: str | None = None,
+        unavailable: bool = False,
+        model_fallback: list[dict] | None = None,
+        reason: str | None = None,
+    ):
         super().__init__(message)
         self.agent = agent
+        self.unavailable = bool(unavailable)
+        self.model_fallback = list(model_fallback or [])
+        self.reason = reason
 
 
 class LLMStructuredUnsupportedError(LLMError):
@@ -69,6 +96,20 @@ class LLMServiceUnavailableError(LLMError):
     """Raised on 5xx / service temporarily unavailable or overloaded — triggers provider fallback.
     Covers: 500 Internal Server Error, 502 Bad Gateway, 503 Unavailable, 504 Gateway Timeout,
     and provider-specific equivalents (ModelNotReadyException, InternalServerException, etc.)
+    """
+
+
+class LLMModelUnusableError(LLMServiceUnavailableError):
+    """The provider refused the model itself, so the request never ran.
+
+    Bedrock's ``ResourceNotFoundException`` (a retired model), ``AccessDeniedException``
+    (a model this account may not use) and a ``ValidationException`` about the model id
+    (invalid, not supported, not enabled); Gemini's 404 ``NOT_FOUND`` or "no longer
+    available" (since 2026-09-28; it used to read as a plain 5xx). Another model may well answer the same request,
+    so the recovery ladder moves on it once, like a 5xx, and records the reason
+    ``model_unusable`` (operator ruling 2026-09-25, F1). Before, the forced tool call let
+    these leave the ladder as a raw ``ClientError`` and the plain call made them a bare
+    ``LLMError``: neither moved.
     """
 
 
@@ -181,6 +222,61 @@ class OpenAIClient(BaseLLMClient):
         )
 
 
+def _is_gemini_rate_limit(exc: BaseException, msg: str) -> bool:
+    """A 429 from google-genai: ``APIError.code`` when the SDK set one, else the status text."""
+    if getattr(exc, "code", None) == 429:
+        return True
+    head = msg.lstrip()
+    return head.startswith("429") or "RESOURCE_EXHAUSTED" in msg.upper()
+
+
+def _gemini_transport_error(exc: BaseException) -> LLMError | None:
+    """The typed error for an httpx transport failure under google-genai, or None.
+
+    google-genai re-raises httpx's own exceptions (its retry policy reraises), and they
+    used to fall through to a bare ``LLMError``, which the ladder treats as an
+    unrecoverable 400: a Gemini stall or a dropped connection ended the turn without a
+    move. A timeout (``httpx.TimeoutException`` and its subclasses) is a timeout; a
+    network error or a server that hung up without a response is a connection error.
+    An HTTP error response is never an httpx transport error, so a real 4xx is left to
+    the handling below.
+    """
+    try:
+        import httpx
+    except ImportError:  # pragma: no cover - google-genai depends on httpx
+        return None
+    if isinstance(exc, httpx.TimeoutException):
+        return LLMTimeoutError(f"Gemini {type(exc).__name__}: {exc}")
+    if isinstance(exc, (httpx.NetworkError, httpx.RemoteProtocolError)):
+        return LLMAPIConnectionError(f"Gemini {type(exc).__name__}: {exc}")
+    return None
+
+
+def _bedrock_transport_error(exc: BaseException) -> LLMError | None:
+    """The typed error for a botocore transport failure, or None when it is not one.
+
+    boto3 raises these outside ``ClientError`` (no HTTP response ever came back), so
+    before, ``chat`` wrapped them into a bare ``LLMError``, which the ladder treats as an
+    unrecoverable 400, and ``chat_with_tools`` let them escape untyped. A read or
+    connect timeout is a timeout and a closed or refused connection is a connection
+    error, both of which move to the next provider (operator ruling 2026-09-25).
+    """
+    try:
+        from botocore.exceptions import (
+            ConnectionError as BotoConnectionError,
+            ConnectTimeoutError,
+            HTTPClientError,
+            ReadTimeoutError,
+        )
+    except ImportError:  # pragma: no cover - boto3 is a dependency of this client
+        return None
+    if isinstance(exc, (ReadTimeoutError, ConnectTimeoutError)):
+        return LLMTimeoutError(f"Bedrock {type(exc).__name__}: {exc}")
+    if isinstance(exc, (BotoConnectionError, HTTPClientError)):
+        return LLMAPIConnectionError(f"Bedrock {type(exc).__name__}: {exc}")
+    return None
+
+
 class GeminiClient(BaseLLMClient):
     provider = "gcp"
 
@@ -240,11 +336,15 @@ class GeminiClient(BaseLLMClient):
                 f"({len(messages)} message(s), all system)"
             )
 
-        generation_config: dict[str, Any] = {"system_instruction": system_instruction, "temperature": temperature}
+        # No temperature, top_p, top_k or thinking_budget: Gemini 3 ignores the sampling fields
+        # (deprecated 2026-07-21) and later models answer 400 to all four (Google notice, 2026-10-06).
+        # `temperature` stays in the signature for the other providers' callers.
+        generation_config: dict[str, Any] = {"system_instruction": system_instruction}
         if isinstance(response_format, dict) and response_format.get("type") == "json_object":
             generation_config["response_mime_type"] = "application/json"
         if thinking_budget is not None:
-            generation_config["thinking_config"] = {"thinking_budget": thinking_budget}
+            # A level, not a token budget: the catalog's level is sent as it is.
+            generation_config["thinking_config"] = {"thinking_level": _BUDGET_TO_EFFORT.get(thinking_budget, "high")}
 
         try:
             resp = self.client.models.generate_content(
@@ -253,8 +353,24 @@ class GeminiClient(BaseLLMClient):
                 config = generation_config
             )
         except Exception as e:
+            # A transport failure first: no HTTP response came back, so nothing below
+            # (a status code, a 4xx) applies, and a timeout's text can hold "504".
+            transport = _gemini_transport_error(e)
+            if transport is not None:
+                raise transport from e
             msg = str(e)
             etype = type(e).__name__
+            # A 429 that reaches here has survived the SDK's own retries (HttpRetryOptions
+            # above), and used to fall through to a bare LLMError that ended the turn. It
+            # is checked first, by its code: a quota message can quote a limit such as
+            # 500, which the status-code scan below would read as a 5xx.
+            if _is_gemini_rate_limit(e, msg):
+                raise LLMRateLimitError(msg) from e
+            # A model id the API does not know, by its code: another model may answer, so it
+            # moves like a Bedrock refusal and is recorded model_unusable (D10, 2026-09-28), so
+            # a wrong id shows as the id's fault rather than as the provider being down.
+            if getattr(e, "code", None) == 404:
+                raise LLMModelUnusableError(msg) from e
             # Typed exceptions from google-api-core / google-genai
             _GCP_TRANSIENT = ("ServiceUnavailable", "InternalServerError", "BadGateway", "GatewayTimeout", "DeadlineExceeded")
             if any(t in etype for t in _GCP_TRANSIENT):
@@ -262,9 +378,9 @@ class GeminiClient(BaseLLMClient):
             # Fallback: HTTP status codes in the error message
             if any(code in msg for code in ("500", "502", "503", "504")) or "UNAVAILABLE" in msg.upper():
                 raise LLMServiceUnavailableError(msg) from e
-            # 404 model-not-found / deprecated: treat as recoverable so the provider chain takes over
+            # 404 model-not-found / retired, known only by its text: the refused model again.
             if "404" in msg or "NOT_FOUND" in msg.upper() or "no longer available" in msg.lower():
-                raise LLMServiceUnavailableError(msg) from e
+                raise LLMModelUnusableError(msg) from e
             raise LLMError(msg) from e
 
         text = ""
@@ -284,6 +400,11 @@ class GeminiClient(BaseLLMClient):
                     "prompt_tokens": prompt,
                     "completion_tokens": completion,
                     "total_tokens": total if total is not None else None,
+                    # Priced by chat_nextseek.model_prices: thinking is billed as output
+                    # and is NOT inside candidates_token_count; the cached part of the
+                    # prompt is inside prompt_token_count and billed at the cache rate.
+                    "thoughts_tokens": getattr(meta, "thoughts_token_count", None),
+                    "cached_tokens": getattr(meta, "cached_content_token_count", None),
                 }
         except Exception:
             pass
@@ -469,13 +590,59 @@ def _is_schema_rejection(message: str) -> bool:
     )
 
 
-def _converse_usage(resp: dict) -> dict | None:
-    """Token counts from a Converse response, including the two cache fields.
+# The Bedrock error codes that refuse the model itself rather than the request.
+_MODEL_UNUSABLE_CODES = ("ResourceNotFoundException", "AccessDeniedException")
+
+# What a ValidationException says when the model id is the problem: "The provided model
+# identifier is invalid.", "Invocation of model ID ... with on-demand throughput isn't
+# supported.", "This action doesn't support the model that you provided.", or a model id
+# that is not supported, enabled or found.
+_MODEL_ID_REJECTION = re.compile(
+    r"model identifier"
+    r"|on-demand throughput"
+    r"|does(?:n't| not) support the model"
+    # Between "model id" and its predicate: no sentence end and no colon, except the one
+    # inside an id's version (``...-v1:0``). A colon or a new sentence starts another
+    # subject ("Model ID X: temperature is not supported"), and that request error must not
+    # move the call.
+    r"|model id\b(?:(?!\.\s)(?:[^:]|:\d)){0,160}?\b(?:invalid|(?:is )?not (?:supported|enabled|found|available)"
+    r"|isn't (?:supported|enabled|available)|does(?:n't| not) exist)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _is_model_id_rejection(message: str) -> bool:
+    """True when a Bedrock ValidationException is about the model id, not the request.
+
+    Bedrock uses one ValidationException code for a bad model id, a schema it will not
+    take (``_is_schema_rejection``, checked first) and a malformed request, so the text
+    tells them apart. "The model returned the following errors" is the model's own
+    validation of the request: the model id worked, so it never counts.
+    """
+    text = (message or "").replace("’", "'")
+    if "the model returned the following errors" in text.lower():
+        return False
+    return bool(_MODEL_ID_REJECTION.search(text))
+
+
+def _bedrock_model_unusable(code: str, message: str) -> bool:
+    """True when a Bedrock ClientError refused the model itself (``LLMModelUnusableError``)."""
+    if code in _MODEL_UNUSABLE_CODES:
+        return True
+    return code == "ValidationException" and _is_model_id_rejection(message)
+
+
+def _converse_usage(resp: dict, cache_ttl: str | None = None) -> dict | None:
+    """Token counts from a Converse response, including the cache fields.
 
     `inputTokens` counts only tokens that were NEITHER read from nor written to the
     cache, so a caller that ignores the cache fields under-reports the real prompt by
     exactly the cached part. Total input is
     `inputTokens + cacheReadInputTokens + cacheWriteInputTokens`.
+
+    A cache write is billed at the rate of its TTL. `cacheDetails`, when Bedrock sends
+    it, splits the writes by TTL; `cache_ttl` is the TTL the request's cache points
+    asked for, recorded so a write Bedrock does not split can still be priced.
     """
     try:
         u = resp.get("usage") or {}
@@ -488,6 +655,15 @@ def _converse_usage(resp: dict) -> dict | None:
             usage["cache_read_tokens"] = u.get("cacheReadInputTokens")
         if u.get("cacheWriteInputTokens") is not None:
             usage["cache_write_tokens"] = u.get("cacheWriteInputTokens")
+        details = u.get("cacheDetails")
+        if isinstance(details, list) and details:
+            for ttl in ("5m", "1h"):
+                usage[f"cache_write_{ttl}_tokens"] = sum(
+                    int(d.get("inputTokens") or 0)
+                    for d in details if isinstance(d, dict) and d.get("ttl") == ttl
+                )
+        if cache_ttl:
+            usage["cache_ttl"] = cache_ttl
         return usage
     except Exception:
         return None
@@ -499,9 +675,10 @@ def _converse_metadata(resp: dict) -> dict | None:
     `stop_reason` is the field that would have named production turn 406's cause; the
     enum now includes `malformed_model_output` and `model_context_window_exceeded`.
 
-    `reasoning_blocks` counts the response's reasoning (thinking) blocks. Both `chat`
-    and `chat_with_tools` drop those blocks from what they return, so this count is the
-    only place a caller can see that the model reasoned before it answered.
+    `reasoning_blocks` counts the response's reasoning (thinking) blocks. `chat` drops
+    those blocks from what it returns and `chat_with_tools` keeps them only for its loop
+    to replay, so this count is where the ledger reads whether the model reasoned
+    (`reasoning_present`).
     """
     try:
         rmeta = resp.get("ResponseMetadata") or {}
@@ -560,6 +737,148 @@ def pydantic_to_tool_schema(model: Any) -> dict:
 
     close(schema)
     return schema
+
+
+@dataclasses.dataclass(frozen=True)
+class ModelTraits:
+    """What a request to one model may carry. See ``model_traits``."""
+
+    #: temperature, top_p and top_k are refused, and so is thinking with budget_tokens: thinking, when on, is
+    #: {"type": "adaptive"} with an effort.
+    adaptive_only: bool = False
+    #: the model thinks even when the request leaves thinking out (Opus 5.5, Fable and Mythos cannot turn it off at
+    #: all), so every request carries an effort and room for the thinking in maxTokens.
+    always_thinks: bool = False
+    #: False when tool_choice "any" or a named tool is refused with a 400.
+    forced_tool_ok: bool = True
+
+
+# A Claude id by family and version, on Bedrock or not: "us.anthropic.claude-opus-5-5",
+# "anthropic.claude-opus-4-5-20251101-v1:0" (a date is never taken for a minor version), "claude-mythos-preview".
+_CLAUDE_ID = re.compile(r"claude-(opus|sonnet|haiku|fable|mythos)(?:-(\d+))?(?:-(\d{1,2}))?(?=$|[-:@.])")
+
+
+def model_traits(model: str | None) -> ModelTraits:
+    """The model's family, by what a request to it may carry.
+
+    From the claude-api reference (Anthropic's current model documentation, "Thinking & Effort" and "Migrating to
+    Claude Opus 5.5", read 2026-09-28):
+
+    * adaptive only: Opus 4.7 and later, Sonnet 5 and later, every Fable and Mythos;
+    * always thinks: Opus 5 and later, Sonnet 5 and later, every Fable and Mythos (Opus 5.5, Fable and Mythos cannot
+      disable it: thinking ``disabled`` and ``budget_tokens`` are 400s at every effort);
+    * refuses a forced tool: Opus 5.5 and later, Sonnet 5.5 and later, Fable 5.1 and later, Mythos 5.1 and later.
+
+    Any id that is not a Claude family gets the plain traits, as every model did before this helper. It replaces
+    the substring test ``"opus-4-7" in model or "mythos" in model``: every id that test matched is still adaptive
+    only, and an Opus 4.7 request is unchanged byte for byte (test_bedrock_opus47_request_pin.py).
+    """
+    text = (model or "").lower()
+    match = _CLAUDE_ID.search(text)
+    if match is None:
+        if "mythos" in text:
+            return ModelTraits(adaptive_only=True, always_thinks=True)
+        return ModelTraits()
+    family = match.group(1)
+    version = (int(match.group(2)), int(match.group(3) or 0)) if match.group(2) else None
+    if family in ("fable", "mythos"):
+        return ModelTraits(adaptive_only=True, always_thinks=True,
+                           forced_tool_ok=version is None or version < (5, 1))
+    if version is None:
+        return ModelTraits()
+    if family == "opus":
+        return ModelTraits(adaptive_only=version >= (4, 7), always_thinks=version >= (5, 0),
+                           forced_tool_ok=version < (5, 5))
+    if family == "sonnet":
+        return ModelTraits(adaptive_only=version >= (5, 0), always_thinks=version >= (5, 0),
+                           forced_tool_ok=version < (5, 5))
+    return ModelTraits()
+
+
+# The catalog's thinking levels reach the client as budgets (ChatConfig._THINKING_BUDGET_MAP); an adaptive request
+# sends the level itself as the effort. An unknown budget is "high", as before.
+_BUDGET_TO_EFFORT = {4000: "low", 8000: "medium", 16000: "high"}
+
+# maxTokens for a model that always thinks, by effort. Its thinking counts against maxTokens, so the 4096 a call
+# with no level used to get could be spent before the answer starts (stop_reason max_tokens, an empty or cut reply,
+# then a move). A higher effort thinks more, so the ceiling rises with it, and it sits above what the call's own
+# wall clock lets it write (Opus 4.7 on this Bedrock path writes about 110 tokens a second, schemas/call_budgets.py:
+# the parser's 50 s is about 5,500 tokens, report_writer's 240 s about 26,000), so the clock, not this, ends a long
+# call. It goes no higher because Bedrock counts maxTokens against the account's tokens-per-minute quota when a
+# request starts.
+_ALWAYS_THINKING_MAX_TOKENS = {"low": 8192, "medium": 16384, "high": 32768}
+
+
+def _always_thinking_fields(thinking_budget: int | None, max_tokens: int) -> tuple[dict, int]:
+    """(additionalModelRequestFields, maxTokens) for a model that always thinks.
+
+    The catalog's level becomes the effort directly; no level is ``low``, the least thinking such a model can do
+    (Opus 5.5's own default is ``medium``). A caller's larger ``max_tokens`` stands.
+    """
+    effort = "low" if thinking_budget is None else _BUDGET_TO_EFFORT.get(thinking_budget, "high")
+    fields = {"thinking": {"type": "adaptive"}, "output_config": {"effort": effort}}
+    return fields, max(max_tokens, _ALWAYS_THINKING_MAX_TOKENS[effort])
+
+
+def _is_forced_tool_choice(choice: str | dict) -> bool:
+    """Whether ``tool_choice`` forces a call ("any", or a named tool), which Opus 5.5 refuses."""
+    normalized = _normalize_tool_choice(choice)
+    return "any" in normalized or "tool" in normalized
+
+
+# A redacted reasoning block's bytes, as text: a pipeline build keeps its history in the chat session, which is JSON.
+_REDACTED_BASE64 = "redactedContentBase64"
+
+
+def _reasoning_block_out(block: dict) -> dict:
+    """A Converse reasoning block as a tool loop keeps it: unchanged, unless it holds bytes.
+
+    ``{"reasoningContent": {"reasoningText": {"text", "signature"}}}`` is plain JSON and is kept as it came.
+    ``{"reasoningContent": {"redactedContent": <bytes>}}`` keeps its bytes as base64 text, which
+    ``_reasoning_block_in`` turns back into the same bytes before the block is sent again.
+    """
+    content = block.get("reasoningContent")
+    if isinstance(content, dict) and isinstance(content.get("redactedContent"), (bytes, bytearray)):
+        return {"reasoningContent": {
+            (_REDACTED_BASE64 if key == "redactedContent" else key):
+                (base64.b64encode(bytes(value)).decode("ascii") if key == "redactedContent" else value)
+            for key, value in content.items()
+        }}
+    return block
+
+
+def _reasoning_block_in(block: dict) -> dict:
+    """The block ``_reasoning_block_out`` kept, as Converse takes it back: the same bytes, the same keys."""
+    content = block.get("reasoningContent")
+    if isinstance(content, dict) and _REDACTED_BASE64 in content:
+        return {"reasoningContent": {
+            ("redactedContent" if key == _REDACTED_BASE64 else key):
+                (base64.b64decode(value) if key == _REDACTED_BASE64 else value)
+            for key, value in content.items()
+        }}
+    return block
+
+
+def _is_reasoning_block(block: Any) -> bool:
+    return isinstance(block, dict) and "type" not in block and "reasoningContent" in block
+
+
+def without_reasoning_blocks(messages: list[dict]) -> list[dict]:
+    """``messages`` with every reasoning block removed; text and tool calls stay. The caller's list is not changed.
+
+    Removing all of them is the documented way to send on a history whose reasoning the receiving request must not
+    or cannot replay (claude-api reference, "Migrating to Claude Fable 5.1 from Claude Fable 5", recovery 1): a
+    model that is not thinking, or a request whose tools differ from the ones the blocks were written under. A turn
+    left with nothing gets the placeholder ``_convert_messages`` uses, because Bedrock refuses an empty turn.
+    """
+    out: list[dict] = []
+    for msg in messages:
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if isinstance(content, list) and any(_is_reasoning_block(b) for b in content):
+            kept = [b for b in content if not _is_reasoning_block(b)]
+            msg = {**msg, "content": kept or [{"text": "(no content)"}]}
+        out.append(msg)
+    return out
 
 
 class BedrockClient(BaseLLMClient):
@@ -647,14 +966,26 @@ class BedrockClient(BaseLLMClient):
             return False
 
     def _convert_messages(self, messages: List[dict]) -> tuple[list[dict], list[dict]]:
-        """Split system messages out; convert the rest to Bedrock Converse format."""
+        """Split system messages out; convert the rest to Bedrock Converse format.
+
+        System messages become one text block. A system message carrying ``cache_point`` (a TTL,
+        "1h") ends the block after it and adds a cache point there: head block (ending with the blank
+        line that joined the parts), cache point, tail block.
+        """
         system_parts: list[str] = []
+        system_blocks: list[dict] = []
         converted: list[dict] = []
         for msg in messages:
             role = (msg.get("role") or "").lower()
             content = msg.get("content") or ""
             if role == "system":
                 system_parts.append(str(content))
+                if msg.get("cache_point"):
+                    # The head block keeps the blank line that separated it from what follows in the
+                    # one-block request, so the model reads the same text however Bedrock joins blocks.
+                    system_blocks.append({"text": "\n\n".join(system_parts) + "\n\n"})
+                    system_blocks.append({"cachePoint": {"type": "default", "ttl": msg["cache_point"]}})
+                    system_parts = []
                 continue
             if role not in ("user", "assistant"):
                 continue
@@ -665,7 +996,8 @@ class BedrockClient(BaseLLMClient):
                 # prior empty response; substitute a placeholder so the block is valid.
                 text = "(no content)"
             converted.append({"role": role, "content": [{"text": text}]})
-        system_blocks = [{"text": "\n\n".join(system_parts)}] if system_parts else []
+        if system_parts:
+            system_blocks.append({"text": "\n\n".join(system_parts)})
         return system_blocks, converted
 
     def chat(
@@ -681,8 +1013,9 @@ class BedrockClient(BaseLLMClient):
         from botocore.exceptions import ClientError
 
         system_blocks, converted = self._convert_messages(messages)
-        # Opus 4.7 / Mythos: adaptive thinking only; temperature/top_p/top_k forbidden.
-        is_adaptive_only = "opus-4-7" in model or "mythos" in model
+        # Opus 4.7 and later, Fable, Mythos: adaptive thinking only; temperature/top_p/top_k forbidden.
+        traits = model_traits(model)
+        is_adaptive_only = traits.adaptive_only
         inference_config: dict[str, Any] = {"maxTokens": self.max_output_tokens}
         if not is_adaptive_only:
             # Extended thinking on older models requires temperature=1.
@@ -694,9 +1027,12 @@ class BedrockClient(BaseLLMClient):
         }
         if system_blocks:
             kwargs["system"] = system_blocks
-        if thinking_budget is not None:
+        if traits.always_thinks:
+            # Opus 5.5 and the like think on every call: always an explicit effort, and room for the thinking.
+            kwargs["additionalModelRequestFields"], inference_config["maxTokens"] = _always_thinking_fields(
+                thinking_budget, self.max_output_tokens)
+        elif thinking_budget is not None:
             if is_adaptive_only:
-                _BUDGET_TO_EFFORT = {4000: "low", 8000: "medium", 16000: "high"}
                 effort = _BUDGET_TO_EFFORT.get(thinking_budget, "high")
                 kwargs["additionalModelRequestFields"] = {
                     "thinking": {"type": "adaptive"},
@@ -716,8 +1052,22 @@ class BedrockClient(BaseLLMClient):
                 # max_tokens must cover thinking tokens + text output tokens
                 kwargs["inferenceConfig"]["maxTokens"] = max(self.max_output_tokens, thinking_budget + 2048)
 
+        # The TTL of the request's cache point, if the messages carried one (recorded on the usage).
+        cache_ttl = next((b["cachePoint"].get("ttl") for b in system_blocks if "cachePoint" in b), None)
         try:
-            resp = self.client.converse(**kwargs)
+            try:
+                resp = self.client.converse(**kwargs)
+            except ClientError as e:
+                # A 400 that names the cache point: send the same call once as the plain one-block
+                # request. Any other 400, or a second failure, goes the way it always did.
+                err = e.response.get("Error") or {}
+                if not (cache_ttl and err.get("Code") == "ValidationException"
+                        and re.search(r"cache ?point", str(e), re.IGNORECASE)):
+                    raise
+                print(f"[BEDROCK] model='{model}' refused the cache point, retrying without it: {e}")
+                kwargs["system"] = [{"text": "".join(b["text"] for b in system_blocks if "text" in b)}]
+                cache_ttl = None
+                resp = self.client.converse(**kwargs)
         except ClientError as e:
             code = e.response["Error"]["Code"]
             if code == "ThrottlingException":
@@ -732,8 +1082,13 @@ class BedrockClient(BaseLLMClient):
                 "ModelErrorException",
             ):
                 raise LLMServiceUnavailableError(str(e)) from e
+            if _bedrock_model_unusable(code, str(e)):
+                raise LLMModelUnusableError(str(e)) from e
             raise LLMError(str(e)) from e
         except Exception as e:
+            transport = _bedrock_transport_error(e)
+            if transport is not None:
+                raise transport from e
             msg = str(e)
             if any(code in msg for code in ("500", "502", "503", "504")) or "service unavailable" in msg.lower():
                 raise LLMServiceUnavailableError(msg) from e
@@ -749,7 +1104,7 @@ class BedrockClient(BaseLLMClient):
 
         usage = None
         try:
-            usage = _converse_usage(resp)
+            usage = _converse_usage(resp, cache_ttl=cache_ttl)
         except Exception:
             pass
 
@@ -774,9 +1129,9 @@ class BedrockClient(BaseLLMClient):
         """
         if not isinstance(block, dict):
             return block
-        # Already Bedrock-shaped — pass through.
+        # Already Bedrock-shaped: pass through (a kept reasoning block gets its bytes back, if it had any).
         if "type" not in block:
-            return block
+            return _reasoning_block_in(block) if "reasoningContent" in block else block
         btype = block["type"]
         if btype == "text":
             return {"text": block.get("text", "")}
@@ -848,9 +1203,28 @@ class BedrockClient(BaseLLMClient):
         Returns:
             ``{"stop_reason": str, "content": [content blocks]}`` where content
             blocks are anthropic-style: ``{"type": "text", "text": "..."}`` or
-            ``{"type": "tool_use", "id": str, "name": str, "input": dict}``.
+            ``{"type": "tool_use", "id": str, "name": str, "input": dict}``, and
+            the model's reasoning blocks in their Converse shape
+            (``{"reasoningContent": ...}``, no ``type``), in the order the model
+            wrote them, so a loop that appends ``content`` as the assistant turn
+            replays them unchanged (``_reasoning_block_out``).
+
+        A request that carries no thinking (no ``thinking_budget``, and a model
+        that does not always think) is sent its history without reasoning
+        blocks (``without_reasoning_blocks``): after a move, a tool loop's later
+        steps send the fallback a history an always-thinking model wrote.
+
+        A forced ``tool_choice`` ("any" or a tool name) asked of a model that
+        refuses one (``model_traits``) raises ``LLMStructuredUnsupportedError``
+        before any request is sent.
         """
         from botocore.exceptions import ClientError
+
+        traits = model_traits(model)
+        if tools and tool_choice is not None and not traits.forced_tool_ok and _is_forced_tool_choice(tool_choice):
+            raise LLMStructuredUnsupportedError(
+                f"model '{model}' refuses a forced tool_choice ({tool_choice!r}); not sent"
+            )
 
         # Translate messages: wrap plain-string content into [{"text": ...}] blocks,
         # and translate anthropic-native content blocks to Bedrock Converse shape.
@@ -858,12 +1232,23 @@ class BedrockClient(BaseLLMClient):
         for msg in messages:
             content = msg.get("content")
             if isinstance(content, str):
-                converse_messages.append({"role": msg["role"], "content": [{"text": content}]})
+                blocks = [{"text": content}]
             elif isinstance(content, list):
-                translated = [self._anthropic_block_to_converse(b) for b in content]
-                converse_messages.append({"role": msg["role"], "content": translated})
+                blocks = [self._anthropic_block_to_converse(b) for b in content]
             else:
                 raise ValueError(f"Unsupported message content type: {type(content).__name__}")
+            if converse_messages and converse_messages[-1]["role"] == msg["role"]:
+                # Converse rejects two turns of one role in a row (a tool_result turn then a user text turn).
+                converse_messages[-1]["content"] += blocks
+            else:
+                converse_messages.append({"role": msg["role"], "content": blocks})
+        if not (traits.always_thinks or thinking_budget is not None):
+            # A model that is not thinking is not handed another model's reasoning (an Opus 5.5 step's blocks
+            # sent on to a Sonnet 4.6 or older). Removing every reasoning block is the documented way to send such
+            # a history on; the text and tool calls stay. Sonnet 5.5 always thinks, so a tool loop moved to it
+            # keeps Opus 5.5's blocks in the request: the documentation says the API drops what the target cannot
+            # read; not yet proven on Converse (a one-call check on dev).
+            converse_messages = without_reasoning_blocks(converse_messages)
 
         # Translate tools: anthropic-style -> Bedrock toolConfig shape.
         tool_specs: list[dict] = []
@@ -895,8 +1280,8 @@ class BedrockClient(BaseLLMClient):
             if system_blocks:
                 system_blocks.append(dict(cache_block))
 
-        # Opus 4.7 / Mythos forbid temperature/top_p/top_k.
-        is_adaptive_only = "opus-4-7" in model or "mythos" in model
+        # Opus 4.7 and later, Fable, Mythos forbid temperature/top_p/top_k.
+        is_adaptive_only = traits.adaptive_only
         inference_config: dict[str, Any] = {"maxTokens": max_tokens or self.max_output_tokens}
         if not is_adaptive_only:
             inference_config["temperature"] = temperature
@@ -906,13 +1291,16 @@ class BedrockClient(BaseLLMClient):
             "system": system_blocks,
             "inferenceConfig": inference_config,
         }
-        if thinking_budget is not None:
+        if traits.always_thinks:
+            # Opus 5.5 and the like think on every step: always an explicit effort, and room for the thinking.
+            kwargs["additionalModelRequestFields"], inference_config["maxTokens"] = _always_thinking_fields(
+                thinking_budget, max_tokens or self.max_output_tokens)
+        elif thinking_budget is not None:
             # Same translation `chat` does. Adaptive thinking auto-enables interleaved
             # thinking, so a tool loop keeps reasoning between calls; the headroom on
             # maxTokens is what stops the model spending the whole budget thinking and
             # returning nothing.
             if is_adaptive_only:
-                _BUDGET_TO_EFFORT = {4000: "low", 8000: "medium", 16000: "high"}
                 kwargs["additionalModelRequestFields"] = {
                     "thinking": {"type": "adaptive"},
                     "output_config": {"effort": _BUDGET_TO_EFFORT.get(thinking_budget, "high")},
@@ -954,7 +1342,16 @@ class BedrockClient(BaseLLMClient):
                 # without one. Distinct from a 503 on purpose: failing over to another
                 # provider would be the wrong move, and so would killing the turn.
                 raise LLMStructuredUnsupportedError(str(e)) from e
+            if _bedrock_model_unusable(code, str(e)):
+                # The model id is refused (unknown, retired, or not enabled for this
+                # account): another model may answer, so the ladder moves on it.
+                raise LLMModelUnusableError(str(e)) from e
             raise   # unknown ClientError propagates
+        except Exception as e:
+            transport = _bedrock_transport_error(e)
+            if transport is not None:
+                raise transport from e
+            raise
 
         # Normalize the Converse response to anthropic-style content blocks.
         stop_reason = resp.get("stopReason", "end_turn")
@@ -971,6 +1368,11 @@ class BedrockClient(BaseLLMClient):
                     "name": tu["name"],
                     "input": tu.get("input", {}),
                 })
+            elif "reasoningContent" in block:
+                # Kept, in place and with its signature: an always-thinking model's tool loop must send the
+                # step's reasoning back unchanged with its tool call. Callers read blocks by ``type``, which
+                # this block has none of, so nothing that reads text or tool calls sees it.
+                normalized.append(_reasoning_block_out(block))
             # Other block types (image, document, etc.) ignored for now.
 
         # usage and metadata used to be dropped here, so the pipeline agent — the one
@@ -980,7 +1382,7 @@ class BedrockClient(BaseLLMClient):
         return {
             "stop_reason": stop_reason,
             "content": normalized,
-            "usage": _converse_usage(resp),
+            "usage": _converse_usage(resp, cache_ttl=cache_ttl if cache_prompt else None),
             "metadata": _converse_metadata(resp),
         }
 
@@ -1013,6 +1415,11 @@ class BedrockClient(BaseLLMClient):
         parsed the free-text reply and nothing downstream changes. `strict=True` adds
         Bedrock's grammar-level guarantee but only some models accept it (Claude Sonnet
         4.5/4.6, Haiku 4.5, Opus 4.5/4.6; NOT Opus 4.7), so it stays opt-in.
+
+        A model that refuses a forced tool (Opus 5.5, ``model_traits``) gets no request:
+        this raises ``LLMStructuredUnsupportedError`` at once, the error the structured
+        path already answers with the plain JSON request. ``schema_helper`` does not
+        call this for such a model at all.
         """
         import json as _json
 

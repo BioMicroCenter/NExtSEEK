@@ -24,14 +24,6 @@ Three rendered pages carried seven controls between them.
 | b | Simple tab grid → `simple_downloadSamples` | Yes/No prompt. Yes → `/seek/admin/retrieve/`; No → `/seek/samples/download/` |
 | c | Advanced tab grid → `downloadSamples0` | Always `/seek/admin/retrieve/` |
 
-**`/seek/newsearch/` → `newSearch.html`** (`newSearch` in `seek/views/search.py`)
-
-| | Control | Went to |
-|---|---|---|
-| d | Simple grid → `downloadSamples` | `POST /seek/samples/download/`, `includeSampleTree=0` |
-| e | Advanced grid → same function | same |
-| f | Retrieval form | `POST /nextseek_api/admin/samples/retrieve/` |
-
 **Sample detail page → `pages/samples.embed.html`** (via `samples.html`, `sample` in `seek/views/samples.py`)
 
 | | Control | Went to |
@@ -74,15 +66,14 @@ The template source implied far more behavior than actually ran.
    `samples_stable.embed.html:107` hardcoded `''`;
    `searchAdvanced_stable.embed.html:67-69` computed `getTreeChecked()` into it
    and then discarded it along with the commented-out POST. **`getTreeChecked`
-   was only ever defined in `searchAdvanced_tree.embed.html`, an orphan** — so on
+   was only ever defined in `searchAdvanced_tree.embed.html`, an orphan (since deleted)** — so on
    the live page it was an undefined function that would have thrown had the
    branch been reachable.
-4. **Orphaned templates.** Nothing includes `searchAdvanced_rtable.embed.html`
-   (download button at `:28`) or `searchAdvanced_tree.embed.html` (`:26`).
-   `sampleSearch.html`'s `render` is commented out in `sampleSearch` (`seek/views/search.py`) and the
-   view redirects to `/seek/search/`; `sampleDeletion.html` has no view at all.
-   Both of those include `samples_stable.embed.html`, so its grid was live only
-   via `searchAdvanced.html`. `samples_stable.embed.html.bk` is a backup file.
+4. **Orphaned templates** (all deleted 2026-10-01): `searchAdvanced_rtable.embed.html`
+   and `searchAdvanced_tree.embed.html` (nothing included them), `sampleSearch.html`
+   (its `render` was commented out and the view redirects to `/seek/search/`),
+   `sampleDeletion.html` (no view) and a `.bk` backup. The `samples_stable.embed.html` grid was live only
+   via `searchAdvanced.html`.
 
 Net: `/seek/samples/download/` was live in three controls (b's "No" branch, d, e),
 all with `includeSampleTree=0` and `attributeFilter=''`.
@@ -112,14 +103,19 @@ Every control now follows one path:
 ```
 control (a…g)
   └─ window.nsDownloadSamples(identifiers, {includeTree})   static/js/ns_sample_download.js:51
-       └─ POST /nextseek_api/admin/samples/retrieve/
+       └─ POST /nextseek_api/samples/retrieve/   (the old /nextseek_api/admin/samples/retrieve/ is an alias)
             {identifiers, output_format: "excel", include_tree}
-            └─ AdminSampleViewSet.admin_retrieve_samples    nextseek_api/views.py:689
-                 ├─ permission_classes = [IsAuthenticated]  nextseek_api/views.py:656
-                 ├─ SeekDB(None, *basic_tuple) → real projects   :740
-                 ├─ include_tree ? getChildrenUIDs (Neo4j)  :807
-                 │                : project-scoped MySQL query
-                 └─ dbs.sampleRetrievalData(df, path)   :945
+            └─ SampleRetrieveViewSet.create → handle_retrieve    nextseek_api/services/sample_retrieve.py
+                 ├─ permission_classes = [IsAuthenticated]; Basic or session only
+                 ├─ resolve_scope → the caller's projects from MySQL (superuser: unscoped)
+                 ├─ retrieve_samples
+                 │    ├─ UIDs → ids through the graph's uuid index, verified in MySQL
+                 │    │    (SEEK's samples.uuid has no index; a UID the graph misses is read by uuid)
+                 │    ├─ requested samples in the caller's projects are always exported
+                 │    ├─ include_tree ? one bounded Neo4j walk: every ancestor and descendant
+                 │    │    (graph down, slow or behind → lineage_complete false, never a 500)
+                 │    └─ rows by primary key, in chunks, in the caller's projects only
+                 └─ DBtable_sample.sampleRetrievalData(df, path, notice)
                       └─ write_samples_workbook(...)  nextseek_api/services/sample_workbook.py:428
                            ├─ lineage first, because the sheet order comes from it
                            │    (load_derivation_hops :218 → derivation_edges,
@@ -240,9 +236,9 @@ the reader's way) — parks each needed vocabulary in its own column, and
 every governed column on a sample-type tab gets an Excel dropdown pointing at
 it. The terms need a real sheet because Excel caps an inline dropdown formula at
 255 characters. Which columns are governed, and by what, is data:
-`nextseek_api/services/controlled_vocabularies.json`, whose `variants` block
-also records which observed spellings each canonical term absorbs and the
-production row count that judgement rested on.
+`nextseek_api/services/controlled_vocabularies.json`, which is generated
+from the house ontology files (`python -m NessieAI.build_tools.gen_house_vocabularies`);
+their `SYNONYMS` record which spellings each term absorbs.
 
 **The dropdowns warn; they never reject.** `errorStyle` is `"warning"`, not
 `"stop"`, because downloaded data already contains values that predate these
@@ -308,11 +304,6 @@ The datagrids render the `uid` column as an anchor, so `row.uid` is markup like
 `nsExtractUid` (`static/js/ns_sample_download.js:103`), used by
 `nsCollectSelectedUids`.
 
-The two `newSearch.html` grids are different again: they select via
-`getSelections()` rather than a `ck` column, and their UID column is named
-`uuid`. They send numeric `s.id`, which the endpoint resolves to UUIDs.
-`nsCollectSelectedUids` does **not** apply to them.
-
 ### Not a download: "Export samples to Import"
 
 `simple_downloadSamples` used to be overloaded on its `url_download` argument, so
@@ -336,7 +327,7 @@ rather than shipping a broken button.
 
 No export is written under `MEDIA_ROOT`, the tree `/media/` serves from (`dmac/media.py`: a
 login, and only the legacy data-file tree). The two retrieve endpoints
-(`AdminSampleViewSet.admin_retrieve_samples` and `adminRetrieveSamples`) write a private
+(`handle_retrieve` behind `samples/retrieve/` and `adminRetrieveSamples`) write a private
 temporary file, answer with its bytes and remove it. The legacy views that answer with a
 `link` (`sampleDownload`, `sampleExport`, `sampleFindAjax`, `sampleDelete`), and the sample
 upload page for its feedback workbook (`sampleUploadAjax`), write into the private store in
@@ -350,7 +341,8 @@ and, for anyone but a superuser, read only the caller's samples, lineage include
   `ca1c9d9b` (issue #74). `dmac/views.py:80,97` set `is_staff = 1` on every SEEK
   user at login, so `or is_staff` made project scope a no-op for everyone and
   handed every authenticated account the unfiltered branch of `getChildrenUIDs`.
-  The predicate is now `is_superuser` alone (`nextseek_api/views.py:747-754`),
+  The predicate is now `is_superuser` alone (`resolve_scope` in
+  `nextseek_api/graph_search/scope.py`, which the download API uses),
   matching the legacy path it mirrors (`adminRetrieveSamples` in `seek/views/admin.py`, `verifySuperUser`).
   Kept here rather than deleted: this section records what was knowingly
   deferred, and this entry is the reason it stopped being deferred.
@@ -361,24 +353,16 @@ and, for anyone but a superuser, read only the caller's samples, lineage include
 - **The orphaned templates.** Nothing renders them.
 - **`attributeFilter`.** Not ported — dead at every call site.
 
-## Seed gap
+## Seed gap (closed 2026-10-05)
 
-Production's `dmac` has `sample_types_context`, `assay_context` and
-`projects_context`. Only `sample_types_context` was added to
-`startup/seed/dmac.sql.gz` (101 rows), because at the time only it was needed
-for the README. `assay_context` and `projects_context` remain a seed/production
-divergence and will bite whoever next depends on them.
-
-`sample_attributes_unique` is a fourth gap, and a different one: the README's
-per-column meanings *do* need it, but it could not be folded into the seed here
-because `./startup.sh dump-db` requires maintainer credentials for a remote host
-and regenerates all three seed dumps together. The dump therefore still does not
-carry the table — but the gap no longer reaches a fresh install, because
-`startup/steps/schema_fixups.py` registers `dmac.sample_attributes_unique` as a
-`MissingTable` and install runs its DDL
-(`startup/seed/sql/sample_attributes_unique.sql`) whenever it is absent. The same
-hook heals an existing install on its next run. An instance that is running and
-not about to be reinstalled — production — still takes that DDL by hand. If the
+The 2026-10-05 seed refresh (`startup/seed/README.md`) carries all four context
+tables in `startup/seed/dmac.sql.gz`: `sample_types_context`, `assay_context`,
+`projects_context` and `sample_attributes_unique`, as dev held them. The install
+hook stays: `startup/steps/schema_fixups.py` registers
+`dmac.sample_attributes_unique` as a `MissingTable` and runs its DDL
+(`startup/seed/sql/sample_attributes_unique.sql`) whenever it is absent, which
+heals an install made from an older seed. An instance that is running and not
+about to be reinstalled — production — still takes that DDL by hand. If the
 table is missing anyway, the loader renders meanings blank by design rather than
 failing.
 

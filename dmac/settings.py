@@ -16,6 +16,10 @@ NEXTSEEK_POSTERIOR_ROUTING_ENABLED = (
     (os.getenv("NEXTSEEK_POSTERIOR_ROUTING_ENABLED") or "").strip().lower()
     in ("1", "true", "yes", "on")
 )
+# Container-CC ops road (approach 1, piece 2): "direct", the default, sends the op tools straight to the assistant
+# endpoints with the turn pass; "sidecar" keeps the WebSocket sidecar for one release, as the rollback. Django puts
+# this value into every Container-CC agent's env (NessieAI/cc/ops_road.py is the one reader).
+NEXTSEEK_CC_OPS_ROAD = (os.getenv("NEXTSEEK_CC_OPS_ROAD") or "direct").strip().lower()
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 
@@ -24,6 +28,12 @@ SESSION_COOKIE_DOMAIN = os.getenv('DJANGO_SESSION_COOKIE_DOMAIN', None)
 ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '').split(' ')
 
 CSRF_TRUSTED_ORIGINS = os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(' ')
+
+# Hosts whose /sops/<id> URLs index OUR sops table even when this instance is
+# not that host: seeds taken from fairdata-dev carry dev URLs on every instance.
+# Default is dev only; on a box seeded from prod, set FAIRDATA_SOP_HOSTS to
+# "fairdata-dev.mit.edu fairdata.mit.edu" (space-separated) to add the prod host.
+FAIRDATA_SOP_HOSTS = os.getenv("FAIRDATA_SOP_HOSTS", "fairdata-dev.mit.edu").split()
 
 DATABASES = {
     "default": {
@@ -170,7 +180,6 @@ INSTALLED_APPS = (
     "rest_framework",
     "rest_framework.authtoken",
     "dj_rest_auth",
-    "api_app",
     "drf_spectacular",
     "drf_spectacular_sidecar",
     "corsheaders",
@@ -332,6 +341,14 @@ LOGGING = {
             'filename': os.path.join(LOG_DIR, 'django.log'),
             'formatter': 'verbose'
         },
+        # django.log again, WARNING and up only: lets a logger send its warnings there without a logger level,
+        # which would silence its INFO and DEBUG on every other handler too.
+        'logfile_warnings': {
+            'level': 'WARNING',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(LOG_DIR, 'django.log'),
+            'formatter': 'verbose'
+        },
         'seekfile': {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
@@ -359,10 +376,26 @@ LOGGING = {
         'django.utils.autoreload': {
           'level': 'INFO'  
         },
+        # A template variable that does not resolve is logged at DEBUG with a formatted traceback, and the record is
+        # built before any handler can drop it: one {% for %} over a JSON string cost /seek/search/ about 8 s a load.
+        'django.template': {
+            'level': 'INFO',
+        },
         'seek': {
             'handlers':['seekfile'],
             'propagate': True,
             'level':'DEBUG', 
+        },
+        # The SEEK proxy: one `seek_proxy ... latency_ms=` line per SEEK call, and the warnings a create that got no
+        # answer logs. Without these two entries they reached only the root logger, never django.log.
+        'nextseek_api.helpers': {
+            'handlers': ['logfile'],
+            'propagate': True,
+            'level': 'INFO',
+        },
+        'nextseek_api.services': {
+            'handlers': ['logfile_warnings'],
+            'propagate': True,
         },
         'dmac': {
             'handlers':['nextseekfile'],
@@ -374,6 +407,9 @@ LOGGING = {
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        # A Container-CC turn pass (spec piece 1): answers only `Authorization: NextseekTurn`, and refuses any
+        # route outside its allow table before the view runs. First, so a pass is never read as anything else.
+        'nextseek_api.assistant.turn_pass_auth.TurnPassAuthentication',
         'rest_framework.authentication.TokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.BasicAuthentication',
@@ -421,6 +457,7 @@ API_TAG_ORDER = [
     "People",
     "Projects",
     "Samples",
+    "SampleShares",
     "SampleTypes",
     "Schema RAG",
     "SOPs",
@@ -503,8 +540,11 @@ SCHEMA_RAG_DEFAULT_TTL_MINUTES = 15
 SCHEMA_RAG_MAX_ENDPOINTS = 250
 SCHEMA_RAG_MAX_TOP_K = 10
 SCHEMA_RAG_EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
+# The app image bakes the model into SENTENCE_TRANSFORMERS_HOME (Dockerfile, #28).
 if "SCHEMA_RAG_EMBEDDING_MODEL_PATH" not in globals():
-    SCHEMA_RAG_EMBEDDING_MODEL_PATH = os.path.join(BASE_DIR, "schema_rag", "embedding_models")
+    SCHEMA_RAG_EMBEDDING_MODEL_PATH = os.getenv("SENTENCE_TRANSFORMERS_HOME") or os.path.join(
+        BASE_DIR, "schema_rag", "embedding_models"
+    )
 SCHEMA_RAG_EXCLUDED_PATH_PATTERNS = [
     "/schema_rag/",
 ]
@@ -520,6 +560,18 @@ os.makedirs(SCHEMA_RAG_EMBEDDING_MODEL_PATH, exist_ok=True)
 # Maximum total size (in bytes) for all files in a single batch upload request.
 # Default: 200 MB. Override via environment variable.
 BATCH_UPLOAD_MAX_TOTAL_BYTES = int(os.getenv("BATCH_UPLOAD_MAX_TOTAL_BYTES", 200 * 1024 * 1024))
+
+##############################
+# NESSIE TURN SETTINGS       #
+##############################
+
+# The vocabulary pre-run (NessieAI/cc/prerun.py): "on" resolves each question's vocabulary beside the router, "off"
+# does not. When the NS parser starts: "after_route", or "early" (as soon as the vocabulary is in). Env-backed with
+# code defaults, so a box's env file needs nothing; local_settings.py may set either.
+if "NESSIE_VOCAB_PRERUN" not in globals():
+    NESSIE_VOCAB_PRERUN = os.getenv("NESSIE_VOCAB_PRERUN", "on")
+if "NESSIE_PARSER_START" not in globals():
+    NESSIE_PARSER_START = os.getenv("NESSIE_PARSER_START", "after_route")
 
 # NExtSEEK service endpoints + Neo4j.
 #
@@ -547,6 +599,11 @@ SEEK_DATABASE = "seek"
 PROJECT_CONNECTIONS_CACHE_SECONDS = int(
     os.getenv("PROJECT_CONNECTIONS_CACHE_SECONDS", "3600")
 )
+
+# Seconds a sample download's Neo4j lineage lookup may run (nextseek_api/services/sample_workbook.py) before the
+# workbook falls back to Parent and logs a WARNING naming this key. Env-backed; local_settings.py may set it too.
+if "NEO4J_TIMEOUT_SECONDS" not in globals():
+    NEO4J_TIMEOUT_SECONDS = int(os.getenv("NEO4J_TIMEOUT_SECONDS", "5"))
 
 SEEK_PUBLIC_URL = os.getenv("SEEK_PUBLIC_URL", "")
 ACCOUNTS_PROFILE_MODEL = "seek.User_profile"

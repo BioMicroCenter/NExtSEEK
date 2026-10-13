@@ -66,7 +66,7 @@ without an error at the point of the change.
   keys tool exposure off that; a partially configured box silently hands the
   model a build it cannot submit.
 - **This directory owns the context files the CC agent image bakes.** `capabilities.md`,
-  `projects_db.json` and the four `min_*.json` catalogs named by `CANONICAL_CONTEXT_FILES`
+  `projects_db.json`, the three `min_*.json` catalogs and the ontology files (`ONTOLOGIES.json`, `ontology_*.json`) named by `CANONICAL_CONTEXT_FILES`
   in `NessieAI/build_tools/gen_op_surfaces/constants.py` exist only under
   `NessieAI/chat_nextseek/src/chat_nextseek/context/`. The cc-agent Dockerfile COPYs each
   from the Compose named context `chat_nextseek` to `/app/plugins/nextseek/context/`, and
@@ -101,12 +101,12 @@ without an error at the point of the change.
   a day (`_ensure_context_files` in
   `NessieAI/chat_nextseek/src/chat_nextseek/config.py`), and every one of them is tracked.
   Run it against a checkout and those files change in place; the next cc-agent build then
-  ships the refreshed bytes, exactly as the app image build does. Check `git status` on
-  this directory before a cc-agent rebuild. A **test** run no longer does this:
-  `_db_context_refresh_enabled` suppresses the refresh whenever `DJANGO_SETTINGS_MODULE`
-  names a test settings module, so no lane can rewrite tracked source by merely building
-  the config. Any other entry point against a checkout still refreshes, which is the
-  wanted behavior on a real instance.
+  ships the refreshed bytes of the two it bakes (not `min_assays_db.json`), exactly as the
+  app image build does. Check `git status` on this directory before a cc-agent rebuild.
+  A **test** run no longer does this: `_db_context_refresh_enabled` suppresses the refresh
+  whenever `DJANGO_SETTINGS_MODULE` names a test settings module, so no lane can rewrite
+  tracked source by merely building the config. Any other entry point against a checkout
+  still refreshes, which is the wanted behavior on a real instance.
 - **That refresh also reads SEEK, and writes real lab data into the checkout.** Its first
   statement is the read-only SELECT over SEEK's institutions in `chat_nextseek.labs`, which
   writes `labs_db.json` into the context directory and adds `labs` to every project row
@@ -129,8 +129,8 @@ without an error at the point of the change.
 - **The graph schema is no longer written into `context/`.** `neo4j_schema.json`,
   `neo4j_protocol_schema.json` and `neo4j_assay-sample-conn.json` are committed files the
   config only reads (`ChatConfig.NEO4J_SCHEMA`, `PROTOCOL_SCHEMA` and
-  `ASSAY_SAMPLE_CONNECTIONS`); nothing refreshes them from Neo4j any more, so a hand edit
-  is the only way they change. The graph agent reads the live v1.1 catalog through
+  `ASSAY_SAMPLE_CONNECTIONS`); nothing refreshes them from Neo4j by itself: regenerate
+  them, read only, with `scripts/graph_schema_fallback.py`. The graph agent reads the live v1.1 catalog through
   `graph_catalog.get_snapshot`, cached per process on `GraphMeta.catalog_hash`, and falls
   back to those committed files on any catalog failure (`resolve_catalog_context` in
   `NessieAI/chat_nextseek/src/chat_nextseek/agents/graph.py`). `graph_schema_snapshot`, beside
@@ -191,9 +191,14 @@ without an error at the point of the change.
   (`NessieAI/chat_nextseek/src/chat_nextseek/config.py:1324`).
 - **A missing capabilities document also degrades silently.**
   `NessieAI/chat_nextseek/src/chat_nextseek/config.py:442-448` prints a note and returns an
-  empty string, and `NessieAI/chat_nextseek/src/chat_nextseek/agents/system.py:56`
+  empty string, and `build_messages` in `NessieAI/chat_nextseek/src/chat_nextseek/agents/system.py`
   substitutes placeholder prose, so the system agent answers catalog questions
   from nothing instead of failing loudly.
+- **The system agent's user docs come from the repository, not a snapshot.** Its `read_doc`
+  tool (`system_tools.py`) reads `themes/NextSeek/docs/` (`ChatConfig.DOCS_DIR`, env
+  `NESSIE_DOCS_DIR`), the pages the site serves at `/docs/`. A missing folder gives an empty
+  docs index and a how-to answer with no page to cite; nothing raises. Container-CC keeps its
+  own generated snapshot (`NessieAI/docker/cc-runtime/docs/nextseek/`).
 - **An in-source comment contradicts the code about the launch default.**
   `NessieAI/chat_nextseek/src/chat_nextseek/config.py:330-333` claims the mode defaults to
   Tower; the function it describes defaults to Luria

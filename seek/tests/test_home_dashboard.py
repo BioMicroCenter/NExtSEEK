@@ -107,3 +107,23 @@ class TestHomeProjectsScoping:
             from dmac.views import _home_projects
             out = _home_projects(MagicMock())
             assert out[0]["logo"] == "https://seek.example/assets/avatar-images/9-500.png"
+
+
+class TestVisitorHero:
+    """UI-001, UI-005: a visitor is not welcomed back and gets a Sign in button."""
+
+    def test_visitor_is_not_welcomed_back_and_can_sign_in(self):
+        html = _home_response().content.decode()
+        hero = html[html.index('class="dash-hero"'):html.index("</header>", html.index('class="dash-hero"'))]
+        assert "Welcome back" not in hero
+        assert 'href="/login/?next=/"' in hero
+
+    def test_signed_in_user_is_welcomed_back_without_a_sign_in(self):
+        from dmac.views import home
+        req = RequestFactory().get("/")
+        req.user = MagicMock(username="demo", is_superuser=False)
+        with patch("dmac.views._home_projects", return_value=[]):
+            html = home(req).content.decode()
+        hero = html[html.index('class="dash-hero"'):html.index("</header>", html.index('class="dash-hero"'))]
+        assert "Welcome back" in hero
+        assert "/login/" not in hero

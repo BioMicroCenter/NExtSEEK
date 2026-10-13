@@ -24,6 +24,8 @@ largest module here and holds several concerns; read the part you need.
 | Mounts: one named volume, one subpath per mount | `_build_volumes` |
 | Fail-closed check that each subpath directory exists | `_preflight_subpath_dirs` |
 | Wall-clock clamp for one turn | `clamp_turn_timeout` |
+| The fallback model on a server error, bounded retries, the classifier's model | `_build_command` (`--fallback-model`), `build_agent_environment` (env `NEXTSEEK_CC_MAX_RETRIES`, `NEXTSEEK_CC_API_TIMEOUT_MS`, `NEXTSEEK_CC_DEFAULT_SONNET_MODEL`) |
+| Container paths in a reply become this turn's real paths | `rewrite_container_paths` |
 | Secret-scrub watermark for a stored transcript | `transcript_is_verified_scrubbed` |
 | Agent image and network defaults | `DEFAULT_IMAGE`, `DEFAULT_NETWORK` (env `NEXTSEEK_CC_IMAGE`, `NEXTSEEK_CC_NETWORK`) |
 
@@ -38,12 +40,16 @@ largest module here and holds several concerns; read the part you need.
 | `cc_session.py`, `cc_turn_complete.py` | multi-turn resume and turn-completion persistence (Django-free) |
 | `cc_memory.py`, `cc_memory_io.py`, `cc_summary.py` | cross-session memory: which sessions to recall, the mounted files, transcript distillation |
 | `cc_turn_context.py`, `ns_turn_context.py`, `ns_digest.py` | the deterministic CC and NS turn-context projections, and the NS digest renderer |
+| `prior_turns.py` | stages the chat's previous turns (Search details, rows, downloads, CC answers and files) into the session's `_memory` tree, mounted read-only at `/data/previous_turns`; copies only through the download endpoint's own guard |
 | `cc_upload_list.py`, `cc_upload_validate.py` | the upload list and filename validation for agent file uploads |
 | `cc_config.py` | `CCPaths` (the external volume and its mount point, read from env) and `CCMemoryConfig` |
 | `cc_provision.py` | `build_user_dirs`, the one source of every directory a turn touches, and `resolve_user_project`, which resolves the caller's SEEK project with the caller's own credentials and fails closed |
-| `cc_staging.py` | `sweep_user_staging`, which moves sidecar-staged artifacts into the requesting user's own tree |
+| `cc_staging.py` | `sweep_user_staging`, which moves sidecar-staged artifacts into the requesting user's own tree. It runs only on the sidecar road; the sidecar's drop folder is named by the sha256 of the turn pass |
+| `safe_fs.py` | every file operation Django makes in a folder an agent or the sidecar can write (`cc-state`, `scratch`, `_staging`): no link followed, no path trusted, and a root must be a registered mount root or a Django folder above one |
+| `prerun.py` | the vocabulary pre-run: one per question beside the router, on a small pool (4 running, 4 waiting), handed to the NS turn or the Container-CC turn's row and `/data/turn` |
+| `ops_road.py` | which road the agent's op tools take, `direct` or `sidecar` (`NEXTSEEK_CC_OPS_ROAD`): one reader for the agent's env, the staging sweep and the op view's sidecar cap |
 | `step7_llm_cost_ledger.py` | records real token spend; armed by `nextseek_api/cc_assistant/apps.py` |
-| `op_registry/` | the inventory of the plugin commands the agent may call (below) |
+| `op_registry/` | the inventory of the plugin commands the agent may call (`NessieAI/cc/op_registry/README.md`; below) |
 
 **Operation registry.** `NessieAI/cc/op_registry/ops.py` is the registration source of truth, and
 `NessieAI/cc/op_registry/export.py` renders it to the committed `ops.json`. The executable shims are
@@ -53,7 +59,8 @@ an op only through `/add-cc-op` (`.claude/skills/add-cc-op/SKILL.md`).
 **Background work.** The idle-session summarizer and the file-upload task are Celery tasks in
 `nextseek_api/cc_assistant/cc_sweep.py` and `nextseek_api/cc_assistant/cc_upload_tasks.py`,
 registered by `nextseek_api/batch_upload/celery_app.py`.
-`nextseek_api/management/commands/cc_sweep_staging.py` is the manual recovery path for staged strays.
+`nextseek_api/management/commands/cc_sweep_staging.py` is the manual recovery path for staged strays. It refuses a
+folder whose turn row belongs to another user; a folder with no turn row is the operator's call.
 
 ## Running and testing
 
@@ -68,6 +75,8 @@ source-tree checks out of the in-container run.
 Depends on, outside this directory:
 
 - `NessieAI/dmac_assistant/`: `run_tracker.diff_files`, imported lazily inside `cc_engine.py`.
+- `nextseek_api.assistant.turn_pass`, from `turn.py`, which issues, dates and revokes the turn pass (an allowed
+  back-edge, `NessieAI/CLAUDE.md` "Boundary").
 - `nextseek_api.assistant.models_db`, from `cc_transcript_store.py` and `turn.py`, and `seek.seekdb`,
   lazily, from `cc_provision.py` (both allowed back-edges, `NessieAI/CLAUDE.md` "Boundary").
 - `NessieAI/router/` (`policy.py`, the route decision) and `NessieAI/ns/turn.py`, from `turn.py`.

@@ -79,11 +79,13 @@ The catalog-driven E2E runner moved to the test tree: `NessieAI/tests/e2e/__main
 run as `python -m NessieAI.tests.e2e`. Its catalog is `NessieAI/tests/e2e/catalog.json`,
 whose variants carry a tag for the Playwright browser tier.
 
+The hand-run nf-core selection evals are in `NessieAI/chat_nextseek/evals/README.md`; their outputs are built from production data and stay out of git.
+
 ### 3. Data other build steps read
 
 `NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md` is named as the
 canonical capabilities document by `NessieAI/build_tools/gen_op_surfaces/constants.py:38-46`.
-It and five catalogs beside it (`projects_db.json` and four `min_*.json`, the
+It, five catalogs beside it (`projects_db.json` and four `min_*.json`) and the house ontology files (`ONTOLOGIES.json`, `ontology_*.json`; the
 `CANONICAL_CONTEXT_FILES` list at `NessieAI/build_tools/gen_op_surfaces/constants.py:30-37`)
 are the only copies the agent image bakes: it takes them from the named build context
 `chat_nextseek`, declared at `docker-compose.yml:159-161` and consumed at
@@ -99,7 +101,53 @@ gitignored in the context directory, excluded from the app build context by the 
 `.dockerignore`, and absent from `CANONICAL_CONTEXT_FILES`: no image bakes it and no commit
 carries it. The CC route gets lab resolution through the entity op, which runs in the app.
 
-## Running and testing
+### 4. Model prices, and what a turn cost
+
+Prices live in one file, `NessieAI/chat_nextseek/model_prices.json`, beside
+`agent_model_catalog.json`: USD per 1M tokens per model id, each price with its source URL,
+the day it was checked and whether it was confirmed or derived (and how). Date bounds carry
+a scheduled price change and `max_prompt_tokens` a prompt-length tier. Output prices include
+thinking tokens: a Gemini call's `thoughts_tokens` are billed as output, and on Bedrock the
+thinking is already inside `completion_tokens`. `model_prices.py` loads the file and prices
+one call's usage; the NS turn collector (`turn_spend.py`), the router
+(`NessieAI/router/router.py`) and the Container-CC translator (`NessieAI/cc/translate.py`,
+`cost_by_price_table_usd`) all price through it, so every engine and every run is costed on
+one table. An NS turn's `query_complete` carries `total_cost_usd`, `cost_partial`,
+`models_used`, `model_fallback` and a per-call breakdown in `debug["cost"]`; a model missing
+from the table is named there and makes the turn partial, and a guard test
+(`NessieAI/tests/chat_nextseek/test_model_prices.py`) fails when a model the shipped config
+can reach has no price. The file is baked into the app image like the rest of this
+directory, so a price change is an edit to the JSON plus an app rebuild.
+
+### 5. When a model fails: time limits, the one move, and the turn's memory
+
+Every model call goes through one recovery ladder (`_call_with_recovery` in
+`src/chat_nextseek/schemas/schema_helper.py`; the tool loops' twin is `tool_loop.call_tools`),
+and both surfaces move through the same `_Failover` object:
+
+- **Time limits.** Each agent has two wall clocks in one table, `schemas/call_budgets.py`: the
+  primary's first try, sized to a healthy call's measured tail so a stalled model is given up on
+  in seconds, and the one call that moves to the fallback model, the same whatever made the
+  primary fail. A caller that passes its own window keeps it; an agent the table does not name
+  keeps 300 s and 180 s. This is the one place to edit when a model changes.
+- **What moves.** `FAILURE_CLASSES` says which failures move a call to its fallback, once: a
+  timeout, a 5xx, a 429, an empty body, a dropped connection, a refused model (a Bedrock
+  refusal or a Gemini 404). A 400 and bad output never move. When the fallback fails too, the
+  call ends in `LLMFatalError(unavailable=True)` whatever the failure, and the turn ends with the
+  plain "tried a second one" text (`failure_replies.py`); only the chatter, the follow-up and
+  seqera answer from work already done.
+- **The turn's memory.** `call_scope.py` holds one scope per NS turn (opened with the cost
+  collector) and per Container-CC op (`run_op` in `NessieAI/ns/granular.py`). A model that failed is
+  remembered for the rest of it, so a later call starts on its fallback without asking it, and
+  a call whose two models both failed earlier fails at once. The parsers' own first-try timeout marks
+  nothing. The ledger names a skip (`fallback_remembered`, and a `not_called` record for a
+  fallback not asked); `model_fallback` items carry `remembered: true` when the primary was
+  skipped (not a new failure) and `not_called: true` when the fallback was.
+- **An op's deadline.** A CC op's scope carries its limit (90 s for graph, parse and aggregate, 55 s for entity and
+  the API ops; the aggregate op answers at 85 s), and each attempt is cut to fit it, leaving 20 s for the move; the
+  report writer leaves none (`op_move_reserve` in the table: its move could not redo the work in 20 s). With
+  2 s or less left no call starts.
+
 
 The package's suite is `NessieAI/tests/chat_nextseek/`, including `evaluator/`. Its
 command is the Django lane in `NessieAI/tests/README.md`. The image installs this
@@ -145,6 +193,7 @@ Depends on, outside this directory:
 - `docker/db.env`, `docker/nextseek.env` and `dmac/local_settings.py`, read by file path from the repo root by the E2E runner's `NessieAI/tests/e2e/import_env.py:31-34`.
 - `nextseek_api.assistant.excel_export`, imported lazily and behind a guard by the orchestrator: an allowed back-edge (`NessieAI/CLAUDE.md` "Boundary").
 - The NExtSEEK REST API, whose base URL and Basic-auth pair are read from the environment at `NessieAI/chat_nextseek/src/chat_nextseek/config.py:561-563` and then overridden per turn with the caller's own identity at `NessieAI/chat_nextseek/src/chat_nextseek/orchestrator.py:195-199`.
+- The graph contract `nextseek_graph/schema.py` at the checkout root, through `NessieAI/chat_nextseek/src/chat_nextseek/graph_contract.py`, which imports it where the checkout root is on `sys.path` and otherwise loads the file by its path from the checkout around this package. The evaluator batch therefore needs an app image built from a commit that has `nextseek_graph/`, and a non-editable or git install of chat_nextseek finds the contract only where the checkout root is on `sys.path`.
 - Neo4j, whose URI defaults to a localhost bolt endpoint at `NessieAI/chat_nextseek/src/chat_nextseek/config.py:600`.
 - The SEEK database, read by the daily context export (`_fetch_context_files_from_db` in `NessieAI/chat_nextseek/src/chat_nextseek/config.py`) over the MySQL connection it already holds for the `dmac.*_context` tables. Its first statement is one fixed SELECT over `seek_production.institutions` and `seek_production.work_groups` (`INSTITUTIONS_SQL` in `NessieAI/chat_nextseek/src/chat_nextseek/labs.py`), run inside a read-only transaction, at most once per UTC day per starting process and never per turn. It writes `labs_db.json` and adds each project's labs to the project rows of `projects_db.json`; the config exposes them as `ChatConfig.LABS` and `LABS_STATUS`. `python -m chat_nextseek.labs --report` runs the same read and prints the result without writing anything.
 

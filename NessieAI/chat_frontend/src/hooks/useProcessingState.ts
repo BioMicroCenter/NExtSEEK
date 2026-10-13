@@ -1,6 +1,14 @@
 import { useState, useCallback } from "react";
 import type { Step, ProcessingState } from "@/lib/types/chat";
-import type { SearchStartedData, SearchCompleteData, RouteDecidedData } from "@/lib/types/api";
+import type {
+  SearchStartedData,
+  SearchCompleteData,
+  RouteDecidedData,
+  PreludeStepData,
+  SelectionStartedData,
+  SelectionEvidenceData,
+  SelectionDoneData,
+} from "@/lib/types/api";
 
 // Container-CC turns don't map onto a fixed pipeline — they run an open-ended
 // sequence of tool calls. So CC uses a dynamic "trace" mode (one step appended
@@ -71,14 +79,74 @@ function ccStepLabel(source: string): string {
   return source === "thinking" ? "Thinking" : source;
 }
 
+// The routing steps a turn reports before its engine runs (the backend's prelude_step labels). They sit above the
+// NS steps and above the Container-CC trace.
+const PRELUDE_AGENT = "prelude";
+const PRELUDE_READING = "Reading your question";
+const PRELUDE_CHOOSING = "Choosing an engine";
+const PRELUDE_READY = "Vocabulary ready";
+
+function reindex(steps: Step[]): Step[] {
+  return steps.map((s, i) => (s.index === i ? s : { ...s, index: i }));
+}
+
+function preludeSteps(steps: Step[]): Step[] {
+  return steps.filter((s) => s.agentName === PRELUDE_AGENT);
+}
+
+/** Complete the routing steps still spinning: those named in `labels`, or all of them. */
+function completePrelude(steps: Step[], labels?: string[]): Step[] {
+  return steps.map((s) =>
+    s.agentName === PRELUDE_AGENT && s.status === "active" && (!labels || labels.includes(s.label))
+      ? { ...s, status: "complete" as const }
+      : s,
+  );
+}
+
 interface UseProcessingStateReturn {
+  handlePreludeStep: (data: PreludeStepData) => void;
   processingState: ProcessingState;
   handleRouteDecided: (data: RouteDecidedData) => void;
   handleAgentStarted: (agent: string, mode: string) => void;
   handleAgentComplete: (agent: string) => void;
   handleSearchStarted: (data: SearchStartedData) => void;
   handleSearchComplete: (data: SearchCompleteData) => void;
+  handleSelectionEvent: (event: string, data: unknown) => void;
   resetProcessing: () => void;
+}
+
+/** The agentName owning the pipeline-selection step, so it updates in place. */
+const SELECTION_AGENT = "select_pipeline";
+
+function formatTokens(n: number): string {
+  if (n >= 1000) return `${Math.round(n / 1000)}k`;
+  return String(n);
+}
+
+/**
+ * Selection's four verdicts, as a line the person waiting can act on.
+ *
+ * `out_of_scope` deliberately does not read as a failure. It means the selector
+ * stepped aside and the agent chooses from the catalog itself, which is what it
+ * did before this step existed — most often because the question is not about
+ * an RNA pipeline, the only family the atlas covers.
+ */
+function formatSelectionDoneDetail(d: SelectionDoneData): string {
+  const picks = Array.isArray(d.pipelines) ? d.pipelines.filter(Boolean) : [];
+  switch (d.verdict) {
+    case "chosen":
+      return picks.length ? `Using nf-core/${picks[0]}` : "Pipeline chosen";
+    case "fork":
+      return picks.length
+        ? `${picks.map((p) => `nf-core/${p}`).join(" or ")} — asking which`
+        : "More than one pipeline fits — asking which";
+    case "refused":
+      return "These samples cannot answer that question";
+    case "out_of_scope":
+      return "Choosing from the catalog";
+    default:
+      return String(d.verdict);
+  }
 }
 
 /** One-line summary of an in-flight side-effect, surfaced as Step.detail. */
@@ -169,24 +237,62 @@ export function useProcessingState(): UseProcessingStateReturn {
     mode: null,
   });
 
-  // Router decision — starts the CC trace with a "Router → container_cc" step
-  // carrying the reasoning. For NS/unrelated the stepper is unchanged (the NS
-  // pipeline speaks for itself; the reasoning is in the Debug panel).
+  // A routing step: inserted after the routing steps already shown, so one that arrives once the engine's own steps
+  // exist still sits above them. "Vocabulary ready" also completes "Reading your question"; when its pre-run did not
+  // finish it adds no row, so the stepper (ChatPanel, in both shells) never shows it.
+  const handlePreludeStep = useCallback((data: PreludeStepData) => {
+    const label = typeof data.label === "string" ? data.label.trim() : "";
+    if (!label) return;
+    // A "Vocabulary ready" whose pre-run did not finish (late, failed, cancelled) only closes "Reading your
+    // question": no row says ready when nothing was. The server sends the outcome on that label alone.
+    const ready = label === PRELUDE_READY;
+    const incomplete = ready && typeof data.outcome === "string" && data.outcome !== "completed";
+    setState((prev) => {
+      if (prev.steps.some((s) => s.agentName === PRELUDE_AGENT && s.label === label)) return prev;
+      if (incomplete) return { ...prev, steps: completePrelude(prev.steps, [PRELUDE_READING]) };
+      const steps = label === PRELUDE_READY ? completePrelude(prev.steps, [PRELUDE_READING]) : prev.steps;
+      let at = 0;
+      steps.forEach((s, i) => {
+        if (s.agentName === PRELUDE_AGENT) at = i + 1;
+      });
+      const step: Step = {
+        index: at,
+        label,
+        agentName: PRELUDE_AGENT,
+        status: label === PRELUDE_READY ? "complete" : "active",
+      };
+      const onlyPrelude = steps.every((s) => s.agentName === PRELUDE_AGENT);
+      return {
+        ...prev,
+        isProcessing: true,
+        steps: reindex([...steps.slice(0, at), step, ...steps.slice(at)]),
+        currentStepIndex: onlyPrelude ? at : prev.currentStepIndex >= at ? prev.currentStepIndex + 1 : prev.currentStepIndex,
+      };
+    });
+  }, []);
+
+  // Router decision. Either way the engine is chosen, so "Choosing an engine" completes. A Container-CC route starts
+  // the trace below the routing steps with a "Router → container_cc" step carrying the reasoning; for NS/unrelated
+  // the NS steps follow on their own (the reasoning is in the Debug panel).
   const handleRouteDecided = useCallback((data: RouteDecidedData) => {
-    if (String(data.route) !== CC_MODE) return;
+    if (String(data.route) !== CC_MODE) {
+      setState((prev) => ({ ...prev, steps: completePrelude(prev.steps, [PRELUDE_CHOOSING]) }));
+      return;
+    }
     const reasoning = typeof data.reasoning === "string" ? data.reasoning.trim() : "";
-    setState(() => ({
-      isProcessing: true,
-      steps: [{
-        index: 0,
-        label: "Router → container_cc",
-        agentName: "router",
-        status: "complete" as const,
-        detail: reasoning || undefined,
-      }],
-      currentStepIndex: 0,
-      mode: CC_MODE,
-    }));
+    setState((prev) => {
+      const steps = reindex([
+        ...completePrelude(preludeSteps(prev.steps), [PRELUDE_CHOOSING]),
+        {
+          index: 0,
+          label: "Router → container_cc",
+          agentName: "router",
+          status: "complete" as const,
+          detail: reasoning || undefined,
+        },
+      ]);
+      return { isProcessing: true, steps, currentStepIndex: steps.length - 1, mode: CC_MODE };
+    });
   }, []);
 
   const handleAgentStarted = useCallback((agent: string, mode: string) => {
@@ -200,15 +306,15 @@ export function useProcessingState(): UseProcessingStateReturn {
       let steps = prev.steps;
       let expandedMode = prev.mode;
 
-      // First agent_started: initialize with default steps
-      if (steps.length === 0) {
-        steps = buildSteps(DEFAULT_STEPS);
+      // First agent_started: the default steps, below any routing steps.
+      if (steps.every((s) => s.agentName === PRELUDE_AGENT)) {
+        steps = reindex([...steps, ...buildSteps(DEFAULT_STEPS)]);
       }
 
       // When we receive a non-empty mode and haven't expanded yet, expand to full config
       if (mode && !expandedMode && STEP_CONFIGS[mode]) {
         const fullConfig = STEP_CONFIGS[mode];
-        steps = buildSteps(fullConfig);
+        steps = reindex([...preludeSteps(steps), ...buildSteps(fullConfig)]);
         expandedMode = mode;
         // Mark entity and parser as complete (they've already run)
         steps = steps.map((s) =>
@@ -244,14 +350,80 @@ export function useProcessingState(): UseProcessingStateReturn {
         );
         return { ...prev, steps };
       }
-      // Mark the agent's step complete AND clear its `detail` — the side-effect
-      // it was reporting has finished alongside the agent itself.
-      const steps = prev.steps.map((s) =>
-        s.agentName === agent
-          ? { ...s, status: "complete" as const, detail: undefined }
-          : s,
-      );
+      // Mark the agent's step complete AND clear its `detail`. The entity step's end is also the vocabulary's: a
+      // routing step still spinning (the pre-run failed and the turn resolved it itself) is done too.
+      const steps = prev.steps.map((s) => {
+        if (s.agentName === agent) return { ...s, status: "complete" as const, detail: undefined };
+        if (agent === "entity" && s.agentName === PRELUDE_AGENT && s.status === "active") {
+          return { ...s, status: "complete" as const };
+        }
+        return s;
+      });
       return { ...prev, steps };
+    });
+  }, []);
+
+  /**
+   * The three `selection_*` events, folded into one step that appears when
+   * selection starts and closes with its verdict.
+   *
+   * One handler rather than three because they are one step's lifecycle, and
+   * because every consumer has to wire each case into its own event switch —
+   * three handlers would triple that wiring for no gain.
+   *
+   * Unlike search, this never special-cases CC mode: selection only runs on the
+   * NS pipeline route, so a CC turn cannot emit these at all. The step is
+   * appended rather than matched against STEP_CONFIGS because "pipeline" has no
+   * step config — a pipeline turn's stepper is built from what actually happens.
+   */
+  const handleSelectionEvent = useCallback((event: string, data: unknown) => {
+    setState((prev) => {
+      const idx = prev.steps.findIndex((s) => s.agentName === SELECTION_AGENT);
+
+      if (event === "selection_started") {
+        const d = (data ?? {}) as SelectionStartedData;
+        const n = typeof d.n_uids === "number" ? d.n_uids : 0;
+        // n_uids is 0 on the accession path, where there is nothing to profile.
+        const detail = n > 0 ? `Reading ${n} sample${n === 1 ? "" : "s"}…` : "Reading the request…";
+        if (idx >= 0) {
+          const steps = prev.steps.map((s, i) =>
+            i === idx ? { ...s, status: "active" as const, detail } : s,
+          );
+          return { ...prev, isProcessing: true, steps };
+        }
+        const step: Step = {
+          index: prev.steps.length,
+          label: "Choosing a pipeline",
+          agentName: SELECTION_AGENT,
+          status: "active",
+          detail,
+        };
+        return { ...prev, isProcessing: true, steps: [...prev.steps, step] };
+      }
+
+      if (idx < 0) return prev;
+
+      if (event === "selection_evidence_ready") {
+        const d = (data ?? {}) as SelectionEvidenceData;
+        const detail =
+          typeof d.est_tokens === "number"
+            ? `Weighing the evidence · ~${formatTokens(d.est_tokens)} tokens`
+            : "Weighing the evidence…";
+        const steps = prev.steps.map((s, i) => (i === idx ? { ...s, detail } : s));
+        return { ...prev, steps };
+      }
+
+      if (event === "selection_done") {
+        const d = (data ?? {}) as SelectionDoneData;
+        const steps = prev.steps.map((s, i) =>
+          i === idx
+            ? { ...s, status: "complete" as const, detail: formatSelectionDoneDetail(d) }
+            : s,
+        );
+        return { ...prev, steps };
+      }
+
+      return prev;
     });
   }, []);
 
@@ -320,11 +492,13 @@ export function useProcessingState(): UseProcessingStateReturn {
 
   return {
     processingState: state,
+    handlePreludeStep,
     handleRouteDecided,
     handleAgentStarted,
     handleAgentComplete,
     handleSearchStarted,
     handleSearchComplete,
+    handleSelectionEvent,
     resetProcessing,
   };
 }

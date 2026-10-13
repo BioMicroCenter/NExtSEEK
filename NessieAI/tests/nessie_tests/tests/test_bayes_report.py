@@ -16,7 +16,7 @@ from NessieAI import paths
 from NessieAI.tests.nessie_tests import bayes_manifest, collect, export
 
 ROOT = paths.REPO_ROOT
-SKILL_DIR = pathlib.Path(__file__).resolve().parents[1] / "output-skill-bayesian"
+SKILL_DIR = pathlib.Path(__file__).resolve().parents[4] / ".claude" / "skills" / "nessie-bayes-report"
 SCRIPTS = SKILL_DIR / "scripts"
 
 
@@ -187,6 +187,15 @@ def test_the_grade_key_is_the_stage_b_key_form(tmp_path):
     for arm in c["arms"]:
         assert (MANIFEST["pairs"][0]["id"] + c["sep"] + arm
                 == export.stage_b_query_id(MANIFEST["pairs"][0]["id"], arm))
+
+
+def test_the_grade_record_fields_are_the_ones_merge_grades_accepts(tmp_path):
+    """`merge_grades.check_grade_records` refuses any key outside its GRADE_FIELDS, so a
+    field the page starts writing must be added there in the same change."""
+    from NessieAI.tests.nessie_tests.output_skill_bayesian import merge_grades
+    c = _literal(_build(tmp_path, MANIFEST), "GRADE_CONTRACT")
+
+    assert c["fields"] == list(merge_grades.GRADE_FIELDS)
 
 
 def test_the_grade_vocabulary_is_exactly_pass_and_fail(tmp_path):
@@ -541,7 +550,7 @@ def test_every_module_command_in_the_runbook_has_an_entry_point():
 
 
 def test_every_script_command_in_the_runbook_exists_and_is_executable():
-    named = set(re.findall(r"python (NessieAI/tests/nessie_tests/[\w./-]+\.py)", _skill_text()))
+    named = set(re.findall(r"python ((?:NessieAI/tests/nessie_tests|\.claude/skills)/[\w./-]+\.py)", _skill_text()))
 
     assert named, "the runbook names no scripts at all"
     for rel in sorted(named):

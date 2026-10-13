@@ -42,10 +42,11 @@ from nextseek_api.batch_upload.helpers import UID_RE
 from nextseek_api.graph_search import lucene, text_query
 from nextseek_api.graph_search.scope import Scope
 from nextseek_api.graph_sync.projection import SKIPPED_METADATA_KEYS, cast_value
+from nextseek_graph import schema
 
 log = logging.getLogger(__name__)
 
-FULLTEXT_INDEX = "sample_search_text"
+FULLTEXT_INDEX = schema.FULLTEXT_INDEX
 MAX_PAGE_SIZE = 1000
 # The whole lineage tree: the longest DERIVED_FROM chain is 11 hops, and the Nessie graph guard allows the same 12
 # (NessieAI/chat_nextseek/src/chat_nextseek/cypher_text.py, APOC_PATH_MAX_LEVEL).

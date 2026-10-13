@@ -324,7 +324,7 @@
     "alternative_names": [
       "Published Data",
       "Published",
-      "PUB"
+      "Training/Test"
     ],
     "pi": null,
     "description": "Published data: samples and data from NExtSEEK's research programs that already appear in published papers, gathered in one shared project so any registered member can explore them. Most of these samples also belong to their program's own project (Impact, SRP, MetNet, Griffith, Shoulders and CSBC).",
@@ -336,7 +336,7 @@
       "Sequencing data and single-cell expression analysis",
       "Patient visit, bacterial and antibody samples"
     ],
-    "tags": "PUBLISHED, published, published data, published samples, publications, papers",
+    "tags": "PUBLISHED, PUB, published, published data, published samples, publications, papers",
     "nih_reporter_link": null,
     "fairdomhub_published_link": null
   },

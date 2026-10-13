@@ -278,15 +278,29 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
           note="home dashboard; each tile query is separately guarded, so 200 "
                "does not prove the database is answering"),
-    Route(pattern=r"^accounts/login/", path="/accounts/login/",
+    Route(pattern=r"^docs/(?:(?P<slug>[\w-]+)/)?$", path="/docs/",
+          effect="reads",
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
+          note="the user docs, markdown under themes/NextSeek/docs/; /docs/ shows the "
+               "first page and seek/tests/test_docs_pages.py renders every page"),
+    Route(pattern=r"^accounts/login/$", path="/accounts/login/",
           effect="external",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
-          note="second registration of the login view, below the CMS catch-all"),
-    Route(pattern=r"^accounts/signup/", path="/accounts/signup/",
+          note="the SEEK login again, at Django's default LOGIN_URL, above the CMS include"),
+    Route(pattern=r"^accounts/logout/$", path=None,
+          effect="external",
+          methods=(), profiles="", auth="anon", exclude="EXCLUDE_UNSAFE_METHOD",
+          note="sign out (Mezzanine's view, the user menu's link); a GET ends the session"),
+    Route(pattern=r"^(?:blog|search|accounts|password_reset|reset)(?:/.*)?/$", path="/blog/",
+          effect="reads",
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=404,
+          note="Mezzanine's blog, site search, account forms and local password reset "
+               "are not part of NExtSEEK: shadowed with a 404 above the CMS include"),
+    Route(pattern=r"^accounts/signup/$", path="/accounts/signup/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=302,
           note="hands account creation to SEEK; redirects to SEEK_PUBLIC_URL/signup"),
-    Route(pattern=r"^login", path="/login/",
+    Route(pattern=r"^login/?$", path="/login/",
           effect="external",
           methods=("GET", "POST"), profiles="local,dev,prod", auth="anon", expect=200,
           prod_allows_non_get=True,
@@ -305,12 +319,6 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=302,
           note="hands account creation to SEEK; redirects to SEEK_PUBLIC_URL/signup"),
 
-    # project-level, excluded
-    Route(pattern=r"^logout$", path=None,
-          effect="external",
-          methods=(), profiles="", auth="anon", exclude="EXCLUDE_UNSAFE_METHOD",
-          note="the SEEK logout view"),
-
     # ----------------------------------------------------------------- #
     # not in the application resolver: nginx-served asset, Django admin
     # The gate ignores resolver=False entries in both directions.
@@ -321,6 +329,12 @@ REGISTRY: list[Route] = [
           resolver=False,
           note="Django admin is outside the gate's denominator; kept as the "
                "cheapest proof Django itself serves"),
+    Route(pattern=r"^seek/newsearch/$", path="/seek/newsearch/",
+          effect="n/a",
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=404,
+          resolver=False,
+          note="guards that the retired /seek/newsearch/ page stays gone (removed "
+               "in 118c28fd); a 404 here means the route or a catch-all brought it back"),
     Route(pattern=r"^static/(?P<path>.*)$", path="/static/css/nextseek.css",
           effect="n/a",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
@@ -366,11 +380,8 @@ REGISTRY: list[Route] = [
                "rendered no assays to scrape a link from"),
     Route(pattern=r"^seek/^help/$", path="/seek/help/",
           effect="reads",
-          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200),
-    Route(pattern=r"^seek/^newsearch/", path="/seek/newsearch/",
-          effect="reads",
-          methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
-          note="unlinked from the UI; recorded so nobody mistakes it for the daily driver"),
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=301,
+          note="the old Getting Started page; a permanent redirect to /docs/"),
     Route(pattern=r"^seek/^projects/$", path="/seek/projects/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200),
@@ -431,8 +442,7 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^seek/^samples/upload/", path="/seek/samples/upload/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
-          note="bounces an anonymous visitor to /login/?next=/seek/samples/batchupload/, "
-               "which is not the requested path; do not assert on next"),
+          note="bounces an anonymous visitor to /login/?next=/seek/samples/upload/"),
     Route(pattern=r"^seek/^sampletree/uid=(?P<uid>[\w.-]{0,256})/$",
           path="/seek/sampletree/uid={sample_uid}/",
           effect="reads",
@@ -750,8 +760,9 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^nextseek_api/^^assistant/test-cases/$",
           path="/nextseek_api/assistant/test-cases/",
           effect="reads",
-          methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
-          shape="test_cases"),
+          methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=403,
+          note="superuser only: the sweep's account is refused. "
+               "ci/smoke/test_nessie.py reads the catalog as a superuser"),
     Route(pattern=r"^nextseek_api/^^attributes/$", path="/nextseek_api/attributes/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
@@ -962,7 +973,8 @@ REGISTRY: list[Route] = [
           path="/nextseek_api/sops/{sop_id}/",
           effect="writes", writers=("WR-09",),
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
-          shape="data", note="also accepts PATCH, which the write lane sends on local and dev"),
+          shape="data", note="also accepts PATCH, which the write lane sends on local and dev, and DELETE, "
+                              "which no lane sends"),
     Route(pattern=r"^nextseek_api/^^studies/$", path="/nextseek_api/studies/",
           effect="writes", writers=("WR-09",),
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
@@ -1018,7 +1030,14 @@ REGISTRY: list[Route] = [
           path="/nextseek_api/admin/samples/retrieve/",
           effect="external",
           methods=("POST",), profiles="local,dev", auth="write", expect=200,
-          note="builds a sample workbook, so it stays off prod"),
+          note="deprecated alias of /nextseek_api/samples/retrieve/ (one handler); "
+               "builds a sample workbook, so it stays off prod"),
+    Route(pattern=r"^nextseek_api/^^samples/retrieve/$",
+          path="/nextseek_api/samples/retrieve/",
+          effect="external",
+          methods=("POST",), profiles="local,dev", auth="write", expect=200,
+          note="the sample download API behind every download button; builds a "
+               "sample workbook, so it stays off prod"),
     Route(pattern=r"^nextseek_api/^^assay-registrations/$",
           path="/nextseek_api/assay-registrations/",
           effect="writes", writers=("WR-11",),
@@ -1030,6 +1049,22 @@ REGISTRY: list[Route] = [
           effect="external",
           methods=("POST",), profiles="local,dev", auth="write", expect=404,
           note="unknown id: proves the route resolves and denies"),
+    Route(pattern=r"^nextseek_api/^^sample-shares/$", path="/nextseek_api/sample-shares/",
+          effect="external",
+          methods=("POST",), profiles="local,dev", auth="write", expect=422,
+          note="a share's dry run: a job row the worker plans, nothing the graph reads. CI sends no body, which "
+               "is refused before anything is written. Superuser only, so the expectation is by inspection"),
+    Route(pattern=r"^nextseek_api/^^sample-shares/(?P<share_id>[^/.]+)/$",
+          path="/nextseek_api/sample-shares/" + _NO_SUCH_UUID + "/",
+          effect="reads",
+          methods=("GET",), profiles="local,dev", auth="write", expect=404,
+          note="unknown id: proves the route resolves and denies. Superuser only"),
+    Route(pattern=r"^nextseek_api/^^sample-shares/(?P<share_id>[^/.]+)/apply/$",
+          path="/nextseek_api/sample-shares/" + _NO_SUCH_UUID + "/apply/",
+          effect="writes", writers=("WR-33",),
+          methods=("POST",), profiles="local,dev", auth="write", expect=404,
+          note="unknown id: proves the route resolves and denies; a real call creates SEEK assays as the caller, "
+               "their internal-assay rows and the queued share (the studies tool's share mode)"),
     Route(pattern=r"^nextseek_api/^^assistant/build-upload-xlsx/$",
           path="/nextseek_api/assistant/build-upload-xlsx/",
           effect="external",
@@ -1130,9 +1165,10 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^nextseek_api/^^schema_rag/ingest/$",
           path="/nextseek_api/schema_rag/ingest/",
           effect="external",
-          methods=("POST",), profiles="local,dev", auth="smoke", expect=201,
-          note="201 by inspection at "
-               "nextseek_api/services/schema_rag.py::SchemaRAGViewSet.ingest; unprobed"),
+          methods=("POST",), profiles="local,dev", auth="smoke", expect=403,
+          note="superuser only, so the sweep's account is refused (201 for a superuser), "
+               "by inspection at nextseek_api/services/schema_rag.py::SchemaRAGViewSet.ingest; "
+               "unprobed"),
     Route(pattern=r"^nextseek_api/^^schema_rag/retrieve/$",
           path="/nextseek_api/schema_rag/retrieve/",
           effect="external",
@@ -1147,7 +1183,7 @@ REGISTRY: list[Route] = [
           effect="reads",
           methods=("POST",), profiles="local,dev", auth="write", expect=200,
           note="superuser only, and it builds a workbook, so it stays off prod -- "
-               "the same rule /nextseek_api/admin/samples/retrieve/ follows. "
+               "the same rule /nextseek_api/samples/retrieve/ follows. "
                "Writes nothing: ci/smoke/test_write_lane.py drives it"),
 
     # ----------------------------------------------------------------- #

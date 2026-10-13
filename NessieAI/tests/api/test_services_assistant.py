@@ -104,8 +104,9 @@ class UserInParticipatingProjectTests(TestCase):
         cache.clear()
         self.user = User.objects.create_user(username="permuser", password="pass1234")
 
+    @patch("nextseek_api.services.assistant.current_project_ids", return_value=(1, 5, 99))
     @patch("nextseek_api.services.assistant.SeekAPIClient")
-    def test_has_permission_user_in_project(self, mock_client_cls):
+    def test_has_permission_user_in_project(self, mock_client_cls, _held):
         """Returns True when user is in a participating project."""
         from nextseek_api.services.assistant import UserInParticipatingProject
 
@@ -113,6 +114,7 @@ class UserInParticipatingProjectTests(TestCase):
         mock_client.get_current_person.return_value = (
             json.dumps({
                 "data": {
+                    "id": "7",
                     "relationships": {
                         "projects": {
                             "data": [{"id": "1"}, {"id": "5"}]
@@ -131,8 +133,9 @@ class UserInParticipatingProjectTests(TestCase):
                 result = perm.has_permission(request, view)
                 self.assertTrue(result)
 
+    @patch("nextseek_api.services.assistant.current_project_ids", return_value=(1, 5, 99))
     @patch("nextseek_api.services.assistant.SeekAPIClient")
-    def test_has_permission_user_not_in_project(self, mock_client_cls):
+    def test_has_permission_user_not_in_project(self, mock_client_cls, _held):
         """Returns False when user's projects don't overlap."""
         from nextseek_api.services.assistant import UserInParticipatingProject
 
@@ -140,6 +143,7 @@ class UserInParticipatingProjectTests(TestCase):
         mock_client.get_current_person.return_value = (
             json.dumps({
                 "data": {
+                    "id": "7",
                     "relationships": {
                         "projects": {
                             "data": [{"id": "99"}]
@@ -156,8 +160,9 @@ class UserInParticipatingProjectTests(TestCase):
             result = perm.has_permission(request, view)
             self.assertFalse(result)
 
+    @patch("nextseek_api.services.assistant.current_project_ids", return_value=(1, 5, 99))
     @patch("nextseek_api.services.assistant.SeekAPIClient")
-    def test_has_permission_no_projects(self, mock_client_cls):
+    def test_has_permission_no_projects(self, mock_client_cls, _held):
         """Returns False when user has no projects."""
         from nextseek_api.services.assistant import UserInParticipatingProject
 
@@ -165,6 +170,7 @@ class UserInParticipatingProjectTests(TestCase):
         mock_client.get_current_person.return_value = (
             json.dumps({
                 "data": {
+                    "id": "7",
                     "relationships": {
                         "projects": {
                             "data": []
@@ -182,9 +188,9 @@ class UserInParticipatingProjectTests(TestCase):
             self.assertFalse(result)
 
     @patch("nextseek_api.services.assistant.SeekAPIClient")
-    def test_has_permission_exception_returns_false(self, mock_client_cls):
-        """Returns False when SeekAPIClient raises an exception."""
-        from nextseek_api.services.assistant import UserInParticipatingProject
+    def test_has_permission_exception_raises_the_retryable_error(self, mock_client_cls):
+        """A SEEK that does not answer is an outage (503 TRANSPORT_ERROR), never a refusal and never an allow."""
+        from nextseek_api.services.assistant import SeekNotAnswering, UserInParticipatingProject
 
         mock_client = mock_client_cls.return_value
         mock_client.get_current_person.side_effect = Exception("connection error")
@@ -192,8 +198,8 @@ class UserInParticipatingProjectTests(TestCase):
         perm = UserInParticipatingProject()
         request = MagicMock()
         view = MagicMock()
-        result = perm.has_permission(request, view)
-        self.assertFalse(result)
+        with self.assertRaises(SeekNotAnswering):
+            perm.has_permission(request, view)
 
     def test_message_attribute(self):
         """Permission has a descriptive message."""
@@ -202,15 +208,14 @@ class UserInParticipatingProjectTests(TestCase):
         self.assertIn("participating project", perm.message)
 
     def test_has_object_permission_delegates(self):
-        """has_object_permission calls has_permissions (note: typo in source)."""
+        """has_object_permission(request, view, obj) runs the same check as has_permission."""
         from nextseek_api.services.assistant import UserInParticipatingProject
         perm = UserInParticipatingProject()
         request = MagicMock()
         view = MagicMock()
-        # has_object_permission calls self.has_permissions which doesn't exist
-        # (typo: should be has_permission). This should raise AttributeError.
-        with self.assertRaises(AttributeError):
-            perm.has_object_permission(request, view)
+        with patch.object(UserInParticipatingProject, "has_permission", return_value=True) as hp:
+            self.assertTrue(perm.has_object_permission(request, view, object()))
+        hp.assert_called_once_with(request, view)
 
 
 # ============================================================================
@@ -1027,7 +1032,7 @@ class TestCasesExtraTests(TestCase):
     def test_test_cases_response_structure(self):
         """Test cases response has total and test_cases list with id and prompt."""
         admin = User.objects.create_user(
-            username="tc_admin", password="pass", is_staff=True
+            username="tc_admin", password="pass", is_superuser=True
         )
         self.client.force_authenticate(user=admin)
         resp = self.client.get("/nextseek_api/assistant/test-cases/")
@@ -1048,16 +1053,15 @@ class ViewSetConfigTests(TestCase):
     """Verify ViewSet class-level configuration."""
 
     def test_authentication_classes(self):
+        from nextseek_api.assistant.turn_pass_auth import TurnPassAuthentication
         from nextseek_api.authentication import CsrfExemptSessionAuthentication
         from nextseek_api.services.assistant import AssistantViewSet
         from rest_framework.authentication import TokenAuthentication, BasicAuthentication
 
         auth_classes = AssistantViewSet.authentication_classes
-        # Should have 3 authentication classes
-        self.assertEqual(len(auth_classes), 3)
-        self.assertIn(TokenAuthentication, auth_classes)
-        self.assertIn(CsrfExemptSessionAuthentication, auth_classes)
-        self.assertIn(BasicAuthentication, auth_classes)
+        # The turn pass first (spec piece 1), then the three it always had.
+        self.assertEqual(auth_classes, [TurnPassAuthentication, TokenAuthentication,
+                                        CsrfExemptSessionAuthentication, BasicAuthentication])
 
     def test_permission_classes(self):
         from nextseek_api.services.assistant import (

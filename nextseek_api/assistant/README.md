@@ -23,7 +23,7 @@ that every class exists before the app registry is sealed.
 
 | Module | What it does |
 |---|---|
-| `models_db.py` | every assistant model: the `assistant_*` chat tables (`ChatSession`, `QueryTask`, the turn ledger, `CCSessionTranscript`) and the `eval_*` HiBayes tables |
+| `models_db.py` | every assistant model: the `assistant_*` chat tables (`ChatSession`, `QueryTask`, the turn ledger, `CCSessionTranscript`, `CCTurn`) and the `eval_*` HiBayes tables |
 | `models_api.py` | the chat request and response models, the SSE payloads, the error envelope, and the granular-op request and response models that `CONTRACT.md` specifies |
 | `models_evaluator.py` | the models of the admin evaluator surface (`/nextseek_api/evaluator/`) |
 | `consumers.py` | `TaskProgressConsumer`, the WebSocket behind `ws/assistant/progress/{task_id}/`; it polls the task row rather than a channel-layer group, so the in-memory channel layer does not constrain it |
@@ -33,6 +33,11 @@ that every class exists before the app registry is sealed.
 | `excel_export.py` | a stored bundle as inline tables and xlsx bytes (`extract_table_artifacts`, `build_tables_from_bundle`, `generate_table_xlsx`); shared with the admin project export |
 | `session_debug.py` | an engine-agnostic inventory of one chat session for admin debugging: sizes and paths, never payloads |
 | `session_export.py` | one chat session as the user sees it: `turn_rows`, the turn list behind `?include=turns`, and the streamed zip of the transcript plus every turn's files behind `GET /assistant/sessions/{sid}/download/` |
+| `turn_pass.py` | the Container-CC turn pass: `issue_pass`, `find_turn`, `revoke`. Only the pass's sha256 is stored; the user's login is held on the `CCTurn` row as AES-GCM ciphertext, under a key derived from the Django secret key |
+| `turn_pass_auth.py` | `TurnPassAuthentication`, the `NextseekTurn` scheme: `_live` refuses a revoked, expired or finished turn, and the allow table is checked inside `authenticate`, before any view runs |
+| `turn_pass_allow.py` | `ALLOW_TABLE`: the routes and methods a pass may reach, each with its chat check |
+| `op_errors.py` | the closed error envelope of the granular ops: codes, reasons, fixed messages, HTTP statuses and the tools' exit numbers |
+| `bundle_ids.py` | `next_bundle_id_locked`: the one allocator of a chat's bundle ids, on the locked session row |
 | `descriptions.py`, `descriptions_evaluator.py`, `descriptions_cc.py` | endpoint prose for the OpenAPI schema, held as module constants and read by `scripts/validate_viewset_conventions.py` |
 | `CONTRACT.md` | the HTTP contract of the granular ops: op table, request and response models, auth, error envelope |
 

@@ -24,7 +24,7 @@ the outside world. The unit suite drives a fake runner and asserts on the
 commands built and the output parsed, which is the same reason `collect` takes a
 `Sources` one level up. Nothing in `nessie_tests/tests` starts a process.
 
-The command SHAPE is `output-skill/scripts/fetch_run.py`'s, deliberately, not a
+The command SHAPE is `.claude/skills/nessie-run-review/scripts/fetch_run.py`'s, deliberately, not a
 second invention: base64 the script and hand it to `bash -c`, where `--host ""`
 means the LOCAL docker daemon and a non-empty `--host` means ssh (with an
 optional `sudo -u`) first. `ssh localhost` is NOT the local path -- there is no

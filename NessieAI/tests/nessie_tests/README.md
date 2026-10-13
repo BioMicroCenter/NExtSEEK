@@ -29,8 +29,9 @@ has already returned 202 and is running the turn on its own thread, and its
 single early return is the `unrelated` route
 (`NessieAI/cc/turn.py:350-363`), so every gate routed anywhere
 else runs to completion and bills for it after the harness has walked away. That
-is why a route-tier run reports its spend as unmeasured instead of zero
-(`NessieAI/tests/nessie_tests/manifest.py:153-158`). No route is free: the router's own model
+is why a route-tier run reports its spend as partial (the router's price only) or
+unmeasured, never as a total or a zero
+(`NessieAI/tests/nessie_tests/manifest.py:233-242`). No route is free: the router's own model
 call happens on every turn and the routing event is emitted before the
 `unrelated` check, not after (`NessieAI/cc/turn.py:344-350`).
 
@@ -81,7 +82,7 @@ Stated plainly: **the graph-vs-REST split** (the `graph_query` /
 report shows in its engine column) **is a full-tier observation.** Verifying a
 routing change at the ns/cc/unrelated level is route-tier work; verifying WHICH
 NS engine answered needs the paid full tier via `manage.py nessie`. And note
-that today's three `route_gate` variants assert `route` only, so the route gate
+that today's four `route_gate` variants assert `route` only, so the route gate
 as it stands exercises the top-level split and nothing deeper.
 
 ## Surface
@@ -96,7 +97,8 @@ The surface has three different shapes, so it is described three ways.
 | `NessieAI/tests/nessie_tests/runner.py:409-413` | `run_suite`, one whole run; `NessieAI/tests/nessie_tests/runner.py:142-146` is one case |
 | `NessieAI/tests/nessie_tests/corpus.py:415` | `merged`, the resolved active corpus |
 | `NessieAI/tests/nessie_tests/evaluate.py:662` | `evaluate_turn`, criterion scoring for one turn |
-| `NessieAI/tests/nessie_tests/manifest.py:153` | `cost_summary`, what a run may claim about money |
+| `NessieAI/tests/nessie_tests/manifest.py:233` | `cost_summary`, what a run may claim about money |
+| `NessieAI/tests/nessie_tests/turn_cost.py:112-151` | how one turn's and one case's spend are summed; standard library only, so the output skill's pull loads it by path |
 | `NessieAI/tests/nessie_tests/bayesian.py:76` | `run_paired`, the paid dual-route run |
 | `NessieAI/tests/nessie_tests/preflight.py:94-98` | refuses a paid run whose force did not land |
 | `NessieAI/tests/nessie_tests/export.py:961` | paired manifest to the locked HiBayes CSVs |
@@ -112,21 +114,44 @@ in-container as a Django management command
 **As committed data.** `NessieAI/tests/nessie_tests/corpus.json` is the only corpus source
 there is, and `NessieAI/tests/nessie_tests/corpus.py:415-425` records that the superseded
 overlay files and their generator were deleted outright. `FAMILIES.json` declares the
-28 code-derived task families the corpus is mapped onto
+32 task families the corpus is mapped onto (28 code-derived, and 4 added by hand on 2026-09-23
+for the production researcher questions)
 (`NessieAI/tests/nessie_tests/FAMILIES.json:4-5`, `NessieAI/tests/nessie_tests/scripts/remap_families.py:2`). `NessieAI/tests/nessie_tests/probes/` holds three
 hand-authored case files replayed by `NessieAI/tests/nessie_tests/tests/test_probe_files.py:1`.
-Measured 2026-09-03 against `NessieAI/tests/nessie_tests/corpus.json`: `merged` resolves 424
-variants over 472 turns; `curated`, which drops the unreviewed atlas set
-(`NessieAI/tests/nessie_tests/corpus.py:110-130`), leaves 365; `bayesian_ids` selects 149; one
-consistency group is defined; and 3 variants carry the `route_gate` tag.
+Measured 2026-10-13 against `NessieAI/tests/nessie_tests/corpus.json`: `merged` resolves 404
+variants over 467 turns; `curated`, which drops the unreviewed atlas set
+(`NessieAI/tests/nessie_tests/corpus.py:110-130`), leaves 356; `bayesian_ids` selects 142; one
+consistency group is defined; and 2 variants carry the `route_gate` tag.
+
+**Retired questions live in `NessieAI/tests/nessie_tests/retired.json`**, not in `corpus.json`: 252 records, each
+with the question's full body, a `retirement` record (`decided_by`, `family`, `reason`, `retired_on`, `source`, and
+`duplicate_of` naming the case that asks the question now) and where it came from (`lived_in`). The 2026-10-07 test-set
+review put 145 removals there (corpus variants, probe cases and cases that lived only in the round 5 sets, the round 4
+smoke files or the Container-CC seed) beside the 106 variants that were retired in `corpus.json` before. It is a record:
+nothing selects cases from it and no code path reads it to decide what is active (`tests/test_retired.py` pins that;
+the lookups `variant_meta`, `hibayes_meta` and `load_all_definitions` read it so an old run report that names a retired
+id still resolves). Reinstating a question is copying its body back into `corpus.json` with `status: "active"` and
+`retirement: null`, and deleting the record.
 
 **As two packaged skills.** Each carries its own SKILL.md and is not restated
-here. See `NessieAI/tests/nessie_tests/output-skill/SKILL.md:2-3` for turning a finished run
-into a triage report, and `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md:2-3` for
+here. See `.claude/skills/nessie-run-review/SKILL.md:2-3` for turning a finished run
+into a triage report, and `.claude/skills/nessie-bayes-report/SKILL.md:2-3` for
 the paired run's blind-grading report. A hyphen is not a Python identifier, so
-the testable logic for the second one lives in the underscore-named package
-beside it and the skill's script is a thin entry point
-(`NessieAI/tests/nessie_tests/output_skill_bayesian/__init__.py:1-11`).
+the testable logic for each lives in the underscore-named package beside it and the
+skill's scripts are thin entry points
+(`NessieAI/tests/nessie_tests/output_skill_bayesian/__init__.py:1-11`). For the first
+that package is `NessieAI/tests/nessie_tests/output_skill/`: the forms a reviewer fills
+(the triage the page renders, a grader's per-case and per-turn verdicts, the fold of the
+reviewer's notes), each a schema, a validator and a deterministic writer, the way the
+session handoff skill works.
+
+**Before a paid run.** `NessieAI/tests/nessie_tests/case_file_check.py` checks a `--cases` file
+in one pass (`python -m NessieAI.tests.nessie_tests.case_file_check <file> [--instance prod]
+[--diverse]`): the harness loader, then the keys the loader silently ignores, unique ids,
+`include_ids` that resolve, criteria that can be observed over HTTP, a `_measure` block that
+matches its criteria, no writing family on production, and with `--diverse` no repeated question
+and no family outside the corpus. `scripts/pin_probe_truths.py --parse-output` turns the pin
+batch's cypher-shell output into the answers file the re-pin reads.
 
 **As one-off tooling.** `NessieAI/tests/nessie_tests/scripts/` is a group of corpus-maintenance
 programs, not a public API: they author and apply question sets
@@ -224,8 +249,11 @@ manifest, all host-safe under the unit lane's `--with` list.
 
 ## The selection
 
-`--bayesian` drives every variant flagged `is_bayesian` + `active`: **149 today**,
-the 2026-08-06 question set. 25 of the 26 task families, one distinct question per
+`--bayesian` drives every variant flagged `is_bayesian` + `active`: **142 today** (153 before the
+2026-10-07 test-set review retired 11 selected duplicates),
+the 149 of the 2026-08-06 question set, less the retired ones, plus one case from each of the four families added
+2026-09-23 (`pub.pmid_bare`, `person.lau_lab_samples`, `file.flow_file_for_a_patient`,
+`export.session_to_the_developers`), which that document does not list. 25 of the 26 task families, one distinct question per
 variant, and every one asserting a verified value on `last_reply` (the only field
 that survives forcing on a `container_cc` arm).
 
@@ -235,7 +263,7 @@ per-family targets and the reasoning behind them, the three write/launch hazards
 and what was done about each, and the cost. It is meant to be reviewed and argued
 with before any paid turn.
 
-Budget: ~**$35.60** of CC arms (149 x $0.2388 observed) plus ~5.3 hours serial.
+Budget: ~**$33.91** of CC arms (142 x $0.2388 observed) plus ~5.3 hours serial.
 NS arms report $0.00. Suggested `--max-usd 45`.
 
 84 of the 149 keep their id AND their exact text from the 2026-08-06 run, 82 of
@@ -366,7 +394,7 @@ print(len(m), "resolved (what --scope all runs);",
 EOF
 ```
 
-(2026-08-24: 424 resolved / 365 curated. If that line and the pinned test ever
+(2026-10-13: 406 resolved / 356 curated. If that line and the pinned test ever
 disagree, this line is the stale one.)
 
 `--no-project` and the explicit `--with` list are load-bearing, not decoration.
@@ -398,18 +426,14 @@ All three ways of getting them wrong fail in a way that does not name the cause:
   commits later. The string does not move. Do not chase the silent ones as real
   regressions.
 
-### Known-failing everywhere but one laptop: `test_v4_2_set3_replay.py`
+### Needs the delivery directory: `test_v4_2_set3_replay.py`
 
-Five of the six tests in `NessieAI/tests/nessie_tests/tests/test_v4_2_set3_replay.py` open a
-delivery zip through an absolute path into another developer's home directory:
-`v4_2_verifier.py:20` pins `V13A_DELIVERY` to a `testquestions-2026-08-07` directory
-under that developer's home directory.
-On any machine that is not that one they die
-`FileNotFoundError: ... testquestions.zip`: the same five, on every run, with
-everything else green. That is the machine, not a regression; do not chase it.
-(The sixth test in the file drives a synthetic producer and passes anywhere.)
-The right fix is a `pytest.mark.skipif` on the delivery path's existence:
-noted here, not yet applied.
+Five of the six tests in `NessieAI/tests/nessie_tests/tests/test_v4_2_set3_replay.py` read the
+`testquestions-2026-08-07` delivery zip. Set `NESSIE_TESTQUESTIONS_DIR` to the directory that holds
+it; when the zip is missing those five tests skip with that reason. (The sixth test drives a
+synthetic producer and runs anywhere.) The same variable locates the delivery for the HiBayes and
+paired-evidence tests that read it. The stored seed6b run evidence the other replay tests read is
+located the same way, with `NESSIE_SEED6B_DIR`.
 
 ### DB/contract tests: in-container lane
 
@@ -456,13 +480,19 @@ every turn, and `route_decided` is emitted at `NessieAI/cc/turn.py:344` *before*
 the `ROUTE_UNRELATED` check at `NessieAI/cc/turn.py:350`. `unrelated` skips the answering turn, not
 the router that decided to skip it.
 
-Cost is read off `query_complete`, which route-tier polling never reaches, so a
-route run cannot account for what it spent. It reports `unmeasured`, not `$0`.
-A full-tier total is a floor too, for two independent reasons: NS-routed turns
-are never priced at all (`chat_nextseek` logs a per-call token ledger to a *log
-file*, with no USD conversion anywhere and nothing attached to `query_complete`),
-and a CC turn that ends in `query_error` carries no cost field either. Any run
-mixing the two prints `PARTIAL`.
+A case's cost is the sum of its turns, and a turn's is its router part
+(`router_cost_usd` on `route_decided`) plus its engine part (`total_cost_usd` on the
+turn's terminal event), over the parts observed
+(`NessieAI/tests/nessie_tests/turn_cost.py:112-151`). Each turn's record is kept on
+the manifest entry as `turns_meta`. Route-tier polling reaches `route_decided` and
+never the terminal event, so a route run sees at most the router's price: it
+reports `PARTIAL`, or `unmeasured` where the server does not price the router, and
+never `$0`. An `unrelated` gate calls no engine, so its router price is its whole
+cost, and a forced turn calls no router. A full-tier total is a floor whenever some
+turn's part went unseen or said it was partial: a server that prices neither NS nor
+router calls, or a CC turn that ends in `query_error`, which carries no cost field.
+The summary counts partial and unmeasured cases, and prints how many turns had a
+model fall back (`model_fallback`, `router_fallback`).
 
 ## Known-fail (RED) cases
 
@@ -509,20 +539,25 @@ NS turn the same four fields are real assertions and still fail.
 case in a floored family goes red, not all of them. Simulate every case in the
 curated corpus (the resolved corpus minus the atlas set: the frame every
 figure in this section uses, because the tests that pin them use it) routing CC
-and **362 of 365 are still red**, with all six floored families at 100%. Four
+and **350 of 356 are still red**, with all seven floored families at 100%. Four
 criteria account for nearly all of it, and none of them is skipped: `route`
-fails on **250** variants, `parser_plan.mode` on **212**, `api_ok` on **128**
-and `api_plan.endpoint` on **104**. Those cases stay red until the corpus
+fails on **264** variants, `parser_plan.mode` on **239** (163 before the 2026-10-07 graph-search grading), `api_ok` on **12**
+and `api_plan.endpoint` on **13** (the last two fell from 128 and 104 on
+2026-09-23, when the graph-answerable families stopped requiring the REST path, and again on 2026-10-03 when the
+REST sample-search seed turns and the SOP case moved to the graph). Those cases stay red until the corpus
 itself is settled.
 
 **Name the frame, because the two frames disagree.** Under that all-CC
-simulation the skip turns *nothing* green: the green set is 3 variants with the
-skip and the *same* 3 with it monkeypatched off. `tree.then_ask_about` is red
-there too: its SEED turn asserts `api_ok` and `api_plan.endpoint` inline, and an
-all-CC run fails both before the follow-up is ever reached.
+simulation the skip turns *nothing* green: the green set is 2 variants with the
+skip and the *same* 2 with it monkeypatched off. `tree.then_ask_about` is red
+there too: its SEED turn asserts `route` nextseek_query and `parser_plan.mode`
+inline, and an all-CC run fails both before the follow-up is ever reached.
 
-The measurable payoff is the **mixed-route** case, which is what a real run
-actually produces: an NS seed followed by a CC follow-up. `tree.then_ask_about`
+The measurable payoff is the **mixed-route** case: an NS seed followed by a CC
+follow-up. Since the 2026-09-24 follow-up split the corpus expects this case's
+follow-up (a filter over the seed's result) on NS, so on a CC-routed follow-up the
+route is now the one criterion left failing, and the NS follow-up passes, the floor
+included (same test). `tree.then_ask_about`
 is the only multi-turn variant in any floored family, so it is that entire
 population, and in that frame it goes red -> green. Pinned by
 `tests/test_evaluate.py::test_the_one_mixed_route_variant_in_a_floored_family_now_passes`,
@@ -533,8 +568,8 @@ scored, not because it started holding.
 
 **Every figure above is RECOMPUTED, not remembered**, in
 `tests/test_write_refusal_coverage.py`: the headline by
-`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (365 total /
-3 green / 362 red), the four per-criterion counts by
+`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (356 total /
+6 green / 350 red), the four per-criterion counts by
 `test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too`, and the
 two-frames claim by `test_the_cc_skip_turns_nothing_green_under_the_all_cc_simulation`.
 All three drive the curated corpus through `evaluate.evaluate_turn` with the real
@@ -594,6 +629,11 @@ gate. Ten of the eighteen reds in the 2026-08-03 seed-6 run were one Bedrock
 outage; nine were visible in the manifest and the tenth was hidden inside the
 `#33` consistency group, which reports its own summary instead of its members'
 replies. `run_group` checks for an outage before composing that summary.
+
+Since 2026-09-25 a turn the AI models could not answer replies with plain text instead
+of that marker, and its `query_error` event carries `reason: "model_unavailable"` (both
+engines). A Container-CC turn ends with that event alone and no reply, so every scorer
+reads the turn's last `query_error` data beside its reply (`outage.py` names them).
 
 ## Comparing the graph and API agents
 
@@ -656,8 +696,8 @@ mode 600 in mode 700 directories:
   each arm's status, task ids and elapsed seconds;
 - `<arm>/manifest.json` and `<arm>/report.html`, the shapes every run writes;
 - `<arm>/payloads/<id>/<turn>.json`: each turn's final payload (the query, the task and
-  session ids, the route observation, `query_complete` and the elapsed time), which is
-  what the scorer reads.
+  session ids, the route observation, `query_complete`, the last `query_error` data or
+  null, and the elapsed time), which is what the scorer reads.
 
 The venue runs a `git archive` snapshot with no `.git`, so `runner.git_sha` falls back
 to a `SNAPSHOT` file at the repository root.
@@ -683,8 +723,8 @@ to a `SNAPSHOT` file at the repository root.
   `compare.json`, `compare.md` (the verdict first) and `questions.csv`. `--cost-only`
   and `--checks` print and write nothing.
 
-A manifest carries no cost for an NS turn ("Cadence" above), so the scorer is the only
-place these runs are priced. chat_nextseek appends one line per model call to a single
+A manifest from a server that does not price NS turns carries no cost for them
+("Cadence" above), so for such a run the scorer is the only place they are priced. chat_nextseek appends one line per model call to a single
 `llm_calls.jsonl` under the process's `LOG_DIR`, not one per run, so the scorer gives a
 turn the ledger lines from its run-root timestamp to that plus its elapsed time and
 `engine_compare.LEDGER_SLACK_S`, priced with the operator's price table. The arms run

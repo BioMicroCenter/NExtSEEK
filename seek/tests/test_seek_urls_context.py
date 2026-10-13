@@ -66,5 +66,6 @@ def test_login_template_prefers_the_seek_url():
     )
     text = tpl.read_text(encoding="utf-8")
     assert "seek_forgot_password_url" in text, "login page no longer links SEEK's reset"
-    # The Mezzanine URL must survive as the fallback, not be deleted outright.
-    assert "password_reset_url" in text
+    # Mezzanine's local reset answers 404 (its public pages are retired), so the
+    # page must not fall back to it.
+    assert '{% url "mezzanine_password_reset"' not in text and "password_reset_url" not in text

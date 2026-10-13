@@ -17,6 +17,7 @@ from typing import Any
 from .. import graph_scope
 from ..artifacts import ArtifactStore
 from ..config import live_db_conn
+from ..context_rows import is_investigation_row, is_project_row
 from ..helpers.dates import (
     _normalize_project_id,
     _normalize_years,
@@ -89,25 +90,38 @@ def _resolve_investigation(config, name) -> "tuple[int, str] | None":
     return None
 
 
-def _resolve_report_scope(config, project) -> "tuple[str, Any]":
+def scope_kind_word(query) -> "str | None":
+    """The scope word the user wrote: ``"investigation"`` or ``"project"`` when exactly one of the two appears in
+    ``query``, else None. A name that is both a project and an investigation takes the kind the user said."""
+    q = str(query or "").lower()
+    inv, proj = re.search(r"\binvestigations?\b", q), re.search(r"\bprojects?\b", q)
+    return "investigation" if inv and not proj else "project" if proj and not inv else None
+
+
+def _resolve_report_scope(config, project, scope_kind=None) -> "tuple[str, Any]":
     """
     Resolve a report's requested scope to ``("project", id)``,
     ``("investigation", (id, title))`` or ``("all", None)``.
 
-    Only ``run_project_sample_report`` used to have the investigation fallback; the
-    protocols and published runners called ``_normalize_project_id`` bare. The six
-    investigations (CSBC, Griffith, Impact, MetNet, SRP, Shoulders) live in
-    ``INVESTIGATION_NAME_TO_ID`` while ``PROJECT_NAME_TO_ID`` holds only
-    {PUB, PUBLISHED, PUBLISHED DATA}, so every investigation name raised
-    ``ValueError("Unknown project 'SRP'")`` and the whole RPPR died — identically in
-    baseline task 751 and post-fix task 815 — while the samples-only mode answered
-    the same string fine.
+    A name is tried as a project first (``PROJECT_NAME_TO_ID``: on a live config
+    every SEEK project, with a fuzzy contains-match), then as an investigation
+    (``INVESTIGATION_NAME_TO_ID``), so the sample, protocols and published runners
+    all accept an investigation name that matches no project.
+
+    ``scope_kind="investigation"`` (the user said "investigation", see ``scope_kind_word``) tries the investigation
+    first, so a name that is also a project's does not turn the question into the project's. Only the protocols
+    runner passes it (operator ruling 2026-10-13): sample and published counts stay project-first, as the graph
+    route treats the two words.
 
     Raises ValueError only when the name is neither a project nor an investigation,
     preserving the original error for genuinely unknown scopes.
     """
     if project is None or (isinstance(project, str) and not project.strip()):
         return ("all", None)
+    if getattr(project, "inv", None):                    # already resolved by id (a lab named like an investigation)
+        return ("investigation", project.inv)
+    if scope_kind == "investigation" and (investigation := _resolve_investigation(config, project)):
+        return ("investigation", investigation)
     try:
         project_id = _normalize_project_id(config, project)
     except ValueError:
@@ -150,18 +164,27 @@ def _tabulate_sample_uuids(uuids: list[str]) -> dict:
     }
 
 
+def _investigation_condition(inv_id, inv_title) -> "tuple[str, dict]":
+    """The investigation a report names: by ``inv.id`` when resolution gave one (two investigations can share a
+    title), else by exact title, case and surrounding whitespace aside; never a substring."""
+    if inv_id is not None:
+        return "inv.id = $inv_id", {"inv_id": int(inv_id)}
+    return "toLower(trim(inv.title)) = toLower(trim($inv_title))", {"inv_title": str(inv_title)}
+
+
 def _neo4j_investigation_sample_uuids(
     config, inv_title: str,
     years: list[int | str] | None = None,
     month_range: tuple[str, str] | None = None,
     day_range: tuple[str, str] | None = None,
+    *, inv_id: int | None = None,
 ) -> list[str]:
     """Sample UUIDs under an investigation, via Neo4j — the relational DB has no
-    populated sample->study->investigation linkage on this instance. Mirrors the
-    published-report traversal, scoped by EXACT investigation title (case-insensitive)
-    plus the same UUID-substring date filters."""
-    conditions = ["toLower(inv.title) = toLower($inv_title)"]
-    params: dict = {"inv_title": inv_title}
+    populated sample->study->investigation linkage on this instance. Scoped by the
+    investigation's id when one is given, else by its exact title (case-insensitive),
+    plus the same UUID-substring date filters as the published report."""
+    condition, params = _investigation_condition(inv_id, inv_title)
+    conditions = [condition]
     if years:
         params["yy_list"] = _normalize_years(years)
         conditions.append("substring(split(s.uuid, '-')[1], 0, 2) IN $yy_list")
@@ -195,7 +218,7 @@ def _run_investigation_sample_report(
     Returns the SAME result shape as run_project_sample_report so the chatter
     formats it identically; adds ``scope``/``investigation_id``/``investigation_title``."""
     inv_id, inv_title = investigation
-    uuids = _neo4j_investigation_sample_uuids(config, inv_title, years, month_range, day_range)
+    uuids = _neo4j_investigation_sample_uuids(config, inv_title, years, month_range, day_range, inv_id=inv_id)
     tables = _tabulate_sample_uuids(uuids)
     ts = datetime.now().strftime("%Y%m%dT%H%M%S")
     outputs_root_p = Path(outputs_root)
@@ -337,7 +360,8 @@ def run_project_sample_report(
         print("[REPORTER][SQL] Running project sample report query", {"query": query, "params": params})
         cursor.execute(query, params)
         rows = cursor.fetchall() or []
-        uuids = [r["uuid"] for r in rows if r.get("uuid")]
+        # SEEK can hold the same sample linked to a project twice; the report counts samples, not link rows.
+        uuids = list(dict.fromkeys(r["uuid"] for r in rows if r.get("uuid")))
 
         # --- Build summary tables from UID parsing ---
         # Format assumed: <SAMPLETYPE>-<YYMMDD><LAB>-<INCREMENT>
@@ -390,7 +414,7 @@ def run_project_sample_report(
                 "month_range": month_range,
                 "day_range": day_range,
             },
-            "rows_returned": len(rows),
+            "rows_returned": len(uuids),
             "uuids": uuids,
             "sampletypes_table": sampletypes_table,
             "labs_table": labs_table,
@@ -443,7 +467,7 @@ def run_project_sample_report(
         return {
             "ok": True,
             "project_id": project_id,
-            "rows_returned": len(rows),
+            "rows_returned": len(uuids),
             "uuids_saved": len(uuids),
             # See _run_investigation_sample_report: required by _scope_report_to_labs,
             # dropped again by run_reporter_summary before the result is serialised.
@@ -469,6 +493,7 @@ def run_project_protocols_report(
     month_range: tuple[str, str] | None = None,
     day_range: tuple[str, str] | None = None,
     outputs_root: str | Path = "outputs",
+    scope_kind: str | None = None,
 ) -> dict:
     """
     Project-scoped SOP/protocol reporting with optional date filters extracted from title.
@@ -489,23 +514,13 @@ def run_project_protocols_report(
       - years_table: counts by YY
       - months_table: counts by YYMM
     """
-    # Protocols have no relational sample->investigation link, so an investigation
-    # scope cannot be narrowed here. Report every protocol and say so explicitly
-    # rather than raising and killing the whole RPPR (task 815).
-    kind, scope = _resolve_report_scope(config, project)
-    unsupported_scope = None
+    # An investigation's protocols are the SOPs attached to its studies (sops_studies -> studies.investigation_id),
+    # not the SOPs filed under a project of the same name.
+    kind, scope = _resolve_report_scope(config, project, scope_kind)
+    investigation_scope = None
     if kind == "investigation":
         inv_id, inv_title = scope
-        unsupported_scope = {
-            "kind": "investigation",
-            "investigation_id": inv_id,
-            "investigation_title": inv_title,
-            "unsupported": True,
-            "reason": "protocols have no relational link to investigations; "
-                      "reporting all protocols",
-        }
-        print(f"[DEBUG][REPORTER] Protocols cannot be scoped to investigation "
-              f"'{inv_title}'; reporting all protocols")
+        investigation_scope = {"kind": "investigation", "investigation_id": inv_id, "investigation_title": inv_title}
         project_id = None
     else:
         project_id = scope if kind == "project" else None
@@ -534,6 +549,10 @@ def run_project_protocols_report(
         conditions.append("ps.project_id = %s")
         params.append(project_id)
 
+    if investigation_scope:
+        conditions.append("st.investigation_id = %s")
+        params.append(investigation_scope["investigation_id"])
+
     if years:
         yy_list = _normalize_years(years)
         placeholders = ", ".join(["%s"] * len(yy_list))
@@ -551,16 +570,18 @@ def run_project_protocols_report(
         params.extend([start6, end6])
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
+    # An investigation joins through its studies; DISTINCT keeps a SOP in two of its studies or projects to one row.
+    select = "SELECT DISTINCT ps.sop_id, sop.title" if investigation_scope else "SELECT ps.project_id, ps.sop_id, sop.title"
+    study_join = ("JOIN seek_production.sops_studies ss ON ss.sop_id = sop.id "
+                  "JOIN seek_production.studies st ON st.id = ss.study_id") if investigation_scope else ""
     query = f"""
-    SELECT
-      ps.project_id,
-      ps.sop_id,
-      sop.title
+    {select}
     FROM
       seek_production.projects_sops ps
     JOIN
       seek_production.sops sop
         ON ps.sop_id = sop.id
+    {study_join}
     WHERE
       {where_clause};
     """.strip()
@@ -651,7 +672,7 @@ def run_project_protocols_report(
             "unparsable_titles": unparsable_count,
             # Needed by _scope_protocols_to_labs; dropped again by run_reporter_summary.
             "titles": titles,
-            **({"scope": unsupported_scope} if unsupported_scope else {}),
+            **({"scope": investigation_scope} if investigation_scope else {}),
         }
 
     except Exception as e:
@@ -669,11 +690,13 @@ def run_project_published_report(  # noqa: C901
     """
     Project-scoped published samples and protocols report.
 
-    Published samples and studies are determined via Neo4j: the production graph contains
-    only data that has been published/submitted to public repositories.
-    Traversal: (inv:Investigation) <-[:IN_INVESTIGATION]- (study:Study) <-[:IN_STUDY]- (s:Sample)
-    Filtering by project uses case-insensitive CONTAINS on inv.title (normalized, spaces stripped).
-    Date filtering uses the same YYMMDD substring from the sample UUID.
+    Published samples come from Neo4j. The graph holds every sample, published or not, so a sample counts only
+    when it carries a non-empty DOI or PMID itself or sits in a Study that does (a paper study not yet moved into
+    SEEK). Traversal: (inv:Investigation) <-[:IN_INVESTIGATION]- (study:Study) <-[:IN_STUDY]- (s:Sample), each
+    sample once; its studies are those of the named investigation, a holding study ("... Unpublished") left out.
+    A name that resolves to a project matches the investigations IN_PROJECT to it, by the project's id; one that
+    resolves to an investigation matches it by its id (else by its exact title, case-insensitive); never a
+    substring. Date filtering uses the same YYMMDD substring from the sample UUID.
 
     Published protocols are determined by intersection:
       - Protocols for this project+date in seek_production
@@ -681,8 +704,6 @@ def run_project_published_report(  # noqa: C901
 
     Returns counts of published samples (by type/lab/year/month), study count, and protocol count.
     """
-    # Resolution only — the Cypher below already filters on the raw project string via
-    # $proj_hint, so an investigation name works the moment resolution stops raising.
     kind, scope = _resolve_report_scope(config, project)
     project_id = scope if kind == "project" else None
     investigation_scope = scope if kind == "investigation" else None
@@ -699,19 +720,26 @@ def run_project_published_report(  # noqa: C901
     cypher_conditions: list[str] = []
     cypher_params: dict = {}
 
-    # Umbrella projects (dev-only opt-in, default off) skip the investigation-
-    # title hint and report ALL investigations' samples: a project that contains
-    # every investigation matches no single title, so the hint would wrongly
-    # return 0 (issue #1 / option 2). Date filters below still apply.
+    # Umbrella projects (dev-only opt-in, default off) skip the investigation
+    # filter and report ALL investigations' samples (issue #1 / option 2).
+    # Date filters below still apply.
     is_umbrella = getattr(config, "is_umbrella_published_project", None)
     skip_hint = bool(is_umbrella and is_umbrella(project, project_id))
-    if project is not None and not skip_hint:
-        # Normalize project hint: lowercase, strip spaces for CONTAINS match
-        hint = re.sub(r"\s+", "", str(project).lower())
+    if project_id is not None and not skip_hint:
+        # A project's investigation often carries another title, so a project matches its investigations by id.
         cypher_conditions.append(
-            "replace(toLower(inv.title), ' ', '') CONTAINS $proj_hint"
-        )
-        cypher_params["proj_hint"] = hint
+            "EXISTS { MATCH (inv)-[:IN_PROJECT]->(proj:Project) WHERE proj.id = $project_id }")
+        cypher_params["project_id"] = int(project_id)
+    elif investigation_scope is not None and not skip_hint:
+        condition, params = _investigation_condition(*investigation_scope)
+        cypher_conditions.append(condition)
+        cypher_params.update(params)
+    # Published: a DOI or PMID on the sample, or on a Study it sits in.
+    cypher_conditions.append(
+        "(coalesce(toString(s.DOI), '') <> '' OR coalesce(toString(s.PMID), '') <> '' "
+        "OR EXISTS { MATCH (s)-[:IN_STUDY]->(pub:Study) "
+        "WHERE coalesce(toString(pub.DOI), '') <> '' OR coalesce(toString(pub.PMID), '') <> '' })"
+    )
 
     if years:
         yy_list = _normalize_years(years)
@@ -736,11 +764,13 @@ def run_project_published_report(  # noqa: C901
         cypher_params["date6_start"] = start6
         cypher_params["date6_end"] = end6
 
-    where_clause = (" WHERE " + " AND ".join(cypher_conditions)) if cypher_conditions else ""
+    where_clause = " WHERE " + " AND ".join(cypher_conditions)
     cypher = (
         f"MATCH (inv:Investigation)<-[:IN_INVESTIGATION]-(study:Study)<-[:IN_STUDY]-(s:Sample)"
         f"{where_clause} "
-        f"RETURN s.uuid AS uuid, study.title AS study_title, s.type AS sampletype"
+        f"WITH s, collect(DISTINCT CASE WHEN NOT toLower(trim(study.title)) ENDS WITH 'unpublished' "
+        f"THEN study.title END) AS study_titles "
+        f"RETURN DISTINCT s.uuid AS uuid, study_titles, s.type AS sampletype"
     )
 
     print("[REPORTER][NEO4J] Running published samples query", {"cypher": cypher, "params": cypher_params})
@@ -751,7 +781,7 @@ def run_project_published_report(  # noqa: C901
     else:
         rows = neo4j_result.get("data") or []
         uids = [r["uuid"] for r in rows if r.get("uuid")]
-        study_set = {r["study_title"] for r in rows if r.get("study_title")}
+        study_set = {t for r in rows for t in (r.get("study_titles") or []) if t}
 
         uid_re = re.compile(
             r"^(?P<sampletype>[^-]+)-(?P<yymmdd>\d{6})(?P<lab>[A-Za-z]+)-(?P<inc>\d+)(-\w+)*$"
@@ -786,7 +816,8 @@ def run_project_published_report(  # noqa: C901
             # recomputed from the survivors rather than left contradicting the row
             # count. Dropped again by run_reporter_summary.
             "uuids": uids,
-            "uuid_studies": [[r.get("uuid"), r.get("study_title")] for r in rows if r.get("uuid")],
+            # One pair per (sample, study), and one with no study for a sample only in a holding study.
+            "uuid_studies": [[r["uuid"], t] for r in rows if r.get("uuid") for t in (r.get("study_titles") or [None])],
             "sampletypes_table": dict(sorted(sampletype_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
             "labs_table": dict(sorted(lab_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
             "years_table": dict(sorted(year_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
@@ -1055,8 +1086,8 @@ def _scope_published_to_labs(result: dict, lab_codes: list[str]) -> dict:
 
     pairs = samples.get("uuid_studies") or []
     kept = [(u, s) for u, s in pairs if _lab_of(u) in wanted]
-    unattributable = sum(1 for u, _ in pairs if _lab_of(u) is None)
-    uuids = [u for u, _ in kept]
+    unattributable = len({u for u, _ in pairs if _lab_of(u) is None})
+    uuids = list(dict.fromkeys(u for u, _ in kept))          # a sample in two studies is one sample
     study_set = {s for _, s in kept if s}
 
     scoped_samples = dict(samples)
@@ -1111,21 +1142,32 @@ def reporter_reply_footer(
     else:
         lines.append(f"- **Download report:** `{reporter_result.get('uuid_report_file')}`")
 
+    if summary_mode in ("RPPR", "samples"):
+        samples_block = reporter_result.get("samples") or {} if summary_mode == "RPPR" else reporter_result
+        rest = _types_not_itemised(samples_block.get("sampletypes_table"))
+        if rest:
+            lines.append(f"- **Sample types:** the top {TOP_TYPES_SHOWN} are itemised; {rest['types']} other types "
+                         f"({rest['samples']:,} samples) are not.")
+
     scope = (reporter_result.get("scope")
              or (reporter_result.get("samples") or {}).get("scope")
              or {})
-    if isinstance(scope, dict) and scope.get("kind") == "lab":
-        codes = ", ".join(scope.get("lab_codes") or [])
-        # Investigation titles are every project's; only an admin is shown them. The config does not record which
-        # investigations a caller's projects hold, so anyone else is shown none.
-        known = sorted(getattr(config, "INVESTIGATION_NAME_TO_ID", None) or {}) if graph_scope.sees_all(config) else []
-        note = (
-            f"- **Scope:** this report covers lab {codes}, not a project. "
-            "The name you gave is recorded as a lab code rather than an investigation"
+    via_lab = reporter_result.get("lab_project")
+    if isinstance(via_lab, dict):
+        kind = via_lab.get("kind", "project")
+        lines.append(
+            f"- **Scope:** {via_lab['name']} is both a lab and the {kind} {via_lab['project']}; "
+            f"this report covers that {kind}. Ask for the lab by its code "
+            f"{', '.join(via_lab['lab_codes'])} if you meant the lab's samples across projects."
         )
-        if known:
-            note += f"; the investigations are {', '.join(known)}"
-        lines.append(note + ".")
+    elif isinstance(scope, dict) and scope.get("kind") == "lab":
+        codes = ", ".join(scope.get("lab_codes") or [])
+        text = f"- **Scope:** this report covers lab {codes}, not a project."
+        # Only after the lookup ran (it keeps the names it looked up) and found nothing.
+        if reporter_result.get("lab_names"):
+            text += (f" {', '.join(reporter_result['lab_names'])} is a lab here and is not the name of a project "
+                     "or investigation.")
+        lines.append(text)
 
     return lines
 
@@ -1155,11 +1197,125 @@ def _drop_uuid_list(result: dict) -> dict:
     return cleaned
 
 
+def lab_names_by_name(entity_result) -> "list[str]":
+    """The lab names the user wrote as names, for ``run_reporter_summary(lab_names=...)``.
+
+    A code match also carries the lab's name, but a request by code must keep the lab scope, so only matches whose
+    rule is not ``code`` count. Takes the entity result as a model or a dict.
+    """
+    matches = (entity_result.get("lab_matches") if isinstance(entity_result, dict)
+               else getattr(entity_result, "lab_matches", None)) or []
+    names: list[str] = []
+    for m in matches:
+        get = m.get if isinstance(m, dict) else lambda k, _m=m: getattr(_m, k, None)
+        name = get("name")
+        if get("rule") != "code" and isinstance(name, str) and name and name not in names:
+            names.append(name)
+    return names
+
+
+class _InvestigationName(str):
+    """An investigation title that already carries its id, so a report scopes by ``inv.id`` and no project's fuzzy
+    name match can take it first. It is a plain string everywhere else (filters, summary)."""
+
+    inv: "tuple[int, str]"
+
+
+def _investigation_named(config, key: str) -> "tuple[int, str, dict | None] | None":
+    """``(id, TITLE, row)`` of the investigation ``key`` (upper) is the title or an alias of, or None.
+
+    Titles come from ``INVESTIGATION_NAME_TO_ID``; aliases from the investigation rows of projects_db.json
+    (``alternative_names``), whose ``name`` is the title.
+    """
+    inv_map = getattr(config, "INVESTIGATION_NAME_TO_ID", None) or {}
+    rows = [r for r in getattr(config, "FULL_PROJECTS", None) or [] if is_investigation_row(r)]
+    title = key if key in inv_map else None
+    if title is None:
+        for r in rows:
+            aliases = {a.strip().upper() for a in r.get("alternative_names") or [] if isinstance(a, str)}
+            if key in aliases and str(r.get("name", "")).strip().upper() in inv_map:
+                title = str(r["name"]).strip().upper()
+                break
+    if title is None:
+        return None
+    row = next((r for r in rows if str(r.get("name", "")).strip().upper() == title), None)
+    return inv_map[title], title, row
+
+
+def _entity_named_by_labs(config, lab_names: "list[str] | None") -> "dict | None":
+    """The one project, else the one investigation, every lab name the user gave also names; or a falsy value.
+
+    A name counts when it equals, case-folded, a project name or alias (``PROJECT_NAME_TO_ID``, which carries the
+    catalog's aliases), else an investigation title or alias. Projects first. Any lab without a match, labs naming
+    different entities, or an entity outside the caller's scope (graph_scope; no scope counts as outside; an
+    investigation counts as inside when its owner project is, or for an admin) leave the lab scope in place.
+    ``None`` means the lookup ran and no name matched anything (or it could not run: no names, no scope), so the
+    footer may say the name is not a project's; ``{}`` means something matched but cannot be used (review F9).
+    """
+    names = [n.strip() for n in (lab_names or []) if isinstance(n, str) and n.strip()]
+    if not names:
+        return None
+    scope = graph_scope.scope_of(config)
+    if scope is None:
+        return None
+    table = getattr(config, "PROJECT_NAME_TO_ID", None) or {}
+    found, missing = set(), False
+    for n in names:
+        key = n.upper()
+        if key in table:
+            found.add(("project", table[key], key))
+            continue
+        inv = _investigation_named(config, key)
+        if inv is None:
+            missing = True
+            continue
+        inv_id, title, row = inv
+        owner = (row or {}).get("project_id")
+        if not (scope.is_admin or (owner is not None and owner in scope.project_ids)):
+            return {}
+        found.add(("investigation", inv_id, title))
+    if missing:
+        return {} if found else None
+    if len({(k, i) for k, i, _ in found}) != 1:
+        return {}
+    kind, ident, key = sorted(found)[0]
+    label = ", ".join(names)
+    if kind == "project":
+        if not (scope.is_admin or ident in scope.project_ids):
+            return {}
+        canonical = next((p["name"] for p in getattr(config, "FULL_PROJECTS", None) or []
+                          if is_project_row(p) and p.get("project_id") == ident and p.get("name")), key)
+        return {"name": label, "project": canonical, "kind": "project", "key": key}
+    scoped = _InvestigationName(key)
+    scoped.inv = (ident, key)
+    return {"name": label, "project": key, "kind": "investigation", "key": scoped}
+
+
+TOP_TYPES_SHOWN = 5
+
+
+def _types_not_itemised(table, shown: int = TOP_TYPES_SHOWN) -> "dict | None":
+    """``{"types": n, "samples": m}`` for the sample types past the top ``shown`` of a sampletypes table, or None
+    when all of them are itemised. The writer gets only the top types, so the reply must say what it left out."""
+    if not isinstance(table, dict) or len(table) <= shown:
+        return None
+    rest = sorted(table.values(), reverse=True)[shown:]
+    return {"types": len(rest), "samples": sum(v for v in rest if isinstance(v, (int, float)))}
+
+
+def _top_labs(table) -> list:
+    """The top lab codes of a labs table, only when more than one lab could have appeared. One code is the scope
+    itself, and offering it as a breakdown is how a reply came to say 'all N originate from lab X'."""
+    return top_items(table, 5) if isinstance(table, dict) and len(table) > 1 else []
+
+
 def run_reporter_summary(
     config,
     reporter_plan,
     log_dir: "str | Path | None",
     lab_codes: "list[str] | None" = None,
+    lab_names: "list[str] | None" = None,
+    scope_kind: "str | None" = None,
 ) -> "tuple[dict, dict[str, str], dict]":
     """
     Execute the summary reporter pipeline (samples / protocols / published / RPPR).
@@ -1194,6 +1350,17 @@ def run_reporter_summary(
         if lab_codes:
             print(f"[DEBUG][REPORTER] lab_codes not passed; taking {lab_codes} "
                   "from reporter_plan.reporter_context")
+    # The reporter prompt now gives a lab's name as the project when only a lab was named. A plan project that is
+    # one of the lab names is a lab to look up here, never a fuzzy project match or an unknown-project error.
+    lab_name_set = {n.strip().upper() for n in lab_names or [] if isinstance(n, str)}
+    if lab_codes and isinstance(project, str) and project.strip().upper() in lab_name_set:
+        project = None
+    lab_project = _entity_named_by_labs(config, lab_names) if project is None and lab_codes else None
+    if lab_project:
+        # The user's lab name is also a project's or investigation's name or alias: the report is that entity's,
+        # and the footer says so.
+        project = lab_project.pop("key")
+        lab_project = {**lab_project, "lab_codes": list(lab_codes)}
     fallback_labs = list(lab_codes or []) if project is None else []
     if fallback_labs:
         print(f"[DEBUG][REPORTER] No project resolved; scoping by lab {fallback_labs}")
@@ -1225,7 +1392,7 @@ def run_reporter_summary(
             protocols_result = _scope_protocols_to_labs(_guarded(
                 "protocols", run_project_protocols_report,
                 config, project, years=years, month_range=month_range,
-                day_range=day_range, outputs_root=log_dir or "outputs",
+                day_range=day_range, outputs_root=log_dir or "outputs", scope_kind=scope_kind,
             ), fallback_labs)
             published_result = _scope_published_to_labs(_guarded(
                 "published", run_project_published_report,
@@ -1244,7 +1411,7 @@ def run_reporter_summary(
         elif summary_mode == "protocols":
             reporter_result = _scope_protocols_to_labs(run_project_protocols_report(
                 config, project, years=years, month_range=month_range,
-                day_range=day_range, outputs_root=log_dir or "outputs",
+                day_range=day_range, outputs_root=log_dir or "outputs", scope_kind=scope_kind,
             ), fallback_labs)
         elif summary_mode == "published":
             reporter_result = _scope_published_to_labs(run_project_published_report(
@@ -1264,6 +1431,10 @@ def run_reporter_summary(
     # build_metadata_bundle, and this can be ~50k strings. The durable copy lives in
     # uuid_report_file, which is what the reply links to.
     reporter_result = _drop_uuid_list(reporter_result)
+    if lab_project and isinstance(reporter_result, dict):
+        reporter_result["lab_project"] = lab_project
+    elif fallback_labs and lab_names and lab_project is None and isinstance(reporter_result, dict):
+        reporter_result["lab_names"] = list(lab_names)  # the lookup found nothing: the footer may say so
 
     # ── Register output files ─────────────────────────────────────────
     saved_files: dict[str, str] = {}
@@ -1292,8 +1463,9 @@ def run_reporter_summary(
     def _sub_summary(r: dict) -> dict:
         return {
             "rows_returned": r.get("rows_returned"),
-            "top_sampletypes": top_items(r.get("sampletypes_table"), 5),
-            "top_labs": top_items(r.get("labs_table"), 5),
+            "top_sampletypes": top_items(r.get("sampletypes_table"), TOP_TYPES_SHOWN),
+            "sampletypes_not_itemised": _types_not_itemised(r.get("sampletypes_table")),
+            "top_labs": _top_labs(r.get("labs_table")),
             "years": top_items(r.get("years_table"), 10),
             "top_months": top_items(r.get("months_table"), 12),
             "db_diagnostic": r.get("db_diagnostic") or {},
@@ -1312,6 +1484,10 @@ def run_reporter_summary(
         "scope": reporter_result.get("scope")
                  or (reporter_result.get("samples") or {}).get("scope"),
     }
+    # The sample report returns no filters key, so a reply said "no date filter" about a day range it had applied.
+    if not reporter_summary["filters"]:
+        reporter_summary["filters"] = {k: v for k, v in (
+            ("project", project), ("years", years), ("month_range", month_range), ("day_range", day_range)) if v}
     # A caller who is not an admin reads only its own projects' rows (_report_projects): say so, so an unnamed
     # project is not narrated as every project.
     caller_scope = graph_scope.scope_of(config)
@@ -1321,7 +1497,7 @@ def run_reporter_summary(
         reporter_summary["samples"] = _sub_summary(reporter_result.get("samples") or {})
         reporter_summary["protocols"] = {
             "rows_returned": (reporter_result.get("protocols") or {}).get("rows_returned"),
-            "top_labs": top_items((reporter_result.get("protocols") or {}).get("labs_table"), 5),
+            "top_labs": _top_labs((reporter_result.get("protocols") or {}).get("labs_table")),
             "years": top_items((reporter_result.get("protocols") or {}).get("years_table"), 10),
             "scope": (reporter_result.get("protocols") or {}).get("scope"),
         }
@@ -1334,7 +1510,7 @@ def run_reporter_summary(
     elif summary_mode == "protocols":
         reporter_summary.update({
             "rows_returned": reporter_result.get("rows_returned"),
-            "top_labs": top_items(reporter_result.get("labs_table"), 5),
+            "top_labs": _top_labs(reporter_result.get("labs_table")),
             "years": top_items(reporter_result.get("years_table"), 10),
             "top_months": top_items(reporter_result.get("months_table"), 12),
         })
@@ -1346,7 +1522,7 @@ def run_reporter_summary(
             "study_count": pub_samples.get("study_count"),
             "studies": pub_samples.get("studies"),
             "protocols_count": pub_protocols.get("rows_returned"),
-            "top_protocol_labs": top_items(pub_protocols.get("labs_table"), 5),
+            "top_protocol_labs": _top_labs(pub_protocols.get("labs_table")),
         })
     else:
         reporter_summary.update(_sub_summary(reporter_result))

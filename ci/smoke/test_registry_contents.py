@@ -42,18 +42,21 @@ from ci.smoke.test_reachability import _callable_routes
 # was retired (Sample Search's own boxes now call graph_search), then 172 -> 173
 # the same day for /nextseek_api/assistant/aggregate/, then 173 -> 174 for
 # /seek/exports/{token}/{filename}, the private store the legacy sample exports
-# now link to instead of /media/download/. Each step was
+# now link to instead of /media/download/, then 174 -> 175 on 2026-09-22 for
+# /seek/admin/internal_assays/suggestions (the association workbench, merged in
+# f8ed4b0c), then 175 -> 176 for /nextseek_api/samples/retrieve/ (the download API's
+# new name; admin/samples/retrieve/ stays as its alias). Each step was
 # confirmed by the completeness gate passing against the live resolver on the
 # branch that added them. When the application gains or loses a route this number
 # moves, and the COMPLETENESS GATE (ci/gate/test_route_registry.py) is the
 # authority on what the right number is: it diffs the registry against the live
 # resolver. This constant only stops the registry drifting silently between gate
 # runs, which happen in a different environment.
-OWNED_ROUTE_COUNT = 174
+OWNED_ROUTE_COUNT = 180
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
-# static asset and the Django admin login page.
-NON_RESOLVER_COUNT = 2
+# static asset, the Django admin login page and the retired /seek/newsearch/ (404).
+NON_RESOLVER_COUNT = 3
 
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
@@ -70,7 +73,7 @@ def test_no_pattern_is_declared_twice():
 def test_exactly_one_route_may_send_a_non_get_under_prod():
     """Authenticating is a precondition of a read-only sweep. Nothing else qualifies."""
     allowed = [r for r in REGISTRY if r.prod_allows_non_get]
-    assert [r.pattern for r in allowed] == [r"^login"], (
+    assert [r.pattern for r in allowed] == [r"^login/?$"], (
         "prod_allows_non_get is the single hole in the read-only guarantee. "
         f"Found: {[r.pattern for r in allowed]}"
     )

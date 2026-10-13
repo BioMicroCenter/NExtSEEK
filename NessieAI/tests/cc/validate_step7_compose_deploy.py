@@ -61,8 +61,8 @@ except ImportError:  # pragma: no cover - defensive; repo_root always has startu
         "seek-cache", "nextseek" + "-static-files", "neo4j-data",
     ]
 
-# Matches typical MBP host_label spellings: "taishajo-mbp", "MBP.local",
-# "mbp-taishajo", "MacBook-Pro", "MacBookPro16,1", etc. Used ONLY for the
+# Matches typical MBP host_label spellings: "dev-mbp", "MBP.local",
+# "mbp-dev", "MacBook-Pro", "MacBookPro16,1", etc. Used ONLY for the
 # narrow Task-1 in-bundle tracker-snapshot exception below -- NOT the same
 # thing as the Task-2 locked host_label enum (HOST_LABEL_VALID), which
 # requires the *exact* literal "mbp" (see check_host_label_enum_valid).
@@ -176,13 +176,13 @@ _NEXTSEEK_PASSWORD_UNREDACTED_RE = re.compile(
     r"NEXTSEEK_PASSWORD\s*=\s*(?!\*{3,}\b|REDACTED\b|<redacted>|\[redacted\])\S+", re.IGNORECASE
 )
 
-# Task 16 debt fix: pinned to the single allowed Bedrock model id (the
-# bedrock-proxy allowlist -- NessieAI/docker/bedrock-proxy/app/config.py's
+# Task 16 debt fix: pinned to the main Container-CC model id (the first entry of
+# the bedrock-proxy allowlist -- NessieAI/docker/bedrock-proxy/app/config.py's
 # `_DEFAULT_ALLOWED_MODELS`, mirrored here as `_CC_OPUS_MODEL_ID` /
 # `validate_cc_acceptance.OPUS`), NOT a `\S+` wildcard that would accept a
 # proxy invoke-200 for ANY model id. A generic wildcard here would pass even
 # when the proxy relayed a call to a model the allowlist never authorized --
-# defeating the point of pinning the proxy to exactly one model.
+# defeating the point of the proxy's model allowlist.
 _INVOKE_200_OPUS_RE = re.compile(
     r"POST\s+/model/" + re.escape(_CC_OPUS_MODEL_ID) + r"/invoke(?:-with-response-stream)?\b[^\n]*?->\s*200"
 )

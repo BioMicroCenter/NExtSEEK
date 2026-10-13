@@ -378,7 +378,7 @@ $(function(){
             </label>
             <select id="m_sampletype">
                 <option value="0">All types</option>
-                {% for opt in report.type_options %}
+                {% for opt in report.type_option_list %}
                 <option value="{{ opt.id }}">{{ opt.title }}</option>
                 {% endfor %}
             </select>

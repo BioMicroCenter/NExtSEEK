@@ -1,6 +1,7 @@
 """Runtime-critical Bayesian router wiring and fail-open behavior."""
 import asyncio
 import json
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -134,7 +135,12 @@ def test_router_falls_back_when_selector_itself_raises(settings, monkeypatch):
         source="baml",
     )
     monkeypatch.setattr(cc_router, "_route_query", lambda *_: fallback)
-    assert cc_router.decide("find mice") == fallback.__class__(
+    decided = cc_router.decide("find mice")
+    # decide() also prices the router's model calls (test_router_cost.py); both are
+    # mocked here, so no model was asked and the cost is 0.
+    assert decided.router_cost_usd == 0.0 and decided.router_cost_partial is False
+    decided = replace(decided, router_cost_usd=None, router_usage=None)
+    assert decided == fallback.__class__(
         **{**fallback.__dict__, "task_family": "sample_search", "family_source": "baml", "reasoning": "posterior fallback: legacy"}
     )
     selector.assert_called_once_with("sample_search")
@@ -143,3 +149,20 @@ def test_router_falls_back_when_selector_itself_raises(settings, monkeypatch):
 def test_deploy_templates_default_posterior_router_off():
     for relative in ("docker/nextseek.env.example", "startup/templates/nextseek.env.template"):
         assert 'NEXTSEEK_POSTERIOR_ROUTING_ENABLED="0"' in (_REPO / relative).read_text()
+
+
+SEMANTIC_TUNING_LINES = (
+    '# SEMANTIC_ENDPOINTS_ENABLED="0"',
+    '# SEMANTIC_MODEL_NAME="sentence-transformers/all-MiniLM-L6-v2"',
+    '# SEMANTIC_RATIO="0.7"',
+    '# SEMANTIC_MIN_K="10"',
+    '# SEMANTIC_MAX_K="80"',
+)
+
+
+def test_deploy_templates_document_the_semantic_tuning_keys_commented_at_the_code_defaults():
+    """#28: the keys ChatConfig reads, commented at its defaults, so a box's env file needs none of them."""
+    for relative in ("docker/nextseek.env.example", "startup/templates/nextseek.env.template"):
+        lines = (_REPO / relative).read_text().splitlines()
+        for expected in SEMANTIC_TUNING_LINES:
+            assert expected in lines, (relative, expected)

@@ -289,3 +289,62 @@ class TestProjectsListClades:
         ]
         body = projects_view(_req("/seek/projects/", superuser=True)).content.decode()
         assert body.index("Source") < body.index("Processed") < body.index("Raw")
+
+
+class TestAFailedMembershipReadShowsNothing:
+    """SeekDB.getCurrentUser raises when it cannot read which projects the caller still belongs to. A page then treats
+    the caller as a member of none: it lists no project, opens no project page, and retrieves through no project."""
+
+    @staticmethod
+    def _failing():
+        db = _seekdb([2])
+        db.getCurrentUser.side_effect = RuntimeError("membership read failed")
+        return db
+
+    @patch("seek.views.projects.render")
+    @patch("seek.views.projects.DBtable_stc")
+    @patch("seek.views.projects.DBtable_projects")
+    @patch("seek.views.projects.Projects")
+    @patch("seek.decorators.SeekDB")
+    def test_the_projects_list_lists_none(self, db, projects, _p, _stc, render):
+        from seek.views.projects import projects as projects_view
+
+        db.return_value = self._failing()
+        projects.objects.filter.return_value.values.return_value = []
+        projects_view(_req("/seek/projects/"))
+        projects.objects.filter.assert_called_once_with(id__in=[])
+        assert render.call_args.args[2]["projects"] == []
+
+    @patch("seek.views.projects.render")
+    @patch("seek.views.projects.Projects")
+    @patch("seek.views.projects.SeekDB")
+    def test_a_project_page_is_refused(self, db, projects, render):
+        from seek.views.projects import project_page
+
+        db.return_value = self._failing()
+        project_page(_req("/seek/projects/2/"), "2")
+        assert render.call_args.args[1] == "error.html"
+        projects.objects.get.assert_not_called()
+
+    def test_the_admin_retrieve_page_retrieves_through_no_project(self):
+        import pandas as pd
+        import seek.views.admin
+
+        seen = []
+
+        def _children(uids, project_ids, admin):
+            seen.append((list(project_ids), admin))
+            return pd.DataFrame([{"id": 1, "sample_type_id": 1, "uuid": "TIS-1", "json_metadata": "{}"}])
+
+        def _write(_df, path):
+            with open(path, "wb") as fh:
+                fh.write(b"PK")
+
+        req = RequestFactory().post("/seek/admin/retrieve/", {"retrieval_uids": "TIS-1"})
+        req.user = MagicMock(is_authenticated=True, is_superuser=False)
+        req.session = {}
+        with patch("seek.views.admin.SeekDB", return_value=self._failing()), \
+                patch("seek.views.admin.get_children_uids", side_effect=_children), \
+                patch("seek.views.admin.sample_retrieval_data", side_effect=_write):
+            seek.views.admin.adminRetrieveSamples(req)
+        assert seen == [([], False)]

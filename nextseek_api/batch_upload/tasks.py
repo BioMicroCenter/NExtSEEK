@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 
 from celery.exceptions import SoftTimeLimitExceeded
 
@@ -132,6 +133,7 @@ def resolve_orphans_task(self, identity_map: dict, parent_info: dict):
         from neo4j import GraphDatabase
 
         from nextseek_api.graph_sync import hooks
+        from nextseek_api.graph_sync.writer import SAMPLE_CHUNK
 
         from .config import Neo4jConfig
         from .db_engine import get_connection
@@ -157,12 +159,16 @@ def resolve_orphans_task(self, identity_map: dict, parent_info: dict):
         finally:
             driver.close()
 
-        # After the commit, never inside it: the outbox row is the record, and the drain writes the graph.
-        stats["queued"] = sum(
-            1
-            for sample_id in stats.get("sample_ids", ())
-            if hooks.enqueue("samples", f"sample:{sample_id}")
-        )
+        # After the commit, never inside it: the outbox rows are the record, and the drain writes the graph. One
+        # row per SAMPLE_CHUNK ids, so the drain runs one by-id sync per chunk and not one per sample; the time in
+        # the key keeps two uploads before a drain from overwriting each other's ids.
+        ids = sorted({int(sample_id) for sample_id in stats.get("sample_ids", ())})
+        stamp = time.time_ns()
+        stats["queued"] = 0
+        for n, start in enumerate(range(0, len(ids), SAMPLE_CHUNK)):
+            part = ids[start:start + SAMPLE_CHUNK]
+            if hooks.enqueue("samples", f"batch:orphans:{stamp}:{n}", part):
+                stats["queued"] += len(part)
         return stats
 
     except Exception as exc:

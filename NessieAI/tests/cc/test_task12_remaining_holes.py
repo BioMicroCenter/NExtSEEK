@@ -356,14 +356,14 @@ def test_extract_catalog_error_paths():
 
 def test_cc_staging_unsafe_and_deferred(tmp_path):
     with pytest.raises(cc_staging._DestUnsafe):
-        cc_staging._deliver_file_safely(tmp_path / "nope", str(tmp_path / "missing-root"), (), "a.txt")
+        cc_staging._deliver_file_safely(b"", str(tmp_path / "missing-root"), (), "a.txt")
     src = tmp_path / "src.txt"
     src.write_text("hi")
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    name = cc_staging._deliver_file_safely(src, str(scratch), (), "a.txt")
+    name = cc_staging._deliver_file_safely(src.read_bytes(), str(scratch), (), "a.txt")
     assert name == "a.txt"
-    name2 = cc_staging._deliver_file_safely(src, str(scratch), (), "a.txt")
+    name2 = cc_staging._deliver_file_safely(src.read_bytes(), str(scratch), (), "a.txt")
     assert name2.startswith("a__")
     user_root = tmp_path / "users"
     staging = cc_staging.staging_root_for(str(user_root))
@@ -378,7 +378,7 @@ def test_cc_staging_unsafe_and_deferred(tmp_path):
     result = cc_staging.sweep_user_staging(
         user_root_mount=str(user_root),
         scratch_dir=str(scratch),
-        api_user="alice",
+        staging_folder=digest,
         user_id="alice",
         project_dirname="proj",
         since_ts=10_000,
@@ -876,7 +876,7 @@ def test_cc_staging_symlink_and_unsafe_leaf(tmp_path, monkeypatch):
     link = art / "evil"
     link.symlink_to(tmp_path)
     with pytest.raises(cc_staging._DestUnsafe):
-        cc_staging._deliver_file_safely(src, str(scratch), ("evil",), "a.txt")
+        cc_staging._deliver_file_safely(src.read_bytes(), str(scratch), ("evil",), "a.txt")
     real_open = os.open
 
     def fake_open(path, flags, *a, **k):
@@ -886,7 +886,7 @@ def test_cc_staging_symlink_and_unsafe_leaf(tmp_path, monkeypatch):
 
     monkeypatch.setattr(os, "open", fake_open)
     with pytest.raises(cc_staging._DestUnsafe):
-        cc_staging._deliver_file_safely(src, str(scratch), (), "badleaf")
+        cc_staging._deliver_file_safely(src.read_bytes(), str(scratch), (), "badleaf")
 
 
 def test_cc_engine_publish_unsafe_and_persist_strict(tmp_path, monkeypatch):

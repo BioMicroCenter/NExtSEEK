@@ -2,7 +2,7 @@ import yaml
 from pathlib import Path
 import chat_nextseek.luria.submitter as sub
 
-LE = {"user": "cdemu", "host": "luria.mit.edu", "key": "/k", "working_path": "/net/x"}
+LE = {"user": "alice", "host": "luria.mit.edu", "key": "/k", "working_path": "/net/x"}
 
 
 def _fixture(tmp_path):

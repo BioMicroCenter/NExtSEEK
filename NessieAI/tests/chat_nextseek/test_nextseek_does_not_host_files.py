@@ -4,7 +4,8 @@ NExtSEEK never hosts raw data (FASTQ, BAM, FCS, images). Every data and analysis
 (``File_PrimaryData``), says where the file is stored (``Link_PrimaryData``) and usually carries its checksum
 (``Checksum_PrimaryData``); records deposited publicly also name the repository and its accession
 (``Repository``, ``RepositoryID``). A question about downloading a file must get that answer, plus an offer to
-look up where the files are, from whichever agent the question reaches:
+look up where the files are, from whichever agent the question reaches (the chatter excepted: its only offer is the
+reviewer's chip, so it says the result holds no locations instead):
 
 * the system agent, for "what is NExtSEEK" and "can I download files here": it answers from the capabilities
   document, so that document says it;
@@ -150,6 +151,10 @@ def test_the_chatter_tells_a_person_who_asked_for_files_where_they_live():
     assert NOT_HOSTED.search(body)
     for field in ("File_PrimaryData", "Link_PrimaryData"):
         assert field in body, field
+    # No prose offer without a chip (Phase F, F-d; operator ruling Q2): with no file fields, it says so and stops.
+    assert ("If it carries none of them, say that this result holds no file names or locations for those "
+            "samples.") in body
+    assert not re.search(r"\boffer", body, re.IGNORECASE)
 
 
 # --- the About page ----------------------------------------------------------------------------------------------------

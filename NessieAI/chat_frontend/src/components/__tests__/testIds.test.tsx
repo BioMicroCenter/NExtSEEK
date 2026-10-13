@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { RightSidebar } from "@/components/Layout/RightSidebar";
 import { DebugPanel } from "@/components/DebugPanel/DebugPanel";
 import { SessionListItem } from "@/components/Sessions/SessionListItem";
-import type { DebugData } from "@/lib/types/chat";
+import { MessageBubble } from "@/components/ChatPanel/MessageBubble";
+import type { DebugData, Message } from "@/lib/types/chat";
 
 const noBundle: DebugData = { entries: [], bundleId: null, query: "" };
 const withEntry: DebugData = {
@@ -44,5 +45,29 @@ describe("test ids the Nessie CI lane relies on", () => {
         onSelect={vi.fn()} onRename={vi.fn()} onDelete={vi.fn()} />,
     );
     expect(screen.getByTestId("session-item")).toHaveAttribute("data-session-id", "uuid-1");
+  });
+
+  it("each suggestion chip carries its id and source", () => {
+    const message: Message = {
+      id: "a-1",
+      content: "Found 98 samples.",
+      isUser: false,
+      timestamp: new Date(),
+      status: "sent",
+      messageType: "text",
+      suggestions: [
+        {
+          id: "b7-r0",
+          source: "reviewer",
+          label: "Only Converter",
+          query: "Show samples for human subjects classified as Converter.",
+          reason: "57 of 98 were Non-converter.",
+        },
+      ],
+    };
+    render(<MessageBubble message={message} isLast onSuggestion={vi.fn()} />);
+    const chip = screen.getByTestId("suggestion-chip");
+    expect(chip).toHaveAttribute("data-suggestion-id", "b7-r0");
+    expect(chip).toHaveAttribute("data-source", "reviewer");
   });
 });

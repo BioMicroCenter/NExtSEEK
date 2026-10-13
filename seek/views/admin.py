@@ -44,7 +44,11 @@ logger = logging.getLogger(__name__)
 def adminRetrieveSamples(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
-    user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+    try:
+        user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+    except Exception:
+        logger.exception("could not resolve caller projects; retrieving through none")
+        user_projects = []
     user_project_ids = map(lambda x: x['id'], user_projects)
 
     if verifySuperUser(request) == 1:
@@ -85,8 +89,8 @@ def adminRetrieveSamples(request):
 def get_children_uids(sample_uids, user_project_ids, admin):
     db = settings.DATABASES[SEEK_DATABASE]
     if not admin:
-        # The walk starts only from requested samples in the caller's projects, as getChildrenUIDs does for
-        # /nextseek_api/admin/samples/retrieve/: a UID outside them reads as an unknown one instead of listing the
+        # The walk starts only from requested samples in the caller's projects, as the download API
+        # (/nextseek_api/samples/retrieve/) and getChildrenUIDs do: a UID outside them reads as an unknown one instead of listing the
         # caller's own samples related to it. user_project_ids is a single-pass map() (the caller), read once here.
         user_project_ids = [str(pid) for pid in user_project_ids]
         sample_uids = DBtable_sample().getVisibleUIDs(sample_uids, user_project_ids)
@@ -169,7 +173,7 @@ def sample_retrieval_data(children_uids, output):
     # nextseek_api.services.sample_workbook so it cannot drift per call path.
     write_samples_workbook(parse_children_uids(children_uids), output)
 
-@requires_seek_login_redirect('/seek/samples/attributes/')
+@requires_seek_login_redirect()
 @requires_supervisor('Error: You login as admin to view this page.', with_message_key=True)
 def adminClades(request):
     cladedb = DBtable_clades()
@@ -372,7 +376,7 @@ def cladeSampleTypesSave(request):
     return _wb_batch(records, apply_row, 'association(s)',
                      on_change=lambda: hooks.enqueue('catalog', '*'))
 
-@requires_seek_login_redirect('/seek/samples/attributes/')
+@requires_seek_login_redirect()
 @requires_supervisor('Error: You login as admin to view this page.', with_message_key=True)
 def internalAssays(request):
     db_ia = DBtable_internalassays()

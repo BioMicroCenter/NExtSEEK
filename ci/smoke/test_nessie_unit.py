@@ -107,10 +107,10 @@ import json
 
 from ci.smoke.test_nessie import (
     CHAT_PATH, MAX_CHAT_POSTS, QUESTIONS, SPEND_CEILING_USD, ChatBudget, TurnRecord,
-    bundle_path, cc_model_id, classify_request, finish_chat, is_terminal, normalize,
+    bundle_path, cc_model_id, ceiling_cost, classify_request, finish_chat, is_terminal, normalize,
     observed_path, offered_spreadsheets, plain_prefix, query_error, reported_cost,
     require_smoke_creds,
-    require_write_creds, route_decision, summary_payload,
+    require_write_creds, route_decision, router_cost, summary_payload, turn_total,
 )
 
 # pytester runs the lane's real chat_run fixture in a throwaway session, to pin
@@ -123,7 +123,7 @@ BASE = "http://127.0.0.1:8000"
 def test_the_questions_are_three_ns_then_one_cc_with_unique_keys():
     assert [q.route for q in QUESTIONS] == [
         "nextseek_query", "nextseek_query", "nextseek_query", "container_cc"]
-    assert [q.path for q in QUESTIONS] == ["system", "api", "graph", "cc"]
+    assert [q.path for q in QUESTIONS] == ["system", "graph", "graph", "cc"]  # NDMA moved to the graph in c241c6e6
     assert len({q.key for q in QUESTIONS}) == len(QUESTIONS)
     assert MAX_CHAT_POSTS == len(QUESTIONS) == 4
     assert SPEND_CEILING_USD == 1.00
@@ -147,6 +147,54 @@ def test_chat_budget_refuses_the_fifth_post_and_tracks_spend():
     assert b.spent_usd == pytest.approx(0.24) and not b.over_ceiling
     b.add_cost(0.80)
     assert b.over_ceiling
+
+
+def test_the_ceiling_counts_claude_codes_own_cost_on_cc_turns_only():
+    """Since fix 6a an NS turn reports a cost too (about $0.20 a graph turn). The $1.00
+    ceiling keeps its meaning: Claude Code's reported cost, on the CC turn."""
+    assert ceiling_cost("container_cc", {"total_cost_usd": 0.31}) == 0.31
+    assert ceiling_cost("nextseek_query", {"total_cost_usd": 0.20}) is None
+    assert ceiling_cost("container_cc", {"reply": "x"}) is None
+    b = ChatBudget()
+    for route, cost in (("nextseek_query", 0.2), ("nextseek_query", 0.2), ("nextseek_query", 0.2),
+                        ("container_cc", 0.5)):
+        b.add_cost(ceiling_cost(route, {"total_cost_usd": cost}))
+    assert b.spent_usd == pytest.approx(0.5) and not b.over_ceiling
+
+
+def _turn(route="nextseek_query", source="baml", router=0.003, router_partial=False, **end):
+    rd = {"route": route, "source": source}
+    if router is not None:
+        rd.update(router_cost_usd=router, router_cost_partial=router_partial)
+    return [{"event": "route_decided", "data": rd}], end or None
+
+
+def test_a_turns_total_is_its_engine_and_router_cost():
+    progress, result = _turn(total_cost_usd=0.2, cost_partial=False)
+    assert router_cost(progress) == 0.003
+    assert turn_total(progress, result) == (pytest.approx(0.203), False)
+
+
+@pytest.mark.parametrize("progress_result, partial", [
+    (_turn(total_cost_usd=0.2, cost_partial=True), True),                 # the engine says it is a floor
+    (_turn(router_partial=True, total_cost_usd=0.2), True),               # the router says so
+    (_turn(router=None, total_cost_usd=0.2), True),                       # the router part went unseen
+    (_turn(reply="x"), True),                                             # the engine part went unseen
+    (_turn(source="forced", router=None, total_cost_usd=0.2), False),     # a forced turn has no router part
+    (_turn(route="unrelated", reply="x"), False),                         # an unrelated turn has no engine part
+])
+def test_a_turns_total_is_partial_when_a_part_that_ran_was_not_seen(progress_result, partial):
+    progress, result = progress_result
+    assert turn_total(progress, result)[1] is partial
+
+
+def test_the_budget_keeps_the_all_turns_total_beside_the_ceiling():
+    b = ChatBudget()
+    b.add_turn_total(0.203, partial=False)
+    b.add_turn_total(None, partial=True)
+    b.add_turn_total(0.5, partial=False)
+    assert b.all_turns_usd == pytest.approx(0.703) and b.all_turns_partial is True
+    assert b.spent_usd == 0.0 and not b.over_ceiling, "the all-turns total never counts toward the ceiling"
 
 
 PROGRESS = [
@@ -236,6 +284,11 @@ def test_summary_payload_shape():
     b.add_cost(0.24)
     out = summary_payload([rec], b, None, "/tmp/e")
     assert out["posts"] == 1 and out["spent_usd"] == 0.24 and out["ceiling_usd"] == 1.0
+    assert out["all_turns_usd"] == 0.0 and out["all_turns_partial"] is False
+    b.add_turn_total(0.4312345, partial=True)
+    out = summary_payload([rec], b, None, "/tmp/e")
+    assert out["all_turns_usd"] == 0.4312 and out["all_turns_partial"] is True
+    assert "router_cost_usd" in out["questions"][0]
     assert out["questions"][0]["key"] == "nhp_graph"
     assert out["questions"][0]["expected_route"] == "container_cc"
     # Spec 3.4: the record names the path each question took.
@@ -696,3 +749,53 @@ def test_the_cc_cost_cap_is_a_rate_per_minute_with_a_one_minute_floor():
     assert cc_turn_cap_usd(120.0) == 1.00
     assert 0.5400435 <= cc_turn_cap_usd(119.7)   # run 6's turn now passes
     assert not 0.51 <= cc_turn_cap_usd(30.0)     # a 30 s turn over $0.50 still fails
+
+
+# --------------------------------------------------------------------------- laya (JevLevROUTING, SPEC 6.2, 6.3)
+def _decided(laya=None, router_model="gemini-x", **extra):
+    data = {"route": "nextseek_query", "source": "baml", "router_model": router_model, **extra}
+    if laya is not None:
+        data["laya"] = laya
+    return [{"event": "route_decided", "data": data}]
+
+
+def _recs(*progress):
+    return [TurnRecord(key=f"q{i}", text="t", expected_route="nextseek_query", progress=p)
+            for i, p in enumerate(progress)]
+
+
+def test_laya_audit_with_no_laya_block_anywhere_is_clean_and_reads_none():
+    from ci.smoke.test_nessie import laya_audit
+    assert laya_audit(_recs(_decided(), _decided())) == ("none", [])
+
+
+def test_laya_audit_shadow_on_every_turn_is_clean_and_reads_shadow():
+    from ci.smoke.test_nessie import laya_audit
+    shadow = {"mode": "shadow", "gate": "pass"}
+    assert laya_audit(_recs(_decided(shadow), _decided(dict(shadow, gate="timeout")))) == ("shadow", [])
+
+
+def test_laya_audit_a_mix_of_blocks_and_none_is_a_broken_shadow():
+    from ci.smoke.test_nessie import laya_audit
+    mode, problems = laya_audit(_recs(_decided({"mode": "shadow"}), _decided()))
+    assert mode == "mixed" and any("some turns" in p for p in problems)
+
+
+@pytest.mark.parametrize("mode", ["live", "audit"])
+def test_laya_audit_refuses_a_live_or_audit_block(mode):
+    from ci.smoke.test_nessie import laya_audit
+    _, problems = laya_audit(_recs(_decided({"mode": mode})))
+    assert any(mode in p for p in problems)
+
+
+def test_laya_audit_refuses_a_laya_router_model_even_with_no_block():
+    """A guard or fallback rebuild keeps router_model=laya:<rev> and the ledger shows no laya."""
+    from ci.smoke.test_nessie import laya_audit
+    _, problems = laya_audit(_recs(_decided(router_model="laya:20261003-abcdef012345")))
+    assert any("laya:" in p for p in problems)
+
+
+def test_the_lane_has_a_laya_check_that_runs_after_the_turns():
+    import ci.smoke.test_nessie as nessie
+    fn = nessie.test_laya_stayed_off_or_shadow
+    assert any(m.name == "nessie_turn" for m in fn.pytestmark)

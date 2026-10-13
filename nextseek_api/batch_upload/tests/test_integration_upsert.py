@@ -49,48 +49,6 @@ class TestNameIdempotenceIntegration:
         assert "Legacy" not in changed
 
 
-class TestStudyNodeCreationIntegration:
-    """Test study/investigation node payload building."""
-
-    def test_builds_study_and_investigation_payloads(self):
-        from nextseek_api.batch_upload.neo4j_sync import build_study_node_payloads
-
-        conn = MagicMock()
-        studies_result = MagicMock()
-        studies_result.fetchall.return_value = [
-            (1, "Study A", "Desc A", 10),
-            (2, "Study B", None, 10),  # null description
-        ]
-        inv_result = MagicMock()
-        inv_result.fetchall.return_value = [
-            (10, "Investigation X", "Inv Desc"),
-        ]
-        conn.execute.side_effect = [studies_result, inv_result]
-        study_rows, inv_rows, inv_rels = build_study_node_payloads({1, 2}, conn)
-        assert len(study_rows) == 2
-        assert study_rows[0].title == "Study A"
-        assert study_rows[0].description == "Desc A"
-        assert study_rows[1].description == ""  # null -> empty string
-        assert len(inv_rows) == 1
-        assert inv_rows[0].title == "Investigation X"
-        assert len(inv_rels) == 2  # both studies link to investigation 10
-
-    def test_study_without_investigation(self):
-        from nextseek_api.batch_upload.neo4j_sync import build_study_node_payloads
-
-        conn = MagicMock()
-        studies_result = MagicMock()
-        studies_result.fetchall.return_value = [
-            (1, "Study A", "Desc", None),
-        ]
-        # Only one execute call expected (studies query); no investigation query
-        conn.execute.return_value = studies_result
-        study_rows, inv_rows, inv_rels = build_study_node_payloads({1}, conn)
-        assert len(study_rows) == 1
-        assert len(inv_rows) == 0
-        assert len(inv_rels) == 0
-
-
 class TestSampleUpdateIntegration:
     """Test deep merge + smart assay merge + permission together."""
 

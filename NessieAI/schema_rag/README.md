@@ -112,14 +112,15 @@ it: a populated embedding-model cache, and `HF_HUB_OFFLINE=1`. Without them the
 embedder reaches for Hugging Face, and on a container with networking off those tests
 fail.
 
-Both causes are visible in the repository. The sentence-transformers cache is resolved
-under `BASE_DIR` (`dmac/settings.py:500-501`), so relocating the checkout inside a
-container aims it at a directory `dmac/settings.py:508` has just created empty; and
+Both causes are visible in the repository. Outside the app image the sentence-transformers
+cache is resolved under `BASE_DIR` (`SCHEMA_RAG_EMBEDDING_MODEL_PATH` in `dmac/settings.py`), so
+relocating the checkout inside a container aims it at a directory settings has just created
+empty; and
 even with a populated cache in reach, the loader still opens an HTTP conversation with
 Hugging Face unless `HF_HUB_OFFLINE` is set. The supported lane already encodes both
 (`startup/dev/run_full_test_lane.sh:41-49`), fails fast instead of downloading
 (`startup/dev/run_full_test_lane.sh:196-204`), and points at
-`startup/dev/provision_embedding_model.sh:196` for populating the cache once per checkout.
+`startup/dev/provision_embedding_model.sh:126` for populating the cache once per checkout.
 Supplied, the hermetic selection goes green, and the only tests still not executed are
 the live ones.
 
@@ -187,15 +188,14 @@ two that constrain it are kept.
   raises `ImportError`.
 - `ci/routes.py:828-832` declares the retrieval route to the CI registry and records in its
   own note that the route answers 200 whatever happens.
-- `startup/dev/provision_embedding_model.sh:196` and
+- `startup/dev/provision_embedding_model.sh:126` and
   `scripts/attribute_api_test.sh:215-221` both write the cache directory this package
   reads, the second after deleting a copy of it that the caller cannot write.
 - What a hit here is NOT. `nextseek_api/services/assistant.py:542` defines a `delete_session`
   that is a chat ViewSet action and has no relation to
   `NessieAI/schema_rag/session.py:172`. The `min_api_endpoints.json` catalog and
   `NessieAI/tests/nessie_tests/FAMILIES.json` carry this feature's URL paths as data for an agent, not as
-  a code edge. `NessieAI/chat_nextseek/src/chat_nextseek/context/nextseek_api.yaml:1996` is a
-  captured snapshot of a generated document, so it drifts rather than binding anything.
+  a code edge.
 - Excluded deliberately: the hermetic test modules in `NessieAI/tests/schema_rag/`,
   which import this package the ordinary way (`NessieAI/tests/schema_rag/test_schema_rag_unit.py:23-32`
   is typical) but constrain nothing beyond their own assertions.

@@ -87,10 +87,25 @@ EXPECTED_BAKED_FILES = frozenset({
     "capabilities.md",
     "min_api_endpoints.json",
     "min_api_endpoints_enriched.json",
-    "min_assays_db.json",
     "min_sampletypes_db.json",
     "ops.json",
     "projects_db.json",
+    "ONTOLOGIES.json",
+    "ontology_species.json",
+    "ontology_sex.json",
+    "ontology_organ.json",
+    "ontology_disease.json",
+    "ontology_units.json",
+    "ontology_mouse_genotype.json",
+    "ontology_mouse_strain.json",
+    "ontology_library_strategy.json",
+    "ontology_library_source.json",
+    "ontology_library_selection.json",
+    "ontology_library_layout.json",
+    "ontology_extracted_molecule.json",
+    "ontology_instrument_model.json",
+    "ontology_file_format.json",
+    "ontology_genome_assembly.json",
     "read_safe_endpoints.json",
 })
 
@@ -100,9 +115,24 @@ EXPECTED_FROM_SOURCE = frozenset({
     "capabilities.md",
     "min_api_endpoints.json",
     "min_api_endpoints_enriched.json",
-    "min_assays_db.json",
     "min_sampletypes_db.json",
     "projects_db.json",
+    "ONTOLOGIES.json",
+    "ontology_species.json",
+    "ontology_sex.json",
+    "ontology_organ.json",
+    "ontology_disease.json",
+    "ontology_units.json",
+    "ontology_mouse_genotype.json",
+    "ontology_mouse_strain.json",
+    "ontology_library_strategy.json",
+    "ontology_library_source.json",
+    "ontology_library_selection.json",
+    "ontology_library_layout.json",
+    "ontology_extracted_molecule.json",
+    "ontology_instrument_model.json",
+    "ontology_file_format.json",
+    "ontology_genome_assembly.json",
 })
 
 # What the plugin tree's context directory itself holds: the baked-only files.
@@ -129,20 +159,26 @@ EXPECTED_BAKED_ONLY = frozenset({
 #   source file deleted      -> here (if source-only) or EXPECTED_BAKED_ONLY (if shared)
 #
 # Adding a name here is the deliberate act of declaring "the agent does not need
-# this"; the alternative is to bake it. All 16 files in the source pack are
+# this"; the alternative is to bake it. All 15 files in the source pack are
 # git-tracked, so this set is stable rather than dependent on build artefacts.
 #
 # The Neo4j-derived files here are no longer refreshed from a live graph: the graph-search
 # work removed _fetch_neo4j_schema / _ensure_neo4j_schema / _ensure_schema_file from
 # ChatConfig (pinned by NessieAI/tests/chat_nextseek/test_graph_catalog.py), so every name
-# below is a committed file that only a hand edit changes. Three database exports in this
-# directory ARE still rewritten daily (min_sampletypes_db.json, min_assays_db.json,
-# projects_db.json, by _ensure_context_files) — those are baked, so they are not listed here.
+# below is a committed file that changes only by hand or, for the three graph fallback files,
+# by scripts/graph_schema_fallback.py. Five database exports in this
+# directory ARE still rewritten daily (sampletypes_db.json, min_sampletypes_db.json,
+# assays_db.json, min_assays_db.json, projects_db.json, by _ensure_context_files); the min sample
+# type catalog and projects_db.json are baked, so they are not listed here; the rest are.
 EXPECTED_SOURCE_ONLY = frozenset({
     ".gitignore",                     # not context; _files() uses iterdir(), which keeps dotfiles
-    "assays_db.json",                 # full catalog; the agent gets min_assays_db.json instead
+    "assays_db.json",                 # full catalog; the agent reads the box's assays live (below)
+    # The NS engine's assay catalog (its fallback when the box's dmac.internal_assays cannot be read). The CC agent
+    # no longer gets a copy: one baked list is one box's for every box, so it reads this box's list in the
+    # nextseek-graph-schema op's `assays` field, which test_the_cc_agent_reads_the_assay_list_live_rather_than_baked
+    # below pins.
+    "min_assays_db.json",
     "sampletypes_db.json",            # full catalog; the agent gets min_sampletypes_db.json
-    "nextseek_api.yaml",              # full OpenAPI spec; the agent gets min_api_endpoints*.json
     "neo4j_assay-sample-conn.json",   # pipeline-internal graph connectivity map
     "neo4j_protocol_schema.json",     # pipeline-internal protocol schema
     # The NS-side fallback the graph agent uses when the live catalog cannot be read
@@ -150,13 +186,17 @@ EXPECTED_SOURCE_ONLY = frozenset({
     # the deployed graph through the nextseek-graph-schema op, which is what
     # test_the_cc_agent_reads_the_graph_schema_live_rather_than_baked below pins.
     "neo4j_schema.json",
-    "neo4j_schema_dev.json",          # per-environment snapshots, read by nothing on a turn
-    "neo4j_schema_prod.json",
     # The NS parser's graph-routing prose. The CC agent does not write Cypher (the
     # nextseek-graph op's server-side graph agent does, from the live catalog), and its
     # own op choice is the plugin skill's; the stale plugin-tree copy that contradicted
     # that skill was removed on 2026-09-18.
     "min_graph_schema.json",
+    # graph_search's catalog entry, kept out of the parser's catalog on 2026-09-24. Only the
+    # scope fallback reads it, and that runs in the app (the NS orchestrator, and the graph and
+    # aggregate ops through NessieAI/ns/granular.py), where api_agent_build_request builds the
+    # request from ChatConfig.FALLBACK_API_ENDPOINTS. The CC agent never builds that body itself:
+    # nextseek-api-read hands its parser plan to the same in-app API agent.
+    "scope_fallback_endpoints.json",
 })
 
 # ---------------------------------------------------------------------------
@@ -331,6 +371,24 @@ def test_the_cc_agent_reads_the_graph_schema_live_rather_than_baked():
     assert op.assistant_endpoint == "/nextseek_api/assistant/graph-schema/"
 
 
+def test_the_cc_agent_reads_the_assay_list_live_rather_than_baked():
+    """Each box lists the assays its own dmac.internal_assays holds (fix 21), so the list reaches the agent as an op.
+
+    * the image bakes no assay list: a baked one is the checkout's for every box;
+    * the source copy is still there: it is the NS engine's fallback when the table cannot be read;
+    * the graph-schema op, which the agent already calls, says it returns ``assays``.
+    """
+    from NessieAI.cc.op_registry.ops import OPS
+
+    assert "min_assays_db.json" not in image_context_files(), (
+        "an assay list is baked into the cc-agent image again. It is one box's list on every box: the agent reads "
+        "this box's list in the nextseek-graph-schema op's assays field."
+    )
+    assert (SOURCE_DIR / "min_assays_db.json").is_file(), "the NS engine's assay catalog (its fallback) is gone"
+    op = next(o for o in OPS if o.op_id == "graph-schema")
+    assert "assays" in op.skill_row.output, "the graph-schema op no longer advertises the box's assay list"
+
+
 # ---------------------------------------------------------------------------
 # #83: advertised read-safety must equal enforced read-safety
 # ---------------------------------------------------------------------------
@@ -361,7 +419,8 @@ def test_write_gate_loads_the_allowlist_this_guard_watches():
     assert actual.is_file(), (
         f"the write gate's read-safe allowlist is missing from disk at {actual}. "
         "load_allowlist() raises AllowlistMissingError there, which the viewset "
-        "maps to CONFIG_ERROR, so every api-read op fails closed."
+        "maps to AGENT_FAILED (reason internal) at the op view, so every api-read "
+        "op fails closed."
     )
 
 
@@ -497,7 +556,7 @@ def test_the_rest_tool_check_this_guard_runs_is_the_real_policy():
 # ---------------------------------------------------------------------------
 # #65a: the specific privilege the drift leaked
 # ---------------------------------------------------------------------------
-# POST-as-read query endpoints (graph_search, admin/samples/retrieve) are
+# POST-as-read query endpoints (graph_search, samples/retrieve) are
 # legitimately advertised and deliberately absent from this list — see
 # read_safe_endpoints.json for their audited rationale.
 FORBIDDEN_SAMPLE_MUTATIONS = (
@@ -554,38 +613,15 @@ WRITE = "write"
 # and the viewset method verified for each.
 POST_AS_READ = "post-as-read"
 
+# 2026-09-24: the operator ruled there is no CC write path (the REST tool behind
+# nextseek-api-write refuses every mutating pair), and the catalog was trimmed to the
+# eight pairs CC's api-read allowlist permits. Only two POSTs remain, both reads.
 ADVERTISED_MUTATIONS = {
-    ("DELETE", "/nextseek_api/samples/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/assays/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/data_files/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/investigations/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/people/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/projects/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/sample_types/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/samples/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/sops/{uid}/"): WRITE,
-    ("POST", "/nextseek_api/admin/samples/retrieve/"): POST_AS_READ,
-    # Additive membership registration. WRITE, not POST_AS_READ: it inserts
-    # assay_assets rows. It cannot delete — removal is not expressible in the
-    # request shape — but "cannot delete" is not "does not write".
-    ("POST", "/nextseek_api/assay-registrations/"): WRITE,
-    ("POST", "/nextseek_api/assays/"): WRITE,
-    ("POST", "/nextseek_api/data_files/"): WRITE,
-    ("POST", "/nextseek_api/investigations/"): WRITE,
-    ("POST", "/nextseek_api/people/"): WRITE,
-    ("POST", "/nextseek_api/projects/"): WRITE,
-    ("POST", "/nextseek_api/sample_types/"): WRITE,
-    ("POST", "/nextseek_api/samples/"): WRITE,
+    ("POST", "/nextseek_api/samples/retrieve/"): POST_AS_READ,
     # Sample search answered from the graph, the caller's project scope added on
-    # the server. It replaced advanced_search and parents_by_child_types in the
-    # agent's catalog on 2026-09-18 (sample questions go to the graph; the second
-    # also crossed the project edge on lineage).
+    # the server; the graph op's scope fallback. It replaced advanced_search and
+    # parents_by_child_types in the agent's catalog on 2026-09-18.
     ("POST", "/nextseek_api/samples/graph_search/"): POST_AS_READ,
-    ("POST", "/nextseek_api/schema_rag/ingest/"): WRITE,
-    # #86, audited 2026-08-13: WRITE, not post-as-read. See
-    # SCHEMA_RAG_RETRIEVE_AUTO_INGEST below for the finding and the evidence.
-    ("POST", "/nextseek_api/schema_rag/retrieve/"): WRITE,
-    ("POST", "/nextseek_api/sops/"): WRITE,
 }
 
 
@@ -680,12 +716,18 @@ SCHEMA_RAG_INGEST_FN = "ingest_schema"
 
 
 def test_schema_rag_retrieve_is_classified_write():
-    """The audit's conclusion, pinned so it cannot be quietly softened."""
-    assert ADVERTISED_MUTATIONS[SCHEMA_RAG_RETRIEVE] == WRITE, (
+    """The audit's conclusion, pinned so it cannot be quietly softened.
+
+    2026-09-24: the maintainer ruling the comment above left open was made: the
+    catalog was trimmed to CC's eight read pairs, so the endpoint is no longer offered
+    at all. If it is ever re-added it must come back labelled WRITE.
+    """
+    assert ADVERTISED_MUTATIONS.get(SCHEMA_RAG_RETRIEVE, WRITE) == WRITE, (
         "POST /schema_rag/retrieve/ was audited on 2026-08-13 and found to "
         "auto-ingest (see the comment above). Re-labelling it as a read "
         "requires re-doing that audit, not editing this line."
     )
+    assert SCHEMA_RAG_RETRIEVE not in _advertised_mutations(_catalog("source", "min_api_endpoints.json"))
 
 
 def _called_function_names(node: ast.AST) -> set[str]:

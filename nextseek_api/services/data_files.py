@@ -1,6 +1,8 @@
 from typing import Optional
 
 import json
+
+import requests
 from django.conf import settings
 from django.http import HttpResponse
 from rest_framework import viewsets
@@ -11,6 +13,7 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from drf_spectacular.types import OpenApiTypes
 
 from nextseek_api.helpers import SeekAPIClient
+from nextseek_api.services.sops import _unconfirmed
 from nextseek_api.endpoint_descriptions import (
     DATAFILE_LIST_DESC,
     DATAFILE_FETCH_DESC,
@@ -29,6 +32,8 @@ from nextseek_api.models import (
 )
 from nextseek_api.services.content_blobs import (
     _resolve_uid_to_seek_id as _resolve_uid,
+    HasOwnSeekLogin,
+    caller_cannot_view,
     download_single,
     download_batch,
     upload_content_blobs,
@@ -37,13 +42,13 @@ from nextseek_api.services.content_blobs import (
 )
 
 
-def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
+def _resolve_uid_to_seek_id(uid_or_id: str, *, as_written_only: bool = False) -> Optional[str]:
     """Backward-compat wrapper — delegates to shared resolver."""
-    return _resolve_uid(uid_or_id, "data_files")
+    return _resolve_uid(uid_or_id, "data_files", as_written_only=as_written_only)
 
 
 class DataFileProxyViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasOwnSeekLogin]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     client = SeekAPIClient()
     lookup_field = 'uid'
@@ -139,6 +144,9 @@ class DataFileProxyViewSet(viewsets.ViewSet):
         body, code, headers, resp = self.client.get_data_file(request, seek_id, version_int)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+        if code in (403, 404):
+            # A data file the caller may not see answers as one that does not exist (SEEK answers 403 for it).
+            return HttpResponse(b'{"errors":[{"title":"DataFile not found"}]}', status=404, content_type='application/json')
 
         if code >= 400:
             ct = headers.get('Content-Type', 'application/json')
@@ -221,7 +229,11 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             except Exception:
                 return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
 
-            body, code, headers, resp = self.client.create_data_file(request, payload)
+            try:
+                body, code, headers, resp = self.client.create_data_file(request, payload)
+            except requests.RequestException as exc:
+                return _unconfirmed(payload["data"]["attributes"].get("title"), exc, self.client.timeout_s,
+                                    kind="data file", path="data_files")
             if code == 401:
                 return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
@@ -236,7 +248,7 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             except Exception:
                 return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
-            return HttpResponse({"data": [body]}, status=code, content_type=ct)
+            return HttpResponse(json.dumps({"data": [data]}).encode(), status=code, content_type='application/json')
 
         else:
             files = request.FILES.getlist("file")
@@ -250,16 +262,23 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             data_file_results = []
             blob_results = []
             for file in files:
-                metadata = auto_populate_content_blobs(metadata, [file])
+                # Each file starts from the request's own metadata, so it carries only its own placeholder.
+                meta = auto_populate_content_blobs(metadata, [file])
                 if len(files) > 1:
-                    metadata["data"]["attributes"]["title"] = file.name
+                    meta["data"]["attributes"]["title"] = file.name
  
                 try:
-                    payload = DataFileCreateRequest.model_validate(metadata).model_dump(exclude_none=True)
+                    payload = DataFileCreateRequest.model_validate(meta).model_dump(exclude_none=True)
                 except Exception:
                     return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
 
-                body, code, headers, resp = self.client.create_data_file(request, payload)
+                try:
+                    body, code, headers, resp = self.client.create_data_file(request, payload)
+                except requests.RequestException as exc:
+                    return _unconfirmed(payload["data"]["attributes"].get("title"), exc, self.client.timeout_s,
+                                        created=[{"id": r["data"]["id"]} for r in data_file_results],
+                                        not_sent=[f.name for f in files[len(data_file_results):]],
+                                        kind="data file", path="data_files")
                 if code == 401:
                     return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
@@ -358,21 +377,25 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             except Exception:
                 return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
-        seek_id = _resolve_uid_to_seek_id(uid)
+        # The path names the data file. One the caller cannot see answers as one that does not exist.
+        not_found = HttpResponse(b'{"errors":[{"title":"DataFile not found"}]}', status=404, content_type='application/json')
+        seek_id = _resolve_uid_to_seek_id(uid, as_written_only=True)
+        if seek_id is None:
+            return not_found
+        body_id = payload.get('data', {}).get('id')
+        if body_id is None:
+            payload['data']['id'] = seek_id
+        elif str(body_id) != str(seek_id):
+            if caller_cannot_view(self.client, request, "data_files", seek_id):
+                return not_found
+            return HttpResponse(b'{"errors":[{"title":"Payload id does not match resolved uid"}]}', status=422, content_type='application/json')
 
-        if seek_id is not None:
-            body_id = payload.get('data', {}).get('id')
-            if body_id is None:
-                payload['data']['id'] = seek_id
-            elif str(body_id) != str(seek_id):
-                return HttpResponse(b'{"errors":[{"title":"Payload id does not match resolved uid"}]}', status=422, content_type='application/json')
-        else:
-            if not payload.get('data', {}).get('id'):
-                return HttpResponse(b'{"errors":[{"title":"DataFile not found"}]}', status=404, content_type='application/json')
-
-        body, code, headers, resp = self.client.update_data_file(request, payload['data']['id'], payload)
+        body, code, headers, resp = self.client.update_data_file(request, seek_id, payload)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+        if code == 404 or (code == 403 and caller_cannot_view(self.client, request, "data_files", seek_id)):
+            # A data file SEEK does not have, or one the caller cannot even view, answers the same not-found.
+            return not_found
 
         # Forward SEEK errors before attempting response validation
         if code >= 400:

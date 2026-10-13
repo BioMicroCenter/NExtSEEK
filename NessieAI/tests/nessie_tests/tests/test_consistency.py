@@ -1,3 +1,4 @@
+import os
 from NessieAI.tests.nessie_tests import consistency as c
 
 
@@ -228,6 +229,39 @@ def test_a_group_that_did_not_outage_still_reports_the_count_failure():
     assert any("could not be resolved" in r for r in gr.reasons)
 
 
+# 2026-10-07 test-set review (SPEC-2): a Container-CC member has no structured count (dev,
+# 2026-10-05: "count could not be resolved for 2 of 2 queries" although both replies said 1,614),
+# so the count falls back to the first number in the reply.
+def test_a_member_without_a_structured_count_is_read_from_its_reply():
+    replies = iter(["There are 1,614 NHP sequencing samples.", "I found 1,614 D.SEQ samples from non-human primates."])
+    gr = consistency.run_group(_group(same_route=True, same_count=True, count_not_limit=True),
+                               lambda q: {"route": "container_cc", "count": None, "reply": next(replies)})
+
+    assert gr.passed is True, gr.reasons
+    assert [o["count"] for o in gr.observations] == [1614, 1614]
+
+
+def test_reply_counts_that_differ_still_fail_the_group():
+    replies = iter(["There are 1,614 samples.", "There are 1,208 samples."])
+    gr = consistency.run_group(_group(same_count=True),
+                               lambda q: {"route": "container_cc", "count": None, "reply": next(replies)})
+
+    assert gr.passed is False and any("counts differ" in r for r in gr.reasons)
+
+
+def test_a_structured_count_wins_over_the_reply_number():
+    gr = consistency.run_group(_group(same_count=True),
+                               lambda q: {"route": "nextseek_query", "count": 139, "reply": "Found 7 of them."})
+
+    assert [o["count"] for o in gr.observations] == [139, 139]
+
+
+def test_count_from_reply():
+    assert consistency.count_from_reply("About 3,861 samples (cap 5,000)") == 3861
+    assert consistency.count_from_reply("none") is None
+    assert consistency.count_from_reply(None) is None
+
+
 def test_a_healthy_group_is_unaffected_by_the_outage_check():
     gr = consistency.run_group(_group(same_route=True, same_count=True),
                                _drive(count=139, reply="I found 139 samples."))
@@ -249,11 +283,47 @@ def test_the_group_observations_still_carry_the_per_query_evidence_on_an_outage(
     assert [o["query"] for o in gr.observations] == ["q1", "q2"]
 
 
+# A Container-CC member whose model was unavailable sends no `query_complete`: its
+# reply is None and only its `query_error` says why.
+_CC_UNAVAILABLE = {"error": "The AI model was unavailable during this turn, so I could not finish.",
+                   "reason": "model_unavailable", "detail": "API Error: 529", "agent": "container_cc"}
+
+
+def test_get_last_query_error_reads_the_final_query_error():
+    payload = {"progress": [
+        {"event": "query_error", "data": {"error": "first"}},
+        {"event": "query_error", "data": _CC_UNAVAILABLE}]}
+    assert consistency.get_last_query_error(payload) == _CC_UNAVAILABLE
+    assert consistency.get_last_query_error({"progress": [
+        {"event": "query_complete", "data": {"reply": "r"}}]}) is None
+    assert consistency.get_last_query_error({}) is None
+
+
+def test_a_member_that_ended_only_in_a_model_unavailable_query_error_outages_the_group():
+    gr = consistency.run_group(
+        _group(same_count=True),
+        lambda q: {"route": "container_cc", "count": None, "reply": None,
+                   "query_error": _CC_UNAVAILABLE})
+
+    assert gr.outage is True
+    assert not any("could not be resolved" in r for r in gr.reasons), gr.reasons
+
+
+def test_a_member_stopped_at_its_time_limit_does_not_outage_the_group():
+    gr = consistency.run_group(
+        _group(same_count=True),
+        lambda q: {"route": "container_cc", "count": None, "reply": None,
+                   "query_error": {"error": "stopped", "reason": "exec_timeout"}})
+
+    assert gr.outage is False
+    assert any("could not be resolved" in r for r in gr.reasons)
+
+
 # --------------------------------------------------------------------------- #
 # Replay: the tenth case, reconstructed from the stored run.
 # --------------------------------------------------------------------------- #
 
-_TURNS = Path("/home/cdemu/nessie-run-seed6b/turns.json")
+_TURNS = Path(os.environ.get("NESSIE_SEED6B_DIR", "nessie-run-seed6b"), "turns.json")
 _CORPUS = Path(__file__).resolve().parents[1] / "corpus.json"
 
 

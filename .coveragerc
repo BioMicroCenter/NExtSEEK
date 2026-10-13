@@ -7,12 +7,10 @@ source =
     nextseek_api
     NessieAI
 omit =
-    nextseek_api/tests.py
     nextseek_api/tests/*
     nextseek_api/*/tests/*
     nextseek_api/migrations/*
     */conftest.py
-    nextseek_api/example.py
     nextseek_api/batch_upload/scripts/*
     NessieAI/tests/*
     NessieAI/history/*

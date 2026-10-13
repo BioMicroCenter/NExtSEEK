@@ -24,7 +24,7 @@ from chat_nextseek import labs
 from chat_nextseek.agents import system as system_mod
 from chat_nextseek.config import ChatConfig
 from chat_nextseek.helpers.lab_code import resolve_labs
-from chat_nextseek.schemas import ParserPlan, SystemAgentOutput
+from chat_nextseek.schemas import ParserPlan
 
 CONTEXT = paths.CHAT_NEXTSEEK_DIR / "src" / "chat_nextseek" / "context"
 
@@ -152,18 +152,10 @@ def test_the_entity_agent_resolves_a_lab_in_a_legacy_project(config):
 
 
 def test_the_system_agent_is_told_a_legacy_project_is_a_project(config, monkeypatch):
-    seen = {}
-
-    def fake(**kwargs):
-        seen["messages"] = kwargs["messages"]
-        return SystemAgentOutput(mode="get_entities", narrative="ok")
-
     monkeypatch.setattr(system_mod, "live_catalog_context", lambda *args, **kwargs: None)
-    monkeypatch.setattr(system_mod, "call_llm_structured", fake)
-    monkeypatch.setattr(config, "get_agent_model", lambda *a, **k: (object(), "model", None))
-    system_mod.system_agent(config, "tell me about them", {"projects": ["Alder", "Cedar", "Alder Core"]},
-                            ParserPlan(mode="system_question"))
-    block = next(m["content"] for m in seen["messages"] if m["content"].startswith("ENTITY_DETAILS"))
+    messages = system_mod.build_messages(config, "tell me about them", {"projects": ["Alder", "Cedar", "Alder Core"]},
+                                         ParserPlan(mode="system_question").model_dump())
+    block = next(m["content"] for m in messages if m["content"].startswith("ENTITY_DETAILS"))
     details = json.loads(block.split("\n", 1)[1])
 
     assert set(details) == {"Alder", "Cedar"}

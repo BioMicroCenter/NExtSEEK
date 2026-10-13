@@ -14,6 +14,7 @@ router = DefaultRouter()
 router.register(r"sample-tree", views.SampleTreeViewSet, basename="sample-tree")
 # router.register(r"nhp", views.NHPViewSet, basename="nhp")
 # router.register(r"sample-queries", views.SampleQueryViewSet, basename="sample-queries")
+# Deprecated alias of samples/retrieve/ (one handler); kept for saved chats, cached pages and outside scripts.
 router.register(r"admin/samples", views.AdminSampleViewSet, basename="admin-samples")
 # Publishes one `status` action and no list route, so the API root does not advertise it.
 router.register(r"admin/graph-sync", views.GraphSyncStatusViewSet, basename="admin-graph-sync")
@@ -27,11 +28,14 @@ router.register(r"studies", views.StudyViewSet, basename="studies")
 router.register(r"attributes", views.AttributeViewSet, basename="attribute")
 router.register(r"assay-registrations", views.AssayRegistrationViewSet,
                 basename="assay-registrations")
+router.register(r"sample-shares", views.SampleShareViewSet, basename="sample-shares")
 router.register(r"assays", views.AssayViewSet, basename="assays")
 router.register(r"sample_types/connections", views.SampleTypeConnectionsViewSet, basename="sampletype-connections")
 router.register(r"sample_types", views.SampleTypeViewSet, basename="sample_types")
 router.register(r"samples/graph_search", views.GraphSearchViewSet, basename="samples-graph-search")
 router.register(r"samples/advanced_search", views.SampleAdvancedSearchViewSet, basename="samples-advanced-search")
+# The sample download API. Before `samples`, like the two searches, or it is the detail route of a UID "retrieve".
+router.register(r"samples/retrieve", views.SampleRetrieveViewSet, basename="samples-retrieve")
 router.register(r"sample_types/get_parents", views.SamplesByChildTypesViewSet,basename="get-parents-by-childtype")
 router.register(r"templates", views.TemplatesViewSet, basename="templates")
 router.register(r"sampletypes", views.SampleTypeChildrenViewSet, basename="sampletypes")
@@ -64,10 +68,10 @@ urlpatterns = [
     #     user at login -- it is IsAuthenticated under a misleading name (#74, #75).
     #   * IsSuperUser would over-gate: this is the working reference for legitimate
     #     token-holding API consumers, and it describes endpoints, it returns no
-    #     records. docs/endpoint-authorization-register.md buckets all three as
-    #     "public-to-authenticated".
+    #     records. docs/endpoint-authorization-register.md files all three under
+    #     bucket 3 (correct as it is).
     # Authentication is untouched: SERVE_AUTHENTICATION is unset, so the views fall
-    # back to DEFAULT_AUTHENTICATION_CLASSES (Token, Session, Basic).
+    # back to DEFAULT_AUTHENTICATION_CLASSES (the turn pass, Token, Session, Basic).
     re_path(r'^schema/$', SpectacularAPIView.as_view(permission_classes=[IsAuthenticated]), name='schema'),
     # template_name overrides drf-spectacular's default to add the effective-identity
     # banner (#119). Swagger's Authorize button is silently ignored whenever the browser

@@ -6,6 +6,7 @@ of those moved, the refactor was not pure.
 """
 import pathlib
 
+from NessieAI.tests.e2e.catalog import PassCriterion
 from NessieAI.tests.nessie_tests import corpus, runner
 from NessieAI.tests.nessie_tests.manifest import NessieManifestEntry
 
@@ -32,7 +33,17 @@ def _fakes(route="nextseek_query", reply="ok", cost=None):
 
 
 def _variant(vid="green.mus_ndma"):
-    return next(v for v in corpus.merged(CORPUS) if v.id == vid)
+    v = next(v for v in corpus.merged(CORPUS) if v.id == vid)
+    if vid == "green.mus_ndma":
+        # The tests below measure how REST-era plumbing criteria are scored per arm. The corpus case moved to the
+        # graph search in round 4, so they keep the shape they were written on as a fixture.
+        keep = [c for c in v.turns[0].pass_criteria
+                if c.field not in ("parser_plan.mode", "graph_cypher", "neo4j_ok")]
+        keep += [PassCriterion(field="parser_plan.mode", op="eq", value="new_search"),
+                 PassCriterion(field="api_ok", op="true"),
+                 PassCriterion(field="api_result_meta.row_count", op="gte", value=1)]
+        v = v.model_copy(update={"turns": [v.turns[0].model_copy(update={"pass_criteria": keep})]})
+    return v
 
 
 def test_run_case_returns_exactly_one_entry():

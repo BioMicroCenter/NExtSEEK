@@ -1,7 +1,9 @@
 from __future__ import annotations
 import html
 from pathlib import Path
-from NessieAI.tests.nessie_tests.manifest import NessieManifest, cost_summary
+from NessieAI.tests.nessie_tests.manifest import (
+    NessieManifest, cost_summary, fallback_summary,
+)
 
 _ROW = ("<tr class='{cls}'><td>{id}</td><td>{family}</td><td>{route}</td><td>{engine}</td>"
         "<td>{status}</td><td>{reason}</td></tr>")
@@ -112,6 +114,7 @@ def generate_html(manifest: NessieManifest, out_dir: Path) -> Path:
                            + _observations_table(e))
         for e in manifest.entries)
     cost = cost_summary(manifest.entries)
+    fallback = fallback_summary(manifest.entries)
     doc = (f"<html><head><title>nessie {manifest.tier}/{manifest.scope}</title>"
            "<style>.failed{background:#fdd}.passed{background:#dfd}.error{background:#fbb}"
            ".xpass{background:#ffe0b2}.outage{background:#e0e0e0}"
@@ -130,6 +133,9 @@ def generate_html(manifest: NessieManifest, out_dir: Path) -> Path:
            # harness stopped polling before `query_complete` and `PARTIAL` when
            # only some cases reported — an NS-routed case never reports one.
            f"<p>cost: {html.escape(cost['cost_display'])}</p>"
+           # Shared with the CLI and `manage.py nessie` for the same reason. The
+           # turns are listed per case in the manifest's `turns_meta`.
+           f"<p>fallback: {html.escape(fallback['fallback_display'])}</p>"
            "<table border=1 cellpadding=4><tr><th>id</th><th>family</th><th>route</th>"
            f"<th>engine</th><th>status</th><th>reason</th></tr>{rows}</table></body></html>")
     out = Path(out_dir)

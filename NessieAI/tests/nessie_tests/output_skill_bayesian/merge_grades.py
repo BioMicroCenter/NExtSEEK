@@ -70,6 +70,11 @@ SUCCESS_OUTCOMES = frozenset({"FullySatisfied", "AppropriateClarification",
 # grading pass, and is reported as such.
 GRADES = {"pass": True, "fail": False}
 
+# The keys a grade record may carry: the page's `GRADE_CONTRACT.fields`
+# (templates/report_bayes.html.tpl), pinned equal by test_bayes_report.py. A record with any
+# other key, or a note or timestamp that is not a string, was not written by the page.
+GRADE_FIELDS: tuple[str, ...] = ("grade", "note", "ts")
+
 GRADE_COLUMNS: tuple[str, ...] = ("human_success", "llm_success", "agree",
                                   "usefulness_score", "primary_issue")
 
@@ -272,11 +277,35 @@ def read_map(path, *, required: bool) -> dict:
     return loaded
 
 
+def check_grade_records(grades: dict) -> None:
+    """Every record has the page's shape. Raises ValueError naming each one that does not.
+
+    A record the page did not write (a bare "pass" string, a renamed key, a note that is a
+    number) would otherwise either crash the join or be read as ungraded and reported as an
+    unfinished pass, which sends the operator to regrade rows they already graded.
+    """
+    bad = []
+    for key, rec in grades.items():
+        if not isinstance(rec, dict):
+            bad.append(f"{key!r} is a {type(rec).__name__}, not a record")
+            continue
+        extra = sorted(set(rec) - set(GRADE_FIELDS))
+        if extra:
+            bad.append(f"{key!r} carries {extra}, outside {list(GRADE_FIELDS)}")
+        for f in ("note", "ts"):
+            if f in rec and rec[f] is not None and not isinstance(rec[f], str):
+                bad.append(f"{key!r}.{f} is a {type(rec[f]).__name__}, not a string")
+    if bad:
+        raise ValueError(f"{GRADES_NAME} holds {len(bad)} record(s) the report page did not write: "
+                         f"{_named(bad)}")
+
+
 def build(run_dir, *, grades_path=None, llm_path=None, out_path=None) -> dict:
     """Merge one run directory and write `graded_rows.csv`. Returns a summary."""
     run_dir = pathlib.Path(run_dir)
     rows = read_runtime_rows(run_dir)
     grades = read_map(grades_path or run_dir / GRADES_NAME, required=True)
+    check_grade_records(grades)
     llm = read_map(llm_path or run_dir / STAGE_C_NAME, required=False)
     graded = merge(rows=rows, grades=grades, llm=llm)
     out_path = pathlib.Path(out_path or run_dir / GRADED_NAME)

@@ -28,22 +28,70 @@ CONTAINER_CC_ROUTE = RouteSpec(
     ),
     best_for=(
         "Open-ended reasoning, file I/O, code, multi-tool workflows, and "
-        "building/validating NExtSEEK batch-upload create/update sheets. Also a "
+        "building or validating a NExtSEEK batch-upload create/update sheet that the "
+        "user supplies or asks to have made. Also a "
         "question that must JOIN two sources the NS route reads separately -- "
         "comparing a REST catalog against sample metadata in the graph, such as "
         "the registered people against the scientists named on samples -- and any "
-        "question whose answer is a FILE the user takes away."
+        "request for a FILE the user takes away; a question about how to get a file "
+        "from the site is the NS route's. And the follow-ups the "
+        "follow-up rule sends here: this route is handed the earlier turns' queries, their "
+        "search details and their result files, so it can export, plot, compare or analyse "
+        "an earlier result, and in a chat that reached it, a later message that refers back "
+        "stays here; a self-contained question is routed on its own merits. And an open-ended summary of "
+        "a whole project or investigation -- how much data it holds, an inventory, an overview, "
+        "the span of its collection dates -- written up with a file; formal NIH/RPPR/progress "
+        "reports, upload statistics, submissions and 'what is X' stay on the NS route."
     ),
     not_for=(
         "Pure deterministic NExtSEEK lookups that the NS route handles without "
-        "container tools; caller identity, session, or access-scope questions "
-        "the NS route already resolves; catalog bookkeeping the NS route answers "
+        "container tools; how-to questions about the site (uploading, validating a "
+        "workbook, downloading or exporting, templates, the API), which the NS route "
+        "answers from the user docs (a how-to is judged by its intent: learning to use the "
+        "site is the docs, finding samples or data is a NExtSEEK search, and doing an "
+        "analysis or applying a method is this route); the file of one SOP named by its id or its exact "
+        "title, which the NS route downloads unless a new file is to be made from it; "
+        "caller identity, project membership and "
+        "access-scope questions, which the NS route answers from the signed-in "
+        "session; catalog bookkeeping the NS route answers "
         "without shell access; and nf-core pipeline build/launch work that belongs "
         "on the NS route. Having a shell is not a reason to route here when "
         "NExtSEEK already holds the answer. The dividing line: a question "
         "answerable from sample metadata alone is the NS route, however large or "
-        "analytical -- counts, breakdowns and harmonisation over metadata all run "
-        "in the graph. It is only a question needing a source the graph does not "
-        "hold, or a produced file, that belongs here."
+        "analytical -- counts and breakdowns, including counts across spellings, all "
+        "run in the graph. Values written several ways are judged by intent, like a "
+        "how-to: asking "
+        "which values, spellings or types an attribute holds, and how many of each, is "
+        "a NExtSEEK graph search on the NS route, even when the values are spelled "
+        "several ways; asking to harmonize, merge or map them to the house terms, or "
+        "to build the update workbook that does it, is this route. A chat that asked "
+        "what exists on the NS route and then asks to harmonize it comes here with "
+        "that earlier result. It is only a "
+        "question needing a source the graph does not "
+        "hold, a produced file, an open-ended project or investigation summary, or a "
+        "follow-up the follow-up rule sends here."
     ),
+)
+
+
+# 2026-09-24 follow-up split (routing review 5.3), replacing the 2026-09-23 "every follow-up
+# to container_cc" text: the rule lives in the router prompt paragraph only
+# (NessieAI/router/followup.py, filled from NESSIE_FOLLOWUP_ROUTING), so these descriptions
+# stop restating it and are right under either setting. The generator
+# (``route_capabilities.apply_followup_ruling``) keeps cross_session_memory off the
+# nextseek_query route (memory across chats is container_cc's) and adds NS_FOLLOWUP_NOT_FOR.
+FOLLOWUP_FAMILIES_ON_CC: tuple[str, ...] = (
+    "cross_session_memory",
+)
+NS_CAPABILITY_LABELS_ON_CC: tuple[str, ...] = ()
+# 2026-09-23 ruling: open-ended project and investigation summaries go to container_cc;
+# formal reports, upload statistics, submissions and "what is X" stay on the NS route.
+NS_SUMMARY_NOT_FOR = (
+    "An open-ended summary of a whole project or investigation (how much data it holds, an "
+    "inventory, an overview, the span of its collection dates): container_cc writes it up with "
+    "a file. Formal NIH/RPPR/progress reports, upload statistics and 'what is X' stay here"
+)
+NS_FOLLOWUP_NOT_FOR = (
+    "A follow-up the follow-up rule sends to container_cc (a file, a chart, code, "
+    "analysis, or any follow-up once the chat has used container_cc)"
 )

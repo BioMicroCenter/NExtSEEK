@@ -13,7 +13,7 @@ from ...helpers import (
     build_recent_results_summary,
     safe_parse_json,
 )
-from ...schemas.schema_helper import call_llm_structured
+from ...schemas.schema_helper import call_llm_structured, call_llm_text
 from ...schemas import (
     ContextEngineerOutput,
     EntityAgentOutput,
@@ -341,8 +341,8 @@ def planner_agent(
             fallback_step = _build_step_from_candidate(
                 _fill_candidate_defaults(
                     ParserCandidate(
-                        mode="new_search",
-                        target_endpoint="/nextseek_api/samples/advanced_search/",
+                        mode="graph_query",
+                        target_endpoint=None,
                         tool_query=user_query,
                         rationale=f"fallback after planner error: {e}",
                         confidence=0.5,
@@ -476,13 +476,21 @@ def context_engineer_step(
                     ),
                 },
             ]
-            fallback_resp = ce_client.chat(
-                model=ce_model,
-                temperature=0,
+            # Through the recovery ladder on the context engineer's chain; it used to call
+            # the SDK directly and never moved. A short extraction over 20 rows, so 60 s
+            # and a 60 s retry (the ledger's p95 is under 17 s for every agent).
+            raw = call_llm_text(
+                config,
                 messages=fallback_messages,
+                model_name=ce_model,
+                client=ce_client,
+                agent_label="context_engineer",
+                log_label="context_engineer_fallback",
+                temperature=0,
                 thinking_budget=ce_budget,
-            )
-            raw = fallback_resp.content or "{}"
+                timeout_seconds=60,
+                timeout_retry_seconds=60,
+            ) or "{}"
             extracted = safe_parse_json(raw)
             if not isinstance(extracted, dict):
                 extracted = {}

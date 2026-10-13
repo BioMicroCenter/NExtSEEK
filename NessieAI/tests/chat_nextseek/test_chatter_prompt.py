@@ -214,21 +214,63 @@ def test_a_dropped_filter_reaches_the_prompt_as_not_applied(captured):
     assert "cannot be applied in the graph" in text
 
 
-def test_the_graph_prompt_still_withholds_the_cypher(captured):
-    """The half of D1 that was real, and stays."""
+def test_the_graph_prompt_carries_the_executed_query_and_its_parameters(captured):
+    """The Cypher reaches the writer on a graph turn, for one purpose: checking a NOT APPLIED line or a note that
+    says the search matched something it should not (the operator's ruling, dev run 2026-09-29)."""
     chatter_mod.chatter_agent_answer(
         _StubConfig(), "how many mice", _entity(),
         _plan(mode="graph_query"),
-        graph_plan={"cypher": "MATCH (s:Sample) WHERE s.Organ = 'Lung' RETURN count(s)",
-                    "explanation": "counts lung samples"},
+        graph_plan={"cypher": "MATCH (s:Sample) WHERE s.Organ = $organ RETURN count(s)",
+                    "parameters": {"organ": "Lung"}, "explanation": "counts lung samples"},
         graph_result={"ok": True, "count": 1, "total": 16841, "data": [{"n": 16841}]},
         log_dir="",
     )
     text = captured["user_content"]
 
-    assert "MATCH (" not in text
-    assert "RETURN count" not in text
-    assert "DERIVED_FROM" not in text
+    assert ("Executed query (for checking NOT APPLIED and notes only; never quote or describe it):\n"
+            "MATCH (s:Sample) WHERE s.Organ = $organ RETURN count(s)\n"
+            'Parameters: {"organ": "Lung"}\n\n') in text
+    assert text.index("What the query actually did") < text.index("Executed query")
+
+
+def test_a_non_graph_turn_does_not_carry_the_executed_query(captured):
+    _rest_turn(captured, entity=_entity(), plan=_plan(mode="new_search"),
+               api_plan={"endpoint": "/nextseek_api/samples/", "method": "GET", "queryParameters": {"page_size": 10}})
+    assert "Executed query" not in captured["user_content"]
+
+
+def test_a_graph_turn_with_no_cypher_carries_no_executed_query_block(captured):
+    chatter_mod.chatter_agent_answer(
+        _StubConfig(), "how many mice", _entity(), _plan(mode="graph_query"),
+        graph_plan={"cypher": "", "explanation": "nothing ran"},
+        graph_result={"ok": False, "count": 0, "total": 0, "data": [], "error": "refused"},
+        log_dir="",
+    )
+    assert "Executed query" not in captured["user_content"]
+
+
+def test_the_not_applied_instruction_carries_the_one_exception(captured):
+    chatter_mod.chatter_agent_answer(
+        _StubConfig(), "how many CC mice", _entity(keywords=["CC"]), _plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_MUS) RETURN count(s)", "explanation": ""},
+        graph_result={"ok": True, "count": 1, "total": 731, "data": [{"n": 731}]},
+        log_dir="",
+    )
+    text = captured["user_content"]
+
+    assert "The scope check says the query did NOT constrain on everything the user asked for." in text
+    assert "UNLESS the 'Executed query' plainly filters on that constraint" in text
+
+
+def test_the_prompt_describes_the_executed_query_and_its_one_exception():
+    text = _prompt_text()
+
+    assert "- `Executed query`: on a graph turn, the query that ran and its parameters." in text
+    assert "Never quote it, and never name its syntax, a field name or an operator in the reply." in text
+    assert "ONE EXCEPTION, AND ONLY ONE." in text
+    assert "If you are not sure the query carries it, disclose it." in text
+    # the rule that the reply never names the mechanics is untouched
+    assert "you may never name" in text
 
 
 def test_a_reporter_turn_makes_no_claim_about_dropped_filters(captured):
@@ -432,7 +474,7 @@ def test_an_assay_the_question_never_named_raises_no_not_applied_line(captured):
         cypher="MATCH (s:Sample) WHERE toLower(s.search_text) CONTAINS 'cd8' RETURN s.id AS id",
     )
 
-    assert "NOT APPLIED" not in text
+    assert "NOT APPLIED, the user asked for this" not in text
 
 
 # --------------------------------------------------------------------------
@@ -484,6 +526,83 @@ def test_the_histogram_ranks_by_count_and_caps_the_list():
 def test_rows_without_a_type_are_ignored_rather_than_counted():
     rows = [{"uuid": "x", "n": 5}, {"uuid": "y", "n": 6}]
     assert _hist(rows, shown=1) == ""
+
+
+# --------------------------------------------------------------------------
+# GFxRR-4 (ss.mtb_infected_mice): the writer saw the first 20 of 651 mice, all one strain, and said that strain
+# was "the only" one. The value counts over the WHOLE result are handed to it the way the type histogram is.
+# --------------------------------------------------------------------------
+
+_counts = chatter_mod._value_counts_block
+
+_COUNTS_LAST = ("The preview is the head of the result and is not representative. When you say which values a "
+                "field holds, or that a field is empty or the same throughout, say it from these counts, never "
+                "from the preview rows.")
+
+
+def _mice(head=20, tail=5):
+    rows = [{"uuid": f"MUS-{i}", "Name": f"m{i}", "Treatment1": "H37Rv", "Strain": None} for i in range(head)]
+    rows += [{"uuid": f"MUS-{head + i}", "Name": f"m{head + i}", "Treatment1": "BcRv", "Strain": "C57BL6"}
+             for i in range(tail)]
+    return rows
+
+
+def test_the_value_counts_name_a_value_the_preview_never_showed():
+    block = _counts(_mice(), shown=20)
+
+    assert block.startswith("Values across ALL 25 rows, not just the preview (each column counted on its own):\n")
+    assert "- Treatment1: H37Rv 20, BcRv 5" in block
+    assert "- Strain: C57BL6 5; empty 20" in block
+    assert block.rstrip("\n").endswith(_COUNTS_LAST)
+
+
+def test_no_value_counts_when_the_writer_already_sees_every_row():
+    rows = _mice()
+    assert _counts(rows, shown=len(rows)) == ""
+
+
+def test_a_column_where_no_value_repeats_and_the_identity_and_type_columns_are_left_out():
+    rows = [{"id": i, "uuid": f"U-{i}", "sample_id": i, "type": "MUS", "Sample_Type": "MUS",
+             "Name": f"n{i}", "Organ": "Lung"} for i in range(6)]
+    block = _counts(rows, shown=2)
+
+    assert "- Organ: Lung 6" in block
+    for left_out in ("id:", "uuid:", "sample_id:", "type:", "Sample_Type:", "Name:"):
+        assert f"- {left_out}" not in block, left_out
+
+
+def test_a_capped_result_says_returned_rows_not_all():
+    block = _counts(_mice(), shown=20, capped=True)
+
+    assert block.startswith("Values across the 25 returned rows, not just the preview (each column counted on its own):\n")
+    assert "ALL" not in block.splitlines()[0]
+    assert block.rstrip("\n").endswith(_COUNTS_LAST)
+
+
+def test_the_value_counts_are_bounded():
+    rows = [{"uuid": str(i), **{f"C{c}": f"{'x' * 80}{i % 20}" for c in range(12)}} for i in range(60)]
+    block = _counts(rows, shown=20)
+    lines = block.splitlines()
+
+    assert len([ln for ln in lines if ln.startswith("- ")]) == 8
+    for ln in lines:
+        if ln.startswith("- "):
+            assert ln.count(", ") <= 8, ln  # top 8 values, then "and N more"
+            assert "x" * 61 not in ln
+    assert len(block) < 3200
+
+
+def test_a_value_list_turn_carries_the_counts_after_the_preview(captured):
+    text = _graph_turn(captured, question="which mice have a Mycobacterium tuberculosis infection",
+                       rows=_mice(head=30, tail=5), cypher="MATCH (s:T_MUS) RETURN s.uuid AS uuid")
+    assert "Values across ALL 35 rows, not just the preview" in text
+    assert "- Treatment1: H37Rv 30, BcRv 5" in text
+
+
+def test_a_result_the_writer_sees_whole_carries_no_counts(captured):
+    text = _graph_turn(captured, question="which mice", rows=_mice(head=3, tail=2),
+                       cypher="MATCH (s:T_MUS) RETURN s.uuid AS uuid")
+    assert "Values across" not in text
 
 
 # --------------------------------------------------------------------------
@@ -572,7 +691,7 @@ def test_a_code_and_its_expansion_are_not_both_written():
 # left the instruction block contradicting it.
 
 _PERMISSION = "You may name WHAT was searched"
-_PROHIBITION = "Do not say how the answer was found"
+_PROHIBITION = "Unless the user asked how the answer was found, do not say how it was found"
 
 
 def _count_turn(captured, *, total, rows=None, notes=None, not_applied_keywords=None):
@@ -682,3 +801,247 @@ def test_a_note_the_caller_passed_is_a_qualification(captured):
 
     assert _PERMISSION in text
     assert _PROHIBITION not in text
+
+
+# --------------------------------------------------------------------------
+# GFxRR-4: the projects catalog reaches the scope check
+# --------------------------------------------------------------------------
+
+class _ProjectsConfig(_StubConfig):
+    FULL_PROJECTS = [
+        {"name": "Impact", "alternative_names": ["IMPACT", "IMPAcTb"], "entity_type": "project"},
+        {"name": "Notes", "alternative_names": None},
+        "not a row",
+    ]
+
+
+def test_the_container_aliases_are_one_squashed_set_per_catalog_row():
+    assert chatter_mod._container_aliases(_ProjectsConfig()) == [
+        {"impact", "impactb"}, {"notes"}]
+    assert chatter_mod._container_aliases(_StubConfig()) == []
+
+
+_PRODUCTION_SHAPED_ROWS = [
+    {"name": "Griffith", "alternative_names": ["CGR-Endo", "CGR"], "entity_type": "project", "parent_project": None},
+    {"name": "Endometriosis", "alternative_names": ["Griffith", "CGR-Endo"], "entity_type": "investigation",
+     "parent_project": "Griffith"},
+    {"name": "Impact", "alternative_names": ["IMPACT", "IMPAcTb"], "entity_type": "project", "parent_project": None},
+    {"name": "Impactb Investigation", "alternative_names": ["Impact", "IMPAcTb"], "entity_type": "investigation",
+     "parent_project": "Impact"},
+]
+
+
+def test_the_container_aliases_come_from_project_rows_only():
+    """REVIEW-NS N2: an investigation row carries its owner's names, so it would make the owner's title count as
+    the investigation."""
+    class _Cfg(_StubConfig):
+        FULL_PROJECTS = _PRODUCTION_SHAPED_ROWS
+    aliases = chatter_mod._container_aliases(_Cfg())
+    assert aliases == [{"griffith", "cgrendo", "cgr"}, {"impact", "impactb"}]
+
+
+def test_an_investigation_asked_for_is_not_applied_by_a_query_scoped_to_its_project():
+    from chat_nextseek.helpers.query_scope import describe_query_scope
+    class _Cfg(_StubConfig):
+        FULL_PROJECTS = _PRODUCTION_SHAPED_ROWS
+    scope = describe_query_scope(
+        entity_result=_entity(projects=["Endometriosis"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE p.title = 'CGR-Endo' "
+                              "RETURN count(s) AS n", "parameters": {}},
+        user_query="How many samples are in the Endometriosis investigation?",
+        container_aliases=chatter_mod._container_aliases(_Cfg()),
+    )
+    assert "project Endometriosis" in scope.not_applied
+
+
+def test_a_name_held_by_the_project_row_still_applies_the_investigation_title():
+    from chat_nextseek.helpers.query_scope import describe_query_scope
+    class _Cfg(_StubConfig):
+        FULL_PROJECTS = _PRODUCTION_SHAPED_ROWS
+    scope = describe_query_scope(
+        entity_result=_entity(projects=["IMPAcTB"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_D_SEQ)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation) "
+                              "WHERE toLower(inv.title) = toLower($investigation) RETURN count(DISTINCT s) AS n",
+                    "parameters": {"investigation": "Impact"}},
+        user_query="How many datasets are there across IMPAcTB?",
+        container_aliases=chatter_mod._container_aliases(_Cfg()),
+    )
+    assert "project IMPAcTB" in scope.applied and scope.not_applied == []
+
+
+def test_a_project_named_by_an_alias_of_the_compared_title_is_not_reported_as_dropped(captured):
+    chatter_mod.chatter_agent_answer(
+        _ProjectsConfig(), "How many datasets are there across IMPAcTB?",
+        _entity(projects=["IMPAcTB"]), _plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_D_SEQ)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation) "
+                              "WHERE toLower(inv.title) = toLower($investigation) RETURN count(DISTINCT s) AS n",
+                    "parameters": {"investigation": "Impact"}, "explanation": ""},
+        graph_result={"ok": True, "count": 1, "total": 309, "data": [{"n": 309}]},
+        log_dir="",
+    )
+    assert "NOT APPLIED, the user asked for this" not in captured["user_content"]
+
+
+def test_the_type_names_are_the_catalogs_sample_type_names():
+    class _Cfg:
+        MIN_SAMPLETYPES = [{"SampleType": "A.MET", "Name": "Methylation Analysis"},
+                           {"SampleType": "MUS", "Name": None}, {"Name": "x"}, "junk"]
+
+    assert chatter_mod._type_names(_Cfg()) == {"A.MET": "Methylation Analysis"}
+    assert chatter_mod._type_names(_StubConfig()) == {}
+
+
+def test_a_keyword_that_names_a_constrained_type_is_not_reported_as_dropped(captured):
+    class _Cfg(_StubConfig):
+        MIN_SAMPLETYPES = [{"SampleType": "A.MET", "Name": "Methylation Analysis"}]
+
+    chatter_mod.chatter_agent_answer(
+        _Cfg(), "How many of those have methylation data?",
+        _entity(keywords=["methylation"]), _plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_TIS) WHERE EXISTS { (s)<-[:DERIVED_FROM*1..12]-(:T_A_MET) } "
+                              "RETURN count(DISTINCT s) AS n", "parameters": {}, "explanation": ""},
+        graph_result={"ok": True, "count": 1, "total": 539, "data": [{"n": 539}]},
+        log_dir="",
+    )
+    assert "NOT APPLIED, the user asked for this" not in captured["user_content"]
+
+
+def test_the_exception_names_a_type_label_that_names_the_thing_asked_for():
+    text = _prompt_text()
+
+    assert "a sample type label that names the thing asked for, such as T_D_FLOW for flow cytometry data" in text
+    assert "T_A_MET for methylation" not in text
+
+
+def test_the_offered_step_line_sits_after_those_blocks():
+    text = _prompt_text()
+
+    assert "a line of its own after those blocks" in text
+    assert "a line of its own right after that block" not in text
+
+
+def test_a_breakdown_names_rows_that_are_not_the_thing_asked_about():
+    text = _prompt_text()
+
+    assert ("lead with the total from the `Sum of` line, then the breakdown. When some rows are plainly not the "
+            "thing the user asked about (another kind of file, a different category), say which, and give the "
+            "total both with and without them.") in text
+
+
+# --------------------------------------------------------------------------
+# Round 2 (B1 to B5): the prompt matches what the chatter is handed, the method is part of the answer when the
+# user asks for it, and a count column is not summarised as a value list.
+# --------------------------------------------------------------------------
+
+
+def test_the_prompt_no_longer_says_the_chatter_gets_no_query():
+    text = _prompt_text()
+
+    assert "no Cypher" not in text
+    assert "You do NOT receive the query itself" not in text
+    assert ("there are no others, and you receive no parser plan and no API request. On a graph turn you also "
+            "receive the `Executed query`.") in text
+    assert ("`What the query actually did` describes the query in the user's words; the `Executed query` block "
+            "is there to check a `NOT APPLIED` line or a note against what ran, and to say what was counted when "
+            "the user asks how the answer was found.") in text
+    assert "for checking only" not in text
+    assert "there only to check" not in text
+
+
+def test_the_prompt_lets_the_user_ask_how_the_answer_was_found():
+    text = _prompt_text()
+
+    assert ("and, when the user asks how the answer was found, to say in plain words what was counted. Never "
+            "quote it, and never name its syntax, a field name or an operator in the reply.") in text
+    assert ("When the user asks how the answer was found, that is part of the answer: after the answer, say in "
+            "one or two plain sentences what was counted, which records, of which type, under which "
+            "conditions.") in text
+
+
+def test_the_per_turn_instruction_does_not_forbid_the_method_unconditionally(captured):
+    for question in ("how did you get that number", "what did you count", "walk me through it"):
+        text = _graph_turn(captured, question=question, rows=[{"n": 12}],
+                           cypher="MATCH (s:T_TIS) RETURN count(s) AS n")
+
+        assert "Unless the user asked how the answer was found, do not say how it was found" in text
+        assert "If the user did ask, after the answer say in one or two plain sentences what was counted" in text
+        assert "Never name Cypher, a field name, a query operator or an endpoint." in text
+        assert "no mention of a query, of what it was constrained by, or of how the number was determined" not in text
+
+
+def test_the_rows_sentence_gives_the_total_with_and_without_the_other_rows():
+    text = _prompt_text()
+
+    assert "say which, and give the total both with and without them." in text
+    assert "say which, and give the total without them." not in text
+
+
+def test_the_one_exception_no_longer_promises_a_not_contains_override():
+    text = _prompt_text()
+
+    assert ("(the project or investigation title it names, or a sample type label that names the thing asked "
+            "for, such as T_D_FLOW for flow cytometry data)") in text
+    assert "a NOT ... CONTAINS that removes" not in text
+
+
+def test_a_count_column_is_not_summarised_as_a_value_list():
+    rows = [{"uuid": f"U-{i}", "Format": f"f{i % 3}", "n": 5 if i < 10 else 7} for i in range(12)]
+    block = _counts(rows, shown=3, aggregate_columns=chatter_mod._aggregate_columns(
+        "MATCH (s:Sample) RETURN s.Format AS Format, count(*) AS n"))
+
+    assert "- Format:" in block
+    assert "- n:" not in block
+
+
+def test_a_numeric_group_key_is_kept_and_only_the_count_beside_it_is_skipped():
+    rows = [{"Passage": 3 if i % 2 else 4, "n": 6 + i % 2} for i in range(12)]
+    block = _counts(rows, shown=3, aggregate_columns=chatter_mod._aggregate_columns(
+        "MATCH (s:Sample) RETURN s.Passage AS Passage, count(DISTINCT s) AS n ORDER BY n DESC"))
+
+    assert "- Passage: 3 6, 4 6" in block
+    assert "- n:" not in block
+
+
+def test_an_unaliased_count_and_a_sum_are_both_skipped():
+    rows = [{"value": f"v{i % 2}", "count(*)": 3, "total": 4, "Size": 9} for i in range(8)]
+    cols = chatter_mod._aggregate_columns("MATCH (s:Sample) RETURN s.Fmt AS value, count(*), sum(s.Size) AS total")
+    block = _counts(rows, shown=2, aggregate_columns=cols)
+
+    assert cols == {"count(*)", "total"}
+    assert "- value:" in block
+    assert "- Size: 9 8" in block
+    assert "- count(*):" not in block
+    assert "- total:" not in block
+
+
+def test_a_numeric_column_of_a_plain_record_list_is_still_counted():
+    rows = [{"uuid": f"U-{i}", "Passage": 3 if i < 5 else 4, "Organ": "Lung"} for i in range(8)]
+    block = _counts(rows, shown=2)
+
+    assert "- Passage: 3 5, 4 3" in block
+
+
+def test_a_count_query_turn_leaves_its_count_column_out_of_the_value_counts(captured):
+    rows = [{"value": f"f{i % 3}", "n": 40 - (i % 2)} for i in range(600)]
+    text = _graph_turn(captured, question="which formats", rows=rows, total=600,
+                       cypher="MATCH (s:Sample) RETURN s.Fmt AS value, count(*) AS n ORDER BY n DESC")
+
+    assert "- value:" in text
+    assert "- n:" not in text
+
+
+
+def test_no_per_turn_line_still_forbids_the_method_the_user_asked_for(captured):
+    count_only = _graph_turn(captured, question="how did you get that number", rows=[{"n": 12}],
+                             cypher="MATCH (s:T_TIS) RETURN count(s) AS n")
+    assert ("the reply ends on the answer, or, when the user asked how it was found, on the one or two "
+            "sentences that say what was counted.") in count_only
+    assert "the reply ends on the answer.\n" not in count_only
+
+    qualified = _graph_turn(captured, question="what did you count", rows=[{"n": 0}], total=0,
+                            cypher="MATCH (s:T_TIS) RETURN count(s) AS n")
+    assert ("not how it was reached, unless the user asked how the answer was found: then also say, in one or "
+            "two plain sentences, what was counted (which records, of which type, under which conditions).") in qualified
+    assert "not how it was reached.\n" not in qualified

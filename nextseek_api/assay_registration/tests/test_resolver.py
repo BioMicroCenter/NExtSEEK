@@ -23,8 +23,11 @@ class FakeConn:
     """
 
     def __init__(self, uid_counts, sample_ids, sample_projects,
-                 assay_projects, title_assays):
+                 assay_projects, title_assays, buckets=(), assay_studies=(), memberships=()):
         self._by_marker = [
+            ("MIN(id) FROM", list(memberships)),                  # existing_membership_ids
+            ("investigation_id, title FROM", list(buckets)),       # buckets.bucket_study_ids
+            ("SELECT id, study_id FROM", list(assay_studies)),     # resolver.assay_study_ids
             ("COUNT(*) FROM", uid_counts),
             ("SELECT uuid, id FROM", sample_ids),
             ("projects_samples", sample_projects),
@@ -44,9 +47,9 @@ class FakeConn:
         raise AssertionError(f"unexpected query in test fake:\n{sql}")
 
 
-def _conn(uid_counts, sample_ids, sample_projects, assay_projects, title_assays):
+def _conn(uid_counts, sample_ids, sample_projects, assay_projects, title_assays, **extra):
     return FakeConn(uid_counts, sample_ids, sample_projects,
-                    assay_projects, title_assays)
+                    assay_projects, title_assays, **extra)
 
 
 class TestUidGate:
@@ -283,3 +286,63 @@ class TestBatching:
         assert len(conn.calls) <= 5, (
             "resolution must be a fixed set of batch queries, not one per row"
         )
+
+
+class TestTitleTiebreak:
+    """A title reaching several assays of the sample's project: the one the sample is in, then the bucket's (the
+    studies tool, whose paper clones keep their source assay's title)."""
+
+    BUCKET_AND_CLONE = [("imaging", 131, 3, "Imaging"), ("imaging", 140, 3, "Imaging")]
+    STUDIES = [(131, 20), (140, 21)]
+    BUCKETS = [(20, 5, "Alpha Unpublished"), (21, 5, "Alpha Paper")]
+
+    def _resolve(self, memberships=(), buckets=None, assay_studies=None, title_assays=None):
+        conn = _conn(uid_counts=[("S1", 1)], sample_ids=[("S1", 100)], sample_projects=[(100, 3)],
+                     assay_projects=[], title_assays=title_assays or self.BUCKET_AND_CLONE,
+                     buckets=self.BUCKETS if buckets is None else buckets,
+                     assay_studies=self.STUDIES if assay_studies is None else assay_studies,
+                     memberships=memberships)
+        [resolved] = resolve([RegistrationRow(sample_uid="S1", assay="Imaging")], conn)
+        return resolved, conn
+
+    def test_a_new_sample_resolves_to_the_buckets_assay(self):
+        resolved, _ = self._resolve()
+        assert resolved.error is None and resolved.assay_id == 131 and resolved.project_id == 3
+
+    def test_a_sample_already_in_the_clone_resolves_to_the_clone(self):
+        resolved, _ = self._resolve(memberships=[(140, 100, 9001)])
+        assert resolved.error is None and resolved.assay_id == 140
+
+    def test_a_sample_in_both_falls_to_the_bucket_rule(self):
+        resolved, _ = self._resolve(memberships=[(131, 100, 9000), (140, 100, 9001)])
+        assert resolved.assay_id == 131
+
+    def test_a_sample_in_two_clones_and_not_in_the_bucket_stays_ambiguous(self):
+        resolved, _ = self._resolve(
+            title_assays=self.BUCKET_AND_CLONE + [("imaging", 141, 3, "Imaging")],
+            buckets=self.BUCKETS + [(22, 6, "Delta Study")], assay_studies=self.STUDIES + [(141, 22)],
+            memberships=[(140, 100, 9001), (141, 100, 9002)])
+        assert resolved.error.code == "assay_ambiguous_in_project"
+        assert "the sample is in [140, 141]" in resolved.error.message
+
+    def test_buckets_of_two_investigations_in_one_project_stay_ambiguous(self):
+        resolved, _ = self._resolve(buckets=[(20, 5, "Alpha Unpublished"), (22, 6, "Beta Unpublished")],
+                                    assay_studies=[(131, 20), (140, 22)])
+        assert resolved.error.code == "assay_ambiguous_in_project"
+        assert "131" in resolved.error.message and "140" in resolved.error.message
+        assert "Unpublished study: [131, 140]" in resolved.error.message
+
+    def test_two_candidates_neither_held_nor_in_a_bucket_stay_ambiguous(self):
+        resolved, _ = self._resolve(buckets=[(20, 5, "Alpha Paper"), (21, 5, "Alpha Paper Two")])
+        assert resolved.error.code == "assay_ambiguous_in_project"
+        assert "the sample is in none" in resolved.error.message
+
+    def test_a_dash_unpublished_title_is_a_bucket(self):
+        resolved, _ = self._resolve(buckets=[(20, 5, "Gamma - Unpublished"), (21, 5, "Gamma Paper")])
+        assert resolved.assay_id == 131
+
+    def test_an_unambiguous_title_reads_nothing_new(self):
+        _, conn = self._resolve(title_assays=[("imaging", 131, 3, "Imaging")])
+        sent = " ".join(sql for sql, _ in conn.calls)
+        assert "MIN(id) FROM" not in sent and "investigation_id, title FROM" not in sent
+        assert "SELECT id, study_id FROM" not in sent

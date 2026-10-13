@@ -1,0 +1,76 @@
+{
+  "report_type": "NFCORE_BACTMAP_SAMPLESHEET",
+  "description": "nf-core/bactmap samplesheet context, aligned to the pinned 1.0.0 nextflow_schema.json and docs/usage.md. Reference-based bacterial mapping and variant calling.",
+  "params": {
+    "reference":       {"type": "string", "default": null, "steerable": true, "help": "REQUIRED, no default. Path to the reference genome FASTA every sample is mapped against. Supplied by the user at launch."},
+    "trim":            {"type": "bool", "default": true, "steerable": true},
+    "subsampling_off": {"type": "bool", "default": false, "steerable": true, "help": "By default reads are subsampled to a target depth; turn this off to use everything."},
+    "subsampling_depth_cutoff": {"type": "number", "default": 100, "steerable": true},
+    "remove_recombination": {"type": "bool", "default": false, "steerable": true, "help": "Runs Gubbins. Only meaningful for a set of related isolates."},
+    "rapidnj":         {"type": "bool", "default": false, "steerable": true},
+    "fasttree":        {"type": "bool", "default": false, "steerable": true},
+    "iqtree":          {"type": "bool", "default": false, "steerable": true},
+    "raxmlng":         {"type": "bool", "default": false, "steerable": true}
+  },
+  "required_user_params": [
+    {
+      "name": "reference",
+      "scope": "run",
+      "definition": "Path on the cluster to the reference genome FASTA that every isolate in this cohort will be mapped against. It must be the species you actually sequenced — mapping to the wrong species yields a near-empty alignment, not an error. There is no iGenomes key for bacterial references, so this cannot be resolved from a species name.",
+      "example": "/net/bmc-pub10/data1/bmc/refs/NC_000962.3_Mtb_H37Rv.fasta"
+    }
+  ],
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/bactmap",
+    "repository": "https://github.com/nf-core/bactmap",
+    "documentation_url": "https://nf-co.re/bactmap/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Three columns: sample, fastq_1, fastq_2. Taken from docs/usage.md at the pinned tag — 1.0.0 ships no assets/schema_input.json, so the usage document is the authority here.",
+    "required_columns": ["sample", "fastq_1", "fastq_2"],
+    "optional_columns": [],
+    "reference_requirement": "REQUIRED, via --reference, and it is a plain FASTA path rather than a genome key. The 1.0.0 schema declares no genome/fasta/gtf parameter, so none of the usual reference flags may be emitted."
+  },
+  "samplesheet_template": [{"sample": null, "fastq_1": null, "fastq_2": null}],
+  "examples": {
+    "isolate_pair": {"sample": "D.SEQ-260711ENG-12-PUB", "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/iso_R1.fastq.gz", "fastq_2": "/net/bmc-pub10/data1/bmc/fastq/iso_R2.fastq.gz"}
+  },
+  "validation_rules": [
+    "reference must be answered by the user. Never guess a bacterial reference: a wrong species maps almost nothing and the run completes rather than failing.",
+    "Do NOT pass --genome, --fasta or --gtf: the 1.0.0 schema declares none of them. The reference goes in --reference only.",
+    "All samples in one run are mapped to the SAME reference, so the cohort must be one species.",
+    "remove_recombination (Gubbins) and the tree builders only make sense for a set of related isolates; leave them off for a one-off."
+  ],
+  "notes": "NO MATCHING DATA IN NExtSEEK as of 2026-08-05 — see the bacass note; there is no bacterial isolate sequencing here. This was the closest call in the whole 2026-08-05 census: its samplesheet shape is exactly ours and its single required param is precisely what the elicitation mechanism exists for. It fails on data, not on shape.",
+  "sources": [
+    {"label": "nf-core/bactmap usage docs @ 1.0.0", "url": "https://raw.githubusercontent.com/nf-core/bactmap/1.0.0/docs/usage.md", "notes": "Authority for the samplesheet here — 1.0.0 ships no assets/schema_input.json. Specifies sample,fastq_1,fastq_2."},
+    {"label": "nf-core/bactmap nextflow_schema.json @ 1.0.0", "url": "https://raw.githubusercontent.com/nf-core/bactmap/1.0.0/nextflow_schema.json", "notes": "Authoritative: `reference` is required with no default; no genome/fasta/gtf params exist."}
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/bactmap input sheet.",
+        "fields": {
+          "sample": {"required": "required", "position_rule": "Column 1", "expected_value": "string", "allowed_values": "", "description": "Sample identifier.", "validation_hints": "Use the NExtSEEK D.SEQ UID.", "example": "D.SEQ-260711ENG-12-PUB"},
+          "fastq_1": {"required": "required", "position_rule": "Column 2", "expected_value": "path", "allowed_values": ".fastq.gz", "description": "Read 1.", "validation_hints": "Absolute Luria path.", "example": "/net/bmc-pub10/data1/bmc/fastq/iso_R1.fastq.gz"},
+          "fastq_2": {"required": "header required", "position_rule": "Column 3", "expected_value": "path or blank", "allowed_values": ".fastq.gz or blank", "description": "Read 2.", "validation_hints": "Blank for single-end.", "example": "/net/bmc-pub10/data1/bmc/fastq/iso_R2.fastq.gz"}
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/bactmap sheet from a resolved D.SEQ cohort of bacterial isolates of a single species.",
+    "workflow_role": "Selected for outbreak / phylogenetic work: mapping isolates to a reference and calling variants.",
+    "output_expectation": "CSV with header sample,fastq_1,fastq_2.",
+    "population_priority": [
+      "Confirm the cohort is isolate sequencing of ONE species before proceeding.",
+      "Ask the user for the reference FASTA path; do not infer it from a species name.",
+      "One row per D.SEQ leaf."
+    ],
+    "final_checks": [
+      "reference was answered by the user.",
+      "No --genome / --fasta / --gtf were emitted.",
+      "Every row is the same species."
+    ]
+  }
+}

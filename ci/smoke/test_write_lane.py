@@ -27,6 +27,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from ci.smoke.attribute_jobs import settle
 from ci.smoke.client import GuardedSession
 from ci.smoke.conftest import SMOKE_SEARCH_TERM
 
@@ -236,6 +237,11 @@ def test_attribute_create_then_delete(wapi, base_url):
             timeout=180,
         )
         assert r.status_code in (200, 202), f"create failed {r.status_code}: {r.text[:300]}"
+        # A 202 is a queued job, not a write: TIS is over the synchronous row threshold on any
+        # seeded box, so wait for the worker before looking (ci/smoke/attribute_jobs.py).
+        code, outcome = settle(wapi, base_url, r)
+        state = (outcome.get("state") or outcome.get("overall_status")) if isinstance(outcome, dict) else None
+        assert state == "succeeded", f"create did not succeed ({code}, {state!r}): {str(outcome)[:300]}"
 
         found = wapi.post(
             f"{base_url}/nextseek_api/attributes/search/",
@@ -246,8 +252,11 @@ def test_attribute_create_then_delete(wapi, base_url):
         created_id = match[0]["id"]
     finally:
         if created_id is not None:
-            wapi.post(
+            d = wapi.post(
                 f"{base_url}/nextseek_api/attributes/batch-delete/",
                 json={"targets": [{"sample_type": "TIS", "attributes": [probe]}]},
                 timeout=180,
             )
+            # Waited on for the same reason as the create: a queued delete the run exits before is
+            # a probe attribute left on TIS if the worker then fails.
+            settle(wapi, base_url, d)

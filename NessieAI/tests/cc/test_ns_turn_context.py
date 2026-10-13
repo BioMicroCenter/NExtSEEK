@@ -98,13 +98,17 @@ def test_total_and_rows_shapes(api_full, exp_total, exp_rows):
     assert (total, rows) == (exp_total, exp_rows)
 
 
-def test_total_and_rows_parity_with_chat_nextseek_helper():
-    """The mirror must agree with the real extractor on every shape above."""
+def test_total_and_rows_parity_with_chat_nextseek_helper(monkeypatch):
+    """The mirror must agree with the real extractor on every shape above.
+
+    Every stub, the path entry and the fresh module load go through monkeypatch, so all of it is
+    undone after the test. Set by hand, ChatConfig = object stayed on the real chat_nextseek.config
+    and broke every later test in the same run that builds a ChatConfig."""
     import importlib.util
     import types
 
     src_root = paths.CHAT_NEXTSEEK_DIR / "src"
-    sys.path.insert(0, str(src_root))
+    monkeypatch.syspath_prepend(str(src_root))
     for mod_name in (
         "chat_nextseek",
         "chat_nextseek.config",
@@ -113,14 +117,14 @@ def test_total_and_rows_parity_with_chat_nextseek_helper():
         "chat_nextseek.helpers.tools",
     ):
         if mod_name not in sys.modules:
-            sys.modules[mod_name] = types.ModuleType(mod_name)
-    sys.modules["chat_nextseek.config"].ChatConfig = object
-    sys.modules["chat_nextseek.session"].SessionState = object
+            monkeypatch.setitem(sys.modules, mod_name, types.ModuleType(mod_name))
+    monkeypatch.setattr(sys.modules["chat_nextseek.config"], "ChatConfig", object, raising=False)
+    monkeypatch.setattr(sys.modules["chat_nextseek.session"], "SessionState", object, raising=False)
     api_path = src_root / "chat_nextseek" / "helpers" / "tools" / "nextseek_api.py"
     spec = importlib.util.spec_from_file_location(
         "chat_nextseek.helpers.tools.nextseek_api", api_path)
     mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
+    monkeypatch.setitem(sys.modules, spec.name, mod)
     spec.loader.exec_module(mod)
     _extract_total_and_rows = mod._extract_total_and_rows
     shapes = [
@@ -136,3 +140,56 @@ def test_total_and_rows_parity_with_chat_nextseek_helper():
         t1, r1 = _extract_total_and_rows(s)
         t2, r2, _ = ntc._total_and_rows(s)
         assert (t1, r1) == (t2, r2), s
+
+
+# ---------------------------------------------------- graph turns (CC-RERUN-FINDINGS fix 6)
+def _graph_bundle(bid=7, n=585, total=None, truncated=False):
+    rows = [{"id": i, "uuid": f"TCGA-{i:04d}", "type": "D.SEQ"} for i in range(n)]
+    return {"id": bid, "timestamp": "2026-09-23T00:00:00", "mode": "graph_query",
+            "user_query": "LUAD samples", "terminal_reply": f"{n} samples",
+            "endpoint": "neo4j", "method": None,
+            "parser_plan": {"mode": "graph_query", "filters": {"study": "LUAD"}},
+            "graph_plan": {"cypher": "MATCH (s:T_D_SEQ) RETURN s.id AS id, s.uuid AS uuid"},
+            "graph_result": {"ok": True, "count": n, "total": n if total is None else total,
+                             "truncated": truncated, "data": rows}}
+
+
+def test_a_graph_turn_reads_its_rows_from_the_graph_result():
+    """The digest said rows=0 for every graph turn (it read only the REST result), and
+    ``sample_uids`` looked for ``uid`` where graph rows carry ``uuid`` (r6-1228)."""
+    c = ntc.from_bundle(_graph_bundle(), session_id="s", turn_id=2)
+    assert c.ok is True and c.error is None
+    assert c.result.row_count == 585 and c.result.total == 585
+    assert c.result.truncated is False
+    assert c.result.columns == ["id", "uuid", "type"]
+    assert c.result.sample_uids == [f"TCGA-{i:04d}" for i in range(20)]
+    assert c.result.endpoint == "neo4j"
+    assert c.full_result_available is True
+
+
+def test_a_capped_graph_turn_is_truncated():
+    c = ntc.from_bundle(_graph_bundle(n=50, total=6000, truncated=True), session_id="s", turn_id=2)
+    assert (c.result.row_count, c.result.total, c.result.truncated) == (50, 6000, True)
+
+
+def test_a_failed_graph_turn_is_not_ok():
+    b = _graph_bundle(n=0)
+    b["graph_result"] = {"ok": False, "error": "refused", "data": []}
+    c = ntc.from_bundle(b, session_id="s", turn_id=2)
+    assert c.ok is False and c.error == "refused" and c.full_result_available is False
+
+
+def test_uid_keys_are_read_in_either_spelling():
+    rows = [{"uid": "A"}, {"uuid": "B"}, {"UID": "C"}, {"name": "no uid"}]
+    c = ntc.from_bundle(_bundle(rows=rows, total=4), session_id="s", turn_id=1)
+    assert c.result.sample_uids == ["A", "B", "C"]
+
+
+def test_a_plan_bundle_whose_graph_step_found_nothing_keeps_its_rest_rows():
+    """Plan mode always stores graph_result.data as a list, even when its graph step failed and a
+    REST step returned the rows; those rows must still be the turn's rows."""
+    b = _bundle()
+    b["mode"] = "plan"
+    b["graph_result"] = {"ok": False, "data": [], "count": 0, "error": "boom"}
+    c = ntc.from_bundle(b, session_id="s", turn_id=1)
+    assert c.ok is True and c.result.row_count == 2 and c.result.sample_uids == ["MUS-1", "MUS-2"]

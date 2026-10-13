@@ -22,7 +22,7 @@ from openpyxl.comments import Comment
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from django.conf import settings
-from neo4j import GraphDatabase
+from neo4j import GraphDatabase, Query
 from openpyxl.styles import Font
 
 from seek.dbtable_sampleattribute import DBtable_sampleattribute
@@ -63,11 +63,14 @@ COLUMN_TABLE_HEADER = ["Column", "Meaning"]
 # the two-column table and this header is unused there.
 REQUIRED_TABLE_HEADER = ["Column", "Required", "Meaning"]
 SUMMARY_HEADER = ["Sample Type", "Name", "Description"]
+LINEAGE_UNREADABLE_NOTICE = "Lineage could not be read from the graph, so the provenance below may be incomplete."
 FLOW_HEADING = "How this data flowed"
 # The tree's box-drawing characters only line up in a fixed-width font.
 FLOW_FONT = "Consolas"
 # A download must not wait on the graph. Provenance is worth a moment, never a
-# stalled request.
+# stalled request. This is the default; settings.NEO4J_TIMEOUT_SECONDS (env
+# NEO4J_TIMEOUT_SECONDS, dmac/settings.py) overrides it,
+# and the WARNING logged when it fires is the signal to tune it.
 NEO4J_TIMEOUT_SECONDS = 5
 # SEEK suffixes assay titles by how the data is attached; the distinction is
 # about SEEK bookkeeping, not about what was done to the sample.
@@ -263,7 +266,7 @@ def load_sample_field_context(
     }
 
 
-def load_derivation_hops(uuids: Iterable[str]) -> list[tuple[str, str, str]]:
+def load_derivation_hops(uuids: Iterable[str]) -> list[tuple[str, str, str]] | None:
     """(parent uuid, assay title, child uuid) for the hops among these samples.
 
     Neo4j is the authority here, not SEEK. Its DERIVED_FROM relationship holds
@@ -276,14 +279,21 @@ def load_derivation_hops(uuids: Iterable[str]) -> list[tuple[str, str, str]]:
     section, never the download -- and it must cost it *quickly*. The driver's
     default connection timeout is long enough that a graph which is merely slow
     would stall every download, so it is bounded explicitly.
+
+    Returns None when the read failed, [] when it worked and found no hops, so a
+    download can tell an unreachable graph from a sample with no lineage.
     """
     wanted = sorted({u for u in uuids if u})
     if not wanted:
         return []
-    query = (
+    timeout = getattr(settings, "NEO4J_TIMEOUT_SECONDS", NEO4J_TIMEOUT_SECONDS)
+    # Query(timeout=) is a server-side transaction timeout; the driver kwargs below
+    # only bound connecting and retrying, not a slow query.
+    query = Query(
         "MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample) "
         "WHERE c.uuid IN $uuids "
-        "RETURN p.uuid AS parent, r.internal_assay_title AS assay, c.uuid AS child"
+        "RETURN p.uuid AS parent, r.internal_assay_title AS assay, c.uuid AS child",
+        timeout=timeout,
     )
     try:
         # Read at call time, not import: touching settings during module import
@@ -292,8 +302,8 @@ def load_derivation_hops(uuids: Iterable[str]) -> list[tuple[str, str, str]]:
         with GraphDatabase.driver(
             config["URI"],
             auth=config["AUTH"],
-            connection_timeout=NEO4J_TIMEOUT_SECONDS,
-            max_transaction_retry_time=NEO4J_TIMEOUT_SECONDS,
+            connection_timeout=timeout,
+            max_transaction_retry_time=timeout,
         ) as driver:
             records = driver.execute_query(query, uuids=wanted).records
         return [
@@ -302,8 +312,12 @@ def load_derivation_hops(uuids: Iterable[str]) -> list[tuple[str, str, str]]:
             if r["parent"] and r["child"]
         ]
     except Exception:
-        logger.exception("neo4j lineage lookup failed; provenance falls back to Parent")
-        return []
+        logger.warning(
+            "neo4j lineage lookup failed or hit NEO4J_TIMEOUT_SECONDS=%ss; provenance falls back to Parent",
+            timeout,
+            exc_info=True,
+        )
+        return None
 
 
 def load_assay_titles(uuids: Iterable[str]) -> dict[str, str]:
@@ -366,12 +380,15 @@ def _write_cell(ws, row: int, column: int, value: str, bold: bool = False):
     return cell
 
 
-def _write_readme(book, blocks: list[dict], *, flow_lines: list[str]) -> None:
+def _write_readme(book, blocks: list[dict], *, flow_lines: list[str], notice: str | None = None) -> None:
     ws = book.create_sheet(README_SHEET, 0)
     _write_cell(ws, 1, 1, README_LINK_TEXT)
     ws["A1"].hyperlink = CONTEXTDB_URL
     ws["A1"].style = "Hyperlink"
-    # Row 2 is left blank to separate the link from the summary table.
+    # Row 2 separates the link from the summary table. It is blank unless the download carries a
+    # warning (an incomplete lineage), which belongs where a reader looks first.
+    if notice:
+        _write_cell(ws, 2, 1, notice, bold=True)
     #
     # Sheet order: every sample type is summarised first, so a reader sees what
     # the workbook contains before meeting any column detail. The per-tab
@@ -498,8 +515,9 @@ def _apply_dropdowns(ws, columns: list[str], field_map, ranges, row_count: int) 
         rule.add(f"{letter}2:{letter}{max(row_count + 1, 2) + DROPDOWN_SPARE_ROWS}")
 
 
-def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None:
-    """Write README as sheet 1, then one sheet per sample type.
+def write_samples_workbook(parsed_df, output_path, context_by_code=None, notice=None) -> None:
+    """Write README as sheet 1, then one sheet per sample type. ``notice``, when given, is a warning
+    written at the top of the README, in place of the workbook's own unreadable-lineage line.
 
     `parsed_df` must carry a `uuid` column; `sample_type` is derived here so the
     extraction regex lives in exactly one place. Sheets are prepared before the
@@ -517,7 +535,11 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
     # is derived from it. Same single bounded query, just earlier.
     uuids = df["uuid"].astype(str)
     hops = load_derivation_hops(uuids)
-    edges = derivation_edges(df, {} if hops else load_assay_titles(uuids), hops)
+    # A caller's notice (sample_retrieve's lineage warning, the only one) already reports
+    # the graph falling short: one outage, one warning in A2.
+    if hops is None and not notice:
+        notice = LINEAGE_UNREADABLE_NOTICE
+    edges = derivation_edges(df, {} if hops else load_assay_titles(uuids), hops or [])
     depths = sample_type_depths(edges)
     flow_lines = build_provenance_tree(edges)
 
@@ -545,7 +567,7 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
         # pandas removes openpyxl's default sheet, but guard in case that changes.
         if "Sheet" in book.sheetnames:
             del book["Sheet"]
-        _write_readme(book, blocks, flow_lines=flow_lines)
+        _write_readme(book, blocks, flow_lines=flow_lines, notice=notice)
 
         field_map, vocabularies = _load_vocabularies()
         needed = sorted({

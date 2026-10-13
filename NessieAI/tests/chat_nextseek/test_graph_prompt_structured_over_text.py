@@ -131,3 +131,9 @@ def test_a_genotype_is_a_name_with_variants():
 
     assert "genotype" in lowered or "allele" in lowered
     assert "1,183" in rule, "the measured failure is the example"
+
+
+def test_a_file_type_or_format_is_a_name_with_variants():
+    rule = _window("A COUNT OF A NAME THAT HAS VARIANTS")
+
+    assert "an antibody clone, a file type or format)" in rule

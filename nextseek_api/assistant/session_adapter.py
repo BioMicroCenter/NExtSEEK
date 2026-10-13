@@ -62,6 +62,32 @@ class DictSessionAdapter:
             **(getattr(chat_session, "extra_state", None) or {}),
         }
 
+    def reload(self) -> None:
+        """Re-read the row and rebuild the cache: a turn must see the turn before it."""
+        self._session.refresh_from_db(fields=["results_history", "last_debug", "extra_state"])
+        self._cache = {
+            "results_history": list(self._session.results_history),
+            "last_debug": dict(self._session.last_debug),
+            **(getattr(self._session, "extra_state", None) or {}),
+        }
+
+    def allocate_bundle_id(self) -> int | None:
+        """The chat's next bundle id from its one allocator (bundle_ids.py), under a row lock shared with the
+        Container-CC artifact ops. None for a session that was never saved (the ops' throwaway parser session),
+        which then numbers in memory as before. None too when the allocator's write fails: a turn never ends on it."""
+        if self._session._state.adding:
+            return None
+        from .bundle_ids import BUNDLE_SEQ_KEY, allocate_bundle_id
+
+        try:
+            nxt = allocate_bundle_id(self._session.pk)
+        except Exception:
+            logger.warning("session %s: bundle id allocation failed, numbering in memory", self._session.pk,
+                           exc_info=True)
+            return None
+        self._cache[BUNDLE_SEQ_KEY] = nxt
+        return nxt
+
     # --- dict-like interface ---
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -75,6 +101,21 @@ class DictSessionAdapter:
 
     def __contains__(self, key: str) -> bool:
         return key in self._cache
+
+    def pop(self, key: str, default: Any = None) -> Any:
+        """Remove ``key`` and return its value, or ``default`` when it is not there.
+
+        A popped ``extra_state`` key is gone after :meth:`save`, which writes that column from the cache
+        wholesale. The column-backed keys are refused: a column cannot be removed, and ``save`` reads them
+        from the cache with a default, so a popped one would be written back as an empty value (``last_debug``)
+        or silently keep the stored bundles (``results_history``, which is merged).
+        """
+        if key in _TYPED_KEYS:
+            raise ValueError(
+                f"{key!r} is a ChatSession column that save() reads from the cache; "
+                "assign an empty value instead of popping it"
+            )
+        return self._cache.pop(key, default)
 
     # --- persistence ---
 
@@ -137,12 +178,20 @@ class DictSessionAdapter:
                     locked.results_history or [], cached_history
                 )
                 locked.last_debug = last_debug
+                # The chat's bundle counter only moves forward (bundle_ids.py): a turn that loaded the row before
+                # another writer took an id must not write its older count back.
+                from .bundle_ids import BUNDLE_SEQ_KEY, as_int
+                stored_seq = as_int((locked.extra_state or {}).get(BUNDLE_SEQ_KEY))
+                if stored_seq > as_int(extra_state.get(BUNDLE_SEQ_KEY)):
+                    extra_state = {**extra_state, BUNDLE_SEQ_KEY: stored_seq}
                 locked.extra_state = extra_state
                 locked.save(update_fields=fields)
                 self._session.results_history = locked.results_history
                 self._session.last_debug = locked.last_debug
                 self._session.extra_state = locked.extra_state
                 self._cache["results_history"] = locked.results_history
+                if BUNDLE_SEQ_KEY in locked.extra_state:
+                    self._cache[BUNDLE_SEQ_KEY] = locked.extra_state[BUNDLE_SEQ_KEY]
                 return
         except Exception:
             # Backends without row locking (or a session row that vanished) must

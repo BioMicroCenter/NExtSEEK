@@ -1,0 +1,30 @@
+{
+  "report_type": "NFCORE_RNAFUSION_SAMPLESHEET",
+  "description": "nf-core/rnafusion context, aligned to the pinned 4.1.3 schema. Gene-fusion detection from RNA-seq (human).",
+  "params": {
+    "tools":        {"type": "string",  "default": "arriba,starfusion,fusioncatcher", "steerable": true, "help": "Comma list of fusion callers to run (arriba, starfusion, fusioncatcher, stringtie, all). Lab default runs the three main callers."},
+    "tools_cutoff": {"type": "integer", "default": 1,     "steerable": true, "help": "Minimum number of callers that must agree to report a fusion."},
+    "read_length":  {"type": "integer", "default": 100,   "steerable": true, "help": "Read length for STAR overhang calculation."},
+    "no_cosmic":    {"type": "bool",    "default": false, "steerable": true, "help": "Skip the COSMIC known-fusion database."},
+    "cram":         {"type": "bool",    "default": false, "steerable": true, "help": "Emit CRAM instead of BAM."},
+    "skip_qc":      {"type": "bool",    "default": false, "steerable": true, "help": "Skip QC steps."},
+    "skip_vcf":     {"type": "bool",    "default": false, "steerable": true, "help": "Skip VCF creation."},
+    "skip_vis":     {"type": "bool",    "default": false, "steerable": true, "help": "Skip visualisation steps."},
+    "multiqc_title":{"type": "string",  "default": null,  "steerable": true, "help": "MultiQC report title."}
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/rnafusion",
+    "repository": "https://github.com/nf-core/rnafusion",
+    "documentation_url": "https://nf-co.re/rnafusion/4.1.3/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns: sample, fastq_1, fastq_2, strandedness. Human only. References are a large prebuilt bundle provisioned via genomes_base — not per-resource here.",
+    "required_columns": ["sample", "fastq_1", "fastq_2", "strandedness"],
+    "optional_columns": []
+  },
+  "notes": "rnafusion is human-only (species=homo_sapiens, GRCh38). References are heavy (arriba/STAR-Fusion/FusionCatcher/COSMIC) and provisioned via genomes_base; reference_resources is [] because they are not the simple per-file bundle. If no local reference is configured, configure_run reports reference_status honestly rather than implying the run is ready.",
+  "sources": [
+    {"label": "nf-core/rnafusion nextflow_schema.json @ 4.1.3", "url": "https://raw.githubusercontent.com/nf-core/rnafusion/4.1.3/nextflow_schema.json", "notes": "param names, types, defaults for the pinned revision."},
+    {"label": "nf-core/rnafusion assets/schema_input.json @ 4.1.3", "url": "https://raw.githubusercontent.com/nf-core/rnafusion/4.1.3/assets/schema_input.json", "notes": "required samplesheet columns: sample + strandedness required, fastq/bam/cram alternatives."}
+  ]
+}

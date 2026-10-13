@@ -2,7 +2,8 @@
 
 ONE CCTrace == ONE chat turn. Assembled from THREE sources (§6.1), never conflated:
   1. the persisted .jsonl records -> ordered `steps` (kind/tool/detail/line/status) + tools tally,
-  2. the headless `result` frame -> num_turns / duration_ms / cost_usd (passed as ``result_meta``),
+  2. the headless `result` frame -> num_turns / duration_ms / cost_usd / models_used /
+     model_fallback (passed as ``result_meta``),
   3. the §5 scratch diff -> authoritative files_created/modified + per-step `action`.
 Reuses cc_summary.classify_tool_use (one shared classifier with 1c memory) and the
 ParsedTranscript counts. jsonl validated with an ordered Union (_Other last).
@@ -38,6 +39,10 @@ class CCTrace(BaseModel):
     num_turns: int | None = None
     duration_ms: int | None = None
     cost_usd: float | None = None
+    # The turn record (2026-09-25): the model ids that answered this turn, and each
+    # --fallback-model switch as {"agent", "from", "to", "reason"} ([] when none).
+    models_used: list[str] = Field(default_factory=list)
+    model_fallback: list[dict] = Field(default_factory=list)
     steps: list[Step] = Field(default_factory=list)
     tools_used: dict[str, int] = Field(default_factory=dict)
     files_created: list[str] = Field(default_factory=list)
@@ -113,6 +118,8 @@ def extract_trace(parsed, *, cc_session_id, ts, files_created, files_modified,
         transcript_line_count=parsed.line_count, turn_count=parsed.turn_count,
         num_turns=meta.get("num_turns"), duration_ms=meta.get("duration_ms"),
         cost_usd=meta.get("cost_usd"),
+        models_used=list(meta.get("models_used") or []),
+        model_fallback=[dict(item) for item in meta.get("model_fallback") or []],
         steps=steps, tools_used=tools,
         files_created=list(files_created), files_modified=list(files_modified),
     )

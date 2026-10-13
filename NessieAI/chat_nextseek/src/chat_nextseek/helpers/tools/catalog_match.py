@@ -293,6 +293,8 @@ def _hybrid_shortlist(
             continue
         result.append(item); seen.add(key)
     for item in fused_kept:
+        if item.get(id_field, "") not in catalog_by_id:  # only in the index's richer catalog: this box does not list it
+            continue
         item = _to_min(item)
         key = item.get(id_field, "")
         if key in seen:

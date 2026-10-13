@@ -7,16 +7,21 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 QUERY=""
 PARTS=""
+PLAN=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --query) QUERY="$2"; shift 2 ;;
     --query=*) QUERY="${1#--query=}"; shift ;;
     --parts) PARTS="$2"; shift 2 ;;
     --parts=*) PARTS="${1#--parts=}"; shift ;;
+    --plan) PLAN="$2"; shift 2 ;;
+    --plan=*) PLAN="${1#--plan=}"; shift ;;
     --help)
-      echo "Usage: nextseek-aggregate --query \"<whole question>\" [--parts '[\"<part 1>\", \"<part 2>\"]']"
+      echo "Usage: nextseek-aggregate --query \"<whole question>\" [--parts '[\"<part 1>\", \"<part 2>\"]'] [--plan '<json>']"
       echo "  --query  the whole question, in plain words"
-      echo "  --parts  a JSON array of 1 to 4 sub-questions, one per independent number or breakdown"
+      echo "  --parts  a JSON array of 1 to 4 sub-questions, one per independent number or breakdown,"
+      echo "           a part may be {\"question\": \"...\", \"filters\": {...}} to carry its own filters"
+      echo "  --plan   {\"intent_summary\": \"...\", \"filters\": {\"sampletype_code\", \"assay_codes\", \"keywords\", \"uids\", \"lab_codes\"}, \"notes\": \"...\"}, what all parts share"
       exit 0
       ;;
     *) nextseek_die 3 "unknown arg: $1" ;;
@@ -24,4 +29,4 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$QUERY" ] || nextseek_die 3 "missing --query"
 
-exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent aggregate --query "$QUERY" --parts "$PARTS"
+exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent aggregate --query "$QUERY" --parts "$PARTS" --plan "$PLAN"

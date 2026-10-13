@@ -24,7 +24,7 @@ Both engines write the same `QueryTask` rows and stream over one websocket, so t
 | Step | Owner |
 |---|---|
 | 1. The chat panel posts the turn; its bundle is served from `static/js/chat_assistant/` | `NessieAI/chat_frontend/` |
-| 2. `CCAssistantViewSet` checks auth, creates the task row and hands the turn to `start_task`, whose thread applies the overrides (`force_route`, `pipeline_agent`, sticky CC) | `nextseek_api/services/cc_assistant.py` (stays), `NessieAI/cc/turn.py`, `NessieAI/router/policy.py` |
+| 2. `CCAssistantViewSet` checks auth, creates the task row and hands the turn to `start_task`, whose thread applies the overrides (`force_route`, `pipeline_agent`, follow-ups and sticky CC) | `nextseek_api/services/cc_assistant.py` (stays), `NessieAI/cc/turn.py`, `NessieAI/router/policy.py` |
 | 3. The router picks the route, using BAML prompts and the model map | `NessieAI/router/`, `NessieAI/dmac_assistant/` |
 | 4a. NS turn: the chat_nextseek agents run in-process inside Django | `NessieAI/chat_nextseek/` |
 | 4b. CC turn: one agent container per turn; the model through the Bedrock proxy; ops through the sidecar, which calls the granular ops and their write gate | `NessieAI/cc/`, `NessieAI/docker/`, `NessieAI/ns/` |
@@ -54,13 +54,14 @@ Both engines write the same `QueryTask` rows and stream over one websocket, so t
 
 | To change | Edit | Tests |
 |---|---|---|
-| Routing precedence (`force_route`, `pipeline_agent`, sticky CC) | `_decide_route` in `NessieAI/router/policy.py` | `NessieAI/tests/router/` |
+| Routing precedence (`force_route`, `pipeline_agent`, follow-ups and sticky CC) | `_decide_route` in `NessieAI/router/policy.py` | `NessieAI/tests/router/` |
 | Router strategies, fallbacks, telemetry | `NessieAI/router/` | `NessieAI/tests/router/` |
 | Classifier labels | `NessieAI/dmac_assistant/baml_src/classifier.baml`; family names come from `NessieAI/tests/nessie_tests/corpus.json` | `NessieAI/tests/router/` |
 | Posterior routing (off by default) | `NessieAI/router/posterior_selector.py`, `NessieAI/hibayes/` | `NessieAI/tests/router/`, `NessieAI/tests/hibayes/` |
 | The router model id | `NessieAI/dmac_assistant/build_context/router_model_class_map.json` only | `NessieAI/tests/router/` |
 | A Container-CC op | follow `/add-cc-op` (`.claude/skills/add-cc-op/SKILL.md`) | `NessieAI/tests/cc/` |
 | An NS agent, prompt or catalog | `NessieAI/chat_nextseek/` | `NessieAI/tests/chat_nextseek/` |
+| An NS model call's time limits, or what a model failure does | `schemas/call_budgets.py` (the per-agent table), `FAILURE_CLASSES` and `_Failover` in `schemas/schema_helper.py`, `call_scope.py` (the turn's memory and an op's deadline), all under `NessieAI/chat_nextseek/src/chat_nextseek/`; `NessieAI/chat_nextseek/README.md` "5. When a model fails: time limits, the one move, and the turn's memory" | `NessieAI/tests/chat_nextseek/`, `NessieAI/tests/ns/` |
 | The write gate or a granular op | `NessieAI/ns/` | `NessieAI/tests/ns/` |
 | The chat UI | `NessieAI/chat_frontend/`, then commit the rebuilt bundle | in-package vitest |
 | A judge schema | two files together: `NessieAI/dmac_assistant/baml_src/functional_evaluator.baml` and `NessieAI/hibayes/judge_models.py` | `NessieAI/tests/hibayes/` |
@@ -102,8 +103,8 @@ image, the `eval_*` tables). Its map is `NessieAI/hibayes/README.md` "HiBayes li
 | `NessieAI/docker/cc-runtime/container/CLAUDE.md` | what the CC agent is told (ships in the image) |
 | `NessieAI/tests/README.md` | every AI test lane and its command |
 | `NessieAI/tests/nessie_tests/README.md`, `CLAUDE.md` | the router-aware harness |
-| `NessieAI/tests/nessie_tests/output-skill/SKILL.md`, `NessieAI/tests/nessie_tests/output-skill/README.md` | triaging a finished harness run |
-| `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md` | grading a paired `--bayesian` run |
+| `.claude/skills/nessie-run-review/SKILL.md`, `.claude/skills/nessie-run-review/README.md` | triaging a finished harness run |
+| `.claude/skills/nessie-bayes-report/SKILL.md` | grading a paired `--bayesian` run |
 | `NessieAI/docs/architecture.md` | how a Nessie turn works, in depth |
 | `NessieAI/docs/dev-v5-merge-decisions.md` | before touching `route_capabilities.json` or the classifier labels |
 | `NessieAI/docs/nessie-blocked-capabilities.md` | before adding corpus variants or criteria |

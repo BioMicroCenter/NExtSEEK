@@ -15,9 +15,10 @@ import _sidecar_client as sc  # noqa: E402
 
 
 class _Args:
-    def __init__(self, query, parts=None):
+    def __init__(self, query, parts=None, plan=None):
         self.query = query
         self.parts = parts
+        self.plan = plan
 
 
 class _Socket:
@@ -38,8 +39,9 @@ class _Socket:
 def socket(monkeypatch):
     sock = _Socket()
     monkeypatch.setattr(sc, "_connect", lambda url: sock)
-    monkeypatch.setenv("API_USER", "u")
-    monkeypatch.setenv("API_PASS", "p")
+    monkeypatch.setenv("NEXTSEEK_USERNAME", "u")
+    monkeypatch.setenv("NEXTSEEK_TURN_PASS", "pass-1")
+    monkeypatch.setenv("NEXTSEEK_CC_OPS_ROAD", "sidecar")
     monkeypatch.delenv("NEXTSEEK_DRY_RUN", raising=False)
     monkeypatch.delenv("NEXTSEEK_CC_TURN_DEADLINE_EPOCH", raising=False)
     return sock
@@ -53,12 +55,24 @@ def test_the_question_and_its_parts_go_to_the_sidecar(socket):
     assert socket.sent["op"] == "aggregate"
     assert socket.sent["args"] == {"query": "Roots and leaves", "parts": parts}
     assert out["question"] == "Roots and leaves"
+    assert socket.sent["ns_turn"] == {"api_user": "u", "turn_pass": "pass-1"}
+    assert "ns_login" not in socket.sent
 
 
 def test_no_parts_sends_no_parts_key(socket):
     runner._dispatch_aggregate(_Args("How many TIS samples?", ""))
 
     assert socket.sent["args"] == {"query": "How many TIS samples?"}
+
+
+def test_the_plan_is_forwarded_as_text_and_only_when_given(socket):
+    plan = json.dumps({"intent_summary": "TIS", "filters": {"sampletype_code": "TIS"}})
+
+    runner._dispatch_aggregate(_Args("How many TIS samples?", "", plan))
+    assert socket.sent["args"] == {"query": "How many TIS samples?", "plan": plan}
+
+    runner._dispatch_aggregate(_Args("How many TIS samples?", "", ""))
+    assert "plan" not in socket.sent["args"]
 
 
 def test_a_missing_query_is_a_validation_error(socket):

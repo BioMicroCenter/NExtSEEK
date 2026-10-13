@@ -1,0 +1,235 @@
+"""The UserPromptSubmit hook names the newest staged turn on every turn (CC-RERUN-FINDINGS fix 3).
+
+A resumed agent did not re-read /data/previous_turns/MANIFEST.md: r1-581 and r4-608 answered
+about the wrong turn, and r6-1229 redid its own previous turn although that turn's full.json
+was staged in turn-02/. The only "newest is turn N" pointer was in the memory file, which a
+resumed conversation does not look at again. The hook runs before every turn, resumed or not,
+so it now opens the injected context with the newest staged turn: which turn, what it asked,
+what it returned, whether it carries sample UIDs, its files, and to read MANIFEST.md first.
+It also injects the turn's vocabulary, read from the turn's own file (Django wrote it before the container
+started); it runs no bin and makes no call, and it never blocks a turn.
+
+Runs the real script with the host's sh and jq (the image installs jq; skipped where absent).
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+HOOK = Path(__file__).resolve().parents[2] / "hooks" / "entity_preamble.sh"
+
+pytestmark = pytest.mark.skipif(shutil.which("jq") is None, reason="the hook needs jq")
+
+NS_TURN = {
+    "turn_id": 3, "folder": "turn-03", "user_query": "Find LUAD samples", "route": "nextseek_query",
+    "mode": "graph_query", "count": 585, "total": 585, "truncated": False, "sample_uids": 585,
+    "files": [{"file": "search_details.json", "holds": "..."}, {"file": "rows.json", "holds": "..."},
+              {"file": "rows.csv", "holds": "..."}, {"file": "samples.csv", "holds": "..."}],
+    "skipped": [],
+}
+CC_TURN = {
+    "turn_id": 2, "folder": "turn-02", "user_query": "Which of those are current smokers?",
+    "route": "container_cc", "mode": "cc",
+    "files": [{"file": "answer.md", "holds": "..."}, {"file": "full.json", "holds": "..."}],
+    "skipped": [],
+}
+COUNT_TURN = {
+    "turn_id": 5, "folder": "turn-05", "user_query": "How many MSI-high samples?",
+    "route": "nextseek_query", "mode": "graph_query", "count": 1, "total": 1, "truncated": False,
+    "sample_uids": 0, "has_cypher": True, "files": [{"file": "search_details.json", "holds": "..."}],
+    "skipped": [],
+}
+REST_TURN = {
+    "turn_id": 6, "folder": "turn-06", "user_query": "List the projects", "route": "nextseek_query",
+    "mode": "new_search", "count": 12, "sample_uids": 0, "has_cypher": False,
+    "files": [{"file": "rows.csv", "holds": "..."}], "skipped": [],
+}
+
+
+def _manifest(tmp_path: Path, *turns: dict) -> Path:
+    staged = tmp_path / "previous_turns"
+    staged.mkdir()
+    (staged / "manifest.json").write_text(json.dumps({
+        "schema_version": "prior_turns/v1", "container_path": "/data/previous_turns",
+        "turns": list(turns)}))
+    return staged
+
+
+NOTE_PREFIX = ("NExtSEEK vocabulary auto-resolved for this query (NExtSEEK resolved it before your turn started; "
+               "do not run nextseek-entity-extract again for it). Use these canonical terms, not the raw phrasing or "
+               "abbreviations, when building op calls (investigation/project names, sampletype codes, assays, "
+               "keywords). If a term you need is not here, consult context/MANIFEST.md:")
+#: Post mode adds the note after the turn started, so it says when NExtSEEK resolved it truthfully.
+POST_NOTE_PREFIX = NOTE_PREFIX.replace("before your turn started", "while your turn was starting")
+
+
+def _vocab_file(tmp_path: Path, payload: str) -> Path:
+    """The turn's vocabulary as Django writes it (NessieAI/cc/cc_engine._write_turn_vocabulary)."""
+    path = tmp_path / "turn" / "vocabulary.json"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(payload + "\n")
+    return path
+
+
+def _spy_bin(tmp_path: Path) -> tuple[Path, Path]:
+    """A bin that leaves a marker if anything runs it: the hook must run none."""
+    marker = tmp_path / "bin-ran"
+    stub = tmp_path / "nextseek-entity-extract"
+    stub.write_text(f"#!/bin/sh\ntouch '{marker}'\nprintf '{{}}'\n")
+    stub.chmod(0o755)
+    return stub, marker
+
+
+def _run(tmp_path: Path, *, staged: Path | None = None, vocab: Path | None = None,
+         prompt: str = "Break those down by sex", mode: str = "") -> subprocess.CompletedProcess:
+    env = dict(os.environ)
+    env["NEXTSEEK_VOCAB_MARKER"] = str(tmp_path / "marker")
+    env["NEXTSEEK_PREVIOUS_TURNS_DIR"] = str(staged or tmp_path / "absent")
+    env["NEXTSEEK_TURN_VOCABULARY_FILE"] = str(vocab or tmp_path / "no-such-file.json")
+    stub, _ = _spy_bin(tmp_path)
+    env["NEXTSEEK_ENTITY_EXTRACT_BIN"] = str(stub)
+    env["PATH"] = f"{tmp_path}:{env.get('PATH', '')}"
+    return subprocess.run(["sh", str(HOOK), *([mode] if mode else [])], input=json.dumps({"prompt": prompt}), env=env,
+                          capture_output=True, text=True, timeout=30)
+
+
+def _context(proc: subprocess.CompletedProcess) -> str:
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+    return out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_the_newest_ns_turn_is_named_with_its_files_and_uids(tmp_path):
+    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, NS_TURN, CC_TURN)))
+    first = ctx.splitlines()[0]
+    assert "turn 3" in first and "nextseek_query" in first
+    assert '"Find LUAD samples"' in ctx
+    assert "585 rows" in ctx and "Sample UIDs: 585" in ctx
+    assert "/data/previous_turns/turn-03/" in ctx
+    assert "rows.csv" in ctx and "samples.csv" in ctx
+    assert "Read /data/previous_turns/MANIFEST.md first" in ctx
+    assert "turn 2" not in first                            # only the newest is named
+
+
+def test_the_newest_cc_turn_is_the_agents_own_with_its_files(tmp_path):
+    """The r6-1229 shape: its own previous turn wrote full.json, staged in turn-02/."""
+    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, CC_TURN, NS_TURN)))
+    assert "turn 2" in ctx.splitlines()[0] and "container_cc" in ctx
+    assert "your own earlier turn" in ctx
+    assert "/data/previous_turns/turn-02/" in ctx and "full.json" in ctx and "answer.md" in ctx
+
+
+def test_a_count_only_turn_says_it_has_no_uids_and_to_keep_its_filter(tmp_path):
+    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, COUNT_TURN)))
+    assert "no sample UIDs" in ctx
+    assert "change only its RETURN" in ctx and "keep every MATCH and WHERE" in ctx
+
+
+@pytest.mark.parametrize("manifest", ["", "{not json", '{"turns": []}', '{"turns": "x"}'])
+def test_nothing_to_say_emits_nothing_and_never_blocks(tmp_path, manifest):
+    staged = tmp_path / "previous_turns"
+    staged.mkdir()
+    (staged / "manifest.json").write_text(manifest)
+    proc = _run(tmp_path, staged=staged)
+    assert proc.returncode == 0 and proc.stdout == ""
+
+
+def test_a_turn_that_could_not_be_staged_lists_no_empty_file_list(tmp_path):
+    odd = {"turn_id": 4, "folder": "turn-04", "user_query": "q", "route": "unknown", "mode": None,
+           "files": [], "skipped": [{"file": "*", "reason": "OSError"}]}
+    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, odd)))
+    assert "turn 4" in ctx and "Files in" not in ctx
+    assert "Read /data/previous_turns/MANIFEST.md first" in ctx
+
+
+def test_a_rest_list_gets_no_cypher_advice(tmp_path):
+    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, REST_TURN)))
+    assert "12 rows" in ctx and "RETURN" not in ctx and "no sample UIDs" not in ctx
+
+
+def test_a_cc_newest_turn_points_at_the_newest_search_and_not_at_rerunning_one(tmp_path):
+    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, CC_TURN, NS_TURN)))
+    assert "never re-run its search" not in ctx
+    assert "The newest NExtSEEK search is turn 3" in ctx and "/data/previous_turns/turn-03/" in ctx
+
+
+def test_both_notes_the_turn_first_then_the_vocabulary(tmp_path):
+    vocab = '{"sampletypes":["MUS"],"assays":[],"keywords":[],"projects":[]}'
+    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, NS_TURN), vocab=_vocab_file(tmp_path, vocab)))
+    assert ctx.index("turn 3") < ctx.index("NExtSEEK vocabulary auto-resolved")
+    assert ctx.rstrip().endswith(vocab)
+
+
+def test_the_vocabulary_alone_when_nothing_is_staged_with_the_same_note_text(tmp_path):
+    vocab = '{"sampletypes":["NHP"],"assays":[],"keywords":[],"projects":[]}'
+    ctx = _context(_run(tmp_path, vocab=_vocab_file(tmp_path, vocab)))
+    assert ctx == NOTE_PREFIX + "\n" + vocab
+
+
+def test_the_turn_note_survives_a_malformed_vocabulary_file(tmp_path):
+    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, NS_TURN), vocab=_vocab_file(tmp_path, "not json")))
+    assert "turn 3" in ctx and "vocabulary" not in ctx
+
+
+def test_no_vocabulary_file_no_vocabulary_note(tmp_path):
+    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, NS_TURN)))
+    assert "vocabulary" not in ctx
+
+
+def test_the_hook_runs_no_bin_and_makes_no_call(tmp_path):
+    vocab = '{"sampletypes":[],"assays":[],"keywords":["x"],"projects":[]}'
+    _run(tmp_path, vocab=_vocab_file(tmp_path, vocab))
+    assert not (tmp_path / "bin-ran").exists()
+
+
+def test_the_hook_reads_the_file_the_engine_mounts(tmp_path):
+    """Review focus 1 (hook half): the default path is the one the engine mounts (pinned in
+    NessieAI/tests/cc/test_vocabulary_path_pin.py), and a first turn's file (no manifest) is read."""
+    assert '${NEXTSEEK_TURN_VOCABULARY_FILE:-/data/turn/vocabulary.json}' in HOOK.read_text()
+    ctx = _context(_run(tmp_path, vocab=_vocab_file(tmp_path, '{"keywords":["mice"]}')))
+    assert ctx.endswith('{"keywords":["mice"]}')
+
+
+def _post_context(proc: subprocess.CompletedProcess) -> str:
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
+    return out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_post_mode_adds_the_late_vocabulary_once(tmp_path):
+    vocab = '{"keywords":["late"]}'
+    f = _vocab_file(tmp_path, vocab)
+    assert _post_context(_run(tmp_path, vocab=f, mode="post")) == POST_NOTE_PREFIX + "\n" + vocab
+    assert (tmp_path / "marker").exists()
+    second = _run(tmp_path, vocab=f, mode="post")
+    assert second.returncode == 0 and second.stdout == ""
+
+
+def test_post_mode_says_nothing_after_the_prompt_run_injected_it(tmp_path):
+    f = _vocab_file(tmp_path, '{"keywords":["early"]}')
+    _context(_run(tmp_path, vocab=f))
+    assert (tmp_path / "marker").exists()
+    after = _run(tmp_path, vocab=f, mode="post")
+    assert after.returncode == 0 and after.stdout == ""
+
+
+def test_post_mode_waits_for_the_file_and_never_fails(tmp_path):
+    for payload in (None, "not json"):
+        f = _vocab_file(tmp_path, payload) if payload else tmp_path / "absent.json"
+        proc = _run(tmp_path, vocab=f, mode="post")
+        assert proc.returncode == 0 and proc.stdout == "" and not (tmp_path / "marker").exists()
+    late = _vocab_file(tmp_path, '{"keywords":["now"]}')           # it arrives later: the next call carries it
+    assert "now" in _post_context(_run(tmp_path, vocab=late, mode="post"))
+
+
+def test_post_mode_does_not_repeat_the_staged_turn_note_or_run_a_bin(tmp_path):
+    f = _vocab_file(tmp_path, '{"keywords":["k"]}')
+    ctx = _post_context(_run(tmp_path, staged=_manifest(tmp_path, NS_TURN), vocab=f, mode="post"))
+    assert "turn 3" not in ctx and not (tmp_path / "bin-ran").exists()

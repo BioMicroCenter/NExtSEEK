@@ -75,7 +75,8 @@ class SchemaRAGLiveIntegrationTests(APITestCase):
 
     def setUp(self):
         """Set up test user and authentication for each test."""
-        self.user = User.objects.create_user(
+        # Ingesting a schema from a URL is superuser only (#64).
+        self.user = User.objects.create_superuser(
             username='testuser',
             password='testpass123',
             email='test@example.com'
@@ -286,7 +287,8 @@ class SchemaRAGLiveFullModeIntegrationTests(APITestCase):
 
     def setUp(self):
         """Set up test user and authentication."""
-        self.user = User.objects.create_user(
+        # Ingesting a schema from a URL is superuser only (#64).
+        self.user = User.objects.create_superuser(
             username='testuser2',
             password='testpass123',
             email='test2@example.com'

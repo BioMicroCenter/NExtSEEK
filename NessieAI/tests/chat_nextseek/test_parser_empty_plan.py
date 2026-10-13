@@ -30,7 +30,7 @@ NDMA = "What mice are treated with NDMA?"
 
 GOOD_PLAN = json.dumps({
     "mode": "new_search",
-    "target_endpoint": "/nextseek_api/samples/advanced_search/",
+    "target_endpoint": "/nextseek_api/samples/retrieve/",
     "intent_summary": "Find mouse samples treated with NDMA.",
     "filters": {"sampletype_code": "MUS", "assay_codes": [], "keywords": ["NDMA"], "uids": []},
     "notes": "",

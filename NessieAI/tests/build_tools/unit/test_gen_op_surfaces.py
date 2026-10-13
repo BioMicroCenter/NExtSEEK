@@ -62,7 +62,7 @@ REPO_ROOT = paths.REPO_ROOT
 EXPORT_MODULE = "NessieAI.cc.op_registry.export"
 GEN_MODULE = "NessieAI.build_tools.gen_op_surfaces"
 PYTHONPATH = f"{REPO_ROOT}:{paths.DMAC_ASSISTANT_DIR / 'src'}:{paths.CHAT_NEXTSEEK_DIR / 'src'}"
-DMAC_PYTHON = Path("/home/taishajo/work/dmac-assistant/.venv/bin/python3")
+DMAC_PYTHON = Path(os.environ.get("DMAC_PORT_SOURCE", "dmac-assistant"), ".venv/bin/python3")
 IMAGE_PYTHON = Path("/app/.venv/bin/python")
 
 
@@ -196,8 +196,8 @@ def test_plugin_tree_copy_of_a_canonical_context_file_is_refused(tmp_path: Path)
     plugin_context = repo / PLUGIN_CONTEXT_REL
     plugin_context.mkdir(parents=True)
     emit_capabilities_copy_block(repo)
-    (plugin_context / "min_assays_db.json").write_bytes(b"[]\n")
-    with pytest.raises(SystemExit, match="min_assays_db.json"):
+    (plugin_context / "min_sampletypes_db.json").write_bytes(b"[]\n")
+    with pytest.raises(SystemExit, match="min_sampletypes_db.json"):
         emit_capabilities_copy_block(repo)
 
 

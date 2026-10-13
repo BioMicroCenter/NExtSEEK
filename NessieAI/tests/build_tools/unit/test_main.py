@@ -56,7 +56,7 @@ def test_ingest_exits_0_when_hash_matches(
     rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="fake",
+        source="fake",
         force=False,
         loader=_stub_loader(md),
     )
@@ -75,7 +75,7 @@ def test_ingest_exits_2_on_fresh_run_writes_expected_files(tmp_path: Path) -> No
     rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="fake",
+        source="fake",
         force=False,
         loader=_stub_loader(md),
     )
@@ -103,7 +103,7 @@ def test_ingest_force_true_overrides_hash_match(tmp_path: Path) -> None:
     rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="fake",
+        source="fake",
         force=True,
         loader=_stub_loader(md),
     )
@@ -122,7 +122,7 @@ def test_ingest_loader_exception_exits_1_no_writes(tmp_path: Path) -> None:
     rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="fake",
+        source="fake",
         force=False,
         loader=boom,
     )
@@ -139,7 +139,7 @@ def test_ingest_loader_returns_no_h1_exits_1(tmp_path: Path) -> None:
     rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="fake",
+        source="fake",
         force=False,
         loader=_stub_loader("just plain text, no headings\n"),
     )
@@ -158,7 +158,7 @@ def test_ingest_cleans_stale_section_files(tmp_path: Path) -> None:
     rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="fake",
+        source="fake",
         force=True,
         loader=_stub_loader(md),
     )
@@ -183,7 +183,7 @@ def test_ingest_writes_hash_last(
     rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="fake",
+        source="fake",
         force=True,
         loader=_stub_loader(md),
     )
@@ -209,7 +209,7 @@ def test_ingest_emits_info_logs_and_status_line(
     rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="fake",
+        source="fake",
         force=True,
         loader=_stub_loader(md),
     )
@@ -239,7 +239,7 @@ def test_ingest_preserves_existing_readme_md_during_cleanup(tmp_path: Path) -> N
     rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="fake",
+        source="fake",
         force=True,
         loader=_stub_loader(md),
     )
@@ -276,8 +276,8 @@ def test_main_passes_parsed_args_to_ingest(tmp_path: Path) -> None:
         rc = orchestrator.main(
             [
                 "--force",
-                "--doc-url",
-                "https://example.test/export",
+                "--source",
+                "docs/dir",
                 "--docs-dir",
                 str(docs_dir),
                 "--claude-md-path",
@@ -289,7 +289,7 @@ def test_main_passes_parsed_args_to_ingest(tmp_path: Path) -> None:
     mocked_ingest.assert_called_once_with(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="https://example.test/export",
+        source="docs/dir",
         force=True,
     )
 
@@ -311,7 +311,7 @@ def test_extract_overview_falls_back_when_first_section_is_empty_body(
     rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="fake",
+        source="fake",
         force=True,
         loader=_stub_loader(md),
     )
@@ -347,7 +347,7 @@ def test_ingest_retries_until_snapshot_stabilizes(tmp_path: Path) -> None:
     rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="fake",
+        source="fake",
         force=False,
         loader=loader,
     )
@@ -374,7 +374,7 @@ def test_ingest_fails_closed_when_snapshot_never_stabilizes(tmp_path: Path) -> N
     rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="fake",
+        source="fake",
         force=False,
         loader=loader,
     )

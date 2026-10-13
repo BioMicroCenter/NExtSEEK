@@ -489,6 +489,38 @@ def test_an_outaged_probe_is_inconclusive_and_says_so():
     assert "NEXTSEEK_EVAL_PARSER_FORCE" not in msg
 
 
+def test_a_probe_that_ended_only_in_a_model_unavailable_query_error_is_an_outage():
+    """No `query_complete`, so no reply to read: the `query_error` says the models were down."""
+    post_query, _ = _parser_fakes()
+
+    def get_progress(task_id):
+        return {"status": "error", "progress": [
+            {"event": "route_decided", "data": {"route": "nextseek_query", "source": "forced"}},
+            {"event": "query_error", "data": {
+                "error": "The AI models we use were unavailable, so I could not finish your question.",
+                "reason": "model_unavailable", "detail": "HTTP 503", "agent": "pipeline"}}]}
+
+    with pytest.raises(preflight.ParserForceRejected) as e:
+        _assert_parser_force(post_query, get_progress, arms=("graph",))
+    msg = str(e.value)
+    assert "INCONCLUSIVE" in msg and "outage" in msg
+    assert "status='error'" not in msg, "an outage was reported as a failing endpoint"
+
+
+def test_a_probe_that_ended_in_another_query_error_is_still_a_failed_turn():
+    post_query, _ = _parser_fakes()
+
+    def get_progress(task_id):
+        return {"status": "error", "progress": [
+            {"event": "route_decided", "data": {"route": "nextseek_query", "source": "forced"}},
+            {"event": "query_error", "data": {"error": "Internal pipeline error", "agent": "unknown"}}]}
+
+    with pytest.raises(preflight.ParserForceRejected) as e:
+        _assert_parser_force(post_query, get_progress, arms=("graph",))
+    msg = str(e.value)
+    assert "status='error'" in msg and "outage" not in msg
+
+
 def test_a_parser_that_chose_a_non_retrieval_mode_is_not_blamed_on_the_flag():
     """The switch leaves ask_about_last_results, system_question, reporter and
     unsupported alone and writes no note for them. A probe read that way proves

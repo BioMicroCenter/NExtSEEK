@@ -28,7 +28,7 @@
   route nobody read starts claiming an effect nobody checked.
 - `effect="n/a"` means the route is not this application's surface, and
   `ci/smoke/test_registry_contents.py` pins it to exactly the `resolver=False`
-  entries: the nginx-served asset and the Django admin's own login. Classify a
+  entries: the nginx-served asset, the Django admin's own login and the retired-page 404 probe. Classify a
   route of ours `n/a` and the writer registry stops asking it anything.
 - `ci/blocking_lanes.py` may import the standard library and nothing else. The
   "Blocking unit tests (ci/blocking_lanes.py)" step of

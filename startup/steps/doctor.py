@@ -108,6 +108,6 @@ def diagnose(repo_root: Path, *, scope: str = "full") -> list[tuple[str, bool, s
         else validate.run_all_health_checks
     )
     for hr in health(state.ports, repo_root, env):
-        results.append((hr.name, hr.ok, hr.detail))
+        results.append((hr.name, hr.ok, f"warning: {hr.detail}" if getattr(hr, "warn", False) else hr.detail))
 
     return results

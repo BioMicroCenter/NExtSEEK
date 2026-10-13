@@ -43,6 +43,7 @@ class GranularEndpointBase(TestCase):
         self.user = User.objects.create_user("u1", password="p")
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
+        self.client.credentials(HTTP_AUTHORIZATION="Basic dTE6cA==")  # u1:p: an op runs only as the caller's own login (#64)
         patcher = patch(
             "nextseek_api.services.assistant.UserInParticipatingProject.has_permission",
             return_value=True,
@@ -442,7 +443,7 @@ class AggregateEndpointTests(GranularEndpointBase):
         self.assertEqual(result["parts"][0]["sum_of_group_counts"], 4)
         self.assertTrue(result["parts"][0]["groups_may_overlap"])
         self.assertEqual(result["parts"][0]["null_group"], 1)
-        self.assertEqual(len(captured["sessions"]), 2)
+        self.assertEqual(len(captured["sessions"]), 1, "one fallback parse for the whole question")
         self.assertTrue(all(s is not None for s in captured["sessions"]))
 
     def test_aggregate_without_parts_answers_the_question(self):

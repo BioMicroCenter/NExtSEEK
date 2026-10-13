@@ -19,6 +19,7 @@ from typer.testing import CliRunner
 
 from startup import cli
 from startup.ci import runner as ci_runner
+from startup.lib.env import read_env
 from startup.lib.instance import InstanceState, load_instance, save_instance
 from startup.steps.config import InvalidSeekPublicUrl
 from startup.steps.prereqs import PrereqResult
@@ -52,7 +53,12 @@ def steps(repo: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 
     config = MagicMock()
     config.InvalidSeekPublicUrl = InvalidSeekPublicUrl
-    config.default_values.return_value = SimpleNamespace(neo4j_password="pw")
+    config.kept_values.return_value = {}
+    config.default_values.return_value = SimpleNamespace(
+        neo4j_password="pw", mysql_root_password="rootpw"
+    )
+    config.preview_changed_keys.return_value = {"rerendered": [], "kept_differs_from_template": []}
+    config.render_local_settings.return_value = repo / "dmac" / "local_settings.py"
     config.resolve_seek_public_url.return_value = "http://localhost:3000"
     config.render_proxy_secret_env.return_value = proxy_env
 
@@ -585,7 +591,7 @@ def test_ci_builds_the_expected_argv_and_env(
     call = _suite_call(calls)
     assert call.cmd == [
         "uv", "run", "--no-project",
-        "--with", "pytest", "--with", "requests", "--with", "playwright",
+        "--with", "pytest", "--with", "requests", "--with", ci_runner.PLAYWRIGHT,
         "pytest", "ci/smoke/",
         "--base-url", "http://127.0.0.1:8000",
         f"--junitxml={repo / 'startup' / '.ci-last-run.xml'}",
@@ -605,8 +611,8 @@ def test_ci_base_url_follows_the_instance_port(
     calls = _record_ci_subprocess(monkeypatch)
 
     assert runner.invoke(cli.app, ["ci"]).exit_code == 0
-    assert "--base-url" in calls[0].cmd
-    assert calls[0].cmd[calls[0].cmd.index("--base-url") + 1] == "http://127.0.0.1:8100"
+    assert "--base-url" in _suite_call(calls).cmd
+    assert _suite_call(calls).cmd[_suite_call(calls).cmd.index("--base-url") + 1] == "http://127.0.0.1:8100"
 
 
 def test_ci_absent_box_profile_means_prod(
@@ -617,7 +623,7 @@ def test_ci_absent_box_profile_means_prod(
     calls = _record_ci_subprocess(monkeypatch)
 
     assert runner.invoke(cli.app, ["ci"]).exit_code == 0
-    assert calls[0].env["CI_BOX_PROFILE"] == "prod"
+    assert _suite_call(calls).env["CI_BOX_PROFILE"] == "prod"
 
 
 def test_ci_passes_wait_ready_and_profile_through(
@@ -629,10 +635,10 @@ def test_ci_passes_wait_ready_and_profile_through(
     result = runner.invoke(cli.app, ["ci", "--wait-ready", "--profile", "prod"])
 
     assert result.exit_code == 0, result.output
-    assert "--wait-ready" in calls[0].cmd
+    assert "--wait-ready" in _suite_call(calls).cmd
     # Narrowed to prod, the run gets prod's rule: no Nessie lane.
-    assert calls[0].cmd[-3:] == ["--profile", "prod", "--no-nessie"]
-    assert calls[0].env["CI_BOX_PROFILE"] == "dev"
+    assert _suite_call(calls).cmd[-3:] == ["--profile", "prod", "--no-nessie"]
+    assert _suite_call(calls).env["CI_BOX_PROFILE"] == "dev"
 
 
 def test_ci_inherits_the_ambient_environment(
@@ -644,7 +650,7 @@ def test_ci_inherits_the_ambient_environment(
     calls = _record_ci_subprocess(monkeypatch)
 
     assert runner.invoke(cli.app, ["ci"]).exit_code == 0
-    assert calls[0].env["NEXTSEEK_CI_ENV"] == "/somewhere/ci.env"
+    assert _suite_call(calls).env["NEXTSEEK_CI_ENV"] == "/somewhere/ci.env"
 
 
 def test_ci_force_profile_declined_runs_nothing(
@@ -670,10 +676,10 @@ def test_ci_force_profile_accepted_confirms_for_that_call_only(
 
     assert result.exit_code == 0, result.output
     # A box declaring prod never runs the Nessie lane, however far it is widened.
-    assert calls[0].cmd[-3:] == ["--force-profile", "local", "--no-nessie"]
-    assert calls[0].env["CI_FORCE_PROFILE_CONFIRM"] == "yes"
+    assert _suite_call(calls).cmd[-3:] == ["--force-profile", "local", "--no-nessie"]
+    assert _suite_call(calls).env["CI_FORCE_PROFILE_CONFIRM"] == "yes"
     # The box's own declaration is untouched by a forced run.
-    assert calls[0].env["CI_BOX_PROFILE"] == "prod"
+    assert _suite_call(calls).env["CI_BOX_PROFILE"] == "prod"
     assert load_instance(repo).ci_profile == "prod"
     assert "CI_FORCE_PROFILE_CONFIRM" not in os.environ
 
@@ -1981,3 +1987,198 @@ def test_install_stops_when_the_preflight_refuses(repo: Path, steps) -> None:
     result = runner.invoke(cli.app, ["install", "--yes"])
     assert result.exit_code == 1
     steps.build.build_and_start_nextseek.assert_not_called()
+
+
+def test_reinstall_keeps_hand_set_django_host_keys(repo: Path, steps, monkeypatch) -> None:
+    """#103: install renders the real templates and keeps the box's host keys.
+
+    The real config module runs (only the step modules around it stay mocked),
+    so this pins the step-4 wiring: the values are read back before the write.
+    """
+    import shutil
+
+    from startup.steps import config as real_config
+
+    shutil.copytree(Path(__file__).resolve().parents[1] / "templates", repo / "startup" / "templates")
+    monkeypatch.setattr(cli, "config", real_config)
+    monkeypatch.setattr(real_config, "render_proxy_secret_env",
+                        lambda _root: repo / "docker" / "proxy-secret.env")
+    hosts = "nextseek.example.org 127.0.0.1 localhost"
+    origins = "https://nextseek.example.org http://127.0.0.1:8000 http://localhost:8000"
+    (repo / "docker" / "nextseek.env").write_text(
+        f'DJANGO_ALLOWED_HOSTS="{hosts}"\nDJANGO_CSRF_TRUSTED_ORIGINS="{origins}"\n'
+    )
+
+    result = runner.invoke(cli.app, ["install", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    rendered = (repo / "docker" / "nextseek.env").read_text()
+    assert f'DJANGO_ALLOWED_HOSTS="{hosts}"' in rendered
+    assert f'DJANGO_CSRF_TRUSTED_ORIGINS="{origins}"' in rendered
+
+
+# --- #103 Task 4: install keeps every value on disk, and its own database
+# steps use the passwords it kept. The real config module runs on real
+# templates; the step modules around it stay mocked.
+
+
+def _real_config(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import shutil
+
+    from startup.steps import config as real_config
+
+    shutil.copytree(Path(__file__).resolve().parents[1] / "templates", repo / "startup" / "templates")
+    monkeypatch.setattr(cli, "config", real_config)
+    monkeypatch.setattr(real_config, "render_proxy_secret_env",
+                        lambda _root: repo / "docker" / "proxy-secret.env")
+
+
+def _rotated_box(repo: Path) -> None:
+    (repo / "docker" / "db.env").write_text(
+        "MYSQL_ROOT_PASSWORD='root-rotated'\nMYSQL_PASSWORD='app-rotated'\n"
+    )
+    (repo / "docker" / "nextseek.env").write_text(
+        "NEXTSEEK_NEO4J_PASSWORD='neo-rotated'\nGCP_API_KEY=\"test-key-not-real\"\n"
+        "DJANGO_SECRET_KEY=\"old-key\"\n"
+        'DJANGO_ALLOWED_HOSTS="nextseek.example.org localhost"\n'
+        'DJANGO_CSRF_TRUSTED_ORIGINS="https://nextseek.example.org http://127.0.0.1:8000 '
+        'http://localhost:8000"\n'
+    )
+
+
+def test_install_db_steps_use_the_kept_passwords(repo: Path, steps, monkeypatch) -> None:
+    _real_config(repo, monkeypatch)
+    _rotated_box(repo)
+
+    result = runner.invoke(cli.app, ["install", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    db_calls = [
+        steps.build.start_databases, steps.seed.mysql_db_is_populated,
+        steps.schema_fixups.apply_all, steps.seek_settings.apply_site_base_host,
+        steps.seed_cleanup.clear_stale_chat_sessions, steps.users.verify_users_present,
+        steps.validate.run_all_health_checks,
+    ]
+    for step in db_calls:
+        envs = [a for a in step.call_args.args if isinstance(a, dict) and "COMPOSE_PROJECT_NAME" in a]
+        assert [e.get("MYSQL_ROOT_PASSWORD") for e in envs] == ["root-rotated"], step
+    assert steps.build.start_databases.call_args.kwargs["neo4j_password"] == "neo-rotated"
+    assert steps.seed.neo4j_is_populated.call_args.args[0] == "neo-rotated"
+    # The compose targeting file gets the Neo4j password it needs and never the MySQL root one.
+    root_env = read_env(repo / ".env")
+    assert root_env["NEO4J_PASSWORD"] == "neo-rotated"
+    assert "root-rotated" not in (repo / ".env").read_text()
+
+
+def test_install_names_the_kept_keys_and_never_prints_a_kept_password(
+    repo: Path, steps, monkeypatch
+) -> None:
+    _real_config(repo, monkeypatch)
+    _rotated_box(repo)
+    steps.seed.neo4j_is_populated.return_value = False  # the graph seed hint prints
+
+    result = runner.invoke(cli.app, ["install", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    for secret in ("root-rotated", "app-rotated", "neo-rotated", "test-key-not-real", "old-key"):
+        assert secret not in result.output
+    flat = " ".join(result.output.split())
+    for key in ("MYSQL_ROOT_PASSWORD", "NEXTSEEK_NEO4J_PASSWORD", "GCP_API_KEY", "DJANGO_ALLOWED_HOSTS"):
+        assert key in flat
+
+
+def test_install_stops_before_writing_on_a_dollar_outside_single_quotes(
+    repo: Path, steps, monkeypatch
+) -> None:
+    _real_config(repo, monkeypatch)
+    db_env = repo / "docker" / "db.env"
+    db_env.write_text('MYSQL_ROOT_PASSWORD="ab$cd"\n')
+
+    result = runner.invoke(cli.app, ["install", "--yes"])
+
+    assert result.exit_code == 2
+    assert "MYSQL_ROOT_PASSWORD" in " ".join(result.output.split())
+    assert "ab$cd" not in result.output
+    assert db_env.read_text() == 'MYSQL_ROOT_PASSWORD="ab$cd"\n'
+    assert not (repo / "docker" / "nextseek.env").exists()
+    assert load_instance(repo) is None
+    steps.build.start_databases.assert_not_called()
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_without_keep_config_carries_only_the_host_keys(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch
+) -> None:
+    _real_config(repo, monkeypatch)
+    _saved_state(repo)
+    _rotated_box(repo)
+
+    result = runner.invoke(cli.app, ["reset", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    nx = read_env(repo / "docker" / "nextseek.env")
+    assert nx["DJANGO_ALLOWED_HOSTS"] == "nextseek.example.org localhost"
+    assert nx["DJANGO_CSRF_TRUSTED_ORIGINS"] == (
+        "https://nextseek.example.org http://127.0.0.1:8000 http://localhost:8000"
+    )
+    # Everything else starts fresh, as reset promises.
+    assert nx["GCP_API_KEY"] == "SET_IN_LOCAL_ENV"
+    assert nx["DJANGO_SECRET_KEY"] != "old-key"
+    assert nx["NEXTSEEK_NEO4J_PASSWORD"] == "demopassword"
+    assert read_env(repo / "docker" / "db.env")["MYSQL_ROOT_PASSWORD"] == "seek_root"
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_keep_config_refuses_a_dollar_before_dropping_the_volumes(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch
+) -> None:
+    """The re-install would refuse the kept value, so reset must refuse it first,
+    while the stack and its volumes are still there."""
+    _real_config(repo, monkeypatch)
+    _saved_state(repo)
+    (repo / "docker" / "db.env").write_text('MYSQL_ROOT_PASSWORD="ab$cd"\n')
+
+    result = runner.invoke(cli.app, ["reset", "--yes", "--keep-config"])
+
+    assert result.exit_code == 2
+    assert "MYSQL_ROOT_PASSWORD" in " ".join(result.output.split())
+    assert "ab$cd" not in result.output
+    mock_down.assert_not_called()
+    assert load_instance(repo) is not None
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_plain_reset_still_runs_with_a_dollar_in_a_config_file(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch
+) -> None:
+    """The $ refusal is for --keep-config only: a plain reset deletes the file that
+    holds the $, so it is the way out for a box whose config install refuses."""
+    _real_config(repo, monkeypatch)
+    _saved_state(repo)
+    (repo / "docker" / "db.env").write_text('MYSQL_ROOT_PASSWORD="ab$cd"\n')
+
+    result = runner.invoke(cli.app, ["reset", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    mock_down.assert_called_once()
+    assert read_env(repo / "docker" / "db.env")["MYSQL_ROOT_PASSWORD"] == "seek_root"
+    steps.build.start_databases.assert_called_once()
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_keep_config_keeps_every_value(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch
+) -> None:
+    _real_config(repo, monkeypatch)
+    _saved_state(repo)
+    _rotated_box(repo)
+
+    result = runner.invoke(cli.app, ["reset", "--yes", "--keep-config"])
+
+    assert result.exit_code == 0, result.output
+    nx = read_env(repo / "docker" / "nextseek.env")
+    assert (nx["GCP_API_KEY"], nx["DJANGO_SECRET_KEY"], nx["NEXTSEEK_NEO4J_PASSWORD"]) == (
+        "test-key-not-real", "old-key", "neo-rotated"
+    )
+    assert read_env(repo / "docker" / "db.env")["MYSQL_ROOT_PASSWORD"] == "root-rotated"
+    assert steps.build.start_databases.call_args.args[1]["MYSQL_ROOT_PASSWORD"] == "root-rotated"

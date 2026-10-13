@@ -13,8 +13,16 @@ sample ids. ``(kind, key)`` is unique, so repeated hook writes coalesce and a sc
 - ``finish_done`` marks the row done only if ``enqueued_at`` is unchanged since the claim. A row re-enqueued meanwhile
   carries a write the worker may not have read, so it goes back to pending instead.
 - ``finish_failed`` releases the claim with a back-off (``backoff_s``: 6 h for a full sync, 1 h otherwise).
+- ``failing_since`` is the first failure since the row last succeeded: ``finish_failed`` sets it once, a later
+  failure, a re-enqueue and a deferral keep it, and ``finish_done`` and ``mark_done_before`` clear it. It is what the
+  status endpoint ages a failing row by, since ``enqueued_at`` moves on every re-enqueue and ``attempts`` resets.
+- ``requeue_dead`` is the operator's retry of dead rows once their cause is fixed: pending, claimable at once, no
+  failure time; ``manage.py graph_sync --requeue-dead``.
+- ``hand_on_failed`` writes keys as rows that failed as a claimed row just did (its attempts, ``failing_since`` and a
+  back-off): the drain closes a row of many samples and hands on only the samples its sync left a gap for.
 - ``mark_done_before`` closes every row enqueued before a successful full sync started: that sync read them all. A
-  row whose delay had not run out when the sync started is left open, since the sync may have read before its write.
+  row whose delay had not run out when the sync started is left open, since the sync may have read before its write;
+  a row waiting for the catalog (``TITLE_CONFLICT_DEFERRAL``) is closed, its back-off notwithstanding.
 
 ``lease_expires_at`` is the time before which no worker may claim the row: a live claim's lease while ``claimed_by`` is
 set, a failure's back-off after ``finish_failed`` clears it. An expired lease is claimable again, so a worker that dies
@@ -24,6 +32,8 @@ holding a row delays it by one lease and loses nothing.
 Both are best-effort: a missing table (production has no migration 0021) or any other database error logs a warning,
 and the run goes on unrecorded. ``reap_abandoned`` ends the runs whose process died. The readers (``last_runs``,
 ``freshness``, ``outbox_summary``) raise instead, so the status endpoint can answer 503.
+``failing_rows`` and ``failed_runs`` are what the status endpoint reports as failing, and raise like the other
+readers.
 
 **The graph-write lock.** Every graph_sync write unit holds ``GET_LOCK('nextseek_graph_write', timeout)`` on the dmac
 connection's MySQL session. MySQL releases it at ``RELEASE_LOCK`` or when the session ends, and counts nested
@@ -45,7 +55,8 @@ from typing import Any, Iterable, Iterator, Mapping
 
 from django.conf import settings
 from django.db import DatabaseError, IntegrityError, connections, transaction
-from django.db.models import Count, F, Max, Q
+from django.db.models import Count, DateTimeField, F, Max, Q, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
@@ -57,12 +68,13 @@ LOCK_NAME = "nextseek_graph_write"
 # The outbox kinds and the key shapes each takes (the spec, section 12). A key the drain could not parse would sit in
 # the outbox as a dead row, so enqueue refuses it instead.
 _ONE_SAMPLE = re.compile(r"sample:\d+")
+_HUB = re.compile(r"assay_edges:\d+")      # a hub partner's own INPUT_TO and OUTPUT_OF (targeted.sync_assay_edges)
 _BATCH = re.compile(r"batch:\S+")          # batch:<job>:<n>, batch:backfill:<n>; the ids are the payload
 _TYPE = re.compile(r"type:\d+")
 _ALL = re.compile(r"\*")
 _SLOT = re.compile(r"slot:\S+")            # slot:<date> or slot:<ISO week>
 KEY_RULES: Mapping[str, tuple[re.Pattern, ...]] = MappingProxyType({
-    "samples": (_ONE_SAMPLE, _BATCH),
+    "samples": (_ONE_SAMPLE, _BATCH, _HUB),
     "samples_of_type": (_TYPE,),
     "retire": (_ONE_SAMPLE,),
     "catalog": (_ALL,),
@@ -81,6 +93,10 @@ WORKER_CHARS = 255        # graph_sync_outbox.claimed_by
 RUN_KIND_CHARS = 32       # graph_sync_run.kind
 
 MAX_ATTEMPTS = 8          # claims before a row is dead
+# The start of the last_error of a row the drain deferred because SampleType titles are held under other ids in the
+# graph, so a sample of it could not be written (``loop``, which explains it). Here because two outbox rules read it:
+# a successful full sync closes such a row, and a write held back since takes the mark away.
+TITLE_CONFLICT_DEFERRAL = "waiting for SampleType titles held under other ids to clear: "
 ERROR_CHARS = 4_000       # longest last_error kept
 CLAIM_CANDIDATES = 20     # rows read per claim; a claim lost to another worker tries the next
 _TICK = timedelta(microseconds=1)
@@ -97,8 +113,12 @@ DEFAULT_RUN_MAX_S = 2 * 3600
 
 RUN_STATUSES = ("ok", "failed", "refused", "abandoned", "drift")    # the outcomes ``finish`` records
 # The spec's freshness rules, in seconds: a full sync within 8 days, a reconcile (or a full sync) within 26 hours,
-# the oldest waiting outbox row within 1 hour.
-DEFAULT_THRESHOLDS: Mapping[str, int] = MappingProxyType({"full": 8 * 86400, "reconcile": 26 * 3600, "outbox": 3600})
+# the oldest waiting outbox row within 1 hour; and a drift check that compared the graph within 26 hours, since the
+# status reports the latest drift run's verdict whatever its age.
+DEFAULT_THRESHOLDS: Mapping[str, int] = MappingProxyType({"full": 8 * 86400, "reconcile": 26 * 3600, "outbox": 3600,
+                                                          "drift": 26 * 3600})
+# A drift run that found drift compared the graph as much as one that found none (schedule._SATISFIED_BY, loop).
+DRIFT_FRESH_STATUSES = ("ok", "drift")
 
 
 def lease_s(kind: str) -> int:
@@ -157,9 +177,10 @@ def _reopen(kind: str, key: str, payload: Any, now: datetime, not_before: dateti
 
     ``not_before`` pushes the row's back-off out to that time unless a longer one is already running, and is ignored
     for a row under a live claim: ``finish_done`` finds its claim by the lease, so moving it would take the row from
-    its worker."""
+    its worker. It also clears a ``TITLE_CONFLICT_DEFERRAL`` mark, so ``mark_done_before`` keeps the row open for its
+    held-back write."""
     found = (_outbox().select_for_update().filter(kind=kind, key=key)
-             .values("id", "enqueued_at", "claimed_by", "lease_expires_at").first())
+             .values("id", "enqueued_at", "claimed_by", "lease_expires_at", "last_error").first())
     if found is None:
         return False
     stamp = max(now, found["enqueued_at"] + _TICK)
@@ -168,6 +189,8 @@ def _reopen(kind: str, key: str, payload: Any, now: datetime, not_before: dateti
     live_claim = found["claimed_by"] is not None and lease is not None and lease > now
     if not_before is not None and not live_claim and (lease is None or lease < not_before):
         fields["lease_expires_at"] = not_before
+    if not_before is not None and (found["last_error"] or "").startswith(TITLE_CONFLICT_DEFERRAL):
+        fields["last_error"] = None
     _outbox().filter(pk=found["id"]).update(**fields)
     return True
 
@@ -227,16 +250,42 @@ class Claim:
     attempts: int
     worker_id: str
     lease_expires_at: datetime
+    last_error: str | None = None      # the row's last failure, as it stood when it was claimed
 
 
-def _candidates(now: datetime, kinds: Iterable[str] | None, limit: int) -> list[dict]:
-    """Claimable rows, oldest first: not done, below the attempt limit, and no lease or back-off still running."""
+def _candidates(now: datetime, kinds: Iterable[str] | None, limit: int, *, key_prefix: str | None = None,
+                below_attempts: int = MAX_ATTEMPTS, or_last_error_prefix: str | None = None) -> list[dict]:
+    """Claimable rows, oldest first: not done, below the attempt limit, and no lease or back-off still running; of
+    ``kinds`` and with keys starting ``key_prefix`` when given. ``below_attempts`` lowers the attempt bound for rows
+    whose ``last_error`` does not start with ``or_last_error_prefix``."""
     qs = (_outbox().filter(done_at__isnull=True, attempts__lt=MAX_ATTEMPTS)
           .filter(Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now)))
+    if below_attempts < MAX_ATTEMPTS:
+        fewer = Q(attempts__lt=below_attempts)
+        if or_last_error_prefix:
+            fewer |= Q(last_error__startswith=or_last_error_prefix)
+        qs = qs.filter(fewer)
     if kinds is not None:
         qs = qs.filter(kind__in=list(kinds))
+    if key_prefix is not None:
+        qs = qs.filter(key__startswith=key_prefix)
     return list(qs.order_by("enqueued_at", "id")
                 .values("id", "kind", "claimed_by", "lease_expires_at", "attempts")[:limit])
+
+
+def _take(worker_id: str, c: dict, now: datetime) -> Claim | None:
+    """The compare-and-set on one candidate row as it was read (its claim, lease and attempts): the Claim, or None
+    when another worker took the row in between."""
+    lease = now + timedelta(seconds=lease_s(c["kind"]))
+    won = _outbox().filter(
+        pk=c["id"], done_at__isnull=True, attempts=c["attempts"],
+        claimed_by=c["claimed_by"], lease_expires_at=c["lease_expires_at"],
+    ).update(claimed_by=worker_id, lease_expires_at=lease, attempts=F("attempts") + 1)
+    if won != 1:
+        return None
+    got = (_outbox().filter(pk=c["id"], claimed_by=worker_id, lease_expires_at=lease)
+           .values("id", "kind", "key", "payload", "enqueued_at", "attempts", "last_error").first())
+    return None if got is None else Claim(worker_id=worker_id, lease_expires_at=lease, **got)
 
 
 def claim_next(worker_id: str, *, now: datetime | None = None, kinds: Iterable[str] | None = None) -> Claim | None:
@@ -249,18 +298,32 @@ def claim_next(worker_id: str, *, now: datetime | None = None, kinds: Iterable[s
         raise ValueError(f"not a worker id: {worker_id!r}")
     now = now or timezone.now()
     for c in _candidates(now, kinds, CLAIM_CANDIDATES):
-        lease = now + timedelta(seconds=lease_s(c["kind"]))
-        won = _outbox().filter(
-            pk=c["id"], done_at__isnull=True, attempts=c["attempts"],
-            claimed_by=c["claimed_by"], lease_expires_at=c["lease_expires_at"],
-        ).update(claimed_by=worker_id, lease_expires_at=lease, attempts=F("attempts") + 1)
-        if won != 1:
-            continue
-        got = (_outbox().filter(pk=c["id"], claimed_by=worker_id, lease_expires_at=lease)
-               .values("id", "kind", "key", "payload", "enqueued_at", "attempts").first())
-        if got is not None:
-            return Claim(worker_id=worker_id, lease_expires_at=lease, **got)
+        claim = _take(worker_id, c, now)
+        if claim is not None:
+            return claim
     return None
+
+
+def claim_more(worker_id: str, kind: str, key_prefix: str, limit: int, *, now: datetime | None = None,
+               below_attempts: int = MAX_ATTEMPTS, or_last_error_prefix: str | None = None) -> list[Claim]:
+    """Claim up to ``limit`` more claimable rows of ``kind`` whose keys start with ``key_prefix``, oldest first, for
+    ``worker_id``, and only rows with fewer than ``below_attempts`` attempts or a ``last_error`` that starts with
+    ``or_last_error_prefix``. Each is the same compare-and-set as ``claim_next``, so a row another worker took in
+    between is skipped, and each counts its own attempt; a row this worker already holds is not claimable (its lease
+    runs). The drain uses it to run many single-sample rows as one by-id sync (``loop``), leaving out a row that
+    has failed repeatedly unless its last failure says merging it cannot fail the others."""
+    if not worker_id or len(worker_id) > WORKER_CHARS:
+        raise ValueError(f"not a worker id: {worker_id!r}")
+    if limit <= 0:
+        return []
+    now = now or timezone.now()
+    out = []
+    for c in _candidates(now, [kind], limit, key_prefix=key_prefix, below_attempts=below_attempts,
+                         or_last_error_prefix=or_last_error_prefix):
+        claim = _take(worker_id, c, now)
+        if claim is not None:
+            out.append(claim)
+    return out
 
 
 def _held(claim: Claim):
@@ -269,12 +332,13 @@ def _held(claim: Claim):
 
 def finish_done(claim: Claim, *, now: datetime | None = None) -> bool:
     """Mark the row done if this worker still holds it and nothing re-enqueued it since the claim. Otherwise release
-    the claim, so a re-enqueued row goes back to pending, and return False."""
+    the claim, so a re-enqueued row goes back to pending, and return False. Either way the work succeeded, so the row
+    is no longer failing: ``failing_since`` is cleared on both branches."""
     done = _held(claim).filter(enqueued_at=claim.enqueued_at, done_at__isnull=True).update(
-        done_at=now or timezone.now(), claimed_by=None, lease_expires_at=None, last_error=None)
+        done_at=now or timezone.now(), claimed_by=None, lease_expires_at=None, last_error=None, failing_since=None)
     if done == 1:
         return True
-    _held(claim).update(claimed_by=None, lease_expires_at=None)
+    _held(claim).update(claimed_by=None, lease_expires_at=None, failing_since=None)
     return False
 
 
@@ -284,12 +348,80 @@ def _error_text(error: BaseException | str) -> str:
 
 
 def finish_failed(claim: Claim, error: BaseException | str, backoff_s: float, *,
-                  now: datetime | None = None) -> bool:
+                  now: datetime | None = None, failure: bool = True) -> bool:
     """Release the claim with ``error`` recorded; no worker claims the row again for ``backoff_s`` seconds. The
     back-off applies even when the row was re-enqueued meanwhile: what failed will likely fail again. False when this
-    worker no longer holds the row."""
-    until = (now or timezone.now()) + timedelta(seconds=max(0.0, backoff_s))
-    return _held(claim).update(claimed_by=None, lease_expires_at=until, last_error=_error_text(error)) == 1
+    worker no longer holds the row.
+
+    The first failure since the row last succeeded sets ``failing_since``; a later one keeps it. ``failure`` False is
+    a deferral (``loop._defer``): not the row's fault, so ``failing_since`` is left as it is."""
+    moment = now or timezone.now()
+    fields = {"claimed_by": None, "lease_expires_at": moment + timedelta(seconds=max(0.0, backoff_s)),
+              "last_error": _error_text(error)}
+    if failure:
+        fields["failing_since"] = Coalesce("failing_since", Value(moment, output_field=DateTimeField()))
+    return _held(claim).update(**fields) == 1
+
+
+def _fold_failure(kind: str, key: str, text: str, attempts: int, since: datetime, lease: datetime,
+                  now: datetime) -> bool | None:
+    """Fold a handed-on failure into the existing row, under its row lock: True when written, False when the row is
+    left as it is (another worker's live claim, or a write enqueued after ``now``), None when there is no such row."""
+    found = (_outbox().select_for_update().filter(kind=kind, key=key)
+             .values("id", "enqueued_at", "claimed_by", "lease_expires_at", "attempts", "failing_since", "done_at")
+             .first())
+    if found is None:
+        return None
+    held = found["lease_expires_at"]
+    if found["claimed_by"] is not None and held is not None and held > now:
+        return False
+    still_open = found["done_at"] is None
+    if still_open and found["enqueued_at"] > now:
+        return False
+    earlier = found["failing_since"] if still_open else None
+    _outbox().filter(pk=found["id"]).update(
+        done_at=None, claimed_by=None, payload=None, last_error=text,
+        enqueued_at=max(now, found["enqueued_at"] + _TICK),
+        attempts=max(attempts, found["attempts"] if still_open else 0),
+        failing_since=min(since, earlier) if earlier is not None else since,
+        lease_expires_at=max(lease, held) if still_open and held is not None else lease)
+    return True
+
+
+def hand_on_failed(claim: Claim, kind: str, errors: Mapping[str, Any], backoff_s: float, *,
+                   now: datetime | None = None) -> int:
+    """Write each key of ``errors`` as a ``kind`` row that failed as the claimed row just did, and return how many
+    were written: pending, the claim's ``attempts``, the claimed row's ``failing_since`` (``now`` when it had none),
+    ``last_error`` the key's error, held back ``backoff_s`` seconds. The drain uses it when a sync of a row of many
+    samples left a structural gap for some of them (``loop``): it closes that row and hands each gapped sample on as
+    a ``sample:<id>`` row of its own, which keeps the clock its row was on, so the healthy samples are not synced
+    again and the health line names the sample.
+
+    A row already there keeps the larger ``attempts``, the earlier ``failing_since`` and the later back-off (a done
+    row is reopened with the claim's). Two are left exactly as they are: a row under another worker's live claim,
+    whose outcome decides it, and an open row enqueued after ``now`` (the claim's time), a write the failed sync may
+    not have read. The claimed row itself is not touched: the caller closes it."""
+    moment = now or timezone.now()
+    since = _held(claim).values_list("failing_since", flat=True).first() or moment
+    lease = moment + timedelta(seconds=max(0.0, backoff_s))
+    db = _db()
+    written = 0
+    for key, error in errors.items():
+        check_item(kind, key, None)
+        text = _error_text(error)
+        with transaction.atomic(using=db):
+            done = _fold_failure(kind, key, text, claim.attempts, since, lease, moment)
+            if done is None:
+                try:
+                    with transaction.atomic(using=db):
+                        _outbox().create(kind=kind, key=key, enqueued_at=moment, attempts=claim.attempts,
+                                         failing_since=since, last_error=text, lease_expires_at=lease)
+                    done = True
+                except IntegrityError:
+                    # Another writer inserted it since the read above.
+                    done = bool(_fold_failure(kind, key, text, claim.attempts, since, lease, moment))
+        written += bool(done)
+    return written
 
 
 def mark_done_before(ts: datetime, *, kinds: Iterable[str] | None = None, now: datetime | None = None) -> int:
@@ -300,13 +432,16 @@ def mark_done_before(ts: datetime, *, kinds: Iterable[str] | None = None, now: d
     Except a row still held back by its ``delay_s`` at ``ts``: its writer could not tell whether its write had landed,
     and the sync may have read MySQL before it did. A delay is stored as a back-off is, in ``lease_expires_at`` with
     no claim, and told apart by the attempts: none since the row was enqueued, where a failure's back-off follows a
-    claim that counted one."""
+    claim that counted one. A row the drain deferred for the catalog has that shape too (its deferral reset the
+    attempts) and is closed by its ``TITLE_CONFLICT_DEFERRAL`` mark: the full sync wrote the catalog, clearing the
+    held titles first or refusing, and every sample. A write held back since cleared the mark (``_reopen``)."""
     qs = _outbox().filter(done_at__isnull=True, enqueued_at__lt=ts)
     qs = qs.filter(Q(claimed_by__isnull=False) | Q(attempts__gt=0) | Q(lease_expires_at__isnull=True)
-                   | Q(lease_expires_at__lte=ts))
+                   | Q(lease_expires_at__lte=ts) | Q(last_error__startswith=TITLE_CONFLICT_DEFERRAL))
     if kinds is not None:
         qs = qs.filter(kind__in=list(kinds))
-    return qs.update(done_at=now or timezone.now(), claimed_by=None, lease_expires_at=None, last_error=None)
+    return qs.update(done_at=now or timezone.now(), claimed_by=None, lease_expires_at=None, last_error=None,
+                     failing_since=None)
 
 
 # --- run records ---------------------------------------------------------------------------------
@@ -397,8 +532,8 @@ def last_runs() -> dict[str, dict]:
 
 # --- freshness and the outbox summary ------------------------------------------------------------
 
-def _last_ok(kinds: tuple[str, ...]) -> dict | None:
-    return (_runs().filter(kind__in=kinds, status="ok").order_by("-started_at", "-id")
+def _last_ok(kinds: tuple[str, ...], statuses: tuple[str, ...] = ("ok",)) -> dict | None:
+    return (_runs().filter(kind__in=kinds, status__in=statuses).order_by("-started_at", "-id")
             .values("kind", "started_at", "finished_at").first())
 
 
@@ -413,9 +548,10 @@ def _run_freshness(run: dict | None, now: datetime, threshold: int) -> dict:
 
 
 def freshness(*, now: datetime | None = None, thresholds: Mapping[str, int] = DEFAULT_THRESHOLDS) -> dict[str, dict]:
-    """Each job's freshness: ``full`` and ``reconcile`` (``ok``, ``stale`` or ``never``) and ``outbox`` (``ok`` or
-    ``stale``). A run counts from its start, the moment it began reading MySQL, and only when it ended ``ok``. A full
-    sync counts for the reconcile: it does everything a reconcile does. ``thresholds`` overrides some of
+    """Each job's freshness: ``full``, ``reconcile`` and ``drift`` (``ok``, ``stale`` or ``never``) and ``outbox``
+    (``ok`` or ``stale``). A run counts from its start, the moment it began reading MySQL, and only when it ended
+    ``ok``, or for ``drift`` ``ok`` or ``drift`` (``DRIFT_FRESH_STATUSES``). A full sync counts for the reconcile: it
+    does everything a reconcile does; nothing stands in for a drift check. ``thresholds`` overrides some of
     ``DEFAULT_THRESHOLDS``."""
     now = now or timezone.now()
     limits = {**DEFAULT_THRESHOLDS, **thresholds}
@@ -424,6 +560,7 @@ def freshness(*, now: datetime | None = None, thresholds: Mapping[str, int] = DE
     return {
         "full": _run_freshness(_last_ok(("full",)), now, limits["full"]),
         "reconcile": _run_freshness(_last_ok(("reconcile", "full")), now, limits["reconcile"]),
+        "drift": _run_freshness(_last_ok(("drift",), DRIFT_FRESH_STATUSES), now, limits["drift"]),
         "outbox": {"status": "ok" if age is None or age <= limits["outbox"] else "stale",
                    "oldest_enqueued_at": None if oldest is None else oldest["enqueued_at"],
                    "age_s": age, "threshold_s": limits["outbox"]},
@@ -453,6 +590,156 @@ def outbox_summary(*, now: datetime | None = None) -> dict:
             "age_s": _age_s(now, oldest["enqueued_at"])},
         "max_attempts": MAX_ATTEMPTS,
     }
+
+
+# --- failing rows and failed runs (the CI health checks) ------------------------------------------
+
+FAILING_GRACE_S = 1800            # past a row's back-off, how long its retry may take before the row is overdue
+FAILING_ROWS_SHOWN = 20           # failing rows the status lists; its counts cover every one
+ERROR_EXCERPT_CHARS = 240         # the longest error excerpt the status publishes
+FAILED_RUN_STATUSES = ("failed", "abandoned")
+# The run kinds the loop reruns by itself (a row's back-off, or the next slot: the nightly reconcile runs a catalog
+# step). A hand --samples run or another tool's run kind has no retry, so it is never reported as a failed run.
+FAILED_RUN_KINDS = ("full", "reconcile", "catalog", "drift")
+
+# A full sync or reconcile its data refused (a SampleType title held under another id, a label collision, a sample
+# that cannot be projected) is a failed run too: the loop closes its row as done on exit 2, and every later run meets
+# the same data until someone fixes it. The two refusals that are not the data's fault are told apart by the reason
+# the run recorded, in the words run.py writes (state cannot import run or loop: both import state).
+DATA_REFUSAL_KINDS = ("full", "reconcile")
+LOCK_REFUSAL_TEXT = "graph-write lock was not acquired"      # run._lock_problem; loop.LOCK_REFUSAL
+VERSION_REFUSAL_TEXT = "the graph is at schema "            # run.catalog_sync, a graph below the writer's version
+
+_URL = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+_IPV4 = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b")
+
+
+def failing_threshold_s(kind: str) -> int:
+    """How long a row of ``kind`` (or a run of that kind) may have been failing before it counts as overdue: its
+    back-off, after which its one retry comes due, plus ``FAILING_GRACE_S`` for that retry to run."""
+    return backoff_s(kind) + FAILING_GRACE_S
+
+
+def error_excerpt(text: Any) -> str | None:
+    """The first non-blank line of an error, URLs and IPv4 addresses replaced, at most ``ERROR_EXCERPT_CHARS``
+    characters; None for no error. What the status endpoint publishes, since its body reaches CI logs."""
+    if text is None:
+        return None
+    first = next((line.strip() for line in str(text).splitlines() if line.strip()), "")
+    if not first:
+        return None
+    first = _IPV4.sub("<ip>", _URL.sub("<url>", first))
+    return first if len(first) <= ERROR_EXCERPT_CHARS else first[:ERROR_EXCERPT_CHARS - 3] + "..."
+
+
+def _failing(now: datetime):
+    """Open rows that have failed since they last succeeded and that no worker is retrying right now."""
+    not_live = Q(claimed_by__isnull=True) | Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now)
+    return _outbox().filter(done_at__isnull=True, failing_since__isnull=False).filter(not_live)
+
+
+def failing_rows(*, now: datetime | None = None, limit: int = FAILING_ROWS_SHOWN) -> dict:
+    """The failing rows, oldest failure first, at most ``limit`` of them, with ``total`` and ``overdue`` counted over
+    all of them. A row is overdue when it has been failing longer than ``failing_threshold_s`` of its kind."""
+    now = now or timezone.now()
+    qs = _failing(now)
+    overdue_q = Q()
+    for kind in KINDS:
+        overdue_q |= Q(kind=kind, failing_since__lt=now - timedelta(seconds=failing_threshold_s(kind)))
+    rows = []
+    for r in (qs.order_by("failing_since", "id")
+              .values("kind", "key", "attempts", "failing_since", "lease_expires_at", "last_error")[:limit]):
+        dead = r["attempts"] >= MAX_ATTEMPTS
+        age = _age_s(now, r["failing_since"])
+        threshold = failing_threshold_s(r["kind"])
+        rows.append({
+            "kind": r["kind"], "key": r["key"], "attempts": r["attempts"], "dead": dead,
+            "failing_since": _iso(r["failing_since"]), "age_s": age, "threshold_s": threshold,
+            "overdue": age > threshold,
+            "next_retry_at": None if dead else _iso(r["lease_expires_at"]),
+            "error": error_excerpt(r["last_error"]),
+        })
+    return {"rows": rows, "total": qs.count(), "overdue": qs.filter(overdue_q).count(), "limit": limit}
+
+
+def data_refusal(kind: str, run: Mapping) -> str | None:
+    """The reason a full sync or reconcile run (``run``, as ``last_runs`` gives it) was refused by the data it read:
+    its first recorded problem, or its ``catalog_error`` (a catalog that does not build records no problem). None
+    for any other run, and for a refusal that is not the data's fault: the graph-write lock, a graph below the
+    writer's schema version, or no recorded reason at all (a reconcile whose guard tripped or that met the lock after
+    its catalog step; a full sync refused for the lock or for want of a run directory)."""
+    if kind not in DATA_REFUSAL_KINDS or run.get("status") != "refused":
+        return None
+    counts = run.get("counts") if isinstance(run.get("counts"), dict) else {}
+    problems = counts.get("problems")
+    problems = [str(p) for p in problems if p] if isinstance(problems, list) else []
+    if any(LOCK_REFUSAL_TEXT in p or VERSION_REFUSAL_TEXT in p for p in problems):
+        return None
+    if problems:
+        return problems[0]
+    if counts.get("catalog_error"):
+        return f"the catalog does not build: {counts['catalog_error']}"
+    return None
+
+
+def failed_runs(runs: Mapping[str, dict], *, now: datetime | None = None) -> list[dict]:
+    """Of ``runs`` (``last_runs``: the latest run of each kind), those of a kind in ``FAILED_RUN_KINDS`` that ended
+    ``failed`` or ``abandoned``, and a full sync or reconcile its data refused (``data_refusal``), by kind. Aged
+    from the run's end (its start when it has none); overdue past ``failing_threshold_s`` of its kind, since the
+    loop reruns that kind on the same back-off or at its next slot."""
+    now = now or timezone.now()
+    out = []
+    for kind in sorted(runs):
+        run = runs[kind]
+        refusal = data_refusal(kind, run)
+        if kind not in FAILED_RUN_KINDS or (run.get("status") not in FAILED_RUN_STATUSES and refusal is None):
+            continue
+        ended = run.get("finished_at") or run.get("started_at")
+        age = _age_s(now, datetime.fromisoformat(ended)) if ended else None
+        threshold = failing_threshold_s(kind)
+        counts = run.get("counts") if isinstance(run.get("counts"), dict) else {}
+        trigger = counts.get("trigger")
+        out.append({
+            "id": run["id"], "kind": kind, "status": run["status"],
+            "trigger": None if trigger is None else str(trigger),
+            "finished_at": run.get("finished_at"), "age_s": age, "threshold_s": threshold,
+            "overdue": age is None or age > threshold,
+            "error": error_excerpt(counts.get("error") if refusal is None else refusal),
+        })
+    return out
+
+
+def requeue_dead(kind: str | None = None, *, dry_run: bool = False, now: datetime | None = None) -> list[dict]:
+    """Put every dead outbox row (of ``kind``, when given) back to pending, claimable at once, and return one
+    ``{"kind", "key", "attempts", "error"}`` per row, ``attempts`` as it was and ``error`` its ``error_excerpt``.
+
+    Dead is ``outbox_summary``'s test: open, at ``MAX_ATTEMPTS``, and in no worker's hands (a claim whose lease has
+    not run out keeps its row: that worker's outcome decides it). The operator's retry once the cause is fixed: the
+    attempts go to 0, the back-off and any expired claim are cleared, ``enqueued_at`` moves to ``now`` as a
+    re-enqueue moves it, and ``failing_since`` is cleared, so the row fails afresh if it fails again. ``payload`` and
+    ``last_error`` are kept. Each row is a compare-and-set on the row as read, so a row a new write reset meanwhile is
+    left to that write and not listed. ``dry_run`` lists and writes nothing. Raises ValueError on an unknown kind."""
+    if kind is not None and kind not in KINDS:
+        raise ValueError(f"not a graph_sync outbox kind: {kind!r}")
+    now = now or timezone.now()
+    not_live = Q(claimed_by__isnull=True) | Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now)
+    qs = _outbox().filter(done_at__isnull=True, attempts__gte=MAX_ATTEMPTS).filter(not_live)
+    if kind is not None:
+        qs = qs.filter(kind=kind)
+    out = []
+    for r in qs.order_by("enqueued_at", "id").values("id", "kind", "key", "attempts", "enqueued_at", "claimed_by",
+                                                      "lease_expires_at", "last_error"):
+        if not dry_run:
+            won = _outbox().filter(
+                pk=r["id"], done_at__isnull=True, attempts=r["attempts"], enqueued_at=r["enqueued_at"],
+                claimed_by=r["claimed_by"], lease_expires_at=r["lease_expires_at"],
+            ).update(attempts=0, enqueued_at=max(now, r["enqueued_at"] + _TICK), claimed_by=None,
+                     lease_expires_at=None, failing_since=None)
+            if won != 1:
+                continue
+        out.append({"kind": r["kind"], "key": r["key"], "attempts": r["attempts"],
+                    "error": error_excerpt(r["last_error"])})
+    return out
 
 
 # --- the graph-write lock ------------------------------------------------------------------------

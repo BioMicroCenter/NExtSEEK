@@ -31,6 +31,7 @@ def _load(name):
 
 
 pin_probe_truths = _load("pin_probe_truths")
+P = pin_probe_truths
 
 
 def _probe(criteria, *, measure):
@@ -121,6 +122,19 @@ def test_the_cypher_batch_names_every_measured_case():
     assert "Read-only" in batch
 
 
+def test_the_batch_is_cypher_that_labels_its_own_output():
+    """cypher-shell rejects `--` comment lines (the dev box, 2026-09-22: four lines of error,
+    no numbers). Every non-blank line is a `//` comment or a statement, and each case opens
+    with a one-row RETURN of its id so the output maps back without counting statements."""
+    spec = json.loads(DEV_BOX_PROBE.read_text(encoding="utf-8"))
+    lines = [line for line in pin_probe_truths.emit_cypher(spec).splitlines() if line.strip()]
+
+    assert not [line for line in lines if line.lstrip().startswith("--")]
+    assert all(line.startswith("//") or line.rstrip().endswith(";") for line in lines)
+    for case_id in spec["_measure"]:
+        assert f"RETURN '{case_id}' AS case;" in lines, case_id
+
+
 def test_the_committed_dev_box_probe_has_not_drifted_from_its_measure_block():
     """Re-pinning it with its own values must change nothing, byte for byte."""
     text = DEV_BOX_PROBE.read_text(encoding="utf-8")
@@ -130,3 +144,60 @@ def test_the_committed_dev_box_probe_has_not_drifted_from_its_measure_block():
     repinned, _ = pin_probe_truths.pin(json.loads(text), measured)
 
     assert json.dumps(repinned, indent=2, ensure_ascii=False) + "\n" == text
+
+
+# --------------------------------------------------------------------------- --parse-output
+PIN_OUTPUT = """== start 09:24:25
+case
+"ex.species_split"
+count(n)
+58
+species, n
+"Macaca fascicularis", 47
+"Macaca mulatta", 11
+case
+"ex.one_count"
+count(m)
+207
+sep
+"=== second probe"
+case
+"ex.scope_missing_here"
+count(s)
+0
+case
+"ex.short"
+count(s)
+4
+"""
+
+PARSE_SPEC = {"_measure": {
+    "ex.species_split": {"locals": [73, 47, 22], "mode": "each", "cypher": "..."},
+    "ex.one_count": {"locals": [1549], "cypher": "..."},
+    "ex.scope_missing_here": {"locals": [12], "cypher": "..."},
+    "ex.short": {"locals": [4, 9], "cypher": "..."},
+    "ex.never_ran": {"locals": [5], "cypher": "..."},
+}}
+
+
+def test_parse_output_reads_each_labelled_case():
+    parsed = P.parse_output(PIN_OUTPUT)
+    assert parsed == {"ex.species_split": [58, 47, 11], "ex.one_count": [207],
+                      "ex.scope_missing_here": [0], "ex.short": [4]}
+
+
+def test_measured_from_output_drops_zeros_and_flags_count_mismatches():
+    measured, drop, by_hand = P.measured_from_output(PARSE_SPEC, P.parse_output(PIN_OUTPUT))
+    assert measured == {"ex.species_split": [58, 47, 11], "ex.one_count": 207}
+    assert [d.split(":")[0] for d in drop] == ["ex.scope_missing_here"]
+    assert sorted(b.split(":")[0] for b in by_hand) == ["ex.never_ran", "ex.short"]
+
+
+def test_parse_output_cli_writes_what_pin_reads(tmp_path, capsys):
+    out, probe, measured = tmp_path / "pin.out", tmp_path / "probe.json", tmp_path / "m.json"
+    out.write_text(PIN_OUTPUT)
+    probe.write_text(json.dumps(PARSE_SPEC))
+    assert P.main(["--parse-output", str(out), "--probe", str(probe), "--measured-out", str(measured)]) == 2
+    text = capsys.readouterr().out
+    assert "DROP: ex.scope_missing_here" in text and "BY HAND: ex.short" in text
+    assert json.loads(measured.read_text())["ex.one_count"] == 207

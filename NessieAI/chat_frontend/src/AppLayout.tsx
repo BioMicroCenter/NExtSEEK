@@ -19,6 +19,7 @@ import type {
   QueryCompleteData,
   QueryErrorData,
   RouteDecidedData,
+  PreludeStepData,
   CcTurnMetaData,
   Turn,
 } from "@/lib/types/api";
@@ -42,11 +43,13 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
   const pendingDebugRef = useRef<DebugEntry[]>([]);
   const {
     processingState,
+    handlePreludeStep,
     handleRouteDecided,
     handleAgentStarted,
     handleAgentComplete,
     handleSearchStarted,
     handleSearchComplete,
+    handleSelectionEvent,
     resetProcessing,
   } = useProcessingState();
   const { isQuerying, sessionId, submitQuery, downloadBundle, apiService, getAuthoritativeSessionId } = useChatApi();
@@ -120,6 +123,10 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           }));
           break;
         }
+        case "prelude_step": {
+          handlePreludeStep(event.data as PreludeStepData);
+          break;
+        }
         case "route_decided": {
           handleRouteDecided(event.data as RouteDecidedData);
           const entry = makeDebugEntry("router", routeDecidedSummary(event.data as RouteDecidedData));
@@ -141,6 +148,15 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           handleSearchComplete(event.data as SearchCompleteData);
           break;
         }
+        // The nf-core pipeline agent's select_pipeline step: a digest build plus
+        // its own ~84k-token model call, and the one part of a pipeline turn long
+        // enough that dropping these would leave the user watching nothing.
+        case "selection_started":
+        case "selection_evidence_ready":
+        case "selection_done": {
+          handleSelectionEvent(event.event, event.data);
+          break;
+        }
         case "query_complete": {
           const d = event.data as QueryCompleteData;
           addAssistantMessage(d.reply);
@@ -149,6 +165,9 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           const artifacts = d.artifacts ?? null;
           const ccTraces = d.cc_traces ?? undefined;
           const mode = d.mode ?? undefined;
+          // The reviewer's chips (#128), on an NS turn only: a CC turn carries no
+          // debug, so its reply gets none. Kept in step with EmbeddedApp.
+          const suggestions = d.debug?.suggestions ?? undefined;
           queueMicrotask(() => {
             updateLastAssistantMessage({
               debugEntries: captured,
@@ -156,6 +175,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
               artifacts,
               ccTraces,
               mode,
+              suggestions,
             });
           });
           resetProcessing();
@@ -185,7 +205,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         }
       }
     },
-    [handleRouteDecided, handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, getAuthoritativeSessionId, sessions],
+    [handlePreludeStep, handleRouteDecided, handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, handleSelectionEvent, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, getAuthoritativeSessionId, sessions],
   );
 
   const handleQueryError = useCallback(

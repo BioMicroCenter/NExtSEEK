@@ -70,8 +70,8 @@ class GuardedSession(requests.Session):
                     f"hard-coded host has taken the request somewhere else."
                 )
         # A '..' segment makes the URL the guard reads and the path the server
-        # serves two different things. '/login/../nextseek_api/samples/' matches the
-        # '^login' prefix carve-out -- which is the one entry allowed to POST under
+        # serves two different things. '/login/../nextseek_api/samples/' starts with
+        # the login carve-out's path -- the one entry allowed to POST under
         # prod -- and is then normalised by the server, or by an intermediary, into
         # a request at a route that carve-out says nothing about. Refuse the whole
         # shape rather than trying to decide which normalisation wins.

@@ -25,16 +25,32 @@ NAMED_CAPABILITIES_CONTEXT_PATH = paths.repo_relative(paths.CHAT_NEXTSEEK_DIR)
 # keeps only the files that have no canonical twin (MANIFEST.md, ops.json,
 # read_safe_endpoints.json). Neither graph file is baked: min_graph_schema.json is
 # the NS parser's routing prose, and the agent reads the live graph schema through
-# the nextseek-graph-schema op instead of neo4j_schema.json.
+# the nextseek-graph-schema op instead of neo4j_schema.json. Nor is min_assays_db.json: each box lists the
+# assays its own dmac.internal_assays holds, and the agent reads them in that op's `assays` field.
 CANONICAL_CONTEXT_DIR_IN_CONTEXT = "src/chat_nextseek/context"
 IMAGE_CONTEXT_DIR = "/app/plugins/nextseek/context"
 CANONICAL_CONTEXT_FILES = (
     "capabilities.md",
     "min_api_endpoints.json",
     "min_api_endpoints_enriched.json",
-    "min_assays_db.json",
     "min_sampletypes_db.json",
     "projects_db.json",
+    "ONTOLOGIES.json",
+    "ontology_species.json",
+    "ontology_sex.json",
+    "ontology_organ.json",
+    "ontology_disease.json",
+    "ontology_units.json",
+    "ontology_mouse_genotype.json",
+    "ontology_mouse_strain.json",
+    "ontology_library_strategy.json",
+    "ontology_library_source.json",
+    "ontology_library_selection.json",
+    "ontology_library_layout.json",
+    "ontology_extracted_molecule.json",
+    "ontology_instrument_model.json",
+    "ontology_file_format.json",
+    "ontology_genome_assembly.json",
 )
 CANONICAL_CAPABILITIES_IN_CONTEXT = (
     f"{CANONICAL_CONTEXT_DIR_IN_CONTEXT}/capabilities.md"
@@ -72,15 +88,6 @@ ADDITIONAL_CONTEXTS_BEGIN = "# BEGIN PLAN005-GEN:additional-contexts"
 ADDITIONAL_CONTEXTS_END = "# END PLAN005-GEN:additional-contexts"
 
 CLAUDE_MD_REL = paths.repo_relative(paths.CC_RUNTIME_DIR / "container" / "CLAUDE.md")
-CONTENT_HASH_REL = paths.repo_relative(
-    paths.CC_RUNTIME_DIR / "docs" / "nextseek" / ".content-hash"
-)
-# The docs snapshot is pinned to a commit that predates the NessieAI move, so
-# a `git show <ref>:<path>` against it needs the paths as they were at that
-# commit. History, never rewritten.
-NEXTSEEK_DOCS_PIN_REF = "a9d69522"
-NEXTSEEK_DOCS_PIN_CLAUDE_MD_REL = "docker/cc-runtime/container/CLAUDE.md"
-NEXTSEEK_DOCS_PIN_CONTENT_HASH_REL = "docker/cc-runtime/docs/nextseek/.content-hash"
 
 CLAUDE_PLUGINS_BEGIN = "<!-- BEGIN PLAN005-GEN:plugins -->"
 CLAUDE_PLUGINS_END = "<!-- END PLAN005-GEN:plugins -->"

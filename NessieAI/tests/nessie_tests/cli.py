@@ -127,8 +127,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-usd", type=float, default=None,
                    help="--bayesian only. Run-level USD ceiling, cumulative across resumes. "
                         "Aborts cleanly before the arm that would breach it, keeping every "
-                        "completed arm; exit 3. Only container_cc reports cost, so NS spend "
-                        "is invisible to this ceiling and the real total is higher.")
+                        "completed arm; exit 3. Every turn's router and engine cost, NS and "
+                        "CC, counts toward it; a turn whose cost was not observed adds "
+                        "nothing, so the real spend can pass the ceiling.")
     p.add_argument("--resume", action="store_true", default=False,
                    help="--bayesian only. Continue the paired run in --out: every (variant, arm) "
                         "already recorded there is skipped rather than repaid.")
@@ -330,4 +331,7 @@ def main(argv=None) -> int:
     print(f"nessie: {len(manifest.entries)} cases, {fails} real failures{outaged}{vacuous} "
           f"(tier={a.tier} scope={a.scope}); cost {summary['cost_display']}; "
           f"report → {a.out}/report.html")
+    # The same string report.html and `manage.py nessie` print. The turns
+    # themselves are each case's `turns_meta` in the manifest.
+    print(f"nessie: fallback: {summary['fallback_display']}")
     return 1 if fails else 0

@@ -1,0 +1,67 @@
+{
+  "report_type": "NFCORE_VIRALINTEGRATION_SAMPLESHEET",
+  "description": "nf-core/viralintegration samplesheet context, aligned to the pinned 0.1.1 nextflow_schema.json and assets/schema_input.json. Detects viral integration sites in a host genome via chimeric reads.",
+  "params": {
+    "viral_fasta":       {"type": "string", "default": "https://data.broadinstitute.org/Trinity/CTAT_RESOURCE_LIB/VIRUS_INSERTION_FINDING_LIB_SUPPLEMENT/virus_db.fasta", "steerable": true, "help": "The VIRAL database searched for integrations. The schema default is a remote Broad URL, so the first run downloads it — stage it locally on Luria if runs are repeated."},
+    "remove_duplicates": {"type": "bool", "default": true, "steerable": true},
+    "min_reads":         {"type": "number", "default": 5, "steerable": true, "help": "Minimum chimeric reads to call an integration site."},
+    "max_hits":          {"type": "number", "default": 50, "steerable": true},
+    "genome":            {"type": "string", "default": null, "steerable": true, "help": "HOST genome key."},
+    "fasta":             {"type": "string", "default": null, "steerable": true},
+    "gtf":               {"type": "string", "default": null, "steerable": true},
+    "multiqc_title":     {"type": "string", "default": null, "steerable": true}
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/viralintegration",
+    "repository": "https://github.com/nf-core/viralintegration",
+    "documentation_url": "https://nf-co.re/viralintegration/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, fastq_1, fastq_2. sample and fastq_1 are required.",
+    "required_columns": ["sample", "fastq_1"],
+    "optional_columns": ["fastq_2"],
+    "reference_requirement": "TWO references, and they are different things: the HOST genome via --genome/--fasta/--gtf (all three are declared at 0.1.1), and the VIRAL database via --viral_fasta, which has a remote default."
+  },
+  "samplesheet_template": [{"sample": null, "fastq_1": null, "fastq_2": null}],
+  "examples": {
+    "paired_host_library": {"sample": "D.SEQ-260711ENG-12-PUB", "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/host_R1.fastq.gz", "fastq_2": "/net/bmc-pub10/data1/bmc/fastq/host_R2.fastq.gz"}
+  },
+  "validation_rules": [
+    "The --genome/--fasta/--gtf reference is the HOST, and --viral_fasta is the virus. Do not conflate them.",
+    "0.1.1 is the ONLY release and an early one. Treat results as provisional and check the pipeline's own caveats before reporting them.",
+    "The default viral_fasta is a remote Broad URL; the first run downloads it. Stage it on Luria for repeated use.",
+    "min_reads is the sensitivity knob — lowering it finds more sites and more false positives."
+  ],
+  "notes": "NO MATCHING DATA IN NExtSEEK as of 2026-08-05: no viral cohorts registered. Catalogued for future data. Pinned at 0.1.1 because that is the only release; re-derive reference_cli_flags if a later version appears.",
+  "sources": [
+    {"label": "nf-core/viralintegration usage docs", "url": "https://nf-co.re/viralintegration/latest/docs/usage/", "notes": "Chimeric-read approach and reference requirements."},
+    {"label": "nf-core/viralintegration nextflow_schema.json @ 0.1.1", "url": "https://raw.githubusercontent.com/nf-core/viralintegration/0.1.1/nextflow_schema.json", "notes": "Authoritative: viral_fasta / remove_duplicates / min_reads / max_hits are required but all carry defaults; genome, fasta and gtf are all declared."},
+    {"label": "nf-core/viralintegration assets/schema_input.json @ 0.1.1", "url": "https://raw.githubusercontent.com/nf-core/viralintegration/0.1.1/assets/schema_input.json", "notes": "Authoritative columns: sample and fastq_1 required."}
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/viralintegration input sheet.",
+        "fields": {
+          "sample": {"required": "required", "position_rule": "Column 1", "expected_value": "string", "allowed_values": "", "description": "Sample identifier.", "validation_hints": "Use the NExtSEEK D.SEQ UID.", "example": "D.SEQ-260711ENG-12-PUB"},
+          "fastq_1": {"required": "required", "position_rule": "Column 2", "expected_value": "path", "allowed_values": ".fastq.gz", "description": "Read 1 from the HOST library.", "validation_hints": "Absolute Luria path.", "example": "/net/bmc-pub10/data1/bmc/fastq/host_R1.fastq.gz"},
+          "fastq_2": {"required": "optional", "position_rule": "Column 3", "expected_value": "path or blank", "allowed_values": ".fastq.gz or blank", "description": "Read 2.", "validation_hints": "Blank for single-end.", "example": "/net/bmc-pub10/data1/bmc/fastq/host_R2.fastq.gz"}
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/viralintegration sheet from a resolved D.SEQ cohort of host libraries suspected of carrying viral insertions.",
+    "workflow_role": "Selected for questions like 'where did HPV integrate in these tumours?'.",
+    "output_expectation": "CSV with header sample,fastq_1,fastq_2.",
+    "population_priority": [
+      "Resolve the HOST reference from the cohort's organism, as normal.",
+      "Confirm with the user which viral database to search; the default is a broad Broad-hosted set.",
+      "One row per D.SEQ leaf."
+    ],
+    "final_checks": [
+      "Host and viral references are distinct and each is correct.",
+      "The user knows this is a 0.1.1 pipeline."
+    ]
+  }
+}

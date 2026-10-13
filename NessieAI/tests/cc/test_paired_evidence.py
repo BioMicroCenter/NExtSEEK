@@ -1,6 +1,7 @@
 """Independent paired-evidence oracle for Plan 005 Task 4."""
 from __future__ import annotations
 
+import os
 import hashlib
 import io
 import json
@@ -19,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "paired_evidence"
 DEFAULT_CORPUS = paths.NESSIE_CORPUS
 PINNED_ZIP = Path(
-    "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip"
+    os.environ.get("NESSIE_TESTQUESTIONS_DIR", "testquestions-2026-08-07"), "testquestions.zip"
 )
 
 

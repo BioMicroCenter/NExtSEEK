@@ -471,7 +471,7 @@ def test_mock_transport_rejects_non_get_except_search_validate(tmp_path):
     c.validate_file(workbook, project_id=1, checks="structure")
 
 
-def test_from_env_credential_precedence_and_transport(monkeypatch):
+def test_from_env_authenticates_with_the_turn_pass(monkeypatch):
     seen = {}
 
     def handler(request):
@@ -479,31 +479,132 @@ def test_from_env_credential_precedence_and_transport(monkeypatch):
         return httpx.Response(200, json={"data": []})
 
     monkeypatch.setenv("NEXTSEEK_URL", "http://ns.test")
+    monkeypatch.setenv("NEXTSEEK_TURN_PASS", "T" * 43)
     monkeypatch.setenv("NEXTSEEK_USERNAME", "next-user")
     monkeypatch.setenv("NEXTSEEK_PASSWORD", "next-pass")
-    monkeypatch.setenv("API_USER", "legacy-user")
-    monkeypatch.setenv("API_PASS", "legacy-pass")
     c = buc.BatchUploadClient.from_env(transport=httpx.MockTransport(handler))
     c.list_sample_types()
-    assert seen["auth"].startswith("Basic ")
-    encoded = seen["auth"].removeprefix("Basic ")
-    assert base64.b64decode(encoded).decode() == "next-user:next-pass"
+    assert seen["auth"] == "NextseekTurn " + "T" * 43
     assert str(c._client.base_url).rstrip("/") == "http://ns.test"
 
 
-def test_from_env_legacy_fallback_partial_nextseek_pair_and_missing(monkeypatch):
-    for key in ("NEXTSEEK_URL", "NEXTSEEK_BASE_URL", "NEXTSEEK_USERNAME", "NEXTSEEK_PASSWORD", "API_USER", "API_PASS"):
+def test_from_env_needs_a_base_url_and_the_pass_never_a_password(monkeypatch):
+    for key in ("NEXTSEEK_URL", "NEXTSEEK_BASE_URL", "NEXTSEEK_TURN_PASS", "NEXTSEEK_USERNAME",
+                "NEXTSEEK_PASSWORD", "API_USER", "API_PASS"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("NEXTSEEK_BASE_URL", "http://fallback.ns.test")
+    monkeypatch.setenv("NEXTSEEK_TURN_PASS", "T" * 43)
+    assert isinstance(buc.BatchUploadClient.from_env(), buc.BatchUploadClient)
+    monkeypatch.delenv("NEXTSEEK_TURN_PASS")
     monkeypatch.setenv("API_USER", "u")
     monkeypatch.setenv("API_PASS", "p")
-    assert isinstance(buc.BatchUploadClient.from_env(), buc.BatchUploadClient)
-    monkeypatch.setenv("NEXTSEEK_USERNAME", "partial-user")
-    with pytest.raises(SystemExit) as partial:
-        buc.BatchUploadClient.from_env()
-    assert partial.value.code == 2
-    monkeypatch.delenv("NEXTSEEK_USERNAME")
-    monkeypatch.delenv("API_PASS")
     with pytest.raises(SystemExit) as exc:
         buc.BatchUploadClient.from_env()
     assert exc.value.code == 2
+
+
+# --- the bucket rule for a title reaching several in-project assays (the studies tool's paper clones) ------------
+
+
+def _bucket_world(calls, *, studies=None, members=None):
+    studies = studies or {351: (20, "Alpha Unpublished"), 260: (21, "Alpha Paper")}
+    members = members or {}
+
+    def handler(request):
+        calls.append(request.url.path)
+        parts = [p for p in request.url.path.split("/") if p]
+        if parts[-2] == "assays":
+            assay_id = int(parts[-1])
+            study_id, _title = studies[assay_id]
+            return httpx.Response(200, json={"data": {"id": str(assay_id), "relationships": {
+                "study": {"data": {"id": str(study_id), "type": "studies"}},
+                "samples": {"data": [{"id": sid, "type": "samples"} for sid in members.get(assay_id, [])]}}},
+                "links": {}})
+        if parts[-2] == "studies":
+            study_id = int(parts[-1])
+            title = next(t for s, t in studies.values() if s == study_id)
+            return httpx.Response(200, json={"data": {"id": str(study_id), "attributes": {"title": title}}})
+        raise AssertionError(f"unexpected route {request.url}")
+
+    return _client(handler)
+
+
+def test_one_in_project_candidate_is_unchanged_and_reads_nothing():
+    calls: list[str] = []
+    c = _bucket_world(calls)
+    assert c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351}) == 351
+    assert calls == []
+
+
+def test_a_bucket_and_a_paper_clone_resolve_to_the_bucket():
+    calls: list[str] = []
+    c = _bucket_world(calls)
+    assert c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351, 260}) == 351
+
+
+def test_a_sample_in_one_candidate_resolves_to_it():
+    calls: list[str] = []
+    c = _bucket_world(calls, members={260: ["324503"]})
+    got = c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351, 260}, sample_numeric_id=324503)
+    assert got == 260
+
+
+def test_a_sample_in_a_bucket_and_a_clone_resolves_to_the_bucket():
+    calls: list[str] = []
+    c = _bucket_world(calls, members={351: ["5"], 260: ["5"]})
+    assert c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351, 260}, sample_numeric_id=5) == 351
+
+
+def test_a_sample_in_two_clones_and_not_in_the_bucket_refuses():
+    calls: list[str] = []
+    c = _bucket_world(calls, studies={351: (20, "Alpha Unpublished"), 260: (21, "Alpha Paper"),
+                                      261: (22, "Delta Study")}, members={260: ["5"], 261: ["5"]})
+    with pytest.raises(ValueError, match="ambiguous assay title: Comet Chip"):
+        c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260, 261]}, {351, 260, 261}, sample_numeric_id=5)
+
+
+def test_a_failed_member_read_fails_closed_as_ambiguous():
+    calls: list[str] = []
+    c = _bucket_world(calls)
+    c.assay_samples = lambda ids: (_ for _ in ()).throw(RuntimeError("down"))
+    with pytest.raises(ValueError, match="could not read the candidates"):
+        c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351, 260}, sample_numeric_id=5)
+
+
+def test_buckets_of_two_investigations_refuse_naming_them():
+    calls: list[str] = []
+    c = _bucket_world(calls, studies={351: (20, "Alpha Unpublished"), 260: (22, "Beta Unpublished")})
+    with pytest.raises(ValueError, match="ambiguous assay title: Comet Chip") as exc:
+        c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351, 260})
+    assert "260, 351" in str(exc.value)
+
+
+def test_two_candidates_none_in_a_bucket_refuse():
+    calls: list[str] = []
+    c = _bucket_world(calls, studies={351: (20, "Alpha Paper"), 260: (21, "Alpha Paper Two")})
+    with pytest.raises(ValueError, match="ambiguous"):
+        c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351, 260})
+
+
+def test_one_get_per_assay_and_per_study_however_many_rows_name_them():
+    calls: list[str] = []
+    c = _bucket_world(calls, studies={351: (20, "Alpha Unpublished"), 260: (20, "Alpha Unpublished"),
+                                      400: (21, "Alpha Paper")})
+    title_map = {"Comet Chip": [351, 400], "Other": [260, 400]}
+    for _ in range(5):
+        c.resolve_assay_title("Comet Chip", title_map, {351, 400, 260})
+        c.resolve_assay_title("Other", title_map, {351, 400, 260})
+    assert sorted(calls) == sorted(["/nextseek_api/assays/351/", "/nextseek_api/assays/400/",
+                                    "/nextseek_api/assays/260/", "/nextseek_api/studies/20/",
+                                    "/nextseek_api/studies/21/"])
+
+
+def test_a_failed_study_read_fails_closed_as_ambiguous():
+    c = _client(lambda request: httpx.Response(500))
+    with pytest.raises(ValueError, match="ambiguous"):
+        c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351, 260})
+
+
+def test_the_bucket_suffix_is_the_studies_tools():
+    assert buc.BUCKET_TITLE_SUFFIX == "unpublished"
+    assert buc._is_bucket_title("  Alpha UNPUBLISHED ") and not buc._is_bucket_title("Unpublished data")

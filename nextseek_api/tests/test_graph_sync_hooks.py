@@ -109,3 +109,14 @@ def test_failure_counts_is_a_copy():
     counts = hooks.failure_counts()
     counts["samples"] = 99
     assert hooks.failure_counts() == {"samples": 1}
+
+
+@pytest.mark.parametrize("code, delay", [(200, 0), (201, 0), (204, 0), (500, hooks.UNCONFIRMED_DELAY_S),
+                                         (502, hooks.UNCONFIRMED_DELAY_S), (503, hooks.UNCONFIRMED_DELAY_S),
+                                         (400, None), (401, None), (404, None), (422, None), (None, None)])
+def test_write_delay_is_now_for_a_2xx_held_back_for_a_5xx_and_none_for_a_refusal(code, delay):
+    assert hooks.write_delay(code) == delay
+
+
+def test_an_unconfirmed_write_waits_five_minutes():
+    assert hooks.UNCONFIRMED_DELAY_S == 300

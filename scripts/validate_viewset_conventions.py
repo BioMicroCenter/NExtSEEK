@@ -2,7 +2,7 @@
 """Validate NExtSEEK ViewSet conventions (endpoint descriptions + extend_schema).
 
 This module is the SINGLE SOURCE OF TRUTH for mechanically enforceable ViewSet
-conventions. The committed nextseek-viewset skill, hermetic tests, and the
+conventions. The committed nextseek-create-endpoint skill, hermetic tests, and the
 SchemaGenerator guard import constants from here.
 
 Exit codes: 0 clean, 1 violations, 2 usage/parse error.

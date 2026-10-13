@@ -14,11 +14,15 @@ from typing import Any
 
 PRICE_TABLE_VERSION = "2026-06-granular-realstack"
 
-# USD per token (input, output). Unpriced models → hard error.
+# USD per token (input, output). Unpriced models → hard error. Run 2's two models carry the rates of
+# NessieAI/chat_nextseek/model_prices.json; Gemini 3.8 Flash's is its rate through 2026-12-31 (it doubles on
+# 2027-01-01 there, and this flat table does not follow it).
 PRICES: dict[str, tuple[float, float]] = {
     "gemini-3.5-flash": (1.50e-6, 9.00e-6),
+    "gemini-3.8-flash": (0.75e-6, 3.75e-6),
     "gemini-2.5-flash": (0.30e-6, 2.50e-6),
     "us.anthropic.claude-opus-4-7": (5.50e-6, 27.50e-6),
+    "us.anthropic.claude-opus-5-5": (4.40e-6, 22.00e-6),
     "us.anthropic.claude-opus-4-8-20250514-v1:0": (5.50e-6, 27.50e-6),
 }
 

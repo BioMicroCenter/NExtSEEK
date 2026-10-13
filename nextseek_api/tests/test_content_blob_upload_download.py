@@ -326,11 +326,14 @@ class SopCreateWithUploadTest(TestCase):
         drf_request.auth = "token"
 
         mock_client = MagicMock()
+        mock_client.create_sop.return_value = (b'{"data": {"id": "5"}}', 201, {'Content-Type': 'application/json'}, None)
         vs.client = mock_client
-        response = vs.create(drf_request)
-        # JSON body without 'metadata' key results in validation failure
-        self.assertEqual(response.status_code, 422)
-        mock_client.create_sop.assert_not_called()
+        # The JSON body the schema documents ({"data": ...}) is accepted without a 'metadata' key.
+        with patch("nextseek_api.services.sops._existing_sop_ids", return_value=[]):
+            response = vs.create(drf_request)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response["Content-Type"], "application/json")
+        mock_client.create_sop.assert_called_once()
 
 
 def _valid_datafile_response(content_blobs=None):
@@ -970,8 +973,8 @@ class SopCreateErrorHandlingTest(TestCase):
         body = json.loads(response.content)
         self.assertIn("errors", body)
 
-    def test_seek_500_forwarded_not_502(self):
-        """When SEEK returns 500, we should forward it, not return 502.
+    def test_seek_500_answers_json_502(self):
+        """When SEEK returns 500, the create answers JSON 502 with SEEK's status.
 
         The create endpoint extracts metadata from a 'metadata' form key,
         so we send the JSON as multipart with 'metadata' to reach the
@@ -1006,8 +1009,12 @@ class SopCreateErrorHandlingTest(TestCase):
         mock_client.create_sop.return_value = (seek_error, 500, {'Content-Type': 'application/vnd.api+json'}, None)
         vs.client = mock_client
 
-        response = vs.create(drf_request)
-        self.assertEqual(response.status_code, 500)
+        with patch("nextseek_api.services.sops._existing_sop_ids", return_value=[]):
+            response = vs.create(drf_request)
+        # A SEEK 5xx becomes JSON that names SEEK's status and the title; the SOP may exist.
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response["Content-Type"], "application/json")
+        self.assertEqual(json.loads(response.content)["seek_status"], 500)
 
 
 class SopUpdateErrorHandlingTest(TestCase):
@@ -1300,11 +1307,16 @@ class SopCreateContentBlobsRequiredTest(TestCase):
         drf_request.user = MagicMock()
         drf_request.auth = "token"
 
-        # JSON body without 'metadata' key → defaults to '{}' → validation fails
-        response = vs.create(drf_request)
+        # The documented JSON body reaches SEEK, whose sopPost schema requires content_blobs: it answers 422.
+        mock_client = MagicMock()
+        mock_client.create_sop.return_value = (
+            b'{"errors":[{"title":"content_blobs required"}]}', 422, {'Content-Type': 'application/json'}, None)
+        vs.client = mock_client
+        with patch("nextseek_api.services.sops._existing_sop_ids", return_value=[]):
+            response = vs.create(drf_request)
         self.assertEqual(response.status_code, 422)
         body = json.loads(response.content)
-        self.assertIn("invalid metadata", body["errors"][0]["title"].lower())
+        self.assertIn("content_blobs", body["errors"][0]["title"].lower())
 
 
 class DataFileCreateContentBlobsRequiredTest(TestCase):

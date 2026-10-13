@@ -72,24 +72,24 @@ class _FakeConfig:
 # Gemini and Bedrock clients now retry the same class of failure.
 # --------------------------------------------------------------------------
 
-def test_gemini_client_is_constructed_with_retries_enabled():
-    """`google-genai` defaults retry_options to None, which its own retry_args()
-    documents as the "never retry" strategy. Every Gemini 503 therefore reached the
-    caller on the first try, which is production turn 463."""
-    captured = {}
+def _stub_google_genai(monkeypatch) -> dict:
+    """Stand in for google-genai; returns the dict the stub client's kwargs land in.
 
-    class _StubGenai:
-        @staticmethod
-        def Client(**kwargs):
-            captured.update(kwargs)
-            return object()
-
+    `import google.genai as genai` binds `genai` as an attribute of the `google` package
+    and falls back to `sys.modules` only when the attribute is missing. Once the real SDK
+    was imported anywhere earlier in the session the attribute is set, so a `sys.modules`
+    stub alone was bypassed and the real client was built: the test passed alone and
+    failed in the full lane. Both the entries and the attribute are patched, and
+    monkeypatch puts all of them back.
+    """
     import sys
     import types
 
-    stub = types.ModuleType("google.genai")
-    stub.Client = _StubGenai.Client
-    types_mod = types.ModuleType("google.genai.types")
+    captured: dict = {}
+
+    def _client(**kwargs):
+        captured.update(kwargs)
+        return object()
 
     class HttpRetryOptions:
         def __init__(self, **kw):
@@ -99,25 +99,42 @@ def test_gemini_client_is_constructed_with_retries_enabled():
         def __init__(self, **kw):
             self.__dict__.update(kw)
 
+    types_mod = types.ModuleType("google.genai.types")
     types_mod.HttpOptions = HttpOptions
     types_mod.HttpRetryOptions = HttpRetryOptions
-    google_pkg = sys.modules.get("google") or types.ModuleType("google")
+    stub = types.ModuleType("google.genai")
+    stub.Client = _client
+    stub.types = types_mod
 
-    saved = {k: sys.modules.get(k) for k in ("google", "google.genai", "google.genai.types")}
-    sys.modules["google"] = google_pkg
-    sys.modules["google.genai"] = stub
-    sys.modules["google.genai.types"] = types_mod
-    try:
-        GeminiClient(api_key="k")
-    finally:
-        for k, v in saved.items():
-            if v is None:
-                sys.modules.pop(k, None)
-            else:
-                sys.modules[k] = v
+    google_pkg = sys.modules.get("google")
+    if google_pkg is None:
+        google_pkg = types.ModuleType("google")
+        google_pkg.__path__ = []
+        monkeypatch.setitem(sys.modules, "google", google_pkg)
+    monkeypatch.setitem(sys.modules, "google.genai", stub)
+    monkeypatch.setitem(sys.modules, "google.genai.types", types_mod)
+    monkeypatch.setattr(google_pkg, "genai", stub, raising=False)
+    return captured
+
+
+def test_gemini_client_is_constructed_with_retries_enabled(monkeypatch):
+    """`google-genai` defaults retry_options to None, which its own retry_args()
+    documents as the "never retry" strategy. Every Gemini 503 therefore reached the
+    caller on the first try, which is production turn 463."""
+    captured = _stub_google_genai(monkeypatch)
+
+    GeminiClient(api_key="k")
 
     assert "http_options" in captured, "Gemini client built without http_options: retries are off"
     assert getattr(captured["http_options"], "retry_options", None) is not None
+
+
+def test_the_gemini_retry_check_holds_after_the_real_sdk_was_imported(monkeypatch):
+    """The order the full lane runs in: something earlier imported the real google-genai,
+    so `google.genai` is also an attribute of the `google` package."""
+    pytest.importorskip("google.genai")
+
+    test_gemini_client_is_constructed_with_retries_enabled(monkeypatch)
 
 
 def test_bedrock_client_pins_standard_retry_mode():

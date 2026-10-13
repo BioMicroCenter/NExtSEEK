@@ -6,7 +6,8 @@ user does. Same command locally, on fairdata-dev, and in CI.
 ## Run it
 
 ```bash
-# one time, per host
+# ./startup.sh ci runs this itself before every run (a no-op once the browser is there).
+# By hand, per account that runs the suite (browsers live in ~/.cache/ms-playwright):
 uv run --no-project --with playwright==1.60.0 playwright install chromium
 
 # everything except the write lane. That includes the Nessie lane, which sends
@@ -36,18 +37,22 @@ Useful flags:
 against the instance's own port, and derives the profile from `ci_profile` in
 `startup/.instance.json`, so nobody has to remember which box they are on.
 
-Eight files need no stack, no credentials and no browser, because they test the
-registry, the guard, the fixtures' own logic and the Nessie lane's pure helpers
-rather than a deployment: `test_registry_unit.py`, `test_registry_contents.py`,
-`test_guard_unit.py`, `test_profile_unit.py`, `test_assertions_unit.py`,
-`test_readiness_unit.py`, `test_terminal_unit.py`, `test_nessie_unit.py`.
+Eleven files need no stack, no credentials and no browser, because they test the
+registry, the guard, the fixtures' own logic and the Nessie, write and deploy
+checks' pure helpers rather than a deployment: `test_registry_unit.py`,
+`test_registry_contents.py`, `test_guard_unit.py`, `test_profile_unit.py`,
+`test_assertions_unit.py`, `test_readiness_unit.py`, `test_terminal_unit.py`,
+`test_nessie_unit.py`, `test_attribute_jobs_unit.py`, `test_deploy_live_unit.py`,
+`test_graph_sync_health_unit.py`.
 
 ```bash
 CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests \
   pytest ci/smoke/test_registry_unit.py ci/smoke/test_registry_contents.py \
          ci/smoke/test_guard_unit.py ci/smoke/test_profile_unit.py \
          ci/smoke/test_assertions_unit.py ci/smoke/test_readiness_unit.py \
-         ci/smoke/test_terminal_unit.py ci/smoke/test_nessie_unit.py -q
+         ci/smoke/test_terminal_unit.py ci/smoke/test_nessie_unit.py \
+         ci/smoke/test_attribute_jobs_unit.py ci/smoke/test_deploy_live_unit.py \
+         ci/smoke/test_graph_sync_health_unit.py -q
 ```
 
 ## Tiers
@@ -60,8 +65,13 @@ Everything else is hand-written because it is what a table row cannot express --
 the API root's exact viewset list, the OpenAPI document generating at all, an
 enrichment step that fails silently behind a 200, the five `/seek/` pages that
 must bounce a visitor with no credentials, the seven browser flows, a
-`samples/graph_search/` POST with its envelope checked (`test_graph_search.py`), and the
-state of the graph sync itself (`test_graph_sync_status.py`, below). Per-route
+`samples/graph_search/` POST with its envelope checked (`test_graph_search.py`), the
+state of the graph sync itself (`test_graph_sync_status.py`, below), and three changes a
+status code cannot tell from the build before them (`test_deploy_live.py`): the chat
+bundle nginx serves is the checkout's (collectstatic ran), `/seek/search/` renders
+its phone type dropdown once per type, under 5 s, adding no failed template lookup to
+`logs/django.log`, and every user docs page in `themes/NextSeek/docs/README.md` answers
+with every image it shows served (a new docs image needs an app restart). Per-route
 body assertions are T1's job and are not in this increment.
 
 ## Nessie lane
@@ -94,7 +104,7 @@ It works in three stages, all in that one file:
    Metadata and CC artifact downloads work. The session detail and
    `nessie/sessions/<id>/debug/` count four turns, with the replies and the route
    ledger the page showed. After a reload the chat reopens with every turn. The
-   reported spend stayed under the ceiling.
+   spend Claude Code reported for the CC turn stayed under the ceiling.
 
 The chat is kept whether the lane passed or failed, and the CI record names it as
 the kept session. On a failure it is kept as it is, so that it can be read: any
@@ -125,13 +135,16 @@ and in pytest's warnings summary on a direct run.
   as their own flag and pass it through; a direct `pytest ci/smoke/` run takes it
   as a suite option; the GitHub dispatch workflow has a `nessie` input, default
   on.
-- It costs about $0.30 a run. The CC turn's observed mean is $0.24; it may
-  report up to $0.50 for each minute it ran (never less than $0.50), and the
-  three NS turns cost a few cents that
-  nothing measures yet. At most four chat POSTs leave the page; the browser
-  aborts a fifth and the lane fails. Reported spend above $1.00 fails the run.
-- It adds about 4 to 5 minutes to a rebuild's CI. Each NS turn may take 300 s,
-  the CC turn 240 s, and the lane stops asking questions at 720 s.
+- The CC turn's observed mean is $0.24; it may report up to $0.50 for each
+  minute it ran (never less than $0.50). The $1.00 ceiling counts that number,
+  Claude Code's own cost on the CC turn, and spend above it fails the run. The
+  NS turns and the router report their cost too (`total_cost_usd` and
+  `router_cost_usd`); the record shows every turn's engine and router cost
+  beside the ceiling, for information, and the ceiling does not count it. At
+  most four chat POSTs leave the page; the browser aborts a fifth and the lane
+  fails.
+- It adds about 4 to 5 minutes to a rebuild's CI. The lane lets each NS turn take
+  300 s and the CC turn 240 s, and it stops asking questions at 720 s.
 
 ### Prerequisites
 
@@ -185,7 +198,8 @@ CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests --with pl
 
 - **The CI record.** `./startup.sh rebuild` and `./startup.sh ci` write a record
   under `startup/ci-reports/`. Its Nessie section has one row per question
-  (route, source, path, seconds, cost, status, task id) and the reported spend,
+  (route, source, path, seconds, cost, status, task id), the spend the ceiling
+  counts with the all-turns total beside it,
   and on a failure the kept chat's session id, its `/debug/` URL and the evidence
   folder. A section reading "No summary" means the lane stopped before its first
   question or in its own cleanup; the record's Failures and Errors sections name
@@ -217,6 +231,18 @@ and the last drift result; and **none of those jobs is stale**. A box whose sync
 stopped, or whose drain has left an outbox row waiting for more than an hour, must not
 report a green smoke run. A box that has never run a sync answers `never`, which stays
 green, so the tests assert the vocabulary rather than a particular value.
+
+It also fails when the sync is failing rather than late: an outbox row still failing past its
+retry (its back-off plus 30 minutes, 1 h 30 min, 6 h 30 min for a full sync, counted from its
+first failure since it last succeeded, so a key re-enqueued by every write cannot look young),
+a full, reconcile, catalog or drift kind whose latest run ended `failed` or `abandoned` past the
+same clock (or a full sync or reconcile its data refused), or a latest drift run that found drift. Each prints the error excerpt the endpoint
+publishes. A failure still inside its retry window is a warning, not a failure. The judging
+lives in `nextseek_api/graph_sync/health.py`, standard library only, and is unit-tested without
+a box (`test_graph_sync_health_unit.py`). A body without the `failing` and `failed_runs` parts
+fails with a rebuild message: the box runs an older image.
+Production gets the same judgement from the startup health line
+(`startup/README.md` "Graph sync health on every box").
 
 It also carries the parity-lite check: when the status reports a successful full sync at the
 writer's schema version, the same small body sent to `samples/advanced_search/` and to

@@ -9,7 +9,7 @@ Responsibilities (in execution order):
      events are written exclusively to _EVENTS_FD via os.write().
   2. Test opt-out via DMAC_RUNNER_NS_NO_REMAP env var.
   3. Read user query from stdin (one line).
-  4. Build AssistantClient from env (NEXTSEEK_URL, API_USER, API_PASS).
+  4. Build AssistantClient from env (NEXTSEEK_URL and the turn pass, NEXTSEEK_TURN_PASS).
   5. Call client.run_query, translate terminal/events to the JSONL contract
      the bridge ns_adapter expects (recon:nsRoute section 3).
   6. On uncaught exception, emit ns_runner_error and exit non-zero.
@@ -114,17 +114,18 @@ def _build_assistant_client() -> Any:
     """Construct AssistantClient from environment variables.
 
     Reads NEXTSEEK_URL, NEXTSEEK_ASSISTANT_PREFIX (default nextseek_api/assistant),
-    API_USER, API_PASS -- mirrors the pattern used by T8's _run_viewset in
+    and the turn pass (NEXTSEEK_TURN_PASS) -- mirrors the pattern used by T8's _run_viewset in
     build_context/plugins/nextseek/bin/_nextseek_runner.py.
     """
     import _assistant_client as ac  # noqa: PLC0415 -- deferred for path resolution
+    import _turn_pass as tp  # noqa: PLC0415 -- deferred for path resolution
 
     return ac.AssistantClient(
         base_url=os.environ["NEXTSEEK_URL"],
         assistant_prefix=os.environ.get(
             "NEXTSEEK_ASSISTANT_PREFIX", "nextseek_api/assistant"
         ),
-        auth=(os.environ.get("API_USER", ""), os.environ.get("API_PASS", "")),
+        auth=tp.TurnPassAuth(tp.turn_pass_from_env()),
     )
 
 

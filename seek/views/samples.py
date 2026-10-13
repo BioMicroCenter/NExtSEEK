@@ -22,7 +22,7 @@ from ..responses import json_response
 from ..responses import plain_text
 from django.shortcuts import render
 from ..decorators import requires_seek_login
-from ..decorators import requires_seek_login_redirect
+from ..decorators import login_redirect, requires_seek_login_redirect
 from ..decorators import requires_supervisor
 import simplejson
 from ..decorators import verifySuperUser
@@ -169,11 +169,7 @@ def sample(request, id):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
     if not user_seek['status']:
-        if sample_id==0:
-            url_redirect = '/login/?next=/seek/samples/query/'
-        else:
-            url_redirect = '/login/?next=/seek/sample/id=' + str(sample_id) + '/'
-        return HttpResponseRedirect(url_redirect)
+        return login_redirect(request)
 
     # Project scope: the page prints every metadata value. A sample outside the caller's projects reads exactly as
     # one that does not exist, before anything about it is fetched.
@@ -208,6 +204,10 @@ def sample(request, id):
     return render(request,"samples.html", {'bodyhtml' : bodyhtml, 'report':report})
 
 def sampleTree(request, uid):
+    # Login first: a visitor must come back to this UID, not to a sample id
+    # looked up before anyone signed in.
+    if not request.user.is_authenticated:
+        return login_redirect(request)
     sample_uid = uid
     dbsample = DBtable_sample()
     sample_id = dbsample.getSampleID(sample_uid)
@@ -221,11 +221,7 @@ def sample_type(request, id):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
     if not user_seek['status']:
-        if sampletype_id==0:
-            url_redirect = '/login/?next=/seek/samples/query/'
-        else:
-            url_redirect = '/login/?next=/seek/sample_types/id=' + str(sampletype_id) + '/'
-        return HttpResponseRedirect(url_redirect)
+        return login_redirect(request)
     
     report = {}
     stype = DBtable_sampletype()
@@ -468,7 +464,7 @@ def getAssaysOptions(request, id):
     data = {'msg':'okay', 'status': 1, 'assay_options':assay_options}
     return HttpResponse(simplejson.dumps(data, default=str))
 
-@requires_seek_login_redirect('/seek/samples/attributes/')
+@requires_seek_login_redirect()
 def sampleAttributes(request):
     report = {}
     stype = DBtable_sampletype()

@@ -71,10 +71,24 @@ def test_no_new_migrations():                        # Global Constraint
         # Pin updated for the batch assay-registration endpoint: 0020 creates the
         # single AssayRegistrationJob table and its one declared index, nothing else.
         "nextseek_api/migrations/0020_assayregistrationjob.py",
+        # Pin updated for graph_sync: 0021 creates the outbox and run tables, 0023 adds the outbox's failing_since
+        # column; neither touches the router's tables.
+        "nextseek_api/migrations/0021_graph_sync_outbox_and_run.py",
         # Pin updated for the ledger's task link: 0022 adds one nullable TurnLedger -> QueryTask FK, nothing else.
         "nextseek_api/migrations/0022_turn_ledger_query_task.py",
+        "nextseek_api/migrations/0023_graph_sync_outbox_failing_since.py",
+        "nextseek_api/migrations/0024_sampleshare.py",
+        # Pin updated for the Container-CC turn pass: 0025 creates the CCTurn table and its index and adds the
+        # nullable QueryTask.parent_cc_turn FK; it touches no router table. _cc_turn_heal.py is its heal helper.
+        "nextseek_api/migrations/0025_cc_turn.py",
+        # Pin updated for plan 04's turn memory: 0026 adds two CCTurn columns, ops_cost_partial and
+        # vocabulary_resolutions; it touches no router table.
+        "nextseek_api/migrations/0026_ccturn_ops_cost_partial.py",
+        # Pin updated for round 6: 0027 adds one CCTurn column, ops_cost_estimated; it touches no router table.
+        "nextseek_api/migrations/0027_ccturn_ops_cost_estimated.py",
         "nextseek_api/migrations/__init__.py",
         "nextseek_api/migrations/_cc_transcript_heal.py",
+        "nextseek_api/migrations/_cc_turn_heal.py",
         "nextseek_api/migrations/_chat_log_normalize.py",
         "nextseek_api/migrations/_turn_ledger_heal.py",
     ]

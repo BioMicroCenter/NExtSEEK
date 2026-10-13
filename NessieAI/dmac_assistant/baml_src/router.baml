@@ -28,6 +28,9 @@ class RouterInput {
   user_query  string
   routes      RouteCapability[]
   history     HistoryTurn[]
+  // The follow-up paragraph, filled by NessieAI/router/followup.py from NESSIE_FOLLOWUP_ROUTING
+  // (split by default; cc is the 2026-09-23 rule), so the prompt and the policy guard cannot disagree.
+  followup_rule string?
 }
 
 enum Route {
@@ -97,14 +100,64 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
 
     A question is NOT `unrelated` merely because its subject sounds like general
     biology or ordinary laboratory vocabulary. NExtSEEK's registered assays,
-    sample types and protocols have plain-language names — Tissue Collection,
-    RNA Extraction, Flow Cytometry, Comet Chip Analysis, Patient Visit, Luminex —
-    so "tell me about tissue collection" is a catalog question about this
-    database, not small talk about biology. The same applies when the user names
-    no sample and uses no first-person wording: "What is a TIS sample?" is in
-    scope exactly as much as "what assays do I have access to". Reserve
-    `unrelated` for subjects that could not plausibly be an entry in a sample
-    catalog at all.
+    sample types and protocols have plain-language names: lab techniques,
+    tissues, collection steps, instruments and visit types. A request to explain
+    or describe one of those names is a catalog question about this database,
+    not small talk about biology. The same applies when the user names no sample
+    and uses no first-person wording: asking what a sample type code or an assay
+    name means is in scope exactly as much as asking which assays they can see.
+    Reserve `unrelated` for subjects that could not plausibly be an entry in a
+    sample catalog at all.
+
+    A message that names a study, paper, method, protocol, lab or researcher is
+    not `unrelated` either: NExtSEEK's studies and protocols carry those names.
+    How a method was done, how to apply it to new samples or reanalyse data
+    with it, is an analysis question: select `container_cc`. A turn in the
+    history routed `unrelated` is never a reason to route the CURRENT message
+    `unrelated`.
+
+    How-to questions about the site go to `nextseek_query`. "How do I upload
+    samples", "how can I check my workbook before uploading it", "where do I
+    download my results as a spreadsheet" and "how do I call the API" ask how
+    to do something in NExtSEEK, and the user docs answer them. That holds even
+    when Container-CC could do the task itself. Judge a how-to by its intent:
+    learning to use the site is the docs, finding samples or data is a
+    NExtSEEK search, and doing an analysis or applying a method is
+    `container_cc`. For a how-to about the site, select `container_cc` only
+    when the user supplies the data or file to work on in the message, or asks
+    for the work to be done ("validate this workbook", "make me the upload
+    sheet", "write the CSV").
+
+    The file of one SOP named by its id or its exact title goes to
+    `nextseek_query`, which downloads it ("Download SOP 9001", "give me the
+    file for the SOP titled X"), even though the user takes the file away.
+    Select `container_cc` only when the user asks for a new file to be made
+    from it.
+
+    Values written several ways are judged by intent too. Asking which values,
+    spellings or types an attribute holds, and how many of each, is a NExtSEEK
+    search: select `nextseek_query`. Asking to harmonize, merge or map them to
+    the house terms, or for the update workbook that does it, is
+    `container_cc`, also when it follows an answer `nextseek_query` gave
+    ("harmonize those").
+
+    {% if input.followup_rule %}{{ input.followup_rule }}{% endif %}
+
+    Open-ended summaries go to `container_cc`. A request to summarise a whole
+    project or investigation — how much data it holds, an inventory of it, an
+    overview or summary of what it contains, the span of its collection dates —
+    is `container_cc`, which writes the summary and hands over a file. These stay
+    `nextseek_query`: a formal NIH, RPPR, annual or progress report (the NS
+    reporter builds it); upload statistics ("how many samples were uploaded in
+    2025"); repository submissions and nf-core samplesheets; "tell me about X"
+    or "what is X", which asks what a project is; and a plain count or breakdown
+    ("how many samples are in SRP", "break SRP down by sample type").
+
+    Catalog counts stay `nextseek_query`. How many sample types, assays,
+    projects, investigations, studies or protocols NExtSEEK defines is a lookup
+    NExtSEEK answers itself, and so is how many sample types or assay kinds
+    have samples or have none. A question that asks for both numbers is not a
+    join of two sources.
 
     {{ ctx.output_format }}
   "#

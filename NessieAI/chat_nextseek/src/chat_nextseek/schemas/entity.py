@@ -53,6 +53,9 @@ class EntityAgentOutput(BaseModel):
     #: People named as who made, collected or handled samples, and person names that
     #: matched no lab: the ``Scientist`` attribute, never a lab scope.
     scientists: list[str] = Field(default_factory=list)
+    #: Written by code: a category word of the question -> every catalog type whose Tags carry it
+    #: (``agents/entity.expand_category_types``). The sample types of those codes are all in ``sampletypes``.
+    category_types: dict[str, list[str]] = Field(default_factory=dict)
     #: Overwritten after the LLM returns, like ``lab_codes``.
     lab_matches: list[LabMatch] = Field(default_factory=list)
     #: Also written by code, and deliberately not acted on. See ``LabNearMiss``.
