@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from streamlit.runtime.state.session_state_proxy import SessionStateProxy
 
+from .. import known_titles
 from ..session import SessionState
 from ..config import ChatConfig
 from ..helpers import (
@@ -377,10 +378,10 @@ def _canonical_multi_parse(
     recent_summary = build_recent_results_summary(session)
     chat_history = history_block(session)
     endpoints_json = _endpoints_for_prompt(config, user_query)
-    graph_schema_json = json.dumps(config.MIN_GRAPH_SCHEMA, indent=2) if config.MIN_GRAPH_SCHEMA else "{}"
+    graph_schema_json = known_titles.schema_json(config, config.MIN_GRAPH_SCHEMA) if config.MIN_GRAPH_SCHEMA else "{}"
 
     messages: list[dict[str, str]] = [
-        {"role": "system", "content": config.MULTI_PARSER_SYSTEM_PROMPT},
+        {"role": "system", "content": known_titles.fill(config, config.MULTI_PARSER_SYSTEM_PROMPT)},
     ]
     if chat_history:
         messages.append({"role": "system", "content": chat_history})
@@ -400,7 +401,7 @@ def _canonical_multi_parse(
             config=config,
             prompt=user_query,
             model=MultiParserPlan,
-            system=config.MULTI_PARSER_SYSTEM_PROMPT,
+            system=known_titles.fill(config, config.MULTI_PARSER_SYSTEM_PROMPT),
             messages=messages,
             model_name=mp_model,
             temperature=0,
@@ -1030,13 +1031,13 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
     }
     idx = getattr(config, "ENDPOINT_INDEX", None)
     endpoints_vary = idx is not None and idx.ready
-    messages: list[dict[str, str]] = [{"role": "system", "content": config.PARSER_SYSTEM_PROMPT}]
+    messages: list[dict[str, str]] = [{"role": "system", "content": known_titles.fill(config, config.PARSER_SYSTEM_PROMPT)}]
     if not endpoints_vary:
         messages.append(endpoints_msg)
     messages.append({
         "role": "system",
         "content": "GRAPH_SCHEMA (consult to determine graph_query vs. API routing):\n"
-        + json.dumps(config.MIN_GRAPH_SCHEMA, indent=2),
+        + known_titles.schema_json(config, config.MIN_GRAPH_SCHEMA),
         "cache_point": "1h",
     })
     if endpoints_vary:
@@ -1077,7 +1078,7 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
             config=config,
             prompt=user_query,
             model=ParserPlan,
-            system=config.PARSER_SYSTEM_PROMPT,
+            system=known_titles.fill(config, config.PARSER_SYSTEM_PROMPT),
             messages=messages,
             model_name=parser_model_name,
             temperature=0,

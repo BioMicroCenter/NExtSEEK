@@ -55,7 +55,10 @@ MIN_SCHEMA_PATH = PACKAGE / "context" / "min_graph_schema.json"
 # Re-pinned a seventh time (round 4 fix F5, supervisor): the SOP trigger names the file of one SOP by its id OR its
 # exact title, as the parser prompt and the code-built request now do. Checked by replacing that one string in the
 # old frozen JSON, which then equals the new one exactly (was f9352f09158f...c58cf8e462).
-FROZEN_ROUTING_SHA256 = "715d6192282500a2df13f9cbdc672712d436aa40952ff3a8116cadd71a99d526"
+# Re-pinned an eighth time (nessie_fixes fix 9): the "Investigation titles to recognize" rule carries the placeholder
+# {{KNOWN_INVESTIGATION_TITLES}}, filled from each box's graph at call time. Checked by replacing the placeholder with
+# the old title list in the new JSON, which then equals the old frozen JSON exactly (was 715d61922825...cadd71a99d526).
+FROZEN_ROUTING_SHA256 = "08e1ec92558896e259d03c9a89c7679407771bec287c51a1c7f9b494410b40c3"
 DESCRIPTIVE_RULE_PREFIX = "If the query filters or reports on a descriptive sample attribute"
 
 

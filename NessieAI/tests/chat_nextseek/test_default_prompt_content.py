@@ -72,7 +72,9 @@ def test_the_wrappers_compose_with_the_shipped_routing_core(wrapper):
     core = shipped("parser_core_routing.txt")
     composed = default.replace(PLACEHOLDER, core)
     assert PLACEHOLDER not in composed
-    assert "{{" not in composed and "}}" not in composed
+    # The only markers left are the two known-title ones, filled from the box's graph at call time (fix 9).
+    leftover = composed.replace("{{KNOWN_INVESTIGATION_TITLES}}", "").replace("{{KNOWN_PROJECT_TITLES}}", "")
+    assert "{{" not in leftover and "}}" not in leftover
     assert core in composed
 
 
@@ -80,7 +82,8 @@ def test_the_wrappers_compose_with_the_shipped_routing_core(wrapper):
                                   "api_agent.txt"])
 def test_no_text_override_carries_a_template_marker(name):
     # Only the two parser wrappers are templated ({{NAME}} markers), and v2 overrides neither. JSON braces are fine.
-    assert not re.search(r"\{\{[A-Z_]+\}\}", shipped(name))
+    text = shipped(name).replace("{{KNOWN_INVESTIGATION_TITLES}}", "").replace("{{KNOWN_PROJECT_TITLES}}", "")
+    assert not re.search(r"\{\{[A-Z_]+\}\}", text)
 
 
 def test_the_context_json_parses_and_keeps_graph_search_out_of_the_catalog():

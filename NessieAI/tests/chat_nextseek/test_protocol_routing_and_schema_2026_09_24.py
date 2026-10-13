@@ -89,14 +89,17 @@ def test_f1_studies_are_paper_level_or_seek_studies():
     assert "it is true for every study" not in study
 
 
-def test_f2_the_known_investigation_titles_include_the_live_ones():
-    for title in ("Griffith", "Impact", "RMS-NGC", "SRP", "Shoulders"):
-        assert title in _node("Investigation"), title
-        rule = next(r for r in SCHEMA["disambiguation_rules"] if r.startswith("Investigation titles to recognize"))
-        assert title in rule, title
-        line = next(l for l in CORE.splitlines() if l.startswith("Known investigation titles:"))
-        assert title in line, title
+def test_f2_the_known_investigation_titles_come_from_the_graph_and_the_aliases_resolve():
+    """Fix 9: no box's titles are fixed text; the lines are placeholders the live graph fills."""
+    rule = next(r for r in SCHEMA["disambiguation_rules"] if r.startswith("Investigation titles to recognize"))
+    line = next(l for l in CORE.splitlines() if l.startswith("Known investigation titles:"))
+    for text in (_node("Investigation"), rule, line):
+        assert "{{KNOWN_INVESTIGATION_TITLES}}" in text
     assert "MyTestInvestigation" not in CORE
+    from chat_nextseek import known_titles
+    assert known_titles.resolve_aliases(["Endometriosis", "MIT_SRP"], "investigation") == {
+        "Griffith": ["Endometriosis"], "SRP": ["MIT_SRP"]}
+    assert known_titles.resolve_aliases(["Griffith"], "investigation") == {"Griffith": ["Griffith"]}
 
 
 def test_f3_derived_from_names_the_plural_assay_list_and_the_approved_test():

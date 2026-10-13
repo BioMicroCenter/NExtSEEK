@@ -44,7 +44,7 @@ def _quiet_stdout():
     finally:
         sys.stdout = old
 
-from chat_nextseek import graph_catalog, graph_context
+from chat_nextseek import graph_catalog, graph_context, known_titles
 from chat_nextseek.config import ChatConfig
 from chat_nextseek.graph_scope import operator_scope_from_env, with_scope
 from chat_nextseek.session import SessionState
@@ -193,7 +193,8 @@ def context_resource(name: str) -> str:
         if live is not None:
             return live
     path = Path(_cfg().CONTEXT_DIR) / filename
-    return path.read_text()
+    text = path.read_text()
+    return known_titles.fill(_cfg(), text) if name == "graph-schema" else text
 
 
 # ── Prompts — agent system prompts ────────────────────────────────────────────
@@ -207,13 +208,13 @@ def entity_agent() -> str:
 @mcp.prompt()
 def parser_agent() -> str:
     """Canonical parser prompt used by the standard parser compatibility wrapper."""
-    return _cfg().MULTI_PARSER_SYSTEM_PROMPT
+    return known_titles.fill(_cfg(), _cfg().MULTI_PARSER_SYSTEM_PROMPT)
 
 
 @mcp.prompt()
 def multi_parser_agent() -> str:
     """System prompt for the multi-path parser (all viable execution paths)."""
-    return _cfg().MULTI_PARSER_SYSTEM_PROMPT
+    return known_titles.fill(_cfg(), _cfg().MULTI_PARSER_SYSTEM_PROMPT)
 
 
 @mcp.prompt()
