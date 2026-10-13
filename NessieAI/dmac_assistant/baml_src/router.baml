@@ -134,6 +134,13 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     Select `container_cc` only when the user asks for a new file to be made
     from it.
 
+    Values written several ways are judged by intent too. Asking which values,
+    spellings or types an attribute holds, and how many of each, is a NExtSEEK
+    search: select `nextseek_query`. Asking to harmonize, merge or map them to
+    the house terms, or for the update workbook that does it, is
+    `container_cc`, also when it follows an answer `nextseek_query` gave
+    ("harmonize those").
+
     {% if input.followup_rule %}{{ input.followup_rule }}{% endif %}
 
     Open-ended summaries go to `container_cc`. A request to summarise a whole
