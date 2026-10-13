@@ -2,7 +2,8 @@
 
 Reads repo files by path with `ast` and `re` only: no Django, no `ci/` import. A failure
 names the rule and lists each key with its `file:line`; fix it by adding or changing the
-key's table in startup/env_registry.toml (schema: startup/lib/env_registry.py).
+key's table in startup/env_registry.toml (schema: startup/lib/env_registry.py), except
+test_example_has_every_template_key, whose fix is a line in docker/nextseek.env.example.
 
 Scope (operator ruling): the runtime code below. scripts/, ci/, startup/ itself, the
 Nessie CLI (NessieAI/chat_nextseek/cli.py) and tests are out of scope.

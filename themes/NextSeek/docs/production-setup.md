@@ -20,7 +20,7 @@ In `docker/nextseek.env`, leave `DJANGO_DEBUG` unset, set `DJANGO_ALLOWED_HOSTS`
 
 ### 3. Set the public SEEK address
 
-SEEK is served on its own host name. Set it once, at the first install, with `./startup.sh install --seek-public-url https://seek.example.org` (host only, no path; leave it out on a laptop), so that NExtSEEK's links and SEEK's own identifiers agree. Running install again keeps it, and keeps your edits from items 2, 4 and 6. Details: [NExtSTEPS 1d](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#1d-set-the-browser-reachable-seek-url---seek-public-url).
+SEEK is served on its own host name. Set it once, at the first install, with `./startup.sh install --seek-public-url https://seek.example.org` (host only, no path; leave it out on a laptop), so that NExtSEEK's links and SEEK's own identifiers agree. Running install again keeps it, and keeps your edits from items 2, 4 and 6 (to the CSRF list it adds this box's localhost pair back, which the box's CI logins need). Details: [NExtSTEPS 1d](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#1d-set-the-browser-reachable-seek-url---seek-public-url).
 
 ### 4. Rotate credentials
 
