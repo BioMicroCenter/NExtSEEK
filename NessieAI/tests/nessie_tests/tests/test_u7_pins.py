@@ -31,9 +31,14 @@ FLOW = "graph.project_samples_with_flow_or_cytof"
 
 
 def test_pbmc_accepts_short_and_spelled_out_type():
-    assert _passes(PBMC, "390 tissue samples have Type PBMC.")
     assert _passes(PBMC, "1,826 tissue (TIS) samples have the type Peripheral Blood Mononuclear Cells or PBMC.")
-    assert _passes(PBMC, "There are 2,711 TIS samples that mention peripheral blood mononuclear cells.")
+    assert _passes(PBMC, "There are 2,906 TIS samples that mention PBMC or peripheral blood mononuclear cells.")
+
+
+def test_pbmc_rejects_the_pre_fix_answers():
+    """R10: 390 (Type 'PBMC' only) and 2,711 (text 'pbmc' only) are the answers before the fix."""
+    assert not _passes(PBMC, "390 tissue samples have Type PBMC.")
+    assert not _passes(PBMC, "There are 2,711 TIS samples that mention PBMC.")
 
 
 def test_pbmc_rejects_all_types_total_and_unnamed_type():
@@ -45,10 +50,13 @@ def test_flow_accepts_either_count_when_it_says_which():
     assert _passes(FLOW, "8,372 samples have flow cytometry or CyTOF data.")
     assert _passes(FLOW, "I found 10,872 flow and CyTOF data records in the project.")
     assert _passes(FLOW, "8,375 distinct samples have a D.FLOW, D.CYTOF or D.FCS record.")
+    # R10: the record count with D.FCS included is the count fix 7 asks for.
+    assert _passes(FLOW, "There are 12,244 flow cytometry, FCS and CyTOF data records.")
 
 
 def test_flow_rejects_a_count_that_does_not_say_which():
     assert not _passes(FLOW, "10,872 samples have flow cytometry or CyTOF data.")
+    assert not _passes(FLOW, "12,244 samples have flow cytometry or CyTOF data.")
     assert not _passes(FLOW, "The answer is 10,872.")
     assert not _passes(FLOW, "8,372.")
 

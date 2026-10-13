@@ -5908,12 +5908,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)\\b8,?37[25]\\b\\D{0,60}samples?|\\b10,?872\\b\\D{0,60}records?"
+                  "value": "(?is)\\b8,?37[25]\\b\\D{0,60}samples?|\\b1(0,?872|2,?244)\\b\\D{0,60}records?"
                 }
               ]
             }
           ],
-          "_why": "8,372 distinct IMPAcTb samples have a D.FLOW or D.CYTOF descendant, 8,375 counting D.FCS too. The data records themselves are D.FLOW 10,838, D.FCS 1,372 and D.CYTOF 34. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: Sample IN_PROJECT IMPAcTb WITH DISTINCT s WHERE EXISTS { (x)-[:DERIVED_FROM*1..12]->(s) WHERE x:T_D_FLOW OR x:T_D_CYTOF }. || WAS: the query searched D.FLOW and D.CYTOF descendants (7,992 then) but the reply called the data D.FCS (B8). || TESTS: the count of samples, not data records, over the whole project.",
+          "_why": "8,372 distinct IMPAcTb samples have a D.FLOW or D.CYTOF descendant, 8,375 counting D.FCS too. The data records themselves are D.FLOW 10,838, D.FCS 1,372 and D.CYTOF 34. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: Sample IN_PROJECT IMPAcTb WITH DISTINCT s WHERE EXISTS { (x)-[:DERIVED_FROM*1..12]->(s) WHERE x:T_D_FLOW OR x:T_D_CYTOF }. || WAS: the query searched D.FLOW and D.CYTOF descendants (7,992 then) but the reply called the data D.FCS (B8). || TESTS: the count of samples, not data records, over the whole project. || 2026-10-13 (review R10): the records branch also accepts 12,244 (D.FLOW + D.FCS + D.CYTOF, the count fix 7 asks for).",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 437 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         }
       ]
@@ -7079,7 +7079,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(390|1,?826|2,?711|2,?906)\\b"
+                  "value": "\\b(1,?826|2,?906)\\b"
                 },
                 {
                   "field": "last_reply",
@@ -7103,7 +7103,7 @@
           },
           "_promoted_2026_08_06": "Reviewed and grounded. PBMC is a site-specific vocabulary term that maps to the TIS sample type: 653 TIS samples mention PBMC (and 511 D.FLOW, 1,172 in all). The existing entity_sampletype_codes criterion is correct but is stripped on a forced CC arm, so a reply-level criterion is added to make the case measurable on both engines.",
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 457 TIS rows have Type exactly 'PBMC'; 653 TIS rows mention PBMC anywhere (301 more say 'Peripheral Blood Mononuclear Cells', 6 lowercase). There is no PBMC sample TYPE \u2014 PBMC is a tissue. || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Type='PBMC' = 457; TIS blob LIKE '%PBMC%' = 653; also D.FLOW 511, ABP 4, A.FLOW 3, A.COMC 1.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_TIS Type = 'PBMC' exactly 390; T_TIS search_text CONTAINS 'pbmc' 2,711 (Neo4j cypher-shell, read-only); same two predicates as before. Other TIS Type values: 'Peripheral Blood Mononuclear Cells' 1,430, 'PBMC Plasma' 889, 'Peripheral blood mononuclear cells' 6; was 457/653."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_TIS Type = 'PBMC' exactly 390; T_TIS search_text CONTAINS 'pbmc' 2,711 (Neo4j cypher-shell, read-only); same two predicates as before. Other TIS Type values: 'Peripheral Blood Mononuclear Cells' 1,430, 'PBMC Plasma' 889, 'Peripheral blood mononuclear cells' 6; was 457/653. || 2026-10-13 (review R10): 390 (Type 'PBMC' only, too narrow) and 2,711 (text 'pbmc' only) are the answers before the fix, so they no longer pass; 1,826 and 2,906 stay."
         },
         {
           "id": "entity.find_pbmcs_that_were_sequenced_u",
