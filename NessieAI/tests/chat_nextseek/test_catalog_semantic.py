@@ -486,3 +486,43 @@ def test_shortlist_catalog_falls_back_on_hybrid_exception(tmp_path):
     assert diag["fallback_reason"] is not None
     assert "synthetic hybrid-path failure" in diag["fallback_reason"]
     assert len(st_short) == 1  # legacy fallback still returned the item
+
+
+# ---- #28: the models are baked into the app image; a load failure is loud ----
+
+def _raise_not_baked(self):
+    raise OSError(f"{self._model_name} is not in the local cache")
+
+
+def test_query_time_model_load_failure_logs_one_error_and_degrades(tmp_path, monkeypatch, caplog):
+    """A matching .npz skips the model at init; the model then loads at the first query.
+    That load used to raise out of query() and be swallowed upstream with no log line."""
+    catalog = [{"id": "a", "text": "apple"}]
+    SemanticIndex(catalog=catalog, name="lazy", doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+                  cache_dir=tmp_path, model_name="org/baked-model", encoder=_fake_encoder())
+    monkeypatch.setattr(SemanticIndex, "_load_default_encoder", _raise_not_baked)
+    idx = SemanticIndex(catalog=catalog, name="lazy", doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+                        cache_dir=tmp_path, model_name="org/baked-model")
+    assert idx.ready is True  # served from the .npz, no model needed yet
+
+    caplog.set_level("WARNING", logger="chat_nextseek.helpers.tools.catalog_semantic")
+    assert idx.query("apple") == []
+    assert idx.query("apple") == []
+    assert idx.ready is False
+    assert "not in the local cache" in idx.fail_reason
+    errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(errors) == 1
+    assert "org/baked-model" in errors[0].getMessage()
+
+
+def test_a_model_name_not_in_the_image_logs_an_error_at_init(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(SemanticIndex, "_load_default_encoder", _raise_not_baked)
+    caplog.set_level("WARNING", logger="chat_nextseek.helpers.tools.catalog_semantic")
+    idx = SemanticIndex(catalog=[{"id": "a", "text": "apple"}], name="unbaked",
+                        doc_fn=lambda x: x["text"], id_fn=lambda x: x["id"],
+                        cache_dir=tmp_path, model_name="org/not-baked")
+    assert idx.ready is False
+    assert idx.query("apple") == []
+    errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(errors) == 1
+    assert "org/not-baked" in errors[0].getMessage()

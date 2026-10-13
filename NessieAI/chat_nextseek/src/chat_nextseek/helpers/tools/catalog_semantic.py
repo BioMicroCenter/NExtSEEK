@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -16,6 +17,15 @@ import numpy as np
 _LOG = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+
+def _model_unavailable(index: str, model_name: str, reason: str) -> None:
+    """One ERROR for a model that will not load. The app image bakes the models (#28)."""
+    _LOG.error(
+        "SemanticIndex[%s] model %s did not load from %s (%s); the shortlist falls back to lexical. "
+        "The app image bakes its models: rebuild the app image, or set SEMANTIC_MODEL_NAME to a baked model.",
+        index, model_name, os.environ.get("SENTENCE_TRANSFORMERS_HOME") or "the library default", reason,
+    )
 
 
 def _catalog_hash(catalog: list[dict]) -> str:
@@ -202,7 +212,7 @@ class SemanticIndex:
             self._initialize()
         except Exception as exc:  # noqa: BLE001
             self._fail_reason = f"{type(exc).__name__}: {exc}"
-            _LOG.warning("SemanticIndex[%s] initialization failed: %s", name, self._fail_reason)
+            _model_unavailable(name, model_name, f"initialization failed: {self._fail_reason}")
             self._ready = False
 
     @property
@@ -223,7 +233,13 @@ class SemanticIndex:
         if not self._ready or self._embeddings is None or self._embeddings.size == 0:
             return []
         if self._encoder is None:
-            self._encoder = self._load_default_encoder()
+            try:
+                self._encoder = self._load_default_encoder()
+            except Exception as exc:  # noqa: BLE001
+                self._fail_reason = f"{type(exc).__name__}: {exc}"
+                self._ready = False
+                _model_unavailable(self._name, self._model_name, self._fail_reason)
+                return []
         encoder = self._encoder
         try:
             q = encoder([text])
