@@ -134,15 +134,17 @@ def _study_title(scope: Optional[Scope], seek_db: str) -> Tuple[str, List[int]]:
     its assays, linked to the project in ``projects_samples``), and a caller who sees nothing reads none. The test is
     a ``CASE`` here, never a condition on the outer join to ``studies``: MySQL 8.0 may run an ``EXISTS`` in a
     ``LEFT JOIN ... ON`` as a semijoin, and its answer then depends on the plan it picks. The subquery is
-    uncorrelated (``s.id IN (SELECT ...)``, no outer column inside) so MySQL evaluates it once; a correlated
-    ``EXISTS`` in the select list ran once per joined row and table-scanned ``projects_samples`` each time.
+    uncorrelated (``s.id IN (SELECT ...)``, no outer column inside) and hinted to materialize, so MySQL runs it once
+    whatever its cost model prefers; a correlated ``EXISTS`` in the select list ran once per joined row and
+    table-scanned ``projects_samples`` each time. ``s.id IS NOT NULL`` skips it when no row reaches a study.
     """
     if scope is not None and scope.is_admin:
         return "s.title", []
     projects = [] if _sees_nothing(scope) else [int(p) for p in scope.project_ids]
     if not projects:
         return "NULL", []
-    return (f"CASE WHEN s.id IN (SELECT va.study_id FROM {seek_db}.assay_assets vaa"
+    return (f"CASE WHEN s.id IS NOT NULL AND s.id IN (SELECT /*+ SUBQUERY(MATERIALIZATION) */ va.study_id"
+            f" FROM {seek_db}.assay_assets vaa"
             f" JOIN {seek_db}.assays va ON va.id = vaa.assay_id"
             f" JOIN {seek_db}.projects_samples vps ON vps.sample_id = vaa.asset_id"
             f" WHERE vaa.asset_type = 'Sample'"

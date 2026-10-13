@@ -50,13 +50,14 @@ def _request(method="get", data=None, superuser=False):
 class _Sql:
     """Fake MySQL: answers the internal assay read and the enrichment read, and keeps every statement."""
 
-    def __init__(self):
+    def __init__(self, internal=None):
         self.calls = []
+        self.internal = internal or [{"id": 7, "internal_assay_title": "RNA-Seq"}]
 
     def __call__(self, query, params=None):
         self.calls.append((" ".join(query.split()), list(params or [])))
         if "internal_assays" in query and "assay_context" not in query:
-            return [{"id": 7, "internal_assay_title": "RNA-Seq"}]
+            return self.internal
         if "assay_context" in query:
             return [{"internal_assay_id": 7, "description": "d", "study_titles": "S"}]
         return [{"color": "#AAA"}]
@@ -82,7 +83,8 @@ def _titles(statement):
 def _assert_scoped_to(sql_call, projects):
     statement, params = sql_call
     titles = _titles(statement)
-    assert titles.startswith("GROUP_CONCAT(DISTINCT CASE WHEN s.id IN (SELECT va.study_id FROM "), titles
+    assert titles.startswith("GROUP_CONCAT(DISTINCT CASE WHEN s.id IS NOT NULL AND s.id IN "
+                             "(SELECT /*+ SUBQUERY(MATERIALIZATION) */ va.study_id FROM "), titles
     assert "projects_samples" in titles and "assay_assets" in titles, titles
     assert "asset_type = 'Sample'" in titles and "project_id IN (%s, %s)" in titles, titles
     assert titles.endswith(") THEN s.title END SEPARATOR '; ')"), titles
@@ -91,9 +93,12 @@ def _assert_scoped_to(sql_call, projects):
 
 
 def _assert_uncorrelated(titles):
-    """The IN ( ... ) subquery names no column of the outer query, so MySQL runs it once, not once per joined row."""
+    """The IN ( ... ) subquery names no alias of the outer query (ac, aia, a, s) and carries the materialization hint,
+    so MySQL runs it once, not once per joined row."""
+    assert "s.id IN (" in titles and ") THEN s.title END" in titles, titles
     inner = titles[titles.index("s.id IN (") + len("s.id IN ("):titles.index(") THEN s.title END")]
-    assert not re.search(r"(?<![\w.])s\.", inner) and "= s.id" not in inner, inner
+    assert not re.search(r"(?<![\w.])(?:ac|aia|a|s)\.", inner), inner
+    assert "SUBQUERY(MATERIALIZATION)" in inner, inner
 
 
 def _assert_join_is_plain(statement):
@@ -169,20 +174,21 @@ def test_lineage_include_attributes_reads_study_titles_through_the_callers_proje
     _assert_join_is_plain(sql.enrichment()[0])
 
 
-def test_many_internal_assays_still_run_one_enrichment_with_the_projects_once(edges):
-    sql, scope = edges
-    scope.return_value = MEMBER
+def test_many_internal_assays_still_run_one_enrichment_with_the_projects_once():
+    """80 internal assays: still ONE enrichment statement, the project ids bound once, the 80 ids inlined."""
     ids = list(range(1, 81))
-    driver_rows = [{"source": "A", "target": "B", "annotation": "RNA-Seq", "internal_assay_id": 7 if i == 80 else i} for i in ids]
-    with patch(f"{_MOD}.GraphDatabase") as gd:
-        driver = MagicMock()
-        driver.execute_query.return_value = (driver_rows, None, None)
+    sql = _Sql(internal=[{"id": i, "internal_assay_title": f"A{i}"} for i in ids])
+    driver = MagicMock()
+    driver.execute_query.return_value = (
+        [{"source": "A", "target": "B", "annotation": f"A{i}", "internal_assay_id": i} for i in ids], None, None)
+    with patch(f"{_MOD}.GraphDatabase") as gd, patch(f"{_MOD}._run_sql_query", side_effect=sql), \
+            patch(f"{_MOD}.resolve_seek_auth", return_value=(("u", "p"), {})), \
+            patch(f"{_MOD}.resolve_scope", return_value=MEMBER):
         gd.driver.return_value.__enter__ = Mock(return_value=driver)
         gd.driver.return_value.__exit__ = Mock(return_value=False)
         resp = _viewset().list_edge_attributes(_request())
     assert resp.status_code == 200
     statement, params = sql.enrichment()
-    titles = _titles(statement)
-    assert statement.count("project_id IN (") == 1 and titles.count("%s") == 2, statement
-    assert params[-2:] == list(MEMBER.project_ids)
-    _assert_scoped_to((statement, list(MEMBER.project_ids)), MEMBER.project_ids)
+    assert f"ac.internal_assay_id IN ({', '.join(str(i) for i in ids)})" in statement, statement
+    assert statement.count("project_id IN (") == 1
+    _assert_scoped_to((statement, params), MEMBER.project_ids)
