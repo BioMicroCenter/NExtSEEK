@@ -192,6 +192,49 @@ class TestSampleTypeList:
         resp = vs.list(_auth_request())
         assert resp.status_code == 502
 
+    def test_list_504_when_seek_times_out(self):
+        import requests
+        vs = self._viewset()
+        vs.client.list_sample_types.side_effect = requests.Timeout()
+        resp = vs.list(_auth_request())
+        assert resp.status_code == 504
+        assert b"did not answer" in resp.content
+
+    def test_list_502_when_seek_unreachable(self):
+        import requests
+        vs = self._viewset()
+        vs.client.list_sample_types.side_effect = requests.ConnectionError()
+        assert vs.list(_auth_request()).status_code == 502
+
+    def test_list_asks_for_the_longer_timeout(self):
+        from nextseek_api.services.sample_types import LIST_TIMEOUT_S
+        vs = self._viewset()
+        vs.client.list_sample_types.return_value = _ok(GOOD_ST_LIST)
+        vs.list(_auth_request())
+        assert vs.client.list_sample_types.call_args.kwargs["timeout_s"] == LIST_TIMEOUT_S > 25
+        # N1: under nginx's default 60 s proxy_read_timeout, so the app's own JSON 504 answers first.
+        assert LIST_TIMEOUT_S < 60
+
+
+class TestSeekClientTimeout:
+    def _call(self, **kw):
+        from nextseek_api.helpers import SeekAPIClient
+        c = SeekAPIClient()
+        c.session = MagicMock()
+        c.session.request.return_value = Mock(content=b"{}", status_code=200, headers={})
+        with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(("u", "p"), {})):
+            c.list_sample_types(MagicMock(), **kw)
+        return c.session.request.call_args.kwargs["timeout"]
+
+    def test_default_stays_20(self):
+        assert self._call() == 20
+
+    def test_list_override_reaches_requests(self):
+        assert self._call(timeout_s=60) == 60
+
+    def test_other_value_reaches_requests(self):
+        assert self._call(timeout_s=45) == 45
+
 
 # ============================================================================
 # SampleTypeProxyViewSet.retrieve

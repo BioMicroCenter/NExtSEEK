@@ -1280,3 +1280,26 @@ def test_cannot_do_this_analysis_cases_cap_the_reply_length():
     walk(raw)
     crits = found[0]["turns"][0]["pass_criteria"]
     assert {"field": "last_reply.lines", "op": "lte", "value": 12} in crits
+
+
+# Fix 3 (U7): a last_reply regex reads the reply proper, never the Debug info block.
+_DBG = "\n\n**Debug info**\n\n```json\n{\"intent_summary\": \"study title cohort 4 week\"}\n```"
+
+
+def _reply_check(reply, pattern):
+    crit = [{"field": "last_reply", "op": "matches_re", "value": pattern}]
+    return evaluate.evaluate_turn(NS_PAYLOAD, crit, OBS_NS, last_reply=reply)[0]
+
+
+@pytest.mark.parametrize("pattern", [r"(?i)\btitle", r"(?i)cohort", r"4[- ]?week"])
+def test_reply_check_ignores_debug_block(pattern):
+    assert not _reply_check("There are 18 samples." + _DBG, pattern)
+
+
+@pytest.mark.parametrize("reply,pattern", [
+    ("Matched on the study title." + _DBG, r"(?i)\btitle"),
+    ("Cohort value used." + _DBG, r"(?i)cohort"),
+    ("A plain reply with no debug block: 4 week", r"4[- ]?week"),
+])
+def test_reply_check_passes_on_reply_proper(reply, pattern):
+    assert _reply_check(reply, pattern)

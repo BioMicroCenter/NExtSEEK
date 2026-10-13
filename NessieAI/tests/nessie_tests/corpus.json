@@ -3838,7 +3838,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(122|123)\\b"
+                  "value": "\\b(122|123|124)\\b"
                 },
                 {
                   "field": "last_reply",
@@ -5908,12 +5908,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(8,?372|8,?375)\\b"
+                  "value": "(?is)\\b8,?37[25]\\b\\D{0,60}samples?|\\b1(0,?872|2,?244)\\b\\D{0,60}records?"
                 }
               ]
             }
           ],
-          "_why": "8,372 distinct IMPAcTb samples have a D.FLOW or D.CYTOF descendant, 8,375 counting D.FCS too. The data records themselves are D.FLOW 10,838, D.FCS 1,372 and D.CYTOF 34. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: Sample IN_PROJECT IMPAcTb WITH DISTINCT s WHERE EXISTS { (x)-[:DERIVED_FROM*1..12]->(s) WHERE x:T_D_FLOW OR x:T_D_CYTOF }. || WAS: the query searched D.FLOW and D.CYTOF descendants (7,992 then) but the reply called the data D.FCS (B8). || TESTS: the count of samples, not data records, over the whole project.",
+          "_why": "8,372 distinct IMPAcTb samples have a D.FLOW or D.CYTOF descendant, 8,375 counting D.FCS too. The data records themselves are D.FLOW 10,838, D.FCS 1,372 and D.CYTOF 34. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: Sample IN_PROJECT IMPAcTb WITH DISTINCT s WHERE EXISTS { (x)-[:DERIVED_FROM*1..12]->(s) WHERE x:T_D_FLOW OR x:T_D_CYTOF }. || WAS: the query searched D.FLOW and D.CYTOF descendants (7,992 then) but the reply called the data D.FCS (B8). || TESTS: the count of samples, not data records, over the whole project. || 2026-10-13 (review R10): the records branch also accepts 12,244 (D.FLOW + D.FCS + D.CYTOF, the count fix 7 asks for).",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 437 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         }
       ]
@@ -7079,7 +7079,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(390|2,?711)\\b"
+                  "value": "\\b(1,?826|2,?906)\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)(PBMC|Peripheral Blood Mononuclear).*(\\bTIS\\b|tissue)|(\\bTIS\\b|tissue).*(PBMC|Peripheral Blood Mononuclear)"
                 }
               ]
             }
@@ -7098,7 +7103,7 @@
           },
           "_promoted_2026_08_06": "Reviewed and grounded. PBMC is a site-specific vocabulary term that maps to the TIS sample type: 653 TIS samples mention PBMC (and 511 D.FLOW, 1,172 in all). The existing entity_sampletype_codes criterion is correct but is stripped on a forced CC arm, so a reply-level criterion is added to make the case measurable on both engines.",
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 457 TIS rows have Type exactly 'PBMC'; 653 TIS rows mention PBMC anywhere (301 more say 'Peripheral Blood Mononuclear Cells', 6 lowercase). There is no PBMC sample TYPE \u2014 PBMC is a tissue. || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Type='PBMC' = 457; TIS blob LIKE '%PBMC%' = 653; also D.FLOW 511, ABP 4, A.FLOW 3, A.COMC 1.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_TIS Type = 'PBMC' exactly 390; T_TIS search_text CONTAINS 'pbmc' 2,711 (Neo4j cypher-shell, read-only); same two predicates as before. Other TIS Type values: 'Peripheral Blood Mononuclear Cells' 1,430, 'PBMC Plasma' 889, 'Peripheral blood mononuclear cells' 6; was 457/653."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_TIS Type = 'PBMC' exactly 390; T_TIS search_text CONTAINS 'pbmc' 2,711 (Neo4j cypher-shell, read-only); same two predicates as before. Other TIS Type values: 'Peripheral Blood Mononuclear Cells' 1,430, 'PBMC Plasma' 889, 'Peripheral blood mononuclear cells' 6; was 457/653. || 2026-10-13 (review R10): 390 (Type 'PBMC' only, too narrow) and 2,711 (text 'pbmc' only) are the answers before the fix, so they no longer pass; 1,826 and 2,906 stay."
         },
         {
           "id": "entity.find_pbmcs_that_were_sequenced_u",
@@ -7695,7 +7700,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 76 internal assay types in `dmac.internal_assays`, all of them used at least once. SEEK's own assay_type_uri is the generic JERM root on all 324 assays and discriminates nothing. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(dmac.internal_assays)=76; assays.assay_type_uri has exactly one distinct value.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 137 rows in dmac.internal_assays, every one mapped by dmac.assays_internal_assays (seek_production MySQL, read-only dmac schema); was 76."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 137 rows in dmac.internal_assays, every one mapped by dmac.assays_internal_assays (seek_production MySQL, read-only dmac schema); was 76. Re-read on prod 2026-10-13 15:32Z: still 137; the assay list Nessie uses now comes from this table per box (fix 21)."
         },
         {
           "id": "sys.what_attributes_can_i_filter_o",
@@ -7710,13 +7715,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "system_question"
+                  "op": "matches_re",
+                  "value": "^(system_question|graph_query)$"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b49\\b"
+                  "value": "\\b54\\b"
                 },
                 {
                   "field": "last_reply",
@@ -7735,7 +7740,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. NHP declares 47 attributes; 44 distinct keys are observed in the data. Species, Sex, Origin, Facility, Supplier, Study and Cohort are the populated discriminators. Note `Cohort` (355 rows) is NOT declared on NHP at all. || VERIFIED: seek_production MySQL, verified 2026-08-06: sample_attributes for NHP = 47; JSON_KEYS distinct = 44; per-key fill counts.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): NHP declares 49 sample_attributes and 49 distinct keys appear in NHP json_metadata (seek_production MySQL, read-only); NHP no longer carries a Cohort key (the CD8 and 4-week groupings live in Study and Arm); was 47/44."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): NHP declares 49 sample_attributes and 49 distinct keys appear in NHP json_metadata (seek_production MySQL, read-only); NHP no longer carries a Cohort key (the CD8 and 4-week groupings live in Study and Arm); was 47/44. || Re-keyed 2026-10-13: prod read 2026-10-13 15:32Z (fairdata, read-only, builders/U7-reads-prod2.out) (read E): the graph's NHP SampleType has 54 HAS_ATTRIBUTE (54 declared, 52 with values) and SEEK sample_attributes for type 41 NHP = 54; was 49. || 2026-10-13 route ruling: Operator 2026-10-13, 'Either route': system_question or graph_query is the right parser mode; the number and the Species/Sex criteria still check the answer."
         },
         {
           "id": "sys.what_sample_types_can_i_search",
@@ -10152,6 +10157,16 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(Cell Isolation|Patient-Derived Xenograft|PDX)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b467\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b934\\b)"
                 }
               ]
             },
@@ -10187,7 +10202,7 @@
               ]
             }
           ],
-          "_why": "Between T_CEL and T_MUS there are two titled assays: 'Cell Isolation' on 32 CEL->MUS DERIVED_FROM edges (a cell derived from a mouse) and 'Patient-Derived Xenograft (PDX) Cell Line Generation' on 467 MUS->CEL edges, plus 20 MUS->CEL edges with no title. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (a:T_CEL)-[r:DERIVED_FROM]->(b:T_MUS) RETURN r.internal_assay_title, count(*), and the reverse. 'Cell Line Creation', which the old reply named, is not an assay title anywhere in the graph. The question's 'three' echoes a row count the old seed reported; the follow-up must answer from what was found, not agree with the premise. Follow-ups route to container_cc (operator ruling 2026-09-23). || WAS: the seed said '3 matches' and the follow-up said 'Only two assays were found (not three)', contradicting it (B12). || TESTS: a follow-up names what the previous turn returned. || 2026-09-24: follow-up split (routing review 5): recall of what the earlier turn found, so the follow-up asserts nextseek_query (was container_cc).",
+          "_why": "Between T_CEL and T_MUS there are two titled assays: 'Cell Isolation' on 32 CEL->MUS DERIVED_FROM edges (a cell derived from a mouse) and 'Patient-Derived Xenograft (PDX) Cell Line Generation' on 467 MUS->CEL edges, plus 20 MUS->CEL edges with no title. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (a:T_CEL)-[r:DERIVED_FROM]->(b:T_MUS) RETURN r.internal_assay_title, count(*), and the reverse. 'Cell Line Creation', which the old reply named, is not an assay title anywhere in the graph. The question's 'three' echoes a row count the old seed reported; the follow-up must answer from what was found, not agree with the premise. Follow-ups route to container_cc (operator ruling 2026-09-23). || WAS: the seed said '3 matches' and the follow-up said 'Only two assays were found (not three)', contradicting it (B12). || TESTS: a follow-up names what the previous turn returned. || 2026-09-24: follow-up split (routing review 5): recall of what the earlier turn found, so the follow-up asserts nextseek_query (was container_cc). || 2026-10-13: prod read 2026-10-13 15:32Z (fairdata, read-only, builders/U7-reads-prod2.out) (read G): MUS from CEL, Patient-Derived Xenograft (PDX) Cell Line Generation 467 edges and 20 untitled; CEL from MUS, Cell Isolation 32 and Cell Line Creation 8. The seed must give 467 and never 934 (each edge counted twice, fix 6).",
           "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 131 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else.",
           "_deselected_2026_09_23_prod_researchers": "Not in the paid paired selection: added with the production researcher questions, whose purpose is regression cover in the full tier. The follow-up families are already represented in the selection."
         },
@@ -10885,66 +10900,6 @@
           "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged. || 2026-09-24: follow-up split (routing review 5): a re-run of the earlier search with one term swapped, so the follow-up asserts nextseek_query (was container_cc)."
         },
         {
-          "_why_superseded_2026_08_03": "The seed used to drop the keyword entirely: entity resolved ['4 week'], the API agent sent filter_searchText:'' and the reply covered all 50,886 samples. Assert the seed is actually filtered, not just routed. That reasoning assumed the turn belongs to NExtSEEK's REST path, which the router settled otherwise.",
-          "_why": "Rewritten 2026-08-03 for the route this case ACTUALLY takes. The old text asserted `route eq nextseek_query` alongside api_ok, api_plan.requestBody.filter_searchText and api_result_meta.row_count, and in the seed-6 run all four went red together. The operator ruled the ROUTER right: the seed turn routed container_cc citing ambiguous_study_resolution, cost $0.378, and produced the best answer in the entire run. Flipping the route alone was therefore not progress, it would have converted a case failing on one criterion into a case failing on three, because a container_cc query_complete carries no `debug` key at all and every NS REST field on it is unresolvable by construction. So the case is rewritten around what a CORRECT CC answer has to contain. Ground truth: Cohort='4 week' is exactly 2 samples, NHP-220524FLY-1-PUB and NHP-220524FLY-2-PUB, both Macaca fascicularis in JoAnne Flynn's lab; the keyword '4 week' returns 15, and the other 13 are substring hits on '14 weeks'. The seed accordingly asserts the route, the two genuine UIDs, the Cohort field the truth rests on (a naive keyword-count answer never mentions it), and that the false positives are disclosed. That last one is the real assertion: the failure mode here is answering '15 samples' flat, and no route or plumbing criterion can tell that apart from the right answer. Two review corrections on the guards themselves, both evidence-checked against the observed reply: the UID guard names BOTH ordinals (NHP-220524FLY-1 and -2) rather than the bare NHP-220524FLY- prefix, because a prefix matches any ordinal and a right-shaped reply naming the WRONG samples ('9 samples: NHP-220524FLY-9-PUB') passed all four criteria; and the disclosure guard dropped its 'artifact' branch, because artifact is also Container-CC's word for an output file, so 'Artifacts written to /data/out.csv' satisfied a disclosure guard while disclosing nothing. The observed reply carries both ordinals and matches both surviving disclosure branches ('most are substring artifacts', '## False positives (13 samples'), so neither correction costs the known-good answer. The -PUB suffix is deliberately omitted so a correct reply that drops it still passes. Cohort='4wk' is a FURTHER 237 samples and is deliberately NOT asserted, because the known-correct reply never uses that spelling, so a 4wk guard would false-fail the one answer we have evidence is right. The refine turn's api_ok is gone for the same reason as the seed's, and its replacement is UNVERIFIED: turn 998 in that run came back 'All provider fallbacks exhausted' during the Bedrock outage, so a correct refine reply has never been observed. Its guard is a deliberately loose alternation that keeps the turn on topic and rejects a dead or off-topic one without inventing a shape. No route criterion on the refine turn and no route_source criterion anywhere: sticky routing makes a follow-up after a CC turn carry source 'sticky', so pinning turn 1's route is precisely the assumption that would break. Guards in tests/test_inline_route_assertions.py, replayed against the stored seed-6 reply. || 2026-09-24: The seed is a self-contained search. In the prod suite (seed 17) it routed nextseek_query and found both NHP UIDs; either route is accepted. The seed's cohort and substring wording criteria were written for the Container-CC answer and are left as they are. || 2026-10-02: Operator ruling B4 (2 Oct, round 3): '4 week study' may be read as the studies titled 4-week or as the Cohort value; EITHER passes when the reply says which definition it used and names the other. The seed now asserts both words (cohort and study) instead of two specific UIDs and a substring disclosure, which only the Cohort reading produced. Notes fold 2 Oct: 'this is just a bad question'. || 2026-10-02: Round 3 review: the study guard '\\\\bstud(y|ies)\\\\b' was met by echoing the question, so it is now '\\\\btitle': a study reading names the studies' titles, and a Cohort reading says no study is titled so.",
-          "id": "green.refine_recall",
-          "family": "search_refinement",
-          "name": "Refine 4-week study",
-          "tags": [
-            "nessie",
-            "green",
-            "full"
-          ],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "seed",
-              "query": "Find samples from a 4 week study.",
-              "pass_criteria": [
-                {
-                  "field": "route",
-                  "op": "matches_re",
-                  "value": "(nextseek_query|container_cc)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?i)cohort"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?i)\\btitle"
-                }
-              ]
-            },
-            {
-              "label": "refine",
-              "query": "Just the 4 week ones.",
-              "pass_criteria": [
-                {
-                  "field": "last_reply",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?i)(NHP-220524FLY-|cohort|4[- ]?week)"
-                }
-              ]
-            }
-          ],
-          "status": "active",
-          "origin": "overlay",
-          "is_bayesian": true,
-          "hibayes_subtype": null,
-          "expected_behavior": null,
-          "artifact_expected": null,
-          "artifact_kind": null,
-          "retirement": null
-        },
-        {
           "id": "refrec.now_just_the_rg_genotype_ones",
           "family": "search_refinement",
           "name": "Refine / re-run the previous search (mode=refine_last_search)",
@@ -11193,7 +11148,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b1,?864\\b"
+                  "value": "\\b2,?452\\b"
                 }
               ]
             }
@@ -11298,8 +11253,8 @@
               "pass_criteria": [
                 {
                   "field": "route",
-                  "op": "eq",
-                  "value": "container_cc"
+                  "op": "matches_re",
+                  "value": "^(nextseek_query|container_cc)$"
                 },
                 {
                   "field": "last_reply",
@@ -11327,7 +11282,8 @@
             "assertion": "parser_plan.mode eq reporter"
           },
           "_promoted_2026_08_06": "Reviewed, with the reporter-mode criterion supplemented. Impact holds 24 studies and 33,089 samples; a summary that names neither is not a summary. Note the date words are deliberate: samples.created_at is 2026 for all 50,887 rows (bulk seed load), so 'last year' can only be answered from the UID date code or SampleCreationDate.",
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. There is no honest answer from `created_at`: all 50,887 rows load as 2026-01-27 in a 54-second bulk ingest. The real dates are either the UID date code or SampleCreationDate (populated on 57.9% of Impact). || VERIFIED: seek_production MySQL, verified 2026-08-06: SELECT YEAR(created_at) -> 2026 for every row; Impact created_at range 2026-01-27 10:25:32 to 2026-04-30."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. There is no honest answer from `created_at`: all 50,887 rows load as 2026-01-27 in a 54-second bulk ingest. The real dates are either the UID date code or SampleCreationDate (populated on 57.9% of Impact). || VERIFIED: seek_production MySQL, verified 2026-08-06: SELECT YEAR(created_at) -> 2026 for every row; Impact created_at range 2026-01-27 10:25:32 to 2026-04-30.",
+          "_why": "2026-10-13: prod read 2026-10-13 15:32Z (fairdata, read-only, builders/U7-reads-prod2.out) (read F): IMPAcTb samples whose UID date is 2025 = 21,141 in 39 sample types. No number is pinned on this case. || 2026-10-13 route ruling: Operator 2026-10-13, 'Either route': nextseek_query or container_cc is the right route; the reply criteria still check the answer."
         },
         {
           "id": "path.i_don_t_trust_that_impact_number",
@@ -11576,7 +11532,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(58,?142|58,?157)\\b"
+                  "value": "\\b7,?354\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\b10\\b\\W{0,3}(?:\\w+\\W+){0,2}?stud(?:y|ies)"
                 }
               ]
             }
@@ -11590,7 +11551,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 6,708 samples in SRP across 32 sample types, 12 studies, 61 assays, 22 SOPs. Every sample in this deployment is in the single 'Published Data' project, so 'published' adds no filter. || VERIFIED: seek_production MySQL, verified 2026-08-06 and Neo4j cypher-shell, verified 2026-08-06 agree on 6,708.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): prod has no project titled SRP; project MIT_SRP holds 58,142, and 58,157 with the MIT_SRP study and investigation scopes added (Neo4j cypher-shell, read-only; the same two readings as the prod probe pin srp2.project_scope); was 6,708."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): prod has no project titled SRP; project MIT_SRP holds 58,142, and 58,157 with the MIT_SRP study and investigation scopes added (Neo4j cypher-shell, read-only; the same two readings as the prod probe pin srp2.project_scope); was 6,708. || Re-keyed 2026-10-13: prod read 2026-10-13 15:32Z (fairdata, read-only, builders/U7-reads-prod2.out), the published runner's own rule (read B): 7,354 published samples in 10 studies of MIT_SRP. 58,142 is the whole project, not its published samples."
         },
         {
           "_why": "The base asserted reporter_plan.project == 'Kamm', but Kamm is modelled as a LAB. The real defect: reporter_result came back project_id null with 50,886 rows \u2014 the entire database \u2014 for a Kamm-scoped RPPR. || Re-keyed 2026-09-23 against production (fairdata): 9,821 samples with lab code KAM in the UID (Neo4j cypher-shell, read-only: uuid =~ '^[^-]+-[0-9]{6}KAM-.*'); the uuids_saved lte 20000 bound still holds; was 7,269.",
@@ -12476,12 +12437,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b8\\b"
+                  "value": "(?is)D\\.IMG\\D{0,60}\\b428\\b|\\b428\\b\\D{0,60}D\\.IMG"
                 }
               ]
             }
           ],
-          "_why": "Shoulders: 568 samples, 8 sample types, 1 study, 8 assays, 4 SOPs. || VERIFIED: seek_production MySQL, verified 2026-08-06 and Neo4j cypher-shell, verified 2026-08-06 agree on 568. || TESTS: a second small investigation on a different axis, so the family is not one investigation asked four ways.",
+          "_why": "Shoulders: 568 samples, 8 sample types, 1 study, 8 assays, 4 SOPs. || VERIFIED: seek_production MySQL, verified 2026-08-06 and Neo4j cypher-shell, verified 2026-08-06 agree on 568. || TESTS: a second small investigation on a different axis, so the family is not one investigation asked four ways. || 2026-10-13: prod read 2026-10-13 15:32Z (fairdata, read-only, builders/U7-reads-prod2.out) (read C): Shoulders Independent Projects holds 568 samples, D.IMG 428 the largest type; no investigation title holds SHOULDERS (only 13 'Collagen Study'), so the reporter keeps the project. The bare \\b8\\b passed on any lone 8 and is replaced by the D.IMG count.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -15095,12 +15056,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b23,?218\\b"
+                  "value": "\\b23,?485\\b"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(?=.*Lung)(?=.*lung)"
+                  "value": "(?s)(?=.*(?-i:\\bLung\\b))(?=.*(?-i:\\blung\\b))(?=.*(?-i:\\bLUNG\\b))"
                 }
               ]
             }
@@ -16301,7 +16262,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b725\\b"
+                  "value": "\\b754\\b"
                 },
                 {
                   "field": "parser_plan.mode",
@@ -17202,10 +17163,6 @@
       "green.mus_ndma": {
         "op": "eq",
         "value": "nextseek_query"
-      },
-      "green.refine_recall": {
-        "op": "matches_re",
-        "value": "(nextseek_query|container_cc)"
       },
       "route.ns_advanced": {
         "op": "eq",

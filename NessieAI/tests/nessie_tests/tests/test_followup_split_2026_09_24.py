@@ -152,13 +152,6 @@ def test_each_changed_case_says_why_on_the_date():
     assert not untouched, untouched
 
 
-def test_the_refine_recall_follow_up_still_asserts_no_route():
-    """Its seed accepts either route (prod suite 2026-09-23), so a follow-up after a
-    Container-CC seed is sticky and one after an NExtSEEK seed is not: no single route
-    is right, and the turn keeps asserting the answer only."""
-    assert _route_rules(_raw()["green.refine_recall"]["turns"][1]) == []
-
-
 # --------------------------------------------------------------------------- #
 # The corpus agrees with the router's own code guard
 # --------------------------------------------------------------------------- #

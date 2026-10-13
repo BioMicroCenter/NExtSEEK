@@ -98,7 +98,8 @@ from NessieAI.ns.op_limits import (DEADLINE_HEADER_META, MIN_USABLE_S, MODEL_OPS
                                    nested_deadline, op_limit_s, turn_deadline_epoch)
 from NessieAI.cc.ops_road import SIDECAR, ops_road
 from NessieAI.ns.write_gate import WriteBlockedError, build_gate, load_allowlist
-from nextseek_api.assistant.op_errors import HTTP_STATUS, failure_reason, op_error, validation_fields
+from rest_framework.exceptions import APIException
+from nextseek_api.assistant.op_errors import HTTP_STATUS, error_body, failure_reason, op_error, validation_fields
 from nextseek_api.permissions import is_turn_pass, may_read_any
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from NessieAI.ns.bundle_download import bundle_metadata
@@ -145,6 +146,15 @@ from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
 
 logger = logging.getLogger(__name__)
 
+class SeekNotAnswering(APIException):
+    """SEEK could not be read for the project check: a retryable outage (503, TRANSPORT_ERROR), never a refusal."""
+    status_code = HTTP_STATUS["TRANSPORT_ERROR"]
+
+    def __init__(self):
+        super().__init__()
+        self.detail = error_body("TRANSPORT_ERROR")
+
+
 class UserInParticipatingProject(BasePermission):
     message = "User needs to be in a participating project to use assistant"
     # SEEK project membership changes rarely; cache the positive result briefly so
@@ -159,22 +169,36 @@ class UserInParticipatingProject(BasePermission):
             cache_key = f"assistant_participating:{user.pk}"
             if cache.get(cache_key):
                 return True
+        # Told apart on purpose: SEEK that did not answer (no reply, a 5xx) is an outage and answers a retryable code.
+        # SEEK that ANSWERED without the project, or with a 200 that is not a person record (its HTML page for a
+        # wrong password), is a refusal (403). Neither ever allows.
         try:
-            client = SeekAPIClient()
-            person = orjson.loads(client.get_current_person(request)[0])
-            projects = person['data']['relationships']['projects']['data']
-            project_ids = set(map(lambda project: project['id'], projects))
-            allowed = project_ids & ASSISTANT_PARTICIPATING_PROJECTS != set()
+            reply = SeekAPIClient().get_current_person(request)
+            # (content, status, headers, response); only the content is guaranteed by older callers.
+            content, status_code = reply[0], (reply[1] if len(reply) > 1 else 200)
         except Exception:
+            logger.warning("participating-project check: SEEK did not answer", exc_info=True)
+            raise SeekNotAnswering() from None
+        if status_code is not None and status_code >= 500:
+            logger.warning("participating-project check: SEEK answered HTTP %s", status_code)
+            raise SeekNotAnswering()
+        if status_code != 200:
             return False
+        try:
+            projects = orjson.loads(content)['data']['relationships']['projects']['data']
+            project_ids = set(map(lambda project: project['id'], projects))
+        except Exception:
+            logger.warning("participating-project check: SEEK sent an unreadable person record", exc_info=True)
+            return False
+        allowed = project_ids & ASSISTANT_PARTICIPATING_PROJECTS != set()
         # Cache only positive results: a transient SEEK failure must re-check, and a
         # newly-added member should not be blocked for the TTL.
         if allowed and cache_key is not None:
             cache.set(cache_key, True, self._CACHE_TTL_SECONDS)
         return allowed
 
-    def has_object_permission(self, request, view):
-        return self.has_permissions(request, view)
+    def has_object_permission(self, request, view, obj):
+        return self.has_permission(request, view)
 
 def _most_recent_session(user) -> "ChatSession | None":
     """The user's most recently updated ChatSession, or None.

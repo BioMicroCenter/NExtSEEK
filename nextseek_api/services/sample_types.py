@@ -144,6 +144,11 @@ def _graph_sync_type_id(data, fallback: Optional[str] = None) -> Optional[str]:
     return fallback if fallback.isdigit() else None
 
 
+# SEEK takes about 25 s to list sample types on prod, past the client's 20 s default; every other call keeps 20 s.
+# Under nginx's default 60 s proxy_read_timeout (the host nginx is box config), so the app's JSON 504 answers first.
+LIST_TIMEOUT_S = 50
+
+
 def _seek_unanswered(action: str, seek_id, exc: Exception, timeout_s) -> HttpResponse:
     """The response for a SEEK call that raised instead of answering: 504 on a timeout, 502 otherwise.
 
@@ -195,7 +200,11 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         ],
     )
     def list(self, request):
-        body, code, headers, resp = self.client.list_sample_types(request, params=request.query_params)
+        try:
+            body, code, headers, resp = self.client.list_sample_types(request, params=request.query_params,
+                                                                      timeout_s=LIST_TIMEOUT_S)
+        except requests.RequestException as exc:
+            return _seek_unanswered("list", "list", exc, LIST_TIMEOUT_S)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 

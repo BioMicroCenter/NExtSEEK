@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from rest_framework.response import Response
 
-CODES = ("VALIDATION", "WRITE_BLOCKED", "AUTH_FAILED", "PASS_NOT_ALLOWED", "BUSY", "TIME_UP", "AGENT_FAILED")
+CODES = ("VALIDATION", "WRITE_BLOCKED", "AUTH_FAILED", "PASS_NOT_ALLOWED", "BUSY", "TIME_UP", "AGENT_FAILED",
+         "TRANSPORT_ERROR")
 REASONS = ("model_unavailable", "deadline", "bad_output", "internal")
 
 HTTP_STATUS: dict[str, int] = {
@@ -22,6 +23,7 @@ HTTP_STATUS: dict[str, int] = {
     "BUSY": 429,
     "TIME_UP": 408,
     "AGENT_FAILED": 502,
+    "TRANSPORT_ERROR": 503,
 }
 
 EXIT: dict[str, int] = {
@@ -46,6 +48,7 @@ CODE_MESSAGES: dict[str, str] = {
     "BUSY": ("Two ops or NS queries of this turn are already running; wait for one of them to answer before starting "
              "another."),
     "TIME_UP": "Not enough time is left in this turn to run this op.",
+    "TRANSPORT_ERROR": "NExtSEEK's SEEK is not answering, try again shortly.",
 }
 REASON_MESSAGES: dict[str, str] = {
     "model_unavailable": "The op failed because the AI models it needs did not answer, the fallback model included.",

@@ -68,15 +68,15 @@ PROTOCOL USAGE RULES (IMPORTANT)
 - Instead, SUMMARIZE the relevant protocol information directly into the appropriate fields
 - Use protocol_files[id][].text to get the actual content of each protocol
 - Extract and paraphrase the key methods, not the protocol references
-- For protocol URL fields in the template, use the fairdata URL format: https://fairdata-dev.mit.edu/sops/{id}
+- For protocol URL fields in the template, use the protocol link format given in the "Protocol link base" message: <base>/sops/{id}
 
 Example - WRONG:
   "extract protocol": "See Protocol 97"
   "library construction protocol": "Protocol ID 76"
 
 Example - CORRECT:
-  "extract protocol": "Tissue dissociation using GentleMACS with enzyme digestion. Protocol: https://fairdata-dev.mit.edu/sops/97"
-  "library construction protocol": "SeqWell S3 library preparation following Hughes et al. Protocol: https://fairdata-dev.mit.edu/sops/76"
+  "extract protocol": "Tissue dissociation using GentleMACS with enzyme digestion. Protocol: <base>/sops/97"
+  "library construction protocol": "SeqWell S3 library preparation following Hughes et al. Protocol: <base>/sops/76"
 
 --------------------------------------------------
 OUTPUT FORMAT (STRUCTURED)
@@ -106,8 +106,8 @@ Example shape (illustrative; actual template governs)
     "study": {"title": "...", "summary": "..."},
     "samples": [{"uid": "...", "tissue": "...", "assays": ["..."]}],
     "protocols": {
-      "extract protocol": "Tissue processing via enzymatic digestion. https://fairdata-dev.mit.edu/sops/97",
-      "library construction protocol": "SeqWell S3 protocol. https://fairdata-dev.mit.edu/sops/76"
+      "extract protocol": "Tissue processing via enzymatic digestion. <base>/sops/97",
+      "library construction protocol": "SeqWell S3 protocol. <base>/sops/76"
     }
   },
   "narrative": "Optional overview",

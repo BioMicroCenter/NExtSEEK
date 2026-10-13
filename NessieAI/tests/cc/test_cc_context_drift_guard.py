@@ -87,7 +87,6 @@ EXPECTED_BAKED_FILES = frozenset({
     "capabilities.md",
     "min_api_endpoints.json",
     "min_api_endpoints_enriched.json",
-    "min_assays_db.json",
     "min_sampletypes_db.json",
     "ops.json",
     "projects_db.json",
@@ -100,7 +99,6 @@ EXPECTED_FROM_SOURCE = frozenset({
     "capabilities.md",
     "min_api_endpoints.json",
     "min_api_endpoints_enriched.json",
-    "min_assays_db.json",
     "min_sampletypes_db.json",
     "projects_db.json",
 })
@@ -138,11 +136,16 @@ EXPECTED_BAKED_ONLY = frozenset({
 # below is a committed file that changes only by hand or, for the three graph fallback files,
 # by scripts/graph_schema_fallback.py. Five database exports in this
 # directory ARE still rewritten daily (sampletypes_db.json, min_sampletypes_db.json,
-# assays_db.json, min_assays_db.json, projects_db.json, by _ensure_context_files); the three
-# min/projects ones are baked, so they are not listed here, the two full catalogs are.
+# assays_db.json, min_assays_db.json, projects_db.json, by _ensure_context_files); the min sample
+# type catalog and projects_db.json are baked, so they are not listed here; the rest are.
 EXPECTED_SOURCE_ONLY = frozenset({
     ".gitignore",                     # not context; _files() uses iterdir(), which keeps dotfiles
-    "assays_db.json",                 # full catalog; the agent gets min_assays_db.json instead
+    "assays_db.json",                 # full catalog; the agent reads the box's assays live (below)
+    # The NS engine's assay catalog (its fallback when the box's dmac.internal_assays cannot be read). The CC agent
+    # no longer gets a copy: one baked list is one box's for every box, so it reads this box's list in the
+    # nextseek-graph-schema op's `assays` field, which test_the_cc_agent_reads_the_assay_list_live_rather_than_baked
+    # below pins.
+    "min_assays_db.json",
     "sampletypes_db.json",            # full catalog; the agent gets min_sampletypes_db.json
     "neo4j_assay-sample-conn.json",   # pipeline-internal graph connectivity map
     "neo4j_protocol_schema.json",     # pipeline-internal protocol schema
@@ -334,6 +337,24 @@ def test_the_cc_agent_reads_the_graph_schema_live_rather_than_baked():
     assert op is not None, "no graph-schema op: the agent has no way to read the schema"
     assert op.bin_name == "nextseek-graph-schema"
     assert op.assistant_endpoint == "/nextseek_api/assistant/graph-schema/"
+
+
+def test_the_cc_agent_reads_the_assay_list_live_rather_than_baked():
+    """Each box lists the assays its own dmac.internal_assays holds (fix 21), so the list reaches the agent as an op.
+
+    * the image bakes no assay list: a baked one is the checkout's for every box;
+    * the source copy is still there: it is the NS engine's fallback when the table cannot be read;
+    * the graph-schema op, which the agent already calls, says it returns ``assays``.
+    """
+    from NessieAI.cc.op_registry.ops import OPS
+
+    assert "min_assays_db.json" not in image_context_files(), (
+        "an assay list is baked into the cc-agent image again. It is one box's list on every box: the agent reads "
+        "this box's list in the nextseek-graph-schema op's assays field."
+    )
+    assert (SOURCE_DIR / "min_assays_db.json").is_file(), "the NS engine's assay catalog (its fallback) is gone"
+    op = next(o for o in OPS if o.op_id == "graph-schema")
+    assert "assays" in op.skill_row.output, "the graph-schema op no longer advertises the box's assay list"
 
 
 # ---------------------------------------------------------------------------

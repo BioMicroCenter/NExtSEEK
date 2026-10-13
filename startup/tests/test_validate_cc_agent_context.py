@@ -87,9 +87,9 @@ def test_names_every_file_the_image_bakes_differently(monkeypatch, tmp_path):
     assert result.ok is False
     assert "capabilities.md" in result.detail
     assert "projects_db.json" in result.detail
-    # The four that match are not reported as problems.
-    assert "min_assays_db.json" not in result.detail
-    assert "2 of 6" in result.detail
+    # The three that match are not reported as problems.
+    assert "min_sampletypes_db.json" not in result.detail
+    assert "2 of 5" in result.detail
     assert "./startup.sh rebuild --component cc-agent" in result.detail
 
 

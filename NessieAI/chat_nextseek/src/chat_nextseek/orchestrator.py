@@ -76,6 +76,7 @@ from .helpers import (
     log_api_call,
     reporter_reply_footer,
     lab_names_by_name,
+    scope_kind_word,
     run_reporter_summary,
     shortlist_catalog,
     slim_api_result_for_llm,
@@ -90,6 +91,7 @@ from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_
 from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
+from .schemas.entity import EntityItem
 from .schemas.graph import GraphAgentPlan
 from .session import SessionState
 from .vocabulary import resolve_vocabulary, take as take_vocabulary
@@ -593,46 +595,68 @@ FOLLOWUP_GRAPH_LEAD = ("If this question points at the set the previous answer f
                        "list\"), that set is the one the earlier search below found: keep that search's filters for "
                        "it, and change only what this question asks. If the question names its own set, ignore the "
                        "earlier search.\n")
+#: The same, when the parser named the earlier result itself (``target_result_id``): no conditional about the set.
+FOLLOWUP_GRAPH_LEAD_NAMED = ("This question points at the result of the earlier search below (the parser named it). "
+                             "Where it says \"those\", \"the samples above\", \"you mentioned\" or gives a count, "
+                             "that set is the one the earlier search found: keep that search's filters for it, and "
+                             "change only what this question asks. If the question names its own set, ignore the "
+                             "earlier search.\n")
 #: Follows the earlier Cypher with its values: a filter written as ``$inv`` is no filter without its value.
 FOLLOWUP_GRAPH_PARAMETERS = "\nIts parameters, which the new query needs too: "
 
 
-def _followup_graph_context(session, user_text: str) -> tuple[str, dict] | None:
+def _followup_graph_context(session, user_text: str, plan=None) -> tuple[str, dict] | None:
     """The earlier search, as a graph agent context, when a graph_query turn refers back to it; else None.
 
     The parser can understand a follow-up ("those 351 nhps") and still call it a graph_query rather than a refine or
     ask_about_last_results (prod chat d01fdd43). The graph agent sees neither the parser's notes nor the chat, so
-    without this it answers for every matching sample. "Refers back" is the router's own test
-    (``NessieAI.router.followup.followup_cue``). The earlier search is the newest turn's bundle, carried as a refine
-    carries it (``_build_graph_refine_context``) plus its parameters: a Container-CC turn or an aside writes no
-    bundle, so after one there is no context rather than an older answer than the one the question points at. A
-    statement bound to ``$uids`` is not carried: the session keeps those UIDs only as a placeholder.
-    Returns (context, debug record)."""
+    without this it answers for every matching sample. Which search the question points at is the parser's call:
+    when ``plan.target_result_id`` names a stored result, that result is carried (any wording, any older search),
+    with the parser's one-line reading of the question. Only when the parser names none does the router's phrase
+    list (``NessieAI.router.followup.followup_cue``) decide, and then the earlier search is the newest turn's
+    bundle: a Container-CC turn or an aside writes no bundle, so after one there is no context rather than an
+    older answer than the one the question points at. The search is carried as a refine carries it
+    (``_build_graph_refine_context``) plus its parameters. A statement bound to ``$uids`` is not carried: the
+    session keeps those UIDs only as a placeholder. Returns (context, debug record)."""
     try:
-        log = [e for e in session.get(CHAT_LOG_KEY) or [] if isinstance(e, dict)]
-        if not log:
-            return None
-        newest = max(log, key=lambda e: e["turn_id"] if isinstance(e.get("turn_id"), int) else -1)
-        bid = newest.get("bundle_id")
-        last = next((b for b in session.get("results_history") or []
-                     if isinstance(b, dict) and bid is not None and b.get("id") == bid), None)
-        if last is None or not last.get("user_query"):
-            return None
-        from NessieAI.router.followup import followup_cue
-        cue = followup_cue(user_text)
-        if not cue:
-            return None
-        plan = last.get("graph_plan") or {}
-        cypher = plan.get("cypher") or ""
+        history = session.get("results_history") or []
+        named = None
+        target = getattr(plan, "target_result_id", None)
+        if target is not None and not isinstance(target, bool):
+            named = next((b for b in reversed(history) if isinstance(b, dict) and b.get("id") == target), None)
+        if named is not None and named.get("user_query"):
+            last, by, cue = named, "parser", None
+        else:
+            log = [e for e in session.get(CHAT_LOG_KEY) or [] if isinstance(e, dict)]
+            if not log:
+                return None
+            newest = max(log, key=lambda e: e["turn_id"] if isinstance(e.get("turn_id"), int) else -1)
+            bid = newest.get("bundle_id")
+            last = next((b for b in history if isinstance(b, dict) and bid is not None and b.get("id") == bid), None)
+            if last is None or not last.get("user_query"):
+                return None
+            from NessieAI.router.followup import followup_cue
+            cue = followup_cue(user_text)
+            if not cue:
+                return None
+            by = "cue"
+        graph_plan = last.get("graph_plan") or {}
+        cypher = graph_plan.get("cypher") or ""
         if re.search(r"\$uids\b", cypher):
             return None
-        context = FOLLOWUP_GRAPH_LEAD + _build_graph_refine_context(last)
-        if cypher and plan.get("parameters"):
-            context += FOLLOWUP_GRAPH_PARAMETERS + json.dumps(plan["parameters"], default=str, sort_keys=True)
+        context = (FOLLOWUP_GRAPH_LEAD_NAMED if by == "parser" else FOLLOWUP_GRAPH_LEAD) \
+            + _build_graph_refine_context(last)
+        if cypher and graph_plan.get("parameters"):
+            context += FOLLOWUP_GRAPH_PARAMETERS + json.dumps(graph_plan["parameters"], default=str, sort_keys=True)
+        summary = getattr(plan, "intent_summary", None) if by == "parser" else None
+        # R9: a summary that names an endpoint path is REST prose (agents/graph.py keeps intent_summary out of the
+        # graph agent for that reason), so it is left out.
+        if isinstance(summary, str) and summary.strip() and not re.search(r"(?:^|\s)/[\w-]+/", summary):
+            context += "\nThe parser's reading of this question: " + summary.strip()
     except Exception as exc:  # the earlier search is help, never the reason a turn fails
         print(f"[DEBUG][FOLLOWUP] could not build the earlier search's context: {exc!r}")
         return None
-    return context, {"cue": cue, "bundle_id": bid}
+    return context, {"cue": cue, "by": by, "bundle_id": last.get("id")}
 
 
 #: The refine context of a follow-up query rebuilt from the stored query (``seed_mode``
@@ -1047,7 +1071,8 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
     prompt still teaches a surname-to-code rule: a scientist, or a lab whose SEEK title did
     not parse, could come back as a guessed code. Everything downstream (the API and graph
     agents, the empty-result retry ladder, the reply's scope note) reads the plan, so the
-    clamp runs once, straight after the parser. Nothing but the codes changes.
+    clamp runs once, straight after the parser. Nothing but the codes changes, apart from the scientists and
+    category types the parser's echo has no slot for, which are restored from the entity result.
     """
     if isinstance(entity_result, dict):
         matched = entity_result.get("lab_codes")
@@ -1064,8 +1089,32 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
     def _clamp_filters(filters):
         return filters.model_copy(update={"lab_codes": _clamp(filters.lab_codes)})
 
+    resolved_update: dict[str, Any] = {"lab_codes": _clamp(plan.resolved.lab_codes)}
+    # Fix 8: the parser's echo of the entity result has no `scientists` slot, so a person the entity step resolved
+    # as a scientist reached the graph agent only as a keyword. The entity result is the source of truth.
+    def _entity(name):
+        return entity_result.get(name) if isinstance(entity_result, dict) else getattr(entity_result, name, None)
+    entity_scientists = _entity("scientists")
+    if entity_scientists and not plan.resolved.scientists:
+        resolved_update["scientists"] = list(entity_scientists)
+    # R2: nor a `category_types` slot, so the graph agent (which reads the parser plan) never saw the category's
+    # types. Restore the map and add any of its codes the echo left out of `sampletypes`.
+    categories = _entity("category_types") or {}
+    if categories:
+        resolved_update["category_types"] = {w: list(codes) for w, codes in categories.items()}
+        names = {}
+        for item in _entity("sampletypes") or []:
+            item = item if isinstance(item, dict) else item.model_dump()
+            names[item.get("code")] = item.get("name")
+        types = list(plan.resolved.sampletypes)
+        have = {t.code for t in types}
+        for code in (c for codes in categories.values() for c in codes):
+            if code not in have:
+                types.append(EntityItem(code=code, name=names.get(code)))
+                have.add(code)
+        resolved_update["sampletypes"] = types
     updates: dict[str, Any] = {
-        "resolved": plan.resolved.model_copy(update={"lab_codes": _clamp(plan.resolved.lab_codes)}),
+        "resolved": plan.resolved.model_copy(update=resolved_update),
     }
     if hasattr(plan, "candidates"):
         updates["candidates"] = [
@@ -2500,7 +2549,8 @@ def run_query(
                 # passes no name, so it keeps the lab scope.
                 _lab_names = lab_names_by_name(entity_result)
                 reporter_result, saved_files, reporter_summary = run_reporter_summary(
-                    config, reporter_plan, log_dir, lab_codes=_lab_codes, lab_names=_lab_names)
+                    config, reporter_plan, log_dir, lab_codes=_lab_codes, lab_names=_lab_names,
+                    scope_kind=scope_kind_word(user_text))
                 send_event(
                     "search_complete",
                     {
@@ -2688,7 +2738,7 @@ def run_query(
         scope_notes: list[str] = []
         if mode == "graph_query":
             current_agent = "graph"
-            followup = _followup_graph_context(session, user_text)
+            followup = _followup_graph_context(session, user_text, plan)
             if followup:
                 debug_payload["followup_context"] = followup[1]
             outcome = _execute_graph_turn(

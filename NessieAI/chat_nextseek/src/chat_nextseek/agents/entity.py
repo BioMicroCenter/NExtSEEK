@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -19,7 +20,45 @@ from ..schemas.schema_helper import StructuredOutputError, call_llm_structured, 
 from ..schemas import (
     EntityAgentOutput,
 )
-from ..schemas.entity import LabMatch, LabNearMiss
+from ..schemas.entity import EntityItem, LabMatch, LabNearMiss
+
+
+#: Only the -ic/-ics/-ome forms name a category of data (transcriptomic, proteome). An -ing word names a process
+#: (sequencing, imaging, staining) that many unrelated kinds of data go through, so it expands nothing.
+_CATEGORY_SUFFIX = re.compile(r"(ics|ic|omes|ome)$")
+#: A word that names more types than this is not a category of data ("samples"), so it expands nothing.
+# ponytail: fixed cap; read it from the catalog's size if the catalog grows a lot.
+_CATEGORY_MAX_TYPES = 15
+
+
+def expand_category_types(query: str, result: EntityAgentOutput, catalog: list[dict] | None) -> None:
+    """A word for a kind of data covers every type of that kind (fix 2).
+
+    The catalog's own Tags place a type in a category: "transcriptomic" is a tag word of the expression,
+    single-cell, spatial and RNA types. When the question uses such a word and the entity step kept at least one of
+    its types, the others are added, and ``category_types`` records word -> codes so the reply can name them. A
+    question that names one type by its code or name keeps that one type.
+    """
+    q = (query or "").lower()
+    chosen = {i.code for i in result.sampletypes}
+    for word in dict.fromkeys(re.findall(r"[a-z]{5,}", q)):
+        stem = _CATEGORY_SUFFIX.sub("", word)
+        # Only a category form (transcriptomic, proteome): a plain noun like "tissue" names a type, not a category.
+        if stem == word or len(stem) < 4:
+            continue
+        members = [r for r in catalog or [] if any(
+            w.startswith(stem) for w in re.findall(r"[a-z]+", str(r.get("Tags", "")).lower()))]
+        codes = [r["SampleType"] for r in members if r.get("SampleType")]
+        if not 2 <= len(codes) <= _CATEGORY_MAX_TYPES or not chosen & set(codes) or set(codes) <= chosen:
+            continue
+        if any(re.search(rf"\b{re.escape(str(r.get('SampleType', '')).lower())}\b", q)
+               or str(r.get("Name", "")).lower() in q for r in members):
+            continue
+        for r in members:
+            if r.get("SampleType") and r["SampleType"] not in chosen:
+                result.sampletypes.append(EntityItem(code=r["SampleType"], name=r.get("Name")))
+                chosen.add(r["SampleType"])
+        result.category_types[word] = codes
 
 
 def _as_list(value: Any) -> list:
@@ -173,6 +212,7 @@ def entity_agent(
                 result = EntityAgentOutput()
 
     _resolve_lab_names(config, user_query, result, sampletypes, assays, projects)
+    expand_category_types(user_query, result, getattr(config, "MIN_SAMPLETYPES", None))
 
     print("[DEBUG][ENTITY] Parsed entity result:", json.dumps(result.model_dump(), indent=2))
     return result

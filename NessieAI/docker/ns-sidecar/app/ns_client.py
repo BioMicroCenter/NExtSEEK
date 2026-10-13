@@ -26,7 +26,7 @@ _TIMEOUT = 60.0
 
 #: NExtSEEK's op error codes and reasons (nextseek_api/assistant/op_errors.py CODES and REASONS).
 _NEXTSEEK_CODES = frozenset({"VALIDATION", "WRITE_BLOCKED", "AUTH_FAILED", "PASS_NOT_ALLOWED", "BUSY", "TIME_UP",
-                             "AGENT_FAILED"})
+                             "AGENT_FAILED", "TRANSPORT_ERROR"})
 _REASONS = frozenset({"model_unavailable", "deadline", "bad_output", "internal"})
 
 

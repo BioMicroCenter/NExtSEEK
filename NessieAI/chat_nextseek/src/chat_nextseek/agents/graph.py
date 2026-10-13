@@ -2557,6 +2557,8 @@ def graph_schema_snapshot(config: ChatConfig, *, types=(), question: str = "") -
     ``context/neo4j_schema.json``, and a fallback carries both why (``unavailable_reason``) and how stale the
     file is (``fallback_fetched_at``). A caller that ignores ``source`` is describing a graph that may not
     exist, which is the failure this op was added to end.
+
+    ``assays`` is this box's assay list (``_assay_titles``), on both paths.
     """
     requested = list(dict.fromkeys(str(t).strip() for t in (types or ()) if str(t).strip()))
     try:
@@ -2583,7 +2585,20 @@ def graph_schema_snapshot(config: ChatConfig, *, types=(), question: str = "") -
         "vocabulary": vocabulary,
         "unavailable_reason": None,
         "fallback_fetched_at": None,
+        "assays": _assay_titles(config),
     }
+
+
+def _assay_titles(config) -> list[str]:
+    """This box's assay titles (``config.MIN_ASSAYS``, from its ``dmac.internal_assays``) for the op's ``assays``.
+
+    The same list for every caller, as the entity and system agents read it: it names kinds of assay, never a
+    project's records. It does not come from the graph, so a graph outage leaves it in place.
+    """
+    rows = getattr(config, "MIN_ASSAYS", None)
+    if not isinstance(rows, list):
+        return []
+    return [r["Name"] for r in rows if isinstance(r, dict) and isinstance(r.get("Name"), str) and r["Name"].strip()]
 
 
 def _fallback_schema_snapshot(config: ChatConfig, question: str, requested: list[str], reason: str) -> dict:
@@ -2602,6 +2617,7 @@ def _fallback_schema_snapshot(config: ChatConfig, question: str, requested: list
         "vocabulary": _committed_vocabulary(config, question),
         "unavailable_reason": reason,
         "fallback_fetched_at": fallback.fallback_fetched_at,
+        "assays": _assay_titles(config),
     }
 
 

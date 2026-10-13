@@ -196,8 +196,8 @@ def test_plugin_tree_copy_of_a_canonical_context_file_is_refused(tmp_path: Path)
     plugin_context = repo / PLUGIN_CONTEXT_REL
     plugin_context.mkdir(parents=True)
     emit_capabilities_copy_block(repo)
-    (plugin_context / "min_assays_db.json").write_bytes(b"[]\n")
-    with pytest.raises(SystemExit, match="min_assays_db.json"):
+    (plugin_context / "min_sampletypes_db.json").write_bytes(b"[]\n")
+    with pytest.raises(SystemExit, match="min_sampletypes_db.json"):
         emit_capabilities_copy_block(repo)
 
 

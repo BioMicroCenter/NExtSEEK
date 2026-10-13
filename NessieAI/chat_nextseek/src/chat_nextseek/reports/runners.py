@@ -90,7 +90,15 @@ def _resolve_investigation(config, name) -> "tuple[int, str] | None":
     return None
 
 
-def _resolve_report_scope(config, project) -> "tuple[str, Any]":
+def scope_kind_word(query) -> "str | None":
+    """The scope word the user wrote: ``"investigation"`` or ``"project"`` when exactly one of the two appears in
+    ``query``, else None. A name that is both a project and an investigation takes the kind the user said."""
+    q = str(query or "").lower()
+    inv, proj = re.search(r"\binvestigations?\b", q), re.search(r"\bprojects?\b", q)
+    return "investigation" if inv and not proj else "project" if proj and not inv else None
+
+
+def _resolve_report_scope(config, project, scope_kind=None) -> "tuple[str, Any]":
     """
     Resolve a report's requested scope to ``("project", id)``,
     ``("investigation", (id, title))`` or ``("all", None)``.
@@ -100,6 +108,11 @@ def _resolve_report_scope(config, project) -> "tuple[str, Any]":
     (``INVESTIGATION_NAME_TO_ID``), so the sample, protocols and published runners
     all accept an investigation name that matches no project.
 
+    ``scope_kind="investigation"`` (the user said "investigation", see ``scope_kind_word``) tries the investigation
+    first, so a name that is also a project's does not turn the question into the project's. Only the protocols
+    runner passes it (operator ruling 2026-10-13): sample and published counts stay project-first, as the graph
+    route treats the two words.
+
     Raises ValueError only when the name is neither a project nor an investigation,
     preserving the original error for genuinely unknown scopes.
     """
@@ -107,6 +120,8 @@ def _resolve_report_scope(config, project) -> "tuple[str, Any]":
         return ("all", None)
     if getattr(project, "inv", None):                    # already resolved by id (a lab named like an investigation)
         return ("investigation", project.inv)
+    if scope_kind == "investigation" and (investigation := _resolve_investigation(config, project)):
+        return ("investigation", investigation)
     try:
         project_id = _normalize_project_id(config, project)
     except ValueError:
@@ -478,6 +493,7 @@ def run_project_protocols_report(
     month_range: tuple[str, str] | None = None,
     day_range: tuple[str, str] | None = None,
     outputs_root: str | Path = "outputs",
+    scope_kind: str | None = None,
 ) -> dict:
     """
     Project-scoped SOP/protocol reporting with optional date filters extracted from title.
@@ -498,23 +514,13 @@ def run_project_protocols_report(
       - years_table: counts by YY
       - months_table: counts by YYMM
     """
-    # Protocols have no relational sample->investigation link, so an investigation
-    # scope cannot be narrowed here. Report every protocol and say so explicitly
-    # rather than raising and killing the whole RPPR (task 815).
-    kind, scope = _resolve_report_scope(config, project)
-    unsupported_scope = None
+    # An investigation's protocols are the SOPs attached to its studies (sops_studies -> studies.investigation_id),
+    # not the SOPs filed under a project of the same name.
+    kind, scope = _resolve_report_scope(config, project, scope_kind)
+    investigation_scope = None
     if kind == "investigation":
         inv_id, inv_title = scope
-        unsupported_scope = {
-            "kind": "investigation",
-            "investigation_id": inv_id,
-            "investigation_title": inv_title,
-            "unsupported": True,
-            "reason": "protocols have no relational link to investigations; "
-                      "reporting all protocols",
-        }
-        print(f"[DEBUG][REPORTER] Protocols cannot be scoped to investigation "
-              f"'{inv_title}'; reporting all protocols")
+        investigation_scope = {"kind": "investigation", "investigation_id": inv_id, "investigation_title": inv_title}
         project_id = None
     else:
         project_id = scope if kind == "project" else None
@@ -543,6 +549,10 @@ def run_project_protocols_report(
         conditions.append("ps.project_id = %s")
         params.append(project_id)
 
+    if investigation_scope:
+        conditions.append("st.investigation_id = %s")
+        params.append(investigation_scope["investigation_id"])
+
     if years:
         yy_list = _normalize_years(years)
         placeholders = ", ".join(["%s"] * len(yy_list))
@@ -560,16 +570,18 @@ def run_project_protocols_report(
         params.extend([start6, end6])
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
+    # An investigation joins through its studies; DISTINCT keeps a SOP in two of its studies or projects to one row.
+    select = "SELECT DISTINCT ps.sop_id, sop.title" if investigation_scope else "SELECT ps.project_id, ps.sop_id, sop.title"
+    study_join = ("JOIN seek_production.sops_studies ss ON ss.sop_id = sop.id "
+                  "JOIN seek_production.studies st ON st.id = ss.study_id") if investigation_scope else ""
     query = f"""
-    SELECT
-      ps.project_id,
-      ps.sop_id,
-      sop.title
+    {select}
     FROM
       seek_production.projects_sops ps
     JOIN
       seek_production.sops sop
         ON ps.sop_id = sop.id
+    {study_join}
     WHERE
       {where_clause};
     """.strip()
@@ -660,7 +672,7 @@ def run_project_protocols_report(
             "unparsable_titles": unparsable_count,
             # Needed by _scope_protocols_to_labs; dropped again by run_reporter_summary.
             "titles": titles,
-            **({"scope": unsupported_scope} if unsupported_scope else {}),
+            **({"scope": investigation_scope} if investigation_scope else {}),
         }
 
     except Exception as e:
@@ -1130,6 +1142,13 @@ def reporter_reply_footer(
     else:
         lines.append(f"- **Download report:** `{reporter_result.get('uuid_report_file')}`")
 
+    if summary_mode in ("RPPR", "samples"):
+        samples_block = reporter_result.get("samples") or {} if summary_mode == "RPPR" else reporter_result
+        rest = _types_not_itemised(samples_block.get("sampletypes_table"))
+        if rest:
+            lines.append(f"- **Sample types:** the top {TOP_TYPES_SHOWN} are itemised; {rest['types']} other types "
+                         f"({rest['samples']:,} samples) are not.")
+
     scope = (reporter_result.get("scope")
              or (reporter_result.get("samples") or {}).get("scope")
              or {})
@@ -1272,6 +1291,18 @@ def _entity_named_by_labs(config, lab_names: "list[str] | None") -> "dict | None
     return {"name": label, "project": key, "kind": "investigation", "key": scoped}
 
 
+TOP_TYPES_SHOWN = 5
+
+
+def _types_not_itemised(table, shown: int = TOP_TYPES_SHOWN) -> "dict | None":
+    """``{"types": n, "samples": m}`` for the sample types past the top ``shown`` of a sampletypes table, or None
+    when all of them are itemised. The writer gets only the top types, so the reply must say what it left out."""
+    if not isinstance(table, dict) or len(table) <= shown:
+        return None
+    rest = sorted(table.values(), reverse=True)[shown:]
+    return {"types": len(rest), "samples": sum(v for v in rest if isinstance(v, (int, float)))}
+
+
 def _top_labs(table) -> list:
     """The top lab codes of a labs table, only when more than one lab could have appeared. One code is the scope
     itself, and offering it as a breakdown is how a reply came to say 'all N originate from lab X'."""
@@ -1284,6 +1315,7 @@ def run_reporter_summary(
     log_dir: "str | Path | None",
     lab_codes: "list[str] | None" = None,
     lab_names: "list[str] | None" = None,
+    scope_kind: "str | None" = None,
 ) -> "tuple[dict, dict[str, str], dict]":
     """
     Execute the summary reporter pipeline (samples / protocols / published / RPPR).
@@ -1360,7 +1392,7 @@ def run_reporter_summary(
             protocols_result = _scope_protocols_to_labs(_guarded(
                 "protocols", run_project_protocols_report,
                 config, project, years=years, month_range=month_range,
-                day_range=day_range, outputs_root=log_dir or "outputs",
+                day_range=day_range, outputs_root=log_dir or "outputs", scope_kind=scope_kind,
             ), fallback_labs)
             published_result = _scope_published_to_labs(_guarded(
                 "published", run_project_published_report,
@@ -1379,7 +1411,7 @@ def run_reporter_summary(
         elif summary_mode == "protocols":
             reporter_result = _scope_protocols_to_labs(run_project_protocols_report(
                 config, project, years=years, month_range=month_range,
-                day_range=day_range, outputs_root=log_dir or "outputs",
+                day_range=day_range, outputs_root=log_dir or "outputs", scope_kind=scope_kind,
             ), fallback_labs)
         elif summary_mode == "published":
             reporter_result = _scope_published_to_labs(run_project_published_report(
@@ -1431,7 +1463,8 @@ def run_reporter_summary(
     def _sub_summary(r: dict) -> dict:
         return {
             "rows_returned": r.get("rows_returned"),
-            "top_sampletypes": top_items(r.get("sampletypes_table"), 5),
+            "top_sampletypes": top_items(r.get("sampletypes_table"), TOP_TYPES_SHOWN),
+            "sampletypes_not_itemised": _types_not_itemised(r.get("sampletypes_table")),
             "top_labs": _top_labs(r.get("labs_table")),
             "years": top_items(r.get("years_table"), 10),
             "top_months": top_items(r.get("months_table"), 12),
@@ -1451,6 +1484,10 @@ def run_reporter_summary(
         "scope": reporter_result.get("scope")
                  or (reporter_result.get("samples") or {}).get("scope"),
     }
+    # The sample report returns no filters key, so a reply said "no date filter" about a day range it had applied.
+    if not reporter_summary["filters"]:
+        reporter_summary["filters"] = {k: v for k, v in (
+            ("project", project), ("years", years), ("month_range", month_range), ("day_range", day_range)) if v}
     # A caller who is not an admin reads only its own projects' rows (_report_projects): say so, so an unnamed
     # project is not narrated as every project.
     caller_scope = graph_scope.scope_of(config)

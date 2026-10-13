@@ -80,21 +80,18 @@ def _generated_investigations() -> list[str]:
 
 
 @pytest.mark.parametrize("name", sorted(CORES))
-def test_each_core_lists_the_generated_investigations_and_marks_tcga(name):
+def test_each_core_takes_the_investigation_titles_from_the_graph(name):
     line = next(l for l in read(CORES[name]).splitlines() if l.startswith("Known investigation titles:"))
-    for investigation in _generated_investigations():
-        assert investigation in line, (name, investigation)
-    assert "TCGA, which is not on every instance" in line
+    assert "{{KNOWN_INVESTIGATION_TITLES}}" in line
 
 
 @pytest.mark.parametrize("name", sorted(GRAPH_SCHEMAS))
-def test_each_parser_graph_schema_lists_tcga_as_not_on_every_instance(name):
+def test_each_parser_graph_schema_takes_the_investigation_titles_from_the_graph(name):
     schema = json.loads(read(GRAPH_SCHEMAS[name]))
     investigation = next(n for n in schema["node_types"] if n["label"] == "Investigation")
-    assert "TCGA, which is not on every instance" in investigation["description"]
+    assert "{{KNOWN_INVESTIGATION_TITLES}}" in investigation["description"]
     rule = next(r for r in schema["disambiguation_rules"] if r.startswith("Investigation titles to recognize"))
-    for name_ in _generated_investigations():
-        assert name_ in rule
+    assert "{{KNOWN_INVESTIGATION_TITLES}}" in rule
 
 
 # --------------------------------------------------------------------------- people: labs and scientists
@@ -188,17 +185,11 @@ def test_an_unrecognised_organisation_routes_to_the_graph_not_to_unsupported(nam
 
 
 @pytest.mark.parametrize("name", sorted(CORES))
-def test_each_core_lists_every_project_title_the_context_holds(name):
-    """A project is the layer researchers actually name, and the prompt listed none of them.
-
-    report.shoulders_inventory was refused with "not a recognized investigation title" while
-    the project of that name holds hundreds of samples. The project rows were in the context
-    source the whole time; only the investigation rows ever reached a prompt. Keeping this in
-    sync by hand is what went stale, so the test is the sync.
-    """
+def test_each_core_takes_the_project_titles_from_the_graph(name):
+    """A project is the layer researchers actually name. The list is the box's own, filled at call time, so it cannot
+    go stale against the context file (it went stale by hand before)."""
     line = next(l for l in read(CORES[name]).splitlines() if l.startswith("Known project titles:"))
-    for project in _context_rows("project"):
-        assert project in line, (name, project)
+    assert "{{KNOWN_PROJECT_TITLES}}" in line
 
 
 @pytest.mark.parametrize("name", sorted(CORES))

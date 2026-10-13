@@ -75,6 +75,7 @@ def _config(docs_dir=None):
     c.FULL_ASSAYS = ASSAYS
     c.FULL_SAMPLETYPES_MAP = {r["SampleType"]: r for r in SAMPLETYPES}
     c.FULL_ASSAYS_MAP = {r["Name"]: r for r in ASSAYS}
+    c.MIN_ASSAYS = [{"Name": r["Name"], "Description": None, "Tags": None} for r in ASSAYS]  # the box's own list
     c.FULL_PROJECTS_MAP = {"Quill": PROJECT}
     c.FULL_INVESTIGATIONS_MAP = {"Quill Core": INVESTIGATION}
     c.LABS = LABS

@@ -46,7 +46,8 @@ folder is not a second copy of it. The two stay apart for three reasons:
 | file in the pack | origin | read by | ships in |
 |---|---|---|---|
 | `sampletypes_db.json`, `assays_db.json` | generated from `sample_types.json`, `assays.json`; rewritten daily in the app | `ChatConfig` full catalogs, the MCP server | app |
-| `min_sampletypes_db.json`, `min_assays_db.json` | generated, same two paths | entity agent | app, cc-agent (baked) |
+| `min_sampletypes_db.json` | generated, same two paths | entity agent | app, cc-agent (baked) |
+| `min_assays_db.json` | generated, same two paths | the fallback for each box's assay list, which comes from its `dmac.internal_assays` (`chat_nextseek.assay_catalog`) | app |
 | `projects_db.json` | generated from `projects.json`, same two paths | `ChatConfig` project and investigation maps | app, cc-agent (baked) |
 | `capabilities.md` | hand-written, one generated investigation block (`--emit capabilities`) | system agent, CC agent | app, cc-agent (baked) |
 | `min_api_endpoints_enriched.json` | hand-owned | parser, API agent, endpoint index | app, cc-agent (baked) |

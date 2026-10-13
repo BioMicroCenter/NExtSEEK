@@ -337,6 +337,13 @@ def test_the_range_and_the_brief_must_agree(tmp_path, capsys, touch, images, nee
     assert code == 5 and needle in out.err
 
 
+def test_the_assay_catalog_file_needs_only_the_app(tmp_path, capsys):
+    """min_assays_db.json is no longer baked into the cc-agent image: that agent reads the box's assays live."""
+    touch = ("NessieAI/chat_nextseek/src/chat_nextseek/context/min_assays_db.json",)
+    code, out, d = commits_setup(tmp_path, capsys, touch=touch, images=["app"])
+    assert code == 0, out.err
+
+
 SEED = "startup/seed/sql/projects_context.curated.sql"
 
 

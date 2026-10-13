@@ -45,6 +45,24 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Protocol
 
+#: A column that holds the denominator beside an answer: ``total``, ``total_mice``, ``baseline``, ``overall_samples``.
+#: Not ``base`` or ``all``: they name measures as often (``base_pairs``, ``all_reads``).
+TOTAL_COLUMN_RE = re.compile(r"(^|_)(total|baseline|overall|denominator)(_|$)", re.IGNORECASE)
+
+
+def _is_number(v: object) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def total_column_value(row: object) -> "int | float | None":
+    """The value of a total-named numeric column in an aggregate row, or None (the premise check reads it)."""
+    if isinstance(row, dict):
+        for k, v in row.items():
+            if _is_number(v) and TOTAL_COLUMN_RE.search(str(k)):
+                return v
+    return None
+
+
 VALUES_CAP = 50
 DISCLOSURE_MAX = 299
 LABEL_MAX = 60
@@ -965,11 +983,14 @@ def _free_text_beside_field(t: _Turn) -> _Finding | None:
 
 
 def _premise_count(t: _Turn) -> _Finding | None:
-    got = {t.result_n(), t.inp.total, t.inp.count}
+    # An aggregate row with a total column beside the answer (one row, count 1) is compared on that total.
+    row_total = total_column_value(t.rows[0]) if len(t.rows) == 1 else None
+    got = {t.result_n(), t.inp.total, t.inp.count, row_total}
+    shown = row_total if row_total is not None else t.result_n()
     partners = _of_partners(t.q)
     for x in claimed_counts(t.q):
         if x >= 50 and x not in got and not partners.get(x, set()) & got:
-            return _Finding(f"question states {x}, result is {t.result_n()}", PREMISE_FACT.format(n=f"{x:,}"))
+            return _Finding(f"question states {x}, result is {shown}", PREMISE_FACT.format(n=f"{x:,}"))
     return None
 
 
