@@ -154,7 +154,8 @@ Output valid JSON only. Do not include backticks or prose outside the JSON. Incl
     "keywords": ["string"],
     "projects": ["string"],
     "labs": ["string"],
-    "lab_codes": ["string"]
+    "lab_codes": ["string"],
+    "scientists": ["string"]
   },
   "candidates": [
     {
