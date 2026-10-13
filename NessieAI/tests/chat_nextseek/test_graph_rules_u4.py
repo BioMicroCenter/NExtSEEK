@@ -91,6 +91,8 @@ def _grouped(captured, cypher, rows):
     ("MATCH (s:Sample)-[:IN_STUDY]->(st:Study) RETURN st.title AS study, count(DISTINCT s) AS n", "study"),
     ("MATCH (c:Sample)-[r:DERIVED_FROM]->(:Sample) UNWIND [r.internal_assay_title] + "
      "coalesce(r.internal_assay_titles, []) AS a RETURN a AS assay, count(*) AS n", "assay"),
+    ("MATCH (s:Sample)-[:IN_STUDY]->(st:Study) RETURN st.title AS study_title, count(DISTINCT s) AS n", "study_title"),
+    ("MATCH (s:Sample)-[:IN_INVESTIGATION]->(i:Investigation) RETURN i.title AS title, count(*) AS n", "title"),
 ])
 def test_a_sum_over_groups_that_can_overlap_is_not_offered_as_the_total(captured, cypher, col):
     text = _grouped(captured, cypher, [{col: "A", "n": 10}, {col: "B", "n": 7}])
@@ -102,6 +104,12 @@ def test_a_sum_over_groups_that_can_overlap_is_not_offered_as_the_total(captured
 @pytest.mark.parametrize("cypher,col", [
     ("MATCH (s:Sample) RETURN s.Organ AS organ, count(*) AS n", "organ"),
     ("MATCH (s:Sample) RETURN s.type AS type, count(*) AS n", "type"),
+    # R4: a scope through IN_PROJECT / IN_STUDY or an UNWIND of named ids does not make the groups overlap; what the
+    # rows are grouped by does.
+    ("MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE p.title = $project_title "
+     "RETURN s.type AS type, count(DISTINCT s) AS n", "type"),
+    ("MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE st.title = $study RETURN s.Organ AS organ, count(*) AS n", "organ"),
+    ("UNWIND $uids AS u MATCH (s:Sample {uuid: u}) RETURN s.Sex AS sex, count(*) AS n", "sex"),
 ])
 def test_a_sum_over_disjoint_groups_is_still_the_total(captured, cypher, col):
     text = _grouped(captured, cypher, [{col: "A", "n": 10}, {col: "B", "n": 7}])
