@@ -42,7 +42,6 @@ CANONICAL_CONTEXT_FILES = (
     "capabilities.md",
     "min_api_endpoints.json",
     "min_api_endpoints_enriched.json",
-    "min_assays_db.json",
     "min_sampletypes_db.json",
     "projects_db.json",
 )

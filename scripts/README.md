@@ -104,7 +104,7 @@ and `projects_db.json` from `context/`, field for field with `map_sampletype`,
 `map_sampletype_min`, `map_assay`, `map_assay_min` and `map_project` in `config.py`. Inside the
 **app** `_fetch_context_files_from_db` rewrites them from the context tables once per UTC day, so
 the app converges on the database and these copies are only its fallback. The **cc-agent** does
-not: its Dockerfile COPYs three of them out of the checkout at build time
+not: its Dockerfile COPYs two of them out of the checkout at build time
 (`startup/lib/layout.py::CANONICAL_CONTEXT_FILES`), the container holds no database connection,
 and its own `MANIFEST.md` sends the agent to `min_sampletypes_db.json` to map a kind of sample to
 its code. So run `--emit exports` in the same change as `--emit update` and rebuild both images:

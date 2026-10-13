@@ -152,3 +152,27 @@ def test_a_non_admin_schema_carries_only_its_own_projects_vocabulary():
 ], ids=["no_projects", "scope_none", "no_scope_attribute", "magicmock_config"])
 def test_a_caller_who_sees_no_project_gets_no_vocabulary(make_config):
     assert _schema(make_config())["vocabulary"] == ""
+
+
+# --- the box's assay list (fix 21) ---------------------------------------------------------------------------------
+
+BOX_ASSAYS = [{"Name": "Alpha Assay", "Description": None, "Tags": None},
+              {"Name": "Beta Panel", "Description": "Made up.", "Tags": "made, up"}]
+
+
+@pytest.mark.parametrize("scope", [
+    GraphScope.admin("test"),
+    GraphScope.for_projects([1, 3], source="test"),
+    GraphScope.for_projects([], source="test"),
+    None,
+], ids=["admin", "non_admin", "no_projects", "scope_none"])
+def test_every_caller_is_shown_this_boxs_assay_titles(scope):
+    """The box's assay catalog (``config.MIN_ASSAYS``) names kinds of assay, not a project's records, so every caller
+    gets the same titles, as the entity and system agents do. Container-CC reads them here, not from a baked file."""
+    config = with_scope(_base(), scope)
+    config.MIN_ASSAYS = BOX_ASSAYS
+    assert _schema(config)["assays"] == ["Alpha Assay", "Beta Panel"]
+
+
+def test_a_config_with_no_assay_list_is_shown_none():
+    assert _schema(_magicmock())["assays"] == []

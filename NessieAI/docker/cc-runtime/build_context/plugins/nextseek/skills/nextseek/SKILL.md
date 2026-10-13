@@ -280,8 +280,9 @@ on the record's own page, or, for samples, with a batch-upload workbook they upl
 **Pure capability / vocabulary questions — read the cached catalogs.** For "what sampletypes
 exist?", "what can I ask?", read the baked catalogs directly with `Read` (no op, no network):
 `/app/plugins/nextseek/context/capabilities.md` (start here), `min_sampletypes_db.json`,
-`min_assays_db.json`, `min_api_endpoints_enriched.json`, `projects_db.json`. The graph schema is
-not among them: run `nextseek-graph-schema`, which reads the deployed graph.
+`min_api_endpoints_enriched.json`, `projects_db.json`. The graph schema and the assay list are
+not among them: run `nextseek-graph-schema`, which reads the deployed graph and lists this
+instance's assays in its `assays` field.
 For *data* questions, use the ops above — the catalogs alone will not answer those.
 
 ## Multi-step planner (`nextseek-plan`)

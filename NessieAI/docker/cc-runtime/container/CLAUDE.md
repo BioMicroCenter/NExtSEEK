@@ -73,7 +73,7 @@ Files (the `min_*` variants are the compact forms — prefer them when grounding
 
 - `capabilities.md` — sample-type code table, assay table, known investigations. Start here.
 - `min_sampletypes_db.json` — sample-type catalog (codes, labels, clades).
-- `min_assays_db.json` — assay catalog (names, descriptions, sample-type compatibilities).
+- Assays are not a file here: run `nextseek-graph-schema`, whose `assays` field lists this instance's assays.
 - `projects_db.json` — projects / investigations (name, id, description).
 - `min_api_endpoints.json` / `min_api_endpoints_enriched.json` — REST endpoint catalog.
 - `read_safe_endpoints.json` — the read-safe endpoint allowlist.
