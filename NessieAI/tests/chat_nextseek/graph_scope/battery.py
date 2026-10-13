@@ -823,7 +823,7 @@ def report_statements(tmp_dir) -> list[tuple[str, dict]]:
 
     config = SimpleNamespace(is_umbrella_published_project=None)
     with mock.patch.object(runners, "tool_neo4j_query", fake_tool), \
-            mock.patch.object(runners, "_resolve_report_scope", lambda cfg, project: ("project", 2)), \
+            mock.patch.object(runners, "_resolve_report_scope", lambda cfg, project, scope_kind=None: ("project", 2)), \
             mock.patch.object(runners, "live_db_conn", lambda *a, **k: None):
         runners._neo4j_investigation_sample_uuids(config, "Inv one", years=[2023],
                                                    month_range=("2023-01", "2023-03"))
