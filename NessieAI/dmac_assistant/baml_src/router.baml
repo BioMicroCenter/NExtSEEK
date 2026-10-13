@@ -120,11 +120,12 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     samples", "how can I check my workbook before uploading it", "where do I
     download my results as a spreadsheet" and "how do I call the API" ask how
     to do something in NExtSEEK, and the user docs answer them. That holds even
-    when Container-CC could do the task itself. A question about how to do an
-    analysis or apply a method is not a how-to about the site. Select `container_cc` only when
-    the user supplies the data or file to work on in the message, or asks for
-    the work to be done ("validate this workbook", "make me the upload sheet",
-    "write the CSV").
+    when Container-CC could do the task itself. Judge a how-to by its intent:
+    learning to use the site is the docs, finding samples or data is a
+    NExtSEEK search, and doing an analysis or applying a method is
+    `container_cc`. Select `container_cc` only when the user supplies the data
+    or file to work on in the message, or asks for the work to be done
+    ("validate this workbook", "make me the upload sheet", "write the CSV").
 
     The file of one SOP named by its id or its exact title goes to
     `nextseek_query`, which downloads it ("Download SOP 9001", "give me the

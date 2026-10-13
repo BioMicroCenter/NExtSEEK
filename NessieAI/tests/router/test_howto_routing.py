@@ -37,27 +37,11 @@ def _route(q, **kw):
 
 @pytest.mark.parametrize("query", [
     "How do I check my workbook for the Zeta project before uploading it?",
-    "Where can I download the Quill lab's mouse samples I found as Excel?",
-    "Is there a way to export the ZZZ-990101ABC-1-PUB record to a spreadsheet?",
-    "what's the best way to register a new sample type?",
+    "How do I apply the Seq-Well protocol to my tissue samples?",
+    "How would I apply the clustering approach from a paper to my own cohort?",
 ])
-def test_a_howto_the_router_sent_to_cc_goes_to_ns(monkeypatch, query):
-    _says(monkeypatch, cc_router.ROUTE_CC)
-    d = _route(query)
-    assert (d.route, d.source) == (cc_router.ROUTE_NS, "howto")
-    assert d.model_class is None and d.model_id is None
-    assert "the router" in d.reasoning
-
-
-@pytest.mark.parametrize("query", [
-    "How do I fix this sheet?\nuid\tspecies\nZZZ-1\tmouse\nZZZ-2\trat",           # supplied table
-    "How do I make an upload sheet? Could you make one for the Zeta mice?",       # work request
-    "Validate this workbook for the Zeta project",                               # no how-to opener
-    "How can I clean zeta_samples.xlsx? Please do it for me.",                    # file name + work
-    "How do I fix this?\n```python\nx = 1\n```",                                  # code block
-    "How do I load /home/quill/data/zeta.csv into the project?",                  # path
-])
-def test_work_or_supplied_content_stays_on_cc(monkeypatch, query):
+def test_a_container_cc_decision_on_a_howto_stays_container_cc(monkeypatch, query):
+    """The docs-or-not call is the router's intent call, not a regex after it."""
     sent = _says(monkeypatch, cc_router.ROUTE_CC)
     assert _route(query) is sent
 
@@ -122,27 +106,6 @@ def test_an_analysis_request_is_a_cc_cue(query):
 
 
 # ------------------------------------------------------------------ U7-04..09: text
-@pytest.mark.parametrize("query", [
-    "How do I apply the Seq-Well protocol to my tissue samples?",
-    "How do I reanalyze the data from PMID 12345678 with a newer aligner?",
-    "How should I reproduce the clustering approach from that paper on my own cohort?",
-    "How can we replicate the pipeline from doi 10.1234/abcd.5678 on our mice?",
-])
-def test_a_method_howto_stays_on_cc(monkeypatch, query):
-    sent = _says(monkeypatch, cc_router.ROUTE_CC)
-    assert _route(query) is sent
-
-
-@pytest.mark.parametrize("query", [
-    "How do I analyze my upload workbook for errors before submitting?",   # a site check: no method named
-    "How do I apply for access to a project?",
-    "How can I check my workbook before uploading it?",
-])
-def test_site_howtos_with_analysis_words_still_move(monkeypatch, query):
-    _says(monkeypatch, cc_router.ROUTE_CC)
-    assert _route(query).source == "howto"
-
-
 def _baml():
     return (paths.DMAC_ASSISTANT_DIR / "baml_src" / "router.baml").read_text(encoding="utf-8")
 
@@ -153,6 +116,12 @@ def test_router_text_sends_site_howtos_to_ns_and_drops_the_join_sentence():
     assert "how many sample types or assay kinds" in src
     assert "one query over one source" not in src
     assert src.index("How-to questions about the site") < src.index("{{ input.followup_rule }}")
+
+
+def test_router_and_container_cc_text_state_the_intent_rule():
+    assert "Judge a how-to by its intent" in _baml()
+    from NessieAI.cc.op_registry import routes
+    assert "a how-to is judged by its intent" in routes.CONTAINER_CC_ROUTE.not_for
 
 
 def test_route_text_and_generated_file_agree():

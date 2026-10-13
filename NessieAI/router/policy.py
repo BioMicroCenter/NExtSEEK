@@ -105,41 +105,15 @@ def _record_ledger_row(chat_session: ChatSession, decision: cc_router.RouteDecis
         )
 
 
-# How-to rule (round 4, ruling 6): the user docs answer "how do I ..." questions, so a how-to opener the
-# router sent to Container-CC moves to NExtSEEK unless the message supplies content to work on or asks for
-# the work. Recoverable: the user asks for the work in the next turn.
-_HOWTO_OPENER = re.compile(
-    r"^\s*(?:how\s+(?:do|can|should)\s+(?:i|we)\b|how\s+to\b|where\s+(?:do|can)\s+(?:i|we)\b|"
-    r"what(?:'|\u2019)?s\s+the\s+(?:best\s+)?way\s+to\b|is\s+there\s+a\s+way\s+to\b)",
-    re.IGNORECASE,
-)
+# How-to rule (round 4, ruling 6; operator 2026-10-13): whether a how-to question belongs to the user docs or to an
+# analysis is the router's intent call, stated in the router.baml how-to paragraph and the container_cc not_for text,
+# not a regex here. Learning to use the site is the docs; finding samples or data is a NExtSEEK search; doing an
+# analysis or applying a method is Container-CC.
 _SUPPLIED_CONTENT = re.compile(
     r"\t|```|(?:^|\s)(?:/|~/|[A-Za-z]:\\)[\w.\-]+[/\\]|"
     r"\b[\w\-]+\.(?:xlsx?|csv|tsv|txt|json|docx?|pdf|py|zip|gz|fastq|fq|bam|h5|ya?ml)\b",
     re.IGNORECASE,
 )
-_WORK_REQUEST = re.compile(
-    r"\b(?:(?:could|can|would|will)\s+you|please)\b.*\b(?:make|build|write|validate|check|run|export|create|"
-    r"generate|fix)\b|\bdo\s+it\s+for\s+me\b",
-    re.IGNORECASE | re.DOTALL,
-)
-# Fix 20: a how-to that asks to analyse, reanalyse, apply, reproduce or replicate a named method, paper, protocol, study
-# or pipeline is science, not a site question; the docs cannot answer it, so Container-CC keeps it.
-_METHOD_VERB = re.compile(r"\b(?:re-?analy[sz]\w*|analy[sz]\w*|apply(?!\s+for)\w*|reproduc\w*|replicat\w*)", re.IGNORECASE)
-_METHOD_NOUN = re.compile(
-    r"\b(?:method|technique|approach|paper|protocol|study|pipeline|pmid\s*:?\s*\d+|doi\b|10\.\d{4,9}/\S+)", re.IGNORECASE)
-
-
-def _is_site_howto(query: str | None) -> bool:
-    """True for a how-to question that supplies nothing to work on and asks for no work."""
-    q = query or ""
-    if not _HOWTO_OPENER.search(q):
-        return False
-    if _METHOD_VERB.search(q) and _METHOD_NOUN.search(q):
-        return False
-    if _SUPPLIED_CONTENT.search(q) or len([ln for ln in q.splitlines() if ln.strip()]) > 2:
-        return False
-    return not _WORK_REQUEST.search(q)
 
 
 # Named-SOP rule (fix round 4.1, ruling 9): the file of ONE SOP named by its id or its exact title is NExtSEEK's sops/
@@ -213,13 +187,7 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
             model_id=None, reasoning="forced", source="forced",
         )
     decision = cc_router.decide(req.query, history=history)
-    if decision.route == cc_router.ROUTE_CC and _is_site_howto(req.query):
-        decision = dataclasses.replace(
-            decision, route=cc_router.ROUTE_NS, model_class=None, model_id=None,
-            reasoning=f"howto; router said container_cc ({decision.reasoning})",
-            source="howto",
-        )
-    elif decision.route == cc_router.ROUTE_CC and _is_named_sop_file(req.query):
+    if decision.route == cc_router.ROUTE_CC and _is_named_sop_file(req.query):
         decision = dataclasses.replace(
             decision, route=cc_router.ROUTE_NS, model_class=None, model_id=None,
             reasoning=f"named SOP file; router said container_cc ({decision.reasoning})",
