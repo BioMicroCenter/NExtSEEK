@@ -165,3 +165,34 @@ def test_the_graph_prompt_carries_the_rules():
 def test_the_graph_prompt_has_no_real_project_as_an_example():
     for name in ("IMPAcTb", "MIT_SRP", "Shoulders Independent Projects", "fibrinogen"):
         assert name not in GRAPH
+
+
+# --- review R5, R6, N6, N7: the rules say when they apply ------------------------------------------------------
+
+def _line(start):
+    at = GRAPH.index(start)
+    return GRAPH[at:GRAPH.index("\n", at)]
+
+
+def test_an_exposure_keyword_is_matched_on_the_asked_type_first():
+    rule = _line("- **A keyword for what a sample was exposed to")
+    assert "a field on the asked type itself is matched first" in rule
+    assert "When the asked type has no field for it and a parent type does" in rule
+
+
+def test_every_means_one_total_and_each_still_groups():
+    rule = _line('**"All", "every" and "across all" are not a scope.**')
+    assert "When the question asks for one total" in rule
+    assert '"each", "per", "by" or "for every"' in rule.lower()
+
+
+def test_a_true_zero_through_the_lineage_may_be_reported():
+    rule = _line("- A name in `resolved.scientists` is a scientist for the whole question")
+    assert "never settle on zero" not in rule
+    assert "only when the lineage also finds none" in rule
+
+
+def test_a_kind_field_needs_every_word_of_the_kind():
+    rule = _line("- **An assay and a field naming the same kind.**")
+    assert "contains every word of the kind" in rule
+

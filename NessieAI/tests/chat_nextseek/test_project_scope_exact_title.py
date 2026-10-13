@@ -449,9 +449,11 @@ def test_the_study_and_investigation_form_is_kept_for_a_name_that_is_no_project_
 
 
 def test_the_tuned_scope_behaviours_stand():
-    """Shoulders (an investigation whose project holds 568) and the no-search_text-beside-a-scope rule."""
+    """A name that is an investigation title while its project holds the samples, and the no-search_text-beside-a-
+    scope rule. N8: the example names no real project or number."""
     assert "A NAME YOU WERE GIVEN in PROJECT TITLES, INVESTIGATION TITLES or STUDY TITLES is a scope" in STEP5
-    assert "its project held 568 samples" in STEP5
+    assert "found nothing while the project held the samples" in STEP5
+    assert "568" not in STEP5 and "Shoulders" not in STEP5
     assert "try the other two of Project title, Investigation title and Study title" in STEP5
     assert "never a title you remember or one from this prompt" in STEP5
 
