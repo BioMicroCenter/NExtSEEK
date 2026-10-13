@@ -136,8 +136,8 @@ lands with a fresh snapshot), the Container-CC transcript recover endpoint tests
 (`nextseek_api/tests/test_services_cc_transcript_recover.py`), the assistant api-write,
 upload and transcript-cap tests (`nextseek_api/tests/test_services_cc_assistant_routes.py`),
 and the attributes viewset's tests (`nextseek_api/attributes/tests/test_*.py`; its
-`conftest.py` lists the strict xfails: tests that need the author's evidence rig, and
-stale executor tests). It needs only the standard library. It prints the
+`conftest.py` skips the tests that need the author's evidence rig where its variables
+are absent). It needs only the standard library. It prints the
 matched test paths, one per line, and exits 1 with nothing on stdout when a glob
 matches no file, because pytest given no path walks the whole tree;
 `ci/gate/test_blocking_lanes.py` holds the same rule in the gate. A new module

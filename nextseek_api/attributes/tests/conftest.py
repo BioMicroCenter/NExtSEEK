@@ -18,13 +18,13 @@ import pytest
 
 _HERE = Path(__file__).parent
 
-# Folder-wide: these tests need the author's evidence rig. Where the variable is set they run for real.
+# Tests that need the author's evidence rig are skipped without it (ci/CLAUDE.md: a test that needs a live service
+# skips itself without that service). Folder-wide: every test using the disposable database.
 _NEEDS_RIG = (
     ("ATTRIBUTE_TEST_DB_HOST", "needs the disposable MariaDB the evidence rig starts (ATTRIBUTE_TEST_DB_HOST); CI has none"),
 )
-# By <file>::<test>: red since the folder first ran in CI (#98). Strict: when the cause is gone, the XPASS fails
-# the run and the entry must go.
-_RED = {  # need the author's evidence rig; where the variable is set they run for real
+# By <file>::<test>: these read evidence-rig inputs. Where the variable is set they run for real.
+_RIG_INPUT = {
     "test_openapi.py::test_machine_schema_contract_matches_generated_components": (
         "ATTRIBUTE_EVIDENCE_RUN_ROOT", "reads an author-machine file (SCHEMA_CONTRACT in test_openapi.py:9)"),
     "test_performance_metadata.py::test_metadata_matrix_has_exact_162_cells_and_810_runs": (
@@ -44,7 +44,7 @@ def pytest_collection_modifyitems(config, items):
         key = f"{path.relative_to(_HERE).as_posix()}::{item.originalname or item.name}"
         if "disposable_attribute_db" in item.fixturenames:
             var, why = _NEEDS_RIG[0]
-            item.add_marker(pytest.mark.xfail(condition=var not in os.environ, strict=True, reason=why))
-        if key in _RED:
-            var, why = _RED[key]
-            item.add_marker(pytest.mark.xfail(condition=var not in os.environ, strict=True, reason=why))
+            item.add_marker(pytest.mark.skipif(var not in os.environ, reason=why))
+        if key in _RIG_INPUT:
+            var, why = _RIG_INPUT[key]
+            item.add_marker(pytest.mark.skipif(var not in os.environ, reason=why))
