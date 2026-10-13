@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import calendar
 from datetime import datetime, timedelta
@@ -226,6 +227,18 @@ def reporter_agent(config: ChatConfig, user_query: str, parser_plan: ParserPlan 
     print("[DEBUG][REPORTER] Parsed reporter plan:", json.dumps(plan_model.model_dump(), indent=2))
     return plan_model
 
+def protocol_link_note() -> str:
+    """The system note telling the report writer which public address to put in protocol links.
+
+    The address is this box's own ``SEEK_PUBLIC_URL`` (nextseek.env); with none set the writer is told to write no
+    link, never to fall back to another box's host.
+    """
+    base = os.getenv("SEEK_PUBLIC_URL", "").strip().rstrip("/")
+    if not base:
+        return "Protocol link base: none is configured. Write no protocol URLs; name each protocol by its title."
+    return f"Protocol link base: {base}  (write every protocol URL as {base}/sops/<id>)"
+
+
 def report_writer_agent(
     config: ChatConfig,
     user_query: str,
@@ -245,6 +258,7 @@ def report_writer_agent(
         model_cls = ReportWriterOutputGEO
     messages = [
         {"role": "system", "content": config.REPORT_WRITER_SYSTEM_PROMPT},
+        {"role": "system", "content": protocol_link_note()},
         {
             "role": "system",
             "content": (

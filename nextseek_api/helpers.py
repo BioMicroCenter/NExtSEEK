@@ -165,7 +165,7 @@ class SeekAPIClient:
         self.timeout_s: int = 20
 
     def _request(self, method: str, path: str, request, params: Optional[Dict[str, Any]] = None,
-                 json: Optional[Dict[str, Any]] = None):
+                 json: Optional[Dict[str, Any]] = None, timeout_s: Optional[int] = None):
         # Try BASIC -> SESSION -> TOKEN by default for proxy endpoints
         basic_tuple, extra_headers = resolve_seek_auth(request)
         if not basic_tuple and not extra_headers:
@@ -187,7 +187,7 @@ class SeekAPIClient:
             headers=headers,
             params=params,
             json=json,
-            timeout=self.timeout_s,
+            timeout=timeout_s or self.timeout_s,
         )
         dt_ms = (time.time() - t0) * 1000.0
 
@@ -321,8 +321,8 @@ class SeekAPIClient:
 
     # ---- SampleTypes endpoints ----
 
-    def list_sample_types(self, request, params: Optional[Dict[str, Any]] = None):
-        return self._request('GET', '/sample_types', request, params=params)
+    def list_sample_types(self, request, params: Optional[Dict[str, Any]] = None, timeout_s: Optional[int] = None):
+        return self._request('GET', '/sample_types', request, params=params, timeout_s=timeout_s)
 
     def get_sample_type(self, request, sample_type_id: str):
         return self._request('GET', f'/sample_types/{sample_type_id}', request)
