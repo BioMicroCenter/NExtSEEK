@@ -133,6 +133,79 @@ subpackage, so a same-named shim in the parent re-exports the class
 It runs as a background process of the `nextseek` container, started by
 `docker/scripts/entrypoint.sh` with `--interval 5`; there is no separate compose service.
 
+## Undoing a registration
+
+There is no delete path. The API is additive on purpose (above), no management command removes a
+membership, and nothing in the package deletes an `assay_assets` row. Undoing a registration is a
+manual two-step job for an operator, and the order matters: step 1 changes the source, step 2 brings the
+graph's derived labels back in line with it. Skipping step 2 leaves DERIVED_FROM edges carrying assay
+labels computed from rows that no longer exist.
+
+**Step 1: remove the rows (manual SQL, no supported command).** The rows live in `assay_assets` in the
+SEEK schema (`seek_production`, the Django alias `seek`), not in `dmac`. The `dmac` database also has
+an `assay_assets` table and it is empty
+(`nextseek_api/assay_registration/graph.py:16-20`), so a delete there removes nothing and looks fine.
+
+1. Collect the ids. Every row the registration wrote carries the `assay_assets_id` the database assigned
+   (`nextseek_api/assay_registration/schemas.py:136-138`). Take them from the response, or from the
+   job's `GET assay-registrations/jobs/{job_id}/` result for a 202 batch (the same report is stored in
+   the `terminal_result` column of `nextseek_api_assayregistrationjob` in `dmac`,
+   `nextseek_api/assay_registration/models_db.py:35`). Take only rows with `status` `written`. A row
+   that says `already_present` was a membership that existed before this registration, and undoing the
+   registration must leave it alone (`nextseek_api/assay_registration/executor.py:182`, the only place a row becomes `written`).
+2. Back up first. The registration writes `assay_assets` only, so dump that one table, with the dump
+   kept outside any git checkout and mode 600, as `DEPLOYMENT.md` section 5.3 does for a migration:
+   `docker exec <mysql-container> mysqldump -u<user> -p<pass> seek_production assay_assets > backup-assay_assets-pre-undo-<YYYYMMDD>.sql`.
+3. Delete by id, with the assay and the type as a second guard, inside one transaction. The block
+   stops before the commit on purpose:
+
+   ```sql
+   START TRANSACTION;
+   DELETE FROM seek_production.assay_assets
+    WHERE id IN (<written assay_assets_id values>)
+      AND assay_id = <assay id> AND asset_type = 'Sample';
+   SELECT ROW_COUNT();
+   ```
+
+   If the count equals the number of ids you listed for that assay, type `COMMIT;`. If not, type
+   `ROLLBACK;`. Closing the session without either also rolls the delete back.
+
+   Do it once per assay if the batch named several. `assay_assets` has no unique constraint on the
+   pair (`nextseek_api/assay_registration/planner.py:38-52`), so never delete by `(assay_id, asset_id)`
+   alone: a second row for the same pair that you did not write would go with it.
+
+A registration does not touch `projects_samples` or any other table (the one write is
+`nextseek_api/batch_upload/associations.py:112-139`), so nothing else needs undoing. Restoring from the
+dump is the way back if you deleted the wrong rows.
+
+**Step 2: bring the graph labels back in line.** A removed membership makes some DERIVED_FROM edges
+`changed` or `cleared` against the label rule (`nextseek_api/graph_sync/labels.py:13-20`). Those classes
+are counted but not written unless the run is approved
+(`nextseek_api/graph_sync/targeted.py:54-56`), so a plain sync will not fix them. The sample's source hash
+covers its assay links (`nextseek_api/graph_sync/projection.py:156`), so a sync does see the sample as
+moved. The registration endpoint's own label recompute is gone: labels are derived by `graph_sync`
+from MySQL for every writer (`nextseek_api/assay_registration/graph.py:1-12`), and the endpoint only
+queues an outbox row after a write. Deleting rows by SQL queues nothing, so you run it yourself, from
+the `nextseek` container:
+
+1. Dry run, which writes nothing: `manage.py graph_sync --reconcile --dry-run --apply-label-changes --i-mean-the-live-graph`
+   (or `--labels --dry-run --i-mean-the-live-graph`, the same label rule over the whole graph). Both
+   need `--i-mean-the-live-graph` against the stack's Neo4j: the live-graph check runs first and
+   ignores `--dry-run` (`live_graph_refusal` in `graph_sync.py`). It prints the per-class counts.
+   It covers the whole graph, not only your samples, so other writers' pending changes appear in the
+   counts too. `--dry-run` is refused by `--samples`
+   (`nextseek_api/management/commands/graph_sync.py:312-315`), so there is no per-sample dry run on the
+   command line.
+2. Write: `manage.py graph_sync --samples <sample ids> --apply-label-changes --i-mean-the-live-graph`,
+   with the `sample_id` values of the rows you removed, comma-separated. It relabels every DERIVED_FROM
+   edge incident to those samples, in both directions, from the post-delete MySQL state.
+3. Check: `manage.py graph_sync --drift` (read-only). Without step 2 the nightly reconcile at
+   02:00 US Eastern writes these labels only if the loop runs with
+   `NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply` (`nextseek_api/graph_sync/loop.py:85-86`, `:150-154`).
+
+This wording holds however the label rule treats an assay with no internal mapping: step 2 recomputes
+from whatever `assay_assets` holds, so it needs no change when that rule does.
+
 ## Running and testing
 
 The package has a real lane of its own: 8 `test_*.py` modules under
