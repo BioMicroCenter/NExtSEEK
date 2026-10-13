@@ -181,7 +181,7 @@ def test_route_text_splits_harmonization_by_intent():
 
     text = " ".join(CONTAINER_CC_ROUTE.not_for.split())
     assert "counts and breakdowns, including counts across spellings, all run in the graph." in text
-    assert "Harmonization is judged by its intent" in text
+    assert "Values written several ways are judged by intent, like a how-to" in text
     assert ("asking which values, spellings or types an attribute holds, and how many of each, is a "
             "NExtSEEK graph search on the NS route") in text
     assert ("asking to harmonize, merge or map them to the house terms, or to build the update workbook "
@@ -189,4 +189,4 @@ def test_route_text_splits_harmonization_by_intent():
     assert "then asks to harmonize it comes here with that earlier result" in text
     assert "harmonisation over metadata" not in text
     path = paths.DMAC_ASSISTANT_DIR / "build_context" / "route_capabilities.json"
-    assert "Harmonization is judged by its intent" in path.read_text(encoding="utf-8")
+    assert "Values written several ways are judged by intent, like a how-to" in path.read_text(encoding="utf-8")
