@@ -109,7 +109,9 @@ def _resolve_report_scope(config, project, scope_kind=None) -> "tuple[str, Any]"
     all accept an investigation name that matches no project.
 
     ``scope_kind="investigation"`` (the user said "investigation", see ``scope_kind_word``) tries the investigation
-    first, so a name that is also a project's does not turn the question into the project's.
+    first, so a name that is also a project's does not turn the question into the project's. Only the protocols
+    runner passes it (operator ruling 2026-10-13): sample and published counts stay project-first, as the graph
+    route treats the two words.
 
     Raises ValueError only when the name is neither a project nor an investigation,
     preserving the original error for genuinely unknown scopes.
@@ -261,7 +263,6 @@ def run_project_sample_report(
     month_range: tuple[str, str] | None = None,
     day_range: tuple[str, str] | None = None,
     outputs_root: str | Path = "outputs",
-    scope_kind: str | None = None,
 ) -> dict:
     """
     Project-scoped sample UUID reporting with optional date filters extracted from UUID.
@@ -289,7 +290,7 @@ def run_project_sample_report(
     # project but IS a known investigation, take the investigation-scoped path
     # (Neo4j — the relational DB has no sample->investigation linkage). Any name
     # that is neither still raises the original "Unknown project" ValueError.
-    kind, scope = _resolve_report_scope(config, project, scope_kind)
+    kind, scope = _resolve_report_scope(config, project)
     if kind == "investigation":
         return _run_investigation_sample_report(
             config, scope, project, years, month_range, day_range, outputs_root
@@ -685,7 +686,6 @@ def run_project_published_report(  # noqa: C901
     month_range: tuple[str, str] | None = None,
     day_range: tuple[str, str] | None = None,
     outputs_root: str | Path = "outputs",
-    scope_kind: str | None = None,
 ) -> dict:
     """
     Project-scoped published samples and protocols report.
@@ -704,7 +704,7 @@ def run_project_published_report(  # noqa: C901
 
     Returns counts of published samples (by type/lab/year/month), study count, and protocol count.
     """
-    kind, scope = _resolve_report_scope(config, project, scope_kind)
+    kind, scope = _resolve_report_scope(config, project)
     project_id = scope if kind == "project" else None
     investigation_scope = scope if kind == "investigation" else None
     outputs_root = Path(outputs_root)
@@ -1387,7 +1387,7 @@ def run_reporter_summary(
             samples_result = _scope_report_to_labs(_guarded(
                 "samples", run_project_sample_report,
                 config, project, years=years, month_range=month_range,
-                day_range=day_range, outputs_root=log_dir or "outputs", scope_kind=scope_kind,
+                day_range=day_range, outputs_root=log_dir or "outputs",
             ), fallback_labs)
             protocols_result = _scope_protocols_to_labs(_guarded(
                 "protocols", run_project_protocols_report,
@@ -1397,7 +1397,7 @@ def run_reporter_summary(
             published_result = _scope_published_to_labs(_guarded(
                 "published", run_project_published_report,
                 config, project, years=years, month_range=month_range,
-                day_range=day_range, outputs_root=log_dir or "outputs", scope_kind=scope_kind,
+                day_range=day_range, outputs_root=log_dir or "outputs",
             ), fallback_labs)
             reporter_result: dict = {
                 "ok": samples_result.get("ok"),
@@ -1416,12 +1416,12 @@ def run_reporter_summary(
         elif summary_mode == "published":
             reporter_result = _scope_published_to_labs(run_project_published_report(
                 config, project, years=years, month_range=month_range,
-                day_range=day_range, outputs_root=log_dir or "outputs", scope_kind=scope_kind,
+                day_range=day_range, outputs_root=log_dir or "outputs",
             ), fallback_labs)
         else:  # "samples" (default)
             reporter_result = _scope_report_to_labs(run_project_sample_report(
                 config, project, years=years, month_range=month_range,
-                day_range=day_range, outputs_root=log_dir or "outputs", scope_kind=scope_kind,
+                day_range=day_range, outputs_root=log_dir or "outputs",
             ), fallback_labs)
     except Exception as e:
         reporter_result = {"ok": False, "error": repr(e)}

@@ -93,6 +93,32 @@ def test_a_project_that_is_no_investigation_ignores_the_word(tmp_path):
     assert _titles("GAMMA", "investigation", tmp_path)["rows_returned"] == 0     # falls to the project; none filed
 
 
+# R7a (operator 2026-10-13, "Protocols only"): only protocol counts follow the scope word; a samples or published
+# count for a name that is both stays on the project, as the graph route does.
+@pytest.mark.parametrize("mode, gets_word", [
+    ("protocols", {"protocols"}), ("samples", set()), ("published", set()), ("RPPR", {"protocols"}),
+])
+def test_only_the_protocols_runner_gets_the_scope_word(monkeypatch, tmp_path, mode, gets_word):
+    seen = {}
+    for block, fn in (("samples", "run_project_sample_report"), ("protocols", "run_project_protocols_report"),
+                      ("published", "run_project_published_report")):
+        def _fake(config, project, *, _block=block, **kw):
+            seen[_block] = kw.get("scope_kind")
+            return {"ok": True}
+        monkeypatch.setattr(runners, fn, _fake)
+    plan = types.SimpleNamespace(project="ALPHA", years=[], month_range=None, day_range=None, summary_mode=mode,
+                                 reporter_context=None)
+    runners.run_reporter_summary(SHARED, plan, str(tmp_path), lab_codes=[], scope_kind="investigation")
+    assert seen and {b for b, word in seen.items() if word == "investigation"} == gets_word
+
+
+def test_a_samples_report_saying_investigation_stays_on_the_shared_project():
+    import inspect
+    assert "scope_kind" not in inspect.signature(runners.run_project_sample_report).parameters
+    assert "scope_kind" not in inspect.signature(runners.run_project_published_report).parameters
+    assert runners._resolve_report_scope(SHARED, "ALPHA") == ("project", 1)
+
+
 @pytest.mark.parametrize("q, kind", [
     ("How many protocols are registered for the Zed investigation?", "investigation"),
     ("protocols of the Zed project", "project"),
