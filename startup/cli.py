@@ -564,7 +564,9 @@ def doctor(
         raise typer.Exit(code=2) from exc
     any_failed = False
     for name, ok, detail in results:
-        if ok:
+        if ok and detail.startswith("warning: "):
+            ui.warn(escape(f"{name}: {detail}"))
+        elif ok:
             ui.ok(f"{name}: {detail}")
         else:
             ui.fail(f"{name}: {detail}")

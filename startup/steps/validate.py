@@ -905,6 +905,57 @@ def check_seek_url_consistency(
     return HealthResult(name=name, ok=True, detail=f"{in_seek} (env, instance and SEEK agree)")
 
 
+_DOLLAR_REF = re.compile(r"^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$")
+_ENV_FILES = (("docker/nextseek.env", "nextseek.env"), ("docker/db.env", "db.env"), (".env", "root.env"))
+
+
+def check_env_registry(repo_root: Path) -> HealthResult:
+    """Advisory: the rendered env files against startup/env_registry.toml (#103).
+
+    Reports key names only, never a value. Always ``ok``; a finding sets ``warn``, so it
+    never changes a rebuild's exit code. A value that is exactly ``$NAME`` or ``${NAME}``
+    is resolved against its own file first; the root .env doubles its ``$``.
+    """
+    from startup.lib.env_registry import load
+
+    name = "env registry"
+    registry = load()
+    files = {tag: read_env(repo_root / rel) for rel, tag in _ENV_FILES if (repo_root / rel).is_file()}
+    if not files:
+        return HealthResult(name=name, ok=True, detail="docker env files not rendered, nothing to check")
+
+    def value(tag: str, key: str) -> str:
+        v = files[tag][key]
+        if tag == "root.env":
+            v = v.replace("$$", "$")
+        m = _DOLLAR_REF.match(v)
+        return files[tag].get(m.group(1) or m.group(2), v) if m else v
+
+    findings: list[str] = []
+    for tag, env in files.items():
+        unknown = sorted(k for k in env if k not in registry)
+        forbidden = sorted(k for k in env if k in registry and registry[k].forbidden)
+        absent = sorted(k for k, e in registry.items() if e.required and tag in e.files and k not in env)
+        unset = sorted(k for k, e in registry.items() if e.required and tag in e.files and k in env
+                       and env[k].strip() in ("", "SET_IN_LOCAL_ENV"))
+        for label, keys in (("unknown key", unknown), ("forbidden key", forbidden),
+                            ("required key missing", absent), ("required key not filled in", unset)):
+            if keys:
+                findings.append(f"{tag}: {label} {', '.join(keys)}")
+    for key, entry in registry.items():
+        if not entry.alias_of:
+            continue
+        seen = {value(t, k) for t in files for k in (key, entry.alias_of) if k in files[t]}
+        if len(seen - {""}) > 1:
+            findings.append(f"{key} and {entry.alias_of} differ")
+    if not findings:
+        return HealthResult(name=name, ok=True, detail="rendered env files match the registry")
+    return HealthResult(
+        name=name, ok=True, warn=True,
+        detail="; ".join(findings) + " (startup/env_registry.toml; advisory, names only)",
+    )
+
+
 def run_all_health_checks(
     ports: dict[str, int], repo_root: Path, env: dict[str, str]
 ) -> list[HealthResult]:
@@ -920,6 +971,7 @@ def run_all_health_checks(
         check_cc_services(repo_root, env),
         check_first_party_images(env.get("COMPOSE_PROJECT_NAME", "nextseek")),
         check_cc_runner(repo_root, env),
+        check_env_registry(repo_root),
     ]
     return results
 
@@ -944,4 +996,5 @@ def run_app_health_checks(
         # cc-agent, so it is the one that most needs to be told the image is gone.
         check_first_party_images(env.get("COMPOSE_PROJECT_NAME", "nextseek")),
         check_cc_runner(repo_root, env),
+        check_env_registry(repo_root),
     ]

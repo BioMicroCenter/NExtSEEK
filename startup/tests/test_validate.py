@@ -481,7 +481,7 @@ def test_app_health_checks_exclude_seek_and_neo4j(monkeypatch, tmp_path):
     assert {result.name for result in results} == {
         "NExtSEEK", "django check", "prod overlay guard", "nextseek.env paths",
         "bedrock proxy token", "cc services",
-        "first-party images", "CC runner",
+        "first-party images", "CC runner", "env registry",
     }
 
 
