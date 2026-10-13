@@ -172,7 +172,9 @@ class UserInParticipatingProject(BasePermission):
         # Told apart on purpose: SEEK that ANSWERED without the project is a refusal (403); SEEK that did not answer
         # (no reply, a 5xx, an unreadable 200) is an outage and answers a retryable code. Neither ever allows.
         try:
-            content, status_code, _headers, _resp = SeekAPIClient().get_current_person(request)
+            reply = SeekAPIClient().get_current_person(request)
+            # (content, status, headers, response); only the content is guaranteed by older callers.
+            content, status_code = reply[0], (reply[1] if len(reply) > 1 else 200)
         except Exception:
             logger.warning("participating-project check: SEEK did not answer", exc_info=True)
             raise SeekNotAnswering() from None
