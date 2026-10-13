@@ -55,6 +55,11 @@ def test_the_entity_tree_tests_block():
     assert "nextseek_api/tests/test_entity_tree_read_routing.py" in paths
 
 
+def test_the_transcript_recover_tests_block():
+    assert "nextseek_api/tests/test_services_cc_transcript_recover.py" in blocking_lanes.BLOCKING_GLOBS
+    assert "nextseek_api/tests/test_services_cc_transcript_recover.py" in blocking_lanes.expand(ROOT)
+
+
 def test_the_expansion_is_sorted_relative_test_modules():
     paths = blocking_lanes.expand(ROOT)
     assert paths == sorted(set(paths))

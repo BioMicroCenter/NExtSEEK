@@ -10,8 +10,8 @@ to run a second time, in the workflow's "Blocking unit tests
 edit here: the graph_sync and graph_search tests under nextseek_api/tests/, the
 studies tool's tests under nextseek_api/studies/tests/, the Sample Search page's view and
 JavaScript tests and the user docs tests under seek/tests/, and the check that Nessie's docs
-snapshot matches the user docs. Two modules are named one by one: the entity_tree view tests and
-their read-routing test. The Container-CC agent-folder tests under NessieAI/tests/cc/ join by glob.
+snapshot matches the user docs. Three modules are named one by one: the entity_tree view tests,
+their read-routing test, and the Container-CC transcript recover endpoint tests. The Container-CC agent-folder tests under NessieAI/tests/cc/ join by glob.
 
 Exit 1, printing nothing on stdout, when a glob matches no file: the workflow
 passes the output to pytest as its paths, and pytest given no path walks the
@@ -43,6 +43,9 @@ BLOCKING_GLOBS = (
     # The entity_tree endpoints, whose type-pair statements read every assay an edge carries; no glob covers them.
     "nextseek_api/tests/test_services_entity_tree.py",
     "nextseek_api/tests/test_entity_tree_read_routing.py",
+    # The Container-CC transcript recover endpoint (#98): the caller's own turn, 200 for a failed turn, 404 when
+    # absent, pre-#68 cumulative rows served as stored. SQLite and stubs only.
+    "nextseek_api/tests/test_services_cc_transcript_recover.py",
     # The user docs at /docs/: every page renders and its links, anchors and images
     # resolve; and Nessie's docs snapshot is regenerated whenever a page changes.
     "seek/tests/test_docs_*.py",
