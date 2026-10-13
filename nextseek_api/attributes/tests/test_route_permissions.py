@@ -54,7 +54,10 @@ def test_a_superuser_write_reaches_the_service(service, action, method, body):
 
 
 def test_a_non_superuser_cannot_cancel_a_job(service):
-    response = _call("job_cancel", "post", superuser=False, job_id=JOB)
+    # The caller created the job, so only the superuser gate can refuse.
+    service.get_job_object.return_value = SimpleNamespace(actor_seek_person_id=42)
+    service.cancel_job.return_value = ({"job_id": JOB}, 202)
+    response = _call("job_cancel", "post", superuser=False, person_id=42, job_id=JOB)
     assert response.status_code == 403
     service.cancel_job.assert_not_called()
 
