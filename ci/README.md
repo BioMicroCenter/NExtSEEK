@@ -133,7 +133,7 @@ tests (`seek/tests/test_docs_*.py`: every `/docs/` page renders and its links,
 anchors and images resolve) and the check that Nessie's docs snapshot matches those
 pages (`NessieAI/tests/build_tools/integration/test_docs_snapshot_*.py`, so a docs edit
 lands with a fresh snapshot), and the Container-CC transcript recover endpoint tests
-(`nextseek_api/tests/test_services_cc_transcript_recover.py`) and the attributes viewset's tests (`nextseek_api/attributes/tests/test_*.py`; the ones that need the author's evidence rig are strict xfails). It needs only the standard library. It prints the
+(`nextseek_api/tests/test_services_cc_transcript_recover.py`) the assistant api-write, upload and transcript-cap tests (`nextseek_api/tests/test_services_cc_assistant_routes.py`) and the attributes viewset's tests (`nextseek_api/attributes/tests/test_*.py`; the ones that need the author's evidence rig are strict xfails). It needs only the standard library. It prints the
 matched test paths, one per line, and exits 1 with nothing on stdout when a glob
 matches no file, because pytest given no path walks the whole tree;
 `ci/gate/test_blocking_lanes.py` holds the same rule in the gate. A new module

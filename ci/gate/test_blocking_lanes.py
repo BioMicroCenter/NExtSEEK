@@ -60,6 +60,10 @@ def test_the_transcript_recover_tests_block():
     assert "nextseek_api/tests/test_services_cc_transcript_recover.py" in blocking_lanes.expand(ROOT)
 
 
+def test_the_assistant_route_tests_block():
+    assert "nextseek_api/tests/test_services_cc_assistant_routes.py" in blocking_lanes.expand(ROOT)
+
+
 def test_the_attributes_tests_block():
     assert "nextseek_api/attributes/tests/test_*.py" in blocking_lanes.BLOCKING_GLOBS
     assert "nextseek_api/attributes/tests/test_views.py" in blocking_lanes.expand(ROOT)
