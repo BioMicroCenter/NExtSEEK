@@ -1083,8 +1083,17 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
     def _clamp_filters(filters):
         return filters.model_copy(update={"lab_codes": _clamp(filters.lab_codes)})
 
+    resolved_update: dict[str, Any] = {"lab_codes": _clamp(plan.resolved.lab_codes)}
+    # Fix 8: the parser's echo of the entity result has no `scientists` slot, so a person the entity step resolved
+    # as a scientist reached the graph agent only as a keyword. The entity result is the source of truth.
+    if isinstance(entity_result, dict):
+        entity_scientists = entity_result.get("scientists")
+    else:
+        entity_scientists = getattr(entity_result, "scientists", None)
+    if entity_scientists and not plan.resolved.scientists:
+        resolved_update["scientists"] = list(entity_scientists)
     updates: dict[str, Any] = {
-        "resolved": plan.resolved.model_copy(update={"lab_codes": _clamp(plan.resolved.lab_codes)}),
+        "resolved": plan.resolved.model_copy(update=resolved_update),
     }
     if hasattr(plan, "candidates"):
         updates["candidates"] = [

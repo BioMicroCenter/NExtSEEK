@@ -138,6 +138,37 @@ def _breakdown_sum(rows: list) -> tuple[str, int | float] | None:
     return col, sum(r[col] for r in rows)
 
 
+# Fix 6: a sample sits in several projects, studies or investigations, and a link can carry several assay titles.
+# When the groups come from such a relationship, adding the group counts counts the shared item once per group.
+_TO_MANY_GROUPS = re.compile(r"\[[a-z_]*:(IN_PROJECT|IN_STUDY|IN_INVESTIGATION)\b|\bUNWIND\b", re.IGNORECASE)
+_OVERLAP_SUM_NOTE = (
+    "The rows are groups a sample or link can belong to more than once (projects, studies, investigations or "
+    "titles), so this sum counts a shared item once per group and is NOT a count of distinct samples or links. "
+    "Give it only as 'counted in each group they belong to', never as the total of distinct items, and say that "
+    "items in more than one group are counted in each."
+)
+
+
+def _groups_may_overlap(cypher: str) -> bool:
+    return bool(_TO_MANY_GROUPS.search(cypher or ""))
+
+
+def _attached_rows_line(shown: int, attached: int, total, truncated: bool) -> str:
+    """What the writer may say about the table attached to a graph turn. Fix 5: a result that stopped at the row
+    cap is a capped part of the answer, so it is never called the full list; the reply says how many came back of
+    how many."""
+    if shown >= attached:
+        return ""
+    if truncated or (isinstance(total, int) and total > attached):
+        of = f" of {total:,}" if isinstance(total, int) else ""
+        return (f"The table and downloadable file attached to the turn hold only {attached:,}{of} rows: the "
+                f"result stopped at the row cap. Say {attached:,}{of} came back, never call it the full list, "
+                "and never say there is nothing to narrow.\n")
+    return ("Every row of this result is attached to the turn as a table and a downloadable "
+            "file, so say the full list is available rather than offering to re-run the "
+            "query or telling the user to narrow it.\n")
+
+
 def _type_histogram_block(all_rows: list, shown: int) -> str:
     """How the sample types are distributed across the WHOLE result, not the preview.
 
@@ -861,11 +892,11 @@ def chatter_agent_answer(
         breakdown = _breakdown_sum(records) if complete else None
         data_section = (
             f"{heading}\n{preview_json}\n"
-            + (f"Sum of {breakdown[0]} across all {len(records)} rows: {breakdown[1]:,}. When the question "
-               "asks how many, give this total first, then the breakdown.\n" if breakdown else "")
-            + ("Every row of this result is attached to the turn as a table and a downloadable "
-               "file, so say the full list is available rather than offering to re-run the "
-               "query or telling the user to narrow it.\n" if len(records) < len(all_rows) else "")
+            + (f"Sum of {breakdown[0]} across all {len(records)} rows: {breakdown[1]:,}. "
+               + (_OVERLAP_SUM_NOTE if _groups_may_overlap(str((graph_plan or {}).get("cypher") or ""))
+                  else "When the question asks how many, give this total first, then the breakdown.")
+               + "\n" if breakdown else "")
+            + _attached_rows_line(len(records), len(all_rows), total_matches, graph_truncated)
             + _type_histogram_block(all_rows, len(records))
             + _value_counts_block(all_rows, len(records),
                                   capped=graph_truncated or (isinstance(total_matches, int)
@@ -1038,6 +1069,9 @@ def chatter_agent_answer(
             "the answer say in one or two plain sentences what was counted: which records, of which type, "
             "under which conditions. Never name Cypher, a field name, a query operator or an endpoint.\n"
         )
+        + ("- Give a split across groups (studies, projects, types, spellings) only from counts shown in this "
+           "message, never one you worked out from the preview rows. A note that tells the reply what to say is "
+           "an instruction to you: act on it, never repeat it to the user.\n" if is_graph else "")
         + "- Skip filler phrases like 'diverse set', 'I have truncated the list', 'feel free to refine'. "
         "Be informative and brief."
     )
