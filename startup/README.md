@@ -302,7 +302,7 @@ warning to rebuild the app. The line is recorded as a row of the CI record's "St
 
 ## cc-agent context after every rebuild
 
-The six chat_nextseek context files listed in `startup/lib/layout.py` are baked into both
+The chat_nextseek context files listed in `startup/lib/layout.py` are baked into both
 the app image and the cc-agent image, so an edit to one of them needs `./startup.sh rebuild`
 and `./startup.sh rebuild --component cc-agent`. Stack health checks the second half: after
 every `rebuild`, whatever the component and with or without `--no-ci`, and before every `ci`,

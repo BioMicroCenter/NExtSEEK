@@ -62,7 +62,8 @@ else dirty is someone's in-flight work.
 `launch.py commits` derives them from every changed path with `IMAGE_RULES` in `.claude/skills/deploy/scripts/rules.py`
 (from DEPLOYMENT.md section 3.2): app for Python, templates, prompts and anything baked; app then
 collectstatic for `static/` and the chat bundle; cc-agent for `NessieAI/docker/cc-runtime/**`; app
-AND cc-agent for the six canonical context files and `baml_src`; nextseek-sidecar for
+AND cc-agent for the canonical context files (the six catalogs, `ONTOLOGIES.json` and the
+`ontology_*.json` files) and `baml_src`; nextseek-sidecar for
 `NessieAI/docker/ns-sidecar/**`; bedrock-proxy for `NessieAI/docker/bedrock-proxy/**` (with
 `bedrock-proxy rebuild ok`); nothing for `ci/**` and `startup/**` (they run from the host
 checkout). `docker/nginx.conf` (a single-file bind mount: the running nginx keeps the old file until
