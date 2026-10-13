@@ -147,6 +147,19 @@ def test_total_column_value():
     assert total_column_value({"n": 0}) is None
 
 
+# N9: "base" and "all" name measures as often as denominators (base pairs, all reads), so they are not total words.
+@pytest.mark.parametrize("col", ["base_pairs", "all_reads", "base", "all"])
+def test_base_and_all_columns_are_not_totals(col):
+    assert total_column_value({col: 3000, "n": 0}) is None
+    assert matched_nothing(agg(**{col: 3000, "matched": 0})) is False
+
+
+@pytest.mark.parametrize("col", ["total", "baseline_n", "overall_samples", "denominator"])
+def test_the_total_words_still_count(col):
+    assert total_column_value({col: 40, "n": 0}) == 40
+    assert matched_nothing(agg(**{col: 40, "matched": 0})) is True
+
+
 class _Inp:
     def __init__(self, q, rows, total=None, count=1):
         self.question, self.rows, self.total, self.count = q, rows, total, count
@@ -163,7 +176,7 @@ class _T:
 def test_premise_compares_against_the_total_not_the_row_count():
     t = _T("how many of these 1,206 mice have x", [{"total_mice": 1206, "with_x": 8}])
     assert _premise_count(t) is None
-    t = _T("how many of these 800 samples have y", [{"all_samples": 800, "with_y": 0}])
+    t = _T("how many of these 800 samples have y", [{"overall_samples": 800, "with_y": 0}])
     assert _premise_count(t) is None
-    t = _T("how many of these 900 samples have y", [{"all_samples": 800, "with_y": 0}])
+    t = _T("how many of these 900 samples have y", [{"overall_samples": 800, "with_y": 0}])
     assert _premise_count(t) is not None

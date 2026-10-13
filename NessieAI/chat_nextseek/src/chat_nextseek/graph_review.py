@@ -45,8 +45,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Protocol
 
-#: A column that holds the denominator beside an answer: ``total``, ``total_mice``, ``base``, ``all_samples``.
-TOTAL_COLUMN_RE = re.compile(r"(^|_)(total|base|baseline|all|overall|denominator)(_|$)", re.IGNORECASE)
+#: A column that holds the denominator beside an answer: ``total``, ``total_mice``, ``baseline``, ``overall_samples``.
+#: Not ``base`` or ``all``: they name measures as often (``base_pairs``, ``all_reads``).
+TOTAL_COLUMN_RE = re.compile(r"(^|_)(total|baseline|overall|denominator)(_|$)", re.IGNORECASE)
 
 
 def _is_number(v: object) -> bool:
