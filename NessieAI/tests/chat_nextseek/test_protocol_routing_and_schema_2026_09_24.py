@@ -44,6 +44,13 @@ def test_the_reporter_keeps_only_sops_registered_to_a_project():
     assert "The reporter counts the SOP records filed under a project." in CORE
 
 
+def test_sops_registered_to_an_investigation_are_the_reporters_too():
+    """R7b: the reporter counts an investigation's protocols (fix 10), so the parser no longer sends them away."""
+    assert "SOPs registered to an investigation's studies are reporter too" in CORE
+    assert "cannot scope protocols to an investigation" not in CORE
+    assert "a protocol question scoped to one study is graph_query" in CORE
+
+
 def test_protocol_usage_is_no_longer_a_reporter_signal():
     for stale in ("Protocol usage summary", "protocol usage summary", "protocols used/registered",
                   '"show me protocols for CGR"'):
