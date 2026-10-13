@@ -32,7 +32,7 @@ from ... import call_scope
 from ...config import ChatConfig
 from ...cypher_scope import Refused, scope_cypher, strip_hidden
 from ...cypher_text import write_clause
-from ...graph_review import sample_ids
+from ...graph_review import TOTAL_COLUMN_RE, sample_ids, total_column_value  # noqa: F401
 from ...graph_scope import GraphScope, scope_of
 
 # Server-side transaction timeout, seconds, for the query and for its total probe.
@@ -182,7 +182,13 @@ def matched_nothing(result: dict | None) -> bool:
     numbers = [v for v in rows[0].values() if isinstance(v, (int, float)) and not isinstance(v, bool)]
     if not numbers or len(numbers) != len(rows[0]):
         return False
-    return all(n == 0 for n in numbers)
+    if all(n == 0 for n in numbers):
+        return True
+    # A zero answer beside a total: {total_x: 165, with_y: 0} is an empty answer. Only total-named columns may be
+    # non-zero, and at least one other column must be the zero answer.
+    row = rows[0]
+    nonzero = [k for k, v in row.items() if v != 0]
+    return all(TOTAL_COLUMN_RE.search(str(k)) for k in nonzero) and len(nonzero) < len(row)
 
 
 def is_scope_refusal(result: Any) -> bool:
