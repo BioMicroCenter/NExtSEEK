@@ -153,6 +153,12 @@ def test_units_are_case_sensitive():
 def test_values_no_term_fits_resolve_to_nothing():
     assert resolve("library_layout", "3DGE") is None
     assert resolve("mouse_genotype", "RGAM") is None
+    # A patch release is its own accession: mapping it to the base build loses the patch (asked instead).
+    for value in ("GRCh38.p13", "GRCh38.p14", "GRCh37.p13", "GRCm38.p6"):
+        assert resolve("genome_assembly", value) is None, value
+    # Short strain names whose substrain the data does not prove are asked about, not expanded.
+    for value in ("PWK", "CAST", "WSB", "PWD"):
+        assert resolve("mouse_strain", value) is None and resolve("mouse_genotype", value) is None, value
 
 
 def test_exact_term_is_already_harmonized():

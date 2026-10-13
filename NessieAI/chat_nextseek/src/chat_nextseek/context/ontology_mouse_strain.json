@@ -47,35 +47,27 @@
   "DEF": "PWK/PhJ wild-derived inbred strain (Collaborative Cross founder).",
   "ONT_SOURCE": "house",
   "ONT_ID": null,
-  "SYNONYMS": [
-   "PWK"
-  ]
+  "SYNONYMS": []
  },
  {
   "TERM": "CAST/EiJ",
   "DEF": "CAST/EiJ wild-derived inbred strain (Collaborative Cross founder).",
   "ONT_SOURCE": "house",
   "ONT_ID": null,
-  "SYNONYMS": [
-   "CAST"
-  ]
+  "SYNONYMS": []
  },
  {
   "TERM": "WSB/EiJ",
   "DEF": "WSB/EiJ wild-derived inbred strain (Collaborative Cross founder).",
   "ONT_SOURCE": "house",
   "ONT_ID": null,
-  "SYNONYMS": [
-   "WSB"
-  ]
+  "SYNONYMS": []
  },
  {
   "TERM": "PWD/PhJ",
   "DEF": "PWD/PhJ wild-derived inbred strain.",
   "ONT_SOURCE": "house",
   "ONT_ID": null,
-  "SYNONYMS": [
-   "PWD"
-  ]
+  "SYNONYMS": []
  }
 ]

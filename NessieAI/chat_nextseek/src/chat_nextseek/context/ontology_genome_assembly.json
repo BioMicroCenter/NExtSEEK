@@ -5,9 +5,7 @@
   "ONT_SOURCE": "house",
   "ONT_ID": null,
   "SYNONYMS": [
-   "hg38",
-   "GRCh38.p13",
-   "GRCh38.p14"
+   "hg38"
   ]
  },
  {
@@ -16,8 +14,7 @@
   "ONT_SOURCE": "house",
   "ONT_ID": null,
   "SYNONYMS": [
-   "hg19",
-   "GRCh37.p13"
+   "hg19"
   ]
  },
  {
@@ -35,8 +32,7 @@
   "ONT_SOURCE": "house",
   "ONT_ID": null,
   "SYNONYMS": [
-   "mm10",
-   "GRCm38.p6"
+   "mm10"
   ]
  },
  {
