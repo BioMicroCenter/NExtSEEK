@@ -7,8 +7,8 @@ the same edge (R5; pinned by `nextseek_api/tests/test_graph_sync_labels.py` agai
 
 - **Assays.** The SEEK assays both endpoints share in `assay_assets`, each resolved through the map `sources` reads
   (SEEK assay id to `(internal assay id or None, title)`, the smallest internal id on 1:N). An assay with no internal
-  mapping stands for itself: its SEEK id and its `assays.title`, never a null title (R6). An assay the map lacks (an
-  `assay_assets` row with no `assays` row) contributes nothing. The smallest internal id wins the singular fields;
+  mapping contributes nothing, as an assay the map lacks (an `assay_assets` row with no `assays` row) does: its SEEK
+  id and `assays.title` are never written as an internal assay's (#124, which retired batch upload's fallback, R6). The smallest internal id wins the singular fields;
   on a tie, the smaller SEEK assay id (batch upload leaves that to set order). The plural lists hold every resolved
   internal assay, sorted by id and de-duplicated, parallel, with `""` for a missing title because a Neo4j list
   cannot hold a null; the singular title keeps its null, because consumers filter on `IS NOT NULL`.
@@ -116,7 +116,7 @@ def edge_labels(child_assays: Iterable[int] | None, parent_assays: Iterable[int]
             continue
         internal_id, title = entry
         if internal_id is None:
-            internal_id, title = seek_id, title or ""
+            continue  # #124: an unmapped assay labels nothing; its SEEK id and title are not internal ones
         resolved.append((internal_id, title, seek_id))
     resolved.sort(key=lambda item: (item[0], item[2]))
 

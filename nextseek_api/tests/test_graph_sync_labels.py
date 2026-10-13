@@ -2,7 +2,9 @@
 
 The first class is the parity proof: on one small MySQL world, where the upload sheet says nothing MySQL does not,
 `labels.edge_labels` must equal what batch upload's `build_derived_from_payloads_from_db` produced for the same edges,
-frozen in `fixtures/graph_sync_batch_upload_parity.json` (`edge_labels`) while that function still existed.
+frozen in `fixtures/graph_sync_batch_upload_parity.json` (`edge_labels`) while that function still existed. Two
+pairs differ by ruling (#124, `RULED_AWAY_BY_124`): batch upload labelled an assay with no internal mapping with its
+own SEEK id and title; graph_sync labels nothing for it.
 """
 import json
 from pathlib import Path
@@ -110,13 +112,20 @@ def _labels(assay_id=None, internal_id=None, title=None, ids=(), titles=(), prot
             "protocol_id": protocol_id, "protocol_title": protocol_title}
 
 
+# The pairs whose shared assays include one with no internal mapping: batch upload labelled it with its SEEK id and
+# title, which #124 ruled away (an unmapped assay contributes nothing). The frozen fixture stays as it was frozen.
+RULED_AWAY_BY_124 = {(103, 203), (104, 204)}
+
+
 class TestParityWithBatchUpload:
     def test_every_edge_equals_batch_upload(self):
         ours, theirs = _graph_sync_labels(), _frozen_batch_upload_labels()
         assert set(ours) == set(theirs)
         assert len(ours) == 14
-        for pair in sorted(theirs):
+        for pair in sorted(set(theirs) - RULED_AWAY_BY_124):
             assert ours[pair] == theirs[pair], pair
+        for pair in RULED_AWAY_BY_124:
+            assert ours[pair] != theirs[pair], pair
 
     @pytest.mark.parametrize("pair, expected", [
         # one shared assay: the plural lists are [internal id], [title]
@@ -124,11 +133,11 @@ class TestParityWithBatchUpload:
         # two shared: internal 5 (from SEEK 100) beats internal 200 (from the smaller SEEK 50); uid= URL format
         ((102, 202), _labels(100, 5, "Internal Five", [5, 200], ["Internal Five", "Internal Two Hundred"],
                              12, "P.ISO-210101-V2_y.docx")),
-        # the SEEK-id fallback; a bare title
-        ((103, 203), _labels(20, 20, "Unmapped Twenty", [20], ["Unmapped Twenty"], 7, "P.FOR-200623-V1_x.docx")),
-        # fallback and mapped together: the fallback's id is smaller, so it wins; a title in another case
-        ((104, 204), _labels(20, 20, "Unmapped Twenty", [20, 50], ["Unmapped Twenty", "Internal Alpha"],
-                             11, "Mixed Case SOP")),
+        # an unmapped assay labels nothing (#124); a bare title
+        ((103, 203), _labels(protocol_id=7, protocol_title="P.FOR-200623-V1_x.docx")),
+        # unmapped and mapped together: the mapped one alone, though the unmapped SEEK id is smaller; a title in
+        # another case
+        ((104, 204), _labels(10, 50, "Internal Alpha", [50], ["Internal Alpha"], 11, "Mixed Case SOP")),
         # no shared assay clears to nulls and empty lists; an ambiguous title resolves to null
         ((105, 205), _labels()),
         # 1:N keeps the smallest internal id; a foreign SOP URL records no protocol
@@ -173,8 +182,19 @@ class TestEdgeLabels:
         assert labels.edge_labels({10}, {20}, self.MAP, (5, "SOP Five")) == _labels(
             protocol_id=5, protocol_title="SOP Five")
 
-    def test_fallback_uses_the_seek_id_and_never_a_null_title(self):
-        assert labels.edge_labels({21}, {21}, self.MAP) == _labels(21, 21, "", [21], [""])
+    def test_an_unmapped_assay_labels_nothing(self):
+        """#124: an assay with no internal mapping never puts its SEEK id or title on the edge."""
+        assert labels.edge_labels({21}, {21}, self.MAP) == _labels()
+        assert labels.edge_labels({20}, {20}, self.MAP) == _labels()
+
+    def test_a_mapped_assay_beats_an_unmapped_one_with_a_smaller_seek_id(self):
+        assert labels.edge_labels({10, 20}, {10, 20}, self.MAP) == _labels(10, 50, "Internal Alpha", [50],
+                                                                           ["Internal Alpha"])
+
+    def test_a_leaked_label_classes_as_cleared_or_changed(self):
+        leaked = _labels(20, 20, "Unmapped Twenty", [20], ["Unmapped Twenty"])
+        assert labels.classify(leaked, labels.edge_labels({20}, {20}, self.MAP)) == "cleared"
+        assert labels.classify(leaked, labels.edge_labels({10, 20}, {10, 20}, self.MAP)) == "changed"
 
     def test_an_untitled_internal_assay_stays_none_on_the_singular_field(self):
         assert labels.edge_labels({40}, {40}, self.MAP) == _labels(40, 70, None, [70], [""])

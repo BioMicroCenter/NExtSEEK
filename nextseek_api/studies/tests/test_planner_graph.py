@@ -119,6 +119,17 @@ def test_a_label_the_move_would_clear_refuses_the_plan(alpha):
     assert move == [] and [c.after_class for c in pending] == [labels.CLEARED]
 
 
+def test_a_move_that_leaves_only_an_unmapped_shared_assay_refuses_the_plan():
+    """#124: an unmapped SEEK assay labels nothing, so a move leaving it as an edge's only shared assay would clear
+    the curated label; the planner refuses where it used to plan the SEEK assay's own title in its place."""
+    amap = {101: (900, "RNA-seq"), 555: (None, "Unmapped SEEK assay")}
+    now = {1: {101, 555}, 2: {101, 555}}
+    equal = labels.edge_labels(now[1], now[2], amap)
+    edges = [{"child_id": 1, "parent_id": 2, "element_id": "e", "stored": equal}]
+    with pytest.raises(p.PlannerDefect):
+        p._label_changes(edges, now, {1: {555}, 2: {101, 555}}, amap, {}, {})
+
+
 def test_a_graph_only_target_lists_its_paper_links(alpha):
     result = plan(alpha, target([3, 5], key="graph_only:90"))
     [links] = result.graph.paper_links

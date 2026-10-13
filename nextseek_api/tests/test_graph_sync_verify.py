@@ -71,9 +71,11 @@ SAMPLES = [
     _sample(13, U_D2, 33, {"UID": U_D2, "Parent": f"{U_T2}; Liver biopsy"}),
 ]
 PROJECT_LINKS = {10: [2], 11: [2], 12: [16], 13: [16]}
-# 10 and 11 share SEEK assay 7 (mapped to internal assay 99); 12 and 13 share assay 8, which has no mapping.
+# 10 and 11 share SEEK assay 7 (mapped to internal assay 99); 12 and 13 share assay 8. In the label map 8 resolves to
+# internal assay 98, so (13, 12) carries a label (an unmapped assay labels nothing, #124); the assay layer (family 13)
+# reads its own pairs, where 8 stays unmapped.
 ASSAY_LINKS = {10: [7], 11: [7], 12: [8, 9], 13: [8]}
-ASSAY_MAP = {7: (99, "Patient Visit"), 8: (None, "RNA-seq run"), 9: (None, "Other")}
+ASSAY_MAP = {7: (99, "Patient Visit"), 8: (98, "RNA-seq run"), 9: (None, "Other")}
 SOPS = {5: "Dissection SOP", 6: "Staining SOP"}
 IDENTITIES = {U_T1: "Lung block 1", U_T2: "Liver block 2"}
 
@@ -82,8 +84,8 @@ LABELS = {
     (11, 10): {"assay_id": 7, "internal_assay_id": 99, "internal_assay_title": "Patient Visit",
                "internal_assay_ids": [99], "internal_assay_titles": ["Patient Visit"],
                "protocol_id": 5, "protocol_title": "Dissection SOP"},
-    (13, 12): {"assay_id": 8, "internal_assay_id": 8, "internal_assay_title": "RNA-seq run",
-               "internal_assay_ids": [8], "internal_assay_titles": ["RNA-seq run"],
+    (13, 12): {"assay_id": 8, "internal_assay_id": 98, "internal_assay_title": "RNA-seq run",
+               "internal_assay_ids": [98], "internal_assay_titles": ["RNA-seq run"],
                "protocol_id": None, "protocol_title": None},
 }
 # What batch upload's parent-title rule gives each node: a UID parent by its stored identity, a name as itself.
@@ -356,6 +358,27 @@ def test_check_9_passes_an_unlabelled_edge_whose_endpoints_share_no_assay(world)
     result = _gate(graph)
     assert _named(result, "9.lineage.labels")["pass"] is True
     assert result["stats"]["lineage_labels"]["new_without_assay"] == 1
+    assert result["pass"] is True
+
+
+def test_check_9_an_edge_sharing_only_an_unmapped_assay_is_unlabelled_and_its_fallback_label_cleared(world,
+                                                                                                      monkeypatch):
+    """#124: SEEK assay 8 with no internal mapping labels nothing, so its edge is never a missing label (gate G
+    stays green) and a stored fallback label (its SEEK id and title) is one the rule would clear."""
+    monkeypatch.setattr(sources, "resolved_assay_map", lambda: {**ASSAY_MAP, 8: (None, "RNA-seq run")})
+    graph = GateWorld(_graph_nodes())
+    graph.edges[(13, 12)] = {}
+    result = _gate(graph)
+    assert _named(result, "9.lineage.labels")["pass"] is True
+    assert result["stats"]["lineage_labels"]["new_without_assay"] == 1
+
+    graph = GateWorld(_graph_nodes())
+    graph.edges[(13, 12)] = {"assay_id": 8, "internal_assay_id": 8, "internal_assay_title": "RNA-seq run",
+                             "internal_assay_ids": [8], "internal_assay_titles": ["RNA-seq run"]}
+    result = _gate(graph)
+    differ = _named(result, "9.lineage.labels_differ_from_rule")
+    assert (differ["detail"]["cleared"], differ["detail"]["changed"], differ["pass"]) == (1, 0, True)
+    assert result["stats"]["lineage_labels"]["classes"]["cleared"] == 1
     assert result["pass"] is True
 
 
