@@ -212,6 +212,8 @@ class TestSampleTypeList:
         vs.client.list_sample_types.return_value = _ok(GOOD_ST_LIST)
         vs.list(_auth_request())
         assert vs.client.list_sample_types.call_args.kwargs["timeout_s"] == LIST_TIMEOUT_S > 25
+        # N1: under nginx's default 60 s proxy_read_timeout, so the app's own JSON 504 answers first.
+        assert LIST_TIMEOUT_S < 60
 
 
 class TestSeekClientTimeout:

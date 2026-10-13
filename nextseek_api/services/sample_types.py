@@ -145,7 +145,8 @@ def _graph_sync_type_id(data, fallback: Optional[str] = None) -> Optional[str]:
 
 
 # SEEK takes about 25 s to list sample types on prod, past the client's 20 s default; every other call keeps 20 s.
-LIST_TIMEOUT_S = 60
+# Under nginx's default 60 s proxy_read_timeout (the host nginx is box config), so the app's JSON 504 answers first.
+LIST_TIMEOUT_S = 50
 
 
 def _seek_unanswered(action: str, seek_id, exc: Exception, timeout_s) -> HttpResponse:
