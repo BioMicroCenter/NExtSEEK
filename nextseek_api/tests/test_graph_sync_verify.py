@@ -72,8 +72,8 @@ SAMPLES = [
 ]
 PROJECT_LINKS = {10: [2], 11: [2], 12: [16], 13: [16]}
 # 10 and 11 share SEEK assay 7 (mapped to internal assay 99); 12 and 13 share assay 8. In the label map 8 resolves to
-# internal assay 98, so (13, 12) carries a label (an unmapped assay labels nothing, #124); the assay layer (family 13)
-# reads its own pairs, where 8 stays unmapped.
+# internal assay 98, an internal assay the world holds, so (13, 12) carries a label (an unmapped assay labels nothing,
+# #124); the assay layer (family 13) reads its own pairs, where 8 stays unmapped.
 ASSAY_LINKS = {10: [7], 11: [7], 12: [8, 9], 13: [8]}
 ASSAY_MAP = {7: (99, "Patient Visit"), 8: (98, "RNA-seq run"), 9: (None, "Other")}
 SOPS = {5: "Dissection SOP", 6: "Staining SOP"}
@@ -149,7 +149,7 @@ def world(monkeypatch):
         "iter_seek_study_links": lambda: iter(()),
         "projects": lambda: [{"id": 2, "title": "Local"}, {"id": 16, "title": "TCGA"}],
         "investigation_projects": lambda: [],
-        "internal_assays": lambda: [{"id": 99, "title": "Patient Visit"}],
+        "internal_assays": lambda: [{"id": 99, "title": "Patient Visit"}, {"id": 98, "title": "RNA-seq run"}],
         "assay_internal_pairs": lambda: list(state["pairs"]),
         "assay_studies": lambda: [(7, 40), (8, 40), (9, 40)],
         "assay_context_rows": lambda: [{"id": 1, "internal_assay_id": 99, "assay_name": "Patient Visit",
@@ -199,7 +199,7 @@ class GateWorld:
         # Family 13: the assay layer a correct 1.3 sync writes for the world (SEEK assay 7 maps to 99; 11 came out
         # of 10 inside it; 12 and 13 share only the unmapped 8). ``unsampled_edges`` are edges on samples the
         # sampled check does not read: the exhaustive count sees them.
-        self.assay_ids = [99]
+        self.assay_ids = [99, 98]
         self.runs = [{"assay_id": 99, "study_id": 40, "seek_assay_ids": [7]}]
         self.catalog_edges = [
             {"type": "ACCEPTED_BY", "code": "TIS", "assay_id": 99, "required": True, "group_index": 0},
@@ -295,6 +295,12 @@ def _gate(graph, **kwargs):
 def _named(result, name):
     (check,) = [c for c in result["checks"] if c["name"] == name]
     return check
+
+
+def test_the_world_labels_only_with_internal_assays_it_holds(world):
+    """#124: every internal id the label map gives is an internal assay the world reads, as on a real box."""
+    held = {a["id"] for a in sources.internal_assays()}
+    assert {internal_id for internal_id, _title in ASSAY_MAP.values() if internal_id is not None} <= held
 
 
 # --- the whole gate ------------------------------------------------------------------------------
@@ -1046,7 +1052,7 @@ def test_check_13_fails_a_seek_id_too_many_and_a_role_missing(world):
 
 def test_check_13_fails_a_missing_assay_a_moved_run_in_and_a_missing_catalog_edge(world):
     graph = GateWorld(_graph_nodes())
-    graph.assay_ids = []
+    graph.assay_ids = [98]
     graph.runs = [{"assay_id": 99, "study_id": 41, "seek_assay_ids": [7]}]
     graph.catalog_edges = graph.catalog_edges[:1]
     result = _gate(graph)

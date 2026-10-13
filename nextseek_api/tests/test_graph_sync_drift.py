@@ -679,6 +679,12 @@ class TestTheAssayLayerIsComparedAndReported:
         check, _ = self._edge_titles(monkeypatch, [self.TITLE_ONLY], [])
         assert (check["actual"], check["pass"]) == (1, False)
 
+    def test_a_seek_id_that_is_no_internal_assay_fails_even_under_an_internal_title(self, monkeypatch):
+        """The id must be an internal assay's: an unmapped SEEK assay 21 titled like internal assay 98 is a leak."""
+        leaked = {"assay_id": 21, "internal_assay_id": 21, "internal_assay_title": "Sequencing run", "edges": 2}
+        check, _ = self._edge_titles(monkeypatch, [leaked], [])
+        assert (check["actual"], check["pass"]) == (2, False)
+
     def test_rename_lag_and_a_moved_mapping_are_not_leaks(self, monkeypatch):
         check, _ = self._edge_titles(monkeypatch, [self.RENAME_LAG, self.MOVED],
                                      [{"id": 99, "edges": 4}, {"id": 98, "edges": 2}])
