@@ -34,19 +34,6 @@ _RED = {  # need the author's evidence rig; where the variable is set they run f
     "test_real_boundary_contract.py::test_fault_controller_only_accepts_frozen_points": (
         "ATTRIBUTE_TEST_FAULT_CONTROL", "needs ATTRIBUTE_TEST_FAULT_CONTROL from the evidence rig"),
 }
-# Stale tests, not product bugs. Since 9b52b2fe the executor adds outcome["counts"]["updated_samples"]; the real
-# render_outcome always returns counts, but the FakeServices double still returns {"status": "succeeded"}.
-_DOUBLE = "stale test since 9b52b2fe: the FakeServices.render_outcome double has no 'counts' (test_executor.py:99)"
-_STALE = {
-    "test_executor.py::test_one_type_orders_lock_definitions_dependents_metadata_postcheck":
-        _DOUBLE + ", and its exact-dict assert (test_executor.py:184) predates the count",
-    "test_executor.py::test_title_race_preserves_at_most_one": _DOUBLE,
-    "test_executor.py::test_untouched_type_is_not_normalized": _DOUBLE,
-    "test_executor.py::test_reconciliation_with_no_progress_proceeds_to_a_full_write":
-        _DOUBLE + ", and its exact-dict assert (test_executor.py:512) predates the count",
-    "test_executor.py::test_batch_continues_independent_types_after_ordinary_failure": _DOUBLE,
-    "test_executor.py::test_execute_one_skips_record_failure_when_seek_commit_already_observed": _DOUBLE,
-}
 
 
 def pytest_collection_modifyitems(config, items):
@@ -61,5 +48,3 @@ def pytest_collection_modifyitems(config, items):
         if key in _RED:
             var, why = _RED[key]
             item.add_marker(pytest.mark.xfail(condition=var not in os.environ, strict=True, reason=why))
-        if key in _STALE:
-            item.add_marker(pytest.mark.xfail(strict=True, reason=_STALE[key]))

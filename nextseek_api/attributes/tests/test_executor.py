@@ -96,7 +96,7 @@ class FakeServices:
             "semantic_fingerprint": "after", "created_id_bindings": {},
             "physical_fingerprint": "physical-after",
         }
-        self.render_outcome_value = {"status": "succeeded"}
+        self.render_outcome_value = {"status": "succeeded", "counts": {}}
         self.apply_dependents_error = None
         self._post_state_values: list = []
 
@@ -145,6 +145,7 @@ class FakeServices:
 
     def rewrite_metadata(self, plan):
         self.calls.append(("rewrite_metadata", plan))
+        return {"updated": 3}
 
     def resolve_and_fingerprint_post_state(self, plan):
         self.calls.append(("resolve_and_fingerprint_post_state", plan))
@@ -181,7 +182,7 @@ def test_one_type_orders_lock_definitions_dependents_metadata_postcheck():
     records the commit only after the SEEK block exits -- never before."""
     services = FakeServices()
     plan = TypePlan(7)
-    assert execute_type_plan(plan, services) == {"status": "succeeded"}
+    assert execute_type_plan(plan, services) == {"status": "succeeded", "counts": {"updated_samples": 3}}
     names = [call[0] for call in services.calls]
     assert names[:9] == [
         "already_committed", "reconciliation_required", "assert_idempotency",
@@ -195,7 +196,7 @@ def test_one_type_orders_lock_definitions_dependents_metadata_postcheck():
     assert commit_call[1] is plan
     assert commit_call[2] == {}
     assert commit_call[3] == "physical-after"
-    assert commit_call[4] == {"status": "succeeded"}
+    assert commit_call[4] == {"status": "succeeded", "counts": {"updated_samples": 3}}
 
 
 def test_unchanged_plan_never_reaches_partition_or_seek_executor():
@@ -232,7 +233,7 @@ def test_missing_commit_marker_reconciles_from_durable_execution_intent():
     services = FakeServices()
     services.reconciliation_required_value = True
     plan = TypePlan(7)
-    assert execute_type_plan(plan, services) == {"status": "succeeded"}
+    assert execute_type_plan(plan, services) == {"status": "succeeded", "counts": {}}
     names = [call[0] for call in services.calls]
     assert names == [
         "already_committed", "reconciliation_required", "atomic", "lock_type", "lock_schema",
@@ -509,7 +510,7 @@ def test_reconciliation_with_no_progress_proceeds_to_a_full_write():
         {"semantic_fingerprint": "after", "created_id_bindings": {}, "physical_fingerprint": "physical-after"},
     ]
     result = execute_type_plan(TypePlan(7), services)
-    assert result == {"status": "succeeded"}
+    assert result == {"status": "succeeded", "counts": {"updated_samples": 3}}
     names = [call[0] for call in services.calls]
     assert names.count("record_execution_intent") == 0
     assert names.count("reset_seek_commit_observation") == 1
