@@ -161,7 +161,7 @@ def match(entry, value):
 
 4. Reply with one table, columns Before | Samples | After | Ontology id, and the number of samples that would change. The house term wins over the most common form; when they differ, say so in one line. Name the values no term fits, each with your guess as a question. Write the per-sample list to `harmonization_proposal.csv` (UID, current value, proposed TERM, ONT_ID). Then ask the user to confirm.
 5. No ontology covers the attribute, or no term fits a value: say so, propose the most common form of each group, and ask whether it should become a house term. Write the proposed terms to `ontology_additions.json`, a list of records with the five keys `TERM`, `DEF`, `ONT_SOURCE`, `ONT_ID`, `SYNONYMS`, for the NExtSEEK team to add. Write this file only when new terms are proposed. Nothing is added from the chat.
-6. After the user confirms, run ONE `nextseek-validate-upload` over every affected sample with only that attribute changed (Required Flow step 7). The user uploads the workbook with `update_existing=true`. Nothing is written to NExtSEEK from the chat.
+6. After the user confirms, run one `nextseek-validate-upload` per project the affected samples belong to, each after its own project resolve (Required Flow steps 1 and 7), with only that attribute changed: the validator takes one project. When the user did not name the projects, ask which ones first. The user uploads each workbook with `update_existing=true`. Nothing is written to NExtSEEK from the chat.
 
 ## Forbidden Actions
 
