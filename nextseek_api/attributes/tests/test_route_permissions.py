@@ -25,8 +25,7 @@ def _call(action, method, body=None, *, superuser, person_id=42, **kwargs):
     force_authenticate(
         request,
         user=SimpleNamespace(is_authenticated=True, is_superuser=superuser),
-        token=auth.AuthenticatedSeekPerson(  # looked up now: test_mutants reloads the module
-            person_id, 84, "svc", "session"),
+        token=auth.AuthenticatedSeekPerson(person_id, 84, "svc", "session"),
     )
     return views.AttributeViewSet.as_view({method: action})(request, **kwargs)
 

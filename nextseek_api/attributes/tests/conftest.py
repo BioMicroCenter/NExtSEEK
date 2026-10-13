@@ -45,9 +45,6 @@ _PRODUCT = {
     "test_batch_continues_independent_types_after_ordinary_failure": "first type fails where the test expects success",
     "test_execute_one_skips_record_failure_when_seek_commit_already_observed": "FakeServices.seek_commit_observed is False",
 }
-# Red only after other tests in the folder have run (alone, it passes), so a strict XPASS would fail a run that
-# selects it by itself: the generated schema's batch-create operation has no 'security' entry (test_openapi.py:262).
-_ORDER_DEPENDENT = {"test_runtime_bodies_match_exact_200_202_207_4xx_branches"}
 
 
 def pytest_collection_modifyitems(config, items):
@@ -61,7 +58,5 @@ def pytest_collection_modifyitems(config, items):
         if name in _RED:
             var, why = _RED[name]
             item.add_marker(pytest.mark.xfail(condition=var not in os.environ, strict=True, reason=why))
-        if name in _ORDER_DEPENDENT:
-            item.add_marker(pytest.mark.xfail(strict=False, reason="batch-create has no 'security' in the generated schema once other tests ran (test_openapi.py:262)"))
         if name in _PRODUCT:
             item.add_marker(pytest.mark.xfail(strict=True, reason=_PRODUCT[name]))

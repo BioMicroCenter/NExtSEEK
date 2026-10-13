@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -98,6 +99,12 @@ def test_mutation_driver_restores_source_on_unconfigure(tmp_path, monkeypatch):
     driver = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(driver)
     original = target.read_bytes()
+    # The driver reloads these when they are imported. A reload in this run would leave the schema's auth
+    # extension (openapi.py, a string target) on a new class the views do not hold, and batch-create would lose
+    # its security entry in test_openapi. Hide them for this test; monkeypatch puts them back.
+    for name in ("nextseek_api.attributes.auth", "nextseek_api.attributes.tests.auth_boundary",
+                 "nextseek_api.attributes.tests.test_auth"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
     driver.pytest_configure(type("Config", (), {})())
     assert target.read_bytes() != original
     driver.pytest_unconfigure(type("Config", (), {})())
