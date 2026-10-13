@@ -57,7 +57,7 @@ nextseek	nextseek-batch-upload
 <!-- END PLAN005-GEN:skills -->
 
 - **`nextseek`** — `skills/nextseek/SKILL.md`. Answer questions about existing NExtSEEK data (query, find, list, count, look up samples, projects, studies), **launch** an nf-core pipeline on the cluster (`nextseek-pipeline`), and **reingest** a finished pipeline run's outputs into a reviewable upload workbook (`nextseek-run-ls` + `nextseek-build-upload-xlsx`).
-- **`nextseek-batch-upload`** — `skills/nextseek-batch-upload/SKILL.md`. Prepare a workbook to create or update samples from user-supplied material (protocol text, a description, an existing cohort to normalize). It builds and validates the payload for the user to inspect and never uploads.
+- **`nextseek-batch-upload`** — `skills/nextseek-batch-upload/SKILL.md`. Prepare a workbook to create or update samples from user-supplied material (protocol text, a description, an existing cohort to normalize); "harmonize / normalize / standardize these values" is this skill's task too. It builds and validates the payload for the user to inspect and never uploads.
 
 Routing rule (load-bearing): if the request is to create, update, or modify samples — even when it also asks you to find those samples first — it is a `nextseek-batch-upload` task from its first action. Do the sample discovery inside that skill, following its own first step; do not hand discovery to the `nextseek` skill. Use the `nextseek` skill when the user only wants to see existing data.
 
@@ -77,6 +77,7 @@ Files (the `min_*` variants are the compact forms — prefer them when grounding
 - `projects_db.json` — projects / investigations (name, id, description).
 - `min_api_endpoints.json` / `min_api_endpoints_enriched.json` — REST endpoint catalog.
 - `read_safe_endpoints.json` — the read-safe endpoint allowlist.
+- `ONTOLOGIES.json` and the `ontology_*.json` files it indexes — the house ontologies for attribute values: which file covers which sample type and attribute, the record keys, and the matching rule. Read it before proposing or judging a spelling of a stored value; the `nextseek-batch-upload` skill's "Harmonizing values" section says how.
 
 Read-only.
 
