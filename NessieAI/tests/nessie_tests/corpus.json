@@ -7700,7 +7700,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 76 internal assay types in `dmac.internal_assays`, all of them used at least once. SEEK's own assay_type_uri is the generic JERM root on all 324 assays and discriminates nothing. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(dmac.internal_assays)=76; assays.assay_type_uri has exactly one distinct value.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 137 rows in dmac.internal_assays, every one mapped by dmac.assays_internal_assays (seek_production MySQL, read-only dmac schema); was 76."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 137 rows in dmac.internal_assays, every one mapped by dmac.assays_internal_assays (seek_production MySQL, read-only dmac schema); was 76. Re-read on prod 2026-10-13 15:32Z: still 137; the assay list Nessie uses now comes from this table per box (fix 21)."
         },
         {
           "id": "sys.what_attributes_can_i_filter_o",
