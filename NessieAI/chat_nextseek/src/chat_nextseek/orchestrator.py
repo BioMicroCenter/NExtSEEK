@@ -76,6 +76,7 @@ from .helpers import (
     log_api_call,
     reporter_reply_footer,
     lab_names_by_name,
+    scope_kind_word,
     run_reporter_summary,
     shortlist_catalog,
     slim_api_result_for_llm,
@@ -2500,7 +2501,8 @@ def run_query(
                 # passes no name, so it keeps the lab scope.
                 _lab_names = lab_names_by_name(entity_result)
                 reporter_result, saved_files, reporter_summary = run_reporter_summary(
-                    config, reporter_plan, log_dir, lab_codes=_lab_codes, lab_names=_lab_names)
+                    config, reporter_plan, log_dir, lab_codes=_lab_codes, lab_names=_lab_names,
+                    scope_kind=scope_kind_word(user_text))
                 send_event(
                     "search_complete",
                     {

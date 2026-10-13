@@ -165,13 +165,12 @@ def test_resolve_report_scope_still_raises_for_a_genuinely_unknown_name():
 
 
 def test_protocols_report_no_longer_dies_on_an_investigation_name(tmp_path):
-    """Was: ValueError('Unknown project SRP'). Protocols cannot be narrowed to an
-    investigation, so it reports everything and says so rather than raising."""
+    """Was: ValueError('Unknown project SRP'). Protocols are narrowed to the investigation's studies."""
     result = runners.run_project_protocols_report(_ScopeCfg(), "SRP", outputs_root=tmp_path)
 
     assert result["ok"] is True
     assert result["scope"]["kind"] == "investigation"
-    assert result["scope"]["unsupported"] is True
+    assert "unsupported" not in result["scope"]
     assert result["scope"]["investigation_id"] == 6
 
 
