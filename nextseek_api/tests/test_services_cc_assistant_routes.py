@@ -6,8 +6,8 @@
 * POST /nextseek_api/cc-assistant/upload/ and its alias POST /nextseek_api/nessie/uploads/.
 * The transcript recover route's size cap.
 
-W64 note: a later change may add owner or superuser checks and drop the shared-login fallback; the tests that
-assume today's behaviour there are named in the build notes.
+The api-write caller carries its own SEEK login (patched), so these tests hold whether or not the op falls back to
+the shared login for a caller without one.
 """
 import os
 import tempfile
@@ -39,15 +39,16 @@ class ApiWriteTests(TestCase):
         self.user = User.objects.create_user("writer", password="pw")
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
-        for target in (
-            "nextseek_api.services.assistant.UserInParticipatingProject.has_permission",
+        for target, value in (
+            ("nextseek_api.services.assistant.UserInParticipatingProject.has_permission", True),
+            # The caller's own SEEK login, which a real sign-in leaves in the session and force_authenticate does
+            # not: the op refuses a caller without one rather than act as the shared login.
+            ("nextseek_api.services.assistant._request_login", ("writer", "pw")),
+            ("nextseek_api.services.assistant._granular_chat_config", MagicMock()),
         ):
-            p = patch(target, return_value=True)
+            p = patch(target, return_value=value)
             p.start()
             self.addCleanup(p.stop)
-        p = patch("nextseek_api.services.assistant._granular_chat_config", return_value=MagicMock())
-        p.start()
-        self.addCleanup(p.stop)
 
     def test_an_unconfirmed_write_answers_403_and_never_calls_the_agent(self):
         with patch("chat_nextseek.portable.api_agent_build_request", return_value=_plan("/nextseek_api/samples/advanced_search/")) as build, \
