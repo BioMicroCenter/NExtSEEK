@@ -124,7 +124,8 @@ edited credentials.
 > re-install phase then unconditionally re-renders `docker/db.env` from the
 > template with the well-known defaults (`seek_root` / `seek_db_password`),
 > silently reverting your rotation while everything keeps working. Only
-> `SEEK_PUBLIC_URL` and the Bedrock proxy token have read-back preservation.
+> `SEEK_PUBLIC_URL`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS` and the
+> Bedrock proxy token have read-back preservation.
 
 To rotate passwords on the EXISTING populated DB, update the MySQL user
 grants in place:
