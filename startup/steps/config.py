@@ -449,6 +449,10 @@ def render_root_env(
     (They previously could: ``NEO4J_AUTH`` only seeds on first volume creation,
     so a mismatch surfaces as an auth failure with nothing logged at compose
     time.) Callers that omit it keep the old secret-free behaviour.
+
+    A line already in the file for any other key (a box's memory caps, SEEK's
+    worker count) is kept as written, under one header (#103). It comes from
+    the file, never from ``compose_env``, so the allowlist still holds.
     """
     ordered_keys = [
         "COMPOSE_PROJECT_NAME",
@@ -461,14 +465,17 @@ def render_root_env(
     ]
     values = {key: compose_env[key] for key in ordered_keys if key in compose_env}
     output = repo_root / ".env"
-    if neo4j_password is None:
-        write_env(output, values)
-        return output
-
-    # Compose interpolates $ in .env even inside double quotes; $$ is a literal $.
-    # Its other reader, nessie_venue.sh, applies compose's rules too; startup
-    # never parses it back.
-    values["NEO4J_PASSWORD"] = neo4j_password.replace("$", "$$")
+    owned = {*ordered_keys, "NEO4J_PASSWORD"}
+    kept = [line for key, (line, _v, _q) in _env_lines(output).items() if key not in owned]
+    if neo4j_password is not None:
+        # Compose interpolates $ in .env even inside double quotes; $$ is a literal $.
+        # Its other reader, nessie_venue.sh, applies compose's rules too; startup
+        # never parses it back.
+        values["NEO4J_PASSWORD"] = neo4j_password.replace("$", "$$")
     write_env(output, values)
-    output.chmod(0o600)  # now carries a credential
+    if kept:
+        with output.open("a") as f:
+            f.write("\n".join(["", "# Kept from the previous .env by ./startup.sh install", *kept, ""]))
+    if neo4j_password is not None:
+        output.chmod(0o600)  # now carries a credential
     return output

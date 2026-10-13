@@ -698,7 +698,7 @@ Five gitignored files, all rendered by a first `./startup.sh install` (and by
 | `docker/nextseek.env` | `startup/templates/nextseek.env.template` | Django secret, Neo4j password, SEEK URL, LLM keys (`GCP_API_KEY`, `AWS_BEARER_TOKEN_BEDROCK`, `FDH_API`); `NEXTSEEK_SERVER` + CC knobs are **hand-added** (not in the template; a re-install keeps them, `reset` without `--keep-config` drops them, §2.4); every key is in the table below |
 | `dmac/local_settings.py` | `startup/templates/local_settings.py.template` | Django settings overlay (PROD ChatConfig block, etc.); install never overwrites an existing one and writes `local_settings.py.new` beside it |
 | `NessieAI/docker/bedrock-proxy/proxy-secret.env` | rendered programmatically (0600) | `AWS_BEARER_TOKEN_BEDROCK` + `AWS_REGION` **for the proxy** |
-| `.env` (repo root) | rendered (0600) | compose interpolation: `COMPOSE_PROJECT_NAME`, ports, `INSTANCE_PREFIX`, and `NEO4J_PASSWORD`, without which compose refuses every verb (see `.env.example`) |
+| `.env` (repo root) | rendered (0600) | compose interpolation: `COMPOSE_PROJECT_NAME`, ports, `INSTANCE_PREFIX`, and `NEO4J_PASSWORD`, without which compose refuses every verb (see `.env.example`); install rewrites these and keeps every other line already there, such as the memory caps and `SEEK_PUMA_WORKERS` |
 
 Every env var and Django setting the runtime reads, generated from `startup/env_registry.toml` (do not edit by
 hand; regenerate with `uv run --project startup python -m startup.lib.env_registry --write` from the repo root, and

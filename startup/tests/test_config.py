@@ -676,6 +676,32 @@ def test_reinstall_twice_is_idempotent(tmp_path: Path) -> None:
     assert first["nextseek.env"].count(_KEPT_HEADER) == 1
 
 
+def test_reinstall_keeps_hand_set_lines_in_the_root_env(tmp_path: Path) -> None:
+    """DEPLOYMENT.md has a box set its memory caps and SEEK's worker count in the
+    root .env. A re-install rewrites install's own keys there and keeps every
+    other line as written; the allowlist still keeps compose_env's secrets out."""
+    root = tmp_path / ".env"
+    root.write_text(
+        'COMPOSE_PROJECT_NAME="old"\nNEO4J_PASSWORD="old"\n'
+        "SEEK_MEMORY=20G\nSEEK_PUMA_WORKERS=8  # this box\n"
+    )
+    compose_env = {
+        "COMPOSE_PROJECT_NAME": "nextseek", "NEXTSEEK_PORT": "8000",
+        "AWS_BEARER_TOKEN_BEDROCK": "must-not-copy",
+    }
+
+    render_root_env(tmp_path, compose_env, neo4j_password="neo")
+    first = root.read_text()
+    render_root_env(tmp_path, compose_env, neo4j_password="neo")
+
+    assert read_env(root) == {
+        "COMPOSE_PROJECT_NAME": "nextseek", "NEXTSEEK_PORT": "8000", "NEO4J_PASSWORD": "neo",
+        "SEEK_MEMORY": "20G", "SEEK_PUMA_WORKERS": "8",
+    }
+    assert "SEEK_PUMA_WORKERS=8  # this box" in first
+    assert root.read_text() == first
+
+
 def test_preview_names_what_a_reinstall_would_change_and_writes_nothing(tmp_path: Path) -> None:
     repo = _box(tmp_path)
     _install(repo)

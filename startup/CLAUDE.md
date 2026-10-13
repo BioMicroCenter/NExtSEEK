@@ -141,8 +141,9 @@ Breaking one is a regression, not a refactor.
   re-rendering only what its docstring names; `render_local_settings` never overwrites an
   existing `dmac/local_settings.py` (it writes `local_settings.py.new`), and install's own
   database steps log in with the kept passwords (all in `startup/steps/config.py` and
-  `_install_impl`). A hand-filled Bedrock token is never reset to empty either
-  (`render_proxy_secret_env`): operator environment, then the existing
+  `_install_impl`). `render_root_env` keeps every line of the repo-root `.env` whose key
+  it does not own (the memory caps, `SEEK_PUMA_WORKERS`). A hand-filled Bedrock token is
+  never reset to empty either (`render_proxy_secret_env`): operator environment, then the existing
   `NessieAI/docker/bedrock-proxy/proxy-secret.env`, then the pre-move
   `docker/bedrock-proxy/proxy-secret.env` (read only, never written), then empty.
 - **No broad exception handler is permitted on the index readiness, apply or reverse
@@ -153,7 +154,8 @@ Breaking one is a regression, not a refactor.
   (`render_root_env` in `startup/steps/config.py`, whose docstring gives the reason): a
   secret sitting in the instance's environment would otherwise be persisted into a file
   that lives in the working tree. Install hands it `compose_env`, never the `db_env` that
-  carries the MySQL root password to its database steps.
+  carries the MySQL root password to its database steps. The lines it keeps for other
+  keys come from the file itself, never from the environment.
 
 ## Landmines
 
