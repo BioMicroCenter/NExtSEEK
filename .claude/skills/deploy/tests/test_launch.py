@@ -375,6 +375,8 @@ def test_the_host_copy_of_the_page_warns_to_reinstall_but_does_not_stop(tmp_path
     ("docker/scripts/entrypoint.sh", ("app",), None),
     ("docker/scripts/attribute_runtime_healthcheck.py", ("app",), None),
     ("docker/scripts/db/01-ensure-nextseek-db.sh", (), None),
+    ("docker/models/all-MiniLM-L6-v2.manifest.json", ("app",), None),
+    ("docker/models/fetch_models.py", ("app",), None),
 ])
 def test_docker_folder_paths(path, images, flag):
     rule = rules.rule_for(path)

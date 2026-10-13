@@ -1,3 +1,14 @@
+# Stage 1, the embedding models (#28): both models, at their pinned Hugging Face
+# commits, hash-checked (docker/README.md "Embedding models"). It must come first
+# (COPY --from names an earlier stage, and compose builds the last one). It COPYs
+# named files, not the folder, so a doc edit in docker/models/ re-downloads nothing.
+# Its Python is pinned on the RUN line, not with a second ENV UV_PYTHON (the guard
+# below reads the first one). The downloader's version cannot change the bytes: every
+# file is checked against its sha256.
+FROM ghcr.io/astral-sh/uv:debian AS models
+COPY docker/models/*.manifest.json docker/models/fetch_models.py docker/models/verify_models.py /src/
+RUN uv run --no-project --python 3.14 --with huggingface-hub==1.11.0 python /src/fetch_models.py /src /opt/models
+
 FROM ghcr.io/astral-sh/uv:debian
 
 RUN mkdir /app
@@ -19,6 +30,14 @@ ENV UV_PYTHON=3.14
 RUN apt-get update && apt-get install -y --no-install-recommends openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
+# The baked models. sentence-transformers reads SENTENCE_TRANSFORMERS_HOME when no
+# cache folder is passed (the semantic shortlist), and dmac/settings.py points
+# schema_rag there. Offline: the app never downloads a model at run time, and a
+# model that is not baked fails loudly. A hand-run Hub download inside this image
+# needs -e HF_HUB_OFFLINE=0.
+COPY --from=models /opt/models /opt/models
+ENV SENTENCE_TRANSFORMERS_HOME=/opt/models HF_HUB_OFFLINE=1
+
 COPY . /app/
 
 # Compile at build time, since nothing may write bytecode at run time (above) and
@@ -27,6 +46,10 @@ COPY . /app/
 # instead of 5.4 s, and `migrate` 27.7 s instead of 12.0 s (measured 2026-10-12),
 # all of it on the path between a restart and the first served request.
 RUN UV_COMPILE_BYTECODE=1 uv sync
+
+# Load every baked model offline with the app's own libraries. A pin or a library
+# bump the image cannot load stops the build here, before anything restarts.
+RUN /app/.venv/bin/python /app/docker/models/verify_models.py --load /opt/models /app/docker/models/*.manifest.json
 
 # Step 1c: generate vendored dmac_assistant BAML router client at build time
 # (baml_src is committed; baml_client is gitignored generated output).

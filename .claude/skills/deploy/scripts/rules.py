@@ -286,6 +286,7 @@ IMAGE_RULES: tuple[PathRule, ...] = (
     PathRule(r"\.(md|txt)$", (), None, "documentation"),
     PathRule(r"^docker/scripts/db/", (), None, "MySQL init scripts: run only when the database volume is created"),
     PathRule(r"^docker/scripts/", ("app",), None, "baked into the app image (the entrypoint, the healthcheck)"),
+    PathRule(r"^docker/models/[^/]+\.(json|py)$", ("app",), None, "the app image's models stage: pins and scripts"),
     PathRule(r"^NessieAI/tests/", ("app",), None, "baked into the app image (the harness runs from /app)"),
     PathRule(r"^(nextseek_api|seek|dmac|NessieAI)/", ("app",)),
     PathRule(r"^(pyproject\.toml|uv\.lock|Dockerfile|manage\.py|gunicorn\.conf\.py)$", ("app",)),
