@@ -431,10 +431,10 @@ def test_step5_scopes_a_resolved_project_on_its_exact_title():
     assert "EXACT title" in rule
     assert re.search(r"MATCH \(s:Sample\)-\[:IN_PROJECT\]->\(p:Project\)\s*WHERE p\.title = \$project_title", rule)
     assert "PROJECTS NAMED IN THIS QUESTION" in rule
-    assert '"Impact" is the project titled `IMPAcTb`' in rule
+    assert "use the title the block or the list gives, never a title you remember" in rule
     assert "Never `CONTAINS` on a project's name" in rule
     assert "never OR a Study or Investigation title match beside it" in rule
-    assert "892" in rule and "Impact of fibrinogen" in rule
+    assert "took in a paper whose title only began with the same word" in rule
 
 
 def test_the_study_and_investigation_form_is_kept_for_a_name_that_is_no_project_title():
@@ -453,7 +453,7 @@ def test_the_tuned_scope_behaviours_stand():
     assert "A NAME YOU WERE GIVEN in PROJECT TITLES, INVESTIGATION TITLES or STUDY TITLES is a scope" in STEP5
     assert "its project held 568 samples" in STEP5
     assert "try the other two of Project title, Investigation title and Study title" in STEP5
-    assert '"Shoulders" is `Shoulders Independent Projects`' in STEP5
+    assert "never a title you remember or one from this prompt" in STEP5
 
 
 @pytest.mark.parametrize("name", ["PUBLISHED", "Published Data", "Published"])

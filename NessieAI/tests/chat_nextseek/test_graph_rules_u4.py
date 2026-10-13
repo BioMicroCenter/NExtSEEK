@@ -71,3 +71,89 @@ def test_an_uncapped_result_keeps_the_full_list_line(captured, n):
     text = _turn(captured, _rows(n), total=n, truncated=False)
     assert "say the full list is available" in text
     assert "never call it the full list" not in text
+
+
+# --- fix 6: a sum of groups is not a count of distinct items ----------------------------------------------------
+
+def _grouped(captured, cypher, rows):
+    chatter_mod.chatter_agent_answer(
+        _StubConfig(), "How many in total?", EntityAgentOutput().model_dump(),
+        ParserPlan(mode="graph_query").model_dump(),
+        graph_plan={"cypher": cypher, "parameters": {}, "explanation": ""},
+        graph_result={"ok": True, "count": len(rows), "total": len(rows), "truncated": False, "data": rows},
+        log_dir="",
+    )
+    return captured["user_content"]
+
+
+@pytest.mark.parametrize("cypher,col", [
+    ("MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) RETURN p.title AS project, count(DISTINCT s) AS n", "project"),
+    ("MATCH (s:Sample)-[:IN_STUDY]->(st:Study) RETURN st.title AS study, count(DISTINCT s) AS n", "study"),
+    ("MATCH (c:Sample)-[r:DERIVED_FROM]->(:Sample) UNWIND [r.internal_assay_title] + "
+     "coalesce(r.internal_assay_titles, []) AS a RETURN a AS assay, count(*) AS n", "assay"),
+])
+def test_a_sum_over_groups_that_can_overlap_is_not_offered_as_the_total(captured, cypher, col):
+    text = _grouped(captured, cypher, [{col: "A", "n": 10}, {col: "B", "n": 7}])
+    assert "Sum of n across all 2 rows: 17" in text
+    assert "NOT a count of distinct" in text
+    assert "give this total first" not in text
+
+
+@pytest.mark.parametrize("cypher,col", [
+    ("MATCH (s:Sample) RETURN s.Organ AS organ, count(*) AS n", "organ"),
+    ("MATCH (s:Sample) RETURN s.type AS type, count(*) AS n", "type"),
+])
+def test_a_sum_over_disjoint_groups_is_still_the_total(captured, cypher, col):
+    text = _grouped(captured, cypher, [{col: "A", "n": 10}, {col: "B", "n": 7}])
+    assert "give this total first" in text
+    assert "NOT a count of distinct" not in text
+
+
+# --- fix 14: no invented split, no repeated internal instruction ------------------------------------------------
+
+def test_the_writer_is_told_not_to_invent_a_split_or_repeat_a_note(captured):
+    text = _turn(captured, _rows(30), total=30, truncated=False)
+    assert "never one you worked out from the preview rows" in text
+    assert "never repeat it to the user" in text
+
+
+# --- fix 8: the scientist the entity step resolved survives the parser ------------------------------------------
+
+from chat_nextseek import orchestrator as orch  # noqa: E402
+
+
+@pytest.mark.parametrize("name", ["Ada Quill", "Bo Marsh"])
+@pytest.mark.parametrize("as_dict", [True, False])
+def test_the_entity_scientist_is_restored_after_the_parser(name, as_dict):
+    plan = ParserPlan(mode="graph_query", resolved=EntityAgentOutput(keywords=[name]))
+    entity = EntityAgentOutput(scientists=[name])
+    out = orch._clamp_lab_codes_to_entity(plan, entity.model_dump() if as_dict else entity)
+    assert out.resolved.scientists == [name]
+
+
+def test_a_scientist_the_parser_kept_is_left_alone_and_none_is_invented():
+    plan = ParserPlan(mode="graph_query", resolved=EntityAgentOutput(scientists=["Kept One"]))
+    assert orch._clamp_lab_codes_to_entity(plan, EntityAgentOutput(scientists=["Other"])).resolved.scientists == ["Kept One"]
+    bare = ParserPlan(mode="graph_query")
+    assert orch._clamp_lab_codes_to_entity(bare, EntityAgentOutput()).resolved.scientists == []
+
+
+def test_the_parser_template_has_a_scientists_field():
+    assert '"scientists": ["string"]' in PARSER
+
+
+# --- prompt pins (fixes 6, 7, 8, 14, 16, 18 and the example project) ---------------------------------------------
+
+def test_the_graph_prompt_carries_the_rules():
+    for text in ("A total across groups counts each item once", "Data records or the samples they came from?",
+                 "A category word covers every type of its kind", "`category_types`",
+                 "An assay and a field naming the same kind", "both signs were used",
+                 "has no records of the asked type", "`Seq 100` and `Seq100`",
+                 "A keyword for what a sample was exposed to", "never address the reply writer",
+                 '"All", "every" and "across all" are not a scope'):
+        assert text in GRAPH, text
+
+
+def test_the_graph_prompt_has_no_real_project_as_an_example():
+    for name in ("IMPAcTb", "MIT_SRP", "Shoulders Independent Projects", "fibrinogen"):
+        assert name not in GRAPH
