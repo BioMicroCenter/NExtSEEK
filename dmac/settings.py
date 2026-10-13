@@ -521,8 +521,11 @@ SCHEMA_RAG_DEFAULT_TTL_MINUTES = 15
 SCHEMA_RAG_MAX_ENDPOINTS = 250
 SCHEMA_RAG_MAX_TOP_K = 10
 SCHEMA_RAG_EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
+# The app image bakes the model into SENTENCE_TRANSFORMERS_HOME (Dockerfile, #28).
 if "SCHEMA_RAG_EMBEDDING_MODEL_PATH" not in globals():
-    SCHEMA_RAG_EMBEDDING_MODEL_PATH = os.path.join(BASE_DIR, "schema_rag", "embedding_models")
+    SCHEMA_RAG_EMBEDDING_MODEL_PATH = os.getenv("SENTENCE_TRANSFORMERS_HOME") or os.path.join(
+        BASE_DIR, "schema_rag", "embedding_models"
+    )
 SCHEMA_RAG_EXCLUDED_PATH_PATTERNS = [
     "/schema_rag/",
 ]

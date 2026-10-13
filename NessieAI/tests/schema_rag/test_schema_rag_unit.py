@@ -10,6 +10,8 @@ Tests cover:
 import json
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, Mock, MagicMock
@@ -233,6 +235,61 @@ class SchemaRAGTestCase(TestCase):
         if status_code >= 400:
             mock_response.raise_for_status.side_effect = Exception(f"HTTP {status_code}")
         return mock_response
+
+
+# ---------------------------------------------------------------------------
+# Embedding model location and load failures (#28)
+# ---------------------------------------------------------------------------
+
+class EmbedderLoadTests(SchemaRAGTestCase):
+    """The app image bakes the model; a load that fails says which model and which folder."""
+
+    @patch.object(schema_rag_service, "_EMBEDDER", None)
+    @patch.object(schema_rag_service, "SentenceTransformer", side_effect=OSError("not in the local cache"))
+    def test_a_load_failure_logs_the_model_and_the_folder_and_reraises(self, _st):
+        with self.assertLogs(schema_rag_service.logger, level="ERROR") as logs:
+            with self.assertRaises(OSError):
+                schema_rag_service._get_embedder()
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn(settings.SCHEMA_RAG_EMBEDDING_MODEL_NAME, logs.output[0])
+        self.assertIn(self.embedding_path, logs.output[0])
+
+
+_LOCAL_SETTINGS = os.path.join(settings.BASE_DIR, "dmac", "local_settings.py")
+
+
+def _local_settings_sets_the_model_path() -> bool:
+    try:
+        with open(_LOCAL_SETTINGS) as fh:
+            return "SCHEMA_RAG_EMBEDDING_MODEL_PATH" in fh.read()
+    except OSError:
+        return False
+
+
+class EmbeddingModelPathTests(TestCase):
+    """settings reads SENTENCE_TRANSFORMERS_HOME, the folder the app image bakes the models into.
+
+    A subprocess, because settings creates the folder at import."""
+
+    def _path(self, **env_changes) -> str:
+        env = {k: v for k, v in os.environ.items() if k != "SENTENCE_TRANSFORMERS_HOME"}
+        env.update(env_changes)
+        code = "import dmac.test_settings as s; print(s.SCHEMA_RAG_EMBEDDING_MODEL_PATH)"
+        out = subprocess.run([sys.executable, "-c", code], env=env, cwd=settings.BASE_DIR,
+                             capture_output=True, text=True, check=True)
+        return out.stdout.strip().splitlines()[-1]
+
+    def setUp(self):
+        if _local_settings_sets_the_model_path():
+            self.skipTest("dmac/local_settings.py sets SCHEMA_RAG_EMBEDDING_MODEL_PATH, and it wins")
+
+    def test_the_image_folder_is_used_when_set(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        self.assertEqual(self._path(SENTENCE_TRANSFORMERS_HOME=folder), folder)
+
+    def test_unset_keeps_the_checkout_folder(self):
+        self.assertEqual(self._path(), os.path.join(settings.BASE_DIR, "schema_rag", "embedding_models"))
 
 
 # ---------------------------------------------------------------------------
