@@ -23,7 +23,9 @@ from ..schemas import (
 from ..schemas.entity import EntityItem, LabMatch, LabNearMiss
 
 
-_CATEGORY_SUFFIX = re.compile(r"(ics|ic|ing|omes|ome)$")
+#: Only the -ic/-ics/-ome forms name a category of data (transcriptomic, proteome). An -ing word names a process
+#: (sequencing, imaging, staining) that many unrelated kinds of data go through, so it expands nothing.
+_CATEGORY_SUFFIX = re.compile(r"(ics|ic|omes|ome)$")
 #: A word that names more types than this is not a category of data ("samples"), so it expands nothing.
 # ponytail: fixed cap; read it from the catalog's size if the catalog grows a lot.
 _CATEGORY_MAX_TYPES = 15
@@ -41,7 +43,7 @@ def expand_category_types(query: str, result: EntityAgentOutput, catalog: list[d
     chosen = {i.code for i in result.sampletypes}
     for word in dict.fromkeys(re.findall(r"[a-z]{5,}", q)):
         stem = _CATEGORY_SUFFIX.sub("", word)
-        # Only a category form (transcriptomic, imaging): a plain noun like "tissue" names a type, not a category.
+        # Only a category form (transcriptomic, proteome): a plain noun like "tissue" names a type, not a category.
         if stem == word or len(stem) < 4:
             continue
         members = [r for r in catalog or [] if any(
