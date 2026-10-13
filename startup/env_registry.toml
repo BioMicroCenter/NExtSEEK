@@ -1,0 +1,208 @@
+# One declaration per env var and Django setting (#103). Schema: startup/lib/env_registry.py.
+# Checked against the code, compose, the templates and the examples by
+# startup/tests/test_env_registry_drift.py. Never put a real value here: a secret has no default.
+
+# --- docker/db.env (startup/templates/db.env.template) -------------------------------------------
+
+[MYSQL_HOST]
+files = ["db.env"]
+required = true
+doc = "MySQL host, the db container's name."
+
+[MYSQL_ROOT_PASSWORD]
+files = ["db.env"]
+secret = true
+required = true
+doc = "MySQL root password. Install renders the public demo value; rotate it on any exposed box."
+
+[MYSQL_DATABASE]
+files = ["db.env"]
+required = true
+doc = "SEEK's database name."
+
+[NEXTSEEK_MYSQL_DATABASE]
+files = ["db.env"]
+required = true
+doc = "NExtSEEK's own database name."
+
+[MYSQL_USER]
+files = ["db.env"]
+required = true
+doc = "Application user for NExtSEEK and SEEK."
+
+[MYSQL_PASSWORD]
+files = ["db.env"]
+secret = true
+required = true
+doc = "Application user's password. Install renders the public demo value; rotate it on any exposed box."
+
+# --- docker/nextseek.env (startup/templates/nextseek.env.template) ------------------------------
+
+[SEEK_HOST]
+files = ["nextseek.env"]
+required = true
+doc = "SEEK container name; switches on the SEEK settings in dmac/settings.py."
+
+[SEEK_HOSTNAME]
+files = ["nextseek.env"]
+required = true
+doc = "Internal SEEK base URL, http://seek:3000."
+
+[SEEK_PUBLIC_URL]
+files = ["nextseek.env"]
+doc = "Browser-reachable SEEK base URL for links. Install keeps a hand-set value."
+
+[NEXTSEEK_HOSTNAME]
+files = ["nextseek.env"]
+required = true
+doc = "NExtSEEK host and published port; NEXTSEEK_BASE_URL derives from it."
+
+[NEXTSEEK_NEO4J_PASSWORD]
+files = ["nextseek.env"]
+secret = true
+required = true
+doc = "Neo4j password the app uses. Must match NEO4J_PASSWORD in the root .env."
+
+[NEXTSEEK_NEO4J_HOST]
+files = ["nextseek.env"]
+required = true
+doc = "Neo4j container name; switches on the graph settings."
+
+[DJANGO_SECRET_KEY]
+files = ["nextseek.env"]
+secret = true
+required = true
+doc = "Django signing key. Install generates a new one."
+
+[DJANGO_ALLOWED_HOSTS]
+files = ["nextseek.env"]
+required = true
+doc = "Space-separated Django allowed hosts. Install keeps a hand-set value."
+
+[DJANGO_CSRF_TRUSTED_ORIGINS]
+files = ["nextseek.env"]
+required = true
+doc = "Space-separated trusted origins. Install keeps a hand-set value and adds its port's loopback pair."
+
+[NEXTSEEK_BASE_URL]
+files = ["nextseek.env"]
+doc = "Public NExtSEEK base URL, derived from NEXTSEEK_HOSTNAME."
+
+[NEXTSEEK_INTERNAL_BASE_URL]
+files = ["nextseek.env"]
+doc = "Container-internal URL for chat_nextseek's REST self-calls; preferred over NEXTSEEK_BASE_URL."
+
+[LOG_DIR]
+files = ["nextseek.env"]
+doc = "Log folder inside the app container."
+
+[NEXTSEEK_OUTPUTS_DIR]
+files = ["nextseek.env"]
+doc = "Per-turn output folder inside the app container."
+
+[CATALOG_FILE]
+files = ["nextseek.env"]
+doc = "The agent model catalog Nessie loads."
+
+[NEXTSEEK_POSTERIOR_ROUTING_ENABLED]
+files = ["nextseek.env"]
+doc = "Posterior routing switch; off unless 1, true or yes."
+
+[NESSIE_LAYA_SHADOW]
+files = ["nextseek.env"]
+doc = "Log laya's route next to the BAML router's without routing on it."
+
+[NESSIE_LAYA_LIVE]
+files = ["nextseek.env"]
+doc = "Route on laya when it equals the calibrated revision; empty is off."
+
+[LAYA_API_KEY]
+files = ["nextseek.env", "laya.env"]
+secret = true
+doc = "Shared key between the app and the laya sidecar."
+
+[GCP_API_KEY]
+files = ["nextseek.env"]
+secret = true
+doc = "Gemini API key."
+
+[AWS_BEARER_TOKEN_BEDROCK]
+files = ["nextseek.env", "proxy-secret.env"]
+secret = true
+doc = "Bedrock bearer token, for the app and for the Container-CC proxy."
+
+[FDH_API]
+files = ["nextseek.env"]
+secret = true
+doc = "FAIRDOMHub API token for protocol downloads."
+
+[NEXTSEEK_CC_MAX_BUDGET_USD]
+files = ["nextseek.env"]
+doc = "Per-turn spend cap for a Container-CC turn; 0 disables it. A security control."
+
+[NEXTSEEK_CC_TIMEOUT_HARD_MAX]
+files = ["nextseek.env"]
+doc = "Hard ceiling in seconds on one Container-CC turn."
+
+[SESSION_DB_TYPE]
+files = ["nextseek.env"]
+doc = "chat_nextseek session store, mysql or sqlite."
+
+[SESSION_DB_HOST]
+files = ["nextseek.env"]
+doc = "chat_nextseek session store host; the template interpolates MYSQL_HOST."
+
+[SESSION_DB_USER]
+files = ["nextseek.env"]
+doc = "chat_nextseek session store user; the template interpolates MYSQL_USER."
+
+[SESSION_DB_PASSWORD]
+files = ["nextseek.env"]
+secret = true
+alias_of = "MYSQL_PASSWORD"
+doc = "chat_nextseek session store password; the template interpolates MYSQL_PASSWORD."
+
+[SESSION_DB_NAME]
+files = ["nextseek.env"]
+doc = "chat_nextseek session store database; the template interpolates NEXTSEEK_MYSQL_DATABASE."
+
+[MYSQL_HOST_PROD]
+files = ["nextseek.env"]
+doc = "ChatConfig's prod-mode MySQL host; install writes the local value."
+
+[MYSQL_PROD_PASSWORD]
+files = ["nextseek.env"]
+secret = true
+doc = "ChatConfig's prod-mode MySQL password; install writes the local value. Chosen by mode, not an alias."
+
+[MYSQL_HOST_DEV]
+files = ["nextseek.env"]
+doc = "ChatConfig's dev-mode MySQL host; install writes the local value."
+
+[MYSQL_DEV_PASSWORD]
+files = ["nextseek.env"]
+secret = true
+doc = "ChatConfig's dev-mode MySQL password; install writes the local value. Chosen by mode, not an alias."
+
+[NEO4J_URI]
+files = ["nextseek.env"]
+doc = "Neo4j URI for chat_nextseek; the same server as NEXTSEEK_NEO4J_HOST in another shape."
+
+[NEO4J_USER]
+files = ["nextseek.env"]
+doc = "Neo4j user for chat_nextseek."
+
+[NEO4J_PASSWORD]
+files = ["nextseek.env", "root.env"]
+secret = true
+required = true
+alias_of = "NEXTSEEK_NEO4J_PASSWORD"
+doc = "Neo4j password: chat_nextseek's copy in nextseek.env, and compose's seed for a new neo4j-data volume in the root .env."
+
+[NEXTSEEK_GRAPH_SYNC_STUDY_LINKS]
+files = ["nextseek.env"]
+doc = "graph_sync: follow also removes IN_STUDY links SEEK no longer holds. Set only after the box's study merge."
+
+[NEO4J_TIMEOUT_SECONDS]
+files = ["nextseek.env"]
+doc = "Seconds the sample download's lineage lookup may run before falling back to Parent."
