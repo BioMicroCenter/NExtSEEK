@@ -208,9 +208,9 @@ What the graph holds is in `docs/neo4j-schema.md`, v1.2 "Study nodes and IN_STUD
 `follow`, reads as `add`: every path adds the links SEEK holds and removes none, counting what it would remove
 (`in_study_stale`). `follow` turns removal on in the drain and every other by-id sync, the full sync's SEEK studies
 step and the reconcile's `study_links` step; `graph_sync --studies` removes whatever it says. A change takes effect
-when the app container is recreated: `docker compose up -d --no-deps --force-recreate nextseek`. `rebuild` keeps it;
-`install` re-renders `docker/nextseek.env` from the template, which carries the switch only as a comment, so a
-reinstall turns it off. Turn it on only after, in this order: the box's merge dry run, the operator's approval of
+when the app container is recreated: `docker compose up -d --no-deps --force-recreate nextseek`. `rebuild` and a
+reinstall keep it (`install` keeps every line already in `docker/nextseek.env`, #103); `reset` without
+`--keep-config` drops it. Turn it on only after, in this order: the box's merge dry run, the operator's approval of
 its approval line, the merge, `--studies`, and then a second merge dry run. `--studies` gives every SEEK study its
 node, so an id that read `legacy_only` now reads `merge` and needs its own approval and merge run, and
 `id_collisions` grows by every SEEK study whose id a graph-only paper's node holds (never acted on). When that second
