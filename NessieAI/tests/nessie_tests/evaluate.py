@@ -707,8 +707,23 @@ def any_criterion_evaluated(results: list[dict]) -> bool:
     return any(not r.get("skipped") for r in results)
 
 
+_DEBUG_MARKER = "**Debug info**"
+
+
+def visible_reply(reply):
+    """The reply a user reads: everything before the admin Debug info block.
+
+    A last_reply regex must not be able to pass on the parser's summary, the Cypher
+    or the explanation echoed in that block."""
+    if not isinstance(reply, str):
+        return reply
+    at = reply.find(_DEBUG_MARKER)
+    return reply[:at].rstrip() if at > 0 else reply
+
+
 def evaluate_turn(payload, criteria, obs, *, last_reply=None, bundle_summary=None,
                   forced=False):
+    last_reply = visible_reply(last_reply)
     raw_debug = build_observed_debug(payload)
     debug = augment_debug(raw_debug, obs, bundle_summary,
                           artifact_index=build_artifact_index(raw_debug, payload))
