@@ -910,6 +910,7 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `DMAC_CC_USERS_VOLUME` | image |  |  |  | Container-CC users volume name; compose sets it with INSTANCE_PREFIX, so a nextseek.env line is ignored. |
 | `SIDECAR_STAGING_DIR` | image |  |  |  | Nessie sidecar staging folder; compose sets it. |
 | `SIDECAR_WS_PORT` | image | 8765 |  |  | Nessie sidecar websocket port; compose sets it. |
+| `SENTENCE_TRANSFORMERS_HOME` | image |  |  |  | Folder of the embedding models baked into the app image; the Dockerfile sets /opt/models (#28). Unset, schema_rag reads schema_rag/embedding_models. |
 | `NEXTSEEK_SERVER` | nextseek.env | daphne |  |  | App server the entrypoint starts, daphne or gunicorn. |
 | `NEXTSEEK_GRAPH_SYNC_LOOP` | nextseek.env | 1 |  |  | Entrypoint starts the graph_sync loop unless 0. |
 | `GRAPH_SYNC_RESTART_DELAY` | nextseek.env | 60 |  |  | Entrypoint: seconds before a stopped graph_sync loop restarts. |

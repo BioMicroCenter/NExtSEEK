@@ -944,6 +944,10 @@ files = ["image"]
 default = "8765"
 doc = "Nessie sidecar websocket port; compose sets it."
 
+[SENTENCE_TRANSFORMERS_HOME]
+files = ["image"]
+doc = "Folder of the embedding models baked into the app image; the Dockerfile sets /opt/models (#28). Unset, schema_rag reads schema_rag/embedding_models."
+
 # --- docker/nextseek.env, optional: read by docker/scripts/entrypoint.sh -----------------------------
 
 [NEXTSEEK_SERVER]
