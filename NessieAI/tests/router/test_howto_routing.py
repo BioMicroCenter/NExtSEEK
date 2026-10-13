@@ -179,3 +179,16 @@ def test_router_and_route_text_send_a_named_sops_file_to_ns():
         "{{ input.followup_rule }}")
     path = paths.DMAC_ASSISTANT_DIR / "build_context" / "route_capabilities.json"
     assert "the file of one SOP named by its id or its exact title" in path.read_text(encoding="utf-8")
+
+
+# ------------------------------------------------------------------ 2026-10-13 harmo_onto: harmonize requests
+def test_route_text_sends_a_request_to_harmonize_stored_values_to_cc():
+    """Operator ruling 2026-10-13: counts across spellings stay in the graph; a request to harmonize
+    stored values is container_cc's. route_capabilities.json follows at its next regeneration."""
+    from NessieAI.cc.op_registry.routes import CONTAINER_CC_ROUTE
+
+    text = " ".join(CONTAINER_CC_ROUTE.not_for.split())
+    assert "counts and breakdowns, including counts across spellings, all run in the graph." in text
+    assert ("A request to harmonize stored values (a proposal against the house ontologies and its update "
+            "workbook) is this route.") in text
+    assert "harmonisation over metadata" not in text

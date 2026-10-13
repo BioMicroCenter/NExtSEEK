@@ -15305,7 +15305,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "Proves the file-type ontology reaches Container-CC: tif/.tif/TIF fold to TIF and czi/.czi to CZI, the house spelling, and nothing is proposed in lower case. It asks the user to confirm before any workbook. For the post-rebuild run (harmo_onto): needs the cc-agent image with the ontology files. Tagged no_floor because the family floor asks for parser_plan.mode graph_query, which a Container-CC turn does not set. Criteria carry no counts so they hold on dev and prod."
+          "_why": "Proves the file-type ontology reaches Container-CC: tif/.tif/TIF fold to TIF and czi/.czi to CZI, the house spelling, and nothing is proposed in lower case. It asks the user to confirm before any workbook. Its container_cc criterion stands on the container_cc route text (operator ruling 2026-10-13): a request to harmonize stored values, a proposal against the house ontologies and its update workbook, is container_cc's, while counts across spellings stay on nextseek_query. For the post-rebuild run (harmo_onto): needs the cc-agent image with the ontology files. Tagged no_floor because the family floor asks for parser_plan.mode graph_query, which a Container-CC turn does not set. Criteria carry no counts so they hold on dev and prod."
         },
         {
           "id": "harmon.onto_cell_species",
@@ -15348,7 +15348,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "Proves the species ontology is used: case variants of the human species name map to the house term with its ontology id. For the post-rebuild run (harmo_onto): needs the cc-agent image with the ontology files. Tagged no_floor because the family floor asks for parser_plan.mode graph_query, which a Container-CC turn does not set. Criteria carry no counts so they hold on dev and prod."
+          "_why": "Proves the species ontology is used: case variants of the human species name map to the house term with its ontology id. Its container_cc criterion stands on the container_cc route text (operator ruling 2026-10-13): a request to harmonize stored values, a proposal against the house ontologies and its update workbook, is container_cc's, while counts across spellings stay on nextseek_query. For the post-rebuild run (harmo_onto): needs the cc-agent image with the ontology files. Tagged no_floor because the family floor asks for parser_plan.mode graph_query, which a Container-CC turn does not set. Criteria carry no counts so they hold on dev and prod."
         },
         {
           "id": "harmon.onto_mouse_genotype_slide",
@@ -15439,7 +15439,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "Proves the library-layout ontology folds Paired spellings to Paired End and that 3DGE, a prep method, is named as not fitting rather than mapped. For the post-rebuild run (harmo_onto): needs the cc-agent image with the ontology files. Tagged no_floor because the family floor asks for parser_plan.mode graph_query, which a Container-CC turn does not set. Criteria carry no counts so they hold on dev and prod."
+          "_why": "Proves the library-layout ontology folds Paired spellings to Paired End and that 3DGE, a prep method, is named as not fitting rather than mapped. Its container_cc criterion stands on the container_cc route text (operator ruling 2026-10-13): a request to harmonize stored values, a proposal against the house ontologies and its update workbook, is container_cc's, while counts across spellings stay on nextseek_query. For the post-rebuild run (harmo_onto): needs the cc-agent image with the ontology files. Tagged no_floor because the family floor asks for parser_plan.mode graph_query, which a Container-CC turn does not set. Criteria carry no counts so they hold on dev and prod."
         },
         {
           "id": "harmon.onto_offer_after_listing",
