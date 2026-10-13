@@ -10,6 +10,7 @@ The api-write caller carries its own SEEK login (patched), so these tests hold w
 the shared login for a caller without one.
 """
 import os
+import shutil
 import tempfile
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -100,6 +101,7 @@ class UploadTests(TestCase):
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
         self.media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media, True)
         o = override_settings(MEDIA_ROOT=self.media)
         o.enable()
         self.addCleanup(o.disable)
@@ -124,9 +126,11 @@ class UploadTests(TestCase):
     def test_an_upload_is_queued_for_the_callers_own_input_folder_on_both_routes(self):
         for url in self.URLS:
             self.m["delay"].reset_mock()
+            self.m["dirs"].reset_mock()
             resp = self.client.post(url, {"file": self._file()}, format="multipart")
             self.assertEqual(resp.status_code, 202, url)
             self.assertEqual(resp.json(), {"job_id": "job-1", "status": "queued"})
+            self.assertEqual(self.m["dirs"].call_args.args[2], self.user.username, url)
             kwargs = self.m["delay"].call_args.kwargs
             self.assertEqual(kwargs["input_mnt"], "/data/in/uploader")
             self.assertEqual([f["name"] for f in kwargs["files"]], ["reads.txt"])
