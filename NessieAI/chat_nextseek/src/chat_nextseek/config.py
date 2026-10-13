@@ -769,7 +769,8 @@ class ChatConfig:
 
     @property
     def MIN_ASSAYS(self) -> list:
-        """This box's assay list from ``dmac.internal_assays`` (cached), or the committed file when that cannot be read."""
+        """This box's assay list from ``dmac.internal_assays`` (``assay_catalog``), or the catalog list loaded at start
+        (``min_assays_db.json``) when the table cannot be read."""
         from . import assay_catalog  # noqa: PLC0415
         return assay_catalog.min_assays(self, getattr(self, "_min_assays_file", []))
 
