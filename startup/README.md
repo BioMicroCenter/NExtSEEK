@@ -79,8 +79,8 @@ environment flag, default off (`startup/steps/schema_fixups.py:976-995`).
 **`startup/dev/`** is a separate, hand-run lane, not part of any subcommand:
 `startup/dev/run_full_test_lane.sh:6-14` runs `nextseek_api/tests startup/tests` in one
 pytest invocation inside a pinned app image on a `--internal` docker network, and
-`startup/dev/provision_embedding_model.sh:51` verifies the embedding-model cache the
-lane needs against a committed manifest.
+`startup/dev/provision_embedding_model.sh:52` verifies the embedding-model cache the
+lane needs against a committed manifest (`docker/models/`, the pins the app image bakes).
 
 ### Per-command behaviour that `--help` does not show
 

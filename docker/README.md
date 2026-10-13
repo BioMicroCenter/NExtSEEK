@@ -20,7 +20,27 @@ also live here, untracked: the startup CLI renders them from `startup/templates/
 | `docker/scripts/attribute_runtime_healthcheck.py` | the `nextseek` service's healthcheck | probes the attribute runtimes without starting a second Django process |
 | `docker/scripts/db/` | compose service `db`, mounted as `/docker-entrypoint-initdb.d` | creates the NExtSEEK schema and its grants at first MySQL start |
 | `docker/nextseek.env.example` | readers, and the image-secret gate, which allows exactly this env file | documentation of the app env, not the render source |
+| `docker/models/` | the app image's first build stage (`models`) and the build's offline load step; `startup/dev/provision_embedding_model.sh` | the embedding model pins (`*.manifest.json`), the stage's fetch script and the one verifier |
 | `docker/seek-nginx.conf` | compose service `seek`, mounted as `/seek/nginx.conf` | an untracked host file, rendered per box (`DEPLOYMENT.md` §3.1) |
+
+### Embedding models
+
+The app image carries both embedding models: `BAAI/bge-small-en-v1.5` (schema_rag) and
+`sentence-transformers/all-MiniLM-L6-v2` (the semantic shortlist). The `Dockerfile`'s first stage,
+`models`, runs `docker/models/fetch_models.py`, which downloads each model's pinned files at its pinned
+Hugging Face commit and checks them with `docker/models/verify_models.py`: every sha256, no extra file,
+`refs/main` at the pin. The app stage copies the folder to `/opt/models`, sets
+`SENTENCE_TRANSFORMERS_HOME=/opt/models` and `HF_HUB_OFFLINE=1`, and after `uv sync` loads every model
+offline with the app's own libraries, so a model the image cannot load stops the build before anything
+restarts. Nothing downloads at run time; a hand-run Hub download inside the app image needs
+`-e HF_HUB_OFFLINE=0`.
+
+To bump or add a model: load it once with the app's sentence-transformers into an empty cache folder,
+then write a `docker/models/<name>.manifest.json` with its `repo_id`, the commit in `refs/main` as
+`revision`, and the sha256 of every file under `snapshots/<commit>/`. The stage copies every
+`*.manifest.json`, so the next app rebuild fetches it; a manifest the libraries cannot load fails that
+build at the load step, naming the model. A model the shortlist should use also needs
+`SEMANTIC_MODEL_NAME` in the box's env file.
 
 ### nginx
 

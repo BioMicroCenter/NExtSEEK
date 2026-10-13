@@ -22,7 +22,7 @@
 #                provisioned (see PRE-FLIGHT below).
 #
 #   The local_settings overlay (lane_local_settings.py), the model manifest
-#   (bge-small-en-v1.5.manifest.json), and the provisioning/verify script
+#   (docker/models/bge-small-en-v1.5.manifest.json), and the provisioning/verify script
 #   (provision_embedding_model.sh) are resolved from THIS SCRIPT'S OWN repo
 #   tree (dirname-based), NOT from <test-tree> — the test tree may be an
 #   older checkout that does not contain them.

@@ -119,7 +119,7 @@ even with a populated cache in reach, the loader still opens an HTTP conversatio
 Hugging Face unless `HF_HUB_OFFLINE` is set. The supported lane already encodes both
 (`startup/dev/run_full_test_lane.sh:41-49`), fails fast instead of downloading
 (`startup/dev/run_full_test_lane.sh:196-204`), and points at
-`startup/dev/provision_embedding_model.sh:196` for populating the cache once per checkout.
+`startup/dev/provision_embedding_model.sh:126` for populating the cache once per checkout.
 Supplied, the hermetic selection goes green, and the only tests still not executed are
 the live ones.
 
@@ -187,7 +187,7 @@ two that constrain it are kept.
   raises `ImportError`.
 - `ci/routes.py:828-832` declares the retrieval route to the CI registry and records in its
   own note that the route answers 200 whatever happens.
-- `startup/dev/provision_embedding_model.sh:196` and
+- `startup/dev/provision_embedding_model.sh:126` and
   `scripts/attribute_api_test.sh:215-221` both write the cache directory this package
   reads, the second after deleting a copy of it that the caller cannot write.
 - What a hit here is NOT. `nextseek_api/services/assistant.py:542` defines a `delete_session`
