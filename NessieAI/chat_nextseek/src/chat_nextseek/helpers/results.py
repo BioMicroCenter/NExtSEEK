@@ -67,6 +67,48 @@ def _flatten_groups(groups: list[dict]) -> list[dict]:
     return out
 
 
+def _is_empty(value: object) -> bool:
+    return value is None or value == "" or value == [] or value == {}
+
+
+def _drop_empty(record: dict) -> dict:
+    """The record without its empty fields (None, "", [], {}). The group label stays."""
+    return {k: v for k, v in record.items() if k == _GROUP_LABEL_KEY or not _is_empty(v)}
+
+
+def _named_identifiers(api_plan: dict | None) -> list[str]:
+    """Identifiers the request named (a retrieve body's ``identifiers``), lower-cased."""
+    body = (api_plan or {}).get("requestBody")
+    ids = body.get("identifiers") if isinstance(body, dict) else None
+    if not isinstance(ids, list):
+        return []
+    return [str(i).strip().lower() for i in ids if str(i).strip()]
+
+
+def _record_keys(record: dict) -> set[str]:
+    """Every identifier a record answers to: its uid fields and its SEEK id."""
+    keys = set()
+    for field in ("uid", "UID", "uuid", "sample_uid", "id"):
+        value = record.get(field)
+        if value is not None and not isinstance(value, (dict, list)):
+            keys.add(re.sub(r"<[^>]+>", "", str(value)).strip().lower())
+    return keys
+
+
+def _order_named_first(flat: list[dict], named: list[str]) -> tuple[list[dict], int]:
+    """Records the request named first (in the order named), then the rest. Returns the order and the named count."""
+    if not named:
+        return flat, 0
+    rank = {n: i for i, n in enumerate(named)}
+    hits = []
+    rest = []
+    for record in flat:
+        found = [rank[k] for k in _record_keys(record) if k in rank]
+        (hits if found else rest).append((min(found), record) if found else record)
+    hits.sort(key=lambda pair: pair[0])
+    return [r for _, r in hits] + rest, len(hits)
+
+
 def _group_record_count(groups: list[dict]) -> int:
     return sum(len(group.get(_GROUP_RECORDS_KEY) or []) for group in groups)
 
@@ -269,9 +311,12 @@ def slim_api_result_for_llm(
         # reach: how many samples of each type there are (B7's missing sentence,
         # "1,904 records, 40 of them PAT"), and a preview whose every record names
         # the type it came from (B8's fix, "name types from the query that ran").
-        flat = _flatten_groups(groups)
+        flat = [_drop_empty(r) for r in _flatten_groups(groups)]
+        # Records the request named (retrieve by UID) always lead the preview and
+        # are never cut by the row cap, so a second named record cannot drop out.
+        flat, pinned = _order_named_first(flat, _named_identifiers(api_plan))
         preview_key = "samples_preview"
-        preview_items = flat[:max_rows]
+        preview_items = flat[:max(max_rows, pinned)]
         preview_rows = len(preview_items)
         new_data = {
             **{k: v for k, v in data.items() if k != "data"},
@@ -337,6 +382,7 @@ def slim_api_result_for_llm(
     if preview_key:
         slimmed, preview_rows = _shrink_preview_to_budget(
             slimmed, preview_key, max_chars, truncated_key=truncated_key,
+            pinned=pinned if groups is not None else 0,
         )
 
     # Row counts come from the ORIGINAL result; `preview_rows` is what actually
@@ -401,6 +447,7 @@ def _shrink_preview_to_budget(
     max_chars: int,
     *,
     truncated_key: str | None = None,
+    pinned: int = 0,
 ) -> tuple[dict, int | None]:
     """Drop previewed rows until the payload fits, keeping at least one.
 
@@ -418,14 +465,24 @@ def _shrink_preview_to_budget(
         return slimmed, None
 
     items = list(data[preview_key])
-    while len(items) > 1 and len(json.dumps(slimmed, default=str)) > max_chars:
+    while len(items) > max(1, pinned) and len(json.dumps(slimmed, default=str)) > max_chars:
         items = items[:-1]
         data = {**data, preview_key: items,
                 "note": f"Result truncated for LLM context (>{max_chars} chars)."}
         if truncated_key:
             data[truncated_key] = True
         slimmed = {**slimmed, "data": data}
+    # Pinned (named) records are never dropped: trim their long text instead.
+    for cap in (400, 200, 100, 50):
+        if not pinned or len(json.dumps(slimmed, default=str)) <= max_chars:
+            break
+        items = [_trim_long_fields(r, cap) if i < pinned else r for i, r in enumerate(items)]
+        slimmed = {**slimmed, "data": {**slimmed["data"], preview_key: items, "fields_trimmed": True}}
     return slimmed, len(items)
+
+
+def _trim_long_fields(record: dict, cap: int) -> dict:
+    return {k: (v[:cap] + "...[trimmed]" if isinstance(v, str) and len(v) > cap else v) for k, v in record.items()}
 
 
 def collect_bundle_files(bundle: dict) -> list[tuple[str, str]]:
