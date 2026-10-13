@@ -112,9 +112,10 @@ it: a populated embedding-model cache, and `HF_HUB_OFFLINE=1`. Without them the
 embedder reaches for Hugging Face, and on a container with networking off those tests
 fail.
 
-Both causes are visible in the repository. The sentence-transformers cache is resolved
-under `BASE_DIR` (`dmac/settings.py:500-501`), so relocating the checkout inside a
-container aims it at a directory `dmac/settings.py:508` has just created empty; and
+Both causes are visible in the repository. Outside the app image the sentence-transformers
+cache is resolved under `BASE_DIR` (`SCHEMA_RAG_EMBEDDING_MODEL_PATH` in `dmac/settings.py`), so
+relocating the checkout inside a container aims it at a directory settings has just created
+empty; and
 even with a populated cache in reach, the loader still opens an HTTP conversation with
 Hugging Face unless `HF_HUB_OFFLINE` is set. The supported lane already encodes both
 (`startup/dev/run_full_test_lane.sh:41-49`), fails fast instead of downloading

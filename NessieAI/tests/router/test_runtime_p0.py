@@ -149,3 +149,20 @@ def test_router_falls_back_when_selector_itself_raises(settings, monkeypatch):
 def test_deploy_templates_default_posterior_router_off():
     for relative in ("docker/nextseek.env.example", "startup/templates/nextseek.env.template"):
         assert 'NEXTSEEK_POSTERIOR_ROUTING_ENABLED="0"' in (_REPO / relative).read_text()
+
+
+SEMANTIC_TUNING_LINES = (
+    '# SEMANTIC_ENDPOINTS_ENABLED="0"',
+    '# SEMANTIC_MODEL_NAME="sentence-transformers/all-MiniLM-L6-v2"',
+    '# SEMANTIC_RATIO="0.7"',
+    '# SEMANTIC_MIN_K="10"',
+    '# SEMANTIC_MAX_K="80"',
+)
+
+
+def test_deploy_templates_document_the_semantic_tuning_keys_commented_at_the_code_defaults():
+    """#28: the keys ChatConfig reads, commented at its defaults, so a box's env file needs none of them."""
+    for relative in ("docker/nextseek.env.example", "startup/templates/nextseek.env.template"):
+        lines = (_REPO / relative).read_text().splitlines()
+        for expected in SEMANTIC_TUNING_LINES:
+            assert expected in lines, (relative, expected)

@@ -232,16 +232,16 @@ out of scope of this repo).
 
 ### 2.3 What install does **not** provision
 
+The two embedding models are not on this list: the app image bakes both
+(schema_rag's `BAAI/bge-small-en-v1.5` and the semantic shortlist's
+`sentence-transformers/all-MiniLM-L6-v2`) and runs them offline, so install and
+every rebuild bring them, and nothing downloads at run time. The build reaches
+Hugging Face for them whenever the models stage is not in the build cache; a
+model that will not load stops the build before anything restarts. Pins and how
+to bump one: `docker/README.md` "Embedding models".
+
 Budget these as explicit post-install steps:
 
-- **Embedding models (two of them).** Nothing pre-downloads:
-  1. schema_rag's `BAAI/bge-small-en-v1.5` (lazy-loaded into
-     `schema_rag/embedding_models/`, gitignored); first schema ingest needs
-     Hugging Face egress, or pre-provision offline via
-     `startup/dev/provision_embedding_model.sh`;
-  2. chat_nextseek's catalog matcher `sentence-transformers/all-MiniLM-L6-v2`
-     is lazy-loaded on first NL-routing use.
-  An air-gapped box fails on whichever path is exercised first.
 - **Solr index.** The `seek-solr-data` volume starts empty; this repo's CLI
   has no reindex step. If search returns nothing, reindex from the SEEK side
   (upstream SEEK tooling).

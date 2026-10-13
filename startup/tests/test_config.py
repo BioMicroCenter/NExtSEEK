@@ -130,6 +130,16 @@ def _render_real_template(
     return (repo / "docker" / "nextseek.env").read_text()
 
 
+def test_real_template_renders_the_semantic_tuning_keys_commented(tmp_path: Path) -> None:
+    """#28: the SEMANTIC_* tuning keys ship commented at the code defaults, with nothing left to fill."""
+    lines = _render_real_template(tmp_path, port=8000).splitlines()
+    semantic = [line for line in lines if "SEMANTIC_" in line]
+    assert '# SEMANTIC_MODEL_NAME="sentence-transformers/all-MiniLM-L6-v2"' in semantic
+    assert '# SEMANTIC_MAX_K="80"' in semantic
+    assert not [line for line in semantic if "$" in line]
+    assert not [line for line in semantic if line.startswith("SEMANTIC_")], "commented: the code defaults apply"
+
+
 def test_real_template_renders_configured_seek_public_url(tmp_path: Path) -> None:
     """The public SEEK URL comes from instance config, not a hardcoded default."""
     rendered = _render_real_template(
