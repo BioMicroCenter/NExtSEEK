@@ -1,5 +1,9 @@
 """The one workbook writer: README sheet first, then a sheet per sample type."""
 
+import os
+import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
@@ -441,7 +445,37 @@ def _prov_df():
 @patch(f"{_MOD}.GraphDatabase")
 def test_lineage_lookup_survives_an_unreachable_graph(mock_graph):
     mock_graph.driver.side_effect = RuntimeError("connection refused")
+    assert load_derivation_hops(["D.SEQ-1"]) is None
+
+
+@patch(f"{_MOD}.GraphDatabase")
+def test_lineage_lookup_with_no_rows_is_empty_not_none(mock_graph):
+    mock_graph.driver.return_value.__enter__.return_value.execute_query.return_value.records = []
     assert load_derivation_hops(["D.SEQ-1"]) == []
+
+
+def test_readme_says_lineage_unreadable_when_graph_read_failed(tmp_path):
+    out = tmp_path / "w.xlsx"
+    with patch(f"{_MOD}.load_derivation_hops", return_value=None):
+        write_samples_workbook(pd.DataFrame([{"uuid": "MUS-1", "Name": "a"}]), out, CONTEXT)
+    ws = load_workbook(out)["README"]
+    assert "lineage could not be read" in str(ws["A2"].value).lower()
+
+
+def test_one_graph_outage_puts_one_warning_in_a2(tmp_path):
+    """sample_retrieve already passes its lineage notice when the graph fails it; the
+    workbook's own failed read must not stack a second warning on the same outage."""
+    out = tmp_path / "w.xlsx"
+    with patch(f"{_MOD}.load_derivation_hops", return_value=None):
+        write_samples_workbook(pd.DataFrame([{"uuid": "MUS-1", "Name": "a"}]), out, CONTEXT,
+                               notice="The sample graph could not supply the full lineage.")
+    assert ws_a2(out) == "The sample graph could not supply the full lineage."
+
+
+def test_readme_has_no_lineage_warning_when_no_lineage_exists(tmp_path):
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(pd.DataFrame([{"uuid": "MUS-1", "Name": "a"}]), out, CONTEXT)
+    assert ws_a2(out) is None
 
 
 @patch(f"{_MOD}.Samples")
@@ -1062,3 +1096,51 @@ def test_a_notice_is_written_bold_in_a2_and_moves_nothing(_ctx, tmp_path):
     assert b["A2"].value == "Lineage incomplete." and b["A2"].font.bold
     rows = lambda ws: [[c.value for c in r] for r in ws.iter_rows(min_row=3)]  # noqa: E731
     assert rows(a) == rows(b)
+
+
+def ws_a2(path):
+    return load_workbook(path)["README"]["A2"].value
+
+
+@patch(f"{_MOD}.GraphDatabase")
+def test_lineage_query_carries_a_server_side_transaction_timeout(mock_graph, settings):
+    settings.NEO4J_TIMEOUT_SECONDS = 7
+    run = mock_graph.driver.return_value.__enter__.return_value.execute_query
+    run.return_value.records = []
+    load_derivation_hops(["D.SEQ-1"])
+    assert run.call_args.args[0].timeout == 7
+
+
+@patch(f"{_MOD}.GraphDatabase")
+def test_lineage_timeout_defaults_to_five_seconds(mock_graph):
+    run = mock_graph.driver.return_value.__enter__.return_value.execute_query
+    run.return_value.records = []
+    load_derivation_hops(["D.SEQ-1"])
+    assert run.call_args.args[0].timeout == 5
+
+
+@patch(f"{_MOD}.GraphDatabase")
+def test_lineage_failure_logs_a_warning_with_the_timeout(mock_graph, caplog):
+    mock_graph.driver.return_value.__enter__.return_value.execute_query.side_effect = RuntimeError("tx timed out")
+    with caplog.at_level("WARNING"):
+        assert load_derivation_hops(["D.SEQ-1"]) is None
+    assert any(r.levelname == "WARNING" and "NEO4J_TIMEOUT_SECONDS" in r.getMessage() for r in caplog.records)
+
+
+def test_the_env_timeout_reaches_the_lineage_query():
+    """#110: NEO4J_TIMEOUT_SECONDS in the app's env (docker/nextseek.env) is the setting, not
+    only local_settings.py. A fresh interpreter imports the settings with it set."""
+    code = (
+        "import django; django.setup()\n"
+        "from unittest.mock import patch\n"
+        "from nextseek_api.services import sample_workbook as m\n"
+        "with patch.object(m, 'GraphDatabase') as g:\n"
+        "    run = g.driver.return_value.__enter__.return_value.execute_query\n"
+        "    run.return_value.records = []\n"
+        "    m.load_derivation_hops(['D.SEQ-1'])\n"
+        "print('TIMEOUT', run.call_args.args[0].timeout)\n"
+    )
+    env = {**os.environ, "NEO4J_TIMEOUT_SECONDS": "9", "DJANGO_SETTINGS_MODULE": "dmac.test_settings"}
+    root = Path(__file__).resolve().parents[2]
+    done = subprocess.run([sys.executable, "-c", code], env=env, cwd=root, capture_output=True, text=True, timeout=120)
+    assert "TIMEOUT 9" in done.stdout.splitlines(), done.stderr[-2000:]

@@ -578,6 +578,11 @@ PROJECT_CONNECTIONS_CACHE_SECONDS = int(
     os.getenv("PROJECT_CONNECTIONS_CACHE_SECONDS", "3600")
 )
 
+# Seconds a sample download's Neo4j lineage lookup may run (nextseek_api/services/sample_workbook.py) before the
+# workbook falls back to Parent and logs a WARNING naming this key. Env-backed; local_settings.py may set it too.
+if "NEO4J_TIMEOUT_SECONDS" not in globals():
+    NEO4J_TIMEOUT_SECONDS = int(os.getenv("NEO4J_TIMEOUT_SECONDS", "5"))
+
 SEEK_PUBLIC_URL = os.getenv("SEEK_PUBLIC_URL", "")
 ACCOUNTS_PROFILE_MODEL = "seek.User_profile"
 
