@@ -85,7 +85,7 @@ The hand-run nf-core selection evals are in `NessieAI/chat_nextseek/evals/README
 
 `NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md` is named as the
 canonical capabilities document by `NessieAI/build_tools/gen_op_surfaces/constants.py:38-46`.
-It and five catalogs beside it (`projects_db.json` and four `min_*.json`, the
+It, five catalogs beside it (`projects_db.json` and four `min_*.json`) and the house ontology files (`ONTOLOGIES.json`, `ontology_*.json`; the
 `CANONICAL_CONTEXT_FILES` list at `NessieAI/build_tools/gen_op_surfaces/constants.py:30-37`)
 are the only copies the agent image bakes: it takes them from the named build context
 `chat_nextseek`, declared at `docker-compose.yml:159-161` and consumed at

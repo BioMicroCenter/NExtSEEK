@@ -236,9 +236,9 @@ the reader's way) — parks each needed vocabulary in its own column, and
 every governed column on a sample-type tab gets an Excel dropdown pointing at
 it. The terms need a real sheet because Excel caps an inline dropdown formula at
 255 characters. Which columns are governed, and by what, is data:
-`nextseek_api/services/controlled_vocabularies.json`, whose `variants` block
-also records which observed spellings each canonical term absorbs and the
-production row count that judgement rested on.
+`nextseek_api/services/controlled_vocabularies.json`, which is generated
+from the house ontology files (`python -m NessieAI.build_tools.gen_house_vocabularies`);
+their `SYNONYMS` record which spellings each term absorbs.
 
 **The dropdowns warn; they never reject.** `errorStyle` is `"warning"`, not
 `"stop"`, because downloaded data already contains values that predate these

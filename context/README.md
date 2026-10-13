@@ -49,6 +49,7 @@ folder is not a second copy of it. The two stay apart for three reasons:
 | `min_sampletypes_db.json`, `min_assays_db.json` | generated, same two paths | entity agent | app, cc-agent (baked) |
 | `projects_db.json` | generated from `projects.json`, same two paths | `ChatConfig` project and investigation maps | app, cc-agent (baked) |
 | `capabilities.md` | hand-written, one generated investigation block (`--emit capabilities`) | system agent, CC agent | app, cc-agent (baked) |
+| `ONTOLOGIES.json`, `ontology_*.json` | hand-owned house ontologies; `controlled_vocabularies.json` is generated from them | CC agent (batch-upload harmonizing), the generator | app, cc-agent (baked) |
 | `min_api_endpoints_enriched.json` | hand-owned | parser, API agent, endpoint index | app, cc-agent (baked) |
 | `min_api_endpoints.json` | hand-owned | CC agent only | cc-agent (baked), app |
 | `scope_fallback_endpoints.json` | hand-owned | API agent scope fallback | app |
