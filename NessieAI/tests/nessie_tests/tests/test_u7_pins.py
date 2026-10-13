@@ -93,3 +93,56 @@ def test_novaseq_pin_is_the_space_insensitive_total():
     assert _crit_ok("sr.miseq_to_novaseq", "NovaSeq 6000 total 2,452 across all spellings")
     assert not _crit_ok("sr.miseq_to_novaseq", "NovaSeq 6000 total 1,864")
     assert not _crit_ok("sr.miseq_to_novaseq", "NovaSeq 6000 total 2,285")
+
+
+# --- operator route rulings and the prod read of 2026-10-13 15:32Z ---------------------------------------------
+
+SUMMARY = "path.put_together_a_summary_of_the_sa"
+ATTRS = "sys.what_attributes_can_i_filter_o"
+SRP = "report.published_srp"
+SHOULDERS = "report.shoulders_inventory"
+ASSAYS = "fu.assays_between_two_types_named"
+
+
+def _field_ok(cid, field, actual, turn=-1):
+    from NessieAI.tests.e2e.criteria import _check_one
+    crits = [c for c in _case(cid)["turns"][turn]["pass_criteria"] if c["field"] == field]
+    assert crits, (cid, field)
+    return all(_check_one(actual, c["op"], c["value"])[0] for c in crits)
+
+
+def test_either_route_is_right_for_the_two_route_pins():
+    """Operator 2026-10-13, "Either route"."""
+    for route in ("nextseek_query", "container_cc"):
+        assert _field_ok(SUMMARY, "route", route)
+    for route in ("unrelated", "container_cc_x", None):
+        assert not _field_ok(SUMMARY, "route", route)
+    for mode in ("system_question", "graph_query"):
+        assert _field_ok(ATTRS, "parser_plan.mode", mode)
+    for mode in ("reporter", "graph_query_plan", None):
+        assert not _field_ok(ATTRS, "parser_plan.mode", mode)
+
+
+def test_published_srp_is_the_reporters_published_count_in_its_studies():
+    assert _field_ok(SRP, "last_reply", "MIT_SRP has 7,354 published samples across 10 studies.")
+    assert _field_ok(SRP, "last_reply", "7354 samples are published, in 10 distinct studies.")
+    assert not _field_ok(SRP, "last_reply", "MIT_SRP holds 58,142 samples in 10 studies.")
+    assert not _field_ok(SRP, "last_reply", "7,354 published samples across 12 studies.")
+
+
+def test_shoulders_needs_the_imaging_count_not_a_lone_8():
+    assert _field_ok(SHOULDERS, "last_reply", "568 samples; the largest type is D.IMG with 428 records.")
+    assert _field_ok(SHOULDERS, "last_reply", "It holds 568 samples, 428 of them imaging data (D.IMG).")
+    assert not _field_ok(SHOULDERS, "last_reply", "568 samples in 8 sample types.")
+
+
+def test_nhp_attribute_count_is_the_graphs_and_seeks_54():
+    assert _field_ok(ATTRS, "last_reply", "NHP samples carry 54 attributes, including Species and Sex.")
+    assert not _field_ok(ATTRS, "last_reply", "NHP samples carry 49 attributes, including Species and Sex.")
+
+
+def test_the_assay_seed_counts_each_edge_once():
+    seed = "PDX Cell Line Generation on 467 MUS-from-CEL edges, and Cell Isolation on 32 CEL-from-MUS edges."
+    assert _field_ok(ASSAYS, "last_reply", seed, turn=0)
+    assert not _field_ok(ASSAYS, "last_reply", "Patient-Derived Xenograft (PDX) on 934 edges (467 each way).", turn=0)
+    assert not _field_ok(ASSAYS, "last_reply", "Cell Isolation and PDX link the two types.", turn=0)
