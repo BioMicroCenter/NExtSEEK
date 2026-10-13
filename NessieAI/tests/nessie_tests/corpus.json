@@ -15458,8 +15458,8 @@
               "pass_criteria": []
             },
             {
-              "label": "breakdown",
-              "query": "Break those down by project.",
+              "label": "csv",
+              "query": "List those values with their counts and send them to me as a CSV file.",
               "pass_criteria": [
                 {
                   "field": "route",
@@ -15482,7 +15482,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "Proves the nextseek skill's reply rule: after listing one attribute's stored values with counts, the next turn (a breakdown) also ends with one line offering to harmonize. Checked on turn 2 because turn 1 may be answered as a plain graph question. For the post-rebuild run (harmo_onto): needs the cc-agent image with the ontology files. Tagged no_floor because the family floor asks for parser_plan.mode graph_query, which a Container-CC turn does not set. Criteria carry no counts so they hold on dev and prod."
+          "_why": "Proves the nextseek skill's reply rule: when a Container-CC reply lists the stored values of one attribute that an ontology covers and some are not house terms, it ends with one line offering to harmonize. Turn 1 is the plain listing (it may run on nextseek_query, so it asserts nothing); turn 2 asks for those values as a CSV file, a follow-up the code guard sends to container_cc, so the offer is checked on a turn Container-CC really answers. The query never says 'harmonize'. For the post-rebuild run (harmo_onto): needs the cc-agent image with the ontology files. Tagged no_floor because the family floor asks for parser_plan.mode graph_query, which a Container-CC turn does not set. Criteria carry no counts so they hold on dev and prod."
         }
       ]
     },

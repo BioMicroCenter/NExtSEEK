@@ -89,16 +89,16 @@ STAYS_CC = (
     ("artifact.csv_of_cc_mice_with_transcriptomics", 1),  # a CSV file
 )
 # 2026-10-13 harmo_onto: later turns of the two multi-turn harmonization cases that assert container_cc
-# on purpose (the user asks Container-CC to harmonize). Not part of the 2026-09-24 split table.
+# on purpose (the user asks to harmonize, or asks for the listed values as a CSV file). Not part of the
+# 2026-09-24 split table.
 HARMO_CC = {("harmon.onto_mouse_genotype_slide", 1), ("harmon.onto_offer_after_listing", 1)}
 EXPECTED = {**{k: NS for k in MOVED_TO_NS}, **{k: EITHER for k in AMBIGUOUS},
             **{k: CC for k in STAYS_CC}}
 
 # A container_cc follow-up whose message the code guard would leave to the router:
 # followup_shape says "ns" and no earlier turn ran on Container-CC, so only the router's
-# judgement can deliver it. None today; listed so a new one has to be argued for.
+# judgement can deliver it. One today, argued below; listed so a new one has to be argued for.
 ROUTER_JUDGEMENT_CC: set[tuple[str, int]] = {
-    ("harmon.onto_offer_after_listing", 1),  # 2026-10-13 harmo_onto: a Container-CC listing turn then an NS-shaped breakdown, asserted CC on purpose (operator: Container-CC offers the harmonization)
     # 2026-10-13 harmo_onto review M1: "harmonize these genotype values" after an NS listing, the shape of
     # prod turn 1315; the router sends it by the container_cc rule that a request to harmonize stored values is CC's.
     ("harmon.onto_mouse_genotype_slide", 1),
