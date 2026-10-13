@@ -116,10 +116,10 @@ function getRelationship(child, parent) {
 
 function relsToHtml(rel) {
   let relStr = ""
-  if ('internal_assay_title' in rel) {
-    relStr += `<p><strong>Assay:</strong> ${rel['internal_assay_title']}</p>`
-  } else {
-    relStr += `<p><strong>Assay:</strong> ${rel['assay_title']}</p>`
+  // An unmapped assay labels nothing (#124): no assay line, never "undefined".
+  const assay = 'internal_assay_title' in rel ? rel['internal_assay_title'] : rel['assay_title']
+  if (assay) {
+    relStr += `<p><strong>Assay:</strong> ${assay}</p>`
   }
 
   if ('protocol_title' in rel) {
