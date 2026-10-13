@@ -31,7 +31,8 @@ with a ``reason``; nothing else is read). Its checks, under these names:
   role: no lineage inside the run) and ``assays.labels_disagree_with_assay_titles`` (edge labels still naming an
   Assay by a title it lost in a rename the relabel has not reached yet; renames relabel without approval since the
   studies release, A12, so a count that stays means a rename that reached MySQL without an ``assay_map`` row or a
-  relabel that failed);
+  relabel that failed); ``assays.edge_titles_not_internal`` fails, expecting 0: DERIVED_FROM labels and plural ids
+  naming no internal assay (#124: an unmapped SEEK assay's own id and title, or a deleted internal assay);
 - gate G's checks under their own names (``verify.gate_g``), without the named accounts of the merged dataset.
 
 An input that cannot be read fails its check rather than skipping it (capabilities.md for
@@ -94,9 +95,16 @@ RETURN c.id AS id, seek_assay_id
 """
 EDGE_ASSAY_LABELS = """
 MATCH (:Sample)-[e:DERIVED_FROM]->(:Sample)
-WHERE e.internal_assay_id IS NOT NULL
+WHERE e.internal_assay_id IS NOT NULL OR e.internal_assay_title IS NOT NULL
 RETURN e.assay_id AS assay_id, e.internal_assay_id AS internal_assay_id,
        e.internal_assay_title AS internal_assay_title, count(*) AS edges
+"""
+# Every id the plural lists hold, with the edges holding it (#124: a SEEK id there is no internal assay's).
+EDGE_PLURAL_IDS = """
+MATCH (:Sample)-[e:DERIVED_FROM]->(:Sample)
+WHERE size(coalesce(e.internal_assay_ids, [])) > 0
+UNWIND e.internal_assay_ids AS id
+RETURN id, count(*) AS edges
 """
 
 
@@ -499,7 +507,8 @@ def _check_catalog(driver, db, cat, checks: list, stats: dict) -> None:
 
 def _check_assays(driver, db, checks: list, stats: dict) -> None:
     """The assay layer against MySQL (graph schema 1.3): the Assay id set fails when it differs, as the SampleType
-    set does in ``_check_catalog``; the three findings of the module docstring are reported and never fail.
+    set does in ``_check_catalog``; the three curators' findings of the module docstring are reported and never fail;
+    an edge label naming no internal assay fails (#124).
 
     Memory: the (sample, SEEK assay) pairs the sample edges carry, packed 8 bytes each and sorted, and one stream of
     ``assay_assets`` checked against them by bisection."""
@@ -541,10 +550,11 @@ def _check_assays(driver, db, checks: list, stats: dict) -> None:
 
     titles = {node["id"]: node.get("title") for node in st.catalog.nodes}
     stale, examples = 0, []
-    for r in _records(_run(driver, db, EDGE_ASSAY_LABELS, read=True)):
+    rows = list(_records(_run(driver, db, EDGE_ASSAY_LABELS, read=True)))
+    for r in rows:
         internal_id = r["internal_assay_id"]
         if internal_id not in st.internal_by_seek.get(r["assay_id"], ()):
-            continue   # an unmapped SEEK assay's fallback label, or a mapping that moved: the relabel's to report
+            continue   # a mapping that moved, the relabel's to report; a leaked SEEK assay: the check below
         if r["internal_assay_title"] != titles.get(internal_id):
             stale += int(r["edges"] or 0)
             if len(examples) < EXAMPLES:
@@ -552,9 +562,33 @@ def _check_assays(driver, db, checks: list, stats: dict) -> None:
                                  "stored_title": r["internal_assay_title"], "assay_title": titles.get(internal_id),
                                  "edges": int(r["edges"] or 0)})
     _check(checks, "assays.labels_disagree_with_assay_titles", "any", stale, passed=True, detail=examples)
+
+    # #124: a label naming no internal assay (an unmapped SEEK assay's own id and title, a deleted internal assay).
+    # A rename that lags (a valid mapping) and a mapping that moved (another internal assay's own title) are not.
+    # ponytail: a SEEK id that equals a real internal id AND a SEEK title equal to a curated title slips past; join
+    # on assay_assets if that ever matters.
+    ids, internal_titles = set(st.ids), set(titles.values())
+    singular, singular_examples = 0, []
+    for r in rows:
+        internal_id = r["internal_assay_id"]
+        mapped = internal_id in st.internal_by_seek.get(r["assay_id"], ())
+        if internal_id in ids and (mapped or r["internal_assay_title"] in internal_titles):
+            continue
+        singular += int(r["edges"] or 0)
+        if len(singular_examples) < EXAMPLES:
+            singular_examples.append({"assay_id": r["assay_id"], "internal_assay_id": internal_id,
+                                      "stored_title": r["internal_assay_title"], "edges": int(r["edges"] or 0)})
+    plural = [[r["id"], int(r["edges"] or 0)] for r in _records(_run(driver, db, EDGE_PLURAL_IDS, read=True))
+              if r["id"] not in ids]
+    plural_entries = sum(n for _id, n in plural)
+    _check(checks, "assays.edge_titles_not_internal", 0, singular + plural_entries,
+           detail={"singular_edges": singular, "plural_entries": plural_entries,
+                   "singular_examples": singular_examples,
+                   "plural_examples": sorted(plural, key=lambda p: -p[1])[:EXAMPLES]})
     stats["assays"] = {"mysql_assays": len(st.ids), "graph_assays": len(graph_ids),
                        "unmapped_seek_assays": len(unmapped), "unmapped_members": sum(unmapped.values()),
-                       "members_without_role": sum(without_role.values()), "labels_disagree": stale}
+                       "members_without_role": sum(without_role.values()), "labels_disagree": stale,
+                       "edge_titles_not_internal": singular + plural_entries}
 
 
 def _differing(mysql: dict, graph: dict, keys: tuple) -> list[dict]:

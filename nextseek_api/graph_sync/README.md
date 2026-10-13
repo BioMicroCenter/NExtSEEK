@@ -360,7 +360,10 @@ Three families, and they answer different questions.
   Three findings for the curators are reported and never failed: `assays.unmapped_seek_assays_with_members`,
   `assays.members_without_role` and `assays.labels_disagree_with_assay_titles` (edge labels still naming an Assay by
   a title it lost in a rename the relabel has not reached yet; renames relabel without approval since the studies
-  release).
+  release). `assays.edge_titles_not_internal` fails, expecting 0 (#124): DERIVED_FROM edges whose singular label
+  names no internal assay (an unmapped SEEK assay's own id and title, or a deleted internal assay), plus every entry
+  of `internal_assay_ids` that is no internal assay's id. A lagging rename (a valid mapping) and a mapping that moved
+  (another internal assay's own title) are not counted. The relabel (`--labels --apply-label-changes`) clears them.
 - **Freshness.** `freshness.full`, `freshness.reconcile`, `freshness.outbox` from the run records, so a stale or
   never-run sync fails; `freshness.readable` fails instead when those records cannot be read.
 

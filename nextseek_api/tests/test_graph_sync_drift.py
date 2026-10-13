@@ -137,7 +137,7 @@ class DriftGraph:
             # what supplies the names; TestTheAssistantsInvestigationNamesMustResolve covers failure.
             return [{"title": title, "nodes": 1, "samples": self.investigation_samples}
                     for title in params["titles"]]
-        if query in (verify.ASSAY_IDS, drift.MEMBER_SEEK_PAIRS, drift.EDGE_ASSAY_LABELS):
+        if query in (verify.ASSAY_IDS, drift.MEMBER_SEEK_PAIRS, drift.EDGE_ASSAY_LABELS, drift.EDGE_PLURAL_IDS):
             return []
         raise AssertionError(f"unexpected statement: {query}")
 
@@ -301,7 +301,7 @@ def test_drift_check_is_ok_when_nothing_drifted(mysql_rows, gate, catalog):
                      "catalog.type_properties_differ", "catalog.attribute_properties_differ",
                      "catalog.type_counts_stale",
                      "catalog.assays", "assays.unmapped_seek_assays_with_members", "assays.members_without_role",
-                     "assays.labels_disagree_with_assay_titles",
+                     "assays.labels_disagree_with_assay_titles", "assays.edge_titles_not_internal",
                      "catalog.assistant_investigations",
                      "freshness.full", "freshness.reconcile", "freshness.outbox",
                      "4.samples.graph_count"]
@@ -615,6 +615,8 @@ class TestTheAssayLayerIsComparedAndReported:
                          "edges": 4},
                         {"assay_id": 6, "internal_assay_id": 98, "internal_assay_title": "Sequencing run", "edges": 2},
                         {"assay_id": 13, "internal_assay_id": 13, "internal_assay_title": "Unmapped run", "edges": 1}]
+            if query == drift.EDGE_PLURAL_IDS:
+                return []
             raise AssertionError(f"unexpected statement: {query}")
 
         checks, stats = [], {}
@@ -627,8 +629,60 @@ class TestTheAssayLayerIsComparedAndReported:
         assert (unmapped["actual"], unmapped["detail"]["largest"]) == (1, [[13, 2]])
         assert named["assays.members_without_role"]["actual"] == 1          # 12 in SEEK assay 6
         assert named["assays.labels_disagree_with_assay_titles"]["actual"] == 4
-        assert all(c["pass"] for name, c in named.items() if name != "catalog.assays")
+        # the fallback-shaped row (SEEK assay 13 under its own id and title) is a leak, and that check fails (#124)
+        leak = named["assays.edge_titles_not_internal"]
+        assert (leak["expected"], leak["actual"], leak["pass"]) == (0, 1, False)
+        assert all(c["pass"] for name, c in named.items()
+                   if name not in ("catalog.assays", "assays.edge_titles_not_internal"))
         assert stats["assays"]["members_without_role"] == 1
+        assert stats["assays"]["edge_titles_not_internal"] == 1
+
+    @staticmethod
+    def _edge_titles(monkeypatch, singular, plural):
+        monkeypatch.setattr(run, "read_assays", TestTheAssayLayerIsComparedAndReported._state)
+        monkeypatch.setattr(sources, "iter_assay_links", lambda: iter([]))
+
+        def respond(query, params):
+            if query == verify.ASSAY_IDS:
+                return [{"id": 99}, {"id": 98}]
+            if query == drift.MEMBER_SEEK_PAIRS:
+                return []
+            if query == drift.EDGE_ASSAY_LABELS:
+                return singular
+            if query == drift.EDGE_PLURAL_IDS:
+                return plural
+            raise AssertionError(f"unexpected statement: {query}")
+
+        checks, stats = [], {}
+        drift._check_assays(FakeDriver(respond), "neo4j", checks, stats)
+        return {c["name"]: c for c in checks}["assays.edge_titles_not_internal"], stats
+
+    # (a) the #124 leak: an unmapped SEEK assay's own id and title; (b) rename lag: a valid mapping, an old title;
+    # (c) a moved mapping: a real internal assay that is not the SEEK assay's mapping now, under its own title;
+    # (d) a plural list holding an id that is no internal assay.
+    LEAKED = {"assay_id": 20, "internal_assay_id": 20, "internal_assay_title": "Unmapped Twenty", "edges": 3}
+    RENAME_LAG = {"assay_id": 5, "internal_assay_id": 99, "internal_assay_title": "Patient visit (old)", "edges": 4}
+    MOVED = {"assay_id": 5, "internal_assay_id": 98, "internal_assay_title": "Sequencing run", "edges": 2}
+    TITLE_ONLY = {"assay_id": None, "internal_assay_id": None, "internal_assay_title": "Unmapped Twenty", "edges": 1}
+
+    def test_an_edge_naming_no_internal_assay_fails(self, monkeypatch):
+        check, stats = self._edge_titles(monkeypatch, [self.LEAKED, self.RENAME_LAG, self.MOVED],
+                                         [{"id": 99, "edges": 4}, {"id": 98, "edges": 2}, {"id": 20, "edges": 5}])
+        assert (check["expected"], check["actual"], check["pass"]) == (0, 3 + 5, False)
+        assert check["detail"]["singular_edges"] == 3 and check["detail"]["plural_entries"] == 5
+        assert [e["internal_assay_id"] for e in check["detail"]["singular_examples"]] == [20]
+        assert check["detail"]["plural_examples"] == [[20, 5]]
+        assert stats["assays"]["edge_titles_not_internal"] == 8
+
+    def test_a_title_with_no_internal_id_fails(self, monkeypatch):
+        assert "OR e.internal_assay_title IS NOT NULL" in drift.EDGE_ASSAY_LABELS   # the statement reads such edges
+        check, _ = self._edge_titles(monkeypatch, [self.TITLE_ONLY], [])
+        assert (check["actual"], check["pass"]) == (1, False)
+
+    def test_rename_lag_and_a_moved_mapping_are_not_leaks(self, monkeypatch):
+        check, _ = self._edge_titles(monkeypatch, [self.RENAME_LAG, self.MOVED],
+                                     [{"id": 99, "edges": 4}, {"id": 98, "edges": 2}])
+        assert (check["actual"], check["pass"]) == (0, True)
 
 
     def test_the_members_the_sample_edges_carry_are_read_a_page_of_samples_at_a_time(self, monkeypatch):
@@ -647,7 +701,7 @@ class TestTheAssayLayerIsComparedAndReported:
                 return [{"id": 99}, {"id": 98}]
             if query == drift.MEMBER_SEEK_PAIRS:
                 return held
-            if query == drift.EDGE_ASSAY_LABELS:
+            if query in (drift.EDGE_ASSAY_LABELS, drift.EDGE_PLURAL_IDS):
                 return []
             raise AssertionError(f"unexpected statement: {query}")
 
