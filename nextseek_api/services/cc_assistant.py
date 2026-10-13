@@ -377,7 +377,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
         from django.conf import settings
         from django.http import HttpResponse
         from nextseek_api.assistant.models_db import ChatSession, CCSessionTranscript
-        from NessieAI.cc.cc_transcript_store import decompress
+        from NessieAI.cc.cc_transcript_store import TranscriptTooLarge, decompress
 
         _sessions = ChatSession.objects.all()
         if not may_read_any(request):
@@ -394,7 +394,10 @@ class CCAssistantViewSet(viewsets.ViewSet):
         row = qs.order_by("-created_at").first()
         if row is None:
             raise Http404("no transcript")
-        jsonl = decompress(bytes(row.blob), max_bytes=getattr(settings, "CC_TRANSCRIPT_MAX_BYTES", 256 * 1024 * 1024))
+        try:
+            jsonl = decompress(bytes(row.blob), max_bytes=getattr(settings, "CC_TRANSCRIPT_MAX_BYTES", 256 * 1024 * 1024))
+        except TranscriptTooLarge:
+            return Response({"error": "transcript too large"}, status=413)
         resp = HttpResponse(jsonl, content_type="application/x-ndjson")
         resp["Content-Disposition"] = f'attachment; filename="transcript-{turn}.jsonl"'
         return resp

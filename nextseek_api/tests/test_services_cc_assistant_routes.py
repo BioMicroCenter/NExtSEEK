@@ -15,7 +15,6 @@ import tempfile
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import pytest
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -177,9 +176,7 @@ class UploadTests(TestCase):
 class OversizedTranscriptTests(TestCase):
     databases = {"default"}
 
-    @pytest.mark.xfail(strict=True, reason="cc_assistant.py:397 decompress raises TranscriptTooLarge on a row over "
-                       "CC_TRANSCRIPT_MAX_BYTES and nothing catches it: the route answers 500, not a 4xx")
-    def test_a_row_over_the_cap_is_a_clean_4xx(self):
+    def test_a_row_over_the_cap_is_a_413_with_a_json_error(self):
         user = User.objects.create_user("big", password="pw")
         cs = ChatSession.objects.create(user=user)
         raw = b"x" * 4096
@@ -189,4 +186,5 @@ class OversizedTranscriptTests(TestCase):
         client.force_authenticate(user=user)
         with override_settings(CC_TRANSCRIPT_MAX_BYTES=1024):
             resp = client.get(f"/nextseek_api/cc-assistant/transcript/{cs.session_id}/t1/")
-        self.assertLess(resp.status_code, 500)
+        self.assertEqual(resp.status_code, 413)
+        self.assertEqual(resp.json(), {"error": "transcript too large"})
