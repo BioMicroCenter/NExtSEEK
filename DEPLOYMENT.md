@@ -257,13 +257,21 @@ Budget these as explicit post-install steps:
   second instance on the same box will collide with (or silently share CC
   user data with) the first. One CC-enabled instance per box until this is
   fixed.
-- Re-running `install` re-renders `docker/nextseek.env` wholesale and
-  **rotates `DJANGO_SECRET_KEY`**. Only `--seek-public-url` and the proxy
-  token have read-back preservation; hand-filled API keys, the
-  **`NEXTSEEK_SERVER=gunicorn` pin** (its loss silently flips the next boot
-  to daphne), and any hand-added CC-knob keys are all wiped. Re-apply every
-  §2.2-step-4 edit after any re-install/reset **before** recreating
-  `nextseek`.
+- Re-running `install` (or `reset --keep-config`) **keeps every value already
+  in `docker/db.env` and `docker/nextseek.env`**: the secret key, rotated
+  passwords (install's own database steps log in with them), filled API keys,
+  the `NEXTSEEK_SERVER=gunicorn` pin and hand-added CC knobs. Keys the template
+  does not name follow under a "Kept from the previous ..." header. It
+  re-renders only a value naming a pre-NessieAI path, a `forbidden` key in
+  `startup/env_registry.toml`, a placeholder, and its own port-derived values
+  when the port moved; step 4 prints both lists by name. It cannot tell an old
+  template default from a hand edit, so a template default changed later
+  reaches an existing box only by hand. A password holding `$` must be
+  single-quoted (`KEY='...'`), or install stops before writing anything. An
+  existing `dmac/local_settings.py` is left alone; the template's version goes
+  beside it as `dmac/local_settings.py.new` to diff by hand. `reset` without
+  `--keep-config` still starts every file fresh, carrying only the SEEK URL,
+  `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS` across.
 
 ---
 
@@ -681,14 +689,14 @@ per-run sign-off** (they spend real LLM budget against the live stack).
 
 ## 8. Configuration & secrets inventory
 
-Five gitignored files, all rendered by `./startup.sh install` (and re-rendered
-by `reset`):
+Five gitignored files, all rendered by a first `./startup.sh install` (and by
+`reset` without `--keep-config`); a re-install keeps what they hold (§2.4):
 
 | File | Rendered from | Holds |
 |---|---|---|
 | `docker/db.env` | `startup/templates/db.env.template` | MySQL root + app credentials |
-| `docker/nextseek.env` | `startup/templates/nextseek.env.template` | Django secret, Neo4j password, SEEK URL, LLM keys (`GCP_API_KEY`, `AWS_BEARER_TOKEN_BEDROCK`, `FDH_API`); `NEXTSEEK_SERVER` + CC knobs are **hand-added** (not in the template; re-add after any re-render, §2.4) |
-| `dmac/local_settings.py` | `startup/templates/local_settings.py.template` | Django settings overlay (PROD ChatConfig block, etc.) |
+| `docker/nextseek.env` | `startup/templates/nextseek.env.template` | Django secret, Neo4j password, SEEK URL, LLM keys (`GCP_API_KEY`, `AWS_BEARER_TOKEN_BEDROCK`, `FDH_API`); `NEXTSEEK_SERVER` + CC knobs are **hand-added** (not in the template; a re-install keeps them, `reset` without `--keep-config` drops them, §2.4) |
+| `dmac/local_settings.py` | `startup/templates/local_settings.py.template` | Django settings overlay (PROD ChatConfig block, etc.); install never overwrites an existing one and writes `local_settings.py.new` beside it |
 | `NessieAI/docker/bedrock-proxy/proxy-secret.env` | rendered programmatically (0600) | `AWS_BEARER_TOKEN_BEDROCK` + `AWS_REGION` **for the proxy** |
 | `.env` (repo root) | rendered (0600) | compose interpolation: `COMPOSE_PROJECT_NAME`, ports, `INSTANCE_PREFIX`, and `NEO4J_PASSWORD`, without which compose refuses every verb (see `.env.example`) |
 

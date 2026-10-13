@@ -135,18 +135,25 @@ Breaking one is a regression, not a refactor.
 - **Managed-index DDL stays opt-in.** `startup/steps/schema_fixups.py:980-993` spells
   out what unconditional application costs: a stock install aborting after the seeds are
   in and the containers are up, on real data, with no remediation path.
-- **A hand-filled Bedrock token is never reset to empty by a re-run**
-  (`startup/steps/config.py:197-203`). The precedence is operator environment, then the
-  existing `NessieAI/docker/bedrock-proxy/proxy-secret.env`, then the pre-move
+- **A re-run of `install` never resets a value already on disk** (#103). `kept_values`
+  reads the credentials and host keys back before anything is written, and
+  `_render_keeping` keeps every line of `docker/db.env` and `docker/nextseek.env`,
+  re-rendering only what its docstring names; `render_local_settings` never overwrites an
+  existing `dmac/local_settings.py` (it writes `local_settings.py.new`), and install's own
+  database steps log in with the kept passwords (all in `startup/steps/config.py` and
+  `_install_impl`). A hand-filled Bedrock token is never reset to empty either
+  (`render_proxy_secret_env`): operator environment, then the existing
+  `NessieAI/docker/bedrock-proxy/proxy-secret.env`, then the pre-move
   `docker/bedrock-proxy/proxy-secret.env` (read only, never written), then empty.
 - **No broad exception handler is permitted on the index readiness, apply or reverse
   path** (`startup/steps/schema_fixups.py:27-29`). A swallowed connectivity error would
   be reported as an absent index, and the next step would try to create one that is
   already there.
 - **The repo-root `.env` is written from a fixed key allowlist**
-  (`startup/steps/config.py:240-249`), for the reason given at
-  `startup/steps/config.py:223-224`: a secret sitting in the instance's environment
-  would otherwise be persisted into a file that lives in the working tree.
+  (`render_root_env` in `startup/steps/config.py`, whose docstring gives the reason): a
+  secret sitting in the instance's environment would otherwise be persisted into a file
+  that lives in the working tree. Install hands it `compose_env`, never the `db_env` that
+  carries the MySQL root password to its database steps.
 
 ## Landmines
 
@@ -197,29 +204,30 @@ Breaking one is a regression, not a refactor.
   basename (`startup/cli.py:144`), and the compose project then resolves to plain
   `nextseek` (`startup/cli.py:165`). Both trees end up driving the same unprefixed
   external volumes, so a `reset` in one destroys the other's data.
-- **Re-running `install` rotates the Django secret key.** A fresh key is minted on every
-  call (`startup/steps/config.py:124`) and written into the settings overlay
-  (`startup/steps/config.py:166-171`), invalidating every live session. That is why the
-  diagnostic tells operators to hand-edit the state file instead
-  (`startup/steps/doctor.py:34-35`).
+- **Re-running `install` keeps an old template default exactly like a hand edit.** It
+  cannot tell the two apart, so a template default changed later never reaches a box
+  that already has the key; step 4 prints the kept names so the operator sees them.
+  A credential holding `$` outside single quotes stops install before it writes
+  anything (`UnsafeKeptValue`): compose expands it, so the file's text is not the
+  password the containers were given.
 - **One misspelled key in the hand-edited state file breaks every command.**
   `startup/lib/instance.py:63-68` splats the JSON straight into the dataclass with no
   guard, so an unexpected field raises `TypeError` inside `doctor`, `rebuild` and
   `reset` alike, including the very command an operator would run to find out what went
   wrong.
 - **Template rendering silently tolerates an unknown placeholder.**
-  `startup/steps/config.py:147` uses `safe_substitute`, which leaves the literal `${…}`
-  in the output file rather than raising. That is why reading a value back has to sniff
-  for the residue (`startup/steps/config.py:63-65`); a rendered env file can look
-  complete and still contain an uninterpolated token.
+  `_render` in `startup/steps/config.py` uses `safe_substitute`, which leaves the literal
+  `${…}` in the output file rather than raising. That is why reading a value back has to
+  sniff for the residue (`_is_placeholder`); a rendered env file can look complete and
+  still contain an uninterpolated token.
 - **The frozen full-lane script's own header contradicts the pin it enforces.**
   `startup/dev/run_full_test_lane.sh:38-40` names one image and one digest; the constants
   actually checked are a different image and a different digest
   (`startup/dev/run_full_test_lane.sh:106-107`), and the preflight compares against those
   (`startup/dev/run_full_test_lane.sh:146`). Trusting the header wastes a build.
 - **The Django settings overlay exists twice, and nothing keeps the copies in step.**
-  Install renders `dmac/local_settings.py` from the template at
-  `startup/steps/config.py:167`, while the full lane bind-mounts its own file over that
+  Install renders `dmac/local_settings.py` from the template (`render_local_settings`
+  in `startup/steps/config.py`), while the full lane bind-mounts its own file over that
   same path (`startup/dev/run_full_test_lane.sh:114` and
   `startup/dev/run_full_test_lane.sh:240`). The two are byte-identical today, verified
   2026-09-03 by running `cmp startup/dev/lane_local_settings.py
@@ -244,10 +252,10 @@ Breaking one is a regression, not a refactor.
   `scripts/context_gen.py --emit seed` writes them from `context/`, and no fixup names
   them until the curated content is signed off. Switching them on is the reviewed change
   `scripts/README.md` group C describes, never a quiet edit to the fixup list.
-- **The default credentials are committed, not generated.** `startup/steps/config.py:121-123`
-  hardcodes the MySQL root password, the MySQL user password and the Neo4j password into
-  every rendered install, and only the Django key is random. An install exposed beyond
-  localhost with these untouched is open.
+- **The default credentials are committed, not generated.** `default_values` in
+  `startup/steps/config.py` hardcodes the MySQL root password, the MySQL user password
+  and the Neo4j password into every first install, and only the Django key is random.
+  An install exposed beyond localhost with these untouched is open.
 - **`--source-tree` accepts exactly one revision.** `startup/lib/deploy_source.py:44-49`
   refuses any tree whose `HEAD` is not that tree's own `origin/dev`, so a release tag, a
   hotfix branch or a commit one ahead is rejected however clean it is, and the

@@ -92,11 +92,17 @@ from each default until it finds a free one, up to 200 attempts
 port rather than an error. `--seek-public-url` resolves in a never-clobber order:
 explicit flag, then the value already rendered into `docker/nextseek.env`, then the
 stored instance value, then `http://localhost:<seek port>`
-(`startup/steps/config.py:78-101`). One resolved value feeds both the app's link
+(`resolve_seek_public_url` in `startup/steps/config.py`). One resolved value feeds both the app's link
 building and SEEK's own DB-backed identity (`startup/cli.py:145-156`). That second layer
 is set only when the row is absent; an existing row is reported as an admin decision and
 left alone (`startup/steps/seek_settings.py:171-198`). An unknown `--ci-profile` exits 2
 before anything is written (`startup/cli.py:104-109`).
+
+A re-run keeps every value already in `docker/db.env` and `docker/nextseek.env`,
+credentials included, and its database steps log in with the kept passwords; it
+re-renders only what `_render_keeping`'s docstring names, and step 4 prints the kept
+and re-rendered key names. An existing `dmac/local_settings.py` is never overwritten:
+the template's version goes to `dmac/local_settings.py.new`.
 
 `doctor` is read-only and reports the two CI lines without ever failing on them, because
 a box that does not run CI is not broken (`startup/steps/doctor.py:23-27`); the
@@ -135,8 +141,8 @@ non-empty volume prefix and a distinct Compose project (`startup/cli.py:144`,
 (`startup/cli.py:139-142`).
 
 **What startup writes** (all gitignored): `docker/db.env`, `docker/nextseek.env`,
-`dmac/local_settings.py` (`startup/steps/config.py:151`,
-`startup/steps/config.py:159`, `startup/steps/config.py:167`),
+`dmac/local_settings.py` (`render_db_env`, `render_nextseek_env` and
+`render_local_settings` in `startup/steps/config.py`),
 `NessieAI/docker/bedrock-proxy/proxy-secret.env` (`PROXY_SECRET_ENV` in
 `startup/lib/layout.py`) at mode 0600 (`render_proxy_secret_env`,
 `startup/steps/config.py:174-213`; a token still at the pre-move
