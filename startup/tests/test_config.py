@@ -11,6 +11,7 @@ from startup.steps.config import (
     render_nextseek_env,
     render_local_settings,
     csrf_origins_for_port,
+    read_rendered_value,
 )
 
 
@@ -339,8 +340,6 @@ def test_ensure_seek_nginx_conf_replaces_empty_dir(tmp_path: Path) -> None:
 # --- #103 Task 1: install keeps the two Django host keys an operator set by hand.
 # The template used to write DJANGO_ALLOWED_HOSTS as a literal and CSRF from the
 # port alone, so every re-run of install reset a box's public host and origin.
-
-from startup.steps.config import read_rendered_value  # noqa: E402
 
 
 def _repo_with_rendered_env(tmp_path: Path, body: str) -> Path:
