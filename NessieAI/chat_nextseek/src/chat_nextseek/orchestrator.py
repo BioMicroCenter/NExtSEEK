@@ -599,7 +599,8 @@ FOLLOWUP_GRAPH_LEAD = ("If this question points at the set the previous answer f
 FOLLOWUP_GRAPH_LEAD_NAMED = ("This question points at the result of the earlier search below (the parser named it). "
                              "Where it says \"those\", \"the samples above\", \"you mentioned\" or gives a count, "
                              "that set is the one the earlier search found: keep that search's filters for it, and "
-                             "change only what this question asks.\n")
+                             "change only what this question asks. If the question names its own set, ignore the "
+                             "earlier search.\n")
 #: Follows the earlier Cypher with its values: a filter written as ``$inv`` is no filter without its value.
 FOLLOWUP_GRAPH_PARAMETERS = "\nIts parameters, which the new query needs too: "
 
@@ -648,7 +649,9 @@ def _followup_graph_context(session, user_text: str, plan=None) -> tuple[str, di
         if cypher and graph_plan.get("parameters"):
             context += FOLLOWUP_GRAPH_PARAMETERS + json.dumps(graph_plan["parameters"], default=str, sort_keys=True)
         summary = getattr(plan, "intent_summary", None) if by == "parser" else None
-        if isinstance(summary, str) and summary.strip():
+        # R9: a summary that names an endpoint path is REST prose (agents/graph.py keeps intent_summary out of the
+        # graph agent for that reason), so it is left out.
+        if isinstance(summary, str) and summary.strip() and not re.search(r"(?:^|\s)/[\w-]+/", summary):
             context += "\nThe parser's reading of this question: " + summary.strip()
     except Exception as exc:  # the earlier search is help, never the reason a turn fails
         print(f"[DEBUG][FOLLOWUP] could not build the earlier search's context: {exc!r}")
