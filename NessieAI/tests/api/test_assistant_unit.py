@@ -402,7 +402,8 @@ class ViewSetTests(TestCase):
         {"test_case_1": {"q1": {"prompt": "Example prompt"}}},
     )
     def test_test_cases_admin(self):
-        self.client.force_authenticate(user=self.admin)
+        # A superuser: is_staff alone is every SEEK account (#64).
+        self.client.force_authenticate(user=User.objects.create_superuser(username="tc_super", password="p"))
         resp = self.client.get("/nextseek_api/assistant/test-cases/")
         self.assertEqual(resp.status_code, 200)
         self.assertGreater(resp.data["total"], 0)

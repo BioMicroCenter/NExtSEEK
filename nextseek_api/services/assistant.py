@@ -134,7 +134,7 @@ from nextseek_api.authentication import (  # noqa: F401
 )
 
 from nextseek_api.helpers import resolve_seek_auth, SeekAPIClient
-from nextseek_api.graph_search.scope import caller_block, plain_scope
+from nextseek_api.graph_search.scope import caller_block, current_project_ids, plain_scope
 
 # No module-scope chat_nextseek import: the orchestrator entry points are called from
 # NessieAI/ns/turn.py, so patch them there. Importing them here again would let a
@@ -161,6 +161,10 @@ class UserInParticipatingProject(BasePermission):
     # the assistant does not re-fetch the ~16 KB /people/current on every request
     # (the batch-upload flow alone makes dozens of assistant calls per turn).
     _CACHE_TTL_SECONDS = 60
+    # A member who has left every pilot project keeps reading their own past chats (these GETs answer the owner or
+    # a superuser only); everything else stays gated.
+    _OWN_CHAT_READS = frozenset({"list_sessions", "get_session", "download_bundle", "download_artifact",
+                                 "download_session", "task_progress"})
 
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
@@ -185,12 +189,24 @@ class UserInParticipatingProject(BasePermission):
         if status_code != 200:
             return False
         try:
-            projects = orjson.loads(content)['data']['relationships']['projects']['data']
-            project_ids = set(map(lambda project: project['id'], projects))
+            person = orjson.loads(content)['data']
+            project_ids = set(map(lambda project: project['id'], person['relationships']['projects']['data']))
         except Exception:
             logger.warning("participating-project check: SEEK sent an unreadable person record", exc_info=True)
             return False
+        ever = project_ids & ASSISTANT_PARTICIPATING_PROJECTS  # SEEK REST keeps the projects a person has left
+        if getattr(user, "is_superuser", False) is not True:
+            try:
+                project_ids &= {str(p) for p in current_project_ids(int(person['id']))}
+            except Exception:
+                logger.warning("participating-project check: the projects the person still holds could not be read",
+                               exc_info=True)
+                return False
         allowed = project_ids & ASSISTANT_PARTICIPATING_PROJECTS != set()
+        if not allowed:
+            # Not cached: the cache below means "may do everything".
+            return bool(ever) and getattr(request, "method", None) in ("GET", "HEAD") \
+                and getattr(view, "action", None) in self._OWN_CHAT_READS
         # Cache only positive results: a transient SEEK failure must re-check, and a
         # newly-added member should not be blocked for the TTL.
         if allowed and cache_key is not None:
@@ -360,6 +376,44 @@ def _refuse_for_pass(op: str, req, turn) -> Response | None:
     if op in _ARTIFACT_OPS and session_id is not None and str(session_id) != str(turn.chat_id):
         return op_error("PASS_NOT_ALLOWED", status=HTTP_STATUS["PASS_NOT_ALLOWED"])
     return None
+
+
+def _launched_runs(state) -> list:
+    """The ``remote_dir`` of each Luria run a chat's pipeline wizard records as launched (``tool_submit_to_luria``).
+
+    Only the wizard writes ``extra_state["pipeline_agent"]``; nothing a user types lands there.
+    """
+    wizard = state.get("pipeline_agent") if isinstance(state, dict) else None
+    artifacts = wizard.get("artifacts") if isinstance(wizard, dict) else None
+    runs = artifacts.get("luria_runs") if isinstance(artifacts, dict) else None
+    return [os.path.normpath(str(r["remote_dir"])) for r in (runs if isinstance(runs, list) else [])
+            if isinstance(r, dict) and r.get("remote_dir")]
+
+
+def _refuse_run_ls(request, req, chat_config) -> Response | None:
+    """run-ls lists one run the caller launched (any run for a superuser off a turn pass), never the runs root.
+
+    A run is the caller's when one of the caller's own chats records it as launched (``_launched_runs``); its
+    folders are the caller's too. None when the op may go on; without a configured Luria the op answers itself,
+    and so does a path outside the runs root.
+    """
+    working = str((getattr(chat_config, "LURIA_ENV", None) or {}).get("working_path") or "").rstrip("/")
+    if not working:
+        return None
+    runs_root = working + "/runs"
+    run_dir = os.path.normpath(str(req.run_dir))
+    if run_dir == runs_root:
+        return op_error("VALIDATION", fields=[{"field": "run_dir", "type": "the_runs_root"}],
+                        status=HTTP_STATUS["VALIDATION"])
+    if not run_dir.startswith(runs_root + "/") or may_read_any(request):
+        return None
+    run = runs_root + "/" + run_dir[len(runs_root) + 1:].split("/", 1)[0]
+    states = (ChatSession.objects.filter(user=request.user, extra_state__icontains=run)
+              .values_list("extra_state", flat=True))
+    if any(run in _launched_runs(state) for state in states):
+        return None
+    return op_error("VALIDATION", fields=[{"field": "run_dir", "type": "not_your_run"}],
+                    status=HTTP_STATUS["VALIDATION"])
 
 
 def _artifact_content_type(path) -> str:
@@ -1244,8 +1298,8 @@ class AssistantViewSet(viewsets.ViewSet):
         if not authed:
             return err
 
-        if not (request.user.is_staff or request.user.is_superuser):
-            return _error_response("Forbidden", "Admin access required.", status.HTTP_403_FORBIDDEN)
+        if not request.user.is_superuser:
+            return _error_response("Forbidden", "Superuser access required.", status.HTTP_403_FORBIDDEN)
 
         test_cases = {}
         for tc in TEST_CASES.values():
@@ -1312,10 +1366,15 @@ class AssistantViewSet(viewsets.ViewSet):
         if op not in MODEL_OPS:
             limit_s = max(limit_s, NO_MODEL_FLOOR_S)
 
-        if turn is not None and not all(_request_login(request)):
-            # The login held for the turn is gone: never run the op as the service login (plan 02's own guard).
+        if not all(_request_login(request)):
+            # An op runs only with the caller's own login, never with the shared ChatConfig login. The NS turn keeps
+            # the same rule.
             return op_error("AUTH_FAILED", status=HTTP_STATUS["AUTH_FAILED"])
         chat_config = _granular_chat_config(request, req)
+        if op == "run-ls":
+            refused = _refuse_run_ls(request, req, chat_config)
+            if refused is not None:
+                return refused
         timing.append(("config", time.monotonic()))
         # A BaseException, so the except Exception below never sees it (F6). Imported here:
         # this module keeps chat_nextseek out of its module scope (see the note on imports).

@@ -61,6 +61,7 @@ class OneAllocatorTests(_Base):
         super().setUp()
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
+        self.client.credentials(HTTP_AUTHORIZATION="Basic dTE6cA==")  # u1:p: an op runs only as the caller's own login (#64)
         self.chat = ChatSession.objects.create(user=self.user)
 
     def test_the_counter_key_is_the_orchestrators(self):

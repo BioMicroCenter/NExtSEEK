@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from django.conf import settings
 
 from nextseek_api.services.uid_suffix import resolve_uid_with_suffix
+from nextseek_api.services.content_blobs import HasOwnSeekLogin, caller_cannot_view
 from seek.seekdb import SeekDB
 from nextseek_api.helpers import SeekAPIClient, resolve_sampletype_to_seek_id, resolve_seek_auth
 from nextseek_api.helpers import paginate_rows_in_envelope
@@ -98,8 +99,22 @@ def _graph_sync_sample_id(data, fallback: Optional[str] = None) -> Optional[str]
     return fallback if fallback.isdigit() else None
 
 
+def _not_found() -> HttpResponse:
+    """The answer for a sample that does not exist and for one the caller may not see, the same for both. SEEK
+    answers 403 for a sample the caller may not view; a UID lookup answers this instead."""
+    return HttpResponse(b'{"errors":[{"title":"Sample not found"}]}', status=404, content_type='application/json')
+
+
+def _debug_validation(request) -> bool:
+    """Validation details in a 502 quote the upstream body, so ``debug_validation`` is honoured for a superuser only
+    (or under DEBUG)."""
+    return bool(getattr(settings, 'DEBUG', False)) or (
+        getattr(request.user, 'is_superuser', False) is True
+        and str(request.GET.get('debug_validation', '0')).lower() in ('1', 'true', 'yes'))
+
+
 class SampleProxyViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasOwnSeekLogin]
     client = SeekAPIClient()
     lookup_field = 'uid'
     lookup_url_kwarg = 'uid'
@@ -119,7 +134,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
                 name='debug_validation',
                 type=bool,
                 location=OpenApiParameter.QUERY,
-                description='Include validation error details in 502 response'
+                description='Include validation error details in 502 response (superusers only)'
             ),
         ],
         responses={200: SampleSingleResponse},
@@ -152,11 +167,13 @@ class SampleProxyViewSet(viewsets.ViewSet):
         uid = uid or pk
         seek_id = _resolve_uid_to_seek_id(uid)
         if seek_id is None:
-            return HttpResponse(b'{"errors":[{"title":"Sample not found"}]}', status=404, content_type='application/json')
+            return _not_found()
 
         body, code, headers, resp = self.client.get_sample(request, str(seek_id))
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+        if code in (403, 404):
+            return _not_found()
 
         try:
             ct = (headers.get('Content-Type') or '').lower()
@@ -170,7 +187,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
             except Exception:
                 errs = str(ve)
             log.warning("samples_proxy.validation_error action=retrieve errors=%s", errs)
-            debug_flag = bool(getattr(settings, 'DEBUG', False) or str(request.GET.get('debug_validation', '0')).lower() in ('1', 'true', 'yes'))
+            debug_flag = _debug_validation(request)
             if debug_flag:
                 resp_payload = {
                     "errors": [
@@ -198,7 +215,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
                 name='debug_validation',
                 type=bool,
                 location=OpenApiParameter.QUERY,
-                description='Include validation error details in 502 response'
+                description='Include validation error details in 502 response (superusers only)'
             ),
         ],
         request=SampleCreateRequest,
@@ -237,7 +254,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
             except Exception:
                 errs = str(ve)
             log.warning("samples_proxy.validation_error action=create errors=%s", errs)
-            debug_flag = bool(getattr(settings, 'DEBUG', False) or str(request.GET.get('debug_validation', '0')).lower() in ('1', 'true', 'yes'))
+            debug_flag = _debug_validation(request)
             if debug_flag:
                 resp_payload = {
                     "errors": [
@@ -272,7 +289,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
                 name='debug_validation',
                 type=bool,
                 location=OpenApiParameter.QUERY,
-                description='Include validation error details in 502 response'
+                description='Include validation error details in 502 response (superusers only)'
             ),
         ],
         request=SampleUpdateRequest,
@@ -321,11 +338,13 @@ class SampleProxyViewSet(viewsets.ViewSet):
                 if resolved:
                     seek_id = resolved
                     if body_id is not None and str(body_id) != str(seek_id):
+                        if caller_cannot_view(self.client, request, "samples", seek_id):
+                            return _not_found()
                         return HttpResponse(b'{"errors":[{"title":"Payload id does not match resolved uid"}]}', status=422, content_type='application/json')
                     payload['data']['id'] = str(seek_id)
 
         if seek_id is None:
-            return HttpResponse(b'{"errors":[{"title":"Sample not found"}]}', status=404, content_type='application/json')
+            return _not_found()
 
         try:
             body, code, headers, resp = self.client.update_sample(request, str(seek_id), payload)
@@ -339,6 +358,13 @@ class SampleProxyViewSet(viewsets.ViewSet):
             hooks.enqueue("samples", f"sample:{seek_id}", delay_s=delay)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+        if code == 404:
+            return _not_found()
+        if code == 403:
+            # SEEK refused the write. A sample the caller cannot even view answers as one that does not exist.
+            if caller_cannot_view(self.client, request, "samples", seek_id):
+                return _not_found()
+            return HttpResponse(body, status=403, content_type=headers.get('Content-Type', 'application/json'))
 
         try:
             ct = (headers.get('Content-Type') or '').lower()
@@ -352,7 +378,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
             except Exception:
                 errs = str(ve)
             log.warning("samples_proxy.validation_error action=partial_update errors=%s", errs)
-            debug_flag = bool(getattr(settings, 'DEBUG', False) or str(request.GET.get('debug_validation', '0')).lower() in ('1', 'true', 'yes'))
+            debug_flag = _debug_validation(request)
             if debug_flag:
                 resp_payload = {
                     "errors": [
@@ -393,7 +419,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
         uid = uid or pk
         seek_id = _resolve_uid_to_seek_id(uid, as_written_only=True)
         if seek_id is None:
-            return HttpResponse(b'{"errors":[{"title":"Sample not found"}]}', status=404, content_type='application/json')
+            return _not_found()
 
         try:
             body, code, headers, resp = self.client.delete_sample(request, str(seek_id))
@@ -420,6 +446,8 @@ class SampleProxyViewSet(viewsets.ViewSet):
                                 status=502, content_type='application/json')
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+        if code == 404 or (code == 403 and caller_cannot_view(self.client, request, "samples", seek_id)):
+            return _not_found()
 
         if (200 <= code < 300 or code >= 500) and str(seek_id).isdigit():
             # A 2xx: the row left MySQL, and the deletion rule takes its node down (spec 9, E17). A 5xx: SEEK's work
@@ -443,7 +471,7 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
                 name='debug_validation',
                 type=bool,
                 location=OpenApiParameter.QUERY,
-                description='Include validation error details in 502 response'
+                description='Include validation error details in 502 response (superusers only)'
             ),
             OpenApiParameter(
                 name='page',
@@ -720,7 +748,7 @@ class SampleAdvancedSearchViewSet(viewsets.ViewSet):
             except Exception:
                 errs = str(ve)
             log.warning("samples_advanced.validation_error action=create errors=%s", errs)
-            debug_flag = bool(getattr(settings, 'DEBUG', False) or str(request.GET.get('debug_validation', '0')).lower() in ('1', 'true', 'yes'))
+            debug_flag = _debug_validation(request)
             if debug_flag:
                 resp_payload = {
                     "errors": [

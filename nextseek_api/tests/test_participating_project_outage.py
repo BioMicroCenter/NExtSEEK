@@ -12,7 +12,13 @@ PROJECT = 7
 
 
 def _person(ids):
-    return orjson.dumps({"data": {"relationships": {"projects": {"data": [{"id": i} for i in ids]}}}})
+    return orjson.dumps({"data": {"id": "5", "relationships": {"projects": {"data": [{"id": i} for i in ids]}}}})
+
+
+@pytest.fixture(autouse=True)
+def _every_project_still_held(monkeypatch):
+    """These tests are about SEEK answering; the person has left none of their projects."""
+    monkeypatch.setattr(svc, "current_project_ids", lambda person_id: (PROJECT, 99))
 
 
 def _check(reply=None, exc=None):

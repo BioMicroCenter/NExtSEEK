@@ -83,9 +83,10 @@ def test_the_participation_check_asks_seek_with_the_held_login(monkeypatch):
 
     cache.clear()  # the check caches a positive answer per user id for 60 s
     turn, _ = make_turn(make_user("participant"), login=("participant", PASSWORD))
-    person = {"data": {"relationships": {"projects": {"data": [{"id": "1"}]}}}}
+    person = {"data": {"id": "7", "relationships": {"projects": {"data": [{"id": "1"}]}}}}
     seek = _Seek(json.dumps(person).encode())
     monkeypatch.setattr("requests.Session.request", seek)
+    monkeypatch.setattr("nextseek_api.services.assistant.current_project_ids", lambda person_id: (1,))
     assert UserInParticipatingProject().has_permission(pass_request(turn), None) is True
     assert seek.headers["Authorization"] == basic_auth_header(("participant", PASSWORD))["Authorization"]
 

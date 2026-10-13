@@ -760,8 +760,9 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^nextseek_api/^^assistant/test-cases/$",
           path="/nextseek_api/assistant/test-cases/",
           effect="reads",
-          methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
-          shape="test_cases"),
+          methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=403,
+          note="superuser only: the sweep's account is refused. "
+               "ci/smoke/test_nessie.py reads the catalog as a superuser"),
     Route(pattern=r"^nextseek_api/^^attributes/$", path="/nextseek_api/attributes/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
@@ -1163,9 +1164,10 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^nextseek_api/^^schema_rag/ingest/$",
           path="/nextseek_api/schema_rag/ingest/",
           effect="external",
-          methods=("POST",), profiles="local,dev", auth="smoke", expect=201,
-          note="201 by inspection at "
-               "nextseek_api/services/schema_rag.py::SchemaRAGViewSet.ingest; unprobed"),
+          methods=("POST",), profiles="local,dev", auth="smoke", expect=403,
+          note="superuser only, so the sweep's account is refused (201 for a superuser), "
+               "by inspection at nextseek_api/services/schema_rag.py::SchemaRAGViewSet.ingest; "
+               "unprobed"),
     Route(pattern=r"^nextseek_api/^^schema_rag/retrieve/$",
           path="/nextseek_api/schema_rag/retrieve/",
           effect="external",

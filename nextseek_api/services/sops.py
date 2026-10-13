@@ -37,6 +37,8 @@ from nextseek_api.models import (
 )
 from nextseek_api.services.content_blobs import (
     _resolve_uid_to_seek_id,
+    HasOwnSeekLogin,
+    caller_cannot_view,
     download_single,
     download_batch,
     upload_content_blobs,
@@ -48,7 +50,7 @@ log = logging.getLogger(__name__)
 
 
 class SopProxyViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasOwnSeekLogin]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     client = SeekAPIClient()
     # Ensure router renders /sops/{uid}
@@ -143,6 +145,9 @@ class SopProxyViewSet(viewsets.ViewSet):
         body, code, headers, resp = self.client.get_sop(request, seek_id)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+        if code in (403, 404):
+            # A SOP the caller may not see answers as one that does not exist (SEEK answers 403 for it).
+            return HttpResponse(b'{"errors":[{"title":"SOP not found"}]}', status=404, content_type='application/json')
 
         if code >= 400:
             ct = headers.get('Content-Type', 'application/json')
@@ -391,12 +396,19 @@ class SopProxyViewSet(viewsets.ViewSet):
             except Exception:
                 return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
-        # Resolve path param to SEEK id
+        # The path names the SOP. One the caller cannot see answers as one that does not exist, and SEEK is sent the
+        # path's id whatever title a body uid names.
+        not_found = HttpResponse(b'{"errors":[{"title":"SOP not found"}]}', status=404, content_type='application/json')
         seek_id = _resolve_uid_to_seek_id(uid, "sops", as_written_only=True)
-        if seek_id is None and isinstance(update_req.data.id, str):
-            seek_id = update_req.data.id
         if seek_id is None:
-            return HttpResponse(b'{"errors":[{"title":"SOP not found"}]}', status=404, content_type='application/json')
+            return not_found
+        body_uid = str(update_req.data.uid or "")
+        body_id = update_req.data.id or (body_uid if body_uid.isdigit() else None)
+        if body_id is not None and str(body_id) != str(seek_id):
+            if caller_cannot_view(self.client, request, "sops", seek_id):
+                return not_found
+            return HttpResponse(b'{"errors":[{"title":"Payload id does not match resolved uid"}]}', status=422, content_type='application/json')
+        payload['data']['id'] = str(seek_id)
 
         try:
             body, code, headers, resp = self.client.update_sop(request, seek_id, payload)
@@ -410,6 +422,9 @@ class SopProxyViewSet(viewsets.ViewSet):
             hooks.enqueue("protocol_map", "*", delay_s=delay)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+        if code == 404 or (code == 403 and caller_cannot_view(self.client, request, "sops", seek_id)):
+            # A SOP SEEK does not have, or one the caller cannot even view, answers the same not-found.
+            return not_found
 
         # Forward SEEK errors before attempting response validation
         if code >= 400:

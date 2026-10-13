@@ -188,6 +188,7 @@ class TestSampleRetrieve:
         bad = {"data": {"id": "1"}}
         vs.client.get_sample.return_value = _ok(bad)
         req = _auth_request(query={"debug_validation": "true"})
+        req.user.is_superuser = True  # the flag is honoured for a superuser only
         resp = vs.retrieve(req, uid="321")
         assert resp.status_code == 502
         body = json.loads(resp.content)
@@ -1005,13 +1006,14 @@ class TestSampleAdvancedSearch:
     @patch("nextseek_api.services.samples.resolve_sampletype_to_seek_id", return_value="2")
     @patch("nextseek_api.services.samples.DBtable_sample")
     def test_validation_error_debug_query_yes(self, mock_dbs, _):
-        """debug_validation=yes triggers debug info in 502."""
+        """debug_validation=yes triggers debug info in 502 for a superuser."""
         vs = self._viewset()
         mock_dbs.return_value.searchAdvanced.return_value = '{"bad": "data"}'
         req = self._req(
             {"filter_searchText": "lung"},
             query={"debug_validation": "yes"},
         )
+        req.user.is_superuser = True
         resp = vs.create(req)
         assert resp.status_code == 502
         assert b"validation_errors" in resp.content

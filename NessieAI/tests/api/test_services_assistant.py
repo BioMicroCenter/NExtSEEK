@@ -104,8 +104,9 @@ class UserInParticipatingProjectTests(TestCase):
         cache.clear()
         self.user = User.objects.create_user(username="permuser", password="pass1234")
 
+    @patch("nextseek_api.services.assistant.current_project_ids", return_value=(1, 5, 99))
     @patch("nextseek_api.services.assistant.SeekAPIClient")
-    def test_has_permission_user_in_project(self, mock_client_cls):
+    def test_has_permission_user_in_project(self, mock_client_cls, _held):
         """Returns True when user is in a participating project."""
         from nextseek_api.services.assistant import UserInParticipatingProject
 
@@ -113,6 +114,7 @@ class UserInParticipatingProjectTests(TestCase):
         mock_client.get_current_person.return_value = (
             json.dumps({
                 "data": {
+                    "id": "7",
                     "relationships": {
                         "projects": {
                             "data": [{"id": "1"}, {"id": "5"}]
@@ -131,8 +133,9 @@ class UserInParticipatingProjectTests(TestCase):
                 result = perm.has_permission(request, view)
                 self.assertTrue(result)
 
+    @patch("nextseek_api.services.assistant.current_project_ids", return_value=(1, 5, 99))
     @patch("nextseek_api.services.assistant.SeekAPIClient")
-    def test_has_permission_user_not_in_project(self, mock_client_cls):
+    def test_has_permission_user_not_in_project(self, mock_client_cls, _held):
         """Returns False when user's projects don't overlap."""
         from nextseek_api.services.assistant import UserInParticipatingProject
 
@@ -140,6 +143,7 @@ class UserInParticipatingProjectTests(TestCase):
         mock_client.get_current_person.return_value = (
             json.dumps({
                 "data": {
+                    "id": "7",
                     "relationships": {
                         "projects": {
                             "data": [{"id": "99"}]
@@ -156,8 +160,9 @@ class UserInParticipatingProjectTests(TestCase):
             result = perm.has_permission(request, view)
             self.assertFalse(result)
 
+    @patch("nextseek_api.services.assistant.current_project_ids", return_value=(1, 5, 99))
     @patch("nextseek_api.services.assistant.SeekAPIClient")
-    def test_has_permission_no_projects(self, mock_client_cls):
+    def test_has_permission_no_projects(self, mock_client_cls, _held):
         """Returns False when user has no projects."""
         from nextseek_api.services.assistant import UserInParticipatingProject
 
@@ -165,6 +170,7 @@ class UserInParticipatingProjectTests(TestCase):
         mock_client.get_current_person.return_value = (
             json.dumps({
                 "data": {
+                    "id": "7",
                     "relationships": {
                         "projects": {
                             "data": []
@@ -1026,7 +1032,7 @@ class TestCasesExtraTests(TestCase):
     def test_test_cases_response_structure(self):
         """Test cases response has total and test_cases list with id and prompt."""
         admin = User.objects.create_user(
-            username="tc_admin", password="pass", is_staff=True
+            username="tc_admin", password="pass", is_superuser=True
         )
         self.client.force_authenticate(user=admin)
         resp = self.client.get("/nextseek_api/assistant/test-cases/")

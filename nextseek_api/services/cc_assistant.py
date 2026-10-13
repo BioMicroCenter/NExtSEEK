@@ -327,8 +327,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["get"], url_path=r"artifacts/(?P<session>[0-9a-f-]+)/download")
     def download_artifact(self, request, session=None):
         from nextseek_api.assistant.models_db import ChatSession
-        from NessieAI.cc.cc_config import CCPaths
-        from NessieAI.cc.cc_provision import resolve_user_project, build_user_dirs
+        from nextseek_api.assistant.session_export import cc_artifacts_root
         from NessieAI.cc.cc_engine import _safe_relpath
 
         _sessions = ChatSession.objects.all()
@@ -341,14 +340,13 @@ class CCAssistantViewSet(viewsets.ViewSet):
         if not key or (key != "all" and not _safe_relpath(key)):
             raise Http404("bad key")
 
-        api_user, api_pass = self._resolve_credentials(request)
+        # The session owner's CC folder, the one its turns ran in, whoever asks: a superuser reading another
+        # user's session gets that user's files, and no SEEK call is needed to find them.
         try:
-            project = resolve_user_project(api_user, api_pass)
-        except ProjectResolutionError:
-            return Response({"error": "could not resolve SEEK project"}, status=503)
-        dirs = build_user_dirs(CCPaths.from_env(), project.dirname, request.user.username)
+            art_dir = cc_artifacts_root(cs)
+        except ValueError:
+            raise Http404("no CC files for this session")
         from nextseek_api.cc_assistant.cc_endpoint_guards import resolve_artifact_path
-        art_dir = Path(dirs.output_mnt) / "artifacts"
         if key == "all":
             turn_id = request.query_params.get("turn_id", "")
             if not turn_id or not _safe_relpath(turn_id):

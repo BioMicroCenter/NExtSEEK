@@ -599,11 +599,9 @@ class TestSopPartialUpdate:
         assert resp.status_code == 404
 
     @patch("nextseek_api.services.sops._resolve_uid_to_seek_id", return_value=None)
-    def test_update_json_fallback_to_data_id(self, mock_resolve):
-        """When resolve returns None, falls back to data.id."""
+    def test_update_json_path_naming_no_sop_ignores_data_id(self, mock_resolve):
+        """The path names the SOP: when it resolves to none, the answer is 404 whatever data.id says."""
         vs, client = _make_viewset_and_client()
-        body = _json_bytes(_valid_sop_response())
-        client.update_sop.return_value = (body, 200, {"Content-Type": "application/json"}, MagicMock())
 
         data = {
             "data": {
@@ -615,7 +613,8 @@ class TestSopPartialUpdate:
         request = factory.patch("/nextseek_api/sops/nonexistent/", data, format="json")
         drf_req = _make_drf_request(request, vs)
         resp = vs.partial_update(drf_req, uid="nonexistent")
-        assert resp.status_code == 200
+        assert resp.status_code == 404
+        client.update_sop.assert_not_called()
 
     def test_update_json_invalid_request(self):
         vs, client = _make_viewset_and_client()

@@ -10,7 +10,7 @@ The user docs that the site serves at `/docs/` are not here: they live in `theme
 | File | Kind | Read when | Tracking issue |
 |---|---|---|---|
 | [`ISSUE-CONVENTIONS.md`](ISSUE-CONVENTIONS.md) | convention | filing any GitHub issue; `scripts/validate_issue.py` enforces it | |
-| [`endpoint-authorization-register.md`](endpoint-authorization-register.md) | register | changing who may call an endpoint. Incomplete for routes added after 2026-08-11; `ci/routes.py` is the full route list. Its `is_staff` question was ruled by #74 and #75 (admin means `is_superuser`); its per-endpoint buckets are still open under #64 | #64 |
+| [`endpoint-authorization-register.md`](endpoint-authorization-register.md) | register | changing who may call an endpoint: every `/nextseek_api/` route and method with its guard and bucket, as ruled under #64. A new or changed route updates its row in the same change | #64 |
 | [`GLOSSARY.md`](GLOSSARY.md) | reference | the one meaning of assay, SEEK assay, sample type, project scope, sample graph, route, CC engine and the other overloaded words; ADRs go in [`adr/`](adr/README.md) | |
 | [`neo4j-programmatic-access.md`](neo4j-programmatic-access.md) | runbook | querying Neo4j over HTTP, Browser or bolt, or rotating its password | |
 | [`neo4j-schema.md`](neo4j-schema.md) | reference | reading or writing the sample graph: what v1.0 holds, what graph_search's v1.1 builds, what the sync adds in v1.2 and the assay nodes of v1.3 (with how to roll them back) | |

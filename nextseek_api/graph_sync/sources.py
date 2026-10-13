@@ -563,9 +563,11 @@ def memberships() -> list[dict]:
     """One row per (person, project) from `group_memberships` joined to `work_groups`.
 
     A person can hold several memberships in one project (one per work group). The pair is
-    current when any of them has not left (`has_left` NULL or 0, the rule the scope helpers use);
-    `has_left` is True only when every membership has left, and `time_left_at` is then the
-    latest leaving time.
+    current when any of them has SEEK's `has_left` flag NULL or 0; `has_left` is True only when
+    every membership has left, and `time_left_at` is then the latest leaving time. This reads the
+    flag alone, which SEEK's leaving job sets once `time_left_at` has passed. The caller's read
+    scope (`graph_search/scope.py`) does not wait for the job: it also ends a membership whose
+    `time_left_at` has passed.
     """
     sql = ("SELECT gm.person_id, wg.project_id, gm.has_left, gm.time_left_at "
            "FROM group_memberships gm JOIN work_groups wg ON wg.id = gm.work_group_id "

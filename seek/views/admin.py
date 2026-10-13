@@ -44,7 +44,11 @@ logger = logging.getLogger(__name__)
 def adminRetrieveSamples(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
-    user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+    try:
+        user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+    except Exception:
+        logger.exception("could not resolve caller projects; retrieving through none")
+        user_projects = []
     user_project_ids = map(lambda x: x['id'], user_projects)
 
     if verifySuperUser(request) == 1:

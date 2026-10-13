@@ -68,8 +68,8 @@ urlpatterns = [
     #     user at login -- it is IsAuthenticated under a misleading name (#74, #75).
     #   * IsSuperUser would over-gate: this is the working reference for legitimate
     #     token-holding API consumers, and it describes endpoints, it returns no
-    #     records. docs/endpoint-authorization-register.md buckets all three as
-    #     "public-to-authenticated".
+    #     records. docs/endpoint-authorization-register.md files all three under
+    #     bucket 3 (correct as it is).
     # Authentication is untouched: SERVE_AUTHENTICATION is unset, so the views fall
     # back to DEFAULT_AUTHENTICATION_CLASSES (the turn pass, Token, Session, Basic).
     re_path(r'^schema/$', SpectacularAPIView.as_view(permission_classes=[IsAuthenticated]), name='schema'),

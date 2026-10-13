@@ -739,6 +739,9 @@ class TestGetCladeColor:
 # ============================================================================
 
 
+_ADMIN = SimpleNamespace(is_admin=True, project_ids=())  # unscoped (test_entity_tree_study_titles_scope.py)
+
+
 class TestFetchLineageEnrichment:
     def _viewset(self):
         from nextseek_api.services.entity_tree import EntityTreeViewSet
@@ -746,7 +749,7 @@ class TestFetchLineageEnrichment:
 
     def test_empty_ids(self):
         vs = self._viewset()
-        assert vs._fetch_lineage_enrichment(set()) == {}
+        assert vs._fetch_lineage_enrichment(set(), _ADMIN) == {}
 
     @patch("nextseek_api.services.entity_tree._run_sql_query")
     def test_enrichment_success(self, mock_sql):
@@ -754,7 +757,7 @@ class TestFetchLineageEnrichment:
         mock_sql.return_value = [
             {"internal_assay_id": 16, "description": "Visit", "study_titles": "MIT_SRP"},
         ]
-        result = vs._fetch_lineage_enrichment({16})
+        result = vs._fetch_lineage_enrichment({16}, _ADMIN)
         assert 16 in result
         assert result[16]["description"] == "Visit"
 
@@ -762,7 +765,7 @@ class TestFetchLineageEnrichment:
     def test_enrichment_exception(self, mock_sql):
         vs = self._viewset()
         mock_sql.side_effect = RuntimeError("DB fail")
-        result = vs._fetch_lineage_enrichment({16})
+        result = vs._fetch_lineage_enrichment({16}, _ADMIN)
         assert result == {}
 
 

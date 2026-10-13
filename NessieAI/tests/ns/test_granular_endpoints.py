@@ -43,6 +43,7 @@ class GranularEndpointBase(TestCase):
         self.user = User.objects.create_user("u1", password="p")
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
+        self.client.credentials(HTTP_AUTHORIZATION="Basic dTE6cA==")  # u1:p: an op runs only as the caller's own login (#64)
         patcher = patch(
             "nextseek_api.services.assistant.UserInParticipatingProject.has_permission",
             return_value=True,

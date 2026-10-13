@@ -273,7 +273,21 @@ class SeekDB(object):
         return seek_personid
 
     def getCurrentUser(self):
-        return self.__seekapi.getCurrentUser()
+        """SEEK's ``/people/current`` for this login, with ``relationships.projects`` narrowed to the projects the
+        person has not left. SEEK lists former projects there too; every NExtSEEK reader of this answer takes it as
+        the caller's project scope, which ends on leaving (``nextseek_api.graph_search.scope``). Raises if the
+        membership cannot be read."""
+        current = self.__seekapi.getCurrentUser()
+        try:
+            data = current["data"]
+            projects = data["relationships"]["projects"]
+        except (KeyError, TypeError):
+            return current  # no person, or no project list: nothing to narrow
+        from nextseek_api.graph_search.scope import current_project_ids
+        person_id = str(data.get("id") or "")
+        keep = {str(p) for p in current_project_ids(int(person_id))} if person_id.isdigit() else set()
+        projects["data"] = [ref for ref in projects.get("data") or [] if str(ref.get("id")) in keep]
+        return current
         
     # `useSeekAPI` is kept here on purpose: this `if` has no `else`, so a False
     # call returns None rather than falling through to a dead branch. Dropping

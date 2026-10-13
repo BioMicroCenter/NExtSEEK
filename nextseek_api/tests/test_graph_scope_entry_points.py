@@ -248,6 +248,7 @@ class ViewSetHandsTheScopeDown(TestCase):
         self.assertEqual(thread.kwargs["graph_scope"], {"is_admin": True, "project_ids": []})
 
     def test_the_granular_graph_view_never_injects_neo4j_exec(self):
+        self.client.credentials(HTTP_AUTHORIZATION="Basic bWVtYmVyOnA=")  # member:p: an op runs only as the caller's own login (#64)
         with patch("nextseek_api.services.assistant._granular_chat_config", return_value=SimpleNamespace()), \
              patch("nextseek_api.services.assistant.run_op", return_value={"plan": {}, "result": {}}) as run_op:
             resp = self.client.post("/nextseek_api/assistant/graph/", {"query": "lineage"}, format="json")

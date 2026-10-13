@@ -117,13 +117,34 @@ def _caller_scope(request) -> Optional[Scope]:
     try:
         return resolve_scope(request.user)
     except Exception as exc:  # noqa: BLE001 (ScopeUnavailable or a membership read failure: fail closed)
-        log.warning("entity_tree lineage: the caller's project scope could not be resolved (%s); returning nothing",
+        log.warning("entity_tree: the caller's project scope could not be resolved (%s); returning nothing",
                     type(exc).__name__)
         return None
 
 
 def _sees_nothing(scope: Optional[Scope]) -> bool:
     return scope is None or (not scope.is_admin and not scope.project_ids)
+
+
+def _study_title(scope: Optional[Scope], seek_db: str) -> Tuple[str, List[int]]:
+    """The select-list expression the enrichment reads a study's title through, and its parameters, for ``scope``.
+
+    Study titles follow the graph catalog's rule (``chat_nextseek.graph_catalog.VOCAB_STUDIES_SCOPED``): a superuser
+    reads every one, anyone else only a study that holds a sample in one of their projects (a Sample asset of one of
+    its assays, linked to the project in ``projects_samples``), and a caller who sees nothing reads none. The test is
+    a ``CASE`` here, never a condition on the outer join to ``studies``: MySQL 8.0 may run an ``EXISTS`` in a
+    ``LEFT JOIN ... ON`` as a semijoin, and its answer then depends on the plan it picks.
+    """
+    if scope is not None and scope.is_admin:
+        return "s.title", []
+    projects = [] if _sees_nothing(scope) else [int(p) for p in scope.project_ids]
+    if not projects:
+        return "NULL", []
+    return (f"CASE WHEN EXISTS (SELECT 1 FROM {seek_db}.assay_assets vaa"
+            f" JOIN {seek_db}.assays va ON va.id = vaa.assay_id"
+            f" JOIN {seek_db}.projects_samples vps ON vps.sample_id = vaa.asset_id"
+            f" WHERE va.study_id = s.id AND vaa.asset_type = 'Sample'"
+            f" AND vps.project_id IN ({', '.join(['%s'] * len(projects))})) THEN s.title END", projects)
 
 
 def _not_found_tree(input_id: str) -> LineageTree:
@@ -549,41 +570,8 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
         # Step 2: each row's internal assay id, validated against dmac.internal_assays (_internal_assay_rows)
         edge_rows, all_internal_ids = _internal_assay_rows(records)
 
-        db = settings.DATABASES[SEEK_DATABASE]
-        nextseekdb = settings.DATABASES[NEXTSEEK_DATABASE]
-
-        # Step 2b: Enrich by internal_assay_id (description + study_titles)
-        enrichment: Dict[int, Dict[str, Any]] = {}
-        if all_internal_ids:
-            try:
-                ids_str = ", ".join(str(i) for i in sorted(all_internal_ids))
-                q = f"""
-                    SELECT
-                        ac.internal_assay_id AS internal_assay_id,
-                        ac.Description AS description,
-                        GROUP_CONCAT(DISTINCT s.title SEPARATOR '; ') AS study_titles
-                    FROM {nextseekdb["NAME"]}.assay_context ac
-                    LEFT JOIN {nextseekdb["NAME"]}.assays_internal_assays aia
-                        ON aia.internal_assay_id = ac.internal_assay_id
-                    LEFT JOIN {nextseekdb["NAME"]}.assays a ON a.id = aia.assay_id
-                    LEFT JOIN {db["NAME"]}.studies s ON s.id = a.study_id
-                    WHERE ac.internal_assay_id IN ({ids_str})
-                    GROUP BY ac.internal_assay_id, ac.Description
-                """
-                rows = _run_sql_query(q)
-                for row in rows:
-                    aid = row.get("internal_assay_id")
-                    if aid is None:
-                        continue
-                    try:
-                        enrichment[int(aid)] = {
-                            "description": row.get("description"),
-                            "study_titles": row.get("study_titles"),
-                        }
-                    except Exception:
-                        continue
-            except Exception:
-                enrichment = {}
+        # Step 2b: Enrich by internal_assay_id (description + the study titles the caller may read)
+        enrichment = self._fetch_lineage_enrichment(all_internal_ids, _caller_scope(request))
 
         items: List[EdgeAttribute] = []
         for er in edge_rows:
@@ -631,20 +619,22 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
         except Exception:
             return "#000000"
 
-    def _fetch_lineage_enrichment(self, internal_assay_ids: set) -> Dict[int, Dict[str, Any]]:
-        """Fetch edge attribute enrichment from MySQL."""
+    def _fetch_lineage_enrichment(self, internal_assay_ids: set, scope: Optional[Scope]) -> Dict[int, Dict[str, Any]]:
+        """Each internal assay's description and the titles of the studies holding its assays, from MySQL. The
+        titles are limited to what ``scope`` may read (``_study_title``)."""
         if not internal_assay_ids:
             return {}
 
         db = settings.DATABASES[SEEK_DATABASE]
         nextseekdb = settings.DATABASES[NEXTSEEK_DATABASE]
+        title, params = _study_title(scope, db["NAME"])
         try:
             ids_str = ", ".join(str(i) for i in sorted(internal_assay_ids))
             query = f"""
                 SELECT
                     ac.internal_assay_id AS internal_assay_id,
                     ac.Description AS description,
-                    GROUP_CONCAT(DISTINCT s.title SEPARATOR '; ') AS study_titles
+                    GROUP_CONCAT(DISTINCT {title} SEPARATOR '; ') AS study_titles
                 FROM {nextseekdb["NAME"]}.assay_context ac
                 LEFT JOIN {nextseekdb["NAME"]}.assays_internal_assays aia
                     ON aia.internal_assay_id = ac.internal_assay_id
@@ -653,7 +643,7 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                 WHERE ac.internal_assay_id IN ({ids_str})
                 GROUP BY ac.internal_assay_id, ac.Description
             """
-            rows = _run_sql_query(query)
+            rows = _run_sql_query(query, params)
 
             enrichment: Dict[int, Dict[str, Any]] = {}
             for row in rows:
@@ -1007,7 +997,7 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
 
         # Enrich edges with attributes if requested
         if req.include_attributes and all_internal_assay_ids:
-            enrichment = self._fetch_lineage_enrichment(all_internal_assay_ids)
+            enrichment = self._fetch_lineage_enrichment(all_internal_assay_ids, scope)
             for tree in trees:
                 for rel in tree.rels:
                     if rel.internal_assay_id and str(rel.internal_assay_id).isdigit():

@@ -152,7 +152,8 @@ def seek(monkeypatch):
     c.execute("CREATE TABLE projects_samples (project_id INTEGER, sample_id INTEGER)")
     c.execute("CREATE TABLE users (login TEXT, person_id INTEGER)")
     c.execute("CREATE TABLE work_groups (id INTEGER, project_id INTEGER)")
-    c.execute("CREATE TABLE group_memberships (person_id INTEGER, work_group_id INTEGER)")
+    c.execute("CREATE TABLE group_memberships (person_id INTEGER, work_group_id INTEGER, has_left INTEGER DEFAULT 0, "
+              "time_left_at DATETIME)")  # SEEK's leaving columns: graph_search/scope.py reads them
     for sid, (uuid, st, meta, projects) in ROWS.items():
         c.execute("INSERT INTO samples VALUES (?, ?, ?, ?)", [sid, st, uuid, meta])
         for p in projects:
@@ -160,7 +161,7 @@ def seek(monkeypatch):
     # member belongs to projects 2 and 3; stranger has a SEEK person but no project.
     c.execute("INSERT INTO users VALUES ('member', 100), ('stranger', 101)")
     c.execute("INSERT INTO work_groups VALUES (20, 2), (30, 3), (40, 4)")
-    c.execute("INSERT INTO group_memberships VALUES (100, 20), (100, 30)")
+    c.execute("INSERT INTO group_memberships (person_id, work_group_id) VALUES (100, 20), (100, 30)")
     conn.commit()
     wrapped = _Connection(conn)
     monkeypatch.setattr(sr, "_cursor", wrapped.cursor)
