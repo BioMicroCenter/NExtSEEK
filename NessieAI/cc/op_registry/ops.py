@@ -244,7 +244,7 @@ OPS: list[OpSpec] = [
             "Read the deployed graph's schema live: structure, sample types, vocabulary. "
             "Never read a baked schema file instead.",
             '[--types "TIS,D.SEQ"] [--query "<text>"]',
-            "{source, schema_version, catalog_hash, sample_types, schema, vocabulary}",
+            "{source, schema_version, catalog_hash, sample_types, schema, vocabulary, assays}",
         ),
     ),
     _dispatch(

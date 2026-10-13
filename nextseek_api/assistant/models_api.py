@@ -543,6 +543,8 @@ class GraphSchemaResult(BaseModel):
     vocabulary: str = ""
     unavailable_reason: Optional[str] = None
     fallback_fetched_at: Optional[str] = None
+    assays: List[str] = Field(default_factory=list,
+                              description="This instance's assay titles (its dmac.internal_assays), the same for every caller.")
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 

@@ -25,14 +25,14 @@ NAMED_CAPABILITIES_CONTEXT_PATH = paths.repo_relative(paths.CHAT_NEXTSEEK_DIR)
 # keeps only the files that have no canonical twin (MANIFEST.md, ops.json,
 # read_safe_endpoints.json). Neither graph file is baked: min_graph_schema.json is
 # the NS parser's routing prose, and the agent reads the live graph schema through
-# the nextseek-graph-schema op instead of neo4j_schema.json.
+# the nextseek-graph-schema op instead of neo4j_schema.json. Nor is min_assays_db.json: each box lists the
+# assays its own dmac.internal_assays holds, and the agent reads them in that op's `assays` field.
 CANONICAL_CONTEXT_DIR_IN_CONTEXT = "src/chat_nextseek/context"
 IMAGE_CONTEXT_DIR = "/app/plugins/nextseek/context"
 CANONICAL_CONTEXT_FILES = (
     "capabilities.md",
     "min_api_endpoints.json",
     "min_api_endpoints_enriched.json",
-    "min_assays_db.json",
     "min_sampletypes_db.json",
     "projects_db.json",
 )

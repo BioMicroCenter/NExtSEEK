@@ -201,8 +201,16 @@ def test_the_op_fallback_keeps_every_other_key(down):
         "vocabulary": out["vocabulary"],
         "unavailable_reason": "graph down in this test",
         "fallback_fetched_at": FETCHED_AT,
+        "assays": [],
     }
     assert "Old protocol" in out["vocabulary"], "an admin's committed vocabulary blocks are unchanged"
+
+
+def test_the_op_fallback_still_names_this_boxs_assays(down):
+    """The assay list is the box's dmac.internal_assays, not the graph: a graph outage does not take it away."""
+    config = _config()
+    config.MIN_ASSAYS = [{"Name": "Alpha Assay", "Description": None, "Tags": None}, {"Name": "Beta Panel"}, "junk"]
+    assert graph_mod.graph_schema_snapshot(config)["assays"] == ["Alpha Assay", "Beta Panel"]
 
 
 # --- who is shown what ----------------------------------------------------------------------------------------------

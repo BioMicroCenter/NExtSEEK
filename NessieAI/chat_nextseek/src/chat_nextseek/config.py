@@ -224,7 +224,7 @@ class ChatConfig:
 
         # Min JSONs actually used by the agents
         self.MIN_SAMPLETYPES = self._load_json_list("min_sampletypes_db.json", "min sampletypes (db)")
-        self.MIN_ASSAYS = self._load_json_list("min_assays_db.json", "min assays (db)")
+        self.MIN_ASSAYS = self._load_json_list("min_assays_db.json", "min assays (db)")  # the setter keeps the file
         self.MIN_PROJECTS = self.FULL_PROJECTS
         self.MIN_API_ENDPOINTS = self._load_json_list("min_api_endpoints_enriched.json", "min API endpoints")
         # graph_search's entry, kept out of the catalog the parser chooses from: only the scope fallback (a graph
@@ -766,6 +766,17 @@ class ChatConfig:
         except Exception as e:
             print(f"[CONFIG][DB] Connection to {target} failed: {e!r}")
             return None
+
+    @property
+    def MIN_ASSAYS(self) -> list:
+        """This box's assay list from ``dmac.internal_assays`` (``assay_catalog``), or the catalog list loaded at start
+        (``min_assays_db.json``) when the table cannot be read."""
+        from . import assay_catalog  # noqa: PLC0415
+        return assay_catalog.min_assays(self, getattr(self, "_min_assays_file", []))
+
+    @MIN_ASSAYS.setter
+    def MIN_ASSAYS(self, rows: list) -> None:
+        self._min_assays_file = rows
 
     def _live_db_conn(self, env: str = "prod"):
         """Return a usable connection, replacing the cached one once it has died."""

@@ -66,7 +66,7 @@ without an error at the point of the change.
   keys tool exposure off that; a partially configured box silently hands the
   model a build it cannot submit.
 - **This directory owns the context files the CC agent image bakes.** `capabilities.md`,
-  `projects_db.json` and the four `min_*.json` catalogs named by `CANONICAL_CONTEXT_FILES`
+  `projects_db.json` and the three `min_*.json` catalogs named by `CANONICAL_CONTEXT_FILES`
   in `NessieAI/build_tools/gen_op_surfaces/constants.py` exist only under
   `NessieAI/chat_nextseek/src/chat_nextseek/context/`. The cc-agent Dockerfile COPYs each
   from the Compose named context `chat_nextseek` to `/app/plugins/nextseek/context/`, and
@@ -101,8 +101,8 @@ without an error at the point of the change.
   context directory from the database once a day (`_ensure_context_files` in
   `NessieAI/chat_nextseek/src/chat_nextseek/config.py`). Run it against a checkout and
   those tracked files change in place; the next cc-agent build then ships the refreshed
-  bytes, exactly as the app image build does. Check `git status` on this directory before
-  a cc-agent rebuild.
+  bytes of the two it bakes (not `min_assays_db.json`), exactly as the app image build
+  does. Check `git status` on this directory before a cc-agent rebuild.
 - **That refresh also reads SEEK, and writes real lab data into the checkout.** Its first
   statement is the read-only SELECT over SEEK's institutions in `chat_nextseek.labs`, which
   writes `labs_db.json` into the context directory and adds `labs` to every project row

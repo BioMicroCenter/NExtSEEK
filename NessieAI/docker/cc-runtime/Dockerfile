@@ -57,7 +57,6 @@ COPY build_context/plugins/nextseek/ /app/plugins/nextseek/
 COPY --from=chat_nextseek src/chat_nextseek/context/capabilities.md /app/plugins/nextseek/context/capabilities.md
 COPY --from=chat_nextseek src/chat_nextseek/context/min_api_endpoints.json /app/plugins/nextseek/context/min_api_endpoints.json
 COPY --from=chat_nextseek src/chat_nextseek/context/min_api_endpoints_enriched.json /app/plugins/nextseek/context/min_api_endpoints_enriched.json
-COPY --from=chat_nextseek src/chat_nextseek/context/min_assays_db.json /app/plugins/nextseek/context/min_assays_db.json
 COPY --from=chat_nextseek src/chat_nextseek/context/min_sampletypes_db.json /app/plugins/nextseek/context/min_sampletypes_db.json
 COPY --from=chat_nextseek src/chat_nextseek/context/projects_db.json /app/plugins/nextseek/context/projects_db.json
 # END PLAN005-GEN:capabilities-copy
