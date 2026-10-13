@@ -11138,7 +11138,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b1,?864\\b"
+                  "value": "\\b2,?452\\b"
                 }
               ]
             }
@@ -15045,7 +15045,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(?=.*Lung)(?=.*lung)"
+                  "value": "(?s)(?=.*(?-i:\\bLung\\b))(?=.*(?-i:\\blung\\b))(?=.*(?-i:\\bLUNG\\b))"
                 }
               ]
             }

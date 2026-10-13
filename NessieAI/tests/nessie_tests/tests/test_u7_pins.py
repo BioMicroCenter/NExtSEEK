@@ -66,3 +66,22 @@ def test_prod_read_2026_10_13_pins():
     assert _passes("harmon.organ_lung_case_split", "23,485 Lung samples: Lung, lung and LUNG")
     assert not _passes("harmon.organ_lung_case_split", "23,218 Lung and lung samples")
     assert _passes(PBMC, "2,906 tissue samples (TIS) mention PBMC or peripheral blood mononuclear cells.")
+
+
+def _crit_ok(cid, reply):
+    from NessieAI.tests.e2e.criteria import check_pass  # noqa: F401  (same flags as the harness)
+    crits = [c for c in _case(cid)["turns"][-1]["pass_criteria"] if c["op"] == "matches_re"]
+    return all(re.search(c["value"], reply, flags=re.IGNORECASE) for c in crits)
+
+
+def test_lung_split_needs_all_three_capitalisations():
+    ok = "23,485 samples: Lung 17,592, lung 3,361 and LUNG 2,532."
+    assert _crit_ok("harmon.organ_lung_case_split", ok)
+    assert not _crit_ok("harmon.organ_lung_case_split", "23,485 samples: lung 3,361, lung 17,592.")
+    assert not _crit_ok("harmon.organ_lung_case_split", "23,485 samples: Lung 20,953 and LUNG 2,532.")
+
+
+def test_novaseq_pin_is_the_space_insensitive_total():
+    assert _crit_ok("sr.miseq_to_novaseq", "NovaSeq 6000 total 2,452 across all spellings")
+    assert not _crit_ok("sr.miseq_to_novaseq", "NovaSeq 6000 total 1,864")
+    assert not _crit_ok("sr.miseq_to_novaseq", "NovaSeq 6000 total 2,285")
