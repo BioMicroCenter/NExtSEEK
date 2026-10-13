@@ -115,3 +115,23 @@ def test_the_project_still_wins_when_it_exists():
 
 def test_a_name_matching_neither_stays_unscoped():
     assert gctx.container_titles_for(["Impact"], [PROJ_ROW], _levels(inv=("Other",), proj=("Published Data",))) == {}
+
+
+# N4: the MCP graph-schema resource fills the same placeholders and must stay valid JSON.
+def _mcp_server():
+    import importlib.util
+    pytest.importorskip("mcp.server.fastmcp")
+    spec = importlib.util.spec_from_file_location("chat_nextseek_mcp_server_n4", PACKAGE.parent.parent / "mcp_server.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("title", ['The "Alpha" Cohort', "Beta \\ Gamma", "Plain Delta Study"])
+def test_the_mcp_graph_schema_resource_stays_valid_json(monkeypatch, title):
+    server = _mcp_server()
+    monkeypatch.setattr(server, "_cfg", lambda: SimpleNamespace(CONTEXT_DIR=str(PACKAGE / "context")))
+    _use(monkeypatch, SimpleNamespace(investigation_titles=(title,), project_titles=("Gamma Group",)))
+    data = json.loads(server.context_resource("graph-schema"))
+    node = next(n for n in data["node_types"] if n["label"] == "Investigation")
+    assert title in node["description"]
