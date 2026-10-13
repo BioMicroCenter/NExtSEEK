@@ -133,7 +133,7 @@ def test_each_follow_up_turn_asserts_the_route_the_split_gives_it(vid, turn):
 
 def test_no_other_later_turn_asserts_container_cc():
     """Every active later turn that asserts container_cc is one of the seven kept on it."""
-    later_cc = {(v["id"], i) for v in _active_multi_turn()
+    later_cc = {(v["id"], i) for v in _active_multi_turn() if not v["id"].startswith("unsup.method_")  # fix 19: CC by design, not NS-seeded follow-ups
                 for i, t in enumerate(v["turns"]) if i and CC in _route_rules(t)}
     assert later_cc == set(STAYS_CC)
 
@@ -181,6 +181,8 @@ def test_an_ns_follow_up_is_never_one_the_code_guard_sends_to_container_cc():
 def test_a_cc_follow_up_is_cc_shaped_or_sticky_or_named():
     unexplained = []
     for v in _active_multi_turn():
+        if v["id"].startswith("unsup.method_"):  # fix 19: CC by design
+            continue
         for i, t in enumerate(v["turns"]):
             if not i or CC not in _route_rules(t):
                 continue

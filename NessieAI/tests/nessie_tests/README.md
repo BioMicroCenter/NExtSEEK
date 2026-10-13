@@ -539,7 +539,7 @@ NS turn the same four fields are real assertions and still fail.
 case in a floored family goes red, not all of them. Simulate every case in the
 curated corpus (the resolved corpus minus the atlas set: the frame every
 figure in this section uses, because the tests that pin them use it) routing CC
-and **341 of 343 are still red**, with all seven floored families at 100%. Four
+and **344 of 350 are still red**, with all seven floored families at 100%. Four
 criteria account for nearly all of it, and none of them is skipped: `route`
 fails on **260** variants, `parser_plan.mode` on **239** (163 before the 2026-10-07 graph-search grading), `api_ok` on **12**
 and `api_plan.endpoint` on **13** (the last two fell from 128 and 104 on

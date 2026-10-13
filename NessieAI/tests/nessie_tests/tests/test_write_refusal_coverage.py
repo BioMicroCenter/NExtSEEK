@@ -833,7 +833,7 @@ def test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible():
                                       _OBS_CC, last_reply="done")[0] for t in v.turns):
             green.append(v.id)
 
-    assert len(merged) == 343  # 418 -> 343: 2026-10-07 test-set review (SPEC-2): 75 curated variants retired into retired.json. 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) == 350  # fix 19: 343 -> 350, +7 unsup.* cases. # 418 -> 343: 2026-10-07 test-set review (SPEC-2): 75 curated variants retired into retired.json. 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     # 13 -> 3. 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. The simulation asks how many
     # variants would stay GREEN if every turn ran container_cc, and the answer
     # collapsed because the question set gave 149 variants a substantive
@@ -843,11 +843,12 @@ def test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible():
     # 3 -> 2 on 2026-09-23: refrec.can_you_run_that_again_but_wit now asserts
     # route nextseek_query on its seed (the REST-plumbing retirement), which an
     # all-CC simulation fails.
-    assert len(green) == 2, sorted(green)
+    # 2 -> 6 on 2026-10-13 (fix 19): the four unsup.method_* container_cc route cases pass an all-CC simulation, as they should.
+    assert len(green) == 6, sorted(green)
     # 270 -> 295: all 25 variants added 2026-08-06 are RED under an all-CC
     # simulation replying "done", which is correct — none of them is satisfied
     # by a bare acknowledgement.
-    assert len(merged) - len(green) == 341, (  # 416 -> 341: 2026-10-07 test-set review (SPEC-2): 75 retired variants, all red under the simulation, leave. 414 -> 416: 2026-09-30: the two nf-core selection variants are both red under an all-CC simulation (route.ns_pipeline_by_question on its inline route, pipeline.selection_verdict_recorded on api_ok and its pipeline_agent fields). # 413 -> 414: 2026-09-24: fix 9's route.ndma_mice_then_female_two_turns asserts nextseek_query on its seed. # 412 -> 413: 2026-09-23: that same seed. # 362 -> 412: 2026-09-23: +50 production researcher cases, all 50 red under an all-CC simulation (each asserts nextseek_query on its first turn). 295 -> 362: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) - len(green) == 344, (  # 341 -> 344: 2026-10-13 fix 19, +7 cases, 4 of them green under the all-CC simulation. 416 -> 341: 2026-10-07 test-set review (SPEC-2): 75 retired variants, all red under the simulation, leave. 414 -> 416: 2026-09-30: the two nf-core selection variants are both red under an all-CC simulation (route.ns_pipeline_by_question on its inline route, pipeline.selection_verdict_recorded on api_ok and its pipeline_agent fields). # 413 -> 414: 2026-09-24: fix 9's route.ndma_mice_then_female_two_turns asserts nextseek_query on its seed. # 412 -> 413: 2026-09-23: that same seed. # 362 -> 412: 2026-09-23: +50 production researcher cases, all 50 red under an all-CC simulation (each asserts nextseek_query on its first turn). 295 -> 362: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
         f"{len(merged) - len(green)} of {len(merged)} red — update the figure in "
         f"NessieAI/tests/nessie_tests/README.md and NessieAI/tests/nessie_tests/tests/test_evaluate.py")
 
@@ -913,7 +914,7 @@ def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
     # -> [260, 239, 12, 13] on 2026-10-07, R7: the two open-ended summaries (Shoulders, longest-running) expect container_cc,
     # which an all-CC simulation satisfies (-2 route).
     assert [counts.get(f) for f in ("route", "parser_plan.mode", "api_ok",
-                                    "api_plan.endpoint")] == [260, 239, 12, 13], (
+                                    "api_plan.endpoint")] == [263, 239, 12, 13], (
         f"{counts} — update the four counts in nessie_tests/README.md and in "
         f"tests/test_evaluate.py's 'Fix round 1' comment")
 

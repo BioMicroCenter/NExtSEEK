@@ -109,11 +109,19 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     Reserve `unrelated` for subjects that could not plausibly be an entry in a
     sample catalog at all.
 
+    A message that names a study, paper, method, protocol, lab or researcher is
+    not `unrelated` either: NExtSEEK's studies and protocols carry those names.
+    How a method was done, how to apply it to new samples or reanalyse data
+    with it, is an analysis question: select `container_cc`. A turn in the
+    history routed `unrelated` is never a reason to route the CURRENT message
+    `unrelated`.
+
     How-to questions about the site go to `nextseek_query`. "How do I upload
     samples", "how can I check my workbook before uploading it", "where do I
     download my results as a spreadsheet" and "how do I call the API" ask how
     to do something in NExtSEEK, and the user docs answer them. That holds even
-    when Container-CC could do the task itself. Select `container_cc` only when
+    when Container-CC could do the task itself. A question about how to do an
+    analysis or apply a method is not a how-to about the site. Select `container_cc` only when
     the user supplies the data or file to work on in the message, or asks for
     the work to be done ("validate this workbook", "make me the upload sheet",
     "write the CSV").

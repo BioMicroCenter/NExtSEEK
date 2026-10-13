@@ -9501,7 +9501,7 @@
   {
    "family": "unsupported",
    "block": "System, session and safety",
-   "description": "Asks that no NExtSEEK path answers: charts, statistics, group comparisons and other analysis go to Container-CC, and weather, general science and other off-topic asks are routed unrelated or declined.",
+   "description": "Asks that no NExtSEEK path answers: charts, statistics, group comparisons and other analysis go to Container-CC, as do questions about a paper's or lab's method, and weather, general science and other off-topic asks are routed unrelated or declined.",
    "replaces": [
     "unsupported"
    ],

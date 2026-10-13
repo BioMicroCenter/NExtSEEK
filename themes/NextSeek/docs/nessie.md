@@ -57,7 +57,7 @@ Nessie does not create, edit or delete your samples, metadata or assay links. As
 ## What Nessie cannot do
 
 * Delete or edit records. Use the upload pages or SEEK.
-* Answer questions about data outside NExtSEEK, or explain general science.
+* Answer questions about data outside NExtSEEK, explain general science, or explain a method that a study in NExtSEEK used, from that study's records.
 * Run statistical tests or say whether one group differs from another. It can count and list.
 * Reach samples in projects you do not belong to.
 

@@ -16530,7 +16530,7 @@
       ]
     },
     "unsupported": {
-      "description": "Asks that no NExtSEEK path answers: charts, statistics, group comparisons and other analysis go to Container-CC, and weather, general science and other off-topic asks are routed unrelated or declined.",
+      "description": "Asks that no NExtSEEK path answers: charts, statistics, group comparisons and other analysis go to Container-CC, as do questions about a paper's or lab's method, and weather, general science and other off-topic asks are routed unrelated or declined.",
       "variants": [
         {
           "id": "unsup.weather",
@@ -16833,6 +16833,259 @@
             "capability": "Deliverable carve-out: building a file is NOT a write",
             "assertion": "assembling a named submission artifact routes to the reporter rather than being refused as a write"
           }
+        },
+        {
+          "id": "unsup.method_paper_new_strain",
+          "family": "unsupported",
+          "name": "Paper method on a new strain \u2192 container_cc",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "I read the paper 'Noncanonical T cell responses are associated with protection from tuberculosis in mice and humans'. How would I run the same analysis on samples from another mouse strain?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": "Unsupported",
+          "expected_behavior": "StateUnsupportedBoundary",
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null
+        },
+        {
+          "id": "unsup.method_lab_own_cohort",
+          "family": "unsupported",
+          "name": "Lab method on my own cohort \u2192 container_cc",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "I heard Doug Lauffenburger talk about his lab's systems serology approach. How would I apply it to my own patient cohort?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": "Unsupported",
+          "expected_behavior": "StateUnsupportedBoundary",
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null
+        },
+        {
+          "id": "unsup.method_reanalyze_pmid",
+          "family": "unsupported",
+          "name": "Reanalyse a PMID's data with another tool \u2192 container_cc",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How do I reanalyze the data from PMID 40449485 with a different aligner?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": "Unsupported",
+          "expected_behavior": "StateUnsupportedBoundary",
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null
+        },
+        {
+          "id": "unsup.method_refusal_not_sticky",
+          "family": "unsupported",
+          "name": "Refusal does not stick: off-topic then method question",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "off_topic",
+              "query": "What's the weather in Boston tomorrow?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "unrelated"
+                }
+              ]
+            },
+            {
+              "label": "method",
+              "query": "Kate Bridges presented her TB lung work last week. How would I use her method on human samples?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": "Unsupported",
+          "expected_behavior": "StateUnsupportedBoundary",
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null
+        },
+        {
+          "id": "unsup.method_talk_then_reanalyze",
+          "family": "unsupported",
+          "name": "Method from a talk, then reanalyse a cell line \u2192 container_cc twice",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "talk",
+              "query": "I saw Matt Jones give a talk on his sCAmp paper. I want to know how I would analyze another cell line uses that method such as H-82.",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                }
+              ]
+            },
+            {
+              "label": "reanalyze",
+              "query": "I would like to reanalyze the GBM 39HSR cell line with the method, single cell multi-ome in scamp. Could you tell me how to do that?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": "Unsupported",
+          "expected_behavior": "StateUnsupportedBoundary",
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null
+        },
+        {
+          "id": "unsup.offtopic_sports",
+          "family": "unsupported",
+          "name": "Off-topic sports question \u2192 unrelated",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Who won the World Series last year?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "unrelated"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": "Unsupported",
+          "expected_behavior": "StateUnsupportedBoundary",
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null
+        },
+        {
+          "id": "unsup.offtopic_film_actor",
+          "family": "unsupported",
+          "name": "Off-topic film actor question \u2192 unrelated",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What movies has Tom Hanks been in?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "unrelated"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": "Unsupported",
+          "expected_behavior": "StateUnsupportedBoundary",
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null
         }
       ]
     },
@@ -17053,6 +17306,18 @@
       "report.longest_running_investigation": {
         "op": "eq",
         "value": "container_cc"
+      },
+      "unsup.offtopic_sports": {
+        "op": "eq",
+        "value": "unrelated"
+      },
+      "unsup.offtopic_film_actor": {
+        "op": "eq",
+        "value": "unrelated"
+      },
+      "unsup.method_refusal_not_sticky": {
+        "op": "eq",
+        "value": "unrelated"
       }
     },
     "_2026_08_04_remap": "Carried across the 28-family remap by effective rule, not by family name: lineage_tree inherits search_tree's NS|CC alternation and search_parents_by_child's eq nextseek_query, which cannot both be the family default. 15 variant(s) whose rule differs from their new family's modal rule are pinned by id, so every variant keeps the exact assertion it had before.",
