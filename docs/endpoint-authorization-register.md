@@ -209,7 +209,7 @@ assay registrations, batch upload, the API root and the three API description pa
   and on the pages and routes that take the caller's projects from SEEK's person record.
 - A sample, SOP or data file the caller may not see answers like one that does not exist, on its read, write and
   download routes, whatever id a write's body carries. A SOP or data file write whose path names nothing answers
-  404: the body's id no longer stands in for the path. A write by SEEK's numeric id answers the same 404 for an item
+  404. A write by SEEK's numeric id answers the same 404 for an item
   that does not exist. `debug_validation` details are for superusers only. A caller with no SEEK login of its own gets
   401 on these routes before anything is looked up.
 - `entity_tree/edge_attributes/` and `entity_tree/lineage/` with attributes return only the study titles of studies
