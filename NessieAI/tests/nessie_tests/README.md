@@ -120,7 +120,7 @@ for the production researcher questions)
 hand-authored case files replayed by `NessieAI/tests/nessie_tests/tests/test_probe_files.py:1`.
 Measured 2026-10-13 against `NessieAI/tests/nessie_tests/corpus.json`: `merged` resolves 404
 variants over 467 turns; `curated`, which drops the unreviewed atlas set
-(`NessieAI/tests/nessie_tests/corpus.py:110-130`), leaves 354; `bayesian_ids` selects 142; one
+(`NessieAI/tests/nessie_tests/corpus.py:110-130`), leaves 356; `bayesian_ids` selects 142; one
 consistency group is defined; and 2 variants carry the `route_gate` tag.
 
 **Retired questions live in `NessieAI/tests/nessie_tests/retired.json`**, not in `corpus.json`: 252 records, each
@@ -394,7 +394,7 @@ print(len(m), "resolved (what --scope all runs);",
 EOF
 ```
 
-(2026-10-13: 404 resolved / 354 curated. If that line and the pinned test ever
+(2026-10-13: 406 resolved / 356 curated. If that line and the pinned test ever
 disagree, this line is the stale one.)
 
 `--no-project` and the explicit `--with` list are load-bearing, not decoration.
@@ -539,7 +539,7 @@ NS turn the same four fields are real assertions and still fail.
 case in a floored family goes red, not all of them. Simulate every case in the
 curated corpus (the resolved corpus minus the atlas set: the frame every
 figure in this section uses, because the tests that pin them use it) routing CC
-and **348 of 354 are still red**, with all seven floored families at 100%. Four
+and **350 of 356 are still red**, with all seven floored families at 100%. Four
 criteria account for nearly all of it, and none of them is skipped: `route`
 fails on **260** variants, `parser_plan.mode` on **239** (163 before the 2026-10-07 graph-search grading), `api_ok` on **12**
 and `api_plan.endpoint` on **13** (the last two fell from 128 and 104 on
@@ -569,7 +569,7 @@ scored, not because it started holding.
 **Every figure above is RECOMPUTED, not remembered**, in
 `tests/test_write_refusal_coverage.py`: the headline by
 `test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (354 total /
-6 green / 348 red), the four per-criterion counts by
+6 green / 350 red), the four per-criterion counts by
 `test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too`, and the
 two-frames claim by `test_the_cc_skip_turns_nothing_green_under_the_all_cc_simulation`.
 All three drive the curated corpus through `evaluate.evaluate_turn` with the real
