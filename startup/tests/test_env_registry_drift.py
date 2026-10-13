@@ -289,3 +289,15 @@ def test_docs_table_is_current() -> None:
     assert env_registry.replace_block(text, REGISTRY) == text, (
         "The env table in DEPLOYMENT.md section 8 is out of date. Regenerate it from the repo root: "
         "uv run --project startup python -m startup.lib.env_registry --write")
+
+
+def test_example_has_every_template_key() -> None:
+    # Report-only, like the rest of this file: startup/tests runs in CI's informational step.
+    # One way only: the example may carry extra keys (DMAC_USER_ROOT_MOUNT) the template does not render.
+    example = {(k, a) for k, _l, a in TEMPLATE_KEYS["docker/nextseek.env.example"]}
+    gaps = [f"{k}  at startup/templates/nextseek.env.template:{line}{'' if active else ' (commented)'}"
+            for k, line, active in TEMPLATE_KEYS["startup/templates/nextseek.env.template"]
+            if (k, active) not in example]
+    assert not gaps, (
+        "docker/nextseek.env.example lacks a line the install template writes. Add each to the example, "
+        "commented when the template comments it:\n  " + "\n  ".join(gaps))
