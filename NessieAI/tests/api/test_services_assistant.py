@@ -202,15 +202,14 @@ class UserInParticipatingProjectTests(TestCase):
         self.assertIn("participating project", perm.message)
 
     def test_has_object_permission_delegates(self):
-        """has_object_permission calls has_permissions (note: typo in source)."""
+        """has_object_permission(request, view, obj) runs the same check as has_permission."""
         from nextseek_api.services.assistant import UserInParticipatingProject
         perm = UserInParticipatingProject()
         request = MagicMock()
         view = MagicMock()
-        # has_object_permission calls self.has_permissions which doesn't exist
-        # (typo: should be has_permission). This should raise AttributeError.
-        with self.assertRaises(AttributeError):
-            perm.has_object_permission(request, view)
+        with patch.object(UserInParticipatingProject, "has_permission", return_value=True) as hp:
+            self.assertTrue(perm.has_object_permission(request, view, object()))
+        hp.assert_called_once_with(request, view)
 
 
 # ============================================================================

@@ -43,10 +43,32 @@ def test_a_4xx_answer_is_a_refusal(reply):
     assert _check(reply) is False
 
 
+# SEEK answers a wrong password as an anonymous caller: a 200 HTML page. That is a sign-in
+# problem the user must fix, not an outage to wait out, so it stays a refusal.
+@pytest.mark.parametrize("reply", [
+    (b"<html><body>Sign in</body></html>", 200, {"Content-Type": "text/html"}, None),
+    (b"not json", 200, {}, None),
+    (orjson.dumps({"data": None}), 200, {}, None),
+    (orjson.dumps({"data": {"id": "5", "attributes": {}}}), 200, {}, None),
+])
+def test_an_unreadable_200_is_a_refusal_not_an_outage(reply):
+    assert _check(reply) is False
+
+
+def test_object_permission_runs_the_same_check():
+    cache.clear()
+    request = APIRequestFactory().get("/x/")
+    request.user = mock.Mock(is_authenticated=True, pk=1)
+    client = mock.Mock()
+    client.get_current_person.return_value = (_person([str(PROJECT)]), 200, {}, None)
+    with mock.patch.object(svc, "SeekAPIClient", return_value=client), \
+            mock.patch.object(svc, "ASSISTANT_PARTICIPATING_PROJECTS", {str(PROJECT)}):
+        assert svc.UserInParticipatingProject().has_object_permission(request, None, object()) is True
+
+
 @pytest.mark.parametrize("kw", [
     dict(exc=TimeoutError("slow")), dict(exc=ConnectionError("down")),
     dict(reply=(b"<html>", 500, {}, None)), dict(reply=(b"", 502, {}, None)),
-    dict(reply=(b"not json", 200, {}, None)),
 ])
 def test_an_outage_raises_the_retryable_code_and_never_allows(kw):
     with pytest.raises(svc.SeekNotAnswering) as e:
