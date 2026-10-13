@@ -97,7 +97,12 @@ EXPECTED = {**{k: NS for k in MOVED_TO_NS}, **{k: EITHER for k in AMBIGUOUS},
 # A container_cc follow-up whose message the code guard would leave to the router:
 # followup_shape says "ns" and no earlier turn ran on Container-CC, so only the router's
 # judgement can deliver it. None today; listed so a new one has to be argued for.
-ROUTER_JUDGEMENT_CC: set[tuple[str, int]] = {("harmon.onto_offer_after_listing", 1)}  # 2026-10-13 harmo_onto: a Container-CC listing turn then an NS-shaped breakdown, asserted CC on purpose (operator: Container-CC offers the harmonization)
+ROUTER_JUDGEMENT_CC: set[tuple[str, int]] = {
+    ("harmon.onto_offer_after_listing", 1),  # 2026-10-13 harmo_onto: a Container-CC listing turn then an NS-shaped breakdown, asserted CC on purpose (operator: Container-CC offers the harmonization)
+    # 2026-10-13 harmo_onto review M1: "harmonize these genotype values" after an NS listing, the shape of
+    # prod turn 1315; the router sends it by the container_cc rule that a request to harmonize stored values is CC's.
+    ("harmon.onto_mouse_genotype_slide", 1),
+}
 
 OLD_PASTED = "route.turn_1_find_the_ndma_treated_mic"
 NEW_TWO_TURNS = "route.ndma_mice_then_female_two_turns"
