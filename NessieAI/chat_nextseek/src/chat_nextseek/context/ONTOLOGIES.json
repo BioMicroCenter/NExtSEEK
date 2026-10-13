@@ -64,8 +64,7 @@
    "title": "Units",
    "file": "ontology_units.json",
    "attributes": [
-    "*.*Units",
-    "*.*_Units"
+    "*.*Units"
    ],
    "source": "UO (Units of Measurement Ontology); house symbols",
    "version": "2026-10-13; uo 2026-07-31",
