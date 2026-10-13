@@ -603,7 +603,7 @@ def test_resolved_assay_map_keeps_the_smallest_internal_id_and_falls_back_to_the
     assert sources.resolved_assay_map() == {
         10: (50, "IA 50"),         # 1:N keeps the smallest internal id
         20: (60, None),            # an internal title is kept raw, None included
-        30: (None, ""),            # the fallback: the SEEK assay's title, "" for none
+        30: (None, ""),            # unmapped: the SEEK assay's title, "" for none (it labels nothing, #124)
         40: (None, "Seek Forty "),  # byte-exact, trailing space kept
         99: (70, "IA 70"),         # mapped although SEEK has no such assay row, as batch upload
     }

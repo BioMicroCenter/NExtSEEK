@@ -242,7 +242,7 @@ graph_sync labels every DERIVED_FROM edge between two Sample nodes with seven pr
 | Property | Holds |
 |---|---|
 | `assay_id` | the SEEK assay of the winning shared assay |
-| `internal_assay_id`, `internal_assay_title` | the winner: among the assays both endpoints share in `assay_assets`, resolved through `dmac.assays_internal_assays` to `dmac.internal_assays`, the smallest internal id; a SEEK assay with no mapping falls back to its own id and title |
+| `internal_assay_id`, `internal_assay_title` | the winner: among the assays both endpoints share in `assay_assets`, resolved through `dmac.assays_internal_assays` to `dmac.internal_assays`, the smallest internal id; a SEEK assay with no mapping contributes nothing (#124) |
 | `internal_assay_ids`, `internal_assay_titles` | the plural lists, beside the singular fields |
 | `protocol_id`, `protocol_title` | the child's stored `Protocol` value through the house three-format rule (`nextseek_api/batch_upload/helpers.py`), resolved to `sops`; a title that names several SOPs gives null |
 
@@ -401,9 +401,10 @@ with s in `seek_assay_ids`, and p gets `INPUT_TO` a with s in `seek_assay_ids`.
 - "Children that underwent X" (the child of an edge inside X) stays the edge test
   `r.internal_assay_title = $assay OR $assay IN coalesce(r.internal_assay_titles, [])`. "Samples that went into or
   came out of X", "which assays", "which studies ran X" and every type-level question read the Assay.
-- `internal_assay_id` and every entry of `internal_assay_ids` name an Assay id only when that entry's SEEK assay is
-  mapped; an unmapped entry holds the SEEK id and title, and a SEEK id can equal some Assay's id. A join from an edge
-  to an Assay therefore matches on id and title together. After an internal assay is renamed, the edge labels keep
+- `internal_assay_id` and every entry of `internal_assay_ids` name an Assay id: an unmapped SEEK assay puts nothing
+  on the edge (#124), and drift's `assays.edge_titles_not_internal` fails on any entry that is not an Assay id. Edges
+  written before #124 held an unmapped SEEK assay's own id and title (a SEEK id can equal some Assay's id), so a join
+  from an edge to an Assay on the id alone is right on a box only once its relabel has cleared them. After an internal assay is renamed, the edge labels keep
   the old title until the relabel reaches them (seconds after a rename saved in the admin; a rename writes without
   approval, v1.2 rule 4 as narrowed), so such joins can miss those edges in between; drift counts them.
 

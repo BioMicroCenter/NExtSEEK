@@ -667,8 +667,8 @@ def internal_assay_links() -> dict[int, tuple[int, str | None]]:
     """
     alias = settings.NEXTSEEK_DATABASE
     if not (table_exists(alias, "assays_internal_assays") and table_exists(alias, "internal_assays")):
-        logger.warning("assays_internal_assays or internal_assays is absent; every assay label "
-                       "falls back to its SEEK assay")
+        logger.warning("assays_internal_assays or internal_assays is absent; no DERIVED_FROM edge "
+                       "gets an assay label")
         return {}
     sql = ("SELECT ia.id, aia.assay_id, ia.internal_assay_title FROM assays_internal_assays aia "
            "JOIN internal_assays ia ON ia.id = aia.internal_assay_id "
@@ -685,10 +685,10 @@ def internal_assay_links() -> dict[int, tuple[int, str | None]]:
 def resolved_assay_map() -> dict[int, tuple[int | None, str | None]]:
     """SEEK assay id to `(internal assay id or None, title)`, the label rule's assay map.
 
-    Batch upload's former resolution (`build_derived_from_payloads_from_db`, step 3):
-    a mapped assay resolves to `internal_assay_links`' pair; every other SEEK assay falls back
-    to `(None, its own title or "")`, the label rule then using the SEEK assay id itself (R6).
-    An assay id mapped in dmac but absent from SEEK's `assays` keeps its mapping, as there.
+    A mapped assay resolves to `internal_assay_links`' pair; every other SEEK assay is
+    `(None, its own title or "")`. The label rule gives such an entry no label (#124); the
+    studies tool still uses its title for clone placeholders. An assay id mapped in dmac but
+    absent from SEEK's `assays` keeps its mapping, as batch upload's resolution did.
     """
     resolved: dict[int, tuple[int | None, str | None]] = {
         int(assay_id): (None, _text(title) or "")

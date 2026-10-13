@@ -277,8 +277,8 @@ SEEK's own UI reaches the graph at the next reconcile.
 ## DERIVED_FROM labels
 
 The labels are batch upload's rule, moved here and fed from MySQL: the SEEK assays both endpoints share, resolved
-through the internal-assay map with the smallest internal id winning and the SEEK assay as the fallback, and the
-child's `Protocol` resolved by the house three-format rule. All five assay properties and the protocol pair are
+through the internal-assay map with the smallest internal id winning (a SEEK assay with no internal mapping labels
+nothing, #124), and the child's `Protocol` resolved by the house three-format rule. All five assay properties and the protocol pair are
 written together, never a subset, and every edge graph_sync creates is labelled in the same run.
 
 What is written without the operator's approval is a **new** label (an edge whose three singular assay fields are

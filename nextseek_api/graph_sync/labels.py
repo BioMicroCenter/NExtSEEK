@@ -3,15 +3,17 @@
 Pure: no database, no Neo4j. The rule is batch upload's former `build_derived_from_payloads_from_db` Steps 1 to 3,
 and on data where the upload sheet says nothing MySQL does not, `edge_labels` returns what that function returned for
 the same edge (R5; pinned by `nextseek_api/tests/test_graph_sync_labels.py` against its frozen outputs,
-`nextseek_api/tests/fixtures/graph_sync_batch_upload_parity.json`):
+`nextseek_api/tests/fixtures/graph_sync_batch_upload_parity.json`), except where an edge shares an unmapped assay
+(#124, below):
 
 - **Assays.** The SEEK assays both endpoints share in `assay_assets`, each resolved through the map `sources` reads
   (SEEK assay id to `(internal assay id or None, title)`, the smallest internal id on 1:N). An assay with no internal
   mapping contributes nothing, as an assay the map lacks (an `assay_assets` row with no `assays` row) does: its SEEK
-  id and `assays.title` are never written as an internal assay's (#124, which retired batch upload's fallback, R6). The smallest internal id wins the singular fields;
-  on a tie, the smaller SEEK assay id (batch upload leaves that to set order). The plural lists hold every resolved
-  internal assay, sorted by id and de-duplicated, parallel, with `""` for a missing title because a Neo4j list
-  cannot hold a null; the singular title keeps its null, because consumers filter on `IS NOT NULL`.
+  id and `assays.title` are never written as an internal assay's (#124 retired batch upload's fallback, R6). The
+  smallest internal id wins the singular fields; on a tie, the smaller SEEK assay id (batch upload leaves that to set
+  order). The plural lists hold every resolved internal assay, sorted by id and de-duplicated, parallel, with `""`
+  for a missing title because a Neo4j list cannot hold a null; the singular title keeps its null, because consumers
+  filter on `IS NOT NULL`.
 - **Protocol.** The child's stored `Protocol` (or `protocol`) value, classified by the house three-format rule,
   `helpers.parse_protocol_value`, imported rather than copied (batch upload's CLAUDE.md: one definition). A local
   `/sops/<id>` keeps its id even when no `sops` row has it; a title resolves only when exactly one SOP holds it,
