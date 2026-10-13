@@ -35,6 +35,24 @@ def test_both_models_are_pinned():
     assert repos == {"BAAI/bge-small-en-v1.5", "sentence-transformers/all-MiniLM-L6-v2"}
 
 
+def _one_default(rel, pattern):
+    found = re.findall(pattern, (REPO_ROOT / rel).read_text(), re.MULTILINE)
+    assert len(found) == 1, f"{rel}: expected one default model name, found {found}"
+    return found[0]
+
+
+def test_every_model_the_code_defaults_to_is_pinned():
+    """A default changed in code without a manifest would pass CI and the build, then fail at run time."""
+    defaults = {
+        _one_default("NessieAI/chat_nextseek/src/chat_nextseek/helpers/tools/catalog_semantic.py",
+                     r'^DEFAULT_MODEL = "([^"]+)"'),
+        _one_default("NessieAI/chat_nextseek/src/chat_nextseek/config.py", r'"SEMANTIC_MODEL_NAME", "([^"]+)"'),
+        _one_default("dmac/settings.py", r'^SCHEMA_RAG_EMBEDDING_MODEL_NAME = "([^"]+)"'),
+    }
+    pinned = {json.loads(p.read_text())["repo_id"] for p in MANIFESTS}
+    assert defaults <= pinned, f"no manifest in docker/models/ for {sorted(defaults - pinned)}"
+
+
 @pytest.mark.parametrize("path", MANIFESTS, ids=lambda p: p.name)
 def test_a_manifest_pins_a_commit_and_a_hash_per_file(path):
     manifest = json.loads(path.read_text())
