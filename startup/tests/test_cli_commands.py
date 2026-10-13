@@ -2129,6 +2129,25 @@ def test_reset_without_keep_config_carries_only_the_host_keys(
 
 
 @patch("startup.lib.docker_ops.compose_down")
+def test_reset_keep_config_refuses_a_dollar_before_dropping_the_volumes(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch
+) -> None:
+    """The re-install would refuse the kept value, so reset must refuse it first,
+    while the stack and its volumes are still there."""
+    _real_config(repo, monkeypatch)
+    _saved_state(repo)
+    (repo / "docker" / "db.env").write_text('MYSQL_ROOT_PASSWORD="ab$cd"\n')
+
+    result = runner.invoke(cli.app, ["reset", "--yes", "--keep-config"])
+
+    assert result.exit_code == 2
+    assert "MYSQL_ROOT_PASSWORD" in " ".join(result.output.split())
+    assert "ab$cd" not in result.output
+    mock_down.assert_not_called()
+    assert load_instance(repo) is not None
+
+
+@patch("startup.lib.docker_ops.compose_down")
 def test_reset_keep_config_keeps_every_value(
     mock_down: MagicMock, repo: Path, steps, monkeypatch
 ) -> None:

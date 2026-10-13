@@ -589,6 +589,14 @@ def reset(
         ui.fail("no instance to reset — startup/.instance.json missing")
         raise typer.Exit(code=1)
 
+    if keep_config:
+        # The re-install would refuse it after the volumes are gone: refuse it now.
+        try:
+            config.kept_values(REPO_ROOT)
+        except config.UnsafeKeptValue as exc:
+            ui.fail(str(exc))
+            raise typer.Exit(code=2)
+
     if not yes:
         ui.warn(f"This will DROP all data for instance '{state.name}' (volumes: {state.prefix}*)")
         typer.confirm("Continue?", abort=True)
