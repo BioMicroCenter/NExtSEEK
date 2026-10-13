@@ -88,13 +88,16 @@ STAYS_CC = (
     ("artifact.export_full_list_excel", 1),         # an export
     ("artifact.csv_of_cc_mice_with_transcriptomics", 1),  # a CSV file
 )
+# 2026-10-13 harmo_onto: later turns of the two multi-turn harmonization cases that assert container_cc
+# on purpose (the user asks Container-CC to harmonize). Not part of the 2026-09-24 split table.
+HARMO_CC = {("harmon.onto_mouse_genotype_slide", 1), ("harmon.onto_offer_after_listing", 1)}
 EXPECTED = {**{k: NS for k in MOVED_TO_NS}, **{k: EITHER for k in AMBIGUOUS},
             **{k: CC for k in STAYS_CC}}
 
 # A container_cc follow-up whose message the code guard would leave to the router:
 # followup_shape says "ns" and no earlier turn ran on Container-CC, so only the router's
 # judgement can deliver it. None today; listed so a new one has to be argued for.
-ROUTER_JUDGEMENT_CC: set[tuple[str, int]] = set()
+ROUTER_JUDGEMENT_CC: set[tuple[str, int]] = {("harmon.onto_offer_after_listing", 1)}  # 2026-10-13 harmo_onto: a Container-CC listing turn then an NS-shaped breakdown, asserted CC on purpose (operator: Container-CC offers the harmonization)
 
 OLD_PASTED = "route.turn_1_find_the_ndma_treated_mic"
 NEW_TWO_TURNS = "route.ndma_mice_then_female_two_turns"
@@ -135,7 +138,7 @@ def test_no_other_later_turn_asserts_container_cc():
     """Every active later turn that asserts container_cc is one of the seven kept on it."""
     later_cc = {(v["id"], i) for v in _active_multi_turn()
                 for i, t in enumerate(v["turns"]) if i and CC in _route_rules(t)}
-    assert later_cc == set(STAYS_CC)
+    assert later_cc == set(STAYS_CC) | HARMO_CC  # 2026-10-13 harmo_onto adds two
 
 
 def test_every_seed_of_the_forty_still_asserts_nextseek_query():

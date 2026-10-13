@@ -888,7 +888,8 @@ def test_it_is_still_the_only_multi_turn_variant_in_a_floored_family():
     multi = [v.id for v in corpus.merged(corpus_json)
              if v.family in floors and len(v.turns) > 1]
 
-    assert multi == ["tree.then_ask_about"]
+    assert multi == ["tree.then_ask_about", "harmon.onto_mouse_genotype_slide",
+                     "harmon.onto_offer_after_listing"]  # 2026-10-13 harmo_onto: two multi-turn harmonization cases
     assert corpus.variant_meta(corpus_json)["retrieve.then_inspect"]["status"] == "retired"
 
 
