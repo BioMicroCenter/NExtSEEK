@@ -3838,7 +3838,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(122|123)\\b"
+                  "value": "\\b(122|123|124)\\b"
                 },
                 {
                   "field": "last_reply",
@@ -7079,7 +7079,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(390|1,?826|2,?711|2,?715)\\b"
+                  "value": "\\b(390|1,?826|2,?711|2,?906)\\b"
                 },
                 {
                   "field": "last_reply",
@@ -15040,7 +15040,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b23,?218\\b"
+                  "value": "\\b23,?485\\b"
                 },
                 {
                   "field": "last_reply",
@@ -16246,7 +16246,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b725\\b"
+                  "value": "\\b754\\b"
                 },
                 {
                   "field": "parser_plan.mode",

@@ -58,3 +58,11 @@ def test_refine_recall_is_retired_with_a_reason_and_not_active():
     rec = next(r for r in ret if r["id"] == "green.refine_recall")
     assert rec["status"] == "retired" and rec["retirement"]["reason"]
     assert _case("green.refine_recall") is None or _case("green.refine_recall")["status"] == "retired"
+
+
+def test_prod_read_2026_10_13_pins():
+    assert _passes("cat.people_versus_scientists", "124 people and 216 scientists") is True
+    assert not _passes("cat.people_versus_scientists", "130 people and 216 scientists")
+    assert _passes("harmon.organ_lung_case_split", "23,485 Lung samples: Lung, lung and LUNG")
+    assert not _passes("harmon.organ_lung_case_split", "23,218 Lung and lung samples")
+    assert _passes(PBMC, "2,906 tissue samples (TIS) mention PBMC or peripheral blood mononuclear cells.")
