@@ -811,8 +811,10 @@ def container_titles_for(names, rows, titles_by_level) -> dict[str, tuple[str, s
         matched = [row for row in rows or () if isinstance(row, dict) and key in row_names(row)]
         projects = [row for row in matched if not is_investigation(row)]
         if projects:
+            # An investigation titled with the name itself is the fallback when this box has no such project.
             attempts = [("project", {key}, True),
-                        ("project", set().union(*(row_names(r) for r in projects)), True)]
+                        ("project", set().union(*(row_names(r) for r in projects)), True),
+                        ("investigation", {key}, True)]
         elif matched:
             own_names = {key} | folded(r.get("name") for r in matched)
             aliases = set().union(*(row_names(r) for r in matched))
