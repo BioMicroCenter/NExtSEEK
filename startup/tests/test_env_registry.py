@@ -81,3 +81,18 @@ def test_the_loader_refuses_a_bad_entry(tmp_path: Path, text: str, message: str)
 def test_a_secret_may_carry_a_placeholder_default(tmp_path: Path) -> None:
     entries = load(_write(tmp_path, '[K]\nfiles = ["nextseek.env"]\nsecret = true\ndefault = "SET_IN_LOCAL_ENV"\n'))
     assert entries["K"].default == "SET_IN_LOCAL_ENV"
+
+
+def test_docs_table_never_prints_a_secrets_default(tmp_path: Path) -> None:
+    path = _write(tmp_path, '[A_PASSWORD]\nfiles = ["db.env"]\nsecret = true\ndefault = "SET_IN_LOCAL_ENV"\n'
+                            '[B_FLAG]\nfiles = ["db.env"]\ndefault = "a|b"\ndoc = "x"\n')
+    table = env_registry.render_docs_table(load(path))
+    assert "SET_IN_LOCAL_ENV" not in table
+    assert "| `A_PASSWORD` | db.env | secret |" in table
+    assert "a\\|b" in table  # a pipe in a default must not split the cell
+
+
+def test_docs_table_marks_the_block_text_between_its_markers() -> None:
+    block = env_registry.render_docs_block(load(REGISTRY_PATH))
+    assert block.startswith(env_registry.BEGIN) and block.rstrip().endswith(env_registry.END)
+    assert block.count("\n| `") == len(load(REGISTRY_PATH))

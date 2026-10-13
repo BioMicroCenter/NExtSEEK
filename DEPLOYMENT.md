@@ -695,10 +695,239 @@ Five gitignored files, all rendered by a first `./startup.sh install` (and by
 | File | Rendered from | Holds |
 |---|---|---|
 | `docker/db.env` | `startup/templates/db.env.template` | MySQL root + app credentials |
-| `docker/nextseek.env` | `startup/templates/nextseek.env.template` | Django secret, Neo4j password, SEEK URL, LLM keys (`GCP_API_KEY`, `AWS_BEARER_TOKEN_BEDROCK`, `FDH_API`); `NEXTSEEK_SERVER` + CC knobs are **hand-added** (not in the template; a re-install keeps them, `reset` without `--keep-config` drops them, §2.4) |
+| `docker/nextseek.env` | `startup/templates/nextseek.env.template` | Django secret, Neo4j password, SEEK URL, LLM keys (`GCP_API_KEY`, `AWS_BEARER_TOKEN_BEDROCK`, `FDH_API`); `NEXTSEEK_SERVER` + CC knobs are **hand-added** (not in the template; a re-install keeps them, `reset` without `--keep-config` drops them, §2.4); every key is in the table below |
 | `dmac/local_settings.py` | `startup/templates/local_settings.py.template` | Django settings overlay (PROD ChatConfig block, etc.); install never overwrites an existing one and writes `local_settings.py.new` beside it |
 | `NessieAI/docker/bedrock-proxy/proxy-secret.env` | rendered programmatically (0600) | `AWS_BEARER_TOKEN_BEDROCK` + `AWS_REGION` **for the proxy** |
 | `.env` (repo root) | rendered (0600) | compose interpolation: `COMPOSE_PROJECT_NAME`, ports, `INSTANCE_PREFIX`, and `NEO4J_PASSWORD`, without which compose refuses every verb (see `.env.example`) |
+
+Every env var and Django setting the runtime reads, generated from `startup/env_registry.toml` (do not edit by
+hand; regenerate with `uv run --project startup python -m startup.lib.env_registry --write` from the repo root, and
+`./startup.sh doctor` warns when a rendered file disagrees with it). `files` says where a value goes: a
+rendered env file, `local_settings` (a Django setting, not env), `image` (Dockerfile, compose or the
+entrypoint) or `internal` (set by code, never by an operator). Secrets show no default.
+
+<!-- ENV-REGISTRY:BEGIN (generated: uv run --project startup python -m startup.lib.env_registry --write) -->
+
+| Key | Files | Default | Required | Alias of | What it does |
+|---|---|---|---|---|---|
+| `MYSQL_HOST` | db.env |  | yes |  | MySQL host, the db container's name. |
+| `MYSQL_ROOT_PASSWORD` | db.env | secret | yes |  | MySQL root password. Install renders the public demo value; rotate it on any exposed box. |
+| `MYSQL_DATABASE` | db.env |  | yes |  | SEEK's database name. |
+| `NEXTSEEK_MYSQL_DATABASE` | db.env |  | yes |  | NExtSEEK's own database name. |
+| `MYSQL_USER` | db.env |  | yes |  | Application user for NExtSEEK and SEEK. |
+| `MYSQL_PASSWORD` | db.env | secret | yes |  | Application user's password. Install renders the public demo value; rotate it on any exposed box. |
+| `SEEK_HOST` | nextseek.env |  | yes |  | SEEK container name; switches on the SEEK settings in dmac/settings.py. |
+| `SEEK_HOSTNAME` | nextseek.env |  | yes |  | Internal SEEK base URL, http://seek:3000. |
+| `SEEK_PUBLIC_URL` | nextseek.env | "" |  |  | Browser-reachable SEEK base URL for links. Install keeps a hand-set value. |
+| `NEXTSEEK_HOSTNAME` | nextseek.env |  | yes |  | NExtSEEK host and published port; NEXTSEEK_BASE_URL derives from it. |
+| `NEXTSEEK_NEO4J_PASSWORD` | nextseek.env | secret | yes |  | Neo4j password the app uses. Must match NEO4J_PASSWORD in the root .env. |
+| `NEXTSEEK_NEO4J_HOST` | nextseek.env |  | yes |  | Neo4j container name; switches on the graph settings. |
+| `DJANGO_SECRET_KEY` | nextseek.env | secret | yes |  | Django signing key. Install generates a new one. |
+| `DJANGO_ALLOWED_HOSTS` | nextseek.env | "" | yes |  | Space-separated Django allowed hosts. Install keeps a hand-set value. |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | nextseek.env | "" | yes |  | Space-separated trusted origins. Install keeps a hand-set value and adds its port's loopback pair. |
+| `NEXTSEEK_BASE_URL` | nextseek.env, internal |  |  |  | Public NExtSEEK base URL, derived from NEXTSEEK_HOSTNAME. cc_engine hands the agent its own copy. |
+| `NEXTSEEK_INTERNAL_BASE_URL` | nextseek.env |  |  |  | Container-internal URL for chat_nextseek's REST self-calls; preferred over NEXTSEEK_BASE_URL. |
+| `LOG_DIR` | nextseek.env | /app/logs |  |  | Log folder inside the app container. |
+| `NEXTSEEK_OUTPUTS_DIR` | nextseek.env |  |  |  | Per-turn output folder inside the app container. |
+| `CATALOG_FILE` | nextseek.env |  |  |  | The agent model catalog Nessie loads; must point under /app/NessieAI/chat_nextseek/ on a box. |
+| `NEXTSEEK_POSTERIOR_ROUTING_ENABLED` | nextseek.env |  |  |  | Posterior routing switch; off unless 1, true or yes. |
+| `NESSIE_LAYA_SHADOW` | nextseek.env | 0 |  |  | Log laya's route next to the BAML router's without routing on it. |
+| `NESSIE_LAYA_LIVE` | nextseek.env | "" |  |  | Route on laya when it equals the calibrated revision; empty is off. |
+| `LAYA_API_KEY` | nextseek.env, laya.env | secret |  |  | Shared key between the app and the laya sidecar. |
+| `GCP_API_KEY` | nextseek.env | secret |  |  | Gemini API key. |
+| `AWS_BEARER_TOKEN_BEDROCK` | nextseek.env, proxy-secret.env | secret |  |  | Bedrock bearer token, for the app and for the Container-CC proxy. |
+| `FDH_API` | nextseek.env | secret |  |  | FAIRDOMHub API token for protocol downloads. |
+| `NEXTSEEK_CC_MAX_BUDGET_USD` | nextseek.env | 0.50 |  |  | Per-turn spend cap for a Container-CC turn; 0 disables it. A security control. |
+| `NEXTSEEK_CC_TIMEOUT_HARD_MAX` | nextseek.env | 180 |  |  | Hard ceiling in seconds on one Container-CC turn. |
+| `SESSION_DB_TYPE` | nextseek.env | sqlite |  |  | chat_nextseek session store, mysql or sqlite. |
+| `SESSION_DB_HOST` | nextseek.env |  |  |  | chat_nextseek session store host; the template interpolates MYSQL_HOST. |
+| `SESSION_DB_USER` | nextseek.env |  |  |  | chat_nextseek session store user; the template interpolates MYSQL_USER. |
+| `SESSION_DB_PASSWORD` | nextseek.env | secret |  | `MYSQL_PASSWORD` | chat_nextseek session store password; the template interpolates MYSQL_PASSWORD. |
+| `SESSION_DB_NAME` | nextseek.env |  |  |  | chat_nextseek session store database; the template interpolates NEXTSEEK_MYSQL_DATABASE. |
+| `MYSQL_HOST_PROD` | nextseek.env |  |  |  | ChatConfig's prod-mode MySQL host; install writes the local value. |
+| `MYSQL_PROD_PASSWORD` | nextseek.env | secret |  |  | ChatConfig's prod-mode MySQL password; install writes the local value. Chosen by mode, not an alias. |
+| `MYSQL_HOST_DEV` | nextseek.env |  |  |  | ChatConfig's dev-mode MySQL host; install writes the local value. |
+| `MYSQL_DEV_PASSWORD` | nextseek.env | secret |  |  | ChatConfig's dev-mode MySQL password; install writes the local value. Chosen by mode, not an alias. |
+| `NEO4J_URI` | nextseek.env | bolt://localhost:7687 |  |  | Neo4j URI for chat_nextseek; the same server as NEXTSEEK_NEO4J_HOST in another shape. |
+| `NEO4J_USER` | nextseek.env | neo4j |  |  | Neo4j user for chat_nextseek. |
+| `NEO4J_PASSWORD` | nextseek.env, root.env | secret | yes | `NEXTSEEK_NEO4J_PASSWORD` | Neo4j password: chat_nextseek's copy in nextseek.env, and compose's seed for a new neo4j-data volume in the root .env. |
+| `NEXTSEEK_GRAPH_SYNC_STUDY_LINKS` | nextseek.env |  |  |  | graph_sync: follow also removes IN_STUDY links SEEK no longer holds. Set only after the box's study merge. |
+| `NEO4J_TIMEOUT_SECONDS` | nextseek.env | 5 |  |  | Seconds the sample download's lineage lookup may run before falling back to Parent. |
+| `DJANGO_DEBUG` | nextseek.env |  |  |  | Django debug mode; on only for 1, true or yes. |
+| `DJANGO_SESSION_COOKIE_DOMAIN` | nextseek.env |  |  |  | Session cookie domain; unset on a local install. |
+| `FAIRDATA_SOP_HOSTS` | nextseek.env |  |  |  | Space-separated hosts whose SOP links the app may fetch. The code default names one host. |
+| `PROJECT_CONNECTIONS_CACHE_SECONDS` | nextseek.env | 3600 |  |  | Cache lifetime in seconds for project connections. |
+| `NESSIE_VOCAB_PRERUN` | nextseek.env | on |  |  | Nessie: run the vocabulary step before routing, on or off. |
+| `NESSIE_PARSER_START` | nextseek.env | after_route |  |  | Nessie: when the parser starts relative to the router. |
+| `NEXTSEEK_CC_OPS_ROAD` | nextseek.env, internal | "" |  |  | Container-CC op road, direct or sidecar; cc_engine hands it to the agent. |
+| `GS_RUN_DIR` | nextseek.env |  |  |  | graph_sync run directories; unset means graph_sync under the log folder. |
+| `NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES` | nextseek.env | "" |  |  | graph_sync loop: label-change handling switch. |
+| `SEEK_CONTAINER_NAME` | nextseek.env |  |  |  | SEEK container the rails runner execs into; the code default is the unprefixed name. |
+| `SEEK_RAILS_RUNNER_TIMEOUT` | nextseek.env |  |  |  | Seconds a SEEK rails runner call may take. |
+| `ATTRIBUTE_MUTATION_AFFECTED_ROW_THRESHOLD` | nextseek.env | 5000 |  |  | Rows above which an attribute change runs as a background job. |
+| `ATTRIBUTE_MUTATION_IN_JOB_PARALLELISM` | nextseek.env | 1 |  |  | Parallelism inside one attribute mutation job. |
+| `ASSAY_REGISTRATION_SYNC_ROW_THRESHOLD` | nextseek.env | 5000 |  |  | Rows above which an assay registration runs as a background job. |
+| `ATTRIBUTE_MUTATION_OUTBOX_BATCH_SIZE` | nextseek.env | 50 |  |  | Attribute job outbox batch size. |
+| `ATTRIBUTE_MUTATION_OUTBOX_IDLE_SECONDS` | nextseek.env | 0.5 |  |  | Attribute job outbox idle wait in seconds. |
+| `ATTRIBUTE_WORKER_TELEMETRY_RESULTS` | nextseek.env |  |  |  | Turns on attribute worker telemetry results (dmac/attribute_performance_settings.py). |
+| `BATCH_UPLOAD_MAX_TOTAL_BYTES` | nextseek.env |  |  |  | Largest batch upload in bytes; the code default is 200 MB. |
+| `BATCH_UPLOAD_MAX_ROWS` | nextseek.env |  |  |  | Rows per batch-upload batch. |
+| `BATCH_UPLOAD_MEM_LIMIT_MB` | nextseek.env |  |  |  | Memory limit in MB for one batch upload; unset is none. |
+| `BATCH_UPLOAD_UPDATE_EXISTING` | nextseek.env |  |  |  | Batch upload updates rows that already exist. |
+| `ENABLE_AUTO_PERMISSIONS` | nextseek.env |  |  |  | Batch upload sets SEEK permissions on what it creates. |
+| `PERMISSIONS_DEFAULT_ACCESS_TYPE` | nextseek.env |  |  |  | Batch upload's default SEEK access type. |
+| `PERMISSIONS_DEFAULT_CONTRIBUTOR_TYPE` | nextseek.env |  |  |  | Batch upload's default SEEK contributor type. |
+| `ASSAY_CACHE_MAX` | nextseek.env |  |  |  | Batch upload assay cache size. |
+| `TITLE_TO_ID_CACHE_MAX` | nextseek.env |  |  |  | Batch upload title-to-id cache size. |
+| `ATTRIBUTE_CACHE_MAX` | nextseek.env |  |  |  | Batch upload attribute cache size. |
+| `NEO4J_NODE_CHUNK` | nextseek.env | 10000 |  |  | Batch upload Neo4j node write chunk. |
+| `NEO4J_REL_CHUNK` | nextseek.env | 20000 |  |  | Batch upload Neo4j relationship write chunk. |
+| `BATCH_TASK_SOFT_LIMIT` | nextseek.env | 7200 |  |  | Celery soft time limit in seconds for a batch task. |
+| `BATCH_TASK_HARD_LIMIT` | nextseek.env | 7800 |  |  | Celery hard time limit in seconds for a batch task. |
+| `CELERY_BROKER_URL` | nextseek.env, internal | sqla+sqlite:////var/celery/broker.sqlite |  |  | Batch upload Celery broker; the entrypoint sets its own for the attribute workers. |
+| `CELERY_RESULT_BACKEND` | nextseek.env | db+sqlite:////var/celery/results.sqlite |  |  | Batch upload Celery result backend. |
+| `NEXTSEEK_MODE` | nextseek.env |  |  |  | ChatConfig model mode; unset or invalid falls back. |
+| `NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS` | nextseek.env | "" |  |  | Comma-separated umbrella projects treated as published. |
+| `CHAT_NEXTSEEK_CONFIG_VERBOSE` | nextseek.env |  |  |  | ChatConfig prints where each value came from. |
+| `CHAT_NEXTSEEK_CONFIG_SOURCE_ENV_NAMES` | nextseek.env |  |  |  | JSON map of config value to env name, for the config report. |
+| `XDG_STATE_HOME` | nextseek.env | ~/.local/state |  |  | Standard XDG state folder; chat_nextseek's fallback log, output and session paths sit under it. |
+| `PROMPTS_DIR` | nextseek.env |  |  |  | chat_nextseek prompts folder; defaults beside the package. |
+| `CONTEXT_DIR` | nextseek.env |  |  |  | chat_nextseek context folder; defaults beside the package. |
+| `NESSIE_DOCS_DIR` | nextseek.env |  |  |  | User docs folder Nessie reads; defaults to themes/NextSeek/docs. |
+| `SEQ_TEMPLATE_PATH` | nextseek.env |  |  |  | GEO submission template workbook. |
+| `AGENT_MODEL_CATALOG` | nextseek.env |  |  |  | Inline JSON agent model catalog; wins over CATALOG_FILE when set. |
+| `SESSION_DB_PATH` | nextseek.env |  |  |  | chat_nextseek SQLite session store path when SESSION_DB_TYPE is sqlite. |
+| `SESSION_DB_PORT` | nextseek.env | 3306 |  |  | chat_nextseek session store port. |
+| `MYSQL_PORT` | nextseek.env |  |  |  | ChatConfig's MySQL port. |
+| `NEO4J_DATABASE` | nextseek.env | neo4j |  |  | Neo4j database name for chat_nextseek. |
+| `ANTHROPIC_API_KEY` | nextseek.env | secret |  |  | Anthropic API key, for an anthropic model mode. |
+| `OPENAI_API_KEY` | nextseek.env | secret |  |  | OpenAI API key, for an openai model mode. |
+| `OPENAI_BASE_URL` | nextseek.env |  |  |  | OpenAI-compatible base URL. |
+| `OPENAI_API_BASE` | nextseek.env |  |  |  | Older name of OPENAI_BASE_URL, read as a fallback. |
+| `AWS_REGION` | nextseek.env, proxy-secret.env, internal | us-east-1 |  |  | Bedrock region: the app's calls, the proxy's upstream host, and the agent's copy. |
+| `AWS_DEFAULT_REGION` | nextseek.env |  |  |  | Fallback for AWS_REGION. |
+| `GCP_LLM_MODEL` | nextseek.env |  |  |  | Gemini model override for a gcp model mode. |
+| `ANTH_LLM_MODEL` | nextseek.env |  |  |  | Anthropic model override for an anthropic model mode. |
+| `BEDROCK_LLM_MODEL` | nextseek.env |  |  |  | Bedrock model override for a bedrock model mode. |
+| `NEXTSEEK_LLM_MODEL` | nextseek.env | gpt-5.2 |  |  | Model for the openai model mode. |
+| `NEXTSEEK_LLM_LOG` | nextseek.env |  |  |  | Also append every LLM prompt and reply to this file. |
+| `API_USER` | nextseek.env, internal | "" |  |  | chat_nextseek's REST user; cc_engine hands the agent the turn's user under this name. |
+| `API_PASS` | nextseek.env | secret |  |  | chat_nextseek's REST password. |
+| `SEMANTIC_SHORTLIST_ENABLED` | nextseek.env |  |  |  | Semantic catalog shortlist for sample types and assays; off by default. |
+| `SEMANTIC_ENDPOINTS_ENABLED` | nextseek.env |  |  |  | Semantic shortlist for the parser's API endpoints; off by default. |
+| `SEMANTIC_MODEL_NAME` | nextseek.env | sentence-transformers/all-MiniLM-L6-v2 |  |  | Sentence-transformers model for the semantic shortlist. |
+| `SEMANTIC_RATIO` | nextseek.env | 0.7 |  |  | Semantic shortlist: keep items scoring at least this share of the top score. |
+| `SEMANTIC_MIN_K` | nextseek.env | 10 |  |  | Semantic shortlist: always keep at least this many items. |
+| `SEMANTIC_MAX_K` | nextseek.env | 80 |  |  | Semantic shortlist: never keep more than this many items. |
+| `PIPELINE_LAUNCH_MODE` | nextseek.env |  |  |  | Where nf-core pipelines launch, luria or tower. |
+| `LURIAKEY` | nextseek.env, root.env | /dev/null |  |  | Path of the Luria SSH key file; compose mounts it at the same path. A path, not the key. |
+| `LURIA_USER` | nextseek.env |  |  |  | Luria cluster user. |
+| `LURIA_WORKING_PATH` | nextseek.env |  |  |  | Luria cluster working folder. |
+| `LURIA_CONDA_ENV` | nextseek.env |  |  |  | Conda environment a Luria run script activates. |
+| `LURIA_MAIL_USER` | nextseek.env |  |  |  | Mail recipient for Luria job notices. |
+| `SEQERA_AUTO_LAUNCH` | nextseek.env |  |  |  | Launch a Seqera pipeline without a confirmation. |
+| `TOWER_ACCESS_TOKEN` | nextseek.env | secret |  |  | Seqera Platform (Tower) access token. |
+| `TOWER_WORKSPACE_ID` | nextseek.env |  |  |  | Seqera Platform workspace id. |
+| `TOWER_API_ENDPOINT` | nextseek.env |  |  |  | Seqera Platform API endpoint. |
+| `SEQERA_COMPUTE_ENV` | nextseek.env |  |  |  | Seqera compute environment. |
+| `SEQERA_WORK_BUCKET` | nextseek.env |  |  |  | Seqera work bucket. |
+| `SEQERA_PIPELINE_REVISIONS_JSON` | nextseek.env |  |  |  | JSON map of pipeline to pinned revision for Seqera launches. |
+| `SEQERA_DEFAULT_PROFILE` | nextseek.env |  |  |  | Default Nextflow profile for Seqera launches. |
+| `SEQERA_INPUT_DIR` | nextseek.env |  |  |  | Input folder for Seqera launches. |
+| `NEXTSEEK_EVALUATOR_MODE` | nextseek.env |  |  |  | Model mode for the chat_nextseek evaluator. |
+| `NEXTSEEK_PROD_URL` | nextseek.env |  |  |  | Evaluator: the prod NExtSEEK URL it compares against. |
+| `API_PASS_PROD` | nextseek.env | secret |  |  | Evaluator: the prod REST password. |
+| `NEO4J_PASSWORD_PROD` | nextseek.env | secret |  |  | Evaluator: the prod Neo4j password. |
+| `NEO4J_PASSSWORD_PROD` | nextseek.env | secret |  |  | Known misspelling (three S) of NEO4J_PASSWORD_PROD, read as spelt by the evaluator and the Nessie CLI; declared as is by ruling. |
+| `CHAT_NEXTSEEK_GRAPH_ADMIN` | nextseek.env |  |  |  | Operator opt-in, exactly 1, for unscoped graph reads in the evaluator; no served process reads it. |
+| `NESSIE_FOLLOWUP_ROUTING` | nextseek.env |  |  |  | How the router treats a follow-up (NessieAI/router/followup.py). |
+| `NEXTSEEK_CC_IMAGE` | nextseek.env | dmac-assistant:poc |  |  | Image a Container-CC turn runs in. |
+| `NEXTSEEK_CC_NETWORK` | nextseek.env | dmac-cc-net |  |  | Docker network a Container-CC turn joins. |
+| `DMAC_BEDROCK_PROXY_URL` | nextseek.env | http://bedrock-proxy:8080 |  |  | Bedrock proxy URL the agent calls. |
+| `NEXTSEEK_CC_MAX_TURNS` | nextseek.env | 50 |  |  | Most agent turns in one Container-CC turn. |
+| `NEXTSEEK_CC_TIMEOUT_SECONDS` | nextseek.env |  |  |  | Default length in seconds of one Container-CC turn. |
+| `NEXTSEEK_CC_MEM_LIMIT` | nextseek.env | 4g |  |  | Memory limit of the agent container. |
+| `NEXTSEEK_CC_NANO_CPUS` | nextseek.env |  |  |  | CPU limit of the agent container, in nano CPUs. |
+| `NEXTSEEK_CC_PIDS_LIMIT` | nextseek.env | 512 |  |  | Process limit of the agent container. |
+| `NEXTSEEK_CC_FSIZE_BYTES` | nextseek.env |  |  |  | Largest file the agent may write, in bytes; the code default is 10 GiB. |
+| `NEXTSEEK_CC_MAX_RETRIES` | nextseek.env |  |  |  | Claude Code request retries inside a turn. |
+| `NEXTSEEK_CC_API_TIMEOUT_MS` | nextseek.env |  |  |  | Claude Code request timeout in milliseconds. |
+| `NEXTSEEK_CC_DEFAULT_SONNET_MODEL` | nextseek.env |  |  |  | Classifier model id Claude Code uses; must be one the proxy allows. |
+| `NEXTSEEK_SIDECAR_HOST` | nextseek.env, internal | nextseek-sidecar |  |  | Sidecar host for the sidecar op road; cc_engine hands it to the agent. |
+| `NEXTSEEK_SIDECAR_PORT` | nextseek.env, internal | 8765 |  |  | Sidecar port for the sidecar op road; cc_engine hands it to the agent. |
+| `NEXTSEEK_URL` | nextseek.env, internal |  |  |  | Last fallback for the NExtSEEK URL; cc_engine hands the agent the URL under this name. |
+| `DMAC_USER_ROOT_MOUNT` | nextseek.env |  |  |  | Mount point of the Container-CC users volume inside the app container. |
+| `DMAC_CC_MEMORY_WINDOW` | nextseek.env | 10 |  |  | Container-CC memory: turns kept in the window. |
+| `DMAC_CC_MEMORY_MAX_ITEMS` | nextseek.env | 8 |  |  | Container-CC memory: most items kept. |
+| `DMAC_CC_MEMORY_TRUNCATE_CHARS` | nextseek.env | 500 |  |  | Container-CC memory: characters kept per item. |
+| `DMAC_CC_MEMORY_SWEEP_IDLE_SECONDS` | nextseek.env | 900 |  |  | Container-CC memory: idle seconds before a sweep. |
+| `DMAC_CC_MEMORY_SUMMARY_MODEL` | nextseek.env | gemini-flash |  |  | Container-CC memory: summary model. |
+| `STEP7_LLM_LEDGER` | nextseek.env |  |  |  | Container-CC: write the per-call LLM cost ledger when 1. |
+| `DJANGO_BASE_DIR` | nextseek.env | /app |  |  | App root the LLM cost ledger writes under. |
+| `NESSIE_TESTQUESTIONS_DIR` | nextseek.env | testquestions-2026-08-07 |  |  | Folder of the paired-evidence test questions archive. |
+| `NEXTSEEK_EVAL_PARSER_FORCE` | nextseek.env |  |  |  | Eval opt-in, 1, that lets a superuser force the parser. |
+| `DMAC_USERS` | nextseek.env | secret |  |  | dmac_assistant bridge users as JSON, each with a password. |
+| `DMAC_BRIDGE_HOST` | nextseek.env | 127.0.0.1 |  |  | dmac_assistant bridge listen host. |
+| `DMAC_BRIDGE_PORT` | nextseek.env | 8000 |  |  | dmac_assistant bridge listen port. |
+| `DMAC_SIDECAR_NETWORK` | nextseek.env |  |  |  | dmac_assistant bridge: docker network of the sidecar. |
+| `DMAC_DEV_MODE` | nextseek.env | "" |  |  | dmac_assistant bridge dev mode; on only for a true value. |
+| `DMAC_ROUTE_CAPABILITIES_FILE` | internal |  |  |  | Override of the route capabilities file. On a box it beats the package default and routing drops to the heuristic. Must not be set. |
+| `DMAC_ROUTER_MODEL_CLASS_MAP_FILE` | internal |  |  |  | Override of the router model class map. On a box every CC turn loses its model id. Must not be set. |
+| `COMPOSE_PROJECT_NAME` | root.env | nextseek |  |  | Compose project name; install writes it per instance. |
+| `INSTANCE_PREFIX` | root.env | "" |  |  | Prefix for container and volume names of a second instance; install writes it. |
+| `NEXTSEEK_PORT` | root.env | 8000 |  |  | Host port of the published nginx; install writes it. |
+| `SEEK_PORT` | root.env | 3000 |  |  | Host port of SEEK; install writes it. |
+| `DB_PORT` | root.env | 3306 |  |  | Host port of MySQL; install writes it. |
+| `NEO4J_HTTP_PORT` | root.env | 7474 |  |  | Host port of the Neo4j browser; install writes it. |
+| `NEO4J_BOLT_PORT` | root.env | 7687 |  |  | Host port of Neo4j bolt; install writes it. |
+| `NEXTSEEK_MEMORY` | root.env | 16G |  |  | Memory cap of the app container. |
+| `SEEK_MEMORY` | root.env | 4G |  |  | Memory cap of SEEK. |
+| `SEEK_PUMA_WORKERS` | root.env | 4 |  |  | SEEK puma workers. Set with SEEK_MEMORY and SEEK_WORKER_MAX_MB. |
+| `SEEK_WORKER_MAX_MB` | root.env | 2500 |  |  | RSS in whole MB at which the recycler restarts a SEEK puma worker. |
+| `SEEK_WORKERS_MEMORY` | root.env | 3G |  |  | Memory cap of the SEEK job workers. |
+| `SEEK_DB_MEMORY` | root.env | 2G |  |  | Memory cap of MySQL. |
+| `NEO4J_MEMORY` | root.env | 6G |  |  | Memory cap of Neo4j. |
+| `NEO4J_HEAP` | root.env | 2g |  |  | Neo4j heap size. |
+| `NEO4J_PAGECACHE` | root.env | 2g |  |  | Neo4j page cache size. |
+| `NEO4J_TRANSACTION_MAX` | root.env | 1g |  |  | Neo4j memory cap per transaction. |
+| `NEO4J_PLUGINS` | root.env | "" |  |  | Neo4j plugins to load, for example the read-only APOC families. |
+| `NEO4J_PROCEDURES_ALLOWLIST` | root.env | * |  |  | Neo4j procedures allowlist. |
+| `SOLR_MEMORY` | root.env | 2G |  |  | Memory cap of Solr. |
+| `SIDECAR_MEMORY` | root.env | 1G |  |  | Memory cap of the Nessie sidecar. |
+| `LAYA_CPUS` | root.env | 4 |  |  | CPU cap of the laya router. |
+| `LAYA_MEMORY` | root.env | 3500M |  |  | Memory cap of the laya router. |
+| `LAYA_REVISION` | root.env | unset |  |  | laya model revision the router loads. |
+| `ATTRIBUTE_MUTATION_WORKER_CONCURRENCY` | root.env | 1 |  |  | Attribute mutation worker concurrency; compose passes it into the app container. |
+| `CC_PERSIST_STRICT` | local_settings | False |  |  | Container-CC: a failed transcript save fails the turn. |
+| `CC_TRANSCRIPT_MAX_BYTES` | local_settings |  |  |  | Largest stored Container-CC transcript in bytes. |
+| `NEXTSEEK_CHAT_CONFIG_PROD` | local_settings | secret |  |  | The prod ChatConfig local_settings builds from its PROD overrides; holds prod credentials. |
+| `NEXTSEEK_RISK_OVERLAY_ENABLED` | local_settings | False |  |  | Router risk overlay switch. |
+| `NEXTSEEK_EXPORT_ROOT` | local_settings |  |  |  | Folder the SEEK exports page writes to. |
+| `BATCH_UPLOAD_JOB_TTL_HOURS` | local_settings |  |  |  | Hours a batch upload job record is kept. |
+| `SAMPLE_RETRIEVE_NEO4J_CONNECT_TIMEOUT` | local_settings |  |  |  | Sample retrieve: Neo4j connect timeout in seconds. |
+| `SAMPLE_RETRIEVE_NEO4J_QUERY_TIMEOUT` | local_settings |  |  |  | Sample retrieve: Neo4j query timeout in seconds. |
+| `DJANGO_SETTINGS_MODULE` | image, internal | dmac.settings |  |  | Django settings module; asgi and wsgi set it, tests set their own. |
+| `DMAC_CC_USERS_VOLUME` | image |  |  |  | Container-CC users volume name; compose sets it with INSTANCE_PREFIX, so a nextseek.env line is ignored. |
+| `SIDECAR_STAGING_DIR` | image |  |  |  | Nessie sidecar staging folder; compose sets it. |
+| `SIDECAR_WS_PORT` | image | 8765 |  |  | Nessie sidecar websocket port; compose sets it. |
+| `NEXTSEEK_SERVER` | nextseek.env | daphne |  |  | App server the entrypoint starts, daphne or gunicorn. |
+| `NEXTSEEK_GRAPH_SYNC_LOOP` | nextseek.env | 1 |  |  | Entrypoint starts the graph_sync loop unless 0. |
+| `GRAPH_SYNC_RESTART_DELAY` | nextseek.env | 60 |  |  | Entrypoint: seconds before a stopped graph_sync loop restarts. |
+| `DB_WAIT_ATTEMPTS` | nextseek.env | 30 |  |  | Entrypoint: database probe attempts before giving up. |
+| `DB_WAIT_INTERVAL` | nextseek.env | 2 |  |  | Entrypoint: seconds between database probes. |
+| `NEXTSEEK_USERNAME` | internal |  |  |  | The turn's user, which cc_engine hands the agent. |
+| `NEXTSEEK_TURN_PASS` | internal | secret |  |  | The one-turn pass cc_engine hands the agent; its one credential. |
+| `NEXTSEEK_CHAT_SESSION_ID` | internal | "" |  |  | The live chat session id cc_engine hands the agent. |
+| `NEXTSEEK_CC_TURN_DEADLINE_EPOCH` | internal | "" |  |  | Unix time by which the agent's turn stops; cc_engine sets it. |
+| `NEXTSEEK_ASSISTANT_PREFIX` | internal | nextseek_api/assistant |  |  | API prefix the agent's op tools call. |
+| `NEXTSEEK_SCRATCH_DIR` | internal | /data/scratch |  |  | The agent's scratch folder. |
+| `NEXTSEEK_DRY_RUN` | internal |  |  |  | The agent's op tools return a stub when 1 (tests). |
+| `NEXTSEEK_SKIP_SCHEMA_WARM` | internal |  |  |  | Skip the schema warm-up at app start; the test settings set it. |
+| `TESTING` | internal | 0 |  |  | Test-run flag the batch upload policies read. |
+| `ATTRIBUTE_TEST_FAULT_CONTROL` | internal |  |  |  | Fault-injection control for the attribute worker tests. |
+| `CHAT_NEXTSEEK_SKIP_BAML_BOOTSTRAP` | internal |  |  |  | Skip the evaluator's BAML bootstrap (tests). |
+
+<!-- ENV-REGISTRY:END -->
 
 Sharp edges an operator must know:
 
@@ -718,17 +947,6 @@ Sharp edges an operator must know:
   derive from the host-published port; the public URL derives from
   `NEXTSEEK_HOSTNAME`+port. Both templates carry the warning; `doctor`
   checks for a stale hand-maintained overlay missing the guard.
-- **Template gap (known drift, tracked as Step 7b):** ~16 Container-CC env
-  keys read by `NessieAI/cc/` (e.g. `NEXTSEEK_CC_IMAGE`,
-  `NEXTSEEK_CC_NETWORK`, `DMAC_BEDROCK_PROXY_URL`,
-  `NEXTSEEK_CC_MAX_BUDGET_USD`, `NEXTSEEK_CC_TIMEOUT_SECONDS`,
-  `NEXTSEEK_SIDECAR_HOST/PORT`, `NEXTSEEK_CC_OPS_ROAD` (default `direct`;
-  `sidecar` is the one-release rollback), `DMAC_CC_MEMORY_*`) are absent from the
-  render template and fall back to safe in-code defaults (budget default:
-  **$0.50/turn**). A fresh install works, but if you need to tune these,
-  add them to `docker/nextseek.env` by hand. Two settings-level knobs
-  (`CC_PERSIST_STRICT`, `CC_TRANSCRIPT_MAX_BYTES`) must be set as plain
-  attributes in `dmac/local_settings.py` if needed.
 - **Switching the Container-CC ops road** (`NEXTSEEK_CC_OPS_ROAD`, `direct` by default, `sidecar` for one release):
   set it in `docker/nextseek.env`, then `docker compose up -d --no-deps --force-recreate nextseek` (a restart does
   not re-read the env file). Check `docker compose exec -T nextseek printenv NEXTSEEK_CC_OPS_ROAD`, then, during the

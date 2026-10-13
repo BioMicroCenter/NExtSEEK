@@ -90,3 +90,53 @@ def load(path: Path = REGISTRY_PATH) -> dict[str, Entry]:
         if entry.alias_of is not None and entry.alias_of not in entries:
             raise ValueError(f"{key}: alias_of {entry.alias_of} has no entry")
     return entries
+
+
+# --- the operator table in DEPLOYMENT.md section 8 ---------------------------------------------
+
+BEGIN = "<!-- ENV-REGISTRY:BEGIN (generated: uv run --project startup python -m startup.lib.env_registry --write) -->"
+END = "<!-- ENV-REGISTRY:END -->"
+DOCS_PATH = REGISTRY_PATH.parents[1] / "DEPLOYMENT.md"
+
+
+def _cell(text: str) -> str:
+    return " ".join(text.split()).replace("|", "\\|")
+
+
+def render_docs_table(entries: dict[str, Entry]) -> str:
+    """One row per key. A secret's default is never printed; defaults are plain text (a
+    backticked repo path would be checked by the docs map)."""
+    rows = ["| Key | Files | Default | Required | Alias of | What it does |", "|---|---|---|---|---|---|"]
+    for key, e in entries.items():
+        default = "secret" if e.secret else ("" if e.default is None else (_cell(e.default) or '""'))
+        rows.append(
+            f"| `{key}` | {', '.join(e.files)} | {default} | {'yes' if e.required else ''} | "
+            f"{f'`{e.alias_of}`' if e.alias_of else ''} | {_cell(e.doc)}{' Must not be set.' if e.forbidden else ''} |"
+        )
+    return "\n".join(rows)
+
+
+def render_docs_block(entries: dict[str, Entry]) -> str:
+    return f"{BEGIN}\n\n{render_docs_table(entries)}\n\n{END}\n"
+
+
+def replace_block(text: str, entries: dict[str, Entry]) -> str:
+    """`text` with the marked block regenerated; ValueError when the markers are missing."""
+    start = text.find(BEGIN)
+    end = text.find(END)
+    if start < 0 or end < start:
+        raise ValueError("DEPLOYMENT.md has no ENV-REGISTRY markers")
+    return text[:start] + render_docs_block(entries) + text[end + len(END):].removeprefix("\n")
+
+
+if __name__ == "__main__":
+    import sys
+
+    mode = sys.argv[1] if len(sys.argv) == 2 else ""
+    if mode not in ("--write", "--check"):
+        sys.exit("usage: python -m startup.lib.env_registry --write | --check")
+    current = DOCS_PATH.read_text()
+    fresh = replace_block(current, load())
+    if mode == "--check":
+        sys.exit(0 if fresh == current else "DEPLOYMENT.md env table is out of date: rerun with --write")
+    DOCS_PATH.write_text(fresh)

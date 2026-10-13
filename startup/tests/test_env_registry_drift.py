@@ -279,3 +279,13 @@ def test_rule5_dynamic_entries_name_their_reader() -> None:
 def test_rule6_credential_names_are_secret() -> None:
     _fail("Rule 6, a key named like a credential is not secret = true (or add it to NOT_SECRET with the reason)",
           [k for k, e in REGISTRY.items() if _SECRET_NAME.search(k) and not e.secret and k not in NOT_SECRET])
+
+
+def test_docs_table_is_current() -> None:
+    from startup.lib import env_registry
+    text = (ROOT / "DEPLOYMENT.md").read_text()
+    assert env_registry.BEGIN in text and env_registry.END in text, (
+        "DEPLOYMENT.md section 8 lost its ENV-REGISTRY markers")
+    assert env_registry.replace_block(text, REGISTRY) == text, (
+        "The env table in DEPLOYMENT.md section 8 is out of date. Regenerate it from the repo root: "
+        "uv run --project startup python -m startup.lib.env_registry --write")
