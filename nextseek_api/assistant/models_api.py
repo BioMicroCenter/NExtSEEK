@@ -635,7 +635,8 @@ class OpErrorResponse(BaseModel):
     exception's text; ``errors`` for VALIDATION lists each refused field and its error type (never the value), and for
     any other code one ``{title, detail}`` item that repeats the message (kept for the sidecar, one release).
     """
-    code: Literal["VALIDATION", "WRITE_BLOCKED", "AUTH_FAILED", "PASS_NOT_ALLOWED", "BUSY", "TIME_UP", "AGENT_FAILED"]
+    code: Literal["VALIDATION", "WRITE_BLOCKED", "AUTH_FAILED", "PASS_NOT_ALLOWED", "BUSY", "TIME_UP", "AGENT_FAILED",
+                  "TRANSPORT_ERROR"]
     reason: Optional[Literal["model_unavailable", "deadline", "bad_output", "internal"]] = None
     message: str
     errors: List[Dict[str, Any]]

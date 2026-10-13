@@ -65,8 +65,8 @@
   },
   {
    "path": "app/ns_client.py",
-   "size_bytes": 5835,
-   "sha256": "092a6aef3abef175748e1806e6179f465bef20f00a0e67d303c67bf982232a2a"
+   "size_bytes": 5854,
+   "sha256": "649c36f54f47918fbdd11eb887d9d9919f013d74cb99d4fd7e394ca8a94f3803"
   },
   {
    "path": "app/ops.py",

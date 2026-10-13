@@ -182,9 +182,9 @@ class UserInParticipatingProjectTests(TestCase):
             self.assertFalse(result)
 
     @patch("nextseek_api.services.assistant.SeekAPIClient")
-    def test_has_permission_exception_returns_false(self, mock_client_cls):
-        """Returns False when SeekAPIClient raises an exception."""
-        from nextseek_api.services.assistant import UserInParticipatingProject
+    def test_has_permission_exception_raises_the_retryable_error(self, mock_client_cls):
+        """A SEEK that does not answer is an outage (503 TRANSPORT_ERROR), never a refusal and never an allow."""
+        from nextseek_api.services.assistant import SeekNotAnswering, UserInParticipatingProject
 
         mock_client = mock_client_cls.return_value
         mock_client.get_current_person.side_effect = Exception("connection error")
@@ -192,8 +192,8 @@ class UserInParticipatingProjectTests(TestCase):
         perm = UserInParticipatingProject()
         request = MagicMock()
         view = MagicMock()
-        result = perm.has_permission(request, view)
-        self.assertFalse(result)
+        with self.assertRaises(SeekNotAnswering):
+            perm.has_permission(request, view)
 
     def test_message_attribute(self):
         """Permission has a descriptive message."""

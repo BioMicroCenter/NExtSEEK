@@ -29,14 +29,14 @@ SECRET = "Zq7-SECRET-VALUE"
 class ContractTests(SimpleTestCase):
     def test_the_closed_lists(self):
         self.assertEqual(op_errors.CODES, ("VALIDATION", "WRITE_BLOCKED", "AUTH_FAILED", "PASS_NOT_ALLOWED", "BUSY",
-                                           "TIME_UP", "AGENT_FAILED"))
+                                           "TIME_UP", "AGENT_FAILED", "TRANSPORT_ERROR"))
         self.assertEqual(op_errors.REASONS, ("model_unavailable", "deadline", "bad_output", "internal"))
         self.assertEqual(op_errors.REASONS[0], MODEL_UNAVAILABLE_REASON)
 
     def test_the_statuses(self):
         self.assertEqual(op_errors.HTTP_STATUS, {"VALIDATION": 422, "WRITE_BLOCKED": 403, "AUTH_FAILED": 401,
                                                  "PASS_NOT_ALLOWED": 403, "BUSY": 429, "TIME_UP": 408,
-                                                 "AGENT_FAILED": 502})
+                                                 "AGENT_FAILED": 502, "TRANSPORT_ERROR": 503})
 
     def test_the_exit_numbers(self):
         self.assertEqual(op_errors.EXIT, {"VALIDATION": 3, "AGENT_FAILED": 4, "WRITE_BLOCKED": 5, "TRANSPORT_ERROR": 7,
