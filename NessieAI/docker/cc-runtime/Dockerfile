@@ -60,6 +60,22 @@ COPY --from=chat_nextseek src/chat_nextseek/context/min_api_endpoints_enriched.j
 COPY --from=chat_nextseek src/chat_nextseek/context/min_assays_db.json /app/plugins/nextseek/context/min_assays_db.json
 COPY --from=chat_nextseek src/chat_nextseek/context/min_sampletypes_db.json /app/plugins/nextseek/context/min_sampletypes_db.json
 COPY --from=chat_nextseek src/chat_nextseek/context/projects_db.json /app/plugins/nextseek/context/projects_db.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ONTOLOGIES.json /app/plugins/nextseek/context/ONTOLOGIES.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ontology_species.json /app/plugins/nextseek/context/ontology_species.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ontology_sex.json /app/plugins/nextseek/context/ontology_sex.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ontology_organ.json /app/plugins/nextseek/context/ontology_organ.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ontology_disease.json /app/plugins/nextseek/context/ontology_disease.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ontology_units.json /app/plugins/nextseek/context/ontology_units.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ontology_mouse_genotype.json /app/plugins/nextseek/context/ontology_mouse_genotype.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ontology_mouse_strain.json /app/plugins/nextseek/context/ontology_mouse_strain.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ontology_library_strategy.json /app/plugins/nextseek/context/ontology_library_strategy.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ontology_library_source.json /app/plugins/nextseek/context/ontology_library_source.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ontology_library_selection.json /app/plugins/nextseek/context/ontology_library_selection.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ontology_library_layout.json /app/plugins/nextseek/context/ontology_library_layout.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ontology_extracted_molecule.json /app/plugins/nextseek/context/ontology_extracted_molecule.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ontology_instrument_model.json /app/plugins/nextseek/context/ontology_instrument_model.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ontology_file_format.json /app/plugins/nextseek/context/ontology_file_format.json
+COPY --from=chat_nextseek src/chat_nextseek/context/ontology_genome_assembly.json /app/plugins/nextseek/context/ontology_genome_assembly.json
 # END PLAN005-GEN:capabilities-copy
 
 # Fail the build if catalog files weren't snapshotted before `docker build`.

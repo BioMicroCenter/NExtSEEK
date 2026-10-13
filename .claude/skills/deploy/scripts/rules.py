@@ -248,10 +248,15 @@ INSTANCES = _Instances()
 # Which images a changed path needs (DEPLOYMENT.md section 3.2; dev.md "Which images").
 # First match wins per path. `flag` marks a path that needs the brief to name it.
 # ---------------------------------------------------------------------------------
-# startup/lib/layout.py CANONICAL_CONTEXT_FILES (checked 2026-09-25 at 1c070c08).
-_SIX_CONTEXT = tuple(f"{_CONTEXT}/{f}" for f in (
+# startup/lib/layout.py CANONICAL_CONTEXT_FILES (ontology files added with harmo_onto).
+_BAKED_CONTEXT = tuple(f"{_CONTEXT}/{f}" for f in (
     "capabilities.md", "min_api_endpoints.json", "min_api_endpoints_enriched.json",
-    "min_assays_db.json", "min_sampletypes_db.json", "projects_db.json"))
+    "min_assays_db.json", "min_sampletypes_db.json", "projects_db.json",
+    "ONTOLOGIES.json")) + tuple(
+    f"{_CONTEXT}/ontology_{i}.json" for i in (
+        "species", "sex", "organ", "disease", "units", "mouse_genotype", "mouse_strain",
+        "library_strategy", "library_source", "library_selection", "library_layout",
+        "extracted_molecule", "instrument_model", "file_format", "genome_assembly"))
 
 
 @dataclass(frozen=True)
@@ -273,7 +278,7 @@ IMAGE_RULES: tuple[PathRule, ...] = (
     PathRule(r"^startup/seed/(regenerate/|README\.md$)", (), None, "seed refresh tooling and docs: nothing runs from them on a box"),
     PathRule(r"^startup/seed/", (), "seed", "seed data: install loads it; on prod the runner sets the dirty dumps aside"),
     PathRule(r"(^|/)migrations/\d[^/]*\.py$", ("app",), "migration", "migrate runs at boot"),
-    PathRule("^(" + "|".join(re.escape(p) for p in _SIX_CONTEXT) + ")$", ("app", "cc-agent"), None,
+    PathRule("^(" + "|".join(re.escape(p) for p in _BAKED_CONTEXT) + ")$", ("app", "cc-agent"), None,
              "a canonical context file: skip the cc-agent and every 'cc-agent context' check fails"),
     PathRule(r"^NessieAI/dmac_assistant/baml_src/", ("app", "cc-agent")),
     PathRule(r"^NessieAI/docker/cc-runtime/", ("cc-agent",)),

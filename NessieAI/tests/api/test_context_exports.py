@@ -53,6 +53,12 @@ def test_every_export_has_one_row_per_curated_row(name):
     assert len(_committed(name)) == len(context_gen.rows_for(table))
 
 
+def _ontology_files():
+    """ONTOLOGIES.json and the ontology_*.json files: hand-kept data, baked, never generated here."""
+    folder = REPO_ROOT / "NessieAI/chat_nextseek/src/chat_nextseek/context"
+    return {"ONTOLOGIES.json"} | {p.name for p in folder.glob("ontology_*.json")}
+
+
 def test_the_cc_agent_bakes_exports_this_generator_owns():
     """If a canonical file stops being generated, the cc-agent silently keeps a hand-kept copy."""
     sys.path.insert(0, str(REPO_ROOT / "startup"))
@@ -64,7 +70,7 @@ def test_the_cc_agent_bakes_exports_this_generator_owns():
     # The rest of the baked set is owned elsewhere, and named here so a new one is noticed.
     assert baked - generated == {
         "capabilities.md", "min_api_endpoints.json", "min_api_endpoints_enriched.json",
-    }
+    } | _ontology_files()
 
 
 def test_the_terms_the_failing_questions_used_reach_the_catalog_the_agent_reads():
