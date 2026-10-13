@@ -1056,7 +1056,7 @@ class ChatConfig:
     def _db_context_refresh_enabled() -> bool:
         """False when DJANGO_SETTINGS_MODULE names a test settings module
         (``dmac.test_settings``, ``dmac.test_settings_realstack``)."""
-        return "test_settings" not in os.environ.get("DJANGO_SETTINGS_MODULE", "")
+        return "test_settings" not in os.environ.get("DJANGO_SETTINGS_MODULE", "dmac.settings")
 
 
     def _write_refresh_marker(self) -> None:
