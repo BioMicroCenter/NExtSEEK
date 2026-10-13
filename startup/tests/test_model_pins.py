@@ -7,7 +7,10 @@ is not a package.
 import hashlib
 import importlib.util
 import json
+import os
 import re
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -112,6 +115,29 @@ def test_the_cli_exits_1_on_a_bad_cache_and_0_on_a_good_one(tmp_path, capsys):
     assert vm.main(["verify_models.py", str(tmp_path / "cache"), str(manifest_path)]) == 1
     assert "hash mismatch" in capsys.readouterr().err
 
+
+
+def test_the_load_step_loads_a_model_the_way_the_shortlist_does(tmp_path, monkeypatch):
+    """The shortlist calls SentenceTransformer(name) with no cache_folder (catalog_semantic.py), so it finds
+    the files only through SENTENCE_TRANSFORMERS_HOME, offline only through HF_HUB_OFFLINE. The build's
+    load makes the same call, so a library that stops reading the variable fails the build (#28 review R4)."""
+    calls = []
+
+    class Vector:
+        ndim, shape = 2, (1, 384)
+
+    class FakeModel:
+        def __init__(self, name, **kwargs):
+            calls.append((name, kwargs, os.environ.get("SENTENCE_TRANSFORMERS_HOME"), os.environ.get("HF_HUB_OFFLINE")))
+
+        def encode(self, texts):
+            return Vector()
+
+    monkeypatch.setitem(sys.modules, "sentence_transformers", types.SimpleNamespace(SentenceTransformer=FakeModel))
+    monkeypatch.setenv("SENTENCE_TRANSFORMERS_HOME", "/elsewhere")  # restored after the test
+    monkeypatch.setenv("HF_HUB_OFFLINE", "0")
+    assert vm.load(str(tmp_path), {"repo_id": "org/model"}) == 384
+    assert calls == [("org/model", {}, str(tmp_path), "1")]
 
 def test_the_dev_provisioning_script_reads_the_moved_bge_pin_and_the_one_verifier():
     script = (REPO_ROOT / "startup" / "dev" / "provision_embedding_model.sh").read_text()

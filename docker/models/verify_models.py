@@ -7,9 +7,11 @@ snapshot, and refs/main must name the pinned commit (the loaders resolve "main"
 through it). Standard library only, so the Dockerfile's models stage and the dev
 test lanes can run it without the app's venv.
 
---load also loads each model offline with the app's own sentence-transformers and
-encodes one string. The app image runs it right after `uv sync`, so a model the
-image's libraries cannot load fails the build before anything restarts.
+--load also loads each model offline with the app's own sentence-transformers,
+making the shortlist's call (the folder from SENTENCE_TRANSFORMERS_HOME, no
+cache_folder), and encodes one string. The app image runs it right after
+`uv sync`, so a model the image's libraries cannot load fails the build before
+anything restarts.
 Exit 0 when every manifest passes, 1 otherwise, 2 on a usage error.
 """
 
@@ -64,11 +66,16 @@ def verify(cache, manifest):
 
 
 def load(cache, manifest):
-    """Load the model from `cache` without the network and encode one string; return the vector width."""
+    """Load the model from `cache` without the network and encode one string; return the vector width.
+
+    The same call as the shortlist's loader (catalog_semantic.py): the folder comes only from
+    SENTENCE_TRANSFORMERS_HOME and the offline flag. schema_rag passes that folder as cache_folder.
+    """
+    os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache
     os.environ["HF_HUB_OFFLINE"] = "1"  # read when huggingface_hub is first imported
     from sentence_transformers import SentenceTransformer
 
-    model = SentenceTransformer(manifest["repo_id"], cache_folder=cache, local_files_only=True)
+    model = SentenceTransformer(manifest["repo_id"])
     vector = model.encode(["embedding model check"])
     if vector.ndim != 2 or vector.shape[0] != 1 or vector.shape[1] == 0:
         raise RuntimeError(f"{manifest['repo_id']} returned a vector of shape {vector.shape}")
