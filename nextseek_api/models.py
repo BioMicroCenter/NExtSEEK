@@ -335,6 +335,8 @@ class SopMultiResponse(BaseModel):
 
 class SopIndexAttributes(BaseModel):
     title: str
+    # Added by the proxy from SEEK's content_blobs table: [{"original_filename", "content_type"}], latest version.
+    content_blobs: Optional[list] = None
 
 
 class SopIndexItem(BaseModel):

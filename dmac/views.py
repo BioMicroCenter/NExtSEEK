@@ -6,8 +6,11 @@ from django.db.models import Q
 from django.contrib.auth import authenticate, login
 from django.conf import settings
 from django.utils.http import url_has_allowed_host_and_scheme
+from mezzanine.core.views import server_error
 
 import simplejson
+import sys
+import requests
 import datetime
 import json
 import os
@@ -29,6 +32,24 @@ DOWNLOAD_DIRECTORY  = settings.MEDIA_ROOT + "download/"
 DOWNLOAD_DIRECTORY_LINK = settings.MEDIA_URL + 'download/'
 
 report = {}
+def api_server_error(request):
+    """handler500. Under /nextseek_api/ an unhandled error answers JSON, and one that comes from SEEK not answering
+    says so, with a warning that a write may have happened anyway. The site keeps Mezzanine's page. Django still
+    logs the traceback to django.log after this returns."""
+    if not request.path.startswith("/nextseek_api/"):
+        return server_error(request)
+    exc = sys.exc_info()[1]
+    if isinstance(exc, requests.RequestException):
+        timed_out = isinstance(exc, requests.ReadTimeout)
+        detail = "SEEK did not answer in time." if timed_out else "SEEK could not be reached."
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            detail += (" The change may still have been made: look the record up before you send it again.")
+        body, status = {"errors": [{"title": "SEEK did not answer", "detail": detail}]}, 504 if timed_out else 502
+    else:
+        body, status = {"errors": [{"title": "Server error"}]}, 500
+    return HttpResponse(json.dumps(body).encode(), status=status, content_type="application/json")
+
+
 def __process(request, operation):
     dbtable = DBtable("DEFAULT")
     return dbtable.process(request, operation) 

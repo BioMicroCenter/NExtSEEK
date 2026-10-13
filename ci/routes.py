@@ -973,7 +973,8 @@ REGISTRY: list[Route] = [
           path="/nextseek_api/sops/{sop_id}/",
           effect="writes", writers=("WR-09",),
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
-          shape="data", note="also accepts PATCH, which the write lane sends on local and dev"),
+          shape="data", note="also accepts PATCH, which the write lane sends on local and dev, and DELETE, "
+                              "which no lane sends"),
     Route(pattern=r"^nextseek_api/^^studies/$", path="/nextseek_api/studies/",
           effect="writes", writers=("WR-09",),
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,

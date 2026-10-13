@@ -341,6 +341,14 @@ LOGGING = {
             'filename': os.path.join(LOG_DIR, 'django.log'),
             'formatter': 'verbose'
         },
+        # django.log again, WARNING and up only: lets a logger send its warnings there without a logger level,
+        # which would silence its INFO and DEBUG on every other handler too.
+        'logfile_warnings': {
+            'level': 'WARNING',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(LOG_DIR, 'django.log'),
+            'formatter': 'verbose'
+        },
         'seekfile': {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
@@ -377,6 +385,17 @@ LOGGING = {
             'handlers':['seekfile'],
             'propagate': True,
             'level':'DEBUG', 
+        },
+        # The SEEK proxy: one `seek_proxy ... latency_ms=` line per SEEK call, and the warnings a create that got no
+        # answer logs. Without these two entries they reached only the root logger, never django.log.
+        'nextseek_api.helpers': {
+            'handlers': ['logfile'],
+            'propagate': True,
+            'level': 'INFO',
+        },
+        'nextseek_api.services': {
+            'handlers': ['logfile_warnings'],
+            'propagate': True,
         },
         'dmac': {
             'handlers':['nextseekfile'],

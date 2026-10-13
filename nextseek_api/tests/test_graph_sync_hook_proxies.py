@@ -527,16 +527,13 @@ def _sop_json(body: dict) -> Request:
 
 
 def _sop_create(code: int = 201, body: Any = None, raises: BaseException | None = None):
-    """The JSON-only create. Its success path raises UnboundLocalError before it can answer (spec 20: this create
-    returns 500 after Rails has committed), so the hook is what must have run by then."""
+    """The JSON-only create."""
     viewset = SopProxyViewSet()
     viewset.client = MagicMock()
     viewset.client.create_sop.return_value = _upstream(_sop_body() if body is None else body, code)
     viewset.client.create_sop.side_effect = raises
-    try:
+    with patch("nextseek_api.services.sops._existing_sop_ids", return_value=[]):
         return viewset.create(_sop_multipart(_SOP_METADATA))
-    except UnboundLocalError:
-        return None
 
 
 def test_sop_create_enqueues_the_protocol_map():
@@ -556,14 +553,20 @@ def test_sop_create_holds_the_protocol_map_back_on_a_5xx():
 
 
 def test_sop_create_holds_the_protocol_map_back_when_the_call_raises():
-    with pytest.raises(requests.ReadTimeout):
-        _sop_create(raises=requests.ReadTimeout("read timed out"))
+    response = _sop_create(raises=requests.ReadTimeout("read timed out"))
+    assert response.status_code == 202 and response["Content-Type"] == "application/json"
+    assert _delays() == {("protocol_map", "*"): hooks.UNCONFIRMED_DELAY_S}
+
+
+def test_sop_create_holds_the_protocol_map_back_when_the_connection_fails():
+    response = _sop_create(raises=requests.ConnectionError("down"))
+    assert response.status_code == 502 and response["Content-Type"] == "application/json"
     assert _delays() == {("protocol_map", "*"): hooks.UNCONFIRMED_DELAY_S}
 
 
 def test_sop_create_enqueues_the_protocol_map_on_an_unreadable_2xx():
     response = _sop_create(body={"data": {"id": "1"}})
-    assert response is not None and response.status_code == 502
+    assert response.status_code == 201 and json.loads(response.content)["warnings"]
     assert _delays() == {("protocol_map", "*"): 0}
 
 

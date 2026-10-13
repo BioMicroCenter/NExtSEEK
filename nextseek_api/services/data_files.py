@@ -1,6 +1,8 @@
 from typing import Optional
 
 import json
+
+import requests
 from django.conf import settings
 from django.http import HttpResponse
 from rest_framework import viewsets
@@ -11,6 +13,7 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from drf_spectacular.types import OpenApiTypes
 
 from nextseek_api.helpers import SeekAPIClient
+from nextseek_api.services.sops import _unconfirmed
 from nextseek_api.endpoint_descriptions import (
     DATAFILE_LIST_DESC,
     DATAFILE_FETCH_DESC,
@@ -226,7 +229,11 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             except Exception:
                 return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
 
-            body, code, headers, resp = self.client.create_data_file(request, payload)
+            try:
+                body, code, headers, resp = self.client.create_data_file(request, payload)
+            except requests.RequestException as exc:
+                return _unconfirmed(payload["data"]["attributes"].get("title"), exc, self.client.timeout_s,
+                                    kind="data file", path="data_files")
             if code == 401:
                 return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
@@ -241,7 +248,7 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             except Exception:
                 return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
-            return HttpResponse({"data": [body]}, status=code, content_type=ct)
+            return HttpResponse(json.dumps({"data": [data]}).encode(), status=code, content_type='application/json')
 
         else:
             files = request.FILES.getlist("file")
@@ -255,16 +262,23 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             data_file_results = []
             blob_results = []
             for file in files:
-                metadata = auto_populate_content_blobs(metadata, [file])
+                # Each file starts from the request's own metadata, so it carries only its own placeholder.
+                meta = auto_populate_content_blobs(metadata, [file])
                 if len(files) > 1:
-                    metadata["data"]["attributes"]["title"] = file.name
+                    meta["data"]["attributes"]["title"] = file.name
  
                 try:
-                    payload = DataFileCreateRequest.model_validate(metadata).model_dump(exclude_none=True)
+                    payload = DataFileCreateRequest.model_validate(meta).model_dump(exclude_none=True)
                 except Exception:
                     return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
 
-                body, code, headers, resp = self.client.create_data_file(request, payload)
+                try:
+                    body, code, headers, resp = self.client.create_data_file(request, payload)
+                except requests.RequestException as exc:
+                    return _unconfirmed(payload["data"]["attributes"].get("title"), exc, self.client.timeout_s,
+                                        created=[{"id": r["data"]["id"]} for r in data_file_results],
+                                        not_sent=[f.name for f in files[len(data_file_results):]],
+                                        kind="data file", path="data_files")
                 if code == 401:
                     return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 

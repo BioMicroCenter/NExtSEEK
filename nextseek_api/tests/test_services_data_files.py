@@ -269,10 +269,6 @@ class TestDataFileCreate:
         return factory.post("/nextseek_api/data_files/", data, format="multipart")
 
     def test_create_json_only_success(self):
-        """JSON-only create path.
-
-        Note: source has UnboundLocalError for 'ct' on the success path (line 239).
-        """
         vs, client = _make_viewset_and_client()
         metadata = {
             "data": {
@@ -286,12 +282,34 @@ class TestDataFileCreate:
 
         request = self._multipart_request(metadata)
         drf_req = _make_drf_request(request, vs)
-        try:
-            resp = vs.create(drf_req)
-            assert resp.status_code in (201, 502)
-        except UnboundLocalError:
-            pass  # Known bug: 'ct' not defined on success path
+        resp = vs.create(drf_req)
+        assert resp.status_code == 201
+        assert resp["Content-Type"] == "application/json"
+        assert json.loads(resp.content)["data"][0]["data"]["id"] == "560"
         client.create_data_file.assert_called_once()
+
+    def test_create_json_only_read_timeout_returns_202_with_title(self):
+        import requests
+        vs, client = _make_viewset_and_client()
+        client.create_data_file.side_effect = requests.ReadTimeout("slow")
+        metadata = {"data": {"type": "data_files", "attributes": {"title": "My DF"},
+                             "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}}}
+        resp = vs.create(_make_drf_request(self._multipart_request(metadata), vs))
+        body = json.loads(resp.content)
+        assert resp.status_code == 202 and resp["Content-Type"] == "application/json"
+        assert body["status"] == "unconfirmed" and body["title"] == "My DF"
+
+    @patch("nextseek_api.services.data_files.upload_content_blobs", return_value=[])
+    def test_create_multiple_files_each_gets_only_its_own_placeholder(self, _u):
+        vs, client = _make_viewset_and_client()
+        client.create_data_file.return_value = (
+            _json_bytes(_valid_datafile_response()), 201, {"Content-Type": "application/json"}, MagicMock())
+        metadata = {"data": {"type": "data_files", "attributes": {"title": "x"},
+                             "relationships": {"projects": {"data": [{"id": "1", "type": "projects"}]}}}}
+        files = [SimpleUploadedFile("a.csv", b"1"), SimpleUploadedFile("b.csv", b"2")]
+        vs.create(_make_drf_request(self._multipart_request(metadata, files=files), vs))
+        second = client.create_data_file.call_args_list[1].args[1]
+        assert [b["original_filename"] for b in second["data"]["attributes"]["content_blobs"]] == ["b.csv"]
 
     def test_create_json_invalid_metadata(self):
         vs, client = _make_viewset_and_client()

@@ -73,4 +73,4 @@ urlpatterns += [
 ]
 
 handler404 = "mezzanine.core.views.page_not_found"
-handler500 = "mezzanine.core.views.server_error"
+handler500 = "dmac.views.api_server_error"

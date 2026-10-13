@@ -15,6 +15,11 @@ log = logging.getLogger(__name__)
 
 JSONAPI_ACCEPT = 'application/vnd.api+json'
 
+# SEEK took over 20 s on SOP creates on dev and the TLS proxy in front of prod waits longer than 120 s (#108), so a
+# SOP create waits this long for SEEK's answer; every other SEEK call keeps SeekAPIClient.timeout_s. It is also the
+# limit for the whole create request (services/sops.py), each SEEK call's own limit inside it.
+SOP_CREATE_TIMEOUT_S = 120
+
 
 def basic_auth_header(basic_tuple: Optional[Tuple[str, str]]) -> Dict[str, str]:
     """Build a UTF-8-safe HTTP Basic ``Authorization`` header.
@@ -209,14 +214,18 @@ class SeekAPIClient:
     def get_sop(self, request, sop_id: str):
         return self._request('GET', f'/sops/{sop_id}', request)
 
-    def create_sop(self, request, payload: Dict[str, Any]):
+    def create_sop(self, request, payload: Dict[str, Any], timeout_s=(10, SOP_CREATE_TIMEOUT_S)):
         # Ensure JSON:API content-type for writes
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
-        return self._request('POST', '/sops', request, json=payload)
+        # (connect, read) as the uploads below: only the wait for SEEK's answer is long.
+        return self._request('POST', '/sops', request, json=payload, timeout_s=timeout_s)
 
     def update_sop(self, request, sop_id: str, payload: Dict[str, Any]):
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
         return self._request('PATCH', f'/sops/{sop_id}', request, json=payload)
+
+    def delete_sop(self, request, sop_id: str):
+        return self._request('DELETE', f'/sops/{sop_id}', request)
 
 
     # ---- DataFiles endpoints ----
@@ -404,7 +413,7 @@ class SeekAPIClient:
     # ---- Upload content blob ----
 
     def upload_content_blob(self, request, path: str, file_data: bytes,
-                            content_type: str):
+                            content_type: str, timeout_s=(10, 300)):
         """PUT binary content to a SEEK content blob endpoint.
 
         path: e.g. /sops/42/content_blobs/99
@@ -426,7 +435,7 @@ class SeekAPIClient:
             url=url,
             headers=headers,
             data=file_data,
-            timeout=(10, 300),
+            timeout=timeout_s,
         )
         dt_ms = (time.time() - t0) * 1000.0
         log.info("seek_upload path=%s status=%d latency_ms=%.1f bytes=%d",

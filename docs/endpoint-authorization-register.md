@@ -17,10 +17,10 @@ When you add or change a route, add or change its row here in the same change.
 |---|---|---|
 | 1. Project-scoped | Reads project-owned rows and returns only those in the caller's projects. Superusers are not limited. | 13 |
 | 2. Restricted another way | Superuser only, or only the owner of the chat, task, job or upload, or works on the caller's own folder or SEEK person. | 60 |
-| 3. Correct as it is | Needs no project filter of its own: SEEK decides with the caller's own SEEK login, or it returns definitions only, or it reads no project rows. | 58 |
-| **Total** | | **131** |
+| 3. Correct as it is | Needs no project filter of its own: SEEK decides with the caller's own SEEK login, or it returns definitions only, or it reads no project rows. | 59 |
+| **Total** | | **132** |
 
-Of these, 108 routes are served from `nextseek_api/services/` (11, 47 and 50 by bucket)
+Of these, 109 routes are served from `nextseek_api/services/` (11, 47 and 51 by bucket)
 and 23 from elsewhere in `nextseek_api/` (the sample tree, the older retrieve path, attributes,
 assay registrations, batch upload, the API root and the three API description pages).
 
@@ -139,7 +139,7 @@ assay registrations, batch upload, the API root and the three API description pa
 | GET | `batch-upload/summary/{job_id}/` | Any signed-in user, but only the job's owner; another user's job answers 404. | `BatchUploadViewSet.summary` | IsAuthenticated |  |
 | DELETE | `batch-upload/cancel/{job_id}/` | Any signed-in user, but only the job's owner; another user's job answers 404. | `BatchUploadViewSet.cancel` | IsAuthenticated |  |
 
-## 3. Correct as it is (58)
+## 3. Correct as it is (59)
 
 | Method | Path | Guard | Handler | Permission classes | #64 |
 |---|---|---|---|---|---|
@@ -164,10 +164,11 @@ assay registrations, batch upload, the API root and the three API description pa
 | POST | `assays/` | Any signed-in user. It creates an assay in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `AssayProxyViewSet.create` | IsAuthenticated |  |
 | GET | `assays/{uid}/` | Any signed-in user. It reads one assay from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `AssayProxyViewSet.retrieve` | IsAuthenticated |  |
 | PATCH | `assays/{uid}/` | Any signed-in user. It changes one assay in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may; it also looks up the assay's files to keep the graph in step and returns none of that. | `AssayProxyViewSet.partial_update` | IsAuthenticated |  |
-| GET | `sops/` | Any signed-in user. It reads the list of SOPs from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `SopProxyViewSet.list` | IsAuthenticated, HasOwnSeekLogin |  |
-| POST | `sops/` | Any signed-in user. It creates a SOP in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `SopProxyViewSet.create` | IsAuthenticated, HasOwnSeekLogin |  |
+| GET | `sops/` | Any signed-in user. It reads the list of SOPs from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. The answer then gives each listed SOP's file names, read from SEEK's `content_blobs` table for only the ids SEEK returned to this caller. | `SopProxyViewSet.list` | IsAuthenticated, HasOwnSeekLogin |  |
+| POST | `sops/` | Any signed-in user. It creates a SOP in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. A title that already exists answers 409, with the existing SOP's id only when the caller can see it. | `SopProxyViewSet.create` | IsAuthenticated, HasOwnSeekLogin |  |
 | GET | `sops/{uid}/` | Any signed-in user. It finds the SOP by its title or UID, then reads it from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `SopProxyViewSet.retrieve` | IsAuthenticated, HasOwnSeekLogin | changed |
 | PATCH | `sops/{uid}/` | Any signed-in user. It finds the SOP by its title or UID, then changes it in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. A path that names no SOP the caller can see answers 404, whatever id the body carries. | `SopProxyViewSet.partial_update` | IsAuthenticated, HasOwnSeekLogin | changed |
+| DELETE | `sops/{uid}/` | Any signed-in user. It reads the SOP from SEEK with the caller's own SEEK login (a SOP the caller cannot see answers 404), refuses with 409, giving no count, while any sample names it as its Protocol (a title another SOP also holds does not count), then deletes it in SEEK with the caller's own SEEK login, so SEEK decides who may: on dev, only the SOP's creator. | `SopProxyViewSet.destroy` | IsAuthenticated, HasOwnSeekLogin | new |
 | POST | `sops/download/` | Any signed-in user. It finds the SOP, then fetches both its record and its file with the caller's own SEEK login, so SEEK decides whether the caller may download it. | `SopProxyViewSet.download` | IsAuthenticated, HasOwnSeekLogin | changed |
 | GET | `data_files/` | Any signed-in user. It reads the list of data files from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `DataFileProxyViewSet.list` | IsAuthenticated, HasOwnSeekLogin |  |
 | POST | `data_files/` | Any signed-in user. It creates a data file in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `DataFileProxyViewSet.create` | IsAuthenticated, HasOwnSeekLogin |  |

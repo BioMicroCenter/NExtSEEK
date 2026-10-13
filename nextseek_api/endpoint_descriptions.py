@@ -219,14 +219,14 @@ PROJECT_EXPORT_DESC = (
 )
 
 # =============================================================================
-# SopProxyViewSet (5 endpoints)
+# SopProxyViewSet (6 endpoints)
 # =============================================================================
 
 SOP_LIST_DESC = (
     "**SUMMARY:** List all standard operating procedures (protocols) accessible to the current user.\n\n"
     "**USE WHEN:** The user wants to browse or list all available SOPs/protocols without knowing a specific ID.\n\n"
     "**ACCEPTS:** No required parameters; supports pagination query params.\n\n"
-    "**RETURNS:** Paginated list of SOP records with titles, descriptions, associated projects, and file attachment metadata.\n\n"
+    "**RETURNS:** Paginated list of SOP records with each SOP's title and the file names of its latest version (`content_blobs`: `original_filename` and `content_type`). Use `GET /nextseek_api/sops/<id>/` for descriptions and projects.\n\n"
     "**TRIGGER PHRASES:** list protocols, show SOPs, all procedures, available protocols, browse SOPs\n\n"
     "**EXAMPLES:**\n"
     "- 'Show me all available protocols'\n"
@@ -249,8 +249,20 @@ SOP_FETCH_DESC = (
 SOP_CREATE_DESC = (
     "**SUMMARY:** Upload a new standard operating procedure document.\n\n"
     "**USE WHEN:** The user wants to register or upload a new SOP/protocol into the system.\n\n"
-    "**ACCEPTS:** SOP data including title, content blobs (PDF, Word, etc.), policy settings, and project associations.\n\n"
-    "**RETURNS:** The created SOP record with its assigned ID and metadata.\n\n"
+    "**ACCEPTS:** SOP data including title, content blobs (PDF, Word, etc.), policy settings, and project associations. "
+    "Send multipart (a `metadata` JSON string plus one or more `file` parts) or a JSON body `{\"data\": {...}}` "
+    "(a JSON-only create needs a `content_blobs` placeholder). TITLE RULE: a create with files names each SOP "
+    "`P.<institution>-<YYMMDD>-V1_<file name>` (`<YYMMDD>-V1_<file name>` without `institution`), using the upload date; "
+    "the one exception is a single file whose submitted title, or else whose file name, already starts "
+    "`[P.<INST>-]<YYMMDD>-V<n>_`: that title (or file name) is the SOP's title. A create without files keeps the title as sent. A title that already exists is refused with 409.\n\n"
+    "**RETURNS:** 201 with the created SOP records and their assigned titles (207 when a file upload failed). Every "
+    "answer is JSON. The whole request is limited to 120 s: once 120 s have passed no further file is sent to SEEK, "
+    "and the answer (207, or 504 when nothing was created) lists the SOPs made in `created`, each with its `file`, "
+    "and the files not sent in `not_sent`. A file in `not_sent` whose SOP is in `created` is finished with PATCH; "
+    "send the others again in a new request. 202 `unconfirmed` means SEEK did not answer before the limit and "
+    "the SOP may exist: the body gives the assigned "
+    "title, so look it up (`GET /nextseek_api/sops/<title>/`) before you send the create again. 409 gives the "
+    "existing id only when the caller can read that SOP.\n\n"
     "**TRIGGER PHRASES:** create SOP, upload protocol, add procedure, new SOP, register protocol\n\n"
     "**EXAMPLES:**\n"
     "- 'Add a new necropsy protocol for the primate study'\n"
@@ -268,6 +280,25 @@ SOP_UPDATE_DESC = (
     "- 'Update the description for the imaging protocol'\n"
     "- 'Change the project association for the cell culture procedure'\n"
     "- 'Rename SOP 132 to GEX Protocol v2'\n"
+)
+
+SOP_DELETE_DESC = (
+    "**SUMMARY:** Permanently delete a SOP by SEEK ID or title.\n\n"
+    "**USE WHEN:** The user wants to remove a SOP that no sample uses, such as a duplicate or a test upload.\n\n"
+    "**DO NOT USE WHEN:** Samples name the SOP as their Protocol, by its id or by its title: the delete is refused "
+    "with 409 and nothing is deleted. Point those samples at another SOP first. A title that another SOP also holds "
+    "does not block the delete: samples citing that title then name the SOP left.\n\n"
+    "**ACCEPTS:** SOP identifier (numeric SEEK ID or title string) as path parameter.\n\n"
+    "**RETURNS:** 200 `{\"status\": \"deleted\", \"id\", \"title\"}`. SEEK decides who may delete, by its own "
+    "rules and the caller's own SEEK login (normally the SOP's creator); a caller it refuses gets SEEK's 403. 404 "
+    "when no SOP with this id or title is visible to the caller. 409 when samples name it as their Protocol, with "
+    "no count of them. 202 `unconfirmed` when SEEK does not answer the delete within the proxy's timeout: it "
+    "may still complete it, so check with `GET /nextseek_api/sops/<id>/` before deleting again. Every answer is "
+    "JSON.\n\n"
+    "**TRIGGER PHRASES:** delete SOP, remove protocol, delete duplicate SOP, remove procedure\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Delete SOP 132'\n"
+    "- 'Remove the duplicate upload of P.WHI-251028-V1_NG_8-GEX.docx'\n"
 )
 
 SOP_DOWNLOAD_DESC = (
