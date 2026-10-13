@@ -5,6 +5,8 @@ Stdlib only: the files are read as JSON, no Django. The reference matcher below 
 """
 from __future__ import annotations
 
+import functools
+import itertools
 import json
 import re
 import sys
@@ -132,6 +134,8 @@ def test_generated_vocabularies_are_current():
     ("species", "homo sapiens", "Homo sapiens", "NCBITaxon:9606"),
     ("species", "Homo Sapiens", "Homo sapiens", "NCBITaxon:9606"),
     ("mouse_genotype", "RG", "RaDR+/+; GPT+/+", None),
+    ("mouse_genotype", "Rosa26 Direct Repeat (RaDR)+/+; guanine phosphoribosyltransferase (GPT)+/+",
+     "RaDR+/+; GPT+/+", None),
     ("library_layout", "Paired", "Paired End", None), ("library_layout", "PAIRED", "Paired End", None),
     ("library_layout", "Paired-end", "Paired End", None), ("library_layout", "paired", "Paired End", None),
     ("sex", "F", "female", None),
@@ -142,6 +146,40 @@ def test_siblings_resolve(oid, value, term, ont_id):
     assert rec is not None and rec["TERM"] == term
     if ont_id:
         assert rec["ONT_ID"] == ont_id
+
+
+def _patterns_meet(p, q):
+    """True when some `<type>.<attribute>` matches both glob patterns (`*` is their only wildcard)."""
+    @functools.lru_cache(maxsize=None)
+    def go(i, j):
+        if i == len(p):
+            return set(q[j:]) <= {"*"}
+        if j == len(q):
+            return set(p[i:]) <= {"*"}
+        if p[i] == "*":
+            return go(i + 1, j) or go(i, j + 1)
+        if q[j] == "*":
+            return go(i, j + 1) or go(i + 1, j)
+        return p[i] == q[j] and go(i + 1, j + 1)
+    return go(0, 0)
+
+
+def _keys(oid, case_sensitive):
+    return {norm(t, case_sensitive) for rec in records(oid) for t in [rec["TERM"], *rec["SYNONYMS"]]}
+
+
+def test_ontologies_that_can_cover_one_attribute_share_no_key():
+    """The skill takes the first covering ontology that matches, so a value matching two of them
+    would silently shadow the later one."""
+    shared = set()
+    for a, b in itertools.combinations(sorted(ENTRIES), 2):
+        if any(_patterns_meet(p, q) for p in ENTRIES[a]["attributes"] for q in ENTRIES[b]["attributes"]):
+            shared.add((a, b))
+            cs = ENTRIES[a]["case_sensitive"] and ENTRIES[b]["case_sensitive"]
+            both = _keys(a, cs) & _keys(b, cs)
+            assert not both, f"{a} and {b} both match {sorted(both)}"
+    assert ("mouse_genotype", "mouse_strain") in shared  # the pair today; proves the overlap check sees it
+    assert _patterns_meet("*.*Units", "OOC.Treatment1DoseUnits") and not _patterns_meet("*.Species", "*.Sex")
 
 
 def test_units_are_case_sensitive():
