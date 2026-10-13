@@ -1,0 +1,84 @@
+[
+ {
+  "TERM": "Homo sapiens",
+  "DEF": "Human.",
+  "ONT_SOURCE": "NCBITaxon",
+  "ONT_ID": "NCBITaxon:9606",
+  "SYNONYMS": [
+   "human"
+  ]
+ },
+ {
+  "TERM": "Mus musculus",
+  "DEF": "House mouse, the laboratory mouse.",
+  "ONT_SOURCE": "NCBITaxon",
+  "ONT_ID": "NCBITaxon:10090",
+  "SYNONYMS": [
+   "mouse",
+   "house mouse"
+  ]
+ },
+ {
+  "TERM": "Macaca mulatta",
+  "DEF": "Rhesus macaque.",
+  "ONT_SOURCE": "NCBITaxon",
+  "ONT_ID": "NCBITaxon:9544",
+  "SYNONYMS": [
+   "Macaca mulatta (Rhesus)",
+   "Rhesus macaque",
+   "rhesus monkey"
+  ]
+ },
+ {
+  "TERM": "Macaca fascicularis",
+  "DEF": "Cynomolgus (crab-eating) macaque.",
+  "ONT_SOURCE": "NCBITaxon",
+  "ONT_ID": "NCBITaxon:9541",
+  "SYNONYMS": [
+   "cynomolgus macaque",
+   "cynomolgus monkey",
+   "crab-eating macaque"
+  ]
+ },
+ {
+  "TERM": "Mycobacterium tuberculosis",
+  "DEF": "The tuberculosis bacillus.",
+  "ONT_SOURCE": "NCBITaxon",
+  "ONT_ID": "NCBITaxon:1773",
+  "SYNONYMS": [
+   "Myobacterium tuberculosis",
+   "M. tuberculosis",
+   "Mtb"
+  ]
+ },
+ {
+  "TERM": "Mycobacterium tuberculosis variant bovis BCG",
+  "DEF": "Bacille Calmette-Guerin, the attenuated vaccine strain.",
+  "ONT_SOURCE": "NCBITaxon",
+  "ONT_ID": "NCBITaxon:33892",
+  "SYNONYMS": [
+   "BCG",
+   "M. bovis BCG",
+   "Mycobacterium bovis BCG"
+  ]
+ },
+ {
+  "TERM": "Mycolicibacterium smegmatis",
+  "DEF": "Fast-growing non-pathogenic mycobacterium, formerly Mycobacterium smegmatis.",
+  "ONT_SOURCE": "NCBITaxon",
+  "ONT_ID": "NCBITaxon:1772",
+  "SYNONYMS": [
+   "Mycobacterium smegmatis",
+   "M. smegmatis"
+  ]
+ },
+ {
+  "TERM": "Simian immunodeficiency virus",
+  "DEF": "The simian lentivirus related to HIV.",
+  "ONT_SOURCE": "NCBITaxon",
+  "ONT_ID": "NCBITaxon:11723",
+  "SYNONYMS": [
+   "SIV"
+  ]
+ }
+]

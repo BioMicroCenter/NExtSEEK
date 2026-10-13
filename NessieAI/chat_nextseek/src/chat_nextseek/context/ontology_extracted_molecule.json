@@ -1,0 +1,57 @@
+[
+ {
+  "TERM": "polyA RNA",
+  "DEF": "Poly(A)-selected RNA.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "poly(A) RNA",
+   "polyA+ RNA",
+   "mRNA"
+  ]
+ },
+ {
+  "TERM": "total RNA",
+  "DEF": "All RNA extracted, no selection.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "nuclear RNA",
+  "DEF": "RNA from isolated nuclei.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "cytoplasmic RNA",
+  "DEF": "RNA from the cytoplasmic fraction.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "genomic DNA",
+  "DEF": "DNA from the genome.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "gDNA"
+  ]
+ },
+ {
+  "TERM": "protein",
+  "DEF": "Protein.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "other",
+  "DEF": "None of the listed molecules.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ }
+]

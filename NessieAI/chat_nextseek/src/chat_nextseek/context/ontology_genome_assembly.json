@@ -1,0 +1,99 @@
+[
+ {
+  "TERM": "GRCh38",
+  "DEF": "Human genome GRCh38 (UCSC hg38), NCBI GCA_000001405.15.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "hg38",
+   "GRCh38.p13",
+   "GRCh38.p14"
+  ]
+ },
+ {
+  "TERM": "GRCh37",
+  "DEF": "Human genome GRCh37 (UCSC hg19), NCBI GCA_000001405.1.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "hg19",
+   "GRCh37.p13"
+  ]
+ },
+ {
+  "TERM": "GRCm39",
+  "DEF": "Mouse genome GRCm39 (UCSC mm39), NCBI GCA_000001635.9.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "mm39"
+  ]
+ },
+ {
+  "TERM": "GRCm38",
+  "DEF": "Mouse genome GRCm38 (UCSC mm10), NCBI GCA_000001635.2.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "mm10",
+   "GRCm38.p6"
+  ]
+ },
+ {
+  "TERM": "NCBIM37",
+  "DEF": "Mouse genome NCBI build 37 (UCSC mm9).",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "mm9"
+  ]
+ },
+ {
+  "TERM": "Mmul_10",
+  "DEF": "Rhesus macaque genome Mmul_10 (UCSC rheMac10), NCBI GCA_003339765.3.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "rheMac10"
+  ]
+ },
+ {
+  "TERM": "Mmul_8.0.1",
+  "DEF": "Rhesus macaque genome Mmul_8.0.1 (UCSC rheMac8), NCBI GCA_000772875.3.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "rheMac8"
+  ]
+ },
+ {
+  "TERM": "Macaca_fascicularis_5.0",
+  "DEF": "Cynomolgus macaque genome 5.0 (UCSC macFas5), NCBI GCF_000364345.1.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "macFas5",
+   "GCF_000364345.1",
+   "GCF_000364345.1_Macaca_fascicularis_5.0"
+  ]
+ },
+ {
+  "TERM": "Macaca_fascicularis_6.0",
+  "DEF": "Cynomolgus macaque genome 6.0, NCBI GCF_011100615.1.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "GCF_011100615.1"
+  ]
+ },
+ {
+  "TERM": "ASM19595v2",
+  "DEF": "Mycobacterium tuberculosis H37Rv reference genome, NCBI GCF_000195955.2.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "H37Rv",
+   "NC_000962.3"
+  ]
+ }
+]

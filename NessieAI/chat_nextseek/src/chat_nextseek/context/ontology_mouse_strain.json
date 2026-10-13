@@ -1,0 +1,81 @@
+[
+ {
+  "TERM": "C57BL/6",
+  "DEF": "C57BL/6 inbred strain, substrain not stated.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "B6",
+   "C57BL6",
+   "C57BL/6 (B6)"
+  ]
+ },
+ {
+  "TERM": "C57BL/6J",
+  "DEF": "C57BL/6J inbred strain (The Jackson Laboratory).",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "C3HeB/FeJ",
+  "DEF": "C3HeB/FeJ inbred strain (necrotic granulomas in Mtb infection).",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "C3HeBFeJ"
+  ]
+ },
+ {
+  "TERM": "B6.129S7-Rag1tm1Mom/J",
+  "DEF": "Rag1 knockout on C57BL/6.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "B6.129S7-Rag1tm1Mom/J (immunodeficient; Jackson Lab or bred in-house)"
+  ]
+ },
+ {
+  "TERM": "CAnN.Cg-Foxn1nu/Crl",
+  "DEF": "Athymic nude mouse (Charles River).",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "PWK/PhJ",
+  "DEF": "PWK/PhJ wild-derived inbred strain (Collaborative Cross founder).",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "PWK"
+  ]
+ },
+ {
+  "TERM": "CAST/EiJ",
+  "DEF": "CAST/EiJ wild-derived inbred strain (Collaborative Cross founder).",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "CAST"
+  ]
+ },
+ {
+  "TERM": "WSB/EiJ",
+  "DEF": "WSB/EiJ wild-derived inbred strain (Collaborative Cross founder).",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "WSB"
+  ]
+ },
+ {
+  "TERM": "PWD/PhJ",
+  "DEF": "PWD/PhJ wild-derived inbred strain.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "PWD"
+  ]
+ }
+]

@@ -1,0 +1,403 @@
+[
+ {
+  "TERM": "uL",
+  "DEF": "Microliter.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000101",
+  "SYNONYMS": [
+   "ul",
+   "µL",
+   "μL",
+   "µl",
+   "μl",
+   "microliter",
+   "microlitre",
+   "microliters"
+  ]
+ },
+ {
+  "TERM": "mL",
+  "DEF": "Milliliter.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000098",
+  "SYNONYMS": [
+   "ml",
+   "milliliter",
+   "millilitre",
+   "milliliters",
+   "mililiter"
+  ]
+ },
+ {
+  "TERM": "L",
+  "DEF": "Liter.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000099",
+  "SYNONYMS": [
+   "l",
+   "liter",
+   "litre"
+  ]
+ },
+ {
+  "TERM": "mg",
+  "DEF": "Milligram.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000022",
+  "SYNONYMS": [
+   "milligram",
+   "milligrams"
+  ]
+ },
+ {
+  "TERM": "ug",
+  "DEF": "Microgram.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000023",
+  "SYNONYMS": [
+   "µg",
+   "μg",
+   "microgram",
+   "micrograms"
+  ]
+ },
+ {
+  "TERM": "ng",
+  "DEF": "Nanogram.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000024",
+  "SYNONYMS": [
+   "nanogram",
+   "nanograms"
+  ]
+ },
+ {
+  "TERM": "g",
+  "DEF": "Gram.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000021",
+  "SYNONYMS": [
+   "gram",
+   "grams"
+  ]
+ },
+ {
+  "TERM": "kg",
+  "DEF": "Kilogram.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000009",
+  "SYNONYMS": [
+   "kilogram",
+   "kilograms"
+  ]
+ },
+ {
+  "TERM": "mg/kg",
+  "DEF": "Milligram per kilogram of body weight.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000308",
+  "SYNONYMS": [
+   "milligram per kilogram",
+   "milligrams per kilogram",
+   "miligram per kilogram"
+  ]
+ },
+ {
+  "TERM": "mg/mL",
+  "DEF": "Milligram per milliliter.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000176",
+  "SYNONYMS": [
+   "mg/ml",
+   "milligram per milliliter"
+  ]
+ },
+ {
+  "TERM": "ug/mL",
+  "DEF": "Microgram per milliliter.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000274",
+  "SYNONYMS": [
+   "ug/ml",
+   "µg/mL",
+   "μg/mL",
+   "µg/ml",
+   "microgram per milliliter"
+  ]
+ },
+ {
+  "TERM": "ng/mL",
+  "DEF": "Nanogram per milliliter.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000275",
+  "SYNONYMS": [
+   "ng/ml",
+   "nanogram per milliliter"
+  ]
+ },
+ {
+  "TERM": "ng/uL",
+  "DEF": "Nanogram per microliter.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0010050",
+  "SYNONYMS": [
+   "ng/ul",
+   "ng/µL",
+   "ng/μL",
+   "nanogram per microliter"
+  ]
+ },
+ {
+  "TERM": "g/L",
+  "DEF": "Gram per liter.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000175",
+  "SYNONYMS": [
+   "g/l",
+   "gram per liter"
+  ]
+ },
+ {
+  "TERM": "mg/L",
+  "DEF": "Milligram per liter.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000273",
+  "SYNONYMS": [
+   "mg/l",
+   "milligram per liter"
+  ]
+ },
+ {
+  "TERM": "ng/L",
+  "DEF": "Nanogram per liter.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "ng/l",
+   "nanogram per liter"
+  ]
+ },
+ {
+  "TERM": "M",
+  "DEF": "Molar.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000062",
+  "SYNONYMS": [
+   "molar"
+  ]
+ },
+ {
+  "TERM": "mM",
+  "DEF": "Millimolar.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000063",
+  "SYNONYMS": [
+   "millimolar"
+  ]
+ },
+ {
+  "TERM": "uM",
+  "DEF": "Micromolar.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000064",
+  "SYNONYMS": [
+   "µM",
+   "μM",
+   "micromolar"
+  ]
+ },
+ {
+  "TERM": "nM",
+  "DEF": "Nanomolar.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000065",
+  "SYNONYMS": [
+   "nanomolar"
+  ]
+ },
+ {
+  "TERM": "%",
+  "DEF": "Percent.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000187",
+  "SYNONYMS": [
+   "percent"
+  ]
+ },
+ {
+  "TERM": "ppm",
+  "DEF": "Parts per million.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000169",
+  "SYNONYMS": [
+   "PPM",
+   "parts per million",
+   "parts per million (PPM)"
+  ]
+ },
+ {
+  "TERM": "ppb",
+  "DEF": "Parts per billion.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000170",
+  "SYNONYMS": [
+   "PPB",
+   "parts per billion",
+   "parts per billion (PPB)"
+  ]
+ },
+ {
+  "TERM": "CFU",
+  "DEF": "Colony-forming units.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000210",
+  "SYNONYMS": [
+   "cfu",
+   "CFUs",
+   "colony forming units"
+  ]
+ },
+ {
+  "TERM": "CFU/mL",
+  "DEF": "Colony-forming units per milliliter.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "cfu/ml",
+   "CFU/ml"
+  ]
+ },
+ {
+  "TERM": "PFU",
+  "DEF": "Plaque-forming units.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "pfu",
+   "plaque forming units"
+  ]
+ },
+ {
+  "TERM": "TCID50",
+  "DEF": "50% tissue culture infectious dose.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "MOI",
+  "DEF": "Multiplicity of infection.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "moi"
+  ]
+ },
+ {
+  "TERM": "second",
+  "DEF": "Second.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000010",
+  "SYNONYMS": [
+   "s",
+   "sec",
+   "seconds"
+  ]
+ },
+ {
+  "TERM": "minute",
+  "DEF": "Minute.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000031",
+  "SYNONYMS": [
+   "min",
+   "mins",
+   "minutes"
+  ]
+ },
+ {
+  "TERM": "hour",
+  "DEF": "Hour.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000032",
+  "SYNONYMS": [
+   "h",
+   "hr",
+   "Hr",
+   "hrs",
+   "hours",
+   "Hours"
+  ]
+ },
+ {
+  "TERM": "day",
+  "DEF": "Day.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000033",
+  "SYNONYMS": [
+   "d",
+   "Day",
+   "days",
+   "Days"
+  ]
+ },
+ {
+  "TERM": "week",
+  "DEF": "Week.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000034",
+  "SYNONYMS": [
+   "wk",
+   "Week",
+   "weeks",
+   "Weeks"
+  ]
+ },
+ {
+  "TERM": "month",
+  "DEF": "Month.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000035",
+  "SYNONYMS": [
+   "Month",
+   "months",
+   "Months"
+  ]
+ },
+ {
+  "TERM": "year",
+  "DEF": "Year.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000036",
+  "SYNONYMS": [
+   "y",
+   "yr",
+   "Year",
+   "years",
+   "Years"
+  ]
+ },
+ {
+  "TERM": "°C",
+  "DEF": "Degree Celsius.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000027",
+  "SYNONYMS": [
+   "C",
+   "celsius",
+   "Celsius",
+   "degC",
+   "degrees C"
+  ]
+ },
+ {
+  "TERM": "K",
+  "DEF": "Kelvin.",
+  "ONT_SOURCE": "UO",
+  "ONT_ID": "UO:0000012",
+  "SYNONYMS": [
+   "kelvin",
+   "Kelvin"
+  ]
+ }
+]
