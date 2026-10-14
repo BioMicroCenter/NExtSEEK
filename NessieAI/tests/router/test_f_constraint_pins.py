@@ -88,6 +88,7 @@ def test_no_new_migrations():                        # Global Constraint
         "nextseek_api/migrations/0027_ccturn_ops_cost_estimated.py",
         # Pin updated for the SEEK person link: 0028 creates the one SeekPersonLink table and backfills it; no router table.
         "nextseek_api/migrations/0028_seekpersonlink.py",
+        "nextseek_api/migrations/0029_uidsequence.py",
         "nextseek_api/migrations/__init__.py",
         "nextseek_api/migrations/_cc_transcript_heal.py",
         "nextseek_api/migrations/_cc_turn_heal.py",

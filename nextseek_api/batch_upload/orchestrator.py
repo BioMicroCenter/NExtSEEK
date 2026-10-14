@@ -412,6 +412,7 @@ def _run_pre_insert_stages(
                     lababbv=lababbv,
                     conn=conn,
                     error_collector=error_collector,
+                    reserve=mutate_project_links,
                 )
             res.uid_gen_failed_outcomes = {
                 failed["uid"]: RowOutcome(status="failed", reason=failed["reason"])

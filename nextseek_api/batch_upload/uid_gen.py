@@ -13,6 +13,7 @@ from sqlalchemy.engine import Connection
 from .errors import ErrorCollector, ErrorType, Severity
 from .helpers import UID_RE, split_parent_field
 from .identity import extract_identity, hash_identity
+from .uid_sequence import reserve_uid_indexes
 from .models import InputRowModel
 
 try:
@@ -100,13 +101,14 @@ def _deduplicate_rows(
             keep.append(row)
             continue
 
-        if identity in seen:
+        key = hash_identity(identity)  # same case-folding the DB identity uses
+        if key in seen:
             warnings.append(
                 f"Duplicate identity '{identity}' at row {idx} "
-                f"(first seen at row {seen[identity]}); skipping duplicate"
+                f"(first seen at row {seen[key]}); skipping duplicate"
             )
         else:
-            seen[identity] = idx
+            seen[key] = idx
             keep.append(row)
 
     return keep, warnings
@@ -151,10 +153,13 @@ def _generate_uids_for_prefix(
     rows_needing_uids: List[InputRowModel],
     prefix: str,
     conn: Connection,
+    reserve: bool = True,
 ) -> int:
-    """Generate sequential UIDs for all rows sharing a prefix, under advisory lock.
+    """Generate sequential UIDs for all rows sharing a prefix.
 
-    Mutates rows in place. Returns count of UIDs generated.
+    The advisory lock guards the MAX read; with ``reserve`` the indexes are
+    also committed to the shared counter, so nothing else can take them before
+    the insert. Mutates rows in place. Returns count of UIDs generated.
     """
     lock_name = f"uid_gen:{prefix}"
     try:
@@ -167,8 +172,12 @@ def _generate_uids_for_prefix(
 
         max_index = _query_max_index(conn, prefix)
 
-        for i, row in enumerate(rows_needing_uids, start=1):
-            row.UID = f"{prefix}-{max_index + i}"
+        if reserve:
+            first = reserve_uid_indexes(prefix, len(rows_needing_uids), max_index)
+        else:
+            first = max_index + 1
+        for i, row in enumerate(rows_needing_uids):
+            row.UID = f"{prefix}-{first + i}"
 
         return len(rows_needing_uids)
     finally:
@@ -179,6 +188,7 @@ def generate_uids(
     rows: List[InputRowModel],
     lababbv: str,
     conn: Connection,
+    reserve: bool = True,
 ) -> Tuple[List[InputRowModel], int]:
     """Generate UIDs for all rows with UID=None. Returns (rows, count_generated).
 
@@ -199,7 +209,7 @@ def generate_uids(
 
     # Generate UIDs per prefix
     for prefix, prefix_rows in sorted(by_prefix.items()):
-        count = _generate_uids_for_prefix(prefix_rows, prefix, conn)
+        count = _generate_uids_for_prefix(prefix_rows, prefix, conn, reserve)
         total_generated += count
 
     return rows, total_generated
@@ -250,6 +260,23 @@ def _resolve_parents(
     failed_rows: List[dict] = []
     unresolved_parents: List[dict] = []
 
+    # In-batch lookup by the same case-folded hash dedup and the DB use; first wins.
+    # Exact name first; the hash only when no exact match. Several rows under one hash and no exact match
+    # is ambiguous (never picked), like the DB path.
+    batch_by_hash: Dict[str, List[str]] = {}
+    for _name, _uid in identity_to_uid.items():
+        _h = hash_identity(_name)
+        if _h and _uid not in batch_by_hash.setdefault(_h, []):
+            batch_by_hash[_h].append(_uid)
+
+    def _batch_matches(token: str) -> List[str]:
+        if token in identity_to_uid:
+            return [identity_to_uid[token]]
+        return batch_by_hash.get(hash_identity(token), [])
+
+    def _in_batch(token: str) -> bool:
+        return bool(_batch_matches(token))
+
     def _parent_field_values(meta: dict) -> List[str]:
         seen: set[str] = set()
         values: List[str] = []
@@ -279,12 +306,12 @@ def _resolve_parents(
 
         for raw_parent in parent_values:
             split_tokens = split_parent_field(raw_parent)
-            if len(split_tokens) > 1 and raw_parent not in identity_to_uid:
+            if len(split_tokens) > 1 and not _in_batch(raw_parent):
                 unresolved_tokens.add(raw_parent)
             for token in split_tokens:
                 if UID_RE.match(token):
                     continue
-                if token in identity_to_uid:
+                if _in_batch(token):
                     continue
                 unresolved_tokens.add(token)
 
@@ -305,7 +332,7 @@ def _resolve_parents(
             split_tokens = split_parent_field(raw_parent)
             tokens = split_tokens
             if len(split_tokens) > 1 and (
-                raw_parent in identity_to_uid
+                _in_batch(raw_parent)
                 or raw_parent in ambiguous_identities
                 or raw_parent in db_identity_to_uid
             ):
@@ -314,8 +341,21 @@ def _resolve_parents(
             for token in tokens:
                 if UID_RE.match(token):
                     resolved_tokens.append(token)
-                elif token in identity_to_uid:
-                    resolved_tokens.append(identity_to_uid[token])
+                elif len(_batch_matches(token)) > 1:
+                    failed_rows.append({
+                        "row": row,
+                        "uid": row.UID,
+                        "row_index": idx,
+                        "error": AmbiguousIdentityError(
+                            row_index=idx,
+                            identity=token,
+                            conflicting_sample_ids=_batch_matches(token),
+                        ),
+                    })
+                    row_failed = True
+                    break
+                elif _in_batch(token):
+                    resolved_tokens.append(_batch_matches(token)[0])
                     parents_resolved += 1
                 elif token in ambiguous_identities:
                     failed_rows.append({
@@ -554,6 +594,7 @@ def run_uid_gen(
     lababbv: str,
     conn: Connection,
     error_collector: ErrorCollector,
+    reserve: bool = True,
 ) -> Tuple[List[InputRowModel], Dict[str, Any]]:
     """Stage 1.5: UID_GEN — generate UIDs and resolve parent references.
 
@@ -583,7 +624,7 @@ def run_uid_gen(
     rows_needing_uids = [r for r in rows if r.UID is None]
     generated_uid_set_before = {r.UID for r in rows if r.UID is not None}
     if rows_needing_uids:
-        rows, count = generate_uids(rows, lababbv, conn)
+        rows, count = generate_uids(rows, lababbv, conn, reserve)
         report["uids_generated"] = count
     else:
         log.info("UID_GEN: all rows have UIDs, skipping generation")

@@ -96,7 +96,8 @@ class SampleCore:
         uid_date = str(datetime.datetime.now().strftime("%Y%m%d"))
         lab = user_seek['lababbv']
         prefix = uid_prefix + '-' + uid_date[2:] + lab
-        nextIndex = str(self.getSampleUIDIndex(prefix))
+        from nextseek_api.batch_upload.uid_sequence import reserve_uid_indexes  # lazy: nextseek_api imports seek
+        nextIndex = str(reserve_uid_indexes(prefix, 1, self.getSampleUIDIndex(prefix) - 1))
         uid = prefix + '-' + nextIndex
         return uid
 

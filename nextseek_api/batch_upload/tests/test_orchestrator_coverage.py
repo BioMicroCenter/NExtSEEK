@@ -593,7 +593,7 @@ class TestAmbiguousIdentityHandling:
         )
         mock_neo4j_cfg.return_value = MagicMock(NEO4J_UPLOAD_ENABLED=False, MISSING_KEYS=["disabled"])
 
-        def _run_uid_gen(rows, lababbv, conn, error_collector):
+        def _run_uid_gen(rows, lababbv, conn, error_collector, reserve=True):
             reason = (
                 "ambiguous identity match: 2 existing samples with name_identity='Parent-X' - "
                 "duplicates must be resolved before batch can proceed (conflicting sample ids: [10, 20])"
