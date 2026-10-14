@@ -18161,7 +18161,7 @@
                 {
                   "field": "cc_trace_text",
                   "op": "matches_re",
-                  "value": "nextseek-graph-schema[^\\n]*--query"
+                  "value": "(?i)nextseek-graph-schema[^\\n]*--query|nextseek-(?:graph|aggregate)[^\\n]*\\bstud(?:y|ies)\\b"
                 }
               ]
             }
@@ -18174,7 +18174,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "ti24 2026-10-14 (prod tasks 1328, 1329): both turns said scAmp was not found after a CEL-only keyword search and a parse that never ran. The route-only sibling unsup.method_talk_then_reanalyze cannot see the trace. Each turn must look the method up by title (nextseek-graph-schema --query) before any 'not found'. Box-neutral: dev holds the scAmp study, prod does not, so the reply is not asserted."
+          "_why": "ti24 2026-10-14 (prod tasks 1328, 1329): both turns said scAmp was not found after a CEL-only keyword search and a parse that never ran. The route-only sibling unsup.method_talk_then_reanalyze cannot see the trace. Each turn must look the method up before any 'not found': a title lookup (nextseek-graph-schema --query), or on the second turn a search inside the study the first turn found (dev launch 20261014-2138: turn 2 searched the scAmp study for GBM39HSR, the right move, and a title-only criterion failed it). Box-neutral: dev holds the scAmp study, prod does not, so the reply is not asserted."
         },
         {
           "id": "unsup.offtopic_sports",
