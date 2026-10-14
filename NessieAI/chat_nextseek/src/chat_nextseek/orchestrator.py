@@ -26,14 +26,15 @@ from .chat_memory import (
     CHAT_LOG_KEY,
     append_turn,
     build_tool_summary_for_mode,
+    bundle_rows,
+    named_bundle,
     next_turn_id,
+    plan_step_extent,
     resolve_bundle_for_recall,
 )
 from .pipeline import agent as pipeline_agent
 from .agents.followup import (
-    _stored_rows,
     describe_stored_result,
-    plan_step_extent,
     preview_rows,
     resolve_followup_outcome,
     run_followup,
@@ -620,10 +621,7 @@ def _followup_graph_context(session, user_text: str, plan=None) -> tuple[str, di
     session keeps those UIDs only as a placeholder. Returns (context, debug record)."""
     try:
         history = session.get("results_history") or []
-        named = None
-        target = getattr(plan, "target_result_id", None)
-        if target is not None and not isinstance(target, bool):
-            named = next((b for b in reversed(history) if isinstance(b, dict) and b.get("id") == target), None)
+        named = named_bundle(history, getattr(plan, "target_result_id", None))
         if named is not None and named.get("user_query"):
             last, by, cue = named, "parser", None
         else:
@@ -966,7 +964,7 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             if run.get("scope_note"):
                 payload["scope_note"] = " ".join(n for n in (run["scope_note"], payload.get("scope_note")) if n)
         else:
-            rows = _stored_rows(bundle)
+            rows = bundle_rows(bundle)
             total = described.get("total")
             complete = bool(rows) and not described.get("capped")
             origin = {"kind": "stored", "bundle_id": bundle.get("id"), "rows_in": len(rows), "total": total,
@@ -2350,7 +2348,7 @@ def run_query(
                     f"query={bundle.get('user_query')!r}"
                 )
             else:
-                bundle = next((b for b in history if b.get("id") == target_id), None)
+                bundle = named_bundle(history, target_id)
                 if bundle is None:
                     reply = (
                         f"You referred to previous results with id={target_id}, but I couldn't find that "

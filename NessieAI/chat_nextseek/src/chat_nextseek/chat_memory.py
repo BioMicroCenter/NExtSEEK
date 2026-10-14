@@ -13,7 +13,10 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timezone
+from collections.abc import Mapping
 from typing import Any, TYPE_CHECKING
+
+from .artifacts import load_api_result_full, load_memory_payload
 
 if TYPE_CHECKING:
     from streamlit.runtime.state.session_state_proxy import SessionStateProxy
@@ -490,7 +493,7 @@ def select_refine_bundle(
     if not bundles:
         return None, {"bundle_id": None, "requested": requested, "chosen_by": "none"}
     if requested is not None and not isinstance(requested, bool):
-        named = next((b for b in reversed(bundles) if b.get("id") == requested), None)
+        named = named_bundle(bundles, requested)
         if named is not None:
             return named, {"bundle_id": named.get("id"), "requested": requested, "chosen_by": "named"}
         chosen_by = "named_missing"
@@ -500,3 +503,231 @@ def select_refine_bundle(
         chosen_by = "newest"
     newest = bundles[-1]
     return newest, {"bundle_id": newest.get("id"), "requested": requested, "chosen_by": chosen_by}
+
+
+# --- Reading a stored result bundle: the one reader every agent uses (moved from agents/followup.py) ---
+
+def _rows_in(data: Any) -> list | None:
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ("rows", "samples", "results", "nodes"):
+            if isinstance(data.get(key), list):
+                return data[key]
+    return None
+
+
+def _is_count(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _payload_extent(data: Any) -> tuple[int | None, bool]:
+    """``(total, a further page follows)`` as a stored result body states them.
+
+    ``{"rows", "total"}`` is a search, and a plan-mode step's copy of one; ``truncated`` true
+    says it is cut short (a plan filter over a capped step, whose total is not known). A DRF
+    page is ``{count, next, previous, results}``: ``count`` is its total, and a ``next`` that
+    is not null means a page follows, with or without a count.
+    """
+    if not isinstance(data, Mapping):
+        return None, False
+    total = data["total"] if _is_count(data.get("total")) else None
+    page = isinstance(data.get("results"), list)
+    if total is None and page and _is_count(data.get("count")):
+        total = data["count"]
+    return total, (page and data.get("next") is not None) or data.get("truncated") is True
+
+
+def bundle_rows_and_extent(bundle: dict) -> tuple[list, int | None, bool, bool]:
+    """``(rows, total stored beside them, a further page follows or they were cut short, from a plan step)``.
+
+    A plan bundle's rows are its final step's (``_step_rows``), read first: its graph result is
+    its first graph step's, and its memory payload the builder's pick, and either can be an
+    earlier set than the one the plan ended with.
+    A graph result's rows come with its own total, which ``describe_stored_result`` reads.
+    Any other result's rows and total come from memory_payload, then the full API result,
+    the first total found winning: a plan-mode filter step keeps its own rows and total in
+    memory_payload, and the larger total of the search it filtered, in the full API result,
+    is not theirs. A memory payload that was just read back from the full API result is not
+    loaded a second time.
+    """
+    plan_rows, plan_total, plan_capped = _step_rows(bundle)
+    if plan_rows is not None:
+        return plan_rows, plan_total, plan_capped, True
+
+    graph_result = bundle.get("graph_result") or {}
+    if isinstance(graph_result.get("data"), list):
+        return graph_result["data"], None, False, False
+
+    def sources():
+        yield load_memory_payload(bundle)
+        kept = bundle.get("memory_payload")
+        if not (isinstance(kept, dict) and kept and "data" not in kept):
+            yield load_api_result_full(bundle)
+
+    rows: list | None = None
+    total: int | None = None
+    more = False
+    for candidate in sources():
+        if not isinstance(candidate, dict):
+            continue
+        data = candidate.get("data")
+        if rows is None:
+            rows = _rows_in(data)
+        stated, follows = _payload_extent(data)
+        if total is None:
+            total = stated
+        more = more or follows
+        if rows is not None and total is not None:
+            break
+    return rows or [], total, more, False
+
+
+def _step_rows(bundle: dict) -> tuple[list | None, int | None, bool]:
+    """``(rows, total, capped)`` of the step that produced a plan bundle's final result: the LAST successful step
+    in ``step_results`` whose output holds rows, so "those" after a search and a filter is the filtered set. Its
+    total and cap are ``plan_step_extent``'s. ``(None, None, False)`` when no step holds rows.
+    """
+    last = _final_step_key(bundle)
+    if last is None:
+        return None, None, False
+    step_results = bundle["step_results"]
+    total, capped = plan_step_extent(step_results, last, plan_steps=_plan_steps(bundle))
+    return _step_rows_of(step_results[last]), total, capped
+
+
+def _final_step_key(bundle: dict) -> Any:
+    """The ``step_results`` key of the LAST successful plan step whose output holds rows, or None."""
+    step_results = bundle.get("step_results")
+    if not isinstance(step_results, Mapping):
+        return None
+    last = None
+    for key, result in step_results.items():
+        if _step_rows_of(result) is not None:
+            last = key
+    return last
+
+
+def _step_rows_of(result: Any) -> list | None:
+    """A successful plan step's rows, or None."""
+    if not isinstance(result, Mapping) or not result.get("ok"):
+        return None
+    output = result.get("output")
+    return output["data"] if isinstance(output, Mapping) and isinstance(output.get("data"), list) else None
+
+
+def _plan_steps(bundle: dict) -> list:
+    """The plan's steps as the bundle keeps them (``plan``, the planner output), or []."""
+    plan = bundle.get("plan")
+    steps = plan.get("steps") if isinstance(plan, Mapping) else None
+    return list(steps) if isinstance(steps, list) else []
+
+
+def _field(step: Any, name: str) -> Any:
+    return step.get(name) if isinstance(step, Mapping) else getattr(step, name, None)
+
+
+def _find_step(step_results: Mapping, key: Any) -> tuple[Any, Any]:
+    """``(key as stored, result)`` for ``key``, matched as text: a session round trip makes an int key a string."""
+    for stored, result in step_results.items():
+        if str(stored) == str(key):
+            return stored, result
+    return None, None
+
+
+def _step_inputs(step_results: Mapping, key: Any, plan_steps: list) -> list:
+    """The earlier steps a plan step's rows derive from: a filter's ``source_step_id``; for the intersection, the
+    steps the plan marks ``intersect``, or every other step when the plan's steps are not known; and for any step,
+    the ``depends_on`` and ``input_mapping`` sources the plan records for it (a search seeded with an earlier step's
+    UIDs)."""
+    result = step_results.get(key)
+    output = result.get("output") if isinstance(result, Mapping) else None
+    output = output if isinstance(output, Mapping) else {}
+    inputs: list = []
+    if result.get("tool") == "coding_filter" or "source_step_id" in output:
+        if output.get("source_step_id") is not None:
+            inputs.append(output["source_step_id"])
+    if result.get("tool") == "intersection" or str(key) == "intersection":
+        marked = [_field(s, "step_id") for s in plan_steps if _field(s, "combine_mode") == "intersect"]
+        inputs.extend(marked if plan_steps else [k for k in step_results if str(k) != str(key)])
+    step = next((s for s in plan_steps if str(_field(s, "step_id")) == str(key)), None)
+    if step is not None:
+        if _field(step, "depends_on") is not None:
+            inputs.append(_field(step, "depends_on"))
+        mapping = _field(step, "input_mapping")
+        for ref in (mapping.values() if isinstance(mapping, Mapping) else ()):
+            if _field(ref, "from_step") is not None:
+                inputs.append(_field(ref, "from_step"))
+    return [i for i in inputs if str(i) != str(key)]
+
+
+def _own_extent(output: Mapping) -> tuple[int | None, bool]:
+    """``(total, capped)`` as one step's output states them. A graph step's ``count`` is only the number of rows
+    returned, so its ``total`` is its own ``total`` (``orchestrator._plan_graph_result``), and a step that hit its
+    LIMIT is ``truncated``. A step without a ``total`` (a search, a filter) has its ``count`` as its total unless it
+    was cut short. Capped means truncated, or a total larger than the rows it holds."""
+    rows = output.get("data") if isinstance(output.get("data"), list) else []
+    truncated = bool(output.get("truncated"))
+    total = output["total"] if _is_count(output.get("total")) else None
+    if total is None and not truncated and _is_count(output.get("count")):
+        total = output["count"]
+    return total, truncated or (total is not None and total > len(rows))
+
+
+def plan_step_extent(step_results: Mapping, key: Any, *, plan_steps: list | None = None) -> tuple[int | None, bool]:
+    """``(total, capped)`` of plan step ``key``'s rows.
+
+    A step is capped by its own output (``_own_extent``), or by any earlier successful capped step it derives from
+    (``_step_inputs``, followed through every step in between): a filter over 1,000 of 36,622 rows holds a filtered
+    part of a part, however whole its own count looks. An inherited cap reads as capped with an unknown total.
+    """
+    plan_steps = list(plan_steps or [])
+    stored, result = _find_step(step_results, key)
+    output = result.get("output") if isinstance(result, Mapping) else None
+    if not isinstance(output, Mapping):
+        return None, False
+    total, capped = _own_extent(output)
+    if capped:
+        return total, True
+    seen = {str(stored)}
+    pending = list(_step_inputs(step_results, stored, plan_steps))
+    while pending:
+        source, source_result = _find_step(step_results, pending.pop())
+        if source is None or str(source) in seen:
+            continue
+        seen.add(str(source))
+        if _step_rows_of(source_result) is None:
+            continue
+        if _own_extent(source_result["output"])[1]:
+            return None, True
+        pending.extend(_step_inputs(step_results, source, plan_steps))
+    return total, False
+
+
+def uids_from_rows(rows: list) -> list[str]:
+    out: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in ("uid", "UID", "uuid", "UUID", "id", "name"):
+            value = row.get(key)
+            if isinstance(value, str) and value:
+                out.append(value)
+                break
+    return out
+
+
+def bundle_rows(bundle: dict) -> list:
+    """Rows from wherever this bundle put them, without loading a payload twice."""
+    return bundle_rows_and_extent(bundle)[0]
+
+
+def bundle_uids(bundle: dict) -> list[str]:
+    return uids_from_rows(bundle_rows(bundle))
+
+
+def named_bundle(history: Any, target_result_id: Any) -> dict | None:
+    """The stored result the parser's ``target_result_id`` names, or None (no id, a bool, or not in the session)."""
+    if target_result_id is None or isinstance(target_result_id, bool) or not isinstance(history, list):
+        return None
+    return next((b for b in reversed(history) if isinstance(b, dict) and b.get("id") == target_result_id), None)
