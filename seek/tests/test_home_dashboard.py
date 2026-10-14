@@ -109,6 +109,72 @@ class TestHomeProjectsScoping:
             assert out[0]["logo"] == "https://seek.example/assets/avatar-images/9-500.png"
 
 
+class TestHomeSamplesScoping:
+    """Counts and recent samples are for logged-in callers; recent rows are limited to the caller's projects."""
+
+    @staticmethod
+    def _ctx(user):
+        from dmac.views import home
+        req = RequestFactory().get("/")
+        req.user = user
+        with patch("dmac.views._home_projects", return_value=[]), \
+             patch("dmac.views.render") as render:
+            home(req)
+        return render.call_args[0][2]
+
+    def test_anonymous_sees_no_counts_or_samples(self):
+        with patch("seek.models.Samples") as Samples:
+            Samples.objects.count.return_value = 99
+            Samples.objects.order_by.return_value.values.return_value.__getitem__.return_value = [{"id": 1}]
+            ctx = self._ctx(AnonymousUser())
+        assert ctx["recent_samples"] == []
+        assert ctx["total_samples_count"] == 0
+        Samples.objects.count.assert_not_called()
+
+    def test_member_sees_only_their_projects_samples(self):
+        from types import SimpleNamespace
+        from nextseek_api.graph_search.scope import Scope
+        user = SimpleNamespace(is_authenticated=True, is_superuser=False, username="m", pk=7)
+        with patch("nextseek_api.graph_search.scope.resolve_scope",
+                   return_value=Scope(is_admin=False, person_id=1, project_ids=(5,))), \
+             patch("seek.models.Projects_samples") as PS, \
+             patch("seek.models.Samples") as Samples:
+            Samples.objects.count.return_value = 3
+            Samples.objects.filter.return_value.count.return_value = 0
+            scoped = Samples.objects.filter.return_value
+            scoped.order_by.return_value.values.return_value.__getitem__.return_value = [{"id": 9}]
+            ctx = self._ctx(user)
+        PS.objects.filter.assert_called_once_with(project_id__in=(5,))
+        PS.objects.filter.return_value.values.assert_called_once_with("sample_id")
+        # the subquery feeds the recent-samples filter (the other filter call is the weekly count)
+        Samples.objects.filter.assert_any_call(id__in=PS.objects.filter.return_value.values.return_value)
+        scoped.order_by.assert_called_once_with("-id")
+        scoped.order_by.return_value.values.assert_called_once_with("id", "title", "created_at")
+        scoped.order_by.return_value.values.return_value.__getitem__.assert_called_once_with(slice(None, 4))
+        assert ctx["recent_samples"] == [{"id": 9}]
+        Samples.objects.order_by.assert_not_called()
+
+    def test_member_without_a_seek_person_sees_no_samples(self):
+        from types import SimpleNamespace
+        from nextseek_api.graph_search.scope import ScopeUnavailable
+        user = SimpleNamespace(is_authenticated=True, is_superuser=False, username="m", pk=7)
+        with patch("nextseek_api.graph_search.scope.resolve_scope", side_effect=ScopeUnavailable("x")), \
+             patch("seek.models.Samples") as Samples:
+            ctx = self._ctx(user)
+        assert ctx["recent_samples"] == []
+        # only the global counts ran: no newest-first query, no filter other than the weekly count
+        Samples.objects.order_by.assert_not_called()
+        assert all(set(c.kwargs) == {"created_at__gte"} for c in Samples.objects.filter.call_args_list)
+
+    def test_superuser_sees_the_newest_samples_unscoped(self):
+        from types import SimpleNamespace
+        user = SimpleNamespace(is_authenticated=True, is_superuser=True, username="root", pk=1)
+        with patch("seek.models.Samples") as Samples:
+            Samples.objects.order_by.return_value.values.return_value.__getitem__.return_value = [{"id": 1}]
+            ctx = self._ctx(user)
+        assert ctx["recent_samples"] == [{"id": 1}]
+
+
 class TestVisitorHero:
     """UI-001, UI-005: a visitor is not welcomed back and gets a Sign in button."""
 

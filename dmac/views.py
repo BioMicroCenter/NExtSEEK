@@ -283,17 +283,24 @@ def home(request):
 
     week_ago = timezone.now() - timedelta(days=7)
 
+    # Logged-out callers get the zero defaults: no counts, no sample rows.
+    if not request.user.is_authenticated:
+        return render(request, "index.html", context)
+
     try:
-        from seek.models import Samples
+        from seek.models import Projects_samples, Samples
+        from nextseek_api.graph_search.scope import ScopeUnavailable, resolve_scope  # function-level: no import cycle
         context["total_samples_count"] = Samples.objects.count()
         context["samples_delta_week"] = Samples.objects.filter(created_at__gte=week_ago).count()
-        # Samples has `title` + `created_at`; no native UID or direct project FK
-        # (project link goes through the Projects_samples junction). For v1 we
-        # surface id + title + created_at and let the template render a stub
-        # for the project column.
-        context["recent_samples"] = list(
-            Samples.objects.order_by("-id").values("id", "title", "created_at")[:4]
-        )
+        # Recent rows are limited to the caller's projects (a superuser sees all); an unresolved scope shows none.
+        try:
+            scope = resolve_scope(request.user)
+        except ScopeUnavailable:
+            scope = None
+        if scope is not None:
+            rows = Samples.objects if scope.is_admin else Samples.objects.filter(
+                id__in=Projects_samples.objects.filter(project_id__in=scope.project_ids).values("sample_id"))
+            context["recent_samples"] = list(rows.order_by("-id").values("id", "title", "created_at")[:4])
     except Exception:
         pass
 
