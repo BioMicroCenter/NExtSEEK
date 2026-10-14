@@ -484,6 +484,8 @@ class ConvertedBatch(BaseModel):
     source_files: List[str] = Field(default_factory=list)
     ontology_result: Optional[OntologyValidationResult] = None
     warnings: List[str] = Field(default_factory=list)
+    # Flat-file rows that failed validation and were dropped: (row index, messages).
+    row_errors: List[Tuple[int, List[str]]] = Field(default_factory=list)
     model_config = ConfigDict(extra="forbid")
 
 

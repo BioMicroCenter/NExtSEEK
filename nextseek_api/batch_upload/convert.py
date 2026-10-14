@@ -294,6 +294,15 @@ def parse_traditional_file(xlsx_path: str) -> ConvertedBatch:
                 ontology_result=ont_result,
                 warnings=[f"Ontology validation failed: {len(ont_result.violations)} violation(s)."],
             )
+        # The bulk check fixes casing in place on ontology_row; store those values.
+        # Per field, and only when the field's own value is the corrected term in another casing.
+        for _uid, meta, ontology_row, _dropped in prepared_rows:
+            for key, field_name in field_name_by_normalized.items():
+                fixed = ontology_row.get(attr_name_by_normalized.get(key))
+                cur = meta.get(field_name)
+                if (isinstance(fixed, str) and isinstance(cur, str)
+                        and cur.strip().casefold() == fixed.strip().casefold()):
+                    meta[field_name] = fixed
 
     # Convert SAMPLES to InputRowModel list (one record per row)
     all_input_rows: List[dict] = []
@@ -344,12 +353,16 @@ def convert_file(xlsx_path: str) -> ConvertedBatch:
 
     unknown_columns, stream = stream_rows(xlsx_path, limit=None)
     rows: List[InputRowModel] = []
+    row_errors: List[Tuple[int, List[str]]] = []
     for sr in stream:
         if sr.data is not None:
             sr.data.original_row_index = sr.row_index
             rows.append(sr.data)
+        else:
+            row_errors.append((sr.row_index, list(sr.errors)))
     return ConvertedBatch(
         rows=rows,
+        row_errors=row_errors,
         source_files=[xlsx_path],
         warnings=[f"Unknown columns (ignored): {unknown_columns}"] if unknown_columns else [],
     )
@@ -370,10 +383,12 @@ def merge_files(xlsx_paths: List[str]) -> ConvertedBatch:
     all_rows: List[InputRowModel] = []
     all_sources: List[str] = []
     all_warnings: List[str] = []
+    all_row_errors: List[Tuple[int, List[str]]] = []
     ontology_result = None
 
     for batch in batches:
         all_rows.extend(batch.rows)
+        all_row_errors.extend(batch.row_errors)
         all_sources.extend(batch.source_files)
         all_warnings.extend(batch.warnings or [])
         if batch.ontology_result and not batch.ontology_result.is_valid:
@@ -385,4 +400,5 @@ def merge_files(xlsx_paths: List[str]) -> ConvertedBatch:
         source_files=all_sources,
         ontology_result=ontology_result,
         warnings=all_warnings,
+        row_errors=all_row_errors,
     )

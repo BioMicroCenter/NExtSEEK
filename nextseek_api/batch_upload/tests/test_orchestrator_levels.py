@@ -294,6 +294,7 @@ def _run_orchestrator(
     config: BatchUploadConfig | None = None,
     neo4j_only: bool = False,
     should_stop=None,
+    row_errors=None,
 ) -> Dict:
     """Run the full orchestrator with a FakeDB.
 
@@ -304,7 +305,8 @@ def _run_orchestrator(
         config = BatchUploadConfig()
 
     def _mock_merge_files(paths):
-        return ConvertedBatch(rows=rows, source_files=paths or ["dummy"])
+        extra = {"row_errors": row_errors} if row_errors else {}
+        return ConvertedBatch(rows=rows, source_files=paths or ["dummy"], **extra)
 
     @contextmanager
     def fake_conn():
@@ -557,3 +559,149 @@ class TestTransformAttributeNameCheck:
         assert all("NHP_blood" in m for m in messages)
         # Row should not have been inserted
         assert self.UID_A not in db.inserted_samples
+
+
+class TestFailedRowsAreReported:
+    """A failed row fails its children and is counted; totals always add up."""
+
+    A = "NHP-260101TST-1"
+    B = "NHP-260101TST-2"
+    C = "NHP-260101TST-3"
+    X = "NHP-260101TST-10"
+    Y = "NHP-260101TST-11"
+    Z = "NHP-260101TST-12"
+
+    @staticmethod
+    def _bad(uid):
+        return InputRowModel(
+            UID=uid, SampleType="NHP_blood",
+            json_metadata='{"Subjet ID": "x"}', assay_ids=[],
+        )
+
+    @staticmethod
+    def _totals_add_up(t, result):
+        # counted independently of the totals: outcomes via the error entries and the known inputs
+        assert t["processed"] == 4  # A, B, C and the dropped row
+        assert t["failed"] == 3     # A (transform), B (child of A), the dropped row
+        assert t["success"] + t["skipped"] == 1  # C
+
+    def test_transform_failure_fails_its_children(self):
+        db = FakeDB()
+        result = _run_orchestrator([self._bad(self.A), _make_row(self.B, parent_uid=self.A)], db)
+
+        assert self.B not in db.inserted_samples
+        assert result["totals"]["failed"] == 2
+        assert result["totals"]["processed"] == 2
+        assert any(f"parent {self.A} failed to insert" in e["message"] for e in result["errors"])
+
+    def test_child_of_unresolvable_cycle_is_not_inserted(self):
+        rows = [
+            _make_row(self.X, parent_uid=self.Y),
+            _make_row(self.Y, parent_uid=self.X),
+            _make_row(self.Z, parent_uid=self.X),
+        ]
+        db = FakeDB()
+        result = _run_orchestrator(rows, db)
+
+        assert self.Z not in db.inserted_samples
+        assert result["totals"]["failed"] == 3
+        assert any(
+            e["type"] == "PARENT_FAILED" and e["message"].startswith("parent ")
+            for e in result["errors"]
+        )
+        assert sum(e["type"] == "CYCLE_UNRESOLVABLE" for e in result["errors"]) == 2
+
+    def test_chain_below_preexisting_cycle_is_inserted_in_order(self):
+        """X<->Y already in the DB: Z (child of X) and C (child of Z) go in, in order."""
+        rows = [
+            _make_row(self.X, parent_uid=self.Y),
+            _make_row(self.Y, parent_uid=self.X),
+            _make_row(self.Z, parent_uid=self.X),
+            _make_row(self.C, parent_uid=self.Z),
+        ]
+        db = FakeDB(existing_samples={self.X: 50, self.Y: 51})
+        result = _run_orchestrator(rows, db)
+
+        assert self.Z in db.inserted_samples and self.C in db.inserted_samples
+        flat = [u for call in db.insert_sample_calls for u in call]
+        assert flat.index(self.Z) < flat.index(self.C)
+        assert result["totals"]["failed"] == 0
+
+    def test_dropped_row_message_carries_its_row_number(self):
+        result = _run_orchestrator([_make_row(self.A)], FakeDB(), row_errors=[(4, ["bad cell"])])
+        msgs = [e["message"] for e in result["errors"] if "bad cell" in e["message"]]
+        assert msgs and "Row 4" in msgs[0]
+
+    def test_child_of_failed_row_already_in_db_is_still_inserted(self):
+        db = FakeDB(existing_samples={self.A: 50})
+        result = _run_orchestrator([self._bad(self.A), _make_row(self.B, parent_uid=self.A)], db)
+        assert self.B in db.inserted_samples
+        assert result["totals"]["failed"] == 1
+
+    def test_cycle_child_with_orphan_parent_is_inserted_and_warned(self):
+        O = "NHP-260101TST-99"  # in neither the batch nor the DB
+        two = InputRowModel(
+            UID=self.Z, SampleType="NHP_blood", assay_ids=[],
+            json_metadata=f'{{"Parent":"{self.X}","Parent Sample":"{O}"}}',
+        )
+        db = FakeDB(existing_samples={self.X: 50, self.Y: 51},
+                    sample_attributes={1: {"Parent", "Parent Sample"}})
+        result = _run_orchestrator(
+            [_make_row(self.X, parent_uid=self.Y), _make_row(self.Y, parent_uid=self.X), two], db)
+        assert self.Z in db.inserted_samples
+        assert any("treating as root sample" in e["message"] for e in result["errors"])
+
+    def test_failed_existing_row_in_a_cycle_gets_one_error(self):
+        rows = [
+            InputRowModel(UID=self.X, SampleType="NHP_blood", assay_ids=[],
+                          json_metadata=f'{{"Subjet ID": "x", "Parent": "{self.Y}"}}'),
+            _make_row(self.Y, parent_uid=self.X),
+        ]
+        db = FakeDB(existing_samples={self.X: 50, self.Y: 51})
+        result = _run_orchestrator(rows, db)
+        assert not [e for e in result["errors"] if e["type"] in ("CYCLE_UNRESOLVABLE", "PARENT_FAILED")]
+        assert sum(e["type"] == "VALIDATION_ATTRIBUTE_NAME" for e in result["errors"]) == 1
+
+    def test_cancel_inside_the_cycle_pass_marks_nothing_failed(self):
+        rows = [
+            _make_row(self.X, parent_uid=self.Y),
+            _make_row(self.Y, parent_uid=self.X),
+            _make_row(self.Z, parent_uid=self.X),
+            _make_row(self.C, parent_uid=self.Z),
+            _make_row("NHP-260101TST-13", parent_uid=self.C),
+        ]
+        db = FakeDB(existing_samples={self.X: 50, self.Y: 51})
+        seen = {}
+
+        def _capture(*a, **kw):
+            seen["ec"] = kw.get("error_collector")
+            return {"totals": {}, "errors": []}
+
+        with patch("nextseek_api.batch_upload.orchestrator._cancelled_result", side_effect=_capture):
+            _run_orchestrator(rows, db, should_stop=lambda: self.Z in db.inserted_samples)
+        assert self.Z in db.inserted_samples and self.C not in db.inserted_samples
+        assert not [e for e in seen["ec"].all_errors() if e.error_type.value == "PARENT_FAILED"]
+
+    def test_flat_row_failure_is_reported(self):
+        db = FakeDB()
+        result = _run_orchestrator(
+            [_make_row(self.A)], db,
+            row_errors=[(1, ["UID mismatch with json_metadata"])],
+        )
+        assert result["totals"]["failed"] == 1
+        assert result["totals"]["processed"] == 2
+        assert any(e["type"] == "VALIDATION_JSON" and "UID mismatch" in e["message"] for e in result["errors"])
+
+    @pytest.mark.parametrize("neo4j_only", [False, True])
+    def test_totals_add_up_on_a_mixed_run(self, neo4j_only):
+        rows = [
+            self._bad(self.A), _make_row(self.B, parent_uid=self.A),
+            _make_row(self.C),
+        ]
+        db = FakeDB(existing_samples={self.C: 9} if neo4j_only else {})
+        result = _run_orchestrator(rows, db, neo4j_only=neo4j_only, row_errors=[(7, ["bad row"])])
+        t = result["totals"]
+        self._totals_add_up(t, result)
+        assert any("bad row" in e["message"] for e in result["errors"])
+        assert any(f"parent {self.A} failed to insert" in e["message"] or "uid_not_found_in_db" in e["message"]
+                   for e in result["errors"])

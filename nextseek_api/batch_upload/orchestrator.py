@@ -80,6 +80,7 @@ def _build_neo4j_only_outcomes(
     insertable_samples: List[InsertableSample],
     error_collector: ErrorCollector,
     job_id: str = "",
+    transform_failed: Optional[Dict[str, str]] = None,
 ) -> BatchResult:
     """Build synthetic outcomes for neo4j-only mode via batch DB lookup.
 
@@ -113,6 +114,10 @@ def _build_neo4j_only_outcomes(
         uid: RowOutcome(status="failed", reason="uid_not_found_in_db")
         for uid in missing_uids
     })
+
+    # Rows TRANSFORM rejected are failed rows too, so totals add up in this mode
+    for uid, reason in (transform_failed or {}).items():
+        all_outcomes.setdefault(uid, RowOutcome(status="failed", reason=reason))
 
     if missing_uids:
         log.warning("INSERT (neo4j_only): %d UIDs not found in DB", len(missing_uids))
@@ -177,6 +182,10 @@ class PreInsertResult:
     generated_uids: Set[str] = field(default_factory=set)
     uid_gen_report: Dict = field(default_factory=lambda: {"uids_generated": 0})
     transform_errors: int = 0
+    # uid -> first error message, for every row TRANSFORM rejected
+    transform_failed: Dict[str, str] = field(default_factory=dict)
+    # flat-file rows CONVERT dropped (no UID, so they cannot be outcomes)
+    convert_failed: int = 0
 
 
 def _run_pre_insert_stages(
@@ -257,6 +266,14 @@ def _run_pre_insert_stages(
                     )
                 return _abort("error", msg)
             valid_rows = converted.rows
+            for r_idx, msgs in converted.row_errors:
+                error_collector.add(
+                    row_index=r_idx,
+                    uid=None,
+                    error_type=ErrorType.VALIDATION_JSON,
+                    message=f"Row {r_idx} dropped: " + "; ".join(msgs),
+                )
+            res.convert_failed = len(converted.row_errors)
             if converted.warnings:
                 warnings["convert_warnings"] = converted.warnings
         except Exception as exc:
@@ -500,6 +517,7 @@ def _run_pre_insert_stages(
     log.info("Stage 4/7: TRANSFORM")
     insertable_samples: List[InsertableSample] = []
     transform_errors = 0
+    transform_failed: Dict[str, str] = {}
 
     with get_connection() as conn:
         for row in valid_rows:
@@ -525,6 +543,11 @@ def _run_pre_insert_stages(
                         )
             except AttributeNameError as exc:
                 transform_errors += 1
+                if row.UID:
+                    transform_failed[row.UID] = (
+                        f"{exc.bad_keys[0]!r} is not a defined attribute for SampleType {exc.sample_type!r}"
+                        if exc.bad_keys else str(exc)
+                    )
                 for bad_key in exc.bad_keys:
                     error_collector.add(
                         row_index=row_idx,
@@ -537,6 +560,8 @@ def _run_pre_insert_stages(
                     )
             except Exception as exc:
                 transform_errors += 1
+                if row.UID:
+                    transform_failed[row.UID] = f"TRANSFORM failed: {exc}"
                 error_collector.add(
                     row_index=row_idx,
                     uid=row.UID,
@@ -559,6 +584,7 @@ def _run_pre_insert_stages(
     res.insertable_samples = insertable_samples
     res.name_matched_outcomes = name_matched_outcomes
     res.transform_errors = transform_errors
+    res.transform_failed = transform_failed
     return res
 
 
@@ -757,6 +783,7 @@ def run_batch_upload_multi(
             insertable_samples=insertable_samples,
             error_collector=error_collector,
             job_id=job_id,
+            transform_failed=pre.transform_failed,
         )
     else:
         if should_stop and should_stop():
@@ -774,6 +801,12 @@ def run_batch_upload_multi(
 
         all_outcomes: Dict[str, RowOutcome] = {}
         failed_uids: Set[str] = set()
+        # Rows TRANSFORM rejected: failed, and their children fail with them
+        for uid, reason in pre.transform_failed.items():
+            all_outcomes[uid] = RowOutcome(status="failed", reason=reason)
+            # a row already in the DB is not written, but its children's parent reference resolves
+            if uid not in level_assignment.preexisting_uids:
+                failed_uids.add(uid)
         total_inserted = 0
         total_project_links = 0
         total_assay_links = 0
@@ -892,37 +925,30 @@ def run_batch_upload_multi(
                 len(cascaded),
             )
 
-        # Final pass: cycle UIDs (after all normal levels)
-        if level_assignment.cycle_uids and not any_stopped_early:
-            cycle_samples: List[InsertableSample] = []
-            for uid in sorted(level_assignment.cycle_uids):
-                if uid in failed_uids:
-                    continue
-                # Check if all parents are now resolved
-                uid_parents = parents_of.get(uid, set())
-                all_resolved = all(
-                    p in cumulative_existing for p in uid_parents
-                )
-                if all_resolved and uid in uid_to_insertable:
-                    cycle_samples.append(uid_to_insertable[uid])
-                else:
-                    all_outcomes[uid] = RowOutcome(
-                        status="failed",
-                        reason="cycle: parent(s) could not be resolved",
-                        topo_level=-1,
+        # Final pass: cycle members and everything below them. Fixpoint: each round inserts the
+        # pending UIDs whose parents are all resolved; it stops when a round inserts nothing
+        # (pending shrinks every round, so it terminates).
+        pending = (level_assignment.cycle_uids | level_assignment.cycle_descendants) - failed_uids - set(pre.transform_failed)
+        batch_uids = {r.UID for r in valid_rows if r.UID is not None}
+        if pending and not any_stopped_early:
+            round_no = 0
+            while pending:
+                ready = [
+                    uid_to_insertable[uid] for uid in sorted(pending)
+                    if uid in uid_to_insertable
+                    # a parent in neither the batch nor the DB is an orphan reference: ignored, as in levels
+                    and all(
+                        p in cumulative_existing
+                        for p in parents_of.get(uid, set())
+                        if p in batch_uids or p in level_assignment.external_parents
                     )
-                    failed_uids.add(uid)
-                    error_collector.add(
-                        row_index=-1,
-                        uid=uid,
-                        error_type=ErrorType.CYCLE_UNRESOLVABLE,
-                        message="cycle: parent(s) could not be resolved",
-                    )
-
-            if cycle_samples:
-                log.info("INSERT cycle pass: %d samples", len(cycle_samples))
+                ]
+                if not ready:
+                    break
+                tag = "cycle" if round_no == 0 else f"cycle{round_no}"
+                log.info("INSERT cycle pass round %d: %d samples", round_no, len(ready))
                 cycle_result = process_batches(
-                    insertable_samples=cycle_samples,
+                    insertable_samples=ready,
                     project_id=project_id,
                     contributor_id=contributor_id,
                     config=config,
@@ -930,11 +956,11 @@ def run_batch_upload_multi(
                     error_collector=error_collector,
                     reporter=reporter,
                     checkpoint_dir=checkpoint_dir,
-                    checkpoint_name="batch_checkpoint_cycle.txt",
+                    checkpoint_name=f"batch_checkpoint_{tag}.txt",
                     should_stop=should_stop,
                     existing_samples=cumulative_existing,
                     update_existing=config.update_existing,
-                    batch_key_prefix=outbox_key(job_id, "cycle"),
+                    batch_key_prefix=outbox_key(job_id, tag),
                 )
                 for uid, outcome in cycle_result.outcomes.items():
                     outcome.topo_level = -1
@@ -948,6 +974,43 @@ def run_batch_upload_multi(
                 total_assay_links += cycle_result.linked_assays_count
                 total_permissions += cycle_result.permissions_inserted_count
                 total_attempted.update(cycle_result.attempted_uids)
+                pending -= {s.uuid for s in ready}
+                round_no += 1
+                if cycle_result.stopped_early:
+                    any_stopped_early = True
+                    break
+
+            # What is left could not be resolved: cycle members fail as cycle members,
+            # everything below them fails because a parent did not get in.
+            # a cancel leaves the rest unattempted, not failed
+            if any_stopped_early:
+                pending = set()
+            stuck_members = sorted(pending & level_assignment.cycle_uids)
+            for uid in stuck_members:
+                all_outcomes[uid] = RowOutcome(
+                    status="failed",
+                    reason="cycle: parent(s) could not be resolved",
+                    topo_level=-1,
+                )
+                failed_uids.add(uid)
+                error_collector.add(
+                    row_index=-1,
+                    uid=uid,
+                    error_type=ErrorType.CYCLE_UNRESOLVABLE,
+                    message="cycle: parent(s) could not be resolved",
+                )
+            stuck_below = pending - level_assignment.cycle_uids
+            cascaded_below = cascade_failures(failed_uids, children_of, stuck_below)
+            for uid in sorted(stuck_below):
+                reason = cascaded_below.get(uid, "parent(s) could not be resolved")
+                all_outcomes[uid] = RowOutcome(status="failed", reason=reason, topo_level=-1)
+                failed_uids.add(uid)
+                error_collector.add(
+                    row_index=-1,
+                    uid=uid,
+                    error_type=ErrorType.PARENT_FAILED,
+                    message=reason,
+                )
 
         # Merge name-matched outcomes (skipped duplicates from NAME_CHECK stage)
         all_outcomes.update(name_matched_outcomes)
@@ -1004,6 +1067,7 @@ def run_batch_upload_multi(
     success_count = sum(1 for o in batch_result.outcomes.values() if o.status == "success")
     skipped_count = sum(1 for o in batch_result.outcomes.values() if o.status == "skipped")
     failed_count = sum(1 for o in batch_result.outcomes.values() if o.status == "failed")
+    failed_count += pre.convert_failed  # dropped flat-file rows have no UID, so no outcome
     totals = {
         "processed": success_count + skipped_count + failed_count,
         "success": success_count,

@@ -22,6 +22,7 @@ class LevelAssignment:
     orphan_uids: Set[str]              # UIDs with unresolvable parents (level 0 + warning)
     external_parents: Dict[str, int]   # parent_uid -> sample_id (from DB lookup)
     preexisting_uids: Dict[str, int]   # spreadsheet UIDs already in DB (uuid -> sample_id)
+    cycle_descendants: Set[str] = field(default_factory=set)  # in-batch descendants of cycle members (deferred)
 
 
 def compute_levels(
@@ -73,6 +74,15 @@ def compute_levels(
         uid: sid for uid, sid in all_existing.items() if uid in batch_uids
     }
 
+    # Everything below a cycle member waits for the cycle pass, like the cycle itself
+    cycle_descendants: Set[str] = set()
+    stack = list(cycle_uid_set)
+    while stack:
+        for child in children_of.get(stack.pop(), set()):
+            if child in batch_uids and child not in cycle_uid_set and child not in cycle_descendants:
+                cycle_descendants.add(child)
+                stack.append(child)
+
     # For each non-cycle UID, compute effective in-batch parents
     # (parents that are in the batch AND not in a cycle — these are the
     #  dependencies that must be satisfied before this UID can be inserted)
@@ -97,7 +107,7 @@ def compute_levels(
     # In-degree: count of remaining effective parents
     in_degree: Dict[str, int] = {}
     for uid in batch_uids:
-        if uid in cycle_uid_set:
+        if uid in cycle_uid_set or uid in cycle_descendants:
             continue
         in_degree[uid] = len(effective_parents.get(uid, set()))
 
@@ -115,7 +125,7 @@ def compute_levels(
         current_level = levels[uid]
         # Process children sorted for determinism
         for child in sorted(children_of.get(uid, set())):
-            if child in cycle_uid_set or child not in batch_uids:
+            if child in cycle_uid_set or child in cycle_descendants or child not in batch_uids:
                 continue
             if child not in in_degree:
                 continue
@@ -135,6 +145,7 @@ def compute_levels(
         orphan_uids=orphan_uids,
         external_parents=external_parents,
         preexisting_uids=preexisting_uids,
+        cycle_descendants=cycle_descendants,
     )
 
 
