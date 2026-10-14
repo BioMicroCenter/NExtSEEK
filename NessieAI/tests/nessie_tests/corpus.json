@@ -13444,6 +13444,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?is)\\A(?!.*no uid provided)"
+                },
+                {
+                  "field": "last_target_result_id",
+                  "op": "eq",
+                  "value": 1
                 }
               ]
             }
@@ -13456,7 +13461,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "D7: with no UIDs in the text the report path used to answer 'No UID provided'; it now uses the result the parser names. Only what is observable is asserted: a non-empty reply that is not 'No UID provided'. Tagged no_floor so the family's report_produced_output floor is not added: the build may legitimately ask to narrow 231 mice, and the artifact name is not stable.",
+          "_why": "D7: with no UIDs in the text the report path used to answer 'No UID provided'; it now uses the result the parser names. Only what is observable is asserted: a non-empty reply that is not 'No UID provided'. Tagged no_floor so the family's report_produced_output floor is not added: the build may legitimately ask to narrow 231 mice, and the artifact name is not stable. || 2026-10-14 REVIEW-2 SF3: the package turn also asserts last_target_result_id 1, so the parser names the search and report generation packages its samples, not the 5 UIDs the chat showed.",
           "_added_2026_10_14_bmr_dev_test_fixes": "Proof case for the BMR dev test fixes (shared reader, parser target on every path, pipeline router rule). Global: real data on dev and prod, no fix code names it."
         }
       ]
@@ -15172,7 +15177,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(count or a breakdown|\\b103\\b|female)"
+                  "value": "(?is)(count or a breakdown|\\b103\\b)"
                 },
                 {
                   "field": "last_reply",
@@ -15190,7 +15195,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "Seed turns are fu.pwk_then_female's. The follow-up answers with a count, which holds no sample list, so the build must not silently take the whole PWK set: either it builds on the follow-up's rows, or it gives the deterministic ask ('...is a count or a breakdown, so it has no list of samples...', pipeline/agent.py _no_samples_reply). The reply must say so or mention females. NOT OBSERVABLE: source_bundle_id cannot tell the two apart, because the ask path stores the OFFERED set (bundle 1) as source_bundle_id, the same value a silent whole-set build has. A silent build on all PWK mice is caught only because its reply names neither the ask nor the females. 244 PWK mice (M 141, F 103) on prod per fu.pwk_then_female; criteria carry no count except the optional 103 alternative. DISCOVERY-A: 231 NDMA mice may resolve to more than MAX_RESOLVE_LEAVES = 75 sequencing leaves (agent_tools.py). If so the agent asking the user to narrow is correct behaviour, and the guard allows it (it fails only on 'no pinned' / 'returned no rows', the 2055 symptom).",
+          "_why": "Seed turns are fu.pwk_then_female's. The follow-up answers with a count, which holds no sample list, so the build must not silently take the whole PWK set: either it builds on the follow-up's rows, or it gives the deterministic ask ('...is a count or a breakdown, so it has no list of samples...', pipeline/agent.py _no_samples_reply). The reply must say so or mention females. NOT OBSERVABLE: source_bundle_id cannot tell the two apart, because the ask path stores the OFFERED set (bundle 1) as source_bundle_id, the same value a silent whole-set build has. A silent build on all PWK mice is caught only because its reply names neither the ask nor the females. 244 PWK mice (M 141, F 103) on prod per fu.pwk_then_female; criteria carry no count except the optional 103 alternative. DISCOVERY-A: 231 NDMA mice may resolve to more than MAX_RESOLVE_LEAVES = 75 sequencing leaves (agent_tools.py). If so the agent asking the user to narrow is correct behaviour, and the guard allows it (it fails only on 'no pinned' / 'returned no rows', the 2055 symptom). || 2026-10-14 REVIEW-2 SF3: 'female' dropped from the reply criterion; a silent build on every PWK mouse whose reply echoes 'those female mice' passed it.",
           "_added_2026_10_14_bmr_dev_test_fixes": "Proof case for the BMR dev test fixes (shared reader, parser target on every path, pipeline router rule). Global: real data on dev and prod, no fix code names it."
         },
         {
