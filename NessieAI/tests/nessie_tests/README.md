@@ -120,7 +120,7 @@ for the production researcher questions)
 hand-authored case files replayed by `NessieAI/tests/nessie_tests/tests/test_probe_files.py:1`.
 Measured 2026-10-13 against `NessieAI/tests/nessie_tests/corpus.json`: `merged` resolves 415
 variants over 491 turns; `curated`, which drops the unreviewed atlas set
-(`NessieAI/tests/nessie_tests/corpus.py:110-130`), leaves 369 (2026-10-14: +2 full-tier unsup.*_lookup siblings); `bayesian_ids` selects 142; one
+(`NessieAI/tests/nessie_tests/corpus.py:110-130`), leaves 369; `bayesian_ids` selects 142; one
 consistency group is defined; and 2 variants carry the `route_gate` tag.
 
 **Retired questions live in `NessieAI/tests/nessie_tests/retired.json`**, not in `corpus.json`: 252 records, each

@@ -67,11 +67,11 @@ Examples: "List the unique genotypes of mice treated with NDMA, then build me an
 
 ## A named paper, method or lab is a NExtSEEK lookup first
 
-When the question names a paper, a method, a tool or a lab (a paper title, a method such as "scAmp", "Matt Jones' method"), look it up in NExtSEEK before you answer, even when it reads as a general science question. NExtSEEK holds published studies with their samples and the lab's protocols, so the paper is often there.
+When the question names a paper, a method, a tool or a lab (a paper title, a method such as "Perturb-seq", "the Regev lab's method"), look it up in NExtSEEK before you answer, even when it reads as a general science question. NExtSEEK holds published studies with their samples and the lab's protocols, so the paper is often there.
 
-1. Look up the titles: `nextseek-graph-schema --query "studies, papers and protocols named <the title or method>"`. It lists the study, investigation and protocol titles that share words with it. Match loosely: case, hyphens and a word or two may differ ("Noncanonical" is "Comparable Non-canonical ...").
+1. Look up the titles: `nextseek-graph-schema --query "studies, papers and protocols named <the title or method>"` (keep the words "studies" and "protocols": they make the op list study and protocol titles). Titles sharing a word with the name come first. Match loosely: case, hyphens and a word or two may differ ("Single-cell" is "Single cell", a title may add a word in front).
 2. For each match, read what it holds: `nextseek-aggregate` for its samples by type and by `Protocol` (the protocols they cite). The `nextseek` skill's "A named paper, method or lab" gives the calls.
-3. Answer from those records first (the study, its data, its protocols), then add the general steps. Say NExtSEEK has nothing on it only after step 1 found nothing, and say what you searched.
+3. Answer from those records first (the study, its data, its protocols), then add the general steps. Say NExtSEEK has nothing on it only after step 1 found nothing, in one sentence naming what you looked for ("NExtSEEK holds no study or protocol named Perturb-seq").
 
 ## NExtSEEK reference catalogs
 

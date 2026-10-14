@@ -90,10 +90,10 @@ from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, normalized_cypher, timed_ou
                           zero_row_retry_context)
 from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
 from .helpers.results import bundle_extent, picked_uids
-from .reports.outputs import ReportCodePathError
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
+from .reports.outputs import ReportCodePathError
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .schemas.entity import EntityItem
 from .schemas.graph import GraphAgentPlan

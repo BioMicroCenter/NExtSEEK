@@ -765,7 +765,9 @@ def _generate_submission(args, config, session, write_gate, neo4j_exec, outputs_
     #     saved_files (geo_seq_workbooks / sra_* / pride_* / nfcore_* / ...),
     #     which the bundle/download + CC staging then serve.
     # See GitHub issue #21 (reporter port defect / drift).
+    from chat_nextseek.agents.reporter import report_coder_agent
     from chat_nextseek.portable import generate_report_outputs, report_writer_agent
+    from chat_nextseek.reports.outputs import ReportCodePathError
     from chat_nextseek.schemas.chat import ReporterPlan
 
     uids = [u.strip() for u in args["uids"].split(",") if u.strip()]
@@ -783,16 +785,24 @@ def _generate_submission(args, config, session, write_gate, neo4j_exec, outputs_
         reporter_context={"per_sample_reports": False},
     )
     log_dir = outputs_dir or os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs"
-    _reporter_result, report_writer_output, saved_files, _reply = generate_report_outputs(
-        config=config,
-        user_query=user_query,
-        parser_plan={"report_type": report_type},
-        reporter_plan=reporter_plan,
-        uids=uids,
-        log_dir=log_dir,
-        report_writer_fn=report_writer_agent,
-        per_sample_reports=False,
-    )
+    try:
+        # Above 10 samples report_coder writes the workbook from the metadata map, as on the NS road: the writer
+        # alone overflowed its input on a large set (prod 10-14, 1,641 mice).
+        _reporter_result, report_writer_output, saved_files, _reply = generate_report_outputs(
+            config=config,
+            user_query=user_query,
+            parser_plan={"report_type": report_type},
+            reporter_plan=reporter_plan,
+            uids=uids,
+            log_dir=log_dir,
+            report_writer_fn=report_writer_agent,
+            report_coder_fn=report_coder_agent,
+            per_sample_reports=False,
+        )
+    except ReportCodePathError as failed:
+        # The code path could not build it: no workbook, and the plain reply for the agent to relay.
+        logger.info("generate-submission: code path failed: %s", failed)
+        return {"report_type": report_type, "report": {}, "notes": failed.reply, "saved_files": {}}
     # Combined mode wraps the writer output as {"all_samples": <writer output>}.
     # Unwrap to the flat writer dict to preserve the op's existing result shape,
     # and attach the real saved_files so the download bundle + CC staging serve

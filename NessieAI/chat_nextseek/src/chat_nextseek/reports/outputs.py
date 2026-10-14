@@ -45,6 +45,7 @@ from .templates_meta import (
 # in the metadata, the report_writer LLM truncates the list or overflows its input (prod
 # 10-14: 1,641 mice), so the report_coder writes code that builds the rows from the metadata.
 _TARGET_TYPE_FOR_REPORT = {"GEO": "D.SEQ", "SRA": "D.SEQ", "PRIDE": "D.MSP"}
+_TARGET_TYPE_WORDS = {"D.SEQ": "sequencing data", "D.MSP": "mass spectrometry data"}
 #: Operator 2026-10-14: more than 10 samples takes the code path (was 20).
 _REPORT_CODE_PATH_THRESHOLD = 10
 
@@ -115,22 +116,33 @@ def _produce_report_output(
     if report_coder_fn is not None and target_type and total > _REPORT_CODE_PATH_THRESHOLD:
         print(f"[DEBUG][REPORT_CODER] {canonical}: {total} samples ({count} {target_type}) > "
               f"{_REPORT_CODE_PATH_THRESHOLD}; using code path.")
-        from ..helpers.tools.report_code import ReportCodeBusyError, execute_report_code
-        from ..llm_clients import LLMFatalError
+        from ..helpers.tools import report_code
+
+        if count == 0:
+            # Nothing to package: an empty workbook passed off as a success (0 rows meet a 0-row parity check) is
+            # worse than saying so, and the writer would overflow on the whole set.
+            what = _TARGET_TYPE_WORDS.get(target_type, target_type)
+            raise ReportCodePathError(
+                f"no {target_type} samples in {total}",
+                f"This set holds no {what} ({target_type}) samples, so there is nothing to put in a {canonical} "
+                "package. Ask for the package on the data samples themselves, or on a study or project that has them.")
 
         row_key = _ROW_KEY_FOR_REPORT.get(canonical, "samples")
         previous_error = None
+        coder_output = None
         busy = False
-        # One retry, told why the first attempt failed. Never the all-metadata report_writer above the threshold:
-        # its input overflows on a large set (prod 10-14, task 39a967f9).
+        # One retry. Never the all-metadata report_writer above the threshold: its input overflows on a large set
+        # (prod 10-14, task 39a967f9). A busy report slot is no fault of the code: the retry runs the same code.
         for _attempt in range(2):
             try:
-                retry = {"previous_error": previous_error} if previous_error else {}
-                coder_output = report_coder_fn(
-                    config, user_query=user_query, report_type=report_type_value,
-                    template=template_for_llm, metadata=metadata, log_dir=log_dir, **retry,
-                )
-                result = execute_report_code(coder_output.extraction_code, metadata)
+                if coder_output is None or not busy:
+                    retry = {"previous_error": previous_error} if previous_error else {}
+                    coder_output = report_coder_fn(
+                        config, user_query=user_query, report_type=report_type_value,
+                        template=template_for_llm, metadata=metadata, log_dir=log_dir, **retry,
+                    )
+                busy = False
+                result = report_code.execute_report_code(coder_output.extraction_code, metadata)
                 rows = (result or {}).get(row_key)
                 if isinstance(rows, list) and len(rows) == count:
                     print(f"[DEBUG][REPORT_CODER] Emitted {len(rows)} '{row_key}' rows (parity OK).")
@@ -138,18 +150,18 @@ def _produce_report_output(
                 got = len(rows) if isinstance(rows, list) else "n/a"
                 previous_error = (f"row parity failed for '{row_key}': got {got}, want {count} "
                                   f"(one row per {target_type} sample)")
-            except LLMFatalError:
-                raise
+            except report_code.ReportCodeBusyError as e:
+                busy = True
+                previous_error = f"{type(e).__name__}: {e}"
             except Exception as e:
                 previous_error = f"{type(e).__name__}: {e}"
-                busy = isinstance(e, ReportCodeBusyError)
             print(f"[DEBUG][REPORT_CODER] Code path attempt failed: {previous_error}")
         if busy:
-            reply = (f"Another report is being built right now, so I couldn't start the {canonical} package for "
-                     f"these {total} samples. Ask me again in a minute.")
+            reply = (f"Another report is being built right now, so I couldn't start the {canonical} package. "
+                     "Ask me again in a minute.")
         else:
-            reply = (f"I couldn't build the {canonical} package for these {total} samples: the step that writes it "
-                     "from their metadata failed twice. Try a smaller set (one study or project), or ask me again.")
+            reply = (f"I couldn't build the {canonical} package for this set: the step that writes it from the "
+                     "samples' metadata failed twice. Try a smaller set (one study or project), or ask me again.")
         raise ReportCodePathError(previous_error or "code path failed", reply)
 
     report_writer_plan = ReportWriterPlan(

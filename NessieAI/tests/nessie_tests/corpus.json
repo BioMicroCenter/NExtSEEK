@@ -13443,7 +13443,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)\\A(?!.*(?:no uid provided|input is too long|could not be completed|couldn't build the \\w+ package))"
+                  "value": "(?is)\\A(?!.*(?:no uid provided|input is too long|too large for me to finish|could not be completed|couldn't (?:build|start) the \\w+ package|nothing to put in))"
                 },
                 {
                   "field": "last_target_result_id",
@@ -17953,7 +17953,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?i)non-?canonical T cell"
+                  "value": "(?s)(?<![\\d,])3,?8(?:24|08)(?![\\d])"
                 }
               ]
             }
@@ -17966,7 +17966,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "ti24 2026-10-14 (prod task 1319): CC answered 'I can't see the paper' after one ls, although the study is on both boxes (dev 'Noncanonical T cell responses ...', prod 'Comparable Non-canonical T cell responses ...'). The route-only sibling unsup.method_paper_new_strain cannot see the reply. This full turn must look the title up (nextseek-graph-schema --query) and name the study."
+          "_why": "ti24 2026-10-14 (prod task 1319): CC answered 'I can't see the paper' after one ls, although the study is on both boxes (dev 'Noncanonical T cell responses ...', prod 'Comparable Non-canonical T cell responses ...'). The route-only sibling unsup.method_paper_new_strain cannot see the reply. This full turn must look the title up (nextseek-graph-schema --query) and give the study's sample count (dev 3,824, prod 3,808): the user's own words hold the title, so a title match would pass a 'not found' reply."
         },
         {
           "id": "unsup.method_lab_own_cohort",

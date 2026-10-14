@@ -75,7 +75,7 @@ def test_row_parity_mismatch_retries_once_then_never_reaches_the_writer():
     writer.assert_not_called()
     assert coder.call_count == 2
     assert "got 10, want 25" in coder.call_args.kwargs["previous_error"]
-    assert "GEO package" in err.value.reply and "25 samples" in err.value.reply
+    assert "GEO package" in err.value.reply  # no count: the metadata holds related samples too, not only the set
     assert "Error" not in err.value.reply and "LLM" not in err.value.reply
 
 
@@ -109,19 +109,71 @@ def test_eleven_samples_take_the_code_path():
     writer.assert_not_called()
 
 
-def test_a_large_set_with_no_target_type_samples_still_takes_the_code_path():
-    """A GEO package over 1,641 mice whose metadata holds no D.SEQ group: the size that matters for the writer is
-    every sample in the metadata, not the D.SEQ count (0), which used to send the whole set to the writer."""
+def test_a_large_set_with_no_target_type_samples_says_so_and_builds_nothing():
+    """A GEO package over 50 mice whose metadata holds no D.SEQ: neither the writer (the whole set overflowed it on
+    prod 10-14) nor an empty package passed off as a success (0 rows met a 0-row parity check). A plain reply, and
+    no coder call is spent on it."""
     md = _metadata_with_n_samples("MUS", 50)
     writer = MagicMock(name="report_writer_fn")
     coder = MagicMock(return_value=_coder_returning_n_rows(0))
-    outmod._produce_report_output(
+    with pytest.raises(outmod.ReportCodePathError) as err:
+        outmod._produce_report_output(
+            config=MagicMock(), user_query="GEO report", report_type_value="GEO",
+            reporter_context={}, template_for_llm={"samples": [{}]}, metadata=md,
+            report_writer_fn=writer, report_coder_fn=coder, log_dir="/tmp",
+        )
+    coder.assert_not_called()
+    writer.assert_not_called()
+    assert "no sequencing data (D.SEQ)" in err.value.reply
+
+
+def test_a_busy_slot_reruns_the_same_code_without_a_new_coder_call(monkeypatch):
+    """Busy is not a fault in the code: the second attempt runs the same code again, and the model is not told its
+    code failed."""
+    from chat_nextseek.helpers.tools import report_code
+    md = _metadata_with_n_dseq(25)
+    calls = {"n": 0}
+    real = report_code.execute_report_code
+
+    def busy_once(code, metadata):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise report_code.ReportCodeBusyError("another report's code is already running")
+        return real(code, metadata)
+
+    monkeypatch.setattr(report_code, "execute_report_code", busy_once)
+    coder = MagicMock(return_value=_coder_returning_n_rows(25))
+    out = outmod._produce_report_output(
         config=MagicMock(), user_query="GEO report", report_type_value="GEO",
         reporter_context={}, template_for_llm={"samples": [{}]}, metadata=md,
-        report_writer_fn=writer, report_coder_fn=coder, log_dir="/tmp",
+        report_writer_fn=MagicMock(), report_coder_fn=coder, log_dir="/tmp",
     )
+    assert len(out.report.samples) == 25
     coder.assert_called_once()
-    writer.assert_not_called()
+
+
+def test_busy_then_a_parity_miss_reports_the_miss_not_busy(monkeypatch):
+    from chat_nextseek.helpers.tools import report_code
+    md = _metadata_with_n_dseq(25)
+    calls = {"n": 0}
+    real = report_code.execute_report_code
+
+    def busy_once(code, metadata):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise report_code.ReportCodeBusyError("another report's code is already running")
+        return real(code, metadata)
+
+    monkeypatch.setattr(report_code, "execute_report_code", busy_once)
+    coder = MagicMock(return_value=_coder_returning_n_rows(3))
+    with pytest.raises(outmod.ReportCodePathError) as err:
+        outmod._produce_report_output(
+            config=MagicMock(), user_query="GEO report", report_type_value="GEO",
+            reporter_context={}, template_for_llm={"samples": [{}]}, metadata=md,
+            report_writer_fn=MagicMock(), report_coder_fn=coder, log_dir="/tmp",
+        )
+    assert "Another report is being built" not in err.value.reply
+    assert "failed twice" in err.value.reply
 
 
 def test_unconfigured_coder_uses_writer():
