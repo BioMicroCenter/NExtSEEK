@@ -141,3 +141,12 @@ def test_a_summary_report_is_no_set_even_with_the_carried_uids_in_its_plan(monke
     assert pinned_bundle(session)[0]["id"] == 1
     out = pa.start(session, SimpleNamespace(), user_query="Run rnaseq on those", parser_plan={"target_result_id": 2})
     assert out["action"] == "ask" and "231 samples" in out["reply"] and _state(session)["source_bundle_id"] == 1
+
+
+def test_rows_the_user_picked_out_of_the_named_result_are_the_build(loop):
+    """Operator 10-14 ("Package the 2"), on the pipeline path: the picked rows are named to the agent, not the whole result."""
+    session = _session()
+    pa.start(session, SimpleNamespace(), user_query="Run rnaseq on the first two mice you showed",
+             parser_plan={"target_result_id": 1, "filters": {"uids": [MICE[0]["uuid"], MICE[1]["uuid"]]}})
+    seed = _state(session)["messages"][0]["content"]
+    assert "the user picked 2 samples of it" in seed and MICE[0]["uuid"] in seed and MICE[2]["uuid"] not in seed

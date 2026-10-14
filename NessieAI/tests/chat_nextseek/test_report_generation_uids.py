@@ -109,3 +109,17 @@ def test_a_generated_report_is_the_set_it_packaged():
     session["results_history"].append({"id": 2, "mode": "reporter", "user_query": "a GEO package for those",
                                        "reporter_plan": {"reporter_mode": "report_generation", "uids": SHOWN}})
     assert _uids(session, "an SRA package for those", _plan(2)) == (SHOWN, None)
+
+
+def test_rows_the_user_picked_out_of_the_named_result_win():
+    """Operator 10-14 ("Package the 2"): "a GEO package for the first two mice you showed" packages those two, not
+    the whole named result."""
+    uids, reply = _uids(_session(), "make a GEO package for the first two mice you showed", _plan(1, SHOWN[:2]),
+                        reporter_uids=SHOWN[:2])
+    assert uids == SHOWN[:2] and reply is None
+
+
+def test_the_examples_the_chat_showed_are_not_a_pick():
+    """"Those" after a list: the parser's copy of the shown examples is not a pick, the named result wins."""
+    uids, reply = _uids(_session(), "a GEO package for those mice", _plan(1, SHOWN), reporter_uids=list(SHOWN))
+    assert uids == [m["uuid"] for m in MICE] and reply is None

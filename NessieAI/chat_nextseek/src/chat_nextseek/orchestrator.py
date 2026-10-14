@@ -89,7 +89,7 @@ from .helpers import (
 from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, normalized_cypher, timed_out, timeout_retry_context,
                           zero_row_retry_context)
 from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
-from .helpers.results import bundle_extent
+from .helpers.results import bundle_extent, picked_uids
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
@@ -2010,8 +2010,8 @@ GRAPH_SAFETY_CAP = 5000
 def _report_generation_uids(session, user_text: str, plan, reporter_plan) -> tuple[list[str], str | None]:
     """``(the UIDs a report is generated over, a narrowing reply or None)``.
 
-    UIDs the reporter or the user's own text named win, with the parser's added. Else the result the parser named
-    (``target_result_id``) when it holds samples, as the pipeline builds on it (``pipeline.agent.start``): the UIDs
+    UIDs the reporter or the user's own text named win, with the parser's added. Else the rows the user picked out of
+    the result the parser named (``picked_uids``: "the first two mice you showed"). Else that result (``target_result_id``) when it holds samples, as the pipeline builds on it (``pipeline.agent.start``): the UIDs
     the parser carried are the few an earlier turn showed, not the set. A named result with no sample list (a count,
     a breakdown, a search that found nothing) gets an ask, as the pipeline's does, not a package on those few. With
     no named result, the carried UIDs. A named result that was cut short (a capped graph result, a total above its
@@ -2029,6 +2029,9 @@ def _report_generation_uids(session, user_text: str, plan, reporter_plan) -> tup
     named_here = any(u not in carried for u in uids) or bool(uids_in(user_text or ""))
     target_uids = uids_from_last_search(session, target_id) if target_id is not None and not named_here else []
     if target_uids:
+        picked = picked_uids(target_uids, parser_uids)
+        if picked:
+            return picked, None
         target = named_bundle(session.get("results_history") or [], target_id)
         rows, total, capped = bundle_extent(target)
         graph = target.get("graph_result") if isinstance(target.get("graph_result"), dict) else {}

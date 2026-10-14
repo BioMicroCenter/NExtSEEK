@@ -29,7 +29,7 @@ from .agent_tools import build_pipeline_tool_schemas, dispatch_pipeline_tool_cal
 from ..tool_loop import call_tools
 from ..chat_memory import bundle_rows, history_block, named_bundle
 from ..helpers import summarize_pinned_bundle, uids_from_last_search
-from ..helpers.results import pinned_bundle
+from ..helpers.results import picked_uids, pinned_bundle
 from ..helpers.uid_check import uids_in
 from ..seqera.catalog import catalog_for_prompt
 
@@ -94,6 +94,13 @@ def _carried_uids(parser_plan: Any, user_query: str) -> list[str]:
     return [u for u in uids_in("", [u for u in uids or [] if isinstance(u, str)]) if u not in named]
 
 
+def _plan_uids(parser_plan: Any) -> list:
+    """``parser_plan.filters.uids`` as the parser wrote them, from a model or a dict; [] for the CC bridge."""
+    plan = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else parser_plan
+    uids = ((plan or {}).get("filters") or {}).get("uids") if isinstance(plan, dict) else None
+    return uids if isinstance(uids, list) else []
+
+
 def _target_id(parser_plan: Any) -> Any:
     """The result the parser says the user means (``target_result_id``), from a model or a dict; None for the CC bridge."""
     plan = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else parser_plan
@@ -137,6 +144,12 @@ def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any = 
             source_id = target.get("id")
             summary = summarize_pinned_bundle(session, source_id).removeprefix("last search: ")
             seed += f"\n\n[context] the result you mean: id {source_id}, {summary}, {len(uids)} sample UIDs"
+            picked = picked_uids(uids, _plan_uids(parser_plan))
+            if picked:
+                more = len(picked) - CARRIED_UIDS_MAX
+                seed += (f"\n\n[context] the user picked {len(picked)} samples of it: "
+                         + ", ".join(picked[:CARRIED_UIDS_MAX]) + (f", and {more} more" if more > 0 else "")
+                         + ". Build on exactly these.")
             earlier = history_block(session)
             if earlier:
                 seed += f"\n\n[context] earlier turns of this chat:\n{earlier}"

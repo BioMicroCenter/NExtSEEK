@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .text import strip_html
 from ..artifacts import load_api_result_full
-from ..chat_memory import bundle_rows_and_extent, named_bundle, uids_from_rows
+from ..chat_memory import MAX_UID_EXAMPLES, bundle_rows_and_extent, named_bundle, uids_from_rows
 from ..chat_memory import _GROUP_LABEL_KEY, _GROUP_RECORDS_KEY, _flatten_groups, _grouped_records  # noqa: F401
 
 # tool_nextseek_api_request hard-defaults this. A search matching more rows than this
@@ -594,6 +594,17 @@ def _bundle_uids(bundle: dict) -> list[str]:
         generated = isinstance(rp, dict) and rp.get("reporter_mode") == "report_generation"
         plan_uids = rp.get("uids") if generated else None
     return [re.sub(r"<[^>]+>", "", uid).strip() for uid in plan_uids or [] if isinstance(uid, str) and uid.strip()]
+
+
+def picked_uids(target_uids: list[str], carried) -> list[str]:
+    """The rows the user picked out of a named result: the parser's carried UIDs when they are a proper part of it
+    ("a GEO package for the first two mice you showed"). Not when they are just the examples the chat showed for
+    it (CHAT_HISTORY lists a result's first ``MAX_UID_EXAMPLES`` UIDs), which the parser copies on "those": then the
+    whole result is meant. Operator 2026-10-14: "Package the 2"."""
+    picked = [u for u in carried or [] if isinstance(u, str) and u]
+    if not picked or not set(picked) < set(target_uids or []):
+        return []
+    return [] if set(picked) == set(target_uids[:MAX_UID_EXAMPLES]) else picked
 
 
 def pinned_bundle(session, bundle_id=None) -> tuple[dict | None, list[str]]:
