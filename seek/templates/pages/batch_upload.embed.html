@@ -1,5 +1,7 @@
+{% load json_script_safe %}
 <div class="span12">
 	<form id="sample_validation" method="post" enctype="multipart/form-data" hidden>
+		{% csrf_token %}
 	</form>
 	<form id="sample_upload" method="post" enctype="multipart/form-data" hidden>
 	</form>
@@ -93,8 +95,8 @@
 	const sample_validation_form = document.getElementById("sample_validation")
 	const statusBox = document.getElementById("messages")
 	
-	const lab_options = {{ report.lab_options | safe }}.slice(1);
-	const all_lab_users = {{ report.all_lab_users | safe }};
+	const lab_options = {{ report.lab_options|json_script_safe }}.slice(1);
+	const all_lab_users = {{ report.all_lab_users|json_script_safe }};
 	
 	function getCookie(name) {
 		let cookieValue = null;
@@ -127,7 +129,7 @@
 				}
 			}
 			// Only the caller's own projects: an upload into any other answers 403 (null = superuser, all).
-			const myProjectIds = {{ my_project_ids|default:"null"|safe }};
+			const myProjectIds = {{ my_project_ids|default:"null"|json_script_safe }};
 			if (myProjectIds !== null) {
 				projectsData = projectsData.filter(p => myProjectIds.includes(Number(p.id)))
 			}
@@ -207,6 +209,7 @@
 			});
 			const response = await fetch("/nextseek_api/batch-upload/validate/", {
 				method: "POST",
+				headers: {"X-CSRFToken": getCookie("csrftoken")},
 				body: formData
 			});
 			$.messager.progress("close");
@@ -323,6 +326,7 @@
 										try {
 											const response = await fetch("/nextseek_api/batch-upload/start/", {
 												method: "POST",
+												headers: {"X-CSRFToken": getCookie("csrftoken")},
 												body: formData
 												});
 												if (response.ok) {

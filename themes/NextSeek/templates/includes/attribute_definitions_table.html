@@ -33,7 +33,8 @@ Context: sample_type_id
   }
   fetch('/nextseek_api/attributes/search/?page_size=5000', {
     method: 'POST', credentials: 'same-origin',
-    headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+    headers: {'Content-Type': 'application/json', 'Accept': 'application/json',
+              'X-CSRFToken': ((document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/) || [])[1] || '')},
     body: JSON.stringify({targets: [{sample_type: /^\d+$/.test(id) ? parseInt(id, 10) : id}]})
   }).then(function (resp) { return resp.text(); }).then(function (raw) {
     var data; try { data = raw ? JSON.parse(raw) : {}; } catch (e) { data = {}; }

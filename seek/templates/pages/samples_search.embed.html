@@ -1,6 +1,7 @@
+{% load json_script_safe %}
 <script type="text/javascript">
 
-	var type_options = {{report.type_options|safe}};
+	var type_options = {{ report.type_options|json_script_safe }};
 
 	/* The value type of the chosen attribute ('numeric', 'date', 'string' or 'bool'), from
 	   /seek/operators/; SampleSearchCore.simpleBody sends numbers as numbers. */
