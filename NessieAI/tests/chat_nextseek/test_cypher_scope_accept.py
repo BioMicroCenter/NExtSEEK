@@ -267,14 +267,3 @@ def test_the_lane_fixture_s_assay_layer_follows_the_role_rule():
     staining = {uuid for (uuid, role, assay) in links if role == "INPUT_TO" and assay == "Staining"}
     assert staining == {"TIS-230102AAA-2", "TIS-230202BBB-2", "TIS-230402DDD-2"}
 
-
-def test_total_beside_groups_without_call_subquery_is_scoped():
-    """The prompt's total-beside-groups shape (WITH count AS total, then MATCH again) scopes both MATCHes."""
-    q = ("MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WITH count(DISTINCT s) AS total "
-         "MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) "
-         "RETURN p.title AS project, count(DISTINCT s) AS n, total ORDER BY n DESC")
-    out = scope_cypher(q, {}, CALLER)
-    assert isinstance(out, Scoped), getattr(out, "reasons", out)
-    assert out.decision == "proven"
-    assert out.cypher.count("$__scope_projects") == 4  # sample and project clause, once per MATCH
-    assert out.injected == ("s: sample clause", "p: project clause") * 2

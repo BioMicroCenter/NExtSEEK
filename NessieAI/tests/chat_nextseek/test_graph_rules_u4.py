@@ -196,3 +196,12 @@ def test_a_kind_field_needs_every_word_of_the_kind():
     rule = _line("- **An assay and a field naming the same kind.**")
     assert "contains every word of the kind" in rule
 
+
+
+def test_the_total_beside_groups_example_has_no_call_subquery_and_is_a_proven_shape():
+    from NessieAI.tests.chat_nextseek.graph_scope.battery import TAUGHT
+
+    rule = _line("- **A total across groups counts each item once.**")
+    assert "CALL {" not in rule
+    case = next(c for c in TAUGHT if c.id == "default.total_beside_groups")
+    assert case.cypher in rule
