@@ -93,7 +93,7 @@ from .helpers.results import bundle_extent, picked_uids
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
-from .reports.outputs import ReportCodePathError
+from .reports.outputs import ReportCodePathError, session_reporter_result
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .schemas.entity import EntityItem
 from .schemas.graph import GraphAgentPlan
@@ -2691,7 +2691,10 @@ def run_query(
                 ])
                 reply = "\n".join(reply_lines)
 
-            debug_payload["reporter_result"] = reporter_result
+            # The session keeps a generated report's summary, not the metadata it fetched: prod 10-14, a GEO
+            # package over 1,641 mice was built and then could not be saved (last_debug 112 MB). The files keep it.
+            session_result = session_reporter_result(reporter_result)
+            debug_payload["reporter_result"] = session_result
             debug_payload["report_writer_output"] = (
                 report_writer_output.model_dump()
                 if isinstance(report_writer_output, ReportWriterOutput)
@@ -2701,11 +2704,6 @@ def run_query(
             if isinstance(reporter_result, dict):
                 if "metadata" in reporter_result:
                     debug_payload["reporter_metadata"] = reporter_result.get("metadata")
-                elif isinstance(reporter_result.get("reports"), list) and reporter_result["reports"]:
-                    debug_payload["reporter_metadata"] = {
-                        entry.get("uid") or f"item_{idx}": entry.get("metadata")
-                        for idx, entry in enumerate(reporter_result["reports"])
-                    }
                 if saved_files:
                     debug_payload["report_saved_files"] = saved_files
 
@@ -2723,7 +2721,7 @@ def run_query(
                 user_query=user_text,
                 parser_plan=plan.model_dump(),
                 reporter_plan=reporter_plan.model_dump(),
-                reporter_result=reporter_result,
+                reporter_result=session_result,
                 report_writer_output=report_writer_output_payload,
                 report_saved_files=saved_files,
                 terminal_reply=reply,

@@ -83,6 +83,31 @@ def _count_all_samples(metadata: dict | None) -> int:
         return 0
 
 
+def session_reporter_result(reporter_result):
+    """What a report turn keeps in the chat session (last_debug and the results_history bundle).
+
+    A generated report's result carries, per report, the fetched metadata of every sample and its relatives and every
+    protocol's text. Prod 10-14: a GEO package over 1,641 mice held 26,064 samples' metadata, the session write
+    (last_debug 112 MB, results_history 57 MB) was refused by MySQL, and the user got an empty reply. The turn's files
+    keep all of it (persisted by generate_report_outputs); the session keeps each report's uid, how many samples its
+    fetched metadata held (the lineage, not the set asked for: 26,064 for those 1,641 mice) and its protocol ids. The
+    writer output stays at the top level (``merged_report``, and the caller's ``report_writer_output``), so the
+    per-report copy goes too. A summary result (no ``reports``) is kept as it is.
+    """
+    if not isinstance(reporter_result, dict) or not isinstance(reporter_result.get("reports"), list):
+        return reporter_result
+    reports = []
+    for entry in reporter_result["reports"]:
+        if not isinstance(entry, dict):
+            continue
+        slim = {k: v for k, v in entry.items() if k not in ("metadata", "protocols", "report_writer_output")}
+        slim["metadata_samples"] = _count_all_samples(entry.get("metadata"))
+        protocols = entry.get("protocols")
+        slim["protocol_ids"] = sorted(map(str, protocols)) if isinstance(protocols, dict) else []
+        reports.append(slim)
+    return {**reporter_result, "reports": reports}
+
+
 def _wrap_report_result(report_type_value, result: dict, coder_output):
     canonical = normalize_report_type(report_type_value)
     narrative = coder_output.result_description or None

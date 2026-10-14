@@ -278,3 +278,76 @@ def test_a_report_that_cannot_start_says_so_and_never_reaches_the_writer(monkeyp
         os.close(fd)
     writer.assert_not_called()
     assert "Another report is being built" in err.value.reply
+
+
+def test_the_session_keeps_a_report_turns_summary_not_its_fetched_metadata():
+    """Prod 10-14 (launch 20261014-2319): a GEO package over 1,641 mice was built (539 rows), then the turn could not
+    be saved: the session held the fetched metadata of 26,064 samples and every protocol's text (last_debug 112 MB,
+    results_history 57 MB) and MySQL refused the write, so the user got an empty reply. The files keep all of it;
+    the session keeps what a reply, a follow-up and the harness read."""
+    import json
+    md = _metadata_with_n_samples("MUS", 26064)
+    body = {"report_type": "GEO", "samples": [{"*library name": f"D.SEQ-{i}"} for i in range(539)]}
+    rr = {"reports": [{"uid": None, "metadata": md,
+                       "protocols": {"P.ENG-1": {"text": "x" * 200_000, "title": "P.ENG-1"}},
+                       "report_writer_output": body}],
+          "merged_report": {"all_samples": body}}
+    slim = outmod.session_reporter_result(rr)
+    assert len(json.dumps(md)) > 1_000_000
+    assert len(json.dumps(slim)) < 200_000
+    (entry,) = slim["reports"]
+    assert "metadata" not in entry and entry["metadata_samples"] == 26064
+    assert entry["protocol_ids"] == ["P.ENG-1"]
+    assert "report_writer_output" not in entry and slim["merged_report"] == {"all_samples": body}
+    assert rr["reports"][0]["metadata"] is md  # the caller's result (the files' source) is not changed
+
+
+def test_a_summary_reporter_result_passes_through():
+    rr = {"ok": True, "rows_returned": 3, "labs_table": {"ENG": 3}}
+    assert outmod.session_reporter_result(rr) == rr
+    assert outmod.session_reporter_result(None) is None
+
+
+def test_run_query_keeps_a_big_reports_summary_in_the_session():
+    """The wiring: a GEO turn over a large set stores the slim result in last_debug and in its results_history bundle
+    (prod 10-14: the full one, 112 MB + 57 MB, could not be saved)."""
+    import json
+    from unittest.mock import patch
+    from chat_nextseek import orchestrator
+    from chat_nextseek.schemas import EntityAgentOutput, ParserFilters, ParserPlan
+    from chat_nextseek.schemas.chat import ReporterPlan
+
+    md = _metadata_with_n_samples("MUS", 26064)
+    body = {"report_type": "GEO", "samples": [{"*library name": f"D.SEQ-{i}"} for i in range(539)]}
+    rr = {"reports": [{"uid": None, "metadata": md, "protocols": {"P.ENG-1": {"text": "x" * 200_000}},
+                       "report_writer_output": body}], "merged_report": {"all_samples": body}}
+    plan = ParserPlan(mode="reporter", report_mode="report_generation", report_type="GEO",
+                      intent_summary="GEO for those mice", filters=ParserFilters(uids=["MUS-1"]))
+    rplan = ReporterPlan(reporter_mode="report_generation", report_type="GEO", uids=["MUS-1"],
+                         reporter_context={"per_sample_reports": False}, notes="")
+    session = {"results_history": [], "last_files": []}
+    config = MagicMock()
+    config.API_USER = "u"
+    config.API_PASS = "p"
+    with patch("chat_nextseek.orchestrator.pipeline_agent.is_active", return_value=False), \
+         patch("chat_nextseek.orchestrator._ensure_query_log_dir", return_value="/tmp/log"), \
+         patch("chat_nextseek.orchestrator.ArtifactStore"), \
+         patch("chat_nextseek.orchestrator.entity_agent", return_value=EntityAgentOutput()), \
+         patch("chat_nextseek.orchestrator.parser_agent", return_value=plan), \
+         patch("chat_nextseek.orchestrator.reporter_agent", return_value=rplan), \
+         patch("chat_nextseek.orchestrator.fix_sample_endpoint", side_effect=lambda d: d), \
+         patch("chat_nextseek.orchestrator._report_generation_uids", return_value=(["MUS-1"], None)), \
+         patch("chat_nextseek.orchestrator.generate_report_outputs",
+               return_value=(rr, {"all_samples": body}, {"merged_report": "/tmp/m.json"}, "done")), \
+         patch("chat_nextseek.orchestrator.shortlist_catalog",
+               return_value=([], [], {"sampletype_codes": [], "assay_codes": [], "sampletype_ranks": {},
+                                      "assay_ranks": {}, "enabled": False, "fallback_reason": None})):
+        orchestrator.run_query(session=session, config=config, user_text="Make a GEO package for those mice.")
+
+    stored = session["last_debug"]["reporter_result"]
+    bundle = session["results_history"][-1]["reporter_result"]
+    for kept in (stored, bundle):
+        assert "metadata" not in kept["reports"][0] and kept["reports"][0]["metadata_samples"] == 26064
+    assert session["last_debug"]["reporter_metadata"] is None
+    assert len(json.dumps(session["last_debug"], default=str)) < 500_000
+    assert len(json.dumps(session["results_history"], default=str)) < 500_000
