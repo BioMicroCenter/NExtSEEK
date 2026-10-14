@@ -341,6 +341,28 @@ def test_missing_required_names_both_alternatives_when_the_attribute_is_a_group(
     assert "server will reject" not in plain_text.lower()
 
 
+def test_a_missing_primary_file_says_the_map_rule_matched_nothing():
+    # The mapper looked for the file and found none, and a data file is never
+    # set from chat (answers.check_fill), so asking the reader to "fill in" the
+    # path sends them round a loop the server will refuse.
+    group_label = qa.group_label(("File_PrimaryData", "Link_PrimaryData"))
+    built = _single_finding_report(
+        qa.MISSING_REQUIRED, qa.HARD, sample_type="A.GEX",
+        attribute=group_label, row_index=0)
+    text = report.render_qa_for_user(
+        {"A.GEX": built}, ARTIFACTS, RUN,
+        missed_rules=[{"rule_id": "counts", "sample_type": "A.GEX"}])
+    assert 'rule "counts"' in text
+    assert "can't be filled in from chat" in text
+    assert "Fill in" not in text
+
+    # A miss on another sample type leaves this one's wording alone.
+    other = report.render_qa_for_user(
+        {"A.GEX": built}, ARTIFACTS, RUN,
+        missed_rules=[{"rule_id": "aln", "sample_type": "A.ALN"}])
+    assert other == report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
+
+
 def test_missing_required_group_rendering_tolerates_a_single_member_group(monkeypatch):
     # Minor 3: the rewritten is_group_label branch does
     # `" or ".join(_name(m) for m in members[1:])`, which for a one-member

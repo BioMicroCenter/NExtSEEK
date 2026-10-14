@@ -1552,6 +1552,8 @@ def test_a_non_optional_rule_that_matches_nothing_is_reported_and_optional_is_no
     result = mapper.apply(_run_with([]), _v2map(rules))
     assert 'rule "vcf" (A.VCF) matched no file' in result.warnings
     assert not any('"cram"' in w for w in result.warnings)
+    # The same miss, structured, for the report's blocker wording.
+    assert result.missed_rules == [{"rule_id": "vcf", "sample_type": "A.VCF"}]
 
 
 def test_apply_uses_the_version_override_and_carries_its_warning():

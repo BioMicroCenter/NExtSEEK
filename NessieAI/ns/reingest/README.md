@@ -21,7 +21,7 @@ not values, so no measured number round-trips through a model.
 | `uid_resolve.py` | each nf-core sample back to its `D.SEQ`: launch record first, then fastq exact, then basename. Multi-run is rejected on purpose, and ambiguity is never guessed through |
 | `maps.py` | the map schema (v2; v1 `glob` and `secondary_data_glob` still load) and loader: `effective()` resolves a run's release to its rules and warnings, `all_inventory_globs()` collects every map's inventory patterns. `$`-refs are lookups into one named manifest section and nothing else — no evaluation, no attribute traversal, no reachable Python object. That is what makes a map reviewable in a diff rather than a security surface |
 | `pipelines/` | the `@` tokens a map may use: `common.py` for every pipeline, one module per pipeline that needs its own (`differentialabundance.py`). See [its README](pipelines/README.md) |
-| `mapper.py` | `apply` joins a map to a manifest: `MapResult(rows, unmapped, warnings)`. Committed map rules beat approved database rules; `per_sample` output rules fan out one row per sample; `unmapped` is explicit, never silent |
+| `mapper.py` | `apply` joins a map to a manifest: `MapResult(rows, unmapped, warnings, missed_rules)`. Committed map rules beat approved database rules; `per_sample` output rules fan out one row per sample; `unmapped` is explicit, never silent |
 | `proposals.py` | the approval queue's service: `record` (idempotent per `(pipeline, raw_key)`), `approved_rules`, `attribute_exists` |
 | `answers.py` | the fix loop's curator answers: `parse_answers`, `validate` (an allowlist from the first QA pass's findings), `apply_answers`. Pure, no I/O |
 | `build_records.py` | one JSON record per rendered workbook, keyed by the workbook's sha256 and filed under the building user. `write`, `load`, `sha256_of` |
@@ -33,7 +33,7 @@ Map files live beside this package in [`../reingest_maps/`](../reingest_maps/REA
 
 ## The fix loop and the upload
 
-`build-upload-xlsx` maps and QAs a run, and returns the findings. The mapper's warnings (an unchecked release, a rule that matched nothing, a companion with nowhere to go) come back under "Map notes:"; a build from a manifest with no launch record opens with a "TEST ONLY:" line, and only a superuser can make one. The curator answers in chat
+`build-upload-xlsx` maps and QAs a run, and returns the findings. The mapper's warnings (an unchecked release, a rule that matched nothing, a companion with nowhere to go) come back under "Map notes:". When a primary-data rule matched nothing, the missing-file blocker names the rule and says the file can't be filled in from chat, rather than asking for a path. A build from a manifest with no launch record opens with a "TEST ONLY:" line, and only a superuser can make one. The curator answers in chat
 and the op is called again with `answers`, validated against the first pass's findings. Three
 kinds, each licensed only by what that run flagged:
 

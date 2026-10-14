@@ -125,6 +125,11 @@ class MapResult(BaseModel):
     # attributes have no home on this row). Never silently dropped; see the
     # loop below for both cases.
     warnings: list[str] = Field(default_factory=list)
+    # {rule_id, sample_type} for each non-optional primary-data rule that
+    # matched no file. Also in `warnings`; this copy lets the report say why
+    # the primary file is blank instead of asking for it (a data file is
+    # never set from chat).
+    missed_rules: list[dict] = Field(default_factory=list)
 
 
 def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
@@ -266,6 +271,7 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
                 _candidate_tiers(rule, run_manifest, None)):
             result.warnings.append(
                 f'rule "{rule.id}" ({rule.sample_type}) matched no file')
+            result.missed_rules.append({"rule_id": rule.id, "sample_type": rule.sample_type})
 
         if rule.cardinality == "per_sample":
             result.rows.extend(

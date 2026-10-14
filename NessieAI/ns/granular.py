@@ -1826,7 +1826,7 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
     reply = user_report.render_qa_for_user(
         reports_by_type, saved_files, run_name, ambiguous_primary=ambiguous_primary,
         row_counts={st: len(rows) for st, rows in final.rows_by_type.items()},
-        unmapped_count=len(result.unmapped or []))
+        unmapped_count=len(result.unmapped or []), missed_rules=result.missed_rules)
     if result.warnings:
         reply += "\n\nMap notes:\n" + "\n".join(f"- {w}" for w in result.warnings)
     if test_only:

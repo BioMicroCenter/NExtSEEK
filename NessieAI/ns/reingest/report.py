@@ -147,7 +147,8 @@ def _compact_item(index, code, attribute, where):
 def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str],
                         run_name: str, ambiguous_primary: list[dict] | None = None,
                         row_counts: dict[str, int] | None = None,
-                        unmapped_count: int = 0) -> str:
+                        unmapped_count: int = 0,
+                        missed_rules: list[dict] | None = None) -> str:
     """Render the whole run's QA outcome as plain-language text.
 
     ``reports`` -- ``{sample_type: QaReport}``, one entry per sample type QA'd
@@ -183,6 +184,11 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
 
     ``unmapped_count`` -- how many raw QC keys the map could not place; one
     line says they are queued for review, so the agent has nothing to add.
+
+    ``missed_rules`` -- ``[{rule_id, sample_type}]``, the primary-data rules
+    that matched no file (``MapResult.missed_rules``). A missing primary file
+    on one of those sample types is explained as the map's miss rather than
+    asked for, since a data file is never set from chat.
 
     Returns the full report as one string. This is the module's only public
     function, and its output is relayed to the user VERBATIM by the calling
@@ -235,6 +241,8 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
             # we're iterating is already scoped to one sample type, which is
             # the reliable source, so it wins over whatever group() carried.
             bucket["sample_type"] = sample_type
+            bucket["missed_rules"] = [m["rule_id"] for m in missed_rules or ()
+                                      if m["sample_type"] == sample_type]
             # Route explicitly on the two known severities and fail loudly on
             # anything else, matching QaReport.add()'s own philosophy: a gate
             # whose job is blocking bad uploads must not quietly file an
@@ -448,6 +456,20 @@ def _render_one(index, code, attribute, bucket):
             # the reader toward the member the directional design exists to
             # treat as not provably sufficient is a wasted round trip.
             members = qa.group_members_for_label(attribute)
+            missed = bucket.get("missed_rules") or []
+            if missed and members and members[0] == "File_PrimaryData":
+                rules = ("rule " if len(missed) == 1 else "rules ") + ", ".join(
+                    f'"{rule_id}"' for rule_id in missed)
+                return [
+                    f"  {index}.  One of {attribute} is required, and none of them is present,"
+                    f" on {count} {rows} in {_workbook_ref(sample_type)}.",
+                    "",
+                    f"      The map's {rules} found no matching file in this run, and a",
+                    "      data file can't be filled in from chat: it has to come from the run.",
+                    "      Either the run did not write this output, or the map does not know",
+                    "      this release's file names. Ask an administrator to check the map,",
+                    "      then rebuild.",
+                ]
             # `group_label()`/`is_group_label()` guarantee `attribute` names a
             # real ALTERNATIVE_REQUIRED_GROUPS group, and every declared group
             # has at least one secondary (see `_AlternativeGroup`), so
