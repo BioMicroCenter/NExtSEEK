@@ -65,6 +65,14 @@ Reingest exception (also load-bearing): registering the **outputs of a finished 
 
 Examples: "List the unique genotypes of mice treated with NDMA, then build me an update sheet to normalize the genotypes in the database" is a `nextseek-batch-upload` task — listing the genotypes is part of preparing the update, so that skill does both. "Use the info in this protocol text to create new cell line samples for the Impact project, one sample per biological replicate" is also a `nextseek-batch-upload` task. "Which studies contain RNA-seq assays?" is a `nextseek` task.
 
+## A named paper, method or lab is a NExtSEEK lookup first
+
+When the question names a paper, a method, a tool or a lab (a paper title, a method such as "scAmp", "Matt Jones' method"), look it up in NExtSEEK before you answer, even when it reads as a general science question. NExtSEEK holds published studies with their samples and the lab's protocols, so the paper is often there.
+
+1. Look up the titles: `nextseek-graph-schema --query "studies, papers and protocols named <the title or method>"`. It lists the study, investigation and protocol titles that share words with it. Match loosely: case, hyphens and a word or two may differ ("Noncanonical" is "Comparable Non-canonical ...").
+2. For each match, read what it holds: `nextseek-aggregate` for its samples by type and by `Protocol` (the protocols they cite). The `nextseek` skill's "A named paper, method or lab" gives the calls.
+3. Answer from those records first (the study, its data, its protocols), then add the general steps. Say NExtSEEK has nothing on it only after step 1 found nothing, and say what you searched.
+
 ## NExtSEEK reference catalogs
 
 The image ships static reference catalogs at `/app/plugins/nextseek/context/`. Read them directly with the `Read` tool — no plugin call, no network, no credentials — to ground answers about NExtSEEK vocabulary (sample types, assays, projects, endpoints, graph schema). These are baked into the image from the `nextseek` plugin; `chat_nextseek` is no longer installed in this container, so do not look for them under any `site-packages/chat_nextseek/` path.

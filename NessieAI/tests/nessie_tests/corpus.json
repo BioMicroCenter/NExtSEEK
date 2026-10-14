@@ -13443,7 +13443,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)\\A(?!.*no uid provided)"
+                  "value": "(?is)\\A(?!.*(?:no uid provided|input is too long|could not be completed|couldn't build the \\w+ package))"
                 },
                 {
                   "field": "last_target_result_id",
@@ -13462,7 +13462,8 @@
           "artifact_kind": null,
           "retirement": null,
           "_why": "D7: with no UIDs in the text the report path used to answer 'No UID provided'; it now uses the result the parser names. Only what is observable is asserted: a non-empty reply that is not 'No UID provided'. Tagged no_floor so the family's report_produced_output floor is not added: the build may legitimately ask to narrow 231 mice, and the artifact name is not stable. || 2026-10-14 REVIEW-2 SF3: the package turn also asserts last_target_result_id 1, so the parser names the search and report generation packages its samples, not the 5 UIDs the chat showed.",
-          "_added_2026_10_14_bmr_dev_test_fixes": "Proof case for the BMR dev test fixes (shared reader, parser target on every path, pipeline router rule). Global: real data on dev and prod, no fix code names it."
+          "_added_2026_10_14_bmr_dev_test_fixes": "Proof case for the BMR dev test fixes (shared reader, parser target on every path, pipeline router rule). Global: real data on dev and prod, no fix code names it.",
+          "_ti24_2026_10_14": "Prod 10-14 task 1338: 1,641 NDMA mice crashed with report_writer 'Input is too long'. The package turn now also fails on that text, on the raw fatal heading, and on the code path's own failure reply: the package must be built."
         }
       ]
     },
@@ -17925,6 +17926,49 @@
           "retirement": null
         },
         {
+          "id": "unsup.method_paper_lookup",
+          "family": "unsupported",
+          "name": "Paper method on a new strain: CC finds the paper's study first",
+          "tags": [
+            "nessie",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "I read the paper 'Noncanonical T cell responses are associated with protection from tuberculosis in mice and humans'. How would I run the same analysis on samples from another mouse strain?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "nextseek-graph-schema[^\\n]*--query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)non-?canonical T cell"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": "Unsupported",
+          "expected_behavior": "StateUnsupportedBoundary",
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "ti24 2026-10-14 (prod task 1319): CC answered 'I can't see the paper' after one ls, although the study is on both boxes (dev 'Noncanonical T cell responses ...', prod 'Comparable Non-canonical T cell responses ...'). The route-only sibling unsup.method_paper_new_strain cannot see the reply. This full turn must look the title up (nextseek-graph-schema --query) and name the study."
+        },
+        {
           "id": "unsup.method_lab_own_cohort",
           "family": "unsupported",
           "name": "Lab method on my own cohort \u2192 container_cc",
@@ -18077,6 +18121,60 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null
+        },
+        {
+          "id": "unsup.method_talk_lookup",
+          "family": "unsupported",
+          "name": "Method from a talk, then reanalyse a cell line: CC looks the method up both turns",
+          "tags": [
+            "nessie",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "talk",
+              "query": "I saw Matt Jones give a talk on his sCAmp paper. I want to know how I would analyze another cell line uses that method such as H-82.",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "nextseek-graph-schema[^\\n]*--query"
+                }
+              ]
+            },
+            {
+              "label": "reanalyze",
+              "query": "I would like to reanalyze the GBM 39HSR cell line with the method, single cell multi-ome in scamp. Could you tell me how to do that?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "nextseek-graph-schema[^\\n]*--query"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": "Unsupported",
+          "expected_behavior": "StateUnsupportedBoundary",
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "ti24 2026-10-14 (prod tasks 1328, 1329): both turns said scAmp was not found after a CEL-only keyword search and a parse that never ran. The route-only sibling unsup.method_talk_then_reanalyze cannot see the trace. Each turn must look the method up by title (nextseek-graph-schema --query) before any 'not found'. Box-neutral: dev holds the scAmp study, prod does not, so the reply is not asserted."
         },
         {
           "id": "unsup.offtopic_sports",
