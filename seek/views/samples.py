@@ -13,6 +13,7 @@ from ..dbtable_sampletype import DBtable_sampletype
 from django.http import Http404
 from django.http import HttpResponse
 from django.http import HttpResponseRedirect
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 from ..seekdb import SeekDB
 from dmac.conversion import convertDicToOptions
@@ -469,6 +470,7 @@ def getAssaysOptions(request, id):
     data = {'msg':'okay', 'status': 1, 'assay_options':assay_options}
     return HttpResponse(simplejson.dumps(data, default=str))
 
+@ensure_csrf_cookie
 @requires_seek_login_redirect()
 def sampleAttributes(request):
     report = {}
@@ -499,6 +501,7 @@ def getSampleType(request):
                                    scoped_project_ids=_callerProjectIds(request, "sample grid"))
     return HttpResponse(sdata)
 
+@require_POST
 @requires_seek_login
 @requires_supervisor('The login user does not have the permission to add the sample attribute.')
 def sampleAttributeSave(request):
@@ -521,6 +524,7 @@ def sampleAttributeSave(request):
 
     return HttpResponse(reportData)
 
+@require_POST
 @requires_seek_login(log_failure=True)
 @requires_supervisor('The login user does not have the permission to delete the sample attribute.')
 def sampleAttributeDelete(request):
