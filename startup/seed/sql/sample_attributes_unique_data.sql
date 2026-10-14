@@ -4,7 +4,7 @@
 -- sample_type '' is the global definition; a code overrides it for that tab.
 
 INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
- ('5_3UTR','','Ratio of reads mapping to the 5'' versus 3'' untranslated region, a measure of coverage evenness.'),
+ ('5_3UTR','','Median ratio of read coverage at the 5'' end to the 3'' end of highly expressed transcripts (Qualimap or Picard 5''-3'' bias); about 1 is even coverage, below 1 is 3'' bias.'),
  ('ADVPowerLevel','','Power setting of the acoustic Doppler velocimeter, e.g. HIGH, LOW.'),
  ('ADVVelocityRange','','Velocity range the acoustic Doppler velocimeter was configured for, in the units named in ADVVelocityUnits.'),
  ('ADVVelocityUnits','','Unit for the ADVVelocity value, e.g. m/s, meters per second.'),
