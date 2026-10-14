@@ -145,8 +145,8 @@ layer is internal and is reached through the table layer.
   lines counted the same day, `dmac/conversion.py` alone for 18.
 - **The connection abstraction.** `dmac/dbconnection.py:9` is a facade that picks a
   backend from a string at `dmac/dbconnection.py:13-24`; `dmac/dbconn_django.py:22` is the
-  ORM-and-raw-cursor implementation, and `dmac/dbconn_mysql.py:13` a direct MySQLdb one.
-  Only test modules name any of the three from outside, among them
+  ORM-and-raw-cursor implementation.
+  Only test modules name either from outside, among them
   `nextseek_api/tests/test_search_filters_sql_binding.py:182` and
   `nextseek_api/tests/test_search_filters_sql_binding.py:250`.
 - **The table abstraction.** `dmac/dbtable.py:33` is the base class, wiring a form, a

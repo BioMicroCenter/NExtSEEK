@@ -119,13 +119,6 @@ not fail locally; it fails somewhere else.
   lookup in `except Exception: pass` over a context pre-seeded with zeros. A broken database renders a clean dashboard reading zero
   samples, zero projects and zero files rather than an error, so "the counts are wrong"
   is the only symptom you will get.
-- **`dmac/dbconn_mysql.py` is 285 lines of unreachable code.** Its sole reference is the
-  lazy import at `dmac/dbconnection.py:20`, taken only on the branch at
-  `dmac/dbconnection.py:19`. Grepping every `*.py` in the worktree for the quoted string
-  `"MYSQL"` or `'MYSQL'` returns two lines: that branch, and an unrelated assertion at
-  `NessieAI/tests/chat_nextseek/test_e2e_playwright_trio.py:38`. No call site passes it. Its module scope
-  still reads settings at `dmac/dbconn_mysql.py:10-11`, so it costs an import without ever
-  serving a query.
 - **The SEEK password is written into the Django session.** `dmac/views.py:128` stores it
   alongside the username. Sessions are database-backed (`django.contrib.sessions` is
   installed at `dmac/settings.py:152` and no `SESSION_ENGINE` overrides the default) and

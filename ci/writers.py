@@ -538,11 +538,6 @@ UNRESOLVED_SITES: tuple[str, ...] = (
     "dmac/dbconnection.py::DBconnection.saveOneRecord",
     "dmac/dbconnection.py::DBconnection.deleteOneRecord",
     "dmac/dbconnection.py::DBconnection.__updateRecordViaKeyword",
-    "dmac/dbconn_mysql.py::DBconn_mysql.__insertOneRecord",
-    "dmac/dbconn_mysql.py::DBconn_mysql.__insertRecords",
-    "dmac/dbconn_mysql.py::DBconn_mysql.__updateRecords",
-    "dmac/dbconn_mysql.py::DBconn_mysql.updateOneRecord",
-    "dmac/dbconn_mysql.py::DBconn_mysql.__deleteRecords",
     "dmac/datagrid_custom.py::DataGrid.__save",
     # The context generator's two table-agnostic renderers (WR-21). Both take the
     # table as an argument and read its name off cg.TABLES, so the scan sees a

@@ -1,6 +1,5 @@
 #!/bin/python
 import os, sys
-import MySQLdb
 import datetime
 from os.path import abspath, exists
 from dmac.iocsv import saveCsvfile
@@ -16,9 +15,6 @@ class DBconnection(object):
         elif whichDB=="SEEK":
             from dmac.dbconn_django import DBconn_django
             self.__dbconn = DBconn_django()
-        elif whichDB=="MYSQL":
-            from dmac.dbconn_mysql import DBconn_mysql
-            self.__dbconn = DBconn_mysql()
         else:
             from dmac.dbconn_django import DBconn_django
             self.__dbconn = DBconn_django()
