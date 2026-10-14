@@ -354,7 +354,7 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
         return json.dumps({"ok": True, "kind": "accessions", "accessions": accs, "leaf_count": 0, "leaves": []})
 
     if kind == "last_search":
-        source_uids = uids_from_last_search(session)
+        source_uids = uids_from_last_search(session, state.get("source_bundle_id"))
         if not source_uids:
             return json.dumps({"ok": False, "error": "No pinned search to use. Run a search first or pass explicit UIDs."})
     elif kind == "explicit_uids":
@@ -1072,7 +1072,7 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
             return json.dumps({"ok": False,
                                "error": "kind='explicit_uids' requires a non-empty uids list."})
     elif kind == "last_search":
-        uids = uids_from_last_search(session)
+        uids = uids_from_last_search(session, state.get("source_bundle_id"))
     elif kind == "accessions":
         uids = []
     else:

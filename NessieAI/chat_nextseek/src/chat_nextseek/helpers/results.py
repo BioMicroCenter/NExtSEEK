@@ -583,7 +583,7 @@ def _bundle_uids(bundle: dict) -> list[str]:
     return [re.sub(r"<[^>]+>", "", uid).strip() for uid in plan_uids or [] if isinstance(uid, str) and uid.strip()]
 
 
-def _pinned_bundle(session, bundle_id=None) -> tuple[dict | None, list[str]]:
+def pinned_bundle(session, bundle_id=None) -> tuple[dict | None, list[str]]:
     """``(bundle, its UIDs)``: the bundle ``bundle_id`` names (no walk back; ``(bundle, [])`` when it holds
     none), else the newest bundle with UIDs. The summary and the pipeline tools both read through this, so
     they pick the same one."""
@@ -602,12 +602,12 @@ def _pinned_bundle(session, bundle_id=None) -> tuple[dict | None, list[str]]:
 
 
 def summarize_pinned_bundle(session, bundle_id=None) -> str:
-    """One-line summary of the results bundle the pipeline builds on (``_pinned_bundle``). '' when none.
+    """One-line summary of the results bundle the pipeline builds on (``pinned_bundle``). '' when none.
 
     Rows, total and cap come from the shared reader, the same extent a follow-up shows. With no UID
     bundle at all it describes the newest bundle, as before.
     """
-    bundle, _ = _pinned_bundle(session, bundle_id)
+    bundle, _ = pinned_bundle(session, bundle_id)
     if bundle is None and bundle_id is None:
         history = session.get("results_history") or []
         bundle = history[-1] if isinstance(history, list) and history and isinstance(history[-1], dict) else None
@@ -625,5 +625,5 @@ def summarize_pinned_bundle(session, bundle_id=None) -> str:
 
 
 def uids_from_last_search(session, bundle_id=None) -> list[str]:
-    """Sample UIDs of the bundle ``bundle_id`` names, else of the newest bundle that has any (``_pinned_bundle``)."""
-    return _pinned_bundle(session, bundle_id)[1]
+    """Sample UIDs of the bundle ``bundle_id`` names, else of the newest bundle that has any (``pinned_bundle``)."""
+    return pinned_bundle(session, bundle_id)[1]
