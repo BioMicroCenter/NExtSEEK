@@ -116,6 +116,16 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     history routed `unrelated` is never a reason to route the CURRENT message
     `unrelated`.
 
+    Choosing, building or launching an nf-core pipeline over NExtSEEK samples
+    is not such an analysis question: select `nextseek_query`, whose pipeline
+    agent picks the pipeline from the samples and builds the run. That holds
+    when the request is phrased as a scientific question and names no
+    pipeline ("which genes differ between the treated and the control
+    samples? pick the nf-core pipeline for it"). How to apply a published
+    method, or how to reanalyse a paper's data, stays `container_cc`, and a
+    message that refers back to a `container_cc` answer follows the
+    follow-up rule below.
+
     How-to questions about the site go to `nextseek_query`. "How do I upload
     samples", "how can I check my workbook before uploading it", "where do I
     download my results as a spreadsheet" and "how do I call the API" ask how
