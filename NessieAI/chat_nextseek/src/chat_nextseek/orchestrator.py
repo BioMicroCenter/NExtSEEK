@@ -2007,9 +2007,10 @@ def _report_generation_uids(session, user_text: str, plan, reporter_plan) -> tup
 
     UIDs the reporter or the user's own text named win, with the parser's added. Else the result the parser named
     (``target_result_id``) when it holds samples, as the pipeline builds on it (``pipeline.agent.start``): the UIDs
-    the parser carried are the few an earlier turn showed, not the set. Else those carried UIDs. A named result
-    that was cut short (a capped graph result, a total above its rows) gets a narrowing reply rather than a
-    silent partial package.
+    the parser carried are the few an earlier turn showed, not the set. A named result with no sample list (a count,
+    a breakdown, a search that found nothing) gets an ask, as the pipeline's does, not a package on those few. With
+    no named result, the carried UIDs. A named result that was cut short (a capped graph result, a total above its
+    rows) gets a narrowing reply rather than a silent partial package.
     """
     uids = reporter_plan.uids or []
     try:
@@ -2028,6 +2029,11 @@ def _report_generation_uids(session, user_text: str, plan, reporter_plan) -> tup
         return [], (f"The result you mean ({target.get('user_query') or 'that result'!r}) holds {held} samples: "
                     "it was cut short, so a package from it would be partial. Narrow the set first: a tighter "
                     "search, one study or project, or the samples' UIDs.")
+    target = named_bundle(session.get("results_history") or [], target_id) if target_id is not None else None
+    if target is not None and not named_here:
+        what = "is a count or a breakdown" if bundle_rows(target) else "found no samples"
+        return [], (f"The result you mean ({target.get('user_query') or 'that result'!r}) {what}, so it has no list "
+                    "of samples to package. Run a search for the samples first, or give me their UIDs.")
     if parser_uids:
         existing = set(uids)
         uids.extend([u for u in parser_uids if u not in existing])

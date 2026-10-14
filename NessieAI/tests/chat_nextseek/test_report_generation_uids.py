@@ -59,3 +59,22 @@ def test_a_retrieve_packages_the_samples_asked_for():
                                         {"sample_type": "NHP", "samples": [{"uid": "NHP-990101ABC-9-PUB"}]},
                                         {"sample_type": "TIS", "samples": [{"uid": "TIS-990101ABC-9-PUB"}]}]}}}]}
     assert _uids(session, "a GEO package for those", _plan(1)) == (["TIS-990101ABC-9-PUB"], None)
+
+
+def test_a_named_count_is_not_packaged_on_the_uids_the_parser_carried():
+    """The M2 shape on the report path: "how many of those are female?" holds one count row, and its parser plan
+    carried the 5 UIDs the chat showed. A package for "those" must not be built on those 5."""
+    session = _session()
+    session["results_history"].append({"id": 2, "user_query": "how many of those are female?",
+                                       "parser_plan": {"filters": {"uids": SHOWN}},
+                                       "graph_result": {"ok": True, "data": [{"female": 103}]}})
+    uids, reply = _uids(session, "a GEO package for those", _plan(2, SHOWN))
+    assert uids == [] and "count or a breakdown" in reply and "UIDs" in reply
+
+
+def test_a_named_search_that_found_nothing_says_so():
+    session = _session()
+    session["results_history"].append({"id": 2, "user_query": "female mice treated with a drug",
+                                       "graph_result": {"ok": True, "data": []}})
+    uids, reply = _uids(session, "a GEO package for those", _plan(2))
+    assert uids == [] and "found no samples" in reply
