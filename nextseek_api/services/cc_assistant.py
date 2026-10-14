@@ -40,7 +40,7 @@ from drf_spectacular.utils import extend_schema, OpenApiExample
 from pydantic import ValidationError
 
 from nextseek_api.assistant.models_api import AsyncQueryResponse, QueryRequest, TaskProgressResponse
-from nextseek_api.permissions import may_read_any
+from nextseek_api.permissions import IsSuperUser, may_read_any
 from nextseek_api.assistant.descriptions_cc import (
     NESSIE_CC_QUERY_ASYNC_DESC, NESSIE_QUERY_ASYNC_DESC, NESSIE_TASK_PROGRESS_DESC,
 )
@@ -197,6 +197,13 @@ class CCAssistantViewSet(viewsets.ViewSet):
         authed, err = self._check_auth(request)
         if not authed:
             return err
+        # Forcing the Opus agent is a superuser's choice, the same rule as force_route on query/async/.
+        if not IsSuperUser().has_permission(request, self):
+            return _error_response(
+                "Forbidden",
+                "Forcing Container-CC is for superusers; send the turn to query/async/.",
+                status.HTTP_403_FORBIDDEN,
+            )
         try:
             req = QueryRequest.model_validate(request.data)
         except ValidationError as e:
