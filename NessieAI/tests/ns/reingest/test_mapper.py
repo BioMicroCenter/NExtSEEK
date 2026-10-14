@@ -36,6 +36,17 @@ def test_the_alternate_is_used_when_the_primary_key_is_absent():
     assert row.attributes["MappedPercent"].raw_key == "samtools_stats-reads_mapped_percent"
 
 
+def test_5_3utr_reads_multiqc_1_22s_general_stats_column_name():
+    # MultiQC 1.22 and earlier name the general-stats column <namespace>_<rid>,
+    # so the same Qualimap 5'-3' bias arrives under a different key.
+    old_key = "QualiMap_mqc-generalstats-qualimap-5_3_bias"
+    result = mapper.apply(_run(metrics={old_key: 0.62}), maps.load("rnaseq"))
+    row = next(r for r in result.rows if r.sample_type == "D.SEQ")
+    assert row.attributes["5_3UTR"].value == 0.62
+    assert row.attributes["5_3UTR"].raw_key == old_key
+    assert not any(u["raw_key"] == old_key for u in result.unmapped)
+
+
 def test_no_source_at_all_yields_no_attribute_rather_than_a_zero():
     result = mapper.apply(_run(metrics={}), maps.load("rnaseq"))
     row = next(r for r in result.rows if r.sample_type == "D.SEQ")
