@@ -27,6 +27,11 @@ def test_row_uid_rule():
     # a SEEK id and a breakdown label are not UIDs
     assert row_uid({"id": "17", "name": "RNA-seq"}) == ""
     assert row_uid({"label": "X-5-PUB"}) == ""
+    # another node's UID column, and a collected list, are not the row's sample UID (REVIEW-1 N1)
+    assert row_uid({"study_uid": "ST-1", "study": "a study", "n": 3}) == ""
+    assert row_uid({"parent_uuid": "P-1-PUB", "child_uuid": "C-1-PUB"}) == ""
+    assert row_uid({"uuid": ["A-1-PUB", "A-2-PUB"]}) == ""
+    assert row_uid({"s.sample_uid": "X-6-PUB"}) == "X-6-PUB"
 
 
 def test_named_bundle():

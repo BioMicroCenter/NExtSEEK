@@ -60,7 +60,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable
 
-from chat_nextseek.chat_memory import _rows_in, bundle_rows_and_extent
+from chat_nextseek.chat_memory import _final_step_key, _rows_in, bundle_rows_and_extent
 
 logger = logging.getLogger(__name__)
 
@@ -410,9 +410,11 @@ def _stage_ns_turn(entry: dict, bundle: dict, turn_dir: Path, *, safe_ns_path: S
                            "REST request"})
 
     rows: list = []
-    # A plan's rows are its FINAL step's, read by the shared reader (a retrieve's samples likewise, below).
-    plan_rows, plan_total, plan_capped, from_plan = (
-        bundle_rows_and_extent(bundle) if isinstance(bundle.get("step_results"), dict) else ([], None, False, False))
+    # A plan's rows are its FINAL step's, read by the shared reader (a retrieve's samples likewise, below). The
+    # reader is called only for a plan with a step that holds rows: on any other bundle it would open
+    # raw_result_path itself, without safe_ns_path.
+    from_plan = _final_step_key(bundle) is not None
+    plan_rows, plan_total, plan_capped, _ = bundle_rows_and_extent(bundle) if from_plan else ([], None, False, False)
     graph_result = _as_dict(bundle.get("graph_result"))
     raw_path = bundle.get("raw_result_path") or _as_dict(bundle.get("paths")).get("raw_result_path")
     # A plan bundle stores a (possibly empty) graph list beside its REST result: the graph rows

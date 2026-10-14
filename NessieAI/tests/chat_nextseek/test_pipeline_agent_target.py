@@ -35,7 +35,7 @@ def test_a_named_result_is_seeded_and_remembered(loop):
     pa.start(session, SimpleNamespace(), user_query="Run rnaseq on the mice", parser_plan={"target_result_id": 1})
     seed = _state(session)["messages"][0]["content"]
     assert _state(session)["source_bundle_id"] == 1
-    assert "the result you mean: id 1, query 'mice treated with a drug'" in seed and "3 sample UIDs" in seed
+    assert "the result you mean: id 1, query='mice treated with a drug', ~3 rows, 3 sample UIDs" in seed
     assert "earlier turns of this chat" in seed  # the parser's chat history rides along
     assert pa.snapshot_for_chat_log(session)["source_bundle_id"] == 1
 
@@ -113,3 +113,10 @@ def test_a_named_search_that_found_nothing_says_so(monkeypatch):
     out = pa.start(session, SimpleNamespace(), user_query="Run rnaseq on those", parser_plan={"target_result_id": 3})
     assert out["action"] == "ask" and "found no samples" in out["reply"] and "count or a breakdown" not in out["reply"]
     assert "monkeys from a site" in out["reply"] and _state(session)["source_bundle_id"] == 2
+
+
+def test_a_capped_named_result_says_so_in_the_seed(loop):
+    session = _session()
+    session["results_history"][0]["graph_result"].update(truncated=True, total=36622)
+    pa.start(session, SimpleNamespace(), user_query="Run rnaseq on the mice", parser_plan={"target_result_id": 1})
+    assert "~3 rows of 36622 (capped), 3 sample UIDs" in _state(session)["messages"][0]["content"]

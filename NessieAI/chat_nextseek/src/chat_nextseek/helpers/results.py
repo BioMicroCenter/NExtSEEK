@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 
 from .text import strip_html
-from .uid_check import UID_RE
 from ..artifacts import load_api_result_full
 from ..chat_memory import bundle_rows_and_extent, named_bundle, uids_from_rows
 from ..chat_memory import _GROUP_LABEL_KEY, _GROUP_RECORDS_KEY, _flatten_groups, _grouped_records  # noqa: F401

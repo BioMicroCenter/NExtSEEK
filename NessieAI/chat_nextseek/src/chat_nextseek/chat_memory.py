@@ -691,24 +691,31 @@ def plan_step_extent(step_results: Mapping, key: Any, *, plan_steps: list | None
     return total, False
 
 
-_UID_KEY = re.compile(r"(?i)(?:.*[._])?u?uid")
+#: ``uid``/``uuid``, optionally as ``<var>.`` (an unaliased graph column) or ``sample_``: never another node's
+#: (``study_uid``, ``parent_uuid``).
+_UID_KEY = re.compile(r"(?i)(?:\w+\.)?(?:sample_)?u?uid")
+
+
+def _text(value: Any) -> str:
+    return _strip_html(value) if isinstance(value, str) and value.strip() else ""
 
 
 def row_uid(row: Any) -> str:
     """The sample UID one row names, '' when none. The one rule: a UID column, else a column the query named
-    ``x_uid`` or ``s.uuid``, else a whole node the row holds (its ``uuid``). Never ``id`` (the SEEK id) or
-    ``name`` (a breakdown's label), and no scan of values."""
+    ``s.uuid`` or ``sample_uid``, else a whole node the row holds (its ``uuid``). Only a text value counts (a
+    collected list is not one UID). Never ``id`` (the SEEK id) or ``name`` (a breakdown's label), and no scan of
+    values."""
     if not isinstance(row, dict):
         return ""
     for key in ("uid", "UID", "uuid", "UUID", "sample_uid"):
-        if row.get(key):
-            return _strip_html(row[key])
+        if uid := _text(row.get(key)):
+            return uid
     for key, value in row.items():
-        if isinstance(value, str) and _UID_KEY.fullmatch(str(key)) and value.strip():
-            return _strip_html(value)
+        if _UID_KEY.fullmatch(str(key)) and (uid := _text(value)):
+            return uid
     for value in row.values():
-        if isinstance(value, dict) and value.get("uuid"):
-            return _strip_html(value["uuid"])
+        if isinstance(value, dict) and (uid := _text(value.get("uuid"))):
+            return uid
     return ""
 
 

@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 from .agent_tools import build_pipeline_tool_schemas, dispatch_pipeline_tool_call, format_luria_followup
 from ..tool_loop import call_tools
-from ..chat_memory import bundle_rows, bundle_rows_and_extent, history_block, named_bundle
+from ..chat_memory import bundle_rows, history_block, named_bundle
 from ..helpers import summarize_pinned_bundle, uids_from_last_search
 from ..helpers.results import pinned_bundle
 from ..helpers.uid_check import uids_in
@@ -132,13 +132,11 @@ def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any = 
     target = named_bundle(history, _target_id(parser_plan))
     messages: list[dict] = [{"role": "user", "content": seed}]
     if target is not None:
-        if uids_from_last_search(session, target.get("id")):
+        uids = uids_from_last_search(session, target.get("id"))
+        if uids:
             source_id = target.get("id")
-            rows, total, _capped, _plan = bundle_rows_and_extent(target)
-            n = len(uids_from_last_search(session, source_id))
-            seed += (f"\n\n[context] the result you mean: id {source_id}, query {target.get('user_query') or ''!r}, "
-                     f"{len(rows)} rows" + (f" of {total}" if total is not None and total != len(rows) else "")
-                     + f", {n} sample UIDs")
+            summary = summarize_pinned_bundle(session, source_id).removeprefix("last search: ")
+            seed += f"\n\n[context] the result you mean: id {source_id}, {summary}, {len(uids)} sample UIDs"
             earlier = history_block(session)
             if earlier:
                 seed += f"\n\n[context] earlier turns of this chat:\n{earlier}"
