@@ -605,6 +605,16 @@ def pinned_bundle(session, bundle_id=None) -> tuple[dict | None, list[str]]:
     return None, []
 
 
+def bundle_extent(bundle: dict) -> tuple[list, int | None, bool]:
+    """``(rows, total, capped)``: the shared reader's extent, with a graph result's own ``total`` and its LIMIT cap
+    (``truncated``), which the reader does not state."""
+    rows, total, capped, _plan = bundle_rows_and_extent(bundle)
+    graph = bundle.get("graph_result") if isinstance(bundle.get("graph_result"), dict) else {}
+    if total is None and isinstance(graph.get("total"), int):
+        total = graph["total"]
+    return rows, total, capped or graph.get("truncated") is True
+
+
 def summarize_pinned_bundle(session, bundle_id=None) -> str:
     """One-line summary of the results bundle the pipeline builds on (``pinned_bundle``). '' when none.
 
@@ -617,11 +627,7 @@ def summarize_pinned_bundle(session, bundle_id=None) -> str:
         bundle = history[-1] if isinstance(history, list) and history and isinstance(history[-1], dict) else None
     if bundle is None:
         return ""
-    rows, total, capped, _plan = bundle_rows_and_extent(bundle)
-    graph = bundle.get("graph_result") if isinstance(bundle.get("graph_result"), dict) else {}
-    if total is None and isinstance(graph.get("total"), int):
-        total = graph["total"]
-    capped = capped or graph.get("truncated") is True
+    rows, total, capped = bundle_extent(bundle)
     line = f"last search: query={bundle.get('user_query') or ''!r}, ~{len(rows)} rows"
     if total is not None and total != len(rows):
         line += f" of {total}"

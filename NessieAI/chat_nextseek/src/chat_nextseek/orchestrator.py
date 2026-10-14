@@ -89,6 +89,7 @@ from .helpers import (
 from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, normalized_cypher, timed_out, timeout_retry_context,
                           zero_row_retry_context)
 from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
+from .helpers.results import bundle_extent
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
@@ -2001,6 +2002,38 @@ def _followup_result_bundle(session, artifact_store, *, outcome: dict | None, us
 BUNDLE_SEQ_KEY = "bundle_seq"
 
 
+def _report_generation_uids(session, user_text: str, plan, reporter_plan) -> tuple[list[str], str | None]:
+    """``(the UIDs a report is generated over, a narrowing reply or None)``.
+
+    UIDs the reporter or the user's own text named win, with the parser's added. Else the result the parser named
+    (``target_result_id``) when it holds samples, as the pipeline builds on it (``pipeline.agent.start``): the UIDs
+    the parser carried are the few an earlier turn showed, not the set. Else those carried UIDs. A named result
+    that was cut short (a capped graph result, a total above its rows) gets a narrowing reply rather than a
+    silent partial package.
+    """
+    uids = reporter_plan.uids or []
+    try:
+        parser_uids = plan.filters.uids if hasattr(plan, "filters") else []
+    except Exception:
+        parser_uids = []
+    target_id = getattr(plan, "target_result_id", None)
+    named_here = bool(uids) or bool(uids_in(user_text or ""))
+    target_uids = uids_from_last_search(session, target_id) if target_id is not None and not named_here else []
+    if target_uids:
+        target = named_bundle(session.get("results_history") or [], target_id)
+        rows, total, capped = bundle_extent(target)
+        if not (capped or (total is not None and total > len(rows))):
+            return target_uids, None
+        held = f"{len(rows)} of {total}" if total is not None else f"only the first {len(rows)}"
+        return [], (f"The result you mean ({target.get('user_query') or 'that result'!r}) holds {held} samples: "
+                    "it was cut short, so a package from it would be partial. Narrow the set first: a tighter "
+                    "search, one study or project, or the samples' UIDs.")
+    if parser_uids:
+        existing = set(uids)
+        uids.extend([u for u in parser_uids if u not in existing])
+    return uids, None
+
+
 def _next_bundle_id(session) -> int:
     """Allocate a monotonic bundle id for this session.
 
@@ -2504,21 +2537,24 @@ def run_query(
                     print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
                     return _emit_query_complete(send_event, reply, debug_payload, None)
 
+                uids, narrow = _report_generation_uids(session, user_text, plan, reporter_plan)
+                if narrow:
+                    session["last_debug"] = debug_payload
+                    append_turn(
+                        session,
+                        user_query=user_text,
+                        mode=mode,
+                        intent_summary=plan.intent_summary,
+                        entity_result=entity_result,
+                        tool_summary=build_tool_summary_for_mode("reporter", reporter_plan=reporter_plan.model_dump()),
+                        assistant_reply=narrow,
+                    )
+                    print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
+                    return _emit_query_complete(send_event, narrow, debug_payload, None)
+
                 current_agent = "report_writer"
                 send_event("agent_started", {"agent": "report_writer", "mode": reporter_mode})
-                uids = reporter_plan.uids or []
-                try:
-                    parser_uids = plan.filters.uids if hasattr(plan, "filters") else []
-                except Exception:
-                    parser_uids = []
-                if parser_uids:
-                    existing = set(uids)
-                    uids.extend([u for u in parser_uids if u not in existing])
-                if not uids:  # "a GEO package for those": the result the parser named (a retrieve's requested UIDs)
-                    target_id = getattr(plan, "target_result_id", None)
-                    uids = uids_from_last_search(session, target_id) if target_id is not None else []
-
-                print("[DEBUG][REPORTER] Report generation UIDs:", uids)
+                print("[DEBUG][REPORTER] Report generation UIDs:", len(uids))
                 reporter_result, report_writer_output, saved_files, reply = generate_report_outputs(
                     config=config,
                     user_query=user_text,
