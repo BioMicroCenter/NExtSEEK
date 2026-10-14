@@ -75,6 +75,26 @@ def test_a_deliberately_unmapped_key_is_never_proposed():
     assert any(u["raw_key"] == "Some_Definitely_Unknown_Metric_XYZ" for u in result.unmapped)
 
 
+# MultiQC general-stats keys whose quantity D.SEQ already records another way.
+COVERED_RNASEQ_KEYS = (
+    "qualimap_rnaseq-reads_aligned",
+    "qualimap_rnaseq-reads_aligned_exonic",
+    "qualimap_rnaseq-reads_aligned_intronic",
+    "qualimap_rnaseq-reads_aligned_intergenic",
+    "qualimap_rnaseq-reads_aligned_overlapping_exon",
+    "star-mapped",
+    "salmon-strand_mapping_bias",
+)
+
+
+@pytest.mark.parametrize("raw_key", COVERED_RNASEQ_KEYS)
+def test_a_key_d_seq_already_covers_is_ruled_out_and_never_queued(raw_key):
+    pipeline_map = maps.load("rnaseq")
+    assert raw_key in pipeline_map.ruled_out()
+    result = mapper.apply(_run(metrics={raw_key: 1.0}), pipeline_map)
+    assert not any(u["raw_key"] == raw_key for u in result.unmapped)
+
+
 def test_an_approved_rule_applies_and_is_marked_origin_approved():
     # approved_rules is keyed BY attribute, so the rule carries only its source.
     # The map's own ContamPercent rule reads "kraken2-pct_unclassified", which is

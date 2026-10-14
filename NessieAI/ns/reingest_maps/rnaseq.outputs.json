@@ -133,6 +133,20 @@
     { "key": "20mers", "why": "No nf-core/rnaseq equivalent." },
     { "key": "MaxReads", "why": "A sequencer capacity figure, not a pipeline output." },
     { "key": "Picard_PERCENT_DUPLICATION",
-      "why": "No D.SEQ duplication attribute exists. Worth proposing as a schema addition; until then it goes to the queue, not silently dropped." }
+      "why": "No D.SEQ duplication attribute exists. Worth proposing as a schema addition; until then it goes to the queue, not silently dropped." },
+    { "key": "qualimap_rnaseq-reads_aligned",
+      "why": "Qualimap's count of aligned reads (read pairs, for paired-end data), in millions. Alignment is already recorded from the STAR log: TotalReads, NumAligned (exact uniquely mapped count) and MappedPercent." },
+    { "key": "qualimap_rnaseq-reads_aligned_exonic",
+      "why": "Qualimap's count of reads in exons, in millions. The region shares are already recorded as CDSPercent, UTRPercent and the exon ratios, from RSeQC read_distribution; a second tool's raw count adds nothing." },
+    { "key": "qualimap_rnaseq-reads_aligned_intronic",
+      "why": "Qualimap's count of reads in introns, in millions. IntronPercent and ExonIntronRatio already record this share, from RSeQC read_distribution." },
+    { "key": "qualimap_rnaseq-reads_aligned_intergenic",
+      "why": "Qualimap's count of reads in intergenic regions, in millions. IntergenicPercent and ExonIntergenicRatio already record this share, from RSeQC read_distribution." },
+    { "key": "qualimap_rnaseq-reads_aligned_overlapping_exon",
+      "why": "Qualimap's count, in millions, of intronic or intergenic reads that also overlap an exon. A boundary case of the region split already recorded from RSeQC read_distribution; D.SEQ has no attribute for it and does not need one." },
+    { "key": "star-mapped",
+      "why": "STAR's uniquely mapped plus multimapped reads, in millions (MultiQC adds the two). NumAligned holds the exact uniquely mapped count from the STAR log; the multimapped share belongs in its own percentage, not in this sum." },
+    { "key": "salmon-strand_mapping_bias",
+      "why": "Salmon's measure of how strand-specific its mappings were. Strand specificity is already recorded as SenseAntisenseRatio, from RSeQC infer_experiment." }
   ]
 }
