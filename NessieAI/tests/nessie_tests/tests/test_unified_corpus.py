@@ -65,7 +65,7 @@ def test_unified_holds_every_definition():
     a human grade that has already been paid for.
     """
     ids = {v["id"] for v in _corpus_origin_definitions() if v.get("origin") != "atlas"}
-    assert len(ids) == 538  # big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 524 -> 531: unchanged by the 2026-10-07 test-set review (the retired ones moved to retired.json, none were lost). 522 -> 524: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 520 -> 522: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set (origin overlay). 470 -> 520: 2026-09-23: +50 variants for the 53 production researcher questions. 408 -> 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(ids) == 549  # 2026-10-14, big-merge dev review siblings (bmr_dev_test_fixes): +11 overlay variants (5 pipeline_launch proof cases, 2 route-gate siblings of route.ns_pipeline_by_question, 3 followup_over_results, 1 submission_package). big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 524 -> 531: unchanged by the 2026-10-07 test-set review (the retired ones moved to retired.json, none were lost). 522 -> 524: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 520 -> 522: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set (origin overlay). 470 -> 520: 2026-09-23: +50 variants for the 53 production researcher questions. 408 -> 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_every_retired_definition_is_still_loadable():
@@ -104,18 +104,18 @@ def test_load_unified_returns_the_active_variants_only():
     # 283 -> 308: +25 from the 2026-08-06 additive pass (16 promoted out of the
     # atlas set into the curated one, 9 written fresh). Nothing was removed.
     active = corpus.curated(corpus.load_unified(UNIFIED))
-    assert len(active) == 356  # big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). big merge 2026-10-13: fix 19 (mj-routing) and fix 6 (nessie_fixes, retired green.refine_recall) together. fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 343 -> 350: 418 -> 343: 2026-10-07 test-set review (SPEC-2): 75 corpus variants retired into retired.json (83 removals, 8 of them atlas). 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(active) == 367  # 2026-10-14, big-merge dev review siblings (bmr_dev_test_fixes): +11 overlay variants (5 pipeline_launch proof cases, 2 route-gate siblings of route.ns_pipeline_by_question, 3 followup_over_results, 1 submission_package). big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). big merge 2026-10-13: fix 19 (mj-routing) and fix 6 (nessie_fixes, retired green.refine_recall) together. fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 343 -> 350: 418 -> 343: 2026-10-07 test-set review (SPEC-2): 75 corpus variants retired into retired.json (83 removals, 8 of them atlas). 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_load_all_definitions_returns_active_plus_retired():
-    assert len(corpus.curated(corpus.load_all_definitions(UNIFIED))) == 600  # fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 586 -> 593: 524 -> 586: 2026-10-07 test-set review (SPEC-2): the 62 probe and run-set removals now have a body in retired.json too. 522 -> 524: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 520 -> 522: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set. 2026-09-23: +50 variants for the 53 production researcher questions. 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(corpus.curated(corpus.load_all_definitions(UNIFIED))) == 611  # 2026-10-14, big-merge dev review siblings (bmr_dev_test_fixes): +11 overlay variants (5 pipeline_launch proof cases, 2 route-gate siblings of route.ns_pipeline_by_question, 3 followup_over_results, 1 submission_package). fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 586 -> 593: 524 -> 586: 2026-10-07 test-set review (SPEC-2): the 62 probe and run-set removals now have a body in retired.json too. 522 -> 524: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 520 -> 522: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set. 2026-09-23: +50 variants for the 53 production researcher questions. 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_unified_resolution_preserves_turn_count():
     # 314 -> 343. The 25 additions carry 29 turns between them: several are
     # genuinely multi-turn, and three atlas variants were REPAIRED on promotion
     # because they had a multi-turn script flattened into one literal query.
-    assert sum(len(v.turns) for v in corpus.curated(corpus.merged_from_unified(UNIFIED))) == 419  # big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). big merge 2026-10-13: fix 19 (mj-routing) and fix 6 (nessie_fixes, retired green.refine_recall) together. fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 403 -> 412: 484 -> 403: 2026-10-07 test-set review (SPEC-2): 75 curated corpus variants retired (81 turns). 480 -> 484: 2026-09-30: the 1 + 3 turns of the two nf-core selection variants. 478 -> 480: 2026-09-24: the two turns of fix 9's route.ndma_mice_then_female_two_turns. 413 -> 478: 2026-09-23: +50 variants for the 53 production researcher questions, 12 of them multi-turn (65 turns). 343 -> 413: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. 15 of the 58 additions are multi-turn, and 3 edits split a flattened script into real turns.
+    assert sum(len(v.turns) for v in corpus.curated(corpus.merged_from_unified(UNIFIED))) == 443  # 2026-10-14, big-merge dev review siblings (bmr_dev_test_fixes): +11 overlay variants (5 pipeline_launch proof cases, 2 route-gate siblings of route.ns_pipeline_by_question, 3 followup_over_results, 1 submission_package); +24 turns. big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). big merge 2026-10-13: fix 19 (mj-routing) and fix 6 (nessie_fixes, retired green.refine_recall) together. fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 403 -> 412: 484 -> 403: 2026-10-07 test-set review (SPEC-2): 75 curated corpus variants retired (81 turns). 480 -> 484: 2026-09-30: the 1 + 3 turns of the two nf-core selection variants. 478 -> 480: 2026-09-24: the two turns of fix 9's route.ndma_mice_then_female_two_turns. 413 -> 478: 2026-09-23: +50 variants for the 53 production researcher questions, 12 of them multi-turn (65 turns). 343 -> 413: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. 15 of the 58 additions are multi-turn, and 3 edits split a flattened script into real turns.
 
 
 def test_the_hand_written_annotations_survived_adoption():
@@ -163,7 +163,7 @@ def test_the_hand_written_annotations_survived_adoption():
     # the REST-era assay and SOP numbers, or the investigations route.
     # big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). 2026-10-13 nessie_fixes fix round: `_why` 297 -> 298. The prod-read re-pins and the two "either route" rulings
     # got dated lines; path.put_together_a_summary_of_the_sa had none and got one.
-    assert counts == {"_why_r4": 7, "_why": 305, "_why_superseded_2026_08_03": 1,
+    assert counts == {"_why_r4": 7, "_why": 318, "_why_superseded_2026_08_03": 1,
                       "_added_2026_09_30_selection": 2,
                       "_added_2026_09_23_prod_researchers": 50,
                       "_deselected_2026_09_23_prod_researchers": 7,
@@ -177,7 +177,13 @@ def test_the_hand_written_annotations_survived_adoption():
                       "_edited_2026_08_11_issue35": 1,
                       # 2026-10-14, the big-merge dev review (bmr_dev_test_fixes): the rewritten
                       # RG workbook question and the ask-first criteria of the supplied mapping.
-                      "_edited_2026_10_14_bmr_dev_test_fixes": 2}
+                      "_edited_2026_10_14_bmr_dev_test_fixes": 5,
+                      # 2026-10-14, big-merge dev review siblings (bmr_dev_test_fixes): `_why` 305 -> 318
+                      # (11 new proof cases, plus pipeline.activation_rnaseq and pipeline.end_to_end_emit, which had none);
+                      # the 3 strengthened pipeline cases add 3 `_edited`; 3 of the new followup_over_results members
+                      # are deselected from the paid Bayesian selection with a written reason.
+                      "_added_2026_10_14_bmr_dev_test_fixes": 11,
+                      "_deselected_2026_10_14_bmr_dev_test_fixes": 3}
 
 
 def test_fingerprint_is_over_the_unified_corpus_only():
@@ -195,7 +201,7 @@ def test_fingerprint_is_over_the_unified_corpus_only():
 def test_variant_meta_covers_every_definition():
     meta = corpus.variant_meta(UNIFIED)
     curated_ids = {v.id for v in corpus.curated(corpus.load_all_definitions(UNIFIED))}
-    assert len({k for k in meta if k in curated_ids}) == 600  # big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 586 -> 593: 524 -> 586: 2026-10-07 test-set review (SPEC-2), see test_load_all_definitions_returns_active_plus_retired. 522 -> 524: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 520 -> 522: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set. 2026-09-23: +50 variants for the 53 production researcher questions. 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len({k for k in meta if k in curated_ids}) == 611  # 2026-10-14, big-merge dev review siblings (bmr_dev_test_fixes): +11 overlay variants (5 pipeline_launch proof cases, 2 route-gate siblings of route.ns_pipeline_by_question, 3 followup_over_results, 1 submission_package). big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). fix 19: +7 unsupported route cases (unsup.method_*, unsup.offtopic_*), see builders/BUILD-REPORT.md. 586 -> 593: 524 -> 586: 2026-10-07 test-set review (SPEC-2), see test_load_all_definitions_returns_active_plus_retired. 522 -> 524: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 520 -> 522: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set. 2026-09-23: +50 variants for the 53 production researcher questions. 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     assert meta["repro.cypher_uid_dot"]["status"] == "retired"
     assert meta["green.mus_ndma"]["status"] == "active"
     # `is_bayesian` used to be pinned False on this variant, which was a pin on
@@ -659,6 +665,10 @@ def test_the_clarify_behaviour_is_actually_used():
         for t in v.turns for c in t.pass_criteria
         if c.field in ("last_reply", "ui_text.assistant_reply")
         and c.op == "matches_re" and isinstance(c.value, str) and clar.search(c.value)
+        # 2026-10-14, big-merge dev review siblings: a negative-lookahead guard FORBIDS a reply
+        # ("no pinned", "returned no rows"); it demands nothing. test_overlay_content makes every
+        # such guard carry (?s), so skipping "(?!" is exact.
+        and "(?!" not in c.value
     }
     assert demanding <= users, (
         f"criteria demand a clarification but are not labelled ClarifyIfAmbiguous: "
