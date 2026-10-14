@@ -15502,22 +15502,17 @@
           "turns": [
             {
               "label": "main",
-              "query": "RG is our short code for the genotype \"RaDR+/+; GPT+/+\". Build me an update sheet for the Published Data project that rewrites RG to that long form on the mouse samples, but do not upload it.",
+              "query": "RG = RaDR+/+; GPT+/+. Please produce the batch upload workbook for the Published Data project.",
               "pass_criteria": [
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(?=.*\\bRG\\b)(?=.*RaDR\\+/\\+)"
+                  "value": "(?is)RaDR\\+/\\+"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(xlsx|workbook|update sheet|\\bsheet\\b)"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?is)(not upload|won.?t upload|will not upload|without uploading|no upload|didn.?t upload|haven.?t uploaded|for review|before you upload)"
+                  "value": "(?is)(xlsx|workbook|sheet)"
                 }
               ]
             }
@@ -15536,7 +15531,7 @@
           },
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 'RG' 91 rows and 'RaDR+/+; GPT+/+' 48 rows are the same genotype; the correct workbook rewrites the 91 short-form rows to the long form. Project is 'Published Data'. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS $.Genotype grouped -> RG 91, 'RaDR+/+; GPT+/+' 48.",
           "_promoted_2026_08_06_qset": "read, ground-truthed and selected for the 2026-08-06 paired study; origin flipped atlas -> overlay, which is what promotion IS",
-          "_edited_2026_10_14_bmr_dev_test_fixes": "TEXT CHANGED -- the prior human grade for this id is a comparison baseline, not a valid pre-fill. The old text defined RG but named no action, so the right reply was to ask what the workbook should change, and the case demanded a built zip. Now it names the action and accepts ask-first or a built sheet. Operator 2026-10-14 on task 2064: 'fine. Poor question here'. No count is pinned, so one text runs on dev and prod."
+          "_edited_2026_10_14_bmr_dev_test_fixes": "CRITERIA ONLY -- question text unchanged, so the existing human grade and the routing evidence record (route_example_evidence.json, which refuses a changed text) stay valid for this id. The text defines RG but names no action, so asking what the workbook should change is a right reply; the built-zip criterion is dropped and the reply must still name the genotype and the workbook. Operator 2026-10-14 on task 2064: 'fine. Poor question here' (the ask-first reply). The clearer wording is covered by batch.apply_a_supplied_mapping."
         },
         {
           "id": "batch.prepare_a_batch_upload_workbook",
