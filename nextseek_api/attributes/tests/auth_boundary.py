@@ -20,6 +20,8 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.db import connections
 from django.test import override_settings
 from django.urls import resolve
+
+from dmac.session_login import store_seek_password
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIRequestFactory
 from rest_framework.views import APIView
@@ -121,7 +123,7 @@ class SeekAuthBoundary:
             session["_auth_user_hash"] = user.get_session_auth_hash()
             session["server"] = self.base_url
             session["username"] = login
-            session["password"] = password
+            store_seek_password(session, login, password)
             session.save()
             self._credentials[("session", login)] = BoundaryCredential(
                 "session", login, person_id, {}, {settings.SESSION_COOKIE_NAME: session.session_key},

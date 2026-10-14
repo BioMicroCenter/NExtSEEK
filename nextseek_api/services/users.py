@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.contrib.auth.models import User as DjangoUser
-from django.db import connections
+from django.db import connections, transaction
 from django.http import HttpResponse
 from django.utils import timezone
 from pydantic import ValidationError
@@ -336,16 +336,42 @@ def _sync_django_user(
     last_name: str,
     is_active: bool,
     is_superuser: bool,
+    person_id: Optional[int] = None,
 ) -> None:
-    dj, created = DjangoUser.objects.get_or_create(username=login, defaults={"email": email})
-    dj.email = email
-    dj.first_name = first_name
-    dj.last_name = last_name
-    dj.is_staff = True
-    dj.is_active = is_active
-    dj.is_superuser = is_superuser
-    dj.set_password(password)
-    dj.save()
+    with transaction.atomic():
+        dj, created = DjangoUser.objects.get_or_create(username=login, defaults={"email": email})
+        dj.email = email
+        dj.first_name = first_name
+        dj.last_name = last_name
+        dj.is_staff = True
+        dj.is_active = is_active
+        dj.is_superuser = is_superuser
+        dj.set_password(password)
+        dj.save()
+        if person_id is not None:
+            _link_person(dj, person_id)
+
+
+class LinkConflict(Exception):
+    """The account or the SEEK person is already linked to something else."""
+
+
+def _link_person(dj, person_id) -> None:
+    """Bind the Django account to its SEEK person, so a later SEEK login may update it (see seek_link).
+
+    Never re-points: the same pair is a no-op, any other existing link raises LinkConflict.
+    """
+    from nextseek_api.seek_link import SeekPersonLink
+
+    person_id = int(person_id)
+    existing = SeekPersonLink.objects.filter(user=dj).first()
+    if existing is not None:
+        if existing.person_id != person_id:
+            raise LinkConflict(f"account {dj.username} is already linked to another SEEK person")
+        return
+    if SeekPersonLink.objects.filter(person_id=person_id).exists():
+        raise LinkConflict(f"SEEK person {person_id} is already linked to another account")
+    SeekPersonLink.objects.create(user=dj, person_id=person_id)
 
 
 def _error_response(title: str, status: int, detail: Optional[str] = None) -> HttpResponse:
@@ -525,7 +551,11 @@ class UsersViewSet(viewsets.ViewSet):
                 last_name=body.last_name,
                 is_active=body.activate,
                 is_superuser=body.is_superuser,
+                person_id=person_id,
             )
+        except LinkConflict as exc:
+            _compensate_failed_create(int(result["user_id"]))
+            return _error_response("Conflict", 409, detail=str(exc))
         except Exception as exc:
             logger.exception("Django user sync failed after SEEK create for login=%s", body.login)
             _compensate_failed_create(int(result["user_id"]))
@@ -685,7 +715,15 @@ class UsersViewSet(viewsets.ViewSet):
         if body.is_superuser is not None:
             django_user.is_superuser = body.is_superuser
 
-        django_user.save()
+        if django_user.pk is None:
+            try:
+                with transaction.atomic():
+                    django_user.save()
+                    _link_person(django_user, seek_user.person_id)
+            except LinkConflict as exc:
+                return _error_response("Conflict", 409, detail=str(exc))
+        else:
+            django_user.save()
 
         seek_user.refresh_from_db(using=settings.SEEK_DATABASE)
         record = _build_record(

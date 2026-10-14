@@ -11,8 +11,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+
 from django.test import Client, TestCase, override_settings
 from rest_framework.authtoken.models import Token
+
+from dmac.session_login import store_seek_password
 
 SHARED = SimpleNamespace(API_USER="shared-login", API_PASS="shared-pw")
 PLAN = '{"endpoint": "/nextseek_api/projects/", "method": "GET", "requestBody": {}, "queryParameters": {}}'
@@ -72,7 +75,8 @@ class GranularOpsUseTheCallersOwnLogin(TestCase):
         client = Client()
         client.force_login(self.user)
         session = client.session
-        session["username"], session["password"] = "member", "pw"
+        session["username"] = "member"
+        store_seek_password(session, "member", "pw")
         session.save()
         replies = self._post_all(client)
         self.assertEqual({op: r.status_code for op, r in replies.items()}, {op: 200 for op in OPS})

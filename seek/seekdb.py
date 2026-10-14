@@ -4,6 +4,7 @@ from django.conf import settings
 import json
 import shlex
 from dmac.conversion import convertDicToOptions
+from dmac.session_login import seek_password
 
 import logging
 logger = logging.getLogger(__name__)
@@ -187,7 +188,7 @@ class SeekDB(object):
             user_seek['storage'] = settings.SEEK_URL
             user_seek['storagetype'] = 'SEEK'
             user_seek['username'] = request.session.get('username')
-            user_seek['password'] = request.session.get('password')
+            user_seek['password'] = seek_password(request.session, user_seek['username'])
             if hasattr(request, 'user') and not request.user.is_authenticated:
                 # Credentials in a session nobody is logged in to are no login; the answer is the one a request with
                 # no session gets. Only an object the server builds itself carries no user at all (the attribute

@@ -3,6 +3,7 @@ from django.http import HttpResponseRedirect, HttpResponse
 from django.contrib.auth.models import User
 from django import forms
 from django.db.models import Q
+from django.db import IntegrityError, transaction
 from django.contrib.auth import authenticate, login
 from django.conf import settings
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -25,6 +26,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from seek.seekdb import SeekDB
+from dmac.session_login import store_seek_password
+from nextseek_api.seek_link import SeekPersonLink
 from seek.models import People
 from dmac.dbtable import DBtable
 
@@ -69,63 +72,63 @@ def save(request):
 def delete(request):
     return __process(request, "delete")
 
+NOT_LINKED_MSG = "This NExtSEEK account is not linked to your SEEK login; ask an admin."
+
+
 def userSynchronization(user_seek):
-    status = 0
-    msg = ''
+    """Create or update the NExtSEEK account for a SEEK login, only through its SeekPersonLink.
+
+    Returns (status, msg). An existing account is touched only when it is linked to this SEEK person; it never gains
+    staff or superuser rights here.
+    """
     username = user_seek['username']
     password = user_seek['password']
     try:
         person_id = user_seek['user_id']
         person = People.objects.get(id__exact=person_id)
-    except:
-        person = None
+    except Exception:
         msg = "Error: Login user not found in SEEK people table, ask admin for help."
         logger.error(msg)
-        return status
+        return 0, msg
 
-    try:
-        user = User.objects.get(username__exact=username)
-    except:
-        user = None
-        msg = "username not found in NExtSEEK: " + username
-        logger.debug(msg)
-
+    user = User.objects.filter(username__exact=username).first()
     if user is None:
         logger.debug("Register new SEEK user in NExtSEEK")
         try:
             attributes = user_seek['userdata']['attributes']
-            user = User.objects.create_user(username, person.email, password)
-            user.last_name = attributes['last_name']
-            user.first_name = attributes['first_name']
-            user.is_staff = 1
-            user.is_active = 1
-            user.save()
-            msg = "Registration of SEEK user successful."
-            status = 1
-        except:
+            with transaction.atomic():
+                user = User.objects.create_user(username, person.email, password)
+                user.last_name = attributes['last_name']
+                user.first_name = attributes['first_name']
+                user.is_active = 1
+                user.save()
+                SeekPersonLink.objects.create(user=user, person_id=person_id)
+        except IntegrityError:
+            logger.warning("SEEK person already linked to another account; refused new account %s", username)
+            return 0, NOT_LINKED_MSG
+        except Exception:
             msg = "Error: Registration of SEEK user failed, ask admin for help."
             logger.error(msg)
-            status = 0
-    else:
-        logger.debug("Update SEEK user in NExtSEEK")
-        try:
-            attributes = user_seek['userdata']['attributes']
-            user.email = person.email
-            user.set_password(password)
-            user.last_name = attributes['last_name']
-            user.first_name = attributes['first_name']
-            user.is_staff = 1
-            user.is_active = 1
-            user.save()
-            msg = "Update of SEEK user successful."
-            logger.debug(msg)
-            status = 1
-        except:
-            msg = "Error: Update of SEEK user failed, ask admin for help."
-            logger.error(msg)
-            status = 0
+            return 0, msg
+        return 1, "Registration of SEEK user successful."
 
-    return status, msg
+    link = SeekPersonLink.objects.filter(user=user).first()
+    if link is None or link.person_id != person_id:
+        logger.warning("SEEK login refused: account %s is not linked to this SEEK person", username)
+        return 0, NOT_LINKED_MSG
+    try:
+        attributes = user_seek['userdata']['attributes']
+        user.email = person.email
+        user.set_password(password)
+        user.last_name = attributes['last_name']
+        user.first_name = attributes['first_name']
+        user.is_active = 1
+        user.save()
+    except Exception:
+        msg = "Error: Update of SEEK user failed, ask admin for help."
+        logger.error(msg)
+        return 0, msg
+    return 1, "Update of SEEK user successful."
 
 def _safe_next(request):
     """The ``next`` page to return to after signing in: a path on this site, else home.
@@ -162,7 +165,7 @@ def login_seek(request):
             request.session['storage_type'] = user_seek['storagetype']
             request.session['storage'] = user_seek['storage']
             request.session['username'] = user_seek['username']
-            request.session['password'] = user_seek['password']
+            store_seek_password(request.session, user_seek['username'], user_seek['password'])
             if user_seek['noexpire'] == "yes":
                 request.session.set_expiry(0)
             else:

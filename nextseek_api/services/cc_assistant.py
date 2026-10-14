@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 from django.http import Http404, StreamingHttpResponse
+from dmac.session_login import seek_password
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -120,7 +121,8 @@ class CCAssistantViewSet(viewsets.ViewSet):
         basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
         if basic_tuple and basic_tuple[0] and basic_tuple[1]:
             return basic_tuple
-        return request.session.get("username"), request.session.get("password")
+        username = request.session.get("username")
+        return username, seek_password(request.session, username)
 
     # ------------------------------------------------------------------ dispatch
     def _start_task(self, request, req, *, force_cc: bool) -> Response:

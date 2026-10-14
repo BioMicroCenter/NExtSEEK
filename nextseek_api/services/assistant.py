@@ -25,6 +25,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import orjson
+from dmac.session_login import seek_password
 from django.http import StreamingHttpResponse, HttpResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -277,7 +278,8 @@ def _request_login(request) -> tuple[str | None, str | None]:
         return basic_tuple[0], basic_tuple[1]
     if is_turn_pass(request):
         return None, None
-    return request.session.get("username"), request.session.get("password")
+    username = request.session.get("username")
+    return username, seek_password(request.session, username)
 
 
 # ----------------------------------------------------------------------
