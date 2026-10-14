@@ -744,12 +744,14 @@ class DBconn_django(object):
         limit = filtersdic['limit']
         
         filterRules = filtersdic['filterRules']
-        qset = self.generateQuerySet(filterRules)
+        # A caller's row scope (a Q), applied to the page and to the total alike.
+        scope = filtersdic.get('scope', Q())
+        qset = self.generateQuerySet(filterRules) & scope
         
         joint_tablemodels_string = ''
         dicList = self.retrieveJoint(tablename, joint_tablemodels_string, qset, orderby, limit)
         
-        qset = Q()
+        qset = scope
         limit = ' '
         dicList_total = self.retrieveJoint(tablename, joint_tablemodels_string, qset, orderby, limit)
         total = len(dicList_total)

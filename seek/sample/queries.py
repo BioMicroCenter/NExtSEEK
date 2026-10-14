@@ -154,9 +154,12 @@ class SampleQueriesMixin:
         filtersdic['searchType'] = searchType
         return filtersdic
 
-    def _retrieveSamplesInType(self, user_seek, sampletype_id, project_id=0):
+    def _retrieveSamplesInType(self, user_seek, sampletype_id, project_id=0, scoped_project_ids=None):
         searchType = 'FILTERING'
         filtersdic = self._initSearchFilters(searchType, sampletype_id, project_id)
+        # The caller's projects, as searchAdvanced takes them: None is unscoped (a superuser), [] matches nothing.
+        if scoped_project_ids is not None:
+            filtersdic['scoped_project_ids'] = [str(p) for p in scoped_project_ids]
         data = self._retrieveRecords_advanced(user_seek, filtersdic)
         return data
 

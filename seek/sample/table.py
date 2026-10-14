@@ -8,7 +8,8 @@ base. They hold no state of their own; every one of them operates on the
 from dmac.dbtable import DBtable
 from ..dbtable_sampleattribute import DBtable_sampleattribute
 from ..dbtable_sops import DBtable_sops
-from ..models import Samples
+from ..models import Samples, Projects_samples
+from django.db.models import Q
 from dmac.conversion import getDefaultDateTime
 import html
 from dmac.iocsv import saveDiclistIntoExcel
@@ -54,6 +55,14 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
         self.primaryField = "id"
         self.fieldMapping = SAMPLE_FILTER_MAPPING
         self.excludeFields = []
+
+    def retrieveRecords(self, username, filtersdic):
+        """The grid rows (``processRecords('retrieve')``): only the samples in ``restrictToProjects``' projects when it
+        was called. An empty project list matches no sample."""
+        if self._exportProjectIds is not None:
+            filtersdic['scope'] = Q(id__in=Projects_samples.objects.filter(
+                project_id__in=self._exportProjectIds).values('sample_id'))
+        return DBtable.retrieveRecords(self, username, filtersdic)
 
     def _deleteOneSample(self, sample_id, policy_id):
         sqlqueries = []
@@ -334,7 +343,7 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
             
         return dici, diclist
 
-    def getSampleType(self, user_seek, sampletype_id, attribute, project_id=0):
+    def getSampleType(self, user_seek, sampletype_id, attribute, project_id=0, scoped_project_ids=None):
         if attribute=='none':
             msg = 'ignore validation'
         else:
@@ -345,7 +354,7 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
                 reportData = simplejson.dumps(data, default=str)
                 return reportData
         
-        data = self._retrieveSamplesInType(user_seek, sampletype_id, project_id)
+        data = self._retrieveSamplesInType(user_seek, sampletype_id, project_id, scoped_project_ids)
         if attribute=='none':
             msg = 'ignore filtering'
         else:

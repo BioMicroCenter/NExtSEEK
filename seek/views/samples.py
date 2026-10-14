@@ -262,7 +262,11 @@ def getOperators(request):
     return HttpResponse(simplejson.dumps(data, default=str))
 
 def retrieveSamples(request):
-    """The rows behind the sample-type grid; the view requires a login."""
+    """The rows behind the sample-type grid; the view requires a login.
+
+    For anyone but a superuser the rows are only the samples in the caller's projects (``restrictToProjects``); a
+    caller whose projects cannot be resolved gets no rows.
+    """
     if not request.user.is_authenticated:
         return json_response(LOGIN_REQUIRED, 0)
     seekdb = SeekDB(None, None, None)
@@ -270,6 +274,7 @@ def retrieveSamples(request):
     if not user_seek['status']:
         return json_response(LOGIN_REQUIRED, 0)
     dbsample = DBtable_sample()
+    dbsample.restrictToProjects(_callerProjectIds(request, "sample grid"))
     reportData = dbsample.processRecords(request, user_seek, "retrieve")
     return HttpResponse(reportData) 
 
@@ -476,7 +481,8 @@ def sampleAttributes(request):
     return render(request,"sampleAttributes.html", {'report':report})
 
 def getSampleType(request):
-    """The samples of one sample type; the view requires a login."""
+    """The samples of one sample type; the view requires a login. For anyone but a superuser only the samples in the
+    caller's projects, as ``retrieveSamples``."""
     if not request.user.is_authenticated:
         return json_response(LOGIN_REQUIRED, 0)
     ret = request.GET
@@ -489,7 +495,8 @@ def getSampleType(request):
         return json_response(LOGIN_REQUIRED, 0)
     
     dbsample = DBtable_sample()
-    sdata = dbsample.getSampleType(user_seek, sampletype_id, attribute)
+    sdata = dbsample.getSampleType(user_seek, sampletype_id, attribute,
+                                   scoped_project_ids=_callerProjectIds(request, "sample grid"))
     return HttpResponse(sdata)
 
 @requires_seek_login
