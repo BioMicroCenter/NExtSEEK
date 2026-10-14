@@ -8,6 +8,7 @@ from pathlib import Path
 from .text import strip_html
 from .uid_check import UID_RE
 from ..artifacts import load_api_result_full
+from ..chat_memory import bundle_rows_and_extent, bundle_uids, named_bundle
 from ..chat_memory import _GROUP_LABEL_KEY, _GROUP_RECORDS_KEY, _flatten_groups, _grouped_records  # noqa: F401
 
 # tool_nextseek_api_request hard-defaults this. A search matching more rows than this
@@ -568,79 +569,61 @@ def normalize_api_result_for_memory(api_result: dict, min_rows_for_norm: int = 1
     }
 
 
-def _bundle_rows(bundle: dict) -> list:
-    """A results bundle's rows, wherever its turn stored them.
-
-    The follow-up agent's reader first (a plan's last step, a graph search's ``graph_result``,
-    then the REST payload), so the pipeline agent reads the same memory of a search as every
-    other agent: it read only the REST payload, and "run rnaseq on those mice" after a graph
-    search answered "no pinned search results". Then a body that nests its rows under ``data``.
-    """
-    from ..agents.followup import _stored_rows  # here, not at the top: the agents package imports helpers
-
-    rows = _stored_rows(bundle)
-    if rows:
-        return rows
-    data = load_api_result_full(bundle).get("data")
-    nested = data.get("data") if isinstance(data, dict) else data
-    return nested if isinstance(nested, list) else []
+def _bundle_uids(bundle: dict) -> list[str]:
+    """A bundle's sample UIDs through the shared reader; failing that the UIDs its own plan named."""
+    out = bundle_uids(bundle)
+    if out:
+        return out
+    rp = bundle.get("reporter_plan")
+    plan_uids = rp.get("uids") if isinstance(rp, dict) else None
+    if not (isinstance(plan_uids, list) and plan_uids):
+        pp = bundle.get("parser_plan")
+        filt = pp.get("filters") if isinstance(pp, dict) else None
+        plan_uids = filt.get("uids") if isinstance(filt, dict) else None
+    return [re.sub(r"<[^>]+>", "", uid).strip() for uid in plan_uids or [] if isinstance(uid, str) and uid.strip()]
 
 
-def _row_uid(row) -> str:
-    """A row's sample UID, '' when it has none: a UID column, else a graph column holding a UID under
-    the name the query gave it (``s.uuid``). Never another value, so a breakdown row yields nothing."""
-    if isinstance(row, str):
-        return re.sub(r"<[^>]+>", "", row).strip()
-    if not isinstance(row, dict):
-        return ""
-    for key in ("uid", "UID", "uuid", "sample_uid"):
-        if row.get(key):
-            return re.sub(r"<[^>]+>", "", str(row[key])).strip()
-    for value in row.values():
-        if isinstance(value, str) and UID_RE.fullmatch(value.strip()):
-            return value.strip()
-    return ""
-
-
-def summarize_pinned_bundle(session) -> str:
-    """One-line summary of the user's most recent results bundle. '' when none.
-
-    Moved from pipeline/agent.py — generic results-history knowledge.
-    """
-    history = session.get("results_history") or []
-    if not isinstance(history, list) or not history:
-        return ""
-    last = history[-1]
-    if not isinstance(last, dict):
-        return ""
-    user_q = last.get("user_query") or ""
-    return f"last search: query={user_q!r}, ~{len(_bundle_rows(last))} rows"
-
-
-def uids_from_last_search(session) -> list[str]:
-    """Sample UIDs from the most recent results bundle that has any.
-
-    Walks results_history in reverse; reads each bundle's rows (``_bundle_rows``: graph, plan
-    and REST alike), falls back to reporter_plan.uids then parser_plan.filters.uids.
-    Moved from pipeline/agent.py.
-    """
+def _pinned_bundle(session, bundle_id=None) -> tuple[dict | None, list[str]]:
+    """``(bundle, its UIDs)``: the bundle ``bundle_id`` names (no walk back; ``(bundle, [])`` when it holds
+    none), else the newest bundle with UIDs. The summary and the pipeline tools both read through this, so
+    they pick the same one."""
     history = session.get("results_history") or []
     if not isinstance(history, list):
-        return []
+        return None, []
+    if bundle_id is not None:
+        named = named_bundle(history, bundle_id)
+        return (named, _bundle_uids(named)) if named is not None else (None, [])
     for bundle in reversed(history):
-        if not isinstance(bundle, dict):
-            continue
-        out = [uid for uid in map(_row_uid, _bundle_rows(bundle)) if uid]
-        if not out:
-            rp = bundle.get("reporter_plan")
-            plan_uids = rp.get("uids") if isinstance(rp, dict) else None
-            if not (isinstance(plan_uids, list) and plan_uids):
-                pp = bundle.get("parser_plan")
-                filt = pp.get("filters") if isinstance(pp, dict) else None
-                plan_uids = filt.get("uids") if isinstance(filt, dict) else None
-            for uid in plan_uids or []:
-                if isinstance(uid, str) and uid.strip():
-                    out.append(re.sub(r"<[^>]+>", "", uid).strip())
-        if out:
-            return out
-    return []
+        if isinstance(bundle, dict):
+            uids = _bundle_uids(bundle)
+            if uids:
+                return bundle, uids
+    return None, []
+
+
+def summarize_pinned_bundle(session, bundle_id=None) -> str:
+    """One-line summary of the results bundle the pipeline builds on (``_pinned_bundle``). '' when none.
+
+    Rows, total and cap come from the shared reader, the same extent a follow-up shows. With no UID
+    bundle at all it describes the newest bundle, as before.
+    """
+    bundle, _ = _pinned_bundle(session, bundle_id)
+    if bundle is None and bundle_id is None:
+        history = session.get("results_history") or []
+        bundle = history[-1] if isinstance(history, list) and history and isinstance(history[-1], dict) else None
+    if bundle is None:
+        return ""
+    rows, total, capped, _plan = bundle_rows_and_extent(bundle)
+    graph = bundle.get("graph_result") if isinstance(bundle.get("graph_result"), dict) else {}
+    if total is None and isinstance(graph.get("total"), int):
+        total = graph["total"]
+    capped = capped or graph.get("truncated") is True
+    line = f"last search: query={bundle.get('user_query') or ''!r}, ~{len(rows)} rows"
+    if total is not None and total != len(rows):
+        line += f" of {total}"
+    return line + (" (capped)" if capped else "")
+
+
+def uids_from_last_search(session, bundle_id=None) -> list[str]:
+    """Sample UIDs of the bundle ``bundle_id`` names, else of the newest bundle that has any (``_pinned_bundle``)."""
+    return _pinned_bundle(session, bundle_id)[1]

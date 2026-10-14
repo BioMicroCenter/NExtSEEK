@@ -80,3 +80,40 @@ def test_uids_from_a_plan_final_step():
 def test_uids_from_a_body_that_nests_rows_under_data():
     sess = _session([{"api_result_full": {"data": {"data": [{"uid": "D.SEQ-1-PUB"}]}}}])
     assert uids_from_last_search(sess) == ["D.SEQ-1-PUB"]
+
+
+# bundle_id: the pipeline builds on the result the parser named, not the newest.
+FEMALES = NDMA[:1]
+
+
+def _two():
+    return _session([
+        {"id": 1, "user_query": "mice", "graph_result": {"ok": True, "data": NDMA}},
+        {"id": 2, "user_query": "females", "graph_result": {"ok": True, "data": FEMALES}},
+    ])
+
+
+def test_bundle_id_reads_only_that_bundle():
+    assert uids_from_last_search(_two(), 1) == [r["uuid"] for r in NDMA]
+    assert uids_from_last_search(_two(), 2) == [NDMA[0]["uuid"]]
+    assert uids_from_last_search(_two()) == [NDMA[0]["uuid"]]
+
+
+def test_bundle_id_with_no_uids_does_not_walk_back():
+    sess = _session([{"id": 1, "graph_result": {"ok": True, "data": NDMA}},
+                     {"id": 2, "graph_result": {"ok": True, "data": [{"name": "RNA-seq", "n": 5}]}}])
+    assert uids_from_last_search(sess, 2) == []
+    assert uids_from_last_search(sess, 9) == []
+    assert uids_from_last_search(sess) == [r["uuid"] for r in NDMA]
+
+
+def test_summary_and_tools_pick_the_same_bundle():
+    sess = _session([{"id": 1, "user_query": "mice", "graph_result": {"ok": True, "data": NDMA}},
+                     {"id": 2, "user_query": "breakdown", "graph_result": {"ok": True, "data": [{"name": "x", "n": 1}]}}])
+    assert "query='mice'" in summarize_pinned_bundle(sess)
+    assert "query='females'" in summarize_pinned_bundle(_two(), 2) or "query='females'" in summarize_pinned_bundle(_two())
+
+
+def test_summary_states_total_and_cap():
+    sess = _session([{"id": 1, "user_query": "q", "graph_result": {"ok": True, "total": 231, "truncated": True, "data": NDMA}}])
+    assert summarize_pinned_bundle(sess) == "last search: query='q', ~3 rows of 231 (capped)"
