@@ -120,12 +120,10 @@
   44 files across the tree still spell it, measured 2026-09-03 by
   `grep -rl 'seek/views\.py'` excluding `.superpowers/`, `.git/` and this
   directory's own two documents; some of those are deliberate history.
-- **Credentials go into a shell command line, and TLS verification is off.**
-  `SeekAPI.__curlPrefix` puts the SEEK username and password into a `curl`
-  string that `SeekAPI.__queryRaw` runs with `shell=True`; `-k` there and
-  `verify=False` in `SeekAPI.getPageRequests` disable certificate checks. The
-  password is visible in the process table. It is one `shlex.quote`d word: before
-  that, a quote in a password ended the word and the rest ran as a command.
+- **TLS verification is off for SEEK reads.** `SeekAPI.runGetQuery` and `SeekAPI.getPageRequests` call
+  `requests.get(..., verify=False)`. `SEEK_URL` is plain http inside the compose network, so it changes nothing there.
+  Reads send credentials as a header over HTTP. The unused POST helper (`apiPost`, `callCmdline`) still builds a
+  `curl` command line with them.
 - **`seek/tests/test_dbtables.py:46` cites `/workspace/deslopify/LATENT_BUGS.md`**,
   an absolute path outside this repository. `seek/views/shared.py:6` and
   `seek/models/nextseek.py:32` cite the same document by numbered entry. Nothing

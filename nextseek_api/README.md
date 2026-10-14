@@ -155,8 +155,8 @@ this one's:
   scopes the entire CORS configuration to this URL prefix by regular expression, so
   remounting the app elsewhere silently drops CORS for the frontend dev server.
 - `seek/`, in the reverse direction, which is why the `seek` imports above must stay put:
-  `seek/seekapi.py:111` and `seek/seekapi.py:126` import `basic_auth_header` from inside
-  method bodies, and the comment at `seek/seekapi.py:109-110` says a module-scope import
+  `seek/seekapi.py:43`, `seek/seekapi.py:93` and `seek/seekapi.py:115` import `basic_auth_header` from inside
+  method bodies, and the comment at `seek/seekapi.py:42` says a module-scope import
   there would cycle.
 - `scripts/validate_viewset_conventions.py:22-26` reads three description modules by path,
   one of which is `nextseek_api/endpoint_descriptions.py`, and
