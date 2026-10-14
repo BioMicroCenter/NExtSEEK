@@ -193,3 +193,19 @@ def test_a_plan_bundle_whose_graph_step_found_nothing_keeps_its_rest_rows():
     b["graph_result"] = {"ok": False, "data": [], "count": 0, "error": "boom"}
     c = ntc.from_bundle(b, session_id="s", turn_id=1)
     assert c.ok is True and c.result.row_count == 2 and c.result.sample_uids == ["MUS-1", "MUS-2"]
+
+
+def test_a_plan_shows_its_final_step_and_a_retrieve_shows_samples():
+    from NessieAI.cc.ns_turn_context import from_bundle
+
+    plan = {"id": 1, "mode": "plan", "step_results": {
+        1: {"ok": True, "output": {"data": [{"uuid": "A-1-PUB"}, {"uuid": "A-2-PUB"}], "count": 2}},
+        2: {"ok": True, "output": {"data": [{"uuid": "A-1-PUB"}], "count": 1}}}}
+    ctx = from_bundle(plan, session_id="s", turn_id=1)
+    assert ctx.result.row_count == 1 and ctx.result.sample_uids == ["A-1-PUB"]
+
+    retrieve = {"id": 2, "api_result_full": {"data": {"total_samples": 2, "data": [
+        {"sample_type": "A", "samples": [{"uuid": "A-1-PUB"}]}, {"sample_type": "B", "samples": [{"uuid": "B-1-PUB"}]}]}}}
+    ctx = from_bundle(retrieve, session_id="s", turn_id=2)
+    assert ctx.result.row_count == 2 and ctx.result.total == 2
+    assert sorted(ctx.result.sample_uids) == ["A-1-PUB", "B-1-PUB"]
