@@ -223,7 +223,8 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
         return weblink
 
     def _formatExternalLink(self, urlValue):
-        weblink = urlValue
+        # Rendered as raw HTML by the sample page: a value that is not a link is shown as text.
+        weblink = html.escape(urlValue)
         if ";" in urlValue:
             weblink = ''
             vis = urlValue.split(";")
@@ -250,7 +251,9 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
         return weblink
 
     def _formatLinkUrl(self, attrname, attrvalue):
-        weblink = attrvalue
+        # Rendered as raw HTML by the sample page (|safe): every value is escaped text unless a branch below builds
+        # a link from it, and those escape what they put in.
+        weblink = attrvalue if attrvalue is None else html.escape(attrvalue)
         value = attrvalue
         
         if SAMPLE_PARENT_ACCESSOR_NAME in attrname:
@@ -338,7 +341,7 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
                             attrdici['attrvalue'] = self._formatLinkUrl(headerStripped, valuestr)
                             diclist.append(attrdici)
                     except:
-                        attrdici['attrvalue'] = value
+                        attrdici['attrvalue'] = html.escape(str(value))
                         diclist.append(attrdici)
             
         return dici, diclist
