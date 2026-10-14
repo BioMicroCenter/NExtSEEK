@@ -35,14 +35,19 @@ lineage, and none of them fails loudly.
   superuser alone, never from staff, because the SEEK login sets `is_staff` on every
   account; `nextseek_api/batch_upload/views.py:796-797` refuses the request outright when no
   identity resolves rather than falling back to the Django primary key. Accepting the client
-  value would attribute samples to any person id a caller names.
+  value would attribute samples to any person id a caller names. For the same reason a Basic
+  header counts only when its login is the authenticated user's own (SEC-008): DRF
+  authenticates the session first, and nothing here checks that header's password.
 - **A caller writes only into their own projects (SEC-001).** `start` and `validate` answer 403
   unless the caller belongs to the target project (`_caller_project_scope` in `views.py`, which
   fails closed to no project); the view hands the caller's projects to the task as
-  `scope_project_ids`, and the upsert path loads existing samples only from those projects
-  (`load_existing_sample_details`), refusing any other row as `PERMISSION_DENIED`. A superuser
-  passes `None`, meaning any project. The task treats a message without the key as no project,
-  so a new dispatcher that forgets it updates nothing rather than everything.
+  `scope_project_ids`. Three writers honour it: the upsert path loads existing samples only from
+  those projects (`load_existing_sample_details`), a row may link a sample only to its own
+  projects' assays or to an assay the sample is already linked to (`_refuse_out_of_scope_assays`
+  in `insert.py`), and orphan resolution rewrites only children in those projects (the task
+  passes the scope on to `resolve_orphans_task`). Anything else fails as `PERMISSION_DENIED`. A
+  superuser passes `None`, meaning any project. Both tasks treat a message without the key as no
+  project, so a new dispatcher that forgets it changes nothing rather than everything.
 - **Job ownership is the only authorization on status, cancel and summary.**
   `nextseek_api/batch_upload/views.py:105-112` turns a non-owner into a 404 by consulting
   the per-user index file (`nextseek_api/batch_upload/job_index.py:80-94`). A job id is a

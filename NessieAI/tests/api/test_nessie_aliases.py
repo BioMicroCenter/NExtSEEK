@@ -71,8 +71,8 @@ class AliasQueryDispatchTests(TestCase):
     def _post(self, path):
         with patch("nextseek_api.services.cc_assistant.CCAssistantViewSet._start_task",
                    return_value=Response({"ok": True}, status=202)) as started:
-            self.client.post(path, {"query": "find mice", "mode": "standard"},
-                             format="json")
+            self.response = self.client.post(path, {"query": "find mice", "mode": "standard"},
+                                             format="json")
         return started
 
     def test_query_alias_does_not_force_cc(self):
@@ -80,14 +80,16 @@ class AliasQueryDispatchTests(TestCase):
         self.assertEqual(started.call_args.kwargs["force_cc"], False)
 
     def test_query_cc_alias_forces_cc(self):
+        self.user.is_superuser = True  # forcing Container-CC is superuser-only, as force_route is
+        self.user.save()
         started = self._post("/nextseek_api/nessie/query/cc/")
         self.assertEqual(started.call_args.kwargs["force_cc"], True)
 
-    def test_query_cc_alias_is_open_to_non_admins(self):
-        """Deliberate, and pinned by test_route_override.py. Do not gate it."""
+    def test_query_cc_alias_refuses_a_member(self):
         self.assertFalse(self.user.is_superuser)
         started = self._post("/nextseek_api/nessie/query/cc/")
-        self.assertEqual(started.call_args.kwargs["force_cc"], True)
+        self.assertEqual(self.response.status_code, 403)
+        started.assert_not_called()
 
 
 class UploadsVerbTests(TestCase):
