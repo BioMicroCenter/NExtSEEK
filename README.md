@@ -13,8 +13,11 @@ cd NExtSEEK
 ./startup.sh install
 ```
 
-Open http://localhost:8000 and log in with `demo / demopassword` (admin) or
-`user / userpassword` (regular).
+Install generates the database passwords (kept in `docker/db.env` and
+`docker/nextseek.env`) and gives the `demo` (admin) and `user` (regular) logins
+random passwords, printed once at the end. `./startup.sh install --keep-demo-passwords`
+keeps the seed's published logins instead (a private laptop only; see `NExtSTEPS.md`).
+Open http://localhost:8000 to log in.
 
 `./startup.sh doctor` runs every prerequisite and health check when something is wrong.
 

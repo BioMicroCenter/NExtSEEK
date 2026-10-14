@@ -169,6 +169,13 @@ def _generate_secret_key(length: int = 64) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+def generate_password(length: int = 32) -> str:
+    # Letters and digits only: the value goes through double-quoted db.env lines
+    # (compose expands `$`), NEO4J_AUTH=neo4j/<pw> and mysql/cypher-shell argv.
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
 def csrf_origins_for_port(port: int) -> str:
     return f"http://127.0.0.1:{port} http://localhost:{port}"
 
@@ -188,7 +195,10 @@ def default_values(
     seek_public_url: str | None = None,
     kept: Mapping[str, str] | None = None,
     previous_ports: Mapping[str, int] | None = None,
+    generate_passwords: bool = True,
 ) -> ConfigValues:
+    # `generate_passwords` is False only when a database volume already exists
+    # without env files: a new password would not match the data on disk.
     # `kept` is kept_values(): what install read back from the files on disk, so
     # a re-run keeps a box's credentials, secret key, public host and origin (#103).
     kept = kept or {}
@@ -197,7 +207,7 @@ def default_values(
         # The port moved: install's loopback pair for the old one moves with it.
         old_pair = csrf_origins_for_port(previous_ports["nextseek"]).split()
         origins = " ".join(o for o in origins.split() if o not in old_pair)
-    return ConfigValues(
+    values = ConfigValues(
         mysql_root_password=kept.get("MYSQL_ROOT_PASSWORD") or "seek_root",
         mysql_password=kept.get("MYSQL_PASSWORD") or "seek_db_password",
         neo4j_password=kept.get("NEXTSEEK_NEO4J_PASSWORD") or "demopassword",
@@ -212,6 +222,16 @@ def default_values(
         # own hardcoded :3000 default does not).
         seek_public_url=seek_public_url or f"{DEFAULT_SEEK_PUBLIC_URL_HOST}:{seek_port}",
     )
+    if not generate_passwords:
+        return values
+    # Anything not kept from disk gets a random value instead of the default above.
+    return dataclasses.replace(values, **{
+        field: generate_password()
+        for field, key in (("mysql_root_password", "MYSQL_ROOT_PASSWORD"),
+                           ("mysql_password", "MYSQL_PASSWORD"),
+                           ("neo4j_password", "NEXTSEEK_NEO4J_PASSWORD"))
+        if not kept.get(key)
+    })
 
 
 def _render(template_path: Path, values: ConfigValues) -> str:
@@ -336,6 +356,8 @@ def preview_changed_keys(
     fresh_values = dataclasses.replace(
         default_values(values.nextseek_port, values.seek_port, values.seek_public_url),
         django_secret_key=values.django_secret_key,  # random per call, never a template default
+        # The generated database passwords are random per call too.
+        **{f: getattr(values, f) for f in ("mysql_root_password", "mysql_password", "neo4j_password")},
     )
     changes: dict[str, list[str]] = {"rerendered": [], "kept_differs_from_template": []}
     for name in ("db.env", "nextseek.env"):

@@ -27,6 +27,13 @@ from startup.steps.prereqs import PrereqResult
 runner = CliRunner()
 
 
+def _old_defaults():
+    # The published defaults, read from the module rather than restated here.
+    from startup.steps.config import default_values
+
+    return default_values(8000, 3000, generate_passwords=False)
+
+
 @pytest.fixture()
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Isolated repo skeleton with cli.REPO_ROOT pointed at it."""
@@ -106,6 +113,8 @@ def steps(repo: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     for name in vars(mocks):
         monkeypatch.setattr(cli, name, getattr(mocks, name))
     monkeypatch.setattr(cli, "allocate_ports", lambda desired: dict(desired))
+    # No database volumes yet: a fresh install. Tests that need otherwise reset it.
+    monkeypatch.setattr(cli, "volume_exists", lambda name: False)
     return mocks
 
 
@@ -123,6 +132,58 @@ def test_install_happy_path_writes_instance_and_runs_all_phases(repo: Path, step
     steps.build.build_and_start_nextseek.assert_called_once()
     steps.build.start_cc_stack.assert_called_once()
     steps.validate.run_all_health_checks.assert_called_once()
+
+
+def _seed_populated(steps, seek_production: bool) -> None:
+    steps.seed.mysql_db_is_populated.side_effect = (
+        lambda db, *a, **k: seek_production if db == "seek_production" else True
+    )
+
+
+def test_install_randomizes_logins_only_after_loading_the_seek_seed(repo: Path, steps) -> None:
+    steps.users.set_random_passwords.return_value = {"demo": "a" * 24, "user": "b" * 24}
+    # (i) this run loaded the seed
+    _seed_populated(steps, seek_production=False)
+    result = runner.invoke(cli.app, ["install", "--yes"])
+    assert result.exit_code == 0, result.output
+    steps.users.set_random_passwords.assert_called_once()
+    # the generated logins are shown once, never the published pair
+    assert result.output.count("a" * 24) == 1
+    # (ii) a populated box: never touched
+    steps.users.set_random_passwords.reset_mock()
+    _seed_populated(steps, seek_production=True)
+    assert runner.invoke(cli.app, ["install", "--yes"]).exit_code == 0
+    steps.users.set_random_passwords.assert_not_called()
+    # (iii) the flag keeps the published ones
+    _seed_populated(steps, seek_production=False)
+    assert runner.invoke(cli.app, ["install", "--yes", "--keep-demo-passwords"]).exit_code == 0
+    steps.users.set_random_passwords.assert_not_called()
+
+
+def test_a_failed_health_check_still_shows_the_new_logins_once(repo: Path, steps) -> None:
+    steps.users.set_random_passwords.return_value = {"demo": "a" * 24, "user": "b" * 24}
+    _seed_populated(steps, seek_production=False)
+    steps.validate.run_all_health_checks.return_value = [
+        SimpleNamespace(name="http", ok=False, detail="down", warn=False)
+    ]
+    result = runner.invoke(cli.app, ["install", "--yes"])
+    assert result.exit_code == 1
+    assert result.output.count("a" * 24) == 1 and result.output.count("b" * 24) == 1
+
+
+def test_install_warns_loudly_when_randomizing_fails(repo: Path, steps) -> None:
+    steps.users.set_random_passwords.return_value = None
+    _seed_populated(steps, seek_production=False)
+    result = runner.invoke(cli.app, ["install", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "still have the published passwords" in " ".join(result.output.split())
+
+
+def test_install_with_existing_data_volume_does_not_generate_passwords(repo: Path, steps, monkeypatch) -> None:
+    monkeypatch.setattr(cli, "volume_exists", lambda name: True)
+    result = runner.invoke(cli.app, ["install", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert steps.config.default_values.call_args.kwargs["generate_passwords"] is False
 
 
 def test_install_fails_fast_when_prereqs_fail(repo: Path, steps) -> None:
@@ -319,6 +380,7 @@ def test_reset_without_instance_exits_1(repo: Path) -> None:
 def test_reset_drops_volumes_removes_config_and_reinstalls(
     mock_down: MagicMock, repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(cli, "volume_exists", lambda name: False)  # reset never reaches docker
     _saved_state(repo)
     for rel in ["docker/db.env", "docker/nextseek.env", ".env"]:
         p = repo / rel
@@ -360,6 +422,7 @@ def test_reset_removes_the_proxy_token_at_both_homes(
     """Reset claims to remove config. A box that never moved its token after
     the NessieAI move still holds it at the old path, and reset must not
     leave the real token behind there."""
+    monkeypatch.setattr(cli, "volume_exists", lambda name: False)  # reset never reaches docker
     _saved_state(repo)
     homes = [
         repo / "NessieAI" / "docker" / "bedrock-proxy" / "proxy-secret.env",
@@ -1377,6 +1440,7 @@ def test_reset_carries_the_declared_ci_profile_across_the_wipe(
 ) -> None:
     """.instance.json is deleted by reset, so an unforwarded value would silently
     re-declare a dev box as prod."""
+    monkeypatch.setattr(cli, "volume_exists", lambda name: False)  # reset never reaches docker
     _saved_state(repo, ci_profile="dev")
     reinstall = MagicMock()
     monkeypatch.setattr(cli, "install", reinstall)
@@ -2112,6 +2176,7 @@ def test_reset_without_keep_config_carries_only_the_host_keys(
     _real_config(repo, monkeypatch)
     _saved_state(repo)
     _rotated_box(repo)
+    monkeypatch.setattr(cli, "volume_exists", lambda name: True)  # external volumes survive
 
     result = runner.invoke(cli.app, ["reset", "--yes"])
 
@@ -2124,8 +2189,28 @@ def test_reset_without_keep_config_carries_only_the_host_keys(
     # Everything else starts fresh, as reset promises.
     assert nx["GCP_API_KEY"] == "SET_IN_LOCAL_ENV"
     assert nx["DJANGO_SECRET_KEY"] != "old-key"
-    assert nx["NEXTSEEK_NEO4J_PASSWORD"] == "demopassword"
-    assert read_env(repo / "docker" / "db.env")["MYSQL_ROOT_PASSWORD"] == "seek_root"
+    # Reset dropped the volumes, so the passwords are generated, not the old defaults.
+    # The data volumes survive `compose down -v` (they are external), so the
+    # passwords of the database they hold are carried across, like the host keys.
+    assert nx["NEXTSEEK_NEO4J_PASSWORD"] == "neo-rotated"
+    assert read_env(repo / "docker" / "db.env")["MYSQL_ROOT_PASSWORD"] == "root-rotated"
+    assert read_env(repo / "docker" / "db.env")["MYSQL_PASSWORD"] == "app-rotated"
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_with_the_volumes_gone_generates_new_passwords(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch
+) -> None:
+    _real_config(repo, monkeypatch)
+    _saved_state(repo)
+    _rotated_box(repo)
+    monkeypatch.setattr(cli, "volume_exists", lambda name: False)
+
+    result = runner.invoke(cli.app, ["reset", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    root = read_env(repo / "docker" / "db.env")["MYSQL_ROOT_PASSWORD"]
+    assert root not in ("root-rotated", _old_defaults().mysql_root_password)
 
 
 @patch("startup.lib.docker_ops.compose_down")
@@ -2148,21 +2233,39 @@ def test_reset_keep_config_refuses_a_dollar_before_dropping_the_volumes(
 
 
 @patch("startup.lib.docker_ops.compose_down")
-def test_plain_reset_still_runs_with_a_dollar_in_a_config_file(
+def test_plain_reset_still_runs_with_a_dollar_when_the_volumes_are_gone(
     mock_down: MagicMock, repo: Path, steps, monkeypatch
 ) -> None:
-    """The $ refusal is for --keep-config only: a plain reset deletes the file that
-    holds the $, so it is the way out for a box whose config install refuses."""
+    """With no data volume left there is nothing to carry: a plain reset deletes the
+    file that holds the $, so it is the way out for a box whose config install refuses."""
     _real_config(repo, monkeypatch)
     _saved_state(repo)
     (repo / "docker" / "db.env").write_text('MYSQL_ROOT_PASSWORD="ab$cd"\n')
+    monkeypatch.setattr(cli, "volume_exists", lambda name: False)
 
     result = runner.invoke(cli.app, ["reset", "--yes"])
 
     assert result.exit_code == 0, result.output
     mock_down.assert_called_once()
-    assert read_env(repo / "docker" / "db.env")["MYSQL_ROOT_PASSWORD"] == "seek_root"
     steps.build.start_databases.assert_called_once()
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_refuses_before_teardown_when_a_surviving_volume_needs_a_dollar_password(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch
+) -> None:
+    _real_config(repo, monkeypatch)
+    _saved_state(repo)
+    (repo / "docker" / "db.env").write_text("MYSQL_ROOT_PASSWORD='ab$cd'\n")
+    monkeypatch.setattr(cli, "volume_exists", lambda name: True)
+
+    result = runner.invoke(cli.app, ["reset", "--yes"])
+
+    assert result.exit_code == 2
+    assert "--keep-config" in result.output
+    assert "ab$cd" not in result.output
+    mock_down.assert_not_called()
+    assert (repo / "docker" / "db.env").exists()
 
 
 @patch("startup.lib.docker_ops.compose_down")

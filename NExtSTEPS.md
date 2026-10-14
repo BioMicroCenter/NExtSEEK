@@ -14,7 +14,10 @@ what to run to apply.
 
 ### 1a. Rotate the demo user passwords
 
-`./startup.sh install` seeds two accounts:
+A fresh `./startup.sh install` generates the database passwords and gives the
+two seeded accounts (`demo`, admin; `user`, regular) random passwords, printed
+once at the end of the install. It does not touch an install that already holds
+the seed. With `--keep-demo-passwords` it keeps the seed's published pair, below:
 
 | Username | Password | Role |
 |---|---|---|

@@ -9,6 +9,7 @@ import typer
 from rich.markup import escape
 
 from startup.lib import layout, ui
+from startup.lib.docker_ops import volume_exists
 from startup.lib.env import read_env, write_env
 from startup.lib.instance import (
     InstanceState,
@@ -155,6 +156,7 @@ def _install_impl(
     yes: bool = False,
     no_disk_check: bool = False,
     disk_floor: int | None = None,
+    keep_demo_passwords: bool = False,
 ) -> None:
     """Install body as plain Python with real defaults.
 
@@ -245,6 +247,16 @@ def _install_impl(
         ui.fail(str(exc))
         raise typer.Exit(code=2)
 
+    # A database volume that already exists was made with some password: a new
+    # one would not match it, so only a box with no data volume gets generated ones.
+    fresh_db = not (volume_exists(f"{prefix}seek-mysql-db") or volume_exists(f"{prefix}neo4j-data"))
+    if not fresh_db and not all(
+        kept.get(k) for k in ("MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD", "NEXTSEEK_NEO4J_PASSWORD")
+    ):
+        ui.warn("a database data volume already exists but docker/db.env or docker/nextseek.env "
+                "lacks a password: install is using the old default. Restore the env files "
+                "if the database was set up with other passwords.")
+
     state = InstanceState(
         name=name,
         prefix=prefix,
@@ -271,13 +283,13 @@ def _install_impl(
         ui.console.print(f"    SEEK             http://localhost:{ports['seek']}")
         ui.console.print(f"    Neo4j HTTP       http://localhost:{ports['neo4j_http']}")
         ui.console.print(f"    Neo4j Bolt       [link=bolt://localhost:{ports['neo4j_bolt']}]bolt://localhost:{ports['neo4j_bolt']}[/link]")
-        ui.console.print("  Default credentials (rotate after install per NExtSTEPS.md):")
-        ui.console.print(f"    demo / demopassword   (admin)")
-        ui.console.print(f"    user / userpassword   (regular)")
-        if kept.get("NEXTSEEK_NEO4J_PASSWORD", "demopassword") == "demopassword":
-            ui.console.print(f"    neo4j / demopassword")
-        else:
-            ui.console.print("    neo4j / the password kept in docker/nextseek.env")
+        ui.console.print("  Credentials:")
+        ui.console.print("    database passwords  generated, kept in docker/db.env and docker/nextseek.env"
+                         if fresh_db else
+                         "    database passwords  a data volume exists: the old defaults unless kept on disk")
+        ui.console.print("    demo / user logins  random if this run loads the SEEK seed (shown once)"
+                         if not keep_demo_passwords else
+                         "    demo / user logins  the seed's published passwords (--keep-demo-passwords)")
         if kept:
             # Names only: these are the box's credentials.
             ui.console.print(f"  Kept from disk      {', '.join(kept)}")
@@ -321,6 +333,7 @@ def _install_impl(
         seek_public_url=state.seek_public_url,
         kept=kept,
         previous_ports=existing.ports if existing else None,
+        generate_passwords=fresh_db,
     )
     changes = config.preview_changed_keys(REPO_ROOT, values)
     if changes["kept_differs_from_template"]:
@@ -360,6 +373,7 @@ def _install_impl(
 
     # [6/9] Seeds (gated on populated check, or skipped entirely with --no-seed)
     ui.step(6, total, "Importing seed databases")
+    loaded_seek_seed = False
     if no_seed:
         ui.warn("--no-seed: starting database containers only, no seed import")
         build.start_databases(REPO_ROOT, db_env, neo4j_password=values.neo4j_password)
@@ -382,6 +396,7 @@ def _install_impl(
             with ui.spinner("loading seek_production.sql.gz"):
                 seed.load_mysql_dump(REPO_ROOT / "startup" / "seed" / "seek_production.sql.gz", "seek_production", REPO_ROOT, db_env)
             ui.ok("seek_production loaded")
+            loaded_seek_seed = True
         if seed.neo4j_is_populated(values.neo4j_password, REPO_ROOT, compose_env):
             ui.ok("neo4j already populated; skipping")
         else:
@@ -470,6 +485,18 @@ def _install_impl(
         ui.warn(f"missing users: {', '.join(missing_users)} (seed dump should include them; investigate)")
     else:
         ui.ok("demo + user present")
+    new_logins: dict[str, str] | None = None
+    if loaded_seek_seed and not keep_demo_passwords:
+        new_logins = users.set_random_passwords(REPO_ROOT, db_env, compose_env)
+        if new_logins is None:
+            ui.warn("demo and user still have the published passwords: change them in SEEK now")
+        else:
+            ui.ok("demo + user given random passwords (shown once, not saved):")
+            # Shown here, before any step that can fail: a failed health check
+            # later must not leave the changed passwords unseen.
+            for login, pw in new_logins.items():
+                ui.info(f"      {login} / {pw}")
+            ui.info("  Change them again in SEEK: My Account")
 
     # [9/9] Validate
     ui.step(9, total, "Health checks")
@@ -483,8 +510,10 @@ def _install_impl(
     ui.info("")
     ui.info("Next steps before this install goes beyond a private localhost demo:")
     ui.info("  → Read NExtSTEPS.md (top of the repo)")
-    ui.info("  → At minimum: rotate demo/demopassword + user/userpassword via SEEK admin UI")
-    ui.info(f"  → Log in: http://localhost:{ports['nextseek']}/  (demo/demopassword for admin)")
+    ui.info(f"  → Log in: http://localhost:{ports['nextseek']}/")
+    if not new_logins:
+        ui.info("  → If this install loaded the seed with --keep-demo-passwords, rotate the "
+                "published demo/user passwords via the SEEK admin UI")
     for line in _ci_next_step_lines(ci_profile):
         ui.info(line)
 
@@ -526,6 +555,11 @@ def install(
         "--disk-floor",
         help="Override the per-profile free-space floor, in GB.",
     ),
+    keep_demo_passwords: bool = typer.Option(
+        False,
+        "--keep-demo-passwords",
+        help="Keep the seed's published demo/user passwords (a private laptop only).",
+    ),
 ) -> None:
     """First-time install: prereqs, config, volumes, seeds, build, users, validate."""
     # Thin CLI shim: NO logic here. Anything beyond this delegate would run
@@ -541,6 +575,7 @@ def install(
         yes=yes,
         no_disk_check=no_disk_check,
         disk_floor=disk_floor,
+        keep_demo_passwords=keep_demo_passwords,
     )
 
 
@@ -597,6 +632,19 @@ def reset(
             ui.fail(str(exc))
             raise typer.Exit(code=2)
 
+    if not keep_config and (
+        volume_exists(f"{state.prefix}seek-mysql-db") or volume_exists(f"{state.prefix}neo4j-data")
+    ):
+        # The data volumes survive the teardown and need these passwords back.
+        env_now = {**read_env(REPO_ROOT / "docker" / "db.env"),
+                   **read_env(REPO_ROOT / "docker" / "nextseek.env")}
+        bad = [k for k in ("MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD", "NEXTSEEK_NEO4J_PASSWORD")
+               if "$" in env_now.get(k, "")]
+        if bad:
+            ui.fail(f"{', '.join(bad)} holds a $, so reset cannot carry it to the data volumes "
+                    "that survive. Nothing was changed. Run `reset --keep-config` or fix the value first.")
+            raise typer.Exit(code=2)
+
     if not yes:
         ui.warn(f"This will DROP all data for instance '{state.name}' (volumes: {state.prefix}*)")
         typer.confirm("Continue?", abort=True)
@@ -614,6 +662,18 @@ def reset(
             for key in ("DJANGO_ALLOWED_HOSTS", "DJANGO_CSRF_TRUSTED_ORIGINS")
             if (value := config.read_rendered_value(REPO_ROOT, key))
         }
+        # The data volumes are external: `compose down -v` keeps them, and with them
+        # the database passwords the env files hold. Carry those across too, or the
+        # re-install would fall back to the old defaults and be refused. A value
+        # with a $ is left out (install refuses it; reset is the way out of that).
+        db_kept = {}
+        if volume_exists(f"{state.prefix}seek-mysql-db") or volume_exists(f"{state.prefix}neo4j-data"):
+            db_env_now = read_env(REPO_ROOT / "docker" / "db.env")
+            db_kept = {k: db_env_now[k] for k in ("MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD")
+                       if db_env_now.get(k) and "$" not in db_env_now[k]}
+            neo = config.read_rendered_value(REPO_ROOT, "NEXTSEEK_NEO4J_PASSWORD")
+            if neo and "$" not in neo:
+                carried["NEXTSEEK_NEO4J_PASSWORD"] = neo
         for p in [
             REPO_ROOT / "docker" / "db.env",
             REPO_ROOT / "docker" / "nextseek.env",
@@ -629,6 +689,9 @@ def reset(
             if p.exists():
                 p.unlink()
                 ui.ok(f"removed {p.relative_to(REPO_ROOT)}")
+        if db_kept:
+            write_env(REPO_ROOT / "docker" / "db.env", db_kept)
+            ui.ok(f"carried {', '.join(db_kept)} (the data volumes survive)")
         if carried:
             write_env(REPO_ROOT / "docker" / "nextseek.env", carried)
             ui.ok(f"carried {', '.join(carried)} into the re-install")
@@ -657,6 +720,7 @@ def reset(
         yes=True,
         no_disk_check=False,
         disk_floor=None,
+        keep_demo_passwords=False,
     )
 
 

@@ -24,12 +24,38 @@ from startup.steps.config import (
 )
 
 
-def test_default_values_has_demo_creds() -> None:
-    v = default_values(nextseek_port=8000, seek_port=3000)
-    assert v.mysql_root_password == "seek_root"
-    assert v.mysql_password == "seek_db_password"
-    assert v.neo4j_password == "demopassword"
-    assert v.django_secret_key  # auto-generated, non-empty
+# The published defaults, read from the module rather than restated here.
+_o = default_values(8000, 3000, generate_passwords=False)
+_OLD = (_o.mysql_root_password, _o.mysql_password, _o.neo4j_password)
+
+
+def test_default_values_generates_database_passwords() -> None:
+    a = default_values(nextseek_port=8000, seek_port=3000)
+    b = default_values(8000, 3000)
+    for name in ("mysql_root_password", "mysql_password", "neo4j_password"):
+        va, vb = getattr(a, name), getattr(b, name)
+        assert va not in _OLD
+        assert len(va) >= 24 and va.isalnum()
+        assert va != vb
+    assert a.django_secret_key  # auto-generated, non-empty
+
+
+def test_kept_passwords_win_over_generation() -> None:
+    v = default_values(8000, 3000, kept={"MYSQL_ROOT_PASSWORD": "x" * 30})
+    assert v.mysql_root_password == "x" * 30
+
+
+def test_existing_volumes_keep_the_old_default() -> None:
+    v = default_values(8000, 3000, generate_passwords=False)
+    assert (v.mysql_root_password, v.mysql_password, v.neo4j_password) == _OLD
+    assert all(len(x) < 24 for x in _OLD)  # the short historical defaults, not generated
+
+
+def test_preview_does_not_flag_generated_passwords(tmp_path: Path) -> None:
+    repo = _box(tmp_path)
+    flagged = preview_changed_keys(repo)["kept_differs_from_template"]
+    for key in ("MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD", "NEXTSEEK_NEO4J_PASSWORD"):
+        assert key not in flagged
 
 
 def test_default_values_csrf_origins_match_port() -> None:
@@ -506,12 +532,13 @@ def test_read_env_and_read_rendered_value_read_a_line_the_same_way(tmp_path: Pat
 
 def test_fresh_install_renders_the_demo_values_and_keeps_nothing(tmp_path: Path) -> None:
     repo = _box(tmp_path)
-    _install(repo)
+    values = _install(repo)
     db = (repo / "docker" / "db.env").read_text()
     nx = (repo / "docker" / "nextseek.env").read_text()
-    assert 'MYSQL_ROOT_PASSWORD="seek_root"' in db.splitlines()
-    assert "NEXTSEEK_NEO4J_PASSWORD='demopassword'" in nx.splitlines()
-    assert "SESSION_DB_PASSWORD='seek_db_password'" in nx.splitlines()
+    assert f'MYSQL_ROOT_PASSWORD="{values.mysql_root_password}"' in db.splitlines()
+    assert values.mysql_root_password not in _OLD
+    assert f"NEXTSEEK_NEO4J_PASSWORD='{values.neo4j_password}'" in nx.splitlines()
+    assert f"SESSION_DB_PASSWORD='{values.mysql_password}'" in nx.splitlines()
     assert "Kept from" not in db + nx
     assert read_env(repo / "docker" / "nextseek.env")["DJANGO_ALLOWED_HOSTS"] == "127.0.0.1 localhost"
     # Wave 1's comment for the lineage timeout stays a comment.
