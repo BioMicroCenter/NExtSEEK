@@ -126,3 +126,19 @@ def test_plan_uids_are_borrowed_only_by_a_bundle_with_no_rows():
     assert uids_from_last_search(sess, 2) == []
     assert uids_from_last_search(sess) == [r["uuid"] for r in NDMA]  # the newest set walks past the count
 
+
+
+# A retrieve body holds the requested sample's whole lineage. A build or a report is on the samples asked for;
+# a follow-up still counts every sample (REVIEW-1 M3).
+RETRIEVE = {"id": 1, "user_query": "retrieve a tissue", "parser_plan": {"filters": {"uids": ["TIS-9-PUB"]}},
+            "api_result_full": {"data": {"total_samples": 3, "data": [
+                {"sample_type": "NHP", "samples": [{"uid": "NHP-9-PUB"}]},
+                {"sample_type": "TIS", "samples": [{"uid": "TIS-9-PUB"}]},
+                {"sample_type": "D.SEQ", "samples": [{"uid": "D.SEQ-9-PUB"}]}]}}}
+
+
+def test_a_retrieve_builds_on_the_requested_identifiers():
+    from chat_nextseek.chat_memory import bundle_uids
+    assert uids_from_last_search(_session([RETRIEVE]), 1) == ["TIS-9-PUB"]
+    assert uids_from_last_search(_session([RETRIEVE])) == ["TIS-9-PUB"]
+    assert sorted(bundle_uids(RETRIEVE)) == ["D.SEQ-9-PUB", "NHP-9-PUB", "TIS-9-PUB"]

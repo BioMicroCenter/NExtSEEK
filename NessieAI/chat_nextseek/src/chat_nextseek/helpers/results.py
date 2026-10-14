@@ -8,7 +8,7 @@ from pathlib import Path
 from .text import strip_html
 from .uid_check import UID_RE
 from ..artifacts import load_api_result_full
-from ..chat_memory import bundle_rows, bundle_rows_and_extent, named_bundle, uids_from_rows
+from ..chat_memory import bundle_rows_and_extent, named_bundle, uids_from_rows
 from ..chat_memory import _GROUP_LABEL_KEY, _GROUP_RECORDS_KEY, _flatten_groups, _grouped_records  # noqa: F401
 
 # tool_nextseek_api_request hard-defaults this. A search matching more rows than this
@@ -570,10 +570,13 @@ def normalize_api_result_for_memory(api_result: dict, min_rows_for_norm: int = 1
 
 
 def _bundle_uids(bundle: dict) -> list[str]:
-    """A bundle's sample UIDs through the shared reader. Only a bundle that holds no rows at all (a report) borrows
-    the UIDs its own plan named: a count's plan can carry the earlier turn's shown UIDs, and a count is no set."""
-    rows = bundle_rows(bundle)
-    if rows:
+    """The sample UIDs a build or a report on this bundle uses, through the shared reader. A retrieve's are the
+    identifiers it asked for (its plan's), not the lineage it returned: that holds the ancestors, whose own trees a
+    build would fetch whole. Only a bundle that holds no rows at all (a report) also borrows the UIDs its own plan
+    named: a count's plan can carry the earlier turn's shown UIDs, and a count is no set. A follow-up still counts
+    every sample a retrieve returned (``chat_memory.bundle_uids``)."""
+    rows, _total, _more, from_plan = bundle_rows_and_extent(bundle)
+    if rows and (from_plan or _grouped_records(load_api_result_full(bundle).get("data")) is None):
         return uids_from_rows(rows)
     rp = bundle.get("reporter_plan")
     plan_uids = rp.get("uids") if isinstance(rp, dict) else None

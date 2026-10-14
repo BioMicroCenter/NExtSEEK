@@ -27,7 +27,6 @@ from .chat_memory import (
     append_turn,
     build_tool_summary_for_mode,
     bundle_rows,
-    bundle_uids,
     named_bundle,
     next_turn_id,
     plan_step_extent,
@@ -85,6 +84,7 @@ from .helpers import (
     tool_nextseek_api_request,
     matched_nothing,
     tool_neo4j_query,
+    uids_from_last_search,
 )
 from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, normalized_cypher, timed_out, timeout_retry_context,
                           zero_row_retry_context)
@@ -2514,9 +2514,9 @@ def run_query(
                 if parser_uids:
                     existing = set(uids)
                     uids.extend([u for u in parser_uids if u not in existing])
-                if not uids:  # "a GEO package for those": the result the parser named
-                    target = named_bundle(session.get("results_history") or [], getattr(plan, "target_result_id", None))
-                    uids = bundle_uids(target) if target is not None else []
+                if not uids:  # "a GEO package for those": the result the parser named (a retrieve's requested UIDs)
+                    target_id = getattr(plan, "target_result_id", None)
+                    uids = uids_from_last_search(session, target_id) if target_id is not None else []
 
                 print("[DEBUG][REPORTER] Report generation UIDs:", uids)
                 reporter_result, report_writer_output, saved_files, reply = generate_report_outputs(
