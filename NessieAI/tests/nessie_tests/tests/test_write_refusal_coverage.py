@@ -913,8 +913,10 @@ def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
     # parser_plan.mode graph_query, which an all-CC simulation fails (+76 mode).
     # -> [260, 239, 12, 13] on 2026-10-07, R7: the two open-ended summaries (Shoulders, longest-running) expect container_cc,
     # which an all-CC simulation satisfies (-2 route).
+    # -> [263, 239, 12, 13] on 2026-10-14, the big-merge dev review: cat.people_versus_scientists accepts either
+    # route (operator: the container_cc answer is fine), which an all-CC simulation satisfies (-1 route).
     assert [counts.get(f) for f in ("route", "parser_plan.mode", "api_ok",
-                                    "api_plan.endpoint")] == [264, 239, 12, 13], (
+                                    "api_plan.endpoint")] == [263, 239, 12, 13], (
         f"{counts} — update the four counts in nessie_tests/README.md and in "
         f"tests/test_evaluate.py's 'Fix round 1' comment")
 

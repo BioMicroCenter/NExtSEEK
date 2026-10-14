@@ -174,7 +174,10 @@ def test_the_hand_written_annotations_survived_adoption():
                       "_promoted_2026_08_06_qset": 4,
                       # 2026-08-11, issue #35 close-out: the one variant the issue
                       # names by hand. Criteria only, both question texts unchanged.
-                      "_edited_2026_08_11_issue35": 1}
+                      "_edited_2026_08_11_issue35": 1,
+                      # 2026-10-14, the big-merge dev review (bmr_dev_test_fixes): the rewritten
+                      # RG workbook question and the ask-first criteria of the supplied mapping.
+                      "_edited_2026_10_14_bmr_dev_test_fixes": 2}
 
 
 def test_fingerprint_is_over_the_unified_corpus_only():

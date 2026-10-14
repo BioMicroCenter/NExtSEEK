@@ -14769,22 +14769,22 @@
           "turns": [
             {
               "label": "main",
-              "query": "RG = RaDR+/+; GPT+/+. Please produce the batch upload workbook for the Published Data project.",
+              "query": "RG is our short code for the genotype \"RaDR+/+; GPT+/+\". Build me an update sheet for the Published Data project that rewrites RG to that long form on the mouse samples, but do not upload it.",
               "pass_criteria": [
                 {
-                  "field": "api_artifact.artifacts.zip",
-                  "op": "true",
-                  "value": null
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)(?=.*\\bRG\\b)(?=.*RaDR\\+/\\+)"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)RaDR\\+/\\+"
+                  "value": "(?is)(xlsx|workbook|update sheet|\\bsheet\\b)"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(xlsx|workbook|sheet)"
+                  "value": "(?is)(not upload|won.?t upload|will not upload|without uploading|no upload|didn.?t upload|haven.?t uploaded|for review|before you upload)"
                 }
               ]
             }
@@ -14802,7 +14802,8 @@
             "assertion": "api_artifact.artifacts.zip true"
           },
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 'RG' 91 rows and 'RaDR+/+; GPT+/+' 48 rows are the same genotype; the correct workbook rewrites the 91 short-form rows to the long form. Project is 'Published Data'. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS $.Genotype grouped -> RG 91, 'RaDR+/+; GPT+/+' 48.",
-          "_promoted_2026_08_06_qset": "read, ground-truthed and selected for the 2026-08-06 paired study; origin flipped atlas -> overlay, which is what promotion IS"
+          "_promoted_2026_08_06_qset": "read, ground-truthed and selected for the 2026-08-06 paired study; origin flipped atlas -> overlay, which is what promotion IS",
+          "_edited_2026_10_14_bmr_dev_test_fixes": "TEXT CHANGED -- the prior human grade for this id is a comparison baseline, not a valid pre-fill. The old text defined RG but named no action, so the right reply was to ask what the workbook should change, and the case demanded a built zip. Now it names the action and accepts ask-first or a built sheet. Operator 2026-10-14 on task 2064: 'fine. Poor question here'. No count is pinned, so one text runs on dev and prod."
         },
         {
           "id": "batch.prepare_a_batch_upload_workbook",
@@ -14950,18 +14951,24 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(?=.*Aag)(?=.*\\b54\\b)"
+                  "value": "(?is)(?=.*Aag)(?=.*\\bRGA\\b)(?=.*\\bRGATG\\b)"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(not upload|without uploading|no upload|didn.?t upload|for review|before you upload)"
+                  "value": "(?is)(not upload|won.?t upload|will not upload|without uploading|no upload|didn.?t upload|haven.?t uploaded|for review|before you upload)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
           ],
           "_why": "RGA 91 rows, RGATG 78 rows. The long forms already exist in the data with 23 and 32 rows respectively, which is what makes the mapping checkable. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS $.Genotype -> RGA 91, RGATG 78, 'RaDR+/+; GPT+/+; Aag -/-' 23, 'RaDR+/+; GPT+/+; AagTg -/+' 32. || TESTS: the curator hands over the vocabulary rather than asking the system to guess it \u2014 the pattern the ad-hoc log shows repeatedly. The no-upload half is asserted separately. || Re-keyed 2026-09-23 against production (fairdata): T_MUS Genotype (Neo4j cypher-shell, read-only): 'RGA' 54 rows and no 'RGATG' row at all (other short codes: RGAM 141, RG 95, RGM 46); the long forms hold 219 and 212. So the RGA mapping changes 54 rows and the RGATG mapping none; was RGA 91 / RGATG 78.",
-          "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
+          "_added_2026_08_06_qset": "authored for the 2026-08-06 question set",
+          "_edited_2026_10_14_bmr_dev_test_fixes": "CRITERIA ONLY -- question text unchanged. Asking to confirm before building the sheet is accepted (operator 2026-10-14 on task 2062: 'this looks good'). The count 54 was a prod value (dev has 91 and 78); the reply must name both keys and the long form, any counts. 'I won't upload anything' now counts as the no-upload half. The reply must also link the ontology the mapping uses (operator: 'no ontology though?'; the same link criterion as the harmon.onto_* cases, which harmo_onto's onto-visible branch makes every harmonize reply carry)."
         }
       ]
     },
@@ -17601,6 +17608,10 @@
       "unsup.method_refusal_not_sticky": {
         "op": "eq",
         "value": "unrelated"
+      },
+      "cat.people_versus_scientists": {
+        "op": "matches_re",
+        "value": "(nextseek_query|container_cc)"
       }
     },
     "_2026_08_04_remap": "Carried across the 28-family remap by effective rule, not by family name: lineage_tree inherits search_tree's NS|CC alternation and search_parents_by_child's eq nextseek_query, which cannot both be the family default. 15 variant(s) whose rule differs from their new family's modal rule are pinned by id, so every variant keeps the exact assertion it had before.",
@@ -17608,7 +17619,8 @@
     "_2026_09_23_prod_researchers": "Routes for the four families added 2026-09-23. publication_lookup, person_lab_resolution and session_export pin nextseek_query, where the fixes live. data_file_location is an alternation: either engine can name a file's location. Every 2026-09-23 case also writes its route inline on every turn, follow-ups included, so the older NS|CC alternations on followup_over_results and search_refinement never fire for these cases. Their follow-up turns asserted container_cc under the 2026-09-23 ruling; since 2026-09-24 they follow the follow-up split (_2026_09_24_followup_split).",
     "_2026_09_24_rulings": "Writes stay refused on NExtSEEK (operator 2026-09-24: there is no Container-CC write path), so the create, update and delete cases assert nextseek_query through overrides; the writes_unsupported family rule stays container_cc for its exports and the heatmap, and a retired single-record write would need the same override if reinstated. The GEO case asserts nextseek_query (submissions stay on the NS reporter, 2026-09-23). The MetNet summary asserts container_cc (open-ended project summaries, 2026-09-23). The refine_recall seed accepts either route (prod suite 2026-09-23, seed 17).",
     "_2026_09_24_followup_split": "The follow-up split (operator 2026-09-24, routing review section 5), the product default since c9e57058 (NESSIE_FOLLOWUP_ROUTING=split). A follow-up NExtSEEK can answer from the earlier result or by re-running the earlier search (a count, a filter, a breakdown by one or two fields, recall of what a turn found or which query it ran, a re-run with one filter changed) asserts nextseek_query. A follow-up that needs a file or download, a chart, code, a comparison, summary or analysis asserts container_cc, and so does any follow-up in a chat that already has a completed container_cc turn. Of the 40 later turns that asserted container_cc inline, 28 now assert nextseek_query, 4 whose shape is ambiguous accept either route (refrec.of_those_mice_can_you_summariz, fu.sequencing_samples_sha_in_uid, sr.sequencing_filtered_by_uid_code, and turn 2 of fu.human_flow_patients_other_data), and 8 stay container_cc. green.refine_recall's follow-up still asserts no route: its seed accepts either engine, and whether the follow-up is sticky depends on which one answered. route.turn_1_find_the_ndma_treated_mic pasted two turns into one message and is retired for route.ndma_mice_then_female_two_turns, which asks them as two real turns and asserts nextseek_query on both. Family rules and overrides only ever reach a case's first turn, so none of them changed. With the switch set back to cc these turns would need container_cc again; tests/test_followup_split_2026_09_24.py lists every one.",
-    "_2026_10_07_open_ended_summaries": "2026-10-07 test-set review (SPEC-2 R7): report.shoulders_inventory ('how much data does the Shoulders investigation hold') and report.longest_running_investigation ('which investigation covers the longest span of collection dates') are open-ended summaries, which the router sends to Container-CC since round 4 (the 2026-09-23 ruling), so their route check is container_cc, as for report.build_me_a_sample_summary_for. The family rule stays nextseek_query for the plain counts."
+    "_2026_10_07_open_ended_summaries": "2026-10-07 test-set review (SPEC-2 R7): report.shoulders_inventory ('how much data does the Shoulders investigation hold') and report.longest_running_investigation ('which investigation covers the longest span of collection dates') are open-ended summaries, which the router sends to Container-CC since round 4 (the 2026-09-23 ruling), so their route check is container_cc, as for report.build_me_a_sample_summary_for. The family rule stays nextseek_query for the plain counts.",
+    "_2026_10_14_people_vs_scientists": "Operator 2026-10-14 on task 2068 ('fine'): the container_cc route is accepted for cat.people_versus_scientists; the router reads it as a two-source join, and either engine can answer it."
   },
   "family_floor": {
     "_note": "Minimum OUTCOME assertion per family, applied by corpus.merged() to the LAST TURN of every variant in a listed family. Measured over the 381-variant corpus of the 2026-07-30 review, BEFORE the 100 retirements: 108 asserted plan shape only and 194 asserted only plumbing (api_ok / neo4j_ok, which say a request COMPLETED, not that it returned anything) \u2014 79% could not detect a wrong answer. merged() returns 283 today and that split has not been re-measured, but retiring bad questions added no outcome assertion to any survivor, so the reason stands: hand-editing hundreds of variants is not viable, and the floor is applied structurally.",
