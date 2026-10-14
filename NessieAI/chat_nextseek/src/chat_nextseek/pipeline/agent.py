@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 from .agent_tools import build_pipeline_tool_schemas, dispatch_pipeline_tool_call, format_luria_followup
 from ..tool_loop import call_tools
-from ..chat_memory import bundle_rows_and_extent, history_block, named_bundle
+from ..chat_memory import bundle_rows, bundle_rows_and_extent, history_block, named_bundle
 from ..helpers import summarize_pinned_bundle, uids_from_last_search
 from ..helpers.results import pinned_bundle
 from ..helpers.uid_check import uids_in
@@ -101,14 +101,17 @@ def _target_id(parser_plan: Any) -> Any:
 
 
 def _no_samples_reply(target: dict, offered: dict | None) -> str:
-    """The deterministic ask when the result the user means holds no sample list (a count or a breakdown)."""
-    reply = (f"The result you mean ({target.get('user_query') or 'that result'!r}) is a count or a breakdown, "
+    """The deterministic ask when the result the user means holds no sample list: a count or a breakdown, or a
+    search that found nothing. It offers only what the build can do: the offered set, explicit UIDs, or a new
+    search."""
+    what = "is a count or a breakdown" if bundle_rows(target) else "found no samples"
+    reply = (f"The result you mean ({target.get('user_query') or 'that result'!r}) {what}, "
              "so it has no list of samples to build a pipeline on. ")
     if offered is None:
         return reply + "Run a search for the samples first, or give me their UIDs."
     n = len(uids_from_last_search({"results_history": [offered]}, offered.get("id")))
     return (reply + f"The newest result with samples is {offered.get('user_query') or 'an earlier search'!r} "
-            f"({n} samples). Shall I use those, or which samples should I use instead?")
+            f"({n} samples). Say yes to use those, give me their UIDs, or ask a new search.")
 
 
 def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any = None,

@@ -67,6 +67,8 @@ def test_a_named_count_asks_and_offers_the_newest_set(monkeypatch):
     out = pa.start(session, SimpleNamespace(), user_query="Run rnaseq on those", parser_plan={"target_result_id": 3})
     assert out["action"] == "ask"
     assert "how many by type" in out["reply"] and "monkeys from a site" in out["reply"] and "2 samples" in out["reply"]
+    assert "is a count or a breakdown" in out["reply"]
+    assert out["reply"].endswith("Say yes to use those, give me their UIDs, or ask a new search.")
     state = _state(session)
     assert state["active"] and state["source_bundle_id"] == 2  # a "yes" builds on exactly the offered set
     assert [m["role"] for m in state["messages"]] == ["user", "assistant"]
@@ -101,3 +103,13 @@ def test_a_named_count_whose_plan_carried_uids_still_asks(monkeypatch):
     assert out["action"] == "ask" and "count or a breakdown" in out["reply"]
     assert "mice treated with a drug" in out["reply"] and "231 samples" in out["reply"]
     assert _state(session)["source_bundle_id"] == 1
+
+
+def test_a_named_search_that_found_nothing_says_so(monkeypatch):
+    monkeypatch.setattr(pa, "_run_loop", lambda *a, **k: pytest.fail("no model call"))
+    session = _session()
+    session["results_history"].append({"id": 3, "user_query": "female mice treated with a drug",
+                                       "graph_result": {"ok": True, "data": []}})
+    out = pa.start(session, SimpleNamespace(), user_query="Run rnaseq on those", parser_plan={"target_result_id": 3})
+    assert out["action"] == "ask" and "found no samples" in out["reply"] and "count or a breakdown" not in out["reply"]
+    assert "monkeys from a site" in out["reply"] and _state(session)["source_bundle_id"] == 2

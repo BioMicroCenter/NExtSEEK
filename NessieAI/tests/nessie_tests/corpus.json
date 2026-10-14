@@ -15253,7 +15253,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(Shall I use those|which samples should I use)"
+                  "value": "(?is)(Say yes to use those|give me their UIDs)"
                 },
                 {
                   "field": "last_reply",
