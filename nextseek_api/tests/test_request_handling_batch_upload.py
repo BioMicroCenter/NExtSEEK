@@ -100,6 +100,8 @@ def _start(user, lababbv):
     (False, True, "BMC"),
     (True, True, "BMC"),
 ])
+@patch("nextseek_api.batch_upload.views._caller_project_scope",
+       new=lambda user: None if user.is_superuser else (1,))  # a member of project 1 (SEC-001)
 @patch("nextseek_api.batch_upload.views.register_job")
 @patch("nextseek_api.batch_upload.views.run_batch_upload_task")
 @patch("nextseek_api.batch_upload.views._resolve_user_context",

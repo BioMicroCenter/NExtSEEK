@@ -267,10 +267,12 @@ class BatchUploadViewSet(viewsets.ViewSet):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-        # The access grant on uploaded samples is not the caller's to change unless they are a superuser.
-        if scope_project_ids is not None and isinstance(config_overrides, dict):
-            for key in _SUPERUSER_ONLY_OVERRIDES:
-                config_overrides.pop(key, None)
+        # Pipeline tunables, the access grant among them, are not the caller's to change unless a superuser.
+        if scope_project_ids is not None:
+            config_overrides = (
+                {k: v for k, v in config_overrides.items() if k in _MEMBER_OVERRIDES}
+                if isinstance(config_overrides, dict) else {}
+            )
 
         update_existing = request.data.get("update_existing")
         if update_existing is not None:
@@ -695,12 +697,9 @@ def _save_uploaded_file(uploaded_file) -> str:
     return dest_path
 
 
-# Config keys that set the upload's own access grant: a superuser's alone (SEC-001).
-_SUPERUSER_ONLY_OVERRIDES = (
-    "enable_auto_permissions",
-    "permissions_default_access_type",
-    "permissions_default_contributor_type",
-)
+# The only config_overrides key anyone may send; every other tunable (the access grant among them) is a
+# superuser's alone (SEC-001). An allowlist, so a tunable added to BatchUploadConfig later stays closed.
+_MEMBER_OVERRIDES = frozenset({"update_existing"})
 
 
 def _caller_project_scope(user):

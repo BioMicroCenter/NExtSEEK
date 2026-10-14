@@ -253,7 +253,8 @@ class TestResolveOrphansWritesNoGraph:
     """The one code path: every graph write is graph_sync's (the sync design, sections 7 and 8)."""
 
     def test_it_takes_no_neo4j_driver(self):
-        assert list(inspect.signature(resolve_orphans).parameters) == ["orphans", "sql_conn"]
+        # project_ids is the uploader's scope (SEC-001); still no driver parameter.
+        assert list(inspect.signature(resolve_orphans).parameters) == ["orphans", "sql_conn", "project_ids"]
 
     def test_the_module_holds_no_write_cypher(self):
         assert not hasattr(orphan_resolution, "_DERIVED_FROM_CYPHER")
@@ -332,10 +333,12 @@ class TestResolveOrphansTask:
             result = resolve_orphans_task(
                 identity_map={"X": "Y"},
                 parent_info={"Y": {"sample_id": 1, "uuid": "Y"}},
+                scope_project_ids=[7],
             )
 
             mock_discover.assert_called_once()
-            mock_resolve.assert_called_once_with(orphans=mock_discover.return_value, sql_conn=mock_conn)
+            mock_resolve.assert_called_once_with(
+                orphans=mock_discover.return_value, sql_conn=mock_conn, project_ids=(7,))
             # One samples row per chunk of resolved ids, keyed batch:orphans:<time_ns>:<n>, the ids its payload.
             (call,) = mock_enqueue.call_args_list
             kind, key, ids = call.args

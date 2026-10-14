@@ -99,11 +99,20 @@ def load_existing_sample_details(
             }
     if project_ids is None or not details:
         return details
+    in_scope = samples_in_projects([d["sample_id"] for d in details.values()], project_ids, conn)
+    return {u: d for u, d in details.items() if d["sample_id"] in in_scope}
 
-    # Same plain IN shape as associations.batch_insert_projects_samples: projects_samples has no index, so
-    # one scan per chunk, never a per-row subquery.
+
+def samples_in_projects(sample_ids, project_ids: Sequence[int], conn: Connection) -> Set[int]:
+    """The subset of ``sample_ids`` linked to one of ``project_ids`` (SEC-001); empty ``project_ids``, none.
+
+    Same plain IN shape as associations.batch_insert_projects_samples: projects_samples has no index, so one
+    scan per chunk, never a per-row subquery.
+    """
     in_scope: Set[int] = set()
-    sample_ids = sorted({d["sample_id"] for d in details.values()})
+    sample_ids = sorted({int(s) for s in sample_ids})
+    if not sample_ids or not project_ids:
+        return in_scope
     pparams = {f"p{i}": int(p) for i, p in enumerate(project_ids)}
     pmarks = ", ".join(f":p{i}" for i in range(len(pparams)))
     for chunk_start in range(0, len(sample_ids), 1000):
@@ -118,7 +127,7 @@ def load_existing_sample_details(
             params,
         )
         in_scope.update(int(r[0]) for r in result.fetchall())
-    return {u: d for u, d in details.items() if d["sample_id"] in in_scope}
+    return in_scope
 
 
 def update_sample_metadata(

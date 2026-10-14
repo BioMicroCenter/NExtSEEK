@@ -94,7 +94,13 @@ def run_batch_upload_task(
         if identity_map:
             try:
                 resolve_orphans_task.apply_async(
-                    kwargs={"identity_map": identity_map, "parent_info": parent_info_data},
+                    kwargs={
+                        "identity_map": identity_map,
+                        "parent_info": parent_info_data,
+                        "scope_project_ids": (
+                            None if config.scope_project_ids is None else list(config.scope_project_ids)
+                        ),
+                    },
                 )
             except Exception as exc:
                 log.warning("Failed to dispatch orphan resolution task: %s", exc)
@@ -120,7 +126,7 @@ def run_batch_upload_task(
 
 
 @app.task(bind=True, queue="batch_upload", name="batch_upload.resolve_orphans")
-def resolve_orphans_task(self, identity_map: dict, parent_info: dict):
+def resolve_orphans_task(self, identity_map: dict, parent_info: dict, scope_project_ids: list = ()):
     """Async task to resolve orphaned parent references after batch upload.
 
     Best-effort: failures are logged but do not affect the upload result.
@@ -128,7 +134,8 @@ def resolve_orphans_task(self, identity_map: dict, parent_info: dict):
     Nothing here writes the graph. Every child the rewrite resolved is enqueued for the graph sync after the
     rewrite's transaction has committed, and the drain writes its lineage and labels from MySQL (the sync design,
     sections 8 and 12). ``parent_info`` is kept for in-flight messages: the rewrite needs only the tokens discovery
-    matched.
+    matched. ``scope_project_ids`` limits the rewrite to the uploader's projects (SEC-001): None is a superuser, and a
+    message without it rewrites nothing.
     """
     if not identity_map:
         return {"resolved": 0}
@@ -159,7 +166,11 @@ def resolve_orphans_task(self, identity_map: dict, parent_info: dict):
                 return {"resolved": 0}
 
             with get_connection() as conn:
-                stats = resolve_orphans(orphans=orphans, sql_conn=conn)
+                stats = resolve_orphans(
+                    orphans=orphans,
+                    sql_conn=conn,
+                    project_ids=None if scope_project_ids is None else tuple(int(p) for p in scope_project_ids),
+                )
         finally:
             driver.close()
 

@@ -126,6 +126,11 @@
 					projectsData.push({"id": project_id, "title": project_title})
 				}
 			}
+			// Only the caller's own projects: an upload into any other answers 403 (null = superuser, all).
+			const myProjectIds = {{ my_project_ids|default:"null"|safe }};
+			if (myProjectIds !== null) {
+				projectsData = projectsData.filter(p => myProjectIds.includes(Number(p.id)))
+			}
 			$("#project_id").combobox("loadData", projectsData)
 			$("#validate_project_id").combobox("loadData", projectsData)
 		}

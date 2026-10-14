@@ -136,6 +136,53 @@ def load_existing_samples(
     return existing
 
 
+def _refuse_out_of_scope_assays(samples, existing, project_ids, conn_factory, outcomes, error_collector):
+    """The rows whose assay links stay inside ``project_ids``; every other row is failed as PERMISSION_DENIED.
+
+    A row may name an assay of another project only when its sample is already linked to it, so an upsert
+    that lists the link keeps it. An assay whose project cannot be read counts as outside.
+    """
+    wanted = sorted({a for s in samples for a in s.assay_ids})
+    if not wanted:
+        return samples
+    from nextseek_api.assay_registration.resolver import projects_for_assays
+
+    scope = set(int(p) for p in project_ids)
+    with conn_factory() as conn:
+        assay_projects = projects_for_assays(wanted, conn)
+        foreign = {a for a in wanted if not (assay_projects.get(a, set()) & scope)}
+        if not foreign:
+            return samples
+        linked = _assay_links([existing[s.uuid] for s in samples if s.uuid in existing], conn)
+    kept = []
+    for s in samples:
+        bad = sorted(a for a in s.assay_ids if a in foreign and a not in linked.get(existing.get(s.uuid), set()))
+        if not bad:
+            kept.append(s)
+            continue
+        message = f"Assay(s) {bad} are not in one of your projects"
+        outcomes[s.uuid] = RowOutcome(status="failed", reason=message)
+        error_collector.add(row_index=-1, uid=s.uuid, error_type=ErrorType.PERMISSION_DENIED, message=message)
+    return kept
+
+
+def _assay_links(sample_ids, conn) -> Dict[int, Set[int]]:
+    """sample_id -> the assay ids it is linked to now."""
+    out: Dict[int, Set[int]] = defaultdict(set)
+    ids = sorted({int(s) for s in sample_ids})
+    for chunk_start in range(0, len(ids), 1000):
+        chunk = ids[chunk_start : chunk_start + 1000]
+        params = {f"s{i}": s for i, s in enumerate(chunk)}
+        marks = ", ".join(f":s{i}" for i in range(len(chunk)))
+        rows = conn.execute(
+            text(f"SELECT asset_id, assay_id FROM assay_assets WHERE asset_type = 'Sample' AND asset_id IN ({marks})"),
+            params,
+        ).fetchall()
+        for sample_id, assay_id in rows:
+            out[int(sample_id)].add(int(assay_id))
+    return out
+
+
 def _plan_next_batch(
     rows: List[InsertableSample],
     start_idx: int,
@@ -249,6 +296,13 @@ def process_batches(
             )
             continue
         rows_to_process.append(sample)
+
+    # SEC-001: a member links samples only to assays in their own projects (or keeps links a sample has).
+    if config.scope_project_ids is not None:
+        rows_to_process = _refuse_out_of_scope_assays(
+            rows_to_process, existing, config.scope_project_ids, conn_factory, outcomes, error_collector)
+        rows_to_update = _refuse_out_of_scope_assays(
+            rows_to_update, existing, config.scope_project_ids, conn_factory, outcomes, error_collector)
 
     if not rows_to_process and not rows_to_update:
         log.info("INSERT: no rows to process or update")

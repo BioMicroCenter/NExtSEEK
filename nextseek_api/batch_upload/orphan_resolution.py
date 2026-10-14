@@ -13,7 +13,7 @@ every graph write (the sync design, sections 7 and 8; C-14).
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Sequence
 
 from sqlalchemy import text
 
@@ -37,6 +37,7 @@ except ImportError:
 
 from .helpers import collect_parent_tokens
 from .identity import hash_identity
+from .update import samples_in_projects
 
 log = logging.getLogger(__name__)
 
@@ -125,19 +126,26 @@ _UPDATE_METADATA_SQL = text(
 def resolve_orphans(
     orphans: List[dict],
     sql_conn: Any,
+    project_ids: Optional[Sequence[int]] = None,
 ) -> dict:
     """Resolve orphan parent references: replace the matched identity token with the parent's UID in MariaDB.
 
     For each candidate orphan, checks if the matched identity token is still present
     in the Parent field. If already resolved (token replaced with UID), skips silently.
 
-    Does NOT modify parent_titles -- it is permanent metadata -- and writes nothing to Neo4j.
+    Does NOT modify parent_titles -- it is permanent metadata -- and writes nothing to Neo4j. With
+    ``project_ids``, only children linked to one of those projects are rewritten; the rest keep their token.
 
     Returns:
         ``{"resolved": int, "sample_ids": [...]}``. The ids are the children this call rewrote, in the order it
         rewrote them: the caller enqueues them for the graph sync once the transaction has committed.
     """
     resolved_ids: List[int] = []
+
+    # SEC-001: an upload rewrites only children in the uploader's own projects (None = a superuser, any).
+    if project_ids is not None:
+        allowed = samples_in_projects([o["id"] for o in orphans], project_ids, sql_conn)
+        orphans = [o for o in orphans if int(o["id"]) in allowed]
 
     for orphan in orphans:
         sample_id = orphan["id"]

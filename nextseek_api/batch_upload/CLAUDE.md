@@ -90,14 +90,14 @@ lineage, and none of them fails loudly.
 
 ## Landmines
 
-- **`config_overrides` travels from the request body into the pipeline config almost unfiltered.**
+- **`config_overrides` travels from a superuser's request body into the pipeline config unfiltered.**
   `nextseek_api/batch_upload/views.py:241` reads it, `nextseek_api/batch_upload/views.py:305`
   forwards it, and `nextseek_api/batch_upload/tasks.py:40` splats it into the constructor,
   so any authenticated caller can set any tunable the constructor pulls out of `overrides`
-  (`nextseek_api/batch_upload/config.py:20-59`). The view drops the three access-grant keys
-  (`_SUPERUSER_ONLY_OVERRIDES` in `views.py`) for anyone but a superuser; every other tunable
-  still passes. Adding a tunable here adds a request parameter whether you meant to or not,
-  and adding one that changes who can see a sample means adding it to that list.
+  (`nextseek_api/batch_upload/config.py:20-59`), but only for a superuser: anyone else keeps
+  just the keys in `_MEMBER_OVERRIDES` (`views.py`, an allowlist). Adding a tunable here adds a
+  superuser request parameter whether you meant to or not; adding it to that allowlist opens it
+  to every member.
 - **A graph failure does not fail the job, and the job reports it in one word.**
   `nextseek_api/batch_upload/orchestrator.py:606-609` logs the exception and returns a
   status, so the task still reports SUCCESS with the SQL rows committed. What tells you

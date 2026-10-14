@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from rest_framework.test import APIRequestFactory, force_authenticate
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 
 from nextseek_api.batch_upload.config import BatchUploadConfig
 from nextseek_api.batch_upload.errors import ErrorCollector, ErrorType
@@ -65,9 +65,8 @@ class TestStart:
         assert response.status_code == 202
         kwargs = task.delay.call_args.kwargs
         assert kwargs["scope_project_ids"] == [3, 7]
-        overrides = kwargs["config_overrides"]
-        assert not set(PERMISSION_OVERRIDES) & set(overrides)
-        assert overrides["max_rows_per_batch"] == 50 and overrides["update_existing"] is True
+        # An allowlist: a member keeps update_existing and nothing else, so a tunable added later stays closed.
+        assert kwargs["config_overrides"] == {"update_existing": True}
 
     def test_superuser_any_project_unscoped_and_overrides_kept(self, _ctx, task, register, user):
         user.is_superuser = True
@@ -97,6 +96,15 @@ class TestValidate:
         force_authenticate(request, user=user)
         return BatchUploadViewSet.as_view({"post": "validate"})(request)
 
+    def test_member_validates(self, user):
+        result = MagicMock()
+        result.model_dump.return_value = {"valid": True}
+        with patch("nextseek_api.batch_upload.views.resolve_scope", create=True, return_value=_member_of(7)), \
+             patch("nextseek_api.batch_upload.views.run_validation_multi", return_value=result) as run:
+            response = self._validate(user, 7)
+        assert response.status_code == 200
+        run.assert_called_once()
+
     def test_non_member_gets_403(self, user):
         with patch("nextseek_api.batch_upload.views.resolve_scope", create=True, return_value=_member_of(3)), \
              patch("nextseek_api.batch_upload.views.run_validation_multi") as run:
@@ -111,13 +119,21 @@ class TestValidate:
 @pytest.fixture
 def conn_factory():
     engine = create_engine("sqlite://")
+
+    @event.listens_for(engine, "connect")
+    def _mysql_now(dbapi_conn, _record):  # the orphan rewrite writes updated_at = NOW()
+        dbapi_conn.create_function("NOW", 0, lambda: "2026-10-14 00:00:00")
+
     with engine.begin() as conn:
         conn.execute(text("CREATE TABLE samples (id INTEGER PRIMARY KEY, uuid TEXT, policy_id INTEGER, "
-                          "json_metadata TEXT, title TEXT)"))
+                          "json_metadata TEXT, title TEXT, updated_at TEXT)"))
         conn.execute(text("CREATE TABLE projects_samples (project_id INTEGER, sample_id INTEGER)"))
-        conn.execute(text("INSERT INTO samples VALUES (1, 'MINE-1', 11, '{}', 'mine'), "
-                          "(2, 'THEIRS-1', 12, '{}', 'theirs')"))
+        conn.execute(text("CREATE TABLE assay_assets (asset_id INTEGER, asset_type TEXT, assay_id INTEGER)"))
+        conn.execute(text("""INSERT INTO samples VALUES (1, 'MINE-1', 11, '{"Parent":"P1"}', 'mine', NULL), """
+                          """(2, 'THEIRS-1', 12, '{"Parent":"P1"}', 'theirs', NULL)"""))
         conn.execute(text("INSERT INTO projects_samples VALUES (7, 1), (8, 2)"))
+        # MINE-1 is already linked to assay 80, which belongs to project 8.
+        conn.execute(text("INSERT INTO assay_assets VALUES (1, 'Sample', 80)"))
     return engine.connect
 
 
@@ -179,3 +195,86 @@ def test_task_without_scope_changes_no_existing_sample():
         except Exception:  # noqa: BLE001 (only the config handed to the pipeline matters here)
             pass
     assert seen["scope"] == ()
+
+
+def _process(conn_factory, samples, existing, *, scope, update_existing):
+    from nextseek_api.batch_upload.insert import process_batches
+
+    config = BatchUploadConfig()
+    config.scope_project_ids = scope
+    errors = ErrorCollector()
+    result = process_batches(
+        insertable_samples=samples,
+        project_id=7,
+        contributor_id=1,
+        config=config,
+        direction_computation=DirectionComputation({}, {}, {}, {}, {}),
+        error_collector=errors,
+        existing_samples=existing,
+        update_existing=update_existing,
+        conn_factory=conn_factory,
+    )
+    return result, errors
+
+
+def _fake_bulk(rows, details, **kwargs):
+    return {s.uuid: RowOutcome(status="success", sample_id=details[s.uuid]["sample_id"]) for s in rows}
+
+
+@patch("nextseek_api.batch_upload.insert.determine_resume_uid", return_value=None)
+def test_a_superuser_may_update_any_projects_sample(_resume, conn_factory):
+    import nextseek_api.batch_upload.update as update_mod
+
+    samples = [InsertableSample(uuid=u, title="t", sample_type_id=1, json_metadata="{}") for u in ("MINE-1", "THEIRS-1")]
+    with patch.object(update_mod, "bulk_update_samples", side_effect=_fake_bulk) as bulk:
+        _process(conn_factory, samples, {"MINE-1": 1, "THEIRS-1": 2}, scope=None, update_existing=True)
+    assert [s.uuid for s in bulk.call_args.kwargs["rows"]] == ["MINE-1", "THEIRS-1"]
+
+
+@patch("nextseek_api.batch_upload.insert.determine_resume_uid", return_value=None)
+@patch("nextseek_api.assay_registration.resolver.projects_for_assays", return_value={80: {8}, 81: {8}, 70: {7}})
+def test_a_member_cannot_link_samples_into_another_projects_assay(_assays, _resume, conn_factory):
+    import nextseek_api.batch_upload.update as update_mod
+
+    samples = [
+        InsertableSample(uuid="NEW-1", title="t", sample_type_id=1, json_metadata="{}", assay_ids=[81]),
+        InsertableSample(uuid="MINE-1", title="t", sample_type_id=1, json_metadata="{}", assay_ids=[70, 80]),
+        InsertableSample(uuid="MINE-2", title="t", sample_type_id=1, json_metadata="{}", assay_ids=[81]),
+    ]
+    with patch.object(update_mod, "bulk_update_samples", side_effect=_fake_bulk) as bulk, \
+         patch.object(update_mod, "load_existing_sample_details",
+                      return_value={"MINE-1": {"sample_id": 1}, "MINE-2": {"sample_id": 1}}):
+        result, errors = _process(conn_factory, samples, {"MINE-1": 1, "MINE-2": 1}, scope=(7,), update_existing=True)
+    # A new sample naming another project's assay is refused before any insert.
+    assert result.outcomes["NEW-1"].status == "failed" and result.inserted_count == 0
+    # An existing sample keeps a link it already has (80) and may add its own project's (70) ...
+    assert [s.uuid for s in bulk.call_args.kwargs["rows"]] == ["MINE-1"]
+    # ... but may not add a new link into another project's assay (81).
+    assert result.outcomes["MINE-2"].status == "failed"
+    assert {e.error_type for e in errors.all_errors()} == {ErrorType.PERMISSION_DENIED}
+
+
+def test_orphan_rewrite_stays_inside_the_scope(conn_factory):
+    from nextseek_api.batch_upload.orphan_resolution import resolve_orphans
+
+    orphans = [{"id": 1, "uuid": "MINE-1", "matched_tokens": {"P1": "NEW-UID"}},
+               {"id": 2, "uuid": "THEIRS-1", "matched_tokens": {"P1": "NEW-UID"}}]
+    with conn_factory() as conn:
+        stats = resolve_orphans(orphans=orphans, sql_conn=conn, project_ids=(7,))
+        meta = dict(conn.execute(text("SELECT uuid, json_metadata FROM samples")).fetchall())
+    assert stats["sample_ids"] == [1]
+    assert "NEW-UID" in meta["MINE-1"] and "P1" in meta["THEIRS-1"] and "NEW-UID" not in meta["THEIRS-1"]
+
+
+def test_the_orphan_task_inherits_the_upload_scope():
+    from nextseek_api.batch_upload import tasks
+
+    def fake_run(**kwargs):
+        return {"totals": {}, "errors": [], "_identity_map": {"P1": "NEW-UID"}, "_parent_info": {}}
+
+    with patch.object(tasks, "run_batch_upload_multi", side_effect=fake_run), \
+         patch.object(tasks.run_batch_upload_task, "update_state"), \
+         patch.object(tasks.resolve_orphans_task, "apply_async") as dispatch:
+        tasks.run_batch_upload_task.run(rows=[], project_id=7, contributor_id=1, config_overrides={},
+                                        scope_project_ids=[7])
+    assert dispatch.call_args.kwargs["kwargs"]["scope_project_ids"] == [7]

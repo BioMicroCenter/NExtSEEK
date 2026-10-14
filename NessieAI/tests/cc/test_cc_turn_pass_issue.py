@@ -209,7 +209,7 @@ def test_an_ns_turn_issues_no_pass(cc, monkeypatch):
 def test_a_turn_started_by_a_basic_header_holds_that_login_for_its_ops(cc, monkeypatch):
     """Review Focus 1: the nessie_tests harness and API clients start turns with a Basic header and no browser
     session. The turn must hold the header's login, and an op sent with the pass must act as it."""
-    make_user("hdr-user", password="hdr pw:ü")
+    make_user("hdr-user", password="hdr pw:ü", is_superuser=True)  # forcing Container-CC is superuser-only
     monkeypatch.setattr("nextseek_api.services.assistant.UserInParticipatingProject.has_permission",
                         lambda self, request, view: True)
     monkeypatch.setattr("nextseek_api.services.assistant.plain_scope", lambda user: None)
