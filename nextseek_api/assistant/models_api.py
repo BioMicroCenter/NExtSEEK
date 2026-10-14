@@ -16,7 +16,9 @@ class QueryRequest(BaseModel):
         "cc-assistant/cc/query/async/, nessie/query/, nessie/query/cc/) always open a new chat, while the legacy assistant/query/ "
         "and assistant/query/async/ reuse the most recently updated session (unless force_new) or auto-create one."))
     query: str = Field(..., min_length=1, max_length=32000, description="Natural language query")
-    mode: str = Field(..., description="What mode to execute the query as. E.g. standard, plan, etc.")
+    mode: Literal["standard", "plan", "pipeline"] = Field(..., description=(
+        "What mode to execute the query as: standard (what the chat panel sends), plan or pipeline. plan is for "
+        "superusers and Container-CC turn passes; anyone else gets 403."))
     force_new: bool = Field(False, description=(
         "If true and session_id is omitted, always create a new ChatSession instead of reusing the most recent one. Only the "
         "legacy assistant/query/ routes reuse; on the routed Nessie endpoints an omitted session_id is already a new chat."))

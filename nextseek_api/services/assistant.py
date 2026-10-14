@@ -40,6 +40,8 @@ from django.core.handlers.asgi import ASGIRequest
 
 ASSISTANT_PARTICIPATING_PROJECTS = settings.ASSISTANT_PARTICIPATING_PROJECTS
 TEST_CASES = settings.TEST_CASES
+#: The 403 a caller who is neither a superuser nor a turn pass gets for mode "plan" (SEC-002).
+PLAN_MODE_FORBIDDEN = 'Mode "plan" is for superusers; send mode "standard".'
 
 from nextseek_api.assistant.descriptions import (
     ASSISTANT_BUNDLE_DOWNLOAD_DESC,
@@ -100,7 +102,7 @@ from NessieAI.cc.ops_road import SIDECAR, ops_road
 from NessieAI.ns.write_gate import WriteBlockedError, build_gate, load_allowlist
 from rest_framework.exceptions import APIException
 from nextseek_api.assistant.op_errors import HTTP_STATUS, error_body, failure_reason, op_error, validation_fields
-from nextseek_api.permissions import is_turn_pass, may_read_any
+from nextseek_api.permissions import is_turn_pass, may_read_any, plan_mode_refused
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from NessieAI.ns.bundle_download import bundle_metadata
 # Moved to NessieAI/ns/ (NessieAI Phase B): the NS turn in turn.py, the on-disk
@@ -691,6 +693,9 @@ class AssistantViewSet(viewsets.ViewSet):
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
+        if plan_mode_refused(request, req.mode):
+            return _error_response("Forbidden", PLAN_MODE_FORBIDDEN, status.HTTP_403_FORBIDDEN)
+
         if is_turn_pass(request) and not all(_request_login(request)):
             # The turn's login is gone: never fall back to the service login.
             return _error_response(
@@ -814,6 +819,9 @@ class AssistantViewSet(viewsets.ViewSet):
                 str(e),
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
+
+        if plan_mode_refused(request, req.mode):
+            return _error_response("Forbidden", PLAN_MODE_FORBIDDEN, status.HTTP_403_FORBIDDEN)
 
         if is_turn_pass(request) and not all(_request_login(request)):
             # The turn's login is gone: never fall back to the service login.

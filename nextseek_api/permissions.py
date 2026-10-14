@@ -68,3 +68,14 @@ def may_read_any(request) -> bool:
     if is_turn_pass(request):
         return False
     return may_read_any_users_data(getattr(request, "user", None))
+
+
+def plan_mode_refused(request, mode) -> bool:
+    """True when ``request`` may not start a ``mode="plan"`` turn (SEC-002).
+
+    The chat panel never sends plan; the Container-CC ``nextseek-plan`` op does, through its turn pass, for any
+    user. So plan is for a superuser or a turn pass. The planner's model-written code runs in the sandbox either way.
+    """
+    if mode != "plan" or is_turn_pass(request):
+        return False
+    return not IsSuperUser().has_permission(request, None)

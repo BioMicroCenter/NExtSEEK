@@ -40,7 +40,7 @@ from drf_spectacular.utils import extend_schema, OpenApiExample
 from pydantic import ValidationError
 
 from nextseek_api.assistant.models_api import AsyncQueryResponse, QueryRequest, TaskProgressResponse
-from nextseek_api.permissions import IsSuperUser, may_read_any
+from nextseek_api.permissions import IsSuperUser, may_read_any, plan_mode_refused
 from nextseek_api.assistant.descriptions_cc import (
     NESSIE_CC_QUERY_ASYNC_DESC, NESSIE_QUERY_ASYNC_DESC, NESSIE_TASK_PROGRESS_DESC,
 )
@@ -53,6 +53,7 @@ from nextseek_api.graph_search.scope import caller_block, plain_scope
 # Reuse the existing assistant's helpers (do NOT redefine its behavior).
 from nextseek_api.services.assistant import (
     CsrfExemptSessionAuthentication,
+    PLAN_MODE_FORBIDDEN,
     _error_response,
 )
 
@@ -179,6 +180,8 @@ class CCAssistantViewSet(viewsets.ViewSet):
             req = QueryRequest.model_validate(request.data)
         except ValidationError as e:
             return _error_response("Validation error", str(e), status.HTTP_422_UNPROCESSABLE_ENTITY)
+        if plan_mode_refused(request, req.mode):
+            return _error_response("Forbidden", PLAN_MODE_FORBIDDEN, status.HTTP_403_FORBIDDEN)
         return self._start_task(request, req, force_cc=False)
 
     @extend_schema(
