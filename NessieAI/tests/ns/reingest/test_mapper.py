@@ -1556,6 +1556,60 @@ def test_a_non_optional_rule_that_matches_nothing_is_reported_and_optional_is_no
     assert result.missed_rules == [{"rule_id": "vcf", "sample_type": "A.VCF"}]
 
 
+def _scrnaseq_run(matrices, version="v4.1.0-gf7bf36d"):
+    """One-sample nf-core/scrnaseq run shaped like a real cellranger run."""
+    return manifest.RunManifest(
+        run_dir="/net/cluster/runs/scrnaseq_M188_run",
+        params={"aligner": "cellranger", "genome": "GRCh38",
+                "trace_report_suffix": "2026-06-03_14-38-55"},
+        pipeline=manifest.PipelineInfo(name="nf-core/scrnaseq", version=version),
+        samples=[manifest.SampleRecord(nfcore_sample="M188", d_seq_uid="D.SEQ-X-1",
+                                       uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD,
+                                       parent_sample_type="D.SEQ")],
+        outputs=[manifest.OutputRecord(path=f"cellranger/mtx_conversions/{m}")
+                 for m in matrices])
+
+
+_SCRNASEQ_CTX = {"user_full_name": "Ada Lovelace",
+                 "next_name_ordinal": lambda sample_type, prefix: 1}
+
+
+@pytest.mark.parametrize("release, filtered", [
+    ("v4.1.0-gf7bf36d", "cellbender_filter"),
+    ("3.0.0", "emptydrops_filter"),
+    ("2.7.1", "custom_emptydrops_filter"),
+])
+def test_the_scrnaseq_map_finds_each_releases_combined_matrix(release, filtered):
+    # Every real release names the combined matrix after its input type
+    # (combined_<type>_matrix.h5ad); only a -stub run writes combined_matrix.h5ad.
+    run = _scrnaseq_run([f"combined_{t}_matrix.h5ad" for t in (filtered, "filtered", "raw")],
+                        version=release)
+    result = mapper.apply(run, maps.load("scrnaseq"), context=_SCRNASEQ_CTX)
+    (row,) = _out_rows(result, "combined_matrix")
+    assert row.attributes["File_PrimaryData"].value == f"combined_{filtered}_matrix.h5ad"
+    assert result.missed_rules == []
+    assert not any("matched no file" in w or "no usable pipeline version" in w
+                   for w in result.warnings)
+
+
+def test_the_scrnaseq_map_falls_back_to_the_aligner_filtered_matrix():
+    # CellBender is skippable (--skip_cellbender), so the aligner's filtered
+    # matrix must win when it is the most processed one present.
+    run = _scrnaseq_run(["combined_filtered_matrix.h5ad", "combined_raw_matrix.h5ad"])
+    (row,) = _out_rows(mapper.apply(run, maps.load("scrnaseq"), context=_SCRNASEQ_CTX),
+                       "combined_matrix")
+    assert row.attributes["File_PrimaryData"].value == "combined_filtered_matrix.h5ad"
+
+
+def test_the_scrnaseq_row_gets_the_row_defaults():
+    run = _scrnaseq_run(["combined_cellbender_filter_matrix.h5ad"])
+    (row,) = _out_rows(mapper.apply(run, maps.load("scrnaseq"), context=_SCRNASEQ_CTX),
+                       "combined_matrix")
+    assert row.attributes["Scientist"].value == "Ada Lovelace"
+    assert row.attributes["SampleCreationDate"].value == "2026-06-03"
+    assert row.attributes["Name"].value == "scxp_2026-06-03_1"
+
+
 def test_apply_uses_the_version_override_and_carries_its_warning():
     m = _v2map([{"id": "aln", "sample_type": "A.ALN", "primary_data": True,
                  "candidates": ["old/*.bam"]}],

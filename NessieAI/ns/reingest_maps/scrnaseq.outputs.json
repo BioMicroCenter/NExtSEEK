@@ -4,14 +4,27 @@
   "applies_to_versions": ">=2.7",
   "accepts_parent_types": ["D.SEQ"],
   "harvest_globs": [
-    "{star,alevin,kallisto,cellranger}/mtx_conversions/**/*.h5ad",
+    "{star,alevin,simpleaf,kallisto,cellranger}/mtx_conversions/**/*.h5ad",
     "multiqc/**/multiqc_data/multiqc_*.txt"
   ],
   "derived_metrics": [],
+  "row_defaults": {
+    "Name": "@row_name",
+    "Scientist": "@nextseek_user",
+    "Lab": "@lab",
+    "SampleCreationDate": "@run_date"
+  },
   "outputs": [
     {
       "id": "combined_matrix",
-      "candidates": ["{star,alevin,kallisto,cellranger}/mtx_conversions/combined_matrix.h5ad"],
+      "candidates": [
+        "{star,alevin,simpleaf,kallisto,cellranger}/mtx_conversions/combined_cellbender_filter_matrix.h5ad",
+        "{star,alevin,simpleaf,kallisto,cellranger}/mtx_conversions/combined_emptydrops_filter_matrix.h5ad",
+        "{star,alevin,simpleaf,kallisto,cellranger}/mtx_conversions/combined_custom_emptydrops_filter_matrix.h5ad",
+        "{star,alevin,simpleaf,kallisto,cellranger}/mtx_conversions/combined_filtered_matrix.h5ad",
+        "{star,alevin,simpleaf,kallisto,cellranger}/mtx_conversions/combined_raw_matrix.h5ad",
+        "{star,alevin,simpleaf,kallisto,cellranger}/mtx_conversions/combined_matrix.h5ad"
+      ],
       "sample_type": "A.SCXP",
       "cardinality": "per_run",
       "primary_data": true,
