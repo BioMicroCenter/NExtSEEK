@@ -1311,19 +1311,24 @@ def test_reply_check_passes_on_reply_proper(reply, pattern):
 _ONTO_TURNS = {  # case id -> (turn index, a re-list with an offer, a proposal from the ontology, its ask)
     "harmon.onto_imaging_datatype_house_terms": (0,
         "DataType values: tif 1,754, TIF 1, czi 69, .czi 360, CZI 2. Would you like me to harmonize them?",
-        "| Before | Samples | After | Ontology id |\n|---|---|---|---|\n| tif | 1,754 | TIF | EDAM:format_3591 |\n"
+        "Matched against Data file format (https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_file_format.json).\n"
+        "| Before | Samples | After | Ontology |\n|---|---|---|---|\n| tif | 1,754 | TIF | EDAM:format_3591 |\n"
         "| .czi | 360 | CZI | |\nThe house list spells file types in capitals.", "Shall I build the workbook?"),
     "harmon.onto_cell_species": (0,
         "Species values: Homo sapiens 191, homo sapiens 154, Homo Sapiens 9. Should I harmonize them?",
-        "| Before | Samples | After | Ontology id |\n|---|---|---|---|\n| homo sapiens | 154 | Homo sapiens | "
+        "Matched against Species (https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_species.json).\n"
+        "| Before | Samples | After | Ontology |\n|---|---|---|---|\n| homo sapiens | 154 | Homo sapiens | "
         "NCBITaxon:9606 |", "Shall I build the update workbook?"),
     "harmon.onto_mouse_genotype_slide": (1,
         "Genotypes: RaDR+/+; GPT+/+ 1,111; RGAM 141; RG 95. Want me to harmonize them?",
-        "| Before | Samples | After | Ontology id |\n|---|---|---|---|\n| RG | 95 | RaDR+/+; GPT+/+ | |\n"
-        "RGAM (141) fits no term: is it RaDR+/+; GPT+/+; Aag -/-; Mgmt-/-.", "Shall I go ahead?"),
+        "Matched against Mouse genotypes (https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_mouse_genotype.json).\n"
+        "| Before | Samples | After | Ontology |\n|---|---|---|---|\n| RG | 95 | RaDR+/+; GPT+/+ | Mouse genotypes, house list |\n"
+        "| RGAM | 141 | RaDR+/+; GPT+/+; Aag -/-; Mgmt-/- | Mouse genotypes, house list |\n"
+        "GX (2) fits no term: what does it stand for?", "Shall I go ahead?"),
     "harmon.onto_library_layout": (0,
         None,  # no re-list check: the house term is also the most common spelling, so no reply text tells them apart
-        "| Before | Samples | After | Ontology id |\n|---|---|---|---|\n| PAIRED | 705 | Paired End | |\n"
+        "Matched against Library layout (https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_library_layout.json).\n"
+        "| Before | Samples | After | Ontology |\n|---|---|---|---|\n| PAIRED | 705 | Paired End | Library layout, house list |\n"
         "3DGE (384) fits no layout term: it is a prep method.", "Shall I build the update workbook?"),
 }
 
@@ -1342,3 +1347,6 @@ def test_a_harmonize_turn_passes_only_on_an_ontology_proposal_that_asks(vid):
         assert not _onto_turn_passes(vid, relist)
     assert not _onto_turn_passes(vid, proposal)
     assert _onto_turn_passes(vid, proposal + "\n" + ask)
+    # The same proposal without the line naming and linking the ontology fails (operator 2026-10-14).
+    unlinked = "\n".join(line for line in proposal.splitlines() if "github.com" not in line)
+    assert not _onto_turn_passes(vid, unlinked + "\n" + ask)
