@@ -232,7 +232,8 @@ class SampleCore:
         cursor = conn.cursor()
         
         try:
-            cursor.execute(f"INSERT INTO projects_samples (project_id, sample_id) VALUES ({project_id}, {sample_id})")
+            cursor.execute("INSERT INTO projects_samples (project_id, sample_id) VALUES (%s, %s)",
+                           (project_id, sample_id))
             conn.commit()
         except:
             conn.rollback()

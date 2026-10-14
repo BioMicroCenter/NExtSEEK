@@ -191,7 +191,7 @@ def test_the_immport_sheets_are_written_beside_their_zip_not_under_media(roots, 
 
     target = tmp_path / "private" / "samples-export.zip"
     target.parent.mkdir()
-    with patch("seek.sample.immport.os.system"), \
+    with patch("seek.sample.immport.shutil.copyfile"), \
             patch("seek.sample.immport.load_excelfile_asdic", return_value=dict(sheets, sheetnames=list(sheets))), \
             patch("seek.sample.immport.DOWNLOAD_DIRECTORY", str(media / "download") + "/", create=True), \
             patch.object(DBtable_sample, "_exportImmportSheetInfoZip", autospec=True, side_effect=_sheet):
