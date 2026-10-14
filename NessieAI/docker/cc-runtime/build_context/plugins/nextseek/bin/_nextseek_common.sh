@@ -1,6 +1,11 @@
 #!/bin/sh
 # Sourced by every nextseek-* shim. Translates env vars chat_nextseek expects.
 
+# Every shim runs a bare `python`. Pin it to the image's venv (httpx and the rest live there), whatever PATH the
+# caller's shell has: on dev 10-14 one container's Bash call reached the package-less uv interpreter and every
+# nextseek-graph call failed with ModuleNotFoundError: httpx.
+PATH="/opt/dmac-venv/bin:${PATH}"; export PATH
+
 # D20: re-export the env names chat_nextseek's ChatConfig reads. The container holds no password (spec piece 1):
 # the tools authenticate with the one-turn pass in NEXTSEEK_TURN_PASS (see _turn_pass.py).
 : "${API_USER:=${NEXTSEEK_USERNAME:-}}"
