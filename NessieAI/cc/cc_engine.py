@@ -1132,6 +1132,10 @@ def _run_kwargs(
         # removed container (404) as gone, and the now-redundant finally
         # remove(force=True) is already guarded by except pass.
         "auto_remove": True,
+        # The agent runs as an unprivileged user (uid 1001) and needs no capability;
+        # drop them all and refuse setuid/file-capability privilege gain.
+        "cap_drop": ["ALL"],
+        "security_opt": ["no-new-privileges=true"],
     }
 
 

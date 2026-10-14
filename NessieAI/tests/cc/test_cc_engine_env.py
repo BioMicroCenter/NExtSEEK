@@ -58,6 +58,17 @@ def test_run_kwargs_sets_resource_limits():
     assert fsize and fsize[0].hard == cc_engine._DEFAULT_FSIZE_BYTES
 
 
+def test_run_kwargs_drops_capabilities_and_new_privileges():
+    # The agent runs as an unprivileged user and needs no capability; dropping all
+    # of them and blocking setuid/file-capability gain closes the escalation route.
+    kw = cc_engine._run_kwargs(
+        image="img", command=["claude"], environment={}, mounts=[],
+        run_id="a1", user_id="demo",
+    )
+    assert kw["cap_drop"] == ["ALL"]
+    assert "no-new-privileges=true" in kw["security_opt"]
+
+
 def test_run_kwargs_auto_removes_to_reap_orphans():
     # F15: parent worker death skips the finally-block remove; auto_remove reaps
     # the sibling regardless.
