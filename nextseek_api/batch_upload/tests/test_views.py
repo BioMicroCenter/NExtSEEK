@@ -1245,7 +1245,8 @@ class TestResolveUserContextSeekDBInit:
                     return_value={"contributor_id": 42, "lababbv": "MIT"}), \
              patch("nextseek_api.batch_upload.views._save_uploaded_file", return_value="/tmp/test.xlsx"), \
              patch("nextseek_api.batch_upload.views.run_batch_upload_task") as mock_task, \
-             patch("nextseek_api.batch_upload.views.register_job"):
+             patch("nextseek_api.batch_upload.views.register_job"), \
+             patch("nextseek_api.batch_upload.views._caller_project_scope", return_value=(1,)):
             mock_task.delay.return_value = MagicMock(id="test-job-id")
 
             view = BatchUploadViewSet()

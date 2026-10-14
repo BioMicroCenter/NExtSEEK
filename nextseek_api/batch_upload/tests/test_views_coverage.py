@@ -87,6 +87,7 @@ class TestBatchUploadViewSetStartAction:
         assert response.status_code == 400
 
 
+    @patch("nextseek_api.batch_upload.views._caller_project_scope", new=lambda user: (1,))  # a member of project 1
     @patch("nextseek_api.batch_upload.views._save_uploaded_file", return_value="/tmp/test.xlsx")
     @patch("nextseek_api.batch_upload.views._resolve_user_context", return_value=None)
     def test_start_user_context_none(self, mock_ctx, mock_save):
@@ -104,6 +105,7 @@ class TestBatchUploadViewSetStartAction:
         response = view(request)
         assert response.status_code == 401
 
+    @patch("nextseek_api.batch_upload.views._caller_project_scope", new=lambda user: (1,))  # a member of project 1
     @patch("nextseek_api.batch_upload.views.register_job")
     @patch("nextseek_api.batch_upload.views.run_batch_upload_task")
     @patch("nextseek_api.batch_upload.views._save_uploaded_file", return_value="/tmp/test.xlsx")

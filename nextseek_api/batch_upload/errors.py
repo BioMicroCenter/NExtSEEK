@@ -38,6 +38,8 @@ class ErrorType(Enum):
     # no message and no effect on any total.
     PARENT_NOT_FOUND = "parent_not_found"
     CYCLE_UNRESOLVABLE = "CYCLE_UNRESOLVABLE"
+    # An upsert row names an existing sample outside the caller's projects (SEC-001): refused, not updated.
+    PERMISSION_DENIED = "permission_denied"
     UNKNOWN = "UNKNOWN"
 
 
@@ -68,6 +70,7 @@ _SEVERITY_MAP: Dict[ErrorType, Severity] = {
     ErrorType.PROTOCOL_EXTERNAL_LINK: Severity.INFO,
     ErrorType.PARENT_NOT_FOUND: Severity.WARNING,
     ErrorType.CYCLE_UNRESOLVABLE: Severity.ERROR,
+    ErrorType.PERMISSION_DENIED: Severity.ERROR,
 }
 
 

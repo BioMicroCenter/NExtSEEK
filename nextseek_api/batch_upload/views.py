@@ -20,6 +20,7 @@ from rest_framework.response import Response
 
 from nextseek_api.permissions import IsSuperUser
 from nextseek_api.assistant.turn_pass_auth import TurnPassAuthentication
+from nextseek_api.graph_search.scope import resolve_scope
 from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
 
 from .celery_app import app as celery_app
@@ -241,6 +242,16 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # SEC-001: a caller uploads only into a project they belong to; a superuser into any.
+        scope_project_ids = _caller_project_scope(request.user)
+        if scope_project_ids is not None and project_id not in scope_project_ids:
+            for path in xlsx_paths:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+            return _not_a_member(project_id)
+
         # config_overrides + update_existing handling
         config_overrides = request.data.get("config_overrides", {})
         if isinstance(config_overrides, str):
@@ -255,6 +266,11 @@ class BatchUploadViewSet(viewsets.ViewSet):
                         {"detail": "config_overrides must be a JSON object"},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
+
+        # The access grant on uploaded samples is not the caller's to change unless they are a superuser.
+        if scope_project_ids is not None and isinstance(config_overrides, dict):
+            for key in _SUPERUSER_ONLY_OVERRIDES:
+                config_overrides.pop(key, None)
 
         update_existing = request.data.get("update_existing")
         if update_existing is not None:
@@ -307,6 +323,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
             user_id=request.user.pk,
             config_overrides=config_overrides,
             neo4j_only=neo4j_only,
+            scope_project_ids=None if scope_project_ids is None else list(scope_project_ids),
         )
         if validated_rows is not None:
             task_kwargs["rows"] = [r.model_dump() for r in validated_rows]
@@ -450,6 +467,11 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 {"detail": "project_id must be an integer"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # SEC-001: validate only against a project the caller belongs to, as /start/ requires.
+        scope_project_ids = _caller_project_scope(request.user)
+        if scope_project_ids is not None and project_id not in scope_project_ids:
+            return _not_a_member(project_id)
 
         # ── Mode 1: Direct rows (JSON, checked first -- rows wins) ──
         if raw_rows is not None:
@@ -671,6 +693,34 @@ def _save_uploaded_file(uploaded_file) -> str:
         for chunk in uploaded_file.chunks():
             f.write(chunk)
     return dest_path
+
+
+# Config keys that set the upload's own access grant: a superuser's alone (SEC-001).
+_SUPERUSER_ONLY_OVERRIDES = (
+    "enable_auto_permissions",
+    "permissions_default_access_type",
+    "permissions_default_contributor_type",
+)
+
+
+def _caller_project_scope(user):
+    """The SEEK projects ``user`` may upload into: ``None`` for a superuser (any project), else a tuple of ids.
+
+    Fails closed: a caller with no SEEK person, or a membership read that fails, gets ``()`` (no project).
+    """
+    try:
+        scope = resolve_scope(user)
+    except Exception as exc:  # noqa: BLE001 (ScopeUnavailable or a database error: refuse, never widen)
+        log.warning("batch upload: project membership could not be read (%s); refusing", type(exc).__name__)
+        return ()
+    return None if scope.is_admin else scope.project_ids
+
+
+def _not_a_member(project_id: int) -> Response:
+    return Response(
+        {"detail": f"You are not a member of project {project_id}."},
+        status=status.HTTP_403_FORBIDDEN,
+    )
 
 
 def _resolve_user_context(request) -> dict | None:

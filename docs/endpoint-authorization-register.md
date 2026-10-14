@@ -133,7 +133,7 @@ assay registrations, batch upload, the API root and the three API description pa
 | POST | `assay-registrations/` | Superuser only. Records which samples belong to which assays. | `AssayRegistrationViewSet.create` | IsAuthenticated, IsSuperUser |  |
 | GET | `assay-registrations/jobs/{job_id}/` | Superuser only. The state of one registration job. | `AssayRegistrationViewSet.job` | IsAuthenticated, IsSuperUser |  |
 | POST | `assay-registrations/jobs/{job_id}/cancel/` | Superuser only. | `AssayRegistrationViewSet.job_cancel` | IsAuthenticated, IsSuperUser |  |
-| POST | `batch-upload/start/` | Any signed-in user. The job belongs to the caller and files the rows under the caller's own SEEK person; another person or lab is a superuser's choice only. | `BatchUploadViewSet.start` | IsAuthenticated |  |
+| POST | `batch-upload/start/` | A signed-in member of the target project (403 otherwise; a superuser may use any project). The job belongs to the caller and files the rows under the caller's own SEEK person; another person or lab, and the access grant in `config_overrides`, are a superuser's choice only. An upsert updates only samples in the caller's own projects. | `BatchUploadViewSet.start` | IsAuthenticated |  |
 | GET | `batch-upload/` | Any signed-in user. Lists only the caller's own jobs. | `BatchUploadViewSet.list` | IsAuthenticated |  |
 | GET | `batch-upload/status/{job_id}/` | Any signed-in user, but only the job's owner; another user's job answers 404. | `BatchUploadViewSet.job_status` | IsAuthenticated |  |
 | GET | `batch-upload/summary/{job_id}/` | Any signed-in user, but only the job's owner; another user's job answers 404. | `BatchUploadViewSet.summary` | IsAuthenticated |  |
@@ -201,7 +201,7 @@ assay registrations, batch upload, the API root and the three API description pa
 | GET | `attributes/` | A signed-in user whose SEEK login is proved. Attribute definitions only, no sample values. | `AttributeViewSet.list` | SeekAuthenticated |  |
 | GET | `attributes/{pk}/` | A signed-in user whose SEEK login is proved. One attribute definition. | `AttributeViewSet.retrieve` | SeekAuthenticated |  |
 | POST | `attributes/search/` | A signed-in user whose SEEK login is proved. Searches attribute definitions. | `AttributeViewSet.search` | SeekAuthenticated |  |
-| POST | `batch-upload/validate/` | Any signed-in user. Checks an upload sheet and writes nothing. | `BatchUploadViewSet.validate` | IsAuthenticated |  |
+| POST | `batch-upload/validate/` | A signed-in member of the target project (403 otherwise; a superuser may use any project). Checks an upload sheet and writes nothing. | `BatchUploadViewSet.validate` | IsAuthenticated |  |
 
 ## What changed for #64 (2026-10-13)
 

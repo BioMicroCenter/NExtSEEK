@@ -57,6 +57,9 @@ class BatchUploadConfig:
         self.update_existing: bool = _env_bool(
             "BATCH_UPLOAD_UPDATE_EXISTING", overrides.get("update_existing", False)
         )
+        # Projects whose existing samples this job may change (SEC-001). Never read from overrides: the
+        # upload task sets it from the view's membership read. None means any sample (a superuser).
+        self.scope_project_ids: Optional[Tuple[int, ...]] = None
 
     def to_dict(self) -> dict:
         return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}

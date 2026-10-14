@@ -458,7 +458,23 @@ def process_batches(
         try:
             with conn_factory() as conn:
                 update_uuids = [s.uuid for s in rows_to_update]
-                details = load_existing_sample_details(update_uuids, conn)
+                scope = config.scope_project_ids
+                details = load_existing_sample_details(update_uuids, conn, project_ids=scope)
+
+                # SEC-001: an existing sample outside the caller's projects is refused, never updated.
+                if scope is not None:
+                    for sample in rows_to_update:
+                        if sample.uuid not in details:
+                            outcomes[sample.uuid] = RowOutcome(
+                                status="failed", reason="update refused: the sample is not in one of your projects"
+                            )
+                            error_collector.add(
+                                row_index=-1,
+                                uid=sample.uuid,
+                                error_type=ErrorType.PERMISSION_DENIED,
+                                message="Update refused: the sample is not in one of your projects",
+                            )
+                    rows_to_update = [s for s in rows_to_update if s.uuid in details]
 
                 update_outcomes = bulk_update_samples(
                     rows=rows_to_update,

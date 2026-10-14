@@ -27,6 +27,7 @@ def run_batch_upload_task(
     user_id: int = None,
     config_overrides: dict = None,
     neo4j_only: bool = False,
+    scope_project_ids: list = (),
 ):
     """Celery task entry point for batch upload.
 
@@ -39,6 +40,9 @@ def run_batch_upload_task(
     if xlsx_paths is None:
         xlsx_paths = [xlsx_path] if xlsx_path else []
     config = BatchUploadConfig(**(config_overrides or {}))
+    # SEC-001: the projects whose existing samples this job may change, from the view's membership read.
+    # None is a superuser (any sample); a message that does not carry it changes no existing sample.
+    config.scope_project_ids = None if scope_project_ids is None else tuple(int(p) for p in scope_project_ids)
 
     # Checkpoint directory under MEDIA_ROOT
     from django.conf import settings

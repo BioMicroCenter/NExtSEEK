@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -68,13 +68,17 @@ def deep_merge_metadata(
 
 
 def load_existing_sample_details(
-    uuids: List[str], conn: Connection
+    uuids: List[str], conn: Connection, project_ids: Optional[Sequence[int]] = None
 ) -> Dict[str, dict]:
     """Load existing sample details needed for update.
 
     Returns {uuid: {"sample_id": int, "policy_id": int, "json_metadata": str, "title": str}}.
+    With ``project_ids`` (SEC-001), only samples linked to one of those projects are returned, so an
+    upload never updates another project's sample; an empty ``project_ids`` returns nothing.
     """
     details: Dict[str, dict] = {}
+    if project_ids is not None and not project_ids:
+        return details
     for chunk_start in range(0, len(uuids), 1000):
         chunk = uuids[chunk_start : chunk_start + 1000]
         params = {f"u{i}": u for i, u in enumerate(chunk)}
@@ -93,7 +97,28 @@ def load_existing_sample_details(
                 "json_metadata": jmeta or "{}",
                 "title": title or "",
             }
-    return details
+    if project_ids is None or not details:
+        return details
+
+    # Same plain IN shape as associations.batch_insert_projects_samples: projects_samples has no index, so
+    # one scan per chunk, never a per-row subquery.
+    in_scope: Set[int] = set()
+    sample_ids = sorted({d["sample_id"] for d in details.values()})
+    pparams = {f"p{i}": int(p) for i, p in enumerate(project_ids)}
+    pmarks = ", ".join(f":p{i}" for i in range(len(pparams)))
+    for chunk_start in range(0, len(sample_ids), 1000):
+        chunk = sample_ids[chunk_start : chunk_start + 1000]
+        params = dict(pparams, **{f"s{i}": s for i, s in enumerate(chunk)})
+        smarks = ", ".join(f":s{i}" for i in range(len(chunk)))
+        result = conn.execute(
+            text(
+                f"SELECT DISTINCT sample_id FROM projects_samples "
+                f"WHERE project_id IN ({pmarks}) AND sample_id IN ({smarks})"
+            ),
+            params,
+        )
+        in_scope.update(int(r[0]) for r in result.fetchall())
+    return {u: d for u, d in details.items() if d["sample_id"] in in_scope}
 
 
 def update_sample_metadata(

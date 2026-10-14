@@ -36,6 +36,13 @@ lineage, and none of them fails loudly.
   account; `nextseek_api/batch_upload/views.py:796-797` refuses the request outright when no
   identity resolves rather than falling back to the Django primary key. Accepting the client
   value would attribute samples to any person id a caller names.
+- **A caller writes only into their own projects (SEC-001).** `start` and `validate` answer 403
+  unless the caller belongs to the target project (`_caller_project_scope` in `views.py`, which
+  fails closed to no project); the view hands the caller's projects to the task as
+  `scope_project_ids`, and the upsert path loads existing samples only from those projects
+  (`load_existing_sample_details`), refusing any other row as `PERMISSION_DENIED`. A superuser
+  passes `None`, meaning any project. The task treats a message without the key as no project,
+  so a new dispatcher that forgets it updates nothing rather than everything.
 - **Job ownership is the only authorization on status, cancel and summary.**
   `nextseek_api/batch_upload/views.py:105-112` turns a non-owner into a 404 by consulting
   the per-user index file (`nextseek_api/batch_upload/job_index.py:80-94`). A job id is a
@@ -83,15 +90,14 @@ lineage, and none of them fails loudly.
 
 ## Landmines
 
-- **`config_overrides` travels from the request body into the pipeline config unfiltered.**
+- **`config_overrides` travels from the request body into the pipeline config almost unfiltered.**
   `nextseek_api/batch_upload/views.py:241` reads it, `nextseek_api/batch_upload/views.py:305`
   forwards it, and `nextseek_api/batch_upload/tasks.py:40` splats it into the constructor,
   so any authenticated caller can set any tunable the constructor pulls out of `overrides`
-  (`nextseek_api/batch_upload/config.py:20-59`): the permission switch and its access type
-  among them. Both of those consult an environment variable first
-  (`nextseek_api/batch_upload/config.py:35-40`), so an instance that sets those variables is
-  covered and one that leaves them unset is not. Adding a tunable here adds a request
-  parameter whether you meant to or not.
+  (`nextseek_api/batch_upload/config.py:20-59`). The view drops the three access-grant keys
+  (`_SUPERUSER_ONLY_OVERRIDES` in `views.py`) for anyone but a superuser; every other tunable
+  still passes. Adding a tunable here adds a request parameter whether you meant to or not,
+  and adding one that changes who can see a sample means adding it to that list.
 - **A graph failure does not fail the job, and the job reports it in one word.**
   `nextseek_api/batch_upload/orchestrator.py:606-609` logs the exception and returns a
   status, so the task still reports SUCCESS with the SQL rows committed. What tells you
