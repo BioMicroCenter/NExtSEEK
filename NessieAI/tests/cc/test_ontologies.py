@@ -190,13 +190,40 @@ def test_units_are_case_sensitive():
 
 def test_values_no_term_fits_resolve_to_nothing():
     assert resolve("library_layout", "3DGE") is None
-    assert resolve("mouse_genotype", "RGAM") is None
+    assert resolve("mouse_genotype", "A") is None  # a bare letter: Aag -/- alone, or the A/J strain
     # A patch release is its own accession: mapping it to the base build loses the patch (asked instead).
     for value in ("GRCh38.p13", "GRCh38.p14", "GRCh37.p13", "GRCm38.p6"):
         assert resolve("genome_assembly", value) is None, value
-    # Short strain names whose substrain the data does not prove are asked about, not expanded.
-    for value in ("PWK", "CAST", "WSB", "PWD"):
-        assert resolve("mouse_strain", value) is None and resolve("mouse_genotype", value) is None, value
+
+
+def test_lab_short_codes_resolve():
+    """Operator ruling 2026-10-14: the lab's RaDR/GPT short codes (R = RaDR+/+, G = GPT+/+, A = Aag -/-,
+    ATG = AagTg -/+, M = Mgmt-/-) and the strain short names whose full name is in the data map without asking."""
+    genotype = {
+        "RGA": "RaDR+/+; GPT+/+; Aag -/-",
+        "RGATG": "RaDR+/+; GPT+/+; AagTg -/+",
+        "RGM": "RaDR+/+; GPT+/+; Mgmt-/-",
+        "RGAM": "RaDR+/+; GPT+/+; Aag -/-; Mgmt-/-",
+        "R": "RaDR+/+",
+        "RA": "RaDR+/+; Aag -/-",
+        "GA": "GPT+/+; Aag -/-",
+        "RaDR R/R; gpt g/g": "RaDR+/+; GPT+/+",
+    }
+    for value, term in genotype.items():
+        assert resolve("mouse_genotype", value)["TERM"] == term, value
+    strain = {"PWK": "PWK/PhJ", "CAST": "CAST/EiJ", "WSB": "WSB/EiJ", "PWD": "PWD/PhJ",
+              "CC024J": "CC024/GeniUncJ", "CC024": "CC024/GeniUncJ", "CC011J": "CC011/UncJ", "CC039": "CC039/Unc"}
+    for value, term in strain.items():
+        assert resolve("mouse_strain", value)["TERM"] == term, value
+
+
+def test_every_ontology_has_a_public_link():
+    """A reply names the ontology it matched against and links it: source_url plus the entry's file."""
+    base = INDEX["source_url"]
+    assert base.startswith("https://github.com/BioMicroCenter/NExtSEEK/blob/") and base.endswith(
+        "/NessieAI/chat_nextseek/src/chat_nextseek/context/")
+    for entry in ENTRIES.values():
+        assert (CONTEXT / entry["file"]).is_file(), entry["file"]
 
 
 def test_exact_term_is_already_harmonized():

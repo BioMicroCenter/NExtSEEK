@@ -1,12 +1,13 @@
 [
  {
   "TERM": "RaDR+/+; GPT+/+",
-  "DEF": "Homozygous for the Rosa26 Direct Repeat (RaDR) recombination reporter and the gpt delta (GPT) point-mutation reporter.",
+  "DEF": "Homozygous for the Rosa26 Direct Repeat (RaDR) recombination reporter and the gpt delta (GPT) point-mutation reporter. Lab short codes: R = RaDR+/+, G = GPT+/+, A = Aag -/-, ATG = AagTg -/+, M = Mgmt-/-.",
   "ONT_SOURCE": "house",
   "ONT_ID": null,
   "SYNONYMS": [
    "RG",
-   "Rosa26 Direct Repeat (RaDR)+/+; guanine phosphoribosyltransferase (GPT)+/+"
+   "Rosa26 Direct Repeat (RaDR)+/+; guanine phosphoribosyltransferase (GPT)+/+",
+   "RaDR R/R; gpt g/g"
   ]
  },
  {
@@ -14,14 +15,18 @@
   "DEF": "RaDR and GPT reporters, alkyladenine DNA glycosylase (Aag) knockout.",
   "ONT_SOURCE": "house",
   "ONT_ID": null,
-  "SYNONYMS": []
+  "SYNONYMS": [
+   "RGA"
+  ]
  },
  {
   "TERM": "RaDR+/+; GPT+/+; Mgmt-/-",
   "DEF": "RaDR and GPT reporters, O6-methylguanine-DNA methyltransferase (Mgmt) knockout.",
   "ONT_SOURCE": "house",
   "ONT_ID": null,
-  "SYNONYMS": []
+  "SYNONYMS": [
+   "RGM"
+  ]
  },
  {
   "TERM": "RaDR+/+; GPT+/+; Aag -/-; Mgmt-/-",
@@ -29,7 +34,8 @@
   "ONT_SOURCE": "house",
   "ONT_ID": null,
   "SYNONYMS": [
-   "Rosa26 Direct Repeat (RaDR)+/+; guanine phosphoribosyltransferase (GPT)+/+; 3-alkyladenine DNA glycosylase (Aag) -/-; O6-methylguanine-DNA methyltransferase (Mgmt)-/-"
+   "Rosa26 Direct Repeat (RaDR)+/+; guanine phosphoribosyltransferase (GPT)+/+; 3-alkyladenine DNA glycosylase (Aag) -/-; O6-methylguanine-DNA methyltransferase (Mgmt)-/-",
+   "RGAM"
   ]
  },
  {
@@ -37,28 +43,36 @@
   "DEF": "RaDR and GPT reporters, hemizygous Aag-overexpressing transgene.",
   "ONT_SOURCE": "house",
   "ONT_ID": null,
-  "SYNONYMS": []
+  "SYNONYMS": [
+   "RGATG"
+  ]
  },
  {
   "TERM": "RaDR+/+",
   "DEF": "Homozygous RaDR recombination reporter only.",
   "ONT_SOURCE": "house",
   "ONT_ID": null,
-  "SYNONYMS": []
+  "SYNONYMS": [
+   "R"
+  ]
  },
  {
   "TERM": "RaDR+/+; Aag -/-",
   "DEF": "RaDR reporter, Aag knockout.",
   "ONT_SOURCE": "house",
   "ONT_ID": null,
-  "SYNONYMS": []
+  "SYNONYMS": [
+   "RA"
+  ]
  },
  {
   "TERM": "GPT+/+; Aag -/-",
   "DEF": "GPT reporter, Aag knockout.",
   "ONT_SOURCE": "house",
   "ONT_ID": null,
-  "SYNONYMS": []
+  "SYNONYMS": [
+   "GA"
+  ]
  },
  {
   "TERM": "Rag1-/-",
