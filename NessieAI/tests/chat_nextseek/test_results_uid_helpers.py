@@ -117,3 +117,12 @@ def test_summary_and_tools_pick_the_same_bundle():
 def test_summary_states_total_and_cap():
     sess = _session([{"id": 1, "user_query": "q", "graph_result": {"ok": True, "total": 231, "truncated": True, "data": NDMA}}])
     assert summarize_pinned_bundle(sess) == "last search: query='q', ~3 rows of 231 (capped)"
+
+
+def test_plan_uids_are_borrowed_only_by_a_bundle_with_no_rows():
+    count = {"id": 2, "graph_result": {"ok": True, "data": [{"n": 120}]},
+             "parser_plan": {"filters": {"uids": [NDMA[0]["uuid"]]}}}
+    sess = _session([{"id": 1, "graph_result": {"ok": True, "data": NDMA}}, count])
+    assert uids_from_last_search(sess, 2) == []
+    assert uids_from_last_search(sess) == [r["uuid"] for r in NDMA]  # the newest set walks past the count
+

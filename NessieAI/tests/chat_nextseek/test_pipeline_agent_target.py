@@ -85,3 +85,19 @@ def test_the_cc_bridge_with_explicit_uids_still_starts(loop):
     session = {}
     out = pa.start(session, SimpleNamespace(), user_query="Run rnaseq on MUS-1-1-PUB, MUS-1-2-PUB")
     assert out["reply"] == "loop" and _state(session)["source_bundle_id"] is None
+
+
+def test_a_named_count_whose_plan_carried_uids_still_asks(monkeypatch):
+    # The parser copies the earlier turn's shown UIDs into filters.uids on a follow-up, so a count's own plan
+    # can carry 5 of the 231. Those must not make the count a set to build on (REVIEW-1 M2).
+    monkeypatch.setattr(pa, "_run_loop", lambda *a, **k: pytest.fail("no model call"))
+    mice = [{"uuid": f"MUS-7-{n}-PUB"} for n in range(231)]
+    session = {"results_history": [
+        {"id": 1, "user_query": "mice treated with a drug", "graph_result": {"ok": True, "data": mice}},
+        {"id": 2, "user_query": "how many of those are female?", "graph_result": {"ok": True, "data": [{"n": 120}]},
+         "parser_plan": {"filters": {"uids": [m["uuid"] for m in mice[:5]]}}},
+    ]}
+    out = pa.start(session, SimpleNamespace(), user_query="Run rnaseq on those", parser_plan={"target_result_id": 2})
+    assert out["action"] == "ask" and "count or a breakdown" in out["reply"]
+    assert "mice treated with a drug" in out["reply"] and "231 samples" in out["reply"]
+    assert _state(session)["source_bundle_id"] == 1
