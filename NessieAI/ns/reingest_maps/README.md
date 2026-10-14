@@ -72,7 +72,8 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
   that replace a base rule with the same `id` or add a new one, and `drop`, a list
   of base rule ids to remove. `maps.effective()` picks the first entry whose range
   contains the run's release. A release outside `applies_to_versions` still maps,
-  with a warning that the rules are unchecked.
+  with a warning that the rules are unchecked. The release is read with nf-core's
+  `-g<commit>` suffix dropped (`v4.1.0-gf7bf36d` is 4.1.0).
 - `deliberately_unmapped` — a ruling, with a real reason. Without it the agent
   re-proposes the same key on every run and the review queue fills with noise.
 

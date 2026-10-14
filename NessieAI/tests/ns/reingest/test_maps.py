@@ -285,6 +285,17 @@ def test_effective_with_no_usable_version_warns_and_applies_base_rules():
         assert warnings and "no usable pipeline version" in warnings[0]
 
 
+def test_effective_reads_the_release_out_of_an_nf_core_commit_suffix():
+    # nf-core's version string appends "-g<short commit>" when the run came
+    # from a git checkout (nf-core/scrnaseq 4.1.0 reports "v4.1.0-gf7bf36d").
+    m, warnings = maps.effective(_versioned(), "v1.4.0-gf7bf36d")
+    assert [r.id for r in m.outputs] == ["aln", "vcf"]
+    assert warnings == []
+    m, warnings = maps.effective(_versioned(), "v2.0.1-gabc1234")
+    assert [r.id for r in m.outputs] == ["aln", "cram"]
+    assert warnings == []
+
+
 def test_effective_accepts_a_prerelease_inside_the_range():
     _, warnings = maps.effective(_versioned(), "1.5.0dev")
     assert warnings == []

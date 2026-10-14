@@ -84,6 +84,9 @@ def expand_braces(pattern: str) -> list[str]:
 
 _RULE_ID = re.compile(r"[a-z][a-z0-9_]*")
 
+# nf-core's "-g<short commit>" version suffix; see effective().
+_COMMIT_SUFFIX = re.compile(r"-g[0-9a-f]{7,40}$")
+
 
 class Companion(BaseModel):
     """A file derived from a rule's primary output: a subset, an index, other
@@ -338,10 +341,14 @@ def effective(pipeline_map: PipelineMap, version: str) -> tuple[PipelineMap, lis
     added, ``drop`` removes. A version outside ``applies_to_versions`` that no
     override covers, or no usable version at all, still applies the base rules,
     with one warning (spec G-2). Never raises on the version itself.
+
+    A trailing ``-g<commit>`` is dropped first: nf-core appends the short
+    commit to its version string for a run launched from a git checkout
+    ("v4.1.0-gf7bf36d"), and PEP 440 has no reading of it.
     """
     from packaging.version import InvalidVersion, Version
 
-    text = str(version or "").strip().lstrip("vV")
+    text = _COMMIT_SUFFIX.sub("", str(version or "").strip()).lstrip("vV")
     try:
         parsed = Version(text) if text else None
     except InvalidVersion:
