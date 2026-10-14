@@ -33,3 +33,20 @@ def test_named_bundle():
     h = [{"id": 1}, {"id": 2}]
     assert named_bundle(h, 1) == {"id": 1}
     assert named_bundle(h, 9) is None and named_bundle(h, None) is None and named_bundle(h, True) is None
+
+
+def test_chat_log_summary_reads_a_retrieve_body():
+    from chat_nextseek.chat_memory import _extract_count, _extract_first_uids
+
+    payload = {"data": {"total_samples": 3, "data": [{"sample_type": "A", "samples": [{"uuid": "A-1-PUB"}]}]}}
+    assert _extract_count(payload) == 3
+    assert _extract_first_uids(payload) == ["A-1-PUB"]
+
+
+def test_recent_results_total_is_the_plans_final_step():
+    from chat_nextseek.helpers.tools.nextseek_api import _bundle_total
+
+    plan = {"step_results": {1: {"ok": True, "output": {"data": [{}] * 5, "count": 5}},
+                             2: {"ok": True, "output": {"data": [{}] * 2, "count": 2}}},
+            "graph_result": {"ok": True, "total": 5, "data": [{}] * 5}}
+    assert _bundle_total(plan)[0] == 2

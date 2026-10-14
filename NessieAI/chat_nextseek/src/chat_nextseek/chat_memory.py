@@ -147,31 +147,14 @@ def _shrink_filters(filters: Any) -> dict[str, Any]:
 
 
 def _extract_first_uids(result_payload: Any, limit: int = MAX_UID_EXAMPLES) -> list[str]:
-    """Best-effort grab of leading UIDs from a heterogeneous result shape."""
+    """Best-effort grab of leading UIDs from a heterogeneous result shape (the shared row reader's)."""
     if not isinstance(result_payload, dict):
         return []
-    rows: list[Any] = []
-    data = result_payload.get("data")
-    if isinstance(data, dict):
-        for key in ("rows", "nodes", "data"):
-            val = data.get(key)
-            if isinstance(val, list):
-                rows = val
-                break
-    elif isinstance(data, list):
-        rows = data
-
     uids: list[str] = []
-    for row in rows[:limit]:
-        if isinstance(row, dict):
-            uid = row.get("uid") or row.get("UID") or row.get("uuid") or row.get("sample_uid")
-            cleaned = _strip_html(uid)
-            if cleaned:
-                uids.append(cleaned)
-        elif isinstance(row, str):
-            cleaned = _strip_html(row)
-            if cleaned:
-                uids.append(cleaned)
+    for row in (_rows_in(result_payload.get("data")) or [])[:limit]:
+        cleaned = _strip_html(row) if isinstance(row, str) else row_uid(row)
+        if cleaned:
+            uids.append(cleaned)
     return uids
 
 
@@ -184,12 +167,9 @@ def _extract_count(result_payload: Any) -> int | None:
             val = data.get(key)
             if isinstance(val, int):
                 return val
-        for key in ("rows", "nodes", "data"):
-            val = data.get(key)
-            if isinstance(val, list):
-                return len(val)
-    elif isinstance(data, list):
-        return len(data)
+    rows = _rows_in(data)
+    if rows is not None:
+        return len(rows)
     if isinstance(result_payload.get("count"), int):
         return result_payload["count"]
     return None
