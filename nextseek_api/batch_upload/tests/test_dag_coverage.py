@@ -133,3 +133,22 @@ class TestComputeDirections:
         ]
         result = compute_directions(rows)
         assert result.direction_by_pair == {}
+
+
+# ---------------------------------------------------------------------------
+# Multi-parent: output (2) wins over input (1) whatever the edge order
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("path_name", ["_pandas_path", "_duckdb_path"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_output_wins_whatever_the_edge_order(path_name, reverse):
+    from nextseek_api.batch_upload import dag
+    assays_records = [{"uid": "C", "assay": 42}, {"uid": "P1", "assay": 42}]
+    edges_records = [
+        {"parent": "P1", "child": "C"},  # P1 has the assay too -> output (2)
+        {"parent": "P2", "child": "C"},  # P2 lacks it -> input (1)
+    ]
+    if reverse:
+        edges_records.reverse()
+    direction_by_pair, _, _ = getattr(dag, path_name)(assays_records, edges_records)
+    assert direction_by_pair[("C", 42)] == 2

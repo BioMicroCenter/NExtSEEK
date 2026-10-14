@@ -176,7 +176,7 @@ def _pandas_path(
         assay_id = int(row["assay"])
         direction = int(row["direction"])
         key = (uid, assay_id)
-        direction_by_pair[key] = direction
+        direction_by_pair[key] = max(direction_by_pair.get(key, 0), direction)  # output (2) beats input (1)
         child_uids_by_assay.setdefault(assay_id, set()).add(uid)
 
     return direction_by_pair, child_uids_by_assay, conflicts_by_assay
@@ -224,7 +224,7 @@ def _duckdb_path(
 
     for child, assay_id, direction in result:
         key = (child, int(assay_id))
-        direction_by_pair[key] = int(direction)
+        direction_by_pair[key] = max(direction_by_pair.get(key, 0), int(direction))  # output (2) beats input (1)
         child_uids_by_assay.setdefault(int(assay_id), set()).add(child)
 
     return direction_by_pair, child_uids_by_assay, conflicts_by_assay
