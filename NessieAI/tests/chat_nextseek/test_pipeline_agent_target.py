@@ -108,7 +108,9 @@ def test_a_named_count_whose_plan_carried_uids_still_asks(monkeypatch):
 def test_a_named_search_that_found_nothing_says_so(monkeypatch):
     monkeypatch.setattr(pa, "_run_loop", lambda *a, **k: pytest.fail("no model call"))
     session = _session()
+    # Its plan carried the 3 shown mice: an empty search must not borrow them as its set (REVIEW-2 MF1).
     session["results_history"].append({"id": 3, "user_query": "female mice treated with a drug",
+                                       "parser_plan": {"filters": {"uids": [m["uuid"] for m in MICE]}},
                                        "graph_result": {"ok": True, "data": []}})
     out = pa.start(session, SimpleNamespace(), user_query="Run rnaseq on those", parser_plan={"target_result_id": 3})
     assert out["action"] == "ask" and "found no samples" in out["reply"] and "count or a breakdown" not in out["reply"]

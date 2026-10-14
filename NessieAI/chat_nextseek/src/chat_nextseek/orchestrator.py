@@ -2002,6 +2002,11 @@ def _followup_result_bundle(session, artifact_store, *, outcome: dict | None, us
 BUNDLE_SEQ_KEY = "bundle_seq"
 
 
+#: The LIMIT the graph agent puts on a list of samples (``prompts/graph_agent.txt``, "LIMIT 5000 as a safety cap").
+# ponytail: mirrors the prompt's number; a LIMIT below it is read as one the user asked for.
+GRAPH_SAFETY_CAP = 5000
+
+
 def _report_generation_uids(session, user_text: str, plan, reporter_plan) -> tuple[list[str], str | None]:
     """``(the UIDs a report is generated over, a narrowing reply or None)``.
 
@@ -2018,12 +2023,18 @@ def _report_generation_uids(session, user_text: str, plan, reporter_plan) -> tup
     except Exception:
         parser_uids = []
     target_id = getattr(plan, "target_result_id", None)
-    named_here = bool(uids) or bool(uids_in(user_text or ""))
+    # The reporter copies the parser's carried UIDs into its own plan whenever it names none, so only a UID the
+    # parser did not carry, or one the user typed, says the user named the set here.
+    carried = set(parser_uids or [])
+    named_here = any(u not in carried for u in uids) or bool(uids_in(user_text or ""))
     target_uids = uids_from_last_search(session, target_id) if target_id is not None and not named_here else []
     if target_uids:
         target = named_bundle(session.get("results_history") or [], target_id)
         rows, total, capped = bundle_extent(target)
-        if not (capped or (total is not None and total > len(rows))):
+        graph = target.get("graph_result") if isinstance(target.get("graph_result"), dict) else {}
+        # A LIMIT under the graph agent's safety cap is one the question set ("show me 10"): those rows are the set.
+        asked = isinstance(graph.get("limit"), int) and graph["limit"] < GRAPH_SAFETY_CAP
+        if asked or not (capped or (total is not None and total > len(rows))):
             return target_uids, None
         held = f"{len(rows)} of {total}" if total is not None else f"only the first {len(rows)}"
         return [], (f"The result you mean ({target.get('user_query') or 'that result'!r}) holds {held} samples: "
@@ -2557,6 +2568,8 @@ def run_query(
                     )
                     print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
                     return _emit_query_complete(send_event, narrow, debug_payload, None)
+                # The bundle remembers the samples this report packaged, so a later "run rnaseq on those" builds on them.
+                reporter_plan = reporter_plan.model_copy(update={"uids": uids})
 
                 current_agent = "report_writer"
                 send_event("agent_started", {"agent": "report_writer", "mode": reporter_mode})

@@ -569,20 +569,27 @@ def normalize_api_result_for_memory(api_result: dict, min_rows_for_norm: int = 1
 
 
 def _bundle_uids(bundle: dict) -> list[str]:
-    """The sample UIDs a build or a report on this bundle uses, through the shared reader. A retrieve's are the
-    identifiers it asked for (its plan's), not the lineage it returned: that holds the ancestors, whose own trees a
-    build would fetch whole. Only a bundle that holds no rows at all (a report) also borrows the UIDs its own plan
-    named: a count's plan can carry the earlier turn's shown UIDs, and a count is no set. A follow-up still counts
-    every sample a retrieve returned (``chat_memory.bundle_uids``)."""
+    """The sample UIDs a build or a report on this bundle uses, through the shared reader.
+
+    A bundle's rows, except a retrieve's: its set is the identifiers it asked for, not the lineage it returned,
+    which holds the ancestors whose own trees a build would fetch whole. A bundle with no rows has a set only when
+    it is a report, whose plan names the samples it packaged. Any other plan's UIDs are not the bundle's own: a
+    count's or an empty search's can carry the 5 UIDs the earlier turn showed. A follow-up still counts every
+    sample a retrieve returned (``chat_memory.bundle_uids``)."""
     rows, _total, _more, from_plan = bundle_rows_and_extent(bundle)
-    if rows and (from_plan or _grouped_records(load_api_result_full(bundle).get("data")) is None):
+    retrieve = not from_plan and _grouped_records(load_api_result_full(bundle).get("data")) is not None
+    if rows and not retrieve:
         return uids_from_rows(rows)
-    rp = bundle.get("reporter_plan")
-    plan_uids = rp.get("uids") if isinstance(rp, dict) else None
-    if not (isinstance(plan_uids, list) and plan_uids):
-        pp = bundle.get("parser_plan")
-        filt = pp.get("filters") if isinstance(pp, dict) else None
-        plan_uids = filt.get("uids") if isinstance(filt, dict) else None
+    if retrieve:
+        body = ((bundle.get("api_plan") or {}).get("requestBody") or {}) if isinstance(bundle.get("api_plan"), dict) else {}
+        plan_uids = body.get("identifiers") if isinstance(body, dict) else None
+        if not (isinstance(plan_uids, list) and plan_uids):
+            pp = bundle.get("parser_plan")
+            filt = pp.get("filters") if isinstance(pp, dict) else None
+            plan_uids = filt.get("uids") if isinstance(filt, dict) else None
+    else:
+        rp = bundle.get("reporter_plan")
+        plan_uids = rp.get("uids") if isinstance(rp, dict) else None
     return [re.sub(r"<[^>]+>", "", uid).strip() for uid in plan_uids or [] if isinstance(uid, str) and uid.strip()]
 
 

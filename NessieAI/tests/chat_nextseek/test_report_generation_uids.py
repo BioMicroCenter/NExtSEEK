@@ -36,6 +36,20 @@ def test_uids_the_reporter_named_win():
     assert uids == [SHOWN[3], SHOWN[0]] and reply is None
 
 
+def test_reporter_uids_that_only_echo_the_carried_ones_do_not_hide_the_named_result():
+    """The reporter copies the parser's carried UIDs into its own plan whenever it names none (REVIEW-2 MF2)."""
+    uids, reply = _uids(_session(), "a GEO package for those mice", _plan(1, SHOWN), reporter_uids=list(SHOWN))
+    assert uids == [m["uuid"] for m in MICE] and reply is None
+
+
+def test_a_limit_the_user_asked_for_is_packaged():
+    """"Show me 10 ..." runs LIMIT 10 and hits it: those 10 are the set, not a cut-short one (REVIEW-2 SF2)."""
+    session = {"results_history": [{"id": 1, "user_query": "show me 10 mice treated with a drug", "graph_result": {
+        "ok": True, "data": MICE[:10], "truncated": True, "total": 231, "limit": 10}}]}
+    uids, reply = _uids(session, "a GEO package for those 10", _plan(1))
+    assert uids == [m["uuid"] for m in MICE[:10]] and reply is None
+
+
 def test_no_named_result_keeps_the_carried_uids():
     assert _uids(_session(), "a GEO package for those", _plan(None, SHOWN)) == (SHOWN, None)
 
@@ -68,13 +82,14 @@ def test_a_named_count_is_not_packaged_on_the_uids_the_parser_carried():
     session["results_history"].append({"id": 2, "user_query": "how many of those are female?",
                                        "parser_plan": {"filters": {"uids": SHOWN}},
                                        "graph_result": {"ok": True, "data": [{"female": 103}]}})
-    uids, reply = _uids(session, "a GEO package for those", _plan(2, SHOWN))
+    uids, reply = _uids(session, "a GEO package for those", _plan(2, SHOWN), reporter_uids=list(SHOWN))
     assert uids == [] and "count or a breakdown" in reply and "UIDs" in reply
 
 
 def test_a_named_search_that_found_nothing_says_so():
     session = _session()
     session["results_history"].append({"id": 2, "user_query": "female mice treated with a drug",
+                                       "parser_plan": {"filters": {"uids": SHOWN}},
                                        "graph_result": {"ok": True, "data": []}})
-    uids, reply = _uids(session, "a GEO package for those", _plan(2))
+    uids, reply = _uids(session, "a GEO package for those", _plan(2, SHOWN), reporter_uids=list(SHOWN))
     assert uids == [] and "found no samples" in reply
