@@ -80,7 +80,7 @@
     "MUS.Genotype"
    ],
    "source": "house",
-   "version": "2026-10-13",
+   "version": "2026-10-14",
    "licence": "House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
    "case_sensitive": false
   },
@@ -94,7 +94,7 @@
     "CEL.Strain"
    ],
    "source": "house, MGI strain nomenclature",
-   "version": "2026-10-13",
+   "version": "2026-10-14",
    "licence": "House list (this repository). SRA/GEO terms and definitions come from NCBI submission templates (US government work).",
    "case_sensitive": false
   },

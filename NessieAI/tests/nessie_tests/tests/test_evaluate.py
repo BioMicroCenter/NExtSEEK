@@ -1347,3 +1347,6 @@ def test_a_harmonize_turn_passes_only_on_an_ontology_proposal_that_asks(vid):
         assert not _onto_turn_passes(vid, relist)
     assert not _onto_turn_passes(vid, proposal)
     assert _onto_turn_passes(vid, proposal + "\n" + ask)
+    # The same proposal without the line naming and linking the ontology fails (operator 2026-10-14).
+    unlinked = "\n".join(line for line in proposal.splitlines() if "github.com" not in line)
+    assert not _onto_turn_passes(vid, unlinked + "\n" + ask)
