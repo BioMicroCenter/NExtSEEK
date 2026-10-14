@@ -8,8 +8,8 @@ process (``row_compute.run_in_child``), which holds its time limit from any thre
 Report code imports nothing (the checker refuses an import), and this module and
 ``memory_code`` use only the standard library, which is all that process has. One
 report runs at a time on the machine, across every server process (a lock file,
-``REPORT_LOCK_PATH``); another that cannot start within ``REPORT_WAIT_S`` fails, and
-its caller falls back to the report writer."""
+``REPORT_LOCK_PATH``); another that cannot start within ``REPORT_WAIT_S`` fails with
+``ReportCodeBusyError``, and its caller tries once more, then tells the user."""
 from __future__ import annotations
 
 import ast
@@ -65,6 +65,10 @@ class ReportCodeError(RuntimeError):
     """Raised when generated report code fails for any other reason (an error in the code, the memory limit)."""
 
 
+class ReportCodeBusyError(ReportCodeError):
+    """Raised when another report's code holds the machine's report slot past ``REPORT_WAIT_S``."""
+
+
 _REPORT_ALLOWED_BUILTINS = {
     **_MEMORY_ALLOWED_BUILTINS,
     "abs": abs,
@@ -73,6 +77,12 @@ _REPORT_ALLOWED_BUILTINS = {
 
 _REPORT_ALLOWED_METHODS = _MEMORY_ALLOWED_METHODS | {
     "find", "rfind", "rstrip", "lstrip", "title", "count", "setdefault", "pop", "index",
+    # Prod 10-14: a coder's str.rsplit was refused and a 1,641-sample GEO package fell back to the all-metadata
+    # writer. These read a string or a list and return new values; none reaches I/O, an import or a dunder.
+    # str.format and format_map stay out: a format string can walk attributes ("{0.__class__}").
+    "rsplit", "partition", "rpartition", "splitlines", "removeprefix", "removesuffix", "rindex", "casefold",
+    "capitalize", "swapcase", "zfill", "center", "ljust", "rjust", "isalpha", "isalnum", "isnumeric", "isdecimal",
+    "isspace", "islower", "isupper", "istitle", "insert", "remove", "sort", "reverse", "copy",
 }
 
 _REPORT_ALLOWED_RUNTIME_HELPERS = {"strip_html"}
@@ -202,7 +212,7 @@ def _one_report_at_a_time():
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise ReportCodeError("another report's code is already running, so this one did not run")
+                    raise ReportCodeBusyError("another report's code is already running, so this one did not run")
                 time.sleep(_LOCK_POLL_S)
         yield
     finally:

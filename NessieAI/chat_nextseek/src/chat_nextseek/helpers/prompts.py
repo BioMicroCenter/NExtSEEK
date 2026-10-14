@@ -69,6 +69,10 @@ _logger = logging.getLogger(__name__)
 _failure_reported_stages: set[str] = set()
 
 
+#: The file a stage's prompt goes to when ``log_prompt`` is given a directory.
+PROMPT_LOG_FILE = "prompts.jsonl"
+
+
 def log_prompt(log_path: str, stage: str, payload: dict, *, max_bytes: int | None = None):
     """
     Append a JSON line for the given stage to the FILE ``log_path``.
@@ -79,6 +83,10 @@ def log_prompt(log_path: str, stage: str, payload: dict, *, max_bytes: int | Non
     """
     if not log_path:
         return
+    if os.path.isdir(log_path):
+        # The coder, memory and chatter agents pass their run's log directory: open() on it raised
+        # IsADirectoryError, so those prompts were never written (prod 10-14, stage 'report_coder').
+        log_path = os.path.join(log_path, PROMPT_LOG_FILE)
     try:
         entry = {"stage": stage, **payload, "timestamp": datetime.now().isoformat()}
         line = json.dumps(entry, default=str) + "\n"

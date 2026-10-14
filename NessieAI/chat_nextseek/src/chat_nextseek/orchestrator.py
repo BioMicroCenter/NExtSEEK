@@ -90,6 +90,7 @@ from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, normalized_cypher, timed_ou
                           zero_row_retry_context)
 from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
 from .helpers.results import bundle_extent, picked_uids
+from .reports.outputs import ReportCodePathError
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
@@ -2286,6 +2287,8 @@ def run_query(
         if _raw_send_event:
             _raw_send_event(event_name, payload)
 
+    # Read by the fatal handler: a crash after the parser keeps the plan (and the result it named) in the debug.
+    plan: ParserPlan | None = None
     try:
         # An in-progress samplesheet build always advances through the
         # pipeline_agent before the normal parser path.
@@ -2577,17 +2580,24 @@ def run_query(
                 current_agent = "report_writer"
                 send_event("agent_started", {"agent": "report_writer", "mode": reporter_mode})
                 print("[DEBUG][REPORTER] Report generation UIDs:", len(uids))
-                reporter_result, report_writer_output, saved_files, reply = generate_report_outputs(
-                    config=config,
-                    user_query=user_text,
-                    parser_plan=plan,
-                    reporter_plan=reporter_plan,
-                    uids=uids,
-                    log_dir=log_dir,
-                    report_writer_fn=report_writer_agent,
-                    report_coder_fn=report_coder_agent,
-                    per_sample_reports=per_sample_reports,
-                )
+                try:
+                    reporter_result, report_writer_output, saved_files, reply = generate_report_outputs(
+                        config=config,
+                        user_query=user_text,
+                        parser_plan=plan,
+                        reporter_plan=reporter_plan,
+                        uids=uids,
+                        log_dir=log_dir,
+                        report_writer_fn=report_writer_agent,
+                        report_coder_fn=report_coder_agent,
+                        per_sample_reports=per_sample_reports,
+                    )
+                except ReportCodePathError as code_path_failed:
+                    # The code path failed twice on a set too large for the report writer: a plain reply, not
+                    # the writer's input overflow (prod 10-14, task 39a967f9).
+                    print(f"[DEBUG][REPORT_CODER] Code path failed twice: {code_path_failed}")
+                    reporter_result = {"ok": False, "error": str(code_path_failed)}
+                    report_writer_output, saved_files, reply = {}, {}, code_path_failed.reply
                 send_event("agent_complete", {"agent": "report_writer", "summary": None})
             else:
                 summary_mode = reporter_plan.summary_mode or "samples"
@@ -3124,7 +3134,10 @@ def run_query(
             )
         except Exception as log_err:  # pragma: no cover
             print(f"[FATAL] failed to log chat_log turn: {log_err!r}")
-        return _emit_query_complete(send_event, reply, {"fatal_error": msg, "agent": agent}, None)
+        fatal_debug: dict[str, Any] = {"fatal_error": msg, "agent": agent}
+        if plan is not None:
+            fatal_debug["parser_plan"] = plan.model_dump()
+        return _emit_query_complete(send_event, reply, fatal_debug, None)
 
     except Exception as exc:
         if send_event:

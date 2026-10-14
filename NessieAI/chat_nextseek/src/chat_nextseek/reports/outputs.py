@@ -41,10 +41,20 @@ from .templates_meta import (
 
 
 # Report types that emit one row per sample of a target type, and the type whose
-# count drives the deterministic code path. Above this many samples, the report_writer
-# LLM tends to truncate the list, so the report_coder generates rows deterministically.
+# count the code path's row-parity check uses. Above _REPORT_CODE_PATH_THRESHOLD samples
+# in the metadata, the report_writer LLM truncates the list or overflows its input (prod
+# 10-14: 1,641 mice), so the report_coder writes code that builds the rows from the metadata.
 _TARGET_TYPE_FOR_REPORT = {"GEO": "D.SEQ", "SRA": "D.SEQ", "PRIDE": "D.MSP"}
-_REPORT_CODE_PATH_THRESHOLD = 20
+#: Operator 2026-10-14: more than 10 samples takes the code path (was 20).
+_REPORT_CODE_PATH_THRESHOLD = 10
+
+
+class ReportCodePathError(RuntimeError):
+    """The code path failed twice on a set too large for the report writer. ``reply`` is the plain text for the user."""
+
+    def __init__(self, detail: str, reply: str):
+        super().__init__(detail)
+        self.reply = reply
 
 # The per-sample row list key in each report body (one entry per target-type sample).
 # Used for the row-parity guard so the code path works for SRA/PRIDE, not just GEO.
@@ -60,6 +70,16 @@ def _count_target_samples(metadata: dict | None, target_type: str) -> int:
     except Exception:
         pass
     return 0
+
+
+def _count_all_samples(metadata: dict | None) -> int:
+    """Every sample in the metadata, any type: what the report writer would be handed. A GEO package over mice whose
+    metadata holds no D.SEQ group counts 0 by the target type, and used to send the whole set to the writer."""
+    try:
+        groups = ((metadata or {}).get("data") or {}).get("data") or []
+        return sum(len(g.get("samples") or []) for g in groups if isinstance(g, dict))
+    except Exception:
+        return 0
 
 
 def _wrap_report_result(report_type_value, result: dict, coder_output):
@@ -84,32 +104,53 @@ def _produce_report_output(
     notes="",
     log_dir=None,
 ):
-    """Gate between the deterministic code path (large submissions) and the LLM
-    report_writer (small submissions / fallback). Returns a report-writer output model."""
+    """Gate between the deterministic code path (more than ``_REPORT_CODE_PATH_THRESHOLD`` samples) and the LLM
+    report_writer (small submissions). Returns a report-writer output model; raises ``ReportCodePathError`` when
+    the code path fails twice, rather than handing a large set to the writer."""
     canonical = normalize_report_type(report_type_value)
     target_type = _TARGET_TYPE_FOR_REPORT.get(canonical)
     count = _count_target_samples(metadata, target_type) if target_type else 0
+    total = _count_all_samples(metadata)
 
-    if report_coder_fn is not None and target_type and count > _REPORT_CODE_PATH_THRESHOLD:
-        print(f"[DEBUG][REPORT_CODER] {canonical}: {count} {target_type} samples > "
+    if report_coder_fn is not None and target_type and total > _REPORT_CODE_PATH_THRESHOLD:
+        print(f"[DEBUG][REPORT_CODER] {canonical}: {total} samples ({count} {target_type}) > "
               f"{_REPORT_CODE_PATH_THRESHOLD}; using code path.")
-        try:
-            from ..helpers.tools.report_code import execute_report_code
-            coder_output = report_coder_fn(
-                config, user_query=user_query, report_type=report_type_value,
-                template=template_for_llm, metadata=metadata, log_dir=log_dir,
-            )
-            result = execute_report_code(coder_output.extraction_code, metadata)
-            row_key = _ROW_KEY_FOR_REPORT.get(canonical, "samples")
-            rows = (result or {}).get(row_key)
-            if isinstance(rows, list) and len(rows) == count:
-                print(f"[DEBUG][REPORT_CODER] Emitted {len(rows)} '{row_key}' rows (parity OK).")
-                return _wrap_report_result(report_type_value, result, coder_output)
-            got = len(rows) if isinstance(rows, list) else "n/a"
-            print(f"[DEBUG][REPORT_CODER] Row parity failed for '{row_key}' (got {got}, want {count}); "
-                  "falling back to report_writer.")
-        except Exception as e:
-            print(f"[DEBUG][REPORT_CODER] Code path failed; falling back to report_writer: {e!r}")
+        from ..helpers.tools.report_code import ReportCodeBusyError, execute_report_code
+        from ..llm_clients import LLMFatalError
+
+        row_key = _ROW_KEY_FOR_REPORT.get(canonical, "samples")
+        previous_error = None
+        busy = False
+        # One retry, told why the first attempt failed. Never the all-metadata report_writer above the threshold:
+        # its input overflows on a large set (prod 10-14, task 39a967f9).
+        for _attempt in range(2):
+            try:
+                retry = {"previous_error": previous_error} if previous_error else {}
+                coder_output = report_coder_fn(
+                    config, user_query=user_query, report_type=report_type_value,
+                    template=template_for_llm, metadata=metadata, log_dir=log_dir, **retry,
+                )
+                result = execute_report_code(coder_output.extraction_code, metadata)
+                rows = (result or {}).get(row_key)
+                if isinstance(rows, list) and len(rows) == count:
+                    print(f"[DEBUG][REPORT_CODER] Emitted {len(rows)} '{row_key}' rows (parity OK).")
+                    return _wrap_report_result(report_type_value, result, coder_output)
+                got = len(rows) if isinstance(rows, list) else "n/a"
+                previous_error = (f"row parity failed for '{row_key}': got {got}, want {count} "
+                                  f"(one row per {target_type} sample)")
+            except LLMFatalError:
+                raise
+            except Exception as e:
+                previous_error = f"{type(e).__name__}: {e}"
+                busy = isinstance(e, ReportCodeBusyError)
+            print(f"[DEBUG][REPORT_CODER] Code path attempt failed: {previous_error}")
+        if busy:
+            reply = (f"Another report is being built right now, so I couldn't start the {canonical} package for "
+                     f"these {total} samples. Ask me again in a minute.")
+        else:
+            reply = (f"I couldn't build the {canonical} package for these {total} samples: the step that writes it "
+                     "from their metadata failed twice. Try a smaller set (one study or project), or ask me again.")
+        raise ReportCodePathError(previous_error or "code path failed", reply)
 
     report_writer_plan = ReportWriterPlan(
         report_type=report_type_value,

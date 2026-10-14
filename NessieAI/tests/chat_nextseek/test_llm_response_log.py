@@ -203,11 +203,19 @@ def test_log_prompt_writes_to_the_file_it_is_given(tmp_path):
     assert _lines(target)[0]["response"] == "r"
 
 
+def _unwritable(tmp_path):
+    """A path under a regular file: no write can succeed there. (A directory was the example until 10-14, when
+    log_prompt learned to write into a directory it is given.)"""
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("")
+    return str(blocker / "x.jsonl")
+
+
 def test_a_failed_write_is_logged_at_warning_once(tmp_path, caplog):
-    """A directory where a file belongs is the defect this warning would have named."""
+    """A path no write can reach is the defect this warning names."""
     with caplog.at_level(logging.WARNING, logger=prompts_mod.__name__):
-        prompts_mod.log_prompt(str(tmp_path), "parser", {"response": "r"})
-        prompts_mod.log_prompt(str(tmp_path), "parser", {"response": "r"})
+        prompts_mod.log_prompt(_unwritable(tmp_path), "parser", {"response": "r"})
+        prompts_mod.log_prompt(_unwritable(tmp_path), "parser", {"response": "r"})
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
@@ -217,11 +225,19 @@ def test_a_failed_write_is_logged_at_warning_once(tmp_path, caplog):
 
 def test_one_failing_stage_does_not_silence_another(tmp_path, caplog):
     with caplog.at_level(logging.WARNING, logger=prompts_mod.__name__):
-        prompts_mod.log_prompt(str(tmp_path), "chatter", {"response": "r"})
-        prompts_mod.log_prompt(str(tmp_path), "parser", {"response": "r"})
+        prompts_mod.log_prompt(_unwritable(tmp_path), "chatter", {"response": "r"})
+        prompts_mod.log_prompt(_unwritable(tmp_path), "parser", {"response": "r"})
 
     assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 2
 
 
 def test_a_failed_write_never_reaches_the_caller(tmp_path):
     prompts_mod.log_prompt(str(tmp_path / "missing-dir" / "x.jsonl"), "stage", {"response": "r"})
+
+
+def test_log_prompt_given_a_directory_writes_a_file_inside_it(tmp_path):
+    """The coder, memory and chatter agents pass their run's log DIRECTORY; open() on it raised IsADirectoryError and
+    those prompts were never logged (prod 10-14, stage 'report_coder')."""
+    prompts_mod.log_prompt(str(tmp_path), "report_coder", {"x": 1})
+    lines = (tmp_path / prompts_mod.PROMPT_LOG_FILE).read_text().splitlines()
+    assert json.loads(lines[0])["stage"] == "report_coder"

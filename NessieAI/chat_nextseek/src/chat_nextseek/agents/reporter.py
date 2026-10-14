@@ -372,10 +372,13 @@ def report_coder_agent(
     template: dict | None,
     metadata: dict | None,
     log_dir: str | None = None,
+    previous_error: str | None = None,
 ) -> ReportCoderOutput:
     """Write Python that builds the full report body from the metadata tree.
     General across report types: receives the template shape + a metadata profile and
-    discovers where each field's value lives. Mirrors memory_coder_agent."""
+    discovers where each field's value lives. Mirrors memory_coder_agent. ``previous_error`` is why the last
+    attempt's code failed (the sandbox refused it, it raised, or it emitted the wrong number of rows); the retry is
+    told, so it does not repeat it."""
     canonical_report_type = normalize_report_type(report_type)
     profile = build_memory_data_profile(metadata or {}, sample_limit=5)
     profile_text = json.dumps(profile, indent=2, default=str)
@@ -399,6 +402,11 @@ def report_coder_agent(
             ),
         },
     ]
+    if previous_error:
+        messages[1]["content"] += (
+            "\n\nYour previous code for this request failed: "
+            f"{previous_error}\nWrite it again so it does not fail that way."
+        )
 
     coder_client, coder_model, coder_budget = config.get_agent_model("report_coder")
     coder_output = call_llm_structured(
