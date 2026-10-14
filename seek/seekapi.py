@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-import subprocess
 import json
 
 import shlex
@@ -22,7 +21,7 @@ class SeekAPI(object):
         if self.__username is None:
             curl_prefix = "curl -k "
         else:    
-            # One shell word whatever the password holds: these command lines run with shell=True.
+            # One shell word whatever the password holds (callCmdline splits it with shlex).
             curl_prefix = "curl -u " + shlex.quote(self.__username + ":" + self.__password) + " -k "
         
         return curl_prefix
@@ -30,30 +29,6 @@ class SeekAPI(object):
     def apiPost(self):
         apicmd = self.__curlPrefix() + " -X POST \"" + self.__server + "\""
         return apicmd
-    
-    def __apiGet(self):
-        apicmd = self.__curlPrefix() + " -X GET " + self.__server
-        return apicmd        
-            
-    def __apiSilent(self):
-        apicmd = self.__curlPrefix() + " -s " + self.__server
-        return apicmd         
-            
-    def __queryRaw(self, apiquery):
-        resultset = subprocess.Popen([apiquery],
-            stdout=subprocess.PIPE,
-            shell=True).communicate()[0].decode("utf-8")
-
-        return resultset  
-            
-    def __query(self, apiquery):
-        resultset = self.__queryRaw(apiquery)
-        if 'Access denied' in resultset:
-            resultDic = None
-        else:
-            resultDic = json.loads(resultset)
-        
-        return resultDic
     
     def callCmdline(self, cmd):
         args = shlex.split(cmd)
@@ -63,15 +38,17 @@ class SeekAPI(object):
         return exitcode, out, err
         
     def runGetQuery(self, queryurl):
-        apicmd = self.__apiGet()
-        suffix = " -H \"accept: application/json\""
-        apiquery = (apicmd + queryurl + suffix)
-        return self.__query(apiquery)
-        
-    def runSilentQuery(self, apiquery):
-        apicmd = self.__apiSilent()
-        queryi = apicmd + apiquery
-        return self.__queryRaw(queryi)
+        import requests
+        # Imported inside the method: nextseek_api.helpers imports seek.seekdb, which imports this module.
+        from nextseek_api.helpers import basic_auth_header
+        headers = {"accept": "application/json",
+                   **basic_auth_header((self.__username, self.__password))}
+        # No raise_for_status: like the curl call this replaces, the body decides (Access denied -> None).
+        text = requests.get(self.__server + queryurl, headers=headers,
+                            verify=False, timeout=PAGE_TIMEOUT_S).content.decode("utf-8")
+        if 'Access denied' in text:
+            return None
+        return json.loads(text)
     
     def getIDfromTitle(self, url, title):
         json_objects = self.runGetQuery(url)
@@ -86,18 +63,6 @@ class SeekAPI(object):
         return id
     
     
-    def callFileAPI(self, apiurl, file):
-        data_file_query = (
-            "curl -u '" +
-            self.__username + ":" + self.__password +
-            "' -k -X PUT \"" + apiurl + "\" "
-            "-H \"accept: */*\" -H \"Content-Type: application/octet-stream\" -T \"" +
-            file + "\""
-        )
-        exitcode, out, err = self.callCmdline(data_file_query)
-        return exitcode, out, err
-        
-        
     def __reviseURLs(self, htmlpage):
         htmlpage = htmlpage.replace('/assets/', (self.__server + '/assets/'))
         htmlpage = htmlpage.replace('href="/samples/', ('href="/seek/sample/id='))
@@ -155,23 +120,6 @@ class SeekAPI(object):
                            headers=headers)
         return req.json()
     
-    def getInvestigations(self, project_title):
-        if project_title is None or project_title=="":
-            apiquery = "/investigations.xml | grep -e \'investigation xlink\' | sed -n \'s/.*title=\"\\([^\"]*\\).*/\\1/p\'"
-        else:
-            projectid = self.getIDfromTitle("/projects/", project_title)
-            apiquery = "/projects/" + projectid + ".xml | grep -e \'investigation xlink\' | sed -n \'s/.*title=\"\\([^\"]*\\).*/\\1/p\'"
-        
-        investigation_titles = self.runSilentQuery(apiquery)
-        investigation_titles = investigation_titles.split("\n")
-        investigation_titles = list(filter(None, investigation_titles))
-        investigations = {}
-        for it in investigation_titles:
-            apiqueryi = "/investigations.xml | grep -e \'" + it + "\' | sed -n \'s/.*href=\"\\([^\"]*\\).*/\\1/p\'"
-            investigation_id = self.runSilentQuery(apiqueryi)
-            investigations[it] = investigation_id.strip("\n")
-        return investigations
-    
     def __getStudyTitle(self, study_id):
         queryurl = "/studies/" + study_id
         json_study = self.runGetQuery(queryurl)
@@ -193,20 +141,16 @@ class SeekAPI(object):
     
     def getAssays(self, studyid):
         study_id = studyid.split("/")[-1]
-        apiquery = "/studies/" + study_id + ".xml | grep -e \'assay xlink\' | sed -n \'s/.*title=\"\\([^\"]*\\).*/\\1/p\'"
-        assay_titles = self.runSilentQuery(apiquery)
-        assay_titles = assay_titles.split("\n")
-        assay_titles = list(filter(None, assay_titles))
+        study = self.runGetQuery("/studies/" + study_id)
         assays = {}
-        for at in assay_titles:
-            apiqueryi = "/studies/" + study_id + ".xml | grep -e \'" + at + "\' | sed -n \'s/.*href=\"\\([^\"]*\\).*/\\1/p\'"
-            assay_id = self.runSilentQuery(apiqueryi)
-            if assay_id is not None or study_id != '':
-                assays[at] = assay_id.strip("\n")
-            else:
-                assays["0"] = "None"
+        if not study or "data" not in study:
+            return assays  # a missing or invisible study, or a refused login: no assays, as before
+        for ref in study["data"]["relationships"]["assays"]["data"]:
+            assay = self.runGetQuery("/assays/" + ref["id"])
+            if assay and "data" in assay:
+                assays[assay["data"]["attributes"]["title"]] = ref["id"]
         return assays
-    
+
     def getObjectsToOptions(self, objectName):
         queryurl = objectName
         jsons = self.runGetQuery(queryurl)

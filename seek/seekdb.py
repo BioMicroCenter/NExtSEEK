@@ -351,10 +351,6 @@ class SeekDB(object):
             dicOut[id] = k
         return dicOut    
                 
-    def getInvestigations(self, project_title):
-        investigations = self.__seekapi.getInvestigations(project_title)
-        return self.__convertKeyValue(investigations)
-
     def getStudies(self, investigation_title):
         if investigation_title is None or investigation_title=="":
             return {}
@@ -380,53 +376,6 @@ class SeekDB(object):
         assays = self.__seekapi.getAssays(study_id)
         return self.__convertKeyValue(assays)
 
-    def __get_investigation_folders(self):
-        investigations = self.getInvestigations("")
-        oc_folders = ""
-        inv_folders = []
-        for dummyii, it in investigations.items():
-            inv_folders.append(it)
-        return inv_folders, oc_folders
-    
-    def __get_study_folders(self, investigation):
-        seek_inv = self.getInvestigations("")
-        inv_folders = []
-        for dummyii, it in seek_inv.items():
-            inv_folders.append(it)
-            
-        it = investigation    
-        seek_study = self.getStudies(it)
-        oc_folders = []
-        for st, dummysi in seek_study.items():
-            oc_folders.append(st)
-        return oc_folders, inv_folders
-    
-    def get_investigations_folders(self, investigation):
-        folders = []
-        investigations = []
-        if investigation is not None and investigation != "":
-            oc_folders, inv_folders = self.__get_study_folders(investigation)
-        else:
-            inv_folders, oc_folders = self.__get_investigation_folders()
-            
-        for inv in inv_folders:
-            investigation_name = inv.replace('/remote.php/webdav/', '').replace('/', '')
-            if "." not in investigation_name:
-                new = investigation_name
-                investigations.append(new)
-
-        for oc in oc_folders:
-            study = oc.replace('/remote.php/webdav/', '')
-            study = study.replace('/', '').replace(investigation, '')
-            if "." not in study:
-                new = study
-                folders.append(new)
- 
-        folders = list(filter(None, folders))
-        investigations = list(filter(None, investigations))
-        return investigations,folders
-    
-    
     def __dataFilePayload(self, title, description, originalfilename,
                           content_type, userid, projectid, assayid):
         """The SEEK JSON:API body for a data-file upload.
@@ -514,47 +463,6 @@ class SeekDB(object):
         status = 1
         object_url = apiurl
         return msg, status, df_info, object_url
-    
-    def getISAOptions(self):
-        projects = [{ 'id': "0", 'title': " " }]
-        if 'projectOptions' in self.user_seek:
-            projects = self.user_seek['projectOptions']
-        project_options = json.dumps(projects)
-        allinvestigations = {}
-        investigation_options_dic = {}
-        for pinfo in projects:
-            project_title = pinfo['title']
-            project_id = pinfo['id']
-            investigations = self.getInvestigations(project_title)
-            allinvestigations.update(investigations)
-            
-            investigation_options = convertDicToOptions(investigations)
-            investigation_options_dic[project_id] = investigation_options
-            
-        investigation_options_dic = json.dumps(investigation_options_dic) 
-    
-        study_options_dic = {}
-        allstudies = {}
-        for iid, investigation in allinvestigations.items():
-            studies = self.getStudies(investigation)
-            study_options = convertDicToOptions(studies)
-            study_options_dic[iid] = study_options
-        
-            for sid, study in studies.items():
-                if sid not in allstudies:
-                    allstudies[sid] = study
-            
-
-        study_options_dic = json.dumps(study_options_dic)
-        assay_options_dic = {}
-        for sid, study in allstudies.items():
-            assays = self.getAssays(study)
-            assay_options = convertDicToOptions(assays)
-            assay_options_dic[sid] = assay_options
-            
-        assay_options_dic = json.dumps(assay_options_dic)
-        return project_options, investigation_options_dic, study_options_dic, assay_options_dic
-        
     
     def updateCreator(self, instituion_id, creator_id):
         userInfo, status, msg = self.getUserInfo(creator_id)
