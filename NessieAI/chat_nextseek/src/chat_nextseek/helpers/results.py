@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from .text import strip_html
+from .uid_check import UID_RE
 from ..artifacts import load_api_result_full
 
 # tool_nextseek_api_request hard-defaults this. A search matching more rows than this
@@ -620,6 +621,40 @@ def normalize_api_result_for_memory(api_result: dict, min_rows_for_norm: int = 1
     }
 
 
+def _bundle_rows(bundle: dict) -> list:
+    """A results bundle's rows, wherever its turn stored them.
+
+    The follow-up agent's reader first (a plan's last step, a graph search's ``graph_result``,
+    then the REST payload), so the pipeline agent reads the same memory of a search as every
+    other agent: it read only the REST payload, and "run rnaseq on those mice" after a graph
+    search answered "no pinned search results". Then a body that nests its rows under ``data``.
+    """
+    from ..agents.followup import _stored_rows  # here, not at the top: the agents package imports helpers
+
+    rows = _stored_rows(bundle)
+    if rows:
+        return rows
+    data = load_api_result_full(bundle).get("data")
+    nested = data.get("data") if isinstance(data, dict) else data
+    return nested if isinstance(nested, list) else []
+
+
+def _row_uid(row) -> str:
+    """A row's sample UID, '' when it has none: a UID column, else a graph column holding a UID under
+    the name the query gave it (``s.uuid``). Never another value, so a breakdown row yields nothing."""
+    if isinstance(row, str):
+        return re.sub(r"<[^>]+>", "", row).strip()
+    if not isinstance(row, dict):
+        return ""
+    for key in ("uid", "UID", "uuid", "sample_uid"):
+        if row.get(key):
+            return re.sub(r"<[^>]+>", "", str(row[key])).strip()
+    for value in row.values():
+        if isinstance(value, str) and UID_RE.fullmatch(value.strip()):
+            return value.strip()
+    return ""
+
+
 def summarize_pinned_bundle(session) -> str:
     """One-line summary of the user's most recent results bundle. '' when none.
 
@@ -632,18 +667,15 @@ def summarize_pinned_bundle(session) -> str:
     if not isinstance(last, dict):
         return ""
     user_q = last.get("user_query") or ""
-    data = (load_api_result_full(last) or {}).get("data") or {}
-    # advanced_search/new_search pin rows under 'samples'; graph under 'nodes'; others 'rows'.
-    rows = data.get("rows") or data.get("samples") or data.get("nodes") or []
-    return f"last search: query={user_q!r}, ~{len(rows) if isinstance(rows, list) else 0} rows"
+    return f"last search: query={user_q!r}, ~{len(_bundle_rows(last))} rows"
 
 
 def uids_from_last_search(session) -> list[str]:
-    """Extract sample UIDs from the most recent results bundle that has any.
+    """Sample UIDs from the most recent results bundle that has any.
 
-    Walks results_history in reverse; reads api_result_full.data rows
-    (keys rows/nodes/data), strips HTML, falls back to reporter_plan.uids
-    then parser_plan.filters.uids. Moved from pipeline/agent.py.
+    Walks results_history in reverse; reads each bundle's rows (``_bundle_rows``: graph, plan
+    and REST alike), falls back to reporter_plan.uids then parser_plan.filters.uids.
+    Moved from pipeline/agent.py.
     """
     history = session.get("results_history") or []
     if not isinstance(history, list):
@@ -651,26 +683,7 @@ def uids_from_last_search(session) -> list[str]:
     for bundle in reversed(history):
         if not isinstance(bundle, dict):
             continue
-        api_full = load_api_result_full(bundle)
-        data = api_full.get("data") if isinstance(api_full, dict) else None
-        rows = []
-        if isinstance(data, dict):
-            # advanced_search/new_search pin rows under 'samples'; graph under 'nodes'.
-            for key in ("rows", "nodes", "data", "samples"):
-                val = data.get(key)
-                if isinstance(val, list):
-                    rows = val
-                    break
-        elif isinstance(data, list):
-            rows = data
-        out: list[str] = []
-        for row in rows or []:
-            if isinstance(row, dict):
-                uid = row.get("uid") or row.get("UID") or row.get("uuid") or row.get("sample_uid")
-                if uid:
-                    out.append(re.sub(r"<[^>]+>", "", str(uid)).strip())
-            elif isinstance(row, str):
-                out.append(re.sub(r"<[^>]+>", "", row).strip())
+        out = [uid for uid in map(_row_uid, _bundle_rows(bundle)) if uid]
         if not out:
             rp = bundle.get("reporter_plan")
             plan_uids = rp.get("uids") if isinstance(rp, dict) else None
