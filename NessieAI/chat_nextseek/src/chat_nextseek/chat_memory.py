@@ -514,6 +514,11 @@ def _rows_in(data: Any) -> list | None:
         for key in ("rows", "samples", "results", "nodes"):
             if isinstance(data.get(key), list):
                 return data[key]
+        groups = _grouped_records(data)
+        if groups is not None:  # a retrieve body: the samples, not the sample-type groups
+            return _flatten_groups(groups)
+        if isinstance(data.get("data"), list):  # a plain list under data.data (people, SEEK passthrough)
+            return data["data"]
     return None
 
 
@@ -532,6 +537,8 @@ def _payload_extent(data: Any) -> tuple[int | None, bool]:
     if not isinstance(data, Mapping):
         return None, False
     total = data["total"] if _is_count(data.get("total")) else None
+    if total is None and _is_count(data.get("total_samples")):  # a retrieve body
+        total = data["total_samples"]
     page = isinstance(data.get("results"), list)
     if total is None and page and _is_count(data.get("count")):
         total = data["count"]
@@ -704,17 +711,29 @@ def plan_step_extent(step_results: Mapping, key: Any, *, plan_steps: list | None
     return total, False
 
 
+_UID_KEY = re.compile(r"(?i)(?:.*[._])?u?uid")
+
+
+def row_uid(row: Any) -> str:
+    """The sample UID one row names, '' when none. The one rule: a UID column, else a column the query named
+    ``x_uid`` or ``s.uuid``, else a whole node the row holds (its ``uuid``). Never ``id`` (the SEEK id) or
+    ``name`` (a breakdown's label), and no scan of values."""
+    if not isinstance(row, dict):
+        return ""
+    for key in ("uid", "UID", "uuid", "UUID", "sample_uid"):
+        if row.get(key):
+            return _strip_html(row[key])
+    for key, value in row.items():
+        if isinstance(value, str) and _UID_KEY.fullmatch(str(key)) and value.strip():
+            return _strip_html(value)
+    for value in row.values():
+        if isinstance(value, dict) and value.get("uuid"):
+            return _strip_html(value["uuid"])
+    return ""
+
+
 def uids_from_rows(rows: list) -> list[str]:
-    out: list[str] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        for key in ("uid", "UID", "uuid", "UUID", "id", "name"):
-            value = row.get(key)
-            if isinstance(value, str) and value:
-                out.append(value)
-                break
-    return out
+    return [uid for uid in map(row_uid, rows) if uid]
 
 
 def bundle_rows(bundle: dict) -> list:
@@ -731,3 +750,57 @@ def named_bundle(history: Any, target_result_id: Any) -> dict | None:
     if target_result_id is None or isinstance(target_result_id, bool) or not isinstance(history, list):
         return None
     return next((b for b in reversed(history) if isinstance(b, dict) and b.get("id") == target_result_id), None)
+
+
+#: `POST samples/retrieve/` (and its alias `admin/samples/retrieve/`) answers `{total_samples,
+#: total_sample_types, total_children, failed_uids, data: [{sample_type, n_samples, samples: [...]}],
+#: lineage_complete}` (`SampleRetrieveResponse`, `nextseek_api/models.py`). `data["data"]` is a list,
+#: so every row-counting and row-previewing helper below "recognised" it and then
+#: counted and previewed the sample TYPES rather than the samples.
+_GROUP_LABEL_KEY = "sample_type"
+_GROUP_RECORDS_KEY = "samples"
+
+
+def _grouped_records(data: object) -> list[dict] | None:
+    """The groups of a grouped-by-sample-type body, or None for any other shape.
+
+    Deliberately exact rather than structural: it matches only a list whose every
+    member carries both a ``sample_type`` label and a ``samples`` list. A SEEK
+    JSON:API passthrough also puts a list at ``data["data"]`` (its members carry
+    ``id``/``type``/``attributes``), and that one must keep its existing handling.
+    """
+    if not isinstance(data, dict):
+        return None
+    groups = data.get("data")
+    if not isinstance(groups, list) or not groups:
+        return None
+    for group in groups:
+        if not isinstance(group, dict):
+            return None
+        if _GROUP_LABEL_KEY not in group or not isinstance(group.get(_GROUP_RECORDS_KEY), list):
+            return None
+    return groups
+
+
+def _flatten_groups(groups: list[dict]) -> list[dict]:
+    """Records from every group, round-robin, each tagged with its group label.
+
+    Round-robin, not group order, so a preview of a mixed lineage shows every type
+    present. B7 is the reply that reported 1,904 lineage records and showed none of
+    the PAT samples the user asked about; a preview drawn from the first group only
+    would reproduce that.
+    """
+    tagged = [
+        [
+            {_GROUP_LABEL_KEY: group.get(_GROUP_LABEL_KEY), **record}
+            for record in group.get(_GROUP_RECORDS_KEY) or []
+            if isinstance(record, dict)
+        ]
+        for group in groups
+    ]
+    out: list[dict] = []
+    for index in range(max((len(rows) for rows in tagged), default=0)):
+        for rows in tagged:
+            if index < len(rows):
+                out.append(rows[index])
+    return out

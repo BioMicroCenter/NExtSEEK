@@ -8,64 +8,11 @@ from pathlib import Path
 from .text import strip_html
 from .uid_check import UID_RE
 from ..artifacts import load_api_result_full
+from ..chat_memory import _GROUP_LABEL_KEY, _GROUP_RECORDS_KEY, _flatten_groups, _grouped_records  # noqa: F401
 
 # tool_nextseek_api_request hard-defaults this. A search matching more rows than this
 # silently returns one page, so it must be disclosed rather than left implicit.
 DEFAULT_API_PAGE_SIZE = 1000
-
-
-#: `POST samples/retrieve/` (and its alias `admin/samples/retrieve/`) answers `{total_samples,
-#: total_sample_types, total_children, failed_uids, data: [{sample_type, n_samples, samples: [...]}],
-#: lineage_complete}` (`SampleRetrieveResponse`, `nextseek_api/models.py`). `data["data"]` is a list,
-#: so every row-counting and row-previewing helper below "recognised" it and then
-#: counted and previewed the sample TYPES rather than the samples.
-_GROUP_LABEL_KEY = "sample_type"
-_GROUP_RECORDS_KEY = "samples"
-
-
-def _grouped_records(data: object) -> list[dict] | None:
-    """The groups of a grouped-by-sample-type body, or None for any other shape.
-
-    Deliberately exact rather than structural: it matches only a list whose every
-    member carries both a ``sample_type`` label and a ``samples`` list. A SEEK
-    JSON:API passthrough also puts a list at ``data["data"]`` (its members carry
-    ``id``/``type``/``attributes``), and that one must keep its existing handling.
-    """
-    if not isinstance(data, dict):
-        return None
-    groups = data.get("data")
-    if not isinstance(groups, list) or not groups:
-        return None
-    for group in groups:
-        if not isinstance(group, dict):
-            return None
-        if _GROUP_LABEL_KEY not in group or not isinstance(group.get(_GROUP_RECORDS_KEY), list):
-            return None
-    return groups
-
-
-def _flatten_groups(groups: list[dict]) -> list[dict]:
-    """Records from every group, round-robin, each tagged with its group label.
-
-    Round-robin, not group order, so a preview of a mixed lineage shows every type
-    present. B7 is the reply that reported 1,904 lineage records and showed none of
-    the PAT samples the user asked about; a preview drawn from the first group only
-    would reproduce that.
-    """
-    tagged = [
-        [
-            {_GROUP_LABEL_KEY: group.get(_GROUP_LABEL_KEY), **record}
-            for record in group.get(_GROUP_RECORDS_KEY) or []
-            if isinstance(record, dict)
-        ]
-        for group in groups
-    ]
-    out: list[dict] = []
-    for index in range(max((len(rows) for rows in tagged), default=0)):
-        for rows in tagged:
-            if index < len(rows):
-                out.append(rows[index])
-    return out
 
 
 def _is_empty(value: object) -> bool:
