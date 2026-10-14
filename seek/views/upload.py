@@ -157,7 +157,10 @@ def samplesValidate(request):
     logger.debug('samplesValidate')
     username = str(request.user)  # noqa: F841 (kept: resolves the lazy request.user)
     seekdb = SeekDB(None, None, None)
-    seekdb.getSeekLogin(request)
+    if not request.user.is_authenticated:
+        return json_response(LOGIN_REQUIRED, 0, message=LOGIN_REQUIRED)
+    if not seekdb.getSeekLogin(request)['status']:
+        return json_response(LOGIN_REQUIRED, 0, message=LOGIN_REQUIRED)
 
     msg = "Error: File not valid"
     message = ''
