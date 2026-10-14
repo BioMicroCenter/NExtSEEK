@@ -555,6 +555,8 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
 
     def _run() -> None:
         ran_ns = False
+        # The orchestrator wrote this turn's error entry itself (it marks the exception).
+        orchestrator_logged = {"done": False}
         decision = None
         prerun = None
         cc_pass_row = None
@@ -871,6 +873,7 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 )
         except Exception as exc:
             logger.exception("cc-assistant pipeline error")
+            orchestrator_logged["done"] = bool(getattr(exc, "chat_log_turn_written", False))
             # run_query sends its own query_error (the real message, with the turn's cost)
             # before it re-raises, and the task keeps the last one: a second, generic one
             # here would replace the real error the user needs to see (F13).
@@ -896,7 +899,8 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 except Exception:  # noqa: BLE001 - the next issue_pass wipes an expired row
                     logger.warning("cc: revoking the turn pass failed", exc_info=True)
             unrelated = decision is not None and decision.route == cc_router.ROUTE_UNRELATED
-            if cc_turn_complete.should_append_non_answer(terminal_seen, unrelated=unrelated):
+            if (cc_turn_complete.should_append_non_answer(terminal_seen, unrelated=unrelated)
+                    and not orchestrator_logged["done"]):
                 from django.utils import timezone
                 ts = timezone.now().isoformat(timespec="seconds")
                 rc = decision.route if decision is not None else None

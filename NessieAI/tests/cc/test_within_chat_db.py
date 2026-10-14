@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import time
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -408,40 +409,46 @@ def test_within_chat_db_recall_resolution_path(client, user):
     assert bundle["api_result_full"]["data"]["rows"] == [{"uid": "U-1"}]
 
 
-def test_within_chat_db_plan_mode_error_leaves_trace(client, monkeypatch):
-    """Site #12: a plan-mode catch-all error now writes an error-labeled entry."""
+@pytest.mark.parametrize("mode", ["plan", "standard"])
+def test_within_chat_db_plan_mode_error_leaves_trace(client, user, monkeypatch, mode):
+    user.is_superuser = True  # mode "plan" is for superusers
+    user.save()
+    # Inline thread: a daemon thread races SQLite in the full lane (database table is locked).
+    class _Thread:
+        def __init__(self, target, daemon=None):
+            self._target = target
+
+        def start(self):
+            self._target()
+
+    """A crashed NS turn leaves exactly one error entry, written by the orchestrator."""
+    from chat_nextseek import orchestrator
     from NessieAI.cc import turn as cc_turn
 
-    monkeypatch.setattr(
-        cc_router,
-        "_baml_decision",
-        lambda q, h=None: _decision(cc_router.ROUTE_NS),
-    )
+    _patch_cc_project(monkeypatch)
+    monkeypatch.setattr(cc_turn, "_decide_route", lambda *a, **k: _decision(cc_router.ROUTE_NS))
+    monkeypatch.setattr(cc_turn, "threading", SimpleNamespace(Thread=_Thread))
+    cfg = type("Cfg", (), {"API_USER": "u", "API_PASS": "p"})()
+    monkeypatch.setattr(cc_turn, "_select_chat_config", lambda *a, **k: cfg)
+    monkeypatch.setattr(cc_turn, "_with_prompt_variant", lambda c, *a, **k: c)
+    monkeypatch.setattr(cc_turn, "_eval_config", lambda c, *a, **k: c)
+    monkeypatch.setattr(orchestrator, "_identity_gate", lambda s, c, *a, **k: (c, None))
+    monkeypatch.setattr(orchestrator, "_turn_vocabulary", lambda *a, **k: (None, None, None))
+    monkeypatch.setattr(orchestrator, "_ensure_query_log_dir", lambda *a, **k: "/tmp")
 
-    def fake_plan(session, config, query, send_event, credentials=None):
-        from chat_nextseek.chat_memory import append_turn
+    def boom(*a, **k):
+        raise KeyError("x")
 
-        reply = "An unexpected error occurred in the planner pipeline: KeyError('x')"
-        append_turn(
-            session,
-            user_query=query,
-            mode="error_plan_pipeline",
-            assistant_reply=reply,
-            status="error",
-            error="KeyError('x')",
-        )
-        send_event("query_complete", {"reply": reply})
-
-    monkeypatch.setattr(cc_turn, "run_query_plan", fake_plan)
-    resp = client.post(
-        CC_QUERY_URL,
-        {"query": "plan me", "mode": "plan"},
-        format="json",
-    )
+    monkeypatch.setattr(orchestrator, "multi_parser_agent", boom)
+    monkeypatch.setattr(orchestrator, "_handle_pipeline_agent_turn", boom)
+    resp = client.post(CC_QUERY_URL, {"query": "plan me", "mode": mode}, format="json")
     tid, sid = resp.json()["task_id"], resp.json()["session_id"]
     _wait_terminal(tid)
     log = ChatSession.objects.get(session_id=sid).extra_state["chat_log"]
-    assert log[-1]["status"] == "error" and log[-1]["mode"] == "error_plan_pipeline"
+    assert len(log) == 1
+    assert log[-1]["status"] == "error" and log[-1]["error"] == "KeyError"
+    assert log[-1]["mode"] == ("error_plan_pipeline" if mode == "plan" else "error_catalog")
+    assert not log[-1]["assistant_reply"]  # PD-6: a non-answer entry stays hidden on reload
 
 
 # --------------------------------------------------------------- ns_run_root
@@ -462,6 +469,7 @@ def test_within_chat_db_plan_mode_error_leaves_trace(client, monkeypatch):
 def _progress_events(task_id, name):
     return [e for e in (QueryTask.objects.get(task_id=task_id).progress or [])
             if e["event"] == name]
+
 
 
 def test_within_chat_db_ns_run_root_reaches_the_event_stream(client, monkeypatch):

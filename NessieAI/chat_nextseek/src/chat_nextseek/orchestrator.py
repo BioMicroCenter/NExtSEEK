@@ -397,6 +397,28 @@ def _artifacts_for(bundle: dict[str, Any] | None) -> list[dict[str, Any]] | None
         return None
 
 
+def _report_unhandled(session, user_text, send_event, exc, *, agent, mode_label) -> None:
+    """Report a pipeline crash as an error: log it, leave an error turn, send ``query_error``.
+
+    The error turn carries no reply (the chat view hides such turns, PD-6) and no exception
+    text but its type; the traceback goes to the log. The exception is marked
+    ``chat_log_turn_written`` so ``cc/turn.py`` does not write a second entry for it.
+    The caller re-raises, so the task ends as failed, never as a completed answer.
+    """
+    _LOG.exception("unhandled exception in %s", mode_label)
+    cost = turn_spend.cost_fields()
+    try:
+        append_turn(session, user_query=user_text, mode=mode_label,
+                    intent_summary="Unhandled error in the pipeline.",
+                    status="error", error=type(exc).__name__)
+        exc.chat_log_turn_written = True
+    except Exception:
+        _LOG.exception("failed to log the chat_log turn for an unhandled error")
+    if send_event:
+        # The turn's last event: it carries what the turn spent before it failed.
+        send_event("query_error", {"error": str(exc), "agent": agent, **cost})
+
+
 def _emit_query_complete(
     send_event: SendEvent | None,
     reply: str,
@@ -3138,10 +3160,8 @@ def run_query(
         return _emit_query_complete(send_event, reply, fatal_debug, None)
 
     except Exception as exc:
-        if send_event:
-            # The turn's last event: it carries what the turn spent before it failed.
-            send_event("query_error", {"error": str(exc), "agent": current_agent,
-                                       **turn_spend.cost_fields()})
+        _report_unhandled(session, user_text, send_event, exc, agent=current_agent,
+                          mode_label=f"error_{current_agent or 'unknown'}")
         raise
 
 
@@ -3648,17 +3668,9 @@ def run_query_plan(
         return _emit_query_complete(send_event, reply, {"fatal_error": msg, "agent": agent}, None)
 
     except Exception as e:
-        import traceback
-
-        print(f"[ERROR][PLAN] run_query_plan unhandled exception: {e!r}")
-        traceback.print_exc()
-        reply = f"An unexpected error occurred in the planner pipeline: {e}"
-        try:
-            append_turn(session, user_query=user_text, mode="error_plan_pipeline",
-                        assistant_reply=reply, status="error", error=repr(e))
-        except Exception:
-            print("[FATAL] failed to log chat_log turn for plan pipeline error")
-        return _emit_query_complete(send_event, reply, {"error": repr(e)}, None)
+        _report_unhandled(session, user_text, send_event, e, agent="unknown",
+                          mode_label="error_plan_pipeline")
+        raise
 
 
 def handle_query_plan(session: SessionState | SessionStateProxy, config: ChatConfig, user_text: str) -> str:
