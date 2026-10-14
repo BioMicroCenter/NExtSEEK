@@ -143,7 +143,10 @@ class TestProcessBatchesUpdatePath:
         with patch.object(update_mod, "bulk_update_samples", mock_bulk), \
              patch.object(update_mod, "load_existing_sample_details", mock_details):
 
-            config = BatchUploadConfig()
+            config = BatchUploadConfig(
+                permissions_default_contributor_type="Group",
+                permissions_default_access_type=2,
+            )
             samples = [_make_sample("UID-1")]
 
             mock_conn = MagicMock()
@@ -162,7 +165,9 @@ class TestProcessBatchesUpdatePath:
                 conn_factory=lambda: mock_conn,
             )
             assert result.outcomes["UID-1"].status == "success"
-            assert mock_bulk.call_args.kwargs["enable_auto_permissions"] is True
+            inserter = mock_bulk.call_args.kwargs["permissions_inserter"]
+            assert inserter.enabled is True
+            assert (inserter.contributor_type, inserter.contributor_id, inserter.access_type) == ("Group", 1, 2)
 
 
 class TestProcessBatchesPermissions:

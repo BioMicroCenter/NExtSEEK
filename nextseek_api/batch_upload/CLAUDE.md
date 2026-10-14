@@ -19,10 +19,10 @@ lineage, and none of them fails loudly.
   first undeclared key. Adding a column to a curator's sheet before adding the attribute to
   the sample type fails every row that carries it.
 - **New sample policies are created private and access is granted separately.**
-  `nextseek_api/batch_upload/policies.py:71-73` writes `access_type = 0`, and the upsert
-  path puts touched policies back to that value at
-  `nextseek_api/batch_upload/update.py:300-306`. Changing that constant silently publishes
-  every sample a batch touches to the whole project.
+  `nextseek_api/batch_upload/policies.py:71-73` writes `access_type = 0`. A re-upload
+  (update path) keeps each policy's access as it is and grants the configured project
+  access once, through the same `PermissionsInserter` new uploads use. Changing that
+  constant silently publishes every sample a batch touches to the whole project.
 - **Project permission granting is on by the pipeline's default and off by the class's.**
   `nextseek_api/batch_upload/config.py:35-37` defaults the switch to true, and
   `nextseek_api/batch_upload/insert.py:272-276` is the one place that passes it through

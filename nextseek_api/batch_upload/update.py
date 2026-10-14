@@ -12,6 +12,7 @@ from sqlalchemy.engine import Connection
 from .associations import batch_insert_assay_assets, batch_insert_projects_samples
 from .identity import canonicalize_file_primary_data
 from .models import InsertableSample, RowOutcome
+from .permissions import PermissionsInserter
 
 try:
     import orjson
@@ -280,102 +281,13 @@ def delete_assay_links(removals: List[Tuple[int, int]], conn: Connection) -> int
     return len(removals)
 
 
-def _bulk_insert_permissions_ignore(
-    policy_ids: List[int],
-    project_id: int,
-    conn: Connection,
-    now: str,
-    contributor_type: str = "Project",
-    access_type: int = 4,
-) -> int:
-    """Bulk INSERT IGNORE permissions — no per-row SELECT needed.
-
-    Returns count of policy_ids submitted (actual insert count may be lower
-    due to IGNORE on duplicates).
-    """
-    if not policy_ids:
-        return 0
-    # De-duplicate
-    seen: Set[int] = set()
-    unique: List[int] = []
-    for pid in policy_ids:
-        if pid not in seen:
-            seen.add(pid)
-            unique.append(pid)
-    if not unique:
-        return 0
-
-    for chunk_start in range(0, len(unique), 1000):
-        chunk = unique[chunk_start : chunk_start + 1000]
-        values_parts = []
-        params: Dict = {}
-        for i, pid in enumerate(chunk):
-            values_parts.append(
-                f"(:ct_{i}, :cid_{i}, :pid_{i}, :at_{i}, :ca_{i}, :ua_{i})"
-            )
-            params[f"ct_{i}"] = contributor_type
-            params[f"cid_{i}"] = project_id
-            params[f"pid_{i}"] = pid
-            params[f"at_{i}"] = access_type
-            params[f"ca_{i}"] = now
-            params[f"ua_{i}"] = now
-        conn.execute(
-            text(
-                "INSERT IGNORE INTO permissions "
-                "(contributor_type, contributor_id, policy_id, access_type, "
-                "created_at, updated_at) "
-                f"VALUES {', '.join(values_parts)}"
-            ),
-            params,
-        )
-    return len(unique)
-
-
-def _bulk_restore_private_policy_defaults(
-    policy_ids: List[int],
-    conn: Connection,
-    now: str,
-    access_type: int = 0,
-) -> int:
-    """Repair touched policies back to private-by-default access."""
-    if not policy_ids:
-        return 0
-
-    seen: Set[int] = set()
-    unique: List[int] = []
-    for pid in policy_ids:
-        if pid and pid not in seen:
-            seen.add(pid)
-            unique.append(pid)
-    if not unique:
-        return 0
-
-    for chunk_start in range(0, len(unique), 1000):
-        chunk = unique[chunk_start : chunk_start + 1000]
-        params: Dict[str, int | str] = {"access_type": access_type, "now": now}
-        placeholders = []
-        for i, pid in enumerate(chunk):
-            key = f"pid_{i}"
-            params[key] = pid
-            placeholders.append(f":{key}")
-        conn.execute(
-            text(
-                "UPDATE policies "
-                "SET access_type = :access_type, updated_at = :now "
-                f"WHERE id IN ({', '.join(placeholders)})"
-            ),
-            params,
-        )
-    return len(unique)
-
-
 def bulk_update_samples(
     rows: List[InsertableSample],
     details: Dict[str, dict],
     project_id: int,
     direction_by_pair: Dict[Tuple[str, int], int],
     conn: Connection,
-    enable_auto_permissions: bool = False,
+    permissions_inserter: Optional[PermissionsInserter] = None,
 ) -> Dict[str, RowOutcome]:
     """Bulk-update existing samples, eliminating per-row N+1 queries.
 
@@ -387,7 +299,8 @@ def bulk_update_samples(
     5. Bulk DELETE removed assay links
     6. Bulk INSERT new assay links (via batch_insert_assay_assets)
     7. Bulk INSERT projects_samples links (via batch_insert_projects_samples)
-    8. Bulk permissions via INSERT IGNORE (no SELECT+INSERT per row)
+    8. Project grant via the configured PermissionsInserter (de-duplicated,
+       chunked; policy access_type is never changed)
 
     Returns Dict[str, RowOutcome] keyed by UUID.
     """
@@ -483,15 +396,18 @@ def bulk_update_samples(
     # ── Step 7: Bulk INSERT projects_samples links ───────────────────────
     batch_insert_projects_samples(project_id, all_sample_ids, conn)
 
-    # ── Step 8: Bulk permissions via INSERT IGNORE ───────────────────────
-    if enable_auto_permissions:
+    # ── Step 8: project grant through the configured inserter ────────────
+    # (de-duplicated; never touches a policy's access_type)
+    if permissions_inserter is not None:
         policy_ids = [
             details[s.uuid]["policy_id"]
             for s in valid_rows
             if details[s.uuid].get("policy_id")
         ]
-        _bulk_restore_private_policy_defaults(policy_ids, conn, now)
-        _bulk_insert_permissions_ignore(policy_ids, project_id, conn, now)
+        # one update call spans every batch's rows: keep each grant INSERT bounded
+        policy_ids = list(dict.fromkeys(policy_ids))
+        for i in range(0, len(policy_ids), 1000):
+            permissions_inserter.insert_for_policy_ids(policy_ids[i : i + 1000], conn)
 
     # ── Build outcomes ───────────────────────────────────────────────────
     for sample in valid_rows:

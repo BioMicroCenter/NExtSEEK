@@ -536,7 +536,7 @@ def process_batches(
                     project_id=project_id,
                     direction_by_pair=direction_computation.direction_by_pair,
                     conn=conn,
-                    enable_auto_permissions=config.enable_auto_permissions,
+                    permissions_inserter=permissions_inserter,
                 )
 
                 outcomes.update(update_outcomes)

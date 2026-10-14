@@ -439,38 +439,67 @@ class TestBulkUpdateSamples:
         assert conn.execute.call_count == 2
         assert all(o.status == "success" for o in outcomes.values())
 
-    def test_permissions_use_insert_ignore(self):
-        """Permissions use INSERT IGNORE, not SELECT+INSERT per row."""
+    def test_reupload_grant_follows_the_config(self):
+        """The grant goes through the PermissionsInserter: SELECT first, config access_type."""
+        from nextseek_api.batch_upload.permissions import PermissionsInserter
         from nextseek_api.batch_upload.update import bulk_update_samples
 
         conn = MagicMock()
         conn.execute.return_value.fetchall.return_value = []
+        inserter = PermissionsInserter("Project", 99, 2, enabled=True)
 
         rows = [_make_sample("U1"), _make_sample("U2")]
         details = _make_details(
             ("U1", 1, 5, '{}', "T1"),
-            ("U2", 2, 6, '{}', "T2"),
+            ("U2", 2, 5, '{}', "T2"),  # same policy as U1: one grant only
         )
 
         with patch("nextseek_api.batch_upload.update.batch_insert_assay_assets", return_value=0), \
              patch("nextseek_api.batch_upload.update.batch_insert_projects_samples", return_value=0):
-            outcomes = bulk_update_samples(
+            bulk_update_samples(
                 rows=rows,
                 details=details,
                 project_id=99,
                 direction_by_pair={},
                 conn=conn,
-                enable_auto_permissions=True,
+                permissions_inserter=inserter,
             )
 
-        # Find the INSERT IGNORE call by inspecting the TextClause.text attribute
-        insert_ignore_calls = [
-            c for c in conn.execute.call_args_list
-            if hasattr(c[0][0], "text") and "INSERT IGNORE" in c[0][0].text
-        ]
-        assert len(insert_ignore_calls) == 1, "Expected exactly one INSERT IGNORE call for permissions"
-        # No SELECT for permissions — only sample UPDATE + prefetch + policy repair + INSERT IGNORE = 4 calls
-        assert conn.execute.call_count == 4
+        texts = [c[0][0].text for c in conn.execute.call_args_list if hasattr(c[0][0], "text")]
+        sel = [i for i, t in enumerate(texts) if "SELECT policy_id FROM permissions" in t]
+        ins = [i for i, t in enumerate(texts) if t.startswith("INSERT INTO permissions")]
+        assert len(sel) == 1 and len(ins) == 1 and sel[0] < ins[0]
+        assert not any("INSERT IGNORE" in t for t in texts)
+        ins_call = [c for c in conn.execute.call_args_list
+                    if hasattr(c[0][0], "text") and c[0][0].text.startswith("INSERT INTO permissions")][0]
+        params = ins_call[0][1]
+        assert params["at_0"] == 2 and params["pid_0"] == 5 and "pid_1" not in params
+
+    def test_reupload_never_changes_policy_access(self):
+        """A re-upload leaves every policy's access_type alone."""
+        from nextseek_api.batch_upload.permissions import PermissionsInserter
+        from nextseek_api.batch_upload.update import bulk_update_samples
+
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = []
+        rows = [_make_sample("U1")]
+        details = _make_details(("U1", 1, 5, '{}', "T1"))
+
+        with patch("nextseek_api.batch_upload.update.batch_insert_assay_assets", return_value=0), \
+             patch("nextseek_api.batch_upload.update.batch_insert_projects_samples", return_value=0):
+            bulk_update_samples(
+                rows=rows,
+                details=details,
+                project_id=99,
+                direction_by_pair={},
+                conn=conn,
+                permissions_inserter=PermissionsInserter("Project", 99, 4, enabled=True),
+            )
+
+        assert not any(
+            hasattr(c[0][0], "text") and "UPDATE policies" in c[0][0].text
+            for c in conn.execute.call_args_list
+        )
 
     def test_missing_details_produces_failed_outcome(self):
         """Rows without details get failed outcome."""
@@ -566,39 +595,15 @@ class TestBulkUpdateSamples:
         assert records[0][1] == 1   # sample_id
         assert records[0][3] == 2   # direction from direction_by_pair
 
-    def test_no_permissions_when_disabled(self):
-        """No permission INSERT when enable_auto_permissions=False."""
+    @pytest.mark.parametrize("disabled", ["none", "inserter_off"])
+    def test_no_permissions_when_disabled(self, disabled):
+        """No permissions statement when the inserter is absent or disabled."""
+        from nextseek_api.batch_upload.permissions import PermissionsInserter
         from nextseek_api.batch_upload.update import bulk_update_samples
 
         conn = MagicMock()
         conn.execute.return_value.fetchall.return_value = []
-
-        rows = [_make_sample("U1")]
-        details = _make_details(("U1", 1, 5, '{}', "T1"))
-
-        with patch("nextseek_api.batch_upload.update.batch_insert_assay_assets", return_value=0), \
-             patch("nextseek_api.batch_upload.update.batch_insert_projects_samples", return_value=0):
-            outcomes = bulk_update_samples(
-                rows=rows,
-                details=details,
-                project_id=99,
-                direction_by_pair={},
-                conn=conn,
-                enable_auto_permissions=False,
-            )
-
-        insert_ignore_calls = [
-            c for c in conn.execute.call_args_list
-            if hasattr(c[0][0], "text") and "INSERT IGNORE" in c[0][0].text
-        ]
-        assert len(insert_ignore_calls) == 0
-
-    def test_existing_manage_policy_is_repaired_to_private_when_permissions_enabled(self):
-        """update_existing should repair bad public policy defaults on touched samples."""
-        from nextseek_api.batch_upload.update import bulk_update_samples
-
-        conn = MagicMock()
-        conn.execute.return_value.fetchall.return_value = []
+        inserter = None if disabled == "none" else PermissionsInserter("Project", 99, 4, enabled=False)
 
         rows = [_make_sample("U1")]
         details = _make_details(("U1", 1, 5, '{}', "T1"))
@@ -611,37 +616,37 @@ class TestBulkUpdateSamples:
                 project_id=99,
                 direction_by_pair={},
                 conn=conn,
-                enable_auto_permissions=True,
+                permissions_inserter=inserter,
             )
 
-        repair_calls = [
-            c for c in conn.execute.call_args_list
-            if hasattr(c[0][0], "text")
-            and "UPDATE policies" in c[0][0].text
-            and c[0][1].get("access_type") == 0
-        ]
-        assert len(repair_calls) == 1
+        assert not any(
+            hasattr(c[0][0], "text") and "permissions" in c[0][0].text
+            for c in conn.execute.call_args_list
+        )
 
-    def test_bulk_upsert_permissions_empty_returns_zero(self):
-        from nextseek_api.batch_upload.update import _bulk_insert_permissions_ignore
-
-        conn = MagicMock()
-        assert _bulk_insert_permissions_ignore([], 99, conn, "2026-01-01 00:00:00") == 0
-        conn.execute.assert_not_called()
-
-    def test_bulk_restore_private_policy_defaults_empty_returns_zero(self):
-        from nextseek_api.batch_upload.update import _bulk_restore_private_policy_defaults
+    def test_grant_insert_is_chunked(self):
+        """One update call over many policies never builds one giant INSERT."""
+        from nextseek_api.batch_upload.permissions import PermissionsInserter
+        from nextseek_api.batch_upload.update import bulk_update_samples
 
         conn = MagicMock()
-        assert _bulk_restore_private_policy_defaults([], conn, "2026-01-01 00:00:00") == 0
-        conn.execute.assert_not_called()
+        conn.execute.return_value.fetchall.return_value = []
+        n = 2500
+        rows = [_make_sample(f"U{i}") for i in range(n)]
+        details = _make_details(*[(f"U{i}", i + 1, i + 1, '{}', "T1") for i in range(n)])
 
-    def test_bulk_restore_private_policy_defaults_ignores_falsey_ids(self):
-        from nextseek_api.batch_upload.update import _bulk_restore_private_policy_defaults
+        with patch("nextseek_api.batch_upload.update.batch_insert_assay_assets", return_value=0), \
+             patch("nextseek_api.batch_upload.update.batch_insert_projects_samples", return_value=0):
+            bulk_update_samples(
+                rows=rows, details=details, project_id=99, direction_by_pair={}, conn=conn,
+                permissions_inserter=PermissionsInserter("Project", 99, 4, enabled=True),
+            )
 
-        conn = MagicMock()
-        assert _bulk_restore_private_policy_defaults([0, None], conn, "2026-01-01 00:00:00") == 0
-        conn.execute.assert_not_called()
+        inserts = [c[0][1] for c in conn.execute.call_args_list
+                   if hasattr(c[0][0], "text") and c[0][0].text.startswith("INSERT INTO permissions")]
+        assert len(inserts) == 3 and max(len(p) // 6 for p in inserts) <= 1000
+        granted = [v for p in inserts for k, v in p.items() if k.startswith("pid_")]
+        assert sorted(granted) == list(range(1, n + 1))  # every policy exactly once
 
     def test_update_path_canonicalizes_merged_metadata(self):
         from nextseek_api.batch_upload.update import bulk_update_samples
