@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["pydantic>=2,<3"]
+# dependencies = ["pydantic>=2,<3", "jsonschema>=4,<5"]
 # ///
 """Render a reviewable HTML report from a nessie_tests run + a validated triage.
 
@@ -25,6 +25,10 @@ Output is ONE self-contained HTML file. No external assets, no network fetches.
 By default it omits <!doctype>/<html>/<body> because the Artifact publisher
 supplies them; pass --standalone for a complete document to open or send.
 
+The page is rendered ONLY from a data object validated against schema/review.schema.json
+(extra or missing fields exit 2 before anything is written), which is embedded in the page
+with a fingerprint. scripts/check_page.py proves a page came from here; publish nothing else.
+
 Usage
 -----
     uv run build_report.py --run ./run-2026-07-24 \
@@ -38,12 +42,15 @@ import argparse
 import importlib.util
 import json
 import pathlib
+import re
 import sys
 from collections import Counter
 
 # This script lives in .claude/skills/nessie-run-review/scripts/, so the repo root is
 # four levels up; the triage form lives in the importable package.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[4]))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import review_data  # noqa: E402
 from NessieAI.tests.nessie_tests.output_skill.common import FormError  # noqa: E402
 from NessieAI.tests.nessie_tests.output_skill.triage import load_triage  # noqa: E402
 
@@ -122,11 +129,6 @@ def load_graph_limit_sentinels(repo):
             spec.loader.exec_module(mod)
             return mod.GRAPH_LIMIT_SENTINELS
     sys.exit(f"cannot find the harness limits.py under {repo} or beside this script")
-
-STANDALONE = ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
-              '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
-              "{head}\n</head>\n<body>\n{body}\n</body>\n</html>\n")
-
 
 def lj(p):
     return json.loads(pathlib.Path(p).read_bytes().decode("utf-8", errors="replace"))
@@ -346,45 +348,37 @@ def main():
          "label": "of corpus", "tone": "mute"},
     ]
 
-    html = pathlib.Path(a.template).read_text(encoding="utf-8")
-    subs = {
-        "__TITLE__": triage.get("title", "nessie_tests run review"),
-        "__EYEBROW__": triage.get("eyebrow", ""),
-        "__HEADLINE__": triage.get("headline", ""),
-        "__SUBHEAD__": triage.get("subhead", ""),
-        "__RUNROOT__": triage.get("runroot", "/app/outputs/<run>"),
-        "__META__": json.dumps({"runline": triage.get("runline", []), "stats": stats,
-                                "reframe": triage.get("reframe", ""),
-                                "coverage_lede": triage.get("coverage_lede"),
-                                # The CURRENT cap, taken from limits.py rather than
-                                # frozen here. A triage may still pin an older one to
-                                # review a run that really was capped at 250.
-                                "graph_limit": triage.get(
-                                    "graph_limit", max(load_graph_limit_sentinels(repo))),
-                                "title": triage.get("title", "nessie_tests run review"),
-                                # notes_id keys browser-local autosave; bump it per run
-                                # so two reports never share a notes store
-                                "notes_id": triage.get("notes_id", pathlib.Path(a.run).name),
-                                "notes_file": triage.get("notes_file", "nessie-notes")},
-                               separators=(",", ":")),
-        "__CASES__": json.dumps(cases, separators=(",", ":")),
-        "__TURNS__": json.dumps(tasks, separators=(",", ":")),
-        "__FINDINGS__": json.dumps(triage.get("findings", []), separators=(",", ":")),
-        "__COVERAGE__": json.dumps(coverage, separators=(",", ":")),
-        "__GAPS__": json.dumps(triage.get("gaps", []), separators=(",", ":")),
-        "__NEXT__": json.dumps(triage.get("next", []), separators=(",", ":")),
+    title = triage.get("title", "nessie_tests run review")
+    data = {
+        "schema_version": review_data.SCHEMA_VERSION,
+        "header": {"title": title, "eyebrow": triage.get("eyebrow", ""),
+                   "headline": triage.get("headline", ""), "subhead": triage.get("subhead", ""),
+                   "runroot": triage.get("runroot", "/app/outputs/<run>")},
+        "meta": {"runline": triage.get("runline", []), "stats": stats,
+                 "reframe": triage.get("reframe", ""),
+                 "coverage_lede": triage.get("coverage_lede"),
+                 # The CURRENT cap, taken from limits.py rather than frozen here. A triage may
+                 # still pin an older one to review a run that really was capped at 250.
+                 "graph_limit": triage.get("graph_limit", max(load_graph_limit_sentinels(repo))),
+                 "title": title,
+                 # notes_id keys browser-local autosave; bump it per run so two reports never
+                 # share a notes store
+                 "notes_id": triage.get("notes_id", pathlib.Path(a.run).name),
+                 "notes_file": triage.get("notes_file", "nessie-notes")},
+        "cases": cases, "turns": tasks,
+        "findings": triage.get("findings", []), "coverage": coverage,
+        "gaps": triage.get("gaps", []), "next": triage.get("next", []),
     }
-    for k, v in subs.items():
-        html = html.replace(k, v)
-    left = [k for k in subs if k in html]
-    if left:
-        sys.exit(f"unsubstituted: {left}")
+    bad = review_data.problems(data)
+    if bad:
+        print("review data fails schema/review.schema.json, nothing written:\n  " + "\n  ".join(bad[:30]),
+              file=sys.stderr)
+        sys.exit(2)
 
-    if a.standalone:
-        # <title>/<style> belong in <head>; everything from the first <div> is body.
-        split = html.find("<div class=\"wrap\">")
-        head, body = (html[:split], html[split:]) if split > 0 else ("", html)
-        html = STANDALONE.format(head=head.strip(), body=body.strip())
+    tpl = pathlib.Path(a.template).read_text(encoding="utf-8")
+    html = review_data.render(data, tpl, standalone=a.standalone)
+    if (left := set(re.findall(r"__[A-Z]+__", tpl)) - review_data.PLACEHOLDERS):
+        sys.exit(f"template has placeholders the generator does not fill: {sorted(left)}")
 
     pathlib.Path(a.out).write_text(html, encoding="utf-8")
     print(f"wrote {a.out} ({len(html)} bytes){'  [standalone document]' if a.standalone else ''}")

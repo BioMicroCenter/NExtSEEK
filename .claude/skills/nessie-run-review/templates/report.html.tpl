@@ -380,14 +380,19 @@ ol.next b{color:var(--ink);font-weight:620}
 </section>
 </div>
 
+<script type="application/json" id="review-data">__DATA__</script>
+<script type="application/json" id="review-fingerprint">__FINGERPRINT__</script>
 <script>
-const META     = __META__;
-const CASES    = __CASES__;
-const TURNS    = __TURNS__;
-const FINDINGS = __FINDINGS__;
-const COVERAGE = __COVERAGE__;
-const GAPS     = __GAPS__;
-const NEXT     = __NEXT__;
+/* Everything below renders from the embedded data block, which build_report.py validated against
+   schema/review.schema.json. scripts/check_page.py fails a page that was not rendered from its own data. */
+const DATA     = JSON.parse(document.getElementById("review-data").textContent);
+const META     = DATA.meta;
+const CASES    = DATA.cases;
+const TURNS    = DATA.turns;
+const FINDINGS = DATA.findings;
+const COVERAGE = DATA.coverage;
+const GAPS     = DATA.gaps;
+const NEXT     = DATA.next;
 
 const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const VERDICT_LABEL = {pass:"pass",real:"real",drift:"drift",policy:"policy",masked:"masked",notrun:"not run"};
@@ -716,4 +721,145 @@ if(GAPS.length){
 if(NEXT.length){
   document.getElementById("next").innerHTML = NEXT.map(n => `<li>${n}</li>`).join("");
 } else { document.getElementById("next-sect").hidden = true; }
+</script>
+<script>
+/* Notes relay: saves the reviewer's notes to the artifact's db, one document per case.
+   Follows the review page's own script, so it reuses its globals (NOTES, NOTES_KEY,
+   CASES, META, noteCount, updateNoteBar). The page's localStorage autosave and file save stay as the fallback when there is no db (a local copy).
+   Documents: notes/<case id> and notes/_overall, each {id, note, t, saved_at, verdict, family, status}.
+   Newest t wins on load, so a phone reload never replaces a newer note and one case never touches another. */
+(function(){
+  const COLL = "notes";
+  const idOf = k => k === "__report__" ? "_overall" : k;
+  const keyOf = id => id === "_overall" ? "__report__" : id;
+  const TKEY = "nessie-notes-t:" + ((typeof META !== "undefined" && META.notes_id) || "run");
+  let T = {};
+  try { T = JSON.parse(localStorage.getItem(TKEY) || "{}") || {}; } catch(_) { T = {}; }
+  const saveT = () => { try { localStorage.setItem(TKEY, JSON.stringify(T)); } catch(_) {} };
+
+  let db = null, local = false, state = "connecting";
+  const unsaved = new Set(), timers = {}, inflight = {}, again = {}, retried = {};
+
+  const WORDS = {
+    connecting: "connecting to the review",
+    saving: "saving",
+    saved: "saved to the review",
+    offline: "no review database here, notes stay in this browser only",
+    readonly: "read-only access, notes stay in this browser only",
+    error: "last save failed, retrying"
+  };
+  function paint(){
+    const el = document.getElementById("nstat");
+    if(!el) return;
+    const n = noteCount();
+    el.className = "nstat" + (state === "saving" || state === "error" ? " dirty" : "");
+    el.innerHTML = `<b>${n}</b> note${n === 1 ? "" : "s"} &middot; ${WORDS[state]}`;
+  }
+
+  /* the file download is blocked in the published page, so the file buttons go once a db is there */
+  const hideFileButtons = () => { for(const id of ["savenotes", "importbtn"]){ const b = document.getElementById(id); if(b) b.hidden = true; } };
+
+  function dot(ta, on){
+    const d = ta.closest("details.case");
+    const cid = d && d.querySelector(".cid");
+    if(!cid) return;
+    const el = cid.querySelector(".notedot");
+    if(on && !el) cid.insertAdjacentHTML("beforeend", '<span class="notedot" title="you left a note here">&#9679;</span>');
+    else if(!on && el) el.remove();
+  }
+
+  async function flush(id){
+    if(!db) return;
+    if(inflight[id]){ again[id] = true; return; }
+    inflight[id] = true;
+    try {
+      do {
+        again[id] = false;
+        const key = keyOf(id), t = T[id] || Date.now();
+        const c = CASES.find(x => x.id === key);
+        await db.doc(COLL + "/" + id).set({
+          id, note: NOTES[key] || "", t, saved_at: new Date(t).toISOString(),
+          verdict: c ? c.verdict : null, family: c ? c.family : null, status: c ? c.status : null
+        });
+      } while(again[id]);
+      unsaved.delete(id);
+      state = unsaved.size ? "saving" : "saved";
+    } catch(e) {
+      state = e && e.code === "invalid_argument" ? "readonly" : "error";
+      // ponytail: one retry per edit; an unsent note is pushed again on the next load
+      if(state === "error" && !retried[id]){ retried[id] = true; timers[id] = setTimeout(() => flush(id), 4000); }
+    } finally {
+      inflight[id] = false;
+      paint();
+    }
+  }
+  function flushAll(){ for(const id of [...unsaved]){ clearTimeout(timers[id]); flush(id); } }
+
+  function queue(id){
+    T[id] = Date.now(); saveT();
+    unsaved.add(id); retried[id] = false;
+    state = db ? "saving" : "offline";
+    paint();
+    clearTimeout(timers[id]);
+    timers[id] = setTimeout(() => flush(id), 700);
+  }
+
+  document.addEventListener("input", e => {
+    if(local) return;
+    const ta = e.target.closest && e.target.closest("textarea[data-note]");
+    if(!ta) return;
+    dot(ta, !!ta.value.trim());
+    queue(idOf(ta.dataset.note));
+  });
+  document.addEventListener("keydown", e => {
+    if(!local && (e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")){
+      e.preventDefault(); e.stopImmediatePropagation(); flushAll();
+    }
+  }, true);
+  document.addEventListener("visibilitychange", () => { if(document.hidden) flushAll(); });
+
+  function adopt(id, note, t){
+    const key = keyOf(id);
+    if(note.trim()) NOTES[key] = note; else delete NOTES[key];
+    T[id] = t; saveT();
+    try { localStorage.setItem(NOTES_KEY, JSON.stringify(NOTES)); } catch(_) {}
+    document.querySelectorAll('textarea[data-note="' + CSS.escape(key) + '"]').forEach(ta => {
+      if(ta.value !== note) ta.value = note;
+      dot(ta, !!note.trim());
+    });
+  }
+
+  async function start(){
+    try { db = window.claude && window.claude.use ? await window.claude.use("db") : null; } catch(_) { db = null; }
+    if(!db){ local = true; return; }   // a local copy: the page's own notes bar and file save stay as they are
+    hideFileButtons();
+    window.updateNoteBar = function(){ paint(); };
+    paint();
+    let first = true;
+    db.collection(COLL).onSnapshot(snap => {
+      const remote = new Set();
+      for(const d of snap.docs){
+        const id = d.id, r = d.data() || {}, rt = +r.t || 0, lt = T[id] || 0;
+        remote.add(id);
+        if(unsaved.has(id) || inflight[id]) continue;
+        if(rt > lt) adopt(id, String(r.note || ""), rt);
+        else if(first && lt > rt) flush(id);
+      }
+      if(first){
+        first = false;
+        for(const key of Object.keys(NOTES)){
+          const id = idOf(key);
+          if(!remote.has(id) && (NOTES[key] || "").trim()){ if(!T[id]) T[id] = Date.now(); flush(id); }
+        }
+        saveT();
+      }
+      if(!unsaved.size) state = "saved";
+      paint();
+    }, err => {
+      state = err && err.code === "invalid_argument" ? "readonly" : "error";
+      paint();
+    });
+  }
+  start();
+})();
 </script>

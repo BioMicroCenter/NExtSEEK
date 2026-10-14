@@ -14,14 +14,20 @@ nessie-run-review/
 ├── scripts/
 │   ├── fetch_run.py            Read-only pull of per-turn evidence (+ manifest, raw rows,
 │   │                           output files) off any instance: --instance local|dev|prod.
-│   ├── build_report.py         Validate your triage.json, join it with the run -> report.html
+│   ├── build_report.py         Validate your triage.json, join it with the run, validate that
+│   │                           data against ../schema, render report.html from it
+│   ├── review_data.py         The data contract: validate, fingerprint, embed, extract, render
+│   ├── check_page.py          Fails any page the generator did not write. Run before publishing.
 │   ├── review_forms.py         The forms: triage (validate), grades (grades.json, GRADES.md,
 │   │                           a triage), notes (fold the reviewer's notes back). The logic
 │   │                           is the importable package ../output_skill/.
 │   └── reply_style.py          Count machinery vs answer across a run's replies,
 │                               offline: the before/after number for a prompt change.
+├── schema/
+│   └── review.schema.json      The page's data contract. Extra or missing fields fail.
 ├── templates/
-│   └── report.html.tpl         The page. Fully data-driven; no run specifics baked in.
+│   └── report.html.tpl         The page. Renders from the embedded review-data block; carries
+│                               the notes relay for a published page.
 └── examples/
     ├── triage.json             A complete worked triage (the 2026-07-24 run).
     ├── grades-form.json        A filled grades form (synthetic ids and numbers).
@@ -40,9 +46,11 @@ uv run scripts/build_report.py \
 
 Expected: `cases 44  verdicts {'pass': 29, 'masked': 2, 'drift': 4, 'real': 5, 'policy': 3, 'notrun': 1}`
 
-The result is one self-contained HTML file, no external assets. Publish it with
-the Artifact tool for a shareable link, or add `--standalone` to get a complete
-`<!doctype html>` document you can open in a browser or send to someone.
+The result is one self-contained HTML file, no external assets. Run
+`uv run scripts/check_page.py /tmp/report.html`, then publish it with the Artifact tool for a
+shareable link (`capabilities: {db: {}}`), or add `--standalone` to get a complete
+`<!doctype html>` document you can open in a browser or send to someone. Never hand-write or
+post-edit the page: SKILL.md "The page is generator output".
 
 The page is a review surface: every case has a notes box, and Ctrl-S exports all
 notes to a JSON file the reviewer sends back to be folded into `triage.json`.

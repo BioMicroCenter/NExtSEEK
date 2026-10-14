@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nessie-run-review/review.schema.json",
+  "title": "Nessie run review page data",
+  "description": "Everything the review page renders. build_report.py builds this from a run + a validated triage, validates it against this schema, and embeds it in the page as <script type=\"application/json\" id=\"review-data\">. check_page.py re-validates it. Extra or missing fields fail.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "header", "meta", "cases", "turns", "findings", "coverage", "gaps", "next"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "header": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "eyebrow", "headline", "subhead", "runroot"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "eyebrow": {"type": "string"},
+        "headline": {"type": "string"},
+        "subhead": {"type": "string", "description": "inline HTML allowed"},
+        "runroot": {"type": "string"}
+      }
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runline", "stats", "reframe", "coverage_lede", "graph_limit", "title", "notes_id", "notes_file"],
+      "properties": {
+        "runline": {"type": "array", "items": {"type": "string"}},
+        "stats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["n", "label"],
+            "properties": {
+              "n": {"type": ["integer", "number", "string"]},
+              "label": {"type": "string"},
+              "tone": {"enum": ["pass", "real", "drift", "policy", "mute"]}
+            }
+          }
+        },
+        "reframe": {"type": "string", "description": "the verdict paragraph above the bar; inline HTML allowed. Put a dev-green or summary verdict here."},
+        "coverage_lede": {"type": ["string", "null"]},
+        "graph_limit": {"type": "integer", "minimum": 1},
+        "title": {"type": "string", "minLength": 1},
+        "notes_id": {"type": "string", "minLength": 1, "description": "the reviewer's notes key (browser storage, and the db relay)"},
+        "notes_file": {"type": "string", "minLength": 1}
+      }
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "family", "status", "verdict", "head", "turns"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "family": {"type": "string"},
+          "status": {"type": "string"},
+          "route": {"type": ["string", "null"]},
+          "engine": {"type": ["string", "null"]},
+          "elapsed": {"type": ["number", "null"]},
+          "failed": {"type": "array", "items": {"type": "string"}},
+          "xfail": {"type": "boolean"},
+          "outage": {"type": "boolean"},
+          "cost": {"type": ["number", "null"]},
+          "cost_partial": {"type": "boolean"},
+          "fallback_turns": {"type": "integer"},
+          "turns_meta": {"type": "array", "items": {"type": "object"}},
+          "turns_sent": {"type": "integer"},
+          "route_source": {"type": ["string", "null"]},
+          "route_sources": {"type": "array"},
+          "reason": {"type": ["string", "null"]},
+          "turns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["label", "query", "criteria"],
+              "properties": {
+                "label": {"type": "string"},
+                "query": {"type": "string"},
+                "criteria": {"type": "array", "items": {"type": "object", "required": ["f", "op"]}}
+              }
+            }
+          },
+          "verdict": {"enum": ["pass", "real", "drift", "policy", "masked", "notrun"]},
+          "head": {"type": ["string", "null"]},
+          "observed": {
+            "type": ["array", "null"],
+            "items": {"type": "array", "minItems": 4, "maxItems": 4}
+          },
+          "note": {"type": ["string", "null"]},
+          "task": {"type": ["integer", "string", "null"]},
+          "gcount": {"type": ["integer", "null"]}
+        }
+      }
+    },
+    "turns": {
+      "type": "array",
+      "description": "the pulled turns (turns.json), open objects",
+      "items": {"type": "object", "required": ["id"]}
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "title", "body"],
+        "properties": {
+          "severity": {"enum": ["real", "drift", "policy", "mute"]},
+          "title": {"type": "string", "minLength": 1},
+          "body": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+          "evidence": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "coverage": {
+      "type": "array",
+      "items": {"type": "array", "minItems": 3, "maxItems": 3, "prefixItems": [{"type": "string"}, {"type": "integer"}, {"type": "integer"}]}
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "text"],
+        "properties": {"id": {"type": "string", "minLength": 1}, "text": {"type": "string", "minLength": 1}}
+      }
+    },
+    "next": {"type": "array", "items": {"type": "string"}}
+  }
+}

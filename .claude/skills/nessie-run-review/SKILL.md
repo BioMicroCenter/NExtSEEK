@@ -12,6 +12,31 @@ Two jobs, one pull:
 - **Real users' questions** on any instance become a written report: who asked what,
   what they got, what failed, and what to fix (see "Reviewing real users' questions").
 
+## The page is generator output, or it is not published
+
+**Never write the review page's HTML yourself.** Every page comes out of `scripts/build_report.py`,
+which renders it ONLY from a data object validated against `schema/review.schema.json` (extra or
+missing fields exit 2 before anything is written), embeds that data in the page with a fingerprint,
+and draws the page from the embedded data. The rules:
+
+1. Whatever you want on the page goes into the **triage** (steps 2 and 3), never into HTML:
+   the overall verdict, a dev-green or ship/no-ship section, the "what we proved and did not" list
+   goes in `reframe` (inline HTML allowed) and `findings` (title, severity, paragraphs, evidence);
+   per-case reasoning goes in each verdict's `head` / `observed` / `note`; follow-ups in `next`,
+   open questions in `gaps`; links to sibling pages in `reframe` or `subhead`.
+2. A section the schema has no field for is a change to `schema/review.schema.json`, the template
+   and `tests/` in the skill (one commit), not a post-edit of an output page.
+3. **Before publishing, run `uv run scripts/check_page.py report.html` and publish only a page it
+   passes.** It fails a page with no data block, data that breaks the schema, a fingerprint that
+   does not match its data, or any markup the generator did not write (an appended section, a
+   pasted notes relay, a hand edit). A failing page is rebuilt, not repaired.
+4. Do not append the notes relay: it is in the template. Publish the page with
+   `capabilities: {db: {}}`; with no db (a local file, `--standalone`) the page keeps its own
+   Ctrl-S file save.
+
+Several runs, several pages: one `build_report.py` call each, with a distinct `notes_id` in each
+triage, and link them from the main page's `reframe`.
+
 ## 0. Pick the instance
 
 Every script takes `--instance`. Pulls are read-only everywhere.
@@ -176,8 +201,10 @@ The fourth element of an `observed` row is `ok`, `fail`, or `info`. Use `info` f
 context that is not a criterion, such as a row count.
 
 `findings` (`{severity: real|drift|policy|mute, title, body: [paragraphs], evidence}`), `gaps`
-(`{id, text}`) and `next` (strings) hold the cross-cutting analysis. Their text is HTML, so
-inline markup is allowed. `head` is required on every verdict entry.
+(`{id, text}`) and `next` (strings) hold the cross-cutting analysis, and `reframe` is the verdict
+paragraph above the bar. Their text is HTML, so inline markup is allowed. `head` is required on every
+verdict entry. These fields are where every summary and verdict goes; see "The page is generator
+output" above.
 
 #### Grading a run for a report (grades.json, GRADES.md)
 
@@ -219,10 +246,18 @@ and engine call, and your verdict. Coverage is computed automatically. It warns
 about non-passing cases you left unjudged.
 
 The output is **one self-contained HTML file**: no external assets, no network
-fetches, everything inlined. Publish it with the Artifact tool for a link, or pass
-`--standalone` to emit a complete `<!doctype html>` document to open locally or
-send. The default output omits the document skeleton because the Artifact
+fetches, everything inlined. Check it, then publish it with the Artifact tool for a link
+(`capabilities: {db: {}}`), or pass `--standalone` to emit a complete `<!doctype html>` document
+to open locally or send. The default output omits the document skeleton because the Artifact
 publisher supplies it.
+
+```bash
+uv run scripts/check_page.py ./report.html     # exit 1 and a reason if it is not generator output
+```
+
+The page carries `<script type="application/json" id="review-data">` (the validated data, which
+the page renders from) and `id="review-fingerprint"` (generator, schema version, sha256 of the
+data). `rehydrate_report.py` reads them back.
 
 **Everything about a case lands in that case's own record**, so a reviewer never
 has to cross-reference: per turn it shows the query, the routing decision with the
@@ -262,6 +297,12 @@ reviewer's note and your reply to each case's note, and writes `FOLD.md` with th
 to the reviewer first. The
 "Import" button restores a JSON into the page, so a reviewer can resume later or
 a second reviewer can build on the first one's pass.
+
+On a published page the file buttons are replaced by the db relay that is built into the
+template: each note is saved to the artifact's db, one document per case in the `notes` collection
+(`notes/<case id>`, `notes/_overall`, each `{id, note, t, saved_at, verdict, family, status}`),
+and read back with ArtifactData. Fold what it returns with `review_forms.py notes fold` as below
+(it accepts `cases: {id: "note text"}`).
 
 Notes are keyed in browser storage by `notes_id`, which defaults to the run
 directory name, so two different runs never share a notes store. Set it

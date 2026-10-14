@@ -113,7 +113,7 @@ def test_build_report_produces_a_report_with_one_record_per_case(tmp_path):
 
     cases = _literal(html, "CASES")
     assert [c["id"] for c in cases] == [e["id"] for e in _entries()]
-    assert "__CASES__" not in html and "__META__" not in html
+    assert "__CASES__" not in html and "__META__" not in html and "__DATA__" not in html
 
 
 # --------------------------------------------------------------------------- #
