@@ -93,3 +93,19 @@ def test_a_named_search_that_found_nothing_says_so():
                                        "graph_result": {"ok": True, "data": []}})
     uids, reply = _uids(session, "a GEO package for those", _plan(2, SHOWN), reporter_uids=list(SHOWN))
     assert uids == [] and "found no samples" in reply
+
+
+def test_a_named_summary_report_is_not_packaged_on_its_carried_uids():
+    session = _session()
+    session["results_history"].append({"id": 2, "mode": "reporter", "user_query": "give me a summary report of those",
+                                       "parser_plan": {"filters": {"uids": SHOWN}},
+                                       "reporter_plan": {"reporter_mode": "summary", "uids": SHOWN}})
+    uids, reply = _uids(session, "a GEO package for those", _plan(2, SHOWN), reporter_uids=list(SHOWN))
+    assert uids == [] and "UIDs" in reply
+
+
+def test_a_generated_report_is_the_set_it_packaged():
+    session = _session()
+    session["results_history"].append({"id": 2, "mode": "reporter", "user_query": "a GEO package for those",
+                                       "reporter_plan": {"reporter_mode": "report_generation", "uids": SHOWN}})
+    assert _uids(session, "an SRA package for those", _plan(2)) == (SHOWN, None)

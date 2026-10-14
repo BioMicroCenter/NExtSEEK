@@ -13,8 +13,12 @@ def test_uids_from_api_rows_strips_html():
 
 
 def test_uids_falls_back_to_reporter_plan():
-    sess = _session([{"api_result_full": {}, "reporter_plan": {"uids": ["MUS-9-PUB"]}}])
+    # A generated report's plan names the samples it packaged; a summary's holds only the parser's carried few.
+    sess = _session([{"api_result_full": {}, "reporter_plan": {"reporter_mode": "report_generation",
+                                                               "uids": ["MUS-9-PUB"]}}])
     assert uids_from_last_search(sess) == ["MUS-9-PUB"]
+    sess["results_history"][0]["reporter_plan"]["reporter_mode"] = "summary"
+    assert uids_from_last_search(sess) == []
 
 
 def test_summarize_pinned_bundle_empty():

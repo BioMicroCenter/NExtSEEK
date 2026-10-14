@@ -573,7 +573,7 @@ def _bundle_uids(bundle: dict) -> list[str]:
 
     A bundle's rows, except a retrieve's: its set is the identifiers it asked for, not the lineage it returned,
     which holds the ancestors whose own trees a build would fetch whole. A bundle with no rows has a set only when
-    it is a report, whose plan names the samples it packaged. Any other plan's UIDs are not the bundle's own: a
+    it is a generated report, whose plan names the samples it packaged. Any other plan's UIDs are not the bundle's own: a
     count's or an empty search's can carry the 5 UIDs the earlier turn showed. A follow-up still counts every
     sample a retrieve returned (``chat_memory.bundle_uids``)."""
     rows, _total, _more, from_plan = bundle_rows_and_extent(bundle)
@@ -588,8 +588,11 @@ def _bundle_uids(bundle: dict) -> list[str]:
             filt = pp.get("filters") if isinstance(pp, dict) else None
             plan_uids = filt.get("uids") if isinstance(filt, dict) else None
     else:
+        # Only a generated report (a GEO/SRA/PRIDE package) holds a set: the UIDs it packaged. The reporter copies
+        # the parser's carried UIDs into its plan in every mode, so a summary report's are only the few shown.
         rp = bundle.get("reporter_plan")
-        plan_uids = rp.get("uids") if isinstance(rp, dict) else None
+        generated = isinstance(rp, dict) and rp.get("reporter_mode") == "report_generation"
+        plan_uids = rp.get("uids") if generated else None
     return [re.sub(r"<[^>]+>", "", uid).strip() for uid in plan_uids or [] if isinstance(uid, str) and uid.strip()]
 
 

@@ -5,6 +5,7 @@ import pytest
 
 from chat_nextseek.pipeline import agent as pa
 from chat_nextseek.pipeline import agent_tools
+from chat_nextseek.helpers.results import pinned_bundle, uids_from_last_search
 
 MICE = [{"uuid": f"MUS-1-{n}-PUB"} for n in (1, 2, 3)]
 NHP = [{"uuid": f"NHP-9-{n}-PUB"} for n in (1, 2)]
@@ -122,3 +123,21 @@ def test_a_capped_named_result_says_so_in_the_seed(loop):
     session["results_history"][0]["graph_result"].update(truncated=True, total=36622)
     pa.start(session, SimpleNamespace(), user_query="Run rnaseq on the mice", parser_plan={"target_result_id": 1})
     assert "~3 rows of 36622 (capped), 3 sample UIDs" in _state(session)["messages"][0]["content"]
+
+
+def test_a_summary_report_is_no_set_even_with_the_carried_uids_in_its_plan(monkeypatch):
+    """The reporter copies the parser's carried UIDs into its plan in every mode. A summary report packaged
+    nothing, so those 5 shown UIDs are not its set: "run rnaseq on those" after it asks (prod_launch gate MF-A)."""
+    monkeypatch.setattr(pa, "_run_loop", lambda *a, **k: pytest.fail("no model call"))
+    mice = [{"uuid": f"MUS-7-{n}-PUB"} for n in range(231)]
+    shown = [m["uuid"] for m in mice[:5]]
+    session = {"results_history": [
+        {"id": 1, "user_query": "mice treated with a drug", "graph_result": {"ok": True, "data": mice}},
+        {"id": 2, "mode": "reporter", "user_query": "give me a summary report of those",
+         "parser_plan": {"filters": {"uids": shown}},
+         "reporter_plan": {"reporter_mode": "summary", "uids": shown}},
+    ]}
+    assert uids_from_last_search(session, 2) == []
+    assert pinned_bundle(session)[0]["id"] == 1
+    out = pa.start(session, SimpleNamespace(), user_query="Run rnaseq on those", parser_plan={"target_result_id": 2})
+    assert out["action"] == "ask" and "231 samples" in out["reply"] and _state(session)["source_bundle_id"] == 1
