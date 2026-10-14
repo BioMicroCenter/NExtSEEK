@@ -775,7 +775,7 @@ class TestResolveUserContextV2:
 
         mock_user_info = {"person_id": 42, "lababbv": "MIT"}
 
-        with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(("testuser", "testpass"), {})) as mock_rsa, \
+        with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(("v2_basic_user", "testpass"), {})) as mock_rsa, \
              patch("seek.models.Users") as MockUsers, \
              patch("seek.seekdb.SeekDB") as MockSeekDB:
             MockUsers.objects.using.return_value.get.return_value = mock_seek_user

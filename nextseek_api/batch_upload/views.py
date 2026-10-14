@@ -745,6 +745,12 @@ def _resolve_user_context(request) -> dict | None:
         from seek.models import Users
 
         creds, _headers = resolve_seek_auth(request)
+        # SEC-008: DRF authenticates the session before a Basic header, and nothing here checks that
+        # header's password, so a credential naming another login would file the upload under that
+        # person. Only the authenticated user's own login counts.
+        if creds is not None and creds[0] != getattr(request.user, "username", None):
+            log.warning("batch upload: ignoring a credential for a login other than the authenticated user")
+            creds = None
         if creds is not None:
             _auth_creds = creds
             username, _password = creds
