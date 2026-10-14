@@ -113,7 +113,8 @@ with no prefix).
 The media route is unusual and its reason is recorded in place: nginx has no `/media`
 location and `DEBUG` is off under Docker, so Django serves it with a view of its own
 (`dmac/urls.py:32-36`). `dmac/media.py` sends an anonymous caller to `/login/` and serves
-a logged-in one only the legacy data-file tree (`SEEK_DATAFILE_ROOT_WEBLINK`); the rest of
+a logged-in one only the legacy data-file tree (`SEEK_DATAFILE_ROOT_WEBLINK`), and in it only
+the folders of the caller's projects unless they are a superuser; the rest of
 `MEDIA_ROOT` is working state no URL serves. Both error handlers are Mezzanine's
 (`handler404`, `handler500` in `dmac/urls.py`).
 

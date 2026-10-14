@@ -12,6 +12,7 @@ Now:
 * ``/media/`` sends an anonymous caller to the login page;
 * a logged-in caller gets only the legacy data-file store the code builds ``/media/`` links to
   (``SEEK_DATAFILE_ROOT_WEBLINK``); every other path answers 404, as a missing file does, a superuser's included;
+* in that store a caller who is not a superuser gets only a file under a folder of one of their projects (SEC-010);
 * the upload page's feedback workbook goes to the private export store (``seek.views.exports``), so its link streams
   only to the caller who uploaded the sheet, or to a superuser.
 
@@ -35,6 +36,7 @@ from seek.views.exports import exportFile
 OWNER = SimpleNamespace(is_authenticated=True, is_superuser=False, username="member", pk=7)
 OTHER = SimpleNamespace(is_authenticated=True, is_superuser=False, username="other", pk=8)
 ADMIN = SimpleNamespace(is_authenticated=True, is_superuser=True, username="admin", pk=1)
+STRANGER = SimpleNamespace(is_authenticated=True, is_superuser=False, username="stranger", pk=9)
 ANONYMOUS = SimpleNamespace(is_authenticated=False, is_superuser=False, username="", pk=None)
 
 LINK = re.compile(r"^/seek/exports/(?P<token>[0-9a-f]{32})/(?P<name>[\w.-]+)$")
@@ -49,6 +51,29 @@ PRIVATE_FILES = (
     "reserved/SAMPLE_TEMPLATE.xlsx",
 )
 SHARED_FILE = "uploads/production/Project_A/LAB/TIS-1_data.csv"
+
+# The projects each caller is in (resolve_scope), and the titles of those projects: the store's folder for a project is
+# its title with spaces as '_'. OWNER is in Project A, whose folder holds SHARED_FILE; OTHER only in Project B.
+PROJECT_TITLES = {1: "Project A", 2: "Project B"}
+PROJECTS_OF = {OWNER.pk: (1,), OTHER.pk: (2,)}
+
+
+def _scope_of(user):
+    from nextseek_api.graph_search.scope import Scope, ScopeUnavailable
+
+    if user.is_superuser:
+        return Scope(is_admin=True, person_id=None, project_ids=())
+    if user.pk not in PROJECTS_OF:
+        raise ScopeUnavailable("no SEEK person")
+    return Scope(is_admin=False, person_id=user.pk, project_ids=PROJECTS_OF[user.pk])
+
+
+def _projects():
+    """seek.models.Projects as far as the media route reads it: the titles of a set of project ids."""
+    projects = MagicMock()
+    projects.objects.filter.side_effect = lambda id__in: MagicMock(values_list=lambda *a, **k: [
+        PROJECT_TITLES[i] for i in id__in if i in PROJECT_TITLES])
+    return projects
 
 
 def _request(user, path, method="get", data=None):
@@ -69,7 +94,9 @@ def media(tmp_path):
         path.write_bytes(b"contents of " + name.encode())
     with override_settings(MEDIA_ROOT=str(root), MEDIA_URL="/media/", NEXTSEEK_EXPORT_ROOT=str(exports),
                            SEEK_DATAFILE_ROOT=str(root / "uploads" / "production") + "/",
-                           SEEK_DATAFILE_ROOT_WEBLINK="/media/uploads/production/"):
+                           SEEK_DATAFILE_ROOT_WEBLINK="/media/uploads/production/"), \
+            patch("nextseek_api.graph_search.scope.resolve_scope", side_effect=_scope_of), \
+            patch("seek.models.Projects", _projects()):
         yield SimpleNamespace(root=root, exports=exports)
 
 
@@ -124,6 +151,26 @@ def test_a_logged_in_caller_still_gets_the_legacy_data_file_store(media):
 
     assert response.status_code == 200
     assert _body(response) == b"contents of " + SHARED_FILE.encode()
+
+
+@pytest.mark.parametrize("user", [OTHER, STRANGER], ids=["member-of-another-project", "unresolvable-scope"])
+def test_a_data_file_of_another_project_is_not_found(media, user):
+    with pytest.raises(Http404):
+        _serve(user, SHARED_FILE)
+
+
+def test_a_superuser_gets_any_projects_data_file(media):
+    response = _serve(ADMIN, SHARED_FILE)
+
+    assert response.status_code == 200
+    assert _body(response) == b"contents of " + SHARED_FILE.encode()
+
+
+def test_a_file_outside_every_project_folder_is_not_found(media):
+    (media.root / "uploads" / "production" / "loose.csv").write_bytes(b"loose")
+
+    with pytest.raises(Http404):
+        _serve(OWNER, "uploads/production/loose.csv")
 
 
 def test_nothing_is_served_when_the_data_file_links_are_not_under_media(media):
