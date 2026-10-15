@@ -20,14 +20,13 @@ from .constants import SAMPLE_FILE_ACCESSOR_NAME, SAMPLE_FILTER_MAPPING, SAMPLE_
 from .upload import SampleUploadMixin, enqueueSampleSync
 from .download import SampleDownloadMixin
 from .search import SampleSearchMixin
-from .api import SampleApiMixin
 from .immport import SampleImmportMixin
 from .queries import SampleQueriesMixin
 from .trees import SampleTreesMixin
 from .core import SampleCore
 
 
-class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, SampleApiMixin, SampleImmportMixin, SampleQueriesMixin, SampleTreesMixin, SampleCore, DBtable):
+class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, SampleImmportMixin, SampleQueriesMixin, SampleTreesMixin, SampleCore, DBtable):
 
     def __init__(self, whichServer='default'):
         DBtable.__init__(self, 'SEEK', 'seek_development')

@@ -10,3 +10,11 @@ def test_data_file_upload_chain_is_gone():
     assert not hasattr(SeekDB, "seekupload_dfurl")
     for name in ("apiPost", "callCmdline"):
         assert not hasattr(SeekAPI, name)
+
+
+def test_sample_api_mixin_is_gone():
+    import importlib.util
+    from seek.dbtable_sample import DBtable_sample
+    assert importlib.util.find_spec("seek.sample.api") is None
+    for name in ("apiUploadSamples", "apiInsertSample", "updateSampleDFurl", "searchFileInSample"):
+        assert not hasattr(DBtable_sample, name)

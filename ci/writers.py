@@ -442,15 +442,12 @@ WRITERS: tuple[Writer, ...] = (
            note="the Container-CC agent calls NExtSEEK endpoints as the requesting user, so it writes nothing "
                 "of its own and inherits the hooks of whatever it calls"),
     Writer(id="WR-28",
-           sites=("seek/sample/api.py::SampleApiMixin.apiInsertSample",
-                  "seek/sample/api.py::SampleApiMixin.updateSampleDFurl",
-                  "nextseek_api/batch_upload/update.py::update_sample_metadata",
+           sites=("nextseek_api/batch_upload/update.py::update_sample_metadata",
                   "nextseek_api/batch_upload/update.py::smart_merge_assay_assets"),
            tables=("samples", "assay_assets"),
            how=("dbtable", "sql"),
            reconcile="RECONCILE_DEAD",
-           note="dead code: the first two were reached only from the retired api_app and have no caller left, "
-                "and the other two have no caller either"),
+           note="dead code: the two helpers have no caller"),
     Writer(id="WR-29",
            sites=("nextseek_api/services/people.py::PeopleProxyViewSet.create",
                   "nextseek_api/services/people.py::PeopleProxyViewSet.partial_update"),
