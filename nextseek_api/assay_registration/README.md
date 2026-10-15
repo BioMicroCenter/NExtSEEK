@@ -175,7 +175,7 @@ an `assay_assets` table and it is empty
    alone: a second row for the same pair that you did not write would go with it.
 
 A registration does not touch `projects_samples` or any other table (the one write is
-`nextseek_api/batch_upload/associations.py:112-139`), so nothing else needs undoing. Restoring from the
+`nextseek_api/batch_upload/associations.py:122-149`), so nothing else needs undoing. Restoring from the
 dump is the way back if you deleted the wrong rows.
 
 **Step 2: bring the graph labels back in line.** A removed membership makes some DERIVED_FROM edges
