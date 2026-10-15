@@ -40,7 +40,34 @@
     "Genome": {
       "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
       "provenance": "seed"
-    }
+    },
+    "GCPercent": {"from": "fastqc_raw-percent_gc", "target": "D.SEQ", "datatype": "number", "alternates": ["fastqc_raw-percent_gc@R1"], "note": "FastQC on the raw reads; single-end runs write it on the sample row, paired-end on <sample>_1 (@R1)", "provenance": "seed"},
+    "F_bp": {"from": "fastqc_raw-avg_sequence_length@R1", "target": "D.SEQ", "datatype": "number", "alternates": ["fastqc_raw-avg_sequence_length"], "note": "mean read-1 length (FastQC per-read row, else the single-end sample row)", "provenance": "seed"},
+    "R_bp": {"from": "fastqc_raw-avg_sequence_length@R2", "target": "D.SEQ", "datatype": "number", "note": "mean read-2 length; paired-end only", "provenance": "seed"},
+    "rRNAPercent": {"from": "sortmerna-rRNA_pct", "target": "D.SEQ", "datatype": "number", "note": "only with --remove_ribo_rna", "provenance": "seed"},
+    "PseudoalignedPercent": {"from": "salmon-percent_mapped", "target": "D.SEQ", "datatype": "number", "note": "reads Salmon mapped back to the de novo assembly", "provenance": "seed"},
+    "Strandedness": {"from": "$derived.strandedness", "target": "D.SEQ", "datatype": "string", "note": "from Salmon's library type code (no RSeQC in this pipeline)", "provenance": "seed"}
   },
-  "deliberately_unmapped": []
+  "deliberately_unmapped": [
+    {"key": "salmon-library_types", "why": "Read through $derived.strandedness, which turns Salmon's code into forward, reverse or unstranded."},
+    {"key": "fastqc_raw-percent_duplicates", "why": "Sequence-level duplication before alignment; DuplicationPercent is alignment-based (Picard), and mixing the two definitions in one field would mislead."},
+    {"key": "fastqc_raw-median_sequence_length", "why": "Same as the average length; hidden when samples agree within 10 bp."},
+    {"key": "fastqc_raw-percent_fails", "why": "Share of FastQC modules that failed: a report summary, not a measurement."},
+    {"key": "fastqc_raw-total_sequences", "why": "Count in millions; NumReads/TotalReads hold read counts."},
+    {"key": "fastqc_after_trimming-percent_duplicates", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_after_trimming-percent_gc", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_after_trimming-avg_sequence_length", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_after_trimming-median_sequence_length", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_after_trimming-percent_fails", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_after_trimming-total_sequences", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_after_filtering-percent_duplicates", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_after_filtering-percent_gc", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_after_filtering-avg_sequence_length", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_after_filtering-median_sequence_length", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_after_filtering-percent_fails", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_after_filtering-total_sequences", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "salmon-num_mapped", "why": "Same ruling as rnaseq (count in millions, or library-type diagnostics)."},
+    {"key": "salmon-compatible_fragment_ratio", "why": "Same ruling as rnaseq (count in millions, or library-type diagnostics)."},
+    {"key": "salmon-strand_mapping_bias", "why": "Same ruling as rnaseq (count in millions, or library-type diagnostics)."}
+  ]
 }

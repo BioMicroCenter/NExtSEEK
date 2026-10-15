@@ -60,7 +60,33 @@
     "Genome": {
       "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
       "provenance": "seed"
-    }
+    },
+    "GCPercent": {"from": "FastQC_mqc-generalstats-fastqc-percent_gc", "target": "D.SEQ", "datatype": "number", "alternates": ["FastQC_mqc-generalstats-fastqc-percent_gc@R1"], "note": "FastQC on the raw reads; single-end runs write it on the sample row, paired-end on <sample>_1 (@R1)", "provenance": "seed"},
+    "F_bp": {"from": "FastQC_mqc-generalstats-fastqc-avg_sequence_length@R1", "target": "D.SEQ", "datatype": "number", "alternates": ["FastQC_mqc-generalstats-fastqc-avg_sequence_length"], "note": "mean read-1 length (FastQC per-read row, else the single-end sample row)", "provenance": "seed"},
+    "R_bp": {"from": "FastQC_mqc-generalstats-fastqc-avg_sequence_length@R2", "target": "D.SEQ", "datatype": "number", "note": "mean read-2 length; paired-end only", "provenance": "seed"},
+    "MappedPercent": {"from": "STAR_mqc-generalstats-star-uniquely_mapped_percent", "target": "D.SEQ", "datatype": "number", "provenance": "seed"},
+    "NumAligned": {"from": "STAR_mqc-generalstats-star-uniquely_mapped", "target": "D.SEQ", "datatype": "number", "note": "MultiQC 1.18 writes the raw count, not millions: STAR's exact uniquely mapped reads", "provenance": "seed"},
+    "MismatchPercent": {"from": "$derived.mismatch_pct", "target": "D.SEQ", "datatype": "number", "note": "MultiQC 1.18 writes samtools' error rate as a 0-1 fraction; derived x100", "provenance": "seed"},
+    "AssignedPercent": {"from": "featureCounts_mqc-generalstats-featurecounts-percent_assigned", "target": "D.SEQ", "datatype": "number", "provenance": "seed"}
   },
-  "deliberately_unmapped": []
+  "deliberately_unmapped": [
+    {"key": "Samtools_mqc-generalstats-samtools-error_rate", "why": "A 0-1 fraction in MultiQC 1.18; MismatchPercent reads it as a percentage through $derived.mismatch_pct."},
+    {"key": "FastQC_mqc-generalstats-fastqc-percent_duplicates", "why": "Sequence-level duplication before alignment; DuplicationPercent is alignment-based (Picard), and mixing the two definitions in one field would mislead."},
+    {"key": "FastQC_mqc-generalstats-fastqc-median_sequence_length", "why": "Same as the average length; hidden when samples agree within 10 bp."},
+    {"key": "FastQC_mqc-generalstats-fastqc-percent_fails", "why": "Share of FastQC modules that failed: a report summary, not a measurement."},
+    {"key": "FastQC_mqc-generalstats-fastqc-total_sequences", "why": "Count in millions; NumReads/TotalReads hold read counts."},
+    {"key": "Cutadapt_mqc-generalstats-cutadapt-percent_trimmed", "why": "Percentage of bases (not reads) trimmed by Trim Galore; low signal, and AdapterPercent covers adapter content where fastp runs."},
+    {"key": "Salmon_mqc-generalstats-salmon-percent_mapped", "why": "STAR's uniquely mapped percent fills MappedPercent in this pipeline."},
+    {"key": "Salmon_mqc-generalstats-salmon-num_mapped", "why": "Same ruling as rnaseq (count in millions, or library-type diagnostics)."},
+    {"key": "Samtools_mqc-generalstats-samtools-non_primary_alignments", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "Samtools_mqc-generalstats-samtools-reads_mapped", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "Samtools_mqc-generalstats-samtools-reads_mapped_percent", "why": "STAR's uniquely mapped percent fills MappedPercent in this pipeline."},
+    {"key": "Samtools_mqc-generalstats-samtools-reads_properly_paired_percent", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "Samtools_mqc-generalstats-samtools-reads_MQ0_percent", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "Samtools_mqc-generalstats-samtools-raw_total_sequences", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "Samtools_mqc-generalstats-samtools-flagstat_total", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "Samtools_mqc-generalstats-samtools-mapped_passed", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "Samtools_mqc-generalstats-samtools-mapped_passed_pct", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "featureCounts_mqc-generalstats-featurecounts-Assigned", "why": "Raw count; AssignedPercent carries it."}
+  ]
 }

@@ -385,3 +385,13 @@ def test_every_row_default_exists_on_at_least_one_output_type(name):
 def test_every_inventory_glob_starts_with_a_double_star(name):
     bad = [p for p in maps.load(name).inventory_globs if not p.startswith("**/")]
     assert bad == [], f"{name}: inventory patterns must start with **/ (symlink safety): {bad}"
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_no_key_is_both_ruled_out_and_read_by_a_rule(name):
+    """A ruling says "never record this"; a rule reading the same key says the
+    opposite, and whichever wins, one of the two is wrong."""
+    from NessieAI.ns.reingest import mapper
+    m = maps.load(name)
+    both = sorted(m.ruled_out() & mapper.claimed_raw_keys(m))
+    assert not both, f"{name}: ruled out and read by a rule: {both}"

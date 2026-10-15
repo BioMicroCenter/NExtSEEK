@@ -1320,3 +1320,61 @@ def test_pipeline_specific_patterns_live_in_their_maps_not_the_core():
 
 def test_no_inventory_pattern_still_has_braces():
     assert not [p for p in harvest.inventory_globs() if "{" in p or "}" in p]
+
+
+def _hlatyping_stats(root, text):
+    stats_dir = root / "multiqc" / "multiqc_data"
+    stats_dir.mkdir(parents=True)
+    (stats_dir / "multiqc_general_stats.txt").write_text(text)
+
+
+def test_per_read_fastqc_rows_fold_into_the_sample_for_keys_the_map_claims(tmp_path):
+    # MultiQC writes FastQC per read file (<sample>_1, <sample>_2), never on
+    # the sample's own row. The hlatyping map reads GC and read length from
+    # those rows, so they arrive on the sample as <key>@R1 / <key>@R2.
+    root = tmp_path / "run"
+    _hlatyping_run(root)
+    _hlatyping_stats(root,
+        "Sample\toptitype-A1\tfastqc-percent_gc\tfastqc-avg_sequence_length\tfastqc-percent_fails\n"
+        "PATIENT1\tA*02:01\t\t\t\n"
+        "PATIENT1_1\t\t48.0\t101.0\t9.0\n"
+        "PATIENT1_2\t\t49.0\t100.0\t9.0\n")
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
+    sample = next(s for s in got.samples if s.nfcore_sample == "PATIENT1")
+    assert sample.metrics["fastqc-percent_gc@R1"] == 48.0
+    assert sample.metrics["fastqc-avg_sequence_length@R2"] == 100.0
+    # No rule reads it, so folding it would only fill the review queue.
+    assert "fastqc-percent_fails@R1" not in sample.metrics
+    assert [s.nfcore_sample for s in got.samples] == ["PATIENT1"]
+
+
+def test_a_samplesheet_sample_named_like_a_mate_row_is_not_folded(tmp_path):
+    # A real replicate may be named PATIENT1_1 alongside PATIENT1; its row is
+    # that sample's own, never PATIENT1's read 1.
+    root = tmp_path / "run"
+    _hlatyping_run(root)
+    (root / "samplesheet.csv").write_text(
+        "sample,fastq_1\nPATIENT1,/net/a.fastq.gz\nPATIENT1_1,/net/b.fastq.gz\n")
+    _hlatyping_stats(root,
+        "Sample\tfastqc-percent_gc\n"
+        "PATIENT1\t47.0\n"
+        "PATIENT1_1\t48.0\n")
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
+    sample = next(s for s in got.samples if s.nfcore_sample == "PATIENT1")
+    assert "fastqc-percent_gc@R1" not in sample.metrics
+    assert sample.metrics["fastqc-percent_gc"] == 47.0
+
+
+def test_metric_based_derived_values_reach_the_sample(tmp_path):
+    # Salmon's library type becomes Strandedness when no RSeQC
+    # infer_experiment exists to supply it.
+    root = tmp_path / "run"
+    _minimal_run(root)
+    stats_dir = root / "multiqc" / "multiqc_report_data"
+    stats_dir.mkdir(parents=True)
+    (stats_dir / "multiqc_general_stats.txt").write_text(
+        "Sample\tsalmon-library_types\tstar-uniquely_mapped_percent\n"
+        "S1\tISR\t90.0\n")
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
+    sample = next(s for s in got.samples if s.nfcore_sample == "S1")
+    assert sample.derived["strandedness"] == "reverse (ISR)"

@@ -20,7 +20,7 @@ def test_derived_metric_names_are_a_closed_set():
         "exon_intron_ratio", "exon_intergenic_ratio", "sense_antisense_ratio",
         "genes_detected", "genes_detected_percent", "top30_count_percent",
         "unaligned_reads", "total_reads", "uniquely_mapped_reads",
-        "multimapped_pct", "strandedness",
+        "multimapped_pct", "strandedness", "mismatch_pct",
     )
 
 
@@ -231,6 +231,7 @@ def test_every_derived_metric_name_can_appear_in_compute_output():
         star={"total": 1000.0, "unique": 800.0, "multi": 150.0,
               "too_many_loci": 30.0, "unmapped": 20.0},
         counts=counts, n_annotated_genes=80)
+    out.update(derived.from_metrics({"Samtools_mqc-generalstats-samtools-error_rate": 0.006}))
     assert set(derived.DERIVED_METRICS) <= set(out.keys())
 
 
@@ -387,3 +388,33 @@ def test_an_integer_count_survives_the_manifest_round_trip():
     assert again.derived["total_reads"] == 4763343
     assert isinstance(again.derived["total_reads"], int)
     assert isinstance(again.derived["cds_pct"], float)
+
+
+@pytest.mark.parametrize("code, expected", [
+    ("ISR", "reverse (ISR)"),
+    ("ISF", "forward (ISF)"),
+    ("IU", "unstranded (IU)"),
+    ("SR", "reverse (SR)"),
+    ("SF", "forward (SF)"),
+    ("U", "unstranded (U)"),
+    ("ISR, ISR", "reverse (ISR)"),
+])
+def test_salmon_library_type_becomes_strandedness(code, expected):
+    assert derived.from_metrics({"salmon-library_types": code})["strandedness"] == expected
+
+
+@pytest.mark.parametrize("code", ["ISR, IU", "", "A", "MSR, ISR"])
+def test_a_mixed_or_unknown_salmon_library_type_gives_no_strandedness(code):
+    assert "strandedness" not in derived.from_metrics({"salmon-library_types": code})
+
+
+def test_multiqc_1_22s_samtools_error_rate_fraction_becomes_a_percentage():
+    """MultiQC <= 1.22 writes the value before its x100 display step, and only
+    those versions spell the column <Namespace>_mqc-generalstats-...; the
+    spelling is what tells the fraction apart from 1.25's percentage."""
+    out = derived.from_metrics({"Samtools_mqc-generalstats-samtools-error_rate": 0.005994653})
+    assert out["mismatch_pct"] == 0.5995
+
+
+def test_a_current_multiqc_error_rate_is_already_a_percentage_and_is_left_alone():
+    assert "mismatch_pct" not in derived.from_metrics({"samtools_stats-error_rate": 0.5994653})

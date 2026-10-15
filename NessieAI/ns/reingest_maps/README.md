@@ -82,6 +82,13 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
 A map cannot compute; `derived_metrics` in `reingest/derived.py` is the only
 place reingest does arithmetic on a measurement.
 
+A raw general-stats key is either a `qc_attributes` `from`/alternate or, on an
+output row, `$metrics.<key>` (rnavar's VCF row reads snpEff's Ts/Tv this way).
+Either way it counts as claimed and is never queued. FastQC and Cutadapt write
+per read file, on MultiQC's `<sample>_1` / `<sample>_2` rows: name such a column
+`<key>@R1` or `<key>@R2` and harvest folds it onto the sample. Only claimed
+`@R1`/`@R2` keys are folded, so an unread per-read column never reaches the queue.
+
 `@`-prefixed values are named tokens computed in code, in
 `NessieAI/ns/reingest/pipelines/`: `common.py` for every pipeline, and one module
 per pipeline that needs its own (`differentialabundance.py`). A map may use the

@@ -40,7 +40,41 @@
     "Genome": {
       "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
       "provenance": "seed"
-    }
+    },
+    "GCPercent": {"from": "fastqc_raw-percent_gc", "target": "D.SEQ", "datatype": "number", "alternates": ["fastqc_raw-percent_gc@R1", "fastp-after_filtering_gc_content"], "note": "FastQC on the raw reads; single-end runs write it on the sample row, paired-end on <sample>_1 (@R1)", "provenance": "seed"},
+    "F_bp": {"from": "fastqc_raw-avg_sequence_length@R1", "target": "D.SEQ", "datatype": "number", "alternates": ["fastqc_raw-avg_sequence_length", "fastp-before_filtering_read1_mean_length"], "note": "mean read-1 length (FastQC per-read row, else the single-end sample row)", "provenance": "seed"},
+    "R_bp": {"from": "fastqc_raw-avg_sequence_length@R2", "target": "D.SEQ", "datatype": "number", "alternates": ["fastp-before_filtering_read2_mean_length"], "note": "mean read-2 length; paired-end only", "provenance": "seed"},
+    "Q30Percent": {"from": "fastp-after_filtering_q30_rate", "target": "D.SEQ", "datatype": "number", "note": "fastp's base-level Q30 rate, written as a percentage by MultiQC", "provenance": "seed"},
+    "PassedFilterPercent": {"from": "fastp-pct_surviving", "target": "D.SEQ", "datatype": "number", "provenance": "seed"},
+    "AdapterPercent": {"from": "fastp-pct_adapter", "target": "D.SEQ", "datatype": "number", "provenance": "seed"},
+    "MismatchPercent": {"from": "samtools_stats-error_rate", "target": "D.SEQ", "datatype": "number", "note": "unverified: smrnaseq's samtools rows may be named <sample>_mature..., not the sample", "provenance": "seed"},
+    "IsomiRPercent": {"from": "mirtop-isomiR_perc", "target": "D.SEQ", "datatype": "number", "provenance": "seed"},
+    "UMIUniquePercent": {"from": "umicollapse-dedup_percent_passing", "target": "D.SEQ", "datatype": "number", "note": "only with --with_umi", "provenance": "seed"}
   },
-  "deliberately_unmapped": []
+  "deliberately_unmapped": [
+    {"key": "fastqc_raw-percent_duplicates", "why": "Sequence-level duplication before alignment; DuplicationPercent is alignment-based (Picard), and mixing the two definitions in one field would mislead."},
+    {"key": "fastqc_raw-median_sequence_length", "why": "Same as the average length; hidden when samples agree within 10 bp."},
+    {"key": "fastqc_raw-percent_fails", "why": "Share of FastQC modules that failed: a report summary, not a measurement."},
+    {"key": "fastqc_raw-total_sequences", "why": "Count in millions; NumReads/TotalReads hold read counts."},
+    {"key": "fastqc_trimmed-percent_duplicates", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_trimmed-percent_gc", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_trimmed-avg_sequence_length", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_trimmed-median_sequence_length", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_trimmed-percent_fails", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_trimmed-total_sequences", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastp-pct_duplication", "why": "fastp's pre-alignment duplication estimate; DuplicationPercent is alignment-based."},
+    {"key": "fastp-after_filtering_q30_bases", "why": "Megabases; Q30Percent carries the quality."},
+    {"key": "fastp-filtering_result_passed_filter_reads", "why": "Count in millions; PassedFilterPercent carries it."},
+    {"key": "samtools_stats-non_primary_alignments", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "samtools_stats-reads_mapped", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "samtools_stats-reads_mapped_percent", "why": "Counts any mapped read, but MappedPercent means uniquely mapped; small RNAs multimap heavily. Note: the rnaseq map uses it as a MappedPercent alternate, which has the same mismatch. Also smrnaseq samtools rows are <id>_mature/_hairpin/_genome, not sample names."},
+    {"key": "samtools_stats-reads_properly_paired_percent", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "samtools_stats-reads_MQ0_percent", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "samtools_stats-raw_total_sequences", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "samtools_stats-insert_size_average", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "mirtop-ref_miRNA_sum", "why": "Counts in millions; miRNA quantities belong to the A.GEX matrix, not a QC field."},
+    {"key": "mirtop-isomiR_sum", "why": "Counts in millions; miRNA quantities belong to the A.GEX matrix, not a QC field."},
+    {"key": "mirtop-read_count", "why": "Counts in millions; miRNA quantities belong to the A.GEX matrix, not a QC field."},
+    {"key": "umicollapse-dedup_output_reads", "why": "Count in millions; UMIUniquePercent records the share of reads kept after deduplication."}
+  ]
 }

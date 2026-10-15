@@ -553,6 +553,8 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
                     f"{name}: multi-run sample resolved {resolved_rows} of "
                     f"{row_counts[name]} contributing D.SEQ parents; Parent "
                     "will be a partial list")
+        metrics = _sample_metrics(name, stats, sample_names=set(row_counts),
+                                  claimed=mapper.claimed_raw_keys(pipeline_map))
         out.samples.append(manifest.SampleRecord(
             nfcore_sample=name,
             fastq_1=str(row.get("fastq_1") or ""),
@@ -561,8 +563,10 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             d_seq_uid_multirun=list(parents),
             uid_resolution=how,
             strandedness_declared=str(row.get("strandedness") or "") or None,
-            metrics=stats.get(name, {}),
-            derived=_derived_for(base, name, read),
+            metrics=metrics,
+            # A per-sample tool file (RSeQC, the STAR log) wins over a value
+            # derived from a general-stats column (Salmon's library type).
+            derived={**derived.from_metrics(metrics), **_derived_for(base, name, read)},
         ))
 
     # SampleRecord.parent_sample_type: one batched call for every resolved
@@ -948,6 +952,44 @@ def _resolve_named_outputs(
         if not all(o.sample for o in hits):
             run_level[key] = hits[0].path
     return run_level, per_sample
+
+
+#: MultiQC's per-read row name suffix, and the tag a folded column carries.
+_MATE_ROWS = (("_1", "R1"), ("_2", "R2"))
+
+
+def _sample_metrics(name: str, stats: dict, *, sample_names: set[str],
+                    claimed: set[str]) -> dict:
+    """`name`'s own general-stats row, plus its per-read rows' columns that a
+    map rule reads, as `<column>@R1` / `<column>@R2`.
+
+    FastQC and Cutadapt run once per read file, and MultiQC writes those
+    values only on `<name>_1` / `<name>_2` rows, never on the sample's own
+    row. Only claimed columns are folded: an unclaimed one would just land in
+    the review queue. A mate row that is itself a sample in this run (a real
+    replicate named `<name>_1`) is never folded, and neither is a row with
+    any column a per-read row cannot have (see `_is_per_read_column`).
+    """
+    metrics = dict(stats.get(name, {}))
+    for suffix, tag in _MATE_ROWS:
+        mate = f"{name}{suffix}"
+        if mate in sample_names or mate not in stats:
+            continue
+        columns = stats[mate]
+        if not columns or not all(_is_per_read_column(c) for c in columns):
+            continue
+        for column, value in columns.items():
+            if f"{column}@{tag}" in claimed:
+                metrics[f"{column}@{tag}"] = value
+    return metrics
+
+
+def _is_per_read_column(column: str) -> bool:
+    """A column MultiQC fills on a per-read row: FastQC or Cutadapt, under any
+    of the section names pipelines give them (fastqc_raw-, fastqc_trimmed-,
+    fastqc_after_trimming-, MultiQC <= 1.22's FastQC_mqc-generalstats-, ...)."""
+    namespace = column.split("_mqc-generalstats-", 1)[0].split("-", 1)[0].lower()
+    return namespace.startswith(("fastqc", "cutadapt"))
 
 
 def _classify_general_stats_row(name: str, columns: dict, stats: dict) -> str:

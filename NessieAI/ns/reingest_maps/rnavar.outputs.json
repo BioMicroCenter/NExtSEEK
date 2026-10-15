@@ -34,7 +34,8 @@
       "attributes": {
         "Scientist": "@nextseek_user",
         "Software": "GATK4 HaplotypeCaller",
-        "FilterMethod": "GATK VariantFiltration hard filters; failing records are labelled in FILTER, not removed"
+        "FilterMethod": "GATK VariantFiltration hard filters; failing records are labelled in FILTER, not removed",
+        "TsTvRatio": "$metrics.snpeff-Ts_Tv_ratio"
       }
     }
   ],
@@ -52,7 +53,17 @@
     "Genome": {
       "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
       "provenance": "seed"
-    }
+    },
+    "MappedPercent": {"from": "read_alignment_star-uniquely_mapped_percent", "target": "D.SEQ", "datatype": "number", "note": "STAR's section is named \"Read Alignment (STAR)\" in this pipeline", "provenance": "seed"},
+    "DuplicationPercent": {"from": "gatk4_markduplicates_mark_duplicates-PERCENT_DUPLICATION", "target": "D.SEQ", "datatype": "number", "provenance": "seed"}
   },
-  "deliberately_unmapped": []
+  "deliberately_unmapped": [
+    {"key": "read_alignment_star-total_reads", "why": "Count in millions (raw counts in MultiQC <=1.21); exact counts belong to a STAR log harvest, as in rnaseq."},
+    {"key": "read_alignment_star-mapped", "why": "Count in millions (raw counts in MultiQC <=1.21); exact counts belong to a STAR log harvest, as in rnaseq."},
+    {"key": "read_alignment_star-mapped_percent", "why": "Unique plus multimapped; equals MappedPercent + MultimappedPercent (as ruled for rnaseq)."},
+    {"key": "read_alignment_star-uniquely_mapped", "why": "Count in millions (raw counts in MultiQC <=1.21); exact counts belong to a STAR log harvest, as in rnaseq."},
+    {"key": "read_alignment_star-multimapped", "why": "Count in millions. MultimappedPercent needs the STAR log harvested, as rnaseq does."},
+    {"key": "snpeff-Change_rate", "why": "Genome length per variant: the inverse of variant density, low value as QC."},
+    {"key": "snpeff-Number_of_variants_before_filter", "why": "Millions; an exact count would come from the snpEff summary, outside MultiQC."}
+  ]
 }

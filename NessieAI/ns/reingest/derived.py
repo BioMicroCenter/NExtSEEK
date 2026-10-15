@@ -35,8 +35,11 @@ DERIVED_METRICS: tuple[str, ...] = (
     "uniquely_mapped_reads",
     # STAR's "% of reads mapped to multiple loci", from the log's counts.
     "multimapped_pct",
-    # "forward", "reverse" or "unstranded", by nf-core/rnaseq's own rule.
+    # "forward", "reverse" or "unstranded", by nf-core/rnaseq's own rule on
+    # RSeQC, or from Salmon's library type code (see from_metrics).
     "strandedness",
+    # samtools' error rate as a percentage, from MultiQC <= 1.22's fraction.
+    "mismatch_pct",
 )
 
 # nf-core/rnaseq's defaults (params.stranded_threshold, unstranded_threshold),
@@ -289,4 +292,48 @@ def compute(
         if total_counts:
             out["top30_count_percent"] = round(sum(values[-30:]) / total_counts * 100, 4)
 
+    return out
+
+
+# Salmon's library type: an optional I/O/M read orientation, then S (stranded)
+# with F or R for read 1's strand, or U (unstranded). SR/ISR is what RSeQC
+# calls reverse, SF/ISF forward.
+_SALMON_LIBRARY_TYPE = re.compile(r"^[IOM]?(?:S([FR])|U)$")
+
+
+def _salmon_strandedness(value) -> str | None:
+    codes = {code.strip() for code in str(value or "").split(",") if code.strip()}
+    if len(codes) != 1:
+        return None  # nothing, or a run that saw more than one library type
+    code = codes.pop()
+    match = _SALMON_LIBRARY_TYPE.match(code)
+    if not match:
+        return None
+    verdict = {"F": "forward", "R": "reverse"}.get(match.group(1), "unstranded")
+    return f"{verdict} ({code})"
+
+
+def from_metrics(metrics: dict) -> dict[str, float | str]:
+    """Derived values computed from a sample's MultiQC general-stats columns,
+    for pipelines that leave no per-sample tool file to read instead.
+
+    `strandedness` comes from Salmon's library type. RSeQC's infer_experiment,
+    where a run has it, is computed by `compute` and takes precedence.
+
+    `mismatch_pct` is samtools' error rate from MultiQC 1.22 or earlier, which
+    writes the value before its x100 display step. Only those versions spell
+    the column `<Namespace>_mqc-generalstats-...`, so the spelling tells the
+    0-1 fraction apart from the percentage later versions write.
+    """
+    out: dict[str, float | str] = {}
+    strandedness = _salmon_strandedness(metrics.get("salmon-library_types"))
+    if strandedness:
+        out["strandedness"] = strandedness
+    for key, value in metrics.items():
+        if "_mqc-generalstats-" in key and key.endswith("-error_rate"):
+            try:
+                out["mismatch_pct"] = round(float(value) * 100, 4)
+            except (TypeError, ValueError):
+                pass
+            break
     return out

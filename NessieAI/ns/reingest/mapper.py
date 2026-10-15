@@ -132,6 +132,28 @@ class MapResult(BaseModel):
     missed_rules: list[dict] = Field(default_factory=list)
 
 
+_METRICS_REF = "$metrics."
+
+
+def claimed_raw_keys(pipeline_map: maps.PipelineMap | None,
+                     approved_rules: dict[str, maps.AttributeRule] | None = None) -> set[str]:
+    """Raw general-stats keys some rule of ``pipeline_map`` reads: each QC
+    rule's ``from`` and alternates, and every ``$metrics.<key>`` an output
+    rule, version override, row default or provenance value names (rnavar's
+    VCF row reads snpEff's Ts/Tv this way). Harvest folds per-read columns
+    only for these keys, and apply never queues them."""
+    if pipeline_map is None:
+        return set()
+    rules = list(pipeline_map.qc_attributes.values()) + list((approved_rules or {}).values())
+    keys = {rule.from_key for rule in rules} | {alt for rule in rules for alt in rule.alternates}
+    outputs = list(pipeline_map.outputs) + [r for o in pipeline_map.versions for r in o.outputs]
+    values = [v for rule in outputs for v in rule.attributes.values()]
+    values += list(pipeline_map.row_defaults.values()) + list(pipeline_map.provenance_attributes.values())
+    keys |= {v[len(_METRICS_REF):] for v in values
+             if isinstance(v, str) and v.startswith(_METRICS_REF)}
+    return keys
+
+
 def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
           approved_rules: dict[str, maps.AttributeRule] | None = None,
           context: dict | None = None) -> MapResult:
@@ -159,9 +181,7 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
 
     # Every raw key either kind of rule claims -- whether or not it ends up
     # applied to a given sample -- is known evidence, not an unmapped key.
-    all_rules = list(pipeline_map.qc_attributes.values()) + list(approved_rules.values())
-    claimed = {rule.from_key for rule in all_rules}
-    claimed |= {alt for rule in all_rules for alt in rule.alternates}
+    claimed = claimed_raw_keys(pipeline_map, approved_rules)
 
     for sample in run_manifest.samples:
         if sample.uid_resolution not in _NO_BACKFILL and sample.d_seq_uid:

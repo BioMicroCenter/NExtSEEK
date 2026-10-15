@@ -1740,3 +1740,140 @@ def test_per_file_companions_never_pair_a_contrast_with_a_longer_one():
         "A_vs_B_batch.deseq2.results_filtered.tsv")
     assert "Notes" not in plain.attributes
     assert "Notes" not in batch.attributes
+
+
+def _qc_run(pipeline, version, metrics, derived=None, outputs=()):
+    return manifest.RunManifest(
+        run_dir="/net/cluster/runs/r",
+        pipeline=manifest.PipelineInfo(name=f"nf-core/{pipeline}", version=version),
+        samples=[manifest.SampleRecord(
+            nfcore_sample="S1", d_seq_uid="D.SEQ-X-1",
+            uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD, parent_sample_type="D.SEQ",
+            metrics=metrics, derived=derived or {})],
+        outputs=[manifest.OutputRecord(path=p, sample="S1") for p in outputs])
+
+
+
+@pytest.mark.parametrize("pipeline, version, metrics, derived, expected", [
+    ("denovotranscript", "1.2.1",
+     {"fastqc_raw-percent_gc@R1": 48.0, "fastqc_raw-avg_sequence_length@R1": 101.0,
+      "fastqc_raw-avg_sequence_length@R2": 100.0, "sortmerna-rRNA_pct": 2.5,
+      "salmon-percent_mapped": 85.0},
+     {"strandedness": "reverse (ISR)"},
+     {"GCPercent": 48.0, "F_bp": 101.0, "R_bp": 100.0, "rRNAPercent": 2.5,
+      "PseudoalignedPercent": 85.0, "Strandedness": "reverse (ISR)"}),
+    ("hlatyping", "2.2.0",
+     {"fastqc-percent_gc@R1": 47.0, "fastqc-avg_sequence_length@R1": 150.0,
+      "fastqc-avg_sequence_length@R2": 150.0},
+     {}, {"GCPercent": 47.0, "F_bp": 150.0, "R_bp": 150.0}),
+    ("riboseq", "1.2.0",
+     # single-end: FastQC's row is the sample's own row, no @R1
+     {"fastqc_raw-percent_gc": 52.0, "fastqc_raw-avg_sequence_length": 51.0,
+      "fastp-after_filtering_q30_rate": 95.1, "fastp-pct_surviving": 97.0,
+      "fastp-pct_adapter": 60.0, "sortmerna-rRNA_pct": 40.0,
+      "star-uniquely_mapped_percent": 70.0, "samtools_stats-error_rate": 0.4},
+     {}, {"GCPercent": 52.0, "F_bp": 51.0, "Q30Percent": 95.1, "PassedFilterPercent": 97.0,
+          "AdapterPercent": 60.0, "rRNAPercent": 40.0, "MappedPercent": 70.0,
+          "MismatchPercent": 0.4}),
+    ("rnafusion", "4.1.3",
+     {"fastqc_raw-percent_gc@R1": 49.0, "fastp-after_filtering_q30_rate": 93.0,
+      "fastp-pct_surviving": 98.0, "fastp-pct_adapter": 12.0,
+      "fastp-before_filtering_read1_mean_length": 101.0,
+      "fastp-before_filtering_read2_mean_length": 101.0,
+      "star-uniquely_mapped_percent": 88.0,
+      "picard_mark_duplicates-PERCENT_DUPLICATION": 31.0,
+      "picard_rnaseqmetrics-PCT_RIBOSOMAL_BASES": 1.2,
+      "picard_rnaseqmetrics-PCT_MRNA_BASES": 81.0},
+     {}, {"GCPercent": 49.0, "Q30Percent": 93.0, "PassedFilterPercent": 98.0,
+          "AdapterPercent": 12.0, "F_bp": 101.0, "R_bp": 101.0, "MappedPercent": 88.0,
+          "DuplicationPercent": 31.0, "rRNAPercent": 1.2, "MRNAPercent": 81.0}),
+    ("rnasplice", "1.0.4",
+     {"FastQC_mqc-generalstats-fastqc-percent_gc@R1": 50.0,
+      "FastQC_mqc-generalstats-fastqc-avg_sequence_length@R1": 101.0,
+      "STAR_mqc-generalstats-star-uniquely_mapped_percent": 90.0,
+      "STAR_mqc-generalstats-star-uniquely_mapped": 24155641.0,
+      "featureCounts_mqc-generalstats-featurecounts-percent_assigned": 71.0,
+      "Samtools_mqc-generalstats-samtools-error_rate": 0.006},
+     {"mismatch_pct": 0.6},
+     {"GCPercent": 50.0, "F_bp": 101.0, "MappedPercent": 90.0, "NumAligned": 24155641.0,
+      "AssignedPercent": 71.0, "MismatchPercent": 0.6}),
+    ("rnavar", "1.3.0",
+     {"read_alignment_star-uniquely_mapped_percent": 91.0,
+      "gatk4_markduplicates_mark_duplicates-PERCENT_DUPLICATION": 22.0},
+     {}, {"MappedPercent": 91.0, "DuplicationPercent": 22.0}),
+    ("scrnaseq", "4.1.0",
+     # 10x: read 1 is the barcode read, read 2 the cDNA, so GC comes from R2
+     {"cell_ranger_count-count_estimated_cells": 13330.0,
+      "cell_ranger_count-count_avg_reads_cell": 12627.0,
+      "cell_ranger_count-count_reads_in_cells": 75.8,
+      "cell_ranger_count-count_valid_bc": 96.8,
+      "cell_ranger_count-count_q30_read": 94.3,
+      # harvest folds only claimed per-read keys, so there is no GC @R1 here
+      "fastqc-percent_gc@R2": 47.0,
+      "fastqc-avg_sequence_length@R1": 28.0, "fastqc-avg_sequence_length@R2": 90.0},
+     {}, {"EstimatedCells": 13330.0, "MeanReadsPerCell": 12627.0, "ReadsInCellsPercent": 75.8,
+          "ValidBarcodesPercent": 96.8, "Q30Percent": 94.3, "GCPercent": 47.0,
+          "F_bp": 28.0, "R_bp": 90.0}),
+    ("smrnaseq", "2.4.1",
+     {"fastp-after_filtering_gc_content": 51.0, "fastp-after_filtering_q30_rate": 97.0,
+      "fastp-pct_surviving": 88.0, "fastp-pct_adapter": 95.0,
+      "fastp-before_filtering_read1_mean_length": 75.0,
+      "samtools_stats-error_rate": 0.3, "mirtop-isomiR_perc": 38.0,
+      "umicollapse-dedup_percent_passing": 64.0},
+     {}, {"GCPercent": 51.0, "Q30Percent": 97.0, "PassedFilterPercent": 88.0,
+          "AdapterPercent": 95.0, "F_bp": 75.0, "MismatchPercent": 0.3,
+          "IsomiRPercent": 38.0, "UMIUniquePercent": 64.0}),
+])
+def test_each_pipelines_qc_metrics_map_to_d_seq(pipeline, version, metrics, derived, expected):
+    pipeline_map = maps.load(pipeline)
+    result = mapper.apply(_qc_run(pipeline, version, metrics, derived), pipeline_map)
+    row = next(r for r in result.rows if r.sample_type == "D.SEQ")
+    assert {a: row.attributes[a].value for a in expected if a in row.attributes} == expected
+    assert [u["raw_key"] for u in result.unmapped] == []
+    if pipeline_map.applies_to_versions:  # hlatyping's map declares no range yet
+        assert not [w for w in result.warnings if "outside the checked range" in w]
+
+
+def test_rnavar_writes_snpeffs_ts_tv_ratio_on_the_vcf_row():
+    run = _qc_run("rnavar", "1.3.0", {"snpeff-Ts_Tv_ratio": 2.1},
+                  outputs=["variant_calling/S1/S1.haplotypecaller.filtered.vcf.gz"])
+    result = mapper.apply(run, maps.load("rnavar"))
+    (vcf,) = [r for r in result.rows if r.sample_type == "A.VCF"]
+    assert vcf.attributes["TsTvRatio"].value == 2.1
+    # A raw key an output rule reads is claimed, so it is never queued.
+    assert [u["raw_key"] for u in result.unmapped] == []
+
+
+@pytest.mark.parametrize("pipeline, version, raw_key", [
+    ("denovotranscript", "1.2.1", "salmon-num_mapped"),
+    ("hlatyping", "2.2.0", "fastqc-percent_fails"),
+    ("riboseq", "1.2.0", "samtools_flagstat-flagstat_total"),
+    ("rnafusion", "4.1.3", "picard_insertsizemetrics-summed_median"),
+    ("rnasplice", "1.0.4", "Samtools_mqc-generalstats-samtools-raw_total_sequences"),
+    ("rnavar", "1.3.0", "snpeff-Change_rate"),
+    ("scrnaseq", "4.1.0", "cell_ranger_count-count_q30_bc"),
+    ("smrnaseq", "2.4.1", "mirtop-read_count"),
+])
+def test_a_low_value_key_is_ruled_out_and_never_queued(pipeline, version, raw_key):
+    pipeline_map = maps.load(pipeline)
+    assert raw_key in pipeline_map.ruled_out()
+    result = mapper.apply(_qc_run(pipeline, version, {raw_key: 1.0}), pipeline_map)
+    assert not any(u["raw_key"] == raw_key for u in result.unmapped)
+
+
+def test_hlatyping_writes_optitypes_alleles_on_an_a_hla_row():
+    metrics = {"optitype-A1": "A*02:01", "optitype-A2": "A*24:02", "optitype-B1": "B*07:02",
+               "optitype-B2": "B*44:02", "optitype-C1": "C*07:02", "optitype-C2": "C*05:01",
+               "optitype-Reads": 1532.0, "optitype-Objective": 1480.2}
+    run = _qc_run("hlatyping", "2.2.0", metrics, outputs=[
+        "optitype/S1/S1_result.tsv", "optitype/S1/S1_coverage_plot.pdf"])
+    result = mapper.apply(run, maps.load("hlatyping"))
+    (row,) = [r for r in result.rows if r.sample_type == "A.HLA"]
+    values = {k: v.value for k, v in row.attributes.items()}
+    assert values["File_PrimaryData"] == "S1_result.tsv"
+    assert values["File_SecondaryData"] == "S1_coverage_plot.pdf"
+    assert {values[f"HLA_{locus}{n}"] for locus in "ABC" for n in (1, 2)} == {
+        "A*02:01", "A*24:02", "B*07:02", "B*44:02", "C*07:02", "C*05:01"}
+    assert values["HLAReads"] == 1532.0 and values["HLATypingObjective"] == 1480.2
+    assert values["Software"] == "OptiType"
+    assert result.unmapped == []
