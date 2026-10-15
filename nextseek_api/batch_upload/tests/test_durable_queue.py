@@ -128,7 +128,17 @@ def test_the_purge_removes_old_state_and_keeps_live_state(tmp_path):
         f.write_text("x")
         os.utime(f, (now - age, now - age))
 
-    out = purge_durable_state(now=now, backend=backend, broker_url=f"sqla+sqlite:///{db}", uploads_dir=str(up))
+    cancel = tmp_path / "cancel"
+    cancel.mkdir()
+    for name, age in (("old-job", ttl + 3600), ("new-job", 60)):
+        f = cancel / name
+        f.write_text("")
+        os.utime(f, (now - age, now - age))
+
+    out = purge_durable_state(now=now, backend=backend, broker_url=f"sqla+sqlite:///{db}", uploads_dir=str(up),
+                              cancel_dir=str(cancel))
+    assert out["markers"] == 1
+    assert [p.name for p in cancel.iterdir()] == ["new-job"]
 
     assert out["results"] == 1 and out["messages"] == 1 and out["sheets"] == 1
     assert backend.get_task_meta("old-done")["status"] == "PENDING"  # gone: unknown ids read as PENDING

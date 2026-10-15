@@ -48,7 +48,7 @@ def clear_expired_sessions():
     call_command("clearsessions")
 
 
-def purge_durable_state(now=None, backend=None, broker_url=None, uploads_dir=None) -> dict:
+def purge_durable_state(now=None, backend=None, broker_url=None, uploads_dir=None, cancel_dir=None) -> dict:
     """Keep the durable upload-queue files from growing without bound (the beat runs this daily).
 
     Removes results older than the job TTL, consumed broker messages older than it, and saved sheets in uploads/
@@ -68,7 +68,7 @@ def purge_durable_state(now=None, backend=None, broker_url=None, uploads_dir=Non
 
     now = now if now is not None else time.time()
     ttl = _get_ttl_seconds()
-    out = {"results": 0, "messages": 0, "sheets": 0}
+    out = {"results": 0, "messages": 0, "sheets": 0, "markers": 0}
 
     backend = backend if backend is not None else cm.app.backend
     from celery.backends.database.models import Task
@@ -116,6 +116,14 @@ def purge_durable_state(now=None, backend=None, broker_url=None, uploads_dir=Non
                 if os.path.isfile(path) and os.path.getmtime(path) < cutoff_s and name not in live_text:
                     os.remove(path)
                     out["sheets"] += 1
+    # Cancel markers older than the TTL: their job record is gone too.
+    markers = cancel_dir if cancel_dir is not None else os.path.join(state_dir(), "cancel")
+    if os.path.isdir(markers):
+        for name in os.listdir(markers):
+            path = os.path.join(markers, name)
+            if os.path.isfile(path) and os.path.getmtime(path) < now - ttl:
+                os.remove(path)
+                out["markers"] += 1
     logger.info("purged durable queue state: %s", out)
     return out
 
