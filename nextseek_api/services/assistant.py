@@ -137,6 +137,7 @@ from nextseek_api.authentication import (  # noqa: F401
 )
 
 from nextseek_api.helpers import resolve_seek_auth, SeekAPIClient
+from nextseek_api.throttles import TURN_THROTTLES
 from nextseek_api.graph_search.scope import caller_block, current_project_ids, plain_scope
 
 # No module-scope chat_nextseek import: the orchestrator entry points are called from
@@ -680,7 +681,7 @@ class AssistantViewSet(viewsets.ViewSet):
             ),
         ],
     )
-    @action(detail=False, methods=["post"], url_path="query")
+    @action(detail=False, methods=["post"], url_path="query", throttle_classes=TURN_THROTTLES)
     def query(self, request):
         authed, err = self._check_auth(request)
         if not authed:
@@ -807,7 +808,7 @@ class AssistantViewSet(viewsets.ViewSet):
             ),
         ],
     )
-    @action(detail=False, methods=["post"], url_path="query/async")
+    @action(detail=False, methods=["post"], url_path="query/async", throttle_classes=TURN_THROTTLES)
     def query_async(self, request):
         authed, err = self._check_auth(request)
         if not authed:

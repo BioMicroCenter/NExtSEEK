@@ -24,6 +24,7 @@ from nextseek_api.graph_search.scope import resolve_scope
 from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
 
 from .celery_app import app as celery_app
+from nextseek_api.throttles import UPLOAD_THROTTLES
 from .job_index import list_jobs, register_job, state_dir, user_owns_job
 from .models import InputRowModel, ValidationResult
 from .tasks import run_batch_upload_task
@@ -162,7 +163,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
         },
         description=BATCH_UPLOAD_START_DESC,
     )
-    @action(detail=False, methods=["post"], url_path="start")
+    @action(detail=False, methods=["post"], url_path="start", throttle_classes=UPLOAD_THROTTLES)
     def start(self, request):
         """POST /api/batch-upload/start/ -- dispatch a batch upload job.
 

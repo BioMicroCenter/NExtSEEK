@@ -103,6 +103,51 @@ files = ["nextseek.env"]
 default = ""
 doc = "Space-separated origins allowed to call /nextseek_api/ cross-origin. The Vite dev origin is added only under DJANGO_DEBUG."
 
+[DJANGO_THROTTLE_ANON]
+files = ["nextseek.env"]
+default = "120/min"
+doc = "API request limit per client address for callers who are not signed in."
+
+[DJANGO_THROTTLE_USER]
+files = ["nextseek.env"]
+default = "1200/min"
+doc = "API request limit per signed-in user. Generous: the chat frontend polls and the CI suite runs as one user."
+
+[DJANGO_THROTTLE_TURN_START]
+files = ["nextseek.env"]
+default = "30/min"
+doc = "Limit per user on starting an agent turn (cc-assistant and assistant query/async, nessie/query)."
+
+[DJANGO_THROTTLE_UPLOAD]
+files = ["nextseek.env"]
+default = "10/min"
+doc = "Limit per user on starting an upload job (batch-upload start, cc-assistant upload)."
+
+[DJANGO_NUM_PROXIES]
+files = ["nextseek.env"]
+default = "2"
+doc = "Proxies that append to X-Forwarded-For before Django (TLS edge plus the inner nginx). Sets which entry counts as the client address for rate limits and sign-in counting. Set 1 if the box has no edge in front of nginx."
+
+[DJANGO_THROTTLE_CACHE_DIR]
+files = ["nextseek.env"]
+default = "/var/tmp/nextseek-throttle"
+doc = "Directory of the file cache that holds the rate-limit and sign-in counters, shared by every process in the container."
+
+[DJANGO_LOGIN_FAILS_PER_USER]
+files = ["nextseek.env"]
+default = "10"
+doc = "Failed sign-ins allowed per window for one client address and username (form login and Basic API credentials)."
+
+[DJANGO_LOGIN_FAILS_PER_ADDRESS]
+files = ["nextseek.env"]
+default = "30"
+doc = "Failed sign-ins allowed per window for one client address, across usernames."
+
+[DJANGO_LOGIN_WINDOW_SECONDS]
+files = ["nextseek.env"]
+default = "900"
+doc = "Length in seconds of the failed sign-in window."
+
 [NEXTSEEK_BASE_URL]
 files = ["nextseek.env", "internal"]
 doc = "Public NExtSEEK base URL, derived from NEXTSEEK_HOSTNAME. cc_engine hands the agent its own copy."

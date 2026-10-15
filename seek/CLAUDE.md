@@ -18,7 +18,7 @@
   `seek/models/nextseek.py:151-158` gives the reason in full: because
   `allow_migrate` returns `None` for this app label (`seek/dbrouters.py`; it returns False only for the SEEK alias),
   a managed model would let the next unrelated `makemigrations` create the table
-  on both aliases.
+  on the default alias (the seek alias is not migrated unless `SEEK_ALIAS_MIGRATABLE` is on).
 - **Every column identifier reaching the search SQL builder is allowlisted.**
   `seek/search.py:16-35` is the set and `seek/search.py:39-47` raises on a miss,
   deliberately rather than dropping the clause — a silently dropped filter emits

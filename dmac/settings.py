@@ -75,7 +75,9 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 SITE_ID = 1
 USE_I18N = False
 
-AUTHENTICATION_BACKENDS = ("mezzanine.core.auth_backends.MezzanineBackend",)
+# MezzanineBackend plus the failed sign-in limit (nextseek_api/throttles.py). Mezzanine puts its own backend
+# first when settings load (set_dynamic_settings), so the list is set again after that call.
+AUTHENTICATION_BACKENDS = ("nextseek_api.throttles.LoginThrottleBackend",)
 
 FILE_UPLOAD_PERMISSIONS = 0o644
 
@@ -283,6 +285,7 @@ except ImportError:
     pass
 else:
     set_dynamic_settings(globals())
+    AUTHENTICATION_BACKENDS = ["nextseek_api.throttles.LoginThrottleBackend"]
 
 APPEND_SLASH = True
 
@@ -426,7 +429,39 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    # Request-rate limits (nextseek_api/throttles.py). Generous defaults: the chat frontend polls task status, the
+    # CI smoke suite and the nessie harness run as one user from one address. The paid endpoints get tight ones.
+    'DEFAULT_THROTTLE_CLASSES': [
+        'nextseek_api.throttles.AnonRate',
+        'nextseek_api.throttles.UserRate',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': os.getenv('DJANGO_THROTTLE_ANON', '120/min'),
+        'user': os.getenv('DJANGO_THROTTLE_USER', '1200/min'),
+        'turn_start': os.getenv('DJANGO_THROTTLE_TURN_START', '30/min'),
+        'upload': os.getenv('DJANGO_THROTTLE_UPLOAD', '10/min'),
+    },
+    # Proxies between the client and Django that append to X-Forwarded-For: the TLS edge and the inner nginx.
+    # With "client, edge" in the header DRF counts the client. Fewer entries (a laptop, the box's own CI over
+    # 127.0.0.1) just count the address that is there.
+    'NUM_PROXIES': int(os.getenv('DJANGO_NUM_PROXIES', '2')),
 }
+
+# Shared counters for the throttles and the login limiter. A separate alias, so the default cache (Mezzanine's
+# page cache) is unchanged. A file cache is shared by every gunicorn/daphne process in the container.
+CACHES = {
+    'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'},
+    'throttle': {
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': os.getenv('DJANGO_THROTTLE_CACHE_DIR', '/var/tmp/nextseek-throttle'),
+        'OPTIONS': {'MAX_ENTRIES': 10000},
+    },
+}
+
+# Failed sign-ins allowed per window, per (client address, username) and per client address; the window in seconds.
+LOGIN_FAILS_PER_USER = int(os.getenv('DJANGO_LOGIN_FAILS_PER_USER', '10'))
+LOGIN_FAILS_PER_ADDRESS = int(os.getenv('DJANGO_LOGIN_FAILS_PER_ADDRESS', '30'))
+LOGIN_WINDOW_SECONDS = int(os.getenv('DJANGO_LOGIN_WINDOW_SECONDS', '900'))
 
 
 ##############################
@@ -604,8 +639,7 @@ SEEK_ALIAS_MIGRATABLE = False
 # and a project's shape changes at most weekly, so an hour is already fresher
 # than the data.
 #
-# No CACHES is configured for this project, so Django's default per-process
-# LocMemCache applies and each gunicorn worker warms its own copy. That is N
+# CACHES' default is Django's per-process LocMemCache, so each gunicorn worker warms its own copy. That is N
 # queries per window rather than one; acceptable at this cost, and the fix if it
 # stops being acceptable is a shared CACHES backend, not a longer TTL.
 PROJECT_CONNECTIONS_CACHE_SECONDS = int(

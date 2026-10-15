@@ -735,6 +735,15 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `DJANGO_SECURE_COOKIES` | nextseek.env | "" |  |  | 1/true/yes sets the Secure flag on the session and CSRF cookies. Off by default; turn on once the box is served over https. |
 | `DJANGO_TRUST_X_FORWARDED_PROTO` | nextseek.env | "" |  |  | 1/true/yes trusts the edge's X-Forwarded-Proto header. Only where the edge overwrites it. |
 | `DJANGO_CORS_ALLOWED_ORIGINS` | nextseek.env | "" |  |  | Space-separated origins allowed to call /nextseek_api/ cross-origin. The Vite dev origin is added only under DJANGO_DEBUG. |
+| `DJANGO_THROTTLE_ANON` | nextseek.env | 120/min |  |  | API request limit per client address for callers who are not signed in. |
+| `DJANGO_THROTTLE_USER` | nextseek.env | 1200/min |  |  | API request limit per signed-in user. Generous: the chat frontend polls and the CI suite runs as one user. |
+| `DJANGO_THROTTLE_TURN_START` | nextseek.env | 30/min |  |  | Limit per user on starting an agent turn (cc-assistant and assistant query/async, nessie/query). |
+| `DJANGO_THROTTLE_UPLOAD` | nextseek.env | 10/min |  |  | Limit per user on starting an upload job (batch-upload start, cc-assistant upload). |
+| `DJANGO_NUM_PROXIES` | nextseek.env | 2 |  |  | Proxies that append to X-Forwarded-For before Django (TLS edge plus the inner nginx). Sets which entry counts as the client address for rate limits and sign-in counting. Set 1 if the box has no edge in front of nginx. |
+| `DJANGO_THROTTLE_CACHE_DIR` | nextseek.env | /var/tmp/nextseek-throttle |  |  | Directory of the file cache that holds the rate-limit and sign-in counters, shared by every process in the container. |
+| `DJANGO_LOGIN_FAILS_PER_USER` | nextseek.env | 10 |  |  | Failed sign-ins allowed per window for one client address and username (form login and Basic API credentials). |
+| `DJANGO_LOGIN_FAILS_PER_ADDRESS` | nextseek.env | 30 |  |  | Failed sign-ins allowed per window for one client address, across usernames. |
+| `DJANGO_LOGIN_WINDOW_SECONDS` | nextseek.env | 900 |  |  | Length in seconds of the failed sign-in window. |
 | `NEXTSEEK_BASE_URL` | nextseek.env, internal |  |  |  | Public NExtSEEK base URL, derived from NEXTSEEK_HOSTNAME. cc_engine hands the agent its own copy. |
 | `NEXTSEEK_INTERNAL_BASE_URL` | nextseek.env |  |  |  | Container-internal URL for chat_nextseek's REST self-calls; preferred over NEXTSEEK_BASE_URL. |
 | `LOG_DIR` | nextseek.env | /app/logs |  |  | Log folder inside the app container. |

@@ -6,6 +6,7 @@ from django.db.models import Q
 from django.db import IntegrityError, transaction
 from django.contrib.auth import authenticate, login
 from django.conf import settings
+from nextseek_api.throttles import login_blocked, login_failed, login_succeeded
 from django.utils.http import url_has_allowed_host_and_scheme
 from mezzanine.core.views import server_error
 
@@ -143,6 +144,9 @@ def _safe_next(request):
 
 
 def login_seek(request):
+    if request.method == 'POST' and login_blocked(request, request.POST.get('username')):
+        return render(request, 'login.html',
+                      {'error': "Too many sign-in attempts. Wait a few minutes and try again."}, status=429)
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, fromLoginForm=True)  # body credentials, once SEEK accepts them
 
@@ -190,8 +194,10 @@ def login_seek(request):
                     request.session.flush()
                     return render(request, 'login.html', {'error': msg})
             
+            login_succeeded(request, request.POST.get('username'))
             return HttpResponseRedirect(_safe_next(request))
         else:
+            login_failed(request, request.POST.get('username'))
             logger.debug("SEEK authentication failed, re-login")
             request.session.flush()
             return render(request, 'login.html', {'error': user_seek['err']})

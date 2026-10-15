@@ -91,3 +91,14 @@ SEEK_ALIAS_MIGRATABLE = True
 
 # settings.py allows the Vite dev origin only under DEBUG; the CORS and websocket-origin tests use it as their example.
 CORS_ALLOWED_ORIGINS = ["http://localhost:5173"]
+
+# Request-rate limits (nextseek_api/throttles.py): out of the way for the suite, counted in memory. The tests of
+# the limits set small rates themselves.
+CACHES = {
+    "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+    "throttle": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "throttle-tests"},
+}
+REST_FRAMEWORK = {
+    **REST_FRAMEWORK,
+    "DEFAULT_THROTTLE_RATES": {k: "100000/min" for k in ("anon", "user", "turn_start", "upload")},
+}

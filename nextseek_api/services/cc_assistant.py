@@ -48,6 +48,7 @@ from nextseek_api.assistant.descriptions_cc import (
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
+from nextseek_api.throttles import TURN_THROTTLES, UPLOAD_THROTTLES
 from nextseek_api.helpers import resolve_seek_auth
 from nextseek_api.graph_search.scope import caller_block, plain_scope
 
@@ -173,7 +174,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
             request_only=True,
         )],
     )
-    @action(detail=False, methods=["post"], url_path="query/async")
+    @action(detail=False, methods=["post"], url_path="query/async", throttle_classes=TURN_THROTTLES)
     def query_async(self, request):
         authed, err = self._check_auth(request)
         if not authed:
@@ -197,7 +198,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
             request_only=True,
         )],
     )
-    @action(detail=False, methods=["post"], url_path="cc/query/async")
+    @action(detail=False, methods=["post"], url_path="cc/query/async", throttle_classes=TURN_THROTTLES)
     def cc_query_async(self, request):
         authed, err = self._check_auth(request)
         if not authed:
@@ -254,7 +255,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
             status=status.HTTP_200_OK,
         )
 
-    @action(detail=False, methods=["post"], url_path="upload")
+    @action(detail=False, methods=["post"], url_path="upload", throttle_classes=UPLOAD_THROTTLES)
     def upload(self, request):
         from django.conf import settings
         from rest_framework.response import Response
