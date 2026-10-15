@@ -21,7 +21,7 @@ from rest_framework.response import Response
 from nextseek_api.permissions import IsSuperUser
 from nextseek_api.assistant.turn_pass_auth import TurnPassAuthentication
 from nextseek_api.graph_search.scope import resolve_scope
-from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
+from nextseek_api.services.assistant import SeekSessionAuthentication
 
 from .celery_app import app as celery_app
 from nextseek_api.throttles import UPLOAD_THROTTLES
@@ -102,7 +102,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
     """
 
     # The turn pass first (spec piece 1); its allow table opens only validate/ to it.
-    authentication_classes = [TurnPassAuthentication, TokenAuthentication, CsrfExemptSessionAuthentication,
+    authentication_classes = [TurnPassAuthentication, TokenAuthentication, SeekSessionAuthentication,
                               BasicAuthentication]
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]

@@ -74,7 +74,7 @@ urlpatterns = [
     # template_name overrides drf-spectacular's default to add the effective-identity
     # banner (#119). Swagger's Authorize button is silently ignored whenever the browser
     # holds a NExtSEEK session cookie, because DRF stops at the first authenticator that
-    # succeeds and CsrfExemptSessionAuthentication sits above BasicAuthentication. The
+    # succeeds and SeekSessionAuthentication sits above BasicAuthentication. The
     # banner states who the requests will ACTUALLY run as, so a mismatch is visible
     # instead of being discovered by mis-diagnosing an authorization gap.
     re_path(r'^swagger/$', SpectacularSwaggerView.as_view(

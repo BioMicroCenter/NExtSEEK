@@ -13,7 +13,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import BasePermission
 
 from nextseek_api.helpers import SeekAPIClient
-from nextseek_api.services.assistant import CsrfExemptSessionAuthentication as SeekSessionAuthentication
+from nextseek_api.services.assistant import SeekSessionAuthentication
 
 ADMIN_ROLE_TYPE_ID = 1
 

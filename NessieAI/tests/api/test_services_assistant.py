@@ -5,7 +5,7 @@ Covers gaps NOT addressed by test_assistant_unit.py:
 - _check_auth with various resolve_seek_auth outcomes
 - _error_response helper
 - UserInParticipatingProject permission class (has_permission, has_object_permission)
-- CsrfExemptSessionAuthentication.enforce_csrf
+- SeekSessionAuthentication.enforce_csrf
 - SSE query pipeline error handling
 - Async query pipeline error handling + ownership validation
 - download_artifact endpoint (all branches)
@@ -60,15 +60,15 @@ class ErrorResponseHelperTests(TestCase):
 
 
 # ============================================================================
-# CsrfExemptSessionAuthentication
+# SeekSessionAuthentication
 # ============================================================================
 
 class CsrfExemptSessionAuthTests(TestCase):
-    """Test CsrfExemptSessionAuthentication.enforce_csrf returns None."""
+    """Test SeekSessionAuthentication.enforce_csrf returns None."""
 
     def test_enforce_csrf_returns_none(self):
-        from nextseek_api.authentication import CsrfExemptSessionAuthentication
-        auth = CsrfExemptSessionAuthentication()
+        from nextseek_api.authentication import SeekSessionAuthentication
+        auth = SeekSessionAuthentication()
         request = MagicMock()
         result = auth.enforce_csrf(request)
         self.assertIsNone(result)
@@ -82,7 +82,7 @@ class AuthenticationReExportTests(TestCase):
         import nextseek_api.authentication as auth_mod
         import nextseek_api.services.assistant as svc
 
-        self.assertIs(svc.CsrfExemptSessionAuthentication, auth_mod.CsrfExemptSessionAuthentication)
+        self.assertIs(svc.SeekSessionAuthentication, auth_mod.SeekSessionAuthentication)
         self.assertIs(svc._error_response, auth_mod._error_response)
 
 
@@ -1054,14 +1054,14 @@ class ViewSetConfigTests(TestCase):
 
     def test_authentication_classes(self):
         from nextseek_api.assistant.turn_pass_auth import TurnPassAuthentication
-        from nextseek_api.authentication import CsrfExemptSessionAuthentication
+        from nextseek_api.authentication import SeekSessionAuthentication
         from nextseek_api.services.assistant import AssistantViewSet
         from rest_framework.authentication import TokenAuthentication, BasicAuthentication
 
         auth_classes = AssistantViewSet.authentication_classes
         # The turn pass first (spec piece 1), then the three it always had.
         self.assertEqual(auth_classes, [TurnPassAuthentication, TokenAuthentication,
-                                        CsrfExemptSessionAuthentication, BasicAuthentication])
+                                        SeekSessionAuthentication, BasicAuthentication])
 
     def test_permission_classes(self):
         from nextseek_api.services.assistant import (

@@ -2,6 +2,8 @@
 
 from rest_framework.permissions import BasePermission
 
+from nextseek_api.authentication import _error_response
+
 
 class IsSuperUser(BasePermission):
     """Gate an endpoint to true superusers only.
@@ -88,6 +90,4 @@ def require_session_owner(request, session, *, admin_read: bool = False):
     """
     if session.user_id == request.user.pk or (admin_read and may_read_any(request)):
         return None
-    from nextseek_api.authentication import _error_response  # lazy: keeps this module free of DRF response imports at load
-
     return _error_response("Forbidden", "You do not own this session.", 403)

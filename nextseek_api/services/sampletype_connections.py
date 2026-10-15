@@ -54,7 +54,7 @@ from nextseek_api.models import (
     SampleTypeConnectionsResponse,
 )
 from nextseek_api.permissions import IsSuperUser
-from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
+from nextseek_api.services.assistant import SeekSessionAuthentication
 
 logger = logging.getLogger(__name__)
 
@@ -1051,7 +1051,7 @@ class SampleTypeConnectionsViewSet(viewsets.GenericViewSet):
 
     authentication_classes = [
         TokenAuthentication,
-        CsrfExemptSessionAuthentication,
+        SeekSessionAuthentication,
         BasicAuthentication,
     ]
     # IsAuthenticated first so anonymous callers get a 401 challenge rather than a

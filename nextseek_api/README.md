@@ -54,7 +54,7 @@ this directory; the behaviour claims are in the prose around it.
 | `nextseek_api/helpers.py` | `SeekAPIClient` (`nextseek_api/helpers.py:123`), the auth resolver `resolve_seek_auth` (`nextseek_api/helpers.py:89`), the UTF-8-safe Basic header builder (`nextseek_api/helpers.py:18-40`), pagination (`nextseek_api/helpers.py:392-395` and `nextseek_api/helpers.py:398`), and a title-to-SEEK-id resolver (`nextseek_api/helpers.py:409`) |
 | `nextseek_api/models.py` | pydantic request/response schemas, plus the ORM re-exports described above |
 | `nextseek_api/endpoint_descriptions.py` | the `*_DESC` prose constants, in the fixed heading order its docstring sets out (`nextseek_api/endpoint_descriptions.py:1-8`) |
-| `nextseek_api/authentication.py` | `CsrfExemptSessionAuthentication`, the session authenticator most ViewSets install, and the `{"errors": [...]}` envelope builder `_error_response`; `nextseek_api/services/assistant.py` re-exports both |
+| `nextseek_api/authentication.py` | `SeekSessionAuthentication`, the session authenticator most ViewSets install, and the `{"errors": [...]}` envelope builder `_error_response`; `nextseek_api/services/assistant.py` re-exports both |
 | `nextseek_api/permissions.py` | `IsSuperUser`, and the docstring explaining why it is not DRF's `IsAdminUser` (`nextseek_api/permissions.py:6-17`) |
 | `nextseek_api/serializers.py` | the few DRF serializers that predate the pydantic convention (`nextseek_api/serializers.py:6` and `nextseek_api/serializers.py:64-74`) |
 | `nextseek_api/views.py` | the re-export block, two project-scope helpers (`nextseek_api/views.py:107` and `nextseek_api/views.py:129`), and four locally defined ViewSets |

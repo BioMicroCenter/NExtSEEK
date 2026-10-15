@@ -41,6 +41,45 @@ class OwnerCheckTests(TestCase):
             assert resp.json() == FORBIDDEN, resp.request
         assert ChatSession.objects.filter(pk=self.session.pk).exists()
 
+    def test_superuser_result_per_endpoint(self):
+        """Strict endpoints (PATCH, DELETE) refuse even a superuser; read endpoints let one in."""
+        root = User.objects.create_user("root", password="x", is_superuser=True)
+        self.client.force_authenticate(user=root)
+        for resp in (self.client.patch(self.base, {"title": "x"}, format="json"), self.client.delete(self.base)):
+            assert resp.status_code == 403
+            assert resp.json() == FORBIDDEN
+        assert ChatSession.objects.filter(pk=self.session.pk).exists()
+        assert self.client.get(self.base).status_code == 200
+
     def test_unknown_session_still_404(self):
         resp = self.client.get(f"/nextseek_api/assistant/sessions/{uuid.uuid4()}/")
         assert resp.status_code == 404
+
+
+class ProdCredentialHelperTests(TestCase):
+    def _cfg(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(API_USER="svc", API_PASS="svcpw")
+
+    def _run(self, turn_pass, cfg, prod):
+        from django.test import override_settings
+        from NessieAI.ns.turn import apply_prod_credentials
+        with override_settings(NEXTSEEK_CHAT_CONFIG_PROD=prod):
+            return apply_prod_credentials(turn_pass, cfg, "me", "mepw")
+
+    def test_superuser_on_prod_config_gets_the_service_login(self):
+        cfg = self._cfg()
+        assert self._run(False, cfg, cfg) == ("svc", "svcpw")
+
+    def test_turn_pass_keeps_the_callers_login(self):
+        cfg = self._cfg()
+        assert self._run(True, cfg, cfg) == ("me", "mepw")
+
+    def test_other_config_keeps_the_callers_login(self):
+        assert self._run(False, self._cfg(), self._cfg()) == ("me", "mepw")
+
+    def test_cc_turn_uses_the_helper(self):
+        import pathlib
+        src = (pathlib.Path(__file__).resolve().parents[2] / "NessieAI/cc/turn.py").read_text()
+        assert "apply_prod_credentials(" in src
+        assert "chat_config.API_USER, chat_config.API_PASS" not in src

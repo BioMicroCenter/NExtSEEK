@@ -44,7 +44,7 @@ from nextseek_api.graph_search.scope import plain_scope
 from nextseek_api.permissions import IsSuperUser
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
-from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
+from nextseek_api.services.assistant import SeekSessionAuthentication
 # Moved to NessieAI/ns/retry.py (NessieAI Phase B): the normalizers the two
 # retry-context actions call, the run-list and retry lookups, and the retry
 # pipeline body that retry_execute runs on its thread. classify_path is not
@@ -82,7 +82,7 @@ class EvaluatorViewSet(viewsets.ViewSet):
 
     authentication_classes = [
         TokenAuthentication,
-        CsrfExemptSessionAuthentication,
+        SeekSessionAuthentication,
         BasicAuthentication,
     ]
     # IsSuperUser, not DRF's IsAdminUser (#75). IsAdminUser checks is_staff, and

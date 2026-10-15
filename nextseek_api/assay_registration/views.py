@@ -18,7 +18,7 @@ from nextseek_api.endpoint_descriptions import (
     ASSAY_REGISTRATION_JOB_DESC,
 )
 from nextseek_api.permissions import IsSuperUser
-from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
+from nextseek_api.services.assistant import SeekSessionAuthentication
 
 from . import service
 from .schemas import (
@@ -119,7 +119,7 @@ def _not_found(job_id) -> dict:
 
 
 class AssayRegistrationViewSet(viewsets.ViewSet):
-    authentication_classes = [CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [SeekSessionAuthentication, BasicAuthentication]
     permission_classes = [IsAuthenticated, IsSuperUser]
 
     def get_authenticate_header(self, request):

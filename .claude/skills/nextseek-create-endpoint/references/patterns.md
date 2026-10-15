@@ -4,12 +4,12 @@
 
 ```python
 from rest_framework.authentication import BasicAuthentication
-from nextseek_api.authentication import CsrfExemptSessionAuthentication
+from nextseek_api.authentication import SeekSessionAuthentication
 from nextseek_api.helpers import SeekAPIClient, resolve_seek_auth
 
 class MyProxyViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
-    authentication_classes = [CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [SeekSessionAuthentication, BasicAuthentication]
     client = SeekAPIClient()
 
     def list(self, request):
@@ -28,7 +28,7 @@ class MyProxyViewSet(viewsets.ViewSet):
 from nextseek_api.services.users import IsDjangoSuperuser
 
 class MyAdminViewSet(viewsets.ViewSet):
-    authentication_classes = [CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [SeekSessionAuthentication, BasicAuthentication]
     permission_classes = [IsAuthenticated, IsDjangoSuperuser]
 ```
 

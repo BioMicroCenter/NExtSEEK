@@ -209,17 +209,17 @@ class SeekAuthBoundary:
 
     def dispatch_neighbor_session_parity(self, operation):
         # Mirrors nextseek_api/batch_upload/views.py's AttributeJobViewSet composition
-        # (Token, CsrfExemptSessionAuthentication, Basic + IsAuthenticated) exactly, so
-        # this proves our recognized CsrfExemptSessionAuthentication subclass keeps that
+        # (Token, SeekSessionAuthentication, Basic + IsAuthenticated) exactly, so
+        # this proves our recognized SeekSessionAuthentication subclass keeps that
         # neighboring API's CSRF-exempt read/mutation parity rather than a plain
         # DRF SessionAuthentication substitution that would 403 on the POST case.
         from rest_framework.authentication import BasicAuthentication, TokenAuthentication
         from rest_framework.permissions import IsAuthenticated
-        from nextseek_api.authentication import CsrfExemptSessionAuthentication
+        from nextseek_api.authentication import SeekSessionAuthentication
         credential = self.credential("session", "valid-admin")
 
         class NeighborProbe(APIView):
-            authentication_classes = (TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication)
+            authentication_classes = (TokenAuthentication, SeekSessionAuthentication, BasicAuthentication)
             permission_classes = (IsAuthenticated,)
 
             def _respond(self, request):

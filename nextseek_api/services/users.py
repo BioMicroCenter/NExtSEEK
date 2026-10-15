@@ -16,7 +16,7 @@ from rest_framework.authentication import TokenAuthentication, BasicAuthenticati
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema
 
-from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
+from nextseek_api.services.assistant import SeekSessionAuthentication
 from nextseek_api.endpoint_descriptions import (
     USER_CREATE_DESC,
     USER_FETCH_DESC,
@@ -384,7 +384,7 @@ def _error_response(title: str, status: int, detail: Optional[str] = None) -> Ht
 
 
 class UsersViewSet(viewsets.ViewSet):
-    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [TokenAuthentication, SeekSessionAuthentication, BasicAuthentication]
     permission_classes = [IsAuthenticated, IsDjangoSuperuser]
     lookup_field = "uid"
     lookup_url_kwarg = "uid"

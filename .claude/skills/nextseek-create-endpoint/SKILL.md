@@ -32,8 +32,8 @@ scoping, and error-envelope patterns. New actions still need full `*_DESC`,
 
 ## 2. Authentication (new ViewSets)
 
-- Set `authentication_classes = [CsrfExemptSessionAuthentication, BasicAuthentication]`.
-- Import `CsrfExemptSessionAuthentication` from [`nextseek_api/authentication.py`](../../../nextseek_api/authentication.py). `nextseek_api/services/assistant.py` still re-exports it for older modules; new code imports the real home.
+- Set `authentication_classes = [SeekSessionAuthentication, BasicAuthentication]`.
+- Import `SeekSessionAuthentication` from [`nextseek_api/authentication.py`](../../../nextseek_api/authentication.py). `nextseek_api/services/assistant.py` still re-exports it for older modules; new code imports the real home.
 - **Token auth does not work.** Do not add `TokenAuthentication`. Do not pass `"TOKEN"` to `resolve_seek_auth`.
 - Upstream SEEK calls: `resolve_seek_auth(request, ["BASIC", "SESSION"])` from [`nextseek_api/helpers.py`](../../../nextseek_api/helpers.py).
 

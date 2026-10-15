@@ -887,10 +887,10 @@ class TestAuthenticationClassesAreGuarded:
         from rest_framework.authentication import BasicAuthentication
 
         from nextseek_api.assay_registration.views import AssayRegistrationViewSet
-        from nextseek_api.authentication import CsrfExemptSessionAuthentication
+        from nextseek_api.authentication import SeekSessionAuthentication
 
         assert AssayRegistrationViewSet.authentication_classes == [
-            CsrfExemptSessionAuthentication, BasicAuthentication]
+            SeekSessionAuthentication, BasicAuthentication]
 
     def test_token_authentication_is_absent(self):
         """Stated as the rule rather than as a list equality, so it still holds

@@ -24,7 +24,7 @@ The remaining eight modules define no ViewSet and no URL: they are pure function
 half of it.
 
 The one file every reader eventually lands in is `nextseek_api/services/assistant.py`, and
-not for the assistant. `CsrfExemptSessionAuthentication` and the shared error envelope
+not for the assistant. `SeekSessionAuthentication` and the shared error envelope
 `_error_response` now live in `nextseek_api/authentication.py`, but this module re-exports
 both and most of their importers still take them from here, so it is still the de-facto
 shared library of this directory as well as its largest chat engine. New code imports them

@@ -106,6 +106,19 @@ def _select_chat_config(request, req) -> ChatConfig:
     return prod_config
 
 
+def apply_prod_credentials(turn_pass, chat_config, api_user, api_pass):
+    """The (user, password) a turn calls the API with.
+
+    On the prod config the service login replaces the caller's (the caller, e.g. "demo", has no prod account).
+    ``turn_pass`` is True for a Container-CC turn pass, which never swaps: it acts only as its own turn's user.
+    """
+    prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
+    if (not turn_pass and prod_config is not None and chat_config is prod_config
+            and chat_config.API_USER and chat_config.API_PASS):
+        return chat_config.API_USER, chat_config.API_PASS
+    return api_user, api_pass
+
+
 def _granular_args(op: str, req) -> dict:
     """Project a validated request model into the op's chat_nextseek arg dict."""
     if op in ("entity", "parse"):

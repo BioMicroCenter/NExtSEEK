@@ -46,7 +46,9 @@ from NessieAI.router.policy import (
     _fallback_when_cc_unavailable,
     _record_ledger_row,
 )
-from NessieAI.ns.turn import _auto_title_if_unset, _error_tracking_send_event, _select_chat_config
+from NessieAI.ns.turn import (
+    _auto_title_if_unset, _error_tracking_send_event, _select_chat_config, apply_prod_credentials,
+)
 from NessieAI.cc import cc_engine
 from NessieAI.cc import prerun as prerun_mod
 from NessieAI.cc import cc_config
@@ -526,12 +528,9 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
     user_api_user, user_api_pass = api_user, api_pass
     chat_config = _select_chat_config(request, req)
 
-    # Prod-config credential swap (mirror AssistantViewSet).
-    from django.conf import settings
-    prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
-    if prod_config is not None and chat_config is prod_config:
-        if chat_config.API_USER and chat_config.API_PASS:
-            api_user, api_pass = chat_config.API_USER, chat_config.API_PASS
+    # Prod-config credential swap (the same helper as AssistantViewSet).
+    # False: no turn pass reaches CCAssistantViewSet (nextseek_api/tests/test_turn_pass_routes.py pins it).
+    api_user, api_pass = apply_prod_credentials(False, chat_config, api_user, api_pass)
     if caller:
         # The system agent's CALLER block (round 4): this user's own session, on a per-request copy so the
         # shared config never carries one user's details. Resolved by the ViewSet, as graph_scope is.

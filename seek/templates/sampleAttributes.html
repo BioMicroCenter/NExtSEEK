@@ -531,8 +531,9 @@
      patch   PATCH /nextseek_api/attributes/batch-patch/
      delete  POST  /nextseek_api/attributes/batch-delete/
 
-   The API uses CsrfExemptSessionAuthentication, so the browser session is
-   the whole credential: no CSRF token and no secrets belong on this page.
+   The API uses SeekSessionAuthentication, so the browser session is
+   the credential, with the CSRF token sent on every write (X-CSRFToken from
+   the csrftoken cookie); no secrets belong on this page.
    Reads are open to any signed-in SEEK user; writes require a Django
    superuser and answer 403.
 

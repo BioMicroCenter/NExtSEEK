@@ -7,7 +7,7 @@ from rest_framework.authentication import TokenAuthentication, BasicAuthenticati
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
-from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
+from nextseek_api.services.assistant import SeekSessionAuthentication
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 
 from nextseek_api.helpers import SeekAPIClient
@@ -30,7 +30,7 @@ def _validate_seek_id(id_or_uid: str) -> Optional[str]:
 
 
 class PeopleProxyViewSet(viewsets.ViewSet):
-    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [TokenAuthentication, SeekSessionAuthentication, BasicAuthentication]
     permission_classes = [IsAuthenticated]
     client = SeekAPIClient()
     lookup_field = 'uid'

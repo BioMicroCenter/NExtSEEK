@@ -54,7 +54,7 @@ from nextseek_api.graph_search.scope import caller_block, plain_scope
 
 # Reuse the existing assistant's helpers (do NOT redefine its behavior).
 from nextseek_api.services.assistant import (
-    CsrfExemptSessionAuthentication,
+    SeekSessionAuthentication,
     PLAN_MODE_FORBIDDEN,
     _error_response,
 )
@@ -89,7 +89,7 @@ def _iter_file(path: Path):
 class CCAssistantViewSet(viewsets.ViewSet):
     """Router + Container-Claude-Code assistant (additive to AssistantViewSet)."""
 
-    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [TokenAuthentication, SeekSessionAuthentication, BasicAuthentication]
     permission_classes = [IsAuthenticated]
 
     # ------------------------------------------------------------------ auth

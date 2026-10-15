@@ -111,6 +111,7 @@ from NessieAI.ns.bundle_download import bundle_metadata
 # bodies of query and query_async run in turn.py on the threads started here.
 from NessieAI.ns.turn import (
     _granular_args,
+    apply_prod_credentials,
     _select_chat_config,
     make_sse_send_event,
     run_async_pipeline,
@@ -132,7 +133,8 @@ from nextseek_api.assistant.turn_pass_auth import TurnPassAuthentication
 # Re-exported: these two moved to nextseek_api/authentication.py (NessieAI Phase B, B1).
 # Other nextseek_api modules still import them from here, so keep both names importable.
 from nextseek_api.authentication import (  # noqa: F401
-    CsrfExemptSessionAuthentication,
+    CsrfExemptSessionAuthentication,  # deprecated alias, one release
+    SeekSessionAuthentication,
     _error_response,
 )
 
@@ -320,12 +322,7 @@ def _granular_chat_config(request, req) -> ChatConfig:
     which refuses every graph query.
     """
     chat_config = _chat_config_for(request, req)
-    api_user, api_pass = _request_login(request)
-    prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
-    if not is_turn_pass(request) and prod_config is not None and chat_config is prod_config:
-        if chat_config.API_USER and chat_config.API_PASS:
-            api_user = chat_config.API_USER
-            api_pass = chat_config.API_PASS
+    api_user, api_pass = apply_prod_credentials(is_turn_pass(request), chat_config, *_request_login(request))
     cfg = copy.copy(chat_config)
     if is_turn_pass(request):
         # A pass acts only as its own turn's user, never as the shared config's login.
@@ -432,7 +429,7 @@ class AssistantViewSet(viewsets.ViewSet):
 
     # The turn pass first (spec piece 1); CCAssistantViewSet deliberately does not list it, so a pass can never
     # start a Container-CC turn.
-    authentication_classes = [TurnPassAuthentication, TokenAuthentication, CsrfExemptSessionAuthentication,
+    authentication_classes = [TurnPassAuthentication, TokenAuthentication, SeekSessionAuthentication,
                               BasicAuthentication]
     permission_classes = [IsAuthenticated, UserInParticipatingProject]
 
@@ -746,11 +743,7 @@ class AssistantViewSet(viewsets.ViewSet):
         # API_USER/API_PASS. The pipeline's outbound Basic-auth calls must hit
         # prod NExtSEEK with prod credentials — the local session user (e.g.
         # "demo") doesn't exist on prod and would otherwise produce a 401.
-        prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
-        if not is_turn_pass(request) and prod_config is not None and chat_config is prod_config:
-            if chat_config.API_USER and chat_config.API_PASS:
-                api_user = chat_config.API_USER
-                api_pass = chat_config.API_PASS
+        api_user, api_pass = apply_prod_credentials(is_turn_pass(request), chat_config, api_user, api_pass)
 
         # The caller's project scope for graph queries, resolved here in the request
         # thread and handed down as plain data (None refuses every graph query).
@@ -897,11 +890,7 @@ class AssistantViewSet(viewsets.ViewSet):
             # API_USER/API_PASS. The pipeline's outbound Basic-auth calls must hit
             # prod NExtSEEK with prod credentials — the local session user (e.g.
             # "demo") doesn't exist on prod and would otherwise produce a 401.
-            prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
-            if not is_turn_pass(request) and prod_config is not None and chat_config is prod_config:
-                if chat_config.API_USER and chat_config.API_PASS:
-                    api_user = chat_config.API_USER
-                    api_pass = chat_config.API_PASS
+            api_user, api_pass = apply_prod_credentials(is_turn_pass(request), chat_config, api_user, api_pass)
 
             # The caller's project scope for graph queries, resolved here in the request
             # thread and handed down as plain data (None refuses every graph query).
