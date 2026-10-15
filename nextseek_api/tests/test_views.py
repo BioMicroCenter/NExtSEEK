@@ -491,7 +491,7 @@ class TestNHPViewSet:
         vs.request = req
         resp = vs.events(req, pk="F", event_type="feeding", date="2023-01-01")
         assert resp.status_code == 200
-        mock_fn.assert_called_once_with("F", "feeding", "2023-01-01")
+        mock_fn.assert_called_once_with("F", "feeding", "2023-01-01", None)
 
     @patch(f"{_VIEWS}.get_event_data", return_value=None)
     def test_events_not_found(self, mock_fn):

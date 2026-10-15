@@ -6,7 +6,6 @@ import pandas as pd
 import time
 # import argparse  # Add this import at the top
 from ..services.nhp_service import get_timeline_data, fetch_NHP_PAV, fetch_NHP_TIS, fetch_NHP_IMG
-# from ..utils.helpers import get_NHP_name
 import logging
 from datetime import datetime
 from typing import Any
@@ -547,12 +546,12 @@ def generate_combined_object(events: dict, nhp_id: str):
 
     return combined_objects
 
-def get_event_data(nhp_uid, event_type, date):
+def get_event_data(nhp_uid, event_type, date, project_ids):
 
     print(f"Getting event data for {nhp_uid} on {event_type} on {date}")
     start_time = time.time()
 
-    nhp_metadata = get_timeline_data(nhp_uid)
+    nhp_metadata = get_timeline_data(nhp_uid, project_ids)
     if not nhp_metadata:
         print(f"No NHP metadata found.")
         return []
@@ -611,9 +610,9 @@ def get_event_data(nhp_uid, event_type, date):
 
 ## Run all function, aka my version of __MAIN__
 ## All you need to do is run 1) Gen Files and 2) Update_all_Files
-def run_All(NHP_uid):
+def run_All(NHP_uid, project_ids):
     start_time = time.time()
-    nhp_metadata = get_timeline_data(NHP_uid) 
+    nhp_metadata = get_timeline_data(NHP_uid, project_ids)
     # print(nhp_metadata)
 
     # Define the output directory and filename

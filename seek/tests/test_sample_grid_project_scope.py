@@ -170,3 +170,17 @@ def test_an_nhp_in_the_callers_projects_is_served(timeline, view):
 @pytest.mark.parametrize("view", sorted(_ROUTES))
 def test_a_superuser_reads_every_nhp(timeline, view):
     assert _nhp(view, None, set()).status_code == 200
+
+
+_SERVICE_OF = {"nhp_info": "save_nhp_info_to_json", "get_nhp_data": "run_All",
+               "download_nhp_data": "get_timeline_data", "fetch_event_data": "get_event_data"}
+
+
+@pytest.mark.parametrize("view", sorted(_ROUTES))
+@pytest.mark.parametrize("project_ids", [(5,), None])
+def test_each_view_hands_the_callers_scope_to_its_service(timeline, view, project_ids):
+    """A member's project ids (None only for a superuser) reach the service that reads the descendants."""
+    service = _SERVICE_OF[view]
+    with patch(f"seek.views.timeline.{service}", return_value=[{"uuid": NHP}]) as called:
+        assert _nhp(view, project_ids, {"42"}).status_code == 200
+    assert called.call_args.args[-1] == project_ids

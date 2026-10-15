@@ -3,6 +3,7 @@ import io
 import datetime
 import logging
 import os
+import secrets
 import tempfile
 import MySQLdb
 from django.conf import settings
@@ -181,6 +182,14 @@ def _samples_visible_to_projects(sample_ids, project_ids):
             conn.close()
         except Exception:
             pass
+
+
+def _tree_error(where, exc, http_status):
+    """A fixed error text plus a reference. The exception text (it can carry the graph host) goes to the log, with
+    the same reference, never to the caller."""
+    ref = secrets.token_hex(3)
+    logger.error("%s failed (ref %s): %s", where, ref, exc, exc_info=exc)
+    return Response({"detail": f"{where} failed (ref {ref})"}, status=http_status)
 
 
 class SampleTreeViewSet(viewsets.GenericViewSet):
@@ -382,20 +391,11 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
                 )
                 return Response(response.model_dump(), status=status.HTTP_200_OK)
         except AuthError as e:
-            return Response(
-                {"detail": f"Neo4j authentication failed: {str(e)}"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
-            )
+            return _tree_error("Neo4j authentication", e, status.HTTP_503_SERVICE_UNAVAILABLE)
         except Neo4jError as e:
-            return Response(
-                {"detail": f"Neo4j query failed: {str(e)}"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
-            )
+            return _tree_error("Neo4j query", e, status.HTTP_503_SERVICE_UNAVAILABLE)
         except Exception as e:
-            return Response(
-                {"detail": f"Tree query failed: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return _tree_error("Tree query", e, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class NHPViewSet(viewsets.GenericViewSet):
     """
@@ -428,7 +428,7 @@ class NHPViewSet(viewsets.GenericViewSet):
     def info(self, request, pk=None):
         """Extract core logic from nhp_info function."""
         try:
-            nhp_info = save_nhp_info_to_json(pk)
+            nhp_info = save_nhp_info_to_json(pk, None)  # ponytail: unscoped; this route is unrouted and has no project check yet
             if nhp_info:
                 return Response(nhp_info, status=status.HTTP_200_OK)
             else:
@@ -474,7 +474,7 @@ class NHPViewSet(viewsets.GenericViewSet):
         if not pk:
             return Response({"detail": "NHP data not found"}, status=status.HTTP_404_NOT_FOUND)
         try:
-            event_data = get_event_data(pk, event_type, date)
+            event_data = get_event_data(pk, event_type, date, None)  # ponytail: unscoped; this route is unrouted and has no project check yet
             if event_data:
                 return Response(event_data, status=status.HTTP_200_OK)
             else:
@@ -506,7 +506,7 @@ class NHPViewSet(viewsets.GenericViewSet):
     def timeline(self, request, pk=None):
         """Extract core logic from get_nhp_data function."""
         try:
-            timeline_data = run_All(pk)
+            timeline_data = run_All(pk, None)  # ponytail: unscoped; this route is unrouted and has no project check yet
             if timeline_data:
                 return Response(timeline_data, status=status.HTTP_200_OK)
             else:
@@ -532,7 +532,7 @@ class NHPViewSet(viewsets.GenericViewSet):
     def download(self, request, pk=None):
         """Extract core logic from download_nhp_data function."""
         try:
-            timeline_data = get_timeline_data(pk)
+            timeline_data = get_timeline_data(pk, None)  # ponytail: unscoped; this route is unrouted and has no project check yet
             if not timeline_data:
                 return Response({"detail": "NHP data not found"}, status=status.HTTP_404_NOT_FOUND)
             

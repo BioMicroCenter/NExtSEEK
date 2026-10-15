@@ -49,21 +49,13 @@
   intercepts.** They build the connection from `settings.DATABASES` by hand —
   `seek/sample/core.py:33-36` and `seek/sample/core.py:229-230` are two sites in
   the first, then `seek/views/admin.py:89-90`, `seek/views/upload.py:153-154`
-  and `seek/timeline/core/database.py:7-16`. Django fills the sqlite alias's missing keys with
+  and `seek/timeline/core/database.py:11-26`. Django fills the sqlite alias's missing keys with
   empty strings, so under `dmac.test_settings` the call does not fail on a
   KeyError — measured 2026-09-03 in the throwaway container, it raises
   `OperationalError (2002, "Can't connect to local server through socket
   '/run/mysqld/mysqld.sock'")`. On any machine where MySQL is listening on the
   default socket, a suite everyone believes is hermetic reads and writes a real
   database.
-- **`seek/timeline/` takes its database NAME from an environment variable that
-  nothing sets.** `seek/timeline/core/database.py:19-21` overwrites the pool's
-  database with `os.getenv(database_name)`, defaulting to `DB_NAME`, and
-  `seek/timeline/services/nhp_service.py:34` asks for `DB_NAME1`. Neither is ever
-  set: searching the whole worktree for `DB_NAME` or `DB_NAME1` followed by `=`
-  or `:`, excluding `.git/`, `.superpowers/`, `startup/.venv/` and the unrelated
-  `SESSION_DB_NAME`, returns zero lines. The pool therefore connects with no
-  schema selected, and only the fully-qualified queries can work.
 - **Importing `seek.urls` reconfigures the root logger for the whole process.**
   `seek/timeline/services/timeline_service.py:15` calls `logging.basicConfig` at
   module scope, and it is pulled in by `seek/views/timeline.py:6`, which

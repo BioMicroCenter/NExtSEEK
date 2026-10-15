@@ -26,12 +26,12 @@ def fetchChildren(term: str) -> List[dict]:
                     Returns None if an error occurs during the query.
     """
     try:
-        query = """
+        query = f"""
         SELECT uuid, full 
-        FROM dmac.seek_sample_tree
+        FROM {settings.DATABASES["default"]["NAME"]}.seek_sample_tree
         WHERE uuid = %s;
         """
-        children_metadata = execute_query(query, (term,), 'DB_NAME1')
+        children_metadata = execute_query(query, (term,))
         # print(children_metadata)
         return children_metadata
     except Exception as e:
@@ -76,13 +76,15 @@ def fetch_all_descendants(term: str) -> List[str]:
         return []
 
 
-def fetchAllMetadata(term: str, filter: List[str] = None) -> List[dict]:
+def fetchAllMetadata(term: str, filter: List[str] = None, *, project_ids) -> List[dict]:
     """
     Fetch all metadata for a given term and its descendants.
 
     Args:
         term (str): The UUID of the sample to search for in the database.
         filter (List[str], optional): A list of strings to filter the UUIDs.
+        project_ids: the caller's project ids, None for a superuser. Anyone else gets only the descendants that
+            belong to one of those projects (the NHP itself is checked by the caller).
 
     Returns:
         List[dict]: A list of metadata dictionaries for the term and its descendants.
@@ -105,14 +107,23 @@ def fetchAllMetadata(term: str, filter: List[str] = None) -> List[dict]:
 
         # Prepare the SQL query with placeholders
         placeholders = ",".join(["%s"] * len(descendants_uuids))
+        params = list(descendants_uuids)
+        scope = ""
+        if project_ids is not None:
+            scoped = [str(p) for p in project_ids]
+            if not scoped:
+                scoped = [None]  # no project: IN (NULL) matches nothing, so only the NHP itself comes back
+            scope = (f" AND (uuid = %s OR id IN (SELECT sample_id FROM {db['NAME']}.projects_samples"
+                     f" WHERE project_id IN ({','.join(['%s'] * len(scoped))})))")
+            params += [term] + scoped
         query = f"""
         SELECT uuid, json_metadata
         FROM {db["NAME"]}.samples
-        WHERE uuid IN ({placeholders});
+        WHERE uuid IN ({placeholders}){scope};
         """
         
         # Execute the query
-        all_metadata = execute_query(query, descendants_uuids, 'DB_NAME')
+        all_metadata = execute_query(query, tuple(params))
         logger.info(f"Fetched metadata for {len(all_metadata)} entries.")
         return all_metadata
 
@@ -121,19 +132,21 @@ def fetchAllMetadata(term: str, filter: List[str] = None) -> List[dict]:
         return []
 
 
-def get_timeline_data(nhp_name):
+def get_timeline_data(nhp_name, project_ids):
     if not nhp_name or not isinstance(nhp_name, str):
         logger.error(f"Invalid NHP name provided: {nhp_name}")
         return []
 
-    logger.debug(f"Using cache key: {nhp_name}")
-    if nhp_name in cache:
-        logger.debug(f"Cache hit for key: {nhp_name}")
-        return cache[nhp_name]
+    # One caller's scoped view must never serve another's: the key carries the scope.
+    key = (nhp_name.strip(), None if project_ids is None else tuple(sorted(str(p) for p in project_ids)))
+    logger.debug(f"Using cache key: {key}")
+    if key in cache:
+        logger.debug(f"Cache hit for key: {key}")
+        return cache[key]
     else:
         logger.debug(f"Cache miss for key: {nhp_name}, fetching data.")
 
-    all_data = fetchAllMetadata(nhp_name)
+    all_data = fetchAllMetadata(nhp_name, project_ids=project_ids)
 
     # Parse JSON once here
     for entry in all_data:
@@ -150,8 +163,7 @@ def get_timeline_data(nhp_name):
     print(len(uuids))
 
     print(len(all_data))
-    nhp_name = nhp_name.strip()
-    cache[nhp_name] = all_data
+    cache[key] = all_data
     logger.debug(f"Data for {nhp_name} added to cache.")
     return all_data
 
@@ -209,7 +221,7 @@ def fetch_NHP_IMG(all_data):
         logger.error(f"Error fetching NHP IMG metadata: {e}")
         return None
 
-def save_nhp_info_to_json(nhp_uid) -> List[NHPInfo]:
+def save_nhp_info_to_json(nhp_uid, project_ids) -> List[NHPInfo]:
     """
     Save NHP metadata to a JSON file.
 
@@ -220,7 +232,7 @@ def save_nhp_info_to_json(nhp_uid) -> List[NHPInfo]:
         list: The NHP information saved to the file, or None if an error occurred.
     """
     nhp_uid = str(nhp_uid).strip()
-    nhp_metadata = get_timeline_data(nhp_uid)
+    nhp_metadata = get_timeline_data(nhp_uid, project_ids)
     print(nhp_metadata[:5])
     if not nhp_metadata:
         logger.error("No metadata found.")

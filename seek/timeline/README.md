@@ -13,7 +13,6 @@ The backend of the NHP (non-human primate) sample timeline page. It reads an ani
 | `services/timeline_service.py` | turns the records into dataframes and event objects (`run_All`, `get_event_data`) |
 | `services/nhp_cache_cli.py` | a command-line check, not a test: `python -m seek.timeline.services.nhp_cache_cli <nhp_uid>` from the repo root with Django settings configured; it writes `nhp_cache_test.log` in the current folder |
 | `models/schemas.py` | the record shapes |
-| `utils/helpers.py` | a small query helper and `get_NHP_name` |
 
 ## Entry points
 
@@ -21,4 +20,4 @@ The backend of the NHP (non-human primate) sample timeline page. It reads an ani
 
 ## Landmines
 
-The pool takes its database name from the environment variable `DB_NAME` (`DB_NAME1` for the second database), which nothing in this repo sets, so it connects with no schema selected and only fully qualified queries work. Importing the timeline services also calls `logging.basicConfig` at import time. Both are described in `seek/CLAUDE.md` "Landmines".
+The pool is built once, on first use, with the app database from settings and a small size (`POOL_SIZE`, default 3). Importing the timeline services also calls `logging.basicConfig` at import time. It is described in `seek/CLAUDE.md` "Landmines".
