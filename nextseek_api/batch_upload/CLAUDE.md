@@ -71,12 +71,6 @@ lineage, and none of them fails loudly.
   row. The caches are plain module dicts
   (`nextseek_api/batch_upload/prefetch.py:18-24`), so any in-process invalidation hook
   looks correct on one worker and leaves the others rejecting rows against a stale schema.
-- **Parallel insertion is disabled whenever a run is resuming.**
-  `nextseek_api/batch_upload/orchestrator.py:810-811` requires both a level of at least
-  `config.parallel_threshold` rows and a null resume UID, because the checkpoint file is a single
-  append-only sequence (`nextseek_api/batch_upload/checkpoint.py:11-18`) whose last line is
-  taken as the high-water mark (`nextseek_api/batch_upload/checkpoint.py:38-51`). Threads
-  appending out of order would make a resume skip rows that were never written.
 - **One definition of Protocol-to-SOP resolution, shared by three call sites.**
   `nextseek_api/batch_upload/helpers.py:53-74` records why: resolving by URL alone wrote a
   null protocol on nearly every upload, and the three-format rule reproduced the stored
@@ -125,7 +119,7 @@ lineage, and none of them fails loudly.
   case-insensitive grep for `media` over the whole of `docker-compose.yml` matched nothing on
   2026-09-03, and the service's mount list at `docker-compose.yml:25-53` is nine entries
   covering other paths.
-  Rebuilding therefore destroys the job index, the uploaded workbooks, the checkpoints and
+  Rebuilding therefore destroys the job index, the uploaded workbooks and
   every downloadable summary at once, and the ownership check above then 404s a user on
   their own jobs.
 - **`nextseek_api/batch_upload/job_index.py:12-14` reads `MEDIA_ROOT` at import time.**

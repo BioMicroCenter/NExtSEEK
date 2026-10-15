@@ -58,7 +58,7 @@ groups, each defined by what it reads and what it writes.
 `scripts/validate_viewset_conventions.py:4-6` each declare themselves the single source of
 truth for a taxonomy that other surfaces are drift-guarded against; the second documents
 its exit codes at `scripts/validate_viewset_conventions.py:8` and prints a clean-run line
-at `scripts/validate_viewset_conventions.py:492`. `scripts/seed_issue_labels.sh:7-18`
+at `scripts/validate_viewset_conventions.py:465`. `scripts/seed_issue_labels.sh:7-18`
 pushes those issue labels to GitHub through `gh label create --force`.
 `scripts/dump_routes.py:2-7` is only the command line around the resolver walk it imports
 at `scripts/dump_routes.py:26-27`.

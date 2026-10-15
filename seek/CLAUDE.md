@@ -114,8 +114,7 @@
   directory's own two documents; some of those are deliberate history.
 - **TLS verification is off for SEEK reads.** `SeekAPI.runGetQuery` and `SeekAPI.getPageRequests` call
   `requests.get(..., verify=False)`. `SEEK_URL` is plain http inside the compose network, so it changes nothing there.
-  Reads send credentials as a header over HTTP. The unused POST helper (`apiPost`, `callCmdline`) still builds a
-  `curl` command line with them.
+  Reads send credentials as a header over HTTP.
 - **`seek/tests/test_dbtables.py:46` cites `/workspace/deslopify/LATENT_BUGS.md`**,
   an absolute path outside this repository. `seek/views/shared.py:6` and
   `seek/models/nextseek.py:32` cite the same document by numbered entry. Nothing

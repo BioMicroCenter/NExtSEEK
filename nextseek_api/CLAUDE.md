@@ -82,12 +82,6 @@ from this file.
   `dmac/urls.py:29`, and `dmac/urls.py:60` points the 404 handler at Mezzanine's page
   view, so a typo'd or retired API path returns HTML. Verified with Django's resolver on
   2026-09-03. A client parsing JSON gets a parse error rather than a status it can act on.
-- **Two ViewSets in this directory are unreachable over HTTP yet still constrain the
-  validator.** `nextseek_api/views.py:395` and `nextseek_api/views.py:549` are registered
-  only in the commented-out lines at `nextseek_api/urls.py:15-16`, while five of their
-  methods are pinned by name in the grandfather list at
-  `scripts/validate_viewset_conventions.py:157-183`. Rename one of those methods and the
-  validator goes red over an endpoint no request can reach.
 - **`nextseek_api/views.py:12` imports `IsAdminUser` and no line uses it**: a grep for
   that name over this one module returns the import and nothing else. It is a standing
   invitation to a gate that admits every logged-in SEEK user; see the invariant above for

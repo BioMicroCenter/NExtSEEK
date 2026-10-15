@@ -154,33 +154,6 @@ GRANDFATHER_OPS: tuple[GrandfatherOp, ...] = (
         operation_ids=("Delete a Sample",),
         ast_missing_examples=True,
     ),
-    GrandfatherOp(
-        rel_path="nextseek_api/views.py",
-        func_name="download",
-        operation_ids=("Download NHP Data",),
-        ast_missing_examples=True,
-        inline_description=True,
-    ),
-    GrandfatherOp(
-        rel_path="nextseek_api/views.py",
-        func_name="events",
-        inline_description=True,
-    ),
-    GrandfatherOp(
-        rel_path="nextseek_api/views.py",
-        func_name="info",
-        inline_description=True,
-    ),
-    GrandfatherOp(
-        rel_path="nextseek_api/views.py",
-        func_name="retrieve_samples",
-        inline_description=True,
-    ),
-    GrandfatherOp(
-        rel_path="nextseek_api/views.py",
-        func_name="timeline",
-        inline_description=True,
-    ),
     GrandfatherOp(operation_ids=("cc_assistant_artifacts_download_retrieve",)),
     GrandfatherOp(operation_ids=("cc_assistant_transcript_retrieve",)),
     GrandfatherOp(operation_ids=("cc_assistant_upload_create",)),

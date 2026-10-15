@@ -38,8 +38,7 @@ themselves rather than recalled.
 
 **The published surface.** `nextseek_api/urls.py:10` builds one `DefaultRouter`, and the
 registration block that follows runs from `nextseek_api/urls.py:14` to
-`nextseek_api/urls.py:42`: 25 active `router.register(...)` calls and 2 more commented out
-(`nextseek_api/urls.py:15-16`), counted 2026-09-03. The router is included last, under a
+`nextseek_api/urls.py:42`: 25 active `router.register(...)` calls, counted 2026-09-03. The router is included last, under a
 bare `^` prefix, at `nextseek_api/urls.py:80`. Ahead of it sit the three drf-spectacular
 serve routes (schema, Swagger UI and ReDoc), each with an explicitly declared permission
 class (`nextseek_api/urls.py:65`, `nextseek_api/urls.py:72-76`, `nextseek_api/urls.py:77`).
@@ -154,12 +153,10 @@ this one's:
   remounting the app elsewhere silently drops CORS for the frontend dev server.
 - `seek/`, in the reverse direction, which is why the `seek` imports above must stay put:
   `seek/seekapi.py:43`, `seek/seekapi.py:93` and `seek/seekapi.py:115` import `basic_auth_header` from inside
-  method bodies, and the comment at `seek/seekapi.py:42` says a module-scope import
+  method bodies, and the comment at `seek/seekapi.py:70` says a module-scope import
   there would cycle.
 - `scripts/validate_viewset_conventions.py:22-26` reads three description modules by path,
-  one of which is `nextseek_api/endpoint_descriptions.py`, and
-  `scripts/validate_viewset_conventions.py:157-183` pins five function names in
-  `nextseek_api/views.py` as grandfathered.
+  one of which is `nextseek_api/endpoint_descriptions.py`.
 - `ci/routes.py:1-14` is the CI route registry, which declares every path under this
   prefix, and `ci/gate/test_route_registry.py:29-39` blocks CI when Django resolves a
   route the registry does not declare.
