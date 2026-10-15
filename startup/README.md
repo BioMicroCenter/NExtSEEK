@@ -75,8 +75,8 @@ no install step reads them until their content is signed off (`scripts/README.md
 `startup/tests/test_env_registry_drift.py`; `DEPLOYMENT.md` section 8 is generated from it).
 
 **Two managed indexes** on Rails-owned SEEK tables are declared at
-`startup/steps/schema_fixups.py:376-392`, and applying them is opt-in behind an
-environment flag, default off (`startup/steps/schema_fixups.py:976-995`).
+`startup/steps/schema_fixups.py:373-389`, and applying them is opt-in behind an
+environment flag, default off (`startup/steps/schema_fixups.py:973-992`).
 
 **`startup/dev/`** is a separate, hand-run lane, not part of any subcommand:
 `startup/dev/run_full_test_lane.sh:6-14` runs `nextseek_api/tests startup/tests` in one
@@ -238,7 +238,7 @@ in any `.py` file under `startup/cli.py`, `startup/lib/`, `startup/steps/` or
   requests and playwright stay out of this project (`startup/ci/runner.py:1-5` and
   `startup/ci/runner.py:38`).
 - A MySQL driver chosen at runtime, preferring host mysqlclient and falling back to the
-  declared PyMySQL (`startup/steps/schema_fixups.py:898-912`).
+  declared PyMySQL (`startup/steps/schema_fixups.py:895-909`).
 - `~/.config/nextseek/ci.env` for smoke credentials, read only for the key names
   (`startup/steps/doctor.py:13` and `startup/steps/doctor.py:59-63`), and
   `~/.config/nextseek/ghcr.env` for the registry push

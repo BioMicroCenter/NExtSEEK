@@ -8,7 +8,7 @@ Breaking one is a regression, not a refactor.
 - **`mysqlclient` must never become a dependency of this project.** The reason is
   recorded beside the driver pin at `startup/pyproject.toml:13-22`, and the code keeps
   it optional at runtime by trying `MySQLdb` and falling back to the declared pure-Python
-  driver (`startup/steps/schema_fixups.py:898-912`). Adding the C extension makes
+  driver (`startup/steps/schema_fixups.py:895-909`). Adding the C extension makes
   `./startup.sh` fail to bootstrap on a machine with no compiler and no MySQL headers,
   which is exactly the machine this isolation exists to serve.
 - **This project never imports `ci/`.** The three profile names are restated in place
@@ -132,7 +132,7 @@ Breaking one is a regression, not a refactor.
   `startup/steps/registry_push.py:8-12` and enforced by the blanket handler wrapping the
   whole step (`startup/cli.py:616-628`). A registry outage must not strand a rebuilt
   stack mid-deploy.
-- **Managed-index DDL stays opt-in.** `startup/steps/schema_fixups.py:980-993` spells
+- **Managed-index DDL stays opt-in.** `startup/steps/schema_fixups.py:977-990` spells
   out what unconditional application costs: a stock install aborting after the seeds are
   in and the containers are up, on real data, with no remediation path.
 - **A re-run of `install` never resets a value already on disk** (#103). `kept_values`
@@ -178,27 +178,27 @@ Breaking one is a regression, not a refactor.
 - **Two tests fail wherever they run, and both are test-side.**
   `startup/tests/test_schema_fixups_tables.py:98` queues three canned replies for a
   registry that now holds five entries (`startup/steps/schema_fixups.py:109-152`), each
-  consuming one reply at `startup/steps/schema_fixups.py:226`, so the fourth gets an
+  consuming one reply at `startup/steps/schema_fixups.py:223`, so the fourth gets an
   empty string and `startup/steps/schema_fixups.py:171` raises `IndexError`. And
   `startup/tests/test_schema_fixups_coverage.py:213-218` stubs only the column pass while
-  `apply_all` runs the table pass first (`startup/steps/schema_fixups.py:1002`), against a
+  `apply_all` runs the table pass first (`startup/steps/schema_fixups.py:999`), against a
   literal `/repo` that does not exist. Do not read either failure as a regression you
   introduced.
 - **A named developer's home directory is hardcoded** at
   `startup/steps/schema_fixups.py:72`. Blast radius measured for this directory on
   2026-09-03: zero test failures, because the one test that touches the constant
   monkeypatches it to a nonexistent path (`startup/tests/test_schema_fixups_coverage.py:108-110`).
-  The damage is silent instead. `startup/steps/schema_fixups.py:567-571` returns `None`
+  The damage is silent instead. `startup/steps/schema_fixups.py:564-568` returns `None`
   whenever that file is absent, so on every other machine the telemetry record's
-  `base_sha` field (`startup/steps/schema_fixups.py:663`) is null and the record cannot be
-  tied back to a source revision. Its neighbour at `startup/steps/schema_fixups.py:665`
+  `base_sha` field (`startup/steps/schema_fixups.py:660`) is null and the record cannot be
+  tied back to a source revision. Its neighbour at `startup/steps/schema_fixups.py:662`
   has the same shape, falling back to a hardcoded image digest
   (`startup/steps/schema_fixups.py:71`) that no reader can have built.
 - **The DatabaseError lookup has no pure-Python fallback**, unlike the driver lookup:
   `startup/steps/schema_fixups.py:47-56` imports from `MySQLdb` unconditionally. Python
   evaluates an `except` expression only when something is raised, so on a host with only
   the fallback driver and the managed-index flag on, the first database error inside
-  `startup/steps/schema_fixups.py:530-535` or `startup/steps/schema_fixups.py:716-723`
+  `startup/steps/schema_fixups.py:527-532` or `startup/steps/schema_fixups.py:713-720`
   surfaces as an `ImportError` that hides the error it was meant to handle.
 - **A second checkout installed with no `--instance` silently attaches the first one's
   volumes.** The instance name defaults to the checkout directory's own basename
@@ -239,10 +239,10 @@ Breaking one is a regression, not a refactor.
 - **A skipped managed index prints as a normal green line.** `startup/cli.py:289`
   selects the warning style only for `applied` and `constraints reset`, so the `skipped`
   status every index returns when `NEXTSEEK_APPLY_MANAGED_INDEXES` is unset
-  (`startup/steps/schema_fixups.py:1004-1012`) is rendered with the ok style. An operator
+  (`startup/steps/schema_fixups.py:1001-1009`) is rendered with the ok style. An operator
   watching an install sees green and concludes the indexes were created. The flag is
-  read at `startup/steps/schema_fixups.py:995` and is true only for `1/true/yes/on`;
-  its own docstring calls it opt-in, default off (`startup/steps/schema_fixups.py:979-994`).
+  read at `startup/steps/schema_fixups.py:992` and is true only for `1/true/yes/on`;
+  its own docstring calls it opt-in, default off (`startup/steps/schema_fixups.py:976-991`).
 - **Three of the eleven DDL files in `startup/seed/sql/` are wired to nothing.** A
   recursive grep of the worktree for the three basenames
   `sample_attributes_description.sql`, `sample_attributes_unique_data.sql` and
