@@ -33,7 +33,17 @@ DERIVED_METRICS: tuple[str, ...] = (
     # same numbers in millions, so a map must never read those columns.
     "total_reads",
     "uniquely_mapped_reads",
+    # STAR's "% of reads mapped to multiple loci", from the log's counts.
+    "multimapped_pct",
+    # "forward", "reverse" or "unstranded", by nf-core/rnaseq's own rule.
+    "strandedness",
 )
+
+# nf-core/rnaseq's defaults (params.stranded_threshold, unstranded_threshold),
+# applied the way its calculateStrandedness does: to the forward and reverse
+# shares of the reads RSeQC could assign a strand to, ignoring "failed".
+STRANDED_THRESHOLD = 0.8
+UNSTRANDED_THRESHOLD = 0.1
 
 _GROUP_ROW = re.compile(r"^(\S+)\s+\d+\s+(\d+)\s")
 
@@ -197,15 +207,31 @@ def parse_star_log(text: str) -> dict[str, float]:
     return values
 
 
+def _strandedness(forward: float, reverse: float) -> str | None:
+    """nf-core/rnaseq's calculateStrandedness verdict, or None when it would
+    say "undetermined": that is no answer, so the attribute stays blank."""
+    stranded = forward + reverse
+    if stranded <= 0:
+        return None
+    forward_share, reverse_share = forward / stranded, reverse / stranded
+    if forward_share >= STRANDED_THRESHOLD:
+        return "forward"
+    if reverse_share >= STRANDED_THRESHOLD:
+        return "reverse"
+    if abs(forward_share - reverse_share) <= UNSTRANDED_THRESHOLD:
+        return "unstranded"
+    return None
+
+
 def compute(
     read_distribution: dict[str, float] | None,
     infer_experiment: dict[str, float] | None,
     star: dict[str, float] | None,
     counts: dict[str, float] | None,
     n_annotated_genes: int | None,
-) -> dict[str, int | float]:
+) -> dict[str, int | float | str]:
     """Every derived metric whose inputs are present. Missing inputs -> missing keys."""
-    out: dict[str, int | float] = {}
+    out: dict[str, int | float | str] = {}
 
     if read_distribution:
         # Pass the four percentages straight through so they end up in
@@ -228,6 +254,9 @@ def compute(
         reverse = infer_experiment.get("reverse", 0.0)
         if reverse:
             out["sense_antisense_ratio"] = round(forward / reverse, 4)
+        strandedness = _strandedness(forward, reverse)
+        if strandedness:
+            out["strandedness"] = strandedness
 
     if star and "unmapped" in star:
         # STAR's own three "UNMAPPED READS:" lines, summed -- NOT
@@ -245,6 +274,10 @@ def compute(
             out["total_reads"] = int(star["total"])
         if "unique" in star:
             out["uniquely_mapped_reads"] = int(star["unique"])
+        if star.get("total") and "multi" in star:
+            # STAR prints this percentage itself, from these two counts; its
+            # "mapped to too many loci" line is a separate category.
+            out["multimapped_pct"] = round(star["multi"] / star["total"] * 100, 4)
 
     if counts:
         values = sorted(v for v in counts.values() if v > 0)

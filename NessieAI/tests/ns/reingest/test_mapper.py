@@ -63,13 +63,13 @@ def test_an_unknown_metric_key_lands_in_unmapped_with_its_evidence():
 
 def test_a_deliberately_unmapped_key_is_never_proposed():
     pipeline_map = maps.load("rnaseq")
-    assert "Picard_PERCENT_DUPLICATION" in pipeline_map.ruled_out()
+    assert "MaxReads" in pipeline_map.ruled_out()
     result = mapper.apply(
-        _run(metrics={"Picard_PERCENT_DUPLICATION": 18.4,
+        _run(metrics={"MaxReads": 18.4,
                       "Some_Definitely_Unknown_Metric_XYZ": 1.0}),
         pipeline_map)
     # The ruling specifically excludes its own key...
-    assert not any(u["raw_key"] == "Picard_PERCENT_DUPLICATION" for u in result.unmapped)
+    assert not any(u["raw_key"] == "MaxReads" for u in result.unmapped)
     # ...but unmapped is genuinely populated: a second, genuinely unknown key
     # on the same sample still surfaces as evidence.
     assert any(u["raw_key"] == "Some_Definitely_Unknown_Metric_XYZ" for u in result.unmapped)
@@ -93,6 +93,33 @@ def test_a_key_d_seq_already_covers_is_ruled_out_and_never_queued(raw_key):
     assert raw_key in pipeline_map.ruled_out()
     result = mapper.apply(_run(metrics={raw_key: 1.0}), pipeline_map)
     assert not any(u["raw_key"] == raw_key for u in result.unmapped)
+
+
+@pytest.mark.parametrize("attribute, metrics, derived, expected, raw_key", [
+    ("DuplicationPercent", {"picard_mark_duplicates-PERCENT_DUPLICATION": 76.4293}, {},
+     76.4293, "picard_mark_duplicates-PERCENT_DUPLICATION"),
+    ("MismatchPercent", {"samtools_stats-error_rate": 0.5994653}, {},
+     0.5994653, "samtools_stats-error_rate"),
+    ("DupRadarIntercept", {"custom_content_dupradar-dupRadar_intercept": 0.653985557}, {},
+     0.653985557, "custom_content_dupradar-dupRadar_intercept"),
+    ("MultimappedPercent", {}, {"multimapped_pct": 9.3038}, 9.3038, "$derived.multimapped_pct"),
+    ("Strandedness", {}, {"strandedness": "reverse"}, "reverse", "$derived.strandedness"),
+])
+def test_the_new_d_seq_qc_attributes_are_mapped(attribute, metrics, derived, expected, raw_key):
+    result = mapper.apply(_run(metrics=metrics, derived=derived), maps.load("rnaseq"))
+    row = next(r for r in result.rows if r.sample_type == "D.SEQ")
+    assert row.attributes[attribute].value == expected
+    assert row.attributes[attribute].raw_key == raw_key
+    assert not result.unmapped
+
+
+def test_star_multimapped_millions_stay_out_of_multimapped_percent():
+    # MultiQC's star-multimapped is a count in millions; the percentage comes
+    # from the STAR log, so the count alone must not fill the attribute.
+    result = mapper.apply(_run(metrics={"star-multimapped": 0.427914}), maps.load("rnaseq"))
+    row = next(r for r in result.rows if r.sample_type == "D.SEQ")
+    assert "MultimappedPercent" not in row.attributes
+    assert not any(u["raw_key"] == "star-multimapped" for u in result.unmapped)
 
 
 def test_an_approved_rule_applies_and_is_marked_origin_approved():
@@ -235,25 +262,24 @@ def test_a_committed_rule_wins_over_a_contested_approved_rule():
 # unmapped. Nothing demonstrated that until now. ---
 
 def test_a_ruled_out_key_claimed_by_an_approved_rule_still_stays_out_of_unmapped():
-    # "Picard_PERCENT_DUPLICATION" is a real deliberately_unmapped key in the
-    # committed rnaseq map. No committed rule claims it as a "from" or
-    # alternate, so we give it to an approved rule instead -- a realistic way
-    # a key ends up BOTH ruled_out (committed map) AND claimed (approved
-    # rule) at once.
+    # "MaxReads" is a real deliberately_unmapped key in the committed rnaseq
+    # map. No committed rule claims it as a "from" or alternate, so we give it
+    # to an approved rule instead -- a realistic way a key ends up BOTH
+    # ruled_out (committed map) AND claimed (approved rule) at once.
     pipeline_map = maps.load("rnaseq")
-    assert "Picard_PERCENT_DUPLICATION" in pipeline_map.ruled_out()
-    approved = {"PercentDuplication": maps.AttributeRule(
-        **{"from": "Picard_PERCENT_DUPLICATION", "target": "D.SEQ",
+    assert "MaxReads" in pipeline_map.ruled_out()
+    approved = {"MaxReads": maps.AttributeRule(
+        **{"from": "MaxReads", "target": "D.SEQ",
            "datatype": "number", "provenance": "approved 2026-09-15 by tester"})}
     result = mapper.apply(
-        _run(metrics={"Picard_PERCENT_DUPLICATION": 18.4}),
+        _run(metrics={"MaxReads": 18.4}),
         pipeline_map, approved_rules=approved)
-    assert not any(u["raw_key"] == "Picard_PERCENT_DUPLICATION" for u in result.unmapped)
+    assert not any(u["raw_key"] == "MaxReads" for u in result.unmapped)
     # And the approved rule genuinely fired -- this isn't passing merely
     # because the key was skipped for an unrelated reason.
     row = next(r for r in result.rows if r.sample_type == "D.SEQ")
-    assert row.attributes["PercentDuplication"].value == 18.4
-    assert row.attributes["PercentDuplication"].origin == mapper.ORIGIN_APPROVED
+    assert row.attributes["MaxReads"].value == 18.4
+    assert row.attributes["MaxReads"].origin == mapper.ORIGIN_APPROVED
 
 
 def _multi_sample_run(*samples):

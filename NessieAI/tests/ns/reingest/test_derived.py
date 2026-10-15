@@ -20,6 +20,7 @@ def test_derived_metric_names_are_a_closed_set():
         "exon_intron_ratio", "exon_intergenic_ratio", "sense_antisense_ratio",
         "genes_detected", "genes_detected_percent", "top30_count_percent",
         "unaligned_reads", "total_reads", "uniquely_mapped_reads",
+        "multimapped_pct", "strandedness",
     )
 
 
@@ -226,11 +227,51 @@ def test_every_derived_metric_name_can_appear_in_compute_output():
     out = derived.compute(
         read_distribution={"cds_pct": 60.0, "utr_pct": 20.0,
                            "intron_pct": 16.0, "intergenic_pct": 4.0},
-        infer_experiment={"forward": 0.6, "reverse": 0.4, "failed": 0.0},
+        infer_experiment={"forward": 0.04, "reverse": 0.94, "failed": 0.02},
         star={"total": 1000.0, "unique": 800.0, "multi": 150.0,
               "too_many_loci": 30.0, "unmapped": 20.0},
         counts=counts, n_annotated_genes=80)
     assert set(derived.DERIVED_METRICS) <= set(out.keys())
+
+
+def test_multimapped_pct_is_stars_multiple_loci_share_of_input_reads():
+    """STAR's own "% of reads mapped to multiple loci": multi / input reads.
+    "Mapped to too many loci" is a separate STAR line and is not counted."""
+    star = {"total": 27091972.0, "unique": 24155641.0, "multi": 2520588.0,
+            "too_many_loci": 85073.0}
+    out = derived.compute(read_distribution=None, infer_experiment=None,
+                          star=star, counts=None, n_annotated_genes=None)
+    assert out["multimapped_pct"] == 9.3038
+
+
+def test_multimapped_pct_needs_both_counts():
+    out = derived.compute(read_distribution=None, infer_experiment=None,
+                          star={"multi": 150.0}, counts=None, n_annotated_genes=None)
+    assert "multimapped_pct" not in out
+
+
+@pytest.mark.parametrize("forward, reverse, expected", [
+    (0.93, 0.05, "forward"),
+    (0.02, 0.96, "reverse"),
+    (0.48, 0.47, "unstranded"),
+    # nf-core's thresholds on the stranded reads' shares: >= 0.8 is stranded,
+    # within 0.1 of each other is unstranded, anything between is undetermined.
+    (0.80, 0.20, "forward"),
+    (0.545, 0.455, "unstranded"),
+])
+def test_strandedness_follows_nf_cores_infer_experiment_rule(forward, reverse, expected):
+    out = derived.compute(read_distribution=None,
+                          infer_experiment={"forward": forward, "reverse": reverse, "failed": 0.0},
+                          star=None, counts=None, n_annotated_genes=None)
+    assert out["strandedness"] == expected
+
+
+@pytest.mark.parametrize("forward, reverse", [(0.6, 0.4), (0.0, 0.0)])
+def test_an_undetermined_strandedness_is_omitted_not_guessed(forward, reverse):
+    out = derived.compute(read_distribution=None,
+                          infer_experiment={"forward": forward, "reverse": reverse, "failed": 1.0},
+                          star=None, counts=None, n_annotated_genes=None)
+    assert "strandedness" not in out
 
 
 def test_gene_metrics_count_nonzero_rows_and_top30_share():
