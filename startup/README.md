@@ -251,7 +251,7 @@ plan `docs/archive/2026-09/2026-09-01-ci-increment-1-skeleton-and-safety.md`, wh
 `from startup…` lines sit inside quoted code samples rather than being imports that file
 performs.
 
-- `.github/workflows/ci-smoke.yml:64` reads `startup/.instance.json` by path to learn
+- `.github/workflows/ci-smoke.yml:75` reads `startup/.instance.json` by path to learn
   the box-declared profile, deliberately rather than naming one itself.
 - `seek/tests/test_context_seed_tables.py:10` binds `startup/seed/sql/` as a directory
   and reads three DDL files out of it at `seek/tests/test_context_seed_tables.py:19`,

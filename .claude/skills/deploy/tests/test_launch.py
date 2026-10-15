@@ -1351,3 +1351,9 @@ def test_prod_short_form_dry_run_names_every_remote_command_and_touches_no_host(
     transcript.write_text("\n".join(f"{' '.join(e['argv'])}\n--- remote script ---\n{e['script']}" for e in log))
     if os.environ.get("DEPLOY_DRYRUN_OUT"):
         Path(os.environ["DEPLOY_DRYRUN_OUT"]).write_text(transcript.read_text() + "\n=== runner ===\n" + runner.read_text())
+
+
+def test_prompt_txt_needs_the_app_image():
+    prompt = "NessieAI/chat_nextseek/src/chat_nextseek/prompts/graph_agent.txt"
+    assert rules.rule_for(prompt).images == ("app",)
+    assert rules.rule_for("ci/pytest-baseline.txt").images == ()

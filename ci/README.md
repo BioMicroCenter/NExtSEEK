@@ -177,11 +177,11 @@ baseline", "Blocking gates" and "Blocking unit tests" steps). It never runs
 its single trigger, `.github/workflows/ci-smoke.yml:11-12`) on a self-hosted
 runner labelled `fairdata-dev` (`.github/workflows/ci-smoke.yml:48`). It reads
 the box's profile out of `startup/.instance.json` rather than naming one
-(`.github/workflows/ci-smoke.yml:59-72`), refuses the write lane outright on a
-box declaring `prod` (`.github/workflows/ci-smoke.yml:78-82`), runs
-`pytest ci/smoke/` (`.github/workflows/ci-smoke.yml:112-114`), adding
+(`.github/workflows/ci-smoke.yml:70-83`), refuses the write lane outright on a
+box declaring `prod` (`.github/workflows/ci-smoke.yml:89-93`), runs
+`pytest ci/smoke/` (`.github/workflows/ci-smoke.yml:129-131`), adding
 `--no-nessie` when its `nessie` input is off, and, only when asked for,
-`pytest ci/smoke/ -m write` (`.github/workflows/ci-smoke.yml:116-121`).
+`pytest ci/smoke/ -m write` (`.github/workflows/ci-smoke.yml:133-140`).
 The operator rebuilds and this workflow then tests; it never restarts anything
 (`.github/workflows/ci-smoke.yml:3-6`).
 
@@ -393,7 +393,7 @@ grepping every `.py` file in the tree for `ci.routes`, `ci.gate`, `ci.smoke`,
   `ci/blocking_lanes.py` with the runner's bare `python` and hands the paths to
   pytest. Those two blocking steps and the lanes step are the three whose exit
   code can fail that job.
-- `.github/workflows/ci-smoke.yml:112-114` runs the smoke suite on a self-hosted
+- `.github/workflows/ci-smoke.yml:129-131` runs the smoke suite on a self-hosted
   runner in a deliberately isolated environment.
 - Not a consumer: `startup/cli.py:40-44` restates `("local", "dev", "prod")` as
   its own constant and says in the comment above it that `startup/` never imports

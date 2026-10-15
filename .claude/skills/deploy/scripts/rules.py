@@ -287,7 +287,9 @@ IMAGE_RULES: tuple[PathRule, ...] = (
     PathRule(r"^(static/|NessieAI/chat_frontend/)", ("app",), None, "then collectstatic"),
     PathRule(r"^themes/NextSeek/", (), None, "bind-mounted: live after the pull; static needs collectstatic"),
     PathRule(r"^(ci|startup)/", (), None, "CI and the CLI run from the host checkout"),
-    PathRule(r"\.(md|txt)$", (), None, "documentation"),
+    PathRule(r"\.md$", (), None, "documentation"),
+    # A prompt .txt under an app tree is app source, so only .txt elsewhere is docs.
+    PathRule(r"^(?!(nextseek_api|seek|dmac|NessieAI)/).*\.txt$", (), None, "documentation"),
     PathRule(r"^docker/scripts/db/", (), None, "MySQL init scripts: run only when the database volume is created"),
     PathRule(r"^docker/scripts/", ("app",), None, "baked into the app image (the entrypoint, the healthcheck)"),
     PathRule(r"^docker/models/[^/]+\.(json|py)$", ("app",), None, "the app image's models stage: pins and scripts"),

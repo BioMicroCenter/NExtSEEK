@@ -50,6 +50,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Inputs reach the scripts below as env values, never as spliced text; this
+      # step also refuses a value that is not a plain URL or a plain number.
+      - name: Check the dispatch inputs
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          READY_FLOOR: ${{ inputs.ready_floor }}
+        run: |
+          set -euo pipefail
+          [[ "$BASE_URL" =~ ^https?://[A-Za-z0-9._:-]+(/[A-Za-z0-9._~/-]*)?$ ]] || { echo "::error::base_url is not a plain URL"; exit 1; }
+          [[ "$READY_FLOOR" =~ ^[0-9]+$ ]] || { echo "::error::ready_floor is not a number"; exit 1; }
+
       # The BOX decides which routes may be called here, and it says so in
       # startup/.instance.json. Read it rather than hard-coding a profile in this
       # file: a workflow that named its own would be a second, quieter declaration
@@ -93,20 +104,26 @@ jobs:
       # workflow's own env context was a self-reference that evaluated to empty and
       # pointed the suite at nothing.
       - name: Run the health sweep and the flows
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          READY_FLOOR: ${{ inputs.ready_floor }}
+          WAIT_READY: ${{ inputs.wait_ready }}
+          STRICT_CONSOLE: ${{ inputs.strict_console }}
+          NESSIE: ${{ inputs.nessie }}
         run: |
           set -euo pipefail
-          ARGS=(--base-url "${{ inputs.base_url }}")
-          if [ "${{ inputs.wait_ready }}" = "true" ]; then
-            ARGS+=(--wait-ready --ready-floor "${{ inputs.ready_floor }}")
+          ARGS=(--base-url "$BASE_URL")
+          if [ "$WAIT_READY" = "true" ]; then
+            ARGS+=(--wait-ready --ready-floor "$READY_FLOOR")
           fi
-          if [ "${{ inputs.strict_console }}" = "true" ]; then
+          if [ "$STRICT_CONSOLE" = "true" ]; then
             ARGS+=(--strict-console)
           fi
           # The Nessie lane is switched off only by the suite's own --no-nessie,
           # never by a -m expression: any -m re-admits the write lane. A shell test,
           # not an inline "inputs.nessie && '' || '--no-nessie'" expression: '' is
           # falsy there, so that expression yields --no-nessie every time.
-          if [ "${{ inputs.nessie }}" != "true" ]; then
+          if [ "$NESSIE" != "true" ]; then
             ARGS+=(--no-nessie)
           fi
           uv run --no-project \
@@ -115,10 +132,12 @@ jobs:
 
       - name: Run the write lane
         if: ${{ inputs.write_lane }}
+        env:
+          BASE_URL: ${{ inputs.base_url }}
         run: |
           uv run --no-project \
             --with pytest --with requests --with playwright==1.60.0 \
-            pytest ci/smoke/ -m write --base-url "${{ inputs.base_url }}" -q
+            pytest ci/smoke/ -m write --base-url "$BASE_URL" -q
 
       # Never off a prod box. A JUnit file carries every test id and every failure
       # message from the run, and a GitHub artifact is a copy of that outside the

@@ -7,7 +7,7 @@
   (`ci/routes.py:20-25`), and the module docstring says why
   (`ci/routes.py:1-19`). Add a third-party import and the smoke lane stops
   collecting: it runs under `uv run --no-project` with pytest, requests and
-  playwright and nothing else (`.github/workflows/ci-smoke.yml:112-114`). The
+  playwright and nothing else (`.github/workflows/ci-smoke.yml:129-131`). The
   gate lane will not warn you, because it runs in the application's own
   environment, whose dependency list includes requests (`pyproject.toml:92`).
 - Django is imported inside `_walk()` and `_owned_leaves()`, never at module
