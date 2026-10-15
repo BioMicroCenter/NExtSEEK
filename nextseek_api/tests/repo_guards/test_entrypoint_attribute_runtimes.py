@@ -98,6 +98,10 @@ class TestEveryRuntimeStarts:
         assert "manage.py recover_attribute_sync_jobs" in calls
         assert "manage.py run_assay_registration_jobs" in calls
 
+    def test_the_beat_starts_with_its_schedule_on_the_durable_dir(self, tmp_path):
+        _, calls = _run_entrypoint(tmp_path)
+        assert "--schedule /var/celery/celerybeat-schedule" in _line_for(calls, " beat")
+
     def test_the_share_worker_starts_with_no_broker(self, tmp_path):
         """The studies tool's share worker drains its MySQL job rows by lease, like the registration loop."""
         _, calls = _run_entrypoint(tmp_path)

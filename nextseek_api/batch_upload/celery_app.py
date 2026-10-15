@@ -38,9 +38,24 @@ app.config_from_object(
             "attribute_mutations.*": {"queue": "attribute_mutations"},
         },
         "beat_schedule": {
+            # Each entry expires at its own interval, so runs missed while the one batch_upload worker is busy
+            # are dropped, not piled up.
+            # ponytail: these share the batch_upload worker (concurrency 1), so a long upload delays them; a
+            # dedicated periodic queue and worker is the upgrade if that ever matters.
             "cc-1c-summary-sweep": {
                 "task": "cc_assistant.sweep_cc_summaries",
                 "schedule": 300.0,
+                "options": {"expires": 300.0},
+            },
+            "reap-stale-query-tasks": {
+                "task": "batch_upload.reap_stale_query_tasks",
+                "schedule": 300.0,
+                "options": {"expires": 300.0},
+            },
+            "clear-expired-sessions": {
+                "task": "batch_upload.clear_expired_sessions",
+                "schedule": 86400.0,
+                "options": {"expires": 86400.0},
             },
         },
         "task_soft_time_limit": int(os.environ.get("BATCH_TASK_SOFT_LIMIT", 7200)),
@@ -54,3 +69,4 @@ app.autodiscover_tasks(["nextseek_api.batch_upload", "nextseek_api.attributes"])
 # Step 1c Celery sweep (registers cc_assistant.sweep_cc_summaries)
 import nextseek_api.cc_assistant.cc_sweep  # noqa: F401, E402
 import nextseek_api.cc_assistant.cc_upload_tasks  # noqa: F401, E402
+import nextseek_api.periodic_tasks  # noqa: F401, E402

@@ -150,7 +150,8 @@ def _persist_summary_standalone(user, session_id, summary_dict, fp):
         es["summary"] = summary_dict
         es["summary_fingerprint"] = fp
         sess.extra_state = es
-        sess.save(update_fields=["extra_state", "updated_at"])
+        # No updated_at: a background summary must not move an idle chat to the top of the sidebar.
+        sess.save(update_fields=["extra_state"])
     except Exception:
         logger.exception("cc-1c: failed to persist summary for %s", session_id)
 

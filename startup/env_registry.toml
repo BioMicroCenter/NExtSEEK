@@ -701,6 +701,16 @@ files = ["nextseek.env"]
 default = "900"
 doc = "Container-CC memory: idle seconds before a sweep."
 
+[DMAC_CC_MEMORY_SWEEP_MAX_PER_RUN]
+files = ["nextseek.env"]
+default = "20"
+doc = "Container-CC memory: most sessions one sweep run summarizes, oldest first."
+
+[NEXTSEEK_CC_SUMMARY_SWEEP]
+files = ["nextseek.env"]
+default = "1"
+doc = "Container-CC memory: 0, false or off stops the scheduled paid summary sweep (the beat keeps running)."
+
 [DMAC_CC_MEMORY_SUMMARY_MODEL]
 files = ["nextseek.env"]
 default = "gemini-flash"

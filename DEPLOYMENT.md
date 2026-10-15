@@ -861,6 +861,8 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `DMAC_CC_MEMORY_MAX_ITEMS` | nextseek.env | 8 |  |  | Container-CC memory: most items kept. |
 | `DMAC_CC_MEMORY_TRUNCATE_CHARS` | nextseek.env | 500 |  |  | Container-CC memory: characters kept per item. |
 | `DMAC_CC_MEMORY_SWEEP_IDLE_SECONDS` | nextseek.env | 900 |  |  | Container-CC memory: idle seconds before a sweep. |
+| `DMAC_CC_MEMORY_SWEEP_MAX_PER_RUN` | nextseek.env | 20 |  |  | Container-CC memory: most sessions one sweep run summarizes, oldest first. |
+| `NEXTSEEK_CC_SUMMARY_SWEEP` | nextseek.env | 1 |  |  | Container-CC memory: 0, false or off stops the scheduled paid summary sweep (the beat keeps running). |
 | `DMAC_CC_MEMORY_SUMMARY_MODEL` | nextseek.env | gemini-flash |  |  | Container-CC memory: summary model. |
 | `STEP7_LLM_LEDGER` | nextseek.env |  |  |  | Container-CC: write the per-call LLM cost ledger when 1. |
 | `DJANGO_BASE_DIR` | nextseek.env | /app |  |  | App root the LLM cost ledger writes under. |
@@ -1035,6 +1037,15 @@ acceptance runs: [`NessieAI/cc/DEPLOY.md`](NessieAI/cc/DEPLOY.md) and
 - **Only the marked blocks of `NessieAI/docker/cc-runtime/container/CLAUDE.md`
   are generated** (see `NessieAI/build_tools/README.md`); hand-edit only
   outside them. The file is a required image input.
+
+### Periodic jobs (Celery beat)
+
+The app container runs one `celery ... beat` process (schedule file `/var/celery/celerybeat-schedule`).
+It queues three jobs on the batch_upload worker, each dropped if it waits longer than its own interval: the
+Container-CC summary sweep (300 s), the stuck-turn reaper (300 s) and Django `clearsessions` (daily). A long upload
+delays them. The sweep sends idle Container-CC transcripts (already scrubbed) to the summary model: set
+`NEXTSEEK_CC_SUMMARY_SWEEP=0` in `nextseek.env` and restart the app to stop it; the rest of the beat keeps running.
+`DMAC_CC_MEMORY_SWEEP_MAX_PER_RUN` (20) bounds one run's summaries.
 
 ---
 

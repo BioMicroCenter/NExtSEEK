@@ -78,6 +78,12 @@ uv run --no-sync celery -A nextseek_api.batch_upload.celery_app worker \
               -Q batch_upload \
               --concurrency=1 &
 
+# The beat that queues the periodic jobs in celery_app.py (summary sweep, stuck-turn reaper, session clean-up).
+# Its schedule file sits on /var/celery; every entry expires, so a busy worker drops missed runs.
+uv run --no-sync celery -A nextseek_api.batch_upload.celery_app beat \
+              --loglevel=info \
+              --schedule /var/celery/celerybeat-schedule &
+
 # ---------------------------------------------------------------------------
 # The attribute-mutation pipeline and the assay-registration drain loop.
 #
