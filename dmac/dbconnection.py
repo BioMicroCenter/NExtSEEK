@@ -3,7 +3,6 @@ import os, sys
 import datetime
 from os.path import abspath, exists
 from dmac.iocsv import saveCsvfile
-from dmac.conversion import toString, cleanString
 
 class DBconnection(object):
     def __init__(self, whichDB, dbname=''):
@@ -56,36 +55,6 @@ class DBconnection(object):
     def retrieveOneRecord(self, tablemodel, id):
         return self.__dbconn.retrieveOneRecord(tablemodel, id)
         
-    def __mergeStringsAdditive(self, string1, string2):
-        newstring = string1
-        if string1 is None:
-            newstring = string2
-        elif len(string1)==0:
-            newstring = string2
-        else:
-            if string2 is None:
-                newstring = string1
-            elif len(string2)==0:
-                newstring = string1
-            else:
-                if string2 in string1:
-                    newstring = string1
-                elif string1 in string2:
-                    newstring = string2
-                else:
-                    newstring = string1 + ";" + stringIn
-        
-        return newstring
-        
-        
-    def getStringValueAdditive(self, tablemodel, primarykey, field, stringIn):
-        if primarykey>0:
-            oldstring = self.retrieveFieldValue(tablemodel, primarykey, field)
-            newstring = self.__mergeStringsAdditive(oldstring, stringIn)
-        else:
-            newstring = stringIn
-        return newstring
-            
     def __updateRecordViaKeyword(self, tablemodel, uniqueField, uniqueKeyword, record):
         id = self.getPrimarykey(tablemodel, uniqueField, uniqueKeyword)
         if int(id)<=0:
@@ -106,21 +75,6 @@ class DBconnection(object):
            
         return self.storeOneRecord(tablemodel, record_update)
 
-    def updateNotesViaKeyword(self, tablemodel, uniqueField, uniqueKeyword, notes):
-        id = self.getPrimarykey(tablemodel, uniqueField, uniqueKeyword)
-        if int(id)<=0:
-            msg = "Warning: The primary key for the table is not valid."
-            logger.debug(msg)
-            return -1, msg
-        
-        if notes.strip()=="remove":
-            self.__dbconn.updateFieldValue(tablemodel, id, "notes", "")
-        else:
-            self.__dbconn.updateStringsAdditive(tablemodel, uniqueField, uniqueKeyword, "notes", notes)
-        msg = "okay"
-        return id, msg
-       
-    
     def run_custom_sql(self, sqlquery):
         if self.__dbconn is not None:
             return self.__dbconn.retrieve_custom_sql(sqlquery)
@@ -259,65 +213,6 @@ class DBconnection(object):
         
     def getRecords(self, tablemodel, datadic):
         return self.__dbconn.getRecords(tablemodel, datadic)
-        
-    def retrieveAllRecordsIntoExcel(self, sqlquery, headers, headersmapping, excelfile):
-        return self.retrieveAllRecordsIntoExcel_V2(sqlquery, headers, headersmapping, excelfile)
-        
-        if self.__dbconn  is None:
-            return None
-        
-        book = xlwt.Workbook(encoding="utf-8")
-        sheet1 = book.add_sheet("Sheet 1")
-        row = 0
-        for index, item in enumerate(headers):
-            sheet1.write(row, index, item)
-        
-        self.__dbconn.cursor.execute(sqlquery)
-        rows = self.__dbconn.cursor.fetchall()
-        rowslist = list(rows)
-        for columns in rowslist:
-            row += 1
-            for index, item in enumerate(columns):
-                newitem = self.toString(item)
-                if index in headersmapping:
-                    index = headersmapping[index]
-                    try:
-                        sheet1.write(row, index, newitem)
-                    except:
-                        newitem = self.cleanString(newitem)
-                        sheet1.write(row, index, newitem)
-        book.save(excelfile)
-        
-    def retrieveAllRecordsIntoExcel_V2(self, sqlquery, headers, headersmapping, excelfile):
-        if self.__dbconn  is None:
-            return None
-        
-        wb = openpyxl.Workbook() 
-        sheet = wb.active
-        sheet.title = "sheet 1"
-        rowi = 0
-        for index, item in enumerate(headers):
-            ci = sheet.cell(row = (rowi+1), column = (index+1))
-            ci.value = item
-        
-        self.__dbconn.cursor.execute(sqlquery)
-        rows = self.__dbconn.cursor.fetchall()
-        rowslist = list(rows)
-        for columns in rowslist:
-            rowi += 1
-            for index, item in enumerate(columns):
-                newitem = self.toString(item)
-                if index in headersmapping:
-                    index = headersmapping[index]
-                    try:
-                        ci = sheet.cell(row = (rowi+1), column = (index+1))
-                        ci.value = newitem
-                    except:
-                        newitem = self.cleanString(newitem)
-                        ci = sheet.cell(row = (rowi+1), column = (index+1))
-                        ci.value = newitem
-
-        wb.save(excelfile)
         
     def getDistinctList(self, tablemodel, fieldname):
         return self.__dbconn.getDistinctList(tablemodel, fieldname)
