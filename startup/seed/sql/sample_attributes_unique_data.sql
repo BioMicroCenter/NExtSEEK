@@ -1,9 +1,11 @@
--- 984 attribute definitions for dmac.sample_attributes_unique.
+-- 998 attribute definitions for dmac.sample_attributes_unique.
 -- 979 were judged from up to three real values observed in production
 -- (166,235 samples). Attributes with no data anywhere are deliberately absent.
 -- The five D.SEQ QC attributes created on 2026-10-14 (DuplicationPercent,
 -- Strandedness, MultimappedPercent, DupRadarIntercept, MismatchPercent) are
 -- defined from their source tools' documentation instead; they held no data yet.
+-- So are the 14 QC attributes from the 2026-10-15 review of the other nf-core
+-- pipelines (GCPercent, Q30Percent, ..., TsTvRatio).
 -- sample_type '' is the global definition; a code overrides it for that tab.
 
 INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
@@ -18,6 +20,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('AbsorbanceUnits','','Unit for the Absorbance value, e.g. nm.'),
  ('Accession','','The accession this data was deposited under in the repository named in Repository, e.g. PRJNA967652 or SRX25141024.'),
  ('ActiveCOVID19','','Whether the patient had an active COVID-19 infection at the time of sampling.'),
+ ('AdapterPercent','','Percentage of reads in which fastp found and trimmed adapter sequence.'),
  ('AdditionalData','','Description of any supplementary file that accompanies this record, e.g. a supporting movie or summary output.'),
  ('AdditionalData_Link','','URL where the supplementary file described in AdditionalData can be downloaded.'),
  ('Adenomyosis','','Whether the patient has been diagnosed with adenomyosis.'),
@@ -63,6 +66,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Assay','','The assay planned or performed on this sample.'),
  ('AssayType','','The type of assay performed, e.g. IHC, TEM.'),
  ('Assembly','','The reference genome assembly used, e.g. GRCh38.'),
+ ('AssignedPercent','','Percentage of reads assigned to an annotated feature (featureCounts).'),
  ('AssociatedCNV','','UID of the copy-number variant analysis derived from this sample.'),
  ('BALCollectedVolume','','Volume of bronchoalveolar lavage fluid recovered, in millilitres.'),
  ('BALCollectedVolumeUnits','','Unit for the BALCollected Volume value, e.g. mL.'),
@@ -278,6 +282,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('EmissionWavelength','','The emission wavelength detected, in nanometres.'),
  ('End_Study_TB_Status','','The patient''s TB status at the end of the study.'),
  ('EnrollmentDate','','The date the patient was enrolled in the study.'),
+ ('EstimatedCells','','Number of cells Cell Ranger called in this single-cell library.'),
  ('EthicsApproval','','The ethics approval reference covering use of this material.'),
  ('Ethnicity','','The patient''s self-reported ethnicity.'),
  ('ExcitationWavelength','','The excitation wavelength used, in nanometres.'),
@@ -341,6 +346,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('FrequencyUnits','','Unit for the Frequency value, e.g. Hz, hertz.'),
  ('Funder','','The grant or funding source supporting this work, including the award number.'),
  ('G/P','','The patient''s gravidity and parity.'),
+ ('GCPercent','','Mean GC content of the sequenced reads, as a percentage (FastQC on the raw reads, or fastp after filtering).'),
  ('GPS','','The latitude and longitude where this sample was collected.'),
  ('GPSUnits','','Unit for the GPS value, e.g. decimal degrees.'),
  ('GelType','','The gel and membrane used for separation and transfer.'),
@@ -410,6 +416,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('IsolationKit','','The kit used to isolate the target molecules.'),
  ('IsolationKit_Vendor','','The vendor the isolation kit was purchased from, e.g. Life Technologies.'),
  ('IsolationTarget','','What was isolated, e.g. Glycans.'),
+ ('IsomiRPercent','','Percentage of miRNA-assigned reads that are isomiRs rather than the reference miRNA sequence (mirtop).'),
  ('Isotype','','The antibody''s species and isotype, e.g. Mouse IgG1, kappa.'),
  ('KPS_Score','','The patient''s Karnofsky Performance Status score.'),
  ('Kit','','The assay kit used, with catalogue number where known.'),
@@ -502,6 +509,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('MIP-1B_Ab_Fluorophore','','Fluorophore conjugated to the anti-MIP-1-beta antibody, e.g. PE.'),
  ('MIP-1B_Ab_Vendor','','The vendor the mip-1 b ab was purchased from, e.g. BD.'),
  ('MIP-1B_Name','','Full product name of the anti-MIP-1-beta antibody used.'),
+ ('MRNAPercent','','Percentage of aligned bases in mRNA, i.e. coding or UTR regions (Picard CollectRnaSeqMetrics).'),
  ('MTB_Cohort','','The M. tuberculosis challenge cohort this animal belongs to.'),
  ('MTB_LiquidCulture_Result','','The M. tuberculosis liquid culture result for this visit.'),
  ('MTB_LiquidCulture_Speciation','','The species identified from liquid culture at this visit.'),
@@ -514,6 +522,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Matrix','','The expression matrix file or the quantification unit it holds, e.g. FPKM.'),
  ('MatrixDataType','','Format of the matrix file, e.g. TSV.'),
  ('MaxPassage','','The highest passage number the cells were used at.'),
+ ('MeanReadsPerCell','','Sequenced reads divided by the number of called cells (Cell Ranger).'),
  ('MeasurementDuration','','How long the measurement ran for.'),
  ('MeasurementInterval','','The interval between successive measurements.'),
  ('MeasurementTechnique','','The technique used to take the reading, e.g. Colorimetric ELISA (450 nm).'),
@@ -604,6 +613,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('PassageNotes','','Notes on how the cells should be passaged.'),
  ('PassageNum','','The passage number the cells were at.'),
  ('Passages','','How the cells were passaged, or the passage stage reached.'),
+ ('PassedFilterPercent','','Percentage of reads that passed fastp''s quality, length and N-content filters.'),
  ('Path_PrimaryData','','Filesystem path to the primary data file on the storage server.'),
  ('PathologyReport','','Whether a pathology report exists for this patient.'),
  ('PeakConcUnits','','Unit for the Peak Conc value, e.g. pg/uL, ng/uL.'),
@@ -651,9 +661,11 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Provider','','The supplier the animal was obtained from, e.g. JAX.'),
  ('ProviderProduct#','','The provider''s catalogue number for this animal strain, e.g. #000664.'),
  ('Pseudo_Aligner','','The pseudo-aligner used for quantification, e.g. Salmon.'),
+ ('PseudoalignedPercent','','Percentage of reads Salmon mapped to the transcript set it quantified against.'),
  ('Publish_uri','','Public URL where this sample record is published.'),
  ('PurificationKit','','The kit used to purify the target molecules.'),
  ('PurificationKit_Vendor','','The vendor the purification kit was purchased from, e.g. Thermo Fisher Scientific.'),
+ ('Q30Percent','','Percentage of bases with a Phred quality score of 30 or more (fastp after filtering; Cell Ranger RNA read).'),
  ('QC','','The quality control measurement recorded for this sample.'),
  ('QCInstrument','','The instrument used for quality control, e.g. Q Exactive HFX.'),
  ('QCPlatform','','The platform used for library quality control, e.g. Agilent Fragment Analyzer.'),
@@ -675,6 +687,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('RandomGlucoseTest_Units','','Unit for the Random Glucose Test value.'),
  ('ReactionStopper','','The solution used to stop the reaction, e.g. 2N H2SO4.'),
  ('ReadingIntervals','','When readings were taken relative to the start of the experiment.'),
+ ('ReadsInCellsPercent','','Percentage of valid-barcode, confidently mapped reads that come from called cells (Cell Ranger).'),
  ('Reagent','','The catalogue number of the reagent used.'),
  ('ReagentBrand','','The brand and product name of the reagent used.'),
  ('ReagentCatalogNum','','The manufacturer''s catalogue number for this reagent.'),
@@ -915,6 +928,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Treatment_LastPositiveCOVID19','','The treatment given at the patient''s most recent positive COVID-19 episode.'),
  ('Treatment_Outcome','','The outcome of the patient''s treatment.'),
  ('Trimmer','','The tool used to trim reads, e.g. fastxtoolkit/0.0.13.'),
+ ('TsTvRatio','','Ratio of transitions to transversions among the called SNVs (snpEff); a standard check on call quality.'),
  ('Tube','','Identifier of the tube this sample is held in.'),
  ('TubeNumber','','The tube number this sample is held in.'),
  ('TumorFractionFromCNV','','Estimated tumour fraction inferred from copy-number data, as a percentage.'),
@@ -924,6 +938,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Tumor_IDH','','The tumour''s IDH mutation status, e.g. Wild type.'),
  ('Type','','The subtype of this sample within its sample type, e.g. Blood, Tissue Extraction.'),
  ('UID','','The unique NExtSEEK identifier for this sample. Its prefix is the sample type code. BMC data specialist will create them for new samples.'),
+ ('UMIUniquePercent','','Percentage of reads kept after UMI-based deduplication (UMICollapse).'),
  ('UTRPercent','','Fraction of reads mapping to untranslated regions.'),
  ('UltraSoundDesc','','The ultrasound findings recorded for this patient.'),
  ('UncompensatedConductivityEnd','','Raw, temperature-uncompensated conductivity at the end of the deployment.'),
@@ -931,6 +946,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('UncompensatedConductivityUnits','','Unit for the Uncompensated Conductivity value, e.g. uS/cm, microsiemens per centimeter.'),
  ('UsualActivity','','The patient''s self-reported ability to carry out usual activities.'),
  ('VaccinationHistory','','The patient''s vaccination history.'),
+ ('ValidBarcodesPercent','','Percentage of reads whose cell barcode matches the whitelist after correction (Cell Ranger).'),
  ('ValidationDatasets','','UID(s) of the datasets this model was validated against. Semicolon-separate when several.'),
  ('ValidationMethod','','The method used to validate the cells, e.g. MycoAlert Mycoplasma detection kit.'),
  ('ValidationQuality','','The outcome of validation, e.g. Mycoplasma negative.'),
