@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
@@ -44,6 +45,35 @@ def _minify_json_string(json_value: Union[str, dict]) -> str:
 
 
 _ASSAY_ID_RE = re.compile(r"\d+")
+_ASSAY_NUM_RE = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _whole_id(x):
+    """12.0 is 12; 12.5 is an error. NaN and inf are dropped by the caller."""
+    f = float(x)
+    if f != int(f):
+        raise ValueError(f"assay id must be a whole number, got {x}")
+    return int(f)
+
+
+def _coerce_assay_ids(v):
+    """Assay ids from a list, int, float or delimited string, whole numbers only."""
+    if isinstance(v, float):
+        return [_whole_id(v)] if math.isfinite(v) else []
+    if isinstance(v, list):
+        return [_whole_id(x) if isinstance(x, (float, str)) and "." in str(x) else int(x)
+                for x in v if x is not None and str(x).strip() and str(x).lower() != "nan"]
+    if isinstance(v, int):
+        return [v]
+    if isinstance(v, str):
+        s = v.strip()
+        if not s or s.lower() == "nan":
+            return []
+        return [_whole_id(m) if "." in m else int(m) for m in _ASSAY_NUM_RE.findall(s)]
+    if v is None:
+        return []
+    return [int(x) for x in v]
+
 
 
 # ── 1. SampleTypeDescription ──────────────────────────────────────────────
@@ -179,18 +209,7 @@ class InputRowModel(BaseModel):
     @field_validator("assay_ids", mode="before")
     @classmethod
     def coerce_assay_ids(cls, v):
-        if isinstance(v, list):
-            return [int(x) for x in v if x is not None and str(x).strip()]
-        if isinstance(v, int):
-            return [v]
-        if isinstance(v, (str, float)):
-            s = str(v).strip()
-            if not s or s.lower() == "nan":
-                return []
-            return [int(m) for m in _ASSAY_ID_RE.findall(s)]
-        if v is None:
-            return []
-        return [int(x) for x in v]
+        return _coerce_assay_ids(v)
 
     @field_validator("json_metadata", mode="before")
     @classmethod
@@ -244,23 +263,23 @@ class InputRowModel(BaseModel):
             if meta_uid is not None and str(meta_uid).strip() and str(meta_uid).strip() != str(self.UID).strip():
                 raise ValueError("UID column does not match json_metadata.UID")
 
-            # 2) SOP consistency if sop_id provided and Protocol encodes SOP
-            #
-            # This is VALIDATION, not resolution: it stays purely syntactic (no
-            # DB), so it can only compare two integers. It shares
-            # parse_protocol_value only to agree with the ingest path on what
-            # "the Protocol encodes a SOP id" means. Two consequences, both
-            # intended:
-            #   * a title-shaped Protocol carries no id, so there is nothing to
-            #     disagree with — ingest resolves it by title later;
-            #   * an id in a FOREIGN SOP URL (fairdomhub.org/sops/795, 1,855
-            #     live values) is not in our sops table, so comparing it to a
-            #     local sop_id would reject perfectly good rows.
-            if self.sop_id is not None:
-                protocol_val = meta.get("Protocol") or meta.get("protocol") or ""
-                parsed = parse_protocol_value(protocol_val).sop_id
-                if parsed is not None and int(self.sop_id) != parsed:
-                    raise ValueError("sop_id does not match SOP id in json_metadata.Protocol")
+        # 2) SOP consistency if sop_id provided and Protocol encodes SOP
+        #
+        # This is VALIDATION, not resolution: it stays purely syntactic (no
+        # DB), so it can only compare two integers. It shares
+        # parse_protocol_value only to agree with the ingest path on what
+        # "the Protocol encodes a SOP id" means. Two consequences, both
+        # intended:
+        #   * a title-shaped Protocol carries no id, so there is nothing to
+        #     disagree with — ingest resolves it by title later;
+        #   * an id in a FOREIGN SOP URL (fairdomhub.org/sops/795, 1,855
+        #     live values) is not in our sops table, so comparing it to a
+        #     local sop_id would reject perfectly good rows.
+        if isinstance(meta, dict) and self.sop_id is not None:
+            protocol_val = meta.get("Protocol") or meta.get("protocol") or ""
+            parsed = parse_protocol_value(protocol_val).sop_id
+            if parsed is not None and int(self.sop_id) != parsed:
+                raise ValueError("sop_id does not match SOP id in json_metadata.Protocol")
 
         # 3) assay_titles length consistency if provided
         if self.assay_titles is not None:
@@ -287,18 +306,7 @@ class InsertableSample(BaseModel):
     @field_validator("assay_ids", mode="before")
     @classmethod
     def coerce_assay_ids(cls, v):
-        if isinstance(v, list):
-            return [int(x) for x in v if x is not None and str(x).strip()]
-        if isinstance(v, int):
-            return [v]
-        if isinstance(v, (str, float)):
-            s = str(v).strip()
-            if not s or s.lower() == "nan":
-                return []
-            return [int(m) for m in _ASSAY_ID_RE.findall(s)]
-        if v is None:
-            return []
-        return [int(x) for x in v]
+        return _coerce_assay_ids(v)
 
     @field_validator("json_metadata", mode="before")
     @classmethod

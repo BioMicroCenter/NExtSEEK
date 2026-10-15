@@ -141,7 +141,11 @@ def _resolve_additions(
     out: list[dict[str, Any]] = []
     for row in rows:
         copy = dict(row)
-        ids = {int(item) for item in copy.get("assay_ids") or []}
+        ids: set[int] = set()
+        for item in copy.get("assay_ids") or []:
+            if int(item) != float(item):
+                raise GateError("assay_resolution", f"assay id must be a whole number: {item}")
+            ids.add(int(item))
         sample_id = sample_ids.get(str(copy.get("UID") or "").strip()) if _is_update(copy) else None
         for title in copy.get("assay_titles") or []:
             try:
