@@ -143,7 +143,7 @@ class TestWorkerProcessChunk:
         config = MagicMock()
         direction = DirectionComputation(
             direction_by_pair={}, parents_of={}, assays_by_uid={},
-            child_uids_by_assay={}, conflicts_by_assay={},
+            child_uids_by_assay={},
         )
 
         result = _worker_process_chunk(
@@ -193,7 +193,7 @@ class TestProcessBatchesParallel:
 
         direction = DirectionComputation(
             direction_by_pair={}, parents_of={}, assays_by_uid={},
-            child_uids_by_assay={}, conflicts_by_assay={},
+            child_uids_by_assay={},
         )
         config = MagicMock()
 
@@ -229,7 +229,7 @@ class TestProcessBatchesParallel:
         ]
         direction = DirectionComputation(
             direction_by_pair={}, parents_of={}, assays_by_uid={},
-            child_uids_by_assay={}, conflicts_by_assay={},
+            child_uids_by_assay={},
         )
 
         process_batches_parallel(
@@ -267,7 +267,7 @@ class TestProcessBatchesParallel:
             config=MagicMock(),
             direction_computation=DirectionComputation(
                 direction_by_pair={}, parents_of={}, assays_by_uid={},
-                child_uids_by_assay={}, conflicts_by_assay={},
+                child_uids_by_assay={},
             ),
         )
 

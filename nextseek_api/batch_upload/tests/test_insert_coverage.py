@@ -65,7 +65,6 @@ def _make_direction_computation():
         parents_of={},
         assays_by_uid={},
         child_uids_by_assay={},
-        conflicts_by_assay={},
     )
 
 

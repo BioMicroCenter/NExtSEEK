@@ -400,7 +400,6 @@ class DirectionComputation:
     parents_of: Dict[str, Set[str]]  # child_uid -> set(parent_uids)
     assays_by_uid: Dict[str, Set[int]]  # uid -> set(assay_ids)
     child_uids_by_assay: Dict[int, Set[str]]  # assay_id -> set(child_uids)
-    conflicts_by_assay: Dict[int, Set[str]]  # assay_id -> set(uids with conflict)
 
 
 # ── 18. InstructionRow ────────────────────────────────────────────────────

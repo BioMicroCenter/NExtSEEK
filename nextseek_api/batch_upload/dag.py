@@ -106,7 +106,6 @@ def compute_directions(rows: List[InputRowModel]) -> DirectionComputation:
             parents_of=parents_of,
             assays_by_uid=assays_by_uid,
             child_uids_by_assay={},
-            conflicts_by_assay={},
         )
 
     # Phase 3: Build skinny DataFrames
@@ -121,11 +120,11 @@ def compute_directions(rows: List[InputRowModel]) -> DirectionComputation:
 
     # Phase 4: Vectorized join
     if total_rows >= _DUCKDB_THRESHOLD:
-        direction_by_pair, child_uids_by_assay, conflicts_by_assay = _duckdb_path(
+        direction_by_pair, child_uids_by_assay = _duckdb_path(
             assays_records, edges_records
         )
     else:
-        direction_by_pair, child_uids_by_assay, conflicts_by_assay = _pandas_path(
+        direction_by_pair, child_uids_by_assay = _pandas_path(
             assays_records, edges_records
         )
 
@@ -134,7 +133,6 @@ def compute_directions(rows: List[InputRowModel]) -> DirectionComputation:
         parents_of=parents_of,
         assays_by_uid=assays_by_uid,
         child_uids_by_assay=child_uids_by_assay,
-        conflicts_by_assay=conflicts_by_assay,
     )
 
 
@@ -152,7 +150,7 @@ def _pandas_path(
     # child_assays: parent, child, uid, assay
 
     if child_assays.empty:
-        return {}, {}, {}
+        return {}, {}
 
     # Check if parent also has that assay
     parent_assays = assays_df.rename(columns={"uid": "parent_uid", "assay": "parent_assay"})
@@ -169,7 +167,6 @@ def _pandas_path(
 
     direction_by_pair: Dict[Tuple[str, int], int] = {}
     child_uids_by_assay: Dict[int, Set[str]] = {}
-    conflicts_by_assay: Dict[int, Set[str]] = {}
 
     for _, row in merged.iterrows():
         uid = row["child"]
@@ -179,7 +176,7 @@ def _pandas_path(
         direction_by_pair[key] = max(direction_by_pair.get(key, 0), direction)  # output (2) beats input (1)
         child_uids_by_assay.setdefault(assay_id, set()).add(uid)
 
-    return direction_by_pair, child_uids_by_assay, conflicts_by_assay
+    return direction_by_pair, child_uids_by_assay
 
 
 def _duckdb_path(
@@ -220,14 +217,13 @@ def _duckdb_path(
 
     direction_by_pair: Dict[Tuple[str, int], int] = {}
     child_uids_by_assay: Dict[int, Set[str]] = {}
-    conflicts_by_assay: Dict[int, Set[str]] = {}
 
     for child, assay_id, direction in result:
         key = (child, int(assay_id))
         direction_by_pair[key] = max(direction_by_pair.get(key, 0), int(direction))  # output (2) beats input (1)
         child_uids_by_assay.setdefault(int(assay_id), set()).add(child)
 
-    return direction_by_pair, child_uids_by_assay, conflicts_by_assay
+    return direction_by_pair, child_uids_by_assay
 
 
 def detect_cycles(edges: Set[Tuple[str, str]]) -> List[List[str]]:

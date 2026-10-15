@@ -199,7 +199,7 @@ class TestRunBatchUploadMultiRowsMode:
 
         mock_directions.return_value = DirectionComputation(
             direction_by_pair={}, parents_of={}, assays_by_uid={},
-            child_uids_by_assay={}, conflicts_by_assay={},
+            child_uids_by_assay={},
         )
         mock_build_rel.return_value = ({}, {}, set())
 

@@ -226,7 +226,7 @@ def _run_update(scope):
     with patch.object(update_mod, "bulk_update_samples", side_effect=fake_bulk) as bulk:
         result = process_batches(
             insertable_samples=samples, project_id=7, contributor_id=5, config=config,
-            direction_computation=DirectionComputation({}, {}, {}, {}, {}), error_collector=errors,
+            direction_computation=DirectionComputation({}, {}, {}, {}), error_collector=errors,
             existing_samples={"VIEW-1": 1, "EDIT-1": 2, "GROUP-1": 3}, update_existing=True,
             conn_factory=_edit_conn_factory(),
         )
@@ -265,7 +265,7 @@ def test_rolled_back_batch_reports_no_rows_saved():
                 side_effect=RuntimeError("link failed")):
         result = process_batches(
             insertable_samples=[sample], project_id=7, contributor_id=5, config=BatchUploadConfig(),
-            direction_computation=DirectionComputation({}, {}, {}, {}, {}), error_collector=ErrorCollector(), reporter=reporter,
+            direction_computation=DirectionComputation({}, {}, {}, {}), error_collector=ErrorCollector(), reporter=reporter,
             existing_samples={}, conn_factory=lambda: conn,
         )
     assert result.outcomes["U-1"].status == "failed"

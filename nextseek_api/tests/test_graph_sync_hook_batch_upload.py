@@ -145,7 +145,7 @@ def _sample(uid):
 def _direction():
     from nextseek_api.batch_upload.models import DirectionComputation
     return DirectionComputation(direction_by_pair={}, parents_of={}, assays_by_uid={},
-                                child_uids_by_assay={}, conflicts_by_assay={})
+                                child_uids_by_assay={})
 
 
 class _RecordingConn:

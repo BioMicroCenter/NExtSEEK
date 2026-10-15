@@ -73,7 +73,7 @@ class TestDuckdbPath:
         edges_records = [
             {"parent": "A", "child": "B"},
         ]
-        direction_by_pair, child_uids_by_assay, conflicts = _duckdb_path(assays_records, edges_records)
+        direction_by_pair, child_uids_by_assay = _duckdb_path(assays_records, edges_records)
         assert ("B", 1) in direction_by_pair
         assert direction_by_pair[("B", 1)] == 2  # Both have assay -> child/output
 
@@ -85,7 +85,7 @@ class TestDuckdbPath:
         edges_records = [
             {"parent": "A", "child": "B"},
         ]
-        direction_by_pair, child_uids_by_assay, conflicts = _duckdb_path(assays_records, edges_records)
+        direction_by_pair, child_uids_by_assay = _duckdb_path(assays_records, edges_records)
         assert ("B", 2) in direction_by_pair
         assert direction_by_pair[("B", 2)] == 1  # Only child has assay -> parent/input
 
@@ -93,7 +93,7 @@ class TestDuckdbPath:
         from nextseek_api.batch_upload.dag import _duckdb_path
         assays_records = [{"uid": "A", "assay": 1}]
         edges_records = [{"parent": "X", "child": "Y"}]
-        direction_by_pair, child_uids_by_assay, conflicts = _duckdb_path(assays_records, edges_records)
+        direction_by_pair, child_uids_by_assay = _duckdb_path(assays_records, edges_records)
         assert direction_by_pair == {}
 
 
@@ -107,7 +107,7 @@ class TestPandasPath:
         from nextseek_api.batch_upload.dag import _pandas_path
         assays_records = [{"uid": "A", "assay": 1}]
         edges_records = [{"parent": "X", "child": "Y"}]
-        direction_by_pair, child_uids_by_assay, conflicts = _pandas_path(assays_records, edges_records)
+        direction_by_pair, child_uids_by_assay = _pandas_path(assays_records, edges_records)
         assert direction_by_pair == {}
 
 
@@ -150,5 +150,11 @@ def test_output_wins_whatever_the_edge_order(path_name, reverse):
     ]
     if reverse:
         edges_records.reverse()
-    direction_by_pair, _, _ = getattr(dag, path_name)(assays_records, edges_records)
+    direction_by_pair, _ = getattr(dag, path_name)(assays_records, edges_records)
     assert direction_by_pair[("C", 42)] == 2
+
+
+def test_direction_computation_has_no_always_empty_conflicts_field():
+    import dataclasses
+    from nextseek_api.batch_upload.models import DirectionComputation
+    assert "conflicts_by_assay" not in {f.name for f in dataclasses.fields(DirectionComputation)}
