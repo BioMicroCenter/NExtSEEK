@@ -56,8 +56,6 @@ def run_batch_upload(
     contributor_id: int,
     lababbv: str = "NA",
     config: Optional[BatchUploadConfig] = None,
-    checkpoint_dir: str = "",
-    resume_uid: Optional[str] = None,
     should_stop: Optional[Callable[[], bool]] = None,
     output_dir: Optional[str] = None,
     neo4j_only: bool = False,
@@ -69,8 +67,6 @@ def run_batch_upload(
         contributor_id=contributor_id,
         lababbv=lababbv,
         config=config,
-        checkpoint_dir=checkpoint_dir,
-        resume_uid=resume_uid,
         should_stop=should_stop,
         output_dir=output_dir,
         neo4j_only=neo4j_only,
@@ -724,8 +720,6 @@ def run_batch_upload_multi(
     contributor_id: int,
     lababbv: str = "NA",
     config: Optional[BatchUploadConfig] = None,
-    checkpoint_dir: str = "",
-    resume_uid: Optional[str] = None,
     should_stop: Optional[Callable[[], bool]] = None,
     output_dir: Optional[str] = None,
     rows: Optional[List[dict]] = None,
@@ -874,9 +868,7 @@ def run_batch_upload_multi(
             # Decide parallel vs sequential PER LEVEL
             use_parallel = (
                 len(level_samples) >= config.parallel_threshold
-                and resume_uid is None
             )
-            checkpoint_name_level = f"batch_checkpoint_L{level_num}.txt"
 
             if use_parallel:
                 log.info(
@@ -909,9 +901,6 @@ def run_batch_upload_multi(
                     direction_computation=direction_computation,
                     error_collector=error_collector,
                     reporter=reporter,
-                    checkpoint_dir=checkpoint_dir,
-                    checkpoint_name=checkpoint_name_level,
-                    resume_uid=resume_uid if level_num == 0 else None,
                     should_stop=should_stop,
                     existing_samples=cumulative_existing,
                     update_existing=config.update_existing,
@@ -973,8 +962,6 @@ def run_batch_upload_multi(
                     direction_computation=direction_computation,
                     error_collector=error_collector,
                     reporter=reporter,
-                    checkpoint_dir=checkpoint_dir,
-                    checkpoint_name=f"batch_checkpoint_{tag}.txt",
                     should_stop=should_stop,
                     existing_samples=cumulative_existing,
                     update_existing=config.update_existing,

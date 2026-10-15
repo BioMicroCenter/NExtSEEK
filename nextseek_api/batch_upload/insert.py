@@ -18,7 +18,6 @@ from sqlalchemy.engine import Connection
 from nextseek_api.graph_sync import hooks
 
 from .associations import batch_insert_assay_assets, batch_insert_projects_samples
-from .checkpoint import write_checkpoint
 from .config import BatchUploadConfig
 from .db_engine import get_connection
 from .edit_rights import UNKNOWN as EDIT_UNKNOWN, YES as EDIT_YES, edit_verdicts
@@ -225,9 +224,6 @@ def process_batches(
     conn_factory: Callable[[], Connection.__class__] = get_connection,
     error_collector: Optional[ErrorCollector] = None,
     reporter: Optional[ProgressReporter] = None,
-    checkpoint_dir: str = "",
-    checkpoint_name: str = "batch_checkpoint.txt",
-    resume_uid: Optional[str] = None,
     should_stop: Optional[Callable[[], bool]] = None,
     existing_samples: Optional[Dict[str, int]] = None,
     update_existing: bool = False,
@@ -242,8 +238,7 @@ def process_batches(
     4. Link assays to samples
     5. Insert permissions (if enabled)
     6. Cleanup failed policies
-    7. Write checkpoint
-    8. Write the graph_sync outbox row
+    7. Write the graph_sync outbox row
 
     ``batch_key_prefix`` is the job's outbox key for this call
     (``orchestrator.outbox_key``); each batch appends its own index to it. Given
@@ -415,11 +410,7 @@ def process_batches(
                     if failed_policy_ids:
                         cleanup_unused_policies(failed_policy_ids, conn)
 
-                    # Step 7: Checkpoint
-                    if batch_uids:
-                        write_checkpoint(checkpoint_dir, checkpoint_name, batch_uids[-1])
-
-                    # Step 8: this batch's graph_sync outbox row, inside this batch's
+                    # Step 7: this batch's graph_sync outbox row, inside this batch's
                     # own transaction, so the graph hears about exactly what committed.
                     if outbox_key:
                         outbox_written = enqueue_samples_outbox(conn, outbox_key, sample_ids)

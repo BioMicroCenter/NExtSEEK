@@ -192,7 +192,7 @@ class TestBuildNeo4jOnlyOutcomes:
         assert len(ec.all_errors()) == 2
 
 
-# ── SEEK edit right on update; no checkpoint skip ─────────────────────────
+# ── SEEK edit right on update ─────────────────────────
 
 
 def _edit_conn_factory():
@@ -248,22 +248,6 @@ def test_member_without_seek_edit_right_cannot_update():
 def test_superuser_update_skips_the_edit_check():
     result, errors, bulk = _run_update(None)
     assert [s.uuid for s in bulk.call_args.kwargs["rows"]] == ["VIEW-1", "EDIT-1", "GROUP-1"]
-
-
-def test_resume_checkpoint_never_skips(tmp_path):
-    from nextseek_api.batch_upload.insert import process_batches
-    from nextseek_api.batch_upload.checkpoint import write_checkpoint
-
-    write_checkpoint(str(tmp_path), "job", "-1500")
-    config = BatchUploadConfig()
-    sample = InsertableSample(uuid="-1000", title="n", sample_type_id=1, json_metadata="{}")
-    result = process_batches(
-        insertable_samples=[sample], project_id=7, contributor_id=5, config=config,
-        direction_computation=DirectionComputation({}, {}, {}, {}, {}), error_collector=ErrorCollector(),
-        existing_samples={}, resume_uid="-900", checkpoint_dir=str(tmp_path), checkpoint_name="job",
-        conn_factory=lambda: (_ for _ in ()).throw(RuntimeError("no db")),
-    )
-    assert result.outcomes["-1000"].reason != "before checkpoint"
 
 
 def test_rolled_back_batch_reports_no_rows_saved():

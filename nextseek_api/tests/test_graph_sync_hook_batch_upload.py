@@ -177,7 +177,6 @@ def _run_one_batch(monkeypatch, events, *, batch_key_prefix, enqueued=True):
     monkeypatch.setattr(insert_mod, "insert_samples", lambda rows, conn: [(100, r["uuid"]) for r in rows])
     monkeypatch.setattr(insert_mod, "batch_insert_projects_samples", lambda *a, **k: 1)
     monkeypatch.setattr(insert_mod, "batch_insert_assay_assets", lambda *a, **k: 0)
-    monkeypatch.setattr(insert_mod, "write_checkpoint", lambda *a, **k: None)
     monkeypatch.setattr(insert_mod.PermissionsInserter, "insert_for_policy_ids", lambda self, ids, conn: 0)
 
     from nextseek_api.batch_upload.config import BatchUploadConfig

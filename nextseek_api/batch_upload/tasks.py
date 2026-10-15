@@ -51,16 +51,6 @@ def run_batch_upload_task(
     # None is a superuser (any sample); a message that does not carry it changes no existing sample.
     config.scope_project_ids = None if scope_project_ids is None else tuple(int(p) for p in scope_project_ids)
 
-    # Checkpoint directory under MEDIA_ROOT
-    from django.conf import settings
-
-    checkpoint_dir = os.path.join(
-        getattr(settings, "MEDIA_ROOT", "/tmp"),
-        "batch_upload_checkpoints",
-        self.request.id or "unknown",
-    )
-    os.makedirs(checkpoint_dir, exist_ok=True)
-
     # Cancellation flag
     _stop_event = threading.Event()
 
@@ -90,7 +80,6 @@ def run_batch_upload_task(
             contributor_id=contributor_id,
             lababbv=lababbv,
             config=config,
-            checkpoint_dir=checkpoint_dir,
             should_stop=should_stop,
             rows=rows,
             neo4j_only=neo4j_only,

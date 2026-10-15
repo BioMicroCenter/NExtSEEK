@@ -96,8 +96,7 @@ class TestProcessBatchesBatchException:
 
     @patch("nextseek_api.batch_upload.insert.check_memory_limit")
     @patch("nextseek_api.batch_upload.insert.clear_caches")
-    @patch("nextseek_api.batch_upload.insert.write_checkpoint")
-    def test_batch_exception_marks_failed(self, mock_ckpt, mock_caches, mock_mem):
+    def test_batch_exception_marks_failed(self, mock_caches, mock_mem):
         """When a batch transaction raises, all rows in that batch are marked failed."""
         from nextseek_api.batch_upload.insert import process_batches
 
@@ -184,7 +183,6 @@ class TestProcessBatchesPermissions:
              patch("nextseek_api.batch_upload.insert.insert_samples", return_value=[(100, "UID-NEW")]), \
              patch("nextseek_api.batch_upload.insert.batch_insert_projects_samples", return_value=1), \
              patch("nextseek_api.batch_upload.insert.batch_insert_assay_assets", return_value=0), \
-             patch("nextseek_api.batch_upload.insert.write_checkpoint"), \
              patch("nextseek_api.batch_upload.insert.PermissionsInserter.insert_for_policy_ids", return_value=1) as mock_insert_permissions:
 
             result = process_batches(

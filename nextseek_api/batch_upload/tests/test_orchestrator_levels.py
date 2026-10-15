@@ -339,8 +339,6 @@ def _run_orchestrator(
             "nextseek_api.batch_upload.orchestrator.Neo4jConfig.from_django_settings": MagicMock(
                 return_value=MagicMock(NEO4J_UPLOAD_ENABLED=False, MISSING_KEYS=["all"]),
             ),
-            # Checkpoint: no-op
-            "nextseek_api.batch_upload.insert.write_checkpoint": MagicMock(),
             # Report CSV: write to tmpdir
             "nextseek_api.batch_upload.orchestrator.write_summary_csv": MagicMock(),
             # Django settings

@@ -85,9 +85,6 @@ def _worker_process_chunk(
         conn_factory=get_connection,
         error_collector=safe_errors,
         reporter=safe_reporter,
-        checkpoint_dir="",  # Per-worker checkpoints disabled
-        checkpoint_name="",
-        resume_uid=None,
         should_stop=should_stop,
         existing_samples=existing_samples,
         update_existing=update_existing,
