@@ -57,6 +57,10 @@ RUN mkdir -p /app/NessieAI/dmac_assistant/src/dmac_assistant/router && \
     uv run baml-cli generate --from /app/NessieAI/dmac_assistant/baml_src --no-version-check && \
     test -d /app/NessieAI/dmac_assistant/src/dmac_assistant/router/baml_client
 
+# The evaluator's client (output_dir puts baml_client at chat_nextseek/src/).
+RUN uv run baml-cli generate --from /app/NessieAI/chat_nextseek/src/chat_nextseek/evaluator/baml_src --no-version-check && \
+    test -d /app/NessieAI/chat_nextseek/src/baml_client
+
 # The app's own source, including the BAML client just generated (uv compiles only
 # the venv). compileall writes explicitly, which PYTHONDONTWRITEBYTECODE allows.
 # Bytecode is only a speed-up, so a file that does not compile (an untracked

@@ -52,6 +52,11 @@ jobs:
       - name: Generate the BAML client
         run: uv run baml-cli generate --from ./NessieAI/dmac_assistant/baml_src --no-version-check
 
+      # NessieAI/tests/chat_nextseek/evaluator/test_baml_vendoring.py imports the
+      # evaluator's baml_client (gitignored, generated).
+      - name: Generate the evaluator BAML client
+        run: uv run baml-cli generate --from ./NessieAI/chat_nextseek/src/chat_nextseek/evaluator/baml_src --no-version-check
+
       # Not continue-on-error: this step fails only when the lanes did not run at
       # all (see the exit-code check at the end), never because tests failed.
       - name: Run the no-stack lanes
