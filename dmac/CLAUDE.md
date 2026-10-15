@@ -110,11 +110,6 @@ not fail locally; it fails somewhere else.
   `django.middleware.common.CommonMiddleware` is declared twice, at
   `dmac/settings.py:195` and `dmac/settings.py:199`, and both survive into the running
   stack. Reason about ordering from a dump, never from the source tuple.
-- **`dmac/attribute_performance_settings.py:35-36` imports a module that does not exist.**
-  A `find` for any file named `performance_worker_telemetry*` anywhere in the worktree
-  returns nothing, and grepping every `*.py` for that name matches only that import line.
-  Setting `ATTRIBUTE_WORKER_TELEMETRY_RESULTS` under that settings module therefore fails
-  during settings import, before Django starts.
 - **The home page hides its own failures.** `home` in `dmac/views.py` wraps each model
   lookup in `except Exception: pass` over a context pre-seeded with zeros. A broken database renders a clean dashboard reading zero
   samples, zero projects and zero files rather than an error, so "the counts are wrong"

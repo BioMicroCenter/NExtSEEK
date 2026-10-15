@@ -799,7 +799,6 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `ASSAY_REGISTRATION_SYNC_ROW_THRESHOLD` | nextseek.env | 5000 |  |  | Rows above which an assay registration runs as a background job. |
 | `ATTRIBUTE_MUTATION_OUTBOX_BATCH_SIZE` | nextseek.env | 50 |  |  | Attribute job outbox batch size. |
 | `ATTRIBUTE_MUTATION_OUTBOX_IDLE_SECONDS` | nextseek.env | 0.5 |  |  | Attribute job outbox idle wait in seconds. |
-| `ATTRIBUTE_WORKER_TELEMETRY_RESULTS` | nextseek.env |  |  |  | Turns on attribute worker telemetry results (dmac/attribute_performance_settings.py). |
 | `BATCH_UPLOAD_MAX_TOTAL_BYTES` | nextseek.env |  |  |  | Largest batch upload in bytes; the code default is 200 MB. |
 | `BATCH_UPLOAD_MAX_ROWS` | nextseek.env |  |  |  | Rows per batch-upload batch. |
 | `BATCH_UPLOAD_MEM_LIMIT_MB` | nextseek.env |  |  |  | Memory limit in MB for one batch upload; unset is none. |

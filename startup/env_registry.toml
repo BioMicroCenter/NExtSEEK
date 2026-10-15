@@ -356,10 +356,6 @@ files = ["nextseek.env"]
 default = "0.5"
 doc = "Attribute job outbox idle wait in seconds."
 
-[ATTRIBUTE_WORKER_TELEMETRY_RESULTS]
-files = ["nextseek.env"]
-doc = "Turns on attribute worker telemetry results (dmac/attribute_performance_settings.py)."
-
 [BATCH_UPLOAD_MAX_TOTAL_BYTES]
 files = ["nextseek.env"]
 doc = "Largest batch upload in bytes; the code default is 200 MB."
