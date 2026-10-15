@@ -71,9 +71,9 @@ def _seekdb():
 
 
 def _request(records):
-    """A sync view reads no records and answers on GET; a workbench view takes a JSON POST body."""
+    """A sync view reads no records and takes a bare POST; a workbench view takes a JSON POST body."""
     if records is None:
-        request = RequestFactory().get("/seek/admin/")
+        request = RequestFactory().post("/seek/admin/")
     else:
         request = RequestFactory().post("/seek/admin/", data=json.dumps({"records": records}),
                                         content_type="application/json")

@@ -249,11 +249,10 @@ PLACEHOLDERS: dict[str, str] = {
 # A UUID that is valid syntax and belongs to nothing, for the job / task /
 # session id spaces. Every route that takes one is declared with whatever it
 # answers for an identifier it cannot find once it behaves, and that is three
-# different things: a 404 for most; a 200 whose body carries the failure instead,
-# for two of the seek helpers (their notes say so); and, for
-# /seek/nhpdata/<name>/, the same 404 its two siblings return, which it does not
-# manage today -- that entry carries an xfail naming what it raises instead. All
-# three prove the route resolves without a fixture.
+# different things: a 404 for most, and for /seek/nhpdata/<name>/ as the smoke
+# account (not a superuser) too; and a 200 whose body carries the failure instead,
+# for two of the seek helpers (their notes say so). All
+# of them prove the route resolves without a fixture.
 _NO_SUCH_UUID = "00000000-0000-4000-8000-000000000000"
 _NO_SUCH_ID = "999999999"
 _NO_SUCH_NHP = "NEXTSEEK-CI-NO-SUCH-NHP"
@@ -402,11 +401,6 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
           note="the project page's sample-counts full view, opened as a modal "
                "or visited directly; membership-gated like connections"),
-    Route(pattern=r"^seek/^remote/", path="/seek/remote/",
-          effect="reads",
-          methods=("GET",), profiles="local,dev", auth="web", expect=200,
-          xfail="NameError: samples is not defined, raised by "
-                "seek/views/search.py::remote"),
     Route(pattern=r"^seek/^sample/id=(?P<id>\d+)/$", path="/seek/sample/id={sample_id}/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200),
@@ -467,11 +461,6 @@ REGISTRY: list[Route] = [
           note="the Download Templates picker's submit target. A bare GET carries no "
                "codes and re-renders the picker with a message; the POST that streams "
                "a workbook is write-lane material on local and dev"),
-    Route(pattern=r"^seek/^url/(?P<url>[\w-]+)/$", path="/seek/url/smoke/",
-          effect="reads",
-          methods=("GET",), profiles="local,dev", auth="web", expect=200,
-          xfail="NameError: getPageRequests is not defined, raised by "
-                "seek/views/samples.py::seek"),
 
     # ----------------------------------------------------------------- #
     # seek: JSON helpers behind the pages
@@ -613,10 +602,7 @@ REGISTRY: list[Route] = [
           path="/seek/nhpdata/" + _NO_SUCH_NHP + "/",
           effect="reads",
           methods=("GET",), profiles="local,dev", auth="smoke", expect=404,
-          xfail="TypeError: 'NoneType' object does not support item assignment, "
-                "surfaced by seek/views/timeline.py::get_nhp_data. The timeline "
-                "builder does not handle an NHP it cannot find, so an unknown name is "
-                "a 500 rather than the 404 its siblings return"),
+          note="NHP timeline data. Unknown name: proves the route resolves and denies"),
     Route(pattern=r"^seek/nhpinfo/(?P<nhp_name>[\w-]+)/$",
           path="/seek/nhpinfo/" + _NO_SUCH_NHP + "/",
           effect="reads",
@@ -629,11 +615,11 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^seek/^admin/clades/syncSampleTypes/$", path=None,
           effect="writes", writers=("WR-14",),
           methods=(), profiles="", auth="write", exclude="EXCLUDE_UNSAFE_METHOD",
-          note="clade / sample-type synchronisation action"),
+          note="clade / sample-type synchronisation action; POST only"),
     Route(pattern=r"^seek/^admin/internal_assays/syncInternalAssays$", path=None,
           effect="writes", writers=("WR-15",),
           methods=(), profiles="", auth="write", exclude="EXCLUDE_UNSAFE_METHOD",
-          note="assay / internal-assay synchronisation action"),
+          note="assay / internal-assay synchronisation action; POST only"),
     Route(pattern=r"^seek/^attribute/delete/", path=None,
           effect="writes", writers=("WR-06",),
           methods=(), profiles="", auth="write", exclude="EXCLUDE_UNSAFE_METHOD",

@@ -182,6 +182,7 @@ def adminClades(request):
     
     return render(request,"clades.html", {'clades': list(cladedb.getAll()), 'stc': stc})
 
+@require_POST
 @requires_seek_login
 @requires_supervisor('The login user does not have the permission to perform this action.')
 def cladesSyncSampleTypes(request):
@@ -509,6 +510,7 @@ def assayAssociationSave(request):
     return _wb_batch(records, apply_row, 'association(s)',
                      on_change=lambda: hooks.enqueue('assay_map', '*'))
 
+@require_POST
 @requires_seek_login
 @requires_supervisor('The login user does not have the permission to perform this action.')
 def syncInternalAssays(request):

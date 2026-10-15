@@ -14,7 +14,7 @@ Three URL confs stack up. `dmac/urls.py` is the root. It declares login, logout,
 /                        dmac/urls.py  -> dmac.views.home
 /login  /signup/         dmac/urls.py  -> dmac.views
 /admin/...               Django admin
-/seek/...                seek/urls.py  -> seek/views/*.py (65 re_path entries)
+/seek/...                seek/urls.py  -> seek/views/*.py (62 re_path entries)
 /nextseek_api/...        nextseek_api/urls.py (JSON viewsets + 3 doc pages)
 /media/...               dmac.media.serve_media (login required)
 /accounts/login|logout/  SEEK login, Mezzanine's sign-out
@@ -154,7 +154,6 @@ The link sources are: the sidebar (`themes/NextSeek/templates/nav.embed.html`, i
 |---|---|
 | `/seek/samples/query/`, `/seek/samples/search/` | work; see the search table |
 | `/seek/admin/retrieve/` | works; superseded by the Sample Retrieval tab on `/seek/search/` |
-| `/seek/remote/` (`search.py:remote`) and `/seek/url/<name>/` (`samples.py:seek`) | broken: the views raise an error. Both are xfailed in `ci/routes.py`. Delete rather than repair |
 | `/seek/sample/id=<id>/edit`, `/manage` | 302 to `SEEK_PUBLIC_URL/samples/<id>/edit` or `/manage` |
 
 Dead templates that remain are listed in [legacy.md](legacy.md).
@@ -212,7 +211,7 @@ The example is a new page for signed-in users under `/seek/`. Project-level page
 - A route placed after the Mezzanine include in `dmac/urls.py` never matches; every project route sits above it.
 - Many `seek/urls.py` patterns have no trailing `$` (`^templates/`, `^search/`, `^searchUIDs/`, `^samples/upload/` and others; two `nhp` patterns also have no `^`), so they answer any longer path. `^assistant/` is open on purpose, for the chat's deep links. `^templates/download/$` works only because it is listed before `^templates/`; keep that order when editing.
 - `/seek/search/` is sample search. `/search/` (Mezzanine's site search) answers 404. `/seek/sampletypes/` is the catalog (describes types); `/seek/sample_types/id=<id>/` lists samples of a type. The names differ by one underscore on purpose.
-- `seek/urls.py` has 65 routes. `seek/README.md` and the retired UI snapshot (`docs/archive/2026-09/2026-09-03-ui-snapshot.md`) say 62.
+- `seek/urls.py` has 62 routes. `seek/README.md` and the retired UI snapshot (`docs/archive/2026-09/2026-09-03-ui-snapshot.md`) say 62.
 - `error.html` is returned with HTTP 200 for "not in this project", so monitors and `ci/routes.py` cannot tell it from a page.
 - A theme template edit shows on the next request; a `seek/templates/` edit needs `./startup.sh rebuild`. On a worktree, the compose bind mount serves the compose directory's theme, not the worktree's.
 - The user panel is included from `base.html` through `includes/user_panel.html`, which includes `accounts/includes/user_panel.html`. Its menu has one item, "Sign out".

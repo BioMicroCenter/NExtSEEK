@@ -346,7 +346,8 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
             
         return dici, diclist
 
-    def getSampleType(self, user_seek, sampletype_id, attribute, project_id=0, scoped_project_ids=None):
+    def getSampleType(self, user_seek, sampletype_id, attribute, project_id=0, scoped_project_ids=None,
+                      filter_rule="No Filter", filter_valueFrom="", filter_valueTo=""):
         if attribute=='none':
             msg = 'ignore validation'
         else:

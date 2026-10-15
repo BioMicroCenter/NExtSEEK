@@ -91,9 +91,6 @@ def sampleSearching(request):
     searchType = 'FILTERING'
     return runSampleSearch(request, searchType)
 
-def remote(request):
-    return samples(request)
-
 def _with_names(type_options):
     """The sample type options with each type's curated name (sample_types_context), "" when it has none, for the
     Associated with dropdown's name and code. load_sample_types never raises: without the catalog the names are

@@ -153,18 +153,6 @@ def _enqueueAttributeGraphSync(request):
     for sampletype_id in _sampleTypeIdsInRequest(request):
         hooks.enqueue('samples_of_type', 'type:%d' % sampletype_id)
 
-def seek(request, url):
-    report = {}
-    if request.method == 'POST':
-        bodyhtml = "To be implemented"
-        return render(request,"samples.html", {'bodyhtml' : bodyhtml})
-    else:
-        url = "/" + url.replace("-", "/") + "/"
-        bodyhtml = getPageRequests(url)
-        report = {}
-        report['bodyhtml'] = bodyhtml
-        return render(request,"samples.html", {'bodyhtml' : bodyhtml})
-
 def sample(request, id):
     sample_id = id
     seekdb = SeekDB(None, None, None)
@@ -498,6 +486,9 @@ def getSampleType(request):
     
     dbsample = DBtable_sample()
     sdata = dbsample.getSampleType(user_seek, sampletype_id, attribute,
+                                   filter_rule=ret.get('filter_rule', 'No Filter'),
+                                   filter_valueFrom=ret.get('filter_valueFrom', ''),
+                                   filter_valueTo=ret.get('filter_valueTo', ''),
                                    scoped_project_ids=_callerProjectIds(request, "sample grid"))
     return HttpResponse(sdata)
 
