@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 import os
 import time
 import uuid as uuid_mod
@@ -15,7 +16,7 @@ from .config import BatchUploadConfig, Neo4jConfig
 from .convert import merge_files
 from .dag import build_relationships, compute_directions, detect_cycles
 from .db_engine import get_connection
-from .errors import AttributeNameError, ErrorCollector, ErrorType, _classify_validation_error
+from .errors import AttributeNameError, ErrorCollector, ErrorType, Severity, _classify_validation_error
 from .insert import load_existing_samples, process_batches
 from .identity import extract_identity
 from .levels import LevelAssignment, cascade_failures, compute_levels
@@ -26,7 +27,7 @@ from .models import (
     InsertableSample,
     RowOutcome,
 )
-from .parallel import PARALLEL_THRESHOLD, process_batches_parallel
+from .parallel import process_batches_parallel
 from .prefetch import (
     prefetch_assay_ids,
     prefetch_project_sample_type_links,
@@ -74,6 +75,23 @@ def run_batch_upload(
         output_dir=output_dir,
         neo4j_only=neo4j_only,
     )
+
+
+def _attribute_message(bad_key: str, exc: AttributeNameError, row: InputRowModel) -> str:
+    """Why a metadata key is not allowed; a missing Parent attribute names the parent column the row used."""
+    if bad_key == "Parent":
+        try:
+            meta = json.loads(row.json_metadata or "{}")
+        except ValueError:
+            meta = {}
+        other = next((k for k in meta if k != "Parent" and "parent" in k.lower()), None)
+        if other:
+            return (
+                f"SampleType {exc.sample_type} has no Parent attribute, so the parent named in "
+                f"{other} cannot be linked. Add a Parent attribute to the sample type, "
+                f"or remove the parent column."
+            )
+    return f"{bad_key!r} is not a defined attribute for SampleType {exc.sample_type!r}"
 
 
 def _build_neo4j_only_outcomes(
@@ -127,6 +145,7 @@ def _build_neo4j_only_outcomes(
                 uid=uid,
                 error_type=ErrorType.VALIDATION_JSON,
                 message="uid_not_found_in_db",
+                severity=Severity.ERROR,
             )
 
     log.info(
@@ -395,6 +414,7 @@ def _run_pre_insert_stages(
                         uid=None,
                         error_type=ErrorType.VALIDATION_JSON,
                         message="neo4j_only mode requires pre-assigned UID",
+                        severity=Severity.ERROR,
                     )
             log.warning(
                 "UID_GEN (neo4j_only): %d rows lack UIDs, removed",
@@ -544,20 +564,17 @@ def _run_pre_insert_stages(
                         )
             except AttributeNameError as exc:
                 transform_errors += 1
+                msgs = {k: _attribute_message(k, exc, row) for k in exc.bad_keys}
                 if row.UID:
                     transform_failed[row.UID] = (
-                        f"{exc.bad_keys[0]!r} is not a defined attribute for SampleType {exc.sample_type!r}"
-                        if exc.bad_keys else str(exc)
+                        msgs[exc.bad_keys[0]] if exc.bad_keys else str(exc)
                     )
                 for bad_key in exc.bad_keys:
                     error_collector.add(
                         row_index=row_idx,
                         uid=row.UID,
                         error_type=ErrorType.VALIDATION_ATTRIBUTE_NAME,
-                        message=(
-                            f"{bad_key!r} is not a defined attribute for "
-                            f"SampleType {exc.sample_type!r}"
-                        ),
+                        message=msgs[bad_key],
                     )
             except Exception as exc:
                 transform_errors += 1
@@ -856,7 +873,7 @@ def run_batch_upload_multi(
 
             # Decide parallel vs sequential PER LEVEL
             use_parallel = (
-                len(level_samples) >= PARALLEL_THRESHOLD
+                len(level_samples) >= config.parallel_threshold
                 and resume_uid is None
             )
             checkpoint_name_level = f"batch_checkpoint_L{level_num}.txt"
@@ -1097,7 +1114,7 @@ def run_batch_upload_multi(
         "totals": totals,
         "warnings": warnings,
         "errors": [
-            {"type": e.error_type.value, "message": e.message}
+            {"type": e.error_type.value, "message": e.message, "severity": e.severity.value}
             for e in error_collector.all_errors()[:50]
         ],
         "_identity_map": identity_map,
@@ -1139,14 +1156,18 @@ def _cancelled_result(
     error_collector: Optional[ErrorCollector] = None,
     outcomes: Optional[Dict[str, RowOutcome]] = None,
 ) -> Dict:
+    counts = Counter(o.status for o in (outcomes or {}).values())
+    done = {
+        "success": counts["success"], "skipped": counts["skipped"], "failed": counts["failed"],
+    }
     _ensure_summary_csv(
         summary_path, valid_rows=valid_rows, outcomes=outcomes,
-        error_collector=error_collector, extra_totals={"cancelled": True},
+        error_collector=error_collector, extra_totals={"cancelled": True, "processed": sum(done.values()), **done},
     )
     return {
         "job_id": job_id,
         "summary_path": summary_path,
-        "totals": {"processed": 0, "success": 0, "skipped": 0, "failed": 0, "cancelled": True},
+        "totals": {"processed": sum(done.values()), **done, "cancelled": True},
         "errors": [],
     }
 
@@ -1168,7 +1189,7 @@ def _error_result(
         "summary_path": summary_path,
         "totals": {"processed": 0, "success": 0, "skipped": 0, "failed": 0, "error": message},
         "errors": [
-            {"type": e.error_type.value, "message": e.message}
+            {"type": e.error_type.value, "message": e.message, "severity": e.severity.value}
             for e in error_collector.all_errors()[:50]
         ],
     }

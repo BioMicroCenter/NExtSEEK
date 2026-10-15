@@ -73,7 +73,7 @@ lineage, and none of them fails loudly.
   looks correct on one worker and leaves the others rejecting rows against a stale schema.
 - **Parallel insertion is disabled whenever a run is resuming.**
   `nextseek_api/batch_upload/orchestrator.py:810-811` requires both a level of at least
-  `PARALLEL_THRESHOLD` rows and a null resume UID, because the checkpoint file is a single
+  `config.parallel_threshold` rows and a null resume UID, because the checkpoint file is a single
   append-only sequence (`nextseek_api/batch_upload/checkpoint.py:11-18`) whose last line is
   taken as the high-water mark (`nextseek_api/batch_upload/checkpoint.py:38-51`). Threads
   appending out of order would make a resume skip rows that were never written.

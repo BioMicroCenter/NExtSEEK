@@ -275,3 +275,63 @@ class TestProcessBatchesParallel:
 
     def test_parallel_threshold_constant(self):
         assert PARALLEL_THRESHOLD == 5000
+
+
+class TestWorkerCrashAndThreshold:
+    @staticmethod
+    def _rows(n):
+        return [
+            InsertableSample(uuid=f"UID-{i:03d}", title=f"S{i}", sample_type_id=1, json_metadata="{}")
+            for i in range(n)
+        ]
+
+    @patch("nextseek_api.batch_upload.parallel.os.cpu_count", return_value=2)
+    @patch("nextseek_api.batch_upload.parallel.get_connection")
+    @patch("nextseek_api.batch_upload.parallel.get_engine")
+    @patch("nextseek_api.batch_upload.parallel.process_batches")
+    @patch("nextseek_api.batch_upload.parallel.prefetch_assay_ids")
+    def test_a_crashed_worker_fails_its_rows(self, _pf, mock_process, mock_engine, _conn, _cpu):
+        engine_mock = MagicMock()
+        engine_mock.pool.size.return_value = 20
+        mock_engine.return_value = engine_mock
+
+        def fake(insertable_samples, **kw):
+            if insertable_samples[0].uuid == "UID-000":
+                raise RuntimeError("boom")
+            return BatchResult(
+                inserted_count=len(insertable_samples),
+                outcomes={s.uuid: RowOutcome(status="success", sample_id=1) for s in insertable_samples},
+            )
+
+        mock_process.side_effect = fake
+        ec = ErrorCollector()
+        direction = MagicMock()
+        result = process_batches_parallel(
+            rows=self._rows(20), project_id=1, contributor_id=1, config=MagicMock(),
+            direction_computation=direction, error_collector=ec,
+        )
+
+        failed = {u for u, o in result.outcomes.items() if o.status == "failed"}
+        assert failed == {f"UID-{i:03d}" for i in range(10)}
+        assert {o.reason for u, o in result.outcomes.items() if u in failed} == {"worker failed"}
+        assert len(ec.all_errors()) == 1
+        assert ec.all_errors()[0].error_type.value == "UNKNOWN"
+
+    def test_parallel_threshold_comes_from_config(self):
+        from nextseek_api.batch_upload.config import BatchUploadConfig
+        from nextseek_api.batch_upload.tests.test_orchestrator_levels import FakeDB, _make_row, _run_orchestrator
+
+        rows = [_make_row(f"NHP-260101TST-{i}") for i in range(20)]
+        config = BatchUploadConfig(parallel_threshold=10)
+
+        def fake_parallel(rows, **kw):
+            return BatchResult(
+                outcomes={s.uuid: RowOutcome(status="success", sample_id=1) for s in rows},
+                inserted_count=len(rows),
+            )
+
+        with patch(
+            "nextseek_api.batch_upload.orchestrator.process_batches_parallel", side_effect=fake_parallel
+        ) as par:
+            _run_orchestrator(rows, FakeDB(), config=config)
+        assert par.called
