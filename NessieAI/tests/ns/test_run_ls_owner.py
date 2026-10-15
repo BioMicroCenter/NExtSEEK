@@ -49,7 +49,7 @@ class RunLsOwnerTests(TestCase):
              {"return_value": SimpleNamespace(LURIA_ENV=LURIA)}),
             ("nextseek_api.services.assistant._granular_outputs_dir", {"return_value": tempfile.mkdtemp()}),
             ("chat_nextseek.luria.ssh.ssh_run", {"side_effect": fake_ssh}),
-            ("chat_nextseek.luria.ssh.prepare_key", {"return_value": "/tmp/k"}),
+            ("chat_nextseek.luria.ssh.prepare_key", {"return_value": "/nonexistent/k"}),
         ):
             p = patch(target, **kw)
             p.start()
