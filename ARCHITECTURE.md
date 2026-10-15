@@ -61,6 +61,11 @@ Found by the code graph; each is a real import, not a graph artefact.
 - The NS engine package imports the Django app: `NessieAI/chat_nextseek/src/chat_nextseek/orchestrator.py`
   imports `nextseek_api.assistant.excel_export`, so `chat_nextseek` is not the standalone package its
   `pyproject.toml` suggests.
+- The engine packages `NessieAI.ns`, `.router`, `.cc`, `.schema_rag` and `.hibayes` import `nextseek_api` in 24
+  places (mostly `nextseek_api.assistant.models_db`, the ORM tables the engine reads and writes; also
+  `turn_pass`, `session_adapter`, `models_evaluator`, `batch_upload.helpers` and `models`). They are the
+  `ignore_imports` of the contract "NessieAI engine does not import nextseek_api", which mirrors
+  `BACK_EDGE_ALLOWLIST` in `NessieAI/tests/api/test_nessie_boundaries.py`; no new edge gets in.
 - The Container-CC engine reaches the legacy table layer directly: `NessieAI/cc/cc_provision.py` imports
   `seek.seekdb.SeekDB` instead of going through `nextseek_api/`.
 

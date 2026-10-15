@@ -195,3 +195,41 @@ forbidden_modules = ["seek", "dmac"]
 ignore_imports = [
     "NessieAI.cc.cc_provision -> seek.seekdb",
 ]
+
+[[tool.importlinter.contracts]]
+name = "NessieAI engine does not import nextseek_api"
+type = "forbidden"
+source_modules = [
+    "NessieAI.ns", "NessieAI.router", "NessieAI.cc", "NessieAI.schema_rag", "NessieAI.hibayes",
+]
+forbidden_modules = ["nextseek_api"]
+# Direct edges only: chat_nextseek reaches nextseek_api by its own known debt (contract above).
+allow_indirect_imports = true
+# Mirrors BACK_EDGE_ALLOWLIST (NessieAI/tests/api/test_nessie_boundaries.py), its nextseek_api
+# targets only (minus task6_app, an import_module string the linter cannot see); the seek/dmac
+# edges stay with the contract above. Fixing one means deleting its line.
+ignore_imports = [
+    "NessieAI.cc.cc_transcript_store -> nextseek_api.assistant.models_db",
+    "NessieAI.cc.turn -> nextseek_api.assistant.models_db",
+    "NessieAI.cc.turn -> nextseek_api.assistant.turn_pass",
+    "NessieAI.router.risk_overlay -> nextseek_api.assistant.models_db",
+    "NessieAI.router.turn_ledger -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.export -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.fit.fit_boundary -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.generation_store -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.generation_validation -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.human_grade_fit -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.judge_cache -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.paid_run_state -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.paired_run_registry -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.run_authorization -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.spend_conservation -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.task6_replay -> nextseek_api.assistant.models_db",
+    "NessieAI.ns.reingest_qa -> nextseek_api.batch_upload.helpers",
+    "NessieAI.ns.retry -> nextseek_api.assistant.models_db",
+    "NessieAI.ns.retry -> nextseek_api.assistant.models_evaluator",
+    "NessieAI.ns.turn -> nextseek_api.assistant.session_adapter",
+    "NessieAI.ns.turn_memory -> nextseek_api.assistant.models_db",
+    "NessieAI.schema_rag -> nextseek_api.models",
+    "NessieAI.schema_rag.service -> nextseek_api.models",
+]
