@@ -35,6 +35,7 @@ except ImportError:
         return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
+from .edit_rights import samples_editable_by
 from .helpers import collect_parent_tokens
 from .identity import hash_identity
 from .update import samples_in_projects
@@ -115,7 +116,9 @@ def discover_orphans(
 # ---------------------------------------------------------------------------
 
 _FETCH_METADATA_SQL = text(
-    "SELECT json_metadata FROM samples WHERE id = :sample_id"
+    "SELECT s.json_metadata, EXISTS(SELECT 1 FROM sample_attributes a "
+    "WHERE a.sample_type_id = s.sample_type_id AND a.title = 'Parent') "
+    "FROM samples s WHERE s.id = :sample_id"
 )
 
 _UPDATE_METADATA_SQL = text(
@@ -127,6 +130,7 @@ def resolve_orphans(
     orphans: List[dict],
     sql_conn: Any,
     project_ids: Optional[Sequence[int]] = None,
+    person_id: Optional[int] = None,
 ) -> dict:
     """Resolve orphan parent references: replace the matched identity token with the parent's UID in MariaDB.
 
@@ -134,18 +138,34 @@ def resolve_orphans(
     in the Parent field. If already resolved (token replaced with UID), skips silently.
 
     Does NOT modify parent_titles -- it is permanent metadata -- and writes nothing to Neo4j. With
-    ``project_ids``, only children linked to one of those projects are rewritten; the rest keep their token.
+    ``project_ids``, only children linked to one of those projects, and that ``person_id`` may edit in SEEK, are
+    rewritten; the rest keep their token (no person id means none is editable). The token goes into the child's
+    existing ``Parent`` (else legacy ``parent``) key, or into a new ``Parent`` only when the child's sample type
+    defines that attribute; otherwise the child is left unresolved and counted in ``skipped_no_parent_attribute``.
 
     Returns:
-        ``{"resolved": int, "sample_ids": [...]}``. The ids are the children this call rewrote, in the order it
+        ``{"resolved": int, "sample_ids": [...], "skipped_no_parent_attribute": int, "skipped_not_editable": int}``. The ids are the children this call rewrote, in the order it
         rewrote them: the caller enqueues them for the graph sync once the transaction has committed.
     """
     resolved_ids: List[int] = []
+    skipped_no_parent_attribute = 0
 
     # SEC-001: an upload rewrites only children in the uploader's own projects (None = a superuser, any).
+    skipped_not_editable = 0
     if project_ids is not None:
+        before = len(orphans)
         allowed = samples_in_projects([o["id"] for o in orphans], project_ids, sql_conn)
         orphans = [o for o in orphans if int(o["id"]) in allowed]
+        # The edit right (SEEK's own rule): a missing id or person id is a refusal.
+        editable = (
+            samples_editable_by([o["id"] for o in orphans], int(person_id), project_ids, sql_conn)
+            if orphans and person_id is not None
+            else set()
+        )
+        orphans = [o for o in orphans if int(o["id"]) in editable]
+        skipped_not_editable = before - len(orphans)
+        if skipped_not_editable:
+            log.info("Orphan resolution: %d children skipped (outside scope or not editable)", skipped_not_editable)
 
     for orphan in orphans:
         sample_id = orphan["id"]
@@ -172,8 +192,17 @@ def resolve_orphans(
                 any_replaced = True
 
         if any_replaced:
-            # Update Parent field in json_metadata
-            parent_key = "Parent" if "Parent" in meta else "parent"
+            # Never invent a key: the existing Parent, else legacy parent, else Parent if the type defines it.
+            if "Parent" in meta:
+                parent_key = "Parent"
+            elif "parent" in meta:
+                parent_key = "parent"
+            elif row[1]:
+                parent_key = "Parent"
+            else:
+                skipped_no_parent_attribute += 1
+                log.info("Orphan %s left unresolved: its sample type has no Parent attribute", sample_id)
+                continue
             # Deduplicate while preserving order
             seen_wb: set = set()
             deduped: list = []
@@ -192,4 +221,9 @@ def resolve_orphans(
         "Orphan resolution: %d samples resolved; their lineage is the graph sync's to write",
         len(resolved_ids),
     )
-    return {"resolved": len(resolved_ids), "sample_ids": resolved_ids}
+    return {
+        "resolved": len(resolved_ids),
+        "sample_ids": resolved_ids,
+        "skipped_no_parent_attribute": skipped_no_parent_attribute,
+        "skipped_not_editable": skipped_not_editable,
+    }

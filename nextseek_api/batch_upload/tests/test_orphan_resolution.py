@@ -159,11 +159,14 @@ class TestDiscoverOrphans:
         assert orphans == []
 
 
-def _rewrite_conn(metadata: str):
-    """A sql_conn whose first execute() answers the metadata fetch and whose second takes the UPDATE."""
+def _rewrite_conn(metadata: str, has_parent_attr: bool = False):
+    """A sql_conn whose first execute() answers the metadata fetch and whose second takes the UPDATE.
+
+    The fetch row is (json_metadata, the child's type defines a Parent attribute).
+    """
     conn = MagicMock()
     fetch = MagicMock()
-    fetch.fetchone.return_value = (metadata,)
+    fetch.fetchone.return_value = (metadata, has_parent_attr)
     conn.execute.side_effect = [fetch, MagicMock()]
     return conn
 
@@ -184,7 +187,7 @@ class TestResolveOrphans:
 
         stats = resolve_orphans(orphans=[_orphan()], sql_conn=conn)
 
-        assert stats == {"resolved": 1, "sample_ids": [500]}
+        assert stats == {"resolved": 1, "sample_ids": [500], "skipped_no_parent_attribute": 0, "skipped_not_editable": 0}
         written = json.loads(conn.execute.call_args_list[1][0][1]["meta"])
         assert written["Parent"] == "MUS-260305MIT-1"
 
@@ -194,12 +197,13 @@ class TestResolveOrphans:
         fetch = MagicMock()
         fetch.fetchone.return_value = (
             '{"UID":"CHD-260101MIT-1","Name":"child1","Parent":"MUS-260305MIT-1"}',
+            False,
         )
         conn.execute.return_value = fetch
 
         stats = resolve_orphans(orphans=[_orphan()], sql_conn=conn)
 
-        assert stats == {"resolved": 0, "sample_ids": []}
+        assert stats == {"resolved": 0, "sample_ids": [], "skipped_no_parent_attribute": 0, "skipped_not_editable": 0}
 
     def test_a_row_with_no_metadata_is_skipped(self):
         conn = MagicMock()
@@ -207,21 +211,21 @@ class TestResolveOrphans:
         fetch.fetchone.return_value = None
         conn.execute.return_value = fetch
 
-        assert resolve_orphans(orphans=[_orphan()], sql_conn=conn) == {"resolved": 0, "sample_ids": []}
+        assert resolve_orphans(orphans=[_orphan()], sql_conn=conn) == {"resolved": 0, "sample_ids": [], "skipped_no_parent_attribute": 0, "skipped_not_editable": 0}
 
     def test_every_resolved_child_is_reported_once(self):
         """One id per child, in the order they were resolved: the caller enqueues them."""
         conn = MagicMock()
         first, second = MagicMock(), MagicMock()
-        first.fetchone.return_value = ('{"UID":"CHD-1","Parent":"Mouse-A"}',)
-        second.fetchone.return_value = ('{"UID":"CHD-2","Parent":"Mouse-A;Mouse-A"}',)
+        first.fetchone.return_value = ('{"UID":"CHD-1","Parent":"Mouse-A"}', False)
+        second.fetchone.return_value = ('{"UID":"CHD-2","Parent":"Mouse-A;Mouse-A"}', False)
         conn.execute.side_effect = [first, MagicMock(), second, MagicMock()]
 
         stats = resolve_orphans(
             orphans=[_orphan(500), _orphan(600, uuid="CHD-260101MIT-2")], sql_conn=conn,
         )
 
-        assert stats == {"resolved": 2, "sample_ids": [500, 600]}
+        assert stats == {"resolved": 2, "sample_ids": [500, 600], "skipped_no_parent_attribute": 0, "skipped_not_editable": 0}
 
     def test_does_not_modify_parent_titles(self):
         """parent_titles is permanent metadata: the rewrite touches the Parent field alone."""
@@ -254,7 +258,7 @@ class TestResolveOrphansWritesNoGraph:
 
     def test_it_takes_no_neo4j_driver(self):
         # project_ids is the uploader's scope (SEC-001); still no driver parameter.
-        assert list(inspect.signature(resolve_orphans).parameters) == ["orphans", "sql_conn", "project_ids"]
+        assert list(inspect.signature(resolve_orphans).parameters) == ["orphans", "sql_conn", "project_ids", "person_id"]
 
     def test_the_module_holds_no_write_cypher(self):
         assert not hasattr(orphan_resolution, "_DERIVED_FROM_CYPHER")
@@ -275,15 +279,19 @@ class TestResolveOrphansVariantKeys:
 
     def test_matched_token_in_variant_key_resolved(self):
         """If the matched token is in a variant key (not Parent), it should still be resolved."""
-        conn = _rewrite_conn('{"UID":"CHD-260101MIT-1","Name":"child1","Treatment1Parent":"Mouse-A"}')
+        conn = _rewrite_conn(
+            '{"UID":"CHD-260101MIT-1","Name":"child1","Treatment1Parent":"Mouse-A"}', has_parent_attr=True
+        )
 
         stats = resolve_orphans(orphans=[_orphan()], sql_conn=conn)
 
-        assert stats == {"resolved": 1, "sample_ids": [500]}
+        assert stats == {"resolved": 1, "sample_ids": [500], "skipped_no_parent_attribute": 0, "skipped_not_editable": 0}
 
     def test_variant_key_not_modified_by_resolution(self):
         """Variant keys should NOT be modified: only the Parent key is updated."""
-        conn = _rewrite_conn('{"UID":"CHD-260101MIT-1","Name":"child1","Treatment1Parent":"Mouse-A"}')
+        conn = _rewrite_conn(
+            '{"UID":"CHD-260101MIT-1","Name":"child1","Treatment1Parent":"Mouse-A"}', has_parent_attr=True
+        )
 
         resolve_orphans(orphans=[_orphan()], sql_conn=conn)
 
@@ -301,6 +309,61 @@ class TestResolveOrphansVariantKeys:
         assert stats["resolved"] == 1
         written = json.loads(conn.execute.call_args_list[1][0][1]["meta"])
         assert "MUS-260305MIT-1" in written["Parent"]
+
+
+class TestResolveOrphansTargetKey:
+    def test_no_parent_key_and_no_parent_attribute_is_left_alone(self):
+        conn = _rewrite_conn('{"UID":"CHD-260101MIT-1","AntibodyParent":"Mouse-A"}', has_parent_attr=False)
+
+        stats = resolve_orphans(orphans=[_orphan()], sql_conn=conn)
+
+        assert stats == {"resolved": 0, "sample_ids": [], "skipped_no_parent_attribute": 1, "skipped_not_editable": 0}
+        assert conn.execute.call_count == 1  # the fetch only, no UPDATE
+
+    def test_no_parent_key_but_type_has_parent_writes_Parent(self):
+        conn = _rewrite_conn('{"UID":"CHD-260101MIT-1","AntibodyParent":"Mouse-A"}', has_parent_attr=True)
+
+        resolve_orphans(orphans=[_orphan()], sql_conn=conn)
+
+        written = json.loads(conn.execute.call_args_list[1][0][1]["meta"])
+        assert written["Parent"] == "MUS-260305MIT-1" and "parent" not in written
+
+    def test_existing_legacy_lowercase_parent_is_kept_as_is(self):
+        conn = _rewrite_conn('{"UID":"CHD-260101MIT-1","parent":"Mouse-A"}', has_parent_attr=False)
+
+        resolve_orphans(orphans=[_orphan()], sql_conn=conn)
+
+        written = json.loads(conn.execute.call_args_list[1][0][1]["meta"])
+        assert written["parent"] == "MUS-260305MIT-1" and "Parent" not in written
+
+    def test_child_not_editable_is_not_rewritten(self):
+        conn = _rewrite_conn('{"UID":"CHD-260101MIT-1","Parent":"Mouse-A"}')
+
+        with patch.object(orphan_resolution, "samples_in_projects", return_value={500}), \
+                patch.object(orphan_resolution, "samples_editable_by", return_value=set()) as editable:
+            stats = resolve_orphans(orphans=[_orphan()], sql_conn=conn, project_ids=(7,), person_id="42")
+
+        editable.assert_called_once_with([500], 42, (7,), conn)
+        assert stats["resolved"] == 0 and conn.execute.call_count == 0
+        assert stats["skipped_not_editable"] == 1
+
+    def test_editable_child_is_rewritten(self):
+        conn = _rewrite_conn('{"UID":"CHD-260101MIT-1","Parent":"Mouse-A"}')
+
+        with patch.object(orphan_resolution, "samples_in_projects", return_value={500}), \
+                patch.object(orphan_resolution, "samples_editable_by", return_value={500}):
+            stats = resolve_orphans(orphans=[_orphan()], sql_conn=conn, project_ids=(7,), person_id=42)
+
+        assert stats["sample_ids"] == [500]
+
+    def test_no_person_id_with_a_scope_refuses_every_child(self):
+        conn = _rewrite_conn('{"UID":"CHD-260101MIT-1","Parent":"Mouse-A"}')
+
+        with patch.object(orphan_resolution, "samples_in_projects", return_value={500}), \
+                patch.object(orphan_resolution, "samples_editable_by", return_value=set()):
+            stats = resolve_orphans(orphans=[_orphan()], sql_conn=conn, project_ids=(7,))
+
+        assert stats["resolved"] == 0
 
 
 class TestResolveOrphansTask:
@@ -324,7 +387,7 @@ class TestResolveOrphansTask:
             mock_gdb.driver.return_value = mock_driver
 
             mock_discover.return_value = [{"id": 1, "uuid": "A", "matched_tokens": {"X": "Y"}}]
-            mock_resolve.return_value = {"resolved": 1, "sample_ids": [1]}
+            mock_resolve.return_value = {"resolved": 1, "sample_ids": [1], "skipped_no_parent_attribute": 0, "skipped_not_editable": 0}
 
             mock_conn = MagicMock()
             mock_get_conn.return_value.__enter__ = MagicMock(return_value=mock_conn)
@@ -413,6 +476,62 @@ class TestOrphanResolutionIntegration:
         conn = _rewrite_conn(orphan_meta)
         stats = resolve_orphans(orphans=orphans, sql_conn=conn)
 
-        assert stats == {"resolved": 1, "sample_ids": [500]}
+        assert stats == {"resolved": 1, "sample_ids": [500], "skipped_no_parent_attribute": 0, "skipped_not_editable": 0}
         # The discovery read is the only statement the graph saw.
         assert mock_driver.execute_query.call_count == 1
+
+
+# End to end through the real edit_rights and fetch SQL (SQLite).
+import pytest
+from sqlalchemy import create_engine, event, text
+
+
+@pytest.fixture
+def real_sql_conn():
+    engine = create_engine("sqlite://")
+
+    @event.listens_for(engine, "connect")
+    def _now(dbapi_conn, _record):
+        dbapi_conn.create_function("NOW", 0, lambda: "2026-10-14 00:00:00")
+
+    with engine.begin() as c:
+        c.execute(text("CREATE TABLE samples (id INTEGER PRIMARY KEY, uuid TEXT, policy_id INTEGER, sample_type_id INTEGER, "
+                       "json_metadata TEXT, contributor_id INTEGER, updated_at TEXT)"))
+        c.execute(text("CREATE TABLE sample_attributes (sample_type_id INTEGER, title TEXT)"))
+        c.execute(text("CREATE TABLE policies (id INTEGER PRIMARY KEY, access_type INTEGER)"))
+        c.execute(text("CREATE TABLE permissions (id INTEGER PRIMARY KEY, policy_id INTEGER, contributor_type TEXT, "
+                       "contributor_id INTEGER, access_type INTEGER)"))
+        c.execute(text("CREATE TABLE projects_samples (project_id INTEGER, sample_id INTEGER)"))
+        c.execute(text("""INSERT INTO samples VALUES
+            (1, 'VIEW-1', 11, 1, '{"Parent":"P1"}', 99, NULL),
+            (2, 'EDIT-1', 12, 1, '{"Parent":"P1"}', 99, NULL),
+            (3, 'NOATTR-1', 13, 2, '{"AntibodyParent":"P1"}', 99, NULL),
+            (4, 'ATTR-1', 14, 1, '{"AntibodyParent":"P1"}', 99, NULL)"""))
+        c.execute(text("INSERT INTO sample_attributes VALUES (1, 'Parent'), (2, 'Name')"))
+        c.execute(text("INSERT INTO policies VALUES (11, 0), (12, 0), (13, 0), (14, 0)"))
+        c.execute(text("INSERT INTO permissions (policy_id, contributor_type, contributor_id, access_type) VALUES "
+                       "(11, 'Project', 7, 1), (12, 'Project', 7, 4), (13, 'Project', 7, 4), (14, 'Project', 7, 4)"))
+        c.execute(text("INSERT INTO projects_samples VALUES (7, 1), (7, 2), (7, 3), (7, 4)"))
+    with engine.connect() as c:
+        yield c
+
+
+def _orphans(*ids):
+    return [{"id": i, "uuid": f"U{i}", "matched_tokens": {"P1": "NEW-UID"}} for i in ids]
+
+
+def _meta(c, sid):
+    return json.loads(c.execute(text("SELECT json_metadata FROM samples WHERE id = :i"), {"i": sid}).scalar())
+
+
+def test_view_only_child_is_not_rewritten_through_the_real_sql(real_sql_conn):
+    stats = resolve_orphans(_orphans(1, 2), real_sql_conn, project_ids=(7,), person_id=5)
+    assert stats["sample_ids"] == [2] and stats["skipped_not_editable"] == 1
+    assert _meta(real_sql_conn, 1)["Parent"] == "P1" and _meta(real_sql_conn, 2)["Parent"] == "NEW-UID"
+
+
+def test_key_rule_through_the_real_fetch_sql(real_sql_conn):
+    stats = resolve_orphans(_orphans(3, 4), real_sql_conn, project_ids=(7,), person_id=5)
+    assert stats["sample_ids"] == [4] and stats["skipped_no_parent_attribute"] == 1
+    assert "Parent" not in _meta(real_sql_conn, 3) and "parent" not in _meta(real_sql_conn, 3)
+    assert _meta(real_sql_conn, 4)["Parent"] == "NEW-UID" and "parent" not in _meta(real_sql_conn, 4)

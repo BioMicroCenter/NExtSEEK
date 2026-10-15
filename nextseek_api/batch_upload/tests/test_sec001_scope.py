@@ -127,6 +127,7 @@ def conn_factory():
     with engine.begin() as conn:
         conn.execute(text("CREATE TABLE samples (id INTEGER PRIMARY KEY, uuid TEXT, policy_id INTEGER, "
                           "json_metadata TEXT, title TEXT, updated_at TEXT, contributor_id INTEGER)"))
+        conn.execute(text("CREATE TABLE sample_attributes (sample_type_id INTEGER, title TEXT)"))
         conn.execute(text("CREATE TABLE policies (id INTEGER PRIMARY KEY, access_type INTEGER)"))
         conn.execute(text("CREATE TABLE permissions (id INTEGER PRIMARY KEY, policy_id INTEGER, "
                           "contributor_type TEXT, contributor_id INTEGER, access_type INTEGER)"))
@@ -134,6 +135,7 @@ def conn_factory():
         conn.execute(text("CREATE TABLE assay_assets (asset_id INTEGER, asset_type TEXT, assay_id INTEGER)"))
         conn.execute(text("""INSERT INTO samples VALUES (1, 'MINE-1', 11, '{"Parent":"P1"}', 'mine', NULL, NULL), """
                           """(2, 'THEIRS-1', 12, '{"Parent":"P1"}', 'theirs', NULL, NULL)"""))
+        conn.execute(text("ALTER TABLE samples ADD COLUMN sample_type_id INTEGER"))
         # The member's project holds the edit right on both samples' policies.
         conn.execute(text("INSERT INTO policies VALUES (11, 0), (12, 0)"))
         conn.execute(text("INSERT INTO permissions (policy_id, contributor_type, contributor_id, access_type) "
@@ -264,7 +266,7 @@ def test_orphan_rewrite_stays_inside_the_scope(conn_factory):
     orphans = [{"id": 1, "uuid": "MINE-1", "matched_tokens": {"P1": "NEW-UID"}},
                {"id": 2, "uuid": "THEIRS-1", "matched_tokens": {"P1": "NEW-UID"}}]
     with conn_factory() as conn:
-        stats = resolve_orphans(orphans=orphans, sql_conn=conn, project_ids=(7,))
+        stats = resolve_orphans(orphans=orphans, sql_conn=conn, project_ids=(7,), person_id=9)
         meta = dict(conn.execute(text("SELECT uuid, json_metadata FROM samples")).fetchall())
     assert stats["sample_ids"] == [1]
     assert "NEW-UID" in meta["MINE-1"] and "P1" in meta["THEIRS-1"] and "NEW-UID" not in meta["THEIRS-1"]
