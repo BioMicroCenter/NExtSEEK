@@ -70,11 +70,9 @@ to `nextseek_api/endpoint_descriptions.py:1190`, and it contains no import state
 all: a grep for a line beginning with `import` or `from` over that one file returns
 nothing, which is why a description edit can never break an import cycle.
 
-**The four ViewSets defined here.** `SampleTreeViewSet` and `AdminSampleViewSet` are routed
+**The two ViewSets defined here.** `SampleTreeViewSet` and `AdminSampleViewSet` are routed
 and live; `AdminSampleViewSet` is only the deprecated `admin/samples/retrieve/` alias of the
-download API, whose handler and data path are in `nextseek_api/services/sample_retrieve.py`. `NHPViewSet`
-(`nextseek_api/views.py:395`) and `SampleQueryViewSet` (`nextseek_api/views.py:549`) are
-not: their registrations are the two commented-out lines at `nextseek_api/urls.py:15-16`.
+download API, whose handler and data path are in `nextseek_api/services/sample_retrieve.py`.
 Both live ViewSets scope data per caller rather than by Django role, and each says so
 where it decides: `nextseek_api/views.py:268-274` for the tree, and `handle_retrieve` in
 `nextseek_api/services/sample_retrieve.py` for the download.

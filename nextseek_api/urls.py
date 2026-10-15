@@ -12,8 +12,6 @@ router = DefaultRouter()
 # Register all ViewSets created in Phase 3:
 # Existing tree/legacy endpoints remain 
 router.register(r"sample-tree", views.SampleTreeViewSet, basename="sample-tree")
-# router.register(r"nhp", views.NHPViewSet, basename="nhp")
-# router.register(r"sample-queries", views.SampleQueryViewSet, basename="sample-queries")
 # Deprecated alias of samples/retrieve/ (one handler); kept for saved chats, cached pages and outside scripts.
 router.register(r"admin/samples", views.AdminSampleViewSet, basename="admin-samples")
 # Publishes one `status` action and no list route, so the API root does not advertise it.
