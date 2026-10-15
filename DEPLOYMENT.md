@@ -133,8 +133,8 @@ Key facts every operator must internalize:
   dispatcher share the named `attribute_mutation_broker` volume. Routine
   `./startup.sh rebuild` recreation preserves and reattaches it; image rollback
   tags and GHCR do **not** contain or back up broker data. `./startup.sh reset`
-  deletes volumes by design and therefore deletes this broker unless the
-  operator separately preserves it.
+  deletes the queue volumes (this broker among them) and keeps the data
+  volumes; `reset --drop-data` deletes those too.
 
 ---
 
@@ -362,6 +362,17 @@ docker logs -f nextseek        # until gunicorn workers are up; no FAILED marker
 
 # 5. Run the §6 verification checklist. Record results.
 ```
+
+A change to `docker/nginx.conf` alone does not reach nginx: it is a single-file bind
+mount that a `git pull` orphans, so the running `nextseek_nginx` keeps the old file.
+`./startup.sh rebuild` compares the served file with the checkout's and prints
+"nginx serves an old config; run ./startup.sh rebuild --recreate-nginx" when they differ
+(`doctor` shows it red; if nginx is down or `docker exec` fails, it says it could not
+check). It never recreates nginx on its own. `--recreate-nginx` runs
+`docker compose up -d --no-deps --force-recreate nextseek_nginx` as its own step, then
+checks the app (200) and SEEK (200/302, container start time unchanged). The deploy
+skill's runner passes it when the range changes `docker/nginx.conf` and the brief
+allows `nginx recreate ok`.
 
 ### 3.2 What change needs what action
 
@@ -1071,7 +1082,7 @@ delays them. The sweep sends idle Container-CC transcripts (already scrubbed) to
 
 ### Durable upload queue
 
-`/var/celery` is the compose volume `batch_upload_state` (`rebuild` keeps it, `startup.sh reset` drops it). It holds the
+`/var/celery` is the compose volume `batch_upload_state` (`rebuild` keeps it, `startup.sh reset` drops it; it is a queue volume, not a data volume). It holds the
 batch_upload broker and results, the per-user job index (`jobs/`), saved sheets (`uploads/`) and the beat schedule, so a
 queued, not-yet-started upload survives a recreate and runs afterwards on the new code. Celery keeps its early ack: a
 job the worker had already taken is never redelivered. At boot, `manage.py mark_interrupted_batch_jobs` (after migrate,

@@ -312,7 +312,7 @@ def rule_for(path: str) -> PathRule | None:
 # Extras a brief may allow. Anything outside the list is a proposal in the report.
 ALLOWED_EXTRAS = {
     "seek restart ok": "restart SEEK before Nessie when it holds more than 12 GiB (a minute of errors on prod)",
-    "nginx recreate ok": "docker compose up -d --no-deps --force-recreate nextseek_nginx",
+    "nginx recreate ok": "./startup.sh rebuild ... --recreate-nginx (compose up -d --no-deps --force-recreate nextseek_nginx, then app and SEEK checks)",
     "db backup ok": "prod database backup before a migration (the operator's prod runbook, backup step)",
     "bedrock-proxy rebuild ok": "rebuild the bedrock-proxy component",
     "compose recreate ok": "a --no-deps recreate after a docker-compose.yml change",

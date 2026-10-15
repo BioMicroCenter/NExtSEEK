@@ -1,7 +1,10 @@
 """Create the named volumes required by the compose stack."""
 from __future__ import annotations
 
-from startup.lib.docker_ops import volume_exists, volume_create, bootstrap_staging_dir
+from startup.lib.docker_ops import (
+    DockerOpsError, volume_exists, volume_create, volume_remove, volume_users,
+    bootstrap_staging_dir,
+)
 
 REQUIRED_VOLUMES: list[str] = [
     "seek-filestore",
@@ -29,6 +32,21 @@ def ensure_volumes(prefix: str) -> list[str]:
             volume_create(full_name)
             created.append(full_name)
     return created
+
+
+def remove_volumes(prefix: str) -> list[str]:
+    """Remove every data volume of the instance. Returns the names removed.
+
+    Refuses, removing nothing, if any container still mounts one of them.
+    """
+    present = [n for n in volume_names_for_prefix(prefix) if volume_exists(n)]
+    for name in present:
+        users = volume_users(name)
+        if users:
+            raise DockerOpsError(f"{name} is still used by {', '.join(users)}; nothing was removed")
+    for name in present:
+        volume_remove(name)
+    return present
 
 
 def ensure_cc_staging_dir(prefix: str) -> None:

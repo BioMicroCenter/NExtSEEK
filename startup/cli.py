@@ -615,9 +615,18 @@ def reset(
     instance: str | None = typer.Option(None, "--instance"),
     keep_config: bool = typer.Option(False, "--keep-config"),
     yes: bool = typer.Option(False, "--yes", "-y"),
+    drop_data: bool = typer.Option(
+        False, "--drop-data",
+        help="Also delete the instance's data volumes (MySQL, Neo4j, SEEK files, Solr, CC users). "
+             "Asks for the instance name even with --yes.",
+    ),
 ) -> None:
-    """Drop volumes and re-run install."""
-    from startup.lib.docker_ops import compose_down
+    """Delete the config files and the queue volumes, then re-run install.
+
+    The data volumes (MySQL, Neo4j, SEEK files, Solr, CC users) are kept; add
+    --drop-data to delete them too.
+    """
+    from startup.lib.docker_ops import DockerOpsError, compose_down
 
     state = load_instance(REPO_ROOT)
     if state is None:
@@ -645,13 +654,34 @@ def reset(
                     "that survive. Nothing was changed. Run `reset --keep-config` or fix the value first.")
             raise typer.Exit(code=2)
 
+    if drop_data:
+        ui.warn(f"--drop-data DELETES the data volumes of instance '{state.name}' "
+                "(MySQL, Neo4j, SEEK files, Solr, CC users), then re-seeds.")
+    else:
+        ui.info(
+            f"Reset deletes the config files and the queue volumes (attribute broker, batch "
+            f"upload state, Luria ssh) of instance '{state.name}' and re-runs install. "
+            "Your data volumes (MySQL, Neo4j, SEEK files, Solr, CC users) are kept."
+        )
     if not yes:
-        ui.warn(f"This will DROP all data for instance '{state.name}' (volumes: {state.prefix}*)")
         typer.confirm("Continue?", abort=True)
+    if drop_data:
+        # Never skipped by --yes: this is the one step that cannot be undone.
+        typed = typer.prompt(f"Type the instance name ({state.name}) to delete its data")
+        if typed.strip() != state.name:
+            ui.fail("name did not match; nothing was changed")
+            raise typer.Exit(code=1)
 
-    ui.step(1, 3, "Stopping containers and dropping volumes")
+    ui.step(1, 3, "Stopping containers and dropping the queue volumes")
     compose_down(project_dir=REPO_ROOT, env=state.compose_env(), volumes=True)
-    ui.ok("stack down, volumes dropped")
+    ui.ok("stack down, queue volumes dropped")
+    if drop_data:
+        try:
+            removed = volumes.remove_volumes(state.prefix)
+        except DockerOpsError as exc:
+            ui.fail(str(exc))
+            raise typer.Exit(code=1) from exc
+        ui.ok(f"data volumes removed: {', '.join(removed) or 'none present'}")
 
     if not keep_config:
         ui.step(2, 3, "Removing config files")
@@ -776,6 +806,11 @@ def rebuild(
         help="Include the Nessie lane (three NS questions and one CC question, about "
              "$0.30) in the post-rebuild CI. App rebuilds on local and dev only.",
     ),
+    recreate_nginx: bool = typer.Option(
+        False, "--recreate-nginx",
+        help="Recreate nextseek_nginx (and only it) so it serves the checkout's "
+             "docker/nginx.conf, then check the app and SEEK. Never on by default.",
+    ),
 ) -> None:
     """Safely rebuild a first-party component without touching volumes."""
     from startup.lib.docker_ops import compose_build, compose_up
@@ -867,17 +902,39 @@ def rebuild(
         # --no-deps keeps it from touching any other service. A stopped nginx
         # used to survive every rebuild, and the CI hook then spent its whole
         # readiness floor on a refused port.
-        compose_up(
-            services=("nextseek_nginx",),
-            project_dir=REPO_ROOT,
-            env=state.compose_env(),
-            no_deps=True,
-        )
-        ui.ok("front door (nextseek_nginx) running")
+        if not recreate_nginx:  # the recreate below starts it too
+            compose_up(
+                services=("nextseek_nginx",),
+                project_dir=REPO_ROOT,
+                env=state.compose_env(),
+                no_deps=True,
+            )
+            ui.ok("front door (nextseek_nginx) running")
     elif not policy.restart_services:
         ui.ok(f"{policy.name} image rebuilt; no persistent container to restart")
     else:
         ui.ok(f"{policy.name} image rebuilt; runtime restart deferred by request")
+
+    recreate_failed = False
+    if recreate_nginx:
+        # Its own step: nginx only (--no-deps), never SEEK, neo4j or anything else.
+        ui.step(1, 1, "recreating the front door (nextseek_nginx) for docker/nginx.conf")
+        seek_before = validate.seek_started_at(REPO_ROOT, state.compose_env())
+        compose_up(
+            services=("nextseek_nginx",),
+            project_dir=REPO_ROOT,
+            env=state.compose_env(),
+            force_recreate=True,
+            no_deps=True,
+        )
+        checks = validate.check_after_nginx_recreate(
+            state.ports, seek_before, validate.seek_started_at(REPO_ROOT, state.compose_env()))
+        _print_health_results(list(checks))
+        recreate_failed = not all(c.ok for c in checks)
+    else:
+        nginx_cfg = validate.check_nginx_config(REPO_ROOT, state.compose_env())
+        if not nginx_cfg.ok:
+            ui.warn(nginx_cfg.detail)
 
     # Stack health, step 1 of CI. Every first-party image, not just this
     # component's: a bare `rebuild` builds only the app image, so the routine
@@ -980,7 +1037,7 @@ def rebuild(
                 raise typer.Exit(code=rc)
             ui.ok(f"CI passed: {outcome}")
 
-    if (not health.ok or (graph_drift is not None and not graph_drift.ok)
+    if (not health.ok or recreate_failed or (graph_drift is not None and not graph_drift.ok)
             or (graph_sync_health is not None and not graph_sync_health.ok)):
         # The build itself succeeded; the box is nonetheless short an image, a
         # service, or the front door, which only a user would otherwise report,
@@ -989,6 +1046,7 @@ def rebuild(
         # Said last, after the suite's green line, so a terminal ends on the reason for the exit.
         red = [name for name, bad in (
             ("stack health", not health.ok),
+            ("nginx recreate checks", recreate_failed),
             ("graph drift", graph_drift is not None and not graph_drift.ok),
             ("graph sync health", graph_sync_health is not None and not graph_sync_health.ok),
         ) if bad]

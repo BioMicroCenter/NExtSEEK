@@ -83,3 +83,38 @@ def test_ensure_cc_staging_dir_bootstraps_prefixed_dmac_cc_users_volume(
 def test_ensure_cc_staging_dir_empty_prefix(mock_bootstrap: MagicMock) -> None:
     ensure_cc_staging_dir("")
     mock_bootstrap.assert_called_once_with("dmac-cc-users")
+
+
+def test_remove_volumes_removes_every_instance_volume() -> None:
+    from startup.steps import volumes
+
+    with patch.object(volumes, "volume_exists", return_value=True), \
+         patch.object(volumes, "volume_users", return_value=[]), \
+         patch.object(volumes, "volume_remove") as rm:
+        removed = volumes.remove_volumes("t-")
+    assert removed == volumes.volume_names_for_prefix("t-")
+    assert [c.args[0] for c in rm.call_args_list] == removed
+
+
+def test_remove_volumes_refuses_while_a_container_uses_one_and_removes_nothing() -> None:
+    import pytest
+    from startup.lib.docker_ops import DockerOpsError
+    from startup.steps import volumes
+
+    users = lambda name: ["stray"] if name == "t-neo4j-data" else []
+    with patch.object(volumes, "volume_exists", return_value=True), \
+         patch.object(volumes, "volume_users", side_effect=users), \
+         patch.object(volumes, "volume_remove") as rm:
+        with pytest.raises(DockerOpsError, match="t-neo4j-data"):
+            volumes.remove_volumes("t-")
+    rm.assert_not_called()
+
+
+def test_remove_volumes_skips_volumes_that_are_already_gone() -> None:
+    from startup.steps import volumes
+
+    with patch.object(volumes, "volume_exists", return_value=False), \
+         patch.object(volumes, "volume_users", return_value=[]), \
+         patch.object(volumes, "volume_remove") as rm:
+        assert volumes.remove_volumes("") == []
+    rm.assert_not_called()

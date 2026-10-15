@@ -447,6 +447,83 @@ def test_reset_confirmation_abort_leaves_stack_alone(mock_down: MagicMock, repo:
     mock_down.assert_not_called()
 
 
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_keeps_data_volumes(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _saved_state(repo)
+    monkeypatch.setattr(cli, "install", MagicMock())
+
+    result = runner.invoke(cli.app, ["reset", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    steps.volumes.remove_volumes.assert_not_called()
+    out = " ".join(result.output.split())
+    assert "data volumes" in out and "kept" in out
+    assert "DROP all data" not in out
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_confirmation_says_the_data_volumes_are_kept(
+    mock_down: MagicMock, repo: Path, steps
+) -> None:
+    _saved_state(repo)
+    result = runner.invoke(cli.app, ["reset"], input="n\n")
+    out = " ".join(result.output.split())
+    assert "data volumes" in out and "kept" in out
+    assert "DROP all data" not in out
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_drop_data_needs_the_typed_name(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _saved_state(repo)
+    reinstall = MagicMock()
+    monkeypatch.setattr(cli, "install", reinstall)
+
+    result = runner.invoke(cli.app, ["reset", "--yes", "--drop-data"], input="wrong\n")
+
+    assert result.exit_code != 0
+    mock_down.assert_not_called()
+    steps.volumes.remove_volumes.assert_not_called()
+    reinstall.assert_not_called()
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_drop_data_removes_the_instance_volumes(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _saved_state(repo)
+    monkeypatch.setattr(cli, "install", MagicMock())
+    order = MagicMock()
+    order.attach_mock(mock_down, "down")
+    order.attach_mock(steps.volumes.remove_volumes, "remove")
+
+    result = runner.invoke(cli.app, ["reset", "--yes", "--drop-data"], input="nextseek\n")
+
+    assert result.exit_code == 0, result.output
+    steps.volumes.remove_volumes.assert_called_once_with("")
+    assert [c[0] for c in order.mock_calls if c[0] in ("down", "remove")] == ["down", "remove"]
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_drop_data_stops_when_a_container_still_uses_a_volume(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from startup.lib.docker_ops import DockerOpsError
+
+    _saved_state(repo)
+    reinstall = MagicMock()
+    monkeypatch.setattr(cli, "install", reinstall)
+    steps.volumes.remove_volumes.side_effect = DockerOpsError("seek-mysql-db is in use by x")
+
+    result = runner.invoke(cli.app, ["reset", "--yes", "--drop-data"], input="nextseek\n")
+
+    assert result.exit_code == 1
+    reinstall.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # rebuild (no-instance guard; the push wiring is covered in test_registry_push)
 # ---------------------------------------------------------------------------
@@ -853,6 +930,11 @@ def _mock_rebuild(
     monkeypatch.setattr(docker_ops, "compose_build", lambda **kwargs: None)
     monkeypatch.setattr(docker_ops, "compose_up", lambda **kwargs: None)
     monkeypatch.setattr(registry_push, "push_baselines", lambda *args, **kwargs: ())
+    from startup.steps import validate as _validate
+    monkeypatch.setattr(
+        _validate, "check_nginx_config",
+        lambda *a, **k: _validate.HealthResult("nginx config", True, "matches the checkout"),
+    )
     _stub_stack_health(
         monkeypatch,
         runtimes_ok=runtimes_ok, runtimes_detail=runtimes_detail,
@@ -1020,6 +1102,74 @@ def test_rebuild_no_restart_leaves_the_front_door_alone(
 
     assert result.exit_code == 0, result.output
     assert calls == []
+
+
+def test_rebuild_warns_when_nginx_serves_an_old_config(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import validate
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    monkeypatch.setattr(
+        validate, "check_nginx_config",
+        lambda *a, **k: validate.HealthResult(
+            "nginx config", False,
+            "nginx serves an old config; run ./startup.sh rebuild --recreate-nginx"),
+    )
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert "nginx serves an old config; run ./startup.sh rebuild --recreate-nginx" in " ".join(
+        result.output.split())
+    assert not any(c.get("force_recreate") and "nextseek_nginx" in c["services"] for c in calls)
+
+
+def test_recreate_nginx_is_its_own_step(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import validate
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(validate, "seek_started_at", lambda *a, **k: "t0")
+    monkeypatch.setattr(
+        validate, "check_after_nginx_recreate",
+        lambda *a, **k: (validate.HealthResult("app", True, "200"),
+                         validate.HealthResult("seek", True, "200")),
+    )
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild", "--recreate-nginx"])
+
+    assert result.exit_code == 0, result.output
+    nginx = [c for c in calls if "nextseek_nginx" in c["services"]]
+    assert len(nginx) == 1, calls
+    assert list(nginx[0]["services"]) == ["nextseek_nginx"]
+    assert nginx[0]["no_deps"] is True and nginx[0]["force_recreate"] is True
+    assert "recreating the front door" in " ".join(result.output.split())
+
+
+def test_recreate_nginx_fails_the_rebuild_when_seek_restarted(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import validate
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    _record_compose_up(monkeypatch)
+    monkeypatch.setattr(validate, "seek_started_at", lambda *a, **k: "t0")
+    monkeypatch.setattr(
+        validate, "check_after_nginx_recreate",
+        lambda *a, **k: (validate.HealthResult("SEEK start time", False, "changed"),),
+    )
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    assert runner.invoke(cli.app, ["rebuild", "--recreate-nginx"]).exit_code != 0
 
 
 _NGINX_DOWN = ("not running: nextseek_nginx -- start it with: "

@@ -292,6 +292,81 @@ def check_app_runtimes(repo_root: Path, env: dict[str, str]) -> HealthResult:
     return HealthResult(name=name, ok=True, detail=f"{' + '.join(wanted)} running")
 
 
+NGINX_CONF_PATH = "/etc/nginx/nginx.conf"
+
+
+def check_nginx_config(repo_root: Path, env: dict[str, str]) -> HealthResult:
+    """Whether the running nginx serves the checkout's docker/nginx.conf.
+
+    The file is a single-file bind mount, which a `git pull` orphans: nginx keeps
+    the old inode and nothing says so. A failed look (nginx down, docker error) is
+    a warning that it could not check, never a red result.
+    """
+    name = "nginx config"
+    try:
+        served = compose_exec(
+            service=FRONT_DOOR_SERVICE, command=["cat", NGINX_CONF_PATH],
+            project_dir=repo_root, env=env,
+        )
+        wanted = (repo_root / "docker" / "nginx.conf").read_text(encoding="utf-8")
+    except (DockerOpsError, OSError) as exc:
+        return HealthResult(name=name, ok=True, warn=True,
+                            detail=f"could not check what nginx serves ({exc})")
+    if served != wanted:
+        return HealthResult(
+            name=name, ok=False,
+            detail="nginx serves an old config; run ./startup.sh rebuild --recreate-nginx")
+    return HealthResult(name=name, ok=True, detail="matches the checkout")
+
+
+def seek_started_at(repo_root: Path, env: dict[str, str]) -> str | None:
+    """SEEK's container start time, or None when it cannot be read."""
+    try:
+        cid = subprocess.run(["docker", "compose", "ps", "-q", "seek"], cwd=str(repo_root),
+                             env={**os.environ, **env}, capture_output=True, text=True,
+                             timeout=30).stdout.strip()
+        if not cid:
+            return None
+        out = subprocess.run(["docker", "inspect", "-f", "{{.State.StartedAt}}", cid],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() or None
+
+
+def check_after_nginx_recreate(
+    ports: dict[str, int], seek_before: str | None, seek_after: str | None,
+    *, wait_s: float = 120.0, interval_s: float = 3.0,
+    sleep=time.sleep, clock=time.monotonic,
+) -> tuple[HealthResult, ...]:
+    """After `--recreate-nginx`: the app and SEEK answer, and SEEK was not restarted.
+
+    The app may be mid-boot (the runner can put the recreate on the app's own rebuild),
+    so each probe is retried until it answers or `wait_s` has passed.
+    """
+    def probe(name: str, url: str) -> HealthResult:
+        deadline = clock() + wait_s
+        while True:
+            r = check_http(name, url)
+            if r.ok or clock() >= deadline:
+                return r
+            sleep(interval_s)
+
+    if seek_before is None or seek_after is None:
+        unchanged = HealthResult("SEEK start time", False,
+                                 "could not read SEEK's container start time")
+    elif seek_before != seek_after:
+        unchanged = HealthResult("SEEK start time", False,
+                                 f"SEEK restarted ({seek_before} -> {seek_after})")
+    else:
+        unchanged = HealthResult("SEEK start time", True, "unchanged")
+    return (
+        probe("NExtSEEK", f"http://localhost:{ports.get('nextseek', 8000)}"),
+        probe("SEEK", f"http://localhost:{ports.get('seek', 3000)}"),
+        unchanged,
+    )
+
+
 @dataclass(frozen=True)
 class StackHealth:
     """Step 1 of a CI run: what is up before the suite is asked anything.
@@ -972,6 +1047,7 @@ def run_all_health_checks(
         check_first_party_images(env.get("COMPOSE_PROJECT_NAME", "nextseek")),
         check_cc_runner(repo_root, env),
         check_env_registry(repo_root),
+        check_nginx_config(repo_root, env),
     ]
     return results
 
@@ -997,4 +1073,5 @@ def run_app_health_checks(
         check_first_party_images(env.get("COMPOSE_PROJECT_NAME", "nextseek")),
         check_cc_runner(repo_root, env),
         check_env_registry(repo_root),
+        check_nginx_config(repo_root, env),
     ]

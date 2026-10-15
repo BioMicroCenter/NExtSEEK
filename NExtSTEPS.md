@@ -244,7 +244,7 @@ Where `<prefix>` is the value from `startup/.instance.json`'s `prefix`
 field (empty for default install, `dev-` / `test-` / etc. for named
 instances).
 
-To restore: same commands in reverse, or use `./startup.sh reset` with the
+To restore: same commands in reverse, or use `./startup.sh reset --drop-data` with the
 new dumps dropped into `startup/seed/` (you'd be replacing the shipped
 seed snapshots; see [`startup/README.md`](startup/README.md) for the
 maintainer regen workflow).

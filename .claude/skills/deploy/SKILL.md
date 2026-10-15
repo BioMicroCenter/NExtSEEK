@@ -36,14 +36,14 @@ Every rebuild verb first creates and verifies local rollback tags, uses
 for baked secrets, and attempts its component-specific private GHCR baseline.
 The app rebuild reattaches the existing `attribute_mutation_broker` SQLite
 named volume; it does not renew or delete it. Only the explicitly destructive
-`reset` path drops volumes.
+`reset --drop-data` path deletes the data volumes.
 Local rollback failure aborts before building; GHCR failure remains non-fatal
 but produces a loud banner and red doctor check. Do not bypass this with raw
 `docker compose build` / `up`.
 - **Diagnose**: `./startup.sh doctor` (read-only) before touching anything.
 - **First-ever install on a box**: `./startup.sh install` (full pipeline:
   prereqs → config render → volumes → seeds → build → users → health).
-- **Nuke and reinstall**: `./startup.sh reset` (DESTRUCTIVE: drops volumes).
+- **Nuke and reinstall**: `./startup.sh reset` keeps the data volumes; `./startup.sh reset --drop-data` is the real wipe (DESTRUCTIVE).
 
 ## Route by task
 
@@ -169,7 +169,7 @@ For every instance: `references/ci.md` (reading CI), `references/nessie-question
   shuts the door after a failed connection.
 - **No secrets** anywhere you write or print: name `CI_WRITE_PASS`, `NEO4J_AUTH`,
   `MYSQL_ROOT_PASSWORD`, never their values.
-- **Never, on any box:** `./startup.sh reset`, `docker compose pull`, `docker compose up` without
+- **Never, on any box:** `./startup.sh reset` (with or without `--drop-data`), `docker compose pull`, `docker compose up` without
   `--no-deps`, `--volumes` or a volume prune, `git stash/commit/revert/reset`, edits to `.env`,
   `docker/nextseek.env` or `dmac/local_settings.py`, a full graph sync, a DB write.
 - **Red flags:** a refused script step is a report, not a manual retry (exit 5, 6, 7); never

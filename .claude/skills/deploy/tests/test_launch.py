@@ -1392,3 +1392,16 @@ def test_the_runner_reads_a_rollback_tag_the_rebuild_log_wrapped(tmp_path, capsy
     r = subprocess.run(["bash", str(script)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == "rollback tag verified: nextseek-bedrock-proxy:pre-20261015T122302-befd5eb4"
+
+
+def test_an_nginx_flagged_launch_that_allows_the_recreate_renders_the_flag(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"], nginx_change_expected=True,
+                              allowed_extras=["nginx recreate ok"])
+    on = re.search(r'^RECREATE_NGINX_ON="(\S+)"$', text, re.M)
+    assert on and on.group(1) in ("app", "cc-agent")
+    assert "--recreate-nginx" in text and "NGINX_RECREATE" in text
+
+
+def test_without_the_extra_the_runner_recreates_nothing(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"], nginx_change_expected=True)
+    assert 'RECREATE_NGINX_ON=""' in text

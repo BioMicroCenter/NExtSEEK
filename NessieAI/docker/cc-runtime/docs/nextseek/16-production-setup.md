@@ -24,7 +24,7 @@ SEEK is served on its own host name. Set it once, at the first install, with `./
 
 ### 4. Rotate credentials
 
-- **MySQL.** Change the passwords inside the running database, then in `docker/db.env`, and recreate the services that read it. Leave user names and database names alone, and do not use `reset --keep-config` for this: it drops the volumes and re-seeds, which erases your data. Commands: [NExtSTEPS 2a](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#2a-mysql-dockerdbenv).
+- **MySQL.** Change the passwords inside the running database, then in `docker/db.env`, and recreate the services that read it. Leave user names and database names alone, and do not use `reset` for this: it rewrites the config files to demo values (and `reset --drop-data` erases your data). Commands: [NExtSTEPS 2a](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#2a-mysql-dockerdbenv).
 - **Neo4j.** The password lives in the Neo4j volume after the first start, so editing files alone does nothing. Steps: [NExtSTEPS 2b](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#2b-neo4j).
 - **Django secret key.** Install generates one. If it was ever logged or shared, replace it; everyone is signed out and old password-reset links stop working. Steps: [NExtSTEPS 3](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#3-django-secret-key).
 

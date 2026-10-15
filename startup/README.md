@@ -33,7 +33,7 @@ by*.
 |---|---|---|
 | `install` | `startup/cli.py:378` | 9 numbered phases, body in `_install_impl` (`startup/cli.py:86`) |
 | `doctor` | `startup/cli.py:421` | read-only diagnosis, `startup/steps/doctor.py:75` |
-| `reset` | `startup/cli.py:450` | volume drop then a re-entry into install |
+| `reset` | `startup/cli.py:450` | config and queue volumes removed, data volumes kept (`--drop-data` deletes them too), then a re-entry into install |
 | `rebuild` | `startup/cli.py:511` | one first-party component, rollback-tagged |
 | `ci` | `startup/cli.py:697` | the smoke suite as a subprocess |
 | `seed-filestore` | `startup/cli.py:746` | the SEEK blob archive into a running stack |

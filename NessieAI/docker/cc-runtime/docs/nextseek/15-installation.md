@@ -72,7 +72,7 @@ Install writes three files for you to edit. All are ignored by git:
 Edit a file, then apply it with `docker compose up -d --no-deps --force-recreate nextseek`.
 
 !!! warning
-    Do not use `./startup.sh reset` to re-render config. `reset` drops the Docker volumes and re-seeds, which erases your data. Without `--keep-config` it also writes the config files back to the demo values, keeping only the host names the site is served on.
+    Do not use `./startup.sh reset` to re-render config. `reset` deletes the config files and the queue volumes and re-runs install; your data volumes are kept. Without `--keep-config` it also writes the config files back to the demo values, keeping only the host names the site is served on. `reset --drop-data` also deletes the data volumes (MySQL, Neo4j, SEEK files, Solr, CC users) and asks you to type the instance name first.
 
 ## Day-to-day commands
 
@@ -80,7 +80,7 @@ Edit a file, then apply it with `docker compose up -d --no-deps --force-recreate
 |---|---|
 | `./startup.sh doctor` | Read-only check of prerequisites and health. Run this first when something is wrong |
 | `./startup.sh rebuild` | Rebuild and restart the app image without touching data, then run the smoke tests (`--no-ci` skips them). Pass `--component` to pick another: `app` (the default), `cc-agent`, `nextseek-sidecar`, `bedrock-proxy` or `custom-stack` |
-| `./startup.sh reset` | **Destructive.** Drops the volumes and re-seeds. Without `--keep-config` it also writes the config files back to the demo values |
+| `./startup.sh reset` | Deletes the config files and the queue volumes (attribute broker, batch upload state, Luria ssh) and re-runs install. Your data volumes (MySQL, Neo4j, SEEK files, Solr, CC users) are kept. Without `--keep-config` it also writes the config files back to the demo values. **`--drop-data` also deletes the data volumes and re-seeds** (you type the instance name; `--yes` does not skip that) |
 | `./startup.sh ci` | Run the smoke test suite against the running stack |
 | `./startup.sh seed-filestore` | Load the SEEK file blobs into a running stack (skipped if the volume already has files, unless you pass `--force`) |
 | `./startup.sh dump-db` | For maintainers: regenerate the seed dumps |
