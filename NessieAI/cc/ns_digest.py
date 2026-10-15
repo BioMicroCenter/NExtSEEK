@@ -59,7 +59,7 @@ _CC_REPLY_LINE_CAP = 200
 
 
 def _render_cc_turn(ctx: CCTurnContext) -> list[str]:
-    lines = [f"- turn {ctx.turn_id} (CC): {ctx.user_query}"]
+    lines = [f"- turn {ctx.turn_id} ({"CC" if ctx.route == "cc" else ctx.route}): {ctx.user_query}"]
     reply = " ".join(ctx.reply.split())
     if reply:
         if len(reply) > _CC_REPLY_LINE_CAP:

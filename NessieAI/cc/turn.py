@@ -35,7 +35,7 @@ from nextseek_api.assistant import turn_pass as cc_turn_pass
 from chat_nextseek.agents.parser import FORCE_MODES as PARSER_FORCE_MODES
 from chat_nextseek import prompt_variants
 from chat_nextseek.prompt_variants import VARIANT_NAMES as PROMPT_VARIANT_NAMES
-from chat_nextseek.chat_memory import next_turn_id
+from chat_nextseek.chat_memory import CRASH_INTENT_SUMMARY, next_turn_id
 from chat_nextseek.orchestrator import run_query, run_query_plan, vocabulary_not_needed
 from chat_nextseek import turn_spend
 
@@ -557,6 +557,7 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
         ran_ns = False
         # The orchestrator wrote this turn's error entry itself (it marks the exception).
         orchestrator_logged = {"done": False}
+        crashed = {"type": None}  # type name of an unhandled exception, for the next turn to see
         decision = None
         prerun = None
         cc_pass_row = None
@@ -874,6 +875,7 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
         except Exception as exc:
             logger.exception("cc-assistant pipeline error")
             orchestrator_logged["done"] = bool(getattr(exc, "chat_log_turn_written", False))
+            crashed["type"] = type(exc).__name__
             # run_query sends its own query_error (the real message, with the turn's cost)
             # before it re-raises, and the task keeps the last one: a second, generic one
             # here would replace the real error the user needs to see (F13).
@@ -905,11 +907,15 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 ts = timezone.now().isoformat(timespec="seconds")
                 rc = decision.route if decision is not None else None
                 err = terminal_seen["error"]
+                if crashed["type"]:
+                    err = crashed["type"]  # type name only; recent_turns shows it as a crash
                 if ran_ns:
                     log = list(adapter.get("chat_log") or [])
                     entry = cc_turn_complete.serialize_non_answer_entry(
                         user_query=req.query, router_choice=rc, status="error",
                         error=err, ts=ts, turn_id=next_turn_id(log))
+                    if crashed["type"]:
+                        entry["intent_summary"] = CRASH_INTENT_SUMMARY
                     adapter["chat_log"] = cc_turn_complete.append_capped(
                         log, entry, cap=MAX_CC_CHAT_LOG_TURNS)
                 else:
@@ -918,6 +924,8 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                         chat_session.extra_state, user_query=req.query,
                         router_choice=rc, status="error", error=err, ts=ts,
                         cap=MAX_CC_CHAT_LOG_TURNS)
+                    if crashed["type"]:
+                        chat_session.extra_state["chat_log"][-1]["intent_summary"] = CRASH_INTENT_SUMMARY
                     chat_session.save(update_fields=["extra_state", "updated_at"])
             if ran_ns:
                 adapter.save()

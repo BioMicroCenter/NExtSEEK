@@ -277,11 +277,32 @@ def _is_answered(entry: Any) -> bool:
     return isinstance(entry, dict) and bool(entry.get(CHAT_LOG_OPTIONAL_REPLY_FIELD))
 
 
+# Written by orchestrator._report_unhandled; keep the two in step.
+CRASH_INTENT_SUMMARY = "Unhandled error in the pipeline."
+
+
+def _is_failed(entry: Any) -> bool:
+    """A crashed turn as the orchestrator's crash writer records it: status error, no reply, a question
+    to show and that writer's own intent_summary. The non-answer entries cc/turn.py writes (sign-in stop,
+    time limit, ...) have the same status but no intent_summary, and are not crashes."""
+    return (isinstance(entry, dict) and entry.get("status") == "error"
+            and entry.get("intent_summary") == CRASH_INTENT_SUMMARY
+            and not entry.get(CHAT_LOG_OPTIONAL_REPLY_FIELD) and bool(entry.get("user_query")))
+
+
+def _failed_view(entry: dict[str, Any]) -> dict[str, Any]:
+    """The question plus a fixed marker; only a bare type name from ``error`` is shown."""
+    err = entry.get("error")
+    kind = f" ({err})" if isinstance(err, str) and re.fullmatch(r"[A-Za-z_]\w*", err) else ""
+    return {**entry, "assistant_reply_preview":
+            f"the previous answer failed with an internal error{kind}; no result was produced"}
+
+
 def recent_turns(
     session: "SessionState | SessionStateProxy | None",
     n: int = DEFAULT_TAIL,
 ) -> list[dict[str, Any]]:
-    """Return the most recent up-to-N answered turns. Older first; empty list if no log."""
+    """Return the most recent up-to-N answered or crashed turns. Older first; empty list if no log."""
     if session is None:
         return []
     log = session.get(CHAT_LOG_KEY) or []
@@ -289,8 +310,8 @@ def recent_turns(
         return []
     if n <= 0:
         return []
-    answered = [e for e in log if _is_answered(e)]
-    return answered[-n:]
+    kept = [_failed_view(e) if _is_failed(e) else e for e in log if _is_answered(e) or _is_failed(e)]
+    return kept[-n:]
 
 
 def format_for_prompt(turns: list[dict[str, Any]]) -> str:

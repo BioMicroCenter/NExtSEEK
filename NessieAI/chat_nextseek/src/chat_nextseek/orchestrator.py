@@ -24,6 +24,7 @@ from .artifacts import (
 )
 from .chat_memory import (
     CHAT_LOG_KEY,
+    CRASH_INTENT_SUMMARY,
     append_turn,
     build_tool_summary_for_mode,
     bundle_rows,
@@ -409,7 +410,7 @@ def _report_unhandled(session, user_text, send_event, exc, *, agent, mode_label)
     cost = turn_spend.cost_fields()
     try:
         append_turn(session, user_query=user_text, mode=mode_label,
-                    intent_summary="Unhandled error in the pipeline.",
+                    intent_summary=CRASH_INTENT_SUMMARY,
                     status="error", error=type(exc).__name__)
         exc.chat_log_turn_written = True
     except Exception:
