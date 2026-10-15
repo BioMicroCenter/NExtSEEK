@@ -1,6 +1,9 @@
--- 979 attribute definitions for dmac.sample_attributes_unique.
--- Every one judged from up to three real values observed in production
+-- 984 attribute definitions for dmac.sample_attributes_unique.
+-- 979 were judged from up to three real values observed in production
 -- (166,235 samples). Attributes with no data anywhere are deliberately absent.
+-- The five D.SEQ QC attributes created on 2026-10-14 (DuplicationPercent,
+-- Strandedness, MultimappedPercent, DupRadarIntercept, MismatchPercent) are
+-- defined from their source tools' documentation instead; they held no data yet.
 -- sample_type '' is the global definition; a code overrides it for that tab.
 
 INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
@@ -267,6 +270,8 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Domain','','The image domain this analysis was run on, e.g. RaDR image.'),
  ('DomainBeadSelector','','The beads used to select the target domain, e.g. Protein G Beads.'),
  ('DomainSelectionTarget','','The antibody domain selected for, e.g. Fc.'),
+ ('DupRadarIntercept','','dupRadar intercept: the fitted odds that a read is a duplicate at 1 read per kilobase; a high value points to PCR over-amplification rather than expression-driven duplication.'),
+ ('DuplicationPercent','','Percentage of mapped reads marked as PCR or optical duplicates (Picard MarkDuplicates); high values mean low library complexity or over-amplification.'),
  ('DurationUnits','','Unit for the Duration value, e.g. minutes.'),
  ('ELISAplate_Vendor','','The vendor the elisaplate was purchased from, e.g. Thermo Fisher Scientific, MaxiSorp.'),
  ('ElectrophoresisConditions','','The separation conditions used, including module and size range.'),
@@ -530,6 +535,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Method','','The analytical method used, e.g. LC-MS/MS.'),
  ('MinSeedingDensity','','The minimum cell density the culture was seeded at.'),
  ('MiniKnowVersion','','The version of MinKNOW used to run the sequencer.'),
+ ('MismatchPercent','','Mismatched bases (NM tag) as a percentage of aligned bases (samtools stats error rate).'),
  ('Mobility','','The patient''s recorded mobility status.'),
  ('ModCall','','The base modification called, e.g. 5mC.'),
  ('Mode','','The acquisition mode used, e.g. HighAccuracy400, ATR.'),
@@ -543,6 +549,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Morphology','','The morphology of the organism or cell type, e.g. Bacillus, epithelial.'),
  ('MortalityObservation','','When and under what circumstances the animal died.'),
  ('MostRecent_TB_Treatment_Completion','','Whether the patient completed their most recent TB treatment.'),
+ ('MultimappedPercent','','Percentage of input reads that aligned to more than one locus (STAR).'),
  ('Multiplicity','','The spin multiplicity used in the calculation.'),
  ('Mutation','','The genetic modification carried by these cells, e.g. WildType.'),
  ('MutationFreq','','The measured mutation frequency for this sample.'),
@@ -780,6 +787,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('StorageType','','The medium or buffer this sample is stored in, e.g. DMEM with 5% DMSO.'),
  ('StoredOnIceInField','','Whether the sample was kept on ice between collection and the lab.'),
  ('Strain','','The strain designation of the animal or organism, e.g. C57BL/6J, H37Rv.'),
+ ('Strandedness','','Library strand orientation inferred from the reads: unstranded, forward or reverse, with the Salmon library type code where known (e.g. ISR).'),
  ('Study','','The study this sample belongs to.'),
  ('StudyDesign','','The study timeline for this subject, as dated events.'),
  ('StudyID','','The study this sample belongs to, e.g. CD8Depletion.'),
