@@ -964,7 +964,7 @@ def test_posterior_and_route_monitoring_edges(monkeypatch):
         lambda: None,
     )
     assert posterior_selector.select_route("search") is None
-    assert rm._distribution_drift({}, {}) == 0.0
+    assert rm._max_category_shift({}, {}) == 0.0
     snap = rm.build_monitoring_snapshot([])
     assert rm.build_route_monitoring_summary([]) == rm.MONITORING_DISCLAIMER
     row = SimpleNamespace(

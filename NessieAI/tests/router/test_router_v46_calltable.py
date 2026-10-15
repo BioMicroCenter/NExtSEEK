@@ -80,7 +80,7 @@ def test_flag_on_unrelated_skips_route_llm(settings):
             with mock.patch.object(
                 cc_router,
                 "_classify_query",
-                return_value=(None, None, "unrelated out of scope"),
+                return_value=(None, "unrelated", "out of scope"),
             ):
                 with mock.patch.object(cc_router, "_route_query") as route_mock:
                     decision = cc_router.decide("who won the superbowl")
@@ -274,3 +274,35 @@ def test_flag_on_posterior_decisive_transport_skips_route_llm(settings, monkeypa
     assert decision.route == cc_router.ROUTE_NS
     assert trace.classify_calls == 1
     assert trace.route_calls == 0
+
+
+def test_invalid_label_text_is_not_unrelated(settings):
+    settings.NEXTSEEK_POSTERIOR_ROUTING_ENABLED = True
+    with mock.patch.object(cc_router, "corpus_snapshot", return_value=mock.Mock()):
+        with mock.patch.object(cc_router, "type_builder", return_value={}):
+            with mock.patch.object(
+                cc_router, "_classify_query", return_value=(None, None, "invalid family label 'unrelated_x'")
+            ):
+                with mock.patch.object(cc_router, "_route_query", return_value=_route_decision()) as route_mock:
+                    decision = cc_router.decide("find mice")
+    assert decision.route != cc_router.ROUTE_UNRELATED
+    route_mock.assert_called_once()
+
+
+def test_null_label_without_the_word_is_unrelated(settings, monkeypatch):
+    settings.NEXTSEEK_POSTERIOR_ROUTING_ENABLED = True
+    from dmac_assistant.router.baml_client.types import ClassificationDecision
+
+    async def classify_null(*args, **kwargs):
+        return ClassificationDecision(task_family=None, reasoning="out of scope: weather")
+
+    route_calls = []
+
+    async def route_spy(*args, **kwargs):
+        route_calls.append(1)
+        raise AssertionError("RouteQuery must not run")
+
+    _install_traced_baml_fakes(monkeypatch, classify_impl=classify_null, route_impl=route_spy)
+    decision = cc_router.decide("what is the weather")
+    assert decision.route == cc_router.ROUTE_UNRELATED
+    assert not route_calls

@@ -251,7 +251,8 @@ def _route_from_baml(decision, Route) -> RouteDecision | None:
 
 
 def _classify_query(query: str, history: list[HistoryTurn] | None = None) -> tuple[str | None, str | None, str]:
-    """Return (task_family, family_source, reasoning). None family on failure/unrelated."""
+    """Return (task_family, family_source, reasoning). None family on failure/unrelated;
+    family_source is "unrelated" only for a null label, None on every failure."""
     try:
         _, _, Route, b = _load_router_deps()
         from dmac_assistant.router.baml_client.types import ClassificationInput
@@ -274,7 +275,7 @@ def _classify_query(query: str, history: list[HistoryTurn] | None = None) -> tup
             _note_spend(collector, _baml_client_model(ROUTER_PRIMARY_CLIENT), cut_off=cut_off)
         label = getattr(decision.task_family, "value", decision.task_family) if decision.task_family else None
         if label is None:
-            return None, None, decision.reasoning or "unrelated"
+            return None, "unrelated", decision.reasoning or "unrelated"
         if not validate_member(str(label), allowed):
             return None, None, f"invalid family label {label!r}"
         return str(label), "baml", decision.reasoning or "baml"
@@ -584,7 +585,7 @@ def _posterior_enabled_decide(query: str, history: list[HistoryTurn] | None = No
         )
 
     task_family, family_source, classify_reason = _classify_query(query, history)
-    if task_family is None and "unrelated" in (classify_reason or "").lower():
+    if task_family is None and family_source == "unrelated":
         return RouteDecision(
             route=ROUTE_UNRELATED,
             model_class=None,

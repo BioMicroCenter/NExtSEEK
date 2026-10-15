@@ -190,3 +190,15 @@ def test_unlisted_band_is_medium(db, settings):
     verdict = assess("container_cc", "batch_upload_preparation")
     assert verdict.level == "medium"
     assert "Watch" in verdict.reason
+
+
+@pytest.mark.parametrize("change", [{"content_valid": False}, {"corpus_hash": "stale"}])
+def test_stale_snapshot_is_unknown(brittle_posterior, settings, monkeypatch, change):
+    import dataclasses
+
+    from NessieAI.hibayes import generation_store
+
+    settings.NEXTSEEK_RISK_OVERLAY_ENABLED = True
+    snap = dataclasses.replace(generation_store.get_active_snapshot(), **change)
+    monkeypatch.setattr(generation_store, "get_active_snapshot", lambda: snap)
+    assert assess("container_cc", "batch_upload_preparation").level == "unknown"

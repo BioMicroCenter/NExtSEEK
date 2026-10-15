@@ -53,6 +53,19 @@ def get_active_snapshot() -> GenerationSnapshot | None:
     return _active_snapshot()
 
 
+def snapshot_is_current(snap: GenerationSnapshot) -> bool:
+    """True when the snapshot is content-valid and matches the live taxonomy and corpus."""
+    try:
+        current = corpus_snapshot()
+    except Exception:
+        return False
+    return (
+        snap.content_valid
+        and snap.taxonomy_version == current.taxonomy_version
+        and snap.corpus_hash == current.corpus_sha256
+    )
+
+
 def select_route(task_family: str, *, snapshot: GenerationSnapshot | None = None) -> SelectorResult | None:
     """Return a decisive posterior route for task_family or None to fall back."""
     if not task_family or task_family == "unrelated":
@@ -65,15 +78,7 @@ def select_route(task_family: str, *, snapshot: GenerationSnapshot | None = None
     if snap is None:
         return None
 
-    try:
-        current = corpus_snapshot()
-    except Exception:
-        return None
-    if (
-        not snap.content_valid
-        or snap.taxonomy_version != current.taxonomy_version
-        or snap.corpus_hash != current.corpus_sha256
-    ):
+    if not snapshot_is_current(snap):
         return None
 
     if snap.decision_status in _FALLBACK_STATUSES:
