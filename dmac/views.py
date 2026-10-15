@@ -6,6 +6,7 @@ from django.db.models import Q
 from django.db import IntegrityError, transaction
 from django.contrib.auth import authenticate, login
 from django.conf import settings
+from django.core.cache import cache
 from nextseek_api.throttles import login_blocked, login_failed, login_succeeded
 from django.utils.http import url_has_allowed_host_and_scheme
 from mezzanine.core.views import server_error
@@ -270,33 +271,56 @@ def _home_projects(request, limit=8):
         return []
 
 
+def _home_totals():
+    """The home tiles' totals. Each block is in its own try/except so one failing lookup leaves only its tile at 0."""
+    from datetime import timedelta
+    from django.utils import timezone
+
+    totals = {}
+    try:
+        from seek.models import Samples
+        totals["total_samples_count"] = Samples.objects.count()
+    except Exception:
+        pass
+    try:
+        from seek.models import Projects
+        totals["total_projects_count"] = Projects.objects.count()
+    except Exception:
+        pass
+    try:
+        from seek.models import Data_files
+        totals["total_data_files_count"] = Data_files.objects.count()
+        totals["data_files_delta_week"] = Data_files.objects.filter(
+            created_at__gte=timezone.now() - timedelta(days=7)).count()
+    except Exception:
+        pass
+    return totals
+
+
 def home(request):
     """
     Home dashboard. Passes counts + a 'recent samples' list to
     themes/NextSeek/templates/index.html. Each block is in its own try/
     except so any one model lookup failing doesn't blank the whole page.
     """
-    from datetime import timedelta
-    from django.utils import timezone
-
     context = {
         "total_samples_count": 0,
         "total_projects_count": 0,
         "total_data_files_count": 0,
-        "samples_delta_week": 0,
         "data_files_delta_week": 0,
         "projects_user_count": 0,  # v1: not yet wired — needs User<->People<->Projects bridge
         "recent_samples": [],
         "home_projects": _home_projects(request),
     }
 
-    week_ago = timezone.now() - timedelta(days=7)
+    # The totals are the same for every visitor and cost seconds on a large box (986k samples on dev: the sample
+    # count is ~2.6 s), so they are counted once per hour per app process. A weekly sample count is not shown: with
+    # no index on created_at it was a full scan (~7.7 s on dev).
+    context.update(cache.get_or_set("home_totals", _home_totals, 3600))
 
     try:
         from seek.models import Projects_samples, Samples
         from nextseek_api.graph_search.scope import ScopeUnavailable, resolve_scope  # function-level: no import cycle
-        context["total_samples_count"] = Samples.objects.count()
-        context["samples_delta_week"] = Samples.objects.filter(created_at__gte=week_ago).count()
         # The totals are for everyone. Recent rows (sample titles) are for logged-in callers only, limited to their
         # projects (a superuser sees all); a logged-out caller or an unresolved scope shows none.
         scope = None
@@ -309,19 +333,6 @@ def home(request):
             rows = Samples.objects if scope.is_admin else Samples.objects.filter(
                 id__in=Projects_samples.objects.filter(project_id__in=scope.project_ids).values("sample_id"))
             context["recent_samples"] = list(rows.order_by("-id").values("id", "title", "created_at")[:4])
-    except Exception:
-        pass
-
-    try:
-        from seek.models import Projects
-        context["total_projects_count"] = Projects.objects.count()
-    except Exception:
-        pass
-
-    try:
-        from seek.models import Data_files
-        context["total_data_files_count"] = Data_files.objects.count()
-        context["data_files_delta_week"] = Data_files.objects.filter(created_at__gte=week_ago).count()
     except Exception:
         pass
 

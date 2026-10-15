@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory
 
@@ -17,6 +18,13 @@ def _home_response():
     req.user = AnonymousUser()
     with patch("dmac.views._home_projects", return_value=FAKE_PROJECTS):
         return home(req)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_home_totals():
+    # home() caches its totals for an hour; each test counts afresh.
+    from django.core.cache import cache
+    cache.clear()
 
 
 class TestHomeContext:
@@ -140,13 +148,12 @@ class TestHomeSamplesScoping:
              patch("seek.models.Projects_samples") as PS, \
              patch("seek.models.Samples") as Samples:
             Samples.objects.count.return_value = 3
-            Samples.objects.filter.return_value.count.return_value = 0
             scoped = Samples.objects.filter.return_value
             scoped.order_by.return_value.values.return_value.__getitem__.return_value = [{"id": 9}]
             ctx = self._ctx(user)
         PS.objects.filter.assert_called_once_with(project_id__in=(5,))
         PS.objects.filter.return_value.values.assert_called_once_with("sample_id")
-        # the subquery feeds the recent-samples filter (the other filter call is the weekly count)
+        # the subquery feeds the recent-samples filter
         Samples.objects.filter.assert_any_call(id__in=PS.objects.filter.return_value.values.return_value)
         scoped.order_by.assert_called_once_with("-id")
         scoped.order_by.return_value.values.assert_called_once_with("id", "title", "created_at")
@@ -160,16 +167,18 @@ class TestHomeSamplesScoping:
         user = SimpleNamespace(is_authenticated=True, is_superuser=False, username="m", pk=7)
         with patch("nextseek_api.graph_search.scope.resolve_scope", side_effect=ScopeUnavailable("x")), \
              patch("seek.models.Samples") as Samples:
+            Samples.objects.count.return_value = 0
             ctx = self._ctx(user)
         assert ctx["recent_samples"] == []
-        # only the global counts ran: no newest-first query, no filter other than the weekly count
+        # only the global count ran: no newest-first query, no filter
         Samples.objects.order_by.assert_not_called()
-        assert all(set(c.kwargs) == {"created_at__gte"} for c in Samples.objects.filter.call_args_list)
+        Samples.objects.filter.assert_not_called()
 
     def test_superuser_sees_the_newest_samples_unscoped(self):
         from types import SimpleNamespace
         user = SimpleNamespace(is_authenticated=True, is_superuser=True, username="root", pk=1)
         with patch("seek.models.Samples") as Samples:
+            Samples.objects.count.return_value = 0
             Samples.objects.order_by.return_value.values.return_value.__getitem__.return_value = [{"id": 1}]
             ctx = self._ctx(user)
         assert ctx["recent_samples"] == [{"id": 1}]
@@ -216,3 +225,22 @@ class TestHomeRecentSamplesEmptyState:
         html = self._html(SimpleNamespace(is_authenticated=True, is_superuser=False, username="m", pk=7))
         assert "No recent activity yet." in html
         assert "Sign in to see samples." not in html
+
+
+class TestHomeTotalsCache:
+    """The totals are counted once per hour, not per request; the slow weekly sample count is gone."""
+
+    def test_totals_are_counted_once_for_many_visits(self):
+        with patch("seek.models.Samples") as Samples:
+            Samples.objects.count.return_value = 5
+            first = TestHomeSamplesScoping._ctx(AnonymousUser())
+            second = TestHomeSamplesScoping._ctx(AnonymousUser())
+        assert first["total_samples_count"] == second["total_samples_count"] == 5
+        assert Samples.objects.count.call_count == 1
+
+    def test_no_weekly_sample_count_runs_or_renders(self):
+        with patch("seek.models.Samples") as Samples:
+            Samples.objects.count.return_value = 5
+            ctx = TestHomeSamplesScoping._ctx(AnonymousUser())
+        Samples.objects.filter.assert_not_called()
+        assert "samples_delta_week" not in ctx
