@@ -46,3 +46,80 @@ def reap_stale_query_tasks_task():
 @shared_task(name="batch_upload.clear_expired_sessions")
 def clear_expired_sessions():
     call_command("clearsessions")
+
+
+def purge_durable_state(now=None, backend=None, broker_url=None, uploads_dir=None) -> dict:
+    """Keep the durable upload-queue files from growing without bound (the beat runs this daily).
+
+    Removes results older than the job TTL, consumed broker messages older than it, and saved sheets in uploads/
+    older than it that no queued job still names. A sheet is never removed while a job could still use it: a job
+    that started is over within the hard time limit, so only sheets older than the longer of the TTL and twice that
+    limit are considered, and a sheet named in a still-queued message is kept.
+    """
+    import base64
+    import json
+    import os
+    import time
+
+    from sqlalchemy import create_engine, text
+
+    from nextseek_api.batch_upload import celery_app as cm
+    from nextseek_api.batch_upload.job_index import _get_ttl_seconds, state_dir
+
+    now = now if now is not None else time.time()
+    ttl = _get_ttl_seconds()
+    out = {"results": 0, "messages": 0, "sheets": 0}
+
+    backend = backend if backend is not None else cm.app.backend
+    from celery.backends.database.models import Task
+    from datetime import datetime as _dt, timezone as _tz
+
+    session = backend.ResultSession()
+    try:
+        out["results"] = session.query(Task).filter(
+            Task.date_done < _dt.fromtimestamp(now - backend.expires.total_seconds(), _tz.utc).replace(tzinfo=None)
+        ).count()
+    finally:
+        session.close()
+    backend.cleanup()  # deletes results older than backend.expires (result_expires = the TTL)
+
+    live_text = ""
+    url = broker_url if broker_url is not None else cm.app.conf.broker_url
+    if url.startswith("sqla+"):
+        from datetime import datetime
+
+        engine = create_engine(url[len("sqla+"):])
+        try:
+            with engine.begin() as conn:
+                cutoff = datetime.fromtimestamp(now - ttl)
+                out["messages"] = conn.execute(
+                    text("DELETE FROM kombu_message WHERE visible = :no AND timestamp < :cutoff"),
+                    {"no": False, "cutoff": cutoff},
+                ).rowcount
+                for (payload,) in conn.execute(text("SELECT payload FROM kombu_message WHERE visible = :yes"), {"yes": True}):
+                    try:
+                        live_text += base64.b64decode(json.loads(payload)["body"]).decode("utf-8", "replace")
+                    except Exception:
+                        live_text += str(payload)
+        finally:
+            engine.dispose()
+    else:
+        live_text = None  # a broker we cannot read: keep every sheet
+
+    if live_text is not None:
+        uploads = uploads_dir if uploads_dir is not None else os.path.join(state_dir(), "uploads")
+        hard = int(cm.app.conf.task_time_limit or 7800)
+        cutoff_s = now - max(ttl, 2 * hard)
+        if os.path.isdir(uploads):
+            for name in os.listdir(uploads):
+                path = os.path.join(uploads, name)
+                if os.path.isfile(path) and os.path.getmtime(path) < cutoff_s and name not in live_text:
+                    os.remove(path)
+                    out["sheets"] += 1
+    logger.info("purged durable queue state: %s", out)
+    return out
+
+
+@shared_task(name="batch_upload.purge_durable_state")
+def purge_durable_state_task():
+    purge_durable_state()

@@ -73,6 +73,15 @@ else
   uv run --no-sync daphne -b 0.0.0.0 -p 8000 dmac.asgi:application &
 fi
 
+case "${BATCH_UPLOAD_STATE_DIR:-/var/celery}" in
+  /var/celery|/var/celery/*) ;;
+  *) echo "[entrypoint] WARNING: BATCH_UPLOAD_STATE_DIR=${BATCH_UPLOAD_STATE_DIR} is not under /var/celery (the batch_upload_state volume): queued uploads will not survive a recreate" >&2 ;;
+esac
+
+# Boot recovery: no worker is running yet, so any job still STARTED/PROGRESS was killed by the restart.
+# Fail it (never re-run it) so its status page ends. Queued, not-yet-started jobs are kept.
+uv run --no-sync manage.py mark_interrupted_batch_jobs || echo "[entrypoint] mark_interrupted_batch_jobs failed; continuing" >&2
+
 uv run --no-sync celery -A nextseek_api.batch_upload.celery_app worker \
               --loglevel=info \
               -Q batch_upload \
@@ -82,7 +91,7 @@ uv run --no-sync celery -A nextseek_api.batch_upload.celery_app worker \
 # Its schedule file sits on /var/celery; every entry expires, so a busy worker drops missed runs.
 uv run --no-sync celery -A nextseek_api.batch_upload.celery_app beat \
               --loglevel=info \
-              --schedule /var/celery/celerybeat-schedule &
+              --schedule "${BATCH_UPLOAD_STATE_DIR:-/var/celery}/celerybeat-schedule" &
 
 # ---------------------------------------------------------------------------
 # The attribute-mutation pipeline and the assay-registration drain loop.
@@ -114,10 +123,10 @@ uv run --no-sync celery -A nextseek_api.batch_upload.celery_app beat \
 # command and holds no broker, and the dispatcher is still the sole publisher.
 #
 # Two brokers in one container, on purpose. The attribute queue keeps the
-# durable volume it had as a service; the batch_upload queue keeps the
-# container-local default it had as a process here. Setting one container-wide
-# CELERY_BROKER_URL would move batch_upload onto a volume that survives a
-# recreate, and a queued upload would re-run after a deploy.
+# durable volume it had as a service; the batch_upload queue keeps its own
+# default, SQLite files under BATCH_UPLOAD_STATE_DIR (/var/celery, the
+# batch_upload_state volume), so a queued upload survives a recreate. Setting one
+# container-wide CELERY_BROKER_URL would put the two queues on one broker.
 _ATTRIBUTE_BROKER="sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3"
 
 CELERY_BROKER_URL="$_ATTRIBUTE_BROKER" \

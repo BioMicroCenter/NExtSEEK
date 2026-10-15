@@ -17,25 +17,43 @@ django.setup()
 
 from celery import Celery  # noqa: E402
 
+from nextseek_api.batch_upload.job_index import _get_ttl_seconds as _job_ttl_seconds  # noqa: E402
+from nextseek_api.batch_upload.job_index import state_dir  # noqa: E402
+
+
+def default_urls() -> tuple:
+    """Broker and result-backend defaults: SQLite files on the durable state directory."""
+    d = state_dir()
+    return f"sqla+sqlite:///{d}/broker.sqlite", f"db+sqlite:///{d}/results.sqlite"
+
+
+_DEFAULT_BROKER, _DEFAULT_BACKEND = default_urls()
+
 app = Celery("batch_upload")
 
 app.config_from_object(
     {
-        "broker_url": os.environ.get(
-            "CELERY_BROKER_URL",
-            "sqla+sqlite:////var/celery/broker.sqlite",
-        ),
-        "result_backend": os.environ.get(
-            "CELERY_RESULT_BACKEND",
-            "db+sqlite:////var/celery/results.sqlite",
-        ),
+        "broker_url": os.environ.get("CELERY_BROKER_URL", _DEFAULT_BROKER),
+        "result_backend": os.environ.get("CELERY_RESULT_BACKEND", _DEFAULT_BACKEND),
         "task_serializer": "json",
         "result_serializer": "json",
         "accept_content": ["json"],
         "task_routes": {
             "batch_upload.*": {"queue": "batch_upload"},
+            # Celery's own housekeeping (celery.backend_cleanup) goes to a queue the one worker reads; on the
+            # default "celery" queue nothing consumed it and results never expired.
+            "celery.*": {"queue": "batch_upload"},
             "cc_assistant.*": {"queue": "batch_upload"},
             "attribute_mutations.*": {"queue": "attribute_mutations"},
+        },
+        # Results live as long as the job index does; the durable results file would otherwise only grow.
+        "result_expires": _job_ttl_seconds(),
+        # The periodic jobs return nothing anyone reads: do not write a result row every run.
+        "task_annotations": {
+            "cc_assistant.sweep_cc_summaries": {"ignore_result": True},
+            "batch_upload.reap_stale_query_tasks": {"ignore_result": True},
+            "batch_upload.clear_expired_sessions": {"ignore_result": True},
+            "batch_upload.purge_durable_state": {"ignore_result": True},
         },
         "beat_schedule": {
             # Each entry expires at its own interval, so runs missed while the one batch_upload worker is busy
@@ -51,6 +69,11 @@ app.config_from_object(
                 "task": "batch_upload.reap_stale_query_tasks",
                 "schedule": 300.0,
                 "options": {"expires": 300.0},
+            },
+            "purge-durable-state": {
+                "task": "batch_upload.purge_durable_state",
+                "schedule": 86400.0,
+                "options": {"expires": 86400.0},
             },
             "clear-expired-sessions": {
                 "task": "batch_upload.clear_expired_sessions",

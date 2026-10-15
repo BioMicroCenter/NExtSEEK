@@ -3,8 +3,9 @@
 Django serves this route itself: nginx has no ``/media`` location and proxies every path it does not own. It used to
 be the plain static serve over all of ``MEDIA_ROOT``, with no login, and ``MEDIA_ROOT`` is the application's working
 state, named by the minute, the second or the user id and linked from nowhere: the sample upload page's copy of each
-sheet (``uploads/``), batch upload's files, reports, checkpoints and per-user job index (``batch_upload_uploads/``,
-``batch_upload_reports/``, ``batch_upload_checkpoints/``, ``celery_jobs/``), the chat upload staging
+sheet (``uploads/``), batch upload's reports and checkpoints (``batch_upload_reports/``,
+``batch_upload_checkpoints/``; its saved sheets and per-user job index now live on the ``batch_upload_state``
+volume, not here), the chat upload staging
 (``cc_upload_staging/``), the sheet templates (``reserved/``) and the legacy ``download/`` directory. None of it is
 addressed to a reader, and none of it belongs on a route that answers by name alone.
 

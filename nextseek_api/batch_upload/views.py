@@ -24,7 +24,7 @@ from nextseek_api.graph_search.scope import resolve_scope
 from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
 
 from .celery_app import app as celery_app
-from .job_index import list_jobs, register_job, user_owns_job
+from .job_index import list_jobs, register_job, state_dir, user_owns_job
 from .models import InputRowModel, ValidationResult
 from .tasks import run_batch_upload_task
 from .validation import run_validation_multi
@@ -681,12 +681,12 @@ class BatchUploadViewSet(viewsets.ViewSet):
 
 # ── helpers ───────────────────────────────────────────────────────────────
 
-_UPLOAD_DIR = "batch_upload_uploads"
+_UPLOAD_DIR = "uploads"
 
 
 def _save_uploaded_file(uploaded_file) -> str:
-    """Save an uploaded Django file to MEDIA_ROOT/batch_upload_uploads/ and return the path."""
-    upload_dir = os.path.join(getattr(settings, "MEDIA_ROOT", "/tmp"), _UPLOAD_DIR)
+    """Save an uploaded Django file to <state_dir>/uploads/ (the durable volume) and return the path."""
+    upload_dir = os.path.join(state_dir(), _UPLOAD_DIR)
     os.makedirs(upload_dir, exist_ok=True)
     safe_name = os.path.basename(getattr(uploaded_file, "name", "upload.xlsx") or "upload.xlsx")
     filename = f"{int(time.time())}_{safe_name}"

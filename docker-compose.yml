@@ -63,9 +63,10 @@ services:
       # container (docker/scripts/entrypoint.sh) rather than services of their
       # own. Only those two processes get CELERY_BROKER_URL pointed at it; the
       # batch_upload worker and the web process keep the container-local
-      # default under /var/celery, so a queued upload still does not survive a
-      # recreate.
+      # default under /var/celery, which is now its own volume: a queued upload
+      # (broker, results, owner index, saved sheet) survives a recreate.
       - attribute_mutation_broker:/var/lib/attribute-broker
+      - batch_upload_state:/var/celery
     # One probe for the four background runtimes this container now carries
     # (docker/scripts/attribute_runtime_healthcheck.py app). The app service
     # had no healthcheck of its own, and each of the four services folded into
@@ -608,3 +609,7 @@ volumes:
   # explicitly-confirmed `startup.sh reset` remove it. The durable MySQL
   # job/outbox records remain the application audit source of truth.
   attribute_mutation_broker:
+  # The batch-upload queue's state (BATCH_UPLOAD_STATE_DIR, /var/celery):
+  # broker, results, job index, saved sheets and the celery beat schedule.
+  # `rebuild` keeps it; `startup.sh reset` drops it.
+  batch_upload_state:

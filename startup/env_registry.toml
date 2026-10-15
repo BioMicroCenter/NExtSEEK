@@ -926,6 +926,11 @@ doc = "Folder the SEEK exports page writes to."
 files = ["local_settings"]
 doc = "Hours a batch upload job record is kept."
 
+[BATCH_UPLOAD_STATE_DIR]
+files = ["nextseek.env"]
+default = "/var/celery"
+doc = "Batch upload: directory holding the queue's broker, results, job index, saved sheets and beat schedule (the batch_upload_state volume)."
+
 [SAMPLE_RETRIEVE_NEO4J_CONNECT_TIMEOUT]
 files = ["local_settings"]
 doc = "Sample retrieve: Neo4j connect timeout in seconds."

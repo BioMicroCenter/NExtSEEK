@@ -906,6 +906,7 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `NEXTSEEK_RISK_OVERLAY_ENABLED` | local_settings | False |  |  | Router risk overlay switch. |
 | `NEXTSEEK_EXPORT_ROOT` | local_settings |  |  |  | Folder the SEEK exports page writes to. |
 | `BATCH_UPLOAD_JOB_TTL_HOURS` | local_settings |  |  |  | Hours a batch upload job record is kept. |
+| `BATCH_UPLOAD_STATE_DIR` | nextseek.env | /var/celery |  |  | Batch upload: directory holding the queue's broker, results, job index, saved sheets and beat schedule (the batch_upload_state volume). |
 | `SAMPLE_RETRIEVE_NEO4J_CONNECT_TIMEOUT` | local_settings |  |  |  | Sample retrieve: Neo4j connect timeout in seconds. |
 | `SAMPLE_RETRIEVE_NEO4J_QUERY_TIMEOUT` | local_settings |  |  |  | Sample retrieve: Neo4j query timeout in seconds. |
 | `DJANGO_SETTINGS_MODULE` | image, internal | dmac.settings |  |  | Django settings module; asgi and wsgi set it, tests set their own. |
@@ -1046,6 +1047,19 @@ Container-CC summary sweep (300 s), the stuck-turn reaper (300 s) and Django `cl
 delays them. The sweep sends idle Container-CC transcripts (already scrubbed) to the summary model: set
 `NEXTSEEK_CC_SUMMARY_SWEEP=0` in `nextseek.env` and restart the app to stop it; the rest of the beat keeps running.
 `DMAC_CC_MEMORY_SWEEP_MAX_PER_RUN` (20) bounds one run's summaries.
+
+### Durable upload queue
+
+`/var/celery` is the compose volume `batch_upload_state` (`rebuild` keeps it, `startup.sh reset` drops it). It holds the
+batch_upload broker and results, the per-user job index (`jobs/`), saved sheets (`uploads/`) and the beat schedule, so a
+queued, not-yet-started upload survives a recreate and runs afterwards on the new code. Celery keeps its early ack: a
+job the worker had already taken is never redelivered. At boot, `manage.py mark_interrupted_batch_jobs` (after migrate,
+before the worker) turns every job left STARTED/PROGRESS into FAILURE ("interrupted by a server restart: re-upload the
+sheet; rows already saved are skipped"). Rows with no UID, no Name and no File_PrimaryData cannot be recognized, so a
+re-upload of a half-done sheet inserts them again (true of any re-upload). `BATCH_UPLOAD_STATE_DIR` moves the directory.
+A daily beat task (`batch_upload.purge_durable_state`) removes results and consumed broker messages older than the job TTL
+(`BATCH_UPLOAD_JOB_TTL_HOURS`) and saved sheets older than it that no queued job names; the entrypoint logs a warning if
+`BATCH_UPLOAD_STATE_DIR` is not under `/var/celery`.
 
 ---
 

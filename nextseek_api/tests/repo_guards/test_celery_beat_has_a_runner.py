@@ -15,7 +15,8 @@ def test_a_declared_schedule_has_a_beat_process():
     beat = [ln for ln in ENTRYPOINT.splitlines()
             if "celery" in ln and " beat" in ln and not ln.lstrip().startswith("#")]
     assert beat, "celery_app.py declares a beat_schedule but entrypoint.sh never starts celery beat"
-    assert "--schedule /var/celery/celerybeat-schedule" in beat[0]
+    assert "--schedule" in beat[0] and "/celerybeat-schedule" in beat[0]
+    assert "${BATCH_UPLOAD_STATE_DIR:-/var/celery}" in beat[0]
 
 
 def test_every_schedule_entry_expires_and_the_three_jobs_are_there():
