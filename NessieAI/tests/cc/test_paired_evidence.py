@@ -738,43 +738,6 @@ def test_mutation_manifest_route_fails(tmp_path, matrix_corpus, monkeypatch):
         pe.ingest_paired_evidence(zip_path=zip_path, corpus_path=matrix_corpus)
 
 
-def test_ensure_real_e2e_catalog_reloads_poisoned_namespace():
-    import sys
-    import types
-
-    import NessieAI.tests as tests_pkg
-
-    # The guard drops every NessieAI.tests.e2e module, and the import below
-    # loads fresh copies. Put the originals back afterwards: modules collected
-    # earlier hold the originals while later mock.patch targets would resolve
-    # the fresh copies, and e2e tests elsewhere in the session then patch an
-    # object their code never calls.
-    prefix = "NessieAI.tests.e2e"
-    attr = prefix.rpartition(".")[2]  # the package's attribute on NessieAI.tests
-
-    def _e2e_keys():
-        return [key for key in sys.modules if key == prefix or key.startswith(prefix + ".")]
-
-    saved_modules = {key: sys.modules[key] for key in _e2e_keys()}
-    absent = object()
-    saved_attr = getattr(tests_pkg, attr, absent)
-    try:
-        stub = types.ModuleType("NessieAI.tests.e2e.catalog")
-        sys.modules["NessieAI.tests.e2e.catalog"] = stub
-        pe.ensure_real_e2e_catalog()
-        assert sys.modules.get("NessieAI.tests.e2e.catalog") is not stub
-        from NessieAI.tests.e2e.catalog import load_catalog
-        assert callable(load_catalog)
-    finally:
-        for key in _e2e_keys():
-            del sys.modules[key]
-        sys.modules.update(saved_modules)
-        if saved_attr is absent:
-            if hasattr(tests_pkg, attr):
-                delattr(tests_pkg, attr)
-        else:
-            setattr(tests_pkg, attr, saved_attr)
-
 
 def test_paired_cli_check_and_write(tmp_path, monkeypatch):
     assert pe.main(["--check"]) == 0

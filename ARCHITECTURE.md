@@ -52,12 +52,11 @@ loop), SEEK with its workers and Solr, MySQL, Neo4j, nginx, a message broker, an
 
 Found by the code graph; each is a real import, not a graph artefact.
 
-- Product code imports the test tree. Four product modules import from `NessieAI/tests/nessie_tests/`: the
-  `nessie` management command (`nextseek_api/management/commands/nessie.py`),
-  `NessieAI/hibayes/human_grade_fit.py`, `NessieAI/cc/op_registry/paired_evidence.py` and
-  `NessieAI/build_tools/gen_op_surfaces/route_capabilities.py`. The live router also reads that folder's
-  `corpus.json` through `NessieAI/paths.py` (a path read, not an import). That is why the app image must
-  carry `NessieAI/tests/`.
+- Product code imports the test tree in one place: the `nessie` management command
+  (`nextseek_api/management/commands/nessie.py`, the harness CLI), a named exemption in the import contract. The
+  code the engine shares with the harness (corpus, export, manifests) lives in `NessieAI/nessie_harness/`. The live
+  router also reads `NessieAI/tests/nessie_tests/corpus.json` through `NessieAI/paths.py` (a path read, not an
+  import). That is why the app image must carry `NessieAI/tests/` and `NessieAI/nessie_harness/`.
 - The NS engine package imports the Django app: `NessieAI/chat_nextseek/src/chat_nextseek/orchestrator.py`
   imports `nextseek_api.assistant.excel_export`, so `chat_nextseek` is not the standalone package its
   `pyproject.toml` suggests.

@@ -31,8 +31,8 @@ from NessieAI.cc.op_registry.routes import (
     NS_FOLLOWUP_NOT_FOR,
     NS_SUMMARY_NOT_FOR,
 )
-from NessieAI.tests.nessie_tests import corpus as nessie_corpus
-from NessieAI.tests.nessie_tests import export as nexport
+from NessieAI.nessie_harness import corpus as nessie_corpus
+from NessieAI.nessie_harness import export as nexport
 
 # Repo-relative, joined onto the --root checkout; one source in constants.py.
 ROUTE_CAPABILITIES_REL = Path(constants.ROUTE_CAPABILITIES_REL)

@@ -211,8 +211,6 @@ edges made of service definitions and names in string form.
   from inside this boundary.
 - `scripts/run_attribute_mutants.py:88` loads
   `nextseek_api.attributes.tests.mutation_driver` as a pytest plugin, again by string.
-- `dmac/attribute_performance_settings.py:36` imports a module from this boundary's
-  `tests/` package that does not exist anywhere in the worktree.
 
 Omitted from the list above: the 39 Python files under this boundary's `tests/`, which
 import their own siblings freely.

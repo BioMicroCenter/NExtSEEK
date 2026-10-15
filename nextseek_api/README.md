@@ -173,9 +173,8 @@ shell only through the back-edges named in `NessieAI/CLAUDE.md`: `nextseek_api.m
 `NessieAI/schema_rag/`) and `nextseek_api.conftest` (from the harness container tests). All
 other edges go into child packages. `NessieAI/chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py`
 is named after this app but is a chat-side HTTP tool that imports nothing from it.
-`dmac/asgi.py:23` and `dmac/attribute_performance_settings.py:36` reach into
-`nextseek_api.assistant` and `nextseek_api.attributes` respectively, which are their
-edges and not this one's.
+`dmac/asgi.py:23` reaches into `nextseek_api.assistant`, which is its
+edge and not this one's.
 
 See `nextseek_api/CLAUDE.md` for the invariants this structure rests on and the traps it
 sets.

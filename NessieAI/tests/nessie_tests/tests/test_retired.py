@@ -99,12 +99,12 @@ def test_only_the_metadata_lookups_read_retired_json():
     """No selection path may read retired.json (the 2026-08-04 trap). `_read_retired` is
     defined once in corpus.py and called only by the three lookups (load_all_definitions, variant_meta, hibayes_meta); no other harness module
     opens the file."""
-    text = (HERE / "corpus.py").read_text(encoding="utf-8")
+    text = (HERE.parents[1] / "nessie_harness" / "corpus.py").read_text(encoding="utf-8")
     assert len(re.findall(r"_read_retired\(", text)) == 4     # the def and its three callers
     callers = {m.group(1) for m in re.finditer(r"def (\w+)\(", text)
                if "_read_retired(" in text[m.end():].split("\ndef ")[0]} - {"_read_retired"}
     assert callers == {"load_all_definitions", "variant_meta", "hibayes_meta"}, callers
-    for p in HERE.glob("*.py"):
+    for p in [*HERE.glob("*.py"), *(HERE.parents[1] / "nessie_harness").glob("*.py")]:
         if p.name != "corpus.py":
             body = p.read_text(encoding="utf-8")
             assert "_read_retired" not in body, f"{p.name} reads retired.json"

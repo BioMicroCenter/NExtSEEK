@@ -13,10 +13,10 @@ COPY NessieAI/hibayes /app/NessieAI/hibayes
 # taxonomy (family_labels, which reads the corpus through paths.py) at import, and on
 # the fit path the set3 manifest model and corpus.json. Never NessieAI/history/.
 COPY NessieAI/router/__init__.py NessieAI/router/family_labels.py /app/NessieAI/router/
-COPY NessieAI/tests/__init__.py /app/NessieAI/tests/
-COPY NessieAI/tests/nessie_tests/__init__.py NessieAI/tests/nessie_tests/manifest.py \
-     NessieAI/tests/nessie_tests/bayes_manifest.py NessieAI/tests/nessie_tests/corpus.json \
-     /app/NessieAI/tests/nessie_tests/
+COPY NessieAI/nessie_harness/__init__.py NessieAI/nessie_harness/manifest.py \
+     NessieAI/nessie_harness/turn_cost.py NessieAI/nessie_harness/bayes_manifest.py \
+     /app/NessieAI/nessie_harness/
+COPY NessieAI/tests/nessie_tests/corpus.json /app/NessieAI/tests/nessie_tests/
 
 RUN pip install --no-cache-dir \
     pydantic orjson numpy scipy pytest \

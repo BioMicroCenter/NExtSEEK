@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from NessieAI.paths import NESSIE_CORPUS
 from NessieAI.tests.nessie_tests import evaluate
 from NessieAI.tests.nessie_tests.route_observer import RouteObservation
 
@@ -482,8 +483,10 @@ def test_the_detector_lives_in_exactly_one_module():
     assert consistency.is_provider_outage is outage.is_provider_outage
 
     root = Path(evaluate.__file__).resolve().parent
-    defines = sorted(p.name for p in root.glob("*.py")
-                     if outage.PROVIDER_OUTAGE_MARKER in p.read_text(encoding="utf-8"))
+    harness = Path(outage.__file__).resolve().parent  # outage.py lives in NessieAI/nessie_harness
+    defines = sorted(p.name for d in (root, harness) for p in d.glob("*.py")
+                     if outage.PROVIDER_OUTAGE_MARKER in p.read_text(encoding="utf-8")
+                     and "Alias of" not in p.read_text(encoding="utf-8"))
     assert defines == ["outage.py"], f"the marker phrase is duplicated in {defines}"
 
 
@@ -1269,7 +1272,7 @@ def test_reply_length_criterion_is_engine_neutral_and_scored_on_a_forced_cc_arm(
 
 def test_cannot_do_this_analysis_cases_cap_the_reply_length():
     from NessieAI.tests.nessie_tests import corpus
-    raw = json.loads((Path(corpus.__file__).parent / "corpus.json").read_text())
+    raw = json.loads((NESSIE_CORPUS).read_text())
     found = []
     def walk(o):
         if isinstance(o, dict):
@@ -1335,7 +1338,7 @@ _ONTO_TURNS = {  # case id -> (turn index, a re-list with an offer, a proposal f
 
 def _onto_turn_passes(vid, reply):
     from NessieAI.tests.nessie_tests import corpus
-    v = next(x for x in corpus.merged(Path(corpus.__file__).parent / "corpus.json") if x.id == vid)
+    v = next(x for x in corpus.merged(NESSIE_CORPUS) if x.id == vid)
     crits = list(v.turns[_ONTO_TURNS[vid][0]].pass_criteria)
     return evaluate.evaluate_turn(_cc_payload(reply=reply), crits, OBS_CC, last_reply=reply)[0]
 

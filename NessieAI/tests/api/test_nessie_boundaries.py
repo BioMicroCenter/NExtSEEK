@@ -120,17 +120,9 @@ BACK_EDGE_ALLOWLIST: dict[str, frozenset[str]] = {
     "NessieAI/schema_rag/service.py": frozenset({"nextseek_api.models"}),
 }
 
-# Frozen engine-to-harness edges (audit section 3 and decision 14).
-_NT = "NessieAI.tests.nessie_tests"
-HARNESS_EDGE_ALLOWLIST: dict[str, frozenset[str]] = {
-    "NessieAI/cc/op_registry/paired_evidence.py": frozenset(
-        {f"{_NT}.bayes_manifest", f"{_NT}.corpus", f"{_NT}.export", f"{_NT}.runner"}
-    ),
-    "NessieAI/build_tools/gen_op_surfaces/route_capabilities.py": frozenset(
-        {f"{_NT}.corpus", f"{_NT}.export"}
-    ),
-    "NessieAI/hibayes/human_grade_fit.py": frozenset({f"{_NT}.bayes_manifest"}),
-}
+# Engine-to-harness edges: none. The corpus, export and manifest code the product
+# reads lives in NessieAI.nessie_harness, outside the test tree.
+HARNESS_EDGE_ALLOWLIST: dict[str, frozenset[str]] = {}
 
 # sys.path mutations whose argument this test cannot evaluate statically, each
 # checked by hand. All seven are the same run-by-path bootstrap: walk up from
@@ -523,8 +515,8 @@ def test_no_new_engine_imports_of_the_test_tree():
         if target not in HARNESS_EDGE_ALLOWLIST.get(rel, frozenset())
     ]
     assert not new, (
-        "Engine or build code imports NessieAI.tests. Only the three frozen "
-        "harness edges are allowed (audit decision 14):\n  " + "\n  ".join(new)
+        "Engine or build code imports NessieAI.tests. Shared harness code "
+        "belongs in NessieAI.nessie_harness:\n  " + "\n  ".join(new)
     )
 
 

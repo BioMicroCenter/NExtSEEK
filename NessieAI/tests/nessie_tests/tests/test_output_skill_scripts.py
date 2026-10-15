@@ -836,7 +836,7 @@ def test_a_standalone_copy_pulls_and_leaves_the_prices_empty(tmp_path, monkeypat
 def test_a_copy_beside_the_rule_uses_it(tmp_path):
     script = _standalone_copy(tmp_path)
     (script.parent / "turn_cost.py").write_text(
-        (Path(__file__).resolve().parents[1] / "turn_cost.py").read_text(encoding="utf-8"), encoding="utf-8")
+        (Path(__file__).resolve().parents[3] / "nessie_harness" / "turn_cost.py").read_text(encoding="utf-8"), encoding="utf-8")
     spec = importlib.util.spec_from_file_location("_beside_fetch_run", script)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -866,7 +866,7 @@ def test_a_pull_that_joins_no_case_says_so(tmp_path, monkeypatch, capsys):
 
 
 def test_a_pull_loads_the_summing_rule_from_the_harness_not_a_copy():
-    assert fetch_run.turn_cost.__file__.endswith("nessie_tests/turn_cost.py")
+    assert fetch_run.turn_cost.__file__.endswith("nessie_harness/turn_cost.py")
 
 
 def test_price_turns_prefers_the_servers_whole_turn_cost():

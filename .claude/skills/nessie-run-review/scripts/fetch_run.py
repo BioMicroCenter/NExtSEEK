@@ -103,7 +103,7 @@ def _load_turn_cost():
     here = pathlib.Path(__file__).resolve()
     candidates = [here.parent / "turn_cost.py"]
     if len(here.parents) > 4:
-        candidates.append(here.parents[4] / "NessieAI" / "tests" / "nessie_tests" / "turn_cost.py")
+        candidates.append(here.parents[4] / "NessieAI" / "nessie_harness" / "turn_cost.py")
     for path in candidates:
         if not path.is_file():
             continue

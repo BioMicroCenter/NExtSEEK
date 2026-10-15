@@ -85,7 +85,7 @@ Depends on, outside this directory:
 - The plugin `bin/` directory under `NessieAI/docker/cc-runtime/`. Emptying it silently empties the
   op inventory.
 - `NessieAI/tests/nessie_tests/` and `NessieAI/tests/e2e/`, from `op_registry/paired_evidence.py`:
-  one of the three frozen engine-to-harness edges.
+  imports the shared harness code from `NessieAI/nessie_harness/`, not the test tree.
 
 Depended on by (non-test):
 

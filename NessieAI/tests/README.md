@@ -111,8 +111,11 @@ docker run --rm -v <WRITABLE checkout copy>:/repo -w /repo \
 
 `docker cp` is ephemeral and only for testing (`DEPLOYMENT.md` §1). The old form, copying `nessie_tests` to `/app/`, succeeds and tests stale code.
 
+A box whose image predates `NessieAI/nessie_harness/` needs a rebuild first; the old paths are aliases that import it.
+
 ```bash
 docker cp NessieAI/tests/nessie_tests nextseek:/app/NessieAI/tests/
+docker cp NessieAI/nessie_harness nextseek:/app/NessieAI/
 docker exec -e DJANGO_SETTINGS_MODULE=dmac.test_settings nextseek \
   sh -c 'cd /app && uv run pytest NessieAI/tests/nessie_tests/tests_container/ --no-migrations -v'
 ```

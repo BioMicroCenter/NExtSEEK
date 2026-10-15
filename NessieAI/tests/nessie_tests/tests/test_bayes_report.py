@@ -545,6 +545,9 @@ def test_every_module_command_in_the_runbook_has_an_entry_point():
         path = ROOT / (dotted.replace(".", "/") + ".py")
         assert path.is_file(), f"{dotted} names no module"
         src = path.read_text(encoding="utf-8")
+        if "Alias of NessieAI.nessie_harness." in src:  # moved module: its old path is an alias
+            path = ROOT / "NessieAI" / "nessie_harness" / path.name
+            src = path.read_text(encoding="utf-8")
         assert re.search(r"^def main\(", src, re.M), f"{dotted} has no main()"
         assert '__name__ == "__main__"' in src, f"{dotted} never calls its main()"
 

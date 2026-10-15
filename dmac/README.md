@@ -235,8 +235,6 @@ Depends on, outside this directory:
   decides which of the two database aliases every ORM query uses.
 - `nextseek_api.assistant.routing`, imported at `dmac/asgi.py:23` for the assistant
   WebSocket patterns, and `nextseek_api.urls`, imported at `dmac/urls.py:14`.
-- `nextseek_api.attributes.tests.performance_worker_telemetry`, imported at
-  `dmac/attribute_performance_settings.py:35-36`. See `dmac/CLAUDE.md` about this one.
 - `mysqlclient`, imported as `MySQLdb` at module scope in seven of this directory's
   files, including `dmac/dbconnection.py:3`. That single import is why the legacy layer
   cannot be exercised on a host without a C toolchain.
@@ -270,7 +268,7 @@ modules.
 - The settings module names are configuration, not imports, and appear in
   `pyproject.toml:147`, `.github/workflows/ci-pytest.yml:50`, `scripts/run_tests.sh:46`,
   `ci/gate/live_routes.py:18`, `scripts/dump_routes.py:20`,
-  `nextseek_api/batch_upload/celery_app.py:12` and `NessieAI/tests/nessie_tests/sources.py:249`.
+  `nextseek_api/batch_upload/celery_app.py:12` and `NessieAI/nessie_harness/sources.py:249`.
 - `dmac/local_settings.py`, which this directory never contains, is bind-mounted by path
   into the `nextseek` service (`docker-compose.yml`), the only service that runs the app
   image. It is written by
