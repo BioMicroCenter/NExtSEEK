@@ -103,7 +103,7 @@ from NessieAI.cc.ops_road import SIDECAR, ops_road
 from NessieAI.ns.write_gate import WriteBlockedError, build_gate, load_allowlist
 from rest_framework.exceptions import APIException
 from nextseek_api.assistant.op_errors import HTTP_STATUS, error_body, failure_reason, op_error, validation_fields
-from nextseek_api.permissions import is_turn_pass, may_read_any, plan_mode_refused
+from nextseek_api.permissions import is_turn_pass, may_read_any, plan_mode_refused, require_session_owner
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from NessieAI.ns.bundle_download import bundle_metadata
 # Moved to NessieAI/ns/ (NessieAI Phase B): the NS turn in turn.py, the on-disk
@@ -575,9 +575,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except ChatSession.DoesNotExist:
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        if (session.user_id != request.user.pk
-                and not may_read_any(request)):
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, session, admin_read=True)) is not None:
+            return denied
 
         history = session.results_history or []
         payload = SessionDetailResponse(
@@ -616,8 +615,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except ChatSession.DoesNotExist:
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        if session.user_id != request.user.pk:
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, session)) is not None:
+            return denied
 
         raw_title = (request.data or {}).get("title")
         if not isinstance(raw_title, str):
@@ -654,8 +653,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except ChatSession.DoesNotExist:
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        if session.user_id != request.user.pk:
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, session)) is not None:
+            return denied
 
         session.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -1009,9 +1008,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except ChatSession.DoesNotExist:
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        if (chat_session.user_id != request.user.pk
-                and not may_read_any(request)):
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, chat_session, admin_read=True)) is not None:
+            return denied
 
         history = chat_session.results_history or []
         bundle_id_int = int(bundle_id)
@@ -1093,9 +1091,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except ChatSession.DoesNotExist:
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        if (chat_session.user_id != request.user.pk
-                and not may_read_any(request)):
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, chat_session, admin_read=True)) is not None:
+            return denied
 
         history = chat_session.results_history or []
         bundle_id_int = int(bundle_id)
@@ -1274,9 +1271,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except (ChatSession.DoesNotExist, DjangoValidationError):
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        is_owner = chat_session.user_id == request.user.pk
-        if not is_owner and not may_read_any(request):
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, chat_session, admin_read=True)) is not None:
+            return denied
 
         # The CC tree comes from the session itself (the project folder its CC turns
         # ran in, and the owner's username), never from the login that asks, so a

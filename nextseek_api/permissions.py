@@ -79,3 +79,15 @@ def plan_mode_refused(request, mode) -> bool:
     if mode != "plan" or is_turn_pass(request):
         return False
     return not IsSuperUser().has_permission(request, None)
+
+
+def require_session_owner(request, session, *, admin_read: bool = False):
+    """The 403 response for a chat the caller does not own, else None.
+
+    ``admin_read`` lets a reader of any user's data (``may_read_any``) through, for the read endpoints.
+    """
+    if session.user_id == request.user.pk or (admin_read and may_read_any(request)):
+        return None
+    from nextseek_api.authentication import _error_response  # lazy: keeps this module free of DRF response imports at load
+
+    return _error_response("Forbidden", "You do not own this session.", 403)
