@@ -110,7 +110,7 @@ class TestHomeProjectsScoping:
 
 
 class TestHomeSamplesScoping:
-    """Counts and recent samples are for logged-in callers; recent rows are limited to the caller's projects."""
+    """Totals are for everyone; recent sample rows are for logged-in callers, limited to the caller's projects."""
 
     @staticmethod
     def _ctx(user):
@@ -122,14 +122,14 @@ class TestHomeSamplesScoping:
             home(req)
         return render.call_args[0][2]
 
-    def test_anonymous_sees_no_counts_or_samples(self):
+    def test_anonymous_sees_the_totals_but_no_sample_titles(self):
         with patch("seek.models.Samples") as Samples:
             Samples.objects.count.return_value = 99
             Samples.objects.order_by.return_value.values.return_value.__getitem__.return_value = [{"id": 1}]
             ctx = self._ctx(AnonymousUser())
+        assert ctx["total_samples_count"] == 99
         assert ctx["recent_samples"] == []
-        assert ctx["total_samples_count"] == 0
-        Samples.objects.count.assert_not_called()
+        Samples.objects.order_by.assert_not_called()
 
     def test_member_sees_only_their_projects_samples(self):
         from types import SimpleNamespace
