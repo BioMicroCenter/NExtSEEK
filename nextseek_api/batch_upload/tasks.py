@@ -10,9 +10,16 @@ from celery.exceptions import SoftTimeLimitExceeded
 
 from .celery_app import app
 from .config import BatchUploadConfig
+from .job_index import state_dir
 from .orchestrator import run_batch_upload_multi
 
 log = logging.getLogger(__name__)
+
+
+def cancel_marker_path(job_id: str) -> str:
+    """The file whose existence means the job is cancelled. It lives in the durable state dir, so a queued job
+    cancelled before a restart still sees it (the broker drops the revoke)."""
+    return os.path.join(state_dir(), "cancel", str(job_id))
 
 
 @app.task(bind=True, queue="batch_upload", name="batch_upload.run")
@@ -57,8 +64,19 @@ def run_batch_upload_task(
     # Cancellation flag
     _stop_event = threading.Event()
 
+    marker = cancel_marker_path(self.request.id or "unknown")
+
     def should_stop() -> bool:
-        return _stop_event.is_set()
+        return _stop_event.is_set() or os.path.exists(marker)
+
+    if os.path.exists(marker):
+        _clear_marker(marker)
+        return {
+            "job_id": self.request.id,
+            "summary_path": "",
+            "totals": {"processed": 0, "success": 0, "skipped": 0, "failed": 0, "cancelled": True},
+            "errors": [],
+        }
 
     self.update_state(
         state="STARTED",
@@ -100,6 +118,7 @@ def run_batch_upload_task(
                         "scope_project_ids": (
                             None if config.scope_project_ids is None else list(config.scope_project_ids)
                         ),
+                        "person_id": contributor_id,
                     },
                 )
             except Exception as exc:
@@ -123,10 +142,21 @@ def run_batch_upload_task(
             meta={"stage": "ERROR", "error": str(exc)[:500]},
         )
         raise
+    finally:
+        _clear_marker(marker)
+
+
+def _clear_marker(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 @app.task(bind=True, queue="batch_upload", name="batch_upload.resolve_orphans")
-def resolve_orphans_task(self, identity_map: dict, parent_info: dict, scope_project_ids: list = ()):
+def resolve_orphans_task(
+    self, identity_map: dict, parent_info: dict, scope_project_ids: list = (), person_id: int = None,
+):
     """Async task to resolve orphaned parent references after batch upload.
 
     Best-effort: failures are logged but do not affect the upload result.
@@ -170,6 +200,7 @@ def resolve_orphans_task(self, identity_map: dict, parent_info: dict, scope_proj
                     orphans=orphans,
                     sql_conn=conn,
                     project_ids=None if scope_project_ids is None else tuple(int(p) for p in scope_project_ids),
+                    person_id=None if person_id is None else int(person_id),
                 )
         finally:
             driver.close()

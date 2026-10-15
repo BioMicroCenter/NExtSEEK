@@ -27,7 +27,7 @@ from .celery_app import app as celery_app
 from nextseek_api.throttles import UPLOAD_THROTTLES
 from .job_index import list_jobs, register_job, state_dir, user_owns_job
 from .models import InputRowModel, ValidationResult
-from .tasks import run_batch_upload_task
+from .tasks import cancel_marker_path, run_batch_upload_task
 from .validation import run_validation_multi
 from nextseek_api.endpoint_descriptions import (
     BATCH_UPLOAD_START_DESC,
@@ -53,7 +53,7 @@ class BatchUploadStartRequest(BaseModel):
             "List of InputRowModel objects for direct programmatic upload. "
             "Bypasses Excel file parsing. Each object must have at minimum: "
             "SampleType (str), json_metadata (str or dict). "
-            "Optional: UID, assay_ids, project_id (overrides top-level), "
+            "Optional: UID, assay_ids, project_id (must match the top-level project_id), "
             "study_title, study_id, sop_id, assay_titles."
         ),
     )
@@ -175,7 +175,6 @@ class BatchUploadViewSet(viewsets.ViewSet):
         """
         uploaded_files = request.FILES.getlist("file")
         raw_rows = request.data.get("rows")
-        xlsx_paths = []
         validated_rows = None
         input_warnings = []
 
@@ -218,8 +217,6 @@ class BatchUploadViewSet(viewsets.ViewSet):
                     {"detail": f"Total upload size ({mb_actual:.1f} MB) exceeds limit ({mb_limit:.0f} MB)."},
                     status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 )
-            for uf in uploaded_files:
-                xlsx_paths.append(_save_uploaded_file(uf))
 
         # ── Neither provided ──
         else:
@@ -246,11 +243,6 @@ class BatchUploadViewSet(viewsets.ViewSet):
         # SEC-001: a caller uploads only into a project they belong to; a superuser into any.
         scope_project_ids = _caller_project_scope(request.user)
         if scope_project_ids is not None and project_id not in scope_project_ids:
-            for path in xlsx_paths:
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
             return _not_a_member(project_id)
 
         # config_overrides + update_existing handling
@@ -331,7 +323,8 @@ class BatchUploadViewSet(viewsets.ViewSet):
         if validated_rows is not None:
             task_kwargs["rows"] = [r.model_dump() for r in validated_rows]
         else:
-            task_kwargs["xlsx_paths"] = xlsx_paths
+            # Saved last, after every check that can refuse the request, so a refusal leaves no file behind.
+            task_kwargs["xlsx_paths"] = [_save_uploaded_file(uf) for uf in uploaded_files]
 
         if input_warnings:
             task_kwargs.setdefault("config_overrides", {})["_input_warnings"] = input_warnings
@@ -580,7 +573,11 @@ class BatchUploadViewSet(viewsets.ViewSet):
             response["result"] = result.result
             totals = payload.get("totals") or {}
             errors = payload.get("errors") or []
-            if totals.get("error") or errors:
+            # Only advisory errors leave a job succeeded; a missing severity is blocking.
+            blocking = [e for e in errors if e.get("severity") not in ("WARNING", "INFO")]
+            if totals.get("cancelled"):
+                response["job_status"] = "cancelled"
+            elif totals.get("error") or totals.get("failed") or blocking:
                 response["job_status"] = "failed"
                 response["error"] = totals.get("error") or "Job completed with errors"
                 response["errors"] = errors
@@ -603,6 +600,9 @@ class BatchUploadViewSet(viewsets.ViewSet):
         denied = self._check_ownership(request, job_id)
         if denied:
             return denied
+        marker = cancel_marker_path(job_id)
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        open(marker, "a").close()
         celery_app.control.revoke(job_id, terminate=True)
         return Response(status=status.HTTP_204_NO_CONTENT)
 

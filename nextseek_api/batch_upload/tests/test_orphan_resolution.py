@@ -401,7 +401,7 @@ class TestResolveOrphansTask:
 
             mock_discover.assert_called_once()
             mock_resolve.assert_called_once_with(
-                orphans=mock_discover.return_value, sql_conn=mock_conn, project_ids=(7,))
+                orphans=mock_discover.return_value, sql_conn=mock_conn, project_ids=(7,), person_id=None)
             # One samples row per chunk of resolved ids, keyed batch:orphans:<time_ns>:<n>, the ids its payload.
             (call,) = mock_enqueue.call_args_list
             kind, key, ids = call.args

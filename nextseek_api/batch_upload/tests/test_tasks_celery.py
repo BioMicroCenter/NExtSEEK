@@ -186,6 +186,69 @@ class TestRunBatchUploadTask:
             assert call_kwargs[1]["xlsx_paths"] == []
 
 
+class TestCancelMarker:
+    """cancel writes a marker under the durable state dir; the running or queued job reads it."""
+
+    @pytest.fixture(autouse=True)
+    def _state(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("BATCH_UPLOAD_STATE_DIR", str(tmp_path))
+        self.state = tmp_path
+
+    @patch("nextseek_api.batch_upload.tasks.run_batch_upload_multi")
+    def test_cancel_reaches_the_running_job(self, mock_run):
+        from rest_framework.test import APIRequestFactory, force_authenticate
+        from nextseek_api.batch_upload.tasks import run_batch_upload_task
+        from nextseek_api.batch_upload.views import BatchUploadViewSet
+
+        seen = {}
+
+        def fake_run(**kw):
+            seen["before"] = kw["should_stop"]()
+            req = APIRequestFactory().delete("/api/batch-upload/cancel/job1/")
+            force_authenticate(req, user=MagicMock(is_authenticated=True))
+            with patch("nextseek_api.batch_upload.views.user_owns_job", return_value=True), \
+                 patch("nextseek_api.batch_upload.views.celery_app"):
+                resp = BatchUploadViewSet.as_view({"delete": "cancel"})(req, job_id="job1")
+            assert resp.status_code == 204
+            seen["after"] = kw["should_stop"]()
+            return {"summary_path": "", "totals": {}}
+
+        mock_run.side_effect = fake_run
+        run_batch_upload_task.push_request(id="job1")
+        try:
+            run_batch_upload_task.run(rows=[], project_id=1, contributor_id=1)
+        finally:
+            run_batch_upload_task.pop_request()
+        assert seen == {"before": False, "after": True}
+        assert not (self.state / "cancel" / "job1").exists()  # removed when the task ends
+
+    @patch("nextseek_api.batch_upload.tasks.run_batch_upload_multi")
+    @patch("nextseek_api.batch_upload.tasks.os.makedirs")
+    def test_cancelled_before_start_never_runs(self, mock_makedirs, mock_run):
+        from nextseek_api.batch_upload.tasks import run_batch_upload_task
+
+        (self.state / "cancel").mkdir()
+        (self.state / "cancel" / "job2").write_text("")
+        run_batch_upload_task.push_request(id="job2")
+        try:
+            result = run_batch_upload_task.run(rows=[], project_id=1, contributor_id=1)
+        finally:
+            run_batch_upload_task.pop_request()
+        mock_run.assert_not_called()
+        assert result["totals"]["cancelled"] is True
+        assert not (self.state / "cancel" / "job2").exists()
+
+    @patch("nextseek_api.batch_upload.tasks.resolve_orphans_task")
+    @patch("nextseek_api.batch_upload.tasks.run_batch_upload_multi")
+    @patch("nextseek_api.batch_upload.tasks.os.makedirs")
+    def test_orphan_dispatch_carries_contributor_id(self, mock_makedirs, mock_run, mock_orphan_task):
+        from nextseek_api.batch_upload.tasks import run_batch_upload_task
+
+        mock_run.return_value = {"summary_path": "", "totals": {}, "_identity_map": {"U": 1}, "_parent_info": {}}
+        run_batch_upload_task.run(rows=[], project_id=1, contributor_id=7)
+        assert mock_orphan_task.apply_async.call_args[1]["kwargs"]["person_id"] == 7
+
+
 # ── resolve_orphans_task ─────────────────────────────────────────────────
 
 
@@ -208,6 +271,18 @@ class TestResolveOrphansTask:
             identity_map={"UID-001": 100}, parent_info={}
         )
         assert result == {"resolved": 0}
+
+    def test_person_id_reaches_resolve_orphans(self):
+        from nextseek_api.batch_upload.tasks import resolve_orphans_task
+
+        cfg = MagicMock(NEO4J_UPLOAD_ENABLED=True)
+        with patch("neo4j.GraphDatabase.driver"), \
+             patch("nextseek_api.batch_upload.config.Neo4jConfig.from_django_settings", return_value=cfg), \
+             patch("nextseek_api.batch_upload.orphan_resolution.discover_orphans", return_value=[{"x": 1}]), \
+             patch("nextseek_api.batch_upload.db_engine.get_connection"), \
+             patch("nextseek_api.batch_upload.orphan_resolution.resolve_orphans", return_value={}) as ro:
+            resolve_orphans_task.run(identity_map={"U": 1}, parent_info={}, scope_project_ids=[1], person_id="7")
+        assert ro.call_args[1]["person_id"] == 7
 
     def test_exception_returns_error_dict(self):
         from nextseek_api.batch_upload.tasks import resolve_orphans_task
