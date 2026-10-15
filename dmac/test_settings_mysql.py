@@ -22,3 +22,5 @@ DATABASES = {
         "TEST": {"NAME": "test_nextseek_lane"},
     },
 }
+
+SEEK_ALIAS_MIGRATABLE = True

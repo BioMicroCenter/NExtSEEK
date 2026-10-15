@@ -153,8 +153,8 @@ class Sample_attributes_unique(models.Model):
         # sample_attributes_unique.sql, applied by startup's schema fixups); this
         # model only maps it. Left managed, the next unrelated `makemigrations`
         # in this app would propose creating the table, and CustomRouter.
-        # allow_migrate returns None for non-`default` app labels, so applying
-        # that migration would create it on both the default and seek aliases.
+        # allow_migrate returns None (no opinion) for the default alias, so applying
+        # that migration would create the table there.
         managed = False
 
 

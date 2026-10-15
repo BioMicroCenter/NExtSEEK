@@ -148,7 +148,7 @@ def login_seek(request):
 
     # Never log user_seek itself: it carries the plaintext SEEK password, and this
     # line put every user's password into `docker logs` on production.
-    logger.debug(
+    logger.info(
         f"User trying to log in: username={user_seek.get('username')!r} "
         f"storage={user_seek.get('storage')!r} status={user_seek.get('status')}"
     )

@@ -29,7 +29,7 @@ def _login(caplog, status):
     request.session = MagicMock()
     seekdb = MagicMock()
     seekdb.getSeekLogin.return_value = _credentials(status)
-    with caplog.at_level(logging.DEBUG), \
+    with caplog.at_level(logging.DEBUG, logger="dmac"), \
             patch.object(views, "SeekDB", return_value=seekdb), \
             patch.object(views, "render", return_value=HttpResponse()), \
             patch.object(views, "authenticate", return_value=None), \
@@ -51,5 +51,6 @@ def test_successful_seek_login_logs_no_password(caplog):
 def test_the_attempt_is_still_logged_by_username(caplog):
     """Dropping the line altogether would lose the audit trail the old line
     gave; the username stays."""
-    logged = _login(caplog, status=False)
-    assert "someuser" in logged
+    _login(caplog, status=False)
+    # INFO or above: boxes run the dmac logger at INFO unless DEBUG.
+    assert any("someuser" in r.getMessage() for r in caplog.records if r.levelno >= logging.INFO)

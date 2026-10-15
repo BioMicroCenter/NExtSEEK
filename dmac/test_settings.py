@@ -85,3 +85,9 @@ STORAGES = {
 # No test starts a background model call unless it asks to: the vocabulary pre-run is off here, and the tests of it
 # switch it on (NessieAI/cc/prerun.py).
 NESSIE_VOCAB_PRERUN = "off"
+
+# The SQLite lane builds the seek alias through migrations.
+SEEK_ALIAS_MIGRATABLE = True
+
+# settings.py allows the Vite dev origin only under DEBUG; the CORS and websocket-origin tests use it as their example.
+CORS_ALLOWED_ORIGINS = ["http://localhost:5173"]

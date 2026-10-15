@@ -16,7 +16,7 @@
   move data between schemas.
 - **A model whose DDL is applied out of band must stay `managed = False`.**
   `seek/models/nextseek.py:151-158` gives the reason in full: because
-  `allow_migrate` returns `None` for this app label (`seek/dbrouters.py:14-16`),
+  `allow_migrate` returns `None` for this app label (`seek/dbrouters.py`; it returns False only for the SEEK alias),
   a managed model would let the next unrelated `makemigrations` create the table
   on both aliases.
 - **Every column identifier reaching the search SQL builder is allowlisted.**

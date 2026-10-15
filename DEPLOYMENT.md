@@ -732,6 +732,9 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `DJANGO_SECRET_KEY` | nextseek.env | secret | yes |  | Django signing key. Install generates a new one. |
 | `DJANGO_ALLOWED_HOSTS` | nextseek.env | "" | yes |  | Space-separated Django allowed hosts. Install keeps a hand-set value. |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | nextseek.env | "" | yes |  | Space-separated trusted origins. Install keeps a hand-set value and adds its port's loopback pair. |
+| `DJANGO_SECURE_COOKIES` | nextseek.env | "" |  |  | 1/true/yes sets the Secure flag on the session and CSRF cookies. Off by default; turn on once the box is served over https. |
+| `DJANGO_TRUST_X_FORWARDED_PROTO` | nextseek.env | "" |  |  | 1/true/yes trusts the edge's X-Forwarded-Proto header. Only where the edge overwrites it. |
+| `DJANGO_CORS_ALLOWED_ORIGINS` | nextseek.env | "" |  |  | Space-separated origins allowed to call /nextseek_api/ cross-origin. The Vite dev origin is added only under DJANGO_DEBUG. |
 | `NEXTSEEK_BASE_URL` | nextseek.env, internal |  |  |  | Public NExtSEEK base URL, derived from NEXTSEEK_HOSTNAME. cc_engine hands the agent its own copy. |
 | `NEXTSEEK_INTERNAL_BASE_URL` | nextseek.env |  |  |  | Container-internal URL for chat_nextseek's REST self-calls; preferred over NEXTSEEK_BASE_URL. |
 | `LOG_DIR` | nextseek.env | /app/logs |  |  | Log folder inside the app container. |

@@ -88,6 +88,21 @@ default = ""
 required = true
 doc = "Space-separated trusted origins. Install keeps a hand-set value and adds its port's loopback pair."
 
+[DJANGO_SECURE_COOKIES]
+files = ["nextseek.env"]
+default = ""
+doc = "1/true/yes sets the Secure flag on the session and CSRF cookies. Off by default; turn on once the box is served over https."
+
+[DJANGO_TRUST_X_FORWARDED_PROTO]
+files = ["nextseek.env"]
+default = ""
+doc = "1/true/yes trusts the edge's X-Forwarded-Proto header. Only where the edge overwrites it."
+
+[DJANGO_CORS_ALLOWED_ORIGINS]
+files = ["nextseek.env"]
+default = ""
+doc = "Space-separated origins allowed to call /nextseek_api/ cross-origin. The Vite dev origin is added only under DJANGO_DEBUG."
+
 [NEXTSEEK_BASE_URL]
 files = ["nextseek.env", "internal"]
 doc = "Public NExtSEEK base URL, derived from NEXTSEEK_HOSTNAME. cc_engine hands the agent its own copy."
