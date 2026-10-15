@@ -126,11 +126,18 @@ def conn_factory():
 
     with engine.begin() as conn:
         conn.execute(text("CREATE TABLE samples (id INTEGER PRIMARY KEY, uuid TEXT, policy_id INTEGER, "
-                          "json_metadata TEXT, title TEXT, updated_at TEXT)"))
+                          "json_metadata TEXT, title TEXT, updated_at TEXT, contributor_id INTEGER)"))
+        conn.execute(text("CREATE TABLE policies (id INTEGER PRIMARY KEY, access_type INTEGER)"))
+        conn.execute(text("CREATE TABLE permissions (id INTEGER PRIMARY KEY, policy_id INTEGER, "
+                          "contributor_type TEXT, contributor_id INTEGER, access_type INTEGER)"))
         conn.execute(text("CREATE TABLE projects_samples (project_id INTEGER, sample_id INTEGER)"))
         conn.execute(text("CREATE TABLE assay_assets (asset_id INTEGER, asset_type TEXT, assay_id INTEGER)"))
-        conn.execute(text("""INSERT INTO samples VALUES (1, 'MINE-1', 11, '{"Parent":"P1"}', 'mine', NULL), """
-                          """(2, 'THEIRS-1', 12, '{"Parent":"P1"}', 'theirs', NULL)"""))
+        conn.execute(text("""INSERT INTO samples VALUES (1, 'MINE-1', 11, '{"Parent":"P1"}', 'mine', NULL, NULL), """
+                          """(2, 'THEIRS-1', 12, '{"Parent":"P1"}', 'theirs', NULL, NULL)"""))
+        # The member's project holds the edit right on both samples' policies.
+        conn.execute(text("INSERT INTO policies VALUES (11, 0), (12, 0)"))
+        conn.execute(text("INSERT INTO permissions (policy_id, contributor_type, contributor_id, access_type) "
+                          "VALUES (11, 'Project', 7, 4), (12, 'Project', 7, 4)"))
         conn.execute(text("INSERT INTO projects_samples VALUES (7, 1), (8, 2)"))
         # MINE-1 is already linked to assay 80, which belongs to project 8.
         conn.execute(text("INSERT INTO assay_assets VALUES (1, 'Sample', 80)"))
@@ -146,8 +153,7 @@ def test_details_are_scoped_to_the_given_projects(conn_factory):
         assert load_existing_sample_details(["MINE-1", "THEIRS-1"], conn, project_ids=()) == {}
 
 
-@patch("nextseek_api.batch_upload.insert.determine_resume_uid", return_value=None)
-def test_update_existing_cannot_touch_another_projects_sample(_resume, conn_factory):
+def test_update_existing_cannot_touch_another_projects_sample(conn_factory):
     from nextseek_api.batch_upload.insert import process_batches
     import nextseek_api.batch_upload.update as update_mod
 
@@ -221,8 +227,7 @@ def _fake_bulk(rows, details, **kwargs):
     return {s.uuid: RowOutcome(status="success", sample_id=details[s.uuid]["sample_id"]) for s in rows}
 
 
-@patch("nextseek_api.batch_upload.insert.determine_resume_uid", return_value=None)
-def test_a_superuser_may_update_any_projects_sample(_resume, conn_factory):
+def test_a_superuser_may_update_any_projects_sample(conn_factory):
     import nextseek_api.batch_upload.update as update_mod
 
     samples = [InsertableSample(uuid=u, title="t", sample_type_id=1, json_metadata="{}") for u in ("MINE-1", "THEIRS-1")]
@@ -231,9 +236,8 @@ def test_a_superuser_may_update_any_projects_sample(_resume, conn_factory):
     assert [s.uuid for s in bulk.call_args.kwargs["rows"]] == ["MINE-1", "THEIRS-1"]
 
 
-@patch("nextseek_api.batch_upload.insert.determine_resume_uid", return_value=None)
 @patch("nextseek_api.assay_registration.resolver.projects_for_assays", return_value={80: {8}, 81: {8}, 70: {7}})
-def test_a_member_cannot_link_samples_into_another_projects_assay(_assays, _resume, conn_factory):
+def test_a_member_cannot_link_samples_into_another_projects_assay(_assays, conn_factory):
     import nextseek_api.batch_upload.update as update_mod
 
     samples = [

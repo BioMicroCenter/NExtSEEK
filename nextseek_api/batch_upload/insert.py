@@ -18,9 +18,10 @@ from sqlalchemy.engine import Connection
 from nextseek_api.graph_sync import hooks
 
 from .associations import batch_insert_assay_assets, batch_insert_projects_samples
-from .checkpoint import determine_resume_uid, write_checkpoint
+from .checkpoint import write_checkpoint
 from .config import BatchUploadConfig
 from .db_engine import get_connection
+from .edit_rights import UNKNOWN as EDIT_UNKNOWN, YES as EDIT_YES, edit_verdicts
 from .errors import ErrorCollector, ErrorType
 from .insert_strategies import compute_first_letter, insert_samples
 from .models import (
@@ -273,9 +274,6 @@ def process_batches(
         with conn_factory() as conn:
             existing = load_existing_samples(all_uuids, conn)
 
-    # Determine resume point
-    effective_resume = determine_resume_uid(resume_uid, checkpoint_dir, checkpoint_name)
-
     # Filter and mark existing/skipped
     rows_to_process: List[InsertableSample] = []
     rows_to_update: List[InsertableSample] = []
@@ -289,11 +287,6 @@ def process_batches(
                     reason="duplicate",
                     sample_id=existing[sample.uuid],
                 )
-            continue
-        if effective_resume and sample.uuid < effective_resume:
-            outcomes[sample.uuid] = RowOutcome(
-                status="skipped", reason="before checkpoint"
-            )
             continue
         rows_to_process.append(sample)
 
@@ -463,6 +456,7 @@ def process_batches(
 
             except Exception as exc:
                 log.exception("Batch %d failed: %s", batch_idx, exc)
+                uuid_to_id = {}  # the batch rolled back: no row of it was saved
                 for sample in batch:
                     outcomes[sample.uuid] = RowOutcome(
                         status="failed", reason=str(exc)[:200]
@@ -529,6 +523,32 @@ def process_batches(
                                 message="Update refused: the sample is not in one of your projects",
                             )
                     rows_to_update = [s for s in rows_to_update if s.uuid in details]
+
+                    # A project member also needs SEEK's own edit right on the sample.
+                    verdicts = edit_verdicts(
+                        [details[s.uuid]["sample_id"] for s in rows_to_update], contributor_id, scope, conn
+                    )
+                    for sample in rows_to_update:
+                        verdict = verdicts.get(details[sample.uuid]["sample_id"])
+                        if verdict == EDIT_YES:
+                            continue
+                        if verdict == EDIT_UNKNOWN:
+                            message = (
+                                f"Update refused: NExtSEEK cannot confirm your edit right on sample {sample.uuid} "
+                                "(it is shared through a group); ask the project's admin"
+                            )
+                            reason = "update refused: NExtSEEK cannot confirm your edit right on this sample"
+                        else:
+                            message = "Update refused: SEEK does not let you edit this sample"
+                            reason = "update refused: SEEK does not let you edit this sample"
+                        outcomes[sample.uuid] = RowOutcome(status="failed", reason=reason)
+                        error_collector.add(
+                            row_index=-1,
+                            uid=sample.uuid,
+                            error_type=ErrorType.PERMISSION_DENIED,
+                            message=message,
+                        )
+                    rows_to_update = [s for s in rows_to_update if s.uuid not in outcomes]
 
                 update_outcomes = bulk_update_samples(
                     rows=rows_to_update,

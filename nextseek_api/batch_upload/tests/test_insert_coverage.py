@@ -71,9 +71,8 @@ def _make_direction_computation():
 
 class TestProcessBatchesAllExisting:
 
-    @patch("nextseek_api.batch_upload.insert.determine_resume_uid", return_value=None)
     @patch("nextseek_api.batch_upload.insert.load_existing_samples", return_value={})
-    def test_no_rows_to_process(self, mock_load, mock_resume):
+    def test_no_rows_to_process(self, mock_load):
         """All samples already exist, none to process."""
         from nextseek_api.batch_upload.insert import process_batches
 
@@ -98,8 +97,7 @@ class TestProcessBatchesBatchException:
     @patch("nextseek_api.batch_upload.insert.check_memory_limit")
     @patch("nextseek_api.batch_upload.insert.clear_caches")
     @patch("nextseek_api.batch_upload.insert.write_checkpoint")
-    @patch("nextseek_api.batch_upload.insert.determine_resume_uid", return_value=None)
-    def test_batch_exception_marks_failed(self, mock_resume, mock_ckpt, mock_caches, mock_mem):
+    def test_batch_exception_marks_failed(self, mock_ckpt, mock_caches, mock_mem):
         """When a batch transaction raises, all rows in that batch are marked failed."""
         from nextseek_api.batch_upload.insert import process_batches
 
@@ -129,8 +127,7 @@ class TestProcessBatchesBatchException:
 
 class TestProcessBatchesUpdatePath:
 
-    @patch("nextseek_api.batch_upload.insert.determine_resume_uid", return_value=None)
-    def test_update_existing_path(self, mock_resume):
+    def test_update_existing_path(self):
         """update_existing=True routes samples to the update path."""
         from nextseek_api.batch_upload.insert import process_batches
 
@@ -172,8 +169,7 @@ class TestProcessBatchesUpdatePath:
 
 class TestProcessBatchesPermissions:
 
-    @patch("nextseek_api.batch_upload.insert.determine_resume_uid", return_value=None)
-    def test_new_insert_path_creates_project_permissions_by_default(self, mock_resume):
+    def test_new_insert_path_creates_project_permissions_by_default(self):
         """New inserts should create project permission rows by default."""
         from nextseek_api.batch_upload.insert import process_batches
 
@@ -206,8 +202,7 @@ class TestProcessBatchesPermissions:
         assert result.permissions_inserted_count == 1
         assert mock_insert_permissions.call_args.args[0] == [501]
 
-    @patch("nextseek_api.batch_upload.insert.determine_resume_uid", return_value=None)
-    def test_update_exception_path(self, mock_resume):
+    def test_update_exception_path(self):
         """Exception during bulk update marks samples as failed."""
         from nextseek_api.batch_upload.insert import process_batches
 
@@ -239,8 +234,7 @@ class TestProcessBatchesPermissions:
 
 class TestProcessBatchesExistingSamplesNone:
 
-    @patch("nextseek_api.batch_upload.insert.determine_resume_uid", return_value=None)
-    def test_loads_existing_from_db_when_none(self, mock_resume):
+    def test_loads_existing_from_db_when_none(self):
         """When existing_samples=None, load_existing_samples is called."""
         from nextseek_api.batch_upload.insert import process_batches
 

@@ -341,7 +341,6 @@ def _run_orchestrator(
             ),
             # Checkpoint: no-op
             "nextseek_api.batch_upload.insert.write_checkpoint": MagicMock(),
-            "nextseek_api.batch_upload.insert.determine_resume_uid": MagicMock(return_value=None),
             # Report CSV: write to tmpdir
             "nextseek_api.batch_upload.orchestrator.write_summary_csv": MagicMock(),
             # Django settings

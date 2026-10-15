@@ -1,13 +1,17 @@
 """Tests for the INSERT stage."""
 import pytest
+from unittest.mock import MagicMock, patch
+from sqlalchemy import create_engine, text
 
 from nextseek_api.batch_upload.insert import (
     AdaptiveBatchSizer,
     _estimate_row_payload_bytes,
     _plan_next_batch,
 )
+from nextseek_api.batch_upload.config import BatchUploadConfig
+from nextseek_api.batch_upload.errors import ErrorCollector, ErrorType
 from nextseek_api.batch_upload.insert_strategies import compute_first_letter
-from nextseek_api.batch_upload.models import InsertableSample
+from nextseek_api.batch_upload.models import DirectionComputation, InsertableSample, RowOutcome
 
 
 class TestAdaptiveBatchSizer:
@@ -186,3 +190,99 @@ class TestBuildNeo4jOnlyOutcomes:
         assert all(o.status == "failed" for o in result.outcomes.values())
         assert result.attempted_uids == {self.UID_A, self.UID_B}
         assert len(ec.all_errors()) == 2
+
+
+# ── SEEK edit right on update; no checkpoint skip ─────────────────────────
+
+
+def _edit_conn_factory():
+    engine = create_engine("sqlite://")
+    with engine.begin() as c:
+        c.execute(text("CREATE TABLE samples (id INTEGER PRIMARY KEY, uuid TEXT, policy_id INTEGER, "
+                        "json_metadata TEXT, title TEXT, contributor_id INTEGER)"))
+        c.execute(text("CREATE TABLE projects_samples (project_id INTEGER, sample_id INTEGER)"))
+        c.execute(text("CREATE TABLE policies (id INTEGER PRIMARY KEY, access_type INTEGER)"))
+        c.execute(text("CREATE TABLE permissions (id INTEGER PRIMARY KEY, policy_id INTEGER, "
+                        "contributor_type TEXT, contributor_id INTEGER, access_type INTEGER)"))
+        c.execute(text("INSERT INTO samples VALUES (1, 'VIEW-1', 11, '{}', 't', 99), (2, 'EDIT-1', 12, '{}', 't', 99), (3, 'GROUP-1', 13, '{}', 't', 99)"))
+        c.execute(text("INSERT INTO projects_samples VALUES (7, 1), (7, 2), (7, 3)"))
+        c.execute(text("INSERT INTO policies VALUES (11, 0), (12, 0), (13, 0)"))
+        c.execute(text("INSERT INTO permissions (policy_id, contributor_type, contributor_id, access_type) "
+                        "VALUES (11, 'Project', 7, 1), (12, 'Project', 7, 4), (13, 'WorkGroup', 3, 4)"))
+    return engine.connect
+
+
+def _run_update(scope):
+    import nextseek_api.batch_upload.update as update_mod
+    from nextseek_api.batch_upload.insert import process_batches
+
+    def fake_bulk(rows, details, **kw):
+        return {s.uuid: RowOutcome(status="success", sample_id=details[s.uuid]["sample_id"]) for s in rows}
+
+    config = BatchUploadConfig()
+    config.scope_project_ids = scope
+    samples = [InsertableSample(uuid=u, title="n", sample_type_id=1, json_metadata="{}") for u in ("VIEW-1", "EDIT-1", "GROUP-1")]
+    errors = ErrorCollector()
+    with patch.object(update_mod, "bulk_update_samples", side_effect=fake_bulk) as bulk:
+        result = process_batches(
+            insertable_samples=samples, project_id=7, contributor_id=5, config=config,
+            direction_computation=DirectionComputation({}, {}, {}, {}, {}), error_collector=errors,
+            existing_samples={"VIEW-1": 1, "EDIT-1": 2, "GROUP-1": 3}, update_existing=True,
+            conn_factory=_edit_conn_factory(),
+        )
+    return result, errors, bulk
+
+
+def test_member_without_seek_edit_right_cannot_update():
+    result, errors, bulk = _run_update((7,))
+    assert [s.uuid for s in bulk.call_args.kwargs["rows"]] == ["EDIT-1"]
+    assert result.outcomes["VIEW-1"].status == "failed"
+    assert "does not let you edit" in result.outcomes["VIEW-1"].reason
+    assert result.outcomes["EDIT-1"].status == "success"
+    group = result.outcomes["GROUP-1"]
+    assert group.status == "failed" and "cannot confirm" in group.reason
+    assert [e.error_type for e in errors.all_errors()] == [ErrorType.PERMISSION_DENIED] * 2
+    assert any("GROUP-1" in e.message and "ask the project's admin" in e.message for e in errors.all_errors())
+
+
+def test_superuser_update_skips_the_edit_check():
+    result, errors, bulk = _run_update(None)
+    assert [s.uuid for s in bulk.call_args.kwargs["rows"]] == ["VIEW-1", "EDIT-1", "GROUP-1"]
+
+
+def test_resume_checkpoint_never_skips(tmp_path):
+    from nextseek_api.batch_upload.insert import process_batches
+    from nextseek_api.batch_upload.checkpoint import write_checkpoint
+
+    write_checkpoint(str(tmp_path), "job", "-1500")
+    config = BatchUploadConfig()
+    sample = InsertableSample(uuid="-1000", title="n", sample_type_id=1, json_metadata="{}")
+    result = process_batches(
+        insertable_samples=[sample], project_id=7, contributor_id=5, config=config,
+        direction_computation=DirectionComputation({}, {}, {}, {}, {}), error_collector=ErrorCollector(),
+        existing_samples={}, resume_uid="-900", checkpoint_dir=str(tmp_path), checkpoint_name="job",
+        conn_factory=lambda: (_ for _ in ()).throw(RuntimeError("no db")),
+    )
+    assert result.outcomes["-1000"].reason != "before checkpoint"
+
+
+def test_rolled_back_batch_reports_no_rows_saved():
+    """A batch that fails after its samples were inserted is rolled back; the reporter counts no success."""
+    from nextseek_api.batch_upload.insert import process_batches
+
+    reporter = MagicMock()
+    sample = InsertableSample(uuid="U-1", title="n", sample_type_id=1, json_metadata="{}")
+    conn = MagicMock()
+    conn.__enter__ = MagicMock(return_value=conn)
+    conn.__exit__ = MagicMock(return_value=False)
+    with patch("nextseek_api.batch_upload.insert.insert_policies_for_uids", return_value=[("U-1", 1)]), \
+         patch("nextseek_api.batch_upload.insert.insert_samples", return_value=[(10, "U-1")]), \
+         patch("nextseek_api.batch_upload.insert.batch_insert_projects_samples",
+                side_effect=RuntimeError("link failed")):
+        result = process_batches(
+            insertable_samples=[sample], project_id=7, contributor_id=5, config=BatchUploadConfig(),
+            direction_computation=DirectionComputation({}, {}, {}, {}, {}), error_collector=ErrorCollector(), reporter=reporter,
+            existing_samples={}, conn_factory=lambda: conn,
+        )
+    assert result.outcomes["U-1"].status == "failed"
+    assert reporter.update_counts.call_args.kwargs == {"success": 0, "skipped": 0, "failed": 1}

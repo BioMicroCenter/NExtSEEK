@@ -90,7 +90,7 @@ class TestInsertPoliciesForUids:
         insert_policies_for_uids(["A", "B", "C"], name="default policy", conn=conn)
         # First call is the INSERT, check it has 3 value groups
         sql_str = str(conn.execute.call_args_list[0][0][0])
-        assert sql_str.count("(:name, :access_type, NOW(), NOW())") == 3
+        assert sql_str.count("(:name, :access_type, :now, :now)") == 3
 
 
 class TestCleanupUnusedPolicies:
@@ -109,3 +109,14 @@ class TestCleanupUnusedPolicies:
         assert params["p_0"] == 10
         assert params["p_1"] == 20
         assert params["p_2"] == 30
+
+
+def test_policy_rows_take_the_same_utc_timestamp_as_sample_rows():
+    """No database NOW(): policies carry one UTC timestamp, the format the sample rows use."""
+    import re
+    conn = MagicMock()
+    insert_policies_for_uids(["A", "B"], name="default policy", conn=conn)
+    sql_str = str(conn.execute.call_args_list[0][0][0])
+    params = conn.execute.call_args_list[0][0][1]
+    assert "NOW()" not in sql_str
+    assert re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d", params["now"])
