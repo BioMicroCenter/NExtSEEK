@@ -175,23 +175,20 @@ def _database_exists(fix: MissingTable, repo_root: Path, env: dict[str, str]) ->
     """Gate table creation the way _table_exists gates column fixups.
 
     Without this, a missing schema falls through to _create_table, whose mysql
-    call raises DockerOpsError and aborts the whole install -- worse than the
-    drift being healed.
+    call raises DockerOpsError and aborts the whole install. A failed check
+    raises DockerOpsError too, as _table_exists does.
     """
-    try:
-        out = compose_exec(
-            service="db",
-            command=[
-                "mysql", "-uroot", f"-p{_root_password(env)}", "-N",
-                "-e",
-                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.SCHEMATA "
-                f"WHERE SCHEMA_NAME='{fix.database}';",
-            ],
-            project_dir=repo_root,
-            env=env,
-        )
-    except DockerOpsError:
-        return False
+    out = compose_exec(
+        service="db",
+        command=[
+            "mysql", "-uroot", f"-p{_root_password(env)}", "-N",
+            "-e",
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.SCHEMATA "
+            f"WHERE SCHEMA_NAME='{fix.database}';",
+        ],
+        project_dir=repo_root,
+        env=env,
+    )
     return out.strip().splitlines()[-1] == "1"
 
 
