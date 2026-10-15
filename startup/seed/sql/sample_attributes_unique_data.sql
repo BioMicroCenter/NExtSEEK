@@ -1,11 +1,12 @@
--- 998 attribute definitions for dmac.sample_attributes_unique.
+-- 1007 attribute definitions for dmac.sample_attributes_unique.
 -- 979 were judged from up to three real values observed in production
 -- (166,235 samples). Attributes with no data anywhere are deliberately absent.
 -- The five D.SEQ QC attributes created on 2026-10-14 (DuplicationPercent,
 -- Strandedness, MultimappedPercent, DupRadarIntercept, MismatchPercent) are
 -- defined from their source tools' documentation instead; they held no data yet.
 -- So are the 14 QC attributes from the 2026-10-15 review of the other nf-core
--- pipelines (GCPercent, Q30Percent, ..., TsTvRatio).
+-- pipelines (GCPercent, Q30Percent, ..., TsTvRatio), and the nine HLA fields of
+-- the A.HLA sample type proposed the same day (HLA_A1 ... HLADatabaseVersion).
 -- sample_type '' is the global definition; a code overrides it for that tab.
 
 INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
@@ -370,9 +371,18 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('HBA1CPercent','','The patient''s HbA1c, as a percentage.'),
  ('HIV_Test_Result','','The result of the HIV test taken at this visit.'),
  ('HIV_Test_Type','','The kind of HIV test taken at this visit.'),
+ ('HLADatabaseVersion','','The IPD-IMGT/HLA release the allele reference came from; allele names compare only across runs on the same release.'),
+ ('HLAReads','','Number of reads the typing tool used to support the class I call; low support makes the call unreliable.'),
+ ('HLATypingObjective','','OptiType''s objective value for the chosen genotype: a relative fit score, comparable only between samples typed the same way.'),
  ('HLA_A','','The subject''s HLA-A alleles, e.g. A*01:01/A*02:01.'),
+ ('HLA_A1','','First HLA-A allele called for this individual, in WHO nomenclature (OptiType: two fields, e.g. A*02:01).'),
+ ('HLA_A2','','Second HLA-A allele; equal to HLA_A1 when the individual is homozygous at this locus.'),
  ('HLA_B','','The subject''s HLA-B alleles, e.g. B*07:02/B*08:01.'),
+ ('HLA_B1','','First HLA-B allele called for this individual, in WHO nomenclature (e.g. B*07:02).'),
+ ('HLA_B2','','Second HLA-B allele; equal to HLA_B1 when the individual is homozygous at this locus.'),
  ('HLA_C','','The subject''s HLA-C alleles, e.g. C*07:02/C*07:01.'),
+ ('HLA_C1','','First HLA-C allele called for this individual, in WHO nomenclature (e.g. C*07:02).'),
+ ('HLA_C2','','Second HLA-C allele; equal to HLA_C1 when the individual is homozygous at this locus.'),
  ('HOMOEnergy','','Energy of the highest occupied molecular orbital from the calculation.'),
  ('HOMOEnergyUnits','','Unit for the HOMOEnergy value, e.g. eV.'),
  ('HeartRateFirstReading','','The patient''s first heart rate reading at this visit.'),
