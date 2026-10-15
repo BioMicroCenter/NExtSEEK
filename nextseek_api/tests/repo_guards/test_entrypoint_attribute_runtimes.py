@@ -70,6 +70,8 @@ def _run_entrypoint(tmp_path, migrate_exit: int = 0, **env_overrides):
         "NEXTSEEK_GRAPH_SYNC_LOOP": "0",
         **{k: str(v) for k, v in env_overrides.items()},
     }
+    if "BATCH_UPLOAD_STATE_DIR" not in env_overrides:
+        env.pop("BATCH_UPLOAD_STATE_DIR", None)  # test settings point it at a temp dir; the script's default is under test
     proc = subprocess.run(
         ["bash", str(ENTRYPOINT)],
         env=env,
