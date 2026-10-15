@@ -15,6 +15,10 @@ import tempfile
 # an explicit LOG_DIR in the environment still wins.
 os.environ.setdefault("LOG_DIR", os.path.join(tempfile.gettempdir(), "nextseek-test-logs"))
 
+# The batch-upload queue keeps its broker, results, job index, uploads and cancel markers under
+# BATCH_UPLOAD_STATE_DIR (production: /var/celery). A test run must not need that directory: a runner has none.
+os.environ.setdefault("BATCH_UPLOAD_STATE_DIR", tempfile.mkdtemp(prefix="nextseek-test-state-"))
+
 # The app-ready hook prefetches nf-core schemas over HTTPS. Tests must not.
 os.environ.setdefault("NEXTSEEK_SKIP_SCHEMA_WARM", "1")
 
