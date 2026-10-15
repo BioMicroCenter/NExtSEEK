@@ -78,10 +78,13 @@ judge(){ # $1 log $2 label: records every red with its class; prints the reds no
     done
     if [ -n "$sum" ] && { [ -n "$bad" ] || [ -z "$why" ]; }; then echo "$sum"; fi; }
 }
+rollback_tag(){ # $1 log: the verified tag, even when the rebuild's output wrapped it onto the next line
+  tr -s ' \n' ' ' < "$1" | grep -m1 -o "rollback tag verified: [^ ]*"
+}
 rebuild(){ # $1 component; returns 1 when its success line is missing
   ./startup.sh rebuild --component "$1" --no-ci > "$L/$(logname "$1").log" 2>&1 </dev/null
   say "REBUILD $1 exit=$?"
-  t=$(grep -m1 -o "rollback tag verified: [^ ]*" "$L/$(logname "$1").log")
+  t=$(rollback_tag "$L/$(logname "$1").log")
   [ -n "$t" ] && say "ROLLBACK $1 ${t#rollback tag verified: }"
   PENDING=$(echo " $PENDING " | sed "s/ $1 / /; s/^ *//; s/ *\$//")
   grep -qF "$(success_line "$1")" "$L/$(logname "$1").log"

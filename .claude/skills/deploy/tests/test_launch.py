@@ -1357,3 +1357,38 @@ def test_prompt_txt_needs_the_app_image():
     prompt = "NessieAI/chat_nextseek/src/chat_nextseek/prompts/graph_agent.txt"
     assert rules.rule_for(prompt).images == ("app",)
     assert rules.rule_for("ci/pytest-baseline.txt").images == ()
+
+
+def test_parse_nessie_log_reads_the_case_and_run_cost_columns():
+    got = L.parse_nessie_log((FIX / "real-nessie-case-run.log").read_text())
+    cases = got["cases"]
+    assert len(cases) == 6
+    assert cases[0]["id"] == "report.geo_for_those_mice" and cases[0]["cost_usd"] == 0.4725
+    assert cases[1]["cost_usd"] == 0.3329 and cases[1]["cost_running_usd"] == 0.8054
+    assert cases[0]["elapsed"] == "4m05s" and cases[0]["turn_s"] == 244.3
+    # '~$' marks a floor for the case, '>=$' one for the run
+    floor = next(c for c in cases if c["id"] == "unsup.method_refusal_not_sticky")
+    assert floor["cost_usd"] == 0.0367 and floor["cost_floor"] is True
+    assert floor["cost_running_usd"] == 1.3304
+    failed = cases[-1]
+    assert failed["status"] == "FAIL" and failed["failed"] == "main:last_reply"
+
+
+def test_parse_nessie_log_reads_unpriced_cells_and_a_fallback_note():
+    line = ("[  3/9] SKIP   a.b                                  -                  0.0s  case -         "
+            "run $1.0000     1m00s")
+    line2 = ("[  4/9] PASS   a.c                                  container_cc       9.0s  case $?        "
+             "run >=$1.0000   1m10s  fallback 2")
+    got = L.parse_nessie_log(line + "\n" + line2 + "\n")
+    assert [c["cost_usd"] for c in got["cases"]] == [None, None]
+    assert got["cases"][1]["fallback"] == 2
+
+
+def test_the_runner_reads_a_rollback_tag_the_rebuild_log_wrapped(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys)
+    script = tmp_path / "rb.sh"
+    log = FIX / "real-rebuild-wrapped-rollback.log"
+    script.write_text(f'{_functions(text)}\nrollback_tag "{log}"\n')
+    r = subprocess.run(["bash", str(script)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "rollback tag verified: nextseek-bedrock-proxy:pre-20261015T122302-befd5eb4"

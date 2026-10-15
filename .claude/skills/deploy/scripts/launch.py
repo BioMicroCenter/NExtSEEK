@@ -1321,6 +1321,11 @@ def _run_ssh(a, inst: rules.Instance, d: Path, tag: str, script: str) -> int:
 # =====================================================================================
 STAMP_RE = re.compile(r"\s(\d{2}:\d{2}:\d{2})\s*$")
 CASE_RE = re.compile(r"^\[\s*(\d+)/(\d+)\]\s+(\S+)\s+(\S+)\s+(\S+)\s+([\d.]+)s\s+\$([\d.]+)\s+(\S+)(?:\s+<-\s+(.*))?$")
+# The harness's current line (nextseek_api/management/commands/nessie.py on_case): a case cell ($0.4725, ~$0.0367 a
+# floor, $? unmeasured, - not sent) and a run cell ($1.29, or >=$1.33 once a floor entered the sum).
+CASE_RUN_RE = re.compile(
+    r"^\[\s*(\d+)/(\d+)\]\s+(\S+)\s+(\S+)\s+(\S+)\s+([\d.]+)s\s+case\s+(-|\$\?|~?\$[\d.]+)\s+run\s+(>=)?\$([\d.]+)"
+    r"\s+(\d+m\d{2}s)(?:\s+fallback\s+(\d+))?(?:\s+<-\s+(.*))?$")
 NOT_CONTINUATION = re.compile(r"^(╭|│|╰|FAILED|ERROR|XFAIL|XPASS|PASSED|=)")
 # Indented deeper than the text of a ✗ line (seven spaces, the mark, a space): a detail line of that red,
 # such as the problems under 'graph sync health' (startup/steps/validate.py GRAPH_SYNC_HEALTH_INDENT).
@@ -1508,6 +1513,17 @@ def parse_ci(text: str, known: list[str]) -> dict:
 def parse_nessie_log(text: str) -> dict:
     cases, prev_cost = [], 0.0
     for ln in text.splitlines():
+        n = CASE_RUN_RE.match(ln.strip())
+        if n:
+            cell = n.group(7)
+            cases.append({"n": int(n.group(1)), "of": int(n.group(2)), "status": n.group(3),
+                          "id": n.group(4), "route": n.group(5), "turn_s": float(n.group(6)),
+                          "cost_usd": float(cell.lstrip("~$")) if cell[-1].isdigit() else None,
+                          "cost_floor": cell.startswith("~") or n.group(8) is not None,
+                          "cost_running_usd": float(n.group(9)), "elapsed": n.group(10),
+                          "fallback": int(n.group(11) or 0), "failed": (n.group(12) or "").strip() or None})
+            prev_cost = float(n.group(9))
+            continue
         m = CASE_RE.match(ln.strip())
         if not m:
             continue
