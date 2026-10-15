@@ -43,6 +43,8 @@ app.config_from_object(
             # Celery's own housekeeping (celery.backend_cleanup) goes to a queue the one worker reads; on the
             # default "celery" queue nothing consumed it and results never expired.
             "celery.*": {"queue": "batch_upload"},
+            # The paid summary sweep runs ~200 s on a backlog: its own queue and worker, so an upload never waits on it.
+            "cc_assistant.sweep_cc_summaries": {"queue": "cc_summaries"},
             "cc_assistant.*": {"queue": "batch_upload"},
             "attribute_mutations.*": {"queue": "attribute_mutations"},
         },
@@ -56,10 +58,9 @@ app.config_from_object(
             "batch_upload.purge_durable_state": {"ignore_result": True},
         },
         "beat_schedule": {
-            # Each entry expires at its own interval, so runs missed while the one batch_upload worker is busy
-            # are dropped, not piled up.
-            # ponytail: these share the batch_upload worker (concurrency 1), so a long upload delays them; a
-            # dedicated periodic queue and worker is the upgrade if that ever matters.
+            # Each entry expires at its own interval, so runs missed while its worker is busy are dropped, not
+            # piled up. The sweep has the cc_summaries worker; the other jobs share the batch_upload worker
+            # (concurrency 1) with uploads on purpose, since the purge and reaper touch upload state.
             "cc-1c-summary-sweep": {
                 "task": "cc_assistant.sweep_cc_summaries",
                 "schedule": 300.0,

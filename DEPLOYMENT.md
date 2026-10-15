@@ -1074,9 +1074,10 @@ acceptance runs: [`NessieAI/cc/DEPLOY.md`](NessieAI/cc/DEPLOY.md) and
 ### Periodic jobs (Celery beat)
 
 The app container runs one `celery ... beat` process (schedule file `/var/celery/celerybeat-schedule`).
-It queues three jobs on the batch_upload worker, each dropped if it waits longer than its own interval: the
-Container-CC summary sweep (300 s), the stuck-turn reaper (300 s) and Django `clearsessions` (daily). A long upload
-delays them. The sweep sends idle Container-CC transcripts (already scrubbed) to the summary model: set
+It queues four jobs, each dropped if it waits longer than its own interval: the
+Container-CC summary sweep (300 s), the stuck-turn reaper (300 s), the durable-state purge (daily) and Django `clearsessions` (daily). A long upload
+delays the reaper, the purge and `clearsessions`.
+The sweep runs on its own `cc_summaries` worker, so it never delays an upload. It sends idle Container-CC transcripts (already scrubbed) to the summary model: set
 `NEXTSEEK_CC_SUMMARY_SWEEP=0` in `nextseek.env` and restart the app to stop it; the rest of the beat keeps running.
 `DMAC_CC_MEMORY_SWEEP_MAX_PER_RUN` (20) bounds one run's summaries.
 

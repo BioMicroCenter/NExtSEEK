@@ -87,6 +87,14 @@ uv run --no-sync celery -A nextseek_api.batch_upload.celery_app worker \
               -Q batch_upload \
               --concurrency=1 &
 
+# The Container-CC summary sweep (paid, ~200 s on a backlog) gets its own worker on the same broker, so it never
+# holds up an upload. Same shape as the worker plus beat sharing that broker file.
+uv run --no-sync celery -A nextseek_api.batch_upload.celery_app worker \
+              --loglevel=info \
+              -Q cc_summaries \
+              --hostname=cc_summaries@%h \
+              --concurrency=1 &
+
 # The beat that queues the periodic jobs in celery_app.py (summary sweep, stuck-turn reaper, session clean-up).
 # Its schedule file sits on /var/celery; every entry expires, so a busy worker drops missed runs.
 uv run --no-sync celery -A nextseek_api.batch_upload.celery_app beat \
@@ -114,7 +122,7 @@ uv run --no-sync celery -A nextseek_api.batch_upload.celery_app beat \
 #     still bounds the attribute worker, and a memory limit on THIS container
 #     would risk the web server rather than one worker, so the ceiling is gone
 #     on purpose. An attribute backlog can now cost the app container's memory.
-#   * Independent restart. `wait -n` below means any one of these six processes
+#   * Independent restart. `wait -n` below means any one of these background processes
 #     exiting takes the whole container down for compose to restart, so a
 #     dispatcher crash now bounces the web server too. That is what the
 #     batch_upload worker has always done here; the fold widens it to four more.
