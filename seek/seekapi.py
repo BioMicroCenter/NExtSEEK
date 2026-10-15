@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 import json
 
-import shlex
-from subprocess import Popen, PIPE
 
 import logging
 logger = logging.getLogger(__name__)
@@ -17,26 +15,6 @@ class SeekAPI(object):
         self.__username = username
         self.__password = password
             
-    def __curlPrefix(self):
-        if self.__username is None:
-            curl_prefix = "curl -k "
-        else:    
-            # One shell word whatever the password holds (callCmdline splits it with shlex).
-            curl_prefix = "curl -u " + shlex.quote(self.__username + ":" + self.__password) + " -k "
-        
-        return curl_prefix
-            
-    def apiPost(self):
-        apicmd = self.__curlPrefix() + " -X POST \"" + self.__server + "\""
-        return apicmd
-    
-    def callCmdline(self, cmd):
-        args = shlex.split(cmd)
-        proc = Popen(args, stdout=PIPE, stderr=PIPE)
-        out, err = proc.communicate()
-        exitcode = proc.returncode
-        return exitcode, out, err
-        
     def runGetQuery(self, queryurl):
         import requests
         # Imported inside the method: nextseek_api.helpers imports seek.seekdb, which imports this module.

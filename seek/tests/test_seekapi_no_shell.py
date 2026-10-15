@@ -29,7 +29,7 @@ def world():
         calls.append((url, kwargs))
         return FakeResponse(answers[url])
 
-    with patch("subprocess.Popen", popen), patch("seek.seekapi.Popen", popen), patch("requests.get", side_effect=fake_get):
+    with patch("subprocess.Popen", popen), patch("requests.get", side_effect=fake_get):
         yield popen, calls, answers
 
 
