@@ -193,3 +193,26 @@ class TestVisitorHero:
         hero = html[html.index('class="dash-hero"'):html.index("</header>", html.index('class="dash-hero"'))]
         assert "Welcome back" in hero
         assert "/login/" not in hero
+
+
+class TestHomeRecentSamplesEmptyState:
+    """A signed-out visitor is told to sign in to see samples; a signed-in caller with none sees the plain empty line."""
+
+    @staticmethod
+    def _html(user):
+        from django.template.loader import render_to_string
+        req = RequestFactory().get("/")
+        req.user = user
+        ctx = {"recent_samples": [], "home_projects": [], "total_samples_count": 5}
+        return render_to_string("index.html", ctx, request=req)
+
+    def test_signed_out_visitor_is_asked_to_sign_in(self):
+        html = self._html(AnonymousUser())
+        assert "Sign in to see samples." in html
+        assert "No recent activity yet." not in html
+
+    def test_signed_in_caller_sees_the_plain_empty_line(self):
+        from types import SimpleNamespace
+        html = self._html(SimpleNamespace(is_authenticated=True, is_superuser=False, username="m", pk=7))
+        assert "No recent activity yet." in html
+        assert "Sign in to see samples." not in html
