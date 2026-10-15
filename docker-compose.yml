@@ -42,8 +42,8 @@ services:
       # of LURIA_KEY needs no translation. Defaults to /dev/null so the stack
       # still comes up when the Luria backend is unused.
       - ${LURIAKEY:-/dev/null}:${LURIAKEY:-/dev/null}:ro
-      # Writable ssh dir: ssh.py copies the key here and chmods 0600, which it
-      # cannot do on the read-only bind above.
+      # Writable ssh dir: ssh.py copies the key here for one call, chmods 0600 (which it
+      # cannot do on the read-only bind above) and removes the copy after use.
       - nextseek-luria-ssh:/app/.ssh
       # Additive (Container-CC route): lets the assistant worker spawn sibling
       # `claude` containers on the host Docker daemon. Used only by the new
@@ -104,7 +104,7 @@ services:
       - laya-net
 
   nextseek_nginx:
-    image: nginx:latest
+    image: nginx:${NGINX_IMAGE_TAG:-1.31.2}
     # The front door: every user and the smoke suite arrive through this port.
     # A manual `docker stop` still keeps it down, so `./startup.sh rebuild`
     # also starts it (never recreates it) after restarting the app.
@@ -331,7 +331,7 @@ services:
       - seek-mysql-db:/var/lib/mysql
 
   neo4j:
-    image: neo4j
+    image: neo4j:${NEO4J_IMAGE_TAG:-2026.05.0}
     container_name: ${INSTANCE_PREFIX:-}neo4j
     restart: always
 
@@ -396,11 +396,10 @@ services:
       #   NEO4J_PLUGINS=["apoc"]
       # An empty value loads nothing, which is how every box ran before this line.
       NEO4J_PLUGINS: "${NEO4J_PLUGINS:-}"
-      # Which plugin procedures and functions load. Unset, the image loads every one it
-      # finds. A box that enables APOC should name the read-only families it wants here
-      # (see .env.example) rather than take the loaders, periodic writers and dynamic
-      # Cypher runners with them.
-      NEO4J_dbms_security_procedures_allowlist: "${NEO4J_PROCEDURES_ALLOWLIST:-*}"
+      # Which plugin procedures and functions load. Unset, the read-only families
+      # listed in .env.example load (never the loaders, periodic writers or dynamic
+      # Cypher runners). Set NEO4J_PROCEDURES_ALLOWLIST to change the list.
+      NEO4J_dbms_security_procedures_allowlist: "${NEO4J_PROCEDURES_ALLOWLIST:-db.*,dbms.*,tx.*,fleetManagement.*,apoc.path.*,apoc.meta.*,apoc.text.*,apoc.coll.*,apoc.agg.*,apoc.map.*,apoc.number.*,apoc.convert.*,apoc.date.*,apoc.temporal.*,apoc.node.*,apoc.label.*,apoc.any.*,apoc.math.*,apoc.stats.*}"
     ports:
       - "127.0.0.1:${NEO4J_HTTP_PORT:-7474}:7474"
       - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687"

@@ -837,6 +837,16 @@ files = ["root.env"]
 default = "2G"
 doc = "Memory cap of MySQL."
 
+[NEO4J_IMAGE_TAG]
+files = ["root.env"]
+default = "2026.05.0"
+doc = "Neo4j image tag."
+
+[NGINX_IMAGE_TAG]
+files = ["root.env"]
+default = "1.31.2"
+doc = "nginx image tag."
+
 [NEO4J_MEMORY]
 files = ["root.env"]
 default = "6G"
@@ -864,7 +874,7 @@ doc = "Neo4j plugins to load, for example the read-only APOC families."
 
 [NEO4J_PROCEDURES_ALLOWLIST]
 files = ["root.env"]
-default = "*"
+default = "db.*,dbms.*,tx.*,fleetManagement.*,apoc.path.*,apoc.meta.*,apoc.text.*,apoc.coll.*,apoc.agg.*,apoc.map.*,apoc.number.*,apoc.convert.*,apoc.date.*,apoc.temporal.*,apoc.node.*,apoc.label.*,apoc.any.*,apoc.math.*,apoc.stats.*"
 doc = "Neo4j procedures allowlist."
 
 [SOLR_MEMORY]

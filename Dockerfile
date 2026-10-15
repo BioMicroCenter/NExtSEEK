@@ -5,11 +5,11 @@
 # Its Python is pinned on the RUN line, not with a second ENV UV_PYTHON (the guard
 # below reads the first one). The downloader's version cannot change the bytes: every
 # file is checked against its sha256.
-FROM ghcr.io/astral-sh/uv:debian AS models
+FROM ghcr.io/astral-sh/uv:0.12.8-debian AS models
 COPY docker/models/*.manifest.json docker/models/fetch_models.py docker/models/verify_models.py /src/
 RUN uv run --no-project --python 3.14 --with huggingface-hub==1.11.0 python /src/fetch_models.py /src /opt/models
 
-FROM ghcr.io/astral-sh/uv:debian
+FROM ghcr.io/astral-sh/uv:0.12.8-debian
 
 RUN mkdir /app
 RUN mkdir -p /var/celery

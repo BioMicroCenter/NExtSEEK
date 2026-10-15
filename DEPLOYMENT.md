@@ -33,9 +33,9 @@ No service is profile-gated: `docker compose ps` shows the whole stack, and
 | Service | Image | Host port | Network(s) | Role |
 |---|---|---|---|---|
 | `nextseek` | built from root `Dockerfile` | none (internal :8000) | default | Django app, and every background runtime that runs app code: web server (daphne, or gunicorn via `NEXTSEEK_SERVER`), Celery worker for `batch_upload`, Celery worker for `attribute_mutations`, the outbox dispatcher, the sync-recovery loop, and the assay-registration drain loop. Six processes under one `wait -n`, so any of them exiting restarts the container. Healthchecked by `docker/scripts/attribute_runtime_healthcheck.py app` |
-| `nextseek_nginx` | `nginx:latest` | `127.0.0.1:${NEXTSEEK_PORT:-8000}` | default **+ dmac-cc-net** | static files + reverse proxy; the **only dual-homed** service |
+| `nextseek_nginx` | `nginx:${NGINX_IMAGE_TAG:-1.31.2}` | `127.0.0.1:${NEXTSEEK_PORT:-8000}` | default **+ dmac-cc-net** | static files + reverse proxy; the **only dual-homed** service |
 | `db` | `mysql:8.0` | `127.0.0.1:3306` | default | two schemas: `dmac` (NExtSEEK) + `seek_production` (SEEK) |
-| `neo4j` | `neo4j` | `127.0.0.1:7474` / `:7687` | default | sample/assay graph |
+| `neo4j` | `neo4j:${NEO4J_IMAGE_TAG:-2026.05.0}` | `127.0.0.1:7474` / `:7687` | default | sample/assay graph |
 | `seek` / `seek_workers` | `fairdom/seek:1.15.1` | `127.0.0.1:3000` / none | default | upstream SEEK Rails app + delayed-job workers |
 | `solr` | `fairdom/seek-solr:8.11` | none | default | SEEK search index |
 | `bedrock-proxy` | built from `NessieAI/docker/bedrock-proxy/` | none | dmac-cc-net | holds the Bedrock token; model-allowlist auth proxy (container name `dmac-bedrock-proxy`) |
@@ -104,6 +104,13 @@ Key facts every operator must internalize:
   service would have grown unchecked. A transaction that asks for more is now
   killed and reported to its caller instead. Raise the bounds together on a box
   with a larger graph; the caps take effect when `neo4j` is recreated.
+- Pulled images are pinned, so a rebuild never moves a version. `NGINX_IMAGE_TAG` defaults to `1.31.2` (what prod
+  runs; dev was on `1.31.1` and moves to it at its rebuild, set `NGINX_IMAGE_TAG=1.31.1` in dev's `.env` to stay).
+  `NEO4J_IMAGE_TAG` defaults to `2026.05.0`, the version both boxes run, so the store format does not change. The
+  Container-CC runtime and the app image copy `uv` from `ghcr.io/astral-sh/uv:0.12.8` (no download piped to a shell).
+- `NEO4J_PROCEDURES_ALLOWLIST` now defaults to the read-only list in `.env.example` instead of `*`. A box that
+  loads APOC (`NEO4J_PLUGINS`) gets the read-only families the graph agent uses; neither box loads APOC today.
+- CI runs a `mariadb:10.5` service for the MariaDB-fixture tests (`SPIKE_DB_*`); the dev compose `db` stays `mysql:8.0`.
 - Every other long-lived service carries a cap too: `seek_workers`
   (`${SEEK_WORKERS_MEMORY:-3G}`), `solr` (`${SOLR_MEMORY:-2G}`), `db`
   (`${SEEK_DB_MEMORY:-2G}`) and `nextseek-sidecar` (`${SIDECAR_MEMORY:-1G}`).
@@ -888,12 +895,14 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `SEEK_WORKER_MAX_MB` | root.env | 2500 |  |  | RSS in whole MB at which the recycler restarts a SEEK puma worker. |
 | `SEEK_WORKERS_MEMORY` | root.env | 3G |  |  | Memory cap of the SEEK job workers. |
 | `SEEK_DB_MEMORY` | root.env | 2G |  |  | Memory cap of MySQL. |
+| `NEO4J_IMAGE_TAG` | root.env | 2026.05.0 |  |  | Neo4j image tag. |
+| `NGINX_IMAGE_TAG` | root.env | 1.31.2 |  |  | nginx image tag. |
 | `NEO4J_MEMORY` | root.env | 6G |  |  | Memory cap of Neo4j. |
 | `NEO4J_HEAP` | root.env | 2g |  |  | Neo4j heap size. |
 | `NEO4J_PAGECACHE` | root.env | 2g |  |  | Neo4j page cache size. |
 | `NEO4J_TRANSACTION_MAX` | root.env | 1g |  |  | Neo4j memory cap per transaction. |
 | `NEO4J_PLUGINS` | root.env | "" |  |  | Neo4j plugins to load, for example the read-only APOC families. |
-| `NEO4J_PROCEDURES_ALLOWLIST` | root.env | * |  |  | Neo4j procedures allowlist. |
+| `NEO4J_PROCEDURES_ALLOWLIST` | root.env | db.*,dbms.*,tx.*,fleetManagement.*,apoc.path.*,apoc.meta.*,apoc.text.*,apoc.coll.*,apoc.agg.*,apoc.map.*,apoc.number.*,apoc.convert.*,apoc.date.*,apoc.temporal.*,apoc.node.*,apoc.label.*,apoc.any.*,apoc.math.*,apoc.stats.* |  |  | Neo4j procedures allowlist. |
 | `SOLR_MEMORY` | root.env | 2G |  |  | Memory cap of Solr. |
 | `SIDECAR_MEMORY` | root.env | 1G |  |  | Memory cap of the Nessie sidecar. |
 | `LAYA_CPUS` | root.env | 4 |  |  | CPU cap of the laya router. |
