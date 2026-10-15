@@ -404,6 +404,9 @@ def run_retry(*, adapter, req, send_event, api_user, api_pass, session_id_str, g
     keyword out, and the singleton config carries no scope, so every graph
     query refuses.
     """
+    from NessieAI.ns.turn import _error_tracking_send_event
+
+    send_event, error_state = _error_tracking_send_event(send_event)
     try:
         run_query, run_query_plan = _get_orchestrator()
         creds = {"api_user": api_user, "api_pass": api_pass}
@@ -430,13 +433,14 @@ def run_retry(*, adapter, req, send_event, api_user, api_pass, session_id_str, g
         logger.exception(
             "Unhandled pipeline error (evaluator retry)"
         )
-        send_event(
-            "query_error",
-            {
-                "error": "Internal pipeline error",
-                "agent": "unknown",
-                "session_id": session_id_str,
-            },
-        )
+        if not error_state["sent"]:
+            send_event(
+                "query_error",
+                {
+                    "error": "Internal pipeline error",
+                    "agent": "unknown",
+                    "session_id": session_id_str,
+                },
+            )
     finally:
         adapter.save()
