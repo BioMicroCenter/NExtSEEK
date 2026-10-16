@@ -209,7 +209,6 @@ What blocks each row:
 | differentialabundance | `other/dream/<paramset>/<contrast>_<study>.dream.model.txt`, and each method's `*.model.txt` | A.GEX | inventory |
 | differentialabundance | `MethodSettings` on 2.0.0 rows: each paramset has its own settings, which the run's params do not hold, so the field is blank there | A.GEX | inventory: the paramsets file |
 | differentialabundance | non-RNA-seq study types (`--study_type affy_array`, `geo_soft_file`, `maxquant`) are named in `Notes`; their `*.matrix.tsv` normalised matrix has no rule, maxquant's results are protein abundance filed as A.GEX, and their samplesheets name no FASTQ, so no parent resolves | A.GEX, other | type, parent |
-| hlatyping | `optitype/<sample>/<sample>_result.tsv` (unconfirmed name) | none (HLA genotype) | type, inventory |
 | hlatyping | `hlahd/<sample>/<sample>_final.result.txt` (only with `--tools hlahd`) | none (HLA genotype) | type, inventory |
 | hlatyping | `yara/<sample>/<sample>.mapped.bam`, or `<sample>_1`/`_2.mapped.bam` when paired | A.ALN? | choice: HLA-only reference, and two BAMs per paired sample |
 | riboseq | `alignment/star/sorted/<sample>.transcriptome.sorted.bam` (+ `.bai`) | A.ALN | ready: a companion of the genome BAM's row |
