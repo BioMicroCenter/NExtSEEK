@@ -4,6 +4,7 @@
   "applies_to_versions": "",
   "accepts_parent_types": ["D.SEQ", "A.ALN"],
   "harvest_globs": [],
+  "inventory_globs": ["**/optitype/*/*_result.tsv", "**/optitype/*/*_coverage_plot.pdf"],
   "derived_metrics": [],
   "row_defaults": {
     "Name": "@row_name",

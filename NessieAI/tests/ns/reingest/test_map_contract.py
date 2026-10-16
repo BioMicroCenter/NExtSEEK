@@ -387,6 +387,34 @@ def test_every_inventory_glob_starts_with_a_double_star(name):
     assert bad == [], f"{name}: inventory patterns must start with **/ (symlink safety): {bad}"
 
 
+def _inventoried(pattern: str, root: Path) -> bool:
+    """Whether a file shaped like `pattern` would reach the inventory: build one
+    under `root` and glob for it the way the stager does, with every pattern
+    `harvest.inventory_globs()` lists."""
+    rel = pattern.replace("**/", "").replace("*", "S1")
+    target = root / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.touch()
+    return any(target in set(root.glob(g)) for g in harvest.inventory_globs())
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_rule_pattern_is_inventoried(name, tmp_path):
+    """A rule's candidates and companions are matched only against the
+    inventory, so a pattern nothing inventories matches nothing, silently, and
+    an optional rule does not even warn. hlatyping's A.HLA rule shipped that
+    way: OptiType's files were in no map's inventory_globs."""
+    m = maps.load(name)
+    missing = []
+    for rule in list(m.outputs) + [r for o in m.versions for r in o.outputs]:
+        patterns = list(rule.candidates) + [c.glob for c in rule.companions]
+        for i, pattern in enumerate(patterns):
+            for j, expanded in enumerate(maps.expand_braces(pattern)):
+                if not _inventoried(expanded, tmp_path / rule.id / f"{i}_{j}"):
+                    missing.append(f"{rule.id}: {expanded}")
+    assert missing == [], f"{name}: patterns no inventory glob lists: {missing}"
+
+
 @pytest.mark.parametrize("name", ALL_MAPS)
 def test_no_key_is_both_ruled_out_and_read_by_a_rule(name):
     """A ruling says "never record this"; a rule reading the same key says the

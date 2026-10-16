@@ -1305,6 +1305,8 @@ _OLD_INVENTORY = {
     "**/tables/differential/*/*.deseq2.results.tsv",
     "**/tables/differential/*/*.limma.results.tsv",
     "**/tables/differential/*/*.dream.results.tsv",
+    # hlatyping's A.HLA rule: OptiType's call and its coverage plot
+    "**/optitype/*/*_result.tsv", "**/optitype/*/*_coverage_plot.pdf",
 }
 
 
