@@ -86,8 +86,26 @@ COVERED_RNASEQ_KEYS = (
     "salmon-strand_mapping_bias",
 )
 
+# Keys judged not worth recording on D.SEQ: sums of recorded values, counts
+# in millions or of BAM records, near-constant shares, and Salmon diagnostics.
+LOW_VALUE_RNASEQ_KEYS = (
+    "star-mapped_percent",
+    "salmon-num_mapped",
+    "salmon-compatible_fragment_ratio",
+    "salmon-library_types",
+    "samtools_flagstat-flagstat_total",
+    "samtools_flagstat-mapped_passed",
+    "samtools_flagstat-mapped_passed_pct",
+    "samtools_stats-reads_mapped",
+    "samtools_stats-non_primary_alignments",
+    "samtools_stats-reads_properly_paired_percent",
+    "rseqc_bam_stat-proper_pairs_percent",
+    "samtools_stats-reads_MQ0_percent",
+    "samtools_stats-insert_size_average",
+)
 
-@pytest.mark.parametrize("raw_key", COVERED_RNASEQ_KEYS)
+
+@pytest.mark.parametrize("raw_key", COVERED_RNASEQ_KEYS + LOW_VALUE_RNASEQ_KEYS)
 def test_a_key_d_seq_already_covers_is_ruled_out_and_never_queued(raw_key):
     pipeline_map = maps.load("rnaseq")
     assert raw_key in pipeline_map.ruled_out()
