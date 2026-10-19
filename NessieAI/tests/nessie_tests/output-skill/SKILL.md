@@ -330,9 +330,10 @@ re-derive rather than trusting this a third time.
   `corpus.apply_route_policy` reads the curated `route_policy` block in
   `corpus.json` — twelve families plus seven per-variant overrides — and
   attaches a `route` criterion to turn 0 of **268** variants, while 15 more write
-  one inline. **All 283 resolved variants carry a `route` criterion; only four
+  one inline. **All 283 resolved variants carry a `route` criterion; only eight
   are `route_gate`** (`route.ns_advanced`, `route.unrelated`,
-  `route.ns_plain_study_membership`, `route.ns_pipeline_by_question`). So a `route` criterion on a case that is
+  `route.ns_plain_study_membership`, `route.ns_pipeline_by_question` and the four
+  comparison-offer gates `route.ns_compare_*`). So a `route` criterion on a case that is
   not a gate is the policy working, NOT harness residue — reading it as residue
   is how a real misroute gets discounted. **A route failure you see today is a
   curated expectation, not a harness assumption. Do not discount it.** Read the

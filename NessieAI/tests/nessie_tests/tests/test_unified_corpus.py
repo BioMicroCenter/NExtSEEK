@@ -54,7 +54,7 @@ def test_unified_holds_every_definition():
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
     ids = {v["id"] for fam in payload["families"].values() for v in fam["variants"]
            if v.get("origin") != "atlas"}
-    assert len(ids) == 524  # 522 -> 524: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 520 -> 522: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set (origin overlay). 470 -> 520: 2026-09-23: +50 variants for the 53 production researcher questions. 408 -> 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(ids) == 530  # 524 -> 530: 2026-10-19: comparison offer, +6 overlay variants in pipeline_launch (4 route_gate route.ns_compare_* with route inline, 2 full-tier pipeline.compare_offer_* with route injected) and unsup.compare_gene_expression_betwee retired. 522 -> 524: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 520 -> 522: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set (origin overlay). 470 -> 520: 2026-09-23: +50 variants for the 53 production researcher questions. 408 -> 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_every_retired_definition_is_still_loadable():
@@ -64,7 +64,7 @@ def test_every_retired_definition_is_still_loadable():
     someone reinstates it."""
     retired = [v for v in corpus.load_all_definitions(CORPUS)
                if corpus.variant_meta(CORPUS)[v.id]["status"] == "retired"]
-    assert len(retired) == 106  # 105 -> 106: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic. 100 -> 105: 2026-08-06 question set: +58 new variants, +6 retirements, 76 deselections (is_bayesian only, still active).
+    assert len(retired) == 107  # 106 -> 107: 2026-10-19: unsup.compare_gene_expression_betwee, now answered by the comparison offer. 105 -> 106: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic. 100 -> 105: 2026-08-06 question set: +58 new variants, +6 retirements, 76 deselections (is_bayesian only, still active).
     for v in retired:
         assert v.turns, f"{v.id} has no turns"
         assert all(t.query for t in v.turns), f"{v.id} has an empty query"
@@ -84,7 +84,7 @@ def test_retired_ids_carry_their_full_retirement_record():
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
     retired = [v for fam in payload["families"].values()
                for v in fam["variants"] if v["status"] == "retired"]
-    assert len(retired) == 106  # 105 -> 106: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic. 100 -> 105: 2026-08-06 question set: +58 new variants, +6 retirements, 76 deselections (is_bayesian only, still active).
+    assert len(retired) == 107  # 106 -> 107: 2026-10-19: unsup.compare_gene_expression_betwee, now answered by the comparison offer. 105 -> 106: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic. 100 -> 105: 2026-08-06 question set: +58 new variants, +6 retirements, 76 deselections (is_bayesian only, still active).
     for v in retired:
         rec = v["retirement"]
         assert rec and rec["reason"] and rec["retired_on"] and rec["decided_by"], v["id"]
@@ -94,18 +94,18 @@ def test_load_unified_returns_the_active_variants_only():
     # 283 -> 308: +25 from the 2026-08-06 additive pass (16 promoted out of the
     # atlas set into the curated one, 9 written fresh). Nothing was removed.
     active = corpus.curated(corpus.load_unified(UNIFIED))
-    assert len(active) == 418  # 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(active) == 423  # 418 -> 423: 2026-10-19: comparison offer, +6 overlay variants in pipeline_launch (4 route_gate route.ns_compare_* with route inline, 2 full-tier pipeline.compare_offer_* with route injected) and unsup.compare_gene_expression_betwee retired. 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_load_all_definitions_returns_active_plus_retired():
-    assert len(corpus.curated(corpus.load_all_definitions(UNIFIED))) == 524  # 522 -> 524: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 520 -> 522: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set. 2026-09-23: +50 variants for the 53 production researcher questions. 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(corpus.curated(corpus.load_all_definitions(UNIFIED))) == 530  # 524 -> 530: 2026-10-19: comparison offer, +6 overlay variants in pipeline_launch (4 route_gate route.ns_compare_* with route inline, 2 full-tier pipeline.compare_offer_* with route injected) and unsup.compare_gene_expression_betwee retired. 522 -> 524: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 520 -> 522: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set. 2026-09-23: +50 variants for the 53 production researcher questions. 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_unified_resolution_preserves_turn_count():
     # 314 -> 343. The 25 additions carry 29 turns between them: several are
     # genuinely multi-turn, and three atlas variants were REPAIRED on promotion
     # because they had a multi-turn script flattened into one literal query.
-    assert sum(len(v.turns) for v in corpus.curated(corpus.merged_from_unified(UNIFIED))) == 484  # 480 -> 484: 2026-09-30: the 1 + 3 turns of the two nf-core selection variants. 478 -> 480: 2026-09-24: the two turns of fix 9's route.ndma_mice_then_female_two_turns. 413 -> 478: 2026-09-23: +50 variants for the 53 production researcher questions, 12 of them multi-turn (65 turns). 343 -> 413: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. 15 of the 58 additions are multi-turn, and 3 edits split a flattened script into real turns.
+    assert sum(len(v.turns) for v in corpus.curated(corpus.merged_from_unified(UNIFIED))) == 489  # 484 -> 489: 2026-10-19: the six single-turn comparison-offer variants, less the retired unsup.compare_gene_expression_betwee. 480 -> 484: 2026-09-30: the 1 + 3 turns of the two nf-core selection variants. 478 -> 480: 2026-09-24: the two turns of fix 9's route.ndma_mice_then_female_two_turns. 413 -> 478: 2026-09-23: +50 variants for the 53 production researcher questions, 12 of them multi-turn (65 turns). 343 -> 413: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. 15 of the 58 additions are multi-turn, and 3 edits split a flattened script into real turns.
 
 
 def test_the_hand_written_annotations_survived_adoption():
@@ -150,8 +150,11 @@ def test_the_hand_written_annotations_survived_adoption():
     # that case keeps the provenance of the atlas case it replaces.
     # 2026-09-30 nf-core selection: `_why` 295 -> 297 and `_added_2026_09_30_selection` 2,
     # one each on the two new overlay variants.
-    assert counts == {"_why": 297, "_why_superseded_2026_08_03": 1,
+    # 2026-10-19 comparison offer: `_why` 297 -> 303 and `_added_2026_10_19_compare_offer` 6,
+    # one each on the six new overlay variants.
+    assert counts == {"_why": 303, "_why_superseded_2026_08_03": 1,
                       "_added_2026_09_30_selection": 2,
+                      "_added_2026_10_19_compare_offer": 6,
                       "_added_2026_09_23_prod_researchers": 50,
                       "_deselected_2026_09_23_prod_researchers": 7,
                       "_2026_07_28": 1, "_atlas": 81,
@@ -179,7 +182,7 @@ def test_fingerprint_is_over_the_unified_corpus_only():
 def test_variant_meta_covers_every_definition():
     meta = corpus.variant_meta(UNIFIED)
     curated_ids = {v.id for v in corpus.curated(corpus.load_all_definitions(UNIFIED))}
-    assert len({k for k in meta if k in curated_ids}) == 524  # 522 -> 524: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 520 -> 522: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set. 2026-09-23: +50 variants for the 53 production researcher questions. 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len({k for k in meta if k in curated_ids}) == 530  # 524 -> 530: 2026-10-19: comparison offer, +6 overlay variants in pipeline_launch (4 route_gate route.ns_compare_* with route inline, 2 full-tier pipeline.compare_offer_* with route injected) and unsup.compare_gene_expression_betwee retired. 522 -> 524: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 520 -> 522: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set. 2026-09-23: +50 variants for the 53 production researcher questions. 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     assert meta["repro.cypher_uid_dot"]["status"] == "retired"
     assert meta["green.mus_ndma"]["status"] == "active"
     # `is_bayesian` used to be pinned False on this variant, which was a pin on
