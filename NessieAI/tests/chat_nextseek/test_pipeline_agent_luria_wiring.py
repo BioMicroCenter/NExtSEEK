@@ -130,6 +130,15 @@ def test_followup_says_where_to_paste_and_what_each_command_checks():
     assert "Ctrl-C" in out
 
 
+def test_followup_ends_with_the_run_done_handoff():
+    # Nothing polls Luria, so the user closes the loop: the block's last line tells them
+    # what to say, and that phrase is what the router sends to Container-CC's reingest.
+    for runs in ([_RUN], [_RUN, {**_RUN, "job_id": "11240787", "run_name": "second-run"}]):
+        last = format_luria_followup(runs, "user@cluster.example.edu").rstrip().splitlines()[-1]
+        assert "my run is done" in last
+        assert "register" in last and "outputs" in last
+
+
 def test_followup_explains_the_squeue_fallback_too():
     out = format_luria_followup([{**_RUN, "job_id": None}], "user@cluster.example.edu")
     assert "Is it still running?" in out
