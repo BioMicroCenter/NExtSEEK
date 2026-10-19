@@ -180,6 +180,12 @@ def render_luria_config(refs_root: str) -> str:
                   f"            gtf   = '{root}/{ref['gtf']}'",
                   "        }"]
     lines += ["    }", "}", ""]
+    # Newer nf-core templates (rnaseq 3.22) set process.shell to a multi-line string. Nextflow
+    # 26.04 pastes that string into the container launch verbatim, so bash then runs
+    # `.command.run` as a program and every task exits 126 ("Permission denied"; VERIFIED on
+    # Luria). A -c config outranks the pipeline's own, and this list form is what fetchngs
+    # 1.12 sets and runs with in the same job.
+    lines += ["process.shell = ['/bin/bash', '-euo', 'pipefail']", ""]
     return "\n".join(lines)
 
 

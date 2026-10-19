@@ -118,6 +118,15 @@ def test_render_luria_config_strips_trailing_slash():
     assert "/net/x/refs//GRCh38" not in cfg
 
 
+def test_render_luria_config_pins_process_shell_as_a_list():
+    # Newer nf-core templates set process.shell to a multi-line string; Nextflow 26.04 pastes
+    # it into the container launch verbatim, so bash runs .command.run as a program and every
+    # task exits 126 (seen on Luria, rnaseq 3.22). The list form is what fetchngs 1.12 uses.
+    from chat_nextseek.luria.run_script import render_luria_config
+    cfg = render_luria_config("/net/x/refs")
+    assert "process.shell = ['/bin/bash', '-euo', 'pipefail']" in cfg
+
+
 def test_render_luria_config_rejects_bad_refs_root():
     from chat_nextseek.luria.run_script import render_luria_config
     for bad in ("", "/net/x; rm -rf /", "a b", "x`id`"):
