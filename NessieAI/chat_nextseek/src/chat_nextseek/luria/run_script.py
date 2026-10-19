@@ -311,7 +311,11 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
             raise ValueError(f"invalid refs_root {refs_root!r}")
         fasta, gtf = genome_ref_paths(genome, refs_root)
         if fasta and gtf:
-            refs_flags = f"--fasta {fasta} --gtf {gtf}"
+            # --igenomes_ignore: --genome otherwise also pulls iGenomes' prebuilt indexes,
+            # which --fasta/--gtf do not replace, and rnaseq 3.22 aligned our GENCODE refs
+            # with iGenomes' old STARIndex ("Genome version: 20201 is INCOMPATIBLE";
+            # VERIFIED on Luria). Ignored, the pipeline builds its indexes from these files.
+            refs_flags = f"--fasta {fasta} --gtf {gtf} --igenomes_ignore"
     fetchngs_block = ""
     if needs_fetch:
         if not fastq_cache or not _REFS_ROOT_RE.fullmatch(str(fastq_cache)):

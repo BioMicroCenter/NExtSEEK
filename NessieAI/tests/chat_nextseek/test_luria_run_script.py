@@ -141,6 +141,10 @@ def test_render_run_script_injects_fasta_gtf_for_known_genome():
     assert "--fasta /net/x/refs/Macaca_fascicularis.Macaca_fascicularis_6.0.dna.toplevel.fa.gz" in s
     assert "--gtf /net/x/refs/Macaca_fascicularis.Macaca_fascicularis_6.0.116.gtf.gz" in s
     assert "--genome Mfas6.0" in s   # kept alongside the explicit paths
+    # Without it --genome also pulls iGenomes' prebuilt indexes, which an explicit
+    # --fasta/--gtf does not replace: rnaseq 3.22 then aligned with iGenomes' old
+    # STARIndex ("Genome version: 20201 is INCOMPATIBLE"; seen on Luria).
+    assert "--igenomes_ignore" in s
     assert "{{" not in s and "}}" not in s
 
 
@@ -150,6 +154,7 @@ def test_render_run_script_no_fasta_gtf_for_unregistered_genome():
                           run_dir="/r", work_dir="/w", singularity_cache="/c", genome="R64-1-1",
                           resources={}, refs_root="/net/x/refs")
     assert "--fasta" not in s and "--gtf" not in s
+    assert "--igenomes_ignore" not in s   # iGenomes is then the only source of references
     assert "--genome R64-1-1" in s and "{{" not in s
 
 
