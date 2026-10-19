@@ -164,5 +164,21 @@
       "Every row has a `type` justified by assay metadata, not assumed.",
       "strandedness uses only the allowed values."
     ]
+  },
+  "runtime": {
+    "basis": "First guess from typical nf-core runtimes on one 16-CPU Luria node (Nessie's default submit); not yet measured on Luria. Refine from real runs.",
+    "setup_minutes": [
+      45,
+      90
+    ],
+    "setup_label": "building the STAR index from the local genome (every run repeats it)",
+    "base_minutes": [
+      20,
+      40
+    ],
+    "per_sample_minutes": [
+      10,
+      25
+    ]
   }
 }

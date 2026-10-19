@@ -40,6 +40,7 @@ from ..seqera.pipeline_params import (
     load_reference_bundles,
     process_args_for,
     resolve_bundle_for_species,
+    runtime_estimate,
 )
 from ..seqera.schema_check import check_params, check_reference_flags
 from ..seqera.submitter import submit_launch
@@ -778,6 +779,7 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
 
     ref_files = (local_luria_ref_files(merged.get("genome"))
                  if reference_status == "local_luria" else None)
+    n_samples, n_fetch = _samplesheet_counts(samplesheet)
     return json.dumps({
         "ok": True,
         "pipeline_key": pipeline_key,
@@ -788,7 +790,21 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         "schema_check": schema_check,
         "params_yml": result.saved_files.get("params"),
         "launch_yml": result.saved_files.get("launch"),
+        "runtime_estimate": runtime_estimate(pipeline_key, n_samples, n_fetch),
     })
+
+
+def _samplesheet_counts(samplesheet: str | None) -> tuple[int, int]:
+    """(rows, rows still to fetch from SRA) in the built samplesheet; (0, 0) when unreadable."""
+    import csv
+
+    from ..luria.fetchngs_helpers import needs_fetch_accessions
+    try:
+        with open(samplesheet or "", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+    except OSError:
+        return 0, 0
+    return len(rows), len(needs_fetch_accessions(rows))
 
 
 def _user_msg_count(state: dict) -> int:

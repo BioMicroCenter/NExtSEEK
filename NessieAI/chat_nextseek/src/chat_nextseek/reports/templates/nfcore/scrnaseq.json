@@ -438,5 +438,21 @@
       "sample_type values are limited to: gex, atac.",
       "The companion barcodes CSV is produced only when multiplexed workflows require it."
     ]
+  },
+  "runtime": {
+    "basis": "First guess from typical nf-core runtimes on one 16-CPU Luria node (Nessie's default submit); not yet measured on Luria. Refine from real runs.",
+    "setup_minutes": [
+      30,
+      90
+    ],
+    "setup_label": "building the aligner's index from the local genome (every run repeats it)",
+    "base_minutes": [
+      10,
+      20
+    ],
+    "per_sample_minutes": [
+      20,
+      60
+    ]
   }
 }

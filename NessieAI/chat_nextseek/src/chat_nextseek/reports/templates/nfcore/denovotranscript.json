@@ -126,5 +126,21 @@
       "Every row is paired.",
       "assemblers is a single value unless the user asked otherwise."
     ]
+  },
+  "runtime": {
+    "basis": "First guess from typical nf-core runtimes on one 16-CPU Luria node (Nessie's default submit); not yet measured on Luria. Refine from real runs. The pooled assembly (Trinity, rnaSPAdes) dominates and grows with total reads.",
+    "setup_minutes": [
+      0,
+      0
+    ],
+    "setup_label": "",
+    "base_minutes": [
+      120,
+      480
+    ],
+    "per_sample_minutes": [
+      10,
+      30
+    ]
   }
 }

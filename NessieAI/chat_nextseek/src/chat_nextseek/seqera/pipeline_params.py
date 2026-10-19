@@ -34,6 +34,59 @@ def _load_pipeline_doc(pipeline_key: str) -> dict[str, Any]:
     return json.loads(path.read_text()) if path.exists() else {}
 
 
+# Pulling a run's SRA accessions before the pipeline starts (the fetchngs pre-stage):
+# once per run, then per accession. Small public runs; a large one takes longer.
+_SRA_FETCH_MINUTES = (5, 10)
+_SRA_FETCH_PER_SAMPLE_MINUTES = (2, 10)
+
+
+def _half_hours(minutes: float) -> str:
+    value = round(minutes / 30) / 2
+    return f"{value:g}"
+
+
+def _five_minutes(minutes: float) -> int:
+    return int(5 * round(minutes / 5))
+
+
+def runtime_estimate(pipeline_key: str, n_samples: int, n_fetch: int = 0) -> dict[str, Any] | None:
+    """A rough range for how long a run takes once its job starts on Luria, or None when
+    the pipeline's curated JSON has no ``runtime`` block.
+
+    The block holds ``setup_minutes`` (fixed work such as building the genome index, which
+    every run with local references repeats), ``base_minutes`` (per-run steps: MultiQC and
+    the like) and ``per_sample_minutes``, each a [low, high] pair, and ``basis`` saying
+    where the numbers come from. Samples fetched from SRA add download time. Queue time
+    before the job starts is not included, and the text says so.
+    """
+    block = _load_pipeline_doc(pipeline_key).get("runtime")
+    if not block:
+        return None
+    n_samples = max(int(n_samples or 0), 0)
+    n_fetch = max(int(n_fetch or 0), 0)
+    setup = block.get("setup_minutes") or [0, 0]
+    base = block.get("base_minutes") or [0, 0]
+    per_sample = block.get("per_sample_minutes") or [0, 0]
+    low = setup[0] + base[0] + n_samples * per_sample[0]
+    high = setup[1] + base[1] + n_samples * per_sample[1]
+    includes = []
+    if setup[1] and block.get("setup_label"):
+        includes.append(f"{block['setup_label']} (about {setup[0]}–{setup[1]} min)")
+    includes.append(f"{n_samples} sample{'s' if n_samples != 1 else ''} "
+                    f"at about {per_sample[0]}–{per_sample[1]} min each")
+    if n_fetch:
+        low += _SRA_FETCH_MINUTES[0] + n_fetch * _SRA_FETCH_PER_SAMPLE_MINUTES[0]
+        high += _SRA_FETCH_MINUTES[1] + n_fetch * _SRA_FETCH_PER_SAMPLE_MINUTES[1]
+        includes.append(f"downloading {n_fetch} sample{'s' if n_fetch != 1 else ''} from SRA first")
+    if high < 90:
+        text = f"about {_five_minutes(low)}–{_five_minutes(high)} minutes"
+    else:
+        text = f"about {_half_hours(low)}–{_half_hours(high)} hours"
+    return {"low_minutes": low, "high_minutes": high, "text": text, "includes": includes,
+            "excludes": "time waiting in the Slurm queue before the job starts",
+            "basis": block.get("basis", "")}
+
+
 def process_args_for(pipeline_key: str, protocol: str | None) -> dict[str, str]:
     """{process_name: ext_args} the curated JSON declares a protocol needs — e.g. scrnaseq
     'dropseq' -> {'SIMPLEAF_QUANT': '--knee'}. Read from <key>.json 'protocol_process_args'.

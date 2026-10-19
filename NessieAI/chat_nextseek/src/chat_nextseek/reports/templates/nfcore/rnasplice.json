@@ -33,5 +33,21 @@
   "sources": [
     {"label": "nf-core/rnasplice nextflow_schema.json @ 1.0.4", "url": "https://raw.githubusercontent.com/nf-core/rnasplice/1.0.4/nextflow_schema.json", "notes": "param names, types, defaults; suppa default true."},
     {"label": "nf-core/rnasplice assets/schema_input.json @ 1.0.4", "url": "https://raw.githubusercontent.com/nf-core/rnasplice/1.0.4/assets/schema_input.json", "notes": "required columns: sample, fastq_1, strandedness, condition (fastq_2 optional)."}
-  ]
+  ],
+  "runtime": {
+    "basis": "First guess from typical nf-core runtimes on one 16-CPU Luria node (Nessie's default submit); not yet measured on Luria. Refine from real runs.",
+    "setup_minutes": [
+      45,
+      90
+    ],
+    "setup_label": "building the STAR and Salmon indexes from the local genome (every run repeats it)",
+    "base_minutes": [
+      30,
+      60
+    ],
+    "per_sample_minutes": [
+      15,
+      30
+    ]
+  }
 }
