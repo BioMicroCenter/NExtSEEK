@@ -16,6 +16,9 @@ from NessieAI.ns.write_gate import WriteBlockedError, build_gate
 
 USER = SimpleNamespace(pk=7, username="curator")
 CTX = {"contributor_id": 42, "lababbv": "MIT"}
+# The chat turn a build was shown in, and the later turn of the same chat the upload runs in.
+SHOWN = {"session_id": "chat-1", "turn_number": 1, "task_id": "task-1"}
+NOW = {"session_id": "chat-1", "turn_number": 2, "task_id": "task-2"}
 
 
 @pytest.fixture
@@ -26,7 +29,7 @@ def env(tmp_path, monkeypatch):
 
 
 def _build(env, name, mode, *, user_id=7, project_id=14, disposition="SOFT_FLAG",
-           data=None, sample_type=None, manifest_id="abc", test_only=False):
+           data=None, sample_type=None, manifest_id="abc", test_only=False, shown_in=SHOWN):
     path = env / f"{name}.xlsx"
     path.write_bytes(data or name.encode())
     if sample_type is None:
@@ -35,7 +38,7 @@ def _build(env, name, mode, *, user_id=7, project_id=14, disposition="SOFT_FLAG"
         path=str(path), artifact_key=name, sample_type=sample_type,
         mode=mode, manifest_id=manifest_id, disposition=disposition, open_warnings=[],
         row_count=2, project_id=project_id, project_note="" if project_id else "no project",
-        answers_digest="d", user_id=user_id, test_only=test_only)
+        answers_digest="d", user_id=user_id, test_only=test_only, chat_turn=shown_in)
 
 
 def _copy_stage(p):
@@ -52,12 +55,15 @@ def _edit_record(file_id, **changes):
         json.dump(record, fh)
 
 
-def _session(*, dispatch=None, stage=_copy_stage, upload_context=CTX, user=USER):
+def _session(*, dispatch=None, stage=_copy_stage, upload_context=CTX, user=USER,
+             now=NOW, delivered=lambda task_id: True):
     """The REST layer puts the batch-upload seams on the session; the engine
-    never imports them."""
+    never imports them. So are the two chat-turn seams: which turn of which chat
+    the call runs in, and whether an earlier turn's reply reached the user."""
     return SimpleNamespace(user=user, upload_context=upload_context,
                            dispatch_job=dispatch if dispatch is not None else MagicMock(),
-                           stage_workbook=stage)
+                           stage_workbook=stage, chat_turn=lambda: now,
+                           turn_delivered=delivered)
 
 
 def _op(args, session=None, **seams):
@@ -251,7 +257,8 @@ def test_a_record_path_outside_the_artifact_roots_is_refused(env, tmp_path_facto
     dispatch.assert_not_called()
 
 
-@pytest.mark.parametrize("missing", ["dispatch_job", "stage_workbook"])
+@pytest.mark.parametrize("missing", ["dispatch_job", "stage_workbook", "chat_turn",
+                                     "turn_delivered"])
 def test_an_unwired_server_refuses_the_upload(env, missing):
     """The engine never imports the batch-upload views: the host hands both
     seams in on the session, and a host that does not is refused."""
@@ -352,3 +359,79 @@ def test_a_record_written_before_test_only_existed_is_refused(env):
         json.dump(record, fh)
     with pytest.raises(upload.UploadRefused, match="test only"):
         upload.verify([build["build_id"]], user_id=7)
+
+
+# --------------------------------------------------------------------------- #
+# A build is uploaded only from a later turn of the chat it was shown in: the
+# server-side twin of the pipeline agent's _launch_unconfirmed.
+# --------------------------------------------------------------------------- #
+
+def _refused(env, build, match, **session):
+    dispatch = MagicMock()
+    with pytest.raises(g.OpValidationError, match=match):
+        _op({"build_ids": build["build_id"], "confirmed_write": True},
+            session=_session(dispatch=dispatch, **session))
+    dispatch.assert_not_called()
+
+
+def test_a_build_from_this_same_turn_is_refused(env):
+    build = _build(env, "reingest_A_ALN", "new", shown_in=NOW)
+    _refused(env, build, "built in this turn")
+
+
+def test_a_build_from_a_later_turn_number_is_refused(env):
+    build = _build(env, "reingest_A_ALN", "new", shown_in={**NOW, "turn_number": 3})
+    _refused(env, build, "built in this turn")
+
+
+def test_a_build_shown_in_another_chat_is_refused(env):
+    build = _build(env, "reingest_A_ALN", "new", shown_in={**SHOWN, "session_id": "chat-2"})
+    _refused(env, build, "another chat")
+
+
+def test_a_build_whose_turn_never_finished_is_refused(env):
+    seen = []
+    build = _build(env, "reingest_A_ALN", "new")
+    _refused(env, build, "never shown", delivered=lambda task_id: seen.append(task_id) or False)
+    assert seen == ["task-1"]
+
+
+def test_a_build_made_outside_any_chat_turn_is_refused(env):
+    build = _build(env, "reingest_A_ALN", "new", shown_in=None)
+    _refused(env, build, "outside a chat turn")
+
+
+def test_a_record_written_before_turns_were_recorded_is_refused(env):
+    build = _build(env, "reingest_A_ALN", "new")
+    path = os.path.join(build_records._ROOT, "7", f"{build['build_id']}.json")
+    with open(path) as fh:
+        record = json.load(fh)
+    record.pop("shown_in")
+    with open(path, "w") as fh:
+        json.dump(record, fh)
+    _refused(env, build, "outside a chat turn")
+
+
+def test_an_upload_from_no_single_chat_turn_is_refused(env):
+    build = _build(env, "reingest_A_ALN", "new")
+    _refused(env, build, "not from a single running Nessie chat turn", now=None)
+
+
+def test_one_build_from_this_turn_blocks_the_whole_upload(env):
+    dispatch = MagicMock()
+    shown = _build(env, "reingest_A_ALN", "new")
+    fresh = _build(env, "reingest_D_SEQ_update", "update", shown_in=NOW)
+    with pytest.raises(g.OpValidationError, match="reingest_D_SEQ_update: built in this turn"):
+        _op({"build_ids": f"{shown['build_id']},{fresh['build_id']}", "confirmed_write": True},
+            session=_session(dispatch=dispatch))
+    dispatch.assert_not_called()
+
+
+def test_the_turn_is_checked_after_the_gate(env):
+    """An unconfirmed call never asks which turn it is in."""
+    asked = MagicMock(return_value=NOW)
+    session = _session()
+    session.chat_turn = asked
+    with pytest.raises(WriteBlockedError):
+        _op({"build_ids": "x", "confirmed_write": False}, session=session)
+    asked.assert_not_called()

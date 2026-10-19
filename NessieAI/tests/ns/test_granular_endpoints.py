@@ -336,6 +336,23 @@ class ReingestEndpointTests(GranularEndpointBase):
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(captured["session"].user.pk, self.user.pk)
 
+    def test_build_upload_xlsx_endpoint_hands_over_the_running_turn_lookup(self):
+        captured = {}
+
+        def _run_op(*args, **kwargs):
+            captured["session"] = kwargs.get("session")
+            return {"saved_files": {}, "qa": {}, "reply": "", "proposals": [],
+                    "answers_deferred": [], "builds": []}
+
+        with patch("nextseek_api.services.assistant.run_op", side_effect=_run_op), \
+                patch("nextseek_api.assistant.chat_turns.running_cc_turn",
+                      return_value={"turn_number": 1}) as running:
+            resp = self.client.post(f"{self.BASE}/build-upload-xlsx/",
+                                    {"manifest_id": "abc123", "mode": "new"}, format="json")
+            self.assertEqual(resp.status_code, 200, resp.content)
+            self.assertEqual(captured["session"].chat_turn(), {"turn_number": 1})
+        self.assertEqual(running.call_args.args[0].pk, self.user.pk)
+
     def test_build_upload_xlsx_endpoint_is_routed_and_returns_bundle(self):
         with patch("nextseek_api.services.assistant.run_op",
                    return_value={"summary": {}, "saved_files": {}, "rows": []}):
@@ -444,6 +461,27 @@ class ReingestEndpointTests(GranularEndpointBase):
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertIs(run.call_args.kwargs["dispatch"], batch_views.dispatch_batch_job)
         self.assertIs(run.call_args.kwargs["stage"], batch_views.stage_workbook_copy)
+
+    def test_upload_reingest_asks_the_server_which_turn_the_call_runs_in(self):
+        """The agent supplies no chat or turn: the REST layer looks both up for the
+        signed-in user and hands the engine the lookups."""
+        with patch("NessieAI.ns.reingest.upload.run",
+                   return_value={"jobs": [], "reply": ""}) as run, \
+                patch("nextseek_api.batch_upload.views._resolve_user_context",
+                      return_value={"lababbv": "MIT"}), \
+                patch("nextseek_api.assistant.chat_turns.running_cc_turn",
+                      return_value={"turn_number": 2}) as running, \
+                patch("nextseek_api.assistant.chat_turns.turn_delivered",
+                      return_value=True) as delivered:
+            resp = self.client.post(f"{self.BASE}/upload-reingest/",
+                                    {"build_ids": "a" * 64, "confirmed_write": True},
+                                    format="json")
+            self.assertEqual(resp.status_code, 200, resp.content)
+            self.assertEqual(run.call_args.kwargs["chat_turn"](), {"turn_number": 2})
+            self.assertIs(run.call_args.kwargs["turn_delivered"]("task-1"), True)
+        self.assertEqual(running.call_args.args[0].pk, self.user.pk)
+        self.assertEqual(delivered.call_args.args[0].pk, self.user.pk)
+        self.assertEqual(delivered.call_args.args[1], "task-1")
 
     def test_upload_reingest_refuses_a_caller_supplied_person_id(self):
         """The batch-upload identity resolver honours a body person_id for

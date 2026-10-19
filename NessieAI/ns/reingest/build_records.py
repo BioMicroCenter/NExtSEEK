@@ -6,6 +6,11 @@ bytes the curator reviewed. Records live under a per-user directory; a build
 with no signed-in user is filed under "anonymous", which load() never reads,
 so an unattributed build can never be uploaded.
 
+``shown_in`` is the chat turn the build ran in, as the server saw it (chat
+session id, turn number, task id), or None outside a chat turn. upload-reingest
+uploads a build only from a later turn of that chat, once that turn's reply
+reached the user.
+
 Same root convention as store.py's manifests. Writes only under the outputs
 root, never to NExtSEEK.
 """
@@ -22,6 +27,9 @@ _ROOT = os.environ.get("NEXTSEEK_BUILD_RECORDS_DIR") or os.path.join(
     os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs", "reingest_builds")
 
 _BUILD_ID = re.compile(r"[0-9a-f]{64}")
+
+#: What a chat turn is named by: the chat, the turn's number in it, its QueryTask.
+_TURN_KEYS = ("session_id", "turn_number", "task_id")
 
 
 class BuildRecordError(ValueError):
@@ -42,7 +50,7 @@ def _owner_dir(user_id) -> str:
 
 def write(*, path, artifact_key, sample_type, mode, manifest_id, disposition,
           open_warnings, row_count, project_id, project_note, answers_digest,
-          user_id, test_only) -> dict:
+          user_id, test_only, chat_turn=None) -> dict:
     record = {
         "build_id": sha256_of(path), "artifact_key": artifact_key,
         "sample_type": sample_type, "mode": mode, "manifest_id": manifest_id,
@@ -50,6 +58,8 @@ def write(*, path, artifact_key, sample_type, mode, manifest_id, disposition,
         "row_count": row_count, "project_id": project_id, "project_note": project_note,
         "answers_digest": answers_digest, "built_by_user_id": user_id,
         "test_only": bool(test_only),
+        "shown_in": ({key: chat_turn.get(key) for key in _TURN_KEYS}
+                     if isinstance(chat_turn, dict) else None),
         "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "path": os.path.abspath(path),
     }

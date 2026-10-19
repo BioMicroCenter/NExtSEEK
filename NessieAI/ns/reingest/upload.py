@@ -6,6 +6,12 @@ workbook is its own job, new mode first, and a job that fails to start never
 stops the next (user ruling, 2026-09-30). Files only, never rows.
 
 The write gate is called by granular._upload_reingest before anything here runs.
+
+A build is uploaded only from a later turn of the chat it was built in, after
+that turn's reply reached the user: the code-level twin of the pipeline agent's
+``_launch_unconfirmed``. The host says which turn the call runs in
+(``chat_turn``) and whether an earlier one was delivered (``turn_delivered``),
+from its own records; nothing the agent sends is consulted.
 """
 from __future__ import annotations
 
@@ -51,11 +57,37 @@ def _check_scope(count: int) -> None:
     raise ValueError(f"unknown CONFIRMATION_SCOPE {CONFIRMATION_SCOPE!r}")
 
 
-def verify(build_ids: list[str], *, user_id) -> list[dict]:
+def _not_shown(record: dict, key: str, now: dict | None, turn_delivered) -> str | None:
+    """Why this build cannot be uploaded from this turn, or None when it can."""
+    shown = record.get("shown_in")
+    if not isinstance(shown, dict) or not shown.get("session_id"):
+        return (f"{key}: built outside a chat turn, so it was never shown to the user; "
+                "build it again in this chat")
+    if now is None:
+        return None  # one reason for the whole call, added by verify
+    if shown.get("session_id") != now.get("session_id"):
+        return f"{key}: shown in another chat; build it again in this one"
+    built, current = shown.get("turn_number"), now.get("turn_number")
+    if not isinstance(built, int) or not isinstance(current, int) or built >= current:
+        return (f"{key}: built in this turn, so the user has not seen it yet. Show them "
+                "what will be uploaded, ask them to confirm, and upload only after their reply")
+    if not turn_delivered(shown.get("task_id")):
+        return (f"{key}: the turn that built it did not finish, so it was never shown "
+                "to the user; build it again")
+    return None
+
+
+def verify(build_ids: list[str], *, user_id, chat_turn=None,
+           turn_delivered=lambda task_id: False) -> list[dict]:
+    """``chat_turn`` is the turn this call runs in ({session_id, turn_number,
+    task_id}), or None when the host found no single running chat turn."""
     from NessieAI.ns.artifacts import _safe_artifact_path
 
     reasons: list[str] = []
     records: list[dict] = []
+    if chat_turn is None:
+        reasons.append("this call is not from a single running Nessie chat turn; upload "
+                       "from the chat where the workbook was shown")
     for build_id in build_ids:
         try:
             record = build_records.load(build_id, user_id)
@@ -88,6 +120,9 @@ def verify(build_ids: list[str], *, user_id) -> list[dict]:
             continue
         if record.get("project_id") is None:
             reasons.append(f"{key}: {record.get('project_note') or 'no project'}")
+            continue
+        if (unshown := _not_shown(record, key, chat_turn, turn_delivered)):
+            reasons.append(unshown)
             continue
         record["path"] = str(safe)
         records.append(record)
@@ -122,11 +157,13 @@ def _reply(jobs: list[dict]) -> str:
     return "Upload jobs:\n" + "\n".join(lines)
 
 
-def run(*, build_ids_raw, user, upload_context, dispatch, stage) -> dict:
+def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
+        turn_delivered) -> dict:
     """``dispatch`` and ``stage`` are the host's batch-upload seams
-    (``dispatch_batch_job`` and ``stage_workbook_copy``), handed in by the REST
-    layer so this engine module never imports Django."""
-    if not callable(dispatch) or not callable(stage):
+    (``dispatch_batch_job`` and ``stage_workbook_copy``), and ``chat_turn`` and
+    ``turn_delivered`` its chat-turn lookups, all handed in by the REST layer so
+    this engine module never imports Django."""
+    if not all(callable(seam) for seam in (dispatch, stage, chat_turn, turn_delivered)):
         raise UploadRefused(["upload is not wired on this server"])
     user_id = getattr(user, "pk", None)
     if not user_id:
@@ -135,7 +172,8 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage) -> dict:
         raise UploadRefused(["could not resolve your SEEK identity"])
     ids = parse_build_ids(build_ids_raw)
     _check_scope(len(ids))
-    records = verify(ids, user_id=user_id)
+    records = verify(ids, user_id=user_id, chat_turn=chat_turn(),
+                     turn_delivered=turn_delivered)
 
     # Phase A: stage every copy and prove it is the reviewed file, before any job starts.
     staged_paths: list[tuple[dict, str]] = []

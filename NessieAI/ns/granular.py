@@ -1793,6 +1793,10 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
 
     project_id, project_note = _project()
     user_id = getattr(user, "pk", None)
+    # The chat turn this build runs in, as the host sees it; upload-reingest
+    # uploads the build only from a later turn of that chat.
+    lookup = getattr(session, "chat_turn", None)
+    chat_turn = lookup() if callable(lookup) else None
     builds: list[dict] = []
 
     saved_files, qa = {}, {}
@@ -1817,7 +1821,7 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
             open_warnings=built.soft, row_count=len(type_rows),
             project_id=project_id, project_note=project_note,
             answers_digest=answers.digest(), user_id=user_id,
-            test_only=test_only))
+            test_only=test_only, chat_turn=chat_turn))
 
     # A HARD_REJECT sample type's own workbook was skipped above (the
     # `continue` two lines up), so asking the reader to confirm a
@@ -1896,7 +1900,9 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir)
     ``session.upload_context`` may be a callable (the REST layer passes the
     SEEK identity lookup that way), so an unconfirmed call never resolves it.
     The host also puts its batch-upload seams on the session
-    (``dispatch_job``, ``stage_workbook``), so the engine never imports them."""
+    (``dispatch_job``, ``stage_workbook``), so the engine never imports them, and
+    its chat-turn lookups (``chat_turn``, ``turn_delivered``), so a build is
+    uploaded only from a later turn of the chat it was shown in."""
     write_gate("api-write", None, None, args.get("confirmed_write"))
     from NessieAI.ns.reingest import upload
 
@@ -1908,7 +1914,9 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir)
                             user=getattr(session, "user", None),
                             upload_context=upload_context,
                             dispatch=getattr(session, "dispatch_job", None),
-                            stage=getattr(session, "stage_workbook", None))
+                            stage=getattr(session, "stage_workbook", None),
+                            chat_turn=getattr(session, "chat_turn", None),
+                            turn_delivered=getattr(session, "turn_delivered", None))
     except upload.UploadRefused as exc:
         raise OpValidationError(str(exc)) from exc
     _mark_runs_reingested(result.get("jobs") or [])
