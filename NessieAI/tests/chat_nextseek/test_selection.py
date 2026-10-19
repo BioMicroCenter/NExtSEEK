@@ -114,6 +114,14 @@ def test_only_unlaunchable_atlas_keys_steps_aside_and_says_why():
     assert "cannot be launched" in verdict.reason
 
 
+def test_only_unlaunchable_atlas_keys_records_what_was_dropped():
+    # The agent must be able to tell the user which pipeline answers the question
+    # and that it cannot be launched, rather than quietly picking another one.
+    verdict, _ = _decide('{"pipelines": ["differentialabundance"], "reason": "has counts"}')
+    assert verdict.dropped == ["differentialabundance"]
+    assert verdict.pipelines == []
+
+
 def test_launchable_keys_default_to_the_atlas():
     client = _StubClient(content='{"pipelines": ["differentialabundance"], "reason": "x"}')
     verdict = decide(client=client, model="m", budget=None, payload="P",

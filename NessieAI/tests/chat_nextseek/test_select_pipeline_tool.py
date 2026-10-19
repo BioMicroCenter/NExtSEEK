@@ -116,7 +116,11 @@ def _call_real_decide(monkeypatch, content, state=None):
         "pipelines": {
             "rnaseq": {"revision": "3.18.0"},
             # Real atlas key, absent from NFCORE_PIPELINE_CATALOG.
-            "differentialabundance": {"revision": "1.5.0"},
+            "differentialabundance": {
+                "revision": "1.5.0",
+                "answers": "Which features differ significantly between two groups?",
+                "assumes_prep": "The input is a matrix produced by an earlier run.",
+            },
         },
     })
 
@@ -164,6 +168,42 @@ def test_an_atlas_only_key_beside_a_launchable_one_keeps_the_launchable_one(monk
     assert out["verdict"] == "chosen"
     assert out["pipelines"] == ["rnaseq"]
     assert state["selection"]["dropped"] == ["differentialabundance"]
+
+
+def test_a_dropped_pipeline_is_shown_to_the_agent_with_what_it_answers(monkeypatch):
+    """The comparison offer must say plainly what the launched run does NOT answer.
+    The agent can only say that if the dropped pipeline reaches it, not just state."""
+    out = _call_real_decide(
+        monkeypatch,
+        '{"pipelines": ["rnaseq", "differentialabundance"], "reason": "counts, then DE"}')
+    assert out["verdict"] == "chosen"
+    assert out["dropped"] == [{
+        "pipeline": "differentialabundance",
+        "answers": "Which features differ significantly between two groups?",
+        "input": "The input is a matrix produced by an earlier run.",
+    }]
+    assert "cannot be launched from here" in out["message"]
+
+
+def test_no_dropped_pipeline_means_no_dropped_field(patched):
+    out = _call({"kind": "explicit_uids", "uids": ["D.SEQ-1"], "question": "q"})
+    assert "dropped" not in out
+    assert "cannot be launched" not in out["message"]
+
+
+def test_an_unlaunchable_answer_is_explained_not_replaced(monkeypatch):
+    """A verdict naming only an atlas-only pipeline must not send the agent off to
+    pick some other catalog pipeline as if selection had not run: that is a forced
+    pick for a question the build path cannot answer."""
+    state = {}
+    out = _call_real_decide(
+        monkeypatch, '{"pipelines": ["differentialabundance"], "reason": "has counts"}',
+        state=state)
+    assert out["verdict"] == "out_of_scope"
+    assert [d["pipeline"] for d in out["dropped"]] == ["differentialabundance"]
+    assert state["selection"]["dropped"] == ["differentialabundance"]
+    assert "conclude(outcome='rejected')" in out["message"]
+    assert "exactly as you would if this tool did not exist" not in out["message"]
 
 
 def test_missing_question_is_a_tool_error_not_a_verdict():

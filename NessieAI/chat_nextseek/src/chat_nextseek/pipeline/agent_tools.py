@@ -985,6 +985,25 @@ _SELECTION_NEXT_STEP = {
                      "exist. Do not mention the selection tool to the user."),
 }
 
+# Added to the message when the verdict names a pipeline the build path cannot launch
+# (differentialabundance today). A run you can build may answer only part of the
+# question, and the user must hear which part before they confirm it.
+_DROPPED_NEXT_STEP = (
+    " Also: {names} would answer part of this question but cannot be launched from here "
+    "(see dropped: what each answers and the input it needs). When you show the user the "
+    "run, say plainly what it will give them and that this other step is not something "
+    "NExtSEEK can run yet.")
+
+# Replaces the out_of_scope message when the only answer was unlaunchable: picking
+# another catalog pipeline "as if this tool did not exist" would be a forced pick.
+_ONLY_DROPPED_NEXT_STEP = (
+    "The pipeline that answers this question, {names}, cannot be launched from here "
+    "(see dropped: what it answers and the input it needs). Tell the user so plainly. If "
+    "a pipeline in the catalog makes that input from these samples, you may offer it as "
+    "the first step only, saying plainly that it does not answer the question by itself. "
+    "Otherwise call conclude(outcome='rejected') with that explanation. Do not mention "
+    "the selection tool to the user.")
+
 
 def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input: dict,
                          *, send_event=None) -> str:
@@ -1007,20 +1026,32 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
             except Exception as exc:  # noqa: BLE001 - progress events are advisory, never fatal
                 print(f"[DEBUG][PIPELINE_AGENT] send_event({name!r}) failed: {exc!r}")
 
-    def _verdict_json(verdict, n_uids: int) -> str:
+    def _verdict_json(verdict, n_uids: int, atlas: dict | None = None) -> str:
         state["selection"] = {"verdict": verdict.kind, "pipelines": verdict.pipelines,
                               "reason": verdict.reason}
-        if verdict.dropped:
-            state["selection"]["dropped"] = verdict.dropped
-        _emit("selection_done", {"verdict": verdict.kind, "pipelines": verdict.pipelines})
-        return json.dumps({
+        message = _SELECTION_NEXT_STEP[verdict.kind]
+        result = {
             "ok": True,
             "verdict": verdict.kind,
             "pipelines": verdict.pipelines,
             "reason": verdict.reason,
             "n_uids": n_uids,
-            "message": _SELECTION_NEXT_STEP[verdict.kind],
-        })
+        }
+        if verdict.dropped:
+            state["selection"]["dropped"] = verdict.dropped
+            entries = (atlas or {}).get("pipelines") or {}
+            result["dropped"] = [{"pipeline": key,
+                                  "answers": (entries.get(key) or {}).get("answers", ""),
+                                  "input": (entries.get(key) or {}).get("assumes_prep", "")}
+                                 for key in verdict.dropped]
+            names = ", ".join(verdict.dropped)
+            if verdict.pipelines:
+                message += _DROPPED_NEXT_STEP.format(names=names)
+            else:
+                message = _ONLY_DROPPED_NEXT_STEP.format(names=names)
+        result["message"] = message
+        _emit("selection_done", {"verdict": verdict.kind, "pipelines": verdict.pipelines})
+        return json.dumps(result)
 
     question = (tool_input.get("question") or "").strip()
     if not question:
@@ -1162,7 +1193,7 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
     except Exception as exc:  # noqa: BLE001 - the governing rule: degrade, never block
         return _verdict_json(selection.out_of_scope(
             f"the selection model could not be run: {type(exc).__name__}: {exc}"), len(uids))
-    return _verdict_json(verdict, len(uids))
+    return _verdict_json(verdict, len(uids), atlas)
 
 
 def dispatch_pipeline_tool_call(*, config, session, state: dict, name: str, tool_input: dict,

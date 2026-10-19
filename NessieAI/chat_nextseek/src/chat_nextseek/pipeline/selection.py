@@ -187,9 +187,11 @@ def decide(*, client, model: str, budget: int | None, payload: str, question: st
     kept = [k for k in named if k in launchable_keys]
     dropped = [k for k in named if k not in launchable_keys]
     if not kept:
-        return out_of_scope(
-            f"the selection model named {', '.join(dropped)}, which is in the atlas "
-            "but cannot be launched here", raw)
+        # `dropped` rides along so the agent can name what would answer the question
+        # instead of picking some other pipeline in its place.
+        return Verdict(kind="out_of_scope", pipelines=[], raw=raw, dropped=dropped,
+                       reason=f"the selection model named {', '.join(dropped)}, which is "
+                              "in the atlas but cannot be launched here")
 
     kind = "chosen" if len(kept) == 1 else "fork"
     return Verdict(kind=kind, pipelines=kept, reason=reason, raw=raw, dropped=dropped)
