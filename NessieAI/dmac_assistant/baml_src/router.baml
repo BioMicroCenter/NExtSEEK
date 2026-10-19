@@ -121,6 +121,16 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     or "what is X", which asks what a project is; and a plain count or breakdown
     ("how many samples are in SRP", "break SRP down by sample type").
 
+    Expression comparisons over the user's samples go to `nextseek_query`. A
+    question about which genes, transcripts or isoforms change, or how expression
+    differs, between groups of the user's sequenced samples, named by UID or
+    described ("Find D.SEQ-250409KAM-1-PUB and D.SEQ-250409KAM-9-PUB. Which genes
+    change between them?", "compare gene expression between treated and control
+    mice"), is `nextseek_query` even though it names no pipeline: the NExtSEEK
+    pipeline agent answers it by offering the nf-core run that produces that data,
+    and nothing runs until the user confirms. A significance test on stored
+    metadata values, or an analysis of files the user supplies, is not this.
+
     Catalog counts stay `nextseek_query`. How many sample types, assays,
     projects, investigations, studies or protocols NExtSEEK defines is a lookup
     NExtSEEK answers itself, and so is how many sample types have samples or
