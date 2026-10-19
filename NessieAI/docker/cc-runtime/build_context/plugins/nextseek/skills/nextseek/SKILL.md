@@ -6,6 +6,7 @@ description: >
   "show the sample tree / lineage", "run a graph query", "refine that search", "what sampletypes/assays exist", "build a project report
   (samples/protocols/published/rppr)", "generate a GEO/SRA/nf-core/PRIDE submission workbook",
   "launch/run/submit an nf-core pipeline (rnaseq/scrnaseq) on the cluster for these samples",
+  "which genes change between these samples / compare expression between groups" (offers a pipeline run),
   "plan a multi-step lookup", or "create/update/delete NExtSEEK data". Do NOT trigger on general
   bioinformatics questions, code/file edits, non-NExtSEEK data sources, or file-system tasks.
 disable-model-invocation: false
@@ -218,6 +219,23 @@ NExtSEEK side, not here.** **Decision rule:** intent is to *run/launch/submit/ex
 `nextseek-pipeline`; intent is to *build/generate a submission or samplesheet file* →
 `nextseek-generate-submission`. **On a `nextseek-pipeline` error, do NOT fall back to
 `nextseek-generate-submission`** — report the error and let the user retry.
+
+**A comparison question is a pipeline offer — hand it over first.** When the user asks how
+expression differs between groups of their sequenced samples ("which genes change between
+D.SEQ-…-1-PUB and D.SEQ-…-9-PUB?", "compare gene expression between treated and control mice")
+and names no pipeline, make `nextseek-pipeline` your FIRST call: no searches, graph queries or
+aggregates before it, because the pipeline agent resolves the samples itself and needs the
+turn's time to do it. Put the user's question in the message VERBATIM, then the sample UIDs or
+the cohort exactly as the user gave them, and do NOT name a pipeline: the pipeline agent picks it
+from the question.
+
+```bash
+nextseek-pipeline --message "Question (verbatim): Find D.SEQ-250409KAM-1-PUB and D.SEQ-250409KAM-9-PUB. Which genes change between them?"
+```
+
+Relay its reply as it stands. It is an offer, not a launch: it says what the run will give the
+user and what it will not answer, and nothing is submitted until the user replies. Never compute
+or claim the changed genes yourself.
 
 **Reingest pipeline outputs — `nextseek-run-harvest` + `nextseek-run-checksum` +
 `nextseek-build-upload-xlsx` + `nextseek-upload-reingest`.** After an nf-core run finishes, register
