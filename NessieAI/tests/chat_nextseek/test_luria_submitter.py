@@ -308,3 +308,13 @@ def test_submit_no_fetch_for_all_local_sheet(monkeypatch, tmp_path):
     sub.submit_luria(launch, luria_env=env, samplesheet_local=str(sheet))
     assert captured["needs_fetch"] is False
     assert not any(name == "fetchngs_helpers.py" for name, _ in scps)
+
+
+def test_submit_luria_records_the_launching_user(tmp_path, monkeypatch):
+    import NessieAI.ns.reingest.launch_record as lr
+    launch, ss = _fixture(tmp_path)
+    _patch_transport(monkeypatch)
+    recorded = {}
+    monkeypatch.setattr(lr, "record_launch", lambda **kw: recorded.update(kw))
+    sub.submit_luria(str(launch), luria_env=LE, samplesheet_local=str(ss), user_id=7)
+    assert recorded["user_id"] == 7

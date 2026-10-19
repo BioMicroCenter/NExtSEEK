@@ -86,7 +86,9 @@ class ReportOpRequest(BaseModel):
 class RunHarvestRequest(BaseModel):
     """POST /assistant/run-harvest/ body — stage + parse a finished Luria run's
     allowlisted outputs into a manifest."""
-    run_dir: str = Field(..., description="Absolute path under <LURIA working_path>/runs.")
+    run_dir: str | None = Field(
+        None, description="Absolute path under <LURIA working_path>/runs. Omitted: the "
+                          "caller's one launched run not yet reingested, else the candidates.")
     allow_failed_run: bool = False
     use_prod: bool = False
     model_config = ConfigDict(extra="forbid")

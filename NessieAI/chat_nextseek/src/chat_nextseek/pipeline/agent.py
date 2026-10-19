@@ -95,6 +95,9 @@ def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any = 
         "resolved": {"uids": [], "accessions": []},
         "artifacts": {},
         "pipeline_key": None,
+        # Who the run is for: submit_to_luria writes it onto the launch record, so a
+        # finished run can be found again for this user. A plain dict session has none.
+        "launched_by_user_id": getattr(session, "owner_user_id", None),
     }
     _save(session, state)
     return _run_loop(session, config, log_dir=log_dir, send_event=send_event)

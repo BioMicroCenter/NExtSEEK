@@ -529,10 +529,10 @@ def _dispatch_run_harvest(args):
     cluster and parse them into a manifest. Never writes to Luria or NExtSEEK."""
     if _dry_run():  # pragma: no branch
         return {"run_dir": args.run_dir, "manifest_id": "dryrun", "manifest": {}}  # pragma: no cover
-    if not args.run_dir:  # pragma: no cover
-        _err("VALIDATION", "missing --run-dir", 3)  # pragma: no cover
     import _sidecar_client as sc  # pragma: no cover
-    body = {"run_dir": args.run_dir}  # pragma: no cover
+    # No --run-dir: the server picks the caller's one waiting launched run, or
+    # returns the candidates for the agent to ask about.
+    body = {"run_dir": args.run_dir} if args.run_dir else {}  # pragma: no cover
     if getattr(args, "allow_failed_run", False):  # pragma: no cover
         body["allow_failed_run"] = True  # pragma: no cover
     try:  # pragma: no cover

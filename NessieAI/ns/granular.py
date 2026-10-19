@@ -874,6 +874,29 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
 _HARVEST_SSH_TIMEOUT_S = int(os.environ.get("NEXTSEEK_HARVEST_SSH_TIMEOUT_S", 150))
 
 
+def _pick_waiting_run(user):
+    """run-harvest with no run_dir: "my run is done" names no folder.
+
+    One waiting run (launched for ``user``, not yet reingested) is the run.
+    Several come back as ``candidates`` for the agent to ask which, without
+    staging anything. None is a refusal that asks for the folder.
+    """
+    from NessieAI.ns.reingest import launch_record
+
+    waiting = launch_record.waiting_runs(user)
+    if not waiting:
+        raise OpValidationError(
+            "no run you launched is waiting to be reingested; pass --run-dir with the "
+            "finished run's folder")
+    if len(waiting) == 1:
+        return waiting[0].run_dir
+    return {"manifest_id": None, "candidates": [
+        {"run_dir": run.run_dir, "run_name": run.run_name, "pipeline": run.pipeline,
+         "launched_at": run.launched_at.isoformat() if run.launched_at else None,
+         "slurm_job_id": run.slurm_job_id, "samples": len(run.cohort or [])}
+        for run in waiting]}
+
+
 def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
     """Reingest step 1 — stage the allowlisted files off the cluster and parse
     them into a RunManifest. Read-only; like run-ls it never calls the write
@@ -884,6 +907,11 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir):
     from NessieAI.ns.reingest import harvest
     from NessieAI.ns.reingest.store import save_manifest
 
+    if not args.get("run_dir"):
+        picked = _pick_waiting_run(getattr(session, "user", None))
+        if isinstance(picked, dict):
+            return picked
+        args = {**args, "run_dir": picked}
     run_dir, luria_env, runs_root = _validate_run_dir(args, config)
     launch = _launch_record_for(run_dir)
     if launch is None:
@@ -1876,13 +1904,28 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir)
     if callable(upload_context):
         upload_context = upload_context()
     try:
-        return upload.run(build_ids_raw=args.get("build_ids"),
-                          user=getattr(session, "user", None),
-                          upload_context=upload_context,
-                          dispatch=getattr(session, "dispatch_job", None),
-                          stage=getattr(session, "stage_workbook", None))
+        result = upload.run(build_ids_raw=args.get("build_ids"),
+                            user=getattr(session, "user", None),
+                            upload_context=upload_context,
+                            dispatch=getattr(session, "dispatch_job", None),
+                            stage=getattr(session, "stage_workbook", None))
     except upload.UploadRefused as exc:
         raise OpValidationError(str(exc)) from exc
+    _mark_runs_reingested(result.get("jobs") or [])
+    return result
+
+
+def _mark_runs_reingested(jobs: list[dict]) -> None:
+    """A run whose upload started at least one job stops waiting for run-harvest's
+    no-folder pick. Best-effort: the upload has already started."""
+    from NessieAI.ns.reingest import launch_record
+    from NessieAI.ns.reingest.store import load_manifest
+
+    for manifest_id in {job.get("manifest_id") for job in jobs if job.get("job_id")}:
+        try:
+            launch_record.mark_reingested(load_manifest(manifest_id).launch_record_id)
+        except Exception:  # noqa: BLE001 -- bookkeeping never fails an upload
+            logger.exception("upload-reingest: could not mark manifest %s reingested", manifest_id)
 
 
 _HANDLERS: dict[str, Callable] = {

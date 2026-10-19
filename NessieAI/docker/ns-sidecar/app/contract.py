@@ -187,7 +187,7 @@ class _BuildUploadXlsxArgs(BaseModel):
 
 class _RunHarvestArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    run_dir: str
+    run_dir: str | None = None  # absent: the server picks the caller's waiting launched run
     allow_failed_run: bool = False
 
 

@@ -17,20 +17,19 @@ while [ $# -gt 0 ]; do
       nextseek_die 3 "--allow-failed-run requires no value; pass bare --allow-failed-run"
       ;;
     --help)
-      echo "Usage: nextseek-run-harvest --run-dir <abs path under the Luria runs root> [--allow-failed-run]"
+      echo "Usage: nextseek-run-harvest [--run-dir <abs path under the Luria runs root>] [--allow-failed-run]"
       echo ""
       echo "Stages the allowlisted machine-readable outputs of a finished run off Luria"
       echo "and parses them into a manifest. Refuses a run with any failed process"
-      echo "unless --allow-failed-run is passed."
+      echo "unless --allow-failed-run is passed. With no --run-dir, takes your one"
+      echo "launched run not yet reingested, or returns the candidates to ask about."
       exit 0
       ;;
     *) nextseek_die 3 "unknown arg: $1" ;;
   esac
 done
-[ -n "$RUN_DIR" ] || nextseek_die 3 "missing --run-dir"
-
-if [ "$ALLOW_FAILED" = "1" ]; then
-  exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent run-harvest --run-dir "$RUN_DIR" --allow-failed-run
-else
-  exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent run-harvest --run-dir "$RUN_DIR"
-fi
+# No --run-dir: the server picks the caller's one waiting launched run.
+set --
+[ -n "$RUN_DIR" ] && set -- "$@" --run-dir "$RUN_DIR"
+[ "$ALLOW_FAILED" = "1" ] && set -- "$@" --allow-failed-run
+exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent run-harvest "$@"

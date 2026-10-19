@@ -56,8 +56,12 @@ def _write_temp(text: str, *, prefix: str, suffix: str) -> str:
 def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = None,
                  job_name: str | None = None, samplesheet_local: str | None = None,
                  genome: str | None = None, launch_params: dict | None = None,
-                 process_args: dict | None = None, cwd=None) -> list[dict]:
-    """Submit each launch.yml entry to Luria via ssh+sbatch. Returns run refs (empty on any skip)."""
+                 process_args: dict | None = None, cwd=None,
+                 user_id: int | None = None) -> list[dict]:
+    """Submit each launch.yml entry to Luria via ssh+sbatch. Returns run refs (empty on any skip).
+
+    ``user_id`` is the Django user the run is for (the chat's owner), recorded on the
+    launch record so the finished run can be found for them; None when unknown."""
     launch_path = Path(launch_yml_path).resolve()
     if not launch_path.exists():
         print(f"[LURIA][SUBMIT] launch.yml not found: {launch_path}")
@@ -84,7 +88,8 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
                 continue
             try:
                 ref = _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key_path,
-                                  samplesheet_local, genome, launch_params, process_args)
+                                  samplesheet_local, genome, launch_params, process_args,
+                                  user_id=user_id)
                 if ref:
                     runs.append(ref)
             except Exception as exc:
@@ -109,7 +114,8 @@ def _sheet_needs_fetch(sheet_path: str) -> bool:
 
 
 def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key_path,
-                samplesheet_local=None, genome=None, launch_params=None, process_args=None):
+                samplesheet_local=None, genome=None, launch_params=None, process_args=None,
+                user_id=None):
     name = (entry.get("name") or f"run{idx}").strip() or f"run{idx}"
     pipeline = entry.get("pipeline")
     revision = entry.get("revision")
@@ -186,15 +192,15 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
     job_id = m.group(1) if m else None
 
     # Best-effort launch bookkeeping: record which D.SEQ samples this run consumed,
-    # so reingest never has to guess it back from fastq paths. user_id=None — no
-    # request user is in scope this deep (luria_env["user"] is the shared cluster
-    # account, not a Django user); the FK is nullable and launched_by is provenance,
-    # not a key. Must never fail a run the user already paid cluster time for.
+    # so reingest never has to guess it back from fastq paths, and who it is for
+    # (user_id, the chat's owner; luria_env["user"] is the shared cluster account, not
+    # a Django user), so "my run is done" can find it. Must never fail a run the user
+    # already paid cluster time for.
     try:
         from NessieAI.ns.reingest.launch_record import read_cohort_sidecar, record_launch
         record_launch(
             run_dir=remote_run_dir, run_name=safe, pipeline=pipeline,
-            revision=revision, slurm_job_id=str(job_id or ""), user_id=None,
+            revision=revision, slurm_job_id=str(job_id or ""), user_id=user_id,
             cohort_entries=read_cohort_sidecar(local_sheet),
         )
     except Exception:  # bookkeeping must never fail a submitted run

@@ -380,14 +380,14 @@ OPS: list[OpSpec] = [
         transport=Transport.sidecar,
         assistant_endpoint="/nextseek_api/assistant/run-harvest/",
         gate_class=GateClass.read,
-        argv=[ArgSpec(flag="--run-dir", required=True),
+        argv=[ArgSpec(flag="--run-dir", required=False),
               ArgSpec(flag="--allow-failed-run", required=False)],
         response_envelope_fields=["op", "result"],
         skill_name="nextseek",
         skill_row=_row(
-            "**Reingest step 1** — parse a finished run's machine-readable outputs into a manifest.",
-            "--run-dir <abs path under the cluster runs root> [--allow-failed-run]",
-            "{run_dir, manifest_id, manifest, skipped}",
+            "**Reingest step 1** — parse a finished run's machine-readable outputs into a manifest. With no --run-dir it takes the caller's one launched run not yet reingested, or returns `candidates` to ask which.",
+            "[--run-dir <abs path under the cluster runs root>] [--allow-failed-run]",
+            "{run_dir, manifest_id, manifest, skipped} or {manifest_id: null, candidates}",
         ),
     ),
     _dispatch(

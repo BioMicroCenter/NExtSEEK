@@ -927,7 +927,8 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
                             samplesheet_local=samplesheet,
                             genome=genome,
                             launch_params=launch_params,
-                            process_args=process_args)
+                            process_args=process_args,
+                            user_id=state.get("launched_by_user_id"))
     except Exception as exc:
         return json.dumps({"ok": False, "message": f"Luria submit failed: {exc!r}"})
     if not runs:

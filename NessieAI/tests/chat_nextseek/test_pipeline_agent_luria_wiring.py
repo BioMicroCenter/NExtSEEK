@@ -134,3 +134,19 @@ def test_followup_explains_the_squeue_fallback_too():
     out = format_luria_followup([{**_RUN, "job_id": None}], "user@cluster.example.edu")
     assert "Is it still running?" in out
     assert "still pending or running" in out
+
+
+def test_start_records_the_session_owner_for_the_launch_record(monkeypatch):
+    # The launch record names who launched the run, so "my run is done" can find it.
+    # The Django session adapter exposes its owner; a plain dict session has none.
+    monkeypatch.setattr(agent, "_run_loop", lambda session, config, **kw: {"action": "ask"})
+    monkeypatch.setattr(agent, "summarize_pinned_bundle", lambda session: "")
+
+    class OwnedSession(dict):
+        owner_user_id = 7
+
+    owned, plain = OwnedSession(), {}
+    agent.start(owned, object(), user_query="run rnaseq")
+    agent.start(plain, object(), user_query="run rnaseq")
+    assert owned[agent.PIPELINE_AGENT_KEY]["launched_by_user_id"] == 7
+    assert plain[agent.PIPELINE_AGENT_KEY]["launched_by_user_id"] is None

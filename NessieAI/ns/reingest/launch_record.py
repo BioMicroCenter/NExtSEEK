@@ -35,6 +35,45 @@ def launch_record_for(run_dir):
     return PipelineRun.objects.filter(run_dir=run_dir).first()
 
 
+# Set when an upload of a run's workbooks starts at least one job. Any other
+# status (``submitted``, the default) means the run still waits to be reingested.
+STATUS_REINGESTED = "reingested"
+
+
+def waiting_runs(user) -> list:
+    """``user``'s launched runs not yet reingested, newest first.
+
+    A user sees only the runs recorded as theirs. Runs with no recorded
+    launcher (every launch before launches recorded one) are visible to a
+    superuser only: on a shared box they may be anyone's.
+    """
+    from django.db.models import Q
+
+    from nextseek_api.assistant.models_db import PipelineRun
+
+    if user is None or not getattr(user, "pk", None):
+        return []
+    mine = Q(launched_by_id=user.pk)
+    if getattr(user, "is_superuser", False):
+        mine |= Q(launched_by__isnull=True)
+    return list(PipelineRun.objects.filter(mine)
+                .exclude(status=STATUS_REINGESTED)
+                .order_by("-launched_at", "-pk"))
+
+
+def mark_reingested(launch_record_id) -> None:
+    """Take a run off the waiting list. Best-effort: an upload already started
+    must never fail because this bookkeeping did."""
+    if not launch_record_id:
+        return
+    try:
+        from nextseek_api.assistant.models_db import PipelineRun
+
+        PipelineRun.objects.filter(pk=launch_record_id).update(status=STATUS_REINGESTED)
+    except Exception:
+        log.exception("mark_reingested: failed for launch record %s", launch_record_id)
+
+
 def record_launch(*, run_dir, run_name, pipeline, revision, slurm_job_id,
                   user_id, cohort_entries):
     """Upsert the PipelineRun for ``run_dir``. Returns it, or None on any failure.

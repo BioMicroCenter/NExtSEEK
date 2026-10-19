@@ -165,7 +165,8 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage) -> dict:
     jobs: list[dict] = []
     for record, staged in staged_paths:
         entry = {"build_id": record["build_id"], "artifact_key": record["artifact_key"],
-                 "sample_type": record["sample_type"], "mode": record["mode"]}
+                 "sample_type": record["sample_type"], "mode": record["mode"],
+                 "manifest_id": record.get("manifest_id")}
         try:
             entry["job_id"] = dispatch(
                 user_pk=user_id, user_ctx=upload_context,

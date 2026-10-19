@@ -42,7 +42,7 @@ nextseek-query	query	Single-shot deterministic NS run in the live chat session; 
 nextseek-recall	recall	Fetch a prior NExtSEEK turn's rows (graph or REST) by `--turn N`. The same rows are already staged in /data/previous_turns/turn-NN/rows.csv: read those first, and never re-query for data a prior turn already returned.
 nextseek-report	report	Project summary report.
 nextseek-run-checksum	run-checksum	**Reingest step 3** — md5 a caller-named set of settled primary-data files on the cluster. With `--manifest-id`, folds the checksums into that manifest and returns a NEW manifest_id (manifests are content-addressed) — pass that new id, not the original, to build-upload-xlsx. Without it, checksums are returned but not persisted.
-nextseek-run-harvest	run-harvest	**Reingest step 1** — parse a finished run's machine-readable outputs into a manifest.
+nextseek-run-harvest	run-harvest	**Reingest step 1** — parse a finished run's machine-readable outputs into a manifest. With no --run-dir it takes the caller's one launched run not yet reingested, or returns `candidates` to ask which.
 nextseek-run-ls	run-ls	Ad-hoc recursive read-only listing (`ls -laR`) of a finished Luria run directory, for manual orientation — not one of the numbered reingest steps below.
 nextseek-sample-search	sample-search	Retrieve current sample rows by UID.
 nextseek-sampletype-attrs	attrs	Fetch structured sample-type schema.

@@ -225,7 +225,13 @@ its outputs as NExtSEEK samples and backfill QC onto the sequencing samples it c
 produce workbooks for the user to REVIEW and never write to NExtSEEK. Only step 5,
 `nextseek-upload-reingest`, writes, and only after the user's explicit yes. Workflow:
 
-1. `nextseek-run-harvest --run-dir <finished run dir>` → `{manifest_id, manifest, skipped}`. The
+1. `nextseek-run-harvest --run-dir <finished run dir>` → `{manifest_id, manifest, skipped}`. **When
+   the user says their run finished ("my run is done", "it finished") without giving a folder, call
+   `nextseek-run-harvest` with no `--run-dir`; never ask for the path first.** The server takes the
+   user's one launched run not yet reingested and harvests it. If several are waiting it returns
+   `{manifest_id: null, candidates: [...]}` instead: list each candidate's `run_name`, `pipeline`,
+   `samples` and `launched_at`, ask which one, then call again with that candidate's `run_dir`. If
+   none is waiting it refuses, and only then ask the user for the run folder. The
    manifest already carries every parsed value and each sample's `d_seq_uid`. **Do not re-type any
    number from it into a later call.** The server keeps its own copy, keyed by `manifest_id`, and
    `build-upload-xlsx` reads that copy — it does not take values from you.
@@ -429,7 +435,7 @@ query	nextseek-query	Single-shot deterministic NS run in the live chat session; 
 recall	nextseek-recall	Fetch a prior NExtSEEK turn's rows (graph or REST) by `--turn N`. The same rows are already staged in /data/previous_turns/turn-NN/rows.csv: read those first, and never re-query for data a prior turn already returned.	viewset	unrouted	true	false
 report	nextseek-report	Project summary report.	sidecar	read	true	true
 run-checksum	nextseek-run-checksum	**Reingest step 3** — md5 a caller-named set of settled primary-data files on the cluster. With `--manifest-id`, folds the checksums into that manifest and returns a NEW manifest_id (manifests are content-addressed) — pass that new id, not the original, to build-upload-xlsx. Without it, checksums are returned but not persisted.	sidecar	read	true	true
-run-harvest	nextseek-run-harvest	**Reingest step 1** — parse a finished run's machine-readable outputs into a manifest.	sidecar	read	true	true
+run-harvest	nextseek-run-harvest	**Reingest step 1** — parse a finished run's machine-readable outputs into a manifest. With no --run-dir it takes the caller's one launched run not yet reingested, or returns `candidates` to ask which.	sidecar	read	true	true
 run-ls	nextseek-run-ls	Ad-hoc recursive read-only listing (`ls -laR`) of a finished Luria run directory, for manual orientation — not one of the numbered reingest steps below.	sidecar	read	true	true
 upload-reingest	nextseek-upload-reingest	**Reingest step 5** — upload the reviewed workbooks (build ids from build-upload-xlsx's builds). WRITES to NExtSEEK: ask the user once, listing each workbook (sample type, new/update, row count, project) and every open warning from the builds, before calling.	sidecar	write_confirm	true	true
 <!-- END PLAN005-GEN:skill-ops -->
