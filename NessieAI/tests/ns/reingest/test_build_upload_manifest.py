@@ -610,7 +610,7 @@ def test_ambiguous_primary_data_reaches_the_reply_through_the_full_dispatch(
     at all."""
     rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
     gex_a = "star_salmon/all.merged.gene_counts.tsv"
-    gex_b = "salmon/all.merged.gene_counts.tsv"
+    gex_b = "star_rsem/all.merged.gene_counts.tsv"
     manifest_id = _save_manifest(
         tmp_path, monkeypatch,
         outputs=[

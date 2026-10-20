@@ -92,7 +92,7 @@ def test_answers_for_the_other_mode_are_deferred_not_refused(rows, tmp_path, mon
 @patch(CATALOG)
 def test_choose_resolves_an_ambiguous_pick_and_clears_it_from_the_reply(rows, tmp_path, monkeypatch):
     rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
-    gex_a, gex_b = "star_salmon/all.merged.gene_counts.tsv", "salmon/all.merged.gene_counts.tsv"
+    gex_a, gex_b = "star_salmon/all.merged.gene_counts.tsv", "star_rsem/all.merged.gene_counts.tsv"
     manifest_id = _save_manifest(tmp_path, monkeypatch, outputs=[
         manifest_mod.OutputRecord(path="star_salmon/SAMPLE_1.markdup.sorted.bam",
                                   bytes=1, sample="SAMPLE_1"),
