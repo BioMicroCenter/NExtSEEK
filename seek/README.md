@@ -144,8 +144,8 @@ Result: **34 failed, 488 passed, 29 skipped, 2 xfailed, 1 error in 10.24s.**
 The two `mkdir` lines are not optional: `dmac/settings.py:507-508` creates
 those directories at import time and the mount is read-only.
 
-`ci/pytest-baseline.txt:307-308` records only two known failures for this
-package, so nearly all of that red is drift since the baseline was taken. See
+`ci/pytest-baseline.txt` was regenerated on a runner on 2026-10-20 (`grep -c '^seek/' ci/pytest-baseline.txt`
+counts what it records for this package); the red described below was measured before that. See
 `seek/CLAUDE.md` for what each cluster is and which refactor caused it.
 
 ## Depends on / depended on by
