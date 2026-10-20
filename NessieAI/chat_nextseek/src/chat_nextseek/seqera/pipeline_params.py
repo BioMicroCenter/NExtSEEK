@@ -129,6 +129,17 @@ _SHELL_META = re.compile(r"""[$`;|&<>(){}\\"'\n\r]""")
 _ARG_TOKEN = re.compile(r"^(-{0,2}[A-Za-z][A-Za-z0-9_.-]*(=[A-Za-z0-9_.,:+-]*)?|[A-Za-z0-9_][A-Za-z0-9_.,:+-]*)$")
 
 
+def refuse_shell_syntax(params: dict[str, Any]) -> None:
+    """Raise ValueError naming every string param that carries shell syntax.
+
+    The last check before a params file is written, whichever path built the params; build_run_params gives the
+    user the readable refusal first.
+    """
+    bad = sorted(k for k, v in params.items() if isinstance(v, str) and _SHELL_META.search(v))
+    if bad:
+        raise ValueError(f"params with shell characters refused: {', '.join(bad)}")
+
+
 def build_run_params(
     pipeline_key: str,
     agent_params: dict[str, Any] | None,

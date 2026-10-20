@@ -308,3 +308,12 @@ def test_submit_no_fetch_for_all_local_sheet(monkeypatch, tmp_path):
     sub.submit_luria(launch, luria_env=env, samplesheet_local=str(sheet))
     assert captured["needs_fetch"] is False
     assert not any(name == "fetchngs_helpers.py" for name, _ in scps)
+
+
+def test_build_params_yml_refuses_shell_syntax():
+    # The params file the Luria node runs from is the last place a steered value can be stopped.
+    import pytest
+    from chat_nextseek.luria.submitter import _build_params_yml
+    with pytest.raises(ValueError, match="multiqc_title"):
+        _build_params_yml({"multiqc_title": "`id`", "aligner": "star_salmon"})
+    assert "star_salmon" in _build_params_yml({"aligner": "star_salmon", "genome": "GRCm39"})

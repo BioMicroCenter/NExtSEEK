@@ -16,6 +16,7 @@ except Exception:  # pragma: no cover
     _HAVE_YAML = False
 
 from .catalog import get_pipeline_entry
+from .pipeline_params import refuse_shell_syntax
 from .ena import ENAResolution, ENARun
 from .tower_client import TowerAPIError, TowerClient
 from .tower_datasets import upload_samplesheet_as_dataset
@@ -649,6 +650,7 @@ def emit_launch_artifacts(
     # default_genome here — doing so silently stamped a wrong-species genome (human
     # GRCh38) on non-human runs when no bundle was resolved.
 
+    refuse_shell_syntax(params)
     params_path = out_path / "params.yml"
     params_path.write_text(_yaml_dump(params), encoding="utf-8")
     result.saved_files["params"] = str(params_path)
@@ -731,6 +733,7 @@ def emit_luria_launch_artifacts(
     params: dict[str, Any] = dict(launch_plan.get("params") or {})
     params.setdefault("input", "./samplesheet.csv")
     params.setdefault("outdir", ".")
+    refuse_shell_syntax(params)
     params_path = out_path / "params.yml"
     params_path.write_text(_yaml_dump(params), encoding="utf-8")
     result.saved_files["params"] = str(params_path)
