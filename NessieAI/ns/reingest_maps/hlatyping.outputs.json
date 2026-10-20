@@ -1,7 +1,7 @@
 {
   "map_version": 2,
   "pipeline": "nf-core/hlatyping",
-  "applies_to_versions": "",
+  "applies_to_versions": ">=2.2,<2.3",
   "accepts_parent_types": ["D.SEQ", "A.ALN"],
   "harvest_globs": [],
   "inventory_globs": ["**/optitype/*/*_result.tsv", "**/optitype/*/*_coverage_plot.pdf"],

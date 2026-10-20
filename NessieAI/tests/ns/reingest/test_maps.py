@@ -305,3 +305,10 @@ def test_effective_leaves_the_loaded_map_untouched():
     base = _versioned()
     maps.effective(base, "2.0.0")
     assert [r.id for r in base.outputs] == ["aln", "vcf"]
+
+
+def test_hlatyping_2_2_is_a_checked_release():
+    # Checked against a real nf-core/hlatyping 2.2.0 run (OptiType file names and
+    # MultiQC's multiqc_optitype.txt layout); nf-core reports it as v2.2.0-g<commit>.
+    _, warnings = maps.effective(maps.load("hlatyping"), "v2.2.0-g3237d20")
+    assert warnings == []
