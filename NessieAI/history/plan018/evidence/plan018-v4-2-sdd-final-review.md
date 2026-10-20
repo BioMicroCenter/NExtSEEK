@@ -11,13 +11,13 @@ prior_implementer_review: VOID
 **Prior artifact:** any earlier `plan018-v4-2-sdd-final-review.md` (including `subagent_id: sdd-final-review-v4-2-2026-08-12` and the PARTIAL pre-remediation write) is **VOID**. This file supersedes it.
 
 **Date:** 2026-08-12  
-**Worktree:** `/home/taishajo/work/NExtSEEK-plan018` @ `ultraplan/hibayes-eval-routing`  
+**Worktree:** `/home/<user>/work/NExtSEEK-plan018` @ `ultraplan/hibayes-eval-routing`  
 **Evaluation SHA:** `100b4941` (remediation cluster `3c6a17e2`; original closeout `625b198e`)  
-**Charter:** Cold-debt remediation V42-T1…T4 per [`cold_debt_remediation_00d90d00.plan.md`](file:///home/taishajo/.cursor/plans/cold_debt_remediation_00d90d00.plan.md), evaluated against SDD plan [`plan018_v4-2_sdd_a6446251.plan.md`](file:///home/taishajo/.cursor/plans/plan018_v4-2_sdd_a6446251.plan.md) and cold review [`plan018-v4-2-cold-outcome-review.md`](plan018-v4-2-cold-outcome-review.md).
+**Charter:** Cold-debt remediation V42-T1…T4 per [`cold_debt_remediation_00d90d00.plan.md`](file:///home/<user>/.cursor/plans/cold_debt_remediation_00d90d00.plan.md), evaluated against SDD plan [`plan018_v4-2_sdd_a6446251.plan.md`](file:///home/<user>/.cursor/plans/plan018_v4-2_sdd_a6446251.plan.md) and cold review [`plan018-v4-2-cold-outcome-review.md`](plan018-v4-2-cold-outcome-review.md).
 
 **Charge (verbatim):**
 
-> Overwrite ONLY /home/taishajo/work/NExtSEEK-plan018/evidence/plan018-v4-2-sdd-final-review.md as independent cold subagent.
+> Overwrite ONLY /home/<user>/work/NExtSEEK-plan018/evidence/plan018-v4-2-sdd-final-review.md as independent cold subagent.
 >
 > Use YOUR real agent UUID as subagent_id in header.
 > reviewer_kind: cold_subagent
@@ -55,7 +55,7 @@ Independent cold review confirms post-remediation V4-2 hermetic claims on disk a
 
 ```bash
 docker run --rm \
-  -v /home/taishajo/work/NExtSEEK-plan018:/repo -w /repo \
+  -v /home/<user>/work/NExtSEEK-plan018:/repo -w /repo \
   -e DJANGO_SETTINGS_MODULE=dmac.test_settings \
   -e PYTHONPATH=/repo:/repo/dmac_assistant/src \
   -e GCP_API_KEY=lane-test \

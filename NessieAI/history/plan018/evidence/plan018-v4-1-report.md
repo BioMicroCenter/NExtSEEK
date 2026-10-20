@@ -1,7 +1,7 @@
 # Plan 018 V4-1 report — exact-run dynamic families and common support
 
 **Recorded:** 2026-08-11T15:00:29Z
-**Delivery:** `/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07`
+**Delivery:** `/home/<user>/work/NExtSEEK-dev/testquestions-2026-08-07`
 **V13-A gate:** PASS
 **V4-1 gate:** PASS
 

@@ -195,7 +195,7 @@
 
 - Phase 2 Vetting Log row 16 still says "pending fresh re-vet" after iter-7 hardening — update after this review.
 - Global Constraints coverage command targets `tests.validate_step7_compose_deploy` module path under `tests/` — unconventional but consistent with file placement.
-- `cc_config.py` laptop default (`/Users/taishajoseph/...`) remains pre-Step-3/7; PLAN-3 Task 8 and Step 7 Task 7 cover harmonization at execution time.
+- `cc_config.py` laptop default (`/Users/<user>/...`) remains pre-Step-3/7; PLAN-3 Task 8 and Step 7 Task 7 cover harmonization at execution time.
 
 ---
 

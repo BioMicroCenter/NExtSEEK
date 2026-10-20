@@ -40,7 +40,7 @@ No substantive findings. Catalogued and confirmed present against live source:
   keyword args), so the additive field cannot break a positional constructor.
 - `cc_config.py`: `CCPaths(host_user_root, user_root_mount)` + `from_env()`; the Task-3 test's
   `CCPaths(host_user_root=..., user_root_mount=...)` matches the dataclass exactly.
-  `_DEFAULT_HOST_USER_ROOT = "/Users/taishajoseph/dmac-dev/users"` present (Task 8 E8 target).
+  `_DEFAULT_HOST_USER_ROOT = "/Users/<user>/dmac-dev/users"` present (Task 8 E8 target).
 - `cc_summary.py`: `parse_transcript` (`:46`), `ParsedTranscript.line_count`/`.turn_count`
   (`turn_count` = count of `type=="user"` records, matching the fixture's 3 user lines),
   `_tool_use_line` (`:87`), `_truncate`, `build_actions_view` (`tool_result` pairing at `:114`).

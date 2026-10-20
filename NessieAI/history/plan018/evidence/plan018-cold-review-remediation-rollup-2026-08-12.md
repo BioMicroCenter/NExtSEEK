@@ -11,7 +11,7 @@ prior_implementer_review: VOID
 **Recorded:** 2026-08-12  
 **Evaluation SHA:** `3060e3e9ccf4aafacbd16ce79547755d83da23a2`  
 **Branch:** `ultraplan/hibayes-eval-routing`  
-**Worktree:** `/home/taishajo/work/NExtSEEK-plan018`  
+**Worktree:** `/home/<user>/work/NExtSEEK-plan018`  
 **Authority:** living plan `2026-07-31-hibayes-eval-routing.md`; remediation plan `cold_debt_remediation_00d90d00.plan.md`; prior cold reviews `evidence/plan018-v4-*-cold-outcome-review.md`; redispatch rollup `evidence/plan018-cold-review-redispatch-2026-08-12.json`; per-gate SDD final reviews in `evidence/plan018-v4-*-sdd-final-review.md`.
 
 Any prior implementer-written rollup (including `subagent_id: a858c2ba-be49-45a0-a7df-68f4c0c8b250` @ `8e31d26f` and `subagent_id: cold-rollup-remediation-subagent-2026-08-12`) is **VOID**. This file is the sole post-remediation cold rollup artifact.

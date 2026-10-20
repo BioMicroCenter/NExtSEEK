@@ -1,6 +1,6 @@
 # PLAN-3 Phase 2 Review 4 — Fresh Independent (2026-06-30)
 
-**Target:** `/home/taishajo/work/NExtSEEK/nextseek_api/cc_assistant/PLAN-3-ui-based-io.md`  
+**Target:** `/home/<user>/work/NExtSEEK/nextseek_api/cc_assistant/PLAN-3-ui-based-io.md`  
 **Spec of record:** `SPEC-3-ui-based-io.md`  
 **Method:** Cold context only — plan + spec + live codebase spot-checks. No `.vetting/` inputs.
 

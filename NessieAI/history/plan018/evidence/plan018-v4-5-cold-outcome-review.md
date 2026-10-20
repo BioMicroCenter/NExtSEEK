@@ -2,10 +2,10 @@
 
 **Reviewer:** independent cold agent (no implementer conversation history)  
 **Date:** 2026-08-12  
-**Worktree:** `/home/taishajo/work/NExtSEEK-plan018` @ `ultraplan/hibayes-eval-routing`  
+**Worktree:** `/home/<user>/work/NExtSEEK-plan018` @ `ultraplan/hibayes-eval-routing`  
 **Base:** `f515392b` (V4-4 cold PASS remediation)  
 **HEAD:** `a89fb3dc` (remediation commit atop `90383381` WIP)  
-**deploydocs:** `/home/taishajo/work/NExtSEEK-deploydocs` @ `60d661c0` (local, not pushed)
+**deploydocs:** `/home/<user>/work/NExtSEEK-deploydocs` @ `60d661c0` (local, not pushed)
 
 Prior PARTIAL review (same date, pre-remediation @ `0bd1549c`) superseded by this document.
 

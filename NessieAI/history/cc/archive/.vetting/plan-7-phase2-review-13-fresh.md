@@ -1,6 +1,6 @@
 # PLAN-7-compose-native-prod-deploy.md — Phase 2 iter-13 fresh review
 
-**Target:** `/home/taishajo/work/NExtSEEK/nextseek_api/cc_assistant/PLAN-7-compose-native-prod-deploy.md`  
+**Target:** `/home/<user>/work/NExtSEEK/nextseek_api/cc_assistant/PLAN-7-compose-native-prod-deploy.md`  
 **Reviewer:** Independent cold-context adversarial pre-execution review (iter 13)  
 **Baseline verified (read-only):** tracker step 3 `not_started`; `docker-compose.yml` host-binds `/srv/dmac/users`; six external volumes only (no `dmac-cc-users`); `cc_engine._build_volumes` / `_run_kwargs` use host-bind `volumes=` dict; `cc_config.CCPaths` requires `host_user_root`; `cc_sweep` / `services/cc_assistant._session_metas` host-translate paths; `path_mappings` uses `host_root: dirs.output_src`; no `test_step7_*` / `validate_step7_*` yet.
 

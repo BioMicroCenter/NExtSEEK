@@ -66,7 +66,7 @@ $ docker logs nextseek 2>&1 | grep cc_assistant.upload | tail -2
 [2026-07-01 01:25:15,385: INFO/ForkPoolWorker-1] Task cc_assistant.upload[41b75e82-7cfa-4614-b315-9e29b9e8587a] succeeded in 0.006331084994599223s: {'saved': ['step3_probe.txt'], 'count': 1}
 
 === Step 4: Live upload -> input (Playwright) ===
-Script: /home/taishajo/work/state/pw/step3_live_gate.mjs
+Script: /home/<user>/work/state/pw/step3_live_gate.mjs
 Command: docker run --rm --network host -v .../pw:/work -e SEEK_USER=demo -e SEEK_PASS=[REDACTED] mcr.microsoft.com/playwright:v1.46.1-jammy node step3_live_gate.mjs
 
 LOGGED_IN= true

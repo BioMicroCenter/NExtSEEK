@@ -1,7 +1,7 @@
 {
   "schema": "plan018-v4-1-v13a-verify/v1",
   "recorded_at": "2026-08-11T15:00:29Z",
-  "delivery_path": "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07",
+  "delivery_path": "/home/<user>/work/NExtSEEK-dev/testquestions-2026-08-07",
   "authority": "V13-A",
   "checks": {
     "zip_sha256": {

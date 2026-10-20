@@ -1,6 +1,6 @@
 # Fresh Phase 2 Adversarial Review — PLAN-3-ui-based-io.md (iteration 2-fresh, independent cold context)
 
-**Target:** `/home/taishajo/work/NExtSEEK/nextseek_api/cc_assistant/PLAN-3-ui-based-io.md`  
+**Target:** `/home/<user>/work/NExtSEEK/nextseek_api/cc_assistant/PLAN-3-ui-based-io.md`  
 **Locked design:** `SPEC-3-ui-based-io.md` (E1–E10, enriched §6.2)  
 **Project guide:** `AGENTS.md`  
 **Live repo spot-check:** `feat/dmac-assistant-full-integration` baseline (pre-implementation; no Step-3 code landed)  

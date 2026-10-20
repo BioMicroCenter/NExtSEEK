@@ -1099,7 +1099,7 @@
     "nextseek_api/eval/router_models_proposal.py": "1fdf69be9ed3f3ca9654a8785bc1e331b60419f5bf9882f9ec882b0647eed658",
     "nextseek_api/eval/stage_c_runner.py": "35aeb539c7664f424a0141d7d2c1430510722935e10d43043576072bdb670b85"
   },
-  "transferred_evidence_dir": "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07",
+  "transferred_evidence_dir": "/home/<user>/work/NExtSEEK-dev/testquestions-2026-08-07",
   "transferred_evidence_sha256": {
     "MANIFEST.json": "d14cb4b153448e295110f3bfdbc5004f1e0455e0673ebcac15ecfe9d635227c2",
     "testquestions.zip": "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814"

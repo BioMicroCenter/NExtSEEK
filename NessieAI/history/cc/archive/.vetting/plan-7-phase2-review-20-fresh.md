@@ -86,7 +86,7 @@ the committed file.
 ## 2C — Validate External Dependencies
 
 ### (PASS) docker-py 7.1.0 Mount / VolumeOptions / Subpath — verified accurate
-Ran the dmac venv (`/home/taishajo/work/dmac-assistant/.venv`, docker-py **7.1.0**):
+Ran the dmac venv (`/home/<user>/work/dmac-assistant/.venv`, docker-py **7.1.0**):
 `Mount.__init__` signature has **no `subpath`/`volume_options` kwarg** (confirmed), and Mount
 serializes `VolumeOptions` as a PascalCase dict key. PLAN-7's helper
 (`m = docker.types.Mount(...); m["VolumeOptions"] = {"Subpath": subpath}`) is sound: Mount is a dict

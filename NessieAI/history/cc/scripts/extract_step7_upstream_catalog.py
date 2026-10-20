@@ -179,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     root = Path(args.upstream_root or __import__("os").environ.get(
-        "DMAC_ASSISTANT_ROOT", "/home/taishajo/work/dmac-assistant"
+        "DMAC_ASSISTANT_ROOT", "/home/<user>/work/dmac-assistant"
     ))
     if not root.is_dir():
         print(f"upstream root not found: {root}", file=sys.stderr)

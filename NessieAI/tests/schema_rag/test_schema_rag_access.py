@@ -107,7 +107,15 @@ class IngestIsSuperuserOnly(TestCase):
 
     def test_the_ci_registry_expects_the_sweep_account_to_be_refused(self):
         """ci/routes.py declares the answer the post-deploy sweep's account, a non-superuser, gets here."""
-        from ci.routes import REGISTRY
+        # Loaded by path: a second package named ci (startup/ci) can win `import ci` on a pytest-xdist
+        # worker that ran the startup tests first, and `from ci.routes import ...` then fails.
+        import importlib.util
+        import sys
+        spec = importlib.util.spec_from_file_location("ci_routes_by_path", __import__("pathlib").Path(__file__).resolve().parents[3] / "ci" / "routes.py")
+        routes = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = routes
+        spec.loader.exec_module(routes)
+        REGISTRY = routes.REGISTRY
         entry = next(r for r in REGISTRY if r.path == INGEST)
         resp, _, _, _ = self._post(self.plain, INGEST, {"schema_url": FOREIGN})
         assert (entry.auth, entry.expect) == ("smoke", resp.status_code)

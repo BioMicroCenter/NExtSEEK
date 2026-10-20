@@ -39,7 +39,7 @@ grep -E 'STEP3_LIVE_GAP_CLOSURE_DONE|same_basename_download_hashes_differ|transc
 ```bash
 # deploy: see nextseek_api/cc_assistant/DEPLOY.md § Step 3
 docker run --rm --network host \
-  -v /home/taishajo/work/NExtSEEK/nextseek_api/cc_assistant/evidence/3-ui-based-io-live/playwright:/work \
+  -v /home/<user>/work/NExtSEEK/nextseek_api/cc_assistant/evidence/3-ui-based-io-live/playwright:/work \
   -e SEEK_USER=demo -e SEEK_PASS=... \
   mcr.microsoft.com/playwright:v1.46.1-jammy \
   bash -c 'cd /work && npm ci --no-audit --no-fund && node step3_live_gap_closure.mjs'

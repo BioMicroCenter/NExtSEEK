@@ -85,8 +85,8 @@
   one line. A caller that names the column instead of the field gets a
   `FieldError`, and a caller that swallows it renders an empty page rather than
   an error.
-- **34 tests fail and one module cannot be collected**, against two entries in
-  `ci/pytest-baseline.txt:307-308`, one of which names
+- **34 tests fail and one module cannot be collected**, measured against a baseline that
+  then held two entries for this package, one of which named
   `seek/timeline/services/nhp_cache_test.py` — a file that no longer exists
   (`find seek -name 'nhp_cache_test.py'` returns nothing; it was renamed at
   `seek/timeline/services/nhp_cache_cli.py:2-4`). Five causes, all from the two

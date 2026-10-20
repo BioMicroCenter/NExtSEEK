@@ -21,7 +21,7 @@ instead — a stronger, more authentic check (real instance, real auth, real dat
 - Native query "Find me mice treated with NDMA" → native pipeline ran (entity extraction → query planning).
 - Agentic query ("…pull the published samples … save the UIDs missing an organism … ") → routed to the
   Container-CC agent, which executed code ("Bash done") and ran **22 Opus invokes, all `200 OK`, through the proxy**.
-- Screenshots: `/home/taishajo/work/state/pw/out/{C2-assistant,N-2response,CC-2response}.png`.
+- Screenshots: `/home/<user>/work/state/pw/out/{C2-assistant,N-2response,CC-2response}.png`.
 
 ## Full Container-CC turn, completed (forced route, via the live API as `demo`)
 `POST /nextseek_api/cc-assistant/cc/query/async/` → polled `…/tasks/{id}/progress/`:
@@ -40,7 +40,7 @@ From `tests/live_evidence/agent_env_scan.txt` + `proxy_invokes.txt`:
 
 ## Reproduce
 - Deploy / rollback: `nextseek_api/cc_assistant/DEPLOY.md`; rollback `tag dev-rollback → latest` + recreate.
-- UI: the Playwright scripts in `/home/taishajo/work/state/pw/` (Dockerized, host-net, `mcr.microsoft.com/playwright`).
+- UI: the Playwright scripts in `/home/<user>/work/state/pw/` (Dockerized, host-net, `mcr.microsoft.com/playwright`).
 - Forced CC turn: `curl -u <seekuser>:<pass> -X POST -d '{"mode":"standard","query":"…"}' …/cc-assistant/cc/query/async/` then poll `…/tasks/{id}/progress/`.
 - Hermetic security + validator suites (no spend, no DB): `pytest nextseek_api/cc_assistant/tests/` (57 tests).
 

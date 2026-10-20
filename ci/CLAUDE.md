@@ -78,13 +78,10 @@
   '/src/schema_rag/duckdb'`. Pre-creating them is what makes the read-only mount
   work at all, because `os.makedirs(..., exist_ok=True)` swallows the read-only
   failure once the directory it wanted is already there.
-- `ci/pytest-baseline.txt` was regenerated for the NessieAI move in the gate lane
-  (the application image, the tree mounted read-only, `--network none`), not on a
-  CI runner, and its header says so (`ci/pytest-baseline.txt:22-30`). That lane
-  cannot generate the BAML client, so the first GitHub run after the move, which
-  does generate it, reports the entries the missing client broke as fixed and the
-  tests that lane could not collect, but that fail anyway, as new. Regenerate the
-  file from that run's output with `ci/diff_baseline.py <run output> --emit-baseline`
+- `ci/pytest-baseline.txt` was regenerated on a GitHub runner on 2026-10-20 (its
+  header says so, `ci/pytest-baseline.txt:22-30`), after a gate-lane baseline from the
+  NessieAI move had drifted until the job summary listed old failures as new. Regenerate the
+  file from a runner's output with `ci/diff_baseline.py <run output> --emit-baseline`
   (`ci/diff_baseline.py:77-80`), never by editing entries by hand.
 - The baseline is valid for one exact command and one tree state, and says so
   (`ci/pytest-baseline.txt:3-5`). Diff a run of any other lane set against it and

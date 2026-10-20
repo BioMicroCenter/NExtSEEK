@@ -2,7 +2,7 @@
 
 **Reviewer:** fresh cold-context adversarial reviewer (iteration 1 of the sidecar-wave Phase 2 loop)
 **Artifact:** commit `3a88c10` on worktree `cc-step7-compose-native` — SPEC-7 G7-11 sections + PLAN-7 "Sidecar wave (Amendment G7-11)" Tasks 12-16
-**Grounding verified against:** pinned upstream `/home/taishajo/work/dmac-assistant` @ `a429f13` (sidecar/app/*, Dockerfile, docker-compose.yml, plugin bin), branch code (docker-compose.yml, cc_engine.py, cc_provision.py, validate_step7_compose_deploy.py, test_cc_volume_subpath.py, test_cc_realstack.py, startup/steps/volumes.py, .coveragerc), NExtSEEK-side endpoints (nextseek_api/urls.py, nextseek_api/services/assistant.py, nextseek_api/assistant/granular.py), tracker `/home/taishajo/work/state/integration-plan.json`, and the advisory dossier `.superpowers/sdd/sidecar-dossier.md`.
+**Grounding verified against:** pinned upstream `/home/<user>/work/dmac-assistant` @ `a429f13` (sidecar/app/*, Dockerfile, docker-compose.yml, plugin bin), branch code (docker-compose.yml, cc_engine.py, cc_provision.py, validate_step7_compose_deploy.py, test_cc_volume_subpath.py, test_cc_realstack.py, startup/steps/volumes.py, .coveragerc), NExtSEEK-side endpoints (nextseek_api/urls.py, nextseek_api/services/assistant.py, nextseek_api/assistant/granular.py), tracker `/home/<user>/work/state/integration-plan.json`, and the advisory dossier `.superpowers/sdd/sidecar-dossier.md`.
 **Date:** 2026-07-02
 
 ## Verdict: **CONDITIONAL_ACCEPTANCE** — 0 CRITICAL / 3 HIGH / 4 MEDIUM / 5 LOW

@@ -169,7 +169,7 @@ and unredacted `NEXTSEEK_PASSWORD` (per SPEC-7 §9) must fail.
 **Files:**
 - Create: `docker/cc-runtime/` (canonical — not `docker/cc-runner/`)
 - Modify: image build references in compose/tests.
-- **Port source (canonical):** the `dmac-assistant` working clone at **`/home/taishajo/work/dmac-assistant`** (per project guide `CLAUDE.md`, which also documents the `NEXTSEEK_SERVER=gunicorn|daphne` entrypoint toggle that the ported runtime must preserve). Task 1 preflight pins this as `port_source_path` + `port_source_commit`; do **not** hardcode a different path.
+- **Port source (canonical):** the `dmac-assistant` working clone at **`/home/<user>/work/dmac-assistant`** (per project guide `CLAUDE.md`, which also documents the `NEXTSEEK_SERVER=gunicorn|daphne` entrypoint toggle that the ported runtime must preserve). Task 1 preflight pins this as `port_source_path` + `port_source_commit`; do **not** hardcode a different path.
 
 **Purpose:** Replace dependency on the standalone `dmac-assistant` checkout with tracked
 NExtSEEK-owned runtime source.
@@ -183,7 +183,7 @@ plugin skill/command/bin scripts, route config, and context/catalog files or gen
 
 - [ ] **Step 2: Port the runtime assets**
 
-Port broadly enough to build the full production-capable CC image into **`docker/cc-runtime/`**, **from the `dmac-assistant` working clone recorded in preflight `port_source_path`/`port_source_commit`** (default `/home/taishajo/work/dmac-assistant` per project guide). Exclude the old standalone WS/FastAPI server layer as runnable infrastructure. If any old server files are copied for
+Port broadly enough to build the full production-capable CC image into **`docker/cc-runtime/`**, **from the `dmac-assistant` working clone recorded in preflight `port_source_path`/`port_source_commit`** (default `/home/<user>/work/dmac-assistant` per project guide). Exclude the old standalone WS/FastAPI server layer as runnable infrastructure. If any old server files are copied for
 reference, put them under a clearly non-runtime path and do not wire them into compose.
 
 **Boundary (locked):** `docker/cc-runtime/` = CC **container image** assets only. The in-tree **`dmac_assistant/`** Python package (root `pyproject.toml` path dep) remains the Django-side dependency for router BAML, `run_tracker.diff_files`, etc. — distinct from the external `dmac-assistant` repo checkout on deploy hosts (G7-2). Do not duplicate or delete `dmac_assistant/` modules unless a named sub-step ports a specific module into `docker/cc-runtime/`.
@@ -646,7 +646,7 @@ any screenshots, and run the Step 7 validator.
 
 **Files:**
 - Modify: tracker at **`INTEGRATION_PLAN_PATH`** (default `../state/integration-plan.json` from NExtSEEK root) — status fields only.
-- Create: structured handoff report via `/home/taishajo/work/state/handoff.sh`.
+- Create: structured handoff report via `/home/<user>/work/state/handoff.sh`.
 
 - [ ] **Step 1: Update tracker statuses**
 
@@ -818,7 +818,7 @@ Pause-and-ask: any failed MBP forced-CC turn, secret scan failure, or `step3_dep
 
 ## Wave-global constraints
 
-- Port source stays the pinned clone `/home/taishajo/work/dmac-assistant` @ `a429f13`
+- Port source stays the pinned clone `/home/<user>/work/dmac-assistant` @ `a429f13`
   (`port_source_commit`); the T16/T17 rewire (0f5bfdd/bfdf0e3/3c40a1a, 2026-06-13) is included.
 - **OI-3 unchanged:** the sidecar holds no credentials (env = `NEXTSEEK_BASE_URL`,
   `SIDECAR_STAGING_DIR`, `SIDECAR_WS_PORT` only); per-request user Basic auth arrives inside

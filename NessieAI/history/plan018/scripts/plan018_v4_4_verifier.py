@@ -12,7 +12,7 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-V13A_ZIP = Path("/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip")
+V13A_ZIP = Path("/home/<user>/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip")
 V13A_SHA = "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814"
 
 from nextseek_api.eval.fit.v14.combined import run_v14_generation

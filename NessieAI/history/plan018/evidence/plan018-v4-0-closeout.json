@@ -6,7 +6,7 @@
     "sha": "6881b6a870d68a6efaeb483b111cb9244488c5f9",
     "ref": "origin/dev",
     "note": "Approved base is 6881b6a8 (not historical dfbccaf prose anchor)",
-    "worktree": "/home/taishajo/work/NExtSEEK-plan018",
+    "worktree": "/home/<user>/work/NExtSEEK-plan018",
     "integration_branch": "ultraplan/hibayes-eval-routing"
   },
   "v4_0_done_claims": {
