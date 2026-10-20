@@ -23,7 +23,6 @@ from __future__ import annotations
 import copy
 import logging
 import os
-import threading
 import time
 from pathlib import Path
 
@@ -31,6 +30,7 @@ from nextseek_api.assistant.models_db import CCSessionTranscript, ChatSession
 # Spec piece 1: the Container-CC turn issues, dates and revokes its turn pass (a frozen edge in
 # NessieAI/tests/api/test_nessie_boundaries.py).
 from nextseek_api.assistant import turn_pass as cc_turn_pass
+from nextseek_api.assistant.turn_drain import start_turn_thread
 
 from chat_nextseek.agents.parser import FORCE_MODES as PARSER_FORCE_MODES
 from chat_nextseek import prompt_variants
@@ -935,4 +935,4 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
             # this turn's query as the fallback title source.
             _auto_title_if_unset(chat_session, fallback_query=req.query)
 
-    threading.Thread(target=_run, daemon=True).start()
+    start_turn_thread(query_task.task_id, _run)

@@ -20,8 +20,9 @@ import json
 import logging
 import os
 import queue
-import threading
+import threading  # noqa: F401  (tests patch threading.Thread through this module)
 import time
+import uuid
 from typing import TYPE_CHECKING, Any
 
 import orjson
@@ -149,6 +150,7 @@ if TYPE_CHECKING:
     from chat_nextseek.config import ChatConfig
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
+from nextseek_api.assistant.turn_drain import draining, draining_response, start_turn_thread
 
 logger = logging.getLogger(__name__)
 
@@ -683,6 +685,10 @@ class AssistantViewSet(viewsets.ViewSet):
         if not authed:
             return err
 
+        # A child turn of a running Container-CC turn is part of that turn: it finishes, it is not refused.
+        if draining() and not is_turn_pass(request):
+            return draining_response()
+
         try:
             req = QueryRequest.model_validate(request.data)
         except ValidationError as e:
@@ -754,9 +760,9 @@ class AssistantViewSet(viewsets.ViewSet):
 
         # The pipeline body runs in NessieAI/ns/turn.py (run_sse_pipeline); the
         # thread and the SSE stream stay here.
-        thread = threading.Thread(
-            target=run_sse_pipeline,
-            kwargs=dict(
+        thread = start_turn_thread(
+            uuid.uuid4(), run_sse_pipeline,
+            **dict(
                 adapter=adapter, chat_config=chat_config, req=req,
                 send_event=send_event, api_user=api_user, api_pass=api_pass,
                 chat_session=chat_session,
@@ -764,9 +770,7 @@ class AssistantViewSet(viewsets.ViewSet):
                 event_queue=event_queue,
                 graph_scope=graph_scope,
             ),
-            daemon=True,
         )
-        thread.start()
 
         def event_stream():
             while True:
@@ -805,6 +809,10 @@ class AssistantViewSet(viewsets.ViewSet):
         authed, err = self._check_auth(request)
         if not authed:
             return err
+
+        # A child turn of a running Container-CC turn is part of that turn: it finishes, it is not refused.
+        if draining() and not is_turn_pass(request):
+            return draining_response()
 
         try:
             req = QueryRequest.model_validate(request.data)
@@ -902,9 +910,9 @@ class AssistantViewSet(viewsets.ViewSet):
 
             # The pipeline body runs in NessieAI/ns/turn.py (run_async_pipeline);
             # the thread start stays here.
-            thread = threading.Thread(
-                target=run_async_pipeline,
-                kwargs=dict(
+            thread = start_turn_thread(
+                task_id_str, run_async_pipeline,
+                **dict(
                     adapter=adapter, chat_config=chat_config, req=req,
                     send_event=send_event, api_user=api_user, api_pass=api_pass,
                     chat_session=chat_session,
@@ -913,9 +921,7 @@ class AssistantViewSet(viewsets.ViewSet):
                     parent_cc_turn=pass_turn,
                     deadline_epoch=nested_deadline_epoch,
                 ),
-                daemon=True,
             )
-            thread.start()
         except BaseException:
             # Nothing will run the child's finally: give the slot back here.
             if pass_turn is not None:

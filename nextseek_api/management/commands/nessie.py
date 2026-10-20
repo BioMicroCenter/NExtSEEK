@@ -52,7 +52,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser) -> None:
         parser.add_argument("--tier", choices=["route", "full"], default="route")
         parser.add_argument("--scope", choices=["specific", "all"], default="specific")
-        parser.add_argument("--base-url", default="http://localhost:8000")
+        parser.add_argument("--base-url", default=os.environ.get("NEXTSEEK_INTERNAL_BASE_URL", "http://localhost:8000"))
         parser.add_argument("--family", default=None)
         parser.add_argument("--variant", default=None)
         parser.add_argument("--user", default="demo")
