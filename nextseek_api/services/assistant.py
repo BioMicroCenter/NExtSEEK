@@ -1211,7 +1211,13 @@ class AssistantViewSet(viewsets.ViewSet):
         elif op == "build-upload-xlsx":
             # The build record is filed under this user, and Scientist is
             # this user (mapper's @nextseek_user); without a session both are blank.
-            session = SimpleNamespace(user=request.user)
+            # The record also names the chat turn the build ran in, looked up from
+            # this server's own records, so upload-reingest can require a later turn.
+            from nextseek_api.assistant import chat_turns
+
+            session = SimpleNamespace(
+                user=request.user,
+                chat_turn=lambda: chat_turns.running_cc_turn(request.user))
         elif op == "upload-reingest":
             # The identity lookup is handed over uncalled: the op resolves it
             # only after the write gate passes, so an unconfirmed call never
@@ -1219,7 +1225,10 @@ class AssistantViewSet(viewsets.ViewSet):
             # resolver's admin person_id override can never arrive here. The
             # import is deferred too: batch_upload.views pulls in Celery. The
             # job dispatch and workbook staging seams travel on the session as
-            # well, so the engine never imports the batch-upload views.
+            # well, so the engine never imports the batch-upload views. So do the
+            # chat-turn lookups: a build is uploaded only from a later turn of the
+            # chat it was shown in, and the agent never names the chat or the turn.
+            from nextseek_api.assistant import chat_turns
             from nextseek_api.batch_upload.views import (
                 _resolve_user_context, dispatch_batch_job, stage_workbook_copy,
             )
@@ -1227,9 +1236,11 @@ class AssistantViewSet(viewsets.ViewSet):
             def _upload_context():
                 return _resolve_user_context(request)
 
-            session = SimpleNamespace(user=request.user, upload_context=_upload_context,
-                                      dispatch_job=dispatch_batch_job,
-                                      stage_workbook=stage_workbook_copy)
+            session = SimpleNamespace(
+                user=request.user, upload_context=_upload_context,
+                dispatch_job=dispatch_batch_job, stage_workbook=stage_workbook_copy,
+                chat_turn=lambda: chat_turns.running_cc_turn(request.user),
+                turn_delivered=lambda task_id: chat_turns.turn_delivered(request.user, task_id))
         else:
             session = None
         gate = build_gate(load_allowlist())

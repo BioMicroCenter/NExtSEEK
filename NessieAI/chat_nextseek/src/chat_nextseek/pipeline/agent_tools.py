@@ -905,6 +905,11 @@ def format_luria_followup(runs: list[dict] | None, ssh_target: str | None = None
     out.append("")
     out.append("Nothing reports back to this chat — the run keeps going after the "
                "conversation ends, so the commands above are the way to check on it.")
+    # The hand-off to reingest. The router sends this phrase to Container-CC, whose
+    # run-harvest finds the user's launched run without being given its folder.
+    out.append("")
+    out.append(f"When {'a' if multi else 'the'} run finishes, just say \"my run is done\" "
+               "and Nessie will register its outputs in NExtSEEK.")
     return "\n".join(out)
 
 

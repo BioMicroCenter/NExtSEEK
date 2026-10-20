@@ -28,7 +28,7 @@ def test_every_definition_carries_its_origin_as_a_tag():
         # "atlas" is the third origin, added 2026-08-04: generated variants, one
         # per expressible capability assertion. See corpus.curated.
         assert {"base", "overlay", "atlas"} & set(v.tags), f"{v.id} carries no origin tag"
-    assert len([v for v in defs if "overlay" in v.tags]) == 194  # 188 -> 194: 2026-10-19: comparison offer, +6 overlay variants in pipeline_launch (4 route_gate route.ns_compare_* with route inline, 2 full-tier pipeline.compare_offer_* with route injected) and unsup.compare_gene_expression_betwee retired. 186 -> 188: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 184 -> 186: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set, so both carry the overlay tag. 134 -> 184: 2026-09-23: +50 variants for the 53 production researcher questions. Was: 72 -> 134: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len([v for v in defs if "overlay" in v.tags]) == 197  # 194 -> 197: 2026-10-19: +3 overlay route_gate variants for the reingest hand-off (route.cc_reingest_*), each writing its route inline on its one turn. 188 -> 194: 2026-10-19: comparison offer, +6 overlay variants in pipeline_launch (4 route_gate route.ns_compare_* with route inline, 2 full-tier pipeline.compare_offer_* with route injected) and unsup.compare_gene_expression_betwee retired. 186 -> 188: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 184 -> 186: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set, so both carry the overlay tag. 134 -> 184: 2026-09-23: +50 variants for the 53 production researcher questions. Was: 72 -> 134: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     assert len([v for v in defs if "atlas" in v.tags]) == 58  # 59 -> 58: 2026-09-24, fix 9: the retired atlas case was read and ruled on. 63 -> 59: four atlas
     # variants were read, ground-truthed and put in the paid selection, which
     # is an origin AND tag flip. `_atlas` provenance is kept on all 80 (81 since
@@ -44,7 +44,7 @@ def test_merged_is_exactly_the_active_definitions():
     retired = {vid for vid, m in meta.items() if m["status"] == "retired"}
     merged = corpus.curated(corpus.merged(CORPUS))
     all_defs = corpus.curated(all_defs)
-    assert len(merged) == len(all_defs) - len(retired) == 423  # 418 -> 423: 2026-10-19: comparison offer, +6 overlay variants in pipeline_launch (4 route_gate route.ns_compare_* with route inline, 2 full-tier pipeline.compare_offer_* with route injected) and unsup.compare_gene_expression_betwee retired. 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. Was: 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) == len(all_defs) - len(retired) == 426  # 423 -> 426: 2026-10-19: +3 overlay route_gate variants for the reingest hand-off (route.cc_reingest_*), each writing its route inline on its one turn. 418 -> 423: 2026-10-19: comparison offer, +6 overlay variants in pipeline_launch (4 route_gate route.ns_compare_* with route inline, 2 full-tier pipeline.compare_offer_* with route injected) and unsup.compare_gene_expression_betwee retired. 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. Was: 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     assert len({v.id for v in merged}) == len(merged)  # no duplicate ids
     assert not ({v.id for v in merged} & retired)
 
@@ -296,13 +296,15 @@ def test_every_resolved_variant_carries_a_route_criterion():
         f"route_policy entry (drop it from the set) or a new one lost its criterion")
 
 
-def test_only_four_variants_are_route_gate():
+def test_only_seven_variants_are_route_gate():
     """The number the "asserted only on the route_gate variants" claim rested on."""
     gates = sorted(v.id for v in corpus.merged(CORPUS) if "route_gate" in v.tags)
 
+    # 8 -> 11: 2026-10-19: the three reingest hand-off gates, "my run is done" with no folder.
     # 4 -> 8: 2026-10-19: the four comparison-offer route gates, route.ns_compare_*.
     # 3 -> 4: 2026-09-30: route.ns_pipeline_by_question, the nf-core selection route gate.
-    assert gates == ["route.ns_advanced", "route.ns_compare_gene_expression_ndma",
+    assert gates == ["route.cc_reingest_pipeline_complete", "route.cc_reingest_run_done",
+                     "route.cc_reingest_run_finished_register", "route.ns_advanced", "route.ns_compare_gene_expression_ndma",
                      "route.ns_compare_huvec_fibroblast", "route.ns_compare_named_pair",
                      "route.ns_compare_treated_control", "route.ns_pipeline_by_question",
                      "route.ns_plain_study_membership", "route.unrelated"], f"route_gate set changed — update {_DOCS}"
@@ -329,7 +331,7 @@ def test_the_route_policy_injects_the_number_the_docs_quote():
     injected = corpus.curated(injected)
     inline = corpus.curated(inline)
     assert len(injected) == 282, f"{len(injected)} injected — update {_DOCS}"  # 281 -> 282: 2026-10-19: the two full-tier pipeline.compare_offer_* variants get pipeline_launch's injected route, and the retired unsup.compare_gene_expression_betwee no longer does. # 280 -> 281: 2026-09-30: pipeline.selection_verdict_recorded, whose seed turn has no inline route. # 305 -> 280: 2026-09-23: the REST-plumbing retirement wrote route nextseek_query inline on the seed of 25 multi-turn variants (follow-ups route container_cc per the operator ruling). # 273 -> 305: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
-    assert len(inline) == 96, f"{len(inline)} inline — update {_DOCS}"  # 92 -> 96: 2026-10-19: the four route.ns_compare_* gates write their route inline. # 91 -> 92: 2026-09-30: route.ns_pipeline_by_question writes its route inline. # 90 -> 91: 2026-09-24: fix 9's route.ndma_mice_then_female_two_turns writes its route inline on its first turn. # 65 -> 90: 2026-09-23: those same 25 seeds. # 15 -> 65: 2026-09-23: +50 variants for the 53 production researcher questions, every one writing its route inline on its first turn
+    assert len(inline) == 99, f"{len(inline)} inline — update {_DOCS}"  # 96 -> 99: 2026-10-19: +3 overlay route_gate variants for the reingest hand-off (route.cc_reingest_*), each writing its route inline on its one turn. 92 -> 96: 2026-10-19: the four route.ns_compare_* gates write their route inline. # 91 -> 92: 2026-09-30: route.ns_pipeline_by_question writes its route inline. # 90 -> 91: 2026-09-24: fix 9's route.ndma_mice_then_female_two_turns writes its route inline on its first turn. # 65 -> 90: 2026-09-23: those same 25 seeds. # 15 -> 65: 2026-09-23: +50 variants for the 53 production researcher questions, every one writing its route inline on its first turn
 
 
 def test_the_family_floor_injects_the_numbers_the_docs_quote():

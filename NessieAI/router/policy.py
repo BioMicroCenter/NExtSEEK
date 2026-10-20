@@ -1,8 +1,10 @@
 """Routing policy: which engine a chat turn goes to, and the ledger row it leaves.
 
 ``_decide_route`` applies the override precedence around the router:
-``force_route`` > ``pipeline_agent`` > a turn that refers back goes to CC (labelled
+``force_route`` > a "my run is done" turn goes to CC's reingest (``reingest``) >
+``pipeline_agent`` > a turn that refers back goes to CC (labelled
 ``sticky`` in a chat already on CC, ``followup`` otherwise) > :func:`router.decide`.
+``run_done.run_done_reason`` is the run-done test,
 ``followup.followup_reason`` is the refers-back test and ``_chat_is_sticky_cc`` the
 label. ``_fallback_when_cc_unavailable`` hands a turn the policy moved to CC back to
 NExtSEEK when the CC runner is down, and ``_record_ledger_row`` writes the per-turn
@@ -25,6 +27,7 @@ from chat_nextseek.pipeline import agent as pipeline_agent
 from NessieAI.router import followup as followup_rule
 from NessieAI.router import router as cc_router
 from NessieAI.router import router_context
+from NessieAI.router import run_done
 
 logger = logging.getLogger(__name__)
 
@@ -108,12 +111,14 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
                   chat_log: list[dict] | None = None) -> cc_router.RouteDecision:
     """Pick the route for a query, honoring the admin-only ``force_route`` override.
 
-    Precedence: ``force_route`` > ``pipeline_agent`` > a turn that refers back to an
+    Precedence: ``force_route`` > a "my run is done" turn goes to CC's reingest >
+    ``pipeline_agent`` > a turn that refers back to an
     answered turn goes to CC > the router. ``history`` is the router's 5-turn window;
     ``chat_log``, when the caller has it, is the whole chat, which the refers-back guard
     scans instead of the window.
     An explicit force (``force_cc`` or an admin's ``force_route``) wins first,
-    THEN the BAML router (:func:`cc_router.decide`) decides, and two guards may
+    THEN the BAML router (:func:`cc_router.decide`) decides. A run-done announcement
+    the router kept off CC goes to CC (``reingest``), and two guards may
     still redirect an NS-bound turn: an active ``pipeline_agent`` wizard keeps
     it on NExtSEEK, and a chat whose previous turn completed on CC keeps it on
     CC (A1 "sticky CC"). A non-admin's
@@ -147,6 +152,32 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
             model_id=None, reasoning="forced", source="forced",
         )
     decision = cc_router.decide(req.query, history=history)
+    # "My run is done" (the line the submit reply ends with) goes to CC's reingest, whose
+    # run-harvest finds the user's launched run with no folder named. On NExtSEEK the
+    # reporter can open a fresh pipeline wizard for it, so this runs before the pipeline
+    # gate, and it takes an `unrelated` answer too: in this chat a finished run is never
+    # off-topic. Like the follow-up guard below, it runs AFTER the router and only ever
+    # moves a turn to CC.
+    try:
+        run_cue = (run_done.run_done_reason(req.query)
+                   if decision.route != cc_router.ROUTE_CC else None)
+    except Exception:  # noqa: BLE001 - routing must never crash on a cue check
+        logger.warning("CC router: run-done check failed", exc_info=True)
+        run_cue = None
+    if run_cue:
+        return cc_router.RouteDecision(
+            route=cc_router.ROUTE_CC, model_class="opus",
+            model_id=cc_router._resolve_cc_model_id(),
+            reasoning=f"reingest ({run_cue}); router said {decision.route} ({decision.reasoning})",
+            source="reingest",
+            task_family="pipeline_output_reingest",
+            family_source=decision.family_source,
+            generation_id=decision.generation_id,
+            generation_hash=decision.generation_hash,
+            attempted_route=decision.route,
+            attempted_source=decision.source,
+            **cc_router.router_record(decision),
+        )
     if (
         session is not None
         and pipeline_agent.is_active(session)
@@ -230,6 +261,8 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
 
 
 #: Sources of a CC decision this module made out of an NS one. Only these fall back.
+#: `reingest` does not: NExtSEEK cannot register a run's outputs, and its reporter
+#: would open a new pipeline wizard instead.
 POLICY_CC_SOURCES = frozenset({"sticky", "followup"})
 
 

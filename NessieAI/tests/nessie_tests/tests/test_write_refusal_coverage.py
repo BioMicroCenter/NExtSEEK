@@ -833,7 +833,7 @@ def test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible():
                                       _OBS_CC, last_reply="done")[0] for t in v.turns):
             green.append(v.id)
 
-    assert len(merged) == 423  # 418 -> 423: 2026-10-19: comparison offer, +6 overlay variants in pipeline_launch (4 route_gate route.ns_compare_* with route inline, 2 full-tier pipeline.compare_offer_* with route injected) and unsup.compare_gene_expression_betwee retired. 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) == 426  # 423 -> 426: 2026-10-19: +3 overlay route_gate variants for the reingest hand-off (route.cc_reingest_*), each writing its route inline on its one turn. 418 -> 423: 2026-10-19: comparison offer, +6 overlay variants in pipeline_launch (4 route_gate route.ns_compare_* with route inline, 2 full-tier pipeline.compare_offer_* with route injected) and unsup.compare_gene_expression_betwee retired. 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     # 13 -> 3. 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. The simulation asks how many
     # variants would stay GREEN if every turn ran container_cc, and the answer
     # collapsed because the question set gave 149 variants a substantive
@@ -843,7 +843,9 @@ def test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible():
     # 3 -> 2 on 2026-09-23: refrec.can_you_run_that_again_but_wit now asserts
     # route nextseek_query on its seed (the REST-plumbing retirement), which an
     # all-CC simulation fails.
-    assert len(green) == 2, sorted(green)
+    # 2 -> 5 on 2026-10-19: the three reingest hand-off gates assert route container_cc and a
+    # route_source of baml or reingest, both of which an all-CC simulation satisfies.
+    assert len(green) == 5, sorted(green)
     # 270 -> 295: all 25 variants added 2026-08-06 are RED under an all-CC
     # simulation replying "done", which is correct — none of them is satisfied
     # by a bare acknowledgement.

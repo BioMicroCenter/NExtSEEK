@@ -57,3 +57,8 @@ def test_no_trace_no_field():
 def test_followup_is_a_routing_decision_and_cc_unavailable_is_not():
     assert "followup" in runner.ROUTE_DECISION_SOURCES
     assert "cc_unavailable" not in runner.ROUTE_DECISION_SOURCES
+
+
+def test_a_reingest_redirect_is_a_routing_decision():
+    """The router decided first, and the product moved a "my run is done" turn to CC."""
+    assert "reingest" in runner.ROUTE_DECISION_SOURCES

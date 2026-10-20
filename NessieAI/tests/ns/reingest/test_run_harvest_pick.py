@@ -185,12 +185,14 @@ def test_upload_jobs_name_their_manifest():
     import NessieAI.ns.reingest.build_records as build_records
 
     orig_verify, orig_sha = upload.verify, build_records.sha256_of
-    upload.verify = lambda ids, user_id: records
+    upload.verify = lambda ids, user_id, **_turn: records
     build_records.sha256_of = lambda path: "b1"
     try:
         out = upload.run(build_ids_raw="b1", user=SimpleNamespace(pk=1),
                          upload_context={"lababbv": "LAB"},
-                         dispatch=lambda **_k: "job-1", stage=lambda path: path)
+                         dispatch=lambda **_k: "job-1", stage=lambda path: path,
+                         chat_turn=lambda: {"session_id": "c", "turn_number": 2, "task_id": "t"},
+                         turn_delivered=lambda task_id: True)
     finally:
         upload.verify, build_records.sha256_of = orig_verify, orig_sha
     assert out["jobs"][0]["manifest_id"] == "m1"

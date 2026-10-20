@@ -905,3 +905,24 @@ def test_a_launched_manifest_builds_are_not_test_only(rows, tmp_path, monkeypatc
                     session=_admin_session(False), outputs_dir=str(tmp_path))
     assert all(b["test_only"] is False for b in out["builds"])
     assert not out["reply"].startswith("TEST ONLY:")
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_each_build_records_the_chat_turn_the_server_says_it_ran_in(rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    turn = {"session_id": "chat-1", "turn_number": 4, "task_id": "task-4"}
+    session = _admin_session(False)
+    session.chat_turn = lambda: turn
+    out = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id},
+                    session=session, outputs_dir=str(tmp_path))
+    assert out["builds"] and all(b["shown_in"] == turn for b in out["builds"])
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_a_build_with_no_chat_turn_seam_records_none(rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    out = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id},
+                    session=_admin_session(False), outputs_dir=str(tmp_path))
+    assert out["builds"] and all(b["shown_in"] is None for b in out["builds"])

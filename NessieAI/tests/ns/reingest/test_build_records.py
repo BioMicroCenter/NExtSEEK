@@ -14,14 +14,25 @@ def root(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _write(root, user_id=7, name="wb.xlsx", data=b"PK\x03\x04 bytes"):
+def _write(root, user_id=7, name="wb.xlsx", data=b"PK\x03\x04 bytes", chat_turn=None):
     path = root / name
     path.write_bytes(data)
     return build_records.write(
         path=str(path), artifact_key="reingest_A_ALN", sample_type="A.ALN", mode="new",
         manifest_id="abc", disposition="SOFT_FLAG", open_warnings=["row 0: x"],
         row_count=1, project_id=14, project_note="", answers_digest="d", user_id=user_id,
-        test_only=False)
+        test_only=False, chat_turn=chat_turn)
+
+
+def test_a_record_names_the_chat_turn_it_was_built_in(root):
+    turn = {"session_id": "chat-1", "turn_number": 3, "task_id": "task-3"}
+    record = _write(root, chat_turn=turn)
+    assert record["shown_in"] == turn
+    assert build_records.load(record["build_id"], 7)["shown_in"] == turn
+
+
+def test_a_build_outside_a_chat_turn_records_none(root):
+    assert _write(root)["shown_in"] is None
 
 
 def test_the_public_record_hides_the_server_path_and_ids_by_hash(root):

@@ -39,8 +39,10 @@ from NessieAI.tests.nessie_tests.manifest import (
 #
 # `followup` belongs here for the same reason (2026-09-23): the router said NExtSEEK, the
 # turn refers back to an earlier answered turn, and the product moved it to CC.
+# `reingest` belongs here too: the router decided, the turn announced a finished run
+# ("my run is done"), and the product moved it to Container-CC's reingest.
 # `cc_unavailable` does NOT: the CC runner was down, so no routing decision was tested.
-ROUTE_DECISION_SOURCES = frozenset({"baml", "sticky", "followup"})
+ROUTE_DECISION_SOURCES = frozenset({"baml", "sticky", "followup", "reingest"})
 
 
 def default_route_criterion(variant) -> dict | None:
