@@ -58,7 +58,7 @@ EXIT_OK, EXIT_INVALID, EXIT_EXISTS, EXIT_STOP, EXIT_WINDOW, EXIT_SSH = 0, 2, 3, 
 SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 TAG_RE = re.compile(r"^\d{8}-\d{4}[a-z0-9-]*$")
 
-Component = Literal["bedrock-proxy", "app", "cc-agent", "nextseek-sidecar"]
+Component = Literal["bedrock-proxy", "cc-spawner", "app", "cc-agent", "nextseek-sidecar"]
 
 
 class Stop(Exception):
@@ -1627,7 +1627,7 @@ def cmd_judge(a) -> int:
 # =====================================================================================
 # 7. The report form: prefilled mechanics, the agent's judgement, one rendering
 # =====================================================================================
-StepName = Literal["preflight", "commit_review", "pull", "bedrock-proxy", "app", "cc-agent",
+StepName = Literal["preflight", "commit_review", "pull", "bedrock-proxy", "cc-spawner", "app", "cc-agent",
                    "nextseek-sidecar", "collectstatic", "labs", "checks", "ci", "nessie", "evidence"]
 StepStatus = Literal["ok", "ok_with_findings", "failed", "stopped", "skipped", "not_in_brief"]
 Verdict = Literal["pass", "real", "drift", "policy", "masked", "notrun"]

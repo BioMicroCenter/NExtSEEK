@@ -776,3 +776,48 @@ def test_an_unchanged_local_settings_gets_no_new_copy(tmp_path: Path) -> None:
 def test_the_new_local_settings_copy_never_reaches_git_or_the_image() -> None:
     assert "local_settings.py.new" in (_REPO_ROOT / ".gitignore").read_text().splitlines()
     assert "dmac/local_settings.py*" in (_REPO_ROOT / ".dockerignore").read_text().splitlines()
+
+
+# the spawner token pair (W9 part 1): one value in two env files
+
+def _spawner_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    (repo / "docker").mkdir(parents=True)
+    (repo / "docker" / "nextseek.env").write_text('DJANGO_SECRET_KEY="k"\n')
+    return repo
+
+
+def test_render_spawner_env_writes_the_same_token_to_both_files(tmp_path: Path) -> None:
+    from startup.steps.config import render_spawner_env
+
+    repo = _spawner_repo(tmp_path)
+    out = render_spawner_env(repo)
+
+    app = read_env(repo / "docker" / "nextseek.env")
+    spawner = read_env(out)
+    assert out == repo / "docker" / "cc-spawner.env"
+    assert len(app["NEXTSEEK_SPAWNER_TOKEN"]) >= 40
+    assert spawner == {"SPAWNER_TOKEN": app["NEXTSEEK_SPAWNER_TOKEN"]}
+    assert app["DJANGO_SECRET_KEY"] == "k", "the rest of the file is untouched"
+    assert (out.stat().st_mode & 0o777) == 0o600
+
+
+def test_render_spawner_env_keeps_the_token_on_a_rerun(tmp_path: Path) -> None:
+    from startup.steps.config import render_spawner_env
+
+    repo = _spawner_repo(tmp_path)
+    render_spawner_env(repo)
+    first = read_env(repo / "docker" / "nextseek.env")["NEXTSEEK_SPAWNER_TOKEN"]
+    render_spawner_env(repo)
+    assert read_env(repo / "docker" / "nextseek.env")["NEXTSEEK_SPAWNER_TOKEN"] == first
+    assert read_env(repo / "docker" / "cc-spawner.env")["SPAWNER_TOKEN"] == first
+    assert (repo / "docker" / "nextseek.env").read_text().count("NEXTSEEK_SPAWNER_TOKEN") == 1
+
+
+def test_render_spawner_env_repairs_a_missing_spawner_file_from_the_app_value(tmp_path: Path) -> None:
+    from startup.steps.config import render_spawner_env
+
+    repo = _spawner_repo(tmp_path)
+    (repo / "docker" / "nextseek.env").write_text("NEXTSEEK_SPAWNER_TOKEN=abc123\n")
+    render_spawner_env(repo)
+    assert read_env(repo / "docker" / "cc-spawner.env") == {"SPAWNER_TOKEN": "abc123"}

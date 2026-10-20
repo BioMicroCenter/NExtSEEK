@@ -235,8 +235,12 @@ docker compose exec nextseek uv run manage.py collectstatic --noinput   # only i
 ```
 
 1. Commit and push to `origin/dev` (finished work goes straight to dev).
-2. On the box, pull, then rebuild as needed. The rebuild recreates the container, which re-collects
-   static at boot, so the explicit `collectstatic` is belt and braces.
+2. On the box, pull, then rebuild as needed. The rebuild recreates the `nextseek` worker and swaps
+   the `web` container (a new one starts beside the old, nginx switches, the old one finishes its
+   chat turns and stops), so users see no gap. The new web container re-collects static at boot, so
+   the explicit `collectstatic` (run it in `web`) is belt and braces. `--stop-first` keeps the old
+   stop-and-start, and a pending migration forces it. The first deploy of the split needs
+   `./startup.sh rebuild --recreate-nginx` once (`DEPLOYMENT.md` §3.3).
 3. `./startup.sh rebuild` also runs CI afterwards unless `--no-ci` is given (and `--no-nessie` skips
    only the paid Nessie lane). The default for UI work is `--no-ci`, then run `./startup.sh ci`
    when wanted.

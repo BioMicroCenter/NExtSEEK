@@ -54,9 +54,9 @@ def test_component_aliases_and_invalid_name() -> None:
 
 def test_registry_has_one_destination_per_first_party_image() -> None:
     images = registry_images()
-    assert len(images) == 4
-    assert len({image.local_image for image in images}) == 4
-    assert len({image.registry_image for image in images}) == 4
+    assert len(images) == 5
+    assert len({image.local_image for image in images}) == 5
+    assert len({image.registry_image for image in images}) == 5
 
 
 def test_every_service_running_the_app_image_is_restarted_by_a_rebuild() -> None:
@@ -127,3 +127,24 @@ def test_the_app_component_restarts_exactly_the_app_service(monkeypatch) -> None
     assert component_policies("nextseek")["app"].restart_services == (
         BASE_APP_RUNTIME_SERVICES
     )
+
+
+def test_the_app_runs_as_a_worker_and_a_web_service() -> None:
+    """The split (SPEC-PLAN section 1): the loops stay in `nextseek`, the web
+    server is `web`. Both run the one app image, so both are restarted."""
+    assert BASE_APP_RUNTIME_SERVICES == ("nextseek", "web")
+    web = _compose()["services"]["web"]
+    assert "build" not in web, "web reuses the image `nextseek` builds"
+
+
+def test_cc_spawner_is_a_component_and_part_of_custom_stack() -> None:
+    policies = component_policies("nextseek")
+    spawner = policies["cc-spawner"]
+    assert spawner.build_services == ("cc-spawner",)
+    assert spawner.restart_services == ("cc-spawner",)
+    assert [i.local_image for i in spawner.images] == ["nextseek-cc-spawner:latest"]
+    stack = policies["custom-stack"]
+    assert "cc-spawner" in stack.build_services
+    assert "cc-spawner" in stack.restart_services
+    assert resolve_component("spawner", "demo").name == "cc-spawner"
+    assert _compose()["services"]["cc-spawner"]["image"] == "nextseek-cc-spawner:latest"

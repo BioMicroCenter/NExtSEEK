@@ -344,6 +344,7 @@ def _install_impl(
                 + ", ".join(changes["rerendered"]))
     config.render_db_env(REPO_ROOT, values)
     config.render_nextseek_env(REPO_ROOT, values)
+    config.render_spawner_env(REPO_ROOT)
     if config.render_local_settings(REPO_ROOT, values).name == "local_settings.py.new":
         ui.warn("dmac/local_settings.py kept as it is; the template's version is in "
                 "dmac/local_settings.py.new: diff the two and merge by hand")
@@ -357,7 +358,7 @@ def _install_impl(
     _warn_if_proxy_token_empty(proxy_env_path)
     config.render_root_env(REPO_ROOT, compose_env, neo4j_password=values.neo4j_password)
     ui.ok(
-        "docker/db.env, docker/nextseek.env, "
+        "docker/db.env, docker/nextseek.env, docker/cc-spawner.env, "
         f"{layout.PROXY_SECRET_ENV.as_posix()}, docker/seek-nginx.conf, dmac/local_settings.py, .env"
     )
 
@@ -707,6 +708,7 @@ def reset(
         for p in [
             REPO_ROOT / "docker" / "db.env",
             REPO_ROOT / "docker" / "nextseek.env",
+            REPO_ROOT / "docker" / "cc-spawner.env",
             layout.proxy_secret_env(REPO_ROOT),
             # A box that never moved its token still has it here. Reset claims
             # to remove config, so it must not leave the real token behind.
@@ -761,7 +763,7 @@ def rebuild(
         "app",
         "--component",
         "--service",
-        help="app, cc-agent, nextseek-sidecar, bedrock-proxy, or custom-stack",
+        help="app, cc-agent, nextseek-sidecar, bedrock-proxy, cc-spawner, or custom-stack",
     ),
     source_tree: Path | None = typer.Option(
         None,
@@ -806,6 +808,11 @@ def rebuild(
         help="Include the Nessie lane (three NS questions and one CC question, about "
              "$0.30) in the post-rebuild CI. App rebuilds on local and dev only.",
     ),
+    stop_first: bool = typer.Option(
+        False, "--stop-first",
+        help="Stop and recreate the web server in place (a gap of about a minute) instead "
+             "of swapping a new one in beside the old. A pending migration forces this.",
+    ),
     recreate_nginx: bool = typer.Option(
         False, "--recreate-nginx",
         help="Recreate nextseek_nginx (and only it) so it serves the checkout's "
@@ -813,6 +820,7 @@ def rebuild(
     ),
 ) -> None:
     """Safely rebuild a first-party component without touching volumes."""
+    from startup.lib import web_swap
     from startup.lib.docker_ops import compose_build, compose_up
     from startup.lib.deploy_source import DeploySourceError, resolve_verified_source
     from startup.lib.rebuild_policy import resolve_component
@@ -832,6 +840,10 @@ def rebuild(
     # Before the disk review: a box that is going to be refused should not be
     # walked through a purge first.
     _nessie_env_preflight_or_exit()
+    # A box installed before the CC spawner existed has no token pair yet; write it
+    # here (it only adds a key to docker/nextseek.env, never re-renders the file).
+    if (REPO_ROOT / "docker" / "nextseek.env").exists():
+        config.render_spawner_env(REPO_ROOT)
 
     _disk_preflight_or_exit(
         ci_profile=state.ci_profile,
@@ -887,18 +899,39 @@ def rebuild(
             builder=builder,
         )
     if policy.restart_services and restart:
+        # The web server is replaced without a gap unless the operator asked for
+        # stop-first or the new image carries a migration (old code must not run on
+        # a new schema). Everything else restarts in place, as it always did.
+        swap_web = "web" in policy.restart_services and not stop_first
+        if swap_web:
+            run_docker = web_swap.make_runner(REPO_ROOT, state.compose_env())
+            with ui.spinner("checking the new image for pending migrations"):
+                pending, why = web_swap.migrations_pending(run_docker)
+            if pending:
+                swap_web = False
+                ui.warn("this image has pending migrations (or the check could not run), so web is "
+                        "stopped and recreated instead of swapped: users see the restart page for "
+                        f"about a minute. {why}")
+        in_place = tuple(s for s in policy.restart_services if not (swap_web and s == "web"))
         with ui.spinner(f"recreating {policy.name} runtimes"):
             compose_up(
-                services=policy.restart_services,
+                services=in_place,
                 project_dir=REPO_ROOT,
                 env=state.compose_env(),
                 force_recreate=True,
                 no_deps=True,
             )
+        if swap_web:
+            try:
+                ui.info("swapping web (the old container finishes its chat turns first)")
+                web_swap.swap(run_docker, REPO_ROOT, say=ui.info, warn=ui.warn)
+            except web_swap.SwapError as exc:
+                ui.fail(f"web swap failed: {exc}")
+                raise typer.Exit(code=1) from exc
         ui.ok(f"{policy.name} rebuilt and restarted")
         # Start the front door if it is down, and do nothing else to it. `up`
         # without --force-recreate is a no-op on a running nginx, which needs no
-        # restart anyway (docker/nginx.conf re-resolves `nextseek` per request);
+        # restart anyway (docker/nginx.conf re-resolves `web` per request);
         # --no-deps keeps it from touching any other service. A stopped nginx
         # used to survive every rebuild, and the CI hook then spent its whole
         # readiness floor on a refused port.

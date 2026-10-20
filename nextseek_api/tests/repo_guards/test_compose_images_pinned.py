@@ -16,8 +16,12 @@ def _services():
 
 def test_every_pulled_image_has_an_explicit_tag():
     bad = []
-    for name, svc in _services().items():
+    services = _services()
+    for name, svc in services.items():
         if "build" in svc:  # built locally
+            continue
+        if svc["image"] == services["nextseek"]["image"]:  # `web` runs the image `nextseek` builds
+            assert svc.get("pull_policy") == "never", name
             continue
         image = svc["image"]
         # strip a ${VAR:-default} wrapper to the default

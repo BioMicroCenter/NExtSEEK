@@ -907,6 +907,18 @@ def _the_nessie_prerequisites_hold(monkeypatch: pytest.MonkeyPatch) -> None:
     _stub_nessie_prerequisites(monkeypatch)
 
 
+def _stub_web_swap(monkeypatch: pytest.MonkeyPatch, *, pending: bool = False) -> list[str]:
+    """No docker: the swap and the migration check are recorded, not run."""
+    from startup.lib import web_swap
+
+    seen: list[str] = []
+    monkeypatch.setattr(web_swap, "make_runner", lambda project_dir, env: object())
+    monkeypatch.setattr(web_swap, "migrations_pending",
+                        lambda run: (pending, "Your models have changes" if pending else ""))
+    monkeypatch.setattr(web_swap, "swap", lambda run, repo_root, **kw: seen.append("swap") or "swapped")
+    return seen
+
+
 def _mock_rebuild(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -929,6 +941,7 @@ def _mock_rebuild(
     )
     monkeypatch.setattr(docker_ops, "compose_build", lambda **kwargs: None)
     monkeypatch.setattr(docker_ops, "compose_up", lambda **kwargs: None)
+    _stub_web_swap(monkeypatch)
     monkeypatch.setattr(registry_push, "push_baselines", lambda *args, **kwargs: ())
     from startup.steps import validate as _validate
     monkeypatch.setattr(
@@ -2435,3 +2448,124 @@ def test_reset_keep_config_keeps_every_value(
     )
     assert read_env(repo / "docker" / "db.env")["MYSQL_ROOT_PASSWORD"] == "root-rotated"
     assert steps.build.start_databases.call_args.args[1]["MYSQL_ROOT_PASSWORD"] == "root-rotated"
+
+
+# the web swap (SPEC-PLAN section 3) and --stop-first
+
+def test_rebuild_swaps_web_and_recreates_only_the_worker_in_place(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    swaps = _stub_web_swap(monkeypatch)
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert swaps == ["swap"]
+    assert [list(c["services"]) for c in calls] == [["nextseek"], ["nextseek_nginx"]]
+    assert calls[0]["force_recreate"] is True
+
+
+def test_rebuild_stop_first_recreates_web_in_place_and_never_swaps(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    swaps = _stub_web_swap(monkeypatch)
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild", "--stop-first"])
+
+    assert result.exit_code == 0, result.output
+    assert swaps == []
+    assert [list(c["services"]) for c in calls] == [["nextseek", "web"], ["nextseek_nginx"]]
+
+
+def test_rebuild_with_a_pending_migration_falls_back_to_stop_first_and_says_why(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    swaps = _stub_web_swap(monkeypatch, pending=True)
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert swaps == []
+    assert [list(c["services"]) for c in calls][0] == ["nextseek", "web"]
+    flat = "".join(result.output.split())
+    assert "pendingmigrations" in flat and "Yourmodelshavechanges" in flat
+
+
+def test_rebuild_exits_red_when_the_swap_fails(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.lib import web_swap
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+
+    def boom(run, repo_root, **kw):
+        raise web_swap.SwapError("web-2 is unhealthy; removed it, the old container still serves")
+
+    monkeypatch.setattr(web_swap, "swap", boom)
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 1
+    assert "webswapfailed" in "".join(result.output.split())
+
+
+def test_rebuild_no_restart_neither_swaps_nor_checks_migrations(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    swaps = _stub_web_swap(monkeypatch)
+    from startup.lib import web_swap
+    monkeypatch.setattr(web_swap, "migrations_pending", lambda run: (_ for _ in ()).throw(AssertionError("no docker")))
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-restart", "--no-ci"])
+
+    assert result.exit_code == 0, result.output
+    assert swaps == []
+
+
+def test_rebuild_custom_stack_swaps_web_and_restarts_the_rest_including_the_spawner(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    swaps = _stub_web_swap(monkeypatch)
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild", "--component", "custom-stack"])
+
+    assert result.exit_code == 0, result.output
+    assert swaps == ["swap"]
+    assert list(calls[0]["services"]) == ["nextseek", "nextseek-sidecar", "bedrock-proxy", "cc-spawner"]
+
+
+def test_rebuild_of_the_spawner_restarts_only_it(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    swaps = _stub_web_swap(monkeypatch)
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild", "--component", "cc-spawner"])
+
+    assert result.exit_code == 0, result.output
+    assert swaps == []
+    assert list(calls[0]["services"]) == ["cc-spawner"]

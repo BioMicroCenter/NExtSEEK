@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from startup.lib import web_swap
 from startup.lib.instance import InstanceState, load_instance
 from startup.steps import prereqs, registry_push, validate
 
@@ -100,6 +101,13 @@ def diagnose(repo_root: Path, *, scope: str = "full") -> list[tuple[str, bool, s
     results.append(("instance state", True, f"name={state.name} prefix={state.prefix or '(none)'} ports={state.ports}"))
     results.append(check_ci_profile(state))
     results.append(check_ci_credentials())
+    pinned = web_swap.leftover_pin(repo_root)
+    if pinned is not None:
+        results.append((
+            "web swap pin", False,
+            f"docker/nginx-upstream/pin.conf still pins the front door to {pinned}: a swap was killed. "
+            "Check `docker compose ps web`, delete the file, run "
+            "`docker compose exec nextseek_nginx nginx -s reload`"))
 
     env = state.compose_env()
     health = (

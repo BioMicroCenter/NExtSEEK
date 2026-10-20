@@ -145,7 +145,7 @@ def start_cc_stack(repo_root: Path, env: dict[str, str]) -> None:
     """Build the per-turn CC image and start the long-running CC services."""
     compose_build(services=["cc-agent"], project_dir=repo_root, env=env)
     compose_up(
-        services=["bedrock-proxy", "nextseek-sidecar"],
+        services=["bedrock-proxy", "nextseek-sidecar", "cc-spawner"],
         project_dir=repo_root,
         env=env,
         build=True,
