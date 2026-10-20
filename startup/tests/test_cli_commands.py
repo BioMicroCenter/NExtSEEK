@@ -2482,7 +2482,10 @@ def test_rebuild_stop_first_recreates_web_in_place_and_never_swaps(
 
     assert result.exit_code == 0, result.output
     assert swaps == []
-    assert [list(c["services"]) for c in calls] == [["nextseek", "web"], ["nextseek_nginx"]]
+    # web first, alone: the old one drains and stops before the worker is recreated and migrates; the new one
+    # waits in the entrypoint until the worker has migrated.
+    assert [list(c["services"]) for c in calls] == [["web"], ["nextseek"], ["nextseek_nginx"]]
+    assert calls[0]["force_recreate"] is True and calls[1]["force_recreate"] is True
 
 
 def test_rebuild_with_a_pending_migration_falls_back_to_stop_first_and_says_why(
@@ -2498,7 +2501,8 @@ def test_rebuild_with_a_pending_migration_falls_back_to_stop_first_and_says_why(
 
     assert result.exit_code == 0, result.output
     assert swaps == []
-    assert [list(c["services"]) for c in calls][0] == ["nextseek", "web"]
+    # old web code must never serve on the new schema: it is stopped before the worker migrates
+    assert [list(c["services"]) for c in calls][:2] == [["web"], ["nextseek"]]
     flat = "".join(result.output.split())
     assert "pendingmigrations" in flat and "Yourmodelshavechanges" in flat
 

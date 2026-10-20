@@ -921,8 +921,20 @@ def rebuild(
                 ui.warn("this image has pending migrations (or the check could not run), so web is "
                         "stopped and recreated instead of swapped: users see the restart page for "
                         f"about a minute. {why}")
-        in_place = tuple(s for s in policy.restart_services if not (swap_web and s == "web"))
+        in_place = tuple(s for s in policy.restart_services if s != "web")
         with ui.spinner(f"recreating {policy.name} runtimes"):
+            if "web" in policy.restart_services and not swap_web:
+                # Stop-first: web alone, before the worker. The old web drains and
+                # stops before the worker is recreated and migrates, so old code never
+                # serves on the new schema; the new web waits in the entrypoint until
+                # the worker has migrated.
+                compose_up(
+                    services=("web",),
+                    project_dir=REPO_ROOT,
+                    env=state.compose_env(),
+                    force_recreate=True,
+                    no_deps=True,
+                )
             compose_up(
                 services=in_place,
                 project_dir=REPO_ROOT,
