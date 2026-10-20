@@ -49,7 +49,7 @@ HOW_CODES = frozenset({
     "orm",           # Django ORM write on a model whose db_table is a graph source
     "dbtable",       # the legacy table layer (storeOneRecord and its siblings)
     "seek_client",   # SeekAPIClient create_*/update_*/delete_*, committed by Rails
-    "rails_runner",  # run_seek_rails_runner
+    "rails_runner",  # run_seek_op (the SEEK user scripts, run by cc-spawner)
     "cypher",        # a Cypher write, straight to Neo4j
     "rails",         # SEEK's own Rails UI, REST API or background jobs
     "external",      # a program outside this repository: an operator tool, hand SQL, a database client
