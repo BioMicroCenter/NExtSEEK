@@ -40,8 +40,10 @@ def draining_response():
     return response
 
 
-def start_turn_thread(task_id, target, **kwargs) -> threading.Thread:
-    """Run ``target(**kwargs)`` on a daemon thread, with a marker file for as long as it runs."""
+def start_turn_thread(task_id, target, *, thread_cls=None, **kwargs):
+    """Run ``target(**kwargs)`` on a daemon thread, with a marker file for as long as it runs.
+
+    ``thread_cls`` is the seam the turn tests use to run a turn inline."""
     marker = turn_dir() / str(task_id)
     try:
         marker.parent.mkdir(parents=True, exist_ok=True)
@@ -57,6 +59,6 @@ def start_turn_thread(task_id, target, **kwargs) -> threading.Thread:
         finally:
             marker.unlink(missing_ok=True)
 
-    thread = threading.Thread(target=_marked, **({"kwargs": kwargs} if kwargs else {}), daemon=True)
+    thread = (thread_cls or threading.Thread)(target=_marked, **({"kwargs": kwargs} if kwargs else {}), daemon=True)
     thread.start()
     return thread

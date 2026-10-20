@@ -16,7 +16,6 @@ instead of started.
 """
 from __future__ import annotations
 
-from nextseek_api.assistant import turn_drain
 import ast
 from pathlib import Path
 from types import SimpleNamespace
@@ -399,7 +398,7 @@ def test_start_task_passes_the_scope_on_the_ns_route(monkeypatch, mode, entry):
 
     decision = SimpleNamespace(route=cc_router.ROUTE_NS, model_class=None, model_id=None, source="forced",
                                reasoning="test")
-    monkeypatch.setattr(turn_drain, "threading", _SyncThreading)
+    monkeypatch.setattr(turn, "threading", _SyncThreading)
     monkeypatch.setattr(turn, "_select_chat_config", lambda request, r: _Config())
     monkeypatch.setattr(turn, "_decide_route", lambda *a, **k: decision)
     monkeypatch.setattr(turn, "_record_ledger_row", lambda *a, **k: None)

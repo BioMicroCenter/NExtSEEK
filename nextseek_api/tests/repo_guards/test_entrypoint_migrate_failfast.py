@@ -92,11 +92,11 @@ class TestMigrateFailFast:
         proc, _ = _run_entrypoint(tmp_path, migrate_exit=1)
         assert "--fake" in proc.stderr
 
-    def test_migrate_success_still_starts_servers(self, tmp_path):
+    def test_migrate_success_still_starts_the_loops(self, tmp_path):
         proc, calls = _run_entrypoint(tmp_path, migrate_exit=0)
         assert proc.returncode == 0
         assert "manage.py migrate" in calls
-        assert "gunicorn" in calls
+        assert "gunicorn" not in calls  # the worker serves nothing; the web mode does
         assert "celery" in calls
 
 

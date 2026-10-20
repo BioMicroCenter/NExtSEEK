@@ -3,7 +3,6 @@
 SEEK are stubbed; the database is real."""
 from __future__ import annotations
 
-from nextseek_api.assistant import turn_drain
 import base64
 import logging
 import time
@@ -60,7 +59,7 @@ def cc(monkeypatch, tmp_path):
     root = tmp_path / "users"
     root.mkdir()
     monkeypatch.setenv("DMAC_USER_ROOT_MOUNT", str(root))
-    monkeypatch.setattr(turn_drain, "threading", SimpleNamespace(Thread=_Thread))
+    monkeypatch.setattr(cc_turn, "threading", SimpleNamespace(Thread=_Thread))
     monkeypatch.setattr(cc_turn, "_select_chat_config", lambda request, req: SimpleNamespace(API_USER="", API_PASS=""))
     monkeypatch.setattr(cc_turn, "_record_ledger_row", lambda *a, **k: None)
     monkeypatch.setattr(cc_turn, "_decide_route", lambda *a, **k: cc_router.RouteDecision(

@@ -23,6 +23,7 @@ from __future__ import annotations
 import copy
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -935,4 +936,4 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
             # this turn's query as the fallback title source.
             _auto_title_if_unset(chat_session, fallback_query=req.query)
 
-    start_turn_thread(query_task.task_id, _run)
+    start_turn_thread(query_task.task_id, _run, thread_cls=threading.Thread)

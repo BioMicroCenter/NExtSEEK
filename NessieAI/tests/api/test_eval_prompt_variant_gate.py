@@ -11,7 +11,6 @@ prompts/variants/, which the prompt writers own.
 """
 from __future__ import annotations
 
-from nextseek_api.assistant import turn_drain
 import json
 from types import SimpleNamespace
 from typing import get_args
@@ -238,7 +237,7 @@ def _run_start_task(monkeypatch, *, user, req, chat_config, plan_mode=False, cal
 
     decision = SimpleNamespace(route=cc_router.ROUTE_NS, model_class=None, model_id=None,
                                source="forced", reasoning="test")
-    monkeypatch.setattr(turn_drain, "threading", _SyncThreading)
+    monkeypatch.setattr(turn, "threading", _SyncThreading)
     monkeypatch.setattr(turn, "_select_chat_config", lambda request, r: chat_config)
     monkeypatch.setattr(turn, "_decide_route", lambda *a, **k: decision)
     monkeypatch.setattr(turn, "_record_ledger_row", lambda *a, **k: None)
