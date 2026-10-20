@@ -318,3 +318,48 @@ def test_submit_luria_records_the_launching_user(tmp_path, monkeypatch):
     monkeypatch.setattr(lr, "record_launch", lambda **kw: recorded.update(kw))
     sub.submit_luria(str(launch), luria_env=LE, samplesheet_local=str(ss), user_id=7)
     assert recorded["user_id"] == 7
+
+
+def _stage(tmp_path, monkeypatch, pipeline, revision, **kw):
+    real_sheet = tmp_path / "samplesheet.csv"
+    real_sheet.write_text("sample,fastq_1,fastq_2\nA,a_R1.fq.gz,a_R2.fq.gz\n")
+    (tmp_path / "launch.yml").write_text(yaml.safe_dump({"launch": [{
+        "name": "run", "pipeline": pipeline, "revision": revision}]}))
+    staged = {}
+    monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
+    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path: "Submitted batch job 3\n")
+
+    def fake_scp(le, local, remote, *, key_path):
+        staged[remote.rsplit("/", 1)[1]] = Path(local).read_text()
+
+    monkeypatch.setattr(sub, "scp_file", fake_scp)
+    sub.submit_luria(str(tmp_path / "launch.yml"), luria_env=LE,
+                     samplesheet_local=str(real_sheet), **kw)
+    return staged
+
+
+def test_submit_rnavar_puts_igenomes_ignore_in_params_yml_as_a_boolean(tmp_path, monkeypatch):
+    # The configuration the first real rnavar 1.3.0 run started with after its hand
+    # fixes: plain .fa/.gtf, the v2 parser, and igenomes_ignore as a YAML boolean.
+    staged = _stage(tmp_path, monkeypatch, "nf-core/rnavar", "1.3.0", genome="GRCh38",
+                    launch_params={"genome": "GRCh38", "aligner": "star",
+                                   "skip_baserecalibration": True})
+    params = yaml.safe_load(staged["params.yml"])
+    assert params["igenomes_ignore"] is True
+    assert params["skip_baserecalibration"] is True
+    assert "genome" not in params
+    run_sh = staged["run.sh"]
+    assert "export NXF_SYNTAX_PARSER=v2" in run_sh
+    assert "--fasta /net/x/refs/GRCh38.primary_assembly.genome.fa " in run_sh
+    assert "--gtf /net/x/refs/gencode.v46.basic.annotation.gtf " in run_sh
+    assert "--igenomes_ignore" not in run_sh
+
+
+def test_submit_rnaseq_params_yml_and_runsh_unchanged(tmp_path, monkeypatch):
+    staged = _stage(tmp_path, monkeypatch, "nf-core/rnaseq", "3.22.2", genome="GRCh38",
+                    launch_params={"genome": "GRCh38", "aligner": "star_salmon"})
+    assert yaml.safe_load(staged["params.yml"]) == {"aligner": "star_salmon"}
+    run_sh = staged["run.sh"]
+    assert "export NXF_SYNTAX_PARSER=v1" in run_sh
+    assert ("--fasta /net/x/refs/GRCh38.primary_assembly.genome.fa.gz "
+            "--gtf /net/x/refs/gencode.v46.basic.annotation.gtf.gz --igenomes_ignore") in run_sh

@@ -13,11 +13,12 @@ conda activate {{CONDA_ENV}}
 module add singularity/3.10.4
 
 export NXF_SINGULARITY_CACHEDIR={{SINGULARITY_CACHE}}
-# Current nf-core pipelines (e.g. rnaseq 3.18.0) use the legacy Nextflow config
+# Most nf-core pipelines (e.g. rnaseq 3.18.0) use the legacy Nextflow config
 # idiom (def vars mixed with config statements), which the strict parser that is
 # default in Nextflow 25.x+ rejects ("Variable declarations cannot be mixed with
-# config statements"). Force the v1 (legacy) language parser so they parse.
-export NXF_SYNTAX_PARSER=v1
+# config statements"), so they get the v1 (legacy) parser. A pipeline registered
+# in run_script.LURIA_PIPELINE_LAUNCH (nf-core/rnavar) runs on the parser recorded there.
+export NXF_SYNTAX_PARSER={{SYNTAX_PARSER}}
 
 # Luria compute nodes ship a CA bundle missing the Let's Encrypt root (ISRG Root
 # X1), so singularity can't verify depot.galaxyproject.org TLS and container

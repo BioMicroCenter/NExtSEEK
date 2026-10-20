@@ -139,12 +139,23 @@ def has_local_luria_ref(genome_key: str | None) -> bool:
     return str(genome_key or "") in LURIA_GENOMES
 
 
-def local_luria_ref_files(genome_key: str | None) -> dict[str, str] | None:
+def _ref_file(name: str, uncompressed: bool) -> str:
+    """A LURIA_GENOMES filename, or its uncompressed twin (the same name without .gz),
+    which is provisioned beside it on Luria for the pipelines that need it."""
+    return name[:-3] if uncompressed and name.endswith(".gz") else name
+
+
+def local_luria_ref_files(genome_key: str | None,
+                          pipeline: str | None = None) -> dict[str, str] | None:
     """The {'fasta','gtf'} FILENAMES of the local Luria reference for genome_key,
     or None when there is no local ref. Filenames (not absolute paths) so the host
-    side can name them without knowing the Luria refs_root."""
+    side can name them without knowing the Luria refs_root. With `pipeline`, they are
+    the files that pipeline's run is given (uncompressed for nf-core/rnavar)."""
     ref = LURIA_GENOMES.get(str(genome_key or ""))
-    return {"fasta": ref["fasta"], "gtf": ref["gtf"]} if ref else None
+    if not ref:
+        return None
+    plain = luria_launch_profile(pipeline)["uncompressed_refs"]
+    return {"fasta": _ref_file(ref["fasta"], plain), "gtf": _ref_file(ref["gtf"], plain)}
 
 
 _LURIA_CONFIG_HEADER = (
@@ -156,14 +167,48 @@ _LURIA_CONFIG_HEADER = (
 )
 
 
-def genome_ref_paths(genome: str, refs_root: str) -> tuple[str | None, str | None]:
+def genome_ref_paths(genome: str, refs_root: str, *,
+                     uncompressed: bool = False) -> tuple[str | None, str | None]:
     """Absolute (fasta, gtf) for a genome key under refs_root, or (None, None) when the genome
-    has no local refs registered (caller then falls back to --genome/iGenomes)."""
+    has no local refs registered (caller then falls back to --genome/iGenomes). `uncompressed`
+    names the plain .fa/.gtf provisioned beside each .gz."""
     ref = LURIA_GENOMES.get(str(genome or ""))
     if not ref:
         return (None, None)
     root = str(refs_root or "").rstrip("/")
-    return (f"{root}/{ref['fasta']}", f"{root}/{ref['gtf']}")
+    return (f"{root}/{_ref_file(ref['fasta'], uncompressed)}",
+            f"{root}/{_ref_file(ref['gtf'], uncompressed)}")
+
+
+# How a pipeline is launched when it differs from the default, which every pipeline was
+# built and tested on (rnaseq): the legacy v1 Nextflow parser and the gzipped references.
+# nf-core/rnavar 1.3.0 (VERIFIED on Luria, first run 2026-10-20) needs plain files: its
+# schema rejects a .gtf.gz (pattern ^\S+\.gtf$), and given a .fa.gz its GUNZIP_FASTA got no
+# task, so nothing downstream ran and Nextflow still reported success (cause unknown). The
+# run that worked used the v2 parser; whether rnavar needs v2 is NOT established.
+_DEFAULT_LAUNCH = {"syntax_parser": "v1", "uncompressed_refs": False}
+LURIA_PIPELINE_LAUNCH: dict[str, dict] = {
+    "nf-core/rnavar": {"syntax_parser": "v2", "uncompressed_refs": True},
+}
+
+
+def luria_launch_profile(pipeline: str | None) -> dict:
+    """The launch settings for a pipeline ('nf-core/rnavar', its GitHub URL, or the bare
+    catalog key 'rnavar'); the defaults when it registers none."""
+    name = _normalize_pipeline_name(pipeline or "")
+    if name and "/" not in name:
+        name = f"nf-core/{name}"
+    return {**_DEFAULT_LAUNCH, **LURIA_PIPELINE_LAUNCH.get(name, {})}
+
+
+def luria_params_overrides(pipeline: str | None, genome: str | None) -> dict:
+    """Params the launcher adds to params.yml. Under the v2 parser a bare boolean CLI flag
+    reaches nf-schema as the string "true" ("Value is [string] but should be [boolean]";
+    VERIFIED on Luria with rnavar), so igenomes_ignore goes in params.yml as a YAML boolean
+    whenever local refs replace iGenomes. Under v1 it stays on the CLI, as it always was."""
+    if luria_launch_profile(pipeline)["syntax_parser"] == "v2" and has_local_luria_ref(genome):
+        return {"igenomes_ignore": True}
+    return {}
 
 
 def render_luria_config(refs_root: str) -> str:
@@ -296,11 +341,13 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
     and `genome` has local refs registered (LURIA_GENOMES), explicit --fasta/--gtf flags are
     injected (path > iGenomes globally; the genomes-map resolution is unreliable). When
     (pipeline, aligner) has a vendored clone registered (LURIA_VENDORED_PIPELINES) and `working`
-    is given, the run uses that local clone with NO `-r` (else the tag checkout wipes the patches)."""
+    is given, the run uses that local clone with NO `-r` (else the tag checkout wipes the patches).
+    The Nextflow parser and compressed-or-plain references follow LURIA_PIPELINE_LAUNCH."""
     revision = validate_revision(revision)
     pipeline = validate_pipeline(pipeline)
     genome = validate_genome(genome)
     res = validate_resources(resources)
+    profile = luria_launch_profile(pipeline)
     source, rev = resolve_pipeline_source(pipeline, aligner, revision, working)
     source = validate_pipeline(source)          # clone path or stock name; both match _PIPELINE_RE
     revision_flag = f" {rev}" if rev else ""     # leading space only when present -> no double space
@@ -308,13 +355,17 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
     if refs_root:
         if not _REFS_ROOT_RE.fullmatch(str(refs_root)):
             raise ValueError(f"invalid refs_root {refs_root!r}")
-        fasta, gtf = genome_ref_paths(genome, refs_root)
+        fasta, gtf = genome_ref_paths(genome, refs_root,
+                                      uncompressed=profile["uncompressed_refs"])
         if fasta and gtf:
             # --igenomes_ignore: --genome otherwise also pulls iGenomes' prebuilt indexes,
             # which --fasta/--gtf do not replace, and rnaseq 3.22 aligned our GENCODE refs
             # with iGenomes' old STARIndex ("Genome version: 20201 is INCOMPATIBLE";
             # VERIFIED on Luria). Ignored, the pipeline builds its indexes from these files.
-            refs_flags = f"--fasta {fasta} --gtf {gtf} --igenomes_ignore"
+            # Under v2 it is in params.yml instead (luria_params_overrides).
+            refs_flags = f"--fasta {fasta} --gtf {gtf}"
+            if not luria_params_overrides(pipeline, genome).get("igenomes_ignore"):
+                refs_flags += " --igenomes_ignore"
     fetchngs_block = ""
     if needs_fetch:
         if not fastq_cache or not _REFS_ROOT_RE.fullmatch(str(fastq_cache)):
@@ -330,6 +381,7 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
         "PIPELINE": source,
         "REVISION_FLAG": revision_flag,
         "GENOME": genome,
+        "SYNTAX_PARSER": profile["syntax_parser"],
         "REFS_FLAGS": refs_flags,
         "FETCHNGS_BLOCK": fetchngs_block,
         "WORK_DIR": work_dir,

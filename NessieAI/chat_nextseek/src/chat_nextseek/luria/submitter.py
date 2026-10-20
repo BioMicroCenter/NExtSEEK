@@ -22,7 +22,8 @@ try:
 except Exception:  # pragma: no cover
     _yaml = None
 
-from .run_script import render_run_script, render_luria_config, render_process_config, sanitize_job_name
+from .run_script import (luria_params_overrides, render_run_script, render_luria_config,
+                         render_process_config, sanitize_job_name)
 from .fetchngs_helpers import needs_fetch_accessions
 from .ssh import prepare_key, ssh_run, scp_file
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
@@ -37,11 +38,13 @@ _REQUIRED_ENV = ("user", "key", "working_path", "host")
 _PARAMS_STRIP = ("input", "outdir", "genome")
 
 
-def _build_params_yml(launch_params: dict | None) -> str:
+def _build_params_yml(launch_params: dict | None, overrides: dict | None = None) -> str:
     """YAML for `-params-file`: the curated per-pipeline params minus the keys the
-    CLI supplies. Always valid YAML (at least '{}')."""
+    CLI supplies, plus the launcher's own overrides (luria_params_overrides). Always
+    valid YAML (at least '{}')."""
     p = {k: v for k, v in (launch_params or {}).items()
          if k not in _PARAMS_STRIP and v is not None}
+    p.update(overrides or {})
     return _yaml.safe_dump(p, sort_keys=True, default_flow_style=False) if p else "{}\n"
 
 
@@ -169,7 +172,8 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
         luria_config = render_luria_config(refs_root) + render_process_config(process_args)
         cfg_tmp = _write_temp(luria_config, prefix="luriacfg_", suffix=".config")
         tmp_files.append(cfg_tmp)
-        params_tmp = _write_temp(_build_params_yml(launch_params), prefix="params_", suffix=".yml")
+        params_yml = _build_params_yml(launch_params, luria_params_overrides(pipeline, run_genome))
+        params_tmp = _write_temp(params_yml, prefix="params_", suffix=".yml")
         tmp_files.append(params_tmp)
 
         ssh_run(luria_env, f"mkdir -p {remote_run_dir} {work_dir}", key_path=key_path)

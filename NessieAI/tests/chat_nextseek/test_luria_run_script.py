@@ -362,3 +362,75 @@ def test_render_fetch_block_rejects_bad_cache():
 def test_render_fetch_block_rejects_bad_revision():
     with pytest.raises(ValueError):
         _render(needs_fetch=True, fastq_cache="/w/fastq_cache", fetchngs_revision="1.12.0; evil")
+
+
+# --- per-pipeline launch settings: nf-core/rnavar 1.3.0 ------------------------
+# The first rnavar run on Luria needed three hand fixes before alignment started:
+# rnavar's schema rejects a .gtf.gz (pattern ^\S+\.gtf$); with a .fa.gz its
+# GUNZIP_FASTA never got a task and the run "completed" with no BAM or VCF; and
+# under the v2 parser the run used, a bare CLI --igenomes_ignore reached
+# validation as the string "true". Every other pipeline keeps its old launch.
+
+def _rnavar(**over):
+    kw = dict(job_name="j", pipeline="nf-core/rnavar", revision="1.3.0",
+              run_dir="/r", work_dir="/w", singularity_cache="/c", genome="GRCh38",
+              resources={}, refs_root="/net/x/refs")
+    kw.update(over)
+    return render_run_script(**kw)
+
+
+def test_rnavar_runs_on_uncompressed_fasta_and_gtf():
+    s = _rnavar()
+    assert "--fasta /net/x/refs/GRCh38.primary_assembly.genome.fa " in s
+    assert "--gtf /net/x/refs/gencode.v46.basic.annotation.gtf " in s
+    assert ".gz" not in s
+
+
+def test_rnavar_uses_the_v2_parser_and_no_cli_igenomes_ignore():
+    s = _rnavar()
+    assert "export NXF_SYNTAX_PARSER=v2" in s
+    assert "NXF_SYNTAX_PARSER=v1" not in s
+    # under v2 a bare boolean CLI flag reaches nf-schema as the string "true";
+    # igenomes_ignore travels in params.yml instead (luria_params_overrides)
+    assert "--igenomes_ignore" not in s
+    assert "{{" not in s and "}}" not in s
+
+
+def test_rnavar_profile_matches_github_url_and_bare_key():
+    for name in ("https://github.com/nf-core/rnavar", "https://github.com/nf-core/rnavar.git"):
+        s = _rnavar(pipeline=name)
+        assert "export NXF_SYNTAX_PARSER=v2" in s and ".gz" not in s
+    from chat_nextseek.luria.run_script import local_luria_ref_files
+    assert local_luria_ref_files("GRCh38", pipeline="rnavar") == {
+        "fasta": "GRCh38.primary_assembly.genome.fa",
+        "gtf": "gencode.v46.basic.annotation.gtf"}
+
+
+def test_rnaseq_and_scrnaseq_launch_unchanged():
+    for pipeline, rev in (("nf-core/rnaseq", "3.22.2"), ("nf-core/scrnaseq", "2.7.1")):
+        s = _rnavar(pipeline=pipeline, revision=rev)
+        assert "export NXF_SYNTAX_PARSER=v1" in s
+        assert ("--fasta /net/x/refs/GRCh38.primary_assembly.genome.fa.gz "
+                "--gtf /net/x/refs/gencode.v46.basic.annotation.gtf.gz --igenomes_ignore") in s
+    from chat_nextseek.luria.run_script import local_luria_ref_files
+    assert local_luria_ref_files("GRCh38", pipeline="rnaseq")["gtf"].endswith(".gtf.gz")
+
+
+def test_luria_params_overrides_only_for_v2_pipelines_with_local_refs():
+    from chat_nextseek.luria.run_script import luria_params_overrides
+    assert luria_params_overrides("nf-core/rnavar", "GRCh38") == {"igenomes_ignore": True}
+    assert luria_params_overrides("nf-core/rnavar", "R64-1-1") == {}   # no local refs: iGenomes
+    assert luria_params_overrides("nf-core/rnaseq", "GRCh38") == {}    # flag stays on the CLI
+
+
+def test_rnavar_unregistered_genome_still_falls_back_to_igenomes():
+    s = _rnavar(genome="R64-1-1")
+    assert "--fasta" not in s and "--gtf" not in s and "--igenomes_ignore" not in s
+    assert "--genome R64-1-1" in s
+
+
+def test_genome_ref_paths_uncompressed():
+    from chat_nextseek.luria.run_script import genome_ref_paths
+    f, g = genome_ref_paths("Mmul_10", "/net/x/refs", uncompressed=True)
+    assert f == "/net/x/refs/Macaca_mulatta.Mmul_10.dna.toplevel.fa"
+    assert g == "/net/x/refs/Macaca_mulatta.Mmul_10.116.gtf"

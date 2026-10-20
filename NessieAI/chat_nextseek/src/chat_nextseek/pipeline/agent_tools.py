@@ -777,7 +777,7 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     state["pipeline_key"] = pipeline_key
     state["launch_built_at_user_msgs"] = _user_msg_count(state)
 
-    ref_files = (local_luria_ref_files(merged.get("genome"))
+    ref_files = (local_luria_ref_files(merged.get("genome"), pipeline=pipeline_key)
                  if reference_status == "local_luria" else None)
     n_samples, n_fetch = _samplesheet_counts(samplesheet)
     return json.dumps({
