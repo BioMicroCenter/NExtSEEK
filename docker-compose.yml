@@ -696,10 +696,10 @@ networks:
   laya-net:
     internal: true
   # The CC spawner's private link: no gateway, joined by `web` and `cc-spawner`
-  # only. Named literally like dmac-cc-net so the name never depends on the
-  # compose project.
+  # only. No literal `name:` (unlike dmac-cc-net, which the spawner names): it
+  # stays per compose project, so two instances on one host never share the
+  # `cc-spawner` alias.
   dmac-spawner-net:
-    name: dmac-spawner-net
     internal: true
   # Container-CC segmented network (OI-3). Compose-managed but pinned to the
   # literal name `dmac-cc-net` (no project-name prefix) so it matches

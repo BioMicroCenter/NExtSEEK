@@ -130,7 +130,9 @@ def test_the_spawner_is_hardened_and_only_on_its_own_network():
     assert "NEXTSEEK_SPAWNER_TOKEN" not in sp["environment"] and "NEXTSEEK_SPAWNER_URL" not in sp["environment"]
     members = [n for n, s in SERVICES.items() if "dmac-spawner-net" in (s.get("networks") or [])]
     assert sorted(members) == ["cc-spawner", "web"]
-    assert COMPOSE["networks"]["dmac-spawner-net"] == {"name": "dmac-spawner-net", "internal": True}
+    # No literal `name:`: the network stays per compose project, so two instances on one host never share the
+    # `cc-spawner` alias (nothing outside compose names this network).
+    assert COMPOSE["networks"]["dmac-spawner-net"] == {"internal": True}
 
 
 def test_nginx_pins_through_a_generated_upstream_directory():
