@@ -83,6 +83,11 @@ MUST_BE_EXCLUDED = [
     # operator moves it by hand, so it must stay excluded too
     "docker/bedrock-proxy/proxy-secret.env",
     "dmac/local_settings.py",
+    # the CC spawner's token and the laya sidecar's key, and copies of them
+    "docker/cc-spawner.env",
+    "docker/cc-spawner.env.bak.20261020",
+    "docker/laya.env",
+    "docker/laya.env.old",
     # install's copy of the template beside an existing one, and backups of it (#103)
     "dmac/local_settings.py.new",
     "dmac/local_settings.py.bak.20261013",
@@ -104,6 +109,7 @@ MUST_BE_EXCLUDED = [
 MUST_BE_INCLUDED = [
     # committed templates and examples stay in the build context
     "docker/nextseek.env.example",
+    "docker/laya.env.example",
     "NessieAI/docker/bedrock-proxy/proxy-secret.env.example",
     "startup/templates/nextseek.env.template",
     "startup/templates/db.env.template",
