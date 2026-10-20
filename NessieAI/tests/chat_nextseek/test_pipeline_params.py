@@ -424,3 +424,47 @@ def test_all_six_rna_menus_emit_a_clean_param_set():
         for name, spec in menu.items():
             if spec.get("default") is not None:
                 assert name in merged, f"{key}: {name} not emitted"
+
+
+# Agent-steered string params reach nf-core modules that splice some of them (multiqc_title, *_args) into bash
+# script blocks, so build_run_params takes plain values only.
+@pytest.mark.parametrize("value", [
+    "$(id)", "`id`", "run; id", "a | b", "a && b", "x > /tmp/f", "a\nb", "it's", 'say "hi"', "a\\b", "${HOME}",
+])
+def test_build_run_params_refuses_shell_syntax_in_a_string_param(value):
+    params, errors, status = pp.build_run_params("rnaseq", {"multiqc_title": value}, None)
+    assert status == "invalid" and params == {}
+    assert any("multiqc_title" in e for e in errors)
+
+
+@pytest.mark.parametrize("value", [["a"], {"a": 1}])
+def test_build_run_params_refuses_a_non_plain_value(value):
+    _, errors, status = pp.build_run_params("rnaseq", {"multiqc_title": value}, None)
+    assert status == "invalid" and any("plain value" in e for e in errors)
+
+
+@pytest.mark.parametrize("value", ["--out /etc/x", "--ref=../x", "*.fq", "~/x", "--libType=/tmp/a"])
+def test_build_run_params_refuses_paths_and_globs_in_args(value):
+    _, errors, status = pp.build_run_params("rnaseq", {"extra_salmon_quant_args": value}, None)
+    assert status == "invalid" and any("extra_salmon_quant_args" in e for e in errors)
+
+
+@pytest.mark.parametrize("key,value", [
+    ("multiqc_title", "Lab X RNA-seq run 3, batch 2"),
+    ("extra_salmon_quant_args", "--noLengthCorrection --libType=A"),
+])
+def test_build_run_params_keeps_plain_values(key, value):
+    params, errors, status = pp.build_run_params("rnaseq", {key: value}, None)
+    assert errors == [] and params[key] == value
+
+
+def test_every_curated_string_default_passes_when_the_agent_repeats_it():
+    for f in sorted(NFCORE_DIR.glob("*.json")):
+        doc = json.loads(f.read_text())
+        menu = doc.get("params") or {}
+        given = {k: v["default"] for k, v in menu.items()
+                 if isinstance(v, dict) and v.get("type") == "string" and isinstance(v.get("default"), str)}
+        if not given:
+            continue
+        _, errors, _ = pp.build_run_params(f.stem, given, None)
+        assert not [e for e in errors if "shell" in e or "plain" in e], (f.stem, errors)

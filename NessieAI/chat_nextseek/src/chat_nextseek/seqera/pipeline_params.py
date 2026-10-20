@@ -7,6 +7,7 @@ loaded package-relative and cached. No config dependency -> import-time testable
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -119,6 +120,14 @@ def build_reference_params(pipeline_key: str, bundle_key: str | None) -> tuple[d
 
 _STRIP_KEYS = ("input", "outdir")
 
+# nf-core modules splice some string params (multiqc_title, *_args) into bash script blocks, so a value the
+# chat can steer must not carry shell syntax.
+# ponytail: a character denylist, not per-param patterns; a regex-style barcode pattern with ( ) { } is refused too.
+_SHELL_META = re.compile(r"""[$`;|&<>(){}\\"'\n\r]""")
+# The *_args params are appended unquoted to a tool's command line: each token must be a plain flag, so no
+# paths, globs or ~ (an output-file flag could overwrite lab storage).
+_ARG_TOKEN = re.compile(r"^(-{0,2}[A-Za-z][A-Za-z0-9_.-]*(=[A-Za-z0-9_.,:+-]*)?|[A-Za-z0-9_][A-Za-z0-9_.,:+-]*)$")
+
 
 def build_run_params(
     pipeline_key: str,
@@ -152,6 +161,13 @@ def build_run_params(
         spec = menu.get(key)
         if spec and spec.get("type") == "enum" and value not in (spec.get("allowed") or []):
             errors.append(f"param {key!r} value {value!r} not allowed (choose from {spec.get('allowed')}).")
+        elif value is not None and not isinstance(value, (str, bool, int, float)):
+            errors.append(f"param {key!r} must be a plain value, not {type(value).__name__}.")
+        elif isinstance(value, str) and _SHELL_META.search(value):
+            errors.append(f"param {key!r} contains shell characters ($ ` ; | & < > ( ) {{ }} quotes, backslash or a "
+                          "line break); use plain text.")
+        elif isinstance(value, str) and key.endswith("_args") and not all(_ARG_TOKEN.match(t) for t in value.split()):
+            errors.append(f"param {key!r} takes plain flags only (like --flag or name=value, no paths or globs).")
     if errors:
         return {}, errors, "invalid"
 
