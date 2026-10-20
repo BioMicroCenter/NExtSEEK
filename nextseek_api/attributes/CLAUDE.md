@@ -87,7 +87,7 @@ schema. Breaking one is a defect, not a refactor.
   (`nextseek_api/attributes/faults.py:50-52`). Setting
   `ATTRIBUTE_TEST_FAULT_CONTROL` in a real container arms real mid-mutation aborts.
 - **One test hardcodes an absolute path into another developer's home directory.**
-  `nextseek_api/attributes/tests/test_openapi.py:9` points the machine schema contract
+  `nextseek_api/attributes/tests/test_openapi.py:10` points the machine schema contract
   at a path in that developer's home directory, so that case cannot pass anywhere else, and its
   failure is not a regression in this package.
 - **Six unit cases in `nextseek_api/attributes/tests/test_executor.py` fail on this

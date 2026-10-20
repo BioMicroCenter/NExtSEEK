@@ -5,6 +5,8 @@ from pathlib import Path
 
 from django.db import connections
 
+_STATE_ROOT = Path(os.environ.get("ATTRIBUTE_STATE_ROOT") or Path.home() / "work/state/attribute-viewset")
+
 
 def test_disposable_database_identity_is_random_and_not_shared(settings, disposable_attribute_db):
     alias = disposable_attribute_db.django_alias
@@ -45,7 +47,7 @@ def test_freeze_measured_baseline_artifacts(settings, disposable_attribute_db, d
     alias = disposable_attribute_db.django_alias
     repo_root = Path(__file__).resolve().parents[2]
     freeze_baseline(alias, repo_root)
-    state_root = Path("/home/taishajo/work/state/attribute-viewset")
+    state_root = _STATE_ROOT
     for name in ("DB-FACTS.json", "DEPENDENT-SURFACES.json", "BASELINE.md", "TEST-LANES.md"):
         path = state_root / name
         assert path.is_file() and path.stat().st_size > 0

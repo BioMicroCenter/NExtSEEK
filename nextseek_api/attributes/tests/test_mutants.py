@@ -4,10 +4,13 @@ import sys
 from pathlib import Path
 
 import pytest
+import os
+
+_STATE_ROOT = Path(os.environ.get("ATTRIBUTE_STATE_ROOT") or Path.home() / "work/state/attribute-viewset")
 
 ROOT = Path(__file__).resolve().parents[3]
-MANIFEST = Path("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json")
-ADAPTERS = Path("/home/taishajo/work/state/attribute-viewset/verification/MUTATION-ADAPTERS.json")
+MANIFEST = _STATE_ROOT / "VERIFICATION-MANIFEST.json"
+ADAPTERS = _STATE_ROOT / "verification/MUTATION-ADAPTERS.json"
 MUTANTS = ROOT / "scripts/run_attribute_mutants.py"
 DRIVER = Path(__file__).resolve().parent / "mutation_driver.py"
 

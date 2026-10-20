@@ -9,9 +9,11 @@ from pathlib import Path
 
 import pytest
 
+_STATE_ROOT = Path(os.environ.get("ATTRIBUTE_STATE_ROOT") or Path.home() / "work/state/attribute-viewset")
+
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST = Path("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json")
-CORPUS = Path("/home/taishajo/work/state/attribute-viewset/verification/corrupt-evidence/v1/index.json")
+MANIFEST = _STATE_ROOT / "VERIFICATION-MANIFEST.json"
+CORPUS = _STATE_ROOT / "verification/corrupt-evidence/v1/index.json"
 VALIDATOR = ROOT / "scripts/validate_attribute_api_evidence.py"
 RUNNER = ROOT / "scripts/attribute_api_test.sh"
 SELECTOR = ROOT / "scripts/select_attribute_evidence.py"
@@ -486,7 +488,7 @@ def test_validator_rejects_symlinked_parent_escape(tmp_path):
 
 def test_state_artifact_schemas_separate_facts_decisions_and_unresolved():
     for name in ("DB-FACTS.json", "DEPENDENT-SURFACES.json"):
-        path = Path("/home/taishajo/work/state/attribute-viewset") / name
+        path = _STATE_ROOT / name
         data = json.loads(path.read_text())
         assert set(data) >= {"schema_version", "observed_at", "commands", "observed_facts", "user_decisions", "unresolved_policy"}
         assert isinstance(data["commands"], list) and data["commands"]

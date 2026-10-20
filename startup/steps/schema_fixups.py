@@ -69,7 +69,7 @@ NORMATIVE_FAULT_POINT_IDS = (
     "after-marker-before-verify",
 )
 _REFERENCE_IMAGE_ID = "sha256:66d06207ab7b04886c5129f553302566dd83ee8318a325e1308367ebcf8b64d2"
-_MANIFEST_PATH = Path("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json")
+_MANIFEST_PATH = Path(os.environ.get("ATTRIBUTE_STATE_ROOT") or Path.home() / "work/state/attribute-viewset") / "VERIFICATION-MANIFEST.json"
 
 
 @dataclass(frozen=True)

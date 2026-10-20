@@ -95,9 +95,8 @@ other.
   (`nextseek_api/assay_registration/executor.py:31-36`). `preview()` produces the same report
   shape while touching nothing (`nextseek_api/assay_registration/executor.py:94-95`).
 - `graph.py` is SQL only. It reads the assays a sample carries from `assay_assets`
-  (`nextseek_api/assay_registration/graph.py:51`) and resolves each to an internal assay,
-  junction table first with an id fallback behind it
-  (`nextseek_api/assay_registration/graph.py:70`). It used to recompute the plural assay
+  (`nextseek_api/assay_registration/graph.py:51`) and nothing else; the resolver that
+  mapped each to an internal assay is gone. It used to recompute the plural assay
   label lists on `DERIVED_FROM` edges and write them itself; one rule owns those labels
   now, and the module docstring carries the argument
   (`nextseek_api/assay_registration/graph.py:1-21`).

@@ -23,7 +23,7 @@ file's `CREATE TABLE` is the independent fixture `NessieAI/tests/api/test_contex
 checks the generator's assay columns against.
 
 Almost nothing here is imported the ordinary way. The one exception is
-`nextseek_api/tests/test_attribute_api_db_lane.py:43`, which imports
+`nextseek_api/tests/test_attribute_api_db_lane.py:45`, which imports
 `scripts.freeze_attribute_baseline` through the namespace-package spelling. Everything
 else that consumes a file here loads it from an explicit path, for example
 `nextseek_api/tests/test_viewset_conventions.py:15-21`.
@@ -182,7 +182,7 @@ nothing between the heading and BEGIN. What sits between them is the generator's
 twelve named lanes, several of which shell out to `scripts/run_attribute_coverage.py` and
 `scripts/run_attribute_mutants.py` (`scripts/attribute_api_test.sh:19-22`). Both that
 script (`scripts/attribute_api_test.sh:206`) and the coverage driver
-(`scripts/run_attribute_coverage.py:308`) load `attribute_pytest_reporter` as a pytest
+(`scripts/run_attribute_coverage.py:310`) load `attribute_pytest_reporter` as a pytest
 plugin by dotted name (`scripts/attribute_pytest_reporter.py:35`); its session hook links
 one `node-results.json` per run into a root named by an environment variable
 (`scripts/attribute_pytest_reporter.py:44-49`). `scripts/freeze_attribute_baseline.py:2`
@@ -259,8 +259,9 @@ Depends on:
   (`scripts/seed_issue_labels.sh:7`).
 - The `git` binary, which the codemod asks for the tracked file list
   (`scripts/nessieai_codemod.py:614-615`).
-- One developer's home directory, hardcoded as the state root of several group D programs;
-  `grep -rlE '/(home|Users)/' scripts` lists them, and
+- The attribute verification state directory, `ATTRIBUTE_STATE_ROOT` (default
+  `~/work/state/attribute-viewset`), read by several group D programs;
+  `grep -rl ATTRIBUTE_STATE_ROOT scripts` lists them, and
   `scripts/validate_attribute_api_evidence.py:18-26` is one.
 - Third-party packages beyond the Django stack: `coverage`
   (`scripts/run_attribute_coverage.py:12`), `yaml` and `pydantic`
@@ -288,9 +289,9 @@ Depended on by:
   `scripts/seed_issue_labels.sh` and checks its labels against the validator.
 - One test module that binds three group D files by path and puts this directory on
   `sys.path` so that their own sibling import resolves
-  (`nextseek_api/tests/test_attribute_api_harness.py:15-22`), and one that reaches group D
+  (`nextseek_api/tests/test_attribute_api_harness.py:17-24`), and one that reaches group D
   through the dotted namespace-package spelling
-  (`nextseek_api/tests/test_attribute_api_db_lane.py:43`).
+  (`nextseek_api/tests/test_attribute_api_db_lane.py:45`).
 - The committed ViewSet skill, which tells an author to run the conventions validator
   before finishing (`.claude/skills/nextseek-create-endpoint/SKILL.md:18`), and
   `docs/ISSUE-CONVENTIONS.md`, which names the issue validator and the label seeder as the

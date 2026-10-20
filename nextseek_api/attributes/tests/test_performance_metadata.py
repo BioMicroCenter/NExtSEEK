@@ -29,6 +29,8 @@ from nextseek_api.attributes.tests.test_metadata_benchmark import (
     _sampled_current_rss_bytes,
 )
 
+_STATE_ROOT = Path(os.environ.get("ATTRIBUTE_STATE_ROOT") or Path.home() / "work/state/attribute-viewset")
+
 assert len(CASES) == 162
 
 # Amendment 2026-07-31 (simplified 2026-08-03): the lane must never consume
@@ -267,9 +269,7 @@ def test_metadata_matrix_has_exact_162_cells_and_810_runs():
     assert total_runs == 810
     assertion_count += 1
 
-    pointer_path = Path(
-        "/home/taishajo/work/state/attribute-viewset/evidence/task-06/chunk-selection.pointer.json"
-    )
+    pointer_path = _STATE_ROOT / "evidence/task-06/chunk-selection.pointer.json"
     selector = Path(__file__).resolve().parents[3] / "scripts" / "select_attribute_chunk_defaults.py"
     subprocess.run(
         [sys.executable, str(selector), str(raw), "--output", str(pointer_path)],

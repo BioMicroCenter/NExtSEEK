@@ -29,7 +29,8 @@ export LANG="${LANG:-C.UTF-8}"
 export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-dmac.test_settings}"
 export ATTRIBUTE_TEST_SHARED_DB_DENYLIST="${ATTRIBUTE_TEST_SHARED_DB_DENYLIST:-dmac,seek_production,test_dmac}"
 export ATTRIBUTE_TEST_REQUIRE_DISPOSABLE_DB_UUID="${ATTRIBUTE_TEST_REQUIRE_DISPOSABLE_DB_UUID:-1}"
-export UV_PROJECT="${UV_PROJECT:-/home/taishajo/work/NExtSEEK-dev}"
+export UV_PROJECT="${UV_PROJECT:-$HOME/work/NExtSEEK-dev}"
+export ATTRIBUTE_STATE_ROOT="${ATTRIBUTE_STATE_ROOT:-$HOME/work/state/attribute-viewset}"
 export SEEK_HOST="${SEEK_HOST:-attribute-seek}"
 export SEEK_HOSTNAME="${SEEK_HOSTNAME:-attribute-seek}"
 export NEXTSEEK_HOSTNAME="${NEXTSEEK_HOSTNAME:-localhost}"
@@ -74,8 +75,8 @@ else
   task_id="${ATTRIBUTE_TEST_TASK_ID:-task-00}"
 fi
 deadline_freeze="$(python3 - <<'PY'
-import json
-print("1" if json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json")).get("deadline_execution_freeze") else "0")
+import json, os
+print("1" if json.load(open(os.environ["ATTRIBUTE_STATE_ROOT"] + "/VERIFICATION-MANIFEST.json")).get("deadline_execution_freeze") else "0")
 PY
 )" || exit 65
 if [[ "$deadline_freeze" == "1" ]]; then
@@ -86,8 +87,8 @@ if [[ "$deadline_freeze" == "1" ]]; then
 fi
 if [[ "$lane" == "unit" ]]; then
   mapfile -t test_args < <(python3 - "$task_id" <<'PY'
-import json, sys
-manifest = json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))
+import json, os, sys
+manifest = json.load(open(os.environ["ATTRIBUTE_STATE_ROOT"] + "/VERIFICATION-MANIFEST.json"))
 unit = manifest["runner_contract"]["unit_lane_contract"]
 if sys.argv[1] in unit:
     nodes = unit[sys.argv[1]]["node_arguments"]
@@ -104,8 +105,8 @@ PY
 fi
 if [[ "$lane" == "openapi" ]]; then
   mapfile -t test_args < <(python3 - "$task_id" <<'PY'
-import json, sys
-manifest = json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))
+import json, os, sys
+manifest = json.load(open(os.environ["ATTRIBUTE_STATE_ROOT"] + "/VERIFICATION-MANIFEST.json"))
 for node in manifest["runner_contract"]["openapi_lane_contract"][sys.argv[1]]["node_arguments"]:
     print(node)
 PY
@@ -114,8 +115,8 @@ PY
 fi
 if [[ "$lane" == "db" ]]; then
   mapfile -t test_args < <(python3 - "$task_id" <<'PY'
-import json, sys
-manifest = json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))
+import json, os, sys
+manifest = json.load(open(os.environ["ATTRIBUTE_STATE_ROOT"] + "/VERIFICATION-MANIFEST.json"))
 contract = manifest["runner_contract"]["db_lane_contract"]
 if contract["pytest_marker_expression"] is not None or not contract["forbid_deselection"]:
     raise SystemExit("invalid DB lane contract")
@@ -127,8 +128,8 @@ PY
 fi
 if [[ "$lane" == "worker" ]]; then
   mapfile -t test_args < <(python3 - "$task_id" <<'PY'
-import json, sys
-manifest = json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))
+import json, os, sys
+manifest = json.load(open(os.environ["ATTRIBUTE_STATE_ROOT"] + "/VERIFICATION-MANIFEST.json"))
 for node in manifest["runner_contract"]["worker_lane_contract"][sys.argv[1]]["node_arguments"]:
     print(node)
 PY
@@ -137,8 +138,8 @@ PY
 fi
 if [[ "$lane" == "schema" ]]; then
   mapfile -t test_args < <(python3 - "$task_id" <<'PY'
-import json, sys
-manifest = json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))
+import json, os, sys
+manifest = json.load(open(os.environ["ATTRIBUTE_STATE_ROOT"] + "/VERIFICATION-MANIFEST.json"))
 for node in manifest["runner_contract"]["schema_lane_contract"][sys.argv[1]]["node_arguments"]:
     print(node)
 PY
@@ -147,8 +148,8 @@ PY
 fi
 if [[ "$lane" == "benchmark" ]]; then
   mapfile -t test_args < <(python3 - "$task_id" <<'PY'
-import json, sys
-manifest = json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))
+import json, os, sys
+manifest = json.load(open(os.environ["ATTRIBUTE_STATE_ROOT"] + "/VERIFICATION-MANIFEST.json"))
 for node in manifest["runner_contract"]["benchmark_lane_contract"][sys.argv[1]]["node_arguments"]:
     print(node)
 PY
@@ -156,11 +157,11 @@ PY
   [[ ${#test_args[@]} -gt 0 ]] || { echo "missing exact benchmark integration node for $task_id" >&2; exit 64; }
   if [[ "$task_id" == "task-10" || "$task_id" == "task-11" ]]; then
     export ATTRIBUTE_PERFORMANCE_MATRIX_MODE=full
-    export ATTRIBUTE_T06_CHUNK_SELECTION_POINTER=/home/taishajo/work/state/attribute-viewset/evidence/task-06/chunk-selection.pointer.json
+    export ATTRIBUTE_T06_CHUNK_SELECTION_POINTER="$ATTRIBUTE_STATE_ROOT/evidence/task-06/chunk-selection.pointer.json"
     ATTRIBUTE_T06_CHUNK_SELECTION="$(python3 - "$ATTRIBUTE_T06_CHUNK_SELECTION_POINTER" <<'PY'
-import hashlib, json, pathlib, sys
+import hashlib, json, os, pathlib, sys
 pointer_path = pathlib.Path(sys.argv[1])
-root = pathlib.Path("/home/taishajo/work/state/attribute-viewset/evidence/task-06").resolve()
+root = pathlib.Path(os.environ["ATTRIBUTE_STATE_ROOT"], "evidence/task-06").resolve()
 if pointer_path.is_symlink() or not pointer_path.is_file():
     raise SystemExit("T06 selection pointer is not an ordinary file")
 pointer = json.loads(pointer_path.read_bytes())
@@ -184,7 +185,7 @@ PY
 fi
 run_id="${ATTRIBUTE_EVIDENCE_RUN_ID:-$(date --utc +%Y%m%dT%H%M%S.%NZ)-$$-${RANDOM}}"
 [[ "$run_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { echo "invalid evidence run id" >&2; exit 64; }
-evidence_root="/home/taishajo/work/state/attribute-viewset/evidence/${task_id}/${lane}/${run_id}"
+evidence_root="$ATTRIBUTE_STATE_ROOT/evidence/${task_id}/${lane}/${run_id}"
 mkdir -p "$(dirname "$evidence_root")"
 mkdir "$evidence_root" 2>/dev/null || {
   if [[ "${ATTRIBUTE_EVIDENCE_RESUME:-0}" == "1" && -d "$evidence_root" ]]; then
@@ -222,7 +223,7 @@ if [[ "$lane" == "coverage" || "$lane" == "full" || "$lane" == "raw-full" ]]; th
 fi
 chown_evidence_root() {
   docker run --rm \
-    -v /home/taishajo/work/state/attribute-viewset:/home/taishajo/work/state/attribute-viewset \
+    -v "$ATTRIBUTE_STATE_ROOT:$ATTRIBUTE_STATE_ROOT" \
     "$reference_image_id" chown -R "$(id -u):$(id -g)" "$evidence_root"
 }
 boundary_env="$evidence_root/.boundary.env"
@@ -299,7 +300,7 @@ ATTRIBUTE_TEST_DB_CONTAINER="$db_alias"
 export ATTRIBUTE_TEST_DB_USER ATTRIBUTE_TEST_DB_PASSWORD ATTRIBUTE_TEST_DB_CONTAINER
 export ATTRIBUTE_TEST_SHARED_DB_DENYLIST ATTRIBUTE_TEST_REQUIRE_DISPOSABLE_DB_UUID
 boundary_tool=(docker run --rm --network "$network_name"
-  -v "$repo_root:/work" -v /home/taishajo/work/state/attribute-viewset:/home/taishajo/work/state/attribute-viewset
+  -v "$repo_root:/work" -v "$ATTRIBUTE_STATE_ROOT:$ATTRIBUTE_STATE_ROOT"
   "${git_metadata_mount[@]}"
   -w /work -e PATH=/app/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
   -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/work
@@ -489,7 +490,7 @@ NEXTSEEK_CHAT_CONFIG_PROD = None
 PY
 chmod 600 "$lane_local_settings"
 container_args=(--rm --network "${ATTRIBUTE_TEST_DOCKER_NETWORK:?required disposable network}"
-  -v "$repo_root:/work" -v /home/taishajo/work/state/attribute-viewset:/home/taishajo/work/state/attribute-viewset
+  -v "$repo_root:/work" -v "$ATTRIBUTE_STATE_ROOT:$ATTRIBUTE_STATE_ROOT"
   -v "$lane_local_settings:/work/dmac/local_settings.py:ro"
   "${git_metadata_mount[@]}"
   -w /work -e PATH=/app/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -526,7 +527,7 @@ export ATTRIBUTE_EVIDENCE_STDERR="$stderr_path" ATTRIBUTE_EVIDENCE_STARTED="$sta
 export ATTRIBUTE_EVIDENCE_FINISHED="$finished_at" ATTRIBUTE_EVIDENCE_EXIT="$child_exit"
 export ATTRIBUTE_EVIDENCE_CWD="$repo_root"
 export ATTRIBUTE_TEST_IMAGE_ID="$reference_image_id"
-export ATTRIBUTE_TEST_INTEGRATION_BASE_SHA="$(python3 -c 'import json; print(json.load(open("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json"))["source_identity"]["base_sha"])')"
+export ATTRIBUTE_TEST_INTEGRATION_BASE_SHA="$(python3 -c 'import json, os; print(json.load(open(os.environ["ATTRIBUTE_STATE_ROOT"] + "/VERIFICATION-MANIFEST.json"))["source_identity"]["base_sha"])')"
 export ATTRIBUTE_TEST_TASK_HEAD_SHA="$(git rev-parse HEAD)"
 python3 - <<'PY'
 import ast, hashlib, json, os, pathlib, re, subprocess, tempfile
@@ -557,7 +558,7 @@ if boundary_identity.get("torn_down") is not True:
     raise SystemExit("database/network boundary did not finalize")
 if boundary_identity.get("teardown_server_uuid") != boundary_identity.get("server_identity", {}).get("server_uuid"):
     raise SystemExit("database teardown occurred against a different server")
-manifest = json.loads(pathlib.Path("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json").read_text())
+manifest = json.loads(pathlib.Path(os.environ["ATTRIBUTE_STATE_ROOT"], "VERIFICATION-MANIFEST.json").read_text())
 source_identity = manifest["source_identity"]
 plan_path = pathlib.Path(source_identity["canonical_plan_path"])
 decisions_path = pathlib.Path(source_identity["decisions_path"])

@@ -13,7 +13,9 @@ from nextseek_api.attributes.tests.real_boundary import (
     WorkerHandle,
 )
 
-MANIFEST = Path("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json")
+_STATE_ROOT = Path(os.environ.get("ATTRIBUTE_STATE_ROOT") or Path.home() / "work/state/attribute-viewset")
+
+MANIFEST = _STATE_ROOT / "VERIFICATION-MANIFEST.json"
 
 
 def _purge_disposable_binlogs(database):

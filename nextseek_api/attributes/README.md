@@ -122,14 +122,14 @@ lanes, and they are not the same lane with a flag.
 1. **Database-free lane.** Everything that does not request the disposable-MySQL
    fixture. This is what an ordinary in-container run gives you.
 2. **Real-MySQL lane.** Every case taking the `disposable_attribute_db` fixture
-   (`nextseek_api/attributes/tests/attribute_fixtures.py:79-81`) builds and drops a
+   (`nextseek_api/attributes/tests/attribute_fixtures.py:81-83`) builds and drops a
    throwaway schema whose name must start with `attribute_test_`
    (`nextseek_api/attributes/tests/real_boundary.py:480`). It needs
    `ATTRIBUTE_TEST_DB_HOST`, `ATTRIBUTE_TEST_DB_USER` and `ATTRIBUTE_TEST_DB_PASSWORD`
    in the environment (`nextseek_api/attributes/tests/real_boundary.py:483-486`), a
    MySQL account that may create and drop databases, and
    `ATTRIBUTE_EVIDENCE_RUN_ROOT` pointing at a run directory holding a frozen
-   boundary identity (`nextseek_api/attributes/tests/attribute_fixtures.py:82-85`).
+   boundary identity (`nextseek_api/attributes/tests/attribute_fixtures.py:84-87`).
 
 I ran the whole directory in the live container on 2026-09-03 with none of those
 variables set. 856 cases collect in 1.23s. 484 passed and 12 failed; the remaining 360
@@ -209,7 +209,7 @@ edges made of service definitions and names in string form.
 - `nextseek_api/tests/conftest.py:1` and `startup/tests/conftest.py:7` register this
   package's fixture module as a pytest plugin, so both of those suites import test code
   from inside this boundary.
-- `scripts/run_attribute_mutants.py:88` loads
+- `scripts/run_attribute_mutants.py:90` loads
   `nextseek_api.attributes.tests.mutation_driver` as a pytest plugin, again by string.
 
 Omitted from the list above: the 39 Python files under this boundary's `tests/`, which

@@ -191,7 +191,7 @@ The disposable MySQL server the lane needs is provisioned by that same script,
 which starts a digest-pinned `mysql:8.0` on an `--internal` docker network
 (`scripts/attribute_api_test.sh:282-292`); the `disposable_attribute_db` fixture
 only attaches to it and asserts it is the same boundary
-(`nextseek_api/attributes/tests/attribute_fixtures.py:79-93`). Running
+(`nextseek_api/attributes/tests/attribute_fixtures.py:81-95`). Running
 `startup/tests/test_schema_fixups.py` outside the lane fails at import: it
 imports `MySQLdb` at module scope (`startup/tests/test_schema_fixups.py:32`),
 which the isolated `startup/` project deliberately does not carry. This is why
@@ -254,9 +254,8 @@ hardcoded:
 
 ### Two `run_identity` fields are unusable off one machine
 
-`base_sha` is read from a hardcoded path in a named developer's home directory,
-`work/state/attribute-viewset/VERIFICATION-MANIFEST.json` under it
-(`startup/steps/schema_fixups.py:72`). `_base_sha()` returns `None` whenever that
+`base_sha` is read from `VERIFICATION-MANIFEST.json` under `ATTRIBUTE_STATE_ROOT`
+(default `~/work/state/attribute-viewset`, `startup/steps/schema_fixups.py:72`). `_base_sha()` returns `None` whenever that
 file is absent (`startup/steps/schema_fixups.py:564-566`), so on every other
 machine the record's `base_sha` field is null
 (`startup/steps/schema_fixups.py:660`) and the record cannot be tied back to a
