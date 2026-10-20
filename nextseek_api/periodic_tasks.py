@@ -15,6 +15,18 @@ STUCK_TURN_MESSAGE = "This answer stopped responding and was ended; please ask a
 _OPEN = ("pending", "running")
 
 
+def _end_if_open(task, message: str, **still) -> bool:
+    """Write ``message`` as the task's query_error unless it has finished (or, via ``still``, moved) meanwhile."""
+    from nextseek_api.assistant.models_db import QueryTask
+    from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
+
+    # A turn can finish between the select and here: re-check so a result is never overwritten.
+    if not QueryTask.objects.filter(pk=task.pk, status__in=_OPEN, **still).exists():
+        return False
+    make_db_event_callback(str(task.task_id), str(task.session.session_id))("query_error", {"error": message})
+    return True
+
+
 def reap_stale_query_tasks() -> int:
     """Mark pending/running QueryTasks not updated for ``STALE_TASK_SECONDS`` as errored; return how many.
 
@@ -23,19 +35,27 @@ def reap_stale_query_tasks() -> int:
     """
     from nextseek_api.assistant import session_debug
     from nextseek_api.assistant.models_db import QueryTask
-    from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
 
     cutoff = timezone.now() - timedelta(seconds=session_debug.STALE_TASK_SECONDS)
     reaped = 0
     for task in QueryTask.objects.filter(status__in=_OPEN, updated_at__lt=cutoff).select_related("session"):
-        # A turn can finish between the select and here: re-check so a result is never overwritten.
-        if not QueryTask.objects.filter(pk=task.pk, status__in=_OPEN, updated_at__lt=cutoff).exists():
-            continue
-        make_db_event_callback(str(task.task_id), str(task.session.session_id))("query_error", {"error": STUCK_TURN_MESSAGE})
-        reaped += 1
+        if _end_if_open(task, STUCK_TURN_MESSAGE, updated_at__lt=cutoff):
+            reaped += 1
     if reaped:
         logger.warning("reaped %d stale query task(s)", reaped)
     return reaped
+
+
+def end_cut_turns(task_ids) -> int:
+    """End the named turns a stopping web container could not finish; return how many were still open."""
+    from nextseek_api.assistant.models_db import QueryTask
+    from nextseek_api.assistant.turn_drain import CUT_MESSAGE
+
+    cut = 0
+    for task in QueryTask.objects.filter(task_id__in=list(task_ids), status__in=_OPEN).select_related("session"):
+        if _end_if_open(task, CUT_MESSAGE):
+            cut += 1
+    return cut
 
 
 @shared_task(name="batch_upload.reap_stale_query_tasks")

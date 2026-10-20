@@ -91,10 +91,10 @@ def _line_for(calls: str, needle: str) -> str:
 class TestEveryRuntimeStarts:
     """All six processes, or the fold silently dropped one."""
 
-    def test_the_web_server_and_all_five_workers_start(self, tmp_path):
+    def test_the_workers_start_and_the_web_server_does_not(self, tmp_path):
         proc, calls = _run_entrypoint(tmp_path)
         assert proc.returncode == 0
-        assert "gunicorn" in calls
+        assert "gunicorn" not in calls
         assert "-Q batch_upload" in calls
         assert "-Q attribute_mutations" in calls
         assert "manage.py dispatch_attribute_outbox" in calls
@@ -266,7 +266,7 @@ class TestStopSignal:
         )
         try:
             deadline = time.monotonic() + 30
-            while call_log.read_text().count("start uv") < 11:  # 4 boot steps + 7 runtimes
+            while call_log.read_text().count("start uv") < 9:  # 3 boot steps + 6 runtimes
                 assert time.monotonic() < deadline, call_log.read_text()
                 assert proc.poll() is None, call_log.read_text()
                 time.sleep(0.05)
@@ -277,7 +277,7 @@ class TestStopSignal:
             if proc.poll() is None:
                 proc.kill()
         calls = call_log.read_text()
-        for runtime in ("gunicorn", "-Q batch_upload", "-Q attribute_mutations",
+        for runtime in ("-Q batch_upload", "-Q attribute_mutations",
                         "dispatch_attribute_outbox", "recover_attribute_sync_jobs",
                         "run_assay_registration_jobs", "run_share_jobs"):
             assert any(l.startswith("TERM ") and runtime in l for l in calls.splitlines()), runtime
