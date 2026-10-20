@@ -97,6 +97,7 @@ jobs:
             NessieAI/tests/cc NessieAI/tests/router NessieAI/tests/hibayes \
             NessieAI/tests/ns NessieAI/tests/api NessieAI/tests/schema_rag \
             NessieAI/tests/chat_nextseek NessieAI/tests/build_tools \
+            docker/cc-spawner/tests \
             --continue-on-collection-errors -q \
             | tee pytest-run.txt
           rc=${PIPESTATUS[0]}
