@@ -110,8 +110,15 @@ def test_the_spawner_is_hardened_and_only_on_its_own_network():
     assert "memory" in sp["deploy"]["resources"]["limits"]
     assert sp["healthcheck"] and "/health" in " ".join(sp["healthcheck"]["test"])
     assert sp["restart"] == "unless-stopped"
-    assert set(sp["environment"]) == {"DMAC_CC_USERS_VOLUME", "NEXTSEEK_CC_IMAGE",
-                                      "NEXTSEEK_CC_NETWORK", "SEEK_CONTAINER"}
+    assert set(sp["environment"]) == {
+        "DMAC_CC_USERS_VOLUME", "NEXTSEEK_CC_IMAGE", "NEXTSEEK_CC_NETWORK", "SEEK_CONTAINER",
+        "NEXTSEEK_CC_MAX_TURNS", "NEXTSEEK_CC_MEM_LIMIT", "NEXTSEEK_CC_NANO_CPUS",
+        "NEXTSEEK_CC_PIDS_LIMIT", "NEXTSEEK_CC_FSIZE_BYTES", "NEXTSEEK_INTERNAL_BASE_URL",
+        "NEO4J_URI", "NEXTSEEK_CC_AUTOMODE_GCP"}
+    assert "nextseek.env" not in str(sp["env_file"]), "the spawner must not hold the app's secrets"
+    for name in ("nextseek", "cc-spawner"):
+        assert "NEXTSEEK_SPAWNER_TOKEN" not in SERVICES[name].get("environment", {})
+        assert "NEXTSEEK_SPAWNER_URL" not in SERVICES[name].get("environment", {})
     members = [n for n, s in SERVICES.items() if "dmac-spawner-net" in (s.get("networks") or [])]
     assert sorted(members) == ["cc-spawner", "web"]
     assert COMPOSE["networks"]["dmac-spawner-net"] == {"name": "dmac-spawner-net", "internal": True}

@@ -120,7 +120,7 @@ Start, watch, pull: references/runner.md.
 
 ## 4. After the rebuild, on prod
 
-- `labs_db.json` must exist and `docker logs nextseek 2>&1 | grep -F "[CONFIG][LABS]"` must show
+- `labs_db.json` must exist and `docker compose logs --no-log-prefix web 2>&1 | grep -F "[CONFIG][LABS]"` must show
   labs fetched from SEEK. A REFUSED labs read on prod is a real defect: report it. NEVER copy the
   workstation's or dev's labs file here.
 - Timings seen: app rebuild about 8 min, cc-agent about 2 min, CI 4 to 5 min.

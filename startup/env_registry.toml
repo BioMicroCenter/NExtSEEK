@@ -681,7 +681,7 @@ default = "http://bedrock-proxy:8080"
 doc = "Bedrock proxy URL the agent calls."
 
 [NEXTSEEK_CC_MAX_TURNS]
-files = ["nextseek.env"]
+files = ["nextseek.env", "root.env"]
 default = "50"
 doc = "Most agent turns in one Container-CC turn."
 
@@ -690,21 +690,21 @@ files = ["nextseek.env"]
 doc = "Default length in seconds of one Container-CC turn."
 
 [NEXTSEEK_CC_MEM_LIMIT]
-files = ["nextseek.env"]
+files = ["nextseek.env", "root.env"]
 default = "4g"
 doc = "Memory limit of the agent container."
 
 [NEXTSEEK_CC_NANO_CPUS]
-files = ["nextseek.env"]
+files = ["nextseek.env", "root.env"]
 doc = "CPU limit of the agent container, in nano CPUs."
 
 [NEXTSEEK_CC_PIDS_LIMIT]
-files = ["nextseek.env"]
+files = ["nextseek.env", "root.env"]
 default = "512"
 doc = "Process limit of the agent container."
 
 [NEXTSEEK_CC_FSIZE_BYTES]
-files = ["nextseek.env"]
+files = ["nextseek.env", "root.env"]
 doc = "Largest file the agent may write, in bytes; the code default is 10 GiB."
 
 [NEXTSEEK_CC_MAX_RETRIES]
@@ -882,6 +882,16 @@ doc = "How long a stopping web container lets running chat turns finish before i
 files = ["root.env"]
 default = "http://cc-spawner:8080"
 doc = "Where web sends Container-CC turns. Unset: the cc-spawner service. Set empty in .env: today's direct Docker path (the switch lives one dev cycle)."
+
+[NEXTSEEK_CC_AUTOMODE_GCP]
+files = ["root.env"]
+default = "1"
+doc = "1 when the auto-mode classifier may use GCP (the app has GCP_API_KEY set); the spawner reads this flag, never the key."
+
+[CC_SPAWNER_NEO4J_URI]
+files = ["root.env"]
+default = "neo4j://neo4j:7687"
+doc = "Neo4j URI the cc-spawner names in the Container-CC auto-mode trust text."
 
 [SPAWNER_MEMORY]
 files = ["root.env"]

@@ -481,6 +481,31 @@ def test_the_runner_renders_and_parses(tmp_path, capsys):
     assert "marker nextseek /app/NessieAI/cc/translate.py 'cost_by_price_table_usd'" in text
 
 
+def test_the_runner_reads_the_web_process_from_the_web_service(tmp_path, capsys):
+    """The app image runs as a worker (`nextseek`) and `web` (SPEC-PLAN section 1). What means the
+    web process (collectstatic, the CC runner, the boot markers, the labs line) is read from `web`;
+    the worker keeps its name, so every other `docker exec nextseek` stays."""
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    assert "compose exec -T web uv run manage.py collectstatic" in text
+    assert "exec -T nextseek uv run manage.py collectstatic" not in text
+    assert "logs --no-log-prefix web" in text and "docker logs nextseek 2>&1 | grep -F '[CONFIG][LABS]'" not in text
+    boot = next(ln for ln in text.splitlines() if "CHECK boot_markers" in ln)
+    assert "logs --no-log-prefix web" in boot and "docker logs nextseek" in boot   # the worker migrates
+    assert "compose exec -T web uv run --no-sync python -c 'from NessieAI.cc import cc_engine" in text
+    assert "CHECK container web " in text and "compose ps -q web" in text
+
+
+def test_the_labs_copy_writes_once_to_the_shared_path_and_restarts_nothing(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    assert "docker compose cp /tmp/labs_db.json nextseek:/media/context/labs_db.json" in text
+    assert "mkdir -p /media/context" in text
+    after = text.split("LABS copied", 1)[1].split("else", 1)[0]
+    assert "restart" not in after and "sleep 60" not in after
+    assert "stat -c %y /media/context/labs_db.json" in text
+
+
 def test_the_paid_step_needs_every_model_id_proven(tmp_path, capsys):
     # 2026-09-28: a refused id silently moves to the fallback (F1), so a paid run needs the green line itself
     from rules import HEALTH_NEEDS
