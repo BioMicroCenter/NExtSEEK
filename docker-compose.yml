@@ -119,6 +119,10 @@ services:
       DMAC_CC_USERS_VOLUME: ${INSTANCE_PREFIX:-}dmac-cc-users
       NEXTSEEK_DRAIN_SECONDS: ${NEXTSEEK_DRAIN_SECONDS:-240}
       NEXTSEEK_LABS_FILE: /media/context/labs_db.json
+      # Private sample exports (seek/views/exports.py) on the shared volume, so a
+      # link made on the old web container still answers after a swap. Outside
+      # uploads/production/, the one tree /media/ serves (dmac/media.py).
+      NEXTSEEK_EXPORT_ROOT: /media/private-exports
       # The CC spawner switch. Unset: CC turns go through the spawner. Set it EMPTY
       # in the project-root .env (NEXTSEEK_SPAWNER_URL=) to take today's direct
       # Docker path for the one dev cycle this switch lives. The token is

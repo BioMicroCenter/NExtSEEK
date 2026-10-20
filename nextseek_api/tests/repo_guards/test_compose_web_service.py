@@ -99,6 +99,15 @@ def test_media_is_one_shared_volume_and_the_worker_gets_the_internal_url():
     assert "external" not in COMPOSE["volumes"]["nextseek-media"]
 
 
+def test_web_keeps_private_exports_on_the_shared_volume_outside_the_served_tree():
+    """An export link made on the old web container must still answer after the swap, so the export root is on
+    nextseek-media. /media/ serves only the data-file store under uploads/production/ (dmac/media.py), so the root
+    sits outside uploads/. The worker writes no exports (only seek/views does)."""
+    root = SERVICES["web"]["environment"]["NEXTSEEK_EXPORT_ROOT"]
+    assert root.startswith("/media/") and not root.startswith("/media/uploads/")
+    assert "NEXTSEEK_EXPORT_ROOT" not in SERVICES["nextseek"]["environment"]
+
+
 def test_web_reaches_the_spawner_by_default_and_the_switch_is_unset_vs_empty():
     web = SERVICES["web"]
     assert web["environment"]["NEXTSEEK_SPAWNER_URL"] == "${NEXTSEEK_SPAWNER_URL-http://cc-spawner:8080}"

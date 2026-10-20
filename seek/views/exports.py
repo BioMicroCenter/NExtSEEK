@@ -7,13 +7,15 @@ per-minute name, under a route that served ``MEDIA_ROOT`` by name alone, so a na
 between a caller and someone else's export, and two exports made in the same minute shared one file.
 
 ``newExport`` gives each export its own directory, named by a random token (uuid4), under the export root: outside
-``MEDIA_ROOT``, and served by no route but ``exportFile``. The directory records who made it, and ``exportFile``
+every tree ``/media/`` serves, and served by no route but ``exportFile``. The directory records who made it, and ``exportFile``
 streams a file from it only to that user or to a superuser. Anyone else, an unknown token and a bad name all get the
 same 404, so a link confirms nothing to someone who did not make it; an anonymous caller is sent to the login page.
 Directories older than ``EXPORT_TTL_SECONDS`` are removed when the next export is made.
 
-The root is ``settings.NEXTSEEK_EXPORT_ROOT`` when a box sets one, else ``nextseek-exports`` in the system temporary
-directory. It must be shared by every process that serves requests, which inside the one app container it is.
+The root is ``settings.NEXTSEEK_EXPORT_ROOT`` when a box sets one, else the ``NEXTSEEK_EXPORT_ROOT`` environment
+variable, else ``nextseek-exports`` in the system temporary directory. It must be shared by every process that serves
+requests: compose points ``web`` at a folder on the shared ``nextseek-media`` volume, outside the one tree ``/media/``
+serves (``dmac/media.py``), so a link made on one web container still answers after a swap to the next.
 """
 
 import logging
@@ -41,8 +43,9 @@ _FILENAME = re.compile(r"[\w-][\w.-]*")    # no separator, and no leading dot: n
 
 
 def exportRoot():
-    """Where private exports live: never under MEDIA_ROOT, the tree /media/ serves from."""
-    return getattr(settings, "NEXTSEEK_EXPORT_ROOT", None) or os.path.join(tempfile.gettempdir(), "nextseek-exports")
+    """Where private exports live: never under a tree /media/ serves."""
+    return (getattr(settings, "NEXTSEEK_EXPORT_ROOT", None) or os.environ.get("NEXTSEEK_EXPORT_ROOT")
+            or os.path.join(tempfile.gettempdir(), "nextseek-exports"))
 
 
 def exportName(filename):

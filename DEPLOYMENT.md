@@ -994,7 +994,7 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `CC_TRANSCRIPT_MAX_BYTES` | local_settings |  |  |  | Largest stored Container-CC transcript in bytes. |
 | `NEXTSEEK_CHAT_CONFIG_PROD` | local_settings | secret |  |  | The prod ChatConfig local_settings builds from its PROD overrides; holds prod credentials. |
 | `NEXTSEEK_RISK_OVERLAY_ENABLED` | local_settings | False |  |  | Router risk overlay switch. |
-| `NEXTSEEK_EXPORT_ROOT` | local_settings |  |  |  | Folder the SEEK exports page writes to. |
+| `NEXTSEEK_EXPORT_ROOT` | local_settings, internal |  |  |  | Folder the private sample exports are written to; compose sets it for web on the shared media volume, and a local_settings value wins. |
 | `BATCH_UPLOAD_JOB_TTL_HOURS` | local_settings |  |  |  | Hours a batch upload job record is kept. |
 | `BATCH_UPLOAD_STATE_DIR` | nextseek.env | /var/celery |  |  | Batch upload: directory holding the queue's broker, results, job index, saved sheets and beat schedule (the batch_upload_state volume). |
 | `SAMPLE_RETRIEVE_NEO4J_CONNECT_TIMEOUT` | local_settings |  |  |  | Sample retrieve: Neo4j connect timeout in seconds. |

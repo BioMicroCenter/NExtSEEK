@@ -1016,8 +1016,8 @@ default = "False"
 doc = "Router risk overlay switch."
 
 [NEXTSEEK_EXPORT_ROOT]
-files = ["local_settings"]
-doc = "Folder the SEEK exports page writes to."
+files = ["local_settings", "internal"]
+doc = "Folder the private sample exports are written to; compose sets it for web on the shared media volume, and a local_settings value wins."
 
 [BATCH_UPLOAD_JOB_TTL_HOURS]
 files = ["local_settings"]
