@@ -54,7 +54,7 @@ def _patch_new_account(person_id):
     request = _wrap(APIRequestFactory().patch("/nextseek_api/users/5/", {"email": "n@example.com"}, format="json"))
     request.user = _superuser()
     with patch.object(users_service, "Users") as users, patch.object(users_service, "People"), \
-            patch.object(users_service, "run_seek_rails_runner",
+            patch.object(users_service, "run_seek_op",
                          return_value={"user_id": 5, "person_id": person_id, "login": "newbie"}), \
             patch.object(users_service, "_upsert_people_mirror"), patch.object(users_service, "_build_record",
                                                                               return_value=record), \

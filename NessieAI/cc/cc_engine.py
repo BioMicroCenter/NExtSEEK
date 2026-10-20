@@ -39,7 +39,7 @@ import docker
 from .attach import BridgeAttachSocket
 from .translate import MODEL_UNAVAILABLE_REASON, CCStreamTranslator
 from .cc_config import CCPaths
-from . import cc_transcript_store
+from . import cc_transcript_store, spawner_client
 from .ops_road import DIRECT, ROAD_ENV, SIDECAR
 from NessieAI.cc import cc_session
 from NessieAI.cc import safe_fs
@@ -303,6 +303,8 @@ VOCABULARY_FILE = "vocabulary.json"
 
 def cc_runner_available() -> tuple[bool, str]:
     """Return (ok, detail). ok=False means the CC route cannot run right now."""
+    if spawner_client.enabled():
+        return spawner_client.health()
     try:
         import docker
         client = docker.from_env()
@@ -993,7 +995,7 @@ def _cc_limit_args(max_budget_usd: float) -> list[str]:
     return args
 
 
-def _automode_settings_args(source: Mapping[str, str] | None = None) -> list[str]:
+def _automode_environment(source: Mapping[str, str] | None = None) -> list[str]:
     """OI-5 / audit D2: ``$defaults``-FIRST auto-mode allowlist describing trusted
     lab infra so the classifier doesn't abort the agent's legitimate NS-API calls.
 
@@ -1002,29 +1004,39 @@ def _automode_settings_args(source: Mapping[str, str] | None = None) -> list[str
     start with the literal ``$defaults`` so built-in trust is EXTENDED, not replaced.
     """
     src = os.environ if source is None else source
-    environment: list[str] = ["$defaults"]
     ns_url = (
         src.get("NEXTSEEK_INTERNAL_BASE_URL")
         or src.get("NEXTSEEK_BASE_URL")
         or src.get("NEXTSEEK_URL")
     )
+    return automode_trust_lines(ns_url, src.get("NEO4J_URI"), bool(src.get("GCP_API_KEY")))
+
+
+def automode_trust_lines(ns_url: str | None, neo4j_uri: str | None, gcp: bool) -> list[str]:
+    """The pure text builder. docker/cc-spawner/spawner.py keeps a copy for its own image
+    (a parity test holds the two equal); keep them in step."""
+    environment: list[str] = ["$defaults"]
     if ns_url:
         environment.append(
             "Trusted internal service: the NExtSEEK metadata REST API at "
             f"{_rewrite_loopback_url(ns_url)} — the MIT BioMicro Center lab's own "
             "sample/project database (reached as the authenticated user)."
         )
-    neo4j_uri = src.get("NEO4J_URI")
     if neo4j_uri:
         environment.append(
             f"Trusted internal graph database: Neo4j at {neo4j_uri} (lab lineage graph)."
         )
-    if src.get("GCP_API_KEY"):
+    if gcp:
         environment.append(
             "Trusted LLM provider: Google Cloud Gemini API — the assistant's own "
             "model provider."
         )
-    settings = {"autoMode": {"environment": environment}}
+    return environment
+
+
+def _automode_settings_args(source: Mapping[str, str] | None = None) -> list[str]:
+    """The ``--settings`` argument that carries ``_automode_environment``."""
+    settings = {"autoMode": {"environment": _automode_environment(source)}}
     return ["--settings", json.dumps(settings, separators=(",", ":"))]
 
 
@@ -1206,6 +1218,50 @@ def _stop_and_confirm_exit(container: Any, *, confirm_wait_s: float = _CONFIRM_E
         return True
     except Exception:  # noqa: BLE001
         return False
+
+
+class _SpawnerContainer:
+    """The container as run_cc_turn handles it when the spawner runs it: stop, remove and wait are one stop call.
+
+    ``_stop_and_confirm_exit`` and the watchdog use these like a Docker container's. The call raises unless the
+    spawner confirms the container gone, so the stop-then-remove-then-wait fallback keeps its meaning.
+    """
+
+    def __init__(self, run_id: str):
+        self.run_id = run_id
+        self._gone = False  # a confirmed stop stays true; the clean-up calls after it cost no request
+
+    def _stop(self) -> None:
+        if self._gone:
+            return
+        if not spawner_client.stop_turn(self.run_id):
+            raise RuntimeError("the spawner could not confirm the agent container gone")
+        self._gone = True
+
+    def stop(self, timeout: float | None = None) -> None:
+        self._stop()
+
+    def remove(self, force: bool = False) -> None:
+        self._stop()
+
+    def wait(self, timeout: float | None = None) -> None:
+        self._stop()
+
+
+def _spawner_turn_body(
+    *, run_id: str, user_id: str, project_dirname: str, cc_state_key: str | None,
+    transcripts_subpath: str | None, previous_turns: bool, turn_files: bool, model_id: str | None,
+    session_id: str | None, max_budget_usd: float, environment: dict[str, str], query: str,
+) -> dict[str, Any]:
+    """The ``POST /turns`` body: the validated fields the spawner builds the container from, never its settings."""
+    envelope = json.dumps({"type": "user", "message": {"role": "user", "content": query}}, separators=(",", ":"))
+    return {
+        "run_id": run_id, "user_id": user_id, "project_dirname": project_dirname, "cc_state_key": cc_state_key,
+        "transcripts_subpath": transcripts_subpath, "previous_turns": bool(previous_turns),
+        "turn_files": bool(turn_files), "model_id": model_id, "fallback_model_id": _cc_fallback_model_id(),
+        "max_budget_usd": max_budget_usd, "resume_session_id": session_id, "environment": environment,
+        "stdin_envelope": envelope + "\n",
+    }
 
 
 def _mount_volume_subpath(source: str, target: str, subpath: str, *, read_only: bool = False) -> dict:
@@ -1613,17 +1669,33 @@ def run_cc_turn(
     translator = CCStreamTranslator(model_id=model_id, clock=lambda: _monotonic())
     translator._turn_start_ts = time.time()
     terminal: tuple[str, dict[str, Any]] | None = None
-    client = docker.from_env()
+    # W9 switch: with NEXTSEEK_SPAWNER_URL set the spawner runs the container; otherwise the app does, as before.
+    use_spawner = spawner_client.enabled()
+    client = None if use_spawner else docker.from_env()
     container = None
     try:
         # Inside the try: its finally removes the file, whatever fails before the container starts.
         if vocabulary_slot is not None and dirs.turn_subpath:
             vocabulary_slot.open(mount_root, dirs.turn_subpath)
-        spawn_kwargs = _run_kwargs(
-            image=image, command=command, environment=environment,
-            mounts=mounts, run_id=run_id, user_id=user_id,
-        )
-        container = _spawn_with_stale_name_retry(client, spawn_kwargs)
+        sock = None
+        if use_spawner:
+            # Set before the request, so the finally can stop a turn whose start failed half way.
+            container = _SpawnerContainer(run_id)
+            sock = spawner_client.start_turn(
+                _spawner_turn_body(
+                    run_id=run_id, user_id=user_id, project_dirname=project_dirname, cc_state_key=cc_state_key,
+                    transcripts_subpath=transcripts_subpath, previous_turns=previous_turns,
+                    turn_files=vocabulary_slot is not None, model_id=model_id, session_id=effective_session_id,
+                    max_budget_usd=max_budget_usd, environment=environment, query=query,
+                ),
+                read_timeout=turn_timeout + 60,
+            )
+        else:
+            spawn_kwargs = _run_kwargs(
+                image=image, command=command, environment=environment,
+                mounts=mounts, run_id=run_id, user_id=user_id,
+            )
+            container = _spawn_with_stale_name_retry(client, spawn_kwargs)
 
         # Hard wall-clock bound on the turn (belt-and-suspenders to --max-budget-usd):
         # if it overruns, stop + force-remove the container, which ends the stdout
@@ -1645,16 +1717,17 @@ def run_cc_turn(
 
         threading.Thread(target=_watchdog, daemon=True).start()
 
-        raw = container.attach_socket(params={"stdin": 1, "stdout": 1, "stderr": 1, "stream": 1})
-        stdout_stream = container.logs(stream=True, follow=True, stdout=True, stderr=False)
-        sock = BridgeAttachSocket(raw, stdout_stream=stdout_stream)
+        if not use_spawner:
+            raw = container.attach_socket(params={"stdin": 1, "stdout": 1, "stderr": 1, "stream": 1})
+            stdout_stream = container.logs(stream=True, follow=True, stdout=True, stderr=False)
+            sock = BridgeAttachSocket(raw, stdout_stream=stdout_stream)
 
-        envelope = json.dumps(
-            {"type": "user", "message": {"role": "user", "content": query}},
-            separators=(",", ":"),
-        )
-        sock.send_stdin((envelope + "\n").encode("utf-8"))
-        sock.close_stdin()
+            envelope = json.dumps(
+                {"type": "user", "message": {"role": "user", "content": query}},
+                separators=(",", ":"),
+            )
+            sock.send_stdin((envelope + "\n").encode("utf-8"))
+            sock.close_stdin()
 
         while True:
             line = sock.read_event_line()

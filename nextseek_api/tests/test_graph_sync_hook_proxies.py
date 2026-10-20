@@ -652,7 +652,7 @@ def _user_create(*, runner_error: Exception | None = None):
     with patch("nextseek_api.services.users._sync_django_user"), \
          patch("nextseek_api.services.users._upsert_people_mirror"), \
          patch("nextseek_api.services.users.Users") as users, \
-         patch("nextseek_api.services.users.run_seek_rails_runner") as runner, \
+         patch("nextseek_api.services.users.run_seek_op") as runner, \
          patch("nextseek_api.services.users._build_record", return_value=_record()):
         users.objects.using.return_value.filter.return_value.exists.return_value = False
         users.objects.using.return_value.filter.return_value.first.return_value = seek_user
@@ -695,7 +695,7 @@ def _user_patch(body: dict | None = None, *, uid: str = "5"):
     with patch("nextseek_api.services.users._build_record", return_value=_record(user_id=5, person_id=6)), \
          patch("nextseek_api.services.users.People") as people, \
          patch("nextseek_api.services.users.DjangoUser") as django_user, \
-         patch("nextseek_api.services.users.run_seek_rails_runner") as runner, \
+         patch("nextseek_api.services.users.run_seek_op") as runner, \
          patch("nextseek_api.services.users.Users") as users:
         users.objects.using.return_value.filter.return_value.first.return_value = seek_user
         people.objects.using.return_value.get.return_value = MagicMock(
