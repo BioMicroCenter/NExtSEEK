@@ -8,7 +8,7 @@ validates itself, so the app cannot choose any of those.
 | File | What it is |
 |---|---|
 | `spawner.py` | the service: `ThreadingHTTPServer`, the `docker` SDK, the validation rules |
-| `seek_scripts/` | the Ruby for `create`, `patch`, `compensate`; each reads `ENV["NEXTSEEK_PAYLOAD"]`, never interpolated |
+| [`seek_scripts/`](seek_scripts/README.md) | the Ruby for `create`, `patch`, `compensate`; each reads `ENV["NEXTSEEK_PAYLOAD"]`, never interpolated |
 | `Dockerfile` | python slim, `docker==7.1.0`, runs as root inside with every capability dropped by compose |
 | `tests/` | unit tests with the SDK faked; run in the Django lane (`ci/README.md` "Running and testing") |
 

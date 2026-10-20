@@ -15,8 +15,10 @@ also live here, untracked: the startup CLI renders them from `startup/templates/
 |---|---|---|
 | `docker/nginx.conf` | compose service `nextseek_nginx`, mounted as `/etc/nginx/nginx.conf` | the front proxy for the app |
 | `docker/nginx-optional/` | compose service `nextseek_nginx`, mounted as `/etc/nginx/optional` | operator drop-ins; one example ships |
+| `docker/nginx-upstream/` | compose service `nextseek_nginx`, mounted as `/etc/nginx/upstream` | the swap's pin (`pin.conf`, generated, untracked), present only while two `web` containers run |
+| `docker/cc-spawner/` | compose service `cc-spawner` (its build context) | the only service holding the Docker socket: starts Container-CC turns and runs the three SEEK user scripts from validated fields ([README](cc-spawner/README.md)) |
 | `docker/host-nginx-restart-page.conf` | the servers' host nginx, installed by hand as `/etc/nginx/nextseek-restart-page.conf` | the same restart page for the host nginx in front of SEEK and the app (`DEPLOYMENT.md` "Host nginx restart page") |
-| `docker/scripts/entrypoint.sh` | the app image (the repo-root `Dockerfile` copies the whole tree) | the `nextseek` container's start command |
+| `docker/scripts/entrypoint.sh` | the app image (the repo-root `Dockerfile` copies the whole tree) | the start command of both app-image services: `worker` mode for `nextseek`, `web` mode for `web` |
 | `docker/scripts/attribute_runtime_healthcheck.py` | the `nextseek` service's healthcheck | probes the attribute runtimes without starting a second Django process |
 | `docker/scripts/db/` | compose service `db`, mounted as `/docker-entrypoint-initdb.d` | creates the NExtSEEK schema and its grants at first MySQL start |
 | `docker/nextseek.env.example` | readers, and the image-secret gate, which allows exactly this env file | documentation of the app env, not the render source |
@@ -59,20 +61,28 @@ The other shipped drop-in, `docker/nginx-optional/neo4j.conf.example`, is a Neo4
 Query API reverse proxy. It is inert until copied to a `*.conf` name, and enabled copies are
 untracked (`docker/nginx-optional/.gitignore`). `docs/neo4j-programmatic-access.md` covers using it.
 
-### The app container's start command
+### The app containers' start command
 
-`docker/scripts/entrypoint.sh` runs `collectstatic` and `migrate` as fail-fast gates, either side of
-a bounded database-readiness probe, then starts these as background processes of the one `nextseek`
-container:
+One image, two services, one script with a mode.
 
-- the web server: daphne (ASGI, serves the assistant WebSocket) by default, or gunicorn (WSGI, no WebSocket) when `NEXTSEEK_SERVER=gunicorn`;
+`entrypoint.sh web` (the `web` service, which can run two copies at once during a swap) runs
+`collectstatic`, the database-readiness probe, waits until the worker has applied every migration
+(`migrate --check`, bounded by `NEXTSEEK_MIGRATE_WAIT_SECONDS`), then starts the web server: daphne
+(ASGI, serves the assistant WebSocket) by default, or gunicorn (WSGI, no WebSocket) when
+`NEXTSEEK_SERVER=gunicorn`. On a `docker stop` it drains: new chat turns get a 503, running ones
+finish (up to `NEXTSEEK_DRAIN_SECONDS`), the rest are ended with a restart message
+(`manage.py end_cut_turns`), then the server stops.
+
+`entrypoint.sh worker` (the default; the `nextseek` service) runs the probe and `migrate` (the only
+migrator), then starts these as background processes:
+
 - the batch-upload Celery worker (`batch_upload` queue, the container-local default broker);
 - the attribute-mutation Celery worker (`attribute_mutations` queue, on its own durable SQLite broker) and its outbox dispatcher, `dispatch_attribute_outbox`;
 - the sync-job recovery loop, `recover_attribute_sync_jobs`;
 - the assay-registration drain loop, `run_assay_registration_jobs`;
 - the sample-share worker, `run_share_jobs` (the studies tool's share mode).
 
-It then waits on all of them, so any one exiting takes the container down for compose to restart,
+The worker then waits on all of them, so any one exiting takes it down for compose to restart,
 and it hands a `docker stop` SIGTERM on to all of them but the graph-sync loop's run, which is killed
 with the container as before (bash as PID 1 would otherwise ignore the signal and be killed after
 docker's 10 s). The probe opens one MySQL connection without starting Django, and the
@@ -82,7 +92,7 @@ records what folding them in gave up.
 
 ## Running and testing
 
-Nothing here has a suite of its own. The guards that pin this folder's behaviour are in
+Only `cc-spawner/` has a suite of its own (`docker/cc-spawner/tests`). The guards that pin this folder's behaviour are in
 `nextseek_api/tests/repo_guards/` (`test_entrypoint_migrate_failfast.py`,
 `test_entrypoint_attribute_runtimes.py`, `test_compose_db_healthcheck.py`,
 `test_build_context_env_guard.py`) and `startup/tests/test_layout.py`. Images are built with
@@ -92,8 +102,8 @@ Nothing here has a suite of its own. The guards that pin this folder's behaviour
 
 - `startup/templates/nextseek.env.template` and `startup/templates/db.env.template` are rendered into
   this folder by `startup/steps/config.py`.
-- `docker-compose.yml` mounts `nginx.conf`, `nginx-optional/`, `scripts/db/` and `seek-nginx.conf`,
-  and the `nextseek` service's healthcheck runs `/app/docker/scripts/attribute_runtime_healthcheck.py`.
+- `docker-compose.yml` mounts `nginx.conf`, `nginx-optional/`, `nginx-upstream/`, `scripts/db/` and
+  `seek-nginx.conf`, builds `cc-spawner/`, and the `nextseek` service's healthcheck runs `/app/docker/scripts/attribute_runtime_healthcheck.py`.
 - The repo-root `.dockerignore` decides what of this folder reaches the app image: the real env files
   are excluded and `docker/nextseek.env.example` is re-included, the one file that
   `startup/steps/registry_push.py` allows in its image-secret gate.
