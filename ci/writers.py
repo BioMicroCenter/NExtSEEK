@@ -288,7 +288,7 @@ WRITERS: tuple[Writer, ...] = (
            hook_site=("seek/sample/upload.py::SampleUploadMixin._storeSample",
                       "seek/sample/upload.py::SampleUploadMixin._batchUpdateSample",
                       "seek/sample/upload.py::SampleUploadMixin._batchUpdateSampleAssociation"),
-           note="the legacy sheet upload, reached by /seek/sampleupload/; the update paths enqueue too, which "
+           note="the legacy sheet upload; its /seek/sampleupload/ route is retired (no project check); the update paths enqueue too, which "
                 "the graph write it used to do never covered"),
     Writer(id="WR-13",
            sites=("seek/sample/table.py::DBtable_sample._deleteOneSample",),

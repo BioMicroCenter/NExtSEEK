@@ -569,11 +569,6 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
           note="upload validator; a GET returns the not-a-POST envelope at 200 and "
                "reads nothing"),
-    Route(pattern=r"^seek/^sampleupload/", path="/seek/sampleupload/",
-          effect="writes", writers=("WR-12",),
-          methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
-          note="upload receiver; a GET returns the not-a-POST envelope at 200 and "
-               "reads nothing"),
     Route(pattern=r"^seek/^searchAdvanced/", path="/seek/searchAdvanced/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=(200, 400),
