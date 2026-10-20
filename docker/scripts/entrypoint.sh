@@ -12,9 +12,10 @@ case "$MODE" in
   *) echo "[entrypoint] unknown mode '$MODE' (expected worker or web)" >&2; exit 2 ;;
 esac
 
-# NExtSEEK writes Excel exports + upload/dropbox staging under MEDIA_ROOT
-# (/media), which is not a docker volume, so the subdirs don't exist on a fresh
-# container. Without them, export/retrieve/delete/publish all 500 with
+# NExtSEEK writes upload/dropbox staging and the legacy download/ tree under
+# MEDIA_ROOT (/media, the nextseek-media volume shared by the worker and web),
+# and a fresh volume has none of the subdirs. Without them, export/retrieve/
+# delete/publish all 500 with
 # "Cannot save file into a non-existent directory: '/media/download'".
 mkdir -p /media/download /media/uploads /media/uploads/production /media/dropbox /media/reserved
 
@@ -28,6 +29,10 @@ mkdir -p /media/download /media/uploads /media/uploads/production /media/dropbox
 # tree), and a sync re-installs those two packages on each new container's first
 # command, which is time between a restart and the first served request.
 if [ "$MODE" = "web" ]; then
+  # A stop before the server runs (collectstatic, the migrate wait below) exits at once: bash as PID 1 ignores a
+  # TERM it has no trap for, which would sit out the whole stop_grace_period. The drain trap replaces this once the
+  # server runs.
+  trap 'exit 143' TERM INT
   uv run --no-sync manage.py collectstatic --noinput || {
     echo "[COLLECTSTATIC-FAILED] FATAL: manage.py collectstatic exited non-zero;" \
          "refusing to start servers with missing/stale static assets." \

@@ -115,6 +115,25 @@ class TestModes:
         assert "gunicorn" not in calls
         assert "migrate --noinput" not in calls
 
+    def test_a_stop_before_the_server_starts_exits_at_once(self, tmp_path):
+        """In a container bash is PID 1 and ignores a TERM it has no trap for, so a stop during collectstatic or the
+        migrate wait used to sit out the whole grace period. Web mode traps TERM from its first line and exits 143
+        (here, outside a container, an untrapped TERM would kill bash instead: returncode -15)."""
+        env, call_log = _env(tmp_path, MIGRATE_CHECK_EXIT=1, NEXTSEEK_MIGRATE_WAIT_SECONDS=60,
+                             NEXTSEEK_MIGRATE_WAIT_INTERVAL=0.2)
+        proc = subprocess.Popen(["bash", str(ENTRYPOINT), "web"], env=env, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, start_new_session=True)
+        deadline = time.monotonic() + 20
+        while "migrate --check" not in call_log.read_text():
+            assert time.monotonic() < deadline, "the migrate wait never started"
+            time.sleep(0.05)
+        t0 = time.monotonic()
+        proc.send_signal(signal.SIGTERM)
+        proc.communicate(timeout=10)
+        assert proc.returncode == 143
+        assert time.monotonic() - t0 < 3
+        assert "gunicorn" not in call_log.read_text()
+
     def test_unknown_mode_is_refused(self, tmp_path):
         proc, calls = _run(tmp_path, "sidecar")
         assert proc.returncode == 2
