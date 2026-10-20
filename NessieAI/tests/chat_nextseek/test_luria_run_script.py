@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from chat_nextseek.luria.run_script import (
@@ -8,7 +10,7 @@ from chat_nextseek.luria.run_script import (
 
 
 def test_validate_resources_defaults_when_empty():
-    assert validate_resources({}) == {"partition": "bcc", "time": "48:00:00", "cpus": "16", "mem": "8G"}
+    assert validate_resources({}) == {"partition": "bcc", "time": "48:00:00", "cpus": "16", "mem": "128G"}
 
 
 def test_validate_resources_accepts_valid_overrides():
@@ -18,16 +20,16 @@ def test_validate_resources_accepts_valid_overrides():
 
 def test_validate_resources_rejects_bad_values_falls_back():
     out = validate_resources({"partition": "bad; rm -rf /", "time": "lots", "cpus": 999, "mem": "8GB"})
-    assert out == {"partition": "bcc", "time": "48:00:00", "cpus": "16", "mem": "8G"}
+    assert out == {"partition": "bcc", "time": "48:00:00", "cpus": "16", "mem": "128G"}
 
 
 def test_validate_resources_rejects_trailing_newline():
     out = validate_resources({"partition": "bcc\n", "time": "12:00:00\n", "mem": "64G\n"})
-    assert out == {"partition": "bcc", "time": "48:00:00", "cpus": "16", "mem": "8G"}
+    assert out == {"partition": "bcc", "time": "48:00:00", "cpus": "16", "mem": "128G"}
 
 
 def test_validate_resources_non_dict_falls_back():
-    assert validate_resources(["not", "a", "dict"]) == {"partition": "bcc", "time": "48:00:00", "cpus": "16", "mem": "8G"}
+    assert validate_resources(["not", "a", "dict"]) == {"partition": "bcc", "time": "48:00:00", "cpus": "16", "mem": "128G"}
 
 
 def test_sanitize_job_name_strips_shell_chars():
@@ -43,7 +45,7 @@ def test_render_substitutes_all_slots_and_no_tokens_left():
         resources={},
     )
     assert "#SBATCH --job-name=nfcore_rnaseq" in script
-    assert "#SBATCH -n 16" in script                      # default cpus
+    assert "#SBATCH -n 16\n#SBATCH --mem=128G\n" in script  # default cpus, 8 GB per CPU
     assert "#SBATCH -p bcc" in script                     # default partition (not the busy 'normal')
     assert "#SBATCH --output=/net/x/runs/nfcore_rnaseq_260709/nfcore_rnaseq.out" in script
     assert "conda activate cdemu_nfcore" in script        # default; LURIA_CONDA_ENV overrides
@@ -434,3 +436,123 @@ def test_genome_ref_paths_uncompressed():
     f, g = genome_ref_paths("Mmul_10", "/net/x/refs", uncompressed=True)
     assert f == "/net/x/refs/Macaca_mulatta.Mmul_10.dna.toplevel.fa"
     assert g == "/net/x/refs/Macaca_mulatta.Mmul_10.116.gtf"
+
+
+# --- SLURM allocation -> Nextflow local executor limits ------------------------------------
+# One SLURM job runs every task through Nextflow's local executor. Unless told otherwise the
+# executor sizes itself to the whole node (Luria does not confine the job: nproc = 96), and the
+# first rnavar 1.3.0 run collapsed when ~50 scattered GATK JVMs exhausted the node's per-user
+# process limit (seen on Luria, 2026-10-20). luria.config must carry the same allocation that
+# run.sh requests.
+
+from chat_nextseek.luria.run_script import (  # noqa: E402
+    nextflow_executor_limits, render_executor_config, render_luria_config,
+)
+
+_GOLDEN = Path(__file__).parent / "fixtures" / "luria_render"
+
+
+def test_default_memory_scales_with_cpus_at_8_gb_per_cpu():
+    assert validate_resources({"cpus": 4})["mem"] == "32G"
+    assert validate_resources({"cpus": 16})["mem"] == "128G"
+    assert validate_resources({"cpus": 32})["mem"] == "256G"
+
+
+def test_default_memory_is_capped_below_one_bcc_node():
+    # One bcc node seen by Nextflow: 96 CPUs, 376.6 GB. 64 CPUs x 8 GB would ask for more.
+    assert validate_resources({"cpus": 64})["mem"] == "320G"
+
+
+def test_explicit_memory_is_kept():
+    assert validate_resources({"cpus": 8, "mem": "64G"})["mem"] == "64G"
+    assert validate_resources({"cpus": 8, "mem": "9216M"})["mem"] == "9216M"
+
+
+def test_memory_too_small_for_nextflow_falls_back_to_the_per_cpu_default():
+    for small in ("0G", "2G", "512M", "3000M"):
+        assert validate_resources({"cpus": 8, "mem": small})["mem"] == "64G", small
+
+
+def test_executor_limits_leave_room_below_sbatch_mem_for_nextflow():
+    # the hand fix applied to the rnavar run: --mem=128G, executor 16 CPUs / 120 GB
+    assert nextflow_executor_limits(validate_resources({})) == {"cpus": 16, "memory_gb": 120}
+    assert nextflow_executor_limits(validate_resources({"cpus": 8, "mem": "64G"})) == \
+        {"cpus": 8, "memory_gb": 60}
+    assert nextflow_executor_limits(validate_resources({"cpus": 2, "mem": "9216M"})) == \
+        {"cpus": 2, "memory_gb": 7}
+    assert nextflow_executor_limits(validate_resources({"cpus": 1, "mem": "4G"})) == \
+        {"cpus": 1, "memory_gb": 2}
+
+
+def test_executor_limits_validate_their_input():
+    # raw, unvalidated input goes through validate_resources first
+    assert nextflow_executor_limits({"cpus": 999, "mem": "8GB"}) == {"cpus": 16, "memory_gb": 120}
+
+
+def test_render_executor_config_sets_executor_and_per_task_limits():
+    block = render_executor_config({"cpus": 8, "mem": "64G"})
+    assert "executor {\n    cpus = 8\n    memory = '60 GB'\n}" in block
+    # a label asking for more than the job (process_high_memory, or a retry's attempt x cpus)
+    # is clamped to the allocation instead of being refused by the local executor
+    assert "process.resourceLimits = [cpus: 8, memory: '60 GB']" in block
+
+
+def test_luria_config_carries_the_default_allocation():
+    cfg = render_luria_config("/net/x/refs")
+    assert "executor {\n    cpus = 16\n    memory = '120 GB'\n}" in cfg
+    assert "process.resourceLimits = [cpus: 16, memory: '120 GB']" in cfg
+
+
+def test_luria_config_carries_the_requested_allocation():
+    cfg = render_luria_config("/net/x/refs", resources={"cpus": 8, "mem": "64G"})
+    assert "executor {\n    cpus = 8\n    memory = '60 GB'\n}" in cfg
+    assert "cpus = 16" not in cfg
+
+
+def test_run_script_requests_the_memory_given():
+    s = render_run_script(job_name="j", pipeline="nf-core/rnaseq", revision="3.22.2",
+                          run_dir="/r", work_dir="/w", singularity_cache="/c", genome="GRCh38",
+                          resources={"cpus": 8, "mem": "64G"})
+    assert "#SBATCH -n 8\n#SBATCH --mem=64G\n" in s
+
+
+def _golden_kwargs():
+    w = "/net/x"
+    common = dict(run_dir=f"{w}/runs/run_1", work_dir=f"{w}/work/run",
+                  singularity_cache=f"{w}/singularity_cache", refs_root=f"{w}/refs",
+                  working=w, resources={})
+    return {
+        "rnaseq": dict(common, job_name="run", pipeline="nf-core/rnaseq", revision="3.22.2",
+                       genome="GRCh38", aligner="star_salmon"),
+        "rnaseq_fetchngs": dict(common, job_name="run", pipeline="nf-core/rnaseq",
+                                revision="3.22.2", genome="GRCm39", needs_fetch=True,
+                                fastq_cache=f"{w}/fastq_cache"),
+        "scrnaseq_star": dict(common, job_name="run", pipeline="nf-core/scrnaseq",
+                              revision="2.7.1", genome="Mfas6.0", aligner="star"),
+        "rnavar": dict(common, job_name="run", pipeline="nf-core/rnavar", revision="1.3.0",
+                       genome="GRCh38", aligner="star"),
+    }
+
+
+@pytest.mark.parametrize("case", sorted(_golden_kwargs()))
+def test_run_script_differs_from_before_only_by_the_mem_line(case, monkeypatch):
+    # Goldens are the rendered run.sh from before the executor limits were added.
+    monkeypatch.delenv("LURIA_MAIL_USER", raising=False)
+    monkeypatch.delenv("LURIA_CONDA_ENV", raising=False)
+    s = render_run_script(**_golden_kwargs()[case])
+    assert s.count("#SBATCH --mem=128G\n") == 1
+    assert s.replace("#SBATCH --mem=128G\n", "", 1) == \
+        (_GOLDEN / f"{case}.run.sh").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("case,process_args", [
+    ("default", None),
+    ("scrnaseq_knee", {"SIMPLEAF_QUANT": "-r cr-like --knee"}),
+])
+def test_luria_config_differs_from_before_only_by_the_executor_block(case, process_args):
+    from chat_nextseek.luria.run_script import render_process_config
+    cfg = render_luria_config("/net/x/refs") + render_process_config(process_args)
+    block = render_executor_config({})
+    assert cfg.count(block) == 1
+    assert cfg.replace(block, "", 1) == \
+        (_GOLDEN / f"{case}.luria.config").read_text(encoding="utf-8")

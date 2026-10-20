@@ -363,3 +363,38 @@ def test_submit_rnaseq_params_yml_and_runsh_unchanged(tmp_path, monkeypatch):
     assert "export NXF_SYNTAX_PARSER=v1" in run_sh
     assert ("--fasta /net/x/refs/GRCh38.primary_assembly.genome.fa.gz "
             "--gtf /net/x/refs/gencode.v46.basic.annotation.gtf.gz --igenomes_ignore") in run_sh
+
+
+def _allocation(staged):
+    """(cpus, mem) from run.sh's #SBATCH lines and (cpus, memory) from luria.config's executor."""
+    import re
+    run_sh, cfg = staged["run.sh"], staged["luria.config"]
+    sbatch = (re.search(r"^#SBATCH -n (\d+)$", run_sh, re.M).group(1),
+              re.search(r"^#SBATCH --mem=(\S+)$", run_sh, re.M).group(1))
+    executor = re.search(r"executor \{\n    cpus = (\d+)\n    memory = '(\d+) GB'\n\}", cfg)
+    return sbatch, (executor.group(1), executor.group(2))
+
+
+def test_submit_default_allocation_matches_between_runsh_and_luria_config(tmp_path, monkeypatch):
+    staged = _stage(tmp_path, monkeypatch, "nf-core/rnavar", "1.3.0", genome="GRCh38")
+    assert _allocation(staged) == (("16", "128G"), ("16", "120"))
+    assert "process.resourceLimits = [cpus: 16, memory: '120 GB']" in staged["luria.config"]
+
+
+def test_submit_requested_allocation_reaches_both_files(tmp_path, monkeypatch):
+    staged = _stage(tmp_path, monkeypatch, "nf-core/rnaseq", "3.22.2", genome="GRCh38",
+                    resources={"cpus": 8, "mem": "64G"})
+    assert _allocation(staged) == (("8", "64G"), ("8", "60"))
+
+
+def test_submit_invalid_allocation_falls_back_the_same_in_both_files(tmp_path, monkeypatch):
+    staged = _stage(tmp_path, monkeypatch, "nf-core/rnaseq", "3.22.2", genome="GRCh38",
+                    resources={"cpus": 999, "mem": "lots"})
+    assert _allocation(staged) == (("16", "128G"), ("16", "120"))
+
+
+def test_submit_executor_block_sits_before_the_process_args(tmp_path, monkeypatch):
+    staged = _stage(tmp_path, monkeypatch, "nf-core/scrnaseq", "2.7.1", genome="GRCh38",
+                    process_args={"SIMPLEAF_QUANT": "--knee"})
+    cfg = staged["luria.config"]
+    assert cfg.index("executor {") < cfg.index("withName: '.*:SIMPLEAF_QUANT'")

@@ -45,7 +45,17 @@ def render_mail_directives(env: dict | None = None) -> str:
         raise ValueError(f"invalid LURIA_MAIL_USER {value!r}")
     return f"#SBATCH --mail-type=END\n#SBATCH --mail-user={value}"
 
-DEFAULT_RESOURCES = {"partition": "bcc", "time": "48:00:00", "cpus": "16", "mem": "8G"}
+DEFAULT_RESOURCES = {"partition": "bcc", "time": "48:00:00", "cpus": "16"}
+
+# Job memory when the caller names none: 8 GB per CPU. nf-core's base.config labels ask for
+# 6 GB per CPU (process_low 2/12 GB, process_medium 6/36 GB, process_high 12/72 GB), and 8 GB
+# keeps that ratio CPU-bound once Nextflow's own share is taken off (16 CPUs: --mem=128G,
+# executor 120 GB >= 16 x 6 GB). Capped below the one bcc node seen (96 CPUs, 376.6 GB), which
+# 64 x 8 GB would exceed. Luria's partition memory policy (DefMemPerCPU, MaxMemPerCPU) is not
+# established here. Under 4 GB a job cannot hold Nextflow's JVM and a task, so it is invalid.
+_MEM_PER_CPU_GB = 8
+_MAX_DEFAULT_MEM_GB = 320
+_MIN_MEM_MB = 4 * 1024
 
 _RES_PATTERNS = {
     "partition": re.compile(r"[A-Za-z0-9_-]{1,32}"),
@@ -211,8 +221,9 @@ def luria_params_overrides(pipeline: str | None, genome: str | None) -> dict:
     return {}
 
 
-def render_luria_config(refs_root: str) -> str:
-    """Generate luria.config (the local reference-genomes map) from LURIA_GENOMES.
+def render_luria_config(refs_root: str, resources: dict | None = None) -> str:
+    """Generate luria.config (the local reference-genomes map) from LURIA_GENOMES, plus the
+    executor limits for `resources` (the same dict run.sh's #SBATCH lines are filled from).
     `refs_root` (:= <LURIA_WORKING_PATH>/refs) is trusted config, path-validated fail-closed."""
     if not refs_root or not _REFS_ROOT_RE.fullmatch(str(refs_root)):
         raise ValueError(f"invalid refs_root {refs_root!r}")
@@ -230,7 +241,7 @@ def render_luria_config(refs_root: str) -> str:
     # Luria). A -c config outranks the pipeline's own, and this list form is what fetchngs
     # 1.12 sets and runs with in the same job.
     lines += ["process.shell = ['/bin/bash', '-euo', 'pipefail']", ""]
-    return "\n".join(lines)
+    return "\n".join(lines) + render_executor_config(resources)
 
 
 _PROC_NAME_RE = re.compile(r"[A-Za-z0-9_]{1,64}")
@@ -271,11 +282,17 @@ def render_process_config(process_args: dict[str, str] | None) -> str:
     return "\nprocess {\n" + "\n".join(blocks) + "\n}\n"
 
 
+def _mem_mb(mem: str) -> int:
+    """MB in a validated SLURM memory string ('128G', '16384M')."""
+    return int(mem[:-1]) * (1024 if mem.endswith("G") else 1)
+
+
 def validate_resources(resources: dict | None) -> dict:
-    """Return a full resource dict; each field taken from `resources` only if valid, else default."""
+    """Return a full resource dict; each field taken from `resources` only if valid, else default.
+    The default `mem` follows the CPU count (_MEM_PER_CPU_GB, capped at _MAX_DEFAULT_MEM_GB)."""
     resources = resources if isinstance(resources, dict) else {}
     out = dict(DEFAULT_RESOURCES)
-    for key in ("partition", "time", "mem"):
+    for key in ("partition", "time"):
         val = resources.get(key)
         if val is not None and _RES_PATTERNS[key].fullmatch(str(val)):
             out[key] = str(val)
@@ -285,7 +302,41 @@ def validate_resources(resources: dict | None) -> dict:
             out["cpus"] = str(cpus)
     except (TypeError, ValueError):
         pass
+    mem = resources.get("mem")
+    if mem is not None and _RES_PATTERNS["mem"].fullmatch(str(mem)) \
+            and _mem_mb(str(mem)) >= _MIN_MEM_MB:
+        out["mem"] = str(mem)
+    else:
+        out["mem"] = f"{min(int(out['cpus']) * _MEM_PER_CPU_GB, _MAX_DEFAULT_MEM_GB)}G"
     return out
+
+
+def nextflow_executor_limits(resources: dict | None) -> dict:
+    """The local executor's share of the SLURM allocation: every CPU, and the job's memory less
+    a reserve for Nextflow's own JVM (1/16 of it, between 2 and 8 GB: 128G -> 120 GB)."""
+    res = validate_resources(resources)
+    mem_gb = _mem_mb(res["mem"]) // 1024
+    reserve = min(8, max(2, mem_gb // 16))
+    return {"cpus": int(res["cpus"]), "memory_gb": mem_gb - reserve}
+
+
+def render_executor_config(resources: dict | None) -> str:
+    """The luria.config block that holds Nextflow to the job's SLURM allocation.
+
+    The whole run is one SLURM job with the local executor, which otherwise sizes itself to the
+    node: Luria does not confine the job (nproc = 96), so `executor > cpus=96; memory=376.6 GB`.
+    The first rnavar 1.3.0 run then started ~50 scattered GATK JVMs at once and ran out of the
+    node's per-user process limit (pthread_create EAGAIN, 49 tasks ABORTED; VERIFIED on Luria,
+    2026-10-20). resourceLimits clamps each task to the same numbers, because the local
+    executor refuses a task that asks for more than it has ("Process requirement exceeds
+    available CPUs"): a 200 GB process_high_memory label, or an nf-core retry asking
+    attempt x CPUs, would otherwise end the run."""
+    lim = nextflow_executor_limits(resources)
+    cpus, mem = lim["cpus"], f"'{lim['memory_gb']} GB'"
+    return ("\n// The SLURM allocation run.sh requests (#SBATCH -n / --mem), less Nextflow's own\n"
+            "// memory. Without it the local executor takes the whole node.\n"
+            f"executor {{\n    cpus = {cpus}\n    memory = {mem}\n}}\n"
+            f"process.resourceLimits = [cpus: {cpus}, memory: {mem}]\n")
 
 
 def sanitize_job_name(name: str, fallback: str = "nfcore_run") -> str:
@@ -376,6 +427,7 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
     mapping = {
         "JOB_NAME": sanitize_job_name(job_name),
         "CPUS": res["cpus"],
+        "MEM": res["mem"],
         "PARTITION": res["partition"],
         "RUN_DIR": run_dir,
         "PIPELINE": source,

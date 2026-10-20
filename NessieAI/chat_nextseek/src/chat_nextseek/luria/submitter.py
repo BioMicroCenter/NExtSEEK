@@ -23,7 +23,7 @@ except Exception:  # pragma: no cover
     _yaml = None
 
 from .run_script import (luria_params_overrides, render_run_script, render_luria_config,
-                         render_process_config, sanitize_job_name)
+                         render_process_config, sanitize_job_name, validate_resources)
 from .fetchngs_helpers import needs_fetch_accessions
 from .ssh import prepare_key, ssh_run, scp_file
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
@@ -158,18 +158,23 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
     needs_fetch = _sheet_needs_fetch(local_sheet)
     fastq_cache = f"{working}/fastq_cache"
     fetchngs_rev = NFCORE_PIPELINE_CATALOG.get("fetchngs", {}).get("default_revision", "1.12.0")
+    # One validated allocation fills both run.sh's #SBATCH -n/--mem and luria.config's
+    # executor limits, so Nextflow never schedules more than SLURM gave the job.
+    res = validate_resources(resources)
     tmp_files: list[str] = []
     try:
         run_sh = render_run_script(
             job_name=safe, pipeline=pipeline, revision=revision, run_dir=remote_run_dir,
-            work_dir=work_dir, singularity_cache=cache_dir, genome=run_genome, resources=resources,
+            work_dir=work_dir, singularity_cache=cache_dir, genome=run_genome, resources=res,
             refs_root=refs_root, aligner=(launch_params or {}).get("aligner"), working=working,
             needs_fetch=needs_fetch, fastq_cache=fastq_cache, fetchngs_revision=fetchngs_rev,
         )
         run_tmp = _write_temp(run_sh, prefix="run_", suffix=".sh"); tmp_files.append(run_tmp)
-        # luria.config = genomes map + any curated per-protocol process ext.args (e.g. seqwell/dropseq
-        # -> SIMPLEAF_QUANT --knee); process_args comes from the pipeline JSON via tool_submit_to_luria.
-        luria_config = render_luria_config(refs_root) + render_process_config(process_args)
+        # luria.config = genomes map + executor limits + any curated per-protocol process ext.args
+        # (e.g. seqwell/dropseq -> SIMPLEAF_QUANT --knee); process_args comes from the pipeline
+        # JSON via tool_submit_to_luria.
+        luria_config = (render_luria_config(refs_root, resources=res)
+                        + render_process_config(process_args))
         cfg_tmp = _write_temp(luria_config, prefix="luriacfg_", suffix=".config")
         tmp_files.append(cfg_tmp)
         params_yml = _build_params_yml(launch_params, luria_params_overrides(pipeline, run_genome))

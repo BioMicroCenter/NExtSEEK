@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH -N 1
 #SBATCH -n {{CPUS}}
+#SBATCH --mem={{MEM}}
 #SBATCH -p {{PARTITION}}
 {{MAIL_DIRECTIVES}}
 #SBATCH --job-name={{JOB_NAME}}
