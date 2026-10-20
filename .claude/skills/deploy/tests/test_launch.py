@@ -1030,6 +1030,11 @@ def test_absent_instance_key_is_named(tmp_path, monkeypatch):
     ("NessieAI/docker/bedrock-proxy/Dockerfile", ("bedrock-proxy",)),
     ("NessieAI/docker/ns-sidecar/__init__.py", ("nextseek-sidecar",)),
     ("NessieAI/docker/ns-sidecar/app/contract.py", ("nextseek-sidecar",)),
+    ("docker/cc-spawner/Dockerfile", ("cc-spawner",)),
+    ("docker/cc-spawner/spawner.py", ("cc-spawner",)),
+    ("docker/cc-spawner/seek_scripts/create.rb", ("cc-spawner",)),
+    ("docker/cc-spawner/README.md", ()),
+    ("docker/cc-spawner/tests/test_spawner.py", ()),
     ("NessieAI/docker/bedrock-proxy/README.md", ()),
     ("NessieAI/docker/ns-sidecar/README.md", ()),
     ("NessieAI/docker/cc-runtime/docs/nextseek/01-overview.md", ("cc-agent",)),
@@ -1430,3 +1435,19 @@ def test_an_nginx_flagged_launch_that_allows_the_recreate_renders_the_flag(tmp_p
 def test_without_the_extra_the_runner_recreates_nothing(tmp_path, capsys):
     d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"], nginx_change_expected=True)
     assert 'RECREATE_NGINX_ON=""' in text
+
+
+def test_cc_spawner_is_a_component_rebuilt_before_the_app(tmp_path, capsys):
+    """Parity with the CLI's `--component cc-spawner`. It goes before app so a new web never
+    meets an old spawner API. Rebuilding it cuts a CC turn streaming through it."""
+    assert rules.COMPONENTS.index("cc-spawner") < rules.COMPONENTS.index("app")
+    assert rules.LOG_NAME["cc-spawner"] == "spawner"
+    assert rules.SUCCESS_LINE["cc-spawner"] == "cc-spawner rebuilt and restarted"
+    assert "cc-spawner" in rules.STEP_MINUTES
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-spawner", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    assert 'COMPONENTS="cc-spawner app"' in text
+    assert "docker inspect -f 'status=" in text and "for k in nextseek nextseek-sidecar dmac-bedrock-proxy cc-spawner" in text
+    assert "nextseek-cc-spawner:latest" in text
+    note = (Path(__file__).resolve().parents[1] / "references" / "dev.md").read_text()
+    assert "cuts a CC turn" in note

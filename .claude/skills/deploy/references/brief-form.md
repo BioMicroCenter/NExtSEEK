@@ -17,7 +17,7 @@ the script decides the default, not you.
 | `expected_sha` | yes | | 7 to 40 hex; must be origin/dev (the preflight proves it) |
 | `change` | yes | | one paragraph: what the range ships |
 | `parent` | yes, may be `null` | | the agent or session name that spawned this launch (it gets the commit review and the report); `null` when you were not spawned by one |
-| `images` | no | `null` | subset of `bedrock-proxy`, `app`, `cc-agent`, `nextseek-sidecar`; `null` = derive from the range (the commits step prints the result: report it before building) |
+| `images` | no | `null` | subset of `bedrock-proxy`, `cc-spawner`, `app`, `cc-agent`, `nextseek-sidecar`; `null` = derive from the range (the commits step prints the result: report it before building) |
 | `live_markers` | no | `[]` | `{pattern, file, container, proves}`: a fixed string the change added, the file inside the container that holds it, what it proves. None given: pick one from the diff and say you picked it |
 | `static_changed` | no | `null` | informational: collectstatic runs after every app rebuild anyway |
 | `ci` | no | `true` | `./startup.sh ci --no-nessie` after the rebuilds |
@@ -64,7 +64,7 @@ compose, migration or seed change the brief did not name).
 ## The window (exit 6)
 
 On dev nothing heavy may overlap 05:45Z-07:45Z (the nightly graph sync, 01:45-02:45 US Eastern). The script adds up the brief's steps
-(app 15 min, cc-agent 5, sidecar 3, proxy 3, collectstatic 1, labs 2, CI 13, Nessie 1.2 per case)
+(app 15 min, cc-agent 5, sidecar 3, proxy 3, spawner 3, collectstatic 1, labs 2, CI 13, Nessie 1.2 per case)
 and refuses a start whose run would touch it. It prints the next allowed start. The runner
 checks the clock again on the box, and `ssh --purpose start` checks it a third time.
 

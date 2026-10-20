@@ -23,6 +23,9 @@ routes you and holds the hard gates.
   workers, the outbox dispatcher, the recovery loop, the assay-registration drain).
 - **CC image**: `./startup.sh rebuild --component cc-agent`, build only; the
   next chat turn uses it, with no persistent agent container to restart.
+- **CC spawner**: `--component cc-spawner` (`docker/cc-spawner/**`). Rebuilding it cuts a CC turn that is
+  streaming through it at that moment, so avoid a moment with turns running; SEEK user create answers 503
+  while it restarts.
 - **Sidecar / proxy**: use `--component nextseek-sidecar` or
   `--component bedrock-proxy`.
 - **Every first-party image**: use `--component custom-stack`. This never

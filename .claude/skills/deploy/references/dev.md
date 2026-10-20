@@ -64,7 +64,8 @@ else dirty is someone's in-flight work.
 collectstatic for `static/` and the chat bundle; cc-agent for `NessieAI/docker/cc-runtime/**`; app
 AND cc-agent for the canonical context files (the six catalogs, `ONTOLOGIES.json` and the
 `ontology_*.json` files) and `baml_src`; nextseek-sidecar for
-`NessieAI/docker/ns-sidecar/**`; bedrock-proxy for `NessieAI/docker/bedrock-proxy/**` (with
+`NessieAI/docker/ns-sidecar/**`; cc-spawner for `docker/cc-spawner/**` (rebuilding it cuts a CC turn that is
+streaming through it at that moment); bedrock-proxy for `NessieAI/docker/bedrock-proxy/**` (with
 `bedrock-proxy rebuild ok`); nothing for `ci/**` and `startup/**` (they run from the host
 checkout). `docker/nginx.conf` (a single-file bind mount: the running nginx keeps the old file until
 `docker compose up -d --no-deps --force-recreate nextseek_nginx`), `docker-compose.yml`, migrations

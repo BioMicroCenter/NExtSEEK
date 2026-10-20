@@ -162,7 +162,7 @@ done
 C=/app/NessieAI/chat_nextseek/src/chat_nextseek/context
 {
   echo "CHECK http $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/)"
-  for k in nextseek nextseek-sidecar dmac-bedrock-proxy; do
+  for k in nextseek nextseek-sidecar dmac-bedrock-proxy cc-spawner; do
     echo "CHECK container $k $(docker inspect -f 'status={{.State.Status}} restarts={{.RestartCount}} oom={{.State.OOMKilled}} started={{.State.StartedAt}}' $k 2>&1)"
   done
   # web has no fixed name (a swap names the new one nextseek-web-N), so ask compose which container it is
@@ -185,7 +185,7 @@ C=/app/NessieAI/chat_nextseek/src/chat_nextseek/context
   else
     echo "CHECK sidecar_ops skipped"
   fi
-  for i in nextseek-nextseek:latest dmac-assistant:poc nextseek-ns-sidecar:latest nextseek-bedrock-proxy:latest; do
+  for i in nextseek-nextseek:latest dmac-assistant:poc nextseek-ns-sidecar:latest nextseek-bedrock-proxy:latest nextseek-cc-spawner:latest; do
     echo "IMAGE $i $(docker image inspect -f '{{.Created}}' $i 2>&1)"
   done
   case " $COMPONENTS " in *" cc-agent "*)
