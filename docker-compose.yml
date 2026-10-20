@@ -29,6 +29,11 @@ services:
       # Where the dev-only labs file is read from: on a volume shared with `web`,
       # written once by the deploy runner, so no restart is needed to pick it up.
       NEXTSEEK_LABS_FILE: /media/context/labs_db.json
+      # The worker never talks to cc-spawner. docker/nextseek.env carries the
+      # spawner token for `web`; these empty values beat the env_file, so the
+      # worker holds no token and no spawner address.
+      NEXTSEEK_SPAWNER_TOKEN: ""
+      NEXTSEEK_SPAWNER_URL: ""
     env_file:
       - ./docker/db.env
       - ./docker/nextseek.env

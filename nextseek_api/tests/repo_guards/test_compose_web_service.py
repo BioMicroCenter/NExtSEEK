@@ -80,6 +80,16 @@ def test_the_worker_has_no_socket_no_laya_and_no_spawner_network():
     assert not [m for m in _mounts(worker) if "luria" in m or m.endswith("/app/.ssh")]
 
 
+def test_the_worker_holds_no_spawner_token_and_no_spawner_url():
+    """The worker loads docker/nextseek.env, where install writes the spawner token. `environment:` beats
+    `env_file:`, so both keys are set empty here: the worker can neither present the token nor be pointed at the
+    spawner, from this part on."""
+    worker = SERVICES["nextseek"]
+    assert "./docker/nextseek.env" in worker["env_file"]
+    assert worker["environment"]["NEXTSEEK_SPAWNER_TOKEN"] == ""
+    assert worker["environment"]["NEXTSEEK_SPAWNER_URL"] == ""
+
+
 def test_media_is_one_shared_volume_and_the_worker_gets_the_internal_url():
     for name in ("nextseek", "web"):
         assert "nextseek-media:/media" in _mounts(SERVICES[name]), name
@@ -117,9 +127,7 @@ def test_the_spawner_is_hardened_and_only_on_its_own_network():
         "NEXTSEEK_CC_PIDS_LIMIT", "NEXTSEEK_CC_FSIZE_BYTES", "NEXTSEEK_INTERNAL_BASE_URL",
         "NEO4J_URI", "NEXTSEEK_CC_AUTOMODE_GCP"}
     assert "nextseek.env" not in str(sp["env_file"]), "the spawner must not hold the app's secrets"
-    for name in ("nextseek", "cc-spawner"):
-        assert "NEXTSEEK_SPAWNER_TOKEN" not in SERVICES[name].get("environment", {})
-        assert "NEXTSEEK_SPAWNER_URL" not in SERVICES[name].get("environment", {})
+    assert "NEXTSEEK_SPAWNER_TOKEN" not in sp["environment"] and "NEXTSEEK_SPAWNER_URL" not in sp["environment"]
     members = [n for n, s in SERVICES.items() if "dmac-spawner-net" in (s.get("networks") or [])]
     assert sorted(members) == ["cc-spawner", "web"]
     assert COMPOSE["networks"]["dmac-spawner-net"] == {"name": "dmac-spawner-net", "internal": True}
