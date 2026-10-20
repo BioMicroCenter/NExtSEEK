@@ -80,9 +80,10 @@ def test_resource_writes_are_asserted_as_container_cc():
 
 
 def test_open_ended_analysis_is_asserted_as_container_cc():
-    """Already blessed by route.cc_open_ended_analysis."""
-    for vid in ("unsup.make_me_a_bar_chart_of_sample",
-                "unsup.compare_gene_expression_betwee"):
+    """Already blessed by route.cc_open_ended_analysis. 2026-10-19: unsup.compare_gene_expression_betwee
+    left this list when it was retired: an expression comparison now goes to nextseek_query, where the
+    pipeline agent offers the nf-core run (router.baml "Expression comparisons ...")."""
+    for vid in ("unsup.make_me_a_bar_chart_of_sample",):
         assert ("route", "eq", "container_cc") in _crits(_by_id()[vid]), vid
 
 

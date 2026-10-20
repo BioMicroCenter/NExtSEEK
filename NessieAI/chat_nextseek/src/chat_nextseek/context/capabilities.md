@@ -235,10 +235,10 @@ Use these names exactly when asking graph questions scoped to one investigation.
 The system retrieves, filters, and summarizes data from NExtSEEK. It does not perform analysis or answer general science questions. Specifically, it cannot:
 
 - **Generate visualizations or charts.** It has no plotting or rendering capability. Even if the underlying data exists, asking for a heatmap, scatter plot, or bar chart is not supported.
-- **Perform statistical analysis.** Differential expression, clustering, fold-change calculations, dimensionality reduction, survival analysis, and other computational methods are outside scope. The system can tell you where the data files are stored; it does not host them and cannot run pipelines on them.
+- **Perform statistical analysis.** Differential expression, clustering, fold-change calculations, dimensionality reduction, survival analysis, and other computational methods are outside scope. The system can tell you where the data files are stored, and it can launch an nf-core pipeline on sequencing samples (rnaseq, for example, produces each sample's gene counts), but it does not run the statistics itself.
 - **Explain external scientific concepts.** It cannot explain what a gene encodes, why a molecule is carcinogenic, how a signaling pathway works, or what a disease mechanism is. These are knowledge questions unrelated to the repository.
 - **Answer questions about data outside NExtSEEK.** It only knows what is registered in the NExtSEEK repository. It cannot query external databases (GEO, SRA, UniProt, etc.) except to generate a submission package from NExtSEEK records.
-- **Compare groups analytically.** Asking "which group had higher expression levels" or "is there a significant difference between condition A and B" requires computation the system cannot do.
+- **Compare groups analytically.** Asking "which group had higher expression levels" or "is there a significant difference between condition A and B" requires computation the system cannot do. For a question about expression, it offers the nf-core run that produces the counts such a comparison starts from, and says what that run does not answer.
 
 ---
 
