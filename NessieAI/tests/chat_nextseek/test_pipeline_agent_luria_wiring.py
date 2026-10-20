@@ -159,3 +159,16 @@ def test_start_records_the_session_owner_for_the_launch_record(monkeypatch):
     agent.start(plain, object(), user_query="run rnaseq")
     assert owned[agent.PIPELINE_AGENT_KEY]["launched_by_user_id"] == 7
     assert plain[agent.PIPELINE_AGENT_KEY]["launched_by_user_id"] is None
+
+
+def test_the_prompt_hands_reingest_off_with_the_run_done_phrase():
+    # Users read "I can't load results from here; ask the main NExtSEEK assistant" as a
+    # dead end (seen live, rnavar). The agent must tell them the one thing to do: say
+    # the run is done, and Nessie carries on.
+    from pathlib import Path
+
+    import chat_nextseek
+
+    text = (Path(chat_nextseek.__file__).parent / "prompts" / "pipeline_agent.txt").read_text()
+    assert '"my run is done"' in text
+    assert "never say you cannot load" in text.lower()

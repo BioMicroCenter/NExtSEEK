@@ -423,7 +423,7 @@ OPS: list[OpSpec] = [
         skill_row=_row(
             "**Reingest step 5** — upload the reviewed workbooks (build ids from build-upload-xlsx's builds). WRITES to NExtSEEK: ask the user once, listing each workbook (sample type, new/update, row count, project) and every open warning from the builds, before calling.",
             "--build-ids <id,id> --confirmed-write",
-            "{jobs: [{artifact_key, mode, job_id or error}], reply}",
+            "{jobs: [{artifact_key, mode, job_id or error, outcome}], reply}",
         ),
     ),
     _subcmd(

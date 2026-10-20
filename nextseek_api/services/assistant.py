@@ -1218,6 +1218,10 @@ class AssistantViewSet(viewsets.ViewSet):
             session = SimpleNamespace(
                 user=request.user,
                 chat_turn=lambda: chat_turns.running_cc_turn(request.user))
+        elif op == "run-harvest":
+            # With no run_dir the op picks the caller's waiting launched run;
+            # without a session it sees nobody and reports that no run is waiting.
+            session = SimpleNamespace(user=request.user)
         elif op == "upload-reingest":
             # The identity lookup is handed over uncalled: the op resolves it
             # only after the write gate passes, so an unconfirmed call never
@@ -1230,7 +1234,7 @@ class AssistantViewSet(viewsets.ViewSet):
             # chat it was shown in, and the agent never names the chat or the turn.
             from nextseek_api.assistant import chat_turns
             from nextseek_api.batch_upload.views import (
-                _resolve_user_context, dispatch_batch_job, stage_workbook_copy,
+                _resolve_user_context, dispatch_batch_job, job_outcome, stage_workbook_copy,
             )
 
             def _upload_context():
@@ -1240,7 +1244,8 @@ class AssistantViewSet(viewsets.ViewSet):
                 user=request.user, upload_context=_upload_context,
                 dispatch_job=dispatch_batch_job, stage_workbook=stage_workbook_copy,
                 chat_turn=lambda: chat_turns.running_cc_turn(request.user),
-                turn_delivered=lambda task_id: chat_turns.turn_delivered(request.user, task_id))
+                turn_delivered=lambda task_id: chat_turns.turn_delivered(request.user, task_id),
+                job_state=job_outcome)
         else:
             session = None
         gate = build_gate(load_allowlist())

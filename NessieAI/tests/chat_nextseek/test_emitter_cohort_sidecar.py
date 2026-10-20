@@ -153,3 +153,20 @@ def test_ena_fanout_cohort_entry_keeps_the_real_sample_name(tmp_path):
     assert cohort[0]["nfcore_sample"] == "ENA_SAMPLE_A"
     assert cohort[0]["fastq_1"] == "https://ftp.sra.ebi.ac.uk/SRR0000001_1.fastq.gz"
     assert res.samplesheet_row_count == 1
+
+
+def test_an_sra_backed_row_records_its_sample_as_the_uid(tmp_path):
+    # A sample whose reads come from SRA carries the run accession for the Luria fetch
+    # step and its NExtSEEK UID as `sample`. Recording the accession as d_seq_uid left
+    # reingest with parent "SRR33048850", whose sample type nothing knows (seen live).
+    from chat_nextseek.seqera import emitter
+
+    rows = [{"sample": "D.SEQ-250409KAM-1-PUB", "fastq_1": "", "fastq_2": "",
+             "accession": "SRR33048850"},
+            {"sample": "my_label", "fastq_1": "", "fastq_2": "", "accession": "SRX25141024"}]
+    sheet = tmp_path / "samplesheet.csv"
+    emitter._write_cohort_sidecar(sheet, rows)
+    entries = json.loads((tmp_path / "cohort.json").read_text())
+    assert entries[0]["d_seq_uid"] == "D.SEQ-250409KAM-1-PUB"
+    # An archive accession is never a UID; a sample that is not one either records none.
+    assert entries[1]["d_seq_uid"] is None

@@ -36,7 +36,7 @@
                       "Aligner": "$params.aligner", "Genome": "$params.genome",
                       "Software": "$software_versions.STAR" } },
 
-    { "id": "gene_counts", "candidates": ["{star_salmon,salmon,star_rsem,kallisto}/*.merged.gene_counts.tsv"],
+    { "id": "gene_counts", "candidates": ["{star_salmon,star_rsem}/*.merged.gene_counts.tsv", "{salmon,kallisto}/*.merged.gene_counts.tsv"],
       "sample_type": "A.GEX", "assay": "Gene Expression Analysis", "cardinality": "per_run", "primary_data": true,
       "include_provenance": true,
       "attributes": { "Matrix": "gene_counts",

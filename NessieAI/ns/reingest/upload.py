@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
 from NessieAI.ns.reingest import build_records
 
@@ -146,23 +147,116 @@ def verify(build_ids: list[str], *, user_id, chat_turn=None,
     return sorted(records, key=lambda r: r["mode"] != "new")
 
 
+# Waiting for the jobs: they are small and finish in seconds, and the sidecar gives
+# one op call 60 s, so the default keeps well inside that. Patched in tests.
+_DEFAULT_WAIT_S = 45.0
+_POLL_S = 1.0
+_TERMINAL = ("SUCCESS", "FAILURE", "REVOKED")
+_clock = time.monotonic
+_sleep = time.sleep
+
+
+def _wait_s() -> float:
+    try:
+        return max(0.0, float(os.environ.get("NEXTSEEK_UPLOAD_WAIT_S", _DEFAULT_WAIT_S)))
+    except ValueError:
+        return _DEFAULT_WAIT_S
+
+
+def _summarise(job_id: str, raw: dict | None) -> dict:
+    """One job's outcome from the host's lookup: status succeeded, failed or running,
+    with the counts and errors the reply needs."""
+    raw = raw or {}
+    state = raw.get("state")
+    if state not in _TERMINAL:
+        return {"status": "running", "job_id": job_id}
+    if state != "SUCCESS":
+        return {"status": "failed", "error": str(raw.get("error") or state.lower())}
+    totals = raw.get("totals") or {}
+    errors = list(raw.get("errors") or [])
+    failed = int(totals.get("failed") or 0)
+    return {"status": "failed" if (failed or errors) else "succeeded",
+            "created": int(totals.get("uids_generated") or 0),
+            "updated": int(totals.get("updated") or 0),
+            "failed_rows": failed, "processed": int(totals.get("processed") or 0),
+            "errors": errors[:3], "graph": totals.get("graph")}
+
+
+def _await_jobs(jobs: list[dict], job_state) -> None:
+    """Poll each started job until it finishes or the wait runs out, and put its
+    outcome on the entry. A lookup that raises counts as not finished yet."""
+    pending = [job for job in jobs if job.get("job_id")]
+    deadline = _clock() + _wait_s()
+    while pending:
+        for job in list(pending):
+            try:
+                outcome = _summarise(job["job_id"], job_state(job["job_id"]))
+            except Exception:  # noqa: BLE001 -- the upload already started; keep waiting
+                logger.warning("upload-reingest: status of job %s unavailable", job["job_id"],
+                               exc_info=True)
+                continue
+            if outcome["status"] != "running":
+                job["outcome"] = outcome
+                pending.remove(job)
+        if not pending or _clock() >= deadline:
+            break
+        _sleep(_POLL_S)
+    for job in pending:
+        job["outcome"] = {"status": "running", "job_id": job["job_id"]}
+
+
+def _error_text(error) -> str:
+    if isinstance(error, dict):
+        return str(error.get("error") or error.get("message") or error)
+    return str(error)
+
+
+def _outcome_line(job: dict) -> str:
+    what = f"{job['sample_type']} ({'new samples' if job['mode'] == 'new' else 'update existing'})"
+    if "job_id" not in job:
+        return f"- {what}: did not start: {job['error']}"
+    outcome = job.get("outcome")
+    if outcome is None:
+        return f"- {what}: started, job {job['job_id']}"
+    if outcome["status"] == "running":
+        return (f"- {what}: still running after the wait, job {job['job_id']}; its result "
+                "will be on your batch-upload page")
+    if "created" not in outcome:
+        return f"- {what}: failed: {outcome['error']}"
+    done = (f"{outcome['created']} samples created" if job["mode"] == "new"
+            else f"{outcome['updated']} samples updated")
+    if outcome["status"] == "succeeded":
+        return f"- {what}: done, {done}"
+    errors = "; ".join(_error_text(e) for e in outcome["errors"])
+    return (f"- {what}: {outcome['failed_rows']} of {outcome['processed']} rows failed"
+            f" ({done}){': ' + errors if errors else ''}")
+
+
 def _reply(jobs: list[dict]) -> str:
-    lines = []
-    for job in jobs:
-        what = f"{job['sample_type']} ({'new samples' if job['mode'] == 'new' else 'update existing'})"
-        if "job_id" in job:
-            lines.append(f"- {what}: started, job {job['job_id']}")
-        else:
-            lines.append(f"- {what}: did not start: {job['error']}")
-    return "Upload jobs:\n" + "\n".join(lines)
+    lines = [_outcome_line(job) for job in jobs]
+    outcomes = [job.get("outcome") for job in jobs]
+    if any(o is None for o in outcomes):
+        return "Upload jobs:\n" + "\n".join(lines)
+    if any(o["status"] == "running" for o in outcomes):
+        head = "Upload started; some jobs are still running:"
+    elif all(o["status"] == "succeeded" for o in outcomes):
+        head = "Upload finished: everything was written to NExtSEEK."
+    else:
+        head = "Upload finished with problems:"
+    tail = ""
+    if any("pending" in str(o.get("graph") or "") for o in outcomes if o):
+        tail = "\nThe new samples are in NExtSEEK now; graph search picks them up on its next sync."
+    return head + "\n" + "\n".join(lines) + tail
 
 
 def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
-        turn_delivered) -> dict:
+        turn_delivered, job_state=None) -> dict:
     """``dispatch`` and ``stage`` are the host's batch-upload seams
     (``dispatch_batch_job`` and ``stage_workbook_copy``), and ``chat_turn`` and
     ``turn_delivered`` its chat-turn lookups, all handed in by the REST layer so
-    this engine module never imports Django."""
+    this engine module never imports Django. ``job_state`` (job id -> the job's
+    Celery state, totals and errors) lets the call wait for the jobs and report
+    how each ended; without it the reply says only that they started."""
     if not all(callable(seam) for seam in (dispatch, stage, chat_turn, turn_delivered)):
         raise UploadRefused(["upload is not wired on this server"])
     user_id = getattr(user, "pk", None)
@@ -215,4 +309,6 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
             logger.exception("upload-reingest: job for %s did not start", record["artifact_key"])
             entry["error"] = f"did not start ({type(exc).__name__}); see the server log"
         jobs.append(entry)
+    if callable(job_state):
+        _await_jobs(jobs, job_state)
     return {"jobs": jobs, "reply": _reply(jobs)}
