@@ -209,7 +209,7 @@ What blocks each row:
 | differentialabundance | `other/dream/<paramset>/<contrast>_<study>.dream.model.txt`, and each method's `*.model.txt` | A.GEX | inventory |
 | differentialabundance | `MethodSettings` on 2.0.0 rows: each paramset has its own settings, which the run's params do not hold, so the field is blank there | A.GEX | inventory: the paramsets file |
 | differentialabundance | non-RNA-seq study types (`--study_type affy_array`, `geo_soft_file`, `maxquant`) are named in `Notes`; their `*.matrix.tsv` normalised matrix has no rule, maxquant's results are protein abundance filed as A.GEX, and their samplesheets name no FASTQ, so no parent resolves | A.GEX, other | type, parent |
-| hlatyping | `hlahd/<sample>/<sample>_final.result.txt` (only with `--tools hlahd`) | A.HLA, once widened with class II fields (proposal pending) | type, inventory; one row per locus, so the rule needs a reader for that layout |
+| hlatyping | `hlahd/<sample>/<sample>_final.result.txt` (only with `--tools hlahd`) | A.HLA (its class II fields, `HLA_DRB1_1` to `HLA_DPB1_2`) | inventory; one row per locus, so the rule needs a reader for that layout |
 | hlatyping | `yara/<sample>/<sample>.mapped.bam`, or `<sample>_1`/`_2.mapped.bam` when paired | A.ALN? | choice: HLA-only reference, and two BAMs per paired sample |
 | riboseq | `alignment/star/sorted/<sample>.transcriptome.sorted.bam` (+ `.bai`) | A.ALN | ready: a companion of the genome BAM's row |
 | riboseq | `alignment/star/deduplicated/<sample>.umi_dedup.genome.sorted.bam` (with `--with_umi`; unconfirmed name) | A.ALN | ready: a first candidate, ahead of the sorted BAM |
@@ -236,7 +236,7 @@ What blocks each row:
 | rnavar | `variant_calling/<sample>/<sample>.haplotypecaller.vcf.gz` (raw calls, when filtering is skipped) | A.VCF | ready: a later candidate, behind the filtered VCF |
 | rnavar | `preprocessing/<sample>/<sample>.md.bam` (when base recalibration is skipped) | A.ALN | ready: a later candidate, behind the recalibrated BAM |
 | rnavar | gVCF with `--generate_gvcf` (unconfirmed name) | A.VCF secondary | ready: a companion of the VCF row |
-| rnavar | `seq2hla/<sample>/<sample>-ClassI-class.HLAgenotype4digits`, with the `ClassII` file as its companion (with `--tools seq2hla`) | A.HLA, once widened with class II fields (proposal pending) | type, inventory; one row per locus, so the rule needs a reader for that layout |
+| rnavar | `seq2hla/<sample>/<sample>-ClassI-class.HLAgenotype4digits`, with the `ClassII` file as its companion (with `--tools seq2hla`) | A.HLA (its class II fields, `HLA_DRB1_1` to `HLA_DPB1_2`) | inventory; one row per locus, so the rule needs a reader for that layout |
 | smrnaseq | `mirna_quant/mirtop/joined_samples_mirtop.tsv` (isomiR counts) | A.GEX | inventory |
 | smrnaseq | `mirna_quant/edger_qc/{mature,hairpin}_normalized_CPM.txt` | A.GEX | inventory |
 | smrnaseq | `genome_quant/bam/*.bam`, `mirna_quant/bam/{hairpin,mature,seqcluster}/*.bam` (only with `--save_intermediates`; `.csi` index) | A.ALN | choice; the `.csi` is not inventoried |
