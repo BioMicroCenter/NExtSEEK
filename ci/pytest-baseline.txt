@@ -12,6 +12,7 @@
 #                   NessieAI/tests/cc NessieAI/tests/router NessieAI/tests/hibayes \
 #                   NessieAI/tests/ns NessieAI/tests/api NessieAI/tests/schema_rag \
 #                   NessieAI/tests/chat_nextseek NessieAI/tests/build_tools \
+#                   docker/cc-spawner/tests \
 #                   --continue-on-collection-errors -q -n auto --dist loadfile --durations=30
 #
 # --continue-on-collection-errors is MANDATORY. Without it the collection
@@ -27,6 +28,12 @@
 # 41 errors. 235 unique IDs; the 3 without "::" are collection-level and each hides an
 # unknown number of tests. The earlier, hand-written history of this file (the 2026-09
 # gate-lane baseline and its updates) is in git log for this path.
+#
+# Re-checked 2026-10-20 on a runner after docker/cc-spawner/tests joined the command
+# (workflow_dispatch run 39488282917 of ci-pytest.yml on branch cm/w9-ci-integration):
+# 195 failed / 22518 passed / 638 skipped / 11 xfailed / 41 errors, and
+# `ci/diff_baseline.py pytest-run.txt --emit-baseline` gave the same 235 IDs, so the
+# entries below are unchanged; only the command above gained the spawner's suite.
 #
 # Regenerate it the same way after a run of the exact command above on a runner, never by
 # editing entries by hand (ci/CLAUDE.md).
