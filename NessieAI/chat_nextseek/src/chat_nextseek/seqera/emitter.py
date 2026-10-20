@@ -464,6 +464,29 @@ def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]], columns: Sequence[
             writer.writerow({c: _coerce_csv(row.get(c)) for c in columns})
 
 
+# A sequence-archive accession (the SRA/ENA/DDBJ id run.sh's fetchngs step downloads)
+# is never a NExtSEEK UID. The UID shape is the one in chat_nextseek.uid_links.
+_ARCHIVE_ACCESSION = re.compile(
+    r"^(?:SRR|SRX|SRP|SRS|ERR|ERX|ERP|ERS|DRR|DRX|DRP|DRS|GSE|GSM|PRJ[A-Z]+)\d+$", re.I)
+_NEXTSEEK_UID = re.compile(r"^(?:[A-Z]\.)?[A-Z]{2,8}-\d{6}[A-Z]{3}-\d+(?:-PUB\d*)?$")
+
+
+def _cohort_uid(row: Mapping[str, Any]) -> str | None:
+    """The NExtSEEK UID a samplesheet row came from, for cohort.json.
+
+    A row backed by a local file carries its UID as `accession` (`sample` is the
+    nf-core name). A row whose reads come from an archive carries the archive
+    accession there instead, for the fetch step, and its UID as `sample`; recording
+    that accession left reingest a parent no sample record has. Neither form found:
+    None, so reingest reports the sample unresolved rather than guess.
+    """
+    accession = str(row.get("accession") or "").strip()
+    if accession and not _ARCHIVE_ACCESSION.match(accession):
+        return accession
+    sample = str(row.get("sample") or "").strip()
+    return sample if _NEXTSEEK_UID.match(sample) else None
+
+
 def _write_cohort_sidecar(samplesheet_path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
     """Write cohort.json beside the samplesheet: which NExtSEEK sample each row came from.
 
@@ -478,7 +501,7 @@ def _write_cohort_sidecar(samplesheet_path: Path, rows: Sequence[Mapping[str, An
     """
     entries = [
         {
-            "d_seq_uid": (row.get("accession") or None),
+            "d_seq_uid": _cohort_uid(row),
             "nfcore_sample": str(row.get("sample") or ""),
             "fastq_1": str(row.get("fastq_1") or ""),
             "fastq_2": str(row.get("fastq_2") or "") or None,
