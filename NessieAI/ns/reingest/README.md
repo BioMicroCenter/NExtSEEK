@@ -33,7 +33,7 @@ Map files live beside this package in [`../reingest_maps/`](../reingest_maps/REA
 
 ## The fix loop and the upload
 
-`build-upload-xlsx` maps and QAs a run, and returns the findings. The mapper's warnings (an unchecked release, a rule that matched nothing, a companion with nowhere to go) come back under "Map notes:". When a primary-data rule matched nothing, the missing-file blocker names the rule and says the file can't be filled in from chat, rather than asking for a path. A build from a manifest with no launch record opens with a "TEST ONLY:" line, and only a superuser can make one. The curator answers in chat
+`build-upload-xlsx` maps and QAs a run, and returns the findings. The mapper's warnings (an unchecked release, a rule that matched nothing, a companion with nowhere to go) are map maintenance, not something the user can act on: they go to the server log as `reingest map note:` lines with the pipeline, release, run and manifest, never into the reply. When a primary-data rule matched nothing, the missing-file blocker names the rule and says the file can't be filled in from chat, rather than asking for a path. A build from a manifest with no launch record opens with a "TEST ONLY:" line, and only a superuser can make one. The curator answers in chat
 and the op is called again with `answers`, validated against the first pass's findings. Three
 kinds, each licensed only by what that run flagged:
 

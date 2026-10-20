@@ -13,6 +13,7 @@ the parser").
 from __future__ import annotations
 
 import inspect
+import logging
 from unittest.mock import patch
 
 import openpyxl
@@ -207,7 +208,7 @@ def _sample_record(nfcore_sample: str, d_seq_uid: str, *, metrics=None) -> manif
 
 
 def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksums=None,
-                   launch_record_id=1):
+                   launch_record_id=1, version="3.18.0"):
     # store._ROOT is resolved once at module-import time from an env var; a
     # module already imported by an earlier test would ignore a later
     # monkeypatch.setenv, so patch the module attribute directly instead
@@ -221,7 +222,7 @@ def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksu
         run_dir="/net/cluster/runs/r1",
         launch_record_id=launch_record_id,
         pipeline=manifest_mod.PipelineInfo(
-            name="nf-core/rnaseq", version="3.18.0", run_name="test_run_1"),
+            name="nf-core/rnaseq", version=version, run_name="test_run_1"),
         params={"genome": "GRCh38", "aligner": "star_salmon"},
         samples=[_sample_record("SAMPLE_1", "D.SEQ-EXAMPLE-1", metrics=metrics)],
         outputs=outputs if outputs is not None else _default_outputs(["SAMPLE_1"]),
@@ -400,6 +401,23 @@ def test_the_manifest_path_never_actually_calls_proposals_record(rows, tmp_path,
     # Sanity: this run genuinely produced a needs_definition proposal (the
     # thing that would have been recorded, had this op recorded anything).
     assert any(p.get("status") == "needs_definition" for p in result["proposals"])
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_map_notes_go_to_the_server_log_not_the_reply(rows, tmp_path, monkeypatch, caplog):
+    """A map note (here an unchecked release) is for whoever maintains the map: the user
+    can do nothing with it, so it is logged for administrators and kept out of the reply."""
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch, version="2.0.0")
+    with caplog.at_level(logging.WARNING, logger="NessieAI.ns.granular"):
+        result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                           outputs_dir=str(tmp_path))
+
+    assert "Map notes" not in result["reply"]
+    assert "checked range" not in result["reply"]
+    notes = [r.getMessage() for r in caplog.records if "reingest map note" in r.getMessage()]
+    assert any("nf-core/rnaseq 2.0.0 is outside the checked range" in n
+               and "run test_run_1" in n and f"manifest {manifest_id}" in n for n in notes), notes
 
 
 # ---------------------------------------------------------------------------

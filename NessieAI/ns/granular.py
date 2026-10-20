@@ -1859,8 +1859,13 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
         reports_by_type, saved_files, run_name, ambiguous_primary=ambiguous_primary,
         row_counts={st: len(rows) for st, rows in final.rows_by_type.items()},
         unmapped_count=len(result.unmapped or []), missed_rules=result.missed_rules)
-    if result.warnings:
-        reply += "\n\nMap notes:\n" + "\n".join(f"- {w}" for w in result.warnings)
+    # Map notes (an unchecked release, a companion with nowhere to go, values
+    # with no home on the parent's type) are for whoever maintains the map; the
+    # user can act on none of them, so they go to the server log, not the reply.
+    # A missed required rule still reaches the user, as its blocker.
+    for note in result.warnings:
+        logger.warning("reingest map note: %s (pipeline %s %s, run %s, manifest %s)",
+                       note, pipeline, run_manifest.pipeline.version, run_name, manifest_id)
     if test_only:
         reply = ("TEST ONLY: this run wasn't launched by Nessie. "
                  "These workbooks can't be uploaded.\n\n" + reply)
