@@ -24,12 +24,13 @@ Breaking one is a regression, not a refactor.
 - **`reset` passes every install parameter explicitly** (`startup/cli.py:497-507`),
   including `no_seed=False` and the carried-over CI profile. Omit one and it arrives as
   the truthy sentinel above, on a stack whose volumes have just been dropped.
-- **The app image runs in exactly one service, `nextseek`** (`BASE_APP_RUNTIME_SERVICES`
-  in `startup/lib/rebuild_policy.py`). The attribute and assay-registration workers are
-  processes of that container (`docker/scripts/entrypoint.sh`), so a rebuild cannot leave
-  one on the old image. A second service running the app image re-opens that failure
-  unless startup also restarts it; `startup/tests/test_rebuild_policy.py` asserts the set
-  against compose.
+- **The app image runs in exactly two services, `nextseek` (the worker) and `web`**
+  (`BASE_APP_RUNTIME_SERVICES` in `startup/lib/rebuild_policy.py`). The attribute and
+  assay-registration workers are processes of the worker container
+  (`docker/scripts/entrypoint.sh`), so a rebuild cannot leave one on the old image; `web`
+  is swapped (`startup/lib/web_swap.py`). A third service running the app image re-opens
+  that failure unless startup also restarts it; `startup/tests/test_rebuild_policy.py`
+  asserts the set against compose.
 - **An absent or empty `ci_profile` resolves to the narrowest value, `prod`**: at the
   install default (`startup/cli.py:46-47`), at the runner
   (`startup/ci/runner.py:54`) and in the diagnostic (`startup/steps/doctor.py:31-36`).
@@ -119,9 +120,10 @@ Breaking one is a regression, not a refactor.
 - **`rebuild` starts the front door and never recreates it.** After restarting the app it
   runs `up -d --no-deps nextseek_nginx` without `--force-recreate`, which is a no-op on a
   running nginx and a start on a stopped one. nginx needs no restart for a new app
-  container (`docker/nginx.conf` re-resolves `nextseek` per request), and an unscoped
-  recreate took SEEK down on dev on 2026-09-02. Only a rebuild that restarts something
-  does this; an image-only component (`cc-agent`) and `--no-restart` leave it alone.
+  container (`docker/nginx.conf` re-resolves `web`, or the pinned container, per
+  request), and an unscoped recreate took SEEK down on dev on 2026-09-02. Only a rebuild
+  that restarts something does this; an image-only component (`cc-agent`) and
+  `--no-restart` leave it alone.
 - **An absent rollback source is a first build, an unreachable daemon is an outage**
   (`startup/steps/rollback_tags.py`, `startup/lib/docker_ops.py:image_exists`).
   `docker image inspect` exits 1 for both, which once made `./startup.sh rebuild

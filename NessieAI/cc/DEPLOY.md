@@ -155,7 +155,7 @@ Rebuild never re-renders that file.
    (usually disk), fix the cause and restart `nextseek`: the heal skips a table
    that is already there.
 3. If `static/` changed in the range (unit B's chat bundle did), run
-   `docker compose exec nextseek uv run manage.py collectstatic --noinput`
+   `docker compose exec web uv run manage.py collectstatic --noinput`
    (DEPLOYMENT.md §3.2).
 
 **Post-checks, read-only.**

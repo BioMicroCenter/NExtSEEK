@@ -37,7 +37,7 @@ estimate from `brief.json` against the budget), expected minutes (`derived.estim
 | busy | `pgrep` inside `nextseek` for a graph sync, drift or harness run | anything found |
 | pull | `git fetch`; discards only the app's context refresh; `git merge --ff-only <expected>` | origin/dev is not the sha, or the fast-forward is refused |
 | rebuilds | each component in the order bedrock-proxy, cc-spawner, app, cc-agent, nextseek-sidecar, `--no-ci` | the success line is missing (unless the component is in `continue_on_failure`: then it says `FAILED ..., continuing`) |
-| after app | collectstatic; on dev the labs copy and a `nextseek` restart; `mkdir -p /app/runs` | never |
+| after app | collectstatic in `web`; on dev the labs copy onto the volume `web` and `nextseek` share (no restart); `mkdir -p /app/runs` in both | never |
 | judge | every red stack-health line of each rebuild log, classified | an unexplained or stale red while components are still pending; after the last rebuild it becomes a `FINDING` line and the run goes on to CI |
 | checks | http, containers, boot markers, CC runner, labs, refresh marker, the ops road and, on the sidecar road only, sidecar ops against the repo, image ages, cc-agent node and Claude Code versions (when rebuilt), every live marker, memory | never (it is evidence) |
 | CI | `./startup.sh ci [--wait-ready] --no-nessie` | never; it records the result line, new reds and red health lines |
