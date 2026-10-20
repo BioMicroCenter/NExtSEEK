@@ -417,7 +417,9 @@ the old stop-and-start. Steps (`startup/lib/web_swap.py`):
 1. Build, then check the NEW image in a throwaway container: `manage.py migrate --check`.
    A pending migration prints why and falls back to stop-first on its own (old code must
    not run on a new schema); users then see the restart page for about a minute and
-   running chat turns get up to 240 s to finish (`NEXTSEEK_DRAIN_SECONDS`).
+   running chat turns get up to 240 s to finish (`NEXTSEEK_DRAIN_SECONDS`). Stop-first
+   recreates `web` alone first, so the old one has drained and stopped before the worker
+   is recreated and migrates; the new one waits in its entrypoint for the migrations.
 2. Recreate the `nextseek` worker (background jobs pause for its boot; users do not see it).
 3. Pin nginx to the old web container (`docker/nginx-upstream/pin.conf`, then
    `nginx -t` and a graceful reload), start a second `web` beside it on the new image
@@ -428,13 +430,22 @@ the old stop-and-start. Steps (`startup/lib/web_swap.py`):
    "please ask again"), `docker rm` it, delete the pin.
 
 Any failure before the switch removes the new container and the pin; the old one never
-stopped serving. `doctor` reports a pin left by a killed swap. If `docker compose ps web`
-shows two containers after an aborted rebuild, the next rebuild refuses with the fix
-(stop and remove the older one, delete the pin file, reload nginx).
+stopped serving. A pin left by a killed swap may name a container that is gone: `doctor`
+reports it, and `rebuild` refuses to build or replace `web` until it is deleted and nginx
+reloaded. If `docker compose ps web` shows two containers after an aborted rebuild, the
+next rebuild refuses with the fix (stop and remove the older one, delete the pin file,
+reload nginx).
 
 **The first deploy of the split is a switchover, not a swap.** It creates `web`, turns
-`nextseek` into the worker and needs nginx to mount the new upstream directory, so run
-`./startup.sh rebuild --recreate-nginx` once per box: about a minute of the restart page.
+`nextseek` into the worker and needs nginx to mount the new upstream directory. `web`
+sends Container-CC turns and the SEEK user scripts to `cc-spawner`, which the app rebuild
+does not start, so build the spawner first, once per box:
+
+```bash
+./startup.sh rebuild --component cc-spawner
+./startup.sh rebuild --recreate-nginx      # about a minute of the restart page
+```
+
 Every rebuild after it swaps. `rebuild` also writes the spawner token pair
 (`NEXTSEEK_SPAWNER_TOKEN` in `docker/nextseek.env`, `SPAWNER_TOKEN` in
 `docker/cc-spawner.env`) on a box that lacks it; both files stay out of git. The
