@@ -1908,7 +1908,8 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir)
                             user=getattr(session, "user", None),
                             upload_context=upload_context,
                             dispatch=getattr(session, "dispatch_job", None),
-                            stage=getattr(session, "stage_workbook", None))
+                            stage=getattr(session, "stage_workbook", None),
+                            job_state=getattr(session, "job_state", None))
     except upload.UploadRefused as exc:
         raise OpValidationError(str(exc)) from exc
     _mark_runs_reingested(result.get("jobs") or [])

@@ -1225,7 +1225,7 @@ class AssistantViewSet(viewsets.ViewSet):
             # job dispatch and workbook staging seams travel on the session as
             # well, so the engine never imports the batch-upload views.
             from nextseek_api.batch_upload.views import (
-                _resolve_user_context, dispatch_batch_job, stage_workbook_copy,
+                _resolve_user_context, dispatch_batch_job, job_outcome, stage_workbook_copy,
             )
 
             def _upload_context():
@@ -1233,7 +1233,8 @@ class AssistantViewSet(viewsets.ViewSet):
 
             session = SimpleNamespace(user=request.user, upload_context=_upload_context,
                                       dispatch_job=dispatch_batch_job,
-                                      stage_workbook=stage_workbook_copy)
+                                      stage_workbook=stage_workbook_copy,
+                                      job_state=job_outcome)
         else:
             session = None
         gate = build_gate(load_allowlist())

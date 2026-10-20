@@ -294,8 +294,10 @@ produce workbooks for the user to REVIEW and never write to NExtSEEK. Only step 
    yes**, call `nextseek-upload-reingest --build-ids <every build_id you listed, comma-separated>
    --confirmed-write`. Anything other than a clear yes: do not call it, acknowledge, and stop.
    Never reuse a yes given to an earlier confirmation, and confirm again if the builds changed.
-   Relay the result's `reply` verbatim: each workbook is its own job, and a job that did not start
-   is reported there with its reason.
+   Relay the result's `reply` verbatim: each workbook is its own job. The op waits for the jobs
+   (up to about 45 s) and the reply says how each ended: samples created or updated, rows that
+   failed with their errors, a job that did not start, or one still running after the wait. Do
+   not tell the user to check the batch-upload page for a job the reply reports as done.
 
 **Multi-step "do X, then Y" — `nextseek-plan`.** See the planner section below.
 

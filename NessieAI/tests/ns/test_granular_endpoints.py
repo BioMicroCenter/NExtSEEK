@@ -459,6 +459,8 @@ class ReingestEndpointTests(GranularEndpointBase):
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertIs(run.call_args.kwargs["dispatch"], batch_views.dispatch_batch_job)
         self.assertIs(run.call_args.kwargs["stage"], batch_views.stage_workbook_copy)
+        # ...and the job-state lookup, so the op can wait and report how each job ended.
+        self.assertIs(run.call_args.kwargs["job_state"], batch_views.job_outcome)
 
     def test_upload_reingest_refuses_a_caller_supplied_person_id(self):
         """The batch-upload identity resolver honours a body person_id for

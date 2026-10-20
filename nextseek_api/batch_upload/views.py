@@ -687,6 +687,20 @@ def dispatch_batch_job(*, user_pk: int, user_ctx: dict, lababbv: str, project_id
     return task.id
 
 
+def job_outcome(job_id: str) -> dict:
+    """One job's state for upload-reingest's wait: the Celery state, plus the totals
+    and errors once it succeeded, or the error once it failed. Read the same way as
+    the status action; ownership is the caller's (upload-reingest started the job)."""
+    result = AsyncResult(job_id, app=celery_app)
+    if result.state == "SUCCESS":
+        payload = result.result if isinstance(result.result, dict) else {}
+        return {"state": "SUCCESS", "totals": payload.get("totals") or {},
+                "errors": payload.get("errors") or []}
+    if result.state in ("FAILURE", "REVOKED"):
+        return {"state": result.state, "error": str(result.result)}
+    return {"state": result.state}
+
+
 def stage_workbook_copy(path: str) -> str:
     """Copy a server-side workbook to where uploaded files live, for the worker."""
     import shutil
