@@ -87,6 +87,17 @@ def leftover_pin(repo_root: Path) -> str | None:
     return text.split('"')[1] if '"' in text else text.strip() or "(empty)"
 
 
+def refuse_leftover_pin(repo_root: Path) -> None:
+    """Raise when a killed swap left a pin: nginx may name a container that is gone, and replacing web in any way
+    (swap, start, recreate) would report success while every request answers 502."""
+    name = leftover_pin(repo_root)
+    if name is not None:
+        raise SwapError(
+            f"docker/nginx-upstream/pin.conf names {name}: a swap was killed part-way. "
+            "Delete the file and reload nginx (`docker compose exec nextseek_nginx nginx -s reload`), "
+            "then rebuild again.")
+
+
 def migrations_pending(run) -> tuple[bool, str]:
     """True when the NEW image has migrations the database lacks (or the check itself fails).
 
@@ -126,6 +137,7 @@ def swap(run, repo_root: Path, *, say=print, warn=print, sleep=time.sleep,
          clock=time.monotonic, healthy_timeout: float = HEALTHY_TIMEOUT_S) -> str:
     """Replace the running web container. Returns "swapped" or "started"."""
     repo_root = Path(repo_root)
+    refuse_leftover_pin(repo_root)
     up_web = ["docker", "compose", "up", "-d", "--no-deps", "web"]
     ids = _ok(run, ["docker", "compose", "ps", "-q", "web"], "listing web containers").split()
     if len(ids) > 1:
@@ -138,11 +150,6 @@ def swap(run, repo_root: Path, *, say=print, warn=print, sleep=time.sleep,
         say("no web container is running: starting one (no swap needed)")
         _ok(run, up_web, "starting web")
         return "started"
-    if leftover_pin(repo_root) is not None:
-        raise SwapError(
-            f"docker/nginx-upstream/pin.conf names {leftover_pin(repo_root)}: a swap was killed part-way. "
-            "Delete the file and reload nginx (`docker compose exec nextseek_nginx nginx -s reload`), "
-            "then rebuild again.")
     if not run(["docker", "compose", "ps", "-q", "--status=running", NGINX]).stdout.strip():
         say("the front door is down, so nobody is being served: replacing web in place")
         _ok(run, [*up_web[:-1], "--force-recreate", "web"], "recreating web")

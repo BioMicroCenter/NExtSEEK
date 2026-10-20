@@ -840,6 +840,15 @@ def rebuild(
     # Before the disk review: a box that is going to be refused should not be
     # walked through a purge first.
     _nessie_env_preflight_or_exit()
+    # A pin a killed swap left behind may name a container that is gone. Every way
+    # this rebuild replaces web (swap, start, stop-first recreate) would then report
+    # success while nginx answers 502, so refuse before building anything.
+    if restart and "web" in policy.restart_services:
+        try:
+            web_swap.refuse_leftover_pin(REPO_ROOT)
+        except web_swap.SwapError as exc:
+            ui.fail(str(exc))
+            raise typer.Exit(code=1) from exc
     # A box installed before the CC spawner existed has no token pair yet; write it
     # here (it only adds a key to docker/nextseek.env, never re-renders the file).
     if (REPO_ROOT / "docker" / "nextseek.env").exists():

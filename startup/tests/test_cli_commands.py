@@ -2524,6 +2524,27 @@ def test_rebuild_exits_red_when_the_swap_fails(
     assert "webswapfailed" in "".join(result.output.split())
 
 
+@pytest.mark.parametrize("args", [["rebuild"], ["rebuild", "--stop-first"]])
+def test_rebuild_refuses_a_leftover_pin_before_touching_any_container(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, args: list[str],
+) -> None:
+    """A killed swap can leave nginx pinned to a container that is gone; replacing web in place would then report
+    success while every request answers 502."""
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    swaps = _stub_web_swap(monkeypatch)
+    calls = _record_compose_up(monkeypatch)
+    (repo / "docker" / "nginx-upstream").mkdir(parents=True, exist_ok=True)
+    (repo / "docker" / "nginx-upstream" / "pin.conf").write_text('set $upstream "nextseek-web-3";\n')
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, args)
+
+    assert result.exit_code == 1
+    assert calls == [] and swaps == []
+    assert "pin.confnamesnextseek-web-3" in "".join(result.output.split())
+
+
 def test_rebuild_no_restart_neither_swaps_nor_checks_migrations(
     repo: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

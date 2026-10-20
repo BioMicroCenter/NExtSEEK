@@ -206,6 +206,18 @@ def test_leftover_pin_is_refused_before_a_swap_starts(repo: Path) -> None:
     assert fake.verbs() == []
 
 
+@pytest.mark.parametrize("state", [{"web_ids": ()}, {"nginx_running": False}])
+def test_leftover_pin_is_refused_when_web_would_be_replaced_in_place(repo: Path, state) -> None:
+    """No web running, or the front door down: the in-place branches must not report success while nginx stays
+    pinned to a container that is gone."""
+    web_swap.pin_path(repo).write_text('set $upstream "nextseek-web-3";\n')
+    fake = FakeDocker(repo, **state)
+    with pytest.raises(SwapError, match="pin.conf names nextseek-web-3"):
+        run_swap(fake, repo)
+    assert not [c for c in fake.calls if c[:3] == ["docker", "compose", "up"]]
+    assert web_swap.pin_path(repo).exists()
+
+
 def test_migrations_pending_reads_the_exit_code() -> None:
     seen = []
 
