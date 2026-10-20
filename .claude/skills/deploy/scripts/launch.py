@@ -1097,9 +1097,10 @@ def runner_values(data: dict, brief: BriefForm, d: Path, exp_full: str, cases: l
         "TAG": tag, "EXP": exp_full, "INSTANCE": inst.name, "REPO": inst.repo, "IN": inst.in_dir,
         "HOME": inst.home,
         "COMPONENTS": " ".join(images),
-        # The one rebuild that carries --recreate-nginx: the first, and only when the range changes
-        # docker/nginx.conf AND the brief allows 'nginx recreate ok'. Otherwise nothing recreates nginx.
-        "RECREATE_NGINX_ON": (images[0] if images and brief.nginx_change_expected
+        # The one rebuild that carries --recreate-nginx, only when the range changes docker/nginx.conf AND the
+        # brief allows 'nginx recreate ok': the app's when it is rebuilt (nginx.conf proxies to `web`, which the
+        # app rebuild creates or replaces), else the first. Otherwise nothing recreates nginx.
+        "RECREATE_NGINX_ON": (("app" if "app" in images else images[0]) if images and brief.nginx_change_expected
                               and "nginx recreate ok" in brief.allowed_extras else ""),
         "CONTINUE_ON_FAILURE": " ".join(brief.continue_on_failure),
         "DO_STATIC": "1", "DO_LABS": "1" if (inst.labs_copy and "app" in images) else "0",

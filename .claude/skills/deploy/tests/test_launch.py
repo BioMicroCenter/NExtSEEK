@@ -1432,6 +1432,14 @@ def test_an_nginx_flagged_launch_that_allows_the_recreate_renders_the_flag(tmp_p
     assert "--recreate-nginx" in text and "NGINX_RECREATE" in text
 
 
+def test_the_nginx_recreate_rides_the_app_rebuild_when_app_is_rebuilt(tmp_path, capsys):
+    # nginx.conf proxies to the `web` service, which only the app rebuild creates or replaces: recreating
+    # nginx with an earlier component (cc-spawner) points it at nothing until the app rebuild ends.
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-spawner", "app", "cc-agent"],
+                              nginx_change_expected=True, allowed_extras=["nginx recreate ok"])
+    assert re.search(r'^RECREATE_NGINX_ON="app"$', text, re.M)
+
+
 def test_without_the_extra_the_runner_recreates_nothing(tmp_path, capsys):
     d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"], nginx_change_expected=True)
     assert 'RECREATE_NGINX_ON=""' in text
