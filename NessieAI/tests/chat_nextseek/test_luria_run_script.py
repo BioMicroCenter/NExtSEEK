@@ -344,7 +344,14 @@ def test_render_fetch_block_fails_fast_on_fetch_or_fill_error():
     # A failed download or fill must abort run.sh, not fall through to a doomed pipeline run.
     out = _render(needs_fetch=True, fastq_cache="/w/fastq_cache", fetchngs_revision="1.12.0")
     assert out.count("exit 1") >= 2                       # guards on both the fetch and the fill
-    assert 'fastq/*"${acc}"*.fastq.gz' in out             # substring pre-glob matches <exp>_<run>_*
+
+
+def test_render_fetch_block_cache_check_uses_the_fill_matcher():
+    # A substring glob counted SRR1 as cached when only SRR10's files were there; the shell
+    # now asks the helper, so "cached" means exactly what fill can resolve.
+    out = _render(needs_fetch=True, fastq_cache="/w/fastq_cache", fetchngs_revision="1.12.0")
+    assert 'fetchngs_helpers.py cached "$CACHE"' in out
+    assert '"${acc}"' not in out
 
 
 def test_render_fetch_block_rejects_bad_cache():

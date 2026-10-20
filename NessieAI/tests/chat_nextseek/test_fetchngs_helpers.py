@@ -1,5 +1,8 @@
+import csv
 from pathlib import Path
-from chat_nextseek.luria.fetchngs_helpers import needs_fetch_accessions, fill_rows
+from chat_nextseek.luria.fetchngs_helpers import (
+    _main_cached, _main_fill, fill_rows, needs_fetch_accessions, uncached_accessions,
+)
 
 
 def test_needs_fetch_accessions_selects_blank_fastq_srr_rows():
@@ -64,3 +67,127 @@ def test_fill_rows_experiment_prefixed_single_end(tmp_path):
         [{"sample": "a", "accession": "SRR8", "fastq_1": "", "fastq_2": ""}], str(tmp_path))
     assert missing == []
     assert rows[0]["fastq_1"].endswith("SRX999_SRR8.fastq.gz") and rows[0]["fastq_2"] == ""
+
+
+# --- experiment accessions (SRX/ERX/DRX): the accession is the PREFIX of fetchngs' name ----
+
+def _cache(tmp_path, *names):
+    (tmp_path / "fastq").mkdir()
+    for name in names:
+        (tmp_path / "fastq" / name).write_text("x")
+    return str(tmp_path)
+
+
+def test_fill_rows_experiment_accession_paired(tmp_path):
+    # Luria run rnavar-mda-mb-231: the sheet carried SRX ids and fetchngs wrote <SRX>_<SRR>_{1,2}.
+    cache = _cache(tmp_path, "SRX25141024_SRR29635281_1.fastq.gz", "SRX25141024_SRR29635281_2.fastq.gz")
+    rows, missing = fill_rows(
+        [{"sample": "a", "accession": "SRX25141024", "fastq_1": "", "fastq_2": ""}], cache)
+    assert missing == []
+    assert len(rows) == 1
+    assert rows[0]["fastq_1"].endswith("SRX25141024_SRR29635281_1.fastq.gz")
+    assert rows[0]["fastq_2"].endswith("SRX25141024_SRR29635281_2.fastq.gz")
+
+
+def test_fill_rows_experiment_accession_single_end(tmp_path):
+    cache = _cache(tmp_path, "SRX25141026_SRR29635279.fastq.gz")
+    rows, missing = fill_rows(
+        [{"sample": "a", "accession": "SRX25141026", "fastq_1": "", "fastq_2": ""}], cache)
+    assert missing == []
+    assert rows[0]["fastq_1"].endswith("SRX25141026_SRR29635279.fastq.gz") and rows[0]["fastq_2"] == ""
+
+
+def test_fill_rows_experiment_with_several_runs_emits_one_row_per_run(tmp_path):
+    # One experiment, two runs: nf-core pipelines merge rows that share a sample, so every run
+    # becomes its own row. Picking one would silently drop reads.
+    cache = _cache(tmp_path,
+                   "SRX1_SRR11_1.fastq.gz", "SRX1_SRR11_2.fastq.gz",
+                   "SRX1_SRR12_1.fastq.gz", "SRX1_SRR12_2.fastq.gz")
+    sheet = [
+        {"sample": "before", "accession": "", "fastq_1": "/net/bmc/x_1.fastq.gz", "fastq_2": "", "strandedness": "auto"},
+        {"sample": "a", "accession": "SRX1", "fastq_1": "", "fastq_2": "", "strandedness": "reverse"},
+        {"sample": "after", "accession": "", "fastq_1": "/net/bmc/y_1.fastq.gz", "fastq_2": "", "strandedness": "auto"},
+    ]
+    rows, missing = fill_rows(sheet, cache)
+    assert missing == []
+    assert [r["sample"] for r in rows] == ["before", "a", "a", "after"]
+    runs = rows[1:3]
+    assert [r["fastq_1"].rsplit("/", 1)[1] for r in runs] == ["SRX1_SRR11_1.fastq.gz", "SRX1_SRR12_1.fastq.gz"]
+    assert [r["fastq_2"].rsplit("/", 1)[1] for r in runs] == ["SRX1_SRR11_2.fastq.gz", "SRX1_SRR12_2.fastq.gz"]
+    assert all(r["strandedness"] == "reverse" and r["accession"] == "SRX1" for r in runs)
+
+
+def test_fill_rows_run_of_a_multi_run_experiment_gets_only_its_own_files(tmp_path):
+    cache = _cache(tmp_path,
+                   "SRX1_SRR11_1.fastq.gz", "SRX1_SRR11_2.fastq.gz",
+                   "SRX1_SRR12_1.fastq.gz", "SRX1_SRR12_2.fastq.gz")
+    rows, missing = fill_rows([{"sample": "a", "accession": "SRR12", "fastq_1": "", "fastq_2": ""}], cache)
+    assert missing == [] and len(rows) == 1
+    assert rows[0]["fastq_1"].endswith("SRX1_SRR12_1.fastq.gz")
+
+
+def test_fill_rows_ena_and_ddbj_experiments(tmp_path):
+    cache = _cache(tmp_path,
+                   "ERX100_ERR200_1.fastq.gz", "ERX100_ERR200_2.fastq.gz",
+                   "DRX300_DRR400.fastq.gz")
+    rows, missing = fill_rows([
+        {"sample": "e", "accession": "ERX100", "fastq_1": "", "fastq_2": ""},
+        {"sample": "d", "accession": "DRX300", "fastq_1": "", "fastq_2": ""},
+    ], cache)
+    assert missing == []
+    assert rows[0]["fastq_1"].endswith("ERX100_ERR200_1.fastq.gz")
+    assert rows[0]["fastq_2"].endswith("ERX100_ERR200_2.fastq.gz")
+    assert rows[1]["fastq_1"].endswith("DRX300_DRR400.fastq.gz") and rows[1]["fastq_2"] == ""
+
+
+def test_fill_rows_accession_never_prefix_matches_a_longer_accession(tmp_path):
+    # SRR1 must not take SRR10's files, nor SRX1 take SRX10's.
+    cache = _cache(tmp_path,
+                   "SRX10_SRR10_1.fastq.gz", "SRX10_SRR10_2.fastq.gz",
+                   "SRR15_1.fastq.gz", "SRX7_SRR100.fastq.gz")
+    rows, missing = fill_rows([
+        {"sample": "a", "accession": "SRR1", "fastq_1": "", "fastq_2": ""},
+        {"sample": "b", "accession": "SRX1", "fastq_1": "", "fastq_2": ""},
+    ], cache)
+    assert missing == ["SRR1", "SRX1"]
+    assert all(r["fastq_1"] == "" for r in rows)
+
+
+def test_fill_rows_ignores_a_lone_read_2(tmp_path):
+    cache = _cache(tmp_path, "SRX1_SRR11_2.fastq.gz")
+    _, missing = fill_rows([{"sample": "a", "accession": "SRX1", "fastq_1": "", "fastq_2": ""}], cache)
+    assert missing == ["SRX1"]
+
+
+def test_main_fill_writes_one_row_per_run(tmp_path):
+    cache = _cache(tmp_path, "SRX1_SRR11_1.fastq.gz", "SRX1_SRR12_1.fastq.gz")
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("sample,accession,fastq_1,fastq_2\na,SRX1,,\n", encoding="utf-8")
+    assert _main_fill(cache, str(sheet)) == 0
+    with open(sheet, newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    assert [r["sample"] for r in rows] == ["a", "a"]
+    assert [Path(r["fastq_1"]).name for r in rows] == ["SRX1_SRR11_1.fastq.gz", "SRX1_SRR12_1.fastq.gz"]
+
+
+# --- the shell's "already cached?" check uses the same matcher as fill --------------------
+
+def test_uncached_accessions_uses_the_fill_matcher(tmp_path):
+    cache = _cache(tmp_path, "SRX1_SRR11_1.fastq.gz", "SRR10_1.fastq.gz")
+    # SRR1 is a substring of SRR10 and of SRR11 but has no files of its own.
+    assert uncached_accessions(["SRX1", "SRR11", "SRR10", "SRR1"], cache) == ["SRR1"]
+
+
+def test_main_cached_exit_code(tmp_path):
+    cache = _cache(tmp_path, "SRX1_SRR11_1.fastq.gz")
+    ids = tmp_path / "ids.csv"
+    ids.write_text("SRX1\n", encoding="utf-8")
+    assert _main_cached(cache, str(ids)) == 0
+    ids.write_text("SRX1\nSRR1\n", encoding="utf-8")
+    assert _main_cached(cache, str(ids)) == 1
+
+
+def test_main_cached_with_no_fastq_dir_is_not_cached(tmp_path):
+    ids = tmp_path / "ids.csv"
+    ids.write_text("SRR1\n", encoding="utf-8")
+    assert _main_cached(str(tmp_path), str(ids)) == 1

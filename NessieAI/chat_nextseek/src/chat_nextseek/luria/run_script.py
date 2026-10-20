@@ -85,17 +85,16 @@ def validate_genome(genome: str) -> str:
 _TEMPLATE = Path(__file__).parent / "templates" / "run.sh.tmpl"
 
 _FETCHNGS_BLOCK_TMPL = """
-# --- fetchngs pre-stage: fetch SRR-only rows to the shared cache, then fill the sheet ---
+# --- fetchngs pre-stage: fetch accession-only rows to the shared cache, then fill the sheet ---
 # Rows with a local /net/bmc-* fastq are already filled and untouched; only rows with an
 # empty fastq_1 + an SRA accession are fetched. fetchngs_helpers.py is staged beside run.sh.
 CACHE="{FASTQ_CACHE}"
 mkdir -p "$CACHE/fastq" "$CACHE/work"
 python3 fetchngs_helpers.py ids
 if [ -s ids.csv ]; then
-  # fetchngs writes <experiment>_<run>_*.fastq.gz, so the accession is a substring, not a prefix.
-  need=0
-  while read acc; do ls "$CACHE"/fastq/*"${{acc}}"*.fastq.gz >/dev/null 2>&1 || need=1; done < ids.csv
-  if [ "$need" = "1" ]; then
+  # "cached" uses fill's own matcher (whole run or experiment id in fetchngs' <exp>_<run>
+  # names), so the download is skipped only when fill will find every accession.
+  if ! python3 fetchngs_helpers.py cached "$CACHE"; then
     # fetchngs' minimal wget container has no /etc/resolv.conf and Luria's singularity cannot
     # create that file mountpoint, so containerized wget can't resolve ENA. Nextflow ignores
     # $SINGULARITY_BIND, so pass a host /etc DIRECTORY bind via singularity.runOptions in a
