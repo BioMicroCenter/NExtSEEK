@@ -493,7 +493,7 @@ def test_the_runner_reads_the_web_process_from_the_web_service(tmp_path, capsys)
     boot = next(ln for ln in text.splitlines() if "CHECK boot_markers" in ln)
     assert "logs --no-log-prefix web" in boot and "docker logs nextseek" in boot   # the worker migrates
     assert "compose exec -T web uv run --no-sync python -c 'from NessieAI.cc import cc_engine" in text
-    assert "CHECK container web " in text and "compose ps -q web" in text
+    assert "for s in web cc-spawner;" in text and "CHECK container $s " in text and "compose ps -q $s" in text
 
 
 def test_the_labs_copy_writes_once_to_the_shared_path_and_restarts_nothing(tmp_path, capsys):
@@ -1447,7 +1447,7 @@ def test_cc_spawner_is_a_component_rebuilt_before_the_app(tmp_path, capsys):
     d, text = rendered_runner(tmp_path, capsys, images=["cc-spawner", "app"],
                               allowed_extras=["bedrock-proxy rebuild ok"])
     assert 'COMPONENTS="cc-spawner app"' in text
-    assert "docker inspect -f 'status=" in text and "for k in nextseek nextseek-sidecar dmac-bedrock-proxy cc-spawner" in text
+    assert "docker inspect -f 'status=" in text and "for k in nextseek nextseek-sidecar dmac-bedrock-proxy;" in text and "for s in web cc-spawner;" in text
     assert "nextseek-cc-spawner:latest" in text
     note = (Path(__file__).resolve().parents[1] / "references" / "dev.md").read_text()
     assert "cuts a CC turn" in note

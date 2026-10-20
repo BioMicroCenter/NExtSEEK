@@ -323,10 +323,6 @@ files = ["nextseek.env"]
 default = ""
 doc = "graph_sync loop: label-change handling switch."
 
-[SEEK_CONTAINER_NAME]
-files = ["nextseek.env"]
-doc = "SEEK container the rails runner execs into; the code default is the unprefixed name."
-
 [SEEK_RAILS_RUNNER_TIMEOUT]
 files = ["nextseek.env"]
 doc = "Seconds a SEEK rails runner call may take."
@@ -877,6 +873,11 @@ doc = "Memory cap of the worker container (the nine background loops)."
 files = ["root.env"]
 default = "240"
 doc = "How long a stopping web container lets running chat turns finish before it cuts them. web's stop_grace_period must stay at least this plus 30 s."
+
+[NEXTSEEK_SPAWNER_TOKEN]
+files = ["nextseek.env"]
+secret = true
+doc = "Token web sends to cc-spawner. Install and rebuild write it, with the same value as SPAWNER_TOKEN in docker/cc-spawner.env."
 
 [NEXTSEEK_SPAWNER_URL]
 files = ["root.env"]

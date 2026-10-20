@@ -199,7 +199,8 @@ services:
     build:
       context: ./docker/cc-spawner
     image: nextseek-cc-spawner:latest
-    container_name: ${INSTANCE_PREFIX:-}cc-spawner
+    # No container_name, like laya-router: the INSTANCE_PREFIX names are a pinned set
+    # (merge-survival S7), and the app reaches it by its service name.
     restart: unless-stopped
     # required: false so every other compose verb still parses on a box that has
     # not run install or rebuild since this service arrived (both write the file);

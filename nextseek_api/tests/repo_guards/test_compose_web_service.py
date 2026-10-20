@@ -101,7 +101,7 @@ def test_the_spawner_is_hardened_and_only_on_its_own_network():
     sp = SERVICES["cc-spawner"]
     assert sp["build"]["context"] == "./docker/cc-spawner"
     assert sp["image"] == "nextseek-cc-spawner:latest"
-    assert sp["container_name"] == "${INSTANCE_PREFIX:-}cc-spawner"
+    assert "container_name" not in sp   # reached by the service name; the prefixed names are a pinned set
     assert sp["read_only"] is True
     assert sp["cap_drop"] == ["ALL"]
     assert "no-new-privileges:true" in sp["security_opt"]

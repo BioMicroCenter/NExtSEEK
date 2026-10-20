@@ -845,7 +845,6 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `NEXTSEEK_CC_OPS_ROAD` | nextseek.env, internal | "" |  |  | Container-CC op road, direct or sidecar; cc_engine hands it to the agent. |
 | `GS_RUN_DIR` | nextseek.env |  |  |  | graph_sync run directories; unset means graph_sync under the log folder. |
 | `NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES` | nextseek.env | "" |  |  | graph_sync loop: label-change handling switch. |
-| `SEEK_CONTAINER_NAME` | nextseek.env |  |  |  | SEEK container the rails runner execs into; the code default is the unprefixed name. |
 | `SEEK_RAILS_RUNNER_TIMEOUT` | nextseek.env |  |  |  | Seconds a SEEK rails runner call may take. |
 | `ATTRIBUTE_MUTATION_AFFECTED_ROW_THRESHOLD` | nextseek.env | 5000 |  |  | Rows above which an attribute change runs as a background job. |
 | `ATTRIBUTE_MUTATION_IN_JOB_PARALLELISM` | nextseek.env | 1 |  |  | Parallelism inside one attribute mutation job. |
@@ -967,6 +966,7 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `NEXTSEEK_MEMORY` | root.env | 16G |  |  | Memory cap of the web container. |
 | `NEXTSEEK_WORKER_MEMORY` | root.env | 8G |  |  | Memory cap of the worker container (the nine background loops). |
 | `NEXTSEEK_DRAIN_SECONDS` | root.env | 240 |  |  | How long a stopping web container lets running chat turns finish before it cuts them. web's stop_grace_period must stay at least this plus 30 s. |
+| `NEXTSEEK_SPAWNER_TOKEN` | nextseek.env | secret |  |  | Token web sends to cc-spawner. Install and rebuild write it, with the same value as SPAWNER_TOKEN in docker/cc-spawner.env. |
 | `NEXTSEEK_SPAWNER_URL` | root.env | http://cc-spawner:8080 |  |  | Where web sends Container-CC turns. Unset: the cc-spawner service. Set empty in .env: today's direct Docker path (the switch lives one dev cycle). |
 | `NEXTSEEK_CC_AUTOMODE_GCP` | root.env | 1 |  |  | 1 when the auto-mode classifier may use GCP (the app has GCP_API_KEY set); the spawner reads this flag, never the key. |
 | `CC_SPAWNER_NEO4J_URI` | root.env | neo4j://neo4j:7687 |  |  | Neo4j URI the cc-spawner names in the Container-CC auto-mode trust text. |

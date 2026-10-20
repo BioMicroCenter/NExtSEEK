@@ -162,11 +162,13 @@ done
 C=/app/NessieAI/chat_nextseek/src/chat_nextseek/context
 {
   echo "CHECK http $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/)"
-  for k in nextseek nextseek-sidecar dmac-bedrock-proxy cc-spawner; do
+  for k in nextseek nextseek-sidecar dmac-bedrock-proxy; do
     echo "CHECK container $k $(docker inspect -f 'status={{.State.Status}} restarts={{.RestartCount}} oom={{.State.OOMKilled}} started={{.State.StartedAt}}' $k 2>&1)"
   done
-  # web has no fixed name (a swap names the new one nextseek-web-N), so ask compose which container it is
-  echo "CHECK container web $(docker inspect -f 'status={{.State.Status}} restarts={{.RestartCount}} oom={{.State.OOMKilled}} started={{.State.StartedAt}}' $(docker compose ps -q web </dev/null | head -1) 2>&1)"
+  # web and cc-spawner have no fixed name (a swap names the new web nextseek-web-N), so ask compose which container it is
+  for s in web cc-spawner; do
+    echo "CHECK container $s $(docker inspect -f 'status={{.State.Status}} restarts={{.RestartCount}} oom={{.State.OOMKilled}} started={{.State.StartedAt}}' $(docker compose ps -q $s </dev/null | head -1) 2>&1)"
+  done
   # collectstatic and the DB probe log from web, migrate from the worker (nextseek)
   echo "CHECK boot_markers $({ docker compose logs --no-log-prefix web </dev/null; docker logs nextseek; } 2>&1 | grep -cE 'COLLECTSTATIC-FAILED|DB-UNREACHABLE|MIGRATE-FAILED')"
   echo "CHECK cc_runner $(docker compose exec -T web uv run --no-sync python -c 'from NessieAI.cc import cc_engine; print(cc_engine.cc_runner_available())' </dev/null 2>&1 | tail -1)"
