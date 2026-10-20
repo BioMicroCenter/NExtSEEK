@@ -376,6 +376,18 @@ def test_http_unknown_seek_op_and_unknown_path(http_server):
     assert call(http_server, "GET", "/elsewhere")[0] == 404
 
 
+@pytest.mark.parametrize("length", ["-1", "abc", "1e3"])
+def test_a_bad_content_length_is_400_at_once(http_server, length):
+    """A negative length would make the handler read until the client closes; a non-number is no length at all."""
+    conn = http.client.HTTPConnection("127.0.0.1", http_server, timeout=5)
+    conn.putrequest("POST", f"/turns/{RUN}/stop")
+    conn.putheader("X-Spawner-Token", TOKEN)
+    conn.putheader("Content-Length", length)
+    conn.endheaders()
+    resp = conn.getresponse()
+    assert resp.status == 400 and "Content-Length" in json.loads(resp.read())["error"]
+
+
 def test_no_configured_token_refuses_everything_but_health(client, cfg):
     open_cfg = spawner.Config(**{**cfg.__dict__, "token": ""})
     server = spawner.make_server(spawner.Spawner(client, open_cfg), "127.0.0.1", 0)

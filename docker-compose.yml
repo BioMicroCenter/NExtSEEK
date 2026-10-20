@@ -207,6 +207,9 @@ services:
     # No container_name, like laya-router: the INSTANCE_PREFIX names are a pinned set
     # (merge-survival S7), and the app reaches it by its service name.
     restart: unless-stopped
+    # python as PID 1 ignores SIGTERM (no handler), so every stop waited 10 s and
+    # ended in SIGKILL; the init hands the signal on.
+    init: true
     # required: false so every other compose verb still parses on a box that has
     # not run install or rebuild since this service arrived (both write the file);
     # the spawner itself refuses to start without a token.

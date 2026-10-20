@@ -121,6 +121,7 @@ def test_the_spawner_is_hardened_and_only_on_its_own_network():
     assert "memory" in sp["deploy"]["resources"]["limits"]
     assert sp["healthcheck"] and "/health" in " ".join(sp["healthcheck"]["test"])
     assert sp["restart"] == "unless-stopped"
+    assert sp["init"] is True   # an init as PID 1 hands SIGTERM on, so a stop is prompt
     assert set(sp["environment"]) == {
         "DMAC_CC_USERS_VOLUME", "NEXTSEEK_CC_IMAGE", "NEXTSEEK_CC_NETWORK", "SEEK_CONTAINER",
         "NEXTSEEK_CC_MAX_TURNS", "NEXTSEEK_CC_MEM_LIMIT", "NEXTSEEK_CC_NANO_CPUS",

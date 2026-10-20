@@ -426,7 +426,10 @@ def make_server(svc: Spawner, host: str, port: int) -> ThreadingHTTPServer:
             self.wfile.write(data)
 
         def _body(self) -> bytes:
-            length = int(self.headers.get("Content-Length") or 0)
+            raw = (self.headers.get("Content-Length") or "0").strip()
+            if not re.fullmatch(r"[0-9]+", raw):  # a negative length would read until the client closes
+                raise Refusal(400, "invalid Content-Length")
+            length = int(raw)
             if length > MAX_BODY_BYTES:
                 raise _refuse("body too large")
             return self.rfile.read(length) if length else b""
