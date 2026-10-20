@@ -1631,6 +1631,18 @@ def test_a_non_optional_rule_that_matches_nothing_is_reported_and_optional_is_no
     assert result.missed_rules == [{"rule_id": "vcf", "sample_type": "A.VCF"}]
 
 
+@pytest.mark.parametrize("cardinality", ["per_sample", "per_run"])
+def test_an_optional_rule_that_matches_nothing_builds_no_rows(cardinality):
+    # The output was not produced (its flag was off), so there is nothing to
+    # register: a row would carry no data file and block the whole upload.
+    rule = {"id": "hla", "sample_type": "A.HLA", "primary_data": True,
+            "cardinality": cardinality, "candidates": ["optitype/*/*_result.tsv"],
+            "optional": True, "attributes": {"Software": "OptiType"}}
+    result = mapper.apply(_run_with([], samples=("S1", "S2")), _v2map([rule]))
+    assert _out_rows(result, "hla") == []
+    assert result.missed_rules == []
+
+
 def _scrnaseq_run(matrices, version="v4.1.0-gf7bf36d"):
     """One-sample nf-core/scrnaseq run shaped like a real cellranger run."""
     return manifest.RunManifest(

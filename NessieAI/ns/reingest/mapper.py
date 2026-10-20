@@ -287,8 +287,12 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
         provenance = pipeline_map.provenance_attributes if rule.include_provenance else {}
         merged_attrs = {**defaults, **provenance, **rule.attributes}
 
-        if rule.primary_data and not rule.optional and not any(
-                _candidate_tiers(rule, run_manifest, None)):
+        if rule.primary_data and not any(_candidate_tiers(rule, run_manifest, None)):
+            if rule.optional:
+                # Its flag was off, so the output does not exist and there is
+                # nothing to register. A row would carry no data file and
+                # block the whole upload on a file no one can supply.
+                continue
             result.warnings.append(
                 f'rule "{rule.id}" ({rule.sample_type}) matched no file')
             result.missed_rules.append({"rule_id": rule.id, "sample_type": rule.sample_type})

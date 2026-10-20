@@ -43,7 +43,7 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
     has that file's checksum); else it is appended to `Notes` after "Also in run: ". A
     type without `Notes` sends the leftovers to the build report instead.
   - `optional` — a flag-dependent output (`--cram`, `--tools salmon`): matching
-    nothing is expected, so it is not reported.
+    nothing is expected, so it is not reported and builds no rows.
   - `attributes`, `primary_data`, `include_provenance`, `assay` — as in the schema.
 
   A `per_file` row takes a companion only when the companion's own
