@@ -9,7 +9,6 @@ Test commands live only in `NessieAI/tests/README.md`.
 - Allowed back-edges into the API side, and no others:
   - `nextseek_api.assistant.models_db`, from engine modules that persist (for example `NessieAI/cc/cc_transcript_store.py`, `NessieAI/cc/turn.py`, `NessieAI/router/turn_ledger.py`, the `NessieAI/hibayes/` ORM modules)
   - `nextseek_api.assistant.turn_pass`, from `NessieAI/cc/turn.py` (the CC turn issues, dates and revokes its turn pass)
-  - `nextseek_api.assistant.turn_drain`, from `NessieAI/cc/turn.py` (a running turn leaves a marker file, so a stopping web container can drain)
   - `nextseek_api.batch_upload.helpers`, from `NessieAI/ns/reingest_qa.py`
   - `nextseek_api.assistant.session_adapter` (for `SessionSaveError`), from `NessieAI/ns/turn.py`
   - `nextseek_api.assistant.models_evaluator` (the retry-context response models) and `models_db` (`QueryTask` reads), from `NessieAI/ns/retry.py`

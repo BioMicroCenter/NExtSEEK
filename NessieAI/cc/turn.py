@@ -31,7 +31,7 @@ from nextseek_api.assistant.models_db import CCSessionTranscript, ChatSession
 # Spec piece 1: the Container-CC turn issues, dates and revokes its turn pass (a frozen edge in
 # NessieAI/tests/api/test_nessie_boundaries.py).
 from nextseek_api.assistant import turn_pass as cc_turn_pass
-from nextseek_api.assistant.turn_drain import start_turn_thread
+from NessieAI.turn_drain import start_turn_thread
 
 from chat_nextseek.agents.parser import FORCE_MODES as PARSER_FORCE_MODES
 from chat_nextseek import prompt_variants
