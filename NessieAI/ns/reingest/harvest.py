@@ -64,6 +64,15 @@ _SAMPLESHEET_GLOB = "*.csv"
 # per-sample RSeQC files. multiqc_data.json is excluded separately -- 11.8 MB
 # against general_stats' 10.5 KB.
 _MULTIQC_TXT_GLOB = "multiqc*/**/*_data/multiqc_*.txt"
+# Per-module MultiQC tables read for tools that put nothing in general stats:
+# {file name: (key namespace, Sample-column suffix)}. Each column becomes the
+# metric `<namespace>-<column>`, the same shape as a general-stats key; general
+# stats wins where both have one. nf-core/hlatyping's OptiType alleles are only
+# in multiqc_optitype.txt, whose Sample column keeps OptiType's "_result"
+# (verified on a real 2.2.0 run). Staged by _MULTIQC_TXT_GLOB, so no new glob.
+_MODULE_TABLES: dict[str, tuple[str, str]] = {
+    "multiqc_optitype.txt": ("optitype", "_result"),
+}
 _RSEQC_READ_DISTRIBUTION_GLOB = "*/rseqc/read_distribution/*.read_distribution.txt"
 _RSEQC_INFER_EXPERIMENT_GLOB = "*/rseqc/infer_experiment/*.infer_experiment.txt"
 # STAR's own per-sample summary. In GENERIC_GLOBS because it is PARSED
@@ -414,6 +423,14 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             f"multiqc general stats at {picked} could not be read; "
             "QC metrics unavailable")
 
+    module_tables: dict[str, tuple[str, dict[str, dict]]] = {}
+    for filename, (namespace, suffix) in _MODULE_TABLES.items():
+        path = _pick_module_table(all_named(_MULTIQC_TXT_GLOB, filename), picked, warnings)
+        text = read(path) if path else None
+        if text is not None:
+            sources[f"metrics_{namespace}"] = path
+            module_tables[namespace] = (suffix, parsers.parse_general_stats(text))
+
     sheet = _find_samplesheet(base, read)
     rows: list[dict] = []
     if sheet:
@@ -553,8 +570,9 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
                     f"{name}: multi-run sample resolved {resolved_rows} of "
                     f"{row_counts[name]} contributing D.SEQ parents; Parent "
                     "will be a partial list")
-        metrics = _sample_metrics(name, stats, sample_names=set(row_counts),
-                                  claimed=mapper.claimed_raw_keys(pipeline_map))
+        metrics = {**_module_metrics(name, module_tables),
+                   **_sample_metrics(name, stats, sample_names=set(row_counts),
+                                     claimed=mapper.claimed_raw_keys(pipeline_map))}
         out.samples.append(manifest.SampleRecord(
             nfcore_sample=name,
             fastq_1=str(row.get("fastq_1") or ""),
@@ -765,6 +783,36 @@ def _pick_metrics_source(
         f"read {candidates[0]}. QC numbers may come from the wrong "
         "quantification route")
     return candidates[0]
+
+
+def _pick_module_table(candidates: list[str], stats_path: str | None,
+                       warnings: list[str]) -> str | None:
+    """The per-module table from the same MultiQC tree as the general stats
+    that were read, else the only one there is. Several with none beside the
+    general stats is a guess this does not make: it warns and reads none."""
+    if not candidates:
+        return None
+    if stats_path:
+        beside = [c for c in candidates if Path(c).parent == Path(stats_path).parent]
+        if len(beside) == 1:
+            return beside[0]
+    if len(candidates) == 1:
+        return candidates[0]
+    warnings.append(
+        f"{len(candidates)} {Path(candidates[0]).name} files ({', '.join(candidates)}) "
+        "and none beside the general stats that were read; read none of them")
+    return None
+
+
+def _module_metrics(name: str, module_tables: dict[str, tuple[str, dict[str, dict]]]) -> dict:
+    """`name`'s row from each per-module table, keyed `<namespace>-<column>`.
+    The row is `name` plus the table's Sample suffix, else `name` itself."""
+    metrics: dict = {}
+    for namespace, (suffix, table) in module_tables.items():
+        row = table.get(f"{name}{suffix}") if suffix else None
+        for column, value in (row if row is not None else table.get(name, {})).items():
+            metrics[f"{namespace}-{column}"] = value
+    return metrics
 
 
 def _pipeline_name(params: dict) -> str:

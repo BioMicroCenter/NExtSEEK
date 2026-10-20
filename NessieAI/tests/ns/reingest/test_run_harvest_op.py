@@ -573,6 +573,8 @@ def test_stage_run_dir_skips_the_real_multiqc_report_glob_reached_through_a_syml
     "tables/differential/rnaseq_limma/treatment_SRP254919.limma.results.tsv",
     "tables/differential/rnaseq_dream/treatment_SRP254919.dream.results.tsv",
     "report/rnaseq_dream/SRP254919_differentialabundance_report.html",
+    "optitype/S1/S1_result.tsv",                    # nf-core/hlatyping OptiType genotype
+    "optitype/S1/S1_coverage_plot.pdf",             # and its coverage plot
 ])
 def test_stage_run_dir_inventories_the_outputs_the_stub_maps_name(tmp_path, monkeypatch, rel_path):
     """Each path is a deliverable a committed map rule (or a named output)

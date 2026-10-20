@@ -655,6 +655,89 @@ def test_an_unrecognised_pipeline_falls_back_to_the_d_seq_only_default(tmp_path)
 
 
 # ---------------------------------------------------------------------------
+# MultiQC per-module tables: OptiType's alleles are in multiqc_optitype.txt,
+# never in general stats.
+# ---------------------------------------------------------------------------
+
+# A real nf-core/hlatyping 2.2.0 table. MultiQC keeps the "_result" of
+# OptiType's file name in the Sample column.
+_OPTITYPE_TABLE = (
+    "Sample\tA1\tA2\tB1\tB2\tC1\tC2\tReads\tObjective\n"
+    "D.SEQ-250409KAM-1-PUB_result\tA*02:01\tA*32:01\tB*40:01\tB*49:01\tC*03:04\tC*07:01"
+    "\t413.0\t401.84900000000096\n"
+    "D.SEQ-250409KAM-9-PUB_result\tA*01:01\tA*24:02\tB*08:01\tB*38:01\tC*07:01\tC*12:03"
+    "\t156.0\t151.78799999999995\n")
+_HLA_SAMPLES = ("D.SEQ-250409KAM-1-PUB", "D.SEQ-250409KAM-9-PUB")
+
+
+def _hlatyping_run_with_optitype(root, table=_OPTITYPE_TABLE, general_stats=None):
+    (root / "pipeline_info").mkdir(parents=True)
+    (root / "pipeline_info" / "nf_core_hlatyping_software_mqc_versions.yml").write_text(
+        "Workflow:\n  nf-core/hlatyping: v2.2.0-g3237d20\n  Nextflow: 26.04.6\n")
+    (root / "pipeline_info" / "execution_trace.txt").write_text(
+        "task_id\tstatus\n1\tCOMPLETED\n")
+    (root / "samplesheet.csv").write_text(
+        "sample,fastq_1\n" + "".join(f"{s},/net/fq/{s}_1.fastq.gz\n" for s in _HLA_SAMPLES))
+    data = root / "multiqc" / "multiqc_data"
+    data.mkdir(parents=True)
+    (data / "multiqc_general_stats.txt").write_text(
+        general_stats or "Sample\tfastqc-percent_gc\n"
+        + "".join(f"{s}_1\t48.0\n" for s in _HLA_SAMPLES))
+    if table is not None:
+        (data / "multiqc_optitype.txt").write_text(table)
+
+
+def test_optitype_alleles_come_from_the_multiqc_module_table(tmp_path):
+    root = tmp_path / "run"
+    _hlatyping_run_with_optitype(root)
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
+    metrics = {s.nfcore_sample: s.metrics for s in got.samples}
+    assert metrics["D.SEQ-250409KAM-1-PUB"]["optitype-A1"] == "A*02:01"
+    assert metrics["D.SEQ-250409KAM-1-PUB"]["optitype-C2"] == "C*07:01"
+    assert metrics["D.SEQ-250409KAM-9-PUB"]["optitype-B2"] == "B*38:01"
+    assert metrics["D.SEQ-250409KAM-9-PUB"]["optitype-Reads"] == 156.0
+    assert got.sources["metrics_optitype"] == "multiqc/multiqc_data/multiqc_optitype.txt"
+
+
+def test_a_run_without_the_module_table_gets_no_optitype_metrics(tmp_path):
+    root = tmp_path / "run"
+    _hlatyping_run_with_optitype(root, table=None)
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
+    assert not any(k.startswith("optitype-") for s in got.samples for k in s.metrics)
+    assert "metrics_optitype" not in got.sources
+
+
+def test_general_stats_wins_over_a_module_table_on_the_same_key(tmp_path):
+    root = tmp_path / "run"
+    _hlatyping_run_with_optitype(
+        root, general_stats="Sample\toptitype-Reads\nD.SEQ-250409KAM-1-PUB\t1.0\n")
+    got = harvest.harvest_local(str(root), lookup_by_fastq=lambda p, types=None: [])
+    sample = next(s for s in got.samples if s.nfcore_sample == "D.SEQ-250409KAM-1-PUB")
+    assert sample.metrics["optitype-Reads"] == 1.0
+
+
+def test_an_hlatyping_run_maps_to_a_complete_a_hla_row(tmp_path):
+    # Harvest and map end to end: the row has its data file and its alleles.
+    root = tmp_path / "run"
+    _hlatyping_run_with_optitype(root)
+    inventory = [{"path": f"optitype/{s}/{s}_{f}", "bytes": 100}
+                 for s in _HLA_SAMPLES for f in ("result.tsv", "coverage_plot.pdf")]
+    got = harvest.harvest_local(str(root), inventory=inventory,
+                                lookup_by_fastq=lambda p, types=None: [])
+    result = mapper.apply(got, maps.load("hlatyping"))
+    rows = {r.nfcore_sample: r.attributes for r in result.rows if r.rule_id == "hla_class_i"}
+    assert set(rows) == set(_HLA_SAMPLES)
+    row = rows["D.SEQ-250409KAM-1-PUB"]
+    assert row["File_PrimaryData"].value == "D.SEQ-250409KAM-1-PUB_result.tsv"
+    assert row["File_SecondaryData"].value == "D.SEQ-250409KAM-1-PUB_coverage_plot.pdf"
+    assert [row[f"HLA_{g}"].value for g in ("A1", "A2", "B1", "B2", "C1", "C2")] == [
+        "A*02:01", "A*32:01", "B*40:01", "B*49:01", "C*03:04", "C*07:01"]
+    assert row["HLAReads"].value == 413.0
+    # Every OptiType column is claimed by the map, so none reaches the review queue.
+    assert not [u for u in result.unmapped if u["raw_key"].startswith("optitype-")]
+
+
+# ---------------------------------------------------------------------------
 # sample_type_lookup wiring: harvest_local fills SampleRecord.parent_sample_type
 # from the batched sample-type lookup, one call for the whole run -- never
 # once per sample, and never by parsing the UID's own prefix (see
