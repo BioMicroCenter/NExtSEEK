@@ -1020,6 +1020,11 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `TESTING` | internal | 0 |  |  | Test-run flag the batch upload policies read. |
 | `ATTRIBUTE_TEST_FAULT_CONTROL` | internal |  |  |  | Fault-injection control for the attribute worker tests. |
 | `CHAT_NEXTSEEK_SKIP_BAML_BOOTSTRAP` | internal |  |  |  | Skip the evaluator's BAML bootstrap (tests). |
+| `NEXTSEEK_TURN_DIR` | internal | /tmp/nextseek-turns |  |  | Folder of running-chat-turn marker files and the .draining flag (a stopping web container drains on them). |
+| `NEXTSEEK_DRAIN_POLL` | internal | 10 |  |  | Entrypoint (web): seconds between the drain's turn counts. |
+| `NEXTSEEK_MIGRATE_WAIT_SECONDS` | internal | 300 |  |  | Entrypoint (web): seconds to wait for the worker's migrations before giving up. |
+| `NEXTSEEK_MIGRATE_WAIT_INTERVAL` | internal | 5 |  |  | Entrypoint (web): seconds between migration checks. |
+| `NEXTSEEK_LABS_FILE` | internal |  |  |  | Path of labs_db.json when set (two containers share one copy on a volume); default is the context dir. |
 
 <!-- ENV-REGISTRY:END -->
 

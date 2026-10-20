@@ -57,7 +57,8 @@ def test_web_has_a_login_healthcheck_the_swap_can_wait_on():
     hc = SERVICES["web"]["healthcheck"]
     assert "http://127.0.0.1:8000/login/" in " ".join(hc["test"])
     assert hc["start_interval"] == "2s"
-    assert hc["start_period"] == "180s"
+    # Above the entrypoint's wait for the worker's migrations (NEXTSEEK_MIGRATE_WAIT_SECONDS, 300 s).
+    assert int(hc["start_period"].rstrip("s")) > 300
 
 
 def test_web_grace_period_covers_the_drain_cap_plus_gunicorn():

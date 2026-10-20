@@ -156,13 +156,16 @@ services:
       - nextseek-media:/media
     # GET /login/ answering 200 is the same first probe CI's readiness gate uses.
     # start_interval makes a new container visible as healthy within seconds of
-    # being ready, which is what the swap waits on (Engine 25+).
+    # being ready, which is what the swap waits on (Engine 25+). start_period stays
+    # above the entrypoint's wait for the worker's migrations
+    # (NEXTSEEK_MIGRATE_WAIT_SECONDS, 300 s), so a stop-first deploy that migrates
+    # does not report web unhealthy while it waits.
     healthcheck:
       test: ["CMD", "/app/.venv/bin/python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/login/', timeout=5).status == 200 else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 180s
+      start_period: 330s
       start_interval: 2s
     # With no cap, one gunicorn worker serving a broad search grew to 6-11 GB,
     # filled the host's RAM and swap, and took every container and sshd down

@@ -1137,3 +1137,27 @@ doc = "Fault-injection control for the attribute worker tests."
 [CHAT_NEXTSEEK_SKIP_BAML_BOOTSTRAP]
 files = ["internal"]
 doc = "Skip the evaluator's BAML bootstrap (tests)."
+
+[NEXTSEEK_TURN_DIR]
+files = ["internal"]
+default = "/tmp/nextseek-turns"
+doc = "Folder of running-chat-turn marker files and the .draining flag (a stopping web container drains on them)."
+
+[NEXTSEEK_DRAIN_POLL]
+files = ["internal"]
+default = "10"
+doc = "Entrypoint (web): seconds between the drain's turn counts."
+
+[NEXTSEEK_MIGRATE_WAIT_SECONDS]
+files = ["internal"]
+default = "300"
+doc = "Entrypoint (web): seconds to wait for the worker's migrations before giving up."
+
+[NEXTSEEK_MIGRATE_WAIT_INTERVAL]
+files = ["internal"]
+default = "5"
+doc = "Entrypoint (web): seconds between migration checks."
+
+[NEXTSEEK_LABS_FILE]
+files = ["internal"]
+doc = "Path of labs_db.json when set (two containers share one copy on a volume); default is the context dir."

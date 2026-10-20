@@ -184,14 +184,15 @@ uv run --no-sync celery -A nextseek_api.batch_upload.celery_app beat \
 # WHAT THE FOLD GAVE UP, deliberately (Taisha's DD-29, task-08):
 #   * Container-level isolation. Each of the four carried its own CPU and
 #     memory ceiling (1.0/1G for the worker, 0.25/1G for the rest); inside this
-#     container they inherit the app's, which is uncapped. `--concurrency=1`
-#     still bounds the attribute worker, and a memory limit on THIS container
-#     would risk the web server rather than one worker, so the ceiling is gone
-#     on purpose. An attribute backlog can now cost the app container's memory.
+#     container they share the worker's (NEXTSEEK_WORKER_MEMORY since the web
+#     server moved to its own `web` service). `--concurrency=1` still bounds the
+#     attribute worker. An attribute backlog can cost the other loops' memory,
+#     never the web server's.
 #   * Independent restart. `wait -n` below means any one of these background processes
-#     exiting takes the whole container down for compose to restart, so a
-#     dispatcher crash now bounces the web server too. That is what the
-#     batch_upload worker has always done here; the fold widens it to four more.
+#     exiting takes the whole worker container down for compose to restart, so a
+#     dispatcher crash bounces the other loops too (not the web server, which runs
+#     in `web`). That is what the batch_upload worker has always done here; the
+#     fold widens it to four more.
 # What it did NOT give up: the queues stay separate (a backlog on one cannot
 # starve the other's worker), the recovery scheduler still runs no Celery
 # command and holds no broker, and the dispatcher is still the sole publisher.
@@ -246,7 +247,7 @@ uv run --no-sync python manage.py run_share_jobs --interval 5 &
 # the whole container down, so the loop gets a `while` that never returns, and
 # with the switch off there is no job for `wait -n` to see at all. This is the
 # one runtime of this container that has to survive its own crash instead of
-# bouncing the web server with it, which is why it restarts itself after a
+# bouncing every other loop with it, which is why it restarts itself after a
 # delay rather than leaving that to compose. The contract is executed, block
 # and all, by nextseek_api/tests/test_graph_sync_entrypoint.py.
 if [ "${NEXTSEEK_GRAPH_SYNC_LOOP:-1}" = "1" ]; then
