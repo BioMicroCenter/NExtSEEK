@@ -674,3 +674,15 @@ def test_the_labs_file_is_not_baked_into_the_cc_agent_image():
     from NessieAI.build_tools.gen_op_surfaces.constants import CANONICAL_CONTEXT_FILES
 
     assert "labs_db.json" not in CANONICAL_CONTEXT_FILES
+
+
+def test_nextseek_labs_file_moves_the_file_for_write_and_load(tmp_path, monkeypatch):
+    shared = tmp_path / "shared" / "labs_db.json"
+    monkeypatch.setenv("NEXTSEEK_LABS_FILE", str(shared))
+    doc = labs.build_labs_document(SPEC_ROWS, fetched_at=FETCHED_AT)
+
+    dest = labs.write_labs_file(doc, tmp_path / "context")
+
+    assert dest == shared
+    assert not (tmp_path / "context").exists()
+    assert labs.load_labs_file(tmp_path / "context") == doc

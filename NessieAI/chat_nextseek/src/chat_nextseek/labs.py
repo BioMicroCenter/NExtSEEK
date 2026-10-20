@@ -37,6 +37,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 LABS_FILE_NAME = "labs_db.json"
+
+
+def labs_file_path(context_dir) -> Path:
+    """Where ``labs_db.json`` lives: ``NEXTSEEK_LABS_FILE`` when set (two containers share one copy on a volume),
+    else ``context_dir``."""
+    override = os.environ.get("NEXTSEEK_LABS_FILE")
+    return Path(override) if override else Path(context_dir) / LABS_FILE_NAME
 DOCUMENT_VERSION = 1
 
 # The schema name is spelled exactly as ChatConfig._load_name_to_id_from_db spells it. One
@@ -292,7 +299,7 @@ def write_labs_file(doc: dict, context_dir) -> Path:
     Several gunicorn workers starting on a new UTC day may each run the export, so a
     reader must never see a torn file. A failed write leaves the previous file intact.
     """
-    dest = Path(context_dir) / LABS_FILE_NAME
+    dest = labs_file_path(context_dir)
     dest.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{LABS_FILE_NAME}.", suffix=".tmp", dir=str(dest.parent))
     try:
@@ -311,7 +318,7 @@ def write_labs_file(doc: dict, context_dir) -> Path:
 
 def load_labs_file(context_dir) -> dict | None:
     """The labs document on disk, or ``None`` when it is missing or unreadable."""
-    path = Path(context_dir) / LABS_FILE_NAME
+    path = labs_file_path(context_dir)
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
