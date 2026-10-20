@@ -68,15 +68,46 @@ def _runs_for(runs: dict[tuple[str, ...], dict[str, str]], acc: str) -> list[tup
     return out
 
 
+def _listed_runs(cache: str, acc: str) -> list[str] | None:
+    """Run accessions fetchngs listed for `acc`, or None when it left no usable list.
+
+    fetchngs writes <outdir>/metadata/<acc>.runinfo_ftp.tsv for every id it was given,
+    before downloading, with one row per run in a `run_accession` column. `acc` must be
+    pre-validated ^[A-Za-z0-9]+$, so the path cannot leave the metadata directory.
+    """
+    path = Path(cache) / "metadata" / f"{acc}.runinfo_ftp.tsv"
+    try:
+        with open(path, newline="") as fh:
+            reader = csv.DictReader(fh, delimiter="\t")
+            if "run_accession" not in (reader.fieldnames or []):
+                return None
+            listed = [(r.get("run_accession") or "").strip() for r in reader]
+    except OSError:
+        return None
+    return [r for r in listed if _ACC_RE.match(r)] or None
+
+
+def _resolve(runs: dict[tuple[str, ...], dict[str, str]], cache: str, acc: str) -> list[tuple[str, str]]:
+    """The cached runs for `acc`, or [] when any run fetchngs listed for it has no files.
+
+    Without the list an experiment whose earlier download was interrupted would resolve
+    to the runs that landed, and the pipeline would run on part of the sample's reads.
+    """
+    found = _runs_for(runs, acc)
+    listed = _listed_runs(cache, acc) if found else None
+    if listed and any(not _runs_for(runs, r) for r in listed):
+        return []
+    return found
+
+
 def uncached_accessions(accs: list[str], cache: str) -> list[str]:
     """Accessions that fill could NOT resolve from the cache, in order.
 
     run.sh uses this (`cached`) to decide whether to run fetchngs, so "cached" means
-    exactly what fill can resolve. It cannot tell that an experiment is missing some of
-    its runs (an interrupted earlier download); it sees only what is on disk.
+    exactly what fill can resolve, run list included.
     """
     runs = _cached_runs(cache)
-    return [a for a in accs if not (_ACC_RE.match(a) and _runs_for(runs, a))]
+    return [a for a in accs if not (_ACC_RE.match(a) and _resolve(runs, cache, a))]
 
 
 def fill_rows(rows: list[dict], cache: str) -> tuple[list[dict], list[str]]:
@@ -84,8 +115,9 @@ def fill_rows(rows: list[dict], cache: str) -> tuple[list[dict], list[str]]:
 
     A row whose accession resolves to several runs (an experiment with more than one run)
     becomes one row per run, all with the same `sample`: nf-core pipelines merge rows that
-    share a sample, so no run is dropped. Rows with a fastq_1 already, or no bare-id
-    accession, pass through unchanged.
+    share a sample, so no run is dropped. An accession with a run that fetchngs listed but
+    did not deliver is missing. Rows with a fastq_1 already, or no bare-id accession, pass
+    through unchanged.
     """
     runs = _cached_runs(cache)
     out: list[dict] = []
@@ -95,7 +127,7 @@ def fill_rows(rows: list[dict], cache: str) -> tuple[list[dict], list[str]]:
         if (row.get("fastq_1") or "").strip() or not (acc and _ACC_RE.match(acc)):
             out.append(row)
             continue
-        found = _runs_for(runs, acc)
+        found = _resolve(runs, cache, acc)
         if not found:
             missing.append(acc)
             out.append(row)
@@ -120,7 +152,8 @@ def _main_fill(cache: str, sheet: str = "samplesheet.csv") -> int:
         fields = reader.fieldnames or []
     rows, missing = fill_rows(rows, cache)
     if missing:
-        sys.stderr.write(f"fetchngs fill: no fastqs found in {cache}/fastq for {missing}\n")
+        sys.stderr.write(f"fetchngs fill: no complete fastq set in {cache}/fastq for {missing} "
+                         f"(runs expected per accession: {cache}/metadata/<acc>.runinfo_ftp.tsv)\n")
         return 1
     with open(sheet, "w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore", lineterminator="\n")

@@ -191,3 +191,43 @@ def test_main_cached_with_no_fastq_dir_is_not_cached(tmp_path):
     ids = tmp_path / "ids.csv"
     ids.write_text("SRR1\n", encoding="utf-8")
     assert _main_cached(str(tmp_path), str(ids)) == 1
+
+
+# --- fetchngs' run list (<cache>/metadata/<acc>.runinfo_ftp.tsv) catches a partial download ---
+
+def _runinfo(tmp_path, acc, runs, header="id\trun_accession\texperiment_accession\tfastq_ftp"):
+    # The leading columns of fetchngs 1.12's runinfo_ftp.tsv, as found in the Luria cache.
+    meta = tmp_path / "metadata"
+    meta.mkdir(exist_ok=True)
+    lines = [header] + [f"{acc}_{r}\t{r}\t{acc}\tftp.sra.ebi.ac.uk/{r}_1.fastq.gz" for r in runs]
+    (meta / f"{acc}.runinfo_ftp.tsv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_partial_download_of_a_multi_run_experiment_is_missing_not_filled(tmp_path):
+    # An interrupted fetch left SRR11 but not SRR12; filling from SRR11 alone would drop reads.
+    cache = _cache(tmp_path, "SRX1_SRR11_1.fastq.gz", "SRX1_SRR11_2.fastq.gz")
+    _runinfo(tmp_path, "SRX1", ["SRR11", "SRR12"])
+    rows, missing = fill_rows([{"sample": "a", "accession": "SRX1", "fastq_1": "", "fastq_2": ""}], cache)
+    assert missing == ["SRX1"]
+    assert rows == [{"sample": "a", "accession": "SRX1", "fastq_1": "", "fastq_2": ""}]
+
+
+def test_partial_download_is_not_cached_so_fetchngs_reruns(tmp_path):
+    cache = _cache(tmp_path, "SRX1_SRR11_1.fastq.gz")
+    _runinfo(tmp_path, "SRX1", ["SRR11", "SRR12"])
+    assert uncached_accessions(["SRX1"], cache) == ["SRX1"]
+
+
+def test_complete_download_matches_the_run_list(tmp_path):
+    cache = _cache(tmp_path, "SRX1_SRR11_1.fastq.gz", "SRX1_SRR12_1.fastq.gz")
+    _runinfo(tmp_path, "SRX1", ["SRR11", "SRR12"])
+    rows, missing = fill_rows([{"sample": "a", "accession": "SRX1", "fastq_1": "", "fastq_2": ""}], cache)
+    assert missing == [] and len(rows) == 2
+    assert uncached_accessions(["SRX1"], cache) == []
+
+
+def test_run_list_without_a_run_column_falls_back_to_the_files(tmp_path):
+    cache = _cache(tmp_path, "SRX1_SRR11_1.fastq.gz")
+    _runinfo(tmp_path, "SRX1", ["SRR11", "SRR12"], header="id\taccession\texperiment_accession\tfastq_ftp")
+    rows, missing = fill_rows([{"sample": "a", "accession": "SRX1", "fastq_1": "", "fastq_2": ""}], cache)
+    assert missing == [] and len(rows) == 1
