@@ -10,7 +10,7 @@ prior_implementer_review: VOID
 
 **Recorded:** 2026-08-12  
 **Branch:** `ultraplan/hibayes-eval-routing` @ worktree tip `3c6a17e246633883b299a497841b5a00c4229e8f`  
-**Charter:** Cold-debt remediation V44-T1…T5 per [`cold_debt_remediation_00d90d00.plan.md`](file:///home/taishajo/.cursor/plans/cold_debt_remediation_00d90d00.plan.md), evaluated against cold review [`plan018-v4-4-cold-outcome-review.md`](plan018-v4-4-cold-outcome-review.md) (subagent `d6825579-cd2e-4966-a128-5f3568f13961`, verdict PASS with hygiene debt).
+**Charter:** Cold-debt remediation V44-T1…T5 per [`cold_debt_remediation_00d90d00.plan.md`](file:///home/<user>/.cursor/plans/cold_debt_remediation_00d90d00.plan.md), evaluated against cold review [`plan018-v4-4-cold-outcome-review.md`](plan018-v4-4-cold-outcome-review.md) (subagent `d6825579-cd2e-4966-a128-5f3568f13961`, verdict PASS with hygiene debt).
 
 Any prior `plan018-v4-4-sdd-final-review.md` without cold-subagent provenance is **VOID**. This file replaces it.
 

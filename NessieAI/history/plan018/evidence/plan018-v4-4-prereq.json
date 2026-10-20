@@ -13,12 +13,12 @@
     "v4_3_status": "CLOSED"
   },
   "v13a_zip": {
-    "path": "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip",
+    "path": "/home/<user>/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip",
     "sha256": "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814",
     "exists": true
   },
   "eval_vendor": {
-    "repo": "/home/taishajo/work/dmac-assistant",
+    "repo": "/home/<user>/work/dmac-assistant",
     "commit": "dcca50c187890dc93659e5594810179793bb94eb",
     "readable": true
   },

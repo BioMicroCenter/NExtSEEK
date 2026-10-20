@@ -4,7 +4,7 @@ Reviewer: independent adversarial cold-context. Authority order applied: SPEC-7 
 Verification method: read TARGET + SPEC-7 + project guide in full; verified every load-bearing claim against
 actual source (`cc_provision.py`, `cc_engine.py`, `cc_config.py`, `docker-compose.yml`, `startup/steps/volumes.py`,
 `tests/test_cc_realstack.py`), the sibling `PLAN-3-ui-based-io.md` Task 13 Step 8, and the **installed docker-py
-7.1.0** runtime behavior (live probe in `/home/taishajo/work/dmac-assistant/.venv`).
+7.1.0** runtime behavior (live probe in `/home/<user>/work/dmac-assistant/.venv`).
 
 ## Summary of independent verification (all PASSED)
 

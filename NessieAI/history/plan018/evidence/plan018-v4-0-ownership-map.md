@@ -1,7 +1,7 @@
 # Plan 018 V4-0 ownership map (draft)
 
 **Status:** accepted by maintainer (2026-08-11) — see `plan018-v4-0-ownership-map-acceptance.json`.  
-**Base:** `6881b6a8` (`ultraplan/hibayes-eval-routing` @ `/home/taishajo/work/NExtSEEK-plan018`)  
+**Base:** `6881b6a8` (`ultraplan/hibayes-eval-routing` @ `/home/<user>/work/NExtSEEK-plan018`)  
 **Eval vendor:** `dmac-assistant@dcca50c`  
 **Nessie paired harness tip:** `origin/dev-v4-merge@3fe71670` (`nessie_tests` tree `35f5b706…`)  
 **Recorded:** 2026-08-11

@@ -34,7 +34,7 @@ Location: Task 3 Step 2 "Port the runtime assets" / Dependency Validation row "S
 Defect: The plan tells the implementer to "Port broadly enough to build the full…CC image" but
 never states **from where** (no path, no clone instruction). Preflight only "records source
 commit". A cold-start session executing PLAN-7 as a standalone contract has no source location.
-(Partially mitigated: the project guide CLAUDE.md gives `/home/taishajo/work/dmac-assistant`, so a
+(Partially mitigated: the project guide CLAUDE.md gives `/home/<user>/work/dmac-assistant`, so a
 reader of the guide can find it — hence MEDIUM not HIGH.)
 Fix: Add to Task 3 Files/Step 2 the canonical port-source path (and the rule that Task 1 preflight
 must pin its commit), e.g. "port from the `dmac-assistant` working clone recorded in preflight

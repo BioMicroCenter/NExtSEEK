@@ -2,7 +2,7 @@
 
 **Reviewer:** independent cold agent (no implementer conversation history)  
 **Date:** 2026-08-12  
-**Worktree:** `/home/taishajo/work/NExtSEEK-plan018` @ `ultraplan/hibayes-eval-routing`  
+**Worktree:** `/home/<user>/work/NExtSEEK-plan018` @ `ultraplan/hibayes-eval-routing`  
 **Base:** `b2cca5d7` (V4-6 vault-sync evidence tip)  
 **HEAD:** `b2cca5d7` + uncommitted V4-7 implementation  
 **deploydocs:** local V4-7 progress update (not pushed)

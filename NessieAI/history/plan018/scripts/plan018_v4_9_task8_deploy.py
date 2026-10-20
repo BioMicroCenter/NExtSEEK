@@ -38,7 +38,7 @@ APPROVAL_SCHEMA = "plan018-v4-9-task8-approval/v1"
 PLAN_SCHEMA = "plan018-v4-9-task8-plan/v1"
 EVIDENCE = "evidence/plan018-v4-9-task8-evidence.json"
 TASK7_FIXTURE = "evidence/plan018-v4-9-deploy-record.fixture.json"
-GHCR_ENV_PATH = "/home/taishajo/work/state/secrets/ghcr-tavjo.env"
+GHCR_ENV_PATH = "/home/<user>/work/state/secrets/ghcr-tavjo.env"
 MAX_WALL_S = 1800.0
 MAX_CPUS = 2
 try:
@@ -500,7 +500,7 @@ def operational_config_errors(config: OperationalConfig) -> list[str]:
     errors: list[str] = []
     repo = config.repo_root.resolve()
     run_root = config.run_root.resolve()
-    safe_base = Path("/home/taishajo/work/state/task8-runs").resolve()
+    safe_base = Path("/home/<user>/work/state/task8-runs").resolve()
     if run_root == safe_base or not run_root.is_relative_to(safe_base):
         errors.append(f"Task 8 run root must be a named child of {safe_base}")
     if run_root == repo or run_root.is_relative_to(repo) or repo.is_relative_to(run_root):

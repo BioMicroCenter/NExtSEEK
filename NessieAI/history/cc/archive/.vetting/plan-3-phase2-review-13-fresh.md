@@ -1,4 +1,4 @@
-# TARGET: `/home/taishajo/work/NExtSEEK/nextseek_api/cc_assistant/PLAN-3-ui-based-io.md`
+# TARGET: `/home/<user>/work/NExtSEEK/nextseek_api/cc_assistant/PLAN-3-ui-based-io.md`
 
 ## 2A — Vet
 

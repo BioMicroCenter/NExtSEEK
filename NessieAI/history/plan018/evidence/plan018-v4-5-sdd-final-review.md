@@ -10,7 +10,7 @@ prior_implementer_review: VOID
 
 **Recorded:** 2026-08-12  
 **Branch:** `ultraplan/hibayes-eval-routing` @ worktree tip `3c6a17e246633883b299a497841b5a00c4229e8f` (uncommitted V4-5 debt delta atop V4-2 remediation commit)  
-**Charter:** Cold-debt remediation V45-T1…T3 per [`cold_debt_remediation_00d90d00.plan.md`](file:///home/taishajo/.cursor/plans/cold_debt_remediation_00d90d00.plan.md), evaluated against SDD plan [`plan018_v4-5_sdd_5b951c4d.plan.md`](file:///home/taishajo/.cursor/plans/plan018_v4-5_sdd_5b951c4d.plan.md) and cold review [`plan018-v4-5-cold-outcome-review.md`](plan018-v4-5-cold-outcome-review.md) (verdict PASS with bookkeeping + optional tamper debt).
+**Charter:** Cold-debt remediation V45-T1…T3 per [`cold_debt_remediation_00d90d00.plan.md`](file:///home/<user>/.cursor/plans/cold_debt_remediation_00d90d00.plan.md), evaluated against SDD plan [`plan018_v4-5_sdd_5b951c4d.plan.md`](file:///home/<user>/.cursor/plans/plan018_v4-5_sdd_5b951c4d.plan.md) and cold review [`plan018-v4-5-cold-outcome-review.md`](plan018-v4-5-cold-outcome-review.md) (verdict PASS with bookkeeping + optional tamper debt).
 
 Any prior `plan018-v4-5-sdd-final-review.md` without cold-subagent provenance is **VOID**. This file replaces it.
 

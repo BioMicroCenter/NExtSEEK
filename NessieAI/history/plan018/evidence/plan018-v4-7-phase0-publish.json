@@ -2,7 +2,7 @@
   "schema": "plan018-v4-7-phase0-publish/v1",
   "recorded_at": "2026-08-12T20:35:00Z",
   "gate": "PASS",
-  "worktree": "/home/taishajo/work/NExtSEEK-plan018",
+  "worktree": "/home/<user>/work/NExtSEEK-plan018",
   "implementation_branch": "ultraplan/hibayes-eval-routing",
   "worktree_sha": "62911a17",
   "deploydocs_branch": "dev",

@@ -22,18 +22,18 @@ PLAN005_BASE_COMMIT = "88dbba6acb3a73b08e87494e917d7003c0b8e888"
 SEQUENCE_BUDGET_SECONDS = 3600
 COMMAND_TIMEOUT_SECONDS = 600
 COVERAGE_MIN_TOTAL = 95
-EVIDENCE_PARENT = "/home/taishajo/work/state/plan005/execution"
+EVIDENCE_PARENT = "/home/<user>/work/state/plan005/execution"
 BASELINE_EVIDENCE_PARENT = (
     f"{EVIDENCE_PARENT}/base-{PLAN005_BASE_COMMIT[:8]}"
 )
-REPO_ROOT_TEMPLATE = "/home/taishajo/work/NExtSEEK-plan005"
+REPO_ROOT_TEMPLATE = "/home/<user>/work/NExtSEEK-plan005"
 THREE_PYTEST_IGNORES: tuple[str, ...] = (
     "nextseek_api/cc_assistant/tests/test_cc_realstack.py",
     "nextseek_api/cc_assistant/tests/test_within_chat_db.py",
     "nextseek_api/cc_assistant/tests/test_step7_compose_deploy.py",
 )
 PINNED_PAIRED_ZIP = (
-    "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip"
+    "/home/<user>/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip"
 )
 PINNED_PAIRED_ZIP_VOLUME = f"{PINNED_PAIRED_ZIP}:{PINNED_PAIRED_ZIP}:ro"
 
@@ -70,7 +70,7 @@ BACKUP_REL = (
     "2026-07-08-cc-tool-registration-single-source.pre-hardening-20260814.md"
 )
 BACKUP_SHA = "68979f55a2e0d6731de161fa1202f231a69ab3a2f4a685d3dbd4842ca2ad7497"
-DEFAULT_MIRROR = Path("/home/taishajo/work/NExtSEEK-dev")
+DEFAULT_MIRROR = Path("/home/<user>/work/NExtSEEK-dev")
 DEFAULT_SIGNOFF_DIR = Path(__file__).resolve().parent / "plan005_signoffs"
 COLD_REVIEW_REL = Path("control/cold-review/plan005-cold-outcome-review.md")
 REQUIRED_SIGNOFF_IDS = (
@@ -170,7 +170,7 @@ def _docker_pytest(*tail: str, django: bool = True) -> list[str]:
         "-v",
         "{repo}:/repo:ro",
         "-v",
-        "/home/taishajo/work/NExtSEEK/.git:/home/taishajo/work/NExtSEEK/.git:ro",
+        "/home/<user>/work/NExtSEEK/.git:/home/<user>/work/NExtSEEK/.git:ro",
         "-w",
         "/repo",
         "-v",
@@ -403,7 +403,7 @@ def protocol_rows() -> list[dict[str, Any]]:
                 "-v",
                 "{repo}:/repo:ro",
                 "-v",
-                "/home/taishajo/work/NExtSEEK/.git:/home/taishajo/work/NExtSEEK/.git:ro",
+                "/home/<user>/work/NExtSEEK/.git:/home/<user>/work/NExtSEEK/.git:ro",
                 "-v",
                 PINNED_PAIRED_ZIP_VOLUME,
                 "-w",
@@ -481,7 +481,7 @@ def protocol_rows() -> list[dict[str, Any]]:
                 "-v",
                 "{repo}:{repo}:ro",
                 "-v",
-                "/home/taishajo/work/NExtSEEK/.git:/home/taishajo/work/NExtSEEK/.git:ro",
+                "/home/<user>/work/NExtSEEK/.git:/home/<user>/work/NExtSEEK/.git:ro",
                 "-w",
                 "{repo}",
                 "-v",

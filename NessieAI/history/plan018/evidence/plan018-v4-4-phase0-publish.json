@@ -4,14 +4,14 @@
   "gate": "PASS",
   "implementation_branch": {
     "name": "ultraplan/hibayes-eval-routing",
-    "repo": "/home/taishajo/work/NExtSEEK-plan018",
+    "repo": "/home/<user>/work/NExtSEEK-plan018",
     "head_sha": "107f40a6ef5145f9c0510ddebe4faa03f1a0fdf8",
     "remote": "origin/ultraplan/hibayes-eval-routing",
     "commits_pushed": 6,
     "paid_or_live_resources_used": false
   },
   "living_plan": {
-    "repo": "/home/taishajo/work/NExtSEEK-deploydocs",
+    "repo": "/home/<user>/work/NExtSEEK-deploydocs",
     "branch": "dev",
     "commit": "ccd5c4c4",
     "origin_dev": "ccd5c4c4",

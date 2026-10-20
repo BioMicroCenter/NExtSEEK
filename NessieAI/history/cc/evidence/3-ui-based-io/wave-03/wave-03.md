@@ -7,7 +7,7 @@
 ## Reproduction
 
 ```bash
-cd /home/taishajo/work/NExtSEEK
+cd /home/<user>/work/NExtSEEK
 git checkout cc-step3-ui-io  # at or after ebfc737
 PYTHONPATH="$PWD:$PWD/dmac_assistant/src" uv run --no-project --with pytest --with pytest-cov \
   python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/test_cc_upload_validate.py \
