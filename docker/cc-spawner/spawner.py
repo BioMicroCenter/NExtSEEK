@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Iterator
+from urllib.parse import urlsplit, urlunsplit
 
 import docker
 from docker.errors import APIError, NotFound
@@ -50,7 +51,6 @@ _MAX_ENV_VALUE = 64 * 1024
 _TURN_FIELDS = frozenset({
     "run_id", "user_id", "project_dirname", "cc_state_key", "transcripts_subpath", "previous_turns", "turn_files",
     "model_id", "fallback_model_id", "max_budget_usd", "resume_session_id", "environment", "stdin_envelope",
-    "automode_environment",
 })
 
 _BASE_CMD = [
@@ -76,6 +76,38 @@ class Refusal(Exception):
         self.status = status
 
 
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "0.0.0.0"})
+_NEXTSEEK_SERVICE_HOST = "nextseek_nginx"
+
+
+def _rewrite_loopback_url(url: str) -> str:
+    parts = urlsplit(url)
+    if parts.hostname in _LOOPBACK_HOSTS:
+        return urlunsplit(parts._replace(netloc=_NEXTSEEK_SERVICE_HOST))
+    return url
+
+
+def automode_trust_lines(ns_url: str | None, neo4j_uri: str | None, gcp: bool) -> list[str]:
+    """Copy of cc_engine.automode_trust_lines (this image holds only this folder); a parity test holds them equal."""
+    environment: list[str] = ["$defaults"]
+    if ns_url:
+        environment.append(
+            "Trusted internal service: the NExtSEEK metadata REST API at "
+            f"{_rewrite_loopback_url(ns_url)} — the MIT BioMicro Center lab's own "
+            "sample/project database (reached as the authenticated user)."
+        )
+    if neo4j_uri:
+        environment.append(
+            f"Trusted internal graph database: Neo4j at {neo4j_uri} (lab lineage graph)."
+        )
+    if gcp:
+        environment.append(
+            "Trusted LLM provider: Google Cloud Gemini API — the assistant's own "
+            "model provider."
+        )
+    return environment
+
+
 @dataclass(frozen=True)
 class Config:
     token: str
@@ -88,6 +120,13 @@ class Config:
     nano_cpus: int = 2_000_000_000
     pids_limit: int = 512
     fsize_bytes: int = 10 * 1024 ** 3
+    # The auto-mode trust text comes from here, never from a request. Non-secret topology only.
+    ns_url: str = ""
+    neo4j_uri: str = ""
+    automode_gcp: bool = False
+
+    def automode_environment(self) -> list[str]:
+        return automode_trust_lines(self.ns_url, self.neo4j_uri, self.automode_gcp)
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "Config":
@@ -103,6 +142,9 @@ class Config:
             nano_cpus=int(e.get("NEXTSEEK_CC_NANO_CPUS", cls.nano_cpus)),
             pids_limit=int(e.get("NEXTSEEK_CC_PIDS_LIMIT", cls.pids_limit)),
             fsize_bytes=int(e.get("NEXTSEEK_CC_FSIZE_BYTES", cls.fsize_bytes)),
+            ns_url=e.get("NEXTSEEK_INTERNAL_BASE_URL", ""),
+            neo4j_uri=e.get("NEO4J_URI", ""),
+            automode_gcp=e.get("NEXTSEEK_CC_AUTOMODE_GCP", "0") == "1",
         )
 
 
@@ -226,17 +268,13 @@ class Spawner:
                 raise _refuse(f"environment key not allowed: {key}")
             if not isinstance(value, str) or len(value) > _MAX_ENV_VALUE:
                 raise _refuse(f"environment value not allowed: {key}")
-        automode = body.get("automode_environment", ["$defaults"])
-        if (not isinstance(automode, list) or not automode or len(automode) > 16 or automode[0] != "$defaults"
-                or not all(isinstance(x, str) and len(x) <= 2000 for x in automode)):
-            raise _refuse("invalid automode_environment")
         envelope = body.get("stdin_envelope")
         if not isinstance(envelope, str) or not envelope or len(envelope) > MAX_BODY_BYTES:
             raise _refuse("invalid stdin_envelope")
         return {"run_id": run_id, "user": user, "project": project, "state_key": state_key, "subs": subs,
                 "transcripts": transcripts is not None, "previous_turns": bool(body.get("previous_turns")),
                 "turn_files": bool(body.get("turn_files")), "budget": budget, "resume": resume, "env": env,
-                "automode": automode, "envelope": envelope, **models}
+                "envelope": envelope, **models}
 
     def _mounts(self, v: dict) -> list[dict]:
         vol, subs = self.config.users_volume, v["subs"]
@@ -264,7 +302,7 @@ class Spawner:
         cmd += ["--max-turns", self.config.max_turns]
         if v["budget"] > 0:
             cmd += ["--max-budget-usd", str(v["budget"])]
-        settings = {"autoMode": {"environment": v["automode"]}}
+        settings = {"autoMode": {"environment": self.config.automode_environment()}}
         cmd += ["--settings", json.dumps(settings, separators=(",", ":"))]
         if v["resume"]:
             cmd += ["--resume", v["resume"]]

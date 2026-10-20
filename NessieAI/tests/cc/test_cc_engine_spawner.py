@@ -108,7 +108,7 @@ def test_a_turn_goes_through_the_spawner_and_is_stopped(spawner_on, tmp_path, mo
     assert body["stdin_envelope"].endswith("\n")
     for forbidden in ("image", "network", "mounts", "volumes", "command", "labels", "cap_drop"):
         assert forbidden not in body
-    assert body["automode_environment"][0] == "$defaults"
+    assert "automode_environment" not in body
     assert seen["read_timeout"] > cc_engine._DEFAULT_TURN_TIMEOUT
 
 
@@ -186,7 +186,8 @@ def test_spawner_subpaths_match_build_user_dirs(tmp_path):
 
 def test_spawner_run_kwargs_match_the_direct_path(monkeypatch):
     sp = _load_spawner()
-    cfg = sp.Config(token="t", image=cc_engine.DEFAULT_IMAGE, network=cc_engine.DEFAULT_NETWORK,
+    cfg = sp.Config(token="t", ns_url="http://127.0.0.1:8000", neo4j_uri="bolt://neo4j:7687", automode_gcp=True,
+                    image=cc_engine.DEFAULT_IMAGE, network=cc_engine.DEFAULT_NETWORK,
                     max_turns=cc_engine._DEFAULT_MAX_TURNS, mem_limit=cc_engine._DEFAULT_MEM_LIMIT,
                     nano_cpus=cc_engine._DEFAULT_NANO_CPUS, pids_limit=cc_engine._DEFAULT_PIDS_LIMIT,
                     fsize_bytes=cc_engine._DEFAULT_FSIZE_BYTES)
@@ -194,10 +195,12 @@ def test_spawner_run_kwargs_match_the_direct_path(monkeypatch):
     body = {"run_id": RUN, "user_id": "alice", "project_dirname": "proj", "cc_state_key": "abc-123",
             "model_id": "m-1", "fallback_model_id": "m-2", "max_budget_usd": 0.5, "resume_session_id": "r-1",
             "environment": {"API_USER": "alice"}, "stdin_envelope": "x\n",
-            "automode_environment": cc_engine._automode_environment({})}
+            }
     theirs = svc._run_kwargs(svc._validate_turn(body))
     command = cc_engine._build_command(
-        model_id="m-1", session_id="r-1", max_budget_usd=0.5, source={}, fallback_model_id="m-2")
+        model_id="m-1", session_id="r-1", max_budget_usd=0.5, fallback_model_id="m-2",
+        source={"NEXTSEEK_INTERNAL_BASE_URL": "http://127.0.0.1:8000", "NEO4J_URI": "bolt://neo4j:7687",
+                "GCP_API_KEY": "x"})
     ours = cc_engine._run_kwargs(image=cfg.image, command=command, environment={"API_USER": "alice"},
                                  mounts=theirs["mounts"], run_id=RUN, user_id="alice")
     assert {k: v for k, v in theirs.items() if k != "ulimits"} == {k: v for k, v in ours.items() if k != "ulimits"}
@@ -215,3 +218,20 @@ def test_spawner_allowlist_covers_every_key_the_builder_can_emit(monkeypatch):
         source=src, api_user="u", turn_pass="t", path_mappings={}, chat_session_id="s", turn_deadline=1.0,
         ops_road="sidecar")
     assert set(env) <= sp.ALLOWED_ENV_KEYS
+
+
+@pytest.mark.parametrize("ns,neo,gcp", [("", "", False), ("http://127.0.0.1:8000", "", False),
+                                         ("http://nginx:80", "bolt://n:7687", True)])
+def test_automode_text_is_identical_in_the_spawner_and_the_engine(ns, neo, gcp):
+    sp = _load_spawner()
+    src = {"NEXTSEEK_INTERNAL_BASE_URL": ns, "NEO4J_URI": neo, "GCP_API_KEY": "k" if gcp else ""}
+    assert sp.Config(token="t", ns_url=ns, neo4j_uri=neo, automode_gcp=gcp).automode_environment() == \
+        cc_engine._automode_environment(src)
+
+
+def test_spawner_config_reads_the_automode_env_by_name():
+    sp = _load_spawner()
+    cfg = sp.Config.from_env({"NEXTSEEK_INTERNAL_BASE_URL": "http://a", "NEO4J_URI": "bolt://b",
+                              "NEXTSEEK_CC_AUTOMODE_GCP": "1", "GCP_API_KEY": "must-not-be-read"})
+    assert (cfg.ns_url, cfg.neo4j_uri, cfg.automode_gcp) == ("http://a", "bolt://b", True)
+    assert "must-not-be-read" not in repr(cfg)

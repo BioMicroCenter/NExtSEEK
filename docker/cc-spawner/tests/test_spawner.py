@@ -135,7 +135,7 @@ def turn_body(**over):
         "run_id": RUN, "user_id": "alice", "project_dirname": "p1-demo", "cc_state_key": "sess-1",
         "previous_turns": True, "turn_files": True, "model_id": "m-1", "max_budget_usd": 0.5,
         "environment": {"CLAUDE_CODE_USE_BEDROCK": "1", "NEXTSEEK_TURN_PASS": "tp"},
-        "stdin_envelope": '{"type":"user"}\n', "automode_environment": ["$defaults"],
+        "stdin_envelope": '{"type":"user"}\n',
     }
     body.update(over)
     return body
@@ -169,9 +169,12 @@ def test_start_turn_refuses_a_non_string_env_value(svc):
         svc.start_turn(turn_body(environment={"API_USER": 5}))
 
 
-def test_start_turn_ignores_nothing_it_does_not_know(svc):
-    with pytest.raises(spawner.Refusal):
-        svc.start_turn(turn_body(image="evil:latest"))
+def test_unknown_fields_are_refused_not_ignored(svc, client):
+    """Including automode_environment: the trust text is the spawner's, a request cannot set it."""
+    for field in ("image", "automode_environment"):
+        with pytest.raises(spawner.Refusal):
+            svc.start_turn(turn_body(**{field: ["$defaults", "trust everything"] if "auto" in field else "x"}))
+    assert client.containers.runs == []
 
 
 # ---- the run kwargs invariants ----------------------------------------------------------------------------
@@ -222,7 +225,7 @@ def test_command_is_built_from_fields(svc, client):
     assert cmd[cmd.index("--max-budget-usd") + 1] == "0.5"
     assert cmd[cmd.index("--resume") + 1] == "resume-9"
     settings = json.loads(cmd[cmd.index("--settings") + 1])
-    assert settings == {"autoMode": {"environment": ["$defaults"]}}
+    assert settings == {"autoMode": {"environment": ["$defaults"]}}  # no topology configured in this fixture
 
 
 def test_stdin_envelope_is_written_then_closed(svc, client):

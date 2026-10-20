@@ -1004,24 +1004,29 @@ def _automode_environment(source: Mapping[str, str] | None = None) -> list[str]:
     start with the literal ``$defaults`` so built-in trust is EXTENDED, not replaced.
     """
     src = os.environ if source is None else source
-    environment: list[str] = ["$defaults"]
     ns_url = (
         src.get("NEXTSEEK_INTERNAL_BASE_URL")
         or src.get("NEXTSEEK_BASE_URL")
         or src.get("NEXTSEEK_URL")
     )
+    return automode_trust_lines(ns_url, src.get("NEO4J_URI"), bool(src.get("GCP_API_KEY")))
+
+
+def automode_trust_lines(ns_url: str | None, neo4j_uri: str | None, gcp: bool) -> list[str]:
+    """The pure text builder. docker/cc-spawner/spawner.py keeps a copy for its own image
+    (a parity test holds the two equal); keep them in step."""
+    environment: list[str] = ["$defaults"]
     if ns_url:
         environment.append(
             "Trusted internal service: the NExtSEEK metadata REST API at "
             f"{_rewrite_loopback_url(ns_url)} — the MIT BioMicro Center lab's own "
             "sample/project database (reached as the authenticated user)."
         )
-    neo4j_uri = src.get("NEO4J_URI")
     if neo4j_uri:
         environment.append(
             f"Trusted internal graph database: Neo4j at {neo4j_uri} (lab lineage graph)."
         )
-    if src.get("GCP_API_KEY"):
+    if gcp:
         environment.append(
             "Trusted LLM provider: Google Cloud Gemini API — the assistant's own "
             "model provider."
@@ -1255,7 +1260,7 @@ def _spawner_turn_body(
         "transcripts_subpath": transcripts_subpath, "previous_turns": bool(previous_turns),
         "turn_files": bool(turn_files), "model_id": model_id, "fallback_model_id": _cc_fallback_model_id(),
         "max_budget_usd": max_budget_usd, "resume_session_id": session_id, "environment": environment,
-        "stdin_envelope": envelope + "\n", "automode_environment": _automode_environment(os.environ),
+        "stdin_envelope": envelope + "\n",
     }
 
 

@@ -27,7 +27,7 @@ Every call but `GET /health` needs the header `X-Spawner-Token` equal to `SPAWNE
 
 `SPAWNER_TOKEN`, `DMAC_CC_USERS_VOLUME`, `NEXTSEEK_CC_IMAGE`, `NEXTSEEK_CC_NETWORK`, `SEEK_CONTAINER`, and the CC
 limits the app used to read: `NEXTSEEK_CC_MAX_TURNS`, `NEXTSEEK_CC_MEM_LIMIT`, `NEXTSEEK_CC_NANO_CPUS`,
-`NEXTSEEK_CC_PIDS_LIMIT`, `NEXTSEEK_CC_FSIZE_BYTES`.
+`NEXTSEEK_CC_PIDS_LIMIT`, `NEXTSEEK_CC_FSIZE_BYTES`, and the auto-mode trust text inputs (non-secret): `NEXTSEEK_INTERNAL_BASE_URL`, `NEO4J_URI`, `NEXTSEEK_CC_AUTOMODE_GCP` (`1`/`0`; the spawner never receives the Gemini key).
 
 ## Rules
 
