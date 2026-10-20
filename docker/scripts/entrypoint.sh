@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
 
+# Two modes of one image (compose services `nextseek` and `web`):
+#   worker (default) -- the only migrator: DB probe, migrate, the batch-upload recovery and the nine background
+#                       loops. It serves nothing, so collectstatic is not its job.
+#   web              -- collectstatic, DB probe, waits for the worker's migrations (it never migrates), then the
+#                       web server. On a stop it drains: no new chat turns, running ones finish (capped), the rest
+#                       are ended with a plain message, then the server is stopped.
+MODE="${1:-worker}"
+case "$MODE" in
+  worker|web) ;;
+  *) echo "[entrypoint] unknown mode '$MODE' (expected worker or web)" >&2; exit 2 ;;
+esac
+
 # NExtSEEK writes Excel exports + upload/dropbox staging under MEDIA_ROOT
 # (/media), which is not a docker volume, so the subdirs don't exist on a fresh
 # container. Without them, export/retrieve/delete/publish all 500 with
@@ -15,12 +27,14 @@ mkdir -p /media/download /media/uploads /media/uploads/production /media/dropbox
 # image's venv is final (the first-party packages are editable installs of the
 # tree), and a sync re-installs those two packages on each new container's first
 # command, which is time between a restart and the first served request.
-uv run --no-sync manage.py collectstatic --noinput || {
-  echo "[COLLECTSTATIC-FAILED] FATAL: manage.py collectstatic exited non-zero;" \
-       "refusing to start servers with missing/stale static assets." \
-       "Common cause is a full disk (ENOSPC) on the static volume." >&2
-  exit 1
-}
+if [ "$MODE" = "web" ]; then
+  uv run --no-sync manage.py collectstatic --noinput || {
+    echo "[COLLECTSTATIC-FAILED] FATAL: manage.py collectstatic exited non-zero;" \
+         "refusing to start servers with missing/stale static assets." \
+         "Common cause is a full disk (ENOSPC) on the static volume." >&2
+    exit 1
+  }
+fi
 
 # R3: bounded DB-readiness probe. Distinguishes a transient cold-boot ordering
 # gap (db container up but mysqld not yet accepting connections) from a real
@@ -53,13 +67,29 @@ fi
 # fixed. If the failure is the heal's orphan guard, the remediation is manual
 # row triage (inspect/delete/reparent orphaned assistant_cc_transcript rows);
 # NEVER `migrate --fake` — that is what produced the FK-less fourth state.
-uv run --no-sync manage.py migrate --noinput || {
-  echo "[MIGRATE-FAILED] FATAL: manage.py migrate exited non-zero;" \
-       "refusing to start servers on an unmigrated schema." \
-       "Fix the migration wedge (for the cc-transcript orphan guard: manual" \
-       "row triage, never --fake) and let the container restart." >&2
-  exit 1
-}
+if [ "$MODE" = "web" ]; then
+  # Never migrates: the worker is the only migrator, and two web containers running one migration is how a
+  # schema gets hurt. Wait, bounded, until it has finished; a timeout crash-loops under `restart: always`.
+  _mw_deadline=$((SECONDS + ${NEXTSEEK_MIGRATE_WAIT_SECONDS:-300}))
+  until uv run --no-sync manage.py migrate --check >/dev/null 2>&1; do
+    if [ "$SECONDS" -ge "$_mw_deadline" ]; then
+      echo "[MIGRATE-WAIT-FAILED] FATAL: migrations were still pending after" \
+           "${NEXTSEEK_MIGRATE_WAIT_SECONDS:-300}s; the worker (service nextseek) applies them." \
+           "Check its log for [MIGRATE-FAILED]." >&2
+      exit 1
+    fi
+    echo "[entrypoint] waiting for the worker's migrations..." >&2
+    sleep "${NEXTSEEK_MIGRATE_WAIT_INTERVAL:-5}"
+  done
+else
+  uv run --no-sync manage.py migrate --noinput || {
+    echo "[MIGRATE-FAILED] FATAL: manage.py migrate exited non-zero;" \
+         "refusing to start servers on an unmigrated schema." \
+         "Fix the migration wedge (for the cc-transcript orphan guard: manual" \
+         "row triage, never --fake) and let the container restart." >&2
+    exit 1
+  }
+fi
 
 # Web server, selectable via NEXTSEEK_SERVER (default: daphne).
 #   daphne   — ASGI (dmac.asgi); serves the assistant WebSocket
@@ -67,10 +97,46 @@ uv run --no-sync manage.py migrate --noinput || {
 #   gunicorn — WSGI (dmac.wsgi); multi-worker, no WebSocket. The chat frontend
 #              auto-falls back to HTTP polling (chatApi.ts), so the assistant
 #              still works; lower-risk drop-in for a shared/multi-user instance.
-if [ "${NEXTSEEK_SERVER:-daphne}" = "gunicorn" ]; then
-  uv run --no-sync gunicorn dmac.wsgi &
-else
-  uv run --no-sync daphne -b 0.0.0.0 -p 8000 dmac.asgi:application &
+if [ "$MODE" = "web" ]; then
+  if [ "${NEXTSEEK_SERVER:-daphne}" = "gunicorn" ]; then
+    uv run --no-sync gunicorn dmac.wsgi &
+  else
+    uv run --no-sync daphne -b 0.0.0.0 -p 8000 dmac.asgi:application &
+  fi
+  _server_pid=$!
+
+  # Drain on stop. Chat turns run on threads inside the server and each leaves a marker file (turn_drain.py), so
+  # the count is a directory listing. The flag makes the turn-start views answer 503; the markers of turns that
+  # outlast the cap are handed to end_cut_turns, which ends them with a plain message at once.
+  _turn_dir="${NEXTSEEK_TURN_DIR:-/tmp/nextseek-turns}"
+  _turns_running() {
+    _remaining=()
+    for _m in "$_turn_dir"/*; do
+      [ -f "$_m" ] && _remaining+=("$(basename "$_m")")
+    done
+  }
+  _drain_and_stop() {
+    touch "$_turn_dir/.draining"
+    _d_deadline=$((SECONDS + ${NEXTSEEK_DRAIN_SECONDS:-240}))
+    _turns_running
+    while [ "${#_remaining[@]}" -gt 0 ] && [ "$SECONDS" -lt "$_d_deadline" ]; do
+      echo "[drain] ${#_remaining[@]} turns running" >&2
+      sleep "${NEXTSEEK_DRAIN_POLL:-10}"
+      _turns_running
+    done
+    if [ "${#_remaining[@]}" -gt 0 ]; then
+      echo "[drain] cap reached; ending ${#_remaining[@]} turns" >&2
+      uv run --no-sync manage.py end_cut_turns "${_remaining[@]}" || echo "[drain] end_cut_turns failed" >&2
+    fi
+    kill -TERM "$_server_pid" 2>/dev/null
+    wait "$_server_pid"
+    exit 143
+  }
+  rm -rf "$_turn_dir"   # a restarted container keeps /tmp: no stale flag or marker may survive the start
+  mkdir -p "$_turn_dir"
+  trap _drain_and_stop TERM INT
+  wait "$_server_pid"
+  exit $?
 fi
 
 case "${BATCH_UPLOAD_STATE_DIR:-/var/celery}" in
