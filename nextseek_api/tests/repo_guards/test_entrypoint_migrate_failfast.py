@@ -42,6 +42,7 @@ def _run_entrypoint(
     collectstatic_exit: int = 0,
     db_probe_exit: int = 0,
     db_wait_attempts: int = 2,
+    mode: str = "worker",
 ):
     bindir = tmp_path / "bin"
     bindir.mkdir()
@@ -68,7 +69,7 @@ def _run_entrypoint(
         "NEXTSEEK_GRAPH_SYNC_LOOP": "0",
     }
     proc = subprocess.run(
-        ["bash", str(ENTRYPOINT)],
+        ["bash", str(ENTRYPOINT), mode],
         env=env,
         capture_output=True,
         text=True,
@@ -91,17 +92,17 @@ class TestMigrateFailFast:
         proc, _ = _run_entrypoint(tmp_path, migrate_exit=1)
         assert "--fake" in proc.stderr
 
-    def test_migrate_success_still_starts_servers(self, tmp_path):
+    def test_migrate_success_still_starts_the_loops(self, tmp_path):
         proc, calls = _run_entrypoint(tmp_path, migrate_exit=0)
         assert proc.returncode == 0
         assert "manage.py migrate" in calls
-        assert "gunicorn" in calls
+        assert "gunicorn" not in calls  # the worker serves nothing; the web mode does
         assert "celery" in calls
 
 
 class TestCollectstaticFailFast:
     def test_collectstatic_failure_exits_without_migrate_or_servers(self, tmp_path):
-        proc, calls = _run_entrypoint(tmp_path, collectstatic_exit=1)
+        proc, calls = _run_entrypoint(tmp_path, collectstatic_exit=1, mode="web")
         assert proc.returncode != 0
         assert "[COLLECTSTATIC-FAILED]" in proc.stderr
         assert "manage.py migrate" not in calls
@@ -109,7 +110,7 @@ class TestCollectstaticFailFast:
         assert "celery" not in calls
 
     def test_collectstatic_success_proceeds_to_migrate(self, tmp_path):
-        proc, calls = _run_entrypoint(tmp_path, collectstatic_exit=0, migrate_exit=0)
+        proc, calls = _run_entrypoint(tmp_path, collectstatic_exit=0, migrate_exit=0, mode="web")
         assert proc.returncode == 0
         assert "manage.py collectstatic" in calls
         assert "manage.py migrate" in calls
@@ -129,7 +130,7 @@ class TestDbReadinessProbe:
         assert proc.returncode == 0
         assert "MySQLdb.connect" in calls
         assert "manage.py migrate" in calls
-        assert "gunicorn" in calls
+        assert "celery" in calls
 
     def test_migrate_failure_with_db_up_still_reports_migrate_failed(self, tmp_path):
         proc, _ = _run_entrypoint(tmp_path, db_probe_exit=0, migrate_exit=1)

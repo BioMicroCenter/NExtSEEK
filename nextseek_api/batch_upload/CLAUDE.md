@@ -114,14 +114,10 @@ lineage, and none of them fails loudly.
   fails on a declared pair the graph lacks, so a parent that arrives in a later upload is
   repaired by orphan resolution and the nightly sync instead of being dropped by a Cypher
   MATCH that found nothing.
-- **Nothing under `MEDIA_ROOT` survives a container rebuild.**
-  `dmac/settings.py:95` puts it at a path the `nextseek` service never mounts: a
-  case-insensitive grep for `media` over the whole of `docker-compose.yml` matched nothing on
-  2026-09-03, and the service's mount list at `docker-compose.yml:25-53` is nine entries
-  covering other paths.
-  Rebuilding therefore destroys the job index, the uploaded workbooks and
-  every downloadable summary at once, and the ownership check above then 404s a user on
-  their own jobs.
+- **`MEDIA_ROOT` (`/media`) is the `nextseek-media` volume, shared by the worker and `web`.**
+  The worker writes the batch reports and checkpoints there and `web` serves and reads them,
+  so they survive a rebuild; `./startup.sh reset` drops the volume. The job index and the
+  saved sheets live on `batch_upload_state` (`/var/celery`), not here.
 - **`nextseek_api/batch_upload/job_index.py:12-14` reads `MEDIA_ROOT` at import time.**
   Overriding the setting later, in a test or at runtime, does not move the directory; that
   is what the explicit `jobs_dir` parameter at

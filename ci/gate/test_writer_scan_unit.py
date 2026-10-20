@@ -235,7 +235,7 @@ def test_a_seek_client_read_is_not_a_write():
 
 
 def test_the_rails_runner_is_a_site():
-    src = 'def create(self, request):\n    run_seek_rails_runner(SEEK_CREATE_RUBY)\n'
+    src = 'def create(self, request):\n    run_seek_op("create", payload)\n'
     found = writer_scan.scan_module("nextseek_api/services/users.py", src)
     assert kinds(found) == ["rails_runner"]
     assert tables(found) == []

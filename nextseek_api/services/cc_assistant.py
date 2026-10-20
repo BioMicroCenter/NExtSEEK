@@ -48,6 +48,7 @@ from nextseek_api.assistant.descriptions_cc import (
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
+from nextseek_api.assistant.turn_drain import draining, draining_response
 from nextseek_api.throttles import TURN_THROTTLES, UPLOAD_THROTTLES
 from nextseek_api.helpers import resolve_seek_auth
 from nextseek_api.graph_search.scope import caller_block, plain_scope
@@ -127,6 +128,8 @@ class CCAssistantViewSet(viewsets.ViewSet):
 
     # ------------------------------------------------------------------ dispatch
     def _start_task(self, request, req, *, force_cc: bool) -> Response:
+        if draining():
+            return draining_response()
         try:
             chat_session = self._resolve_session(request, req)
         except ChatSession.DoesNotExist:

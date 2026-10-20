@@ -216,7 +216,7 @@ describe("a progress socket that drops after it opened", () => {
       vi.fn(async (_url: string, init?: RequestInit) =>
         init?.method === "POST"
           ? { ok: true, json: async () => ({ task_id: TASK, session_id: "sess-1" }) }
-          : { ok: false, status: 502 },
+          : { ok: false, status: 500 },   // not 502/503/504, which read as a restart
       ),
     );
     const { done, sock, onError } = await startTurn(service);
@@ -226,7 +226,7 @@ describe("a progress socket that drops after it opened", () => {
     await vi.advanceTimersByTimeAsync(0);
     await done;
 
-    expect(onError).toHaveBeenCalledWith("Polling failed: 502");
+    expect(onError).toHaveBeenCalledWith("Polling failed: 500");
   });
 });
 

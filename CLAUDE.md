@@ -125,7 +125,6 @@ Live state comes from GitHub and git, never from spec headers or plan checkboxes
 - Nothing may be registered after the Mezzanine catch-all (`dmac/CLAUDE.md`).
 - A `static/` change needs `collectstatic` after the rebuild (`DEPLOYMENT.md` §3.2). Schema fixups run only on `install`, never on `rebuild` (`startup/CLAUDE.md`).
 - A chat UI change is two commits, source then the rebuilt bundle; only `npm run build:embedded` ships (`NessieAI/chat_frontend/CLAUDE.md`).
-- A rebuild wipes `MEDIA_ROOT`, including batch-upload jobs (`nextseek_api/batch_upload/CLAUDE.md`).
 - A theme template or static file name wins site-wide, and theme CSS is cached 30 days: hard-reload before blaming a deploy (`themes/CLAUDE.md`).
 - Never add a published port on dev or prod; multiplex onto 443 (`docker/CLAUDE.md`).
 - Proxy ViewSets share one SEEK client whose session keeps no cookies; keep it that way (`nextseek_api/CLAUDE.md`).

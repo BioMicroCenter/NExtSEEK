@@ -1,9 +1,8 @@
-"""Execute Ruby in the live SEEK container via the Docker Engine API.
+"""Run one of the fixed SEEK admin scripts (create, patch, compensate) in the live SEEK container.
 
-The nextseek compose stack mounts ``/var/run/docker.sock`` but does not ship the
-``docker`` CLI. This module uses the ``docker`` Python SDK (already present via
-``dmac-assistant``) to ``exec`` into the ``seek`` container and run
-``bin/rails runner`` with an optional JSON payload embedded in the script.
+The app does not touch the Docker socket. It asks cc-spawner (``NessieAI/cc/spawner_client.py``), which holds the
+three Ruby scripts, passes the payload to ``bin/rails runner`` in the exec environment and answers with the script's
+last JSON line and the exit status. This module turns that answer into a result or one of the two errors below.
 """
 
 from __future__ import annotations
@@ -14,9 +13,10 @@ import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+from NessieAI.cc import spawner_client
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_SEEK_CONTAINER = "seek"
 DEFAULT_TIMEOUT_SECONDS = 120
 
 
@@ -32,18 +32,16 @@ class SeekRailsRunnerError(Exception):
 
 
 class SeekRailsUnavailableError(SeekRailsRunnerError):
-    """Docker socket or SEEK container is not reachable from this runtime."""
+    """cc-spawner or the SEEK container is not reachable from this runtime."""
 
 
 @dataclass(frozen=True)
 class SeekRailsRunnerConfig:
-    container_name: str = DEFAULT_SEEK_CONTAINER
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
 
     @classmethod
     def from_env(cls) -> "SeekRailsRunnerConfig":
         return cls(
-            container_name=os.environ.get("SEEK_CONTAINER_NAME", DEFAULT_SEEK_CONTAINER),
             timeout_seconds=int(os.environ.get("SEEK_RAILS_RUNNER_TIMEOUT", DEFAULT_TIMEOUT_SECONDS)),
         )
 
@@ -70,92 +68,40 @@ def _detail(exit_code: Optional[int], output: str) -> str:
     return "\n".join(part for part in (_exit_note(exit_code), output) if part)
 
 
-def _import_docker():
-    try:
-        import docker  # type: ignore
-        from docker.errors import APIError, NotFound  # type: ignore
-    except ImportError as exc:  # pragma: no cover
-        raise SeekRailsUnavailableError(
-            "docker Python SDK is not installed",
-            detail=str(exc),
-        ) from exc
-    return docker, APIError, NotFound
-
-
-def run_seek_rails_runner(
-    ruby_script: str,
+def run_seek_op(
+    op_name: str,
     payload: Optional[Dict[str, Any]] = None,
     *,
     config: Optional[SeekRailsRunnerConfig] = None,
 ) -> Dict[str, Any]:
-    """Run ``ruby_script`` inside ``bin/rails runner``.
+    """Run the SEEK script ``op_name`` ("create", "patch" or "compensate") with ``payload``.
 
-    When ``payload`` is provided, a ``payload`` local is set from embedded JSON.
-    The Ruby snippet must ``puts`` a single JSON object as its last stdout line.
+    The script ends by printing a single JSON object as its last stdout line.
     """
     config = config or SeekRailsRunnerConfig.from_env()
-    docker_mod, APIError, NotFound = _import_docker()
-
-    preamble = ""
-    if payload is not None:
-        preamble = f"payload = JSON.parse({json.dumps(json.dumps(payload))})\n"
-
-    wrapped = "require 'json'\n" + preamble + ruby_script
-
+    if not spawner_client.enabled():
+        raise SeekRailsUnavailableError(
+            "NEXTSEEK_SPAWNER_URL is not set: SEEK user operations run through cc-spawner",
+        )
     try:
-        client = docker_mod.from_env()
-        container = client.containers.get(config.container_name)
-    except NotFound as exc:
-        raise SeekRailsUnavailableError(
-            f"SEEK container {config.container_name!r} not found",
-            detail=str(exc),
-        ) from exc
-    except APIError as exc:
-        raise SeekRailsUnavailableError(
-            "Docker Engine API error while locating SEEK container",
-            detail=str(exc),
-        ) from exc
-    except Exception as exc:  # pragma: no cover
-        raise SeekRailsUnavailableError(
-            "Cannot connect to Docker Engine (is /var/run/docker.sock mounted?)",
-            detail=str(exc),
-        ) from exc
+        # The exec has no limit of its own; the wait is the runner timeout plus a margin for the Rails boot.
+        answer = spawner_client.seek_op(op_name, payload, timeout=config.timeout_seconds + 30)
+    except spawner_client.SpawnerUnavailable as exc:
+        raise SeekRailsUnavailableError("cc-spawner unavailable for the SEEK operation", detail=str(exc)) from exc
+    except spawner_client.SpawnerRefused as exc:
+        raise SeekRailsRunnerError("cc-spawner refused the SEEK operation", detail=str(exc)) from exc
 
-    exec_cmd = ["bin/rails", "runner", wrapped]
-    try:
-        exit_code, output = container.exec_run(exec_cmd, demux=True, workdir="/seek")
-    except APIError as exc:
-        raise SeekRailsUnavailableError(
-            "Docker exec into SEEK container failed",
-            detail=str(exc),
-        ) from exc
-
-    if isinstance(output, tuple):
-        stdout, stderr = output
-        stdout = stdout or b""
-        stderr = stderr or b""
-    else:
-        stdout = output or b""
-        stderr = b""
-
-    stdout_text = stdout.decode("utf-8", errors="replace").strip()
-    stderr_text = stderr.decode("utf-8", errors="replace").strip()
+    exit_code = answer.get("exit_code")
+    last_line = (answer.get("last_line") or "").strip()
+    stderr_text = (answer.get("stderr") or "").strip()
     if stderr_text:
         logger.debug("seek rails runner stderr: %s", stderr_text)
-
-    last_line = ""
-    for line in reversed(stdout_text.splitlines()):
-        line = line.strip()
-        if line:
-            last_line = line
-            break
 
     if not last_line:
         message = "SEEK rails runner produced no JSON output"
         if exit_code:
             message += f" (exit code {exit_code})"
-        raise SeekRailsRunnerError(message, detail=_detail(exit_code, stderr_text or stdout_text),
-                                   exit_code=exit_code)
+        raise SeekRailsRunnerError(message, detail=_detail(exit_code, stderr_text), exit_code=exit_code)
 
     try:
         result = json.loads(last_line)

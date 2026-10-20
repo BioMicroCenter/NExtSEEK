@@ -12,7 +12,7 @@ from pathlib import Path
 from string import Template
 
 from startup.lib import env_registry
-from startup.lib.env import parse_line, read_env, read_env_text, write_env
+from startup.lib.env import parse_line, read_env, read_env_text, update_env, write_env
 from startup.lib.instance import load_instance
 from startup.lib.layout import legacy_proxy_secret_env, proxy_secret_env
 
@@ -332,6 +332,26 @@ def render_db_env(repo_root: Path, values: ConfigValues) -> Path:
 
 def render_nextseek_env(repo_root: Path, values: ConfigValues) -> Path:
     return _write_keeping(repo_root, "nextseek.env", values)
+
+
+def render_spawner_env(repo_root: Path) -> Path:
+    """Give `web` and `cc-spawner` one shared token, written once and never printed.
+
+    NEXTSEEK_SPAWNER_TOKEN lands in docker/nextseek.env and SPAWNER_TOKEN in
+    docker/cc-spawner.env (mode 0600), the same value. An existing value is
+    kept (the app file first, then the spawner file), so a re-run of install
+    never rotates it under a running pair.
+    """
+    app_env = repo_root / "docker" / "nextseek.env"
+    spawner_env = repo_root / "docker" / "cc-spawner.env"
+    token = (read_env(app_env).get("NEXTSEEK_SPAWNER_TOKEN")
+             or read_env(spawner_env).get("SPAWNER_TOKEN")
+             or generate_password(48))
+    if not read_env(app_env).get("NEXTSEEK_SPAWNER_TOKEN"):
+        update_env(app_env, {"NEXTSEEK_SPAWNER_TOKEN": token})
+    write_env(spawner_env, {"SPAWNER_TOKEN": token})
+    spawner_env.chmod(0o600)
+    return spawner_env
 
 
 def preview_changed_keys(

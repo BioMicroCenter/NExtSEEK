@@ -25,15 +25,18 @@ Related docs (each has a distinct job; don't cross-purpose them):
 ## 0. Topology at a glance
 
 One `docker-compose.yml` at the repo root defines the whole stack:
-**10 services, 2 networks, and 9 named volumes**. Seven volumes are external;
-two are Compose-managed, including the attribute Celery SQLite broker.
+**12 services, 3 networks, and 10 named volumes**. Seven volumes are external;
+three are Compose-managed: the attribute Celery SQLite broker, the batch-upload
+queue state and `nextseek-media` (`/media`, shared by `nextseek` and `web`).
 No service is profile-gated: `docker compose ps` shows the whole stack, and
 `docker compose up -d` starts the whole stack.
 
 | Service | Image | Host port | Network(s) | Role |
 |---|---|---|---|---|
-| `nextseek` | built from root `Dockerfile` | none (internal :8000) | default | Django app, and every background runtime that runs app code: web server (daphne, or gunicorn via `NEXTSEEK_SERVER`), Celery worker for `batch_upload`, Celery worker for `attribute_mutations`, the outbox dispatcher, the sync-recovery loop, and the assay-registration drain loop. Six processes under one `wait -n`, so any of them exiting restarts the container. Healthchecked by `docker/scripts/attribute_runtime_healthcheck.py app` |
-| `nextseek_nginx` | `nginx:${NGINX_IMAGE_TAG:-1.31.2}` | `127.0.0.1:${NEXTSEEK_PORT:-8000}` | default **+ dmac-cc-net** | static files + reverse proxy; the **only dual-homed** service |
+| `nextseek` (the worker) | built from root `Dockerfile` | none | default | The background runtimes that run app code, no web server: Celery worker for `batch_upload`, Celery worker for `attribute_mutations`, the beat, the outbox dispatcher, the sync-recovery loop, the assay-registration and share drains and the graph sync. It is the only service that runs `migrate`, and it holds no Docker socket. One `wait -n`, so any of them exiting restarts the container. Healthchecked by `docker/scripts/attribute_runtime_healthcheck.py app`. Keeps the name `nextseek`, so every `docker exec nextseek ...` works |
+| `web` | the `nextseek` image (no second build) | none (internal :8000) | default + laya-net + dmac-spawner-net | The web server (daphne, or gunicorn via `NEXTSEEK_SERVER`) and the chat turn. No `container_name`: compose names it `nextseek-web-N`, so a rebuild can run two and swap them (§3.3). Holds the Docker socket for the one dev cycle of the spawner switch, the Luria key and ssh volume, and `dmac-cc-users`. Healthcheck: `GET /login/` answers 200. `stop_grace_period: 5m` |
+| `cc-spawner` | built from `docker/cc-spawner/` | none | dmac-spawner-net (internal) | Starts Container-CC turns and runs the SEEK admin scripts for `web`, behind a token. The only other holder of the Docker socket; read-only, all capabilities dropped. `web` uses it unless `NEXTSEEK_SPAWNER_URL` is set empty in the project-root `.env` |
+| `nextseek_nginx` | `nginx:${NGINX_IMAGE_TAG:-1.31.2}` | `127.0.0.1:${NEXTSEEK_PORT:-8000}` | default **+ dmac-cc-net** | static files + reverse proxy to the `web` service (or, during a swap, to the one container `docker/nginx-upstream/pin.conf` names); the **only dual-homed** service |
 | `db` | `mysql:8.0` | `127.0.0.1:3306` | default | two schemas: `dmac` (NExtSEEK) + `seek_production` (SEEK) |
 | `neo4j` | `neo4j:${NEO4J_IMAGE_TAG:-2026.05.0}` | `127.0.0.1:7474` / `:7687` | default | sample/assay graph |
 | `seek` / `seek_workers` | `fairdom/seek:1.15.1` | `127.0.0.1:3000` / none | default | upstream SEEK Rails app + delayed-job workers |
@@ -54,23 +57,25 @@ Key facts every operator must internalize:
   `docker/nextseek.env`, `NessieAI/docker/bedrock-proxy/proxy-secret.env`,
   `dmac/local_settings.py`. They are injected at runtime via compose
   `env_file:` / bind mount.
-- The `nextseek` container's entrypoint (`docker/scripts/entrypoint.sh`) is
-  **fail-fast**: `collectstatic`, a bounded DB-readiness probe, and
-  `migrate --noinput` each abort the container on failure (markers
-  `[COLLECTSTATIC-FAILED]`, `[DB-UNREACHABLE]`, `[MIGRATE-FAILED]` in
-  `docker logs nextseek`). A crash-looping container after a deploy means one
+- The entrypoint (`docker/scripts/entrypoint.sh`, modes `worker` and `web`) is
+  **fail-fast**: `collectstatic` (web), a bounded DB-readiness probe, and
+  `migrate --noinput` (worker) each abort the container on failure (markers
+  `[COLLECTSTATIC-FAILED]`, `[DB-UNREACHABLE]` in `docker compose logs web`,
+  `[MIGRATE-FAILED]` in `docker logs nextseek`). A crash-looping container after a deploy means one
   of those failed. **Never** "fix" a migration wedge with `migrate --fake`.
 - `NEXTSEEK_SERVER` selects the web server: `gunicorn` (WSGI, **the deployed
   norm**) or `daphne` (ASGI/WebSocket, **the code default when unset**). Set
   `NEXTSEEK_SERVER=gunicorn` explicitly in `docker/nextseek.env` on every
   deployment unless you have decided otherwise; under gunicorn the chat UI
   uses HTTP polling for progress (no WebSocket).
-- The `nextseek` container is capped at `${NEXTSEEK_MEMORY:-16G}` of RAM, with
-  no swap beyond it (`deploy.resources.limits.memory` and `memswap_limit` in
+- The `web` container is capped at `${NEXTSEEK_MEMORY:-16G}` of RAM and the
+  `nextseek` worker at `${NEXTSEEK_WORKER_MEMORY:-8G}`, with no swap beyond
+  either (`deploy.resources.limits.memory` and `memswap_limit` in
   `docker-compose.yml`). A request that outgrows the cap has its process killed
-  inside the container instead of exhausting the host. At rest the container
-  holds about 6 GiB, so set `NEXTSEEK_MEMORY` in the project-root `.env` well
-  above that. A changed cap takes effect when `nextseek` is recreated.
+  inside the container instead of exhausting the host. At rest web holds about
+  3.7 GiB and the worker about 5.3 GiB, so set the caps in the project-root
+  `.env` well above that; during a swap two web containers overlap for one to
+  five minutes. A changed cap takes effect when the service is recreated.
 - The `seek` container is capped the same way at `${SEEK_MEMORY:-4G}`. SEEK's
   puma workers grow with the requests they serve and never hand the memory
   back: one reached 10 GiB on a workstation on 2026-09-16 and left the host
@@ -152,7 +157,7 @@ Key facts every operator must internalize:
 3. **mysqldump gate:** before any deploy whose commit range includes a Django
    migration, dump the affected table(s) (or the `dmac` schema) first (§5.3).
 4. **Scope your recreation.** Recreate only the service(s) whose image or
-   config actually changed, normally `--no-deps nextseek`. Do not touch
+   config actually changed, normally `--no-deps nextseek web`. Do not touch
    `bedrock-proxy` / `nextseek-sidecar` / databases on an app-only deploy;
    their uptime is part of the post-deploy verification.
 5. **Run the verification checklist (§6) after every deploy** and record the
@@ -220,7 +225,7 @@ SEEK filestore blobs (~215 MB) are fetched from S3 and streamed in.
 #      NEXTSEEK_SERVER=gunicorn
 
 # 5. Apply the env changes:
-docker compose up -d --no-deps --force-recreate nextseek
+docker compose up -d --no-deps --force-recreate nextseek web
 
 # 6. Verify:
 ./startup.sh doctor          # 13 read-only checks (4 prereq + instance
@@ -345,20 +350,22 @@ git diff --name-only HEAD@{1} HEAD -- '*migrations*'
 # 3. Rebuild exactly what changed. Each verb first creates+verifies local
 #    rollback tags, then builds, recreates long-running targets with
 #    --no-deps --force-recreate, and attempts the §5.2 GHCR baseline:
-./startup.sh rebuild                               # app cohort (common case)
+./startup.sh rebuild                               # app cohort (common case); swaps web without a gap (§3.3)
+./startup.sh rebuild --stop-first                  # the same, but stop and recreate web (about a minute of the restart page)
+./startup.sh rebuild --component cc-spawner        # docker/cc-spawner/**
 ./startup.sh rebuild --component cc-agent          # NessieAI/docker/cc-runtime/**
 ./startup.sh rebuild --component bedrock-proxy     # NessieAI/docker/bedrock-proxy/**
 ./startup.sh rebuild --component nextseek-sidecar  # NessieAI/docker/ns-sidecar/**
 ./startup.sh rebuild --component custom-stack      # every first-party image
 #    cc-agent is build-only: the next chat turn uses the new image; there is no
-#    persistent agent container. The app cohort is the one nextseek service,
-#    which runs every app-code process (§0).
+#    persistent agent container. The app cohort is the two services on the app
+#    image, `nextseek` (the worker) and `web` (§0).
 #    The worker and dispatcher reattach the existing
 #    attribute_mutation_broker SQLite volume; rebuild does not remove or renew
 #    that volume.
 
 # 4. Watch the boot (entrypoint runs collectstatic → DB probe → migrate):
-docker logs -f nextseek        # until gunicorn workers are up; no FAILED markers
+docker compose logs -f web     # until gunicorn workers are up; no FAILED markers (the worker: docker logs -f nextseek)
 
 # 5. Run the §6 verification checklist. Record results.
 ```
@@ -390,19 +397,67 @@ exits non-zero rather than blocking on a question nobody can answer.
 
 | You changed | Required action |
 |---|---|
-| Python / templates / anything baked (`nextseek_api/`, `NessieAI/chat_nextseek/`, `seek/`, `dmac/` except `local_settings.py`) | `./startup.sh rebuild`: rebuild the shared app image and recreate `nextseek`, which carries every app-code runtime. No `COMPOSE_PROFILES` to remember: until 2026-09-02 four workers lived in their own profile-gated services, and a rebuild without the variable exported left them running old code under `restart: unless-stopped`, looking healthy |
-| `static/` assets | rebuild + recreate, **then** `docker compose exec nextseek uv run manage.py collectstatic --noinput` |
+| Python / templates / anything baked (`nextseek_api/`, `NessieAI/chat_nextseek/`, `seek/`, `dmac/` except `local_settings.py`) | `./startup.sh rebuild`: rebuild the shared app image, recreate the `nextseek` worker and swap `web` (§3.3). No `COMPOSE_PROFILES` to remember: until 2026-09-02 four workers lived in their own profile-gated services, and a rebuild without the variable exported left them running old code under `restart: unless-stopped`, looking healthy |
+| `static/` assets | rebuild + recreate, **then** `docker compose exec web uv run manage.py collectstatic --noinput` |
 | `NessieAI/chat_frontend/` React source | `npm run build:embedded` in `NessieAI/chat_frontend/`, commit the emitted assets, then rebuild + recreate + collectstatic |
 | `NessieAI/docker/cc-runtime/**` (agent plugin/skills/CLAUDE.md/deps) | `./startup.sh rebuild --component cc-agent`: next turn uses it; no service restart. Also the recovery command when `dmac-assistant:poc` has been pruned: a first build with no rollback source is announced and allowed, not refused |
 | The canonical context files in `NessieAI/chat_nextseek/src/chat_nextseek/context/` (`capabilities.md`, `projects_db.json`, the four `min_*.json`, `ONTOLOGIES.json` and the `ontology_*.json` files; list in `startup/lib/layout.py`) | both `./startup.sh rebuild` and `./startup.sh rebuild --component cc-agent`: the agent image bakes its own copy through the compose named context `chat_nextseek`. Skip the second and every rebuild's stack health fails `cc-agent context`, naming the files, until it is run |
 | `NessieAI/dmac_assistant/baml_src/**` (BAML prompts and schemas) | both `./startup.sh rebuild` (the router client in the app image) and `./startup.sh rebuild --component cc-agent` (the judge client; the agent image reads this tree through the compose named context `dmac_assistant_baml`) |
-| `docker/nextseek.env` / `dmac/local_settings.py` (config only) | no build: `docker compose up -d --no-deps --force-recreate nextseek` |
+| `docker/nextseek.env` / `dmac/local_settings.py` (config only) | no build: `docker compose up -d --no-deps --force-recreate nextseek web` |
 | `NessieAI/docker/bedrock-proxy/**` or its secret env | `./startup.sh rebuild --component bedrock-proxy` |
 | `NessieAI/docker/ns-sidecar/**` | `./startup.sh rebuild --component nextseek-sidecar` |
 | More than one first-party image family | run each affected component, or `--component custom-stack` |
 | A Django migration (in the range) | mysqldump gate (§5.3) → rebuild + recreate (migrate runs at boot) → verify with `showmigrations` |
 
-### 3.3 If the deploy clone is owned by a different account
+### 3.3 Swapping the web server (no gap)
+
+`./startup.sh rebuild` replaces `web` without a gap by default; `--stop-first` keeps
+the old stop-and-start. Steps (`startup/lib/web_swap.py`):
+
+1. Build, then check the NEW image in a throwaway container: `manage.py migrate --check`.
+   A pending migration prints why and falls back to stop-first on its own (old code must
+   not run on a new schema); users then see the restart page for about a minute and
+   running chat turns get up to 240 s to finish (`NEXTSEEK_DRAIN_SECONDS`). Stop-first
+   recreates `web` alone first, so the old one has drained and stopped before the worker
+   is recreated and migrates; the new one waits in its entrypoint for the migrations.
+2. Recreate the `nextseek` worker (background jobs pause for its boot; users do not see it).
+3. Pin nginx to the old web container (`docker/nginx-upstream/pin.conf`, then
+   `nginx -t` and a graceful reload), start a second `web` beside it on the new image
+   (`up -d --no-deps --no-recreate --scale web=2 web`), wait for its healthcheck
+   (180 s), warm it (parallel `GET /login/`).
+4. Pin nginx to the new container, `docker stop` the old one (its `stop_grace_period`
+   lets running chat turns finish; a turn still running at the cap is ended with a plain
+   "please ask again"), `docker rm` it, delete the pin.
+
+Any failure before the switch removes the new container and the pin; the old one never
+stopped serving. A pin left by a killed swap may name a container that is gone: `doctor`
+reports it, and `rebuild` refuses to build or replace `web` until it is deleted and nginx
+reloaded. If `docker compose ps web` shows two containers after an aborted rebuild, the
+next rebuild refuses with the fix (stop and remove the older one, delete the pin file,
+reload nginx).
+
+**The first deploy of the split is a switchover, not a swap.** It creates `web`, turns
+`nextseek` into the worker and needs nginx to mount the new upstream directory. `web`
+sends Container-CC turns and the SEEK user scripts to `cc-spawner`, which the app rebuild
+does not start, so build the spawner first, once per box:
+
+```bash
+./startup.sh rebuild --component cc-spawner
+./startup.sh rebuild --recreate-nginx      # about a minute of the restart page
+```
+
+Every rebuild after it swaps. `rebuild` also writes the spawner token pair
+(`NEXTSEEK_SPAWNER_TOKEN` in `docker/nextseek.env`, `SPAWNER_TOKEN` in
+`docker/cc-spawner.env`) on a box that lacks it; both files stay out of git. The
+spawner reads its Container-CC limits (`NEXTSEEK_CC_MAX_TURNS`, `_MEM_LIMIT`, `_NANO_CPUS`,
+`_PIDS_LIMIT`, `_FSIZE_BYTES`, `_AUTOMODE_GCP`) from the project-root `.env`, not from
+`docker/nextseek.env`: a box that overrides one in `nextseek.env` must copy it to `.env`.
+
+Rollback of the spawner: `NEXTSEEK_SPAWNER_URL=` (empty) in `.env`, then recreate `web`, puts
+Container-CC turns back on the direct Docker path. SEEK user create and patch always need the
+spawner and answer 503 while it is down or the switch is empty.
+
+### 3.4 If the deploy clone is owned by a different account
 
 On shared servers the installed runtime checkout may be owned by a service
 account or carry unrelated operator-owned files. Do not stash, discard, or
@@ -436,8 +491,11 @@ from that checkout.
 runtime-injected, so **no rebuild**:
 
 ```bash
-docker compose -p nextseek up -d --no-deps --force-recreate nextseek
+docker compose -p nextseek up -d --no-deps --force-recreate nextseek web
 ```
+
+That recreates `web` in place: about a minute of the restart page, and running chat
+turns get the drain (up to 240 s) first. Plan a config change like a `--stop-first` deploy.
 
 Then §6. Remember the entrypoint reruns migrate/collectstatic on every start;
 a config typo that breaks Django settings shows up as a crash-loop, and the
@@ -540,8 +598,14 @@ building**:
 ```bash
 docker image inspect nextseek-nextseek:pre-<name> --format '{{.Id}}'   # MUST succeed first
 docker tag nextseek-nextseek:pre-<name> nextseek-nextseek:latest
-docker compose -p nextseek up -d --no-build --no-deps --force-recreate nextseek
+docker compose -p nextseek up -d --no-build --no-deps --force-recreate nextseek web
 ```
+
+This recreates `web` in place (about a minute of the restart page). For a gap-free
+rollback check out the previous good commit and run `./startup.sh rebuild` there: it
+rebuilds that commit's image and swaps `web` (§3.3). Going back to a commit from before
+the split leaves `web` and `cc-spawner` running as orphans of the old compose file; run
+`docker compose up -d --remove-orphans` after it.
 
 Then §6. If the bad deploy applied a **data** migration, rolling back the
 image does not roll back the data; that is what the §5.3 dump is for;
@@ -638,15 +702,15 @@ curl -s -o /dev/null -w '%{http_code}\n' "http://127.0.0.1:${NEXTSEEK_PORT:-8000
 
 # 2. Server mode. Expect: NEXTSEEK_SERVER=gunicorn; 'gunicorn dmac.wsgi'
 #    workers + a 'celery … batch_upload' worker; ZERO daphne lines
-docker exec nextseek printenv NEXTSEEK_SERVER
-docker top nextseek | grep -c daphne          # expect: 0
+docker compose exec web printenv NEXTSEEK_SERVER
+docker compose top web | grep -c daphne          # expect: 0
 
 # 3. No crash-loop. Expect: 0
-docker inspect nextseek --format '{{.RestartCount}}'
+docker inspect nextseek $(docker compose ps -q web) --format '{{.Name}} {{.RestartCount}}'
 
 # 4. Boot clean. Expect: no FAILED/UNREACHABLE markers; only expected
 #    'Applying <migration>... OK' lines
-docker logs nextseek 2>&1 | grep -E '(COLLECTSTATIC-FAILED|DB-UNREACHABLE|MIGRATE-FAILED|Applying)'
+{ docker compose logs --no-log-prefix web; docker logs nextseek; } 2>&1 | grep -E '(COLLECTSTATIC-FAILED|DB-UNREACHABLE|MIGRATE-FAILED|Applying)'
 
 # 5. Migrations. Expect: all [X]
 docker exec nextseek uv run manage.py showmigrations nextseek_api | tail -5
@@ -657,7 +721,7 @@ docker exec nextseek uv run manage.py showmigrations nextseek_api | tail -5
 #    Step 9 below now runs this same command for you, as doctor's "CC runner"
 #    check, and `./startup.sh rebuild` additionally fails when any first-party
 #    image is absent. Run it by hand when you want the answer on its own.
-docker exec nextseek uv run --no-sync python -c "from NessieAI.cc import cc_engine; print(cc_engine.cc_runner_available())"
+docker compose exec web uv run --no-sync python -c "from NessieAI.cc import cc_engine; print(cc_engine.cc_runner_available())"
 
 # 7. OI-3 peers untouched (app-only deploy). Expect: uptime/health
 #    unchanged from before the deploy
@@ -667,7 +731,7 @@ docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -e nextseek-sidecar -e
 docker image inspect nextseek-nextseek:pre-<name> --format '{{.Id}}'
 
 # 9. Health suite. Expect: exit 0. Run from a checkout with uv on PATH
-#    (NOT via the §3.3 docker:cli helper: it has no uv, and doctor's HTTP
+#    (NOT via the §3.4 docker:cli helper: it has no uv, and doctor's HTTP
 #    probes need host-loopback access). Includes "first-party images" (all four
 #    built images present on the host) and "CC runner" (step 6, run in the app
 #    container).
@@ -792,7 +856,6 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `NEXTSEEK_CC_OPS_ROAD` | nextseek.env, internal | "" |  |  | Container-CC op road, direct or sidecar; cc_engine hands it to the agent. |
 | `GS_RUN_DIR` | nextseek.env |  |  |  | graph_sync run directories; unset means graph_sync under the log folder. |
 | `NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES` | nextseek.env | "" |  |  | graph_sync loop: label-change handling switch. |
-| `SEEK_CONTAINER_NAME` | nextseek.env |  |  |  | SEEK container the rails runner execs into; the code default is the unprefixed name. |
 | `SEEK_RAILS_RUNNER_TIMEOUT` | nextseek.env |  |  |  | Seconds a SEEK rails runner call may take. |
 | `ATTRIBUTE_MUTATION_AFFECTED_ROW_THRESHOLD` | nextseek.env | 5000 |  |  | Rows above which an attribute change runs as a background job. |
 | `ATTRIBUTE_MUTATION_IN_JOB_PARALLELISM` | nextseek.env | 1 |  |  | Parallelism inside one attribute mutation job. |
@@ -873,12 +936,12 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `NEXTSEEK_CC_IMAGE` | nextseek.env | dmac-assistant:poc |  |  | Image a Container-CC turn runs in. |
 | `NEXTSEEK_CC_NETWORK` | nextseek.env | dmac-cc-net |  |  | Docker network a Container-CC turn joins. |
 | `DMAC_BEDROCK_PROXY_URL` | nextseek.env | http://bedrock-proxy:8080 |  |  | Bedrock proxy URL the agent calls. |
-| `NEXTSEEK_CC_MAX_TURNS` | nextseek.env | 50 |  |  | Most agent turns in one Container-CC turn. |
+| `NEXTSEEK_CC_MAX_TURNS` | nextseek.env, root.env | 50 |  |  | Most agent turns in one Container-CC turn. |
 | `NEXTSEEK_CC_TIMEOUT_SECONDS` | nextseek.env |  |  |  | Default length in seconds of one Container-CC turn. |
-| `NEXTSEEK_CC_MEM_LIMIT` | nextseek.env | 4g |  |  | Memory limit of the agent container. |
-| `NEXTSEEK_CC_NANO_CPUS` | nextseek.env |  |  |  | CPU limit of the agent container, in nano CPUs. |
-| `NEXTSEEK_CC_PIDS_LIMIT` | nextseek.env | 512 |  |  | Process limit of the agent container. |
-| `NEXTSEEK_CC_FSIZE_BYTES` | nextseek.env |  |  |  | Largest file the agent may write, in bytes; the code default is 10 GiB. |
+| `NEXTSEEK_CC_MEM_LIMIT` | nextseek.env, root.env | 4g |  |  | Memory limit of the agent container. |
+| `NEXTSEEK_CC_NANO_CPUS` | nextseek.env, root.env |  |  |  | CPU limit of the agent container, in nano CPUs. |
+| `NEXTSEEK_CC_PIDS_LIMIT` | nextseek.env, root.env | 512 |  |  | Process limit of the agent container. |
+| `NEXTSEEK_CC_FSIZE_BYTES` | nextseek.env, root.env |  |  |  | Largest file the agent may write, in bytes; the code default is 10 GiB. |
 | `NEXTSEEK_CC_MAX_RETRIES` | nextseek.env |  |  |  | Claude Code request retries inside a turn. |
 | `NEXTSEEK_CC_API_TIMEOUT_MS` | nextseek.env |  |  |  | Claude Code request timeout in milliseconds. |
 | `NEXTSEEK_CC_DEFAULT_SONNET_MODEL` | nextseek.env |  |  |  | Classifier model id Claude Code uses; must be one the proxy allows. |
@@ -911,7 +974,14 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `DB_PORT` | root.env | 3306 |  |  | Host port of MySQL; install writes it. |
 | `NEO4J_HTTP_PORT` | root.env | 7474 |  |  | Host port of the Neo4j browser; install writes it. |
 | `NEO4J_BOLT_PORT` | root.env | 7687 |  |  | Host port of Neo4j bolt; install writes it. |
-| `NEXTSEEK_MEMORY` | root.env | 16G |  |  | Memory cap of the app container. |
+| `NEXTSEEK_MEMORY` | root.env | 16G |  |  | Memory cap of the web container. |
+| `NEXTSEEK_WORKER_MEMORY` | root.env | 8G |  |  | Memory cap of the worker container (the nine background loops). |
+| `NEXTSEEK_DRAIN_SECONDS` | root.env | 240 |  |  | How long a stopping web container lets running chat turns finish before it cuts them. web's stop_grace_period must stay at least this plus 30 s. |
+| `NEXTSEEK_SPAWNER_TOKEN` | nextseek.env | secret |  |  | Token web sends to cc-spawner. Install and rebuild write it, with the same value as SPAWNER_TOKEN in docker/cc-spawner.env. |
+| `NEXTSEEK_SPAWNER_URL` | root.env | http://cc-spawner:8080 |  |  | Where web sends Container-CC turns. Unset: the cc-spawner service. Set empty in .env: today's direct Docker path (the switch lives one dev cycle). |
+| `NEXTSEEK_CC_AUTOMODE_GCP` | root.env | 1 |  |  | 1 when the auto-mode classifier may use GCP (the app has GCP_API_KEY set); the spawner reads this flag, never the key. |
+| `CC_SPAWNER_NEO4J_URI` | root.env | neo4j://neo4j:7687 |  |  | Neo4j URI the cc-spawner names in the Container-CC auto-mode trust text. |
+| `SPAWNER_MEMORY` | root.env | 512M |  |  | Memory cap of the cc-spawner container. |
 | `SEEK_MEMORY` | root.env | 4G |  |  | Memory cap of SEEK. |
 | `SEEK_PUMA_WORKERS` | root.env | 4 |  |  | SEEK puma workers. Set with SEEK_MEMORY and SEEK_WORKER_MAX_MB. |
 | `SEEK_WORKER_MAX_MB` | root.env | 2500 |  |  | RSS in whole MB at which the recycler restarts a SEEK puma worker. |
@@ -935,7 +1005,7 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `CC_TRANSCRIPT_MAX_BYTES` | local_settings |  |  |  | Largest stored Container-CC transcript in bytes. |
 | `NEXTSEEK_CHAT_CONFIG_PROD` | local_settings | secret |  |  | The prod ChatConfig local_settings builds from its PROD overrides; holds prod credentials. |
 | `NEXTSEEK_RISK_OVERLAY_ENABLED` | local_settings | False |  |  | Router risk overlay switch. |
-| `NEXTSEEK_EXPORT_ROOT` | local_settings |  |  |  | Folder the SEEK exports page writes to. |
+| `NEXTSEEK_EXPORT_ROOT` | local_settings, internal |  |  |  | Folder the private sample exports are written to; compose sets it for web on the shared media volume, and a local_settings value wins. |
 | `BATCH_UPLOAD_JOB_TTL_HOURS` | local_settings |  |  |  | Hours a batch upload job record is kept. |
 | `BATCH_UPLOAD_STATE_DIR` | nextseek.env | /var/celery |  |  | Batch upload: directory holding the queue's broker, results, job index, saved sheets and beat schedule (the batch_upload_state volume). |
 | `SAMPLE_RETRIEVE_NEO4J_CONNECT_TIMEOUT` | local_settings |  |  |  | Sample retrieve: Neo4j connect timeout in seconds. |
@@ -961,6 +1031,11 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `TESTING` | internal | 0 |  |  | Test-run flag the batch upload policies read. |
 | `ATTRIBUTE_TEST_FAULT_CONTROL` | internal |  |  |  | Fault-injection control for the attribute worker tests. |
 | `CHAT_NEXTSEEK_SKIP_BAML_BOOTSTRAP` | internal |  |  |  | Skip the evaluator's BAML bootstrap (tests). |
+| `NEXTSEEK_TURN_DIR` | internal | /tmp/nextseek-turns |  |  | Folder of running-chat-turn marker files and the .draining flag (a stopping web container drains on them). |
+| `NEXTSEEK_DRAIN_POLL` | internal | 10 |  |  | Entrypoint (web): seconds between the drain's turn counts. |
+| `NEXTSEEK_MIGRATE_WAIT_SECONDS` | internal | 300 |  |  | Entrypoint (web): seconds to wait for the worker's migrations before giving up. |
+| `NEXTSEEK_MIGRATE_WAIT_INTERVAL` | internal | 5 |  |  | Entrypoint (web): seconds between migration checks. |
+| `NEXTSEEK_LABS_FILE` | internal |  |  |  | Path of labs_db.json when set (two containers share one copy on a volume); default is the context dir. |
 
 <!-- ENV-REGISTRY:END -->
 

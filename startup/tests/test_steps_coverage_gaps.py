@@ -261,7 +261,7 @@ def test_build_and_start_nextseek_builds(mock_up: MagicMock, mock_build: MagicMo
     """
     build.build_and_start_nextseek(Path("/r"), {})
     assert list(mock_build.call_args.kwargs["services"]) == ["nextseek"]
-    assert list(mock_up.call_args.kwargs["services"]) == ["nextseek", "nextseek_nginx"]
+    assert list(mock_up.call_args.kwargs["services"]) == ["nextseek", "web", "nextseek_nginx"]
     assert mock_up.call_args.kwargs["no_deps"] is True
 
 
@@ -278,7 +278,7 @@ def test_build_and_start_nextseek_ignores_compose_profiles(
     """
     monkeypatch.setenv("COMPOSE_PROFILES", "attributes,assay-registration")
     build.build_and_start_nextseek(Path("/r"), {})
-    assert list(mock_up.call_args.kwargs["services"]) == ["nextseek", "nextseek_nginx"]
+    assert list(mock_up.call_args.kwargs["services"]) == ["nextseek", "web", "nextseek_nginx"]
 
 
 @patch("startup.steps.build.compose_up")
@@ -287,7 +287,7 @@ def test_start_cc_stack_builds_agent_then_recreates_services(mock_build: MagicMo
     build.start_cc_stack(Path("/r"), {})
     assert list(mock_build.call_args.kwargs["services"]) == ["cc-agent"]
     phases = [list(c.kwargs["services"]) for c in mock_up.call_args_list]
-    assert phases == [["bedrock-proxy", "nextseek-sidecar"], ["nextseek_nginx"]]
+    assert phases == [["bedrock-proxy", "nextseek-sidecar", "cc-spawner"], ["nextseek_nginx"]]
     assert all(c.kwargs["force_recreate"] for c in mock_up.call_args_list)
 
 
@@ -597,3 +597,26 @@ def test_doctor_app_scope_uses_only_app_registry_and_health(
         "off-box baseline", "instance state", "CI profile", "CI credentials",
         "NExtSEEK",
     ]
+
+
+@patch("startup.steps.doctor.validate")
+@patch("startup.steps.doctor.load_instance")
+@patch("startup.steps.doctor.prereqs")
+def test_doctor_reports_a_pin_left_by_a_killed_swap(
+    mock_prereqs: MagicMock, mock_load: MagicMock, mock_validate: MagicMock, tmp_path: Path
+) -> None:
+    from startup.steps.doctor import diagnose
+
+    (tmp_path / "docker" / "nginx-upstream").mkdir(parents=True)
+    (tmp_path / "docker" / "nginx-upstream" / "pin.conf").write_text('set $upstream "nextseek-web-1";\n')
+    mock_prereqs.run_all.return_value = []
+    state = MagicMock()
+    state.name, state.prefix, state.ports = "nextseek", "", {"nextseek": 8000}
+    state.compose_env.return_value = {}
+    mock_load.return_value = state
+    mock_validate.run_all_health_checks.return_value = []
+
+    row = next(r for r in diagnose(tmp_path) if r[0] == "web swap pin")
+
+    assert row[1] is False
+    assert "nextseek-web-1" in row[2] and "pin.conf" in row[2]

@@ -163,6 +163,15 @@ def test_gate_passes_with_the_laya_env_example(mock_run: MagicMock) -> None:
     assert ok is True, detail
 
 
+@pytest.mark.parametrize("baked", ["/app/docker/cc-spawner.env", "/app/docker/laya.env"])
+@patch("startup.steps.registry_push.subprocess.run")
+def test_gate_fails_on_the_spawner_token_and_the_laya_key(mock_run: MagicMock, baked: str) -> None:
+    mock_run.side_effect = _gate_run_dispatcher(f"/app/docker/nextseek.env.example\n{baked}\n")
+    ok, detail = baked_secret_gate("img:latest")
+    assert ok is False
+    assert baked in detail
+
+
 @patch("startup.steps.registry_push.subprocess.run")
 def test_gate_applies_optional_disposable_resource_limits(mock_run: MagicMock) -> None:
     mock_run.side_effect = _gate_run_dispatcher("")

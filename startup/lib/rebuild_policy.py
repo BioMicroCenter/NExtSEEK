@@ -7,7 +7,9 @@ from dataclasses import dataclass
 #: Every service that runs the app image, and therefore every service a rebuild
 #: must move to the new one.
 #:
-#: There is exactly one. Until 2026-09-02 there were five: the attribute-mutation
+#: There are two, one image: ``nextseek`` (the worker, the nine background loops)
+#: and ``web`` (the web server, which a rebuild swaps instead of restarting; see
+#: ``startup/lib/web_swap.py``). Until 2026-09-02 there were five: the attribute-mutation
 #: worker, dispatcher and recovery scheduler behind an ``attributes`` compose
 #: profile, and the assay-registration worker behind its own. This module read
 #: COMPOSE_PROFILES to decide which of them ``./startup.sh rebuild`` restarted,
@@ -20,7 +22,7 @@ from dataclasses import dataclass
 #: Adding an app-image service here is a decision, not a formality: it re-opens
 #: that failure mode unless startup also restarts it.
 #: ``startup/tests/test_rebuild_policy.py`` asserts this set against compose.
-BASE_APP_RUNTIME_SERVICES = ("nextseek",)
+BASE_APP_RUNTIME_SERVICES = ("nextseek", "web")
 
 
 def app_runtime_services() -> tuple[str, ...]:
@@ -56,6 +58,7 @@ _ALIASES = {
     "agent": "cc-agent",
     "sidecar": "nextseek-sidecar",
     "proxy": "bedrock-proxy",
+    "spawner": "cc-spawner",
     "all": "custom-stack",
 }
 
@@ -105,27 +108,38 @@ def component_policies(compose_project_name: str) -> dict[str, RebuildPolicy]:
             ),
         ),
     )
+    spawner = RebuildPolicy(
+        name="cc-spawner",
+        build_services=("cc-spawner",),
+        restart_services=("cc-spawner",),
+        images=(
+            ImagePolicy(
+                local_image="nextseek-cc-spawner:latest",
+                registry_image=f"{_REGISTRY_ROOT}/nextseek-cc-spawner",
+            ),
+        ),
+    )
     custom_stack = RebuildPolicy(
         name="custom-stack",
         build_services=tuple(
             service
-            for policy in (app, agent, sidecar, proxy)
+            for policy in (app, agent, sidecar, proxy, spawner)
             for service in policy.build_services
         ),
         restart_services=tuple(
             service
-            for policy in (app, sidecar, proxy)
+            for policy in (app, sidecar, proxy, spawner)
             for service in policy.restart_services
         ),
         images=tuple(
             image
-            for policy in (app, agent, sidecar, proxy)
+            for policy in (app, agent, sidecar, proxy, spawner)
             for image in policy.images
         ),
     )
     return {
         policy.name: policy
-        for policy in (app, agent, sidecar, proxy, custom_stack)
+        for policy in (app, agent, sidecar, proxy, spawner, custom_stack)
     }
 
 

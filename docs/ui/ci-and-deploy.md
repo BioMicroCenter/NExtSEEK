@@ -203,7 +203,7 @@ a laptop (rebuilds and CI run on the dev box). The working loops are:
 | You edit | Loop |
 |---|---|
 | A template in `themes/NextSeek/templates/` | On a box, live on the next request: the directory is bind-mounted over `/app/themes/NextSeek` and no cached template loader is configured (`loaders` in `dmac/settings.py`). A `git pull` on the box is enough. |
-| CSS, JS or images in `themes/NextSeek/static/` | The source changes live but browsers fetch the collected copy. Restart the app (`docker compose restart nextseek`; collectstatic runs at start). An exec'd `collectstatic` alone may leave running workers on the old manifest (see Gotchas). |
+| CSS, JS or images in `themes/NextSeek/static/` | The source changes live but browsers fetch the collected copy. Restart the web server (`docker compose restart web`; collectstatic runs at its start, after running chat turns drain). An exec'd `collectstatic` alone may leave running workers on the old manifest (see Gotchas). |
 | A template in `seek/templates/`, anything in `dmac/`, `seek/`, `nextseek_api/`, `static/` | `./startup.sh rebuild` (baked into the image). |
 | Template rendering only, no stack | The throwaway test container, below. |
 
@@ -228,15 +228,19 @@ Run these on the box: the dev box first; production is a separate host, and noth
 df -h /                      # the box has filled up before
 git status --short           # other sessions share the tree; never stash or revert their files
 git pull                     # theme template-only change: stop here, the bind mount serves it
-                             # theme static only: docker compose restart nextseek, then stop
-./startup.sh rebuild --no-ci # app code, seek/templates, static: rebuild the nextseek image
-docker compose exec nextseek uv run manage.py collectstatic --noinput   # only if static/ changed
+                             # theme static only: docker compose restart web, then stop
+./startup.sh rebuild --no-ci # app code, seek/templates, static: rebuild the app image
+docker compose exec web uv run manage.py collectstatic --noinput   # only if static/ changed
 ./startup.sh ci              # smoke lane, run separately after the rebuild
 ```
 
 1. Commit and push to `origin/dev` (finished work goes straight to dev).
-2. On the box, pull, then rebuild as needed. The rebuild recreates the container, which re-collects
-   static at boot, so the explicit `collectstatic` is belt and braces.
+2. On the box, pull, then rebuild as needed. The rebuild recreates the `nextseek` worker and swaps
+   the `web` container (a new one starts beside the old, nginx switches, the old one finishes its
+   chat turns and stops), so users see no gap. The new web container re-collects static at boot, so
+   the explicit `collectstatic` (run it in `web`) is belt and braces. `--stop-first` keeps the old
+   stop-and-start, and a pending migration forces it. The first deploy of the split needs
+   `./startup.sh rebuild --recreate-nginx` once (`DEPLOYMENT.md` §3.3).
 3. `./startup.sh rebuild` also runs CI afterwards unless `--no-ci` is given (and `--no-nessie` skips
    only the paid Nessie lane). The default for UI work is `--no-ci`, then run `./startup.sh ci`
    when wanted.

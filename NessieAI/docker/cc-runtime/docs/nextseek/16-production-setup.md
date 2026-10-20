@@ -48,11 +48,11 @@ Back up three things on a schedule: the MySQL databases `dmac` and `seek_product
 ### 8. Update safely
 
 - Pull the new code, then run `./startup.sh rebuild`. It keeps your data.
-- If CSS or JavaScript changed, also run `docker compose exec nextseek uv run manage.py collectstatic --noinput`.
+- If CSS or JavaScript changed, also run `docker compose exec web uv run manage.py collectstatic --noinput`.
 - Check the instance with `./startup.sh doctor`.
 
 !!! note
-    A rebuild empties the app's media folder, which holds batch-upload jobs in progress. Do not rebuild while an upload is running.
+    A rebuild restarts the background worker, which ends a batch upload that is running (it is marked failed; an upload still waiting in the queue is kept). Do not rebuild while an upload is running.
 
 ## Where each setting lives
 

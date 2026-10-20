@@ -28,12 +28,15 @@ else
   echo "KV range_count=$(git rev-list --count HEAD.."$E")"
   git diff --name-only HEAD.."$E" | grep -Fx -f <(git status --short | awk '{print $2}') | sed 's/^/DIRTY_TOUCHED /'
 fi
-for i in nextseek-nextseek:latest dmac-assistant:poc nextseek-ns-sidecar:latest nextseek-bedrock-proxy:latest; do
+for i in nextseek-nextseek:latest dmac-assistant:poc nextseek-ns-sidecar:latest nextseek-bedrock-proxy:latest nextseek-cc-spawner:latest; do
   echo "IMAGE $i $(docker image inspect -f '{{.Created}}' "$i" 2>/dev/null || echo missing)"
 done
 for c in nextseek neo4j seek seek-mysql nextseek-sidecar dmac-bedrock-proxy; do
   echo "CONTAINER $c $(docker inspect -f 'status={{.State.Status}} oom={{.State.OOMKilled}} restarts={{.RestartCount}} started={{.State.StartedAt}}' "$c" 2>/dev/null || echo missing)"
 done
+# cc-spawner has no fixed container name: ask compose for it
+c=$(docker compose ps -q cc-spawner </dev/null 2>/dev/null | head -1)
+echo "CONTAINER cc-spawner $( [ -n "$c" ] && docker inspect -f 'status={{.State.Status}} oom={{.State.OOMKilled}} restarts={{.RestartCount}} started={{.State.StartedAt}}' "$c" 2>/dev/null || echo missing)"
 docker stats --no-stream --format 'MEM {{.Name}} {{.MemUsage}}'
 if grep -qE '/app/(chat_nextseek|dmac_assistant|nessie_tests)' docker/nextseek.env; then echo "KV nextseek_env=old_paths"; else echo "KV nextseek_env=ok"; fi
 echo "KV ci_env_keys=$(grep -vE '^[[:space:]]*(#|$)' ~/.config/nextseek/ci.env 2>/dev/null | sed -E 's/=.*//' | sort | tr '\n' ',')"

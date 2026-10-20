@@ -34,7 +34,7 @@ from nextseek_api.models import (
 from nextseek_api.services.seek_rails_runner import (
     SeekRailsRunnerError,
     SeekRailsUnavailableError,
-    run_seek_rails_runner,
+    run_seek_op,
 )
 from nextseek_api.graph_sync import hooks
 from seek.models import People, Users
@@ -42,16 +42,6 @@ from seek.models import People, Users
 logger = logging.getLogger(__name__)
 
 USERS_ADMIN_TAG = "Users (admin)"
-
-_SEEK_ADMIN_PREAMBLE = """
-admin = User.joins(:person).detect { |u| u.person&.is_admin? }
-raise 'No SEEK admin user available for rails runner' if admin.nil?
-User.with_current_user(admin) do
-"""
-
-_SEEK_ADMIN_EPILOG = """
-end
-"""
 
 _EXAMPLE_USER_RECORD = {
     "user_id": 10,
@@ -105,113 +95,6 @@ _ADMIN_MUTATION_RESPONSES = {
     502: AdminUserErrorResponse,
     503: AdminUserErrorResponse,
 }
-
-SEEK_CREATE_RUBY = _SEEK_ADMIN_PREAMBLE + """
-  project = Project.find(payload['project_id'])
-  institution = Institution.find(payload['institution_id'])
-  person = Person.create!(
-    first_name: payload['first_name'],
-    last_name: payload['last_name'],
-    email: payload['email']
-  )
-  person.add_to_project_and_institution(project, institution)
-  user = User.new(
-    login: payload['login'],
-    password: payload['password'],
-    password_confirmation: payload['password_confirmation'],
-    email: person.email
-  )
-  user.person = person
-  user.save!
-  user.activate if payload.fetch('activate', true) && !user.active?
-  puts({
-    ok: true,
-    user_id: user.id,
-    person_id: person.id,
-    login: user.login,
-    email: person.email,
-    active: user.active?,
-    project_id: project.id,
-    institution_id: institution.id
-  }.to_json)
-rescue ActiveRecord::RecordInvalid => e
-  puts({ ok: false, error: e.message, detail: e.record.errors.full_messages.join('; ') }.to_json)
-  exit 1
-rescue => e
-  puts({ ok: false, error: e.message, class: e.class.name }.to_json)
-  exit 1
-""" + _SEEK_ADMIN_EPILOG
-
-SEEK_COMPENSATE_CREATE_RUBY = _SEEK_ADMIN_PREAMBLE + """
-  user = User.find(payload['user_id'])
-  if user.active?
-    user.send(:make_activation_code)
-    user.save(validate: false)
-  end
-  puts({ ok: true, user_id: user.id, compensated: true }.to_json)
-rescue => e
-  puts({ ok: false, error: e.message, class: e.class.name }.to_json)
-  exit 1
-""" + _SEEK_ADMIN_EPILOG
-
-SEEK_PATCH_RUBY = _SEEK_ADMIN_PREAMBLE + """
-  user = User.find(payload['user_id'])
-  person = user.person
-  raise 'User has no linked person' if person.nil?
-
-  if payload['first_name']
-    person.first_name = payload['first_name']
-  end
-  if payload['last_name']
-    person.last_name = payload['last_name']
-  end
-  if payload['email']
-    person.email = payload['email']
-  end
-  if payload['first_name'] || payload['last_name'] || payload['email']
-    person.save!
-  end
-
-  if payload['password'] && payload['password_confirmation']
-    user.password = payload['password']
-    user.password_confirmation = payload['password_confirmation']
-    user.save!
-  end
-
-  if payload.key?('active')
-    if payload['active']
-      user.activate unless user.active?
-    elsif user.active?
-      user.send(:make_activation_code)
-      user.save(validate: false)
-    end
-  end
-
-  if payload['project_id'] && payload['institution_id']
-    project = Project.find(payload['project_id'])
-    institution = Institution.find(payload['institution_id'])
-    person.add_to_project_and_institution(project, institution)
-  end
-
-  wg = person.current_work_groups.first
-  project_id = wg&.project_id
-  institution_id = wg&.institution_id
-
-  puts({
-    ok: true,
-    user_id: user.id,
-    person_id: person.id,
-    login: user.login,
-    email: person.email,
-    active: user.active?,
-    project_id: project_id,
-    institution_id: institution_id
-  }.to_json)
-rescue => e
-  puts({ ok: false, error: e.message, class: e.class.name }.to_json)
-  exit 1
-""" + _SEEK_ADMIN_EPILOG
-
 
 class IsDjangoSuperuser(BasePermission):
     message = "Django superuser privileges are required."
@@ -322,7 +205,7 @@ def _upsert_people_mirror(
 def _compensate_failed_create(user_id: int) -> None:
     """Best-effort SEEK deactivation when Django mirroring fails after Rails create."""
     try:
-        run_seek_rails_runner(SEEK_COMPENSATE_CREATE_RUBY, {"user_id": user_id})
+        run_seek_op("compensate", {"user_id": user_id})
     except Exception:
         logger.exception("SEEK compensation failed for user_id=%s", user_id)
 
@@ -521,7 +404,7 @@ class UsersViewSet(viewsets.ViewSet):
         }
 
         try:
-            result = run_seek_rails_runner(SEEK_CREATE_RUBY, runner_payload)
+            result = run_seek_op("create", runner_payload)
         except SeekRailsUnavailableError as exc:
             return _error_response("SEEK rails runner unavailable", 503, detail=str(exc))
         except SeekRailsRunnerError as exc:
@@ -668,7 +551,7 @@ class UsersViewSet(viewsets.ViewSet):
 
         if any(k in runner_payload for k in ("password", "email", "first_name", "last_name", "project_id", "institution_id", "active")):
             try:
-                result = run_seek_rails_runner(SEEK_PATCH_RUBY, runner_payload)
+                result = run_seek_op("patch", runner_payload)
             except SeekRailsUnavailableError as exc:
                 return _error_response("SEEK rails runner unavailable", 503, detail=str(exc))
             except SeekRailsRunnerError as exc:

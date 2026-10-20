@@ -323,10 +323,6 @@ files = ["nextseek.env"]
 default = ""
 doc = "graph_sync loop: label-change handling switch."
 
-[SEEK_CONTAINER_NAME]
-files = ["nextseek.env"]
-doc = "SEEK container the rails runner execs into; the code default is the unprefixed name."
-
 [SEEK_RAILS_RUNNER_TIMEOUT]
 files = ["nextseek.env"]
 doc = "Seconds a SEEK rails runner call may take."
@@ -681,7 +677,7 @@ default = "http://bedrock-proxy:8080"
 doc = "Bedrock proxy URL the agent calls."
 
 [NEXTSEEK_CC_MAX_TURNS]
-files = ["nextseek.env"]
+files = ["nextseek.env", "root.env"]
 default = "50"
 doc = "Most agent turns in one Container-CC turn."
 
@@ -690,21 +686,21 @@ files = ["nextseek.env"]
 doc = "Default length in seconds of one Container-CC turn."
 
 [NEXTSEEK_CC_MEM_LIMIT]
-files = ["nextseek.env"]
+files = ["nextseek.env", "root.env"]
 default = "4g"
 doc = "Memory limit of the agent container."
 
 [NEXTSEEK_CC_NANO_CPUS]
-files = ["nextseek.env"]
+files = ["nextseek.env", "root.env"]
 doc = "CPU limit of the agent container, in nano CPUs."
 
 [NEXTSEEK_CC_PIDS_LIMIT]
-files = ["nextseek.env"]
+files = ["nextseek.env", "root.env"]
 default = "512"
 doc = "Process limit of the agent container."
 
 [NEXTSEEK_CC_FSIZE_BYTES]
-files = ["nextseek.env"]
+files = ["nextseek.env", "root.env"]
 doc = "Largest file the agent may write, in bytes; the code default is 10 GiB."
 
 [NEXTSEEK_CC_MAX_RETRIES]
@@ -866,7 +862,42 @@ doc = "Host port of Neo4j bolt; install writes it."
 [NEXTSEEK_MEMORY]
 files = ["root.env"]
 default = "16G"
-doc = "Memory cap of the app container."
+doc = "Memory cap of the web container."
+
+[NEXTSEEK_WORKER_MEMORY]
+files = ["root.env"]
+default = "8G"
+doc = "Memory cap of the worker container (the nine background loops)."
+
+[NEXTSEEK_DRAIN_SECONDS]
+files = ["root.env"]
+default = "240"
+doc = "How long a stopping web container lets running chat turns finish before it cuts them. web's stop_grace_period must stay at least this plus 30 s."
+
+[NEXTSEEK_SPAWNER_TOKEN]
+files = ["nextseek.env"]
+secret = true
+doc = "Token web sends to cc-spawner. Install and rebuild write it, with the same value as SPAWNER_TOKEN in docker/cc-spawner.env."
+
+[NEXTSEEK_SPAWNER_URL]
+files = ["root.env"]
+default = "http://cc-spawner:8080"
+doc = "Where web sends Container-CC turns. Unset: the cc-spawner service. Set empty in .env: today's direct Docker path (the switch lives one dev cycle)."
+
+[NEXTSEEK_CC_AUTOMODE_GCP]
+files = ["root.env"]
+default = "1"
+doc = "1 when the auto-mode classifier may use GCP (the app has GCP_API_KEY set); the spawner reads this flag, never the key."
+
+[CC_SPAWNER_NEO4J_URI]
+files = ["root.env"]
+default = "neo4j://neo4j:7687"
+doc = "Neo4j URI the cc-spawner names in the Container-CC auto-mode trust text."
+
+[SPAWNER_MEMORY]
+files = ["root.env"]
+default = "512M"
+doc = "Memory cap of the cc-spawner container."
 
 [SEEK_MEMORY]
 files = ["root.env"]
@@ -985,8 +1016,8 @@ default = "False"
 doc = "Router risk overlay switch."
 
 [NEXTSEEK_EXPORT_ROOT]
-files = ["local_settings"]
-doc = "Folder the SEEK exports page writes to."
+files = ["local_settings", "internal"]
+doc = "Folder the private sample exports are written to; compose sets it for web on the shared media volume, and a local_settings value wins."
 
 [BATCH_UPLOAD_JOB_TTL_HOURS]
 files = ["local_settings"]
@@ -1107,3 +1138,27 @@ doc = "Fault-injection control for the attribute worker tests."
 [CHAT_NEXTSEEK_SKIP_BAML_BOOTSTRAP]
 files = ["internal"]
 doc = "Skip the evaluator's BAML bootstrap (tests)."
+
+[NEXTSEEK_TURN_DIR]
+files = ["internal"]
+default = "/tmp/nextseek-turns"
+doc = "Folder of running-chat-turn marker files and the .draining flag (a stopping web container drains on them)."
+
+[NEXTSEEK_DRAIN_POLL]
+files = ["internal"]
+default = "10"
+doc = "Entrypoint (web): seconds between the drain's turn counts."
+
+[NEXTSEEK_MIGRATE_WAIT_SECONDS]
+files = ["internal"]
+default = "300"
+doc = "Entrypoint (web): seconds to wait for the worker's migrations before giving up."
+
+[NEXTSEEK_MIGRATE_WAIT_INTERVAL]
+files = ["internal"]
+default = "5"
+doc = "Entrypoint (web): seconds between migration checks."
+
+[NEXTSEEK_LABS_FILE]
+files = ["internal"]
+doc = "Path of labs_db.json when set (two containers share one copy on a volume); default is the context dir."

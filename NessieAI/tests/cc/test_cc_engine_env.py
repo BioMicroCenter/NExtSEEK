@@ -416,7 +416,7 @@ def test_a_fallback_that_fails_to_resolve_leaves_no_flag_and_does_not_raise(monk
 def test_resume_stays_last_with_a_fallback():
     cmd = cc_engine._build_command(model_id="us.anthropic.a", fallback_model_id="us.anthropic.b",
                                    session_id="s1")
-    assert cmd[-2:] == ["--resume", "s1"]
+    assert cmd[-1] == "--resume=s1"
 
 
 # --- 13b.2: the agent learns when the host will stop its turn -----------------
@@ -671,7 +671,8 @@ def test_command_budget_disabled_when_zero():
 
 def test_command_resume_appended_last():
     cmd = cc_engine._build_command(model_id=None, session_id="s1")
-    assert cmd[-2:] == ["--resume", "s1"]
+    # One argv element, so the value can never be read as a flag of its own.
+    assert cmd[-1] == "--resume=s1"
 
 
 def test_automode_settings_defaults_first_with_descriptors():

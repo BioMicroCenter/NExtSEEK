@@ -18,6 +18,8 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[3]
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 CAP = "${NEXTSEEK_MEMORY:-16G}"
+WORKER_CAP = "${NEXTSEEK_WORKER_MEMORY:-8G}"
+SPAWNER_CAP = "${SPAWNER_MEMORY:-512M}"
 SEEK_CAP = "${SEEK_MEMORY:-4G}"
 NEO4J_CAP = "${NEO4J_MEMORY:-6G}"
 # Every remaining long-lived service. On 2026-09-16 the host itself ran out with
@@ -40,13 +42,27 @@ def _nextseek():
     return _service("nextseek")
 
 
-def test_nextseek_has_a_memory_cap_an_operator_can_tune():
-    limits = _nextseek().get("deploy", {}).get("resources", {}).get("limits", {})
+def test_web_has_a_memory_cap_an_operator_can_tune():
+    """The runaway was a gunicorn worker, so the web server keeps the original cap."""
+    limits = _service("web").get("deploy", {}).get("resources", {}).get("limits", {})
     assert limits.get("memory") == CAP
 
 
-def test_nextseek_cannot_swap_past_its_cap():
-    assert _nextseek().get("memswap_limit") == CAP
+def test_web_cannot_swap_past_its_cap():
+    assert _service("web").get("memswap_limit") == CAP
+
+
+def test_the_worker_has_its_own_cap_and_cannot_swap_past_it():
+    """The nine loops hold about 5.3 GiB at rest, so 8G, separate from the web cap."""
+    limits = _nextseek().get("deploy", {}).get("resources", {}).get("limits", {})
+    assert limits.get("memory") == WORKER_CAP
+    assert _nextseek().get("memswap_limit") == WORKER_CAP
+
+
+def test_the_spawner_is_capped_and_cannot_swap_past_its_cap():
+    spawner = _service("cc-spawner")
+    assert spawner["deploy"]["resources"]["limits"]["memory"] == SPAWNER_CAP
+    assert spawner.get("memswap_limit") == SPAWNER_CAP
 
 
 def test_seek_has_a_memory_cap_an_operator_can_tune():
@@ -126,9 +142,9 @@ def test_laya_router_sits_on_the_internal_laya_net_only():
     doc = _compose()
     assert doc["networks"]["laya-net"]["internal"] is True
     assert doc["services"]["laya-router"]["networks"] == ["laya-net"]
-    assert doc["services"]["nextseek"]["networks"] == ["default", "laya-net"]
+    assert doc["services"]["web"]["networks"] == ["default", "laya-net", "dmac-spawner-net"]
     for name, svc in doc["services"].items():
-        if name not in ("laya-router", "nextseek"):
+        if name not in ("laya-router", "web"):
             assert "laya-net" not in (svc.get("networks") or []), name
 
 

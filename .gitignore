@@ -170,6 +170,8 @@ local_settings.py.new
 # See docker/nextseek.env.example for the template.
 docker/nextseek.env
 docker/db.env
+# the CC spawner's token (same value as NEXTSEEK_SPAWNER_TOKEN in nextseek.env)
+docker/cc-spawner.env
 # laya sidecar's own key file and the (large) fine-tuned checkpoints.
 docker/laya.env
 docker/laya/models/

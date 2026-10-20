@@ -25,6 +25,7 @@ from .run_script import render_run_script, render_luria_config, render_process_c
 from .fetchngs_helpers import needs_fetch_accessions
 from .ssh import prepare_key, ssh_run, scp_file
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
+from ..seqera.pipeline_params import refuse_shell_syntax
 
 _JOB_ID_RE = re.compile(r"Submitted batch job (\d+)")
 _REQUIRED_ENV = ("user", "key", "working_path", "host")
@@ -39,6 +40,7 @@ def _build_params_yml(launch_params: dict | None) -> str:
     CLI supplies. Always valid YAML (at least '{}')."""
     p = {k: v for k, v in (launch_params or {}).items()
          if k not in _PARAMS_STRIP and v is not None}
+    refuse_shell_syntax(p)
     return _yaml.safe_dump(p, sort_keys=True, default_flow_style=False) if p else "{}\n"
 
 

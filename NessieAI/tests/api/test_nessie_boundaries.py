@@ -78,6 +78,8 @@ BACK_EDGE_ALLOWLIST: dict[str, frozenset[str]] = {
         "nextseek_api.assistant.models_db",
         # Spec piece 1 (plan 02): the CC turn issues, dates and revokes its turn pass.
         "nextseek_api.assistant.turn_pass",
+        # A chat turn leaves a marker file while it runs, so a stopping web container can drain.
+        "nextseek_api.assistant.turn_drain",
     }),
     # Router telemetry and the posterior leg, through the ORM models.
     "NessieAI/router/risk_overlay.py": frozenset({"nextseek_api.assistant.models_db"}),

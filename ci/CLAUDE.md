@@ -181,6 +181,7 @@ docker run --rm -i -e DJANGO_SETTINGS_MODULE=dmac.test_settings \
   NessieAI/tests/cc NessieAI/tests/router NessieAI/tests/hibayes \
   NessieAI/tests/ns NessieAI/tests/api NessieAI/tests/schema_rag \
   NessieAI/tests/chat_nextseek NessieAI/tests/build_tools \
+  docker/cc-spawner/tests \
   --continue-on-collection-errors -q -p no:cacheprovider
 ```
 

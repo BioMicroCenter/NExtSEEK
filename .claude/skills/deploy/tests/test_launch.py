@@ -481,6 +481,31 @@ def test_the_runner_renders_and_parses(tmp_path, capsys):
     assert "marker nextseek /app/NessieAI/cc/translate.py 'cost_by_price_table_usd'" in text
 
 
+def test_the_runner_reads_the_web_process_from_the_web_service(tmp_path, capsys):
+    """The app image runs as a worker (`nextseek`) and `web` (SPEC-PLAN section 1). What means the
+    web process (collectstatic, the CC runner, the boot markers, the labs line) is read from `web`;
+    the worker keeps its name, so every other `docker exec nextseek` stays."""
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    assert "compose exec -T web uv run manage.py collectstatic" in text
+    assert "exec -T nextseek uv run manage.py collectstatic" not in text
+    assert "logs --no-log-prefix web" in text and "docker logs nextseek 2>&1 | grep -F '[CONFIG][LABS]'" not in text
+    boot = next(ln for ln in text.splitlines() if "CHECK boot_markers" in ln)
+    assert "logs --no-log-prefix web" in boot and "docker logs nextseek" in boot   # the worker migrates
+    assert "compose exec -T web uv run --no-sync python -c 'from NessieAI.cc import cc_engine" in text
+    assert "for s in web cc-spawner;" in text and "CHECK container $s " in text and "compose ps -q $s" in text
+
+
+def test_the_labs_copy_writes_once_to_the_shared_path_and_restarts_nothing(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    assert "docker compose cp /tmp/labs_db.json nextseek:/media/context/labs_db.json" in text
+    assert "mkdir -p /media/context" in text
+    after = text.split("LABS copied", 1)[1].split("else", 1)[0]
+    assert "restart" not in after and "sleep 60" not in after
+    assert "stat -c %y /media/context/labs_db.json" in text
+
+
 def test_the_paid_step_needs_every_model_id_proven(tmp_path, capsys):
     # 2026-09-28: a refused id silently moves to the fallback (F1), so a paid run needs the green line itself
     from rules import HEALTH_NEEDS
@@ -1005,6 +1030,11 @@ def test_absent_instance_key_is_named(tmp_path, monkeypatch):
     ("NessieAI/docker/bedrock-proxy/Dockerfile", ("bedrock-proxy",)),
     ("NessieAI/docker/ns-sidecar/__init__.py", ("nextseek-sidecar",)),
     ("NessieAI/docker/ns-sidecar/app/contract.py", ("nextseek-sidecar",)),
+    ("docker/cc-spawner/Dockerfile", ("cc-spawner",)),
+    ("docker/cc-spawner/spawner.py", ("cc-spawner",)),
+    ("docker/cc-spawner/seek_scripts/create.rb", ("cc-spawner",)),
+    ("docker/cc-spawner/README.md", ()),
+    ("docker/cc-spawner/tests/test_spawner.py", ()),
     ("NessieAI/docker/bedrock-proxy/README.md", ()),
     ("NessieAI/docker/ns-sidecar/README.md", ()),
     ("NessieAI/docker/cc-runtime/docs/nextseek/01-overview.md", ("cc-agent",)),
@@ -1405,3 +1435,19 @@ def test_an_nginx_flagged_launch_that_allows_the_recreate_renders_the_flag(tmp_p
 def test_without_the_extra_the_runner_recreates_nothing(tmp_path, capsys):
     d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"], nginx_change_expected=True)
     assert 'RECREATE_NGINX_ON=""' in text
+
+
+def test_cc_spawner_is_a_component_rebuilt_before_the_app(tmp_path, capsys):
+    """Parity with the CLI's `--component cc-spawner`. It goes before app so a new web never
+    meets an old spawner API. Rebuilding it cuts a CC turn streaming through it."""
+    assert rules.COMPONENTS.index("cc-spawner") < rules.COMPONENTS.index("app")
+    assert rules.LOG_NAME["cc-spawner"] == "spawner"
+    assert rules.SUCCESS_LINE["cc-spawner"] == "cc-spawner rebuilt and restarted"
+    assert "cc-spawner" in rules.STEP_MINUTES
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-spawner", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    assert 'COMPONENTS="cc-spawner app"' in text
+    assert "docker inspect -f 'status=" in text and "for k in nextseek nextseek-sidecar dmac-bedrock-proxy;" in text and "for s in web cc-spawner;" in text
+    assert "nextseek-cc-spawner:latest" in text
+    note = (Path(__file__).resolve().parents[1] / "references" / "dev.md").read_text()
+    assert "cuts a CC turn" in note

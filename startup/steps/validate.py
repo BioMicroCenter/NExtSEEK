@@ -246,7 +246,7 @@ def check_stale_nessie_env(repo_root: Path) -> HealthResult:
 
 
 def check_cc_services(repo_root: Path, env: dict[str, str]) -> HealthResult:
-    wanted = ["bedrock-proxy", "nextseek-sidecar"]
+    wanted = ["bedrock-proxy", "nextseek-sidecar", "cc-spawner"]
     try:
         running = compose_ps_running(wanted, repo_root, env)
     except DockerOpsError as exc:
@@ -257,7 +257,7 @@ def check_cc_services(repo_root: Path, env: dict[str, str]) -> HealthResult:
             name="cc services", ok=False, detail=f"not running: {', '.join(missing)}"
         )
     return HealthResult(
-        name="cc services", ok=True, detail="bedrock-proxy + nextseek-sidecar running"
+        name="cc services", ok=True, detail=f"{' + '.join(wanted)} running"
     )
 
 
