@@ -374,6 +374,14 @@ LOGGING = {
             'propagate': True,
             'level':'DEBUG',
         },
+        # Reingest map notes (an unchecked pipeline release, a file with nowhere to go) are for
+        # administrators and stay out of the user's reply (NessieAI/ns/reingest/README.md).
+        # Nothing else under NessieAI has a handler, so without this they reach only stderr.
+        'NessieAI.ns.reingest.map_notes': {
+            'handlers': ['logfile'],
+            'propagate': True,
+            'level': 'WARNING',
+        },
     },
 }
 

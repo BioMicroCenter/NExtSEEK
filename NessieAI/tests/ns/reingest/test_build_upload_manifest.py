@@ -409,15 +409,26 @@ def test_map_notes_go_to_the_server_log_not_the_reply(rows, tmp_path, monkeypatc
     can do nothing with it, so it is logged for administrators and kept out of the reply."""
     rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
     manifest_id = _save_manifest(tmp_path, monkeypatch, version="2.0.0")
-    with caplog.at_level(logging.WARNING, logger="NessieAI.ns.granular"):
+    with caplog.at_level(logging.WARNING, logger="NessieAI.ns.reingest.map_notes"):
         result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
                            outputs_dir=str(tmp_path))
 
     assert "Map notes" not in result["reply"]
     assert "checked range" not in result["reply"]
-    notes = [r.getMessage() for r in caplog.records if "reingest map note" in r.getMessage()]
+    notes = [r.getMessage() for r in caplog.records
+             if r.name == "NessieAI.ns.reingest.map_notes" and "reingest map note" in r.getMessage()]
     assert any("nf-core/rnaseq 2.0.0 is outside the checked range" in n
                and "run test_run_1" in n and f"manifest {manifest_id}" in n for n in notes), notes
+
+
+def test_map_notes_reach_the_django_log_file():
+    """Nothing else under NessieAI has a handler, so without this route a note would only
+    reach the container's stderr, which every rebuild discards."""
+    from django.conf import settings
+    route = settings.LOGGING["loggers"]["NessieAI.ns.reingest.map_notes"]
+    assert route["handlers"] == ["logfile"]
+    assert route["level"] == "WARNING"
+    assert settings.LOGGING["handlers"]["logfile"]["filename"].endswith("django.log")
 
 
 # ---------------------------------------------------------------------------

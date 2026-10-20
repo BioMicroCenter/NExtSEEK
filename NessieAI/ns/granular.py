@@ -33,6 +33,9 @@ from typing import Any, Callable
 from NessieAI.ns.write_gate import WriteBlockedError  # noqa: F401 (re-exported)
 
 logger = logging.getLogger(__name__)
+# Reingest map notes, for administrators: dmac/settings.py routes this one logger to
+# logs/django.log (nothing else under NessieAI has a handler).
+_map_notes_log = logging.getLogger("NessieAI.ns.reingest.map_notes")
 
 
 class OpValidationError(ValueError):
@@ -1864,8 +1867,9 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
     # user can act on none of them, so they go to the server log, not the reply.
     # A missed required rule still reaches the user, as its blocker.
     for note in result.warnings:
-        logger.warning("reingest map note: %s (pipeline %s %s, run %s, manifest %s)",
-                       note, pipeline, run_manifest.pipeline.version, run_name, manifest_id)
+        _map_notes_log.warning("reingest map note: %s (pipeline %s %s, run %s, manifest %s)",
+                               note, pipeline, run_manifest.pipeline.version, run_name,
+                               manifest_id)
     if test_only:
         reply = ("TEST ONLY: this run wasn't launched by Nessie. "
                  "These workbooks can't be uploaded.\n\n" + reply)
