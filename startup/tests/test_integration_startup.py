@@ -137,7 +137,7 @@ def test_rebuild_then_doctor_reports_pushed_baseline(
     assert "off-box baseline" in result.output
     # rich wraps long lines at console width — compare whitespace-free
     compact = "".join(result.output.split())
-    assert "all4first-partyimagesprotected" in compact
+    assert "all5first-partyimagesprotected" in compact
 
 
 def test_rebuild_without_credentials_then_doctor_goes_red(

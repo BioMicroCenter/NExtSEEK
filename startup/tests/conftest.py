@@ -35,3 +35,16 @@ def _reset_managed_schema(request):
     connection.commit()
     connection.close()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _no_docker_in_the_web_swap(request, monkeypatch):
+    """`rebuild` asks docker whether the new image has pending migrations before it
+    swaps web. No test may reach docker: answer "pending", which sends the rebuild
+    down the stop-first branch the older tests were written against. The tests that
+    are about the swap stub it themselves, and test_web_swap drives the real code."""
+    if request.module.__name__.endswith("test_web_swap"):
+        return
+    from startup.lib import web_swap
+
+    monkeypatch.setattr(web_swap, "migrations_pending", lambda run: (True, "(test)"))

@@ -21,7 +21,7 @@ def test_start_cc_stack_builds_agent_and_starts_long_running_services(
         services=["cc-agent"], project_dir=Path("/repo"), env=env
     )
     assert mock_up.call_args_list[0].kwargs == {
-        "services": ["bedrock-proxy", "nextseek-sidecar"],
+        "services": ["bedrock-proxy", "nextseek-sidecar", "cc-spawner"],
         "project_dir": Path("/repo"),
         "env": env,
         "build": True,

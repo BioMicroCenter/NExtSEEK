@@ -911,7 +911,11 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `DB_PORT` | root.env | 3306 |  |  | Host port of MySQL; install writes it. |
 | `NEO4J_HTTP_PORT` | root.env | 7474 |  |  | Host port of the Neo4j browser; install writes it. |
 | `NEO4J_BOLT_PORT` | root.env | 7687 |  |  | Host port of Neo4j bolt; install writes it. |
-| `NEXTSEEK_MEMORY` | root.env | 16G |  |  | Memory cap of the app container. |
+| `NEXTSEEK_MEMORY` | root.env | 16G |  |  | Memory cap of the web container. |
+| `NEXTSEEK_WORKER_MEMORY` | root.env | 8G |  |  | Memory cap of the worker container (the nine background loops). |
+| `NEXTSEEK_DRAIN_SECONDS` | root.env | 240 |  |  | How long a stopping web container lets running chat turns finish before it cuts them. web's stop_grace_period must stay at least this plus 30 s. |
+| `NEXTSEEK_SPAWNER_URL` | root.env | http://cc-spawner:8080 |  |  | Where web sends Container-CC turns. Unset: the cc-spawner service. Set empty in .env: today's direct Docker path (the switch lives one dev cycle). |
+| `SPAWNER_MEMORY` | root.env | 512M |  |  | Memory cap of the cc-spawner container. |
 | `SEEK_MEMORY` | root.env | 4G |  |  | Memory cap of SEEK. |
 | `SEEK_PUMA_WORKERS` | root.env | 4 |  |  | SEEK puma workers. Set with SEEK_MEMORY and SEEK_WORKER_MAX_MB. |
 | `SEEK_WORKER_MAX_MB` | root.env | 2500 |  |  | RSS in whole MB at which the recycler restarts a SEEK puma worker. |

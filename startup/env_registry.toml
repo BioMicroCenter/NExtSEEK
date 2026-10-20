@@ -866,7 +866,27 @@ doc = "Host port of Neo4j bolt; install writes it."
 [NEXTSEEK_MEMORY]
 files = ["root.env"]
 default = "16G"
-doc = "Memory cap of the app container."
+doc = "Memory cap of the web container."
+
+[NEXTSEEK_WORKER_MEMORY]
+files = ["root.env"]
+default = "8G"
+doc = "Memory cap of the worker container (the nine background loops)."
+
+[NEXTSEEK_DRAIN_SECONDS]
+files = ["root.env"]
+default = "240"
+doc = "How long a stopping web container lets running chat turns finish before it cuts them. web's stop_grace_period must stay at least this plus 30 s."
+
+[NEXTSEEK_SPAWNER_URL]
+files = ["root.env"]
+default = "http://cc-spawner:8080"
+doc = "Where web sends Container-CC turns. Unset: the cc-spawner service. Set empty in .env: today's direct Docker path (the switch lives one dev cycle)."
+
+[SPAWNER_MEMORY]
+files = ["root.env"]
+default = "512M"
+doc = "Memory cap of the cc-spawner container."
 
 [SEEK_MEMORY]
 files = ["root.env"]
