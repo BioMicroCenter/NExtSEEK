@@ -98,7 +98,11 @@ jobs:
             NessieAI/tests/ns NessieAI/tests/api NessieAI/tests/schema_rag \
             NessieAI/tests/chat_nextseek NessieAI/tests/build_tools \
             --continue-on-collection-errors -q \
+            -n auto --dist loadfile --durations=30 \
             | tee pytest-run.txt
+          # -n auto runs the lanes on every vCPU of the runner (4 on a public repo) and
+          # --dist loadfile keeps one file's tests on one worker, so module state and
+          # fixtures behave as they do serially. --durations=30 prints the slowest tests.
           rc=${PIPESTATUS[0]}
           echo "pytest exit: $rc"
           # Exit 0 or 1 means the lanes ran; failing tests are scored by the

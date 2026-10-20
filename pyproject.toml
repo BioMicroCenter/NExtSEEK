@@ -146,6 +146,7 @@ dev = [
     # tests that need a real MySQL import it (they skip without it); the startup CLI brings its own
     "PyMySQL",
     "ruff",
+    "pytest-xdist>=3.8.0",
 ]
 # Note: the startup CLI does NOT use a uv dependency group — it runs in an
 # isolated env via `uv run --no-project --with typer --with rich`. This avoids
