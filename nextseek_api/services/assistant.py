@@ -1212,6 +1212,10 @@ class AssistantViewSet(viewsets.ViewSet):
             # The build record is filed under this user, and Scientist is
             # this user (mapper's @nextseek_user); without a session both are blank.
             session = SimpleNamespace(user=request.user)
+        elif op == "run-harvest":
+            # With no run_dir the op picks the caller's waiting launched run;
+            # without a session it sees nobody and reports that no run is waiting.
+            session = SimpleNamespace(user=request.user)
         elif op == "upload-reingest":
             # The identity lookup is handed over uncalled: the op resolves it
             # only after the write gate passes, so an unconfirmed call never

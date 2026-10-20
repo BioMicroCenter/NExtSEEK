@@ -322,6 +322,21 @@ class ReingestEndpointTests(GranularEndpointBase):
         self.assertEqual(resp.status_code, 422)
         self.assertEqual(resp.json()["code"], "VALIDATION")
 
+    def test_run_harvest_endpoint_passes_the_signed_in_user(self):
+        # With no run_dir the op picks the caller's waiting launched run, so it must
+        # know the caller. Without a session it saw nobody and reported no run waiting
+        # (seen live: "my run is done" after a Nessie-launched hlatyping run).
+        captured = {}
+
+        def _run_op(*args, **kwargs):
+            captured["session"] = kwargs.get("session")
+            return {"manifest_id": None, "candidates": []}
+
+        with patch("nextseek_api.services.assistant.run_op", side_effect=_run_op):
+            resp = self.client.post(f"{self.BASE}/run-harvest/", {}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(captured["session"].user.pk, self.user.pk)
+
     def test_build_upload_xlsx_endpoint_passes_the_signed_in_user(self):
         captured = {}
 
