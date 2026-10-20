@@ -292,6 +292,11 @@ produce workbooks for the user to REVIEW and never write to NExtSEEK. Only step 
    introduce it ("here is the report"), quote it, or summarise it again after it, and do not
    restate its unmapped-metric count. If the update build produced no workbook, say so in one
    line instead of relaying an empty report. End with one question: upload, or fix a flag first.
+   The workbooks reach the user without you: each one the op builds is attached to your reply as
+   a download when your turn ends. The server stages it after you finish writing, so it is not in
+   your scratch yet and you cannot see it. So never say you cannot attach or send them, never offer
+   to fetch them, and do not paste their contents. If the user asks where they are, they are the
+   downloads under that reply.
 
    **4b. The fix loop.** Collect the user's answers to the flags in chat. Three kinds, each only for
    what this run flagged: `fill` (a value for a flagged, empty cell), `choose` (one of the listed

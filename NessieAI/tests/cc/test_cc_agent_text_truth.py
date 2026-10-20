@@ -74,3 +74,12 @@ def test_the_manifest_row_does_not_promise_values_in_its_when_column():
     row = next(line for line in MANIFEST_MD.read_text(encoding="utf-8").splitlines()
                if "not a file: run `nextseek-graph-schema`" in line)
     assert "or the values it holds" not in row
+
+
+def test_reingest_workbooks_are_said_to_arrive_as_downloads():
+    """The workbooks build-upload-xlsx makes are staged and attached to the reply at the end of
+    the turn, after the agent writes it, so the agent never sees them in its scratch. Untold, it
+    said it "couldn't attach copies because NExtSEEK built them on its server" (2026-10-20)."""
+    skill = _flat(SKILL_MD)
+    assert "attached to your reply as a download when your turn ends" in skill
+    assert "never say you cannot attach or send them" in skill
