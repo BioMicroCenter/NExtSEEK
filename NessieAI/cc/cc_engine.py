@@ -158,7 +158,12 @@ _USER_ID_RE = re.compile(r"^[A-Za-z0-9._@+-]{1,64}$")
 # ``@``/``+`` (legal in a NExtSEEK username) but those are NOT safe inside a
 # Docker container ``name=`` — this fail-closed guard is intentionally
 # stricter and scoped only to the name-construction path.
-_CONTAINER_NAME_SAFE_RE = re.compile(r"^[0-9a-f-]{1,64}$")
+_CONTAINER_NAME_SAFE_RE = re.compile(r"^[0-9a-f][0-9a-f-]{0,63}$")
+
+# The resume session id and the model id go into the agent's argv, so each starts with a letter or digit and can
+# never be read as a flag. cc-spawner enforces the same rules (a parity test holds the copies equal).
+_SESSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\[\]@-]{0,199}$")
 
 # I-14: keys whose values must never reach a log line. After OI-3 the agent env
 # holds no AWS/backend creds, and after the turn pass (spec piece 1) no password
@@ -1068,7 +1073,7 @@ def _build_command(
     cmd += _cc_limit_args(max_budget_usd)
     cmd += _automode_settings_args(source)
     if session_id:
-        cmd += ["--resume", session_id]
+        cmd.append(f"--resume={session_id}")  # one argv element: the value is never a flag of its own
     return cmd
 
 
@@ -1514,6 +1519,10 @@ def run_cc_turn(
     _validate_project(project_dirname)
     if cc_state_key:
         _validate_user_id(cc_state_key)  # single-segment path guard (UUID chat id)
+    if session_id and not _SESSION_RE.fullmatch(session_id):
+        raise ValueError(f"invalid session_id: {session_id!r}")
+    if model_id and not _MODEL_RE.fullmatch(model_id):
+        raise ValueError(f"invalid model_id: {model_id!r}")
 
     from .cc_provision import build_user_dirs
 

@@ -207,6 +207,29 @@ def test_spawner_run_kwargs_match_the_direct_path(monkeypatch):
     assert [dict(u) for u in theirs["ulimits"]] == [dict(u) for u in ours["ulimits"]]
 
 
+def test_id_rules_are_one_rule_on_both_sides():
+    sp = _load_spawner()
+    assert sp._SESSION_RE.pattern == cc_engine._SESSION_RE.pattern
+    assert sp._MODEL_RE.pattern == cc_engine._MODEL_RE.pattern
+    assert sp._RUN_ID_RE.pattern == cc_engine._CONTAINER_NAME_SAFE_RE.pattern
+    for rx in (sp._SESSION_RE, sp._MODEL_RE, sp._RUN_ID_RE):
+        assert not rx.fullmatch("-abc") and not rx.fullmatch("--x")
+
+
+@pytest.mark.parametrize("over", [{"session_id": "--dangerously-skip-permissions"}, {"session_id": "-r"},
+                                  {"model_id": "--help"}])
+def test_the_direct_path_refuses_a_dash_led_session_or_model_id(tmp_path, monkeypatch, over):
+    monkeypatch.setenv("NEXTSEEK_SPAWNER_URL", "")
+    monkeypatch.setattr(docker_mod, "from_env", lambda: (_ for _ in ()).throw(AssertionError("Docker reached")))
+    kwargs = dict(query="q", model_id="m-1", api_user="alice", api_pass="pw", turn_pass="tp-1",
+                  send_event=lambda e, d: None, user_id="alice", project_dirname="proj", run_id=RUN,
+                  paths=CCPaths(users_volume="dmac-cc-users", user_root_mount=str(tmp_path)),
+                  cc_state_key="abc-123", session_id="resume-me")
+    kwargs.update(over)
+    with pytest.raises(ValueError, match="invalid (session_id|model_id)"):
+        cc_engine.run_cc_turn(**kwargs)
+
+
 def test_spawner_allowlist_covers_every_key_the_builder_can_emit(monkeypatch):
     sp = _load_spawner()
     src = {

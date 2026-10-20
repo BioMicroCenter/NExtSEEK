@@ -149,6 +149,9 @@ def turn_body(**over):
     ("run_id", "NOT-HEX"), ("run_id", "../etc"), ("model_id", "x; rm -rf /"),
     ("transcripts_subpath", "alice/../../etc"), ("transcripts_subpath", "p1-demo/alice/_memory/other/transcripts"),
     ("max_budget_usd", -1), ("max_budget_usd", 10_000),
+    # a leading dash could be read as a flag of claude's own
+    ("resume_session_id", "--dangerously-skip-permissions"), ("resume_session_id", "-x"),
+    ("model_id", "--help"), ("fallback_model_id", "-m"), ("run_id", "-0123abcd"),
 ])
 def test_start_turn_refuses_bad_fields(svc, client, field, value):
     with pytest.raises(spawner.Refusal) as caught:
@@ -223,7 +226,7 @@ def test_command_is_built_from_fields(svc, client):
     assert cmd[cmd.index("--fallback-model") + 1] == "m-2"
     assert cmd[cmd.index("--max-turns") + 1] == "7"
     assert cmd[cmd.index("--max-budget-usd") + 1] == "0.5"
-    assert cmd[cmd.index("--resume") + 1] == "resume-9"
+    assert cmd[-1] == "--resume=resume-9"
     settings = json.loads(cmd[cmd.index("--settings") + 1])
     assert settings == {"autoMode": {"environment": ["$defaults"]}}  # no topology configured in this fixture
 
@@ -369,6 +372,12 @@ def test_http_turn_streams_stdout_chunks(http_server, client):
 def test_http_turn_refusal_is_a_json_error(http_server):
     status, raw = call(http_server, "POST", "/turns", turn_body(user_id=".."))
     assert status == 422 and "error" in json.loads(raw)
+
+
+def test_http_dash_led_session_id_is_422(http_server, client):
+    status, raw = call(http_server, "POST", "/turns", turn_body(resume_session_id="--dangerously-skip-permissions"))
+    assert status == 422 and "resume_session_id" in json.loads(raw)["error"]
+    assert client.containers.runs == []
 
 
 def test_http_unknown_seek_op_and_unknown_path(http_server):

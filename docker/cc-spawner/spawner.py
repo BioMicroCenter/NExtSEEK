@@ -31,12 +31,13 @@ MAX_BODY_BYTES = 4 * 1024 * 1024
 SCRIPTS_DIR = Path(__file__).resolve().parent / "seek_scripts"
 SEEK_OPS = ("create", "patch", "compensate")
 
-# The same shapes cc_engine.py and cc_provision.py enforce on the direct path.
+# The same shapes cc_engine.py and cc_provision.py enforce on the direct path. The ids that reach claude's argv (and
+# the run id) start with a letter or digit, so no value can be read as a flag; a parity test holds both copies equal.
 _USER_ID_RE = re.compile(r"^[A-Za-z0-9._@+-]{1,64}$")
 _SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@+-]{1,128}$")
-_RUN_ID_RE = re.compile(r"^[0-9a-f-]{1,64}$")
-_MODEL_RE = re.compile(r"^[A-Za-z0-9._:/\[\]@-]{1,200}$")
-_SESSION_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+_RUN_ID_RE = re.compile(r"^[0-9a-f][0-9a-f-]{0,63}$")
+_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\[\]@-]{0,199}$")
+_SESSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 # Exactly the keys cc_engine.build_agent_environment can produce (a test holds the two lists together).
 ALLOWED_ENV_KEYS = frozenset({
@@ -305,7 +306,7 @@ class Spawner:
         settings = {"autoMode": {"environment": self.config.automode_environment()}}
         cmd += ["--settings", json.dumps(settings, separators=(",", ":"))]
         if v["resume"]:
-            cmd += ["--resume", v["resume"]]
+            cmd.append(f"--resume={v['resume']}")  # one argv element: the value is never a flag of its own
         return cmd
 
     def _run_kwargs(self, v: dict) -> dict[str, Any]:
