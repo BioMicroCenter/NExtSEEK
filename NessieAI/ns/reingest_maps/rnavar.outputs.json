@@ -8,12 +8,13 @@
   "outputs": [
     {
       "id": "aln",
-      "candidates": ["preprocessing/*/*.recal.bam"],
+      "candidates": ["preprocessing/*/*.recal.bam", "preprocessing/*/*.md.bam"],
       "sample_type": "A.ALN",
       "assay": "Genome Alignment",
       "cardinality": "per_sample",
       "primary_data": true,
-      "companions": [{"glob": "preprocessing/*/*.recal.bam.bai"}],
+      "companions": [{"glob": "preprocessing/*/*.recal.bam.bai"},
+                     {"glob": "preprocessing/*/*.md.bam.bai"}],
       "attributes": {
         "DataType": "BAM",
         "Name": "@fastq_stem",

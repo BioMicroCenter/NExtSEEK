@@ -26,5 +26,7 @@
    "sample_type": "A.VCF"
   }
  },
- "warnings": []
+ "warnings": [
+  "GM12878: no Notes on A.ALN; also in run: preprocessing/GM12878/GM12878.md.bam.bai, preprocessing/GM12878/GM12878.md.bam"
+ ]
 }
