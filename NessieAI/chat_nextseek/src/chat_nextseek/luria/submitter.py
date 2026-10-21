@@ -27,6 +27,7 @@ from .run_script import (luria_params_overrides, render_run_script, render_luria
                          render_process_config, sanitize_job_name, validate_resources)
 from .fetchngs_helpers import needs_fetch_accessions
 from .ssh import prepare_key, ssh_run, scp_file
+from .status_labels import STATUS_DIR, STATUS_README, launched_label
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
 from ..seqera.pipeline_params import refuse_shell_syntax
 
@@ -38,6 +39,10 @@ _REQUIRED_ENV = ("user", "key", "working_path", "host")
 # Params the CLI owns in run.sh (--input/--outdir/--genome); stripped from the
 # per-pipeline params.yml so there is no conflicting duplicate.
 _PARAMS_STRIP = ("input", "outdir", "genome")
+
+# The weekly cleanup script, staged verbatim to <working>/bin/nessie_cleanup.py on every
+# submit so the copy on Luria is always the current one (luria/README.md).
+_CLEANUP_SCRIPT = Path(__file__).parent / "cleanup.py"
 
 
 def _build_params_yml(launch_params: dict | None, overrides: dict | None = None) -> str:
@@ -111,15 +116,46 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
     return runs
 
 
-def _sheet_needs_fetch(sheet_path: str) -> bool:
-    """True when the staged samplesheet has at least one blank-fastq SRR row to fetch."""
+def _sheet_fetch_accessions(sheet_path: str) -> list[str]:
+    """The SRA/ENA accessions the staged samplesheet asks to fetch (its blank-fastq rows)."""
     import csv
     try:
         with open(sheet_path, newline="") as fh:
             rows = list(csv.DictReader(fh))
     except OSError:
-        return False
-    return bool(needs_fetch_accessions(rows))
+        return []
+    return needs_fetch_accessions(rows)
+
+
+def _sheet_needs_fetch(sheet_path: str) -> bool:
+    """True when the staged samplesheet has at least one blank-fastq SRR row to fetch."""
+    return bool(_sheet_fetch_accessions(sheet_path))
+
+
+def _write_launch_labels(luria_env, key_path, *, working, run_dir, work_dir, pipeline,
+                         revision, job_id, accessions) -> None:
+    """After sbatch: the run's nessie_status/ labels, and the current cleanup script in
+    <working>/bin/. Best-effort: a submitted run never fails here. Without launched.txt the
+    run stays unlabelled, and the cleanup never deletes an unlabelled run's work folder."""
+    tmp_files: list[str] = []
+    try:
+        launched = launched_label(run_dir=run_dir, work_dir=work_dir, pipeline=pipeline,
+                                  revision=revision, slurm_job_id=job_id, accessions=accessions)
+        for name, text in (("README.txt", STATUS_README), ("launched.txt", launched)):
+            tmp = _write_temp(text, prefix="status_", suffix=".txt")
+            tmp_files.append(tmp)
+            scp_file(luria_env, tmp, f"{run_dir}/{STATUS_DIR}/{name}", key_path=key_path)
+        ssh_run(luria_env, f"mkdir -p {working}/bin", key_path=key_path)
+        scp_file(luria_env, str(_CLEANUP_SCRIPT), f"{working}/bin/nessie_cleanup.py",
+                 key_path=key_path)
+    except Exception:  # bookkeeping must never fail a submitted run
+        log.exception("status labels failed for %s", run_dir)
+    finally:
+        for tmp in tmp_files:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key_path,
@@ -161,7 +197,8 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
     # and -c luria.config (genomes map for --genome identity + a per-protocol SIMPLEAF_QUANT
     # --knee block for scrnaseq bead protocols). Stage run.sh + luria.config + params.yml + sheet.
     refs_root = f"{working}/refs"
-    needs_fetch = _sheet_needs_fetch(local_sheet)
+    accessions = _sheet_fetch_accessions(local_sheet)
+    needs_fetch = bool(accessions)
     fastq_cache = f"{working}/fastq_cache"
     fetchngs_rev = NFCORE_PIPELINE_CATALOG.get("fetchngs", {}).get("default_revision", "1.12.0")
     # One validated allocation fills both run.sh's #SBATCH -n/--mem and luria.config's
@@ -187,7 +224,7 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
         params_tmp = _write_temp(params_yml, prefix="params_", suffix=".yml")
         tmp_files.append(params_tmp)
 
-        ssh_run(luria_env, f"mkdir -p {remote_run_dir} {work_dir}", key_path=key_path)
+        ssh_run(luria_env, f"mkdir -p {remote_run_dir}/{STATUS_DIR} {work_dir}", key_path=key_path)
         scp_file(luria_env, run_tmp, f"{remote_run_dir}/run.sh", key_path=key_path)
         scp_file(luria_env, cfg_tmp, f"{remote_run_dir}/luria.config", key_path=key_path)
         scp_file(luria_env, params_tmp, f"{remote_run_dir}/params.yml", key_path=key_path)
@@ -223,6 +260,9 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
     except Exception:  # bookkeeping must never fail a submitted run
         log.exception("launch record failed for %s", remote_run_dir)
 
+    _write_launch_labels(luria_env, key_path, working=working, run_dir=remote_run_dir,
+                         work_dir=work_dir, pipeline=pipeline, revision=revision,
+                         job_id=str(job_id or ""), accessions=accessions)
     return {
         "job_id": job_id,
         "remote_dir": remote_run_dir,

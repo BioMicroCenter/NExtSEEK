@@ -41,9 +41,11 @@ def test_submit_luria_happy_path(tmp_path, monkeypatch):
     assert ref["log"].endswith("/nfcore_rnaseq.out")
     assert any(c.startswith("mkdir -p") for c in calls["ssh"])
     assert any("sbatch run.sh" in c for c in calls["ssh"])
-    # four files staged: run.sh + luria.config (-c) + params.yml (-params-file) + samplesheet
+    # run.sh + luria.config (-c) + params.yml (-params-file) + samplesheet, then the
+    # nessie_status labels and the weekly cleanup script
     remotes = {remote.rsplit("/", 1)[1] for _, remote in calls["scp"]}
-    assert remotes == {"run.sh", "luria.config", "params.yml", "samplesheet.csv"}
+    assert remotes == {"run.sh", "luria.config", "params.yml", "samplesheet.csv",
+                       "README.txt", "launched.txt", "nessie_cleanup.py"}
 
 
 def test_submit_luria_stages_state_samplesheet_and_runsh_uses_cli_flags(tmp_path, monkeypatch):
@@ -407,3 +409,57 @@ def test_build_params_yml_refuses_shell_syntax():
     with pytest.raises(ValueError, match="multiqc_title"):
         _build_params_yml({"multiqc_title": "`id`", "aligner": "star_salmon"})
     assert "star_salmon" in _build_params_yml({"aligner": "star_salmon", "genome": "GRCm39"})
+
+
+def _record_transport(monkeypatch, fail_on=None):
+    order, staged = [], {}
+    monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
+
+    def fake_ssh(le, cmd, *, key_path):
+        order.append(cmd)
+        return "Submitted batch job 4821\n"
+
+    def fake_scp(le, local, remote, *, key_path):
+        if fail_on and fail_on in remote:
+            raise RuntimeError("scp down")
+        order.append("scp " + remote)
+        staged[remote.rsplit("/", 1)[1]] = Path(local).read_text()
+
+    monkeypatch.setattr(sub, "ssh_run", fake_ssh)
+    monkeypatch.setattr(sub, "scp_file", fake_scp)
+    return order, staged
+
+
+def test_submit_writes_the_status_labels_after_sbatch(tmp_path, monkeypatch):
+    launch, _ = _fixture(tmp_path)
+    order, staged = _record_transport(monkeypatch)
+    runs = sub.submit_luria(str(launch), luria_env=LE)
+    run_dir = runs[0]["remote_dir"]
+    assert order[0] == f"mkdir -p {run_dir}/nessie_status /net/x/work/nfcore_rnaseq"
+    sbatch = next(i for i, c in enumerate(order) if "sbatch run.sh" in c)
+    assert order.index(f"scp {run_dir}/nessie_status/launched.txt") > sbatch
+    assert "slurm_job_id: 4821\n" in staged["launched.txt"]
+    assert "work_dir: /net/x/work/nfcore_rnaseq\n" in staged["launched.txt"]
+    assert "accessions: \n" in staged["launched.txt"]
+    assert "weekly cleanup" in staged["README.txt"]
+    assert "mkdir -p /net/x/bin" in order
+    assert "scp /net/x/bin/nessie_cleanup.py" in order
+    assert staged["nessie_cleanup.py"].startswith("#!/usr/bin/env python3")
+
+
+def test_submit_records_the_accessions_it_downloads(tmp_path, monkeypatch):
+    (tmp_path / "samplesheet.csv").write_text(
+        "sample,fastq_1,fastq_2,accession\nA,,,SRR1\nB,,,SRR2\n")
+    (tmp_path / "launch.yml").write_text(yaml.safe_dump({"launch": [{
+        "name": "nfcore_rnaseq", "pipeline": "nf-core/rnaseq", "revision": "3.16.1"}]}))
+    _, staged = _record_transport(monkeypatch)
+    sub.submit_luria(str(tmp_path / "launch.yml"), luria_env=LE)
+    assert "accessions: SRR1,SRR2\n" in staged["launched.txt"]
+    assert "fetchngs_helpers.py" in staged
+
+
+def test_a_status_label_failure_never_fails_the_run(tmp_path, monkeypatch):
+    launch, _ = _fixture(tmp_path)
+    _record_transport(monkeypatch, fail_on="/nessie_status/")
+    runs = sub.submit_luria(str(launch), luria_env=LE)
+    assert len(runs) == 1 and runs[0]["job_id"] == "4821"
