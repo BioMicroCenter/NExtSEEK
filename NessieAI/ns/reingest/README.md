@@ -59,7 +59,9 @@ for the caller, re-hashes the workbook, and refuses a changed, foreign, test-onl
 project-less build, two builds of one sample type and mode, or builds from different runs; `upload.run` then stages every workbook and re-hashes each staged copy
 before any job starts. After that each workbook is its own batch-upload job through
 `dispatch_batch_job` (`nextseek_api/batch_upload/README.md`), new mode first, and a job that
-fails to start never stops the next. Files only, never `rows`.
+fails to start never stops the next. Files only, never `rows`. The op then waits for the jobs, and
+its reply lists each new-mode job's created UIDs, read back from the job's summary CSV by the host's
+`job_outcome` (`nextseek_api/batch_upload/views.py`, only inside `MEDIA_ROOT/batch_upload_reports`).
 
 Job progress is read on the batch-upload `status/<job_id>/` endpoint by the job's owner.
 `nextseek-api-read` cannot poll it: the read-safe allowlist matches exact strings, so a

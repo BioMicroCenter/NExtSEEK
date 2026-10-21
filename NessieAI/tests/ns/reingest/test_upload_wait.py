@@ -136,3 +136,57 @@ def test_the_op_hands_the_hosts_lookup_to_the_upload(env, monkeypatch):
     g.run_op("upload-reingest", {"build_ids": "a" * 64, "confirmed_write": True}, config=None,
              session=session, write_gate=lambda *a: None, neo4j_exec=None, outputs_dir=None)
     assert captured["job_state"] is lookup
+
+
+# --- the new samples' UIDs --------------------------------------------------------------
+# The host reads each finished job's summary CSV back as `rows` (uid, status, reason,
+# sample_type). A created row is a success with no reason; an update says "updated".
+
+def _row(uid, status="success", reason="", sample_type="A.HLA"):
+    return {"uid": uid, "status": status, "reason": reason, "sample_type": sample_type}
+
+
+def test_the_reply_lists_the_uids_it_created(env):
+    builds = [_build(env, "reingest_A_HLA", "new", "A.HLA"),
+              _build(env, "reingest_D_SEQ_update", "update", "D.SEQ")]
+    outcomes = {
+        "job-0": {**_done(created=2), "rows": [_row("A.HLA-261020BMC-1"), _row("A.HLA-261020BMC-2")]},
+        "job-1": {**_done(updated=2), "rows": [
+            _row("D.SEQ-250409KAM-1-PUB", reason="updated", sample_type="D.SEQ"),
+            _row("D.SEQ-250409KAM-9-PUB", reason="updated", sample_type="D.SEQ")]}}
+    out = _upload(env, lambda job_id: outcomes[job_id], builds)
+    assert ("A.HLA (new samples): done, 2 samples created: "
+            "A.HLA-261020BMC-1, A.HLA-261020BMC-2") in out["reply"]
+    # an update lists no UIDs: those samples already existed
+    assert "D.SEQ (update existing): done, 2 samples updated\n" in out["reply"] + "\n"
+    assert out["jobs"][0]["outcome"]["created_uids"] == ["A.HLA-261020BMC-1", "A.HLA-261020BMC-2"]
+
+
+def test_only_rows_that_were_created_are_listed(env):
+    builds = [_build(env, "reingest_A_ALN", "new", "A.ALN")]
+    rows = [_row("A.ALN-1"), _row("A.ALN-2", status="failed", reason="bad Parent"),
+            _row("A.ALN-3", status="skipped", reason="name_already_exists"),
+            _row("A.ALN-4", status="not_processed")]
+    outcomes = {"job-0": {**_done(created=1, failed=1, errors=[{"error": "bad Parent"}]),
+                          "rows": rows}}
+    out = _upload(env, lambda job_id: outcomes[job_id], builds)
+    assert "(1 samples created: A.ALN-1)" in out["reply"]
+    assert "A.ALN-2" not in out["reply"].split("rows failed")[0]
+    assert out["jobs"][0]["outcome"]["created_uids"] == ["A.ALN-1"]
+
+
+def test_a_long_list_is_cut_short_with_a_count(env):
+    builds = [_build(env, "reingest_A_GEX", "new", "A.GEX")]
+    rows = [_row(f"A.GEX-1-{i}", sample_type="A.GEX") for i in range(25)]
+    outcomes = {"job-0": {**_done(created=25), "rows": rows}}
+    out = _upload(env, lambda job_id: outcomes[job_id], builds)
+    line = next(l for l in out["reply"].splitlines() if l.startswith("- A.GEX"))
+    assert "A.GEX-1-19, and 5 more" in line
+    assert "A.GEX-1-20" not in line
+
+
+def test_without_rows_the_reply_keeps_just_the_count(env):
+    builds = [_build(env, "reingest_A_ALN", "new", "A.ALN")]
+    out = _upload(env, lambda job_id: _done(created=2), builds)
+    assert "A.ALN (new samples): done, 2 samples created\n" in out["reply"] + "\n"
+    assert out["jobs"][0]["outcome"]["created_uids"] is None
