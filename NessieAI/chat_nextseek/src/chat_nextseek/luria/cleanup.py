@@ -377,11 +377,19 @@ def stale_claim_notes(claims, queued):
 
 
 def read_runs(root, queued):
-    """A Run for every folder in runs/ (symlinks skipped)."""
+    """A Run for every folder in runs/ (symlinks skipped; a folder that disappears while the
+    runs are being read is skipped)."""
     runs_root = os.path.join(root, "runs")
-    return [read_run(os.path.join(runs_root, name), queued) for name in list_children(runs_root)
-            if os.path.isdir(os.path.join(runs_root, name))
-            and not os.path.islink(os.path.join(runs_root, name))]
+    runs = []
+    for name in list_children(runs_root):
+        run_dir = os.path.join(runs_root, name)
+        if not os.path.isdir(run_dir) or os.path.islink(run_dir):
+            continue
+        try:
+            runs.append(read_run(run_dir, queued))
+        except FileNotFoundError:
+            pass
+    return runs
 
 
 def build_report(root, queued, now):
@@ -504,8 +512,9 @@ def remove_path(path, parent):
 
 
 def runs_in_progress(root, queued, now):
-    """What stops --delete: Nessie runs in progress or being launched, and live download
-    claims. The admin runs --delete again once this is empty."""
+    """What makes --delete wait with the downloads: Nessie runs in progress or being launched,
+    and live download claims. Work folders are not held back by this (each one is re-checked
+    against its own runs); the admin runs --delete again once this is empty."""
     busy = []
     for run in read_runs(root, queued):
         if run.state == "in_progress":
@@ -580,12 +589,23 @@ def _delete_one(root, item, fresh, out, now):
     return max(0, freed), len(failed)
 
 
+DEFERRED_WORDS = "downloads wait until no Nessie run is in progress"
+
+
+def _runs_word(n):
+    return "{} Nessie run{} in progress".format(n, "" if n == 1 else "s")
+
+
 def delete_pass(root, planned, queue_reader, clock=time.time, emit=None):
     """Delete what `planned` marks delete. Before each item the pass re-reads the job queue
-    (at most every QUEUE_REFRESH_S seconds), stops if any Nessie run is in progress, and
-    recomputes that item's decision from fresh labels; downloads are deleted only while
-    holding the download lock. `emit(line)` is called as each line is logged.
-    Returns (log lines, bytes freed, failures, stopped)."""
+    (at most every QUEUE_REFRESH_S seconds) and recomputes that item's decision from fresh
+    labels. Work folders are deleted while other runs go (the re-check keeps the folder of
+    any run that is in progress or being launched). Downloads are deleted only while holding
+    the download lock and only when no Nessie run is in progress, checked before each one;
+    otherwise every download still to do is logged as SKIPPED and the pass ends.
+    `emit(line)` is called as each line is logged.
+    Returns (log lines, bytes freed, failures, not_done): `not_done` is "" when everything
+    planned was deleted or skipped on re-check, else a sentence saying what was not attempted."""
     log = []
 
     def out(line):
@@ -596,10 +616,10 @@ def delete_pass(root, planned, queue_reader, clock=time.time, emit=None):
     queued, _ = queue_reader()
     if queued is None:
         out("STOPPED  job queue could not be read; nothing deleted")
-        return log, 0, 0, True
+        return log, 0, 0, "Nothing deleted: the job queue could not be read."
     state = {"queued": queued, "read_at": clock(), "new": True}
 
-    def stop_reason():
+    def queue_problem():
         """Why the pass must stop before the next item, or None to go ahead."""
         if state["new"]:
             state["new"] = False            # the queue was read just now
@@ -608,20 +628,26 @@ def delete_pass(root, planned, queue_reader, clock=time.time, emit=None):
             if fresh_queue is None:
                 return "job queue could not be read"
             state["queued"], state["read_at"] = fresh_queue, clock()
-        busy = runs_in_progress(root, state["queued"], clock())
-        return busy[0] if busy else None
+        return None
 
     freed = failures = 0
-    stopped = False
 
-    def go(items):
-        """Process `items`; False when the pass stopped."""
+    def go(items, downloads):
+        """Process `items`; "" when all were handled, else what was not attempted."""
         nonlocal freed, failures
-        for item in items:
-            reason = stop_reason()
+        for index, item in enumerate(items):
+            reason = queue_problem()
             if reason is not None:
                 out("STOPPED  {}; nothing more deleted".format(reason))
-                return False
+                return "Stopped: the {}.".format(reason)
+            if downloads:
+                busy = runs_in_progress(root, state["queued"], clock())
+                if busy:
+                    for rest in items[index:]:
+                        out("SKIPPED  {}  {}; {}".format(os.path.relpath(rest.path, root),
+                                                         busy[0], DEFERRED_WORDS))
+                    return ("Downloads not cleaned: {}. Run --delete again once they have "
+                            "finished.".format(_runs_word(len(busy))))
             fresh = recheck(root, item, state["queued"], clock())
             if fresh is None or fresh.decision != "delete":
                 why = "no longer present" if fresh is None else fresh.reason
@@ -631,13 +657,14 @@ def delete_pass(root, planned, queue_reader, clock=time.time, emit=None):
             got, bad = _delete_one(root, item, fresh, out, clock())
             freed += got
             failures += bad
-        return True
+        return ""
 
     targets = [i for i in planned if i.decision == "delete"]
     work = [i for i in targets if i.kind == "work"]
     cached = [i for i in targets if i.kind != "work"]
-    if not go(work):
-        return log, freed, failures, True
+    not_done = go(work, False)
+    if not_done:
+        return log, freed, failures, not_done
     if cached:
         lock = CacheLock(os.path.join(root, "fastq_cache"))
         try:
@@ -648,16 +675,16 @@ def delete_pass(root, planned, queue_reader, clock=time.time, emit=None):
             for i in cached:
                 out("SKIPPED  {}  download lock {}".format(os.path.relpath(i.path, root),
                                                            lock_state))
-            stopped = True
+            not_done = "Downloads not cleaned: the download lock was {}. Run --delete again.".format(
+                lock_state)
         else:
             try:
                 state["new"] = False
                 state["read_at"] = float("-inf")    # the lock wait may have been long
-                if not go(cached):
-                    stopped = True
+                not_done = go(cached, True)
             finally:
                 lock.release()
-    return log, freed, failures, stopped
+    return log, freed, failures, not_done
 
 
 # --- the report and the command line ----------------------------------------------------
@@ -683,8 +710,8 @@ def format_report(root, items, problems, queue_note, lock_note, busy, now, queue
              "Job queue: {}".format(queue_note),
              "Download lock: {}".format(lock_note)]
     if busy:
-        lines.append("Nessie runs in progress: {} (--delete waits until they have finished)"
-                     .format(len(busy)))
+        lines.append("Nessie runs in progress: {} (downloads are not deleted until they have "
+                     "finished; work folders of finished runs still are)".format(len(busy)))
         lines += ["  " + b for b in busy]
     else:
         lines.append("Nessie runs in progress: none")
@@ -693,20 +720,25 @@ def format_report(root, items, problems, queue_note, lock_note, busy, now, queue
         lines += ["", "{} ({})".format(title, len(chosen))]
         for item in chosen:
             left = "; {} days left".format(item.days_left) if item.days_left is not None else ""
+            if busy and decision == "delete" and item.kind != "work":
+                left += " (after the runs in progress finish)"
             lines.append("  {:>9}  {}  {}{}".format(human_size(item.size),
                                                     os.path.relpath(item.path, root),
                                                     item.reason, left))
     if problems:
         lines += ["", "PROBLEMS ({})".format(len(problems))]
         lines += ["  " + p for p in problems]
-    freed = sum(i.size for i in items if i.decision == "delete")
+    doomed = [i for i in items if i.decision == "delete"]
+    freed = sum(i.size for i in doomed)
     if not queue_ok:
-        wait = ", once the job queue can be read"
+        lines += ["", "Would free {} with --delete, once the job queue can be read."
+                  .format(human_size(freed))]
     elif busy:
-        wait = ", once no Nessie run is in progress"
+        now_size = sum(i.size for i in doomed if i.kind == "work")
+        lines += ["", "Would free {} now and {} once no Nessie run is in progress.".format(
+            human_size(now_size), human_size(freed - now_size))]
     else:
-        wait = ""
-    lines += ["", "Would free {} with --delete{}.".format(human_size(freed), wait)]
+        lines += ["", "Would free {} with --delete.".format(human_size(freed))]
     return "\n".join(lines)
 
 
@@ -767,10 +799,6 @@ def main(argv=None, queue_reader=read_queue, clock=time.time):
     if queued is None:
         print("\nNot deleting anything: the job queue could not be read.")
         return 1
-    if busy:
-        print("\nNot deleting anything while Nessie runs are in progress (listed above). "
-              "Run --delete again once they have finished.")
-        return 1
     try:
         log_fh, path = open_log(root, clock())
     except OSError as exc:
@@ -788,11 +816,15 @@ def main(argv=None, queue_reader=read_queue, clock=time.time):
         log_fh.flush()
         print("\nDELETE PASS")
         sys.stdout.flush()
-        _log, freed, failures, stopped = delete_pass(root, items, queue_reader, clock, emit)
+        _log, freed, failures, not_done = delete_pass(root, items, queue_reader, clock, emit)
         end = "Freed {}.".format(human_size(freed))
         log_fh.write(end + "\n")
+        if not_done:
+            log_fh.write(not_done + "\n")
     print("{} Log: {}".format(end, path))
-    return 1 if failures or stopped else 0
+    if not_done:
+        print(not_done)
+    return 1 if failures or not_done else 0
 
 
 if __name__ == "__main__":

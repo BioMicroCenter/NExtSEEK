@@ -38,7 +38,7 @@ Plain `key: value` text, times in UTC as `2026-10-21T14:00:00Z`.
 |---|---|---|
 | `runs/.../nessie_status/launched.txt` | the submitter, right after `sbatch` | `run_dir`, `work_dir`, `pipeline`, `revision`, `slurm_job_id`, `accessions`, `launched_at`, `launched_from` |
 | `runs/.../nessie_status/finished.txt` | `run.sh`'s exit trap | `result` (`succeeded` or `failed`), `exit_code`, `finished_at`. The result is the job script's own exit status: nextflow's, or 1 if the download or fill step failed, or 143 on TERM |
-| `runs/.../nessie_status/saved.txt` | upload-reingest, over SSH | `saved_at`, `pipeline_run_id` |
+| `runs/.../nessie_status/saved.txt` | upload-reingest, over SSH from a background thread, so the upload does not wait for it | `saved_at`, `pipeline_run_id` |
 | `runs/.../nessie_status/README.txt` | the submitter | a short note for anyone who finds the folder |
 | `fastq_cache/nessie_status/in_use/<accession>/<job id>` | `fetchngs_helpers.py claim`, removed by `release` | the job is using this accession |
 | `fastq_cache/nessie_status/last_used/<accession>.txt` | `claim` and `release` | `last_used_at` |
@@ -95,9 +95,16 @@ A claim whose job is no longer queued is ignored and listed under PROBLEMS as a 
 When `squeue` cannot be read, every claim counts and every run without `finished.txt` counts
 as in progress.
 
-`--delete` deletes nothing at all while any Nessie run is in progress, being launched, or
-holding a live download claim (`runs_in_progress` in `cleanup.py`). The report lists those
-runs under "Nessie runs in progress".
+Work folders and downloads are treated differently while other runs go (`runs_in_progress`
+in `cleanup.py`). Work folders are cleaned even while other runs are in progress: before each
+one the pass re-reads the labels and the job queue, and keeps a folder whose own run (same
+`work_dir` or same name) is in progress, being launched, missing its launch label or
+unreadable. Downloads (FASTQs and `fastq_cache/work/`, including leftovers in `fastq_cache/`)
+are deleted only when no Nessie run is in progress, being launched, or holding a live download
+claim. That is checked after the download lock is taken and again before each download; if a
+run is going, each remaining download is logged as `SKIPPED ... downloads wait until no Nessie
+run is in progress` and the pass ends. The report lists those runs under "Nessie runs in
+progress". Leftover `work/.nessie-deleting-*` folders are work folders and are not deferred.
 
 ## The weekly cleanup (admin)
 
@@ -135,8 +142,9 @@ runs under "Nessie runs in progress".
    look unlabelled or unused.
 3. Read the four sections: WILL DELETE, KEEPING FOR NOW (with days left), UNLABELLED, and
    PROBLEMS. The header says whether the job queue was read, whether the download lock
-   works, and which Nessie runs are in progress. If any are, `--delete` will not delete
-   anything: come back once they have finished.
+   works, and which Nessie runs are in progress. If any are, `--delete` still cleans the work
+   folders of finished runs but leaves every download for later: the last line of the report
+   says how much it would free now and how much once the runs have finished.
 4. If the WILL DELETE list is right:
 
    ```bash
@@ -145,13 +153,18 @@ runs under "Nessie runs in progress".
 
    Just before it deletes each item, the pass checks the item again against fresh labels and
    a fresh job queue (re-read at most every 30 seconds). It skips an item that no longer
-   qualifies, and stops the whole pass if a Nessie run has started. It writes its log line by
+   qualifies, and keeps the work folder of a run that has started. Downloads wait while any
+   Nessie run is in progress (see above). It stops the whole pass if the job queue can no
+   longer be read. It writes its log line by
    line to `<working path>/cleanup_logs/` as it goes, and deletes nothing if it cannot create
    that log.
-5. `--delete` exits 1 when it refused to start (the job queue could not be read, a Nessie run
-   is in progress, or the log in `cleanup_logs/` could not be created), stopped early, skipped
+5. `--delete` exits 1 when anything planned was not attempted or failed: it refused to start
+   (the job queue could not be read, or the log in `cleanup_logs/` could not be created),
+   stopped early, deferred the downloads because Nessie runs are in progress ("Downloads not
+   cleaned: N Nessie runs in progress. Run --delete again once they have finished."), skipped
    downloads because the download lock was busy for 60 seconds, or failed to delete
-   something. Read the output and the log, then run it again later.
+   something. It exits 0 when everything planned was deleted or skipped on re-check. Read the
+   output and the log, then run it again later.
 6. UNLABELLED items (everything from before the labels existed) are never deleted by the
    script. Delete them by hand only when you are sure nobody needs them.
 
@@ -172,7 +185,8 @@ be taken.
   anyone runs `--delete`: an instance on older code writes no labels and makes no claims.
 - Every label write and download claim is best-effort: a failed claim prints a warning in the
   job log and the run carries on. A missing or unreadable label must make the cleanup keep,
-  never delete, and `--delete` waits while any Nessie run is in progress.
+  never delete. `--delete` keeps the work folder of any run in progress and waits with the
+  downloads while any Nessie run is in progress.
 
 ## Testing
 

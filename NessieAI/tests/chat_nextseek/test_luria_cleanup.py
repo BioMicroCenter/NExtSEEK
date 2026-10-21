@@ -239,6 +239,21 @@ def test_a_run_folder_that_vanishes_mid_report_keeps_its_changed_time(root, monk
     assert run.changed == stamp and run.state == "unlabelled"
 
 
+def test_a_run_folder_that_vanishes_before_it_is_read_is_skipped(root, monkeypatch):
+    add_run(root, R, finished="failed", finished_days=40)
+    gone = add_run(root, "gone_261001_120000_0", finished="failed", finished_days=40)
+    real_lstat = os.lstat
+
+    def vanish(path, *args, **kwargs):
+        if os.path.normpath(str(path)) == os.path.normpath(str(gone)):
+            raise FileNotFoundError(2, "gone", str(path))
+        return real_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(cl.os, "lstat", vanish)
+    runs = cl.read_runs(str(root), set())
+    assert [r.shown for r in runs] == ["runs/" + R]
+
+
 def test_newest_activity_returns_the_fallback_when_nothing_can_be_read(tmp_path, monkeypatch):
     assert cl.newest_activity(str(tmp_path / "runs" / "gone"), 1234.5) == 1234.5
 
@@ -494,33 +509,84 @@ def test_delete_refuses_when_the_queue_cannot_be_read(root, capsys):
     assert "Not deleting anything" in capsys.readouterr().out
 
 
-def test_delete_waits_while_a_run_is_in_progress(root, capsys):
+def test_delete_cleans_work_but_defers_downloads_while_a_run_is_in_progress(root, capsys):
     add_run(root, R, finished="failed", finished_days=40)
-    work = add_work(root, "foo")
+    old = add_work(root, "foo")
     add_run(root, "bar_261020_120000_0", job="555")
+    live = add_work(root, "bar")
+    fq = add_fastq(root, FQ, last_used_days=40, accs=["SRR1"], md5=True)
     assert run_main(root, "--delete", queued={"555"}) == 1
-    assert work.exists() and not (root / "cleanup_logs").exists()
+    assert not old.exists() and live.exists() and fq.exists()
     out = capsys.readouterr().out
-    assert "Nessie runs in progress: 1" in out
-    assert "Not deleting anything while Nessie runs are in progress" in out
+    assert "Nessie runs in progress: 1 (downloads are not deleted until they have finished" in out
     assert "runs/bar_261020_120000_0 is in progress" in out
+    assert "SKIPPED  fastq_cache/fastq/" + FQ + "  runs/bar_261020_120000_0 is in progress; " \
+        "downloads wait until no Nessie run is in progress" in out
+    assert "Downloads not cleaned: 1 Nessie run in progress. " \
+        "Run --delete again once they have finished." in out
+    (log,) = list((root / "cleanup_logs").iterdir())
+    assert "SKIPPED  fastq_cache/fastq/" + FQ in log.read_text()
+    assert "DELETED" in log.read_text() and "work/foo" in log.read_text()
 
 
-def test_delete_waits_while_a_run_is_being_launched(root, capsys):
+def test_delete_cleans_downloads_when_no_run_is_in_progress(root, capsys):
     add_run(root, R, finished="failed", finished_days=40)
-    work = add_work(root, "foo")
+    old = add_work(root, "foo")
+    fq = add_fastq(root, FQ, last_used_days=40, accs=["SRR1"], md5=True)
+    assert run_main(root, "--delete") == 0
+    assert not old.exists() and not fq.exists()
+    assert "Downloads not cleaned" not in capsys.readouterr().out
+
+
+def test_delete_defers_every_download_with_one_line_each(root, capsys):
+    add_run(root, "bar_261020_120000_0", job="555")
+    fq1 = add_fastq(root, FQ, last_used_days=40, accs=["SRR1"])
+    fq2 = add_fastq(root, "SRX2_SRR2_1.fastq.gz", last_used_days=40, accs=["SRR2"])
+    scratch = root / "fastq_cache" / "work" / "ab"
+    scratch.mkdir(parents=True)
+    (scratch / "x.bin").write_bytes(b"x")
+    assert run_main(root, "--delete", queued={"555"}) == 1
+    assert fq1.exists() and fq2.exists() and scratch.exists()
+    (log,) = list((root / "cleanup_logs").iterdir())
+    skipped = [line for line in log.read_text().splitlines() if line.startswith("SKIPPED")]
+    assert len(skipped) == 3
+    assert all(line.endswith("downloads wait until no Nessie run is in progress")
+               for line in skipped)
+
+
+def test_a_run_being_launched_keeps_its_own_work_and_defers_downloads(root, capsys):
+    add_run(root, R, finished="failed", finished_days=40)
+    old = add_work(root, "foo")
     add_run(root, "bar_261020_120000_0", labelled=False, changed_days=0)
+    launching = add_work(root, "bar")
+    fq = add_fastq(root, FQ, last_used_days=40, accs=["SRR1"])
     assert run_main(root, "--delete") == 1
-    assert work.exists()
+    assert not old.exists() and launching.exists() and fq.exists()
     assert "runs/bar_261020_120000_0 is being launched" in capsys.readouterr().out
 
 
-def test_delete_waits_while_a_download_is_in_use(root, capsys):
+def test_a_download_in_use_defers_downloads_and_not_work(root, capsys):
+    add_run(root, R, finished="failed", finished_days=40)
+    old = add_work(root, "foo")
     fq = add_fastq(root, FQ, last_used_days=40, accs=["SRR1"])
     add_claim(root, "SRR2", "9")
     assert run_main(root, "--delete", queued={"9"}) == 1
-    assert fq.exists()
-    assert "job 9 is using download SRR2" in capsys.readouterr().out
+    assert not old.exists() and fq.exists()
+    out = capsys.readouterr().out
+    assert "job 9 is using download SRR2" in out
+    assert "Downloads not cleaned: 1 Nessie run in progress." in out
+
+
+def test_delete_pass_reports_what_it_did_not_attempt(root):
+    add_run(root, "bar_261020_120000_0", job="555")
+    add_run(root, "baz_261020_120000_0", job="556")
+    add_fastq(root, FQ, last_used_days=40, accs=["SRR1"])
+    items = plan(root, {"555", "556"})
+    log, freed, failures, not_done = cl.delete_pass(
+        str(root), items, lambda: ({"555", "556"}, "q"), clock=lambda: NOW)
+    assert not_done == ("Downloads not cleaned: 2 Nessie runs in progress. "
+                        "Run --delete again once they have finished.")
+    assert freed == 0 and failures == 0 and len(log) == 1
 
 
 def test_runs_in_progress_ignores_finished_and_old_unlabelled_runs(root):
@@ -537,7 +603,8 @@ def test_delete_rechecks_each_item_first(root):
     log, freed, failures, stopped = cl.delete_pass(
         str(root), items, lambda: ({"77"}, "q"), clock=lambda: NOW)
     assert fq.exists() and freed == 0 and failures == 0 and stopped
-    assert log == ["STOPPED  job 77 is using download SRR1; nothing more deleted"]
+    assert log == ["SKIPPED  fastq_cache/fastq/" + FQ + "  job 77 is using download SRR1; "
+                   "downloads wait until no Nessie run is in progress"]
 
 
 def test_a_fastq_used_again_after_the_report_is_skipped_on_recheck(root):
@@ -559,15 +626,18 @@ def plan(root, queued=frozenset()):
     return items
 
 
-def test_a_new_in_progress_run_of_the_same_name_stops_the_pass(root):
+def test_a_new_in_progress_run_of_the_same_name_keeps_that_folder_only(root):
     add_run(root, R, finished="failed", finished_days=40)
-    work = add_work(root, "foo")
+    add_run(root, "zed_261001_120000_0", finished="failed", finished_days=40)
+    work, other = add_work(root, "foo"), add_work(root, "zed")
     items = plan(root)
     add_run(root, "foo_261020_120000_0", job="555")          # same work name, now queued
     log, freed, failures, stopped = cl.delete_pass(
         str(root), items, lambda: ({"555"}, "q"), clock=lambda: NOW)
-    assert stopped and freed == 0 and work.exists()
-    assert log == ["STOPPED  runs/foo_261020_120000_0 is in progress; nothing more deleted"]
+    assert not stopped and failures == 0 and work.exists() and not other.exists()
+    assert log[0] == ("SKIPPED  work/foo  no longer qualifies on re-check "
+                      "(runs/foo_261020_120000_0 is in progress)")
+    assert log[1].startswith("DELETED") and "work/zed" in log[1] and len(log) == 2
 
 
 def test_a_new_finished_run_of_the_same_name_skips_the_folder(root):
@@ -582,7 +652,7 @@ def test_a_new_finished_run_of_the_same_name_skips_the_folder(root):
     assert "run failed 1 days ago" in log[0]
 
 
-def test_a_run_starting_mid_pass_stops_the_pass(root, monkeypatch):
+def test_a_run_starting_mid_pass_does_not_stop_unrelated_work_folders(root, monkeypatch):
     monkeypatch.setattr(cl, "QUEUE_REFRESH_S", 0)
     add_run(root, R, finished="failed", finished_days=40)
     add_run(root, "bar_261001_120000_0", finished="failed", finished_days=40)
@@ -592,17 +662,36 @@ def test_a_run_starting_mid_pass_stops_the_pass(root, monkeypatch):
 
     def reader():
         calls.append(1)
-        if len(calls) == 1:
-            return set(), "q"
         if len(calls) == 2:
             add_run(root, "baz_261020_120000_0", job="555")
-        return {"555"}, "q"
+        return ({"555"} if len(calls) > 1 else set()), "q"
 
     log, freed, failures, stopped = cl.delete_pass(str(root), items, reader, clock=lambda: NOW)
-    assert stopped and failures == 0
-    assert not bar.exists() and foo.exists()                 # sorted: bar first, then stopped
-    assert log[0].startswith("DELETED") and "work/bar" in log[0]
-    assert log[1] == "STOPPED  runs/baz_261020_120000_0 is in progress; nothing more deleted"
+    assert not stopped and failures == 0
+    assert not bar.exists() and not foo.exists()
+    assert [line.split()[0] for line in log] == ["DELETED", "DELETED"]
+
+
+def test_a_run_starting_mid_pass_defers_the_remaining_downloads(root, monkeypatch):
+    monkeypatch.setattr(cl, "QUEUE_REFRESH_S", 0)
+    first = add_fastq(root, FQ, last_used_days=40, accs=["SRR1"])
+    second = add_fastq(root, "SRX2_SRR2_1.fastq.gz", last_used_days=40, accs=["SRR2"])
+    items = plan(root)
+    calls = []
+
+    def reader():
+        calls.append(1)
+        if len(calls) == 3:
+            add_run(root, "baz_261020_120000_0", job="555")
+        return ({"555"} if len(calls) > 2 else set()), "q"
+
+    log, freed, failures, not_done = cl.delete_pass(str(root), items, reader, clock=lambda: NOW)
+    assert not_done.startswith("Downloads not cleaned: 1 Nessie run in progress.")
+    assert not first.exists() and second.exists()
+    assert log[0].startswith("DELETED") and FQ in log[0]
+    assert log[1] == ("SKIPPED  fastq_cache/fastq/SRX2_SRR2_1.fastq.gz  "
+                      "runs/baz_261020_120000_0 is in progress; "
+                      "downloads wait until no Nessie run is in progress")
     assert len(log) == 2
 
 
@@ -751,10 +840,14 @@ def test_the_report_says_what_the_free_space_waits_for(root, capsys):
     add_run(root, R, finished="failed", finished_days=40)
     add_work(root, "foo")
     run_main(root)
-    assert "with --delete." in capsys.readouterr().out
+    assert "Would free 1 KB with --delete." in capsys.readouterr().out
     add_run(root, "bar_261020_120000_0", job="555")
+    add_fastq(root, FQ, last_used_days=40, accs=["SRR1"])
     run_main(root, queued={"555"})
-    assert "with --delete, once no Nessie run is in progress." in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Would free 1 KB now and 1 KB once no Nessie run is in progress." in out
+    assert ("fastq_cache/fastq/" + FQ + "  last used 40 days ago "
+            "(after the runs in progress finish)") in out
     run_main(root, queued=None)
     assert "with --delete, once the job queue can be read." in capsys.readouterr().out
 
