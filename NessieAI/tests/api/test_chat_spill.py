@@ -216,6 +216,16 @@ class CommandTests(SpillBase):
         call_command("chat_spill", "--inline", stdout=_W([]))
         self.assertEqual(self.raw("assistant_chat_session", "results_history", "session_id", sess.pk), before)
 
+    def test_rewrite_skips_a_null_column(self):
+        sess = self._old_row()
+        task = QueryTask.objects.create(session=sess, user=self.user, query="q")  # pending: result is NULL
+        out = []
+        call_command("chat_spill", "--rewrite", "--dry-run", stdout=_W(out))
+        self.assertIn("rewrite: 1 column value(s)", "".join(out))
+        call_command("chat_spill", "--rewrite", stdout=_W([]))
+        self.assertIsNone(self.raw("assistant_query_task", "result", "id", task.pk))
+        self.assertEqual(len(self.files()), 1)
+
     def test_inline_refuses_a_row_at_or_over_60_mb(self):
         sess = ChatSession.objects.create(user=self.user)
         link = spill.spill({"k": _blob("h", 2 * MB)})
