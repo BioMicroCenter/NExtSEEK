@@ -133,7 +133,10 @@ class SpillJSONField(models.JSONField):
         return super().get_prep_value(spill(value, self.encoder))
 
     def from_db_value(self, value, expression, connection):
-        return hydrate(super().from_db_value(value, expression, connection))
+        value = super().from_db_value(value, expression, connection)
+        out = hydrate(value)
+        # A whole column whose file is gone (hydrate logged it) reads as the column's default, so the chat still opens.
+        return self.get_default() if out is None and _is_link(value) else out
 
 
 def _text(cell) -> str:
