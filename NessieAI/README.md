@@ -90,6 +90,7 @@ image, the `eval_*` tables). Its map is `NessieAI/hibayes/README.md` "HiBayes li
 |---|---|
 | `NessieAI/chat_nextseek/README.md`, `CLAUDE.md` | NS engine work |
 | `NessieAI/chat_nextseek/src/chat_nextseek/evaluator/README.md` | the retry-context evaluator behind `/nextseek_api/evaluator/` (not HiBayes) |
+| `NessieAI/chat_nextseek/src/chat_nextseek/luria/README.md` | the Luria launcher, the run labels and the weekly download and work-folder cleanup |
 | `NessieAI/chat_nextseek/src/chat_nextseek/luria/pipelines/scrnaseq_2_7_1_star/README.md` | the patched scrnaseq clone for Luria launches |
 | `NessieAI/dmac_assistant/README.md`, `CLAUDE.md` | BAML sources, the generated client, the two JSON registries |
 | `NessieAI/router/README.md`, `CLAUDE.md` | route decisions |
