@@ -547,6 +547,18 @@ Do not put the file in `conf.d/` (it is included at `http` level there, where
 a named location is refused), and do not add the intercept line to any `:8000`
 location.
 
+Updating an installed server: `install.sh` refuses when the include already
+exists, so an update copies the new snippet over the installed one (the vhost
+files stay as they are), then checks and reloads. As root, on dev first:
+
+```bash
+sudo install -m 644 -o root -g root docker/host-nginx-restart-page.conf /etc/nginx/nextseek-restart-page.conf && sudo restorecon -v /etc/nginx/nextseek-restart-page.conf && sudo nginx -t && sudo systemctl reload nginx
+```
+
+The current snippet also answers a 504 the host nginx makes itself (a wedged
+`web` that outlasts the host's proxy timeout) with the page. The app's own 504s
+still pass through, because no `:8000` location sets `proxy_intercept_errors`.
+
 Where the page's 502s are logged: the named location logs to its server
 block's `access_log`. A server block with none at server level (each location
 sets its own) logs them to the http-level `/var/log/nginx/access.log`, so a

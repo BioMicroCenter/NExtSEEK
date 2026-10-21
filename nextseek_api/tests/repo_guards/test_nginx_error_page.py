@@ -24,6 +24,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 CONF = REPO_ROOT / "docker" / "nginx-optional" / "error-pages.conf"
 HOST_CONF = REPO_ROOT / "docker" / "host-nginx-restart-page.conf"
 BOTH = pytest.mark.parametrize("conf", [CONF, HOST_CONF], ids=["container", "host"])
+# The container's nginx makes a 504 only after an hour-long request, so it keeps 502 alone. The
+# host nginx gives up on a wedged web after its read timeout, so it also pages a 504 it makes.
+ERROR_PAGE = {CONF: "502 @nextseek_restarting", HOST_CONF: "502 504 @nextseek_restarting"}
 
 
 def _directives(conf: Path = CONF) -> str:
@@ -38,7 +41,7 @@ def _body(conf: Path) -> str:
 def test_error_page_keeps_the_502_status(conf):
     text = _directives(conf)
     pages = re.findall(r"^\s*error_page\s+([^;]+);", text, re.M)
-    assert pages == ["502 @nextseek_restarting"], pages
+    assert pages == [ERROR_PAGE[conf]], pages
     assert "=" not in pages[0], "error_page must not rewrite the status"
     assert re.search(r"return 502 '", text), "the named location must answer 502"
 
