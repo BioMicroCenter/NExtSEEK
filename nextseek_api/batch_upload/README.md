@@ -95,7 +95,9 @@ Around them: `nextseek_api/batch_upload/ontology.py:15` reads the workbook's con
 vocabularies and `nextseek_api/batch_upload/ontology.py:154` validates every row against
 them in bulk; `nextseek_api/batch_upload/update.py:338`
 is the upsert path that deep-merges metadata (`nextseek_api/batch_upload/update.py:37`)
-instead of inserting; `nextseek_api/batch_upload/parallel.py:107` runs a level through a
+instead of inserting, and replaces each sample's assay links with the sheet's (it removes
+any link the ASSAY sheet does not list) unless the job's `keep_assay_links` option is set,
+which only adds; `nextseek_api/batch_upload/parallel.py:107` runs a level through a
 thread pool once it is large enough (`nextseek_api/batch_upload/parallel.py:26`);
 `nextseek_api/batch_upload/orphan_resolution.py:50` finds children whose parent arrived in a
 later upload and `nextseek_api/batch_upload/orphan_resolution.py:125` repairs their metadata

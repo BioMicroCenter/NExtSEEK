@@ -163,6 +163,30 @@ class TestProcessBatchesUpdatePath:
             )
             assert result.outcomes["UID-1"].status == "success"
             assert mock_bulk.call_args.kwargs["enable_auto_permissions"] is True
+            assert mock_bulk.call_args.kwargs["keep_assay_links"] is False
+
+    @patch("nextseek_api.batch_upload.insert.determine_resume_uid", return_value=None)
+    def test_update_path_passes_keep_assay_links_through(self, mock_resume):
+        from nextseek_api.batch_upload.insert import process_batches
+
+        import nextseek_api.batch_upload.update as update_mod
+        mock_bulk = MagicMock(return_value={
+            "UID-1": RowOutcome(status="success", sample_id=100, reason="updated"),
+        })
+        with patch.object(update_mod, "bulk_update_samples", mock_bulk), \
+             patch.object(update_mod, "load_existing_sample_details",
+                          MagicMock(return_value={"UID-1": {"sample_id": 100}})):
+            mock_conn = MagicMock()
+            mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+            mock_conn.__exit__ = MagicMock(return_value=False)
+            process_batches(
+                insertable_samples=[_make_sample("UID-1")], project_id=1, contributor_id=1,
+                config=BatchUploadConfig(keep_assay_links=True),
+                direction_computation=_make_direction_computation(),
+                error_collector=ErrorCollector(), existing_samples={"UID-1": 100},
+                update_existing=True, conn_factory=lambda: mock_conn,
+            )
+        assert mock_bulk.call_args.kwargs["keep_assay_links"] is True
 
 
 class TestProcessBatchesPermissions:

@@ -342,6 +342,7 @@ def bulk_update_samples(
     direction_by_pair: Dict[Tuple[str, int], int],
     conn: Connection,
     enable_auto_permissions: bool = False,
+    keep_assay_links: bool = False,
 ) -> Dict[str, RowOutcome]:
     """Bulk-update existing samples, eliminating per-row N+1 queries.
 
@@ -350,7 +351,7 @@ def bulk_update_samples(
     2. Bulk UPDATE samples SET title, json_metadata, updated_at
     3. Bulk prefetch ALL existing assay links (single chunked IN query)
     4. Compute assay diffs in Python (set operations per sample)
-    5. Bulk DELETE removed assay links
+    5. Bulk DELETE removed assay links (none when ``keep_assay_links``)
     6. Bulk INSERT new assay links (via batch_insert_assay_assets)
     7. Bulk INSERT projects_samples links (via batch_insert_projects_samples)
     8. Bulk permissions via INSERT IGNORE (no SELECT+INSERT per row)
@@ -432,7 +433,7 @@ def bulk_update_samples(
         sid = merge_results[sample.uuid][3]
         old_assays = existing_assays.get(sid, set())
         new_assays = set(sample.assay_ids)
-        to_remove = old_assays - new_assays
+        to_remove = set() if keep_assay_links else old_assays - new_assays
         to_add = new_assays - old_assays
         for aid in to_remove:
             removals.append((aid, sid))
