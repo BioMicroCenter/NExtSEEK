@@ -91,23 +91,19 @@ def test_protocols_linked_only_through_assay_assets_count_and_a_double_link_coun
     assert r["rows_returned"] == 2
 
 
-# --- D5: an investigation's answer names the project(s) its protocols are filed under, neutrally ---
-def test_protocols_filed_under_another_project_name_that_project_and_the_investigations_own(tmp_path):
+# --- D5: an investigation's answer says, high level, which projects share its protocols ---
+def test_protocols_shared_across_projects_name_every_project_once(tmp_path):
     r = _titles("EPSILON", "investigation", tmp_path)       # uses sops 5 and 1; its own project (Gamma Lab) holds none
     sc = r["scope"]
-    assert sc["used_count"] == 2 and sc["filed_under"] == ["Alpha Lab", "Beta Lab"]   # sop 1 is filed twice, counts once
-    assert sc["shared_with"] == ["Gamma Lab"]
-    assert sc["sentence"] == ("2 protocols used by this investigation's assays "
-                              "(filed under projects Alpha Lab, Beta Lab, shared with Gamma Lab)")
-    assert "0" not in sc["sentence"].replace("2 protocols", "")
+    assert sc["used_count"] == 2                                  # sop 1 is filed under two projects, counts once
+    assert sc["projects"] == ["Alpha Lab", "Beta Lab", "Gamma Lab"]
+    assert sc["sentence"] == "2 protocols, shared between projects Alpha Lab, Beta Lab and Gamma Lab."
 
 
-def test_protocols_filed_under_the_investigations_own_project_give_both_counts(tmp_path):
-    sc = _titles("ALPHA", "investigation", tmp_path)["scope"]   # uses sops 1, 2, 4; project Alpha Lab holds 4 in all
-    assert sc["used_count"] == 3 and sc["shared_with"] == []
-    assert sc["project_totals"] == {"Alpha Lab": 4}
-    assert sc["sentence"] == ("3 protocols used by this investigation's assays "
-                              "(filed under projects Alpha Lab, Beta Lab); project Alpha Lab holds 4 in all")
+def test_protocols_filed_under_the_investigations_own_project_name_the_projects(tmp_path):
+    sc = _titles("ALPHA", "investigation", tmp_path)["scope"]   # uses sops 1, 2, 4; filed under Alpha Lab and Beta Lab
+    assert sc["used_count"] == 3
+    assert sc["sentence"] == "3 protocols, shared between projects Alpha Lab and Beta Lab."
 
 
 def test_the_project_scope_answer_carries_no_sentence(tmp_path):

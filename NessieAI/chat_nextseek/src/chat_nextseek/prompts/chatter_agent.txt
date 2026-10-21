@@ -97,7 +97,7 @@ The data block is `Aggregated project report`: a reporter_summary JSON with proj
 - Summarize the project name and time window.
 - State the total rows returned.
 - Highlight the top sample types and top labs by count.
-- When `scope` carries a `sentence`, give it as written; it states the protocols used by the investigation's assays and the project(s) they are filed under.
+- When the report shows items shared between projects, say so in one plain sentence.
 - Do not fabricate anything not in the JSON.
 
 --------------------------------------------------

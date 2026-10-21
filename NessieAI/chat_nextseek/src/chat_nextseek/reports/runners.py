@@ -491,11 +491,10 @@ def _names(items: "list[str]") -> str:
 
 
 def _investigation_filing(cursor, investigation_scope: dict, sop_ids: list, visible) -> None:
-    """Add to ``investigation_scope`` the protocol count, the visible project(s) those protocols are filed under,
-    the investigation's own project(s) that share them, and one plain sentence for the reply. Reads only."""
+    """Add to ``investigation_scope`` the protocol count, the visible project(s) those protocols are filed under
+    plus the investigation's own project(s), and one plain sentence for the reply. Reads only."""
     n = len(sop_ids)
     filed: dict[int, str] = {}
-    totals: dict[int, int] = {}
     if sop_ids:
         marks = ", ".join(["%s"] * n)
         cond, ids = ("1 = 1", []) if visible is None else _project_condition("p.id", visible)
@@ -507,20 +506,13 @@ def _investigation_filing(cursor, investigation_scope: dict, sop_ids: list, visi
                    "JOIN seek_production.projects p ON p.id = ip.project_id WHERE ip.investigation_id = %s",
                    [investigation_scope["investigation_id"]])
     own = {r["id"]: r["title"] for r in cursor.fetchall() or []}
-    for pid in own.keys() & filed.keys():
-        cursor.execute("SELECT COUNT(DISTINCT sop_id) AS n FROM seek_production.projects_sops WHERE project_id = %s",
-                       [pid])
-        totals[pid] = int((cursor.fetchall() or [{"n": 0}])[0]["n"])
-    filed_names = sorted(filed.values())
-    shared = sorted(t for pid, t in own.items() if pid not in filed)
-    sentence = f"{n} protocol{'' if n == 1 else 's'} used by this investigation's assays"
-    if filed_names:
-        sentence += f" (filed under {_names(filed_names)}" + (f", shared with {', '.join(shared)}" if shared else "") + ")"
-    holds = {own[pid]: c for pid, c in totals.items()}
-    if holds:
-        sentence += "; " + "; ".join(f"{_names([t])} holds {c} in all" for t, c in sorted(holds.items()))
-    investigation_scope.update(used_count=n, filed_under=filed_names, shared_with=shared, project_totals=holds,
-                               sentence=sentence)
+    projects = sorted(set(filed.values()) | set(own.values()))
+    sentence = f"{n} protocol{'' if n == 1 else 's'}"
+    if len(projects) > 1:
+        sentence += f", shared between projects {', '.join(projects[:-1])} and {projects[-1]}"
+    elif projects:
+        sentence += f", from project {projects[0]}"
+    investigation_scope.update(used_count=n, projects=projects, sentence=sentence + ".")
 
 
 def run_project_protocols_report(
