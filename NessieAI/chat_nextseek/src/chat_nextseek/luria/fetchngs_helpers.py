@@ -14,6 +14,7 @@ path is constructed, so a malformed accession cannot cause path traversal.
 from __future__ import annotations
 
 import csv
+import errno
 import fcntl
 import os
 import re
@@ -22,7 +23,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-_ACC_RE = re.compile(r"^[A-Za-z0-9]+$")
+_ACC_RE = re.compile(r"[A-Za-z0-9]+")
 
 
 def needs_fetch_accessions(rows: list[dict]) -> list[str]:
@@ -33,7 +34,7 @@ def needs_fetch_accessions(rows: list[dict]) -> list[str]:
         if (row.get("fastq_1") or "").strip():
             continue
         acc = (row.get("accession") or "").strip()
-        if acc and _ACC_RE.match(acc) and acc not in seen:
+        if acc and _ACC_RE.fullmatch(acc) and acc not in seen:
             seen.add(acc)
             out.append(acc)
     return out
@@ -51,7 +52,7 @@ def _cached_runs(cache: str) -> dict[tuple[str, ...], dict[str, str]]:
     for path in sorted((Path(cache) / "fastq").glob("*.fastq.gz")):
         tokens = path.name[: -len(".fastq.gz")].split("_")
         read = tokens.pop() if len(tokens) > 1 and tokens[-1] in ("1", "2") else ""
-        if all(_ACC_RE.match(t) for t in tokens):
+        if all(_ACC_RE.fullmatch(t) for t in tokens):
             runs.setdefault(tuple(tokens), {})[read] = str(path)
     return runs
 
@@ -90,7 +91,7 @@ def _listed_runs(cache: str, acc: str) -> list[str] | None:
             listed = [(r.get("run_accession") or "").strip() for r in reader]
     except OSError:
         return None
-    return [r for r in listed if _ACC_RE.match(r)] or None
+    return [r for r in listed if _ACC_RE.fullmatch(r)] or None
 
 
 def _resolve(runs: dict[tuple[str, ...], dict[str, str]], cache: str, acc: str) -> list[tuple[str, str]]:
@@ -113,7 +114,7 @@ def uncached_accessions(accs: list[str], cache: str) -> list[str]:
     exactly what fill can resolve, run list included.
     """
     runs = _cached_runs(cache)
-    return [a for a in accs if not (_ACC_RE.match(a) and _resolve(runs, cache, a))]
+    return [a for a in accs if not (_ACC_RE.fullmatch(a) and _resolve(runs, cache, a))]
 
 
 # --- download claims: what the weekly cleanup (bin/nessie_cleanup.py) reads ---------------
@@ -124,8 +125,11 @@ def uncached_accessions(accs: list[str], cache: str) -> list[str]:
 
 STATUS_DIR = "nessie_status"
 LOCK_NAME = "cleanup.lock"
-_JOB_RE = re.compile(r"^[A-Za-z0-9_]+$")
+_JOB_RE = re.compile(r"[A-Za-z0-9_]+")
 _TIME_FMT = "%Y-%m-%dT%H:%M:%SZ"
+# How long claim/release wait for the lock before giving up. run.sh turns a failed claim into a
+# warning and ignores a failed release, so a stuck lock cannot hang a job until its time limit.
+CLAIM_LOCK_TIMEOUT_S = 600
 
 
 def _iso(now: float | None = None) -> str:
@@ -133,7 +137,7 @@ def _iso(now: float | None = None) -> str:
 
 
 def _check_job(job_id: str) -> str:
-    if not job_id or not _JOB_RE.match(job_id):
+    if not job_id or not _JOB_RE.fullmatch(job_id):
         raise ValueError(f"invalid job id {job_id!r}")
     return job_id
 
@@ -143,7 +147,19 @@ def _cache_lock(cache: str):
     status = Path(cache) / STATUS_DIR
     status.mkdir(parents=True, exist_ok=True)
     with open(status / LOCK_NAME, "a") as fh:
-        fcntl.flock(fh, fcntl.LOCK_EX)
+        deadline = time.monotonic() + CLAIM_LOCK_TIMEOUT_S
+        while True:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as exc:
+                if exc.errno not in (errno.EAGAIN, errno.EACCES):
+                    raise
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    raise TimeoutError(
+                        f"could not take {status / LOCK_NAME} within {CLAIM_LOCK_TIMEOUT_S} seconds")
+                time.sleep(min(1.0, left))
         try:
             yield status
         finally:
@@ -160,7 +176,7 @@ def claim(cache: str, job_id: str, accs: list[str], *, run_dir: str = "",
           now: float | None = None) -> list[str]:
     """Mark `accs` in use by `job_id` and refresh their last_used; return the bare ids claimed."""
     _check_job(job_id)
-    accs = [a for a in accs if _ACC_RE.match(a)]
+    accs = [a for a in accs if _ACC_RE.fullmatch(a)]
     with _cache_lock(cache) as status:
         for acc in accs:
             folder = status / "in_use" / acc
@@ -209,7 +225,7 @@ def fill_rows(rows: list[dict], cache: str) -> tuple[list[dict], list[str]]:
     missing: list[str] = []
     for row in rows:
         acc = (row.get("accession") or "").strip()
-        if (row.get("fastq_1") or "").strip() or not (acc and _ACC_RE.match(acc)):
+        if (row.get("fastq_1") or "").strip() or not (acc and _ACC_RE.fullmatch(acc)):
             out.append(row)
             continue
         found = _resolve(runs, cache, acc)

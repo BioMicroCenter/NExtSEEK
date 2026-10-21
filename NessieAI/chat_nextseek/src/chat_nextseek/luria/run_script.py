@@ -127,9 +127,10 @@ fi
 
 # --- nessie_status/: the labels the weekly cleanup (bin/nessie_cleanup.py) reads ---------
 # finished.txt is written on every exit. SLURM's time limit sends TERM, which the TERM trap
-# turns into exit 143 so the EXIT trap still runs (further TERMs are ignored while it labels). A run that fetches also releases its
-# download claims here. NESSIE_PY is captured while the conda env is active: by the time
-# the trap runs, `conda deactivate` has put the login python3 (possibly too old) first.
+# turns into exit 143 so the EXIT trap still runs (further TERMs are ignored while it
+# labels). A run that fetches also releases its download claims here. NESSIE_PY is captured
+# while the conda env is active: by the time the trap runs, `conda deactivate` has put the
+# login python3 (possibly too old) first.
 _STATUS_BLOCK_TMPL = """
 # --- nessie_status/: labels the weekly cleanup (bin/nessie_cleanup.py) reads ---
 # finished.txt is written on every exit, success or failure. chat_nextseek/luria/README.md

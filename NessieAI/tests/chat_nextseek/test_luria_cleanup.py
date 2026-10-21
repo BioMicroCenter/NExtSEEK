@@ -5,6 +5,7 @@ clock (NOW) because "a run folder created in the last 2 days" reads real mtimes.
 """
 import ast
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -13,6 +14,7 @@ import pytest
 
 from chat_nextseek.luria import cleanup as cl
 from chat_nextseek.luria import fetchngs_helpers as fh
+from chat_nextseek.luria import run_script, status_labels
 
 DAY = 86400
 NOW = float(int(time.time()))
@@ -37,10 +39,16 @@ def root(tmp_path):
 
 
 def add_run(root, name, *, job="100", finished=None, finished_days=None, saved_days=None,
-            out_days=None, labelled=True, changed_days=30):
+            out_days=None, labelled=True, changed_days=30, status_dir=False, nf_log_days=None,
+            err_days=None):
+    """A run folder. labelled=False is the legacy shape: no nessie_status/ at all. Pass
+    status_dir=True for the empty nessie_status/ of a run whose launched.txt is missing."""
     run_dir = root / "runs" / name
     status = run_dir / "nessie_status"
-    status.mkdir(parents=True)
+    if labelled or status_dir:
+        status.mkdir(parents=True)
+    else:
+        run_dir.mkdir(parents=True)
     work = cl._RUN_SUFFIX_RE.sub("", name)
     if labelled:
         job_line = "" if job is None else f"slurm_job_id: {job}\n"
@@ -57,6 +65,14 @@ def add_run(root, name, *, job="100", finished=None, finished_days=None, saved_d
         out = run_dir / f"{work}.out"
         out.write_text("log\n")
         _set_mtime(out, out_days)
+    if err_days is not None:
+        err = run_dir / f"{work}.err"
+        err.write_text("log\n")
+        _set_mtime(err, err_days)
+    if nf_log_days is not None:
+        nf_log = run_dir / ".nextflow.log"
+        nf_log.write_text("log\n")
+        _set_mtime(nf_log, nf_log_days)
     _set_mtime(run_dir, changed_days)
     return run_dir
 
@@ -178,6 +194,70 @@ def test_a_run_being_launched_keeps_its_work(root):
     assert got["work/foo"][0] == "keep" and "being launched" in got["work/foo"][1]
 
 
+def test_a_legacy_run_with_a_fresh_nextflow_log_counts_as_being_launched(root):
+    # No nessie_status/ at all (old code); the run dir itself is old, but nextflow is writing.
+    add_run(root, R, labelled=False, changed_days=30, nf_log_days=0)
+    add_work(root, "foo")
+    got, _ = decide(root)
+    assert got["work/foo"][0] == "keep" and "being launched" in got["work/foo"][1]
+    assert cl.runs_in_progress(str(root), set(), NOW) == [f"runs/{R} is being launched"]
+
+
+@pytest.mark.parametrize("field", ["out_days", "err_days"])
+def test_a_legacy_run_with_a_fresh_slurm_log_counts_as_being_launched(root, field):
+    add_run(root, R, labelled=False, changed_days=30, **{field: 0})
+    add_work(root, "foo")
+    got, _ = decide(root)
+    assert got["work/foo"][0] == "keep" and "being launched" in got["work/foo"][1]
+
+
+def test_a_legacy_run_with_only_old_activity_stays_unlabelled(root):
+    add_run(root, R, labelled=False, changed_days=30, nf_log_days=20, out_days=25, err_days=22)
+    add_work(root, "foo")
+    got, _ = decide(root)
+    assert got["work/foo"][0] == "unlabelled"
+    assert cl.runs_in_progress(str(root), set(), NOW) == []
+
+
+def test_a_missing_launch_label_within_the_grace_keeps_the_work_and_counts(root):
+    add_run(root, R, labelled=False, status_dir=True, changed_days=0)
+    add_work(root, "foo")
+    got, problems = decide(root)
+    assert got["work/foo"][0] == "keep"
+    assert f"runs/{R} is being launched (no labels yet)" in got["work/foo"][1]
+    assert problems == []
+    assert cl.runs_in_progress(str(root), set(), NOW) == [f"runs/{R} is being launched"]
+
+
+def test_a_missing_launch_label_past_the_grace_keeps_the_work_and_stops_blocking(root):
+    add_run(root, R, labelled=False, status_dir=True, changed_days=10)
+    add_work(root, "foo")
+    got, problems = decide(root)
+    assert got["work/foo"][0] == "keep"
+    assert got["work/foo"][1] == f"runs/{R} has no launched.txt; check it by hand"
+    assert problems == [f"runs/{R}/nessie_status has no launched.txt; its work folder is kept "
+                        "until someone checks it"]
+    assert cl.runs_in_progress(str(root), set(), NOW) == []
+
+
+def test_a_missing_launch_label_with_fresh_logs_is_still_within_the_grace(root):
+    add_run(root, R, labelled=False, status_dir=True, changed_days=10, out_days=0)
+    add_work(root, "foo")
+    got, _ = decide(root)
+    assert "being launched" in got["work/foo"][1]
+
+
+def test_a_queued_job_is_in_progress_even_when_it_left_a_finished_label(root):
+    # SLURM requeued the job after the trap wrote finished.txt.
+    add_run(root, R, job="555", finished="failed", finished_days=40)
+    add_work(root, "foo")
+    got, _ = decide(root, queued={"555"})
+    assert got["work/foo"][0] == "keep" and "in progress" in got["work/foo"][1]
+    assert cl.runs_in_progress(str(root), {"555"}, NOW) == [f"runs/{R} is in progress"]
+    got, _ = decide(root, queued=set())
+    assert got["work/foo"][0] == "delete"
+
+
 def test_an_unreadable_label_keeps_the_work_and_is_reported(root):
     run_dir = add_run(root, R, finished="succeeded", finished_days=40)
     (run_dir / "nessie_status" / "finished.txt").write_text("garbage without a colon\n")
@@ -244,6 +324,15 @@ def test_an_unreadable_queue_honours_every_claim(root):
     assert got["fastq_cache/fastq/" + FQ][0] == "keep"
 
 
+def test_an_unreadable_last_used_label_keeps_the_fastq_and_is_reported(root):
+    add_fastq(root, FQ, last_used_days=90, accs=["SRR1"])
+    label = root / "fastq_cache" / "nessie_status" / "last_used" / "SRR1.txt"
+    label.write_text("garbage without a colon\n")
+    got, problems = decide(root)
+    assert got["fastq_cache/fastq/" + FQ][0] == "keep"
+    assert any("last_used" in p and "SRR1.txt" in p for p in problems)
+
+
 def test_a_fastq_no_labelled_run_used_is_unlabelled(root):
     add_fastq(root, FQ)
     got, _ = decide(root)
@@ -274,6 +363,7 @@ def test_empty_downloader_scratch_is_not_listed(root):
 
 
 def test_fastq_accessions_follow_the_rule_fill_matches_by(tmp_path):
+    assert cl.fastq_accessions("SRR1\n_1.fastq.gz") is None   # a newline is not a bare id
     names = ["SRX6818190_SRR10085181_1.fastq.gz", "SRR1_2.fastq.gz", "SRR1.fastq.gz",
              "SRX1_SRR1.fastq.gz", "bad-name_1.fastq.gz", "notes.txt"]
     (tmp_path / "fastq").mkdir()
@@ -344,7 +434,7 @@ def test_report_mode_deletes_nothing(root, capsys):
     out = capsys.readouterr().out
     assert "WILL DELETE (1)" in out and "work/foo" in out
     assert "UNLABELLED" in out and "work/legacy" in out
-    assert "Download lock: taken and released" in out
+    assert "Download lock: taken and released on this node" in out
     assert "Nessie runs in progress: none" in out
     assert "Would free" in out
     assert work.exists() and fq.exists() and not (root / "cleanup_logs").exists()
@@ -416,8 +506,21 @@ def test_delete_rechecks_each_item_first(root):
     add_claim(root, "SRR1", "77")            # a run claims it after the report was built
     log, freed, failures, stopped = cl.delete_pass(
         str(root), items, lambda: ({"77"}, "q"), clock=lambda: NOW)
-    assert fq.exists() and freed == 0 and failures == 0
-    assert any(line.startswith("STOPPED") or line.startswith("SKIPPED") for line in log)
+    assert fq.exists() and freed == 0 and failures == 0 and stopped
+    assert log == ["STOPPED  job 77 is using download SRR1; nothing more deleted"]
+
+
+def test_a_fastq_used_again_after_the_report_is_skipped_on_recheck(root):
+    fq = add_fastq(root, FQ, last_used_days=31, accs=["SRR1"])
+    items = plan(root)
+    assert [i.decision for i in items] == ["delete"]
+    label = root / "fastq_cache" / "nessie_status" / "last_used" / "SRR1.txt"
+    label.write_text(f"last_used_at: {ago(0)}\n")      # a run finished with it meanwhile
+    log, freed, failures, stopped = cl.delete_pass(
+        str(root), items, lambda: (set(), "q"), clock=lambda: NOW)
+    assert fq.exists() and freed == 0 and failures == 0 and not stopped
+    assert log == ["SKIPPED  fastq_cache/fastq/" + FQ
+                   + "  no longer qualifies on re-check (last used 0 days ago)"]
 
 
 def plan(root, queued=frozenset()):
@@ -517,13 +620,16 @@ def test_a_failed_removal_is_logged_and_the_rest_still_go(root, monkeypatch):
     real = cl.remove_path
 
     def flaky(path, parent):
-        if os.path.basename(path) == "bar":
+        if "bar" in os.path.basename(path):
             raise OSError("disk says no")
         return real(path, parent)
 
     monkeypatch.setattr(cl, "remove_path", flaky)
     assert run_main(root, "--delete") == 1
-    assert bar.exists() and not foo.exists()
+    assert not foo.exists()
+    # bar was renamed away before the removal failed; the next report offers the leftover
+    assert not bar.exists() and len(tombstones(root / "work")) == 1
+    assert tombstones(root / "work")[0].startswith(".nessie-deleting-bar-")
     (log,) = list((root / "cleanup_logs").iterdir())
     text = log.read_text()
     assert "FAILED   work/bar  disk says no" in text and "DELETED" in text and "work/foo" in text
@@ -598,16 +704,17 @@ def test_delete_removes_downloader_scratch(root):
     assert "DELETED" in log.read_text() and "fastq_cache/work" in log.read_text()
 
 
-def test_read_queue_discards_squeue_stderr(monkeypatch):
+def test_read_queue_lists_hidden_partitions_and_discards_stderr(monkeypatch):
     seen = {}
 
     def fake(cmd, **kwargs):
-        seen.update(kwargs)
+        seen.update(kwargs, cmd=cmd)
         return "12\n34\n"
 
     monkeypatch.setattr(cl.subprocess, "check_output", fake)
     jobs, _note = cl.read_queue()
     assert jobs == {"12", "34"} and seen["stderr"] is subprocess.DEVNULL
+    assert seen["cmd"] == ["squeue", "-a", "-h", "-o", "%i"]
 
 
 def test_the_report_says_what_the_free_space_waits_for(root, capsys):
@@ -645,3 +752,124 @@ def test_remove_path_refuses_anything_outside_its_folder(root):
 def test_a_missing_runs_folder_is_an_error(tmp_path):
     assert cl.main(["--root", str(tmp_path)], queue_reader=lambda: (set(), "q"),
                    clock=lambda: NOW) == 2
+
+
+# --- deleting a work folder by renaming it away first -----------------------------------
+
+def tombstones(folder):
+    return sorted(n for n in os.listdir(str(folder)) if n.startswith(".nessie-deleting-"))
+
+
+def test_a_work_folder_is_renamed_away_before_it_is_removed(root, monkeypatch):
+    add_run(root, R, finished="failed", finished_days=40)
+    work = add_work(root, "foo")
+    renames = []
+    real = os.rename
+
+    def spy(src, dst):
+        renames.append((src, dst))
+        assert not os.path.lexists(dst)
+        return real(src, dst)
+
+    monkeypatch.setattr(cl.os, "rename", spy)
+    assert run_main(root, "--delete") == 0
+    (src, dst), = renames
+    assert src == str(work)
+    assert os.path.dirname(dst) == str(work.parent)
+    assert os.path.basename(dst).startswith(".nessie-deleting-foo-")
+    assert os.path.basename(dst).rsplit("-", 1)[1].isdigit()
+    assert not work.exists() and tombstones(root / "work") == []
+
+
+def test_fetchngs_scratch_is_also_renamed_away_and_removed(root):
+    scratch = root / "fastq_cache" / "work" / "ab"
+    scratch.mkdir(parents=True)
+    (scratch / "x.bin").write_bytes(b"x")
+    assert run_main(root, "--delete") == 0
+    assert not (root / "fastq_cache" / "work").exists()
+    assert tombstones(root / "fastq_cache") == []
+
+
+def test_a_leftover_tombstone_is_listed_and_deleted(root, capsys):
+    stone = root / "work" / ".nessie-deleting-foo-20261001000000"
+    stone.mkdir()
+    (stone / "task.bin").write_bytes(b"x" * 10)
+    got, _ = decide(root)
+    assert got["work/.nessie-deleting-foo-20261001000000"][:2] == (
+        "delete", "left over from an interrupted cleanup")
+    assert list(got) == ["work/.nessie-deleting-foo-20261001000000"]   # never judged as a run's work
+    assert run_main(root, "--delete") == 0
+    assert not stone.exists()
+    assert "left over from an interrupted cleanup" in capsys.readouterr().out
+
+
+def test_a_leftover_fetchngs_tombstone_is_listed_and_deleted(root):
+    stone = root / "fastq_cache" / ".nessie-deleting-work-20261001000000"
+    stone.mkdir()
+    (stone / "x.bin").write_bytes(b"x")
+    got, _ = decide(root)
+    assert got["fastq_cache/.nessie-deleting-work-20261001000000"][0] == "delete"
+    assert run_main(root, "--delete") == 0
+    assert not stone.exists()
+
+
+def test_a_rename_failure_is_logged_and_leaves_the_folder(root, monkeypatch):
+    add_run(root, R, finished="failed", finished_days=40)
+    work = add_work(root, "foo")
+
+    def refuse(src, dst):
+        raise OSError("rename says no")
+
+    monkeypatch.setattr(cl.os, "rename", refuse)
+    assert run_main(root, "--delete") == 1
+    assert (work / "task.bin").exists() and tombstones(root / "work") == []
+    (log,) = list((root / "cleanup_logs").iterdir())
+    assert "FAILED   work/foo  rename says no" in log.read_text()
+
+
+def test_a_symlinked_work_folder_is_renamed_as_a_link_and_unlinked(root, tmp_path_factory):
+    outside = tmp_path_factory.mktemp("outside")
+    (outside / "keep.txt").write_text("precious")
+    add_run(root, R, finished="failed", finished_days=40)
+    (root / "work" / "foo").symlink_to(outside, target_is_directory=True)
+    assert run_main(root, "--delete") == 0
+    assert os.listdir(str(root / "work")) == []
+    assert (outside / "keep.txt").read_text() == "precious"
+
+
+# --- the writers and the reader agree ---------------------------------------------------
+
+def test_the_real_status_block_writes_a_label_the_cleanup_reads(root):
+    if not shutil.which("bash"):
+        pytest.skip("no bash")
+    run_dir = root / "runs" / R
+    status = run_dir / "nessie_status"
+    status.mkdir(parents=True)
+    (status / "launched.txt").write_text(status_labels.launched_label(
+        run_dir=str(run_dir), work_dir=str(root / "work" / "foo"), pipeline="nf-core/rnaseq",
+        revision="3.22.2", slurm_job_id="100", accessions=["SRR1"], now=NOW - 40 * DAY, env={}))
+    script = root / "job.sh"
+    script.write_text("#!/bin/bash\ncd " + str(run_dir) + "\n"
+                      + run_script.render_status_block(run_dir=str(run_dir)) + "exit 3\n")
+    proc = subprocess.run(["bash", str(script)], cwd=str(root), timeout=30)
+    assert proc.returncode == 3
+    path = str(status / "finished.txt")
+    label = cl.read_label(path)
+    assert label["result"] == "failed" and label["exit_code"] == "3"
+    assert abs(cl.label_time(label, "finished_at", path) - time.time()) < 120
+    run = cl.read_run(str(run_dir), set())
+    assert run.state == "failed" and run.problem is None
+    assert run.wait_days == 30 and abs(run.since - time.time()) < 120
+
+
+def test_a_claim_keeps_a_download_and_its_release_starts_the_clock(root):
+    cache = str(root / "fastq_cache")
+    fq = add_fastq(root, "SRR1_1.fastq.gz")                 # old file, no labels yet
+    assert fh.claim(cache, "9", ["SRR1"]) == ["SRR1"]
+    items, _ = cl.build_report(str(root), {"9"}, NOW)
+    (item,) = [i for i in items if i.path == str(fq)]
+    assert item.decision == "keep" and "in use by job 9 (SRR1)" in item.reason
+    assert fh.release(cache, "9", now=NOW - 40 * DAY) == ["SRR1"]
+    items, _ = cl.build_report(str(root), set(), NOW)
+    (item,) = [i for i in items if i.path == str(fq)]
+    assert item.decision == "delete" and "last used 40 days ago" in item.reason

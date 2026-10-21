@@ -37,9 +37,12 @@ DAY = 86400.0
 STATUS_DIR = "nessie_status"
 LOCK_NAME = "cleanup.lock"
 TIME_FMT = "%Y-%m-%dT%H:%M:%SZ"
-_ACC_RE = re.compile(r"^[A-Za-z0-9]+$")
+_ACC_RE = re.compile(r"[A-Za-z0-9]+")
 # submitter names a run folder <work name>_<yymmdd>_<hhmmss>_<entry index>
 _RUN_SUFFIX_RE = re.compile(r"_\d{6}_\d{6}_\d+$")
+# a folder renamed away just before it is removed; one left behind is an interrupted delete
+TOMBSTONE_PREFIX = ".nessie-deleting-"
+LEFTOVER_REASON = "left over from an interrupted cleanup"
 
 
 class LabelError(Exception):
@@ -136,7 +139,8 @@ class Run(object):
         self.work_name = _RUN_SUFFIX_RE.sub("", name) if _RUN_SUFFIX_RE.search(name) else None
         self.changed = os.lstat(run_dir).st_mtime
         self.work_dir = None
-        # unlabelled, saved, finished, failed, ended, in_progress or unreadable
+        # unlabelled, launch_label_missing, saved, finished, failed, ended, in_progress or
+        # unreadable
         self.state = "unlabelled"
         self.since = None
         self.wait_days = None
@@ -149,6 +153,22 @@ class Run(object):
     @property
     def shown(self):
         return "runs/" + os.path.basename(self.run_dir)
+
+
+def newest_activity(run_dir):
+    """When a run with no launched.txt last did anything: the newest mtime of its folder, of
+    the SLURM .out/.err logs directly in it and of its .nextflow.log. A run whose label is
+    missing may still be running, and writing these."""
+    times = []
+    for name in [""] + list_children(run_dir):
+        if name and not (name.endswith(".out") or name.endswith(".err")
+                         or name == ".nextflow.log"):
+            continue
+        try:
+            times.append(os.lstat(os.path.join(run_dir, name)).st_mtime)
+        except OSError:
+            pass
+    return max(times)
 
 
 def last_activity(run_dir, launched):
@@ -178,12 +198,20 @@ def read_run(run_dir, queued):
     try:
         launched = read_label(launched_path)
         if launched is None:
+            run.changed = newest_activity(run_dir)
+            # The submitter makes nessie_status/ before sbatch: a folder that has it but no
+            # launched.txt is a run whose label write failed or has not happened yet.
+            if os.path.isdir(status) and not os.path.islink(status):
+                run.state = "launch_label_missing"
             return run
         run.work_dir = launched.get("work_dir") or None
         if not run.work_dir:
             raise LabelError("{} names no work_dir".format(launched_path))
         if not launched.get("slurm_job_id"):
             raise LabelError("{} names no slurm_job_id".format(launched_path))
+        if queued is not None and launched["slurm_job_id"] in queued:
+            run.state = "in_progress"       # also a requeued job that left a finished.txt
+            return run
         saved = read_label(saved_path)
         finished = read_label(finished_path)
         if saved is not None:
@@ -196,7 +224,7 @@ def read_run(run_dir, queued):
             run.state = "finished" if result == "succeeded" else "failed"
             run.since = label_time(finished, "finished_at", finished_path)
             run.wait_days = IDLE_WAIT_DAYS
-        elif queued is None or launched.get("slurm_job_id", "") in queued:
+        elif queued is None:
             run.state = "in_progress"
         else:
             run.state, run.wait_days = "ended", IDLE_WAIT_DAYS
@@ -224,9 +252,13 @@ def work_item(path, runs, now):
         if run.state == "unreadable":
             return Item("work", path, parent, "keep",
                         "a label of {} could not be read".format(run.shown))
-        if run.state == "unlabelled" and now - run.changed < LAUNCH_GRACE_DAYS * DAY:
+        recent = now - run.changed < LAUNCH_GRACE_DAYS * DAY
+        if run.state in ("unlabelled", "launch_label_missing") and recent:
             return Item("work", path, parent, "keep",
                         "{} is being launched (no labels yet)".format(run.shown))
+        if run.state == "launch_label_missing":
+            return Item("work", path, parent, "keep",
+                        "{} has no launched.txt; check it by hand".format(run.shown))
         if run.state == "in_progress":
             return Item("work", path, parent, "keep", "{} is in progress".format(run.shown))
     done = [r for r in related if r.state in _DONE_WORDS]
@@ -248,7 +280,7 @@ def fastq_accessions(filename):
     tokens = filename[:-len(".fastq.gz")].split("_")
     if len(tokens) > 1 and tokens[-1] in ("1", "2"):
         tokens.pop()
-    if not tokens or not all(_ACC_RE.match(t) for t in tokens):
+    if not tokens or not all(_ACC_RE.fullmatch(t) for t in tokens):
         return None
     return tokens
 
@@ -346,10 +378,23 @@ def build_report(root, queued, now):
     """(items, problems) for everything under work/ and fastq_cache/. Changes nothing."""
     runs = read_runs(root, queued)
     problems = [run.problem for run in runs if run.problem]
+    problems.extend("{}/{} has no launched.txt; its work folder is kept until someone checks it"
+                    .format(run.shown, STATUS_DIR) for run in runs
+                    if run.state == "launch_label_missing"
+                    and now - run.changed >= LAUNCH_GRACE_DAYS * DAY)
     work_root = os.path.join(root, "work")
-    items = [work_item(os.path.join(work_root, name), runs, now)
-             for name in list_children(work_root)]
+    items = []
+    for name in list_children(work_root):
+        path = os.path.join(work_root, name)
+        if name.startswith(TOMBSTONE_PREFIX):
+            items.append(Item("work", path, work_root, "delete", LEFTOVER_REASON))
+        else:
+            items.append(work_item(path, runs, now))
     cache = os.path.join(root, "fastq_cache")
+    for name in list_children(cache):
+        if name.startswith(TOMBSTONE_PREFIX):
+            items.append(Item("fetchngs_work", os.path.join(cache, name), cache, "delete",
+                              LEFTOVER_REASON))
     claims = read_claims(cache)
     items.extend(fastq_items(cache, claims, queued, now, problems))
     scratch = fetchngs_work_item(cache, claims, queued)
@@ -427,16 +472,21 @@ def probe_lock(cache):
         return "FAILED ({}); --delete will not delete downloads".format(exc)
     lock.release()
     if state == "taken":
-        return "taken and released (locking works here)"
+        return "taken and released on this node"
     return "busy (a run is starting; try again in a minute)"
+
+
+def check_inside(path, parent):
+    """Raise ValueError unless `path` sits directly inside `parent`."""
+    name = os.path.basename(os.path.normpath(path))
+    if name in ("", ".", "..") or not same_path(os.path.join(parent, name), path):
+        raise ValueError("refusing to delete {}: not directly inside {}".format(path, parent))
 
 
 def remove_path(path, parent):
     """Delete `path`, which must sit directly inside `parent`. A symlink is removed as a link,
     never followed, and shutil.rmtree does not follow the links inside a folder either."""
-    name = os.path.basename(os.path.normpath(path))
-    if name in ("", ".", "..") or not same_path(os.path.join(parent, name), path):
-        raise ValueError("refusing to delete {}: not directly inside {}".format(path, parent))
+    check_inside(path, parent)
     if os.path.islink(path) or not os.path.isdir(path):
         os.unlink(path)
     else:
@@ -453,6 +503,10 @@ def runs_in_progress(root, queued, now):
         elif (run.state == "unlabelled" and run.work_name
               and now - run.changed < LAUNCH_GRACE_DAYS * DAY):
             busy.append("{} is being launched".format(run.shown))
+        elif (run.state == "launch_label_missing"
+              and now - run.changed < LAUNCH_GRACE_DAYS * DAY):
+            # Only within the grace, so a failed label write cannot block every pass forever.
+            busy.append("{} is being launched".format(run.shown))
     for acc, jobs in sorted(read_claims(os.path.join(root, "fastq_cache")).items()):
         busy.extend("job {} is using download {}".format(job, acc)
                     for job in jobs if is_live(job, queued))
@@ -464,6 +518,8 @@ def recheck(root, item, queued, now):
     None when it is gone or is no longer something this cleanup manages."""
     if not os.path.lexists(item.path):
         return None
+    if os.path.basename(item.path).startswith(TOMBSTONE_PREFIX):
+        return Item(item.kind, item.path, item.parent, "delete", LEFTOVER_REASON)
     cache = os.path.join(root, "fastq_cache")
     if item.kind == "work":
         return work_item(item.path, read_runs(root, queued), now)
@@ -475,11 +531,27 @@ def recheck(root, item, queued, now):
     return None
 
 
-def _delete_one(root, item, fresh, out):
-    """Remove `item` (decided delete on re-check as `fresh`). Returns (bytes freed, failures)."""
+def tombstone_for(path, now):
+    """Where a work folder is renamed to before it is removed: the same parent, so the rename
+    is atomic and a same-name run that starts mid-delete finds no folder and makes a fresh one."""
+    return os.path.join(os.path.dirname(path), "{}{}-{}".format(
+        TOMBSTONE_PREFIX, os.path.basename(path), time.strftime("%Y%m%d%H%M%S", time.gmtime(now))))
+
+
+def _delete_one(root, item, fresh, out, now):
+    """Remove `item` (decided delete on re-check as `fresh`). Returns (bytes freed, failures).
+    A work folder is first renamed to a tombstone and the tombstone is removed, so nothing
+    that starts using the folder's name meanwhile can have files deleted under it. A
+    tombstone left by an interrupted pass is removed as it is."""
     shown = os.path.relpath(item.path, root)
     try:
-        remove_path(item.path, item.parent)
+        target = item.path
+        if (item.kind in ("work", "fetchngs_work")
+                and not os.path.basename(item.path).startswith(TOMBSTONE_PREFIX)):
+            check_inside(item.path, item.parent)
+            target = tombstone_for(item.path, now)
+            os.rename(item.path, target)    # a symlink is renamed itself, never followed
+        remove_path(target, item.parent)
     except (OSError, ValueError) as exc:
         out("FAILED   {}  {}".format(shown, exc))
         return 0, 1
@@ -546,7 +618,7 @@ def delete_pass(root, planned, queue_reader, clock=time.time, emit=None):
                 out("SKIPPED  {}  no longer qualifies on re-check ({})".format(
                     os.path.relpath(item.path, root), why))
                 continue
-            got, bad = _delete_one(root, item, fresh, out)
+            got, bad = _delete_one(root, item, fresh, out, clock())
             freed += got
             failures += bad
         return True
@@ -631,7 +703,7 @@ def format_report(root, items, problems, queue_note, lock_note, busy, now, queue
 def read_queue():
     """(ids of jobs queued or running, note). The ids are None when squeue cannot be read."""
     try:
-        out = subprocess.check_output(["squeue", "-h", "-o", "%i"], stderr=subprocess.DEVNULL,
+        out = subprocess.check_output(["squeue", "-a", "-h", "-o", "%i"], stderr=subprocess.DEVNULL,
                                       universal_newlines=True, timeout=120)
     except (OSError, subprocess.SubprocessError) as exc:
         return None, "COULD NOT BE READ ({}); --delete will not delete anything".format(exc)

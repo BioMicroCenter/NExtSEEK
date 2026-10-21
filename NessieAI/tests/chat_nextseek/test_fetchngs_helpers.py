@@ -1,6 +1,8 @@
 import csv
+import fcntl
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -293,3 +295,34 @@ def test_claim_and_release_cli(tmp_path):
     assert f"run_dir: {tmp_path}\n" in entry.read_text()
     subprocess.run([sys.executable, script, "release", str(cache), "77"], cwd=tmp_path, check=True)
     assert not (_status(cache) / "in_use" / "SRR1").exists()
+
+
+def test_claim_and_release_reject_a_trailing_newline_in_the_job_id(tmp_path):
+    with pytest.raises(ValueError):
+        fh.claim(str(tmp_path), "12\n", ["SRR1"])
+    with pytest.raises(ValueError):
+        fh.release(str(tmp_path), "12\n")
+
+
+def test_a_trailing_newline_does_not_make_an_accession_bare(tmp_path):
+    assert fh.claim(str(tmp_path), "1", ["SRR1\n", "SRR2"]) == ["SRR2"]
+    assert fh.needs_fetch_accessions([{"accession": "SRR1\n"}]) == ["SRR1"]   # stripped first
+    assert uncached_accessions(["SRR1\n"], str(tmp_path)) == ["SRR1\n"]
+
+
+def test_a_stuck_lock_makes_claim_and_release_time_out(tmp_path, monkeypatch):
+    fh.claim(str(tmp_path), "1", ["SRR1"])                  # so release has something to lock for
+    monkeypatch.setattr(fh, "CLAIM_LOCK_TIMEOUT_S", 0.2)
+    with open(_status(tmp_path) / fh.LOCK_NAME, "a") as holder:
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        try:
+            started = time.monotonic()
+            with pytest.raises(TimeoutError):
+                fh.claim(str(tmp_path), "2", ["SRR2"])
+            with pytest.raises(TimeoutError):
+                fh.release(str(tmp_path), "1")
+            assert time.monotonic() - started < 5
+        finally:
+            fcntl.flock(holder, fcntl.LOCK_UN)
+    assert not (_status(tmp_path) / "in_use" / "SRR2").exists()
+    assert fh.release(str(tmp_path), "1") == ["SRR1"]       # works again once the lock is free

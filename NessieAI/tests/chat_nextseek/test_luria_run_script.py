@@ -708,12 +708,13 @@ def test_status_block_releases_the_jobs_claims_on_exit(tmp_path):
 
 
 def test_a_second_term_while_labelling_does_not_lose_the_label(tmp_path):
-    # bash runs the first TERM's trap once the foreground sleep ends (t=1.0) and `date` then
-    # takes 0.5s inside the trap, so the second TERM (t=1.2) lands while the label is written.
+    # bash runs the first TERM's trap once the foreground sleep ends (t=2.0) and `date` then
+    # takes 1.0s inside the trap, so the second TERM (t=2.4) lands while the label is written.
+    # The margins are doubled from the first version so a loaded container does not flake.
     body = (render_status_block(run_dir=str(tmp_path))
-            + 'date() { sleep 0.5; command date "$@"; }\n'
-            + "(sleep 0.2; kill -TERM $$; sleep 1.0; kill -TERM $$) & sleep 1\n"
-            + "sleep 3\n")
+            + 'date() { sleep 1.0; command date "$@"; }\n'
+            + "(sleep 0.4; kill -TERM $$; sleep 2.0; kill -TERM $$) & sleep 2\n"
+            + "sleep 6\n")
     proc = _run_bash(tmp_path, body)
     assert proc.returncode == 143
     assert "result: failed\nexit_code: 143" in (tmp_path / "nessie_status" / "finished.txt").read_text()
