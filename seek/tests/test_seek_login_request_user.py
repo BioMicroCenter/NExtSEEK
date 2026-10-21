@@ -144,7 +144,9 @@ def test_an_anonymous_search_naming_a_member_searches_nothing(seekstub):
     """End to end: an anonymous POST naming a member, with a password that is not theirs, searches nothing."""
     dbsample = MagicMock()
     dbsample.searchAdvanced.return_value = "{}"
-    request = _request("post", ANONYMOUS, {"username": OTHER_MEMBER, "password": NOT_THEIR_PASSWORD})
+    query = "?filter_searchText=x&sampletype_id=1&attribute=none&filter_matchType=any"  # the search's own parameters
+    request = _request("post", ANONYMOUS, {"username": OTHER_MEMBER, "password": NOT_THEIR_PASSWORD},
+                       path="/seek/searchAdvanced/" + query)
 
     with patch("seek.views.search.DBtable_sample", return_value=dbsample):
         seek.views.search.searchingAdvanced(request)

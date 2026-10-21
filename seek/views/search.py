@@ -9,6 +9,7 @@ from ..dbtable_sampletype import DBtable_sampletype
 from django.http import HttpResponse
 from django.http import HttpResponseRedirect
 from ..seekdb import SeekDB
+from ..responses import missing_param
 from django.shortcuts import render
 from ..decorators import login_redirect, requires_seek_login_redirect
 from ..decorators import verifySuperUser
@@ -63,11 +64,22 @@ def _callerProjectIds(user_seek):
     return []
 
 
+# The query-string parameters each search type reads without a default (seek/sample/search.py).
+_SEARCH_PARAMS = {
+    'FILTERING': ('sampletype_id', 'attribute', 'filter_rule', 'filter_valueFrom', 'filter_valueTo'),
+    'Advanced': ('filter_searchText', 'sampletype_id', 'attribute', 'filter_matchType'),
+    'UIDs': ('filter_searchUIDs',),
+}
+
+
 def runSampleSearch(request, searchType):
     '''
     Input:
         searchType = 'FILTERING', 'UIDs', or'Advanced'
     '''
+    bad = missing_param(request.GET, *_SEARCH_PARAMS[searchType])
+    if bad:
+        return bad
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, True)
     isSupervisor = verifySuperUser(request)

@@ -191,20 +191,22 @@ class TestListNodes:
 
     @patch("nextseek_api.services.entity_tree.resolve_seek_auth", return_value=(("u", "p"), {}))
     @patch("nextseek_api.services.entity_tree._run_sql_query")
-    def test_list_nodes_502_missing_metadata_fields(self, mock_sql, _):
-        """Sample type with no attributes returns 502."""
+    def test_list_nodes_type_without_attributes_has_empty_metadata_fields(self, mock_sql, _):
+        """A sample type with no attribute definitions is listed with empty metadata_fields, not a 502."""
         vs = self._viewset()
         mock_sql.return_value = [
             {"node": "NHP", "id": 41, "description": "NHP", "clade": "Subject"},
+            {"node": "TIS", "id": 42, "description": "TIS", "clade": "Subject"},
         ]
         with patch("seek.dbtable_sampleattribute.DBtable_sampleattribute") as mock_sa:
             mock_sa.return_value.getAttributeTitlesBySampleTypeIds.return_value = {
-                41: [],  # empty attributes
+                41: [],  # no attribute definitions
+                42: ["Name", "Age"],
             }
             resp = vs.list_nodes(_auth_request())
-        assert resp.status_code == 502
-        errors = resp.data.get("errors", [])
-        assert any("Missing sample type attributes" in str(e) for e in errors)
+        assert resp.status_code == 200
+        fields = {n["node"]: n["metadata_fields"] for n in _get_inner(resp)["nodes"]}
+        assert fields == {"NHP": "", "TIS": "Name; Age"}
 
     @patch("nextseek_api.services.entity_tree.resolve_seek_auth", return_value=(("u", "p"), {}))
     @patch("nextseek_api.services.entity_tree._run_sql_query")

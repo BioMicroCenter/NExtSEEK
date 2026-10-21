@@ -380,7 +380,7 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                 )
 
         # Bulk fetch attribute titles via dbtable_ helper (no raw SQL).
-        # Fail the request if any sample type would have empty metadata_fields.
+        # A sample type with no attribute definitions lists with empty metadata_fields.
         try:
             from seek.dbtable_sampleattribute import DBtable_sampleattribute
 
@@ -396,28 +396,11 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                 sample_type_ids
             )
             metadata_fields_by_id: Dict[int, str] = {}
-            missing_ids: List[int] = []
             for sid in sample_type_ids:
                 titles = titles_by_id.get(sid) or []
                 joined = "; ".join([t.strip() for t in titles if str(t).strip()])
-                if not joined.strip():
-                    missing_ids.append(sid)
-                else:
+                if joined.strip():
                     metadata_fields_by_id[sid] = joined
-
-            if missing_ids:
-                return Response(
-                    {
-                        "errors": [
-                            {
-                                "title": "Missing sample type attributes",
-                                "detail": "One or more sample types have no attribute definitions; cannot emit non-empty metadata_fields.",
-                                "sample_type_ids": missing_ids,
-                            }
-                        ]
-                    },
-                    status=status.HTTP_502_BAD_GATEWAY,
-                )
         except Exception as e:
             return Response(
                 {"errors": [{"title": "Attribute lookup failed", "detail": str(e)}]},
