@@ -861,7 +861,7 @@ doc = "Host port of Neo4j bolt; install writes it."
 
 [NEXTSEEK_MEMORY]
 files = ["root.env"]
-default = "16G"
+default = "8G"
 doc = "Memory cap of the web container."
 
 [NEXTSEEK_WORKER_MEMORY]
@@ -916,12 +916,12 @@ doc = "RSS in whole MB at which the recycler restarts a SEEK puma worker."
 
 [SEEK_WORKERS_MEMORY]
 files = ["root.env"]
-default = "3G"
+default = "6G"
 doc = "Memory cap of the SEEK job workers."
 
 [SEEK_DB_MEMORY]
 files = ["root.env"]
-default = "2G"
+default = "6G"
 doc = "Memory cap of MySQL."
 
 [NEO4J_IMAGE_TAG]

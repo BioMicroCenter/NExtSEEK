@@ -68,7 +68,7 @@ Key facts every operator must internalize:
   `NEXTSEEK_SERVER=gunicorn` explicitly in `docker/nextseek.env` on every
   deployment unless you have decided otherwise; under gunicorn the chat UI
   uses HTTP polling for progress (no WebSocket).
-- The `web` container is capped at `${NEXTSEEK_MEMORY:-16G}` of RAM and the
+- The `web` container is capped at `${NEXTSEEK_MEMORY:-8G}` of RAM and the
   `nextseek` worker at `${NEXTSEEK_WORKER_MEMORY:-8G}`, with no swap beyond
   either (`deploy.resources.limits.memory` and `memswap_limit` in
   `docker-compose.yml`). A request that outgrows the cap has its process killed
@@ -117,8 +117,8 @@ Key facts every operator must internalize:
   loads APOC (`NEO4J_PLUGINS`) gets the read-only families the graph agent uses; neither box loads APOC today.
 - CI runs a `mariadb:10.5` service for the MariaDB-fixture tests (`SPIKE_DB_*`); the dev compose `db` stays `mysql:8.0`.
 - Every other long-lived service carries a cap too: `seek_workers`
-  (`${SEEK_WORKERS_MEMORY:-3G}`), `solr` (`${SOLR_MEMORY:-2G}`), `db`
-  (`${SEEK_DB_MEMORY:-2G}`) and `nextseek-sidecar` (`${SIDECAR_MEMORY:-1G}`).
+  (`${SEEK_WORKERS_MEMORY:-6G}`), `solr` (`${SOLR_MEMORY:-2G}`), `db`
+  (`${SEEK_DB_MEMORY:-6G}`) and `nextseek-sidecar` (`${SIDECAR_MEMORY:-1G}`).
   Capping only some services moves the kill rather than preventing it: on
   2026-09-16 `seek` was capped and `seek_workers`, which is the same Rails
   process with the same leak, was not. The two together held 11.2 GiB across 24
@@ -127,11 +127,9 @@ Key facts every operator must internalize:
 - **The defaults are sized for the smallest box we run, and they do not add up
   to any host.** They bound a single runaway; they do not bound the sum. Every
   box sets its own values in the project-root `.env`, and a box whose total must
-  fit lowers `NEXTSEEK_MEMORY` first, since 16G is headroom for the search path
-  rather than steady-state need (about 6 GiB at rest). Worked example, a 30 GiB
-  workstation: `NEXTSEEK_MEMORY=10G` with the rest at their defaults totals
-  28G. A 46 GiB box such as fairdata-dev can leave `NEXTSEEK_MEMORY` at 16G and
-  raise `SEEK_WORKERS_MEMORY` instead. Each cap takes effect when its own
+  fit lowers `NEXTSEEK_MEMORY` first (web holds about 3.7 GiB at rest). The
+  defaults total 45G. A 30 GiB workstation sets `NEXTSEEK_MEMORY=4G`,
+  `SEEK_DB_MEMORY=3G` and `SEEK_WORKERS_MEMORY=3G`, which totals 28G. Each cap takes effect when its own
   service is recreated.
 - Asynchronous attribute mutations use Celery's SQLAlchemy transport over
   SQLite at `/var/lib/attribute-broker/broker.sqlite3`. The worker and outbox
@@ -986,7 +984,7 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `DB_PORT` | root.env | 3306 |  |  | Host port of MySQL; install writes it. |
 | `NEO4J_HTTP_PORT` | root.env | 7474 |  |  | Host port of the Neo4j browser; install writes it. |
 | `NEO4J_BOLT_PORT` | root.env | 7687 |  |  | Host port of Neo4j bolt; install writes it. |
-| `NEXTSEEK_MEMORY` | root.env | 16G |  |  | Memory cap of the web container. |
+| `NEXTSEEK_MEMORY` | root.env | 8G |  |  | Memory cap of the web container. |
 | `NEXTSEEK_WORKER_MEMORY` | root.env | 8G |  |  | Memory cap of the worker container (the nine background loops). |
 | `NEXTSEEK_DRAIN_SECONDS` | root.env | 240 |  |  | How long a stopping web container lets running chat turns finish before it cuts them. web's stop_grace_period must stay at least this plus 30 s. |
 | `NEXTSEEK_SPAWNER_TOKEN` | nextseek.env | secret |  |  | Token web sends to cc-spawner. Install and rebuild write it, with the same value as SPAWNER_TOKEN in docker/cc-spawner.env. |
@@ -997,8 +995,8 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `SEEK_MEMORY` | root.env | 4G |  |  | Memory cap of SEEK. |
 | `SEEK_PUMA_WORKERS` | root.env | 4 |  |  | SEEK puma workers. Set with SEEK_MEMORY and SEEK_WORKER_MAX_MB. |
 | `SEEK_WORKER_MAX_MB` | root.env | 2500 |  |  | RSS in whole MB at which the recycler restarts a SEEK puma worker. |
-| `SEEK_WORKERS_MEMORY` | root.env | 3G |  |  | Memory cap of the SEEK job workers. |
-| `SEEK_DB_MEMORY` | root.env | 2G |  |  | Memory cap of MySQL. |
+| `SEEK_WORKERS_MEMORY` | root.env | 6G |  |  | Memory cap of the SEEK job workers. |
+| `SEEK_DB_MEMORY` | root.env | 6G |  |  | Memory cap of MySQL. |
 | `NEO4J_IMAGE_TAG` | root.env | 2026.05.0 |  |  | Neo4j image tag. |
 | `NGINX_IMAGE_TAG` | root.env | 1.31.2 |  |  | nginx image tag. |
 | `NEO4J_MEMORY` | root.env | 6G |  |  | Memory cap of Neo4j. |
