@@ -39,6 +39,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.handlers.asgi import ASGIRequest
+from django.db.models import Q
 
 ASSISTANT_PARTICIPATING_PROJECTS = settings.ASSISTANT_PARTICIPATING_PROJECTS
 TEST_CASES = settings.TEST_CASES
@@ -412,7 +413,10 @@ def _refuse_run_ls(request, req, chat_config) -> Response | None:
     if not run_dir.startswith(runs_root + "/") or may_read_any(request):
         return None
     run = runs_root + "/" + run_dir[len(runs_root) + 1:].split("/", 1)[0]
-    states = (ChatSession.objects.filter(user=request.user, extra_state__icontains=run)
+    # A run list too big for the row sits in a spill file and the row holds only its link (assistant/spill.py), so
+    # the rows that hold a link are read through the field too.
+    states = (ChatSession.objects.filter(user=request.user)
+              .filter(Q(extra_state__icontains=run) | Q(extra_state__icontains="$spill"))
               .values_list("extra_state", flat=True))
     if any(run in _launched_runs(state) for state in states):
         return None

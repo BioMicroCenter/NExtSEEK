@@ -81,35 +81,29 @@ def _write(text: str) -> dict:
 
 
 def spill(value, encoder=None):
-    """``value`` with every big piece replaced by a link. A value within SPILL_VALUE_BYTES comes back as it is."""
+    """``value`` with every big piece replaced by a link. A value within SPILL_VALUE_BYTES comes back as it is.
+
+    Dicts are structure: a dict's values, and the items of a top-level list (bundles, progress events), are reduced
+    in place and the dict stays in the row, so its small keys stay where SQL lookups (``result__bundle_id``,
+    ``extra_state__icontains``) and the raw-SQL readers find them. Any other value (a string, a list below the top
+    level) over SPILL_VALUE_BYTES goes to a file whole. Only a column still over SPILL_COLUMN_BYTES after that
+    (hundreds of small bundles) goes to one file whole.
+    """
     if _off.get():
         return value
-    text = _dumps(value, encoder)
-    if len(text) <= SPILL_VALUE_BYTES:
-        return value
-    out = _walk(value, encoder)
-    # ponytail: this dumps the result again to test the column limit; fine at the sizes that matter
-    if len(_dumps(out, encoder)) > SPILL_COLUMN_BYTES:
-        return _write(_dumps(out, encoder))
-    return out
-
-
-def _walk(value, encoder):
-    """Children first, so a big key goes alone and the small keys beside it stay in the row; then the container."""
-    if isinstance(value, dict):
-        value = {k: _small(v, encoder) for k, v in value.items()}
-    elif isinstance(value, list):
-        value = [_small(v, encoder) for v in value]
-    else:
-        return value
-    text = _dumps(value, encoder)
-    return _write(text) if len(text) > SPILL_VALUE_BYTES else value
-
-
-def _small(value, encoder):
     if len(_dumps(value, encoder)) <= SPILL_VALUE_BYTES:
         return value
-    return _walk(value, encoder) if isinstance(value, (dict, list)) else _write(_dumps(value, encoder))
+    out = [_reduce(v, encoder) for v in value] if isinstance(value, list) else _reduce(value, encoder)
+    text = _dumps(out, encoder)
+    return _write(text) if len(text) > SPILL_COLUMN_BYTES else out
+
+
+def _reduce(value, encoder):
+    """A dict with its values reduced; any other value as it is, or its link when it is over the value limit."""
+    if isinstance(value, dict):
+        return {k: _reduce(v, encoder) for k, v in value.items()}
+    text = _dumps(value, encoder)
+    return _write(text) if len(text) > SPILL_VALUE_BYTES else value
 
 
 def _is_link(value) -> bool:
