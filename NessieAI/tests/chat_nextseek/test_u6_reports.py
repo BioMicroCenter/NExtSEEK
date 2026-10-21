@@ -15,8 +15,10 @@ from chat_nextseek.reports import runners
 SOPS = [(1, "P.AAA-230101-a"), (2, "P.AAA-230102-b"), (3, "P.AAA-230103-c"), (4, "P.BBB-230201-d"),
         (5, "P.AAA-230105-e")]
 PROJECTS_SOPS = [(1, 1), (1, 2), (1, 3), (2, 4), (2, 1), (1, 5)]       # (project, sop)
-STUDIES = [(100, 10), (101, 10), (200, 20)]                            # (study, investigation)
-SOPS_STUDIES = [(1, 100), (1, 101), (2, 100), (4, 101), (3, 200)]     # (sop, study); sop 1 sits in two studies
+STUDIES = [(100, 10), (101, 10), (200, 20), (300, 30)]                            # (study, investigation)
+SOPS_STUDIES = [(1, 100), (1, 101), (2, 100), (4, 101), (3, 200), (1, 300)]     # (sop, study); sop 1 sits in two studies
+ASSAYS = [(1000, 100), (3000, 300)]                                    # (assay, study)
+ASSAY_ASSETS = [(1000, 1, "Sop"), (3000, 5, "Sop"), (3000, 1, "Sop"), (3000, 2, "DataFile")]   # (assay, asset, type)
 
 
 class _Cur:
@@ -39,11 +41,12 @@ class _Db:
         self.db = sqlite3.connect(":memory:")
         self.db.execute("ATTACH DATABASE ':memory:' AS seek_production")
         for ddl in ("sops (id INTEGER, title TEXT)", "projects_sops (project_id INTEGER, sop_id INTEGER)",
-                    "studies (id INTEGER, investigation_id INTEGER)", "sops_studies (sop_id INTEGER, study_id INTEGER)"):
+                    "studies (id INTEGER, investigation_id INTEGER)", "sops_studies (sop_id INTEGER, study_id INTEGER)", "assays (id INTEGER, study_id INTEGER)",
+                    "assay_assets (assay_id INTEGER, asset_id INTEGER, asset_type TEXT)"):
             self.db.execute(f"CREATE TABLE seek_production.{ddl}")
         for table, rows in (("sops", SOPS), ("projects_sops", PROJECTS_SOPS), ("studies", STUDIES),
-                            ("sops_studies", SOPS_STUDIES)):
-            self.db.executemany(f"INSERT INTO seek_production.{table} VALUES (?, ?)", rows)
+                            ("sops_studies", SOPS_STUDIES), ("assays", ASSAYS), ("assay_assets", ASSAY_ASSETS)):
+            self.db.executemany(f"INSERT INTO seek_production.{table} VALUES ({', '.join('?' * len(rows[0]))})", rows)
 
     def cursor(self, dictionary=False):
         return _Cur(self.db)
@@ -63,7 +66,7 @@ def _cfg(projects, investigations):
     return cfg
 
 
-SHARED = _cfg({"ALPHA": 1, "GAMMA": 3}, {"ALPHA": 10, "DELTA": 20})   # ALPHA is both; DELTA investigation only; GAMMA project only
+SHARED = _cfg({"ALPHA": 1, "GAMMA": 3}, {"ALPHA": 10, "DELTA": 20, "EPSILON": 30})   # ALPHA is both; DELTA investigation only; GAMMA project only
 
 
 def _titles(name, kind, tmp_path):
@@ -77,6 +80,11 @@ def test_a_shared_name_with_the_word_investigation_counts_the_studies_protocols(
     r = _titles("ALPHA", "investigation", tmp_path)
     assert r["rows_returned"] == 3                      # sops 1, 2, 4: sop 1 sits in two studies and counts once
     assert r["scope"]["kind"] == "investigation" and r["scope"]["investigation_id"] == 10
+
+
+def test_protocols_linked_only_through_assay_assets_count_and_a_double_link_counts_once(tmp_path):
+    r = _titles("EPSILON", "investigation", tmp_path)      # sop 5 only via assay_assets; sop 1 via both; DataFile ignored
+    assert r["rows_returned"] == 2
 
 
 def test_a_shared_name_without_the_word_stays_the_projects_filing(tmp_path):
