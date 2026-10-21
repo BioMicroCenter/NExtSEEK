@@ -86,6 +86,31 @@ def enqueue_samples_outbox(conn: Connection, key: str, sample_ids, *, now=None) 
         return False
 
 
+def enqueue_auth_lookup(conn: Connection, sample_ids, *, now=None) -> bool:
+    """Queue samples in SEEK's ``auth_lookup_update_queues`` so its AuthLookupUpdateJob refreshes their
+    ``sample_auth_lookup`` rows (SEEK 1.15.1 columns: item_id, item_type, priority, created_at, updated_at).
+
+    Written on the batch's own connection, inside its transaction, in one bulk statement. It goes to its own
+    savepoint: a refusal (no table, no grant) must not take the samples with it, so it is logged and reported
+    False. True when written, and when there was nothing to write.
+    """
+    ids = sorted({int(i) for i in sample_ids})
+    if not ids:
+        return True
+    stamp = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    statement = text(
+        "INSERT INTO auth_lookup_update_queues (item_id, item_type, priority, created_at, updated_at) "
+        "VALUES (:item_id, 'Sample', 0, :stamp, :stamp)"
+    )
+    try:
+        with conn.begin_nested():
+            conn.execute(statement, [{"item_id": i, "stamp": stamp} for i in ids])
+        return True
+    except Exception:  # noqa: BLE001 - the batch's own write stands; SEEK's lookup catches up on its next sweep
+        log.warning("INSERT: could not queue %d samples in auth_lookup_update_queues", len(ids), exc_info=True)
+        return False
+
+
 class AdaptiveBatchSizer:
     """Self-tuning batch sizer targeting a rows-per-second rate."""
 
@@ -415,6 +440,9 @@ def process_batches(
                     if outbox_key:
                         outbox_written = enqueue_samples_outbox(conn, outbox_key, sample_ids)
 
+                    # Step 8: SEEK's auth lookup learns the new samples (same transaction).
+                    enqueue_auth_lookup(conn, sample_ids)
+
                 # The row is the record, so a batch whose insert was refused writes it
                 # here instead, after the commit, through the hook that never raises.
                 if outbox_key and not outbox_written:
@@ -562,6 +590,8 @@ def process_batches(
                 })
                 if update_key and updated_ids:
                     update_written = enqueue_samples_outbox(conn, update_key, updated_ids)
+                if updated_ids:
+                    enqueue_auth_lookup(conn, updated_ids)
 
             if update_key and updated_ids and not update_written:
                 hooks.enqueue(OUTBOX_KIND_SAMPLES, update_key, updated_ids)

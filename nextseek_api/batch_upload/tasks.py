@@ -46,6 +46,10 @@ def run_batch_upload_task(
         log.warning("xlsx_path (singular) is deprecated; use xlsx_paths or rows")
     if xlsx_paths is None:
         xlsx_paths = [xlsx_path] if xlsx_path else []
+    log.info(
+        "batch upload started job=%s user=%s project=%s rows=%d files=%d",
+        self.request.id, user_id, project_id, len(rows or ()), len(xlsx_paths),
+    )
     config = BatchUploadConfig(**(config_overrides or {}))
     # SEC-001: the projects whose existing samples this job may change, from the view's membership read.
     # None is a superuser (any sample); a message that does not carry it changes no existing sample.
