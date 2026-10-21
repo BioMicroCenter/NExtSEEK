@@ -160,6 +160,10 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     Learning how to make such a change in the site is a how-to and stays
     `nextseek_query`, and so does asking what a record holds before changing it.
 
+    A request that asks for the container by name ("use the container to count
+    samples per project", "run this in Container-CC", "in the sandbox") is
+    `container_cc`, whatever the task is.
+
     {% if input.followup_rule %}{{ input.followup_rule }}{% endif %}
 
     Open-ended summaries go to `container_cc`. A request to summarise a whole

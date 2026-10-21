@@ -212,3 +212,12 @@ def test_route_text_sends_writes_to_container_cc():
             "study, investigation, project, protocol or a sample type's attributes) is `container_cc`, "
             "however short it is") in baml
     assert "No write runs from this chat" in baml
+
+
+def test_router_text_sends_an_explicit_container_request_to_container_cc():
+    """dev_test 2026-10-21: "use the container to count samples per project" went to nextseek_query.
+    Asking for the container by name is container_cc's whatever the task."""
+    baml = " ".join((paths.DMAC_ASSISTANT_DIR / "baml_src" / "router.baml").read_text(encoding="utf-8").split())
+    assert ('A request that asks for the container by name ("use the container to count samples per '
+            'project", "run this in Container-CC", "in the sandbox") is `container_cc`, whatever the '
+            'task is.') in baml
