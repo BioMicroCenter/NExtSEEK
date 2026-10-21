@@ -92,8 +92,9 @@ def enqueue_auth_lookup(conn: Connection, sample_ids, *, now=None) -> bool:
 
     As SEEK's own ``ResourceQueue.enqueue`` does: priority 2 (its default; lowest runs first), and a sample already
     queued keeps its one row. Unlike it, no AuthLookupUpdateJob is queued: its ``delayed_jobs`` handler carries a
-    fresh job id and time, so it is not ours to write. The rows wait for the next such job SEEK queues (it re-queues
-    itself while the table holds rows).
+    fresh job id and time, so it is not ours to write. The rows wait until SEEK queues such a job for its own
+    reasons (a permission, policy or user change); a running job then re-queues itself while the table holds rows.
+    While Sample rows wait, SEEK's 8-hourly AuthLookupMaintenanceJob skips samples altogether.
 
     Written on the batch's own connection, inside its transaction: one query for the rows already queued, one bulk
     insert. It goes to its own savepoint: a refusal (no table, no grant) must not take the samples with it, so it
