@@ -4215,7 +4215,7 @@
         "value": "pipeline"
        },
        "example_query": "Actually, use star_rsem for the aligner instead.",
-       "gap": "Fully expressible on turn 2+ of an open build: cc_assistant.py:285 sets source=\"pipeline\" only when a build is active AND the router independently said ns, so it is exactly the in-progress gate. Caveat: dead in the --bayesian forced lane, because _decide_route returns source=\"forced\" at line 253-265 before the pipeline check ever runs."
+       "gap": "Fully expressible on turn 2+ of an open build: NessieAI/router/policy.py::_decide_route sets source=\"pipeline\" only when a build is active AND the router independently said ns, so it is exactly the in-progress gate. Caveat: dead in the --bayesian forced lane, because _decide_route returns source=\"forced\" in its force branch (policy.py, search for source=\"forced\") before the pipeline check ever runs."
       },
       {
        "name": "Which launch tools the model is actually offered (env-gated exposure)",
@@ -6398,8 +6398,8 @@
        "expressible": "yes"
       },
       {
-       "name": "container_cc is pinned to Opus regardless of BAML model_class",
-       "description": "Every path that yields container_cc sets model_class=\"opus\" and model_id=resolve_cc_model() (the map's \"opus\" key). BAML's own ModelClass output is never used to pick the CC model: the Bedrock auth proxy allowlists only the Opus tier, so sonnet/haiku would 403. Every non-CC route carries model_class None and model_id None.",
+       "name": "container_cc uses the opus class of the model map regardless of BAML model_class",
+       "description": "Every path that yields container_cc sets model_class=\"opus\" and model_id=resolve_cc_model() (the map's \"opus\" key, which router_model_class_map.json points at global.anthropic.claude-sonnet-5-5, so CC runs Sonnet 5.5). BAML's own ModelClass output is never used to pick the CC model; the Bedrock auth proxy allowlists five model ids. Every non-CC route carries model_class None and model_id None.",
        "modality": "router",
        "reachable_from_chat": "yes",
        "enum_count": 3,
@@ -6899,7 +6899,7 @@
       },
       {
        "name": "Admin-only force_route: admin path",
-       "description": "force_route in {\"ns\",\"cc\"} from an is_staff or is_superuser caller produces an immediate RouteDecision with source=\"forced\" and reasoning=\"forced\". \"cc\" also pins opus + the CC model id; \"ns\" carries model_class None / model_id None. force_route=\"auto\" (and None) falls through to the router.",
+       "description": "force_route in {\"ns\",\"cc\"} from a superuser caller (is_staff is not enough: every SEEK user gets it at login) produces an immediate RouteDecision with source=\"forced\" and reasoning=\"forced\". \"cc\" also pins opus + the CC model id; \"ns\" carries model_class None / model_id None. force_route=\"auto\" (and None) falls through to the router.",
        "modality": "router",
        "reachable_from_chat": "yes",
        "enum_count": 4,

@@ -174,8 +174,8 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
             forced = None  # non-admins can never force a route
 
     if force_cc or forced == "cc":
-        # CC always runs Opus (the only proxy-allowlisted model); hardcoding
-        # sonnet here would 403 at the Bedrock proxy.
+        # CC runs the map's "opus" class (global Sonnet 5.5 today); hardcoding
+        # sonnet here would pick the wrong model id.
         return cc_router.RouteDecision(
             route=cc_router.ROUTE_CC, model_class="opus",
             model_id=cc_router._resolve_cc_model_id(),

@@ -206,7 +206,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
         authed, err = self._check_auth(request)
         if not authed:
             return err
-        # Forcing the Opus agent is a superuser's choice, the same rule as force_route on query/async/.
+        # Forcing Container-CC is a superuser's choice, the same rule as force_route on query/async/.
         if not IsSuperUser().has_permission(request, self):
             return _error_response(
                 "Forbidden",
