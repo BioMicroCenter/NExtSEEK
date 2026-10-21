@@ -153,3 +153,12 @@ def test_nginx_pins_through_a_generated_upstream_directory():
     assert "./docker/nginx-upstream:/etc/nginx/upstream:ro,z" in _mounts(SERVICES["nextseek_nginx"])
     ignore = (REPO_ROOT / "docker" / "nginx-upstream" / ".gitignore").read_text().split()
     assert "*" in ignore and "!.gitignore" in ignore
+
+
+def test_throttle_counter_is_on_a_named_volume():
+    """The sign-in lockout counter (a file cache) must outlive a web recreate and be
+    shared by two web containers during a swap. The image runs as root, so a fresh
+    volume needs no chown. Only web serves requests; the worker never reads it."""
+    assert "nextseek-throttle:/var/tmp/nextseek-throttle" in _mounts(SERVICES["web"])
+    assert COMPOSE["volumes"]["nextseek-throttle"]["name"] == "${INSTANCE_PREFIX:-}nextseek-throttle"
+    assert "nextseek-throttle" not in " ".join(_mounts(SERVICES["nextseek"]))
