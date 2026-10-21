@@ -62,6 +62,7 @@ from ..seqera.contrasts import (
 from ..seqera.param_atlas import (
     check_row_column_params,
     check_run_params,
+    confirm_user_answer,
     data_driven_params,
     evaluate_leaf,
     render_param_elicitation,
@@ -604,15 +605,21 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
     # absent verdict must stop the build and ask; a decisive verdict the row
     # disagrees with is returned as a fixable error. No-op when the pipeline has
     # no atlas entry (check returns empty).
+    # After the user answers an ask, the agent carries the answer in the rows: it is
+    # taken only under _take_user_answers' guard, then recorded as user_confirmed.
     ddp = check_row_column_params(pipeline_key, merged_rows, state.get("data_driven_evidence") or {})
+    rejected: dict[str, str] = {}
     if ddp["ask_uids"]:
-        return json.dumps({
-            "ok": False,
-            "needs_user_input": list(ddp["ask_specs"]),
-            "ask_the_user": render_param_elicitation(
-                ddp["ask_specs"], ddp["ask_uids"], state.get("data_driven_evidence") or {}),
-            "message": "Relay `ask_the_user` to the user in plain text and STOP. Do not conclude.",
-        })
+        # A blank cell is no answer; a run param's "" can be one, so only rows skip it.
+        row_values = {name: {uid: r.get(name) for r in merged_rows for uid in uids
+                             if str(r.get("sample") or r.get("Sample") or "") == uid
+                             and r.get(name) not in (None, "")}
+                      for name, uids in ddp["ask_by_param"].items()}
+        rejected = _take_user_answers(state, ddp, row_values)
+        ddp = check_row_column_params(pipeline_key, merged_rows, state.get("data_driven_evidence") or {})
+    if ddp["ask_uids"]:
+        return _param_ask(state, ddp, rejected,
+                          "Relay `ask_the_user` to the user in plain text and STOP. Do not conclude.")
     if ddp["corrections"]:
         errors = [f"row {uid}: {param} should be {val!r} from the sample's metadata — fix the row"
                   for uid, param, val in ddp["corrections"]]
@@ -658,6 +665,7 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
     state["artifacts"]["samplesheet"] = result.saved_files.get("samplesheet")
     state["artifacts"]["base_dir"] = str(base)
     state["artifacts"]["excluded_accessions"] = list(getattr(result, "excluded_accessions", []) or [])
+    _note_user_confirmed(state, base)
     # A (re)built samplesheet invalidates any prior configure_run output, so the agent
     # must call configure_run again before submit — never submit a stale params/launch.
     state["artifacts"].pop("params", None)
@@ -673,6 +681,8 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
         "grouped_by_cohort": grouped,
         "cohorts": cohort_summaries,
         "excluded_accessions": list(getattr(result, "excluded_accessions", []) or []),
+        **({"user_confirmed": confirmed_rows} if (confirmed_rows := _user_confirmed(
+            state, pipeline_key, "row_column", merged_rows)) else {}),
     })
 
 
@@ -743,21 +753,25 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
             continue
         _vals = {(pv.get(_name) or {}).get("value")
                  for pv in _evidence.values()
-                 if (pv.get(_name) or {}).get("verdict") in ("corroborated", "derived_uncorroborated", "defaulted")}
+                 if (pv.get(_name) or {}).get("verdict") in ("corroborated", "derived_uncorroborated",
+                                                             "defaulted", "user_confirmed")}
         _vals.discard(None)
         if len(_vals) == 1:
             agent_params.setdefault(_name, next(iter(_vals)))
 
-    # Run-scope data-driven params (general case; no hlatyping instance in v1).
+    # Run-scope data-driven params (scrnaseq protocol). The user's answer to an ask
+    # arrives as the value the model sends in params; one this tool filled in itself
+    # above is never an answer.
     ddp = check_run_params(pipeline_key, agent_params, state.get("data_driven_evidence") or {})
+    rejected: dict[str, str] = {}
     if ddp["ask_uids"]:
-        return json.dumps({
-            "ok": False,
-            "needs_user_input": list(ddp["ask_specs"]),
-            "ask_the_user": render_param_elicitation(
-                ddp["ask_specs"], ddp["ask_uids"], state.get("data_driven_evidence") or {}),
-            "message": "Relay `ask_the_user` to the user in plain text and STOP.",
-        })
+        sent = tool_input.get("params") or {}
+        rejected = _take_user_answers(state, ddp, {
+            name: {uid: sent[name] for uid in uids}
+            for name, uids in ddp["ask_by_param"].items() if name in sent})
+        ddp = check_run_params(pipeline_key, agent_params, state.get("data_driven_evidence") or {})
+    if ddp["ask_uids"]:
+        return _param_ask(state, ddp, rejected, "Relay `ask_the_user` to the user in plain text and STOP.")
     if ddp["corrections"]:
         return json.dumps({"ok": False, "errors": [
             f"{param} should be {val!r} from the cohort's metadata" for _, param, val in ddp["corrections"]]})
@@ -849,6 +863,7 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     state["launch_plan"] = plan.model_dump()
     state["pipeline_key"] = pipeline_key
     state["launch_built_at_user_msgs"] = _user_msg_count(state)
+    _note_user_confirmed(state, base)
 
     ref_files = (local_luria_ref_files(merged.get("genome"), pipeline=pipeline_key)
                  if reference_status == "local_luria" else None)
@@ -868,6 +883,9 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         "launch_yml": result.saved_files.get("launch"),
         # Echo it back to the user before submit: which way round is their call.
         **({"contrasts_written": contrasts_rows} if contrasts_rows else {}),
+        **({"user_confirmed": confirmed} if (confirmed := {
+            name: next(iter(by_uid.values()))
+            for name, by_uid in _user_confirmed(state, pipeline_key, "run_param").items()}) else {}),
         "runtime_estimate": runtime_estimate(pipeline_key, n_samples, len(fetch_accessions),
                                              fetch_sizes=fetch_sizes),
     })
@@ -885,6 +903,86 @@ def _samplesheet_counts(samplesheet: str | None) -> tuple[int, list[str]]:
     except OSError:
         return 0, []
     return len(rows), needs_fetch_accessions(rows)
+
+
+def _take_user_answers(state: dict, ddp: dict, answers: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """Record the user's answers to earlier asks as user_confirmed verdicts.
+
+    `answers` is {param: {uid: value the agent now sends}}. A value is taken as the
+    user's answer only when this tool asked about that param and a user message has
+    arrived since (state["asked_params"], written by _param_ask): otherwise it is the
+    agent's guess, and the ask stands. A taken value outside the spec's allowed list
+    is refused, and the reasons are returned by param.
+    """
+    asked = state.get("asked_params") or {}
+    evidence = state.setdefault("data_driven_evidence", {})
+    rejected: dict[str, str] = {}
+    for name, by_uid in answers.items():
+        mark = asked.get(name)
+        if mark is None or _user_msg_count(state) <= mark:
+            continue
+        spec = ddp["ask_specs"][name]
+        for uid, value in by_uid.items():
+            problem = confirm_user_answer(evidence, name, [uid], value, spec)
+            if problem:
+                rejected[name] = problem
+        if name not in rejected:
+            asked.pop(name, None)
+    return rejected
+
+
+def _param_ask(state: dict, ddp: dict, rejected: dict[str, str], message: str) -> str:
+    """The needs_user_input reply for data-driven params, marking each as asked now."""
+    asked = state.setdefault("asked_params", {})
+    for name in ddp["ask_specs"]:
+        asked[name] = _user_msg_count(state)
+    evidence = state.get("data_driven_evidence") or {}
+    return json.dumps({
+        "ok": False,
+        "needs_user_input": list(ddp["ask_specs"]),
+        "ask_the_user": render_param_elicitation(ddp["ask_specs"], ddp["ask_uids"], evidence),
+        **({"rejected_answers": rejected} if rejected else {}),
+        "message": message,
+    })
+
+
+def _user_confirmed(state: dict, pipeline_key: str, target: str,
+                    rows: list[dict] | None = None) -> dict[str, dict[str, Any]]:
+    """{param: {uid: value}} for every user_confirmed verdict of this target (rows: only theirs)."""
+    keep = None if rows is None else {str(r.get("sample") or r.get("Sample") or "") for r in rows}
+    out: dict[str, dict[str, Any]] = {}
+    for name, spec in data_driven_params(pipeline_key).items():
+        if spec.get("target") != target:
+            continue
+        for uid, pv in (state.get("data_driven_evidence") or {}).items():
+            verdict = (pv or {}).get(name) or {}
+            if verdict.get("verdict") == "user_confirmed" and (keep is None or uid in keep):
+                out.setdefault(name, {})[uid] = verdict.get("value")
+    return out
+
+
+_CONFIRMED_HEADING = "## Values the user confirmed"
+
+
+def _note_user_confirmed(state: dict, base_dir: str | Path) -> None:
+    """Rewrite the run notes' user-confirmed section from the evidence (no-op without notes.md)."""
+    notes = Path(base_dir) / "notes.md"
+    if not notes.is_file():
+        return
+    text = notes.read_text(encoding="utf-8")
+    text = text.split(f"\n{_CONFIRMED_HEADING}\n", 1)[0].rstrip("\n") + "\n"
+    groups: dict[tuple[str, str, str], list[str]] = {}
+    for uid, pv in (state.get("data_driven_evidence") or {}).items():
+        for name, verdict in (pv or {}).items():
+            if (verdict or {}).get("verdict") == "user_confirmed":
+                key = (name, repr(verdict.get("value")), str(verdict.get("evidence") or ""))
+                groups.setdefault(key, []).append(uid)
+    if groups:
+        lines = ["", _CONFIRMED_HEADING, ""]
+        lines += [f"- {name} = {value} for {', '.join(sorted(uids))}: {why}"
+                  for (name, value, why), uids in sorted(groups.items())]
+        text += "\n".join(lines) + "\n"
+    notes.write_text(text, encoding="utf-8")
 
 
 def _user_msg_count(state: dict) -> int:
