@@ -86,5 +86,9 @@ nextflow run nf-core/rnaseq -r 3.22.2 -profile singularity \
     --fasta /net/x/refs/GRCm39.primary_assembly.genome.fa.gz --gtf /net/x/refs/gencode.vM39.basic.annotation.gtf.gz --igenomes_ignore \
     -w /net/x/work/run \
     -resume
+# Without this the job ends with `conda deactivate`'s status, so SLURM records a
+# failed pipeline as COMPLETED 0:0.
+nextflow_status=$?
 
 conda deactivate
+exit $nextflow_status
