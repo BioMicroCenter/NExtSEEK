@@ -132,6 +132,11 @@ def _sheet_needs_fetch(sheet_path: str) -> bool:
     return bool(_sheet_fetch_accessions(sheet_path))
 
 
+# The Luria calls made after sbatch are bookkeeping; a stalled shared filesystem must not hold
+# the submit (and the chat turn) hostage for a run that is already queued.
+_LABEL_SSH_TIMEOUT_S = 60
+
+
 def _write_launch_labels(luria_env, key_path, *, working, run_dir, work_dir, pipeline,
                          revision, job_id, accessions) -> None:
     """After sbatch: the run's nessie_status/ labels, then the current cleanup script in
@@ -146,7 +151,8 @@ def _write_launch_labels(luria_env, key_path, *, working, run_dir, work_dir, pip
         for name, text in (("launched.txt", launched), ("README.txt", STATUS_README)):
             tmp = _write_temp(text, prefix="status_", suffix=".txt")
             tmp_files.append(tmp)
-            scp_file(luria_env, tmp, f"{run_dir}/{STATUS_DIR}/{name}", key_path=key_path)
+            scp_file(luria_env, tmp, f"{run_dir}/{STATUS_DIR}/{name}", key_path=key_path,
+                     timeout=_LABEL_SSH_TIMEOUT_S)
     except Exception:  # bookkeeping must never fail a submitted run
         log.exception("status labels failed for %s", run_dir)
     finally:
@@ -156,9 +162,10 @@ def _write_launch_labels(luria_env, key_path, *, working, run_dir, work_dir, pip
             except OSError:
                 pass
     try:
-        ssh_run(luria_env, f"mkdir -p {working}/bin", key_path=key_path)
+        ssh_run(luria_env, f"mkdir -p {working}/bin", key_path=key_path,
+                timeout=_LABEL_SSH_TIMEOUT_S)
         scp_file(luria_env, str(_CLEANUP_SCRIPT), f"{working}/bin/nessie_cleanup.py",
-                 key_path=key_path)
+                 key_path=key_path, timeout=_LABEL_SSH_TIMEOUT_S)
     except Exception:  # the script is refreshed on the next submit, so log and carry on
         log.exception("cleanup script staging failed for %s", working)
 

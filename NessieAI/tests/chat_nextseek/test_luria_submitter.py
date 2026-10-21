@@ -1,3 +1,5 @@
+import subprocess
+
 import yaml
 from pathlib import Path
 import chat_nextseek.luria.submitter as sub
@@ -20,13 +22,20 @@ def _raise(*a, **k):
 
 
 def _patch_transport(monkeypatch):
-    calls = {"ssh": [], "scp": []}
+    calls = {"ssh": [], "scp": [], "timeouts": {}}
     monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
-    monkeypatch.setattr(sub, "ssh_run",
-                        lambda le, cmd, *, key_path: (calls["ssh"].append(cmd),
-                                                      "Submitted batch job 4821\n")[1])
-    monkeypatch.setattr(sub, "scp_file",
-                        lambda le, local, remote, *, key_path: calls["scp"].append((str(local), remote)))
+
+    def fake_ssh(le, cmd, *, key_path, timeout=None):
+        calls["ssh"].append(cmd)
+        calls["timeouts"][cmd] = timeout
+        return "Submitted batch job 4821\n"
+
+    def fake_scp(le, local, remote, *, key_path, timeout=None):
+        calls["scp"].append((str(local), remote))
+        calls["timeouts"]["scp " + remote] = timeout
+
+    monkeypatch.setattr(sub, "ssh_run", fake_ssh)
+    monkeypatch.setattr(sub, "scp_file", fake_scp)
     return calls
 
 
@@ -55,9 +64,9 @@ def test_submit_luria_stages_state_samplesheet_and_runsh_uses_cli_flags(tmp_path
         "name": "nfcore_rnaseq", "pipeline": "nf-core/rnaseq", "revision": "3.16.1"}]}))
     staged = {}
     monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
-    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path: "Submitted batch job 7\n")
+    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path, timeout=None: "Submitted batch job 7\n")
 
-    def fake_scp(le, local, remote, *, key_path):
+    def fake_scp(le, local, remote, *, key_path, timeout=None):
         if remote.endswith("/samplesheet.csv"):
             staged["sheet_src"] = str(local)
         if remote.endswith("/run.sh"):
@@ -98,7 +107,7 @@ def test_submit_luria_cleans_run_tmp_on_transport_error(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sub.tempfile, "mkstemp", tracking_mkstemp)
     monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
-    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path: "Submitted batch job 1\n")
+    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path, timeout=None: "Submitted batch job 1\n")
     # scp fails AFTER the run.sh temp file was created + written
     monkeypatch.setattr(sub, "scp_file", _raise)
     runs = sub.submit_luria(str(launch), luria_env=LE)
@@ -137,9 +146,9 @@ def test_submit_luria_stages_params_yml_and_luria_config(tmp_path, monkeypatch):
         "name": "nfcore_rnaseq", "pipeline": "nf-core/rnaseq", "revision": "3.16.1"}]}))
     staged = {}
     monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
-    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path: "Submitted batch job 9\n")
+    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path, timeout=None: "Submitted batch job 9\n")
 
-    def fake_scp(le, local, remote, *, key_path):
+    def fake_scp(le, local, remote, *, key_path, timeout=None):
         if remote.endswith("/params.yml"):
             staged["params"] = Path(local).read_text()
         elif remote.endswith("/luria.config"):
@@ -175,9 +184,9 @@ def test_submit_luria_scrnaseq_injects_fasta_gtf_and_knee_config(tmp_path, monke
         "name": "nfcore_scrnaseq", "pipeline": "https://github.com/nf-core/scrnaseq", "revision": "2.7.1"}]}))
     staged = {}
     monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
-    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path: "Submitted batch job 5\n")
+    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path, timeout=None: "Submitted batch job 5\n")
 
-    def fake_scp(le, local, remote, *, key_path):
+    def fake_scp(le, local, remote, *, key_path, timeout=None):
         if remote.endswith("/luria.config"):
             staged["config"] = Path(local).read_text()
         elif remote.endswith("/run.sh"):
@@ -203,9 +212,9 @@ def test_submit_luria_scrnaseq_star_runsh_uses_vendored_clone(tmp_path, monkeypa
         "name": "nfcore_scrnaseq", "pipeline": "https://github.com/nf-core/scrnaseq", "revision": "2.7.1"}]}))
     staged = {}
     monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
-    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path: "Submitted batch job 6\n")
+    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path, timeout=None: "Submitted batch job 6\n")
 
-    def fake_scp(le, local, remote, *, key_path):
+    def fake_scp(le, local, remote, *, key_path, timeout=None):
         if remote.endswith("/run.sh"):
             staged["run_sh"] = Path(local).read_text()
 
@@ -224,9 +233,9 @@ def test_submit_luria_scrnaseq_alevin_runsh_uses_stock_remote(tmp_path, monkeypa
         "name": "nfcore_scrnaseq", "pipeline": "nf-core/scrnaseq", "revision": "2.7.1"}]}))
     staged = {}
     monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
-    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path: "Submitted batch job 8\n")
+    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path, timeout=None: "Submitted batch job 8\n")
 
-    def fake_scp(le, local, remote, *, key_path):
+    def fake_scp(le, local, remote, *, key_path, timeout=None):
         if remote.endswith("/run.sh"):
             staged["run_sh"] = Path(local).read_text()
 
@@ -244,9 +253,9 @@ def test_submit_luria_threads_genome_into_runsh(tmp_path, monkeypatch):
         "name": "nfcore_rnaseq", "pipeline": "nf-core/rnaseq", "revision": "3.16.1"}]}))
     staged = {}
     monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
-    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path: "Submitted batch job 3\n")
+    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path, timeout=None: "Submitted batch job 3\n")
 
-    def fake_scp(le, local, remote, *, key_path):
+    def fake_scp(le, local, remote, *, key_path, timeout=None):
         if remote.endswith("/run.sh"):
             staged["run_sh"] = Path(local).read_text()
 
@@ -329,9 +338,9 @@ def _stage(tmp_path, monkeypatch, pipeline, revision, **kw):
         "name": "run", "pipeline": pipeline, "revision": revision}]}))
     staged = {}
     monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
-    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path: "Submitted batch job 3\n")
+    monkeypatch.setattr(sub, "ssh_run", lambda le, cmd, *, key_path, timeout=None: "Submitted batch job 3\n")
 
-    def fake_scp(le, local, remote, *, key_path):
+    def fake_scp(le, local, remote, *, key_path, timeout=None):
         staged[remote.rsplit("/", 1)[1]] = Path(local).read_text()
 
     monkeypatch.setattr(sub, "scp_file", fake_scp)
@@ -411,16 +420,21 @@ def test_build_params_yml_refuses_shell_syntax():
     assert "star_salmon" in _build_params_yml({"aligner": "star_salmon", "genome": "GRCm39"})
 
 
-def _record_transport(monkeypatch, fail_on=None):
+def _record_transport(monkeypatch, fail_on=None, timeouts=None):
     order, staged = [], {}
+    timeouts = {} if timeouts is None else timeouts
     monkeypatch.setattr(sub, "prepare_key", lambda k: "/tmp/fake_key")
 
-    def fake_ssh(le, cmd, *, key_path):
+    def fake_ssh(le, cmd, *, key_path, timeout=None):
         order.append(cmd)
+        timeouts[cmd] = timeout
         return "Submitted batch job 4821\n"
 
-    def fake_scp(le, local, remote, *, key_path):
+    def fake_scp(le, local, remote, *, key_path, timeout=None):
+        timeouts["scp " + remote] = timeout
         if fail_on and fail_on in remote:
+            if timeouts.get("raise") == "timeout":
+                raise subprocess.TimeoutExpired("scp", timeout)
             raise RuntimeError("scp down")
         order.append("scp " + remote)
         staged[remote.rsplit("/", 1)[1]] = Path(local).read_text()
@@ -473,4 +487,30 @@ def test_a_failed_readme_does_not_stop_the_script_staging(tmp_path, monkeypatch)
     runs = sub.submit_luria(str(launch), luria_env=LE)
     assert len(runs) == 1
     assert "slurm_job_id: 4821\n" in staged["launched.txt"]
+    assert "scp /net/x/bin/nessie_cleanup.py" in order
+
+
+def test_the_calls_after_sbatch_carry_a_timeout_and_the_ones_before_do_not(tmp_path, monkeypatch):
+    launch, _ = _fixture(tmp_path)
+    timeouts = {}
+    order, _ = _record_transport(monkeypatch, timeouts=timeouts)
+    runs = sub.submit_luria(str(launch), luria_env=LE)
+    run_dir = runs[0]["remote_dir"]
+    assert sub._LABEL_SSH_TIMEOUT_S == 60
+    for key in (f"scp {run_dir}/nessie_status/launched.txt",
+                f"scp {run_dir}/nessie_status/README.txt",
+                "mkdir -p /net/x/bin", "scp /net/x/bin/nessie_cleanup.py"):
+        assert timeouts[key] == 60, key
+    before = [cmd for cmd in order[:next(i for i, c in enumerate(order) if "sbatch run.sh" in c) + 1]]
+    assert all(timeouts[cmd] is None for cmd in before if not cmd.startswith("scp "))
+    assert all(v is None for k, v in timeouts.items()
+               if k.startswith("scp ") and "nessie_status" not in k and "/bin/" not in k)
+
+
+def test_a_timeout_on_the_label_scp_still_returns_the_run(tmp_path, monkeypatch):
+    launch, _ = _fixture(tmp_path)
+    timeouts = {"raise": "timeout"}
+    order, _ = _record_transport(monkeypatch, fail_on="/nessie_status/", timeouts=timeouts)
+    runs = sub.submit_luria(str(launch), luria_env=LE)
+    assert len(runs) == 1 and runs[0]["job_id"] == "4821"
     assert "scp /net/x/bin/nessie_cleanup.py" in order

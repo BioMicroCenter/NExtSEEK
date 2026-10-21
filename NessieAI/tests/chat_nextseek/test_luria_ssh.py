@@ -153,3 +153,31 @@ def test_ssh_run_passes_its_timeout_and_a_connect_timeout(monkeypatch):
         assert "timed out" in str(e)
     assert seen["timeout"] == 3
     assert "ConnectTimeout=10" in seen["cmd"]
+
+
+def test_scp_file_passes_its_timeout_to_subprocess_run(monkeypatch):
+    seen = {}
+
+    class R:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(cmd, **kwargs):
+        seen.update(kwargs, cmd=cmd)
+        return R()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    ssh_mod.scp_file(LE, "/tmp/a", "/net/x/a", key_path="/tmp/k", timeout=60)
+    assert seen["timeout"] == 60 and seen["cmd"][0] == "scp"
+    ssh_mod.scp_file(LE, "/tmp/a", "/net/x/a", key_path="/tmp/k")
+    assert seen["timeout"] is None
+
+
+def test_scp_file_lets_a_timeout_propagate(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(subprocess.TimeoutExpired):
+        ssh_mod.scp_file(LE, "/tmp/a", "/net/x/a", key_path="/tmp/k", timeout=1)
