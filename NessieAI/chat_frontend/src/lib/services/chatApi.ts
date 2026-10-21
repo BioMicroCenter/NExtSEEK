@@ -114,7 +114,10 @@ export class NextseekApiService {
           },
           body: JSON.stringify(body),
         },
-      );
+        // A refused connection is a TypeError from fetch itself; one thrown later in this block is a bug, not a restart.
+      ).catch((err) => {
+        throw err instanceof TypeError ? new Error(RESTARTING_SUBMIT) : err;
+      });
 
       if (!response.ok) {
         const detail = await readErrorDetail(response);
@@ -131,8 +134,7 @@ export class NextseekApiService {
       taskId = data.task_id;
       this._sessionId = data.session_id;
     } catch (err) {
-      // A refused connection is a TypeError from fetch.
-      onError(err instanceof TypeError ? RESTARTING_SUBMIT : err instanceof Error ? err.message : "Query submission failed");
+      onError(err instanceof Error ? err.message : "Query submission failed");
       return;
     }
 
