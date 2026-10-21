@@ -56,6 +56,7 @@ app.config_from_object(
             "batch_upload.reap_stale_query_tasks": {"ignore_result": True},
             "batch_upload.clear_expired_sessions": {"ignore_result": True},
             "batch_upload.purge_durable_state": {"ignore_result": True},
+            "batch_upload.sweep_chat_spill": {"ignore_result": True},
         },
         "beat_schedule": {
             # Each entry expires at its own interval, so runs missed while its worker is busy are dropped, not
@@ -73,6 +74,11 @@ app.config_from_object(
             },
             "purge-durable-state": {
                 "task": "batch_upload.purge_durable_state",
+                "schedule": 86400.0,
+                "options": {"expires": 86400.0},
+            },
+            "sweep-chat-spill": {
+                "task": "batch_upload.sweep_chat_spill",
                 "schedule": 86400.0,
                 "options": {"expires": 86400.0},
             },

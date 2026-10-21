@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import time
+from unittest import mock
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
@@ -217,15 +218,11 @@ class CommandTests(SpillBase):
 
     def test_inline_refuses_a_row_at_or_over_60_mb(self):
         sess = ChatSession.objects.create(user=self.user)
+        link = spill.spill({"k": _blob("h", 2 * MB)})
         with spill.spilling_off():
-            link = spill.spill({"k": _blob("h", 2 * MB)})
-        ChatSession.objects.filter(pk=sess.pk).update(extra_state={"x": {"$spill": link["k"]["$spill"], "bytes": 1}})
-        with override_settings():
-            spill.INLINE_MAX_BYTES, old = 1 * MB, spill.INLINE_MAX_BYTES
-            try:
-                call_command("chat_spill", "--inline", stdout=_W([]))
-            finally:
-                spill.INLINE_MAX_BYTES = old
+            ChatSession.objects.filter(pk=sess.pk).update(extra_state={"x": {"$spill": link["k"]["$spill"], "bytes": 1}})
+        with mock.patch.object(spill, "INLINE_MAX_BYTES", MB):
+            call_command("chat_spill", "--inline", stdout=_W([]), stderr=_W([]))
         self.assertIn("$spill", self.raw("assistant_chat_session", "extra_state", "session_id", sess.pk))
 
 

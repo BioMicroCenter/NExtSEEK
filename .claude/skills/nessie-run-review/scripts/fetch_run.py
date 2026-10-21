@@ -209,7 +209,41 @@ q -e "SELECT JSON_OBJECT(
         'attempted_route',     JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.attempted_route'),'\$[0]'),
         'laya',                JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.laya'),'\$[0]')
       ) FROM assistant_query_task t WHERE {where} ORDER BY t.id;"
+
+# A debug object over 256 KB is stored as a link with the file on the app's media volume (nextseek_api/assistant/
+# spill.py), so the debug reads above come back NULL for it. Follow the link: one JSON line per such turn, with the
+# turn id and the debug object, which follow_debug_links() folds back in.
+echo "@@@SPILL@@@"
+q -e "SELECT t.id, JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.debug'),'\$[0].\"\$spill\"'))
+      FROM assistant_query_task t WHERE {where} ORDER BY t.id;" | while IFS=$'\t' read -r id rel; do
+  case "$rel" in
+    [0-9a-f][0-9a-f]/[0-9a-f]*.json.gz) printf '{{"id": %s, "debug": ' "$id"; docker exec {app} zcat "/media/chat_spill/$rel"; printf '}}\n';;
+  esac
+done
 """
+
+#: The turn fields the REMOTE query reads off the debug object, and where each lives in it.
+DEBUG_FIELDS = {"parser_decision": "parser_decision", "aplan": "api_plan", "ameta": "api_result_meta",
+                "gplan": "graph_plan", "rplan": "reporter_plan"}
+
+
+def follow_debug_links(turns: list[dict], lines: list[str]) -> list[dict]:
+    """Fill the turn fields the query could not read because the debug object was a link, from the files it followed."""
+    by_id = {t["id"]: t for t in turns}
+    for ln in lines:
+        try:
+            row = json.loads(ln)
+        except ValueError:
+            continue
+        t, dbg = by_id.get(row.get("id")), row.get("debug")
+        if t is None or not isinstance(dbg, dict):
+            continue
+        t["mode"] = (dbg.get("parser_plan") or {}).get("mode")
+        for field, key in DEBUG_FIELDS.items():
+            t[field] = dbg.get(key)
+        g = dbg.get("graph_result")
+        t["gmeta"] = {k: v for k, v in g.items() if k != "data"} if isinstance(g, dict) else g
+    return turns
 
 # The whole row, for `--raw`. A progress stream can run to several MB (a graph
 # result's rows live inside it), which is exactly why turns.json strips them.
@@ -498,6 +532,7 @@ def main() -> None:
     if "@@@TURNS@@@" not in raw:
         sys.exit("unexpected remote output; got:\n" + raw[:800])
     head, tail = raw.split("@@@TURNS@@@", 1)
+    tail, spilled = tail.split("@@@SPILL@@@", 1) if "@@@SPILL@@@" in tail else (tail, "")
     head, tz_txt = head.split("@@@TZ@@@", 1)
     manifest_txt = head.split("@@@MANIFEST@@@", 1)[1].strip()
     offset = tz_offset_minutes(tz_txt)
@@ -511,8 +546,8 @@ def main() -> None:
     else:
         print(f"no manifest at {args.manifest} (expected when reviewing real users' turns)")
 
-    turns = price_turns([json.loads(ln) for ln in tail.splitlines()
-                         if ln.strip().startswith("{")])
+    turns = price_turns(follow_debug_links(
+        [json.loads(ln) for ln in tail.splitlines() if ln.strip().startswith("{")], spilled.splitlines()))
     (out / "turns.json").write_text(json.dumps(turns, indent=1), encoding="utf-8")
 
     routes = Counter(t.get("route") for t in turns)
