@@ -127,11 +127,6 @@ def _sheet_fetch_accessions(sheet_path: str) -> list[str]:
     return needs_fetch_accessions(rows)
 
 
-def _sheet_needs_fetch(sheet_path: str) -> bool:
-    """True when the staged samplesheet has at least one blank-fastq SRR row to fetch."""
-    return bool(_sheet_fetch_accessions(sheet_path))
-
-
 # The Luria calls made after sbatch are bookkeeping; a stalled shared filesystem must not hold
 # the submit (and the chat turn) hostage for a run that is already queued.
 _LABEL_SSH_TIMEOUT_S = 60
