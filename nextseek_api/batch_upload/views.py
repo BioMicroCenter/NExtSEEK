@@ -1,6 +1,7 @@
 """DRF ViewSet for batch upload endpoints."""
 from __future__ import annotations
 
+import csv
 import logging
 import os
 import json
@@ -687,15 +688,53 @@ def dispatch_batch_job(*, user_pk: int, user_ctx: dict, lababbv: str, project_id
     return task.id
 
 
+#: Rows job_outcome reads back from one summary CSV: far more than a reingest upload has.
+_OUTCOME_ROW_CAP = 2000
+_OUTCOME_ROW_KEYS = ("uid", "status", "reason", "sample_type")
+
+
+def _summary_rows(summary_path) -> list[dict] | None:
+    """Each row's uid, status, reason and sample type from a job's summary CSV, or None
+    when there is no readable summary. The path comes from the Celery result, so it is read
+    only when it resolves (symlinks followed) inside MEDIA_ROOT/batch_upload_reports, where
+    the orchestrator writes it. The per-row part ends at the blank separator row, before
+    the TOTALS and GRAPH lines."""
+    if not summary_path:
+        return None
+    reports = os.path.realpath(os.path.join(getattr(settings, "MEDIA_ROOT", "/tmp"),
+                                            "batch_upload_reports"))
+    path = os.path.realpath(str(summary_path))
+    if not path.startswith(reports + os.sep) or not os.path.isfile(path):
+        return None
+    rows: list[dict] = []
+    try:
+        with open(path, newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                if not str(row.get("row_index") or "").strip().isdigit():
+                    break
+                rows.append({key: row.get(key) or "" for key in _OUTCOME_ROW_KEYS})
+                if len(rows) >= _OUTCOME_ROW_CAP:
+                    break
+    except (OSError, UnicodeDecodeError, csv.Error):
+        log.warning("job_outcome: summary %s unreadable", path, exc_info=True)
+        return None
+    return rows
+
+
 def job_outcome(job_id: str) -> dict:
-    """One job's state for upload-reingest's wait: the Celery state, plus the totals
-    and errors once it succeeded, or the error once it failed. Read the same way as
-    the status action; ownership is the caller's (upload-reingest started the job)."""
+    """One job's state for upload-reingest's wait: the Celery state, plus the totals,
+    errors and per-row outcomes (``rows``, when its summary CSV can be read) once it
+    succeeded, or the error once it failed. Read the same way as the status action;
+    ownership is the caller's (upload-reingest started the job)."""
     result = AsyncResult(job_id, app=celery_app)
     if result.state == "SUCCESS":
         payload = result.result if isinstance(result.result, dict) else {}
-        return {"state": "SUCCESS", "totals": payload.get("totals") or {},
-                "errors": payload.get("errors") or []}
+        out = {"state": "SUCCESS", "totals": payload.get("totals") or {},
+               "errors": payload.get("errors") or []}
+        rows = _summary_rows(payload.get("summary_path"))
+        if rows is not None:
+            out["rows"] = rows
+        return out
     if result.state in ("FAILURE", "REVOKED"):
         return {"state": result.state, "error": str(result.result)}
     return {"state": result.state}

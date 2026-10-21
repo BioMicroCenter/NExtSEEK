@@ -152,6 +152,8 @@ def verify(build_ids: list[str], *, user_id, chat_turn=None,
 _DEFAULT_WAIT_S = 45.0
 _POLL_S = 1.0
 _TERMINAL = ("SUCCESS", "FAILURE", "REVOKED")
+# The reply lists a job's new UIDs up to this many, then says how many more.
+_LISTED_UIDS = 20
 _clock = time.monotonic
 _sleep = time.sleep
 
@@ -179,7 +181,24 @@ def _summarise(job_id: str, raw: dict | None) -> dict:
             "created": int(totals.get("uids_generated") or 0),
             "updated": int(totals.get("updated") or 0),
             "failed_rows": failed, "processed": int(totals.get("processed") or 0),
-            "errors": errors[:3], "graph": totals.get("graph")}
+            "errors": errors[:3], "graph": totals.get("graph"),
+            "created_uids": _created_uids(raw.get("rows"))}
+
+
+def _created_uids(rows) -> list[str] | None:
+    """The UIDs of the rows the job inserted, in sheet order, or None when the host gave
+    no rows. An inserted row is a success with no reason; an update's reason is "updated"."""
+    if not isinstance(rows, list):
+        return None
+    return [str(row["uid"]) for row in rows
+            if isinstance(row, dict) and row.get("uid")
+            and row.get("status") == "success" and not row.get("reason")]
+
+
+def _uid_list(uids: list[str], total: int) -> str:
+    shown = uids[:_LISTED_UIDS]
+    more = max(total, len(uids)) - len(shown)
+    return ", ".join(shown) + (f", and {more} more" if more > 0 else "")
 
 
 def _await_jobs(jobs: list[dict], job_state) -> None:
@@ -225,6 +244,8 @@ def _outcome_line(job: dict) -> str:
         return f"- {what}: failed: {outcome['error']}"
     done = (f"{outcome['created']} samples created" if job["mode"] == "new"
             else f"{outcome['updated']} samples updated")
+    if job["mode"] == "new" and outcome.get("created_uids"):
+        done += ": " + _uid_list(outcome["created_uids"], outcome["created"])
     if outcome["status"] == "succeeded":
         return f"- {what}: done, {done}"
     errors = "; ".join(_error_text(e) for e in outcome["errors"])
