@@ -29,6 +29,8 @@ const POLL_GAVE_UP =
 const STREAM_LOST_NOTICE = "Connection lost. Still waiting for the answer.";
 const RESTARTING_STATUSES = new Set([502, 503, 504]);
 const RESTARTING_NOTICE = "NExtSEEK is restarting. Still waiting for the answer.";
+/** A new question that met a restart: shown instead of a bare status, and never re-sent (it could start the turn twice). */
+const RESTARTING_SUBMIT = "NExtSEEK is restarting. Send your question again in a minute.";
 
 /** How a progress socket that opened came to its end. */
 interface StreamOutcome {
@@ -116,6 +118,8 @@ export class NextseekApiService {
 
       if (!response.ok) {
         const detail = await readErrorDetail(response);
+        // A 503 that carries a detail (the drain message) keeps it.
+        if (RESTARTING_STATUSES.has(response.status) && !detail) throw new Error(RESTARTING_SUBMIT);
         throw new Error(
           detail
             ? `Query submission failed: ${response.status} — ${detail}`
@@ -127,7 +131,8 @@ export class NextseekApiService {
       taskId = data.task_id;
       this._sessionId = data.session_id;
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Query submission failed");
+      // A refused connection is a TypeError from fetch.
+      onError(err instanceof TypeError ? RESTARTING_SUBMIT : err instanceof Error ? err.message : "Query submission failed");
       return;
     }
 
