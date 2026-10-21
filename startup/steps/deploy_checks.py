@@ -112,18 +112,21 @@ def model_class_map(checkout: Path) -> dict[str, str]:
 CC_RUNTIME_PROBE = r"""
 import importlib, importlib.metadata as md, json, subprocess, sys
 
-def run(*argv):
+def run(*argv, ok_on_stdout=False):
     try:
         p = subprocess.run(list(argv), capture_output=True, text=True, timeout=60)
     except Exception as exc:
         return "error: %s: %s" % (type(exc).__name__, exc)
+    if ok_on_stdout and p.returncode == 0 and (p.stdout or "").strip() == "ok":
+        return "ok"  # a warning on stderr is not a failure
     return ((p.stdout or "") + (p.stderr or "")).strip()
 
 imports = json.loads(sys.argv[1])
 out = {"node": run("node", "--version"), "claude": run("claude", "--version"),
        "dists": {}, "imports": {},
        # P12: a shim's bare `python` must be the image venv (the 10-14 httpx failure).
-       "shim_python": run("sh", "-c", ". /app/plugins/nextseek/bin/_nextseek_common.sh; python -c 'import httpx' && echo ok")}
+       "shim_python": run("sh", "-c", ". /app/plugins/nextseek/bin/_nextseek_common.sh; python -c 'import httpx' && echo ok",
+                           ok_on_stdout=True)}
 for dist in sys.argv[2:]:
     try:
         out["dists"][dist] = md.version(dist)

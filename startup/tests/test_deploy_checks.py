@@ -128,8 +128,8 @@ def test_the_probe_sources_the_shim_common_file_and_imports_httpx():
 def test_the_shim_check_reads_stdout_alone_so_a_warning_on_stderr_is_no_failure():
     probe: dict = {}
     exec(dc.CC_RUNTIME_PROBE.split("\nimports = ")[0], probe)  # the probe's imports and its run()
-    shim_line = next(ln for ln in dc.CC_RUNTIME_PROBE.splitlines() if '"shim_python"' in ln)
-    kw = {"ok_on_stdout": True} if "ok_on_stdout=True" in shim_line else {}
+    shim_call = dc.CC_RUNTIME_PROBE.split('"shim_python": run(', 1)[1].split(")}", 1)[0]
+    kw = {"ok_on_stdout": True} if "ok_on_stdout=True" in shim_call else {}
     warned = probe["run"]("sh", "-c", "echo 'DeprecationWarning: old api' >&2; echo ok", **kw)
     assert warned == "ok"
     failed = probe["run"]("sh", "-c", "echo \"ModuleNotFoundError: No module named 'httpx'\" >&2; exit 1", **kw)
