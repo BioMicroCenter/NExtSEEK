@@ -190,3 +190,34 @@ def test_route_text_splits_harmonization_by_intent():
     assert "harmonisation over metadata" not in text
     path = paths.DMAC_ASSISTANT_DIR / "build_context" / "route_capabilities.json"
     assert "Values written several ways are judged by intent, like a how-to" in path.read_text(encoding="utf-8")
+
+
+def test_route_text_sends_writes_to_container_cc():
+    """Operator ruling 2026-10-14: a request to create, register, change, upload, share or delete a
+    stored record is container_cc's (it prepares the upload workbook or says where the change is made);
+    how to do it in the site stays a how-to on the NS route. Registry text, generated
+    route_capabilities.json and router.baml all carry it."""
+    from NessieAI.cc.op_registry.routes import CONTAINER_CC_ROUTE, NS_WRITE_NOT_FOR
+
+    assert ("And a request to create, register, change, upload, share or delete a stored record: no "
+            "write runs from chat, so this route prepares the upload workbook for review or says "
+            "where the change is made.") in " ".join(CONTAINER_CC_ROUTE.best_for.split())
+    path = paths.DMAC_ASSISTANT_DIR / "build_context" / "route_capabilities.json"
+    routes = json.loads(path.read_text(encoding="utf-8"))["routes"]
+    ns = next(r for r in routes if r["route_name"] == "nextseek_query")
+    assert NS_WRITE_NOT_FOR in ns["not_for"]
+    baml = (paths.DMAC_ASSISTANT_DIR / "baml_src" / "router.baml").read_text(encoding="utf-8")
+    baml = " ".join(baml.split())
+    assert ("A request to create, register, change, upload, share or delete a stored record (a sample, "
+            "study, investigation, project, protocol or a sample type's attributes) is `container_cc`, "
+            "however short it is") in baml
+    assert "No write runs from this chat" in baml
+
+
+def test_router_text_sends_an_explicit_container_request_to_container_cc():
+    """dev_test 2026-10-21: "use the container to count samples per project" went to nextseek_query.
+    Asking for the container by name is container_cc's whatever the task."""
+    baml = " ".join((paths.DMAC_ASSISTANT_DIR / "baml_src" / "router.baml").read_text(encoding="utf-8").split())
+    assert ('A request that asks for the container by name ("use the container to count samples per '
+            'project", "run this in Container-CC", "in the sandbox") is `container_cc`, whatever the '
+            'task is.') in baml

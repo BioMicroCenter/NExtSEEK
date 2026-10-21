@@ -41,7 +41,10 @@ CONTAINER_CC_ROUTE = RouteSpec(
         "stays here; a self-contained question is routed on its own merits. And an open-ended summary of "
         "a whole project or investigation -- how much data it holds, an inventory, an overview, "
         "the span of its collection dates -- written up with a file; formal NIH/RPPR/progress "
-        "reports, upload statistics, submissions and 'what is X' stay on the NS route."
+        "reports, upload statistics, submissions and 'what is X' stay on the NS route. "
+        "And a request to create, register, change, upload, share or delete a stored "
+        "record: no write runs from chat, so this route prepares the upload workbook for "
+        "review or says where the change is made."
     ),
     not_for=(
         "Pure deterministic NExtSEEK lookups that the NS route handles without "
@@ -90,6 +93,12 @@ NS_SUMMARY_NOT_FOR = (
     "An open-ended summary of a whole project or investigation (how much data it holds, an "
     "inventory, an overview, the span of its collection dates): container_cc writes it up with "
     "a file. Formal NIH/RPPR/progress reports, upload statistics and 'what is X' stay here"
+)
+# 2026-10-14 ruling: writes go to container_cc (no route can write; it prepares the workbook).
+NS_WRITE_NOT_FOR = (
+    "A request to create, register, change, upload, share or delete a stored record: "
+    "container_cc prepares the upload workbook or says where the change is made. How to make "
+    "such a change, and what a record holds before it, stay here"
 )
 NS_FOLLOWUP_NOT_FOR = (
     "A follow-up the follow-up rule sends to container_cc (a file, a chart, code, "

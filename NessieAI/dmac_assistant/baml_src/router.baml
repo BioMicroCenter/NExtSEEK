@@ -151,6 +151,19 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     `container_cc`, also when it follows an answer `nextseek_query` gave
     ("harmonize those").
 
+    A request to create, register, change, upload, share or delete a stored
+    record (a sample, study, investigation, project, protocol or a sample
+    type's attributes) is `container_cc`, however short it is ("Create an
+    investigation called X", "Delete sample Y", "Update the Scientist on
+    these samples"). No write runs from this chat: Container-CC prepares the
+    upload workbook for review or says where in NExtSEEK the change is made.
+    Learning how to make such a change in the site is a how-to and stays
+    `nextseek_query`, and so does asking what a record holds before changing it.
+
+    A request that asks for the container by name ("use the container to count
+    samples per project", "run this in Container-CC", "in the sandbox") is
+    `container_cc`, whatever the task is.
+
     {% if input.followup_rule %}{{ input.followup_rule }}{% endif %}
 
     Open-ended summaries go to `container_cc`. A request to summarise a whole

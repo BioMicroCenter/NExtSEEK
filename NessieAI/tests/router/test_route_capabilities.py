@@ -150,6 +150,12 @@ _RULING_NS_SUMMARY_NOT_FOR = (
     "inventory, an overview, the span of its collection dates): container_cc writes it up with "
     "a file. Formal NIH/RPPR/progress reports, upload statistics and 'what is X' stay here"
 )
+# The 2026-10-14 writes ruling's line (routes.NS_WRITE_NOT_FOR), appended last.
+_RULING_NS_WRITE_NOT_FOR = (
+    "A request to create, register, change, upload, share or delete a stored record: container_cc "
+    "prepares the upload workbook or says where the change is made. How to make such a change, and "
+    "what a record holds before it, stay here"
+)
 _RULING_NS_NOT_FOR = (
     "A follow-up the follow-up rule sends to container_cc (a file, a chart, code, "
     "analysis, or any follow-up once the chat has used container_cc)"
@@ -361,7 +367,8 @@ def test_ns_fields_match_independent_markdown_oracle() -> None:
     )
     assert ns["not_for"] == (
         "Not intended for: "
-        + "; ".join([*expected["negative_labels"], _RULING_NS_NOT_FOR, _RULING_NS_SUMMARY_NOT_FOR]) + "."
+        + "; ".join([*expected["negative_labels"], _RULING_NS_NOT_FOR, _RULING_NS_SUMMARY_NOT_FOR,
+                                                  _RULING_NS_WRITE_NOT_FOR]) + "."
     )
     assert list(produced.tools) == expected["tools"]
     assert {"Follow-up Questions", "Search Refinements"} <= set(expected["tools"])
