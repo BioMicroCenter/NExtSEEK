@@ -19,6 +19,8 @@ STUDIES = [(100, 10), (101, 10), (200, 20), (300, 30)]                          
 SOPS_STUDIES = [(1, 100), (1, 101), (2, 100), (4, 101), (3, 200), (1, 300)]     # (sop, study); sop 1 sits in two studies
 ASSAYS = [(1000, 100), (3000, 300)]                                    # (assay, study)
 ASSAY_ASSETS = [(1000, 1, "Sop"), (3000, 5, "Sop"), (3000, 1, "Sop"), (3000, 2, "DataFile")]   # (assay, asset, type)
+PROJECTS = [(1, "Alpha Lab"), (2, "Beta Lab"), (3, "Gamma Lab")]
+INVESTIGATIONS_PROJECTS = [(10, 1), (20, 2), (30, 3)]                  # (investigation, project)
 
 
 class _Cur:
@@ -42,10 +44,12 @@ class _Db:
         self.db.execute("ATTACH DATABASE ':memory:' AS seek_production")
         for ddl in ("sops (id INTEGER, title TEXT)", "projects_sops (project_id INTEGER, sop_id INTEGER)",
                     "studies (id INTEGER, investigation_id INTEGER)", "sops_studies (sop_id INTEGER, study_id INTEGER)", "assays (id INTEGER, study_id INTEGER)",
-                    "assay_assets (assay_id INTEGER, asset_id INTEGER, asset_type TEXT)"):
+                    "assay_assets (assay_id INTEGER, asset_id INTEGER, asset_type TEXT)",
+                    "projects (id INTEGER, title TEXT)", "investigations_projects (investigation_id INTEGER, project_id INTEGER)"):
             self.db.execute(f"CREATE TABLE seek_production.{ddl}")
         for table, rows in (("sops", SOPS), ("projects_sops", PROJECTS_SOPS), ("studies", STUDIES),
-                            ("sops_studies", SOPS_STUDIES), ("assays", ASSAYS), ("assay_assets", ASSAY_ASSETS)):
+                            ("sops_studies", SOPS_STUDIES), ("assays", ASSAYS), ("assay_assets", ASSAY_ASSETS),
+                            ("projects", PROJECTS), ("investigations_projects", INVESTIGATIONS_PROJECTS)):
             self.db.executemany(f"INSERT INTO seek_production.{table} VALUES ({', '.join('?' * len(rows[0]))})", rows)
 
     def cursor(self, dictionary=False):
@@ -85,6 +89,29 @@ def test_a_shared_name_with_the_word_investigation_counts_the_studies_protocols(
 def test_protocols_linked_only_through_assay_assets_count_and_a_double_link_counts_once(tmp_path):
     r = _titles("EPSILON", "investigation", tmp_path)      # sop 5 only via assay_assets; sop 1 via both; DataFile ignored
     assert r["rows_returned"] == 2
+
+
+# --- D5: an investigation's answer names the project(s) its protocols are filed under, neutrally ---
+def test_protocols_filed_under_another_project_name_that_project_and_the_investigations_own(tmp_path):
+    r = _titles("EPSILON", "investigation", tmp_path)       # uses sops 5 and 1; its own project (Gamma Lab) holds none
+    sc = r["scope"]
+    assert sc["used_count"] == 2 and sc["filed_under"] == ["Alpha Lab", "Beta Lab"]   # sop 1 is filed twice, counts once
+    assert sc["shared_with"] == ["Gamma Lab"]
+    assert sc["sentence"] == ("2 protocols used by this investigation's assays "
+                              "(filed under projects Alpha Lab, Beta Lab, shared with Gamma Lab)")
+    assert "0" not in sc["sentence"].replace("2 protocols", "")
+
+
+def test_protocols_filed_under_the_investigations_own_project_give_both_counts(tmp_path):
+    sc = _titles("ALPHA", "investigation", tmp_path)["scope"]   # uses sops 1, 2, 4; project Alpha Lab holds 4 in all
+    assert sc["used_count"] == 3 and sc["shared_with"] == []
+    assert sc["project_totals"] == {"Alpha Lab": 4}
+    assert sc["sentence"] == ("3 protocols used by this investigation's assays "
+                              "(filed under projects Alpha Lab, Beta Lab); project Alpha Lab holds 4 in all")
+
+
+def test_the_project_scope_answer_carries_no_sentence(tmp_path):
+    assert "scope" not in _titles("ALPHA", "project", tmp_path)
 
 
 def test_a_shared_name_without_the_word_stays_the_projects_filing(tmp_path):
