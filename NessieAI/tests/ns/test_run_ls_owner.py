@@ -7,13 +7,14 @@ wizard writes. Text a user typed into a chat never counts. SSH is a recorder; no
 from __future__ import annotations
 
 import base64
+import os
 import tempfile
 import time
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
@@ -83,6 +84,14 @@ class RunLsOwnerTests(TestCase):
 
     def test_a_run_whose_name_extends_yours_is_not_yours(self):
         self._assert_refused(self._ls(self.owner, RUN + "0"), "not_your_run")
+
+    def test_a_run_list_too_big_for_the_row_still_counts(self):
+        # The size guard (nextseek_api/assistant/spill.py) moves a list this big to a file; the row keeps a link.
+        with tempfile.TemporaryDirectory() as d, override_settings(CHAT_SPILL_DIR=d):
+            older = [f"/lab/work/runs/rnaseq_260901_000000_{i}" for i in range(3000)]
+            ChatSession.objects.create(user=self.other, extra_state=_wizard_state(*older, RUN))
+            self.assertTrue(any(files for _, _, files in os.walk(d)))
+            self.assertEqual(self._ls(self.other, RUN).status_code, 200)
 
     def test_a_superuser_lists_any_run(self):
         self.assertEqual(self._ls(self.admin, RUN).status_code, 200)

@@ -130,9 +130,9 @@ class FieldTests(SpillBase):
 
     def test_the_same_value_in_three_places_is_one_file(self):
         big = {"rows": _blob("same", MB)}
-        out = spill.spill({"a": big, "b": big, "c": [big]})
+        out = spill.spill({"a": big, "b": big, "c": {"d": big}})
         self.assertEqual(len(self.files()), 1)
-        self.assertEqual(spill.hydrate(out), {"a": big, "b": big, "c": [big]})
+        self.assertEqual(spill.hydrate(out), {"a": big, "b": big, "c": {"d": big}})
 
     def test_a_small_value_comes_back_unchanged(self):
         v = {"a": "b" * 1000}
@@ -157,6 +157,63 @@ class FieldTests(SpillBase):
         self.assertEqual(spill.hydrate(out), v)
 
 
+class ValueRuleTests(SpillBase):
+    """Dicts are structure and stay in the row (a top-level list's items too); any other value over the value
+    limit goes to a file whole; a column still over SPILL_COLUMN_BYTES after that goes whole."""
+
+    def test_a_dict_of_small_keys_stays_inline_and_the_run_filter_finds_the_run(self):
+        run = "/lab/work/runs/rnaseq_1"
+        state = {"pipeline_agent": {"artifacts": {"luria_runs": [{"remote_dir": run}]}},
+                 **{f"k{i}": _blob(f"k{i}", 10 * 1024) for i in range(30)}}  # 300 KB, no key over 256 KB
+        sess = ChatSession.objects.create(user=self.user, extra_state=state)
+        self.assertEqual(self.files(), [])
+        self.assertTrue(ChatSession.objects.filter(pk=sess.pk, extra_state__icontains=run).exists())
+
+    def test_three_100_kb_bundles_stay_inline(self):
+        history = [{"id": i, "reply": _blob(f"b{i}", 100 * 1024)} for i in range(3)]
+        sess = ChatSession.objects.create(user=self.user, results_history=history)
+        self.assertEqual(self.files(), [])
+        self.assertEqual(json.loads(self.raw("assistant_chat_session", "results_history", "session_id", sess.pk)),
+                         history)
+
+    def test_a_13_mb_list_of_small_rows_in_a_bundle_is_one_link(self):
+        rows = [{"uid": f"S{i}", "v": "x" * 100} for i in range(110_000)]
+        bundle = {"id": 1, "reply": "r", "total_cost_usd": 0.1, "api_result_full": {"rows": rows}}
+        out = spill.spill([bundle])
+        self.assertEqual(len(self.files()), 1)
+        self.assertTrue(spill._is_link(out[0]["api_result_full"]["rows"]))
+        self.assertEqual(spill.hydrate(out), [bundle])
+
+    def test_a_bundle_with_a_13_mb_value_keeps_its_reply_and_cost_inline(self):
+        bundle = {"id": 1, "reply": "r", "total_cost_usd": 0.1, "model_outputs": {"graph": _blob("mo", 13 * MB)}}
+        out = spill.spill([bundle])
+        self.assertEqual((out[0]["id"], out[0]["reply"], out[0]["total_cost_usd"]), (1, "r", 0.1))
+        self.assertTrue(spill._is_link(out[0]["model_outputs"]["graph"]))
+        self.assertEqual(spill.hydrate(out), [bundle])
+
+    def test_the_column_rule_fires_for_many_small_dicts(self):
+        v = [{"id": i, "x": _blob(f"s{i}", 1024)} for i in range(5000)]  # 5 MB of 1 KB bundles
+        out = spill.spill(v)
+        self.assertTrue(spill._is_link(out))
+        self.assertEqual(spill.hydrate(out), v)
+
+    def test_lookups_into_a_task_result_still_match(self):
+        result = {"bundle_id": 7, "cost_estimated": True, "reply": "r",
+                  **{f"k{i}": _blob(f"t{i}", 10 * 1024) for i in range(30)}}
+        sess = ChatSession.objects.create(user=self.user)
+        QueryTask.objects.create(session=sess, user=self.user, query="q", result=result)
+        self.assertTrue(QueryTask.objects.filter(session=sess, result__bundle_id=7).exists())
+        self.assertTrue(QueryTask.objects.filter(session=sess, result__cost_estimated=True).exists())
+
+    def test_a_history_of_small_bundles_writes_no_file_turn_after_turn(self):
+        sess = ChatSession.objects.create(user=self.user)
+        for i in range(3):
+            ad = DictSessionAdapter(ChatSession.objects.get(pk=sess.pk))
+            ad["results_history"] = ad["results_history"] + [{"id": i, "reply": _blob(f"h{i}", 100 * 1024)}]
+            ad.save()
+        self.assertEqual(self.files(), [])
+
+
 def _age(path, seconds):
     t = time.time() - seconds
     os.utime(path, (t, t))
@@ -166,9 +223,9 @@ class SweepTests(SpillBase):
     def test_sweep_removes_the_unlinked_old_file_and_keeps_the_rest(self):
         linked = spill.spill({"k": _blob("L", MB)})["k"]["$spill"]
         inner = spill.spill({"k": _blob("I", MB)})["k"]["$spill"]
-        # a file that holds a link to `inner`, itself linked from a row
-        outer = spill.spill({"deep": {"link": {"$spill": inner, "bytes": 1}, "pad": _blob("P", MB)}})
-        outer_path = outer["deep"]["$spill"] if "$spill" in outer["deep"] else None
+        # a file that holds a link to `inner`, itself linked from a row (a nested list goes to a file whole)
+        outer = spill.spill({"deep": [{"$spill": inner, "bytes": 1}, _blob("P", MB)]})
+        outer_path = outer["deep"]["$spill"]
         orphan = spill.spill({"k": _blob("O", MB)})["k"]["$spill"]
         fresh = spill.spill({"k": _blob("F", MB)})["k"]["$spill"]
         sess = ChatSession.objects.create(user=self.user)
@@ -176,8 +233,7 @@ class SweepTests(SpillBase):
             ChatSession.objects.filter(pk=sess.pk).update(
                 results_history=[{"a": {"$spill": linked, "bytes": 1}}, outer])
         for p in (linked, inner, orphan, outer_path):
-            if p:
-                _age(os.path.join(self.dir, p), 3 * 86400)
+            _age(os.path.join(self.dir, p), 3 * 86400)
         counts = spill.sweep()
         left = {os.path.relpath(f, self.dir) for f in self.files()}
         self.assertIn(linked, left)
