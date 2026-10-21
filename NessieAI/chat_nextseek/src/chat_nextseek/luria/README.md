@@ -183,6 +183,8 @@ be taken.
   output with the cleanup's reader.
 - Every NExtSEEK instance that shares a `LURIA_WORKING_PATH` must run this version before
   anyone runs `--delete`: an instance on older code writes no labels and makes no claims.
+- The Luria calls the submitter makes after `sbatch` (labels, `bin/` and the script) time out
+  after 60 seconds (`_LABEL_SSH_TIMEOUT_S`); the calls before `sbatch` are unchanged.
 - Every label write and download claim is best-effort: a failed claim prints a warning in the
   job log and the run carries on. A missing or unreadable label must make the cleanup keep,
   never delete. `--delete` keeps the work folder of any run in progress and waits with the
