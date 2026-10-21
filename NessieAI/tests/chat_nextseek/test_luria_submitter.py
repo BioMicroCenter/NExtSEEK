@@ -460,6 +460,17 @@ def test_submit_records_the_accessions_it_downloads(tmp_path, monkeypatch):
 
 def test_a_status_label_failure_never_fails_the_run(tmp_path, monkeypatch):
     launch, _ = _fixture(tmp_path)
-    _record_transport(monkeypatch, fail_on="/nessie_status/")
+    order, _ = _record_transport(monkeypatch, fail_on="/nessie_status/")
     runs = sub.submit_luria(str(launch), luria_env=LE)
     assert len(runs) == 1 and runs[0]["job_id"] == "4821"
+    # the label writes failing must not stop the cleanup script being staged
+    assert "scp /net/x/bin/nessie_cleanup.py" in order
+
+
+def test_a_failed_readme_does_not_stop_the_script_staging(tmp_path, monkeypatch):
+    launch, _ = _fixture(tmp_path)
+    order, staged = _record_transport(monkeypatch, fail_on="README.txt")
+    runs = sub.submit_luria(str(launch), luria_env=LE)
+    assert len(runs) == 1
+    assert "slurm_job_id: 4821\n" in staged["launched.txt"]
+    assert "scp /net/x/bin/nessie_cleanup.py" in order

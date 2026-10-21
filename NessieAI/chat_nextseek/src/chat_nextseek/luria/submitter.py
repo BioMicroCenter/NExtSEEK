@@ -134,20 +134,19 @@ def _sheet_needs_fetch(sheet_path: str) -> bool:
 
 def _write_launch_labels(luria_env, key_path, *, working, run_dir, work_dir, pipeline,
                          revision, job_id, accessions) -> None:
-    """After sbatch: the run's nessie_status/ labels, and the current cleanup script in
+    """After sbatch: the run's nessie_status/ labels, then the current cleanup script in
     <working>/bin/. Best-effort: a submitted run never fails here. Without launched.txt the
-    run stays unlabelled, and the cleanup never deletes an unlabelled run's work folder."""
+    run stays unlabelled, and the cleanup never deletes an unlabelled run's work folder. The
+    label writes and the script staging are independent: a failure in one does not skip the
+    other."""
     tmp_files: list[str] = []
     try:
         launched = launched_label(run_dir=run_dir, work_dir=work_dir, pipeline=pipeline,
                                   revision=revision, slurm_job_id=job_id, accessions=accessions)
-        for name, text in (("README.txt", STATUS_README), ("launched.txt", launched)):
+        for name, text in (("launched.txt", launched), ("README.txt", STATUS_README)):
             tmp = _write_temp(text, prefix="status_", suffix=".txt")
             tmp_files.append(tmp)
             scp_file(luria_env, tmp, f"{run_dir}/{STATUS_DIR}/{name}", key_path=key_path)
-        ssh_run(luria_env, f"mkdir -p {working}/bin", key_path=key_path)
-        scp_file(luria_env, str(_CLEANUP_SCRIPT), f"{working}/bin/nessie_cleanup.py",
-                 key_path=key_path)
     except Exception:  # bookkeeping must never fail a submitted run
         log.exception("status labels failed for %s", run_dir)
     finally:
@@ -156,6 +155,12 @@ def _write_launch_labels(luria_env, key_path, *, working, run_dir, work_dir, pip
                 os.remove(tmp)
             except OSError:
                 pass
+    try:
+        ssh_run(luria_env, f"mkdir -p {working}/bin", key_path=key_path)
+        scp_file(luria_env, str(_CLEANUP_SCRIPT), f"{working}/bin/nessie_cleanup.py",
+                 key_path=key_path)
+    except Exception:  # the script is refreshed on the next submit, so log and carry on
+        log.exception("cleanup script staging failed for %s", working)
 
 
 def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key_path,

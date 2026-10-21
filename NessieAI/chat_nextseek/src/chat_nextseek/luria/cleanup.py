@@ -182,6 +182,8 @@ def read_run(run_dir, queued):
         run.work_dir = launched.get("work_dir") or None
         if not run.work_dir:
             raise LabelError("{} names no work_dir".format(launched_path))
+        if not launched.get("slurm_job_id"):
+            raise LabelError("{} names no slurm_job_id".format(launched_path))
         saved = read_label(saved_path)
         finished = read_label(finished_path)
         if saved is not None:

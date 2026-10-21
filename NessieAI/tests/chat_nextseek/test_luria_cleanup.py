@@ -43,8 +43,9 @@ def add_run(root, name, *, job="100", finished=None, finished_days=None, saved_d
     status.mkdir(parents=True)
     work = cl._RUN_SUFFIX_RE.sub("", name)
     if labelled:
+        job_line = "" if job is None else f"slurm_job_id: {job}\n"
         (status / "launched.txt").write_text(
-            f"run_dir: {run_dir}\nwork_dir: {root / 'work' / work}\nslurm_job_id: {job}\n"
+            f"run_dir: {run_dir}\nwork_dir: {root / 'work' / work}\n{job_line}"
             f"launched_at: {ago(40)}\n")
     if finished:
         (status / "finished.txt").write_text(
@@ -184,6 +185,16 @@ def test_an_unreadable_label_keeps_the_work_and_is_reported(root):
     got, problems = decide(root)
     assert got["work/foo"][0] == "keep"
     assert any("finished.txt" in p for p in problems)
+
+
+@pytest.mark.parametrize("job", [None, ""])
+def test_a_label_naming_no_job_id_keeps_the_work_and_is_reported(root, job):
+    # Without a job id the run would look ended and its work folder would age out.
+    add_run(root, R, job=job, out_days=60)
+    add_work(root, "foo")
+    got, problems = decide(root)
+    assert got["work/foo"][0] == "keep"
+    assert any("names no slurm_job_id" in p for p in problems)
 
 
 # --- downloads --------------------------------------------------------------------------
