@@ -2,12 +2,18 @@
 import json
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import connection
+from django.db import connection, transaction
 
 from nextseek_api.assistant import spill
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 
 _MODELS = {m._meta.db_table: m for m in (ChatSession, QueryTask)}
+
+
+def _locked(model, col, key):
+    """The column read through the field under the row's lock. Call inside transaction.atomic(): a live turn's save
+    waits for the commit, so it can neither land between our read and our write nor be overwritten by them."""
+    return getattr(model.objects.select_for_update().only(col).get(pk=key), col)
 
 
 def _rows(want_links: bool):
@@ -42,23 +48,24 @@ class Command(BaseCommand):
             for model, col, key, size in list(_rows(False)):
                 n, total = n + 1, total + size
                 if not o["dry_run"]:
-                    value = getattr(model.objects.only(col).get(pk=key), col)
-                    # update(), not save(): updated_at must not move
-                    model.objects.filter(pk=key).update(**{col: value})
+                    with transaction.atomic():
+                        # update(), not save(): updated_at must not move
+                        model.objects.filter(pk=key).update(**{col: _locked(model, col, key)})
             self.stdout.write(f"rewrite: {n} column value(s), {total} stored bytes{' (dry run)' if o['dry_run'] else ''}")
         if o["inline"]:
             n = refused = 0
             for model, col, key, _ in list(_rows(True)):
-                value = getattr(model.objects.only(col).get(pk=key), col)
-                size = len(json.dumps(value))
-                if size >= spill.INLINE_MAX_BYTES:
-                    refused += 1
-                    self.stderr.write(f"refused: {model._meta.db_table}.{col} {key} would be {size} bytes inline")
-                    continue
-                n += 1
-                if not o["dry_run"]:
-                    with spill.spilling_off():
-                        model.objects.filter(pk=key).update(**{col: value})
+                with transaction.atomic():
+                    value = _locked(model, col, key)
+                    size = len(json.dumps(value))
+                    if size >= spill.INLINE_MAX_BYTES:
+                        refused += 1
+                        self.stderr.write(f"refused: {model._meta.db_table}.{col} {key} would be {size} bytes inline")
+                        continue
+                    n += 1
+                    if not o["dry_run"]:
+                        with spill.spilling_off():
+                            model.objects.filter(pk=key).update(**{col: value})
             self.stdout.write(f"inline: {n} column value(s), {refused} refused{' (dry run)' if o['dry_run'] else ''}")
         if o["sweep"]:
             self.stdout.write(f"sweep: {spill.sweep(dry_run=o['dry_run'])}")
