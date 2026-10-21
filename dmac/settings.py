@@ -115,6 +115,9 @@ STATICFILES_DIRS = [
 # Example: "/home/media/media.lawrence.com/media/"
 MEDIA_ROOT = "/media"
 
+# Chat values too big for a row go to files here, and the row keeps a link (nextseek_api/assistant/spill.py).
+CHAT_SPILL_DIR = os.path.join(MEDIA_ROOT, "chat_spill")
+
 # URL that handles the media served from MEDIA_ROOT. Make sure to use a
 # trailing slash.
 # Examples: "http://media.lawrence.com/media/", "http://example.com/media/"

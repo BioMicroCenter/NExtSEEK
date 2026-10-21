@@ -148,6 +148,12 @@ def purge_durable_state(now=None, backend=None, broker_url=None, uploads_dir=Non
     return out
 
 
+@shared_task(name="batch_upload.sweep_chat_spill")
+def sweep_chat_spill():
+    from .assistant.spill import sweep
+    logger.info("chat spill sweep: %s", sweep())
+
+
 @shared_task(name="batch_upload.purge_durable_state")
 def purge_durable_state_task():
     purge_durable_state()

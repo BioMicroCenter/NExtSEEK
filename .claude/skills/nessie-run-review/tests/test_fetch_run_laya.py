@@ -35,3 +35,16 @@ def test_the_turn_query_reads_the_parser_decision_off_the_debug_object():
     remote = _load().REMOTE
     line = next(l for l in remote.splitlines() if "'parser_decision'" in l)
     assert "parser_decision" in line and "$[0].parser_decision" in line
+
+
+def test_a_debug_object_stored_as_a_link_is_followed_and_its_fields_filled():
+    mod = _load()
+    assert "@@@SPILL@@@" in mod.REMOTE and "/media/chat_spill/$rel" in mod.REMOTE
+    mod.REMOTE.format(dbc="d", app="a", db="x", manifest="m", where="1=1", D=mod.DEBUG)  # the template still formats
+    turns = [{"id": 7, "mode": None, "aplan": None}, {"id": 8, "mode": "keep"}]
+    lines = ['{"id": 7, "debug": {"parser_plan": {"mode": "api"}, "api_plan": {"p": 1}, "graph_result": {"data": [1], "n": 3}}}',
+             "not json", '{"id": 99, "debug": {}}']
+    out = mod.follow_debug_links(turns, lines)
+    assert out[0]["mode"] == "api" and out[0]["aplan"] == {"p": 1}
+    assert out[0]["gmeta"] == {"n": 3} and out[0]["rplan"] is None
+    assert out[1] == {"id": 8, "mode": "keep"}
