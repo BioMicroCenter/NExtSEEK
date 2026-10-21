@@ -356,6 +356,57 @@ def test_render_fetch_block_cache_check_uses_the_fill_matcher():
     assert '"${acc}"' not in out
 
 
+def _fetchngs_config_in(run_sh: str) -> str:
+    """The text run.sh's quoted heredoc writes to fetchngs.config."""
+    start = run_sh.index("cat > fetchngs.config <<'FETCHNGS_CONFIG'\n")
+    body = run_sh[start:].split("\n", 1)[1]
+    return body[:body.index("\nFETCHNGS_CONFIG\n") + 1]
+
+
+def test_fetchngs_config_gives_downloads_a_multi_gb_time_limit_and_retries():
+    # Six 16.5-21.1 GB runs fetched nothing in fetchngs 1.12.0's 4 h process_low limit
+    # (SRA_FASTQ_FTP killed at exactly 4 h; hlatyping launch, SLURM 11426306, 2026-10-20).
+    from chat_nextseek.luria import run_script as rs
+    cfg = rs.render_fetchngs_config()
+    assert ("    withName: 'SRA_FASTQ_FTP|SRATOOLS_PREFETCH|SRATOOLS_FASTERQDUMP|ASPERA_CLI' {\n"
+            "        time = { 24.h * task.attempt }\n"
+            "        errorStrategy = 'retry'\n"
+            "        maxRetries = 2\n"
+            "    }\n") in cfg
+    # every attempt of one download (24 + 48 + 72 h) fits the 14-day limit the job ran under
+    attempts = range(1, rs._FETCHNGS_DOWNLOAD_RETRIES + 2)
+    assert sum(rs._FETCHNGS_DOWNLOAD_HOURS * a for a in attempts) < 14 * 24
+    assert cfg.count("{") == cfg.count("}")
+
+
+def test_fetchngs_config_keeps_the_etc_bind_and_holds_to_the_allocation():
+    from chat_nextseek.luria.run_script import render_fetchngs_config
+    cfg = render_fetchngs_config({"cpus": 8, "mem": "64G"})
+    assert cfg.startswith("singularity.runOptions = '-B /etc'\n")
+    assert cfg.endswith(render_executor_config({"cpus": 8, "mem": "64G"}))
+
+
+def test_run_sh_writes_the_fetchngs_config_verbatim_with_the_jobs_allocation():
+    from chat_nextseek.luria.run_script import render_fetchngs_config
+    out = _render(needs_fetch=True, fastq_cache="/w/fastq_cache", fetchngs_revision="1.12.0",
+                  resources={"cpus": 8, "mem": "64G"})
+    # a quoted heredoc: bash expands nothing in the config, and the terminator is at column 0
+    assert _fetchngs_config_in(out) == render_fetchngs_config({"cpus": 8, "mem": "64G"})
+    assert out.index("FETCHNGS_CONFIG\n    nextflow run nf-core/fetchngs") > 0
+    assert "printf" not in out
+
+
+def test_run_sh_with_the_fetch_block_is_valid_bash(tmp_path):
+    import shutil
+    import subprocess
+    if not shutil.which("bash"):
+        pytest.skip("no bash")
+    script = tmp_path / "run.sh"
+    script.write_text(_render(needs_fetch=True, fastq_cache="/w/fastq_cache",
+                              fetchngs_revision="1.12.0"))
+    assert subprocess.run(["bash", "-n", str(script)], capture_output=True).returncode == 0
+
+
 def test_render_fetch_block_rejects_bad_cache():
     with pytest.raises(ValueError):
         _render(needs_fetch=True, fastq_cache="/w; rm -rf /", fetchngs_revision="1.12.0")
@@ -536,7 +587,8 @@ def _golden_kwargs():
 
 @pytest.mark.parametrize("case", sorted(_golden_kwargs()))
 def test_run_script_differs_from_before_only_by_the_mem_line(case, monkeypatch):
-    # Goldens are the rendered run.sh from before the executor limits were added.
+    # Goldens are the rendered run.sh from before the executor limits were added; the
+    # fetchngs one has since gained the fetchngs.config heredoc (render_fetchngs_config).
     monkeypatch.delenv("LURIA_MAIL_USER", raising=False)
     monkeypatch.delenv("LURIA_CONDA_ENV", raising=False)
     s = render_run_script(**_golden_kwargs()[case])

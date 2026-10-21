@@ -105,11 +105,11 @@ if [ -s ids.csv ]; then
   # "cached" uses fill's own matcher (whole run or experiment id in fetchngs' <exp>_<run>
   # names), so the download is skipped only when fill will find every accession.
   if ! python3 fetchngs_helpers.py cached "$CACHE"; then
-    # fetchngs' minimal wget container has no /etc/resolv.conf and Luria's singularity cannot
-    # create that file mountpoint, so containerized wget can't resolve ENA. Nextflow ignores
-    # $SINGULARITY_BIND, so pass a host /etc DIRECTORY bind via singularity.runOptions in a
-    # config (verified end-to-end on Luria: fetchngs then resolves ftp.sra.ebi.ac.uk).
-    printf "singularity.runOptions = '-B /etc'\\n" > fetchngs.config
+    # fetchngs.config: the /etc bind containerized wget needs to resolve ENA, a time limit
+    # and retries fit for multi-GB downloads, and the job's SLURM allocation
+    # (run_script.render_fetchngs_config says why for each).
+    cat > fetchngs.config <<'FETCHNGS_CONFIG'
+{FETCHNGS_CONFIG}FETCHNGS_CONFIG
     nextflow run nf-core/fetchngs -r {FETCHNGS_REVISION} -profile singularity -c fetchngs.config \\
       --input ids.csv --outdir "$CACHE" -w "$CACHE/work" -resume \\
       || {{ echo "[FETCHNGS] download failed -- see the fetchngs .nextflow.log" >&2; exit 1; }}
@@ -339,6 +339,46 @@ def render_executor_config(resources: dict | None) -> str:
             f"process.resourceLimits = [cpus: {cpus}, memory: {mem}]\n")
 
 
+# nf-core/fetchngs 1.12.0's download processes, read from its modules at that tag: SRA_FASTQ_FTP
+# (default --download_method ftp) and SRATOOLS_PREFETCH are process_low, 4 h x attempt;
+# SRATOOLS_FASTERQDUMP and ASPERA_CLI are process_medium, 8 h x attempt. Only SRA_FASTQ_FTP
+# retries any failure (error_retry: 2 retries); the others retry only exits 130-145 and 104.
+# Six 16.5-21.1 GB human RNA-seq runs (SRR21023814-19, hlatyping, SLURM 11426306,
+# 2026-10-20) fetched none in that time: an SRA_FASTQ_FTP task was killed at exactly 4 h and
+# the job failed with 0 of 6 samples. wget runs with -T 60 -t 5, so a stalled transfer still
+# fails within minutes; the longer limit only lets a slow, live one finish. Three attempts of
+# 24, 48 and 72 h stay inside the 14-day limit the job ran under. A retry starts the file over.
+_FETCHNGS_DOWNLOAD_PROCESSES = ("SRA_FASTQ_FTP", "SRATOOLS_PREFETCH", "SRATOOLS_FASTERQDUMP",
+                                "ASPERA_CLI")
+_FETCHNGS_DOWNLOAD_HOURS = 24
+_FETCHNGS_DOWNLOAD_RETRIES = 2
+
+
+def render_fetchngs_config(resources: dict | None = None) -> str:
+    """fetchngs.config, which run.sh writes before the fetchngs pre-stage.
+
+    - singularity.runOptions: fetchngs' minimal wget container has no /etc/resolv.conf and
+      Luria's singularity cannot create that file mountpoint, so containerized wget can't
+      resolve ENA. Nextflow ignores $SINGULARITY_BIND, so the host /etc DIRECTORY is bound
+      here (VERIFIED on Luria: fetchngs then resolves ftp.sra.ebi.ac.uk).
+    - the download processes get _FETCHNGS_DOWNLOAD_HOURS x attempt and retry any failure
+      (see _FETCHNGS_DOWNLOAD_PROCESSES for why).
+    - the executor block holds fetchngs to the SLURM allocation, as luria.config does for the
+      pipeline (render_executor_config): a retried FASTERQDUMP asks attempt x 6 CPUs."""
+    names = "|".join(_FETCHNGS_DOWNLOAD_PROCESSES)
+    return ("singularity.runOptions = '-B /etc'\n"
+            "\n// Multi-GB SRA downloads outlast fetchngs' 4 h (process_low) and 8 h\n"
+            "// (process_medium) task limits.\n"
+            "process {\n"
+            f"    withName: '{names}' {{\n"
+            f"        time = {{ {_FETCHNGS_DOWNLOAD_HOURS}.h * task.attempt }}\n"
+            "        errorStrategy = 'retry'\n"
+            f"        maxRetries = {_FETCHNGS_DOWNLOAD_RETRIES}\n"
+            "    }\n"
+            "}\n"
+            + render_executor_config(resources))
+
+
 def sanitize_job_name(name: str, fallback: str = "nfcore_run") -> str:
     """Reduce an arbitrary name to a SLURM-safe token."""
     cleaned = _JOB_NAME_STRIP.sub("_", (name or "").strip())[:64].strip("_")
@@ -423,7 +463,8 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
             raise ValueError(f"invalid fastq_cache {fastq_cache!r}")
         fq_rev = validate_revision(fetchngs_revision)
         fetchngs_block = _FETCHNGS_BLOCK_TMPL.format(
-            FASTQ_CACHE=str(fastq_cache).rstrip("/"), FETCHNGS_REVISION=fq_rev)
+            FASTQ_CACHE=str(fastq_cache).rstrip("/"), FETCHNGS_REVISION=fq_rev,
+            FETCHNGS_CONFIG=render_fetchngs_config(res))
     mapping = {
         "JOB_NAME": sanitize_job_name(job_name),
         "CPUS": res["cpus"],

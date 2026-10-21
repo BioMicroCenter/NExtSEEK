@@ -39,11 +39,30 @@ if [ -s ids.csv ]; then
   # "cached" uses fill's own matcher (whole run or experiment id in fetchngs' <exp>_<run>
   # names), so the download is skipped only when fill will find every accession.
   if ! python3 fetchngs_helpers.py cached "$CACHE"; then
-    # fetchngs' minimal wget container has no /etc/resolv.conf and Luria's singularity cannot
-    # create that file mountpoint, so containerized wget can't resolve ENA. Nextflow ignores
-    # $SINGULARITY_BIND, so pass a host /etc DIRECTORY bind via singularity.runOptions in a
-    # config (verified end-to-end on Luria: fetchngs then resolves ftp.sra.ebi.ac.uk).
-    printf "singularity.runOptions = '-B /etc'\n" > fetchngs.config
+    # fetchngs.config: the /etc bind containerized wget needs to resolve ENA, a time limit
+    # and retries fit for multi-GB downloads, and the job's SLURM allocation
+    # (run_script.render_fetchngs_config says why for each).
+    cat > fetchngs.config <<'FETCHNGS_CONFIG'
+singularity.runOptions = '-B /etc'
+
+// Multi-GB SRA downloads outlast fetchngs' 4 h (process_low) and 8 h
+// (process_medium) task limits.
+process {
+    withName: 'SRA_FASTQ_FTP|SRATOOLS_PREFETCH|SRATOOLS_FASTERQDUMP|ASPERA_CLI' {
+        time = { 24.h * task.attempt }
+        errorStrategy = 'retry'
+        maxRetries = 2
+    }
+}
+
+// The SLURM allocation run.sh requests (#SBATCH -n / --mem), less Nextflow's own
+// memory. Without it the local executor takes the whole node.
+executor {
+    cpus = 16
+    memory = '120 GB'
+}
+process.resourceLimits = [cpus: 16, memory: '120 GB']
+FETCHNGS_CONFIG
     nextflow run nf-core/fetchngs -r 1.12.0 -profile singularity -c fetchngs.config \
       --input ids.csv --outdir "$CACHE" -w "$CACHE/work" -resume \
       || { echo "[FETCHNGS] download failed -- see the fetchngs .nextflow.log" >&2; exit 1; }
