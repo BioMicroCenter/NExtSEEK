@@ -20,7 +20,7 @@ carries ``rows``. Routing it through here would reorder its keys.
 """
 
 import simplejson
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseBadRequest
 
 
 def json_envelope(msg, status, link='', message=None):
@@ -46,3 +46,11 @@ def plain_text(message):
     if message is not None and '<br/>' in message:
         return message.replace('<br/>', '\n')
     return message
+
+
+def missing_param(params, *names):
+    """A 400 naming the first of ``names`` absent from ``params`` (a request's GET or POST), else None."""
+    for name in names:
+        if name not in params:
+            return HttpResponseBadRequest("Missing required parameter: %s" % name, content_type="text/plain")
+    return None

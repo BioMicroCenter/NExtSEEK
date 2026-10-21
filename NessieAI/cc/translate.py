@@ -62,6 +62,20 @@ _MODEL_UNAVAILABLE_TEXT = re.compile(
     r"|^\s*Request timed out\b"
 )
 
+# Claude Code's text when the model declines under its provider's usage policy ("API Error:
+# <model> can't help with this. Start a new session to continue. Learn more:
+# https://www.anthropic.com/legal/aup Details: `[bio]` ..."), seen on prod 2026-10-14.
+MODEL_REFUSED_REASON = "model_refused"
+MODEL_REFUSED = (
+    "The AI model declined to answer this question under its provider's usage rules, so I "
+    "could not finish. This can happen with questions that name a pathogen. Please "
+    "rephrase, for example by naming the study or sample type instead."
+)
+
+
+def _model_refused(text: str) -> bool:
+    return "can't help with this" in text and "anthropic.com/legal/aup" in text
+
 
 # The Container-CC ops that answer on the server by running NS agents (the entity,
 # parser, graph and API agents, the report writer, or a whole NS turn). Their model
@@ -421,6 +435,16 @@ class CCStreamTranslator:
                     "query_error",
                     {"error": CC_MISCONFIGURED, "reason": CC_MISCONFIGURED_REASON, "detail": detail,
                      "agent": "container_cc", "cc_session_id": self.session_id,
+                     "model_fallback": self.model_fallback},
+                )]
+            if _model_refused(detail):
+                # A usage-policy decline: plain text for the user, raw text in ``detail``.
+                # The refused session is not resumed: no session id goes out, and
+                # ``clear_cc_session`` makes the turn blank the stored one.
+                return [(
+                    "query_error",
+                    {"error": MODEL_REFUSED, "reason": MODEL_REFUSED_REASON, "detail": detail,
+                     "agent": "container_cc", "cc_session_id": None, "clear_cc_session": True,
                      "model_fallback": self.model_fallback},
                 )]
             if _model_unavailable(payload, detail):

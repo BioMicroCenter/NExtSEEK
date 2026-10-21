@@ -37,12 +37,12 @@ Useful flags:
 against the instance's own port, and derives the profile from `ci_profile` in
 `startup/.instance.json`, so nobody has to remember which box they are on.
 
-Eleven files need no stack, no credentials and no browser, because they test the
+Twelve files need no stack, no credentials and no browser, because they test the
 registry, the guard, the fixtures' own logic and the Nessie, write and deploy
 checks' pure helpers rather than a deployment: `test_registry_unit.py`,
 `test_registry_contents.py`, `test_guard_unit.py`, `test_profile_unit.py`,
 `test_assertions_unit.py`, `test_readiness_unit.py`, `test_terminal_unit.py`,
-`test_nessie_unit.py`, `test_attribute_jobs_unit.py`, `test_deploy_live_unit.py`,
+`test_nessie_unit.py`, `test_attribute_jobs_unit.py`, `test_deploy_live_unit.py`, `test_member_scope_unit.py`,
 `test_graph_sync_health_unit.py`.
 
 ```bash
@@ -52,7 +52,7 @@ CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests \
          ci/smoke/test_assertions_unit.py ci/smoke/test_readiness_unit.py \
          ci/smoke/test_terminal_unit.py ci/smoke/test_nessie_unit.py \
          ci/smoke/test_attribute_jobs_unit.py ci/smoke/test_deploy_live_unit.py \
-         ci/smoke/test_graph_sync_health_unit.py -q
+         ci/smoke/test_member_scope_unit.py ci/smoke/test_graph_sync_health_unit.py -q
 ```
 
 ## Tiers

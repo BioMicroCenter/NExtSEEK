@@ -12,7 +12,7 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import psutil
 from django.conf import settings
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Connection
 
 from nextseek_api.graph_sync import hooks
@@ -83,6 +83,43 @@ def enqueue_samples_outbox(conn: Connection, key: str, sample_ids, *, now=None) 
     except Exception:  # noqa: BLE001 - the batch's own write stands; the caller enqueues after the commit
         log.warning("INSERT: could not write the graph_sync outbox row %s on this connection; "
                     "enqueueing it after the commit instead", key, exc_info=True)
+        return False
+
+
+def enqueue_auth_lookup(conn: Connection, sample_ids, *, now=None) -> bool:
+    """Queue samples in SEEK's ``auth_lookup_update_queues`` so its AuthLookupUpdateJob refreshes their
+    ``sample_auth_lookup`` rows (SEEK 1.15.1 columns: item_id, item_type, priority, created_at, updated_at).
+
+    As SEEK's own ``ResourceQueue.enqueue`` does: priority 2 (its default; lowest runs first), and a sample already
+    queued keeps its one row. Unlike it, no AuthLookupUpdateJob is queued: its ``delayed_jobs`` handler carries a
+    fresh job id and time, so it is not ours to write. The rows wait until SEEK queues such a job for its own
+    reasons (a permission, policy or user change); a running job then re-queues itself while the table holds rows.
+    While Sample rows wait, SEEK's 8-hourly AuthLookupMaintenanceJob skips samples altogether.
+
+    Written on the batch's own connection, inside its transaction: one query for the rows already queued, one bulk
+    insert. It goes to its own savepoint: a refusal (no table, no grant) must not take the samples with it, so it
+    is logged and reported False. True when written, and when there was nothing to write.
+    """
+    ids = sorted({int(i) for i in sample_ids})
+    if not ids:
+        return True
+    stamp = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    queued = text(
+        "SELECT item_id FROM auth_lookup_update_queues WHERE item_type = 'Sample' AND item_id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True))
+    statement = text(
+        "INSERT INTO auth_lookup_update_queues (item_id, item_type, priority, created_at, updated_at) "
+        "VALUES (:item_id, 'Sample', 2, :stamp, :stamp)"
+    )
+    try:
+        with conn.begin_nested():
+            have = {int(r[0]) for r in conn.execute(queued, {"ids": ids})}
+            rows = [{"item_id": i, "stamp": stamp} for i in ids if i not in have]
+            if rows:
+                conn.execute(statement, rows)
+        return True
+    except Exception:  # noqa: BLE001 - the batch's own write stands; SEEK's lookup catches up on its next sweep
+        log.warning("INSERT: could not queue %d samples in auth_lookup_update_queues", len(ids), exc_info=True)
         return False
 
 
@@ -415,6 +452,9 @@ def process_batches(
                     if outbox_key:
                         outbox_written = enqueue_samples_outbox(conn, outbox_key, sample_ids)
 
+                    # Step 8: SEEK's auth lookup learns the new samples (same transaction).
+                    enqueue_auth_lookup(conn, sample_ids)
+
                 # The row is the record, so a batch whose insert was refused writes it
                 # here instead, after the commit, through the hook that never raises.
                 if outbox_key and not outbox_written:
@@ -562,6 +602,8 @@ def process_batches(
                 })
                 if update_key and updated_ids:
                     update_written = enqueue_samples_outbox(conn, update_key, updated_ids)
+                if updated_ids:
+                    enqueue_auth_lookup(conn, updated_ids)
 
             if update_key and updated_ids and not update_written:
                 hooks.enqueue(OUTBOX_KIND_SAMPLES, update_key, updated_ids)

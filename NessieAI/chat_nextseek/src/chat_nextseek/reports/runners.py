@@ -486,6 +486,31 @@ def run_project_sample_report(
         return {"ok": False, "error": repr(e)}
 
 
+def _investigation_filing(cursor, investigation_scope: dict, sop_ids: list, visible) -> None:
+    """Add to ``investigation_scope`` the protocol count, the visible project(s) those protocols are filed under
+    plus the investigation's own project(s), and one plain sentence for the reply. Reads only."""
+    n = len(sop_ids)
+    filed: dict[int, str] = {}
+    if sop_ids:
+        marks = ", ".join(["%s"] * n)
+        cond, ids = ("1 = 1", []) if visible is None else _project_condition("p.id", visible)
+        cursor.execute(f"SELECT p.id, p.title FROM seek_production.projects p WHERE {cond} AND p.id IN ("
+                       f"SELECT project_id FROM seek_production.projects_sops WHERE sop_id IN ({marks}))",
+                       [*ids, *sop_ids])
+        filed = {r["id"]: r["title"] for r in cursor.fetchall() or []}
+    cursor.execute("SELECT p.id, p.title FROM seek_production.investigations_projects ip "
+                   "JOIN seek_production.projects p ON p.id = ip.project_id WHERE ip.investigation_id = %s",
+                   [investigation_scope["investigation_id"]])
+    own = {r["id"]: r["title"] for r in cursor.fetchall() or []}
+    projects = sorted(set(filed.values()) | set(own.values()))
+    sentence = f"{n} protocol{'' if n == 1 else 's'}"
+    if len(projects) > 1:
+        sentence += f", shared between projects {', '.join(projects[:-1])} and {projects[-1]}"
+    elif projects:
+        sentence += f", from project {projects[0]}"
+    investigation_scope.update(used_count=n, projects=projects, sentence=sentence + ".")
+
+
 def run_project_protocols_report(
     config,
     project: int | str | None = None,
@@ -514,8 +539,9 @@ def run_project_protocols_report(
       - years_table: counts by YY
       - months_table: counts by YYMM
     """
-    # An investigation's protocols are the SOPs attached to its studies (sops_studies -> studies.investigation_id),
-    # not the SOPs filed under a project of the same name.
+    # An investigation's protocols are the SOPs attached to its studies, through sops_studies or through its assays'
+    # assay_assets (asset_type 'Sop'; SEEK fills the latter, sops_studies is empty on dev and prod), not the SOPs
+    # filed under a project of the same name.
     kind, scope = _resolve_report_scope(config, project, scope_kind)
     investigation_scope = None
     if kind == "investigation":
@@ -572,7 +598,10 @@ def run_project_protocols_report(
     where_clause = " AND ".join(conditions) if conditions else "1=1"
     # An investigation joins through its studies; DISTINCT keeps a SOP in two of its studies or projects to one row.
     select = "SELECT DISTINCT ps.sop_id, sop.title" if investigation_scope else "SELECT ps.project_id, ps.sop_id, sop.title"
-    study_join = ("JOIN seek_production.sops_studies ss ON ss.sop_id = sop.id "
+    study_join = ("JOIN (SELECT sop_id, study_id FROM seek_production.sops_studies "
+                  "UNION SELECT aa.asset_id, a.study_id FROM seek_production.assay_assets aa "
+                  "JOIN seek_production.assays a ON a.id = aa.assay_id WHERE aa.asset_type = 'Sop') ss "
+                  "ON ss.sop_id = sop.id "
                   "JOIN seek_production.studies st ON st.id = ss.study_id") if investigation_scope else ""
     query = f"""
     {select}
@@ -596,6 +625,8 @@ def run_project_protocols_report(
         cursor.execute(query, params)
         rows = cursor.fetchall() or []
         titles = [r["title"] for r in rows if r.get("title")]
+        if investigation_scope:
+            _investigation_filing(cursor, investigation_scope, sorted({r["sop_id"] for r in rows}), visible)
 
         # Parse: P.<LAB>-<YYMMDD>-<rest>
         title_re = re.compile(r"^P\.(?P<lab>[^-]+)-(?P<yymmdd>\d{6})-(?P<rest>.*)$")

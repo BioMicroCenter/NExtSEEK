@@ -163,6 +163,9 @@ services:
       # outbox dispatcher in the worker is its sole publisher.
       - batch_upload_state:/var/celery
       - nextseek-media:/media
+      # Sign-in lockout and request-rate counters (CACHES["throttle"], a file cache):
+      # on a volume they survive a swap and both web containers share them.
+      - nextseek-throttle:/var/tmp/nextseek-throttle
     # GET /login/ answering 200 is the same first probe CI's readiness gate uses.
     # start_interval makes a new container visible as healthy within seconds of
     # being ready, which is what the swap waits on (Engine 25+). start_period stays
@@ -187,8 +190,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: "${NEXTSEEK_MEMORY:-16G}"
-    memswap_limit: "${NEXTSEEK_MEMORY:-16G}"
+          memory: "${NEXTSEEK_MEMORY:-8G}"
+    memswap_limit: "${NEXTSEEK_MEMORY:-8G}"
     # JevLevROUTING: the laya router sidecar is reachable only over the
     # internal `laya-net`. No depends_on on it: it is off by default (profile
     # `laya`) and the app reads a missing sidecar as "laya off" for the turn.
@@ -479,8 +482,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: "${SEEK_DB_MEMORY:-2G}"
-    memswap_limit: "${SEEK_DB_MEMORY:-2G}"
+          memory: "${SEEK_DB_MEMORY:-6G}"
+    memswap_limit: "${SEEK_DB_MEMORY:-6G}"
     ports:
       - "127.0.0.1:${DB_PORT:-3306}:3306"
     env_file:
@@ -662,8 +665,8 @@ services:
       deploy:
         resources:
           limits:
-            memory: "${SEEK_WORKERS_MEMORY:-3G}"
-      memswap_limit: "${SEEK_WORKERS_MEMORY:-3G}"
+            memory: "${SEEK_WORKERS_MEMORY:-6G}"
+      memswap_limit: "${SEEK_WORKERS_MEMORY:-6G}"
       env_file:
         - ./docker/db.env
       volumes:
@@ -761,6 +764,10 @@ volumes:
   # `startup.sh reset` drops it.
   nextseek-media:
     name: ${INSTANCE_PREFIX:-}nextseek-media
+  # Throttle counters for `web` only (the worker serves no requests). Compose-managed
+  # like nextseek-media; the image runs as root, so a fresh volume is writable.
+  nextseek-throttle:
+    name: ${INSTANCE_PREFIX:-}nextseek-throttle
 
   dmac-cc-users:
     external: true

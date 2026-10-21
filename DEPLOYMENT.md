@@ -68,7 +68,7 @@ Key facts every operator must internalize:
   `NEXTSEEK_SERVER=gunicorn` explicitly in `docker/nextseek.env` on every
   deployment unless you have decided otherwise; under gunicorn the chat UI
   uses HTTP polling for progress (no WebSocket).
-- The `web` container is capped at `${NEXTSEEK_MEMORY:-16G}` of RAM and the
+- The `web` container is capped at `${NEXTSEEK_MEMORY:-8G}` of RAM and the
   `nextseek` worker at `${NEXTSEEK_WORKER_MEMORY:-8G}`, with no swap beyond
   either (`deploy.resources.limits.memory` and `memswap_limit` in
   `docker-compose.yml`). A request that outgrows the cap has its process killed
@@ -117,8 +117,8 @@ Key facts every operator must internalize:
   loads APOC (`NEO4J_PLUGINS`) gets the read-only families the graph agent uses; neither box loads APOC today.
 - CI runs a `mariadb:10.5` service for the MariaDB-fixture tests (`SPIKE_DB_*`); the dev compose `db` stays `mysql:8.0`.
 - Every other long-lived service carries a cap too: `seek_workers`
-  (`${SEEK_WORKERS_MEMORY:-3G}`), `solr` (`${SOLR_MEMORY:-2G}`), `db`
-  (`${SEEK_DB_MEMORY:-2G}`) and `nextseek-sidecar` (`${SIDECAR_MEMORY:-1G}`).
+  (`${SEEK_WORKERS_MEMORY:-6G}`), `solr` (`${SOLR_MEMORY:-2G}`), `db`
+  (`${SEEK_DB_MEMORY:-6G}`) and `nextseek-sidecar` (`${SIDECAR_MEMORY:-1G}`).
   Capping only some services moves the kill rather than preventing it: on
   2026-09-16 `seek` was capped and `seek_workers`, which is the same Rails
   process with the same leak, was not. The two together held 11.2 GiB across 24
@@ -127,11 +127,9 @@ Key facts every operator must internalize:
 - **The defaults are sized for the smallest box we run, and they do not add up
   to any host.** They bound a single runaway; they do not bound the sum. Every
   box sets its own values in the project-root `.env`, and a box whose total must
-  fit lowers `NEXTSEEK_MEMORY` first, since 16G is headroom for the search path
-  rather than steady-state need (about 6 GiB at rest). Worked example, a 30 GiB
-  workstation: `NEXTSEEK_MEMORY=10G` with the rest at their defaults totals
-  28G. A 46 GiB box such as fairdata-dev can leave `NEXTSEEK_MEMORY` at 16G and
-  raise `SEEK_WORKERS_MEMORY` instead. Each cap takes effect when its own
+  fit lowers `NEXTSEEK_MEMORY` first (web holds about 3.7 GiB at rest). The
+  defaults total 45G. A 30 GiB workstation sets `NEXTSEEK_MEMORY=4G`,
+  `SEEK_DB_MEMORY=3G` and `SEEK_WORKERS_MEMORY=3G`, which totals 28G. Each cap takes effect when its own
   service is recreated.
 - Asynchronous attribute mutations use Celery's SQLAlchemy transport over
   SQLite at `/var/lib/attribute-broker/broker.sqlite3`. The worker and outbox
@@ -429,6 +427,10 @@ the old stop-and-start. Steps (`startup/lib/web_swap.py`):
    lets running chat turns finish; a turn still running at the cap is ended with a plain
    "please ask again"), `docker rm` it, delete the pin.
 
+The deploy that brings `0030_spill_json_fields` (the chat size guard) is such a deploy:
+the migration changes no column, but it is unapplied, so `migrate --check` sends that one
+deploy to stop-first. Plan its minute of the restart page.
+
 Any failure before the switch removes the new container and the pin; the old one never
 stopped serving. A pin left by a killed swap may name a container that is gone: `doctor`
 reports it, and `rebuild` refuses to build or replace `web` until it is deleted and nginx
@@ -547,6 +549,18 @@ Do not put the file in `conf.d/` (it is included at `http` level there, where
 a named location is refused), and do not add the intercept line to any `:8000`
 location.
 
+Updating an installed server: `install.sh` refuses when the include already
+exists, so an update copies the new snippet over the installed one (the vhost
+files stay as they are), then checks and reloads. As root, on dev first:
+
+```bash
+sudo install -m 644 -o root -g root docker/host-nginx-restart-page.conf /etc/nginx/nextseek-restart-page.conf && sudo restorecon -v /etc/nginx/nextseek-restart-page.conf && sudo nginx -t && sudo systemctl reload nginx
+```
+
+The current snippet also answers a 504 the host nginx makes itself (a wedged
+`web` that outlasts the host's proxy timeout) with the page. The app's own 504s
+still pass through, because no `:8000` location sets `proxy_intercept_errors`.
+
 Where the page's 502s are logged: the named location logs to its server
 block's `access_log`. A server block with none at server level (each location
 sets its own) logs them to the http-level `/var/log/nginx/access.log`, so a
@@ -613,6 +627,26 @@ restoring it is a deliberate, owner-approved action, not part of routine
 rollback. A deploy that applied `0025_cc_turn` is the case in point: reverse it
 before you repoint the image (`NessieAI/cc/DEPLOY.md`, "Approach 1 (unit B)"),
 or chats that ran a Container-CC turn cannot be deleted.
+
+A deploy that applied `0030_spill_json_fields` (the chat size guard,
+`nextseek_api/assistant/spill.py`) needs one step before you repoint: since then each
+chat value over 256 KB sits in a file under `/media/chat_spill` and its row keeps a link,
+which the code before the guard reads as data. Stop `web` and the worker so no turn
+writes, then, still on the new image, put the values back in their rows:
+
+```bash
+docker compose -p nextseek stop web nextseek
+docker compose -p nextseek run --rm --no-deps --entrypoint /app/.venv/bin/python nextseek manage.py chat_spill --inline --dry-run
+docker compose -p nextseek run --rm --no-deps --entrypoint /app/.venv/bin/python nextseek manage.py chat_spill --inline
+```
+
+`--inline` refuses a column that would come back at 60 MB or more (MySQL refuses a
+statement over 64 MB, the failure the guard exists for) and names each one on stderr
+(`refused: <table>.<column> <id> would be <n> bytes inline`). A refused column keeps its
+links: the old code reads each as `{"$spill": ..., "bytes": ...}` where the value was,
+so that chat opens without its big parts, and a `results_history` or `progress` that is
+one link as a whole is not a list to it (delete that chat first). Leave
+`/media/chat_spill` in place either way: a later roll-forward reads the links again.
 
 ### 5.2 Tag conventions and their care
 
@@ -974,7 +1008,7 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `DB_PORT` | root.env | 3306 |  |  | Host port of MySQL; install writes it. |
 | `NEO4J_HTTP_PORT` | root.env | 7474 |  |  | Host port of the Neo4j browser; install writes it. |
 | `NEO4J_BOLT_PORT` | root.env | 7687 |  |  | Host port of Neo4j bolt; install writes it. |
-| `NEXTSEEK_MEMORY` | root.env | 16G |  |  | Memory cap of the web container. |
+| `NEXTSEEK_MEMORY` | root.env | 8G |  |  | Memory cap of the web container. |
 | `NEXTSEEK_WORKER_MEMORY` | root.env | 8G |  |  | Memory cap of the worker container (the nine background loops). |
 | `NEXTSEEK_DRAIN_SECONDS` | root.env | 240 |  |  | How long a stopping web container lets running chat turns finish before it cuts them. web's stop_grace_period must stay at least this plus 30 s. |
 | `NEXTSEEK_SPAWNER_TOKEN` | nextseek.env | secret |  |  | Token web sends to cc-spawner. Install and rebuild write it, with the same value as SPAWNER_TOKEN in docker/cc-spawner.env. |
@@ -985,8 +1019,8 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `SEEK_MEMORY` | root.env | 4G |  |  | Memory cap of SEEK. |
 | `SEEK_PUMA_WORKERS` | root.env | 4 |  |  | SEEK puma workers. Set with SEEK_MEMORY and SEEK_WORKER_MAX_MB. |
 | `SEEK_WORKER_MAX_MB` | root.env | 2500 |  |  | RSS in whole MB at which the recycler restarts a SEEK puma worker. |
-| `SEEK_WORKERS_MEMORY` | root.env | 3G |  |  | Memory cap of the SEEK job workers. |
-| `SEEK_DB_MEMORY` | root.env | 2G |  |  | Memory cap of MySQL. |
+| `SEEK_WORKERS_MEMORY` | root.env | 6G |  |  | Memory cap of the SEEK job workers. |
+| `SEEK_DB_MEMORY` | root.env | 6G |  |  | Memory cap of MySQL. |
 | `NEO4J_IMAGE_TAG` | root.env | 2026.05.0 |  |  | Neo4j image tag. |
 | `NGINX_IMAGE_TAG` | root.env | 1.31.2 |  |  | nginx image tag. |
 | `NEO4J_MEMORY` | root.env | 6G |  |  | Memory cap of Neo4j. |

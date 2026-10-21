@@ -33,6 +33,13 @@ def _qe(**data):
 
 # ── reading one turn ─────────────────────────────────────────────────────────
 
+def test_engine_cost_prefers_the_price_table_number_and_falls_back_to_the_cli_total():
+    both = {"progress": [_rd(), _qc(total_cost_usd=0.60, cost_by_price_table_usd=0.40)]}
+    only_cli = {"progress": [_rd(), _qc(total_cost_usd=0.60)]}
+    assert tc.read_turn(both)["engine_cost"] == 0.40
+    assert tc.read_turn(only_cli)["engine_cost"] == 0.60
+
+
 def test_the_router_fields_come_from_route_decided_and_the_engine_fields_from_the_end():
     payload = {"progress": [
         _rd(router_model="gemini-3.1-pro-preview", router_cost_usd=0.004,

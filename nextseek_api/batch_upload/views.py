@@ -331,6 +331,11 @@ class BatchUploadViewSet(viewsets.ViewSet):
 
         task = run_batch_upload_task.delay(**task_kwargs)
         register_job(user_id=request.user.pk, job_id=task.id, project_id=project_id)
+        log.info(
+            "batch upload queued job=%s user=%s project=%s rows=%d files=%d",
+            task.id, request.user.pk, project_id,
+            len(task_kwargs.get("rows") or ()), len(task_kwargs.get("xlsx_paths") or ()),
+        )
 
         return Response(
             {"job_id": task.id, "status": "queued"},

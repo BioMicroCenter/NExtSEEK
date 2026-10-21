@@ -17,7 +17,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 COMPOSE = REPO_ROOT / "docker-compose.yml"
-CAP = "${NEXTSEEK_MEMORY:-16G}"
+CAP = "${NEXTSEEK_MEMORY:-8G}"
 WORKER_CAP = "${NEXTSEEK_WORKER_MEMORY:-8G}"
 SPAWNER_CAP = "${SPAWNER_MEMORY:-512M}"
 SEEK_CAP = "${SEEK_MEMORY:-4G}"
@@ -26,9 +26,9 @@ NEO4J_CAP = "${NEO4J_MEMORY:-6G}"
 # 29.5 GiB resident across 227 tasks: no single container was over its own cap,
 # but four services had no cap at all, so nothing bounded the sum.
 OTHER_CAPS = {
-    "seek_workers": "${SEEK_WORKERS_MEMORY:-3G}",
+    "seek_workers": "${SEEK_WORKERS_MEMORY:-6G}",
     "solr": "${SOLR_MEMORY:-2G}",
-    "db": "${SEEK_DB_MEMORY:-2G}",
+    "db": "${SEEK_DB_MEMORY:-6G}",
     "nextseek-sidecar": "${SIDECAR_MEMORY:-1G}",
 }
 LAYA_CAP = "${LAYA_MEMORY:-3500M}"
