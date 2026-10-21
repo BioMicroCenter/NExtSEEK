@@ -1915,3 +1915,37 @@ def test_hlatyping_writes_optitypes_alleles_on_an_a_hla_row():
     assert values["HLAReads"] == 1532.0 and values["HLATypingObjective"] == 1480.2
     assert values["Software"] == "OptiType"
     assert result.unmapped == []
+
+
+# --- Link_PrimaryData / Link_SecondaryData: where the run left the files -----------------------
+# Interim, ruled 2026-10-21: an uploaded A.HLA row named its file but not where to find it.
+# Until the data has a permanent home, the link is the file's path in the cluster run folder.
+
+_HLA_RULE = {"id": "hla", "sample_type": "A.HLA", "primary_data": True,
+             "candidates": ["optitype/*/*_result.tsv"],
+             "companions": [{"glob": "optitype/*/*_coverage_plot.pdf"}]}
+
+
+def test_the_primary_and_secondary_files_get_their_run_folder_paths_as_links():
+    run = _run_with(["optitype/S1/S1_result.tsv", "optitype/S1/S1_coverage_plot.pdf"])
+    (row,) = _out_rows(mapper.apply(run, _v2map([_HLA_RULE])), "hla")
+    assert row.attributes["File_PrimaryData"].value == "S1_result.tsv"
+    assert row.attributes["Link_PrimaryData"].value == "/net/cluster/runs/r/optitype/S1/S1_result.tsv"
+    assert row.attributes["Link_SecondaryData"].value == \
+        "/net/cluster/runs/r/optitype/S1/S1_coverage_plot.pdf"
+
+
+def test_no_link_is_written_on_a_type_without_the_attribute():
+    run = _run_with(["optitype/S1/S1_result.tsv", "optitype/S1/S1_coverage_plot.pdf"])
+    has = lambda st, attr: attr != "Link_SecondaryData"
+    (row,) = _out_rows(mapper.apply(run, _v2map([_HLA_RULE]), context={"has_attribute": has}),
+                       "hla")
+    assert "Link_PrimaryData" in row.attributes
+    assert "Link_SecondaryData" not in row.attributes
+
+
+def test_a_link_the_map_sets_wins():
+    rule = {**_HLA_RULE, "attributes": {"Link_PrimaryData": "https://example.org/hla"}}
+    run = _run_with(["optitype/S1/S1_result.tsv"])
+    (row,) = _out_rows(mapper.apply(run, _v2map([rule])), "hla")
+    assert row.attributes["Link_PrimaryData"].value == "https://example.org/hla"

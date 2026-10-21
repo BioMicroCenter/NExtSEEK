@@ -319,6 +319,24 @@ def test_apply_choose_swaps_file_and_checksum_and_drops_a_stale_checksum():
     assert row2.attributes["Checksum_PrimaryData"].value == "bbb"
 
 
+def test_apply_choose_moves_the_link_to_the_chosen_file():
+    # The mapper links the file it picked; choosing another file must not leave the
+    # link pointing at the one not chosen.
+    row = MappedRow(sample_type="A.ALN", nfcore_sample="S1", attributes={
+        "File_PrimaryData": MappedAttribute(attribute="File_PrimaryData",
+                                            value="S1.markdup.sorted.bam", origin="map",
+                                            source_file=BAM_A, candidates=[BAM_A, BAM_B]),
+        "Link_PrimaryData": MappedAttribute(attribute="Link_PrimaryData",
+                                            value=f"/net/cluster/runs/r1/{BAM_A}", origin="map",
+                                            source_file=BAM_A)})
+    choose = answers.ChooseAnswer(sample_type="A.ALN", attribute="File_PrimaryData",
+                                  path=BAM_B)
+    answers.apply_answers(answers.Answers(choose=[choose]), mapped_by_type={"A.ALN": [row]},
+                          findings_by_type={}, run_manifest=_manifest(), answered_by="c")
+    link = row.attributes["Link_PrimaryData"]
+    assert (link.value, link.source_file) == (f"/net/cluster/runs/r1/{BAM_B}", BAM_B)
+
+
 def test_apply_place_takes_the_value_from_the_manifest_not_the_answer():
     row = MappedRow(sample_type="D.SEQ", uid="D.SEQ-EXAMPLE-1", nfcore_sample="S1")
     place = answers.PlaceAnswer(raw_key="star-foo_rate", sample_type="D.SEQ",
@@ -449,8 +467,9 @@ def test_place_onto_a_run_sourced_attribute_is_refused():
 
 
 @pytest.mark.parametrize("attribute", ["File_PrimaryData", "Checksum_PrimaryData",
-                                       "File_SecondaryData", "Checksum_SecondaryData"])
-def test_place_onto_a_data_file_or_its_checksum_is_refused(attribute):
+                                       "File_SecondaryData", "Checksum_SecondaryData",
+                                       "Link_PrimaryData", "Link_SecondaryData"])
+def test_place_onto_a_data_file_its_checksum_or_its_link_is_refused(attribute):
     assert attribute in answers.NEVER_PLACEABLE
     errors = _check_place(_place(attribute=attribute))
     assert errors == [f"place star-foo -> D.SEQ.{attribute}: {attribute} is never set from chat"]

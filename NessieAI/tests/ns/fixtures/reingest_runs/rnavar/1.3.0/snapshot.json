@@ -7,6 +7,8 @@
     "File_PrimaryData",
     "File_SecondaryData",
     "Genome",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
     "Name",
     "SampleCreationDate"
    ],
@@ -17,6 +19,7 @@
    "attributes": [
     "File_PrimaryData",
     "FilterMethod",
+    "Link_PrimaryData",
     "Pipeline",
     "PipelineVersion",
     "ReferenceGenome",

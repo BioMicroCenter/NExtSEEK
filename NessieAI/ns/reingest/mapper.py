@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import posixpath
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -446,8 +447,8 @@ def _attach_checksum(row: MappedRow, rule: maps.OutputRule,
     tell an ordinary pick from an ambiguous one; both ways of picking always
     name the SAME file, never two different candidates.
 
-    Without ``File_PrimaryData`` (or ``Link_PrimaryData``, which reingest
-    never produces), A.ALN/A.GEX fail the catalog's own
+    Without ``File_PrimaryData`` (or ``Link_PrimaryData``, which ``_attach_links``
+    fills from this same file), A.ALN/A.GEX fail the catalog's own
     ``ALTERNATIVE_REQUIRED_GROUPS`` gate (``NessieAI/ns/reingest_qa.py``) on
     every populated catalog, and ``granular.py`` skips
     ``render_upload_workbook`` on a HARD_REJECT -- so no workbook, checksum
@@ -554,6 +555,34 @@ def _file_primary_data_value(rule: maps.OutputRule, run_manifest: manifest.RunMa
         return name
     folder = os.path.basename(os.path.dirname(primary.path))
     return f"{folder}/{name}" if folder else name
+
+
+#: The link cell for each file cell, filled by _attach_links.
+LINK_FOR = {"File_PrimaryData": "Link_PrimaryData", "File_SecondaryData": "Link_SecondaryData"}
+
+
+def run_file_path(run_manifest: manifest.RunManifest, rel_path: str) -> str:
+    """Where a run-relative output path sits on the cluster: under ``run_dir``."""
+    return posixpath.normpath(posixpath.join(run_manifest.run_dir, rel_path))
+
+
+def _attach_links(row: MappedRow, run_manifest: manifest.RunManifest, context) -> None:
+    """Put each placed data file's location in its link cell: Link_PrimaryData for
+    File_PrimaryData, Link_SecondaryData for File_SecondaryData.
+
+    Interim (ruled 2026-10-21): the file cell holds a bare name by house convention
+    (see _attach_checksum), so an uploaded row said what its file was called but not
+    where it was. Until the data has a permanent home, the link is the file's path in
+    the cluster run folder. Only for a type that has the link attribute, and never over
+    a link the map already set."""
+    for file_attr, link_attr in LINK_FOR.items():
+        placed = row.attributes.get(file_attr)
+        if (placed is None or not placed.source_file or link_attr in row.attributes
+                or not _exists(context, row.sample_type, link_attr)):
+            continue
+        row.attributes[link_attr] = MappedAttribute(
+            attribute=link_attr, value=run_file_path(run_manifest, placed.source_file),
+            origin=ORIGIN_MAP, source_file=placed.source_file)
 
 
 NOTES_PREFIX = "Also in run: "
@@ -729,6 +758,7 @@ def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
         _place_companions(row, rule, run_manifest, sample.nfcore_sample, row_context,
                           _losing_candidates(rule, run_manifest, sample.nfcore_sample),
                           warnings)
+        _attach_links(row, run_manifest, row_context)
         # Parent is a structural lineage field, not a mapped attribute -- set
         # it last so no rule attribute can accidentally clobber it. A
         # multi-run sample joins its OWN multi-parent list; a resolution in
@@ -783,6 +813,7 @@ def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
     _attach_checksum(row, rule, run_manifest, None)
     _place_companions(row, rule, run_manifest, None, row_context,
                       _losing_candidates(rule, run_manifest, None), warnings)
+    _attach_links(row, run_manifest, row_context)
 
     uids: list[str] = []
     for sample in run_manifest.samples:

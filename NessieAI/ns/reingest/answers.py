@@ -25,7 +25,8 @@ import os
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from NessieAI.ns.reingest.mapper import ORIGIN_CURATOR, MappedAttribute
+from NessieAI.ns.reingest import mapper
+from NessieAI.ns.reingest.mapper import ORIGIN_CURATOR, ORIGIN_MAP, MappedAttribute
 from NessieAI.ns.reingest_qa import _value_missing, group_members_for_label
 
 _PRIMARY = ("File_PrimaryData", "Checksum_PrimaryData")
@@ -38,9 +39,10 @@ _SECONDARY = ("File_SecondaryData", "Checksum_SecondaryData")
 NEVER_FILLABLE = frozenset({"UID", "Parent", "Notes",
                             "Checksum_PrimaryData", "Checksum_SecondaryData"})
 
-# A place moves a raw metric into an attribute; a data file and its checksum
-# are never a metric, so neither is a place target.
-NEVER_PLACEABLE = NEVER_FILLABLE | frozenset(_PRIMARY) | frozenset(_SECONDARY)
+# A place moves a raw metric into an attribute; a data file, its checksum and
+# its link (mapper._attach_links) are never a metric, so none is a place target.
+NEVER_PLACEABLE = (NEVER_FILLABLE | frozenset(_PRIMARY) | frozenset(_SECONDARY)
+                   | frozenset({"Link_PrimaryData", "Link_SecondaryData"}))
 
 
 class AnswerRejected(ValueError):
@@ -354,12 +356,19 @@ def apply_answers(bundle: Answers, *, mapped_by_type, findings_by_type, run_mani
             current = row.attributes.get(answer.attribute)
             if current is None or answer.path not in current.candidates:
                 continue
-            # Reingest never produces Link_PrimaryData/Link_SecondaryData (see
-            # mapper._attach_checksum), so the file name and its checksum are
-            # the whole of the chosen file's harvested values.
+            # The chosen file's harvested values: its name, its checksum, and the link
+            # the mapper wrote for the file it picked (mapper._attach_links), which
+            # would otherwise point at the file not chosen.
             row.attributes[answer.attribute] = MappedAttribute(
                 attribute=answer.attribute, value=os.path.basename(answer.path),
                 origin=ORIGIN_CURATOR, source_file=answer.path, answered_by=answered_by)
+            link_attr = mapper.LINK_FOR.get(answer.attribute)
+            link = row.attributes.get(link_attr) if link_attr else None
+            if (link is not None and link.origin == ORIGIN_MAP
+                    and link.source_file == current.source_file):
+                row.attributes[link_attr] = MappedAttribute(
+                    attribute=link_attr, value=mapper.run_file_path(run_manifest, answer.path),
+                    origin=ORIGIN_CURATOR, source_file=answer.path, answered_by=answered_by)
             checksum = run_manifest.checksums.get(answer.path)
             if checksum:
                 row.attributes[checksum_attr] = MappedAttribute(
