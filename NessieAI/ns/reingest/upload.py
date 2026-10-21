@@ -324,7 +324,10 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
             entry["job_id"] = dispatch(
                 user_pk=user_id, user_ctx=upload_context,
                 lababbv=upload_context["lababbv"], project_id=record["project_id"],
-                config_overrides={"update_existing": record["mode"] == "update"},
+                # keep_assay_links: a backfill's ASSAY sheet is empty, and the update
+                # path otherwise removes every assay link the sheet does not list.
+                config_overrides={"update_existing": record["mode"] == "update",
+                                  "keep_assay_links": True},
                 xlsx_paths=[staged])
         except Exception as exc:  # noqa: BLE001 -- one failed start never stops the next
             logger.exception("upload-reingest: job for %s did not start", record["artifact_key"])

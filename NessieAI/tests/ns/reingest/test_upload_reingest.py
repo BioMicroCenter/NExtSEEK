@@ -90,6 +90,8 @@ def test_new_mode_starts_first_and_files_only(env):
                   "confirmed_write": True}, dispatch=dispatch)
     calls = dispatch.call_args_list
     assert [c.kwargs["config_overrides"]["update_existing"] for c in calls] == [False, True]
+    # The backfill's ASSAY sheet is empty; a reingest upload never removes an assay link.
+    assert all(c.kwargs["config_overrides"]["keep_assay_links"] is True for c in calls)
     assert all("rows" not in c.kwargs and c.kwargs["xlsx_paths"] for c in calls)
     assert all(c.kwargs["project_id"] == 14 and c.kwargs["user_ctx"] == CTX for c in calls)
     assert [j["job_id"] for j in result["jobs"]] == ["job-new", "job-update"]
