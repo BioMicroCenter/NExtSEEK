@@ -486,6 +486,43 @@ def run_project_sample_report(
         return {"ok": False, "error": repr(e)}
 
 
+def _names(items: "list[str]") -> str:
+    return f"project{'s' if len(items) > 1 else ''} " + ", ".join(items)
+
+
+def _investigation_filing(cursor, investigation_scope: dict, sop_ids: list, visible) -> None:
+    """Add to ``investigation_scope`` the protocol count, the visible project(s) those protocols are filed under,
+    the investigation's own project(s) that share them, and one plain sentence for the reply. Reads only."""
+    n = len(sop_ids)
+    filed: dict[int, str] = {}
+    totals: dict[int, int] = {}
+    if sop_ids:
+        marks = ", ".join(["%s"] * n)
+        cond, ids = ("1 = 1", []) if visible is None else _project_condition("p.id", visible)
+        cursor.execute(f"SELECT p.id, p.title FROM seek_production.projects p WHERE {cond} AND p.id IN ("
+                       f"SELECT project_id FROM seek_production.projects_sops WHERE sop_id IN ({marks}))",
+                       [*ids, *sop_ids])
+        filed = {r["id"]: r["title"] for r in cursor.fetchall() or []}
+    cursor.execute("SELECT p.id, p.title FROM seek_production.investigations_projects ip "
+                   "JOIN seek_production.projects p ON p.id = ip.project_id WHERE ip.investigation_id = %s",
+                   [investigation_scope["investigation_id"]])
+    own = {r["id"]: r["title"] for r in cursor.fetchall() or []}
+    for pid in own.keys() & filed.keys():
+        cursor.execute("SELECT COUNT(DISTINCT sop_id) AS n FROM seek_production.projects_sops WHERE project_id = %s",
+                       [pid])
+        totals[pid] = int((cursor.fetchall() or [{"n": 0}])[0]["n"])
+    filed_names = sorted(filed.values())
+    shared = sorted(t for pid, t in own.items() if pid not in filed)
+    sentence = f"{n} protocol{'' if n == 1 else 's'} used by this investigation's assays"
+    if filed_names:
+        sentence += f" (filed under {_names(filed_names)}" + (f", shared with {', '.join(shared)}" if shared else "") + ")"
+    holds = {own[pid]: c for pid, c in totals.items()}
+    if holds:
+        sentence += "; " + "; ".join(f"{_names([t])} holds {c} in all" for t, c in sorted(holds.items()))
+    investigation_scope.update(used_count=n, filed_under=filed_names, shared_with=shared, project_totals=holds,
+                               sentence=sentence)
+
+
 def run_project_protocols_report(
     config,
     project: int | str | None = None,
@@ -600,6 +637,8 @@ def run_project_protocols_report(
         cursor.execute(query, params)
         rows = cursor.fetchall() or []
         titles = [r["title"] for r in rows if r.get("title")]
+        if investigation_scope:
+            _investigation_filing(cursor, investigation_scope, sorted({r["sop_id"] for r in rows}), visible)
 
         # Parse: P.<LAB>-<YYMMDD>-<rest>
         title_re = re.compile(r"^P\.(?P<lab>[^-]+)-(?P<yymmdd>\d{6})-(?P<rest>.*)$")
