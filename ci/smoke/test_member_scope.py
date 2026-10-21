@@ -39,11 +39,14 @@ def scope(web, api, base_url):
     return mine, other
 
 
-def test_upload_page_offers_only_the_members_projects(scope, api, base_url):
-    mine, other = scope
-    if other is None:
-        pytest.skip("the member belongs to every project listed; nothing to compare")
-    assert other not in mine
+def test_every_project_the_upload_page_offers_passes_the_servers_member_check(scope, api, base_url):
+    mine, _ = scope
+    refused = {}
+    for pid in mine:
+        r = api.post(f"{base_url}{VALIDATE}", json={"project_id": pid}, timeout=60)
+        if r.status_code != 400:  # 400: past the membership check; no rows or files, so nothing runs
+            refused[pid] = r.status_code
+    assert refused == {}, refused
 
 
 def test_validate_refuses_a_project_the_member_is_not_in(scope, api, base_url):
@@ -52,12 +55,6 @@ def test_validate_refuses_a_project_the_member_is_not_in(scope, api, base_url):
         pytest.skip("no project outside the member's")
     r = api.post(f"{base_url}{VALIDATE}", json={"project_id": other}, timeout=60)
     assert r.status_code == 403, r.status_code
-
-
-def test_validate_lets_the_member_past_the_gate_on_their_own_project(scope, api, base_url):
-    mine, _ = scope
-    r = api.post(f"{base_url}{VALIDATE}", json={"project_id": mine[0]}, timeout=60)
-    assert r.status_code == 400, r.status_code  # past the membership check; no rows or files, so nothing runs
 
 
 def test_forcing_container_cc_is_refused_before_any_turn(api, base_url):
