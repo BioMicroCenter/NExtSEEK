@@ -47,7 +47,17 @@ from ..seqera.submitter import submit_launch
 from ..seqera.user_params import (
     missing_user_params,
     render_elicitation,
+    required_user_params,
     validate_user_params,
+)
+from ..seqera.contrasts import (
+    CONTRASTS_FILENAME,
+    CONTRASTS_PARAM,
+    condition_problems,
+    is_user_path,
+    parse_contrasts,
+    samplesheet_conditions,
+    write_contrasts_csv,
 )
 from ..seqera.param_atlas import (
     check_row_column_params,
@@ -652,6 +662,7 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
     # must call configure_run again before submit — never submit a stale params/launch.
     state["artifacts"].pop("params", None)
     state["artifacts"].pop("launch", None)
+    state["artifacts"].pop("contrasts", None)
     state.pop("launch_plan", None)
 
     return json.dumps({
@@ -688,11 +699,37 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
                            "message": "Ask the user to correct these; do not guess."})
     missing = missing_user_params(pipeline_key, agent_params)
     if missing:
+        ask = render_elicitation(missing)
+        conditions = samplesheet_conditions(samplesheet)
+        if conditions and any(s["name"] == CONTRASTS_PARAM for s in missing):
+            ask += f"\n\nThe conditions in the samplesheet are: {', '.join(conditions)}."
         return json.dumps({"ok": False,
                            "needs_user_input": [s["name"] for s in missing],
-                           "ask_the_user": render_elicitation(missing),
+                           "ask_the_user": ask,
                            "message": ("Relay `ask_the_user` to the user in plain text and STOP. "
                                        "Do not call conclude, and do not invent values.")})
+
+    # The comparison the user stated becomes a contrasts CSV in the run folder, which
+    # submit_to_luria stages beside the samplesheet; an absolute path is the user's
+    # own file on Luria and is passed through.
+    contrasts_rows = None
+    state.setdefault("artifacts", {}).pop("contrasts", None)
+    contrasts_value = agent_params.get(CONTRASTS_PARAM)
+    declares_contrasts = any(s["name"] == CONTRASTS_PARAM for s in required_user_params(pipeline_key))
+    if declares_contrasts and contrasts_value is not None and not is_user_path(contrasts_value):
+        contrasts_rows, bad = parse_contrasts(contrasts_value)
+        if not bad:
+            bad = condition_problems(contrasts_rows, samplesheet_conditions(samplesheet))
+        if bad:
+            return json.dumps({"ok": False, "invalid_user_params": bad,
+                               "message": "Ask the user to correct these; do not guess."})
+        base_dir = artifacts.get("base_dir") or str(Path(samplesheet).parent)
+        state["artifacts"]["contrasts"] = str(write_contrasts_csv(contrasts_rows, base_dir))
+        agent_params[CONTRASTS_PARAM] = CONTRASTS_FILENAME
+        # The file on disk changed under any earlier launch, so that launch is stale
+        # until this call succeeds and writes a new one.
+        state["artifacts"].pop("params", None)
+        state["artifacts"].pop("launch", None)
 
     # Data-driven run_param inference: fill each param whose leaves UNANIMOUSLY derived a
     # decisive value the agent didn't set, so the inferred value (e.g. scrnaseq protocol,
@@ -829,6 +866,8 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         "schema_check": schema_check,
         "params_yml": result.saved_files.get("params"),
         "launch_yml": result.saved_files.get("launch"),
+        # Echo it back to the user before submit: which way round is their call.
+        **({"contrasts_written": contrasts_rows} if contrasts_rows else {}),
         "runtime_estimate": runtime_estimate(pipeline_key, n_samples, len(fetch_accessions),
                                              fetch_sizes=fetch_sizes),
     })
@@ -954,6 +993,13 @@ def format_luria_followup(runs: list[dict] | None, ssh_target: str | None = None
     return "\n".join(out)
 
 
+def _staged_extra_files(artifacts: dict) -> dict[str, str]:
+    """Files configure_run wrote that the run reads by bare name from its folder:
+    {remote name: local path}. Today only the contrasts CSV."""
+    contrasts = artifacts.get("contrasts")
+    return {CONTRASTS_FILENAME: contrasts} if contrasts else {}
+
+
 def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | None = None) -> str:
     artifacts = state.get("artifacts") or {}
     launch = artifacts.get("launch")
@@ -987,6 +1033,7 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
                             resources=tool_input.get("resources"),
                             job_name=tool_input.get("job_name"),
                             samplesheet_local=samplesheet,
+                            extra_files=_staged_extra_files(artifacts),
                             genome=genome,
                             launch_params=launch_params,
                             process_args=process_args,

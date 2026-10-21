@@ -4,7 +4,8 @@ Reads chat_nextseek's emitted launch.yml (the same file the Tower path reads),
 renders a run.sh per launch entry, and stages four files into a per-run remote
 directory: run.sh, luria.config (local reference-genome map, passed via -c),
 params.yml (curated per-pipeline params, passed via -params-file), and
-samplesheet.csv. CLI flags in run.sh (--input/--outdir/--genome) override
+samplesheet.csv, plus any file configure_run wrote that the run reads by name
+(rnasplice's contrasts.csv). CLI flags in run.sh (--input/--outdir/--genome) override
 params.yml. Then `sbatch`es it over SSH. Returns one ref dict per submitted run
 (SLURM job id + remote dir + log path).
 """
@@ -62,11 +63,14 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
                  job_name: str | None = None, samplesheet_local: str | None = None,
                  genome: str | None = None, launch_params: dict | None = None,
                  process_args: dict | None = None, cwd=None,
-                 user_id: int | None = None) -> list[dict]:
+                 user_id: int | None = None,
+                 extra_files: dict[str, str] | None = None) -> list[dict]:
     """Submit each launch.yml entry to Luria via ssh+sbatch. Returns run refs (empty on any skip).
 
     ``user_id`` is the Django user the run is for (the chat's owner), recorded on the
-    launch record so the finished run can be found for them; None when unknown."""
+    launch record so the finished run can be found for them; None when unknown.
+    ``extra_files`` is {remote name: local path} of other inputs staged into the run
+    folder beside the samplesheet (params.yml names them bare)."""
     launch_path = Path(launch_yml_path).resolve()
     if not launch_path.exists():
         print(f"[LURIA][SUBMIT] launch.yml not found: {launch_path}")
@@ -94,7 +98,7 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
             try:
                 ref = _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key_path,
                                   samplesheet_local, genome, launch_params, process_args,
-                                  user_id=user_id)
+                                  user_id=user_id, extra_files=extra_files)
                 if ref:
                     runs.append(ref)
             except Exception as exc:
@@ -120,7 +124,7 @@ def _sheet_needs_fetch(sheet_path: str) -> bool:
 
 def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key_path,
                 samplesheet_local=None, genome=None, launch_params=None, process_args=None,
-                user_id=None):
+                user_id=None, extra_files=None):
     name = (entry.get("name") or f"run{idx}").strip() or f"run{idx}"
     pipeline = entry.get("pipeline")
     revision = entry.get("revision")
@@ -188,6 +192,8 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
         scp_file(luria_env, cfg_tmp, f"{remote_run_dir}/luria.config", key_path=key_path)
         scp_file(luria_env, params_tmp, f"{remote_run_dir}/params.yml", key_path=key_path)
         scp_file(luria_env, local_sheet, f"{remote_run_dir}/samplesheet.csv", key_path=key_path)
+        for remote_name, local_path in (extra_files or {}).items():
+            scp_file(luria_env, local_path, f"{remote_run_dir}/{remote_name}", key_path=key_path)
         if needs_fetch:
             helper = str(Path(__file__).parent / "fetchngs_helpers.py")
             scp_file(luria_env, helper, f"{remote_run_dir}/fetchngs_helpers.py", key_path=key_path)
