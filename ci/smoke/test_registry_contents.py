@@ -70,10 +70,16 @@ def test_no_pattern_is_declared_twice():
     _check_unique_patterns(REGISTRY)
 
 
-def test_exactly_one_route_may_send_a_non_get_under_prod():
-    """Authenticating is a precondition of a read-only sweep. Nothing else qualifies."""
+def test_only_the_named_routes_may_send_a_non_get_under_prod():
+    """Authenticating is a precondition of a read-only sweep. The two member-scope probes
+    (ci/smoke/test_member_scope.py) are the only other holes, and each answers before it can write
+    or start a turn: validate with no rows or files, the forced-CC turn at its superuser check."""
     allowed = [r for r in REGISTRY if r.prod_allows_non_get]
-    assert [r.pattern for r in allowed] == [r"^login/?$"], (
+    assert sorted(r.pattern for r in allowed) == sorted([
+        r"^login/?$",
+        r"^nextseek_api/^^batch-upload/validate/$",
+        r"^nextseek_api/^^cc-assistant/cc/query/async/$",
+    ]), (
         "prod_allows_non_get is the single hole in the read-only guarantee. "
         f"Found: {[r.pattern for r in allowed]}"
     )
@@ -465,12 +471,14 @@ def test_exactly_one_route_is_sent_by_a_lane_and_it_is_the_chat_turn():
     assert lane_routes("nessie") == tagged
 
 
-def test_a_lane_route_stays_out_of_reach_of_the_sweep_and_the_guard():
-    """The lane's browser sends this route; T0 and GuardedSession never do."""
+def test_a_lane_route_stays_out_of_reach_of_the_sweep_and_prod():
+    """The lane's browser sends this route. T0 never does (POST only), and the guard lets the
+    member-scope probes through under local and dev, never under prod: a broken check there
+    would start a paid turn."""
     for route in REGISTRY:
         if route.lane:
-            assert route.path is None and not route.profiles
-            assert route.exclude == "EXCLUDE_COST"
+            assert "GET" not in route.methods
+            assert "prod" not in route.profiles and not route.prod_allows_non_get
 
 
 def test_an_unknown_lane_is_refused():

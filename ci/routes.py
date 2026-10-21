@@ -514,11 +514,7 @@ REGISTRY: list[Route] = [
           note="NHP timeline workbook. Unknown name: proves the route resolves and denies"),
     Route(pattern=r"^seek/^operators/$", path="/seek/operators/",
           effect="reads",
-          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
-          xfail="MultiValueDictKeyError: 'sampletype_id' from "
-                "seek/views/samples.py::getOperators, which indexes the query string "
-                "for two required parameters with no default, so a bare GET is a 500 "
-                "rather than a 400"),
+          methods=("GET",), profiles="local,dev", auth="web", expect=400),
     Route(pattern=r"^seek/^sample/id=(?P<id>\d+)/edit",
           path="/seek/sample/id={sample_id}/edit",
           effect="reads",
@@ -536,34 +532,18 @@ REGISTRY: list[Route] = [
                "which writes an export file, so this stays off prod"),
     Route(pattern=r"^seek/^samples/download/", path="/seek/samples/download/",
           effect="external",
-          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
-          xfail="MultiValueDictKeyError: 'includeSampleTree' from "
-                "seek/views/samples.py::sampleDownload, which indexes the query "
-                "string for a required parameter with no default, so a bare GET is "
-                "a 500 rather than a 400",
+          methods=("GET",), profiles="local,dev", auth="web", expect=400,
           note="a parameterised call writes an export file, so this stays off prod"),
     Route(pattern=r"^seek/^samples/export/", path="/seek/samples/export/",
           effect="external",
-          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
-          xfail="MultiValueDictKeyError: 'allids' from "
-                "seek/views/samples.py::sampleExport, which indexes the query string "
-                "for a required parameter with no default, so a bare GET is a 500 "
-                "rather than a 400",
+          methods=("GET",), profiles="local,dev", auth="web", expect=400,
           note="a parameterised call writes an export file, so this stays off prod"),
     Route(pattern=r"^seek/^samples/retrieveType/", path="/seek/samples/retrieveType/",
           effect="reads",
-          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
-          xfail="MultiValueDictKeyError: 'sampletype_id' from "
-                "seek/views/samples.py::getSampleType, which indexes the query string "
-                "for two required parameters with no default, so a bare GET is a 500 "
-                "rather than a 400"),
+          methods=("GET",), profiles="local,dev", auth="web", expect=400),
     Route(pattern=r"^seek/^samples/searching/", path="/seek/samples/searching/",
           effect="reads",
-          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
-          xfail="MultiValueDictKeyError: 'sampletype_id' from "
-                "seek/views/search.py::sampleSearching, whose filter builder indexes "
-                "the query string for required parameters with no default, so a bare "
-                "GET is a 500 rather than a 400"),
+          methods=("GET",), profiles="local,dev", auth="web", expect=400),
     Route(pattern=r"^seek/^samplesvalidate/", path="/seek/samplesvalidate/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
@@ -571,24 +551,16 @@ REGISTRY: list[Route] = [
                "reads nothing"),
     Route(pattern=r"^seek/^searchAdvanced/", path="/seek/searchAdvanced/",
           effect="reads",
-          methods=("GET",), profiles="local,dev,prod", auth="web", expect=(200, 400),
-          xfail="MultiValueDictKeyError: 'filter_searchText' from "
-                "seek/views/search.py::searchingAdvanced, whose filter builder indexes "
-                "the query string for required parameters with no default, so a bare "
-                "GET is a 500 rather than a 400",
+          methods=("GET",), profiles="local,dev,prod", auth="web", expect=400,
           note="the JSON the Sample Search page's Advanced box read before both of its "
                "boxes moved to graph_search; no page calls it now. Read-only, and "
                "prod-enabled for that reason: it is where the sample fixtures find a real "
                "sample id and UID, so without it the sample pages and the sample-page flow "
-               "have nothing to ask for under prod. The bare GET T0 sends is pinned by the "
-               "xfail above; the parameterised query is the one discovery makes"),
+               "have nothing to ask for under prod. The bare GET T0 sends is a 400 naming the "
+               "missing parameter; the parameterised query is the one discovery makes"),
     Route(pattern=r"^seek/^searchUIDs/", path="/seek/searchUIDs/",
           effect="reads",
-          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
-          xfail="MultiValueDictKeyError: 'filter_searchUIDs' from "
-                "seek/views/search.py::searchingUIDs, whose filter builder indexes the "
-                "query string for required parameters with no default, so a bare GET "
-                "is a 500 rather than a 400"),
+          methods=("GET",), profiles="local,dev", auth="web", expect=400),
     Route(pattern=r"^seek/^studies/id=(?P<id>\d+)/$", path="/seek/studies/id={study_id}/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
@@ -826,10 +798,6 @@ REGISTRY: list[Route] = [
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
           shape="results",
-          xfail="34 sample types have no attribute definitions, so "
-                "nextseek_api/services/entity_tree.py::EntityTreeViewSet.list_nodes "
-                "returns an application-level 502 rather than emit empty "
-                "metadata_fields",
           note="the envelope is doubly wrapped: assert results.total, never a "
                "top-level total"),
     Route(pattern=r"^nextseek_api/^^evaluator/runs/$", path="/nextseek_api/evaluator/runs/",
@@ -1103,8 +1071,11 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^nextseek_api/^^batch-upload/validate/$",
           path="/nextseek_api/batch-upload/validate/",
           effect="external",
-          methods=("POST",), profiles="local,dev", auth="smoke", expect=200,
-          note="the fifth safe preview: a separate action rather than a dry_run flag"),
+          methods=("POST",), profiles="local,dev,prod", auth="smoke", expect=200,
+          prod_allows_non_get=True,
+          note="the fifth safe preview: a separate action rather than a dry_run flag. Under prod "
+               "only ci/smoke/test_member_scope.py sends it, with no rows or files, so it ends "
+               "at 403 or 400 before the pipeline runs"),
     Route(pattern=r"^nextseek_api/^^cc-assistant/upload/$",
           path="/nextseek_api/cc-assistant/upload/",
           effect="external",
@@ -1224,16 +1195,23 @@ REGISTRY: list[Route] = [
           effect="writes", writers=("WR-27",),
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST",
           note="the chat turn forced onto Container-CC; alias of cc-assistant/cc/query/async/"),
-    Route(pattern=r"^nextseek_api/^^cc-assistant/cc/query/async/$", path=None,
+    Route(pattern=r"^nextseek_api/^^cc-assistant/cc/query/async/$",
+          path="/nextseek_api/cc-assistant/cc/query/async/",
           effect="writes", writers=("WR-27",),
-          methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST",
-          note="the chat turn forced onto the Container-CC engine"),
-    Route(pattern=r"^nextseek_api/^^cc-assistant/query/async/$", path=None,
+          methods=("POST",), profiles="local,dev,prod", auth="smoke", expect=403,
+          prod_allows_non_get=True,
+          note="the chat turn forced onto the Container-CC engine. CI sends only a `{}` body "
+               "as the smoke member (ci/smoke/test_member_scope.py): the superuser check "
+               "answers 403 before the body is read, so no turn can start"),
+    Route(pattern=r"^nextseek_api/^^cc-assistant/query/async/$",
+          path="/nextseek_api/cc-assistant/query/async/",
           effect="writes", writers=("WR-27",),
-          methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST", lane="nessie",
+          methods=("POST",), profiles="local,dev", auth="smoke", expect=403, lane="nessie",
           note="the router-dispatched chat turn; either engine may answer it. The "
                "Nessie lane's browser sends it (ci/smoke/test_nessie.py), at most "
-               "four times per run; nothing else in CI does"),
+               "four times per run. Beyond that, ci/smoke/test_member_scope.py sends "
+               "two refused bodies (plan mode, unknown mode) as the smoke member; "
+               "never under prod, since a broken plan-mode check would start a turn"),
     Route(pattern=r"^nextseek_api/^^evaluator/retry/$", path=None,
           effect="external",
           methods=(), profiles="", auth="write", exclude="EXCLUDE_COST",

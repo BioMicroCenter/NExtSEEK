@@ -19,7 +19,7 @@ from ..seekdb import SeekDB
 from dmac.conversion import convertDicToOptions
 import datetime
 import json
-from ..responses import json_response
+from ..responses import json_response, missing_param
 from ..responses import plain_text
 from django.shortcuts import render
 from ..decorators import requires_seek_login
@@ -243,6 +243,9 @@ def getAttributes(request, id):
 
 def getOperators(request):
     ret = request.GET
+    bad = missing_param(ret, 'sampletype_id', 'attribute')
+    if bad:
+        return bad
     sampletype_id = ret['sampletype_id']
     attribute = ret['attribute']
     
@@ -281,7 +284,10 @@ def sampleDownload(request):
         ret = request.POST
     else:
         ret = request.GET
-        
+
+    bad = missing_param(ret, 'includeSampleTree', 'allids', 'sampletype_id')
+    if bad:
+        return bad
     includeSampleTree = int(ret['includeSampleTree'])
     if 'attributeFilter' in ret:
         attributeFilter = ret['attributeFilter']
@@ -342,7 +348,10 @@ def sampleExport(request):
         ret = request.POST
     else:
         ret = request.GET
-    
+
+    bad = missing_param(ret, 'allids', 'sampletype_id')
+    if bad:
+        return bad
     allids = ret['allids']
     sampletype_id = ret['sampletype_id']
     sample_ids = json.loads(allids)
@@ -476,6 +485,9 @@ def getSampleType(request):
     if not request.user.is_authenticated:
         return json_response(LOGIN_REQUIRED, 0)
     ret = request.GET
+    bad = missing_param(ret, 'sampletype_id', 'attribute')
+    if bad:
+        return bad
     sampletype_id = ret['sampletype_id']
     attribute = ret['attribute']
     
