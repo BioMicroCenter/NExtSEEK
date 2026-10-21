@@ -121,7 +121,9 @@ def run(*argv):
 
 imports = json.loads(sys.argv[1])
 out = {"node": run("node", "--version"), "claude": run("claude", "--version"),
-       "dists": {}, "imports": {}}
+       "dists": {}, "imports": {},
+       # P12: a shim's bare `python` must be the image venv (the 10-14 httpx failure).
+       "shim_python": run("sh", "-c", ". /app/plugins/nextseek/bin/_nextseek_common.sh; python -c 'import httpx' && echo ok")}
 for dist in sys.argv[2:]:
     try:
         out["dists"][dist] = md.version(dist)
@@ -179,6 +181,9 @@ def cc_runtime_problems(expected: dict, seen: dict) -> list[str]:
         if dist in (expected.get("dists") or []) and dists.get(dist):
             if imports.get(module) != "ok":
                 problems.append(f"{module} does not import: {imports.get(module)}")
+    if seen.get("shim_python") != "ok":
+        problems.append("a shim's python cannot import httpx after sourcing _nextseek_common.sh: "
+                        f"{str(seen.get('shim_python'))[:120]}")
     return problems
 
 

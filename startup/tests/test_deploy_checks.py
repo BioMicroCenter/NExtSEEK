@@ -84,10 +84,11 @@ def test_expected_cc_runtime_reads_node_claude_code_and_the_container_extra(tmp_
                         "dists": ["markitdown", "matplotlib"]}
 
 
-def _seen(node="v22.11.0", claude="2.1.282 (Claude Code)", dists=None, imports=None):
+def _seen(node="v22.11.0", claude="2.1.282 (Claude Code)", dists=None, imports=None, shim_python="ok"):
     return {"node": node, "claude": claude,
             "dists": dists if dists is not None else {"markitdown": "0.1.6", "matplotlib": "3.10.7"},
-            "imports": imports if imports is not None else {"matplotlib.pyplot": "ok"}}
+            "imports": imports if imports is not None else {"matplotlib.pyplot": "ok"},
+            "shim_python": shim_python}
 
 
 def test_an_image_as_the_checkout_builds_it_has_no_problem(tmp_path):
@@ -111,6 +112,17 @@ def test_an_installed_chart_library_that_does_not_import_is_a_problem(tmp_path):
         dc.expected_cc_runtime(_tree(tmp_path)),
         _seen(imports={"matplotlib.pyplot": "ImportError: libfreetype.so.6"}))
     assert problems == ["matplotlib.pyplot does not import: ImportError: libfreetype.so.6"]
+
+
+def test_a_shim_python_that_cannot_import_httpx_is_a_problem(tmp_path):
+    problems = dc.cc_runtime_problems(
+        dc.expected_cc_runtime(_tree(tmp_path)),
+        _seen(shim_python="ModuleNotFoundError: No module named 'httpx'"))
+    assert len(problems) == 1 and "httpx" in problems[0] and "_nextseek_common.sh" in problems[0]
+
+
+def test_the_probe_sources_the_shim_common_file_and_imports_httpx():
+    assert ". /app/plugins/nextseek/bin/_nextseek_common.sh; python -c 'import httpx'" in dc.CC_RUNTIME_PROBE
 
 
 def test_check_cc_agent_runtime_runs_no_agent_and_no_network(tmp_path, monkeypatch):
