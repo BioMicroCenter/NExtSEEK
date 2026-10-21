@@ -17,6 +17,7 @@
       "id": "hla_class_i",
       "candidates": ["optitype/*/*_result.tsv"],
       "sample_type": "A.HLA",
+      "assay": "HLA Typing",
       "cardinality": "per_sample",
       "primary_data": true,
       "optional": true,
