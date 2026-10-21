@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -62,6 +63,29 @@ def test_render_substitutes_all_slots_and_no_tokens_left():
     # CA bundle for singularity TLS (compute nodes lack the Let's Encrypt root)
     assert 'export SSL_CERT_FILE="$(dirname /net/x/singularity_cache)/certs/ca-bundle.crt"' in script
     assert "{{" not in script and "}}" not in script
+
+
+@pytest.mark.parametrize("nextflow_status", [0, 3])
+def test_run_script_exits_with_nextflow_status(tmp_path, nextflow_status):
+    # The trailing `conda deactivate` used to set the job's exit status, so SLURM
+    # recorded a failed pipeline as COMPLETED 0:0. Stub every command run.sh calls,
+    # run it, and check the job ends with nextflow's status.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name, status in (("module", 0), ("conda", 0), ("nextflow", nextflow_status)):
+        stub = bin_dir / name
+        stub.write_text(f"#!/bin/sh\nexit {status}\n", encoding="utf-8")
+        stub.chmod(0o755)
+    script = tmp_path / "run.sh"
+    script.write_text(render_run_script(
+        job_name="nfcore_rnaseq", pipeline="nf-core/rnaseq", revision="3.16.1",
+        run_dir=str(tmp_path), genome="GRCm39",
+        work_dir="/net/x/work/nfcore_rnaseq", singularity_cache="/net/x/singularity_cache",
+        resources={},
+    ), encoding="utf-8")
+    proc = subprocess.run(["bash", str(script)], capture_output=True, text=True,
+                          env={"PATH": f"{bin_dir}:/usr/bin:/bin"})
+    assert proc.returncode == nextflow_status
 
 
 def test_validate_revision_accepts_normal_revisions():

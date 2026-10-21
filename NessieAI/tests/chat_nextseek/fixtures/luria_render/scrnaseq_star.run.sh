@@ -44,5 +44,9 @@ nextflow run /net/x/pipelines/scrnaseq-2.7.1-star-patched -profile singularity \
     --fasta /net/x/refs/Macaca_fascicularis.Macaca_fascicularis_6.0.dna.toplevel.fa.gz --gtf /net/x/refs/Macaca_fascicularis.Macaca_fascicularis_6.0.116.gtf.gz --igenomes_ignore \
     -w /net/x/work/run \
     -resume
+# Without this the job ends with `conda deactivate`'s status, so SLURM records a
+# failed pipeline as COMPLETED 0:0.
+nextflow_status=$?
 
 conda deactivate
+exit $nextflow_status
