@@ -71,8 +71,11 @@ def _write(text: str) -> dict:
     rel = f"{sha[:2]}/{sha}.json.gz"
     path = os.path.join(_root(), rel)
     if os.path.exists(path):
-        os.utime(path)  # a re-linked file must not look old to the sweep
-        return {"$spill": rel, "bytes": len(raw)}
+        try:
+            os.utime(path)  # a re-linked file must not look old to the sweep
+            return {"$spill": rel, "bytes": len(raw)}
+        except FileNotFoundError:
+            pass  # the sweep removed it a moment ago: write it again
     folder = os.path.dirname(path)
     # 0755 folders and 0644 files whatever the umask: the nightly backup copies them as a non-root account.
     for d in (_root(), folder):

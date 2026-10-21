@@ -10,10 +10,14 @@ from nextseek_api.assistant.models_db import ChatSession, QueryTask
 _MODELS = {m._meta.db_table: m for m in (ChatSession, QueryTask)}
 
 
+_GONE = object()
+
+
 def _locked(model, col, key):
     """The column read through the field under the row's lock. Call inside transaction.atomic(): a live turn's save
     waits for the commit, so it can neither land between our read and our write nor be overwritten by them."""
-    return getattr(model.objects.select_for_update().only(col).get(pk=key), col)
+    row = model.objects.select_for_update().only(col).filter(pk=key).first()
+    return _GONE if row is None else getattr(row, col)  # a chat deleted while the command runs is skipped
 
 
 def _rows(want_links: bool):
@@ -49,14 +53,18 @@ class Command(BaseCommand):
                 n, total = n + 1, total + size
                 if not o["dry_run"]:
                     with transaction.atomic():
-                        # update(), not save(): updated_at must not move
-                        model.objects.filter(pk=key).update(**{col: _locked(model, col, key)})
+                        value = _locked(model, col, key)
+                        if value is not _GONE:
+                            # update(), not save(): updated_at must not move
+                            model.objects.filter(pk=key).update(**{col: value})
             self.stdout.write(f"rewrite: {n} column value(s), {total} stored bytes{' (dry run)' if o['dry_run'] else ''}")
         if o["inline"]:
             n = refused = 0
             for model, col, key, _ in list(_rows(True)):
                 with transaction.atomic():
                     value = _locked(model, col, key)
+                    if value is _GONE:
+                        continue
                     size = len(json.dumps(value))
                     if size >= spill.INLINE_MAX_BYTES:
                         refused += 1
