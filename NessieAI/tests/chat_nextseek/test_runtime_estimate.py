@@ -115,7 +115,8 @@ def test_the_prompt_tells_the_agent_to_state_the_estimate():
 # A hlatyping launch of six human RNA-seq runs (SRR21023814-19, 16.5-21.1 GB of FASTQ each,
 # about 107 GB, 390-500 M read pairs per run; SLURM 11426306, 2026-10-20) was offered as
 # "about 1.5–4.5 hours": hlatyping's curated block plus 17-70 minutes of small-run download.
-# fetchngs then spent 4 h and fetched none of them.
+# fetchngs then spent 4 h and fetched none of them. Each sample downloads at about 1 MB/s
+# (fetchngs traces on Luria, July-October 2026), up to 8 at a time.
 
 _GB = 10 ** 9
 _HLA_RUNS = {f"SRR2102381{i}": {"fastq_bytes": int(gb * _GB), "read_count": reads, "paired": True}
@@ -126,56 +127,64 @@ _HLATYPING = {"runtime": _block(setup_minutes=[0, 5], setup_label="", base_minut
                                 per_sample_minutes=[10, 30])}
 
 
-def test_the_failed_hlatyping_offer_is_reproduced_without_sizes(monkeypatch):
+def test_without_sizes_the_download_is_timed_as_small_runs_and_the_user_is_told(monkeypatch):
     monkeypatch.setattr(pp, "_load_pipeline_doc", lambda key: _HLATYPING)
     est = pp.runtime_estimate("hlatyping", n_samples=6, n_fetch=6)
     assert est["text"] == "about 1.5–4.5 hours"
-    # with no size from ENA the download is still timed as small runs, and the user is told
-    assert est["sra_download"]["timed"] is True
     assert "no size for 6 of the 6" in est["warning"]
     assert "timed as small runs" in est["warning"]
 
 
-def test_large_sra_runs_are_left_out_of_the_range_and_named_by_size(monkeypatch):
+def test_sized_runs_are_timed_at_one_mb_per_second_side_by_side(monkeypatch):
     monkeypatch.setattr(pp, "_load_pipeline_doc", lambda key: _HLATYPING)
-    sized = pp.runtime_estimate("hlatyping", n_samples=6, n_fetch=6, fetch_sizes=_HLA_RUNS)
-    no_fetch = pp.runtime_estimate("hlatyping", n_samples=6)
-    # the small-run download minutes are not claimed; no other figure replaces them
-    assert (sized["low_minutes"], sized["high_minutes"]) == \
-        (no_fetch["low_minutes"], no_fetch["high_minutes"])
-    assert sized["text"] == ("about 1–3.5 hours, plus downloading 107.1 GB from SRA, "
-                             "which it does not time")
-    assert sized["excludes"].startswith("the SRA download")
-    assert sized["sra_download"] == {"runs": 6, "sized": 6, "fastq_bytes": sum(r["fastq_bytes"] for r in _HLA_RUNS.values()),
-                                     "timed": False}
-    warning = sized["warning"]
-    assert "SRR21023818: 21.1 GB, 500 M read pairs" in warning
-    assert "6 of the 6 runs hold more than 1.0 GB of FASTQ" in warning
-    assert "not measured" in warning
-    assert any("107.1 GB of FASTQ; not timed" in item for item in sized["includes"])
+    est = pp.runtime_estimate("hlatyping", n_samples=6, n_fetch=6, fetch_sizes=_HLA_RUNS)
+    # six downloads run at once, so the largest (21.1 GB at 1 MB/s, 351.7 min) sets the time
+    download = 21.1 * _GB / 10 ** 6 / 60
+    assert est["low_minutes"] == pytest.approx(65 + 5 + download)
+    assert est["high_minutes"] == pytest.approx(200 + 10 + download)
+    assert est["text"] == "about 7–9.5 hours"
+    assert est["sra_download"]["download_minutes"] == 352
+    assert any("107.1 GB of FASTQ, about 6 hours at about 1 MB/s per sample, 6 at a time" in item
+               for item in est["includes"])
+    assert est["warning"].startswith(
+        "The largest run, SRR21023818 (21.1 GB, 500 M read pairs), takes about 6 hours")
+    assert "starts again from zero" in est["warning"]
 
 
-def test_small_sized_runs_keep_the_download_in_the_range_without_a_warning(monkeypatch):
+def test_more_samples_than_download_slots_queue_behind_each_other(monkeypatch):
+    monkeypatch.setattr(pp, "_load_pipeline_doc", lambda key: {"runtime": _block()})
+    runs = {f"SRR{i}": {"fastq_bytes": int(3.6 * _GB)} for i in range(10)}   # an hour each
+    est = pp.runtime_estimate("rnaseq", n_samples=10, n_fetch=10, fetch_sizes=runs)
+    # eight at a time: two of the ten wait for a free slot, so two hours in all
+    assert est["sra_download"]["download_minutes"] == 120
+    assert any("8 at a time" in item for item in est["includes"])
+    assert "warning" not in est     # no single download is longer than two hours
+
+
+def test_small_sized_runs_add_minutes_without_a_warning(monkeypatch):
     monkeypatch.setattr(pp, "_load_pipeline_doc", lambda key: {"runtime": _block()})
     small = {"SRR1": {"fastq_bytes": 150_000_000, "read_count": 1_000_000, "paired": True},
              "SRR2": {"fastq_bytes": 140_000_000, "read_count": 950_000, "paired": True}}
-    plain = pp.runtime_estimate("rnaseq", n_samples=2, n_fetch=2)
+    plain = pp.runtime_estimate("rnaseq", n_samples=2)
     sized = pp.runtime_estimate("rnaseq", n_samples=2, n_fetch=2, fetch_sizes=small)
-    assert (sized["low_minutes"], sized["high_minutes"]) == \
-        (plain["low_minutes"], plain["high_minutes"])
+    assert sized["low_minutes"] == pytest.approx(plain["low_minutes"] + 5 + 2.5)
+    assert sized["high_minutes"] == pytest.approx(plain["high_minutes"] + 10 + 2.5)
     assert "warning" not in sized
-    assert sized["sra_download"]["timed"] is True
-    assert any("0.3 GB of FASTQ" in item for item in sized["includes"])
+    assert any("0.3 GB of FASTQ, about 5 minutes at about 1 MB/s per sample, 2 at a time" in item
+               for item in sized["includes"])
 
 
-def test_a_large_run_beside_an_unsized_one_says_at_least(monkeypatch):
+def test_a_sized_run_beside_an_unsized_one_times_each_its_own_way(monkeypatch):
     monkeypatch.setattr(pp, "_load_pipeline_doc", lambda key: {"runtime": _block()})
+    plain = pp.runtime_estimate("rnaseq", n_samples=2)
     est = pp.runtime_estimate("rnaseq", n_samples=2, n_fetch=2,
                               fetch_sizes={"SRR1": {"fastq_bytes": 20 * _GB}})
-    assert est["text"].endswith("plus downloading at least 20.0 GB from SRA, which it does not time")
-    assert "for 1 of them, the rest of unknown size" in est["warning"]
-    assert "1 of the 2 runs holds more than" in est["warning"]
-    assert "(largest SRR1: 20.0 GB)" in est["warning"]   # no read count from ENA: none is invented
+    download = 20 * _GB / 10 ** 6 / 60
+    assert est["low_minutes"] == pytest.approx(plain["low_minutes"] + 5 + download + 2)
+    assert est["high_minutes"] == pytest.approx(plain["high_minutes"] + 10 + download + 10)
+    assert "The largest run, SRR1 (20.0 GB), takes" in est["warning"]  # no read count: none invented
+    assert "no size for 1 of the 2" in est["warning"]
+    assert any("1 of unknown size, timed as small runs" in item for item in est["includes"])
 
 
 def test_no_fetch_means_no_download_entry(monkeypatch):

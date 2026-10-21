@@ -34,17 +34,25 @@ def _load_pipeline_doc(pipeline_key: str) -> dict[str, Any]:
     return json.loads(path.read_text()) if path.exists() else {}
 
 
-# Pulling a run's SRA accessions before the pipeline starts (the fetchngs pre-stage):
-# once per run, then per accession. Small public runs; a large one takes longer.
+# Pulling a run's SRA accessions before the pipeline starts (the fetchngs pre-stage).
+# Fixed start-up, once per run; and, for a run ENA gave no size for, a per-accession range
+# that only ever held for small runs (about 1 M reads).
 _SRA_FETCH_MINUTES = (5, 10)
 _SRA_FETCH_PER_SAMPLE_MINUTES = (2, 10)
-# Above this much FASTQ in any one fetched run, the per-accession range above is not claimed
-# and the download is left out of the range, named by its size instead. A policy line, not a
-# measurement: the range was only ever seen to hold on runs of about 1 M reads, and six runs of
-# 16.5-21.1 GB fetched none in 4 h (hlatyping launch, SLURM 11426306, 2026-10-20), when the
-# range had said 17-70 minutes for the whole download. Nessie has no measured ENA-to-Luria
-# transfer rate to turn bytes into minutes.
-_SMALL_RUN_FASTQ_BYTES = 10 ** 9
+# Each sample downloads at about 1 MB/s, side by side with the others. Measured from the
+# fetchngs execution traces on Luria (SRA_FASTQ_FTP, bytes written over task time), ENA's FTP
+# to a Luria job, July to October 2026: 0.91-1.03 MB/s per sample with four at once (3.0-4.7 GB
+# each, 2026-07-23), 1.16-1.17 (two Kamm runs, 0.1-0.2 GB, 2026-10-19) and 1.21-1.38 (two
+# MDA-MB-231 runs, 1.6-1.7 GB, 2026-10-20). Four at once each kept that rate. A sample's
+# download is one task, both mates in turn, so its time is its FASTQ size over this rate.
+_SRA_BYTES_PER_SECOND = 10 ** 6
+# How many samples download at once: fetchngs' SRA_FASTQ_FTP is a process_low task (2 CPUs)
+# in the 16-CPU job run.sh requests (run_script.DEFAULT_RESOURCES), so 8. More than four at
+# once has not been measured; six ran side by side on 2026-10-20.
+_SRA_PARALLEL_DOWNLOADS = 8
+# A sample whose own download takes longer than this is named in a warning: a transfer that
+# breaks restarts from zero (three 17-21 GB downloads broke after 2.5-3.2 h, 2026-10-20).
+_LONG_DOWNLOAD_MINUTES = 120
 
 
 def _half_hours(minutes: float) -> str:
@@ -60,45 +68,63 @@ def _gb(n_bytes: int) -> str:
     return f"{n_bytes / 10 ** 9:.1f} GB"
 
 
-def _sra_download(n_fetch: int, fetch_sizes: dict[str, dict] | None) -> dict[str, Any]:
-    """What the estimate says about the SRA pre-stage, from ENA's sizes where it gave them.
+def _duration(minutes: float) -> str:
+    if minutes < 90:
+        return f"about {max(_five_minutes(minutes), 5)} minutes"
+    return f"about {_half_hours(minutes)} hours"
 
-    ``timed`` is False when any fetched run holds more than _SMALL_RUN_FASTQ_BYTES of FASTQ:
-    the small-run minutes are then left out of the range and the size is named instead."""
+
+def _download_minutes(sizes: list[int]) -> float:
+    """How long downloads of these FASTQ sizes take, _SRA_PARALLEL_DOWNLOADS at a time at
+    _SRA_BYTES_PER_SECOND each: the largest first, each to the slot that frees up soonest."""
+    slots = [0.0] * _SRA_PARALLEL_DOWNLOADS
+    for size in sorted(sizes, reverse=True):
+        slots[slots.index(min(slots))] += size / _SRA_BYTES_PER_SECOND / 60
+    return max(slots)
+
+
+def _sra_download(n_fetch: int, fetch_sizes: dict[str, dict] | None) -> dict[str, Any]:
+    """What the estimate adds for the SRA pre-stage: low and high minutes, the ``include``
+    line, and a ``warning`` or None.
+
+    A run ENA sized is timed at _SRA_BYTES_PER_SECOND, _SRA_PARALLEL_DOWNLOADS at a time. A
+    run it gave no size for keeps the small-run range, and the warning says so."""
     sizes = {acc: s for acc, s in (fetch_sizes or {}).items() if s and s.get("fastq_bytes")}
     total = sum(s["fastq_bytes"] for s in sizes.values())
-    large = {acc: s for acc, s in sizes.items() if s["fastq_bytes"] > _SMALL_RUN_FASTQ_BYTES}
-    plural = "s" if n_fetch != 1 else ""
     unknown = max(n_fetch - len(sizes), 0)
-    out: dict[str, Any] = {"runs": n_fetch, "sized": len(sizes), "fastq_bytes": total,
-                           "timed": not large, "warning": None}
-    if large:
-        acc, biggest = max(large.items(), key=lambda kv: kv[1]["fastq_bytes"])
-        reads = biggest.get("read_count")
-        unit = "read pairs" if biggest.get("paired") else "reads"
-        depth = f", {reads / 10 ** 6:.0f} M {unit}" if reads else ""
-        known = (f"{_gb(total)} of FASTQ" if not unknown
-                 else f"{_gb(total)} of FASTQ for {len(sizes)} of them, the rest of unknown size")
-        out["include"] = f"downloading {n_fetch} sample{plural} from SRA first ({known}; not timed)"
-        out["warning"] = (
-            f"This range leaves out the SRA download: {known}. {len(large)} of the {n_fetch} "
-            f"runs hold{'s' if len(large) == 1 else ''} more than {_gb(_SMALL_RUN_FASTQ_BYTES)} "
-            f"of FASTQ (largest {acc}: "
-            f"{_gb(biggest['fastq_bytes'])}{depth}). How long that takes depends on ENA's "
-            "transfer speed to Luria, which Nessie has not measured. The per-sample times "
-            "were set for runs of typical depth, so deeper runs take longer there too.")
-    elif unknown:
-        out["include"] = (f"downloading {n_fetch} sample{plural} from SRA first "
-                          "(timed as small runs; ENA gave no size for "
-                          f"{unknown} of them)")
-        out["warning"] = (
-            f"ENA gave no size for {unknown} of the {n_fetch} SRA runs, so their download is "
-            "timed as small runs (about 1 M reads). A deep run takes much longer: a run of "
-            "about 20 GB of FASTQ did not finish downloading in 4 hours.")
+    sized_minutes = _download_minutes([s["fastq_bytes"] for s in sizes.values()]) if sizes else 0.0
+    low = _SRA_FETCH_MINUTES[0] + sized_minutes + unknown * _SRA_FETCH_PER_SAMPLE_MINUTES[0]
+    high = _SRA_FETCH_MINUTES[1] + sized_minutes + unknown * _SRA_FETCH_PER_SAMPLE_MINUTES[1]
+    plural = "s" if n_fetch != 1 else ""
+    warnings: list[str] = []
+    if sizes:
+        at_once = min(len(sizes), _SRA_PARALLEL_DOWNLOADS)
+        detail = (f"{_gb(total)} of FASTQ, {_duration(sized_minutes)} at about 1 MB/s per "
+                  f"sample, {at_once} at a time")
+        if unknown:
+            detail += f"; {unknown} of unknown size, timed as small runs"
+        acc, biggest = max(sizes.items(), key=lambda kv: kv[1]["fastq_bytes"])
+        own = biggest["fastq_bytes"] / _SRA_BYTES_PER_SECOND / 60
+        if own > _LONG_DOWNLOAD_MINUTES:
+            reads = biggest.get("read_count")
+            unit = "read pairs" if biggest.get("paired") else "reads"
+            depth = f", {reads / 10 ** 6:.0f} M {unit}" if reads else ""
+            warnings.append(
+                f"The largest run, {acc} ({_gb(biggest['fastq_bytes'])}{depth}), takes "
+                f"{_duration(own)} to download on its own at about 1 MB/s. A transfer that "
+                "breaks starts again from zero, so it can take longer.")
     else:
-        out["include"] = (f"downloading {n_fetch} sample{plural} from SRA first "
-                          f"({_gb(total)} of FASTQ)")
-    return out
+        detail = "timed as small runs; ENA gave no size for them"
+    if unknown:
+        warnings.append(
+            f"ENA gave no size for {unknown} of the {n_fetch} SRA runs, so their download is "
+            "timed as small runs (about 1 M reads). A deep run takes much longer: about an "
+            "hour per 3.6 GB of FASTQ.")
+    return {"low": low, "high": high,
+            "include": f"downloading {n_fetch} sample{plural} from SRA first ({detail})",
+            "summary": {"runs": n_fetch, "sized": len(sizes), "fastq_bytes": total,
+                        "download_minutes": round(sized_minutes)},
+            "warning": " ".join(warnings) or None}
 
 
 def runtime_estimate(pipeline_key: str, n_samples: int, n_fetch: int = 0,
@@ -109,11 +135,11 @@ def runtime_estimate(pipeline_key: str, n_samples: int, n_fetch: int = 0,
     The block holds ``setup_minutes`` (fixed work such as building the genome index, which
     every run with local references repeats), ``base_minutes`` (per-run steps: MultiQC and
     the like) and ``per_sample_minutes``, each a [low, high] pair, and ``basis`` saying
-    where the numbers come from. Samples fetched from SRA add download time, timed as
-    small runs. ``fetch_sizes`` ({accession: {"fastq_bytes", "read_count", "paired"}}, from
-    ENA) names the download's size; when a run is larger than _SMALL_RUN_FASTQ_BYTES the
-    download is left out of the range and ``warning`` says so and why. Queue time before the
-    job starts is not included, and the text says so.
+    where the numbers come from. Samples fetched from SRA add download time: from
+    ``fetch_sizes`` ({accession: {"fastq_bytes", "read_count", "paired"}}, from ENA) at
+    about 1 MB/s per sample (_SRA_BYTES_PER_SECOND), or as small runs where ENA gave no size,
+    and ``warning`` names a very long download or a missing size. Queue time before the job
+    starts is not included, and the text says so.
     """
     block = _load_pipeline_doc(pipeline_key).get("runtime")
     if not block:
@@ -132,27 +158,20 @@ def runtime_estimate(pipeline_key: str, n_samples: int, n_fetch: int = 0,
                     f"at about {per_sample[0]}–{per_sample[1]} min each")
     download = _sra_download(n_fetch, fetch_sizes) if n_fetch else None
     if download:
-        if download["timed"]:
-            low += _SRA_FETCH_MINUTES[0] + n_fetch * _SRA_FETCH_PER_SAMPLE_MINUTES[0]
-            high += _SRA_FETCH_MINUTES[1] + n_fetch * _SRA_FETCH_PER_SAMPLE_MINUTES[1]
-        includes.append(download.pop("include"))
+        low += download["low"]
+        high += download["high"]
+        includes.append(download["include"])
     if high < 90:
         text = f"about {_five_minutes(low)}–{_five_minutes(high)} minutes"
     else:
         text = f"about {_half_hours(low)}–{_half_hours(high)} hours"
-    excludes = "time waiting in the Slurm queue before the job starts"
-    if download and not download["timed"]:
-        at_least = "at least " if download["sized"] < download["runs"] else ""
-        text += (f", plus downloading {at_least}{_gb(download['fastq_bytes'])} from SRA, "
-                 "which it does not time")
-        excludes = f"the SRA download, and {excludes}"
     out = {"low_minutes": low, "high_minutes": high, "text": text, "includes": includes,
-           "excludes": excludes, "basis": block.get("basis", "")}
+           "excludes": "time waiting in the Slurm queue before the job starts",
+           "basis": block.get("basis", "")}
     if download:
-        warning = download.pop("warning")
-        out["sra_download"] = download
-        if warning:
-            out["warning"] = warning
+        out["sra_download"] = download["summary"]
+        if download["warning"]:
+            out["warning"] = download["warning"]
     return out
 
 
