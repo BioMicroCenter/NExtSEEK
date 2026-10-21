@@ -125,6 +125,17 @@ def test_the_probe_sources_the_shim_common_file_and_imports_httpx():
     assert ". /app/plugins/nextseek/bin/_nextseek_common.sh; python -c 'import httpx'" in dc.CC_RUNTIME_PROBE
 
 
+def test_the_shim_check_reads_stdout_alone_so_a_warning_on_stderr_is_no_failure():
+    probe: dict = {}
+    exec(dc.CC_RUNTIME_PROBE.split("\nimports = ")[0], probe)  # the probe's imports and its run()
+    shim_line = next(ln for ln in dc.CC_RUNTIME_PROBE.splitlines() if '"shim_python"' in ln)
+    kw = {"ok_on_stdout": True} if "ok_on_stdout=True" in shim_line else {}
+    warned = probe["run"]("sh", "-c", "echo 'DeprecationWarning: old api' >&2; echo ok", **kw)
+    assert warned == "ok"
+    failed = probe["run"]("sh", "-c", "echo \"ModuleNotFoundError: No module named 'httpx'\" >&2; exit 1", **kw)
+    assert "No module named 'httpx'" in failed
+
+
 def test_check_cc_agent_runtime_runs_no_agent_and_no_network(tmp_path, monkeypatch):
     ran: list[list[str]] = []
     monkeypatch.setattr(dc, "image_exists", lambda image: True)
