@@ -32,7 +32,7 @@ from pathlib import Path
 from ..schemas import SeqeraLaunchPlan
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
 from ..seqera.emitter import emit_launch_artifacts, emit_luria_launch_artifacts, emit_nfcore_artifacts
-from ..seqera.ena import extract_accessions_from_metadata, resolve_accessions
+from ..seqera.ena import extract_accessions_from_metadata, lookup_run_sizes, resolve_accessions
 from ..seqera.pipeline_params import (
     build_run_params,
     gencode_for_genome_key,
@@ -780,7 +780,10 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
 
     ref_files = (local_luria_ref_files(merged.get("genome"), pipeline=pipeline_key)
                  if reference_status == "local_luria" else None)
-    n_samples, n_fetch = _samplesheet_counts(samplesheet)
+    n_samples, fetch_accessions = _samplesheet_counts(samplesheet)
+    # ENA's FASTQ sizes for the runs the fetchngs pre-stage will download: the estimate names
+    # the download's size and, for a large run, leaves it out of the range and says why.
+    fetch_sizes = lookup_run_sizes(fetch_accessions) if fetch_accessions else {}
     return json.dumps({
         "ok": True,
         "pipeline_key": pipeline_key,
@@ -791,12 +794,14 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         "schema_check": schema_check,
         "params_yml": result.saved_files.get("params"),
         "launch_yml": result.saved_files.get("launch"),
-        "runtime_estimate": runtime_estimate(pipeline_key, n_samples, n_fetch),
+        "runtime_estimate": runtime_estimate(pipeline_key, n_samples, len(fetch_accessions),
+                                             fetch_sizes=fetch_sizes),
     })
 
 
-def _samplesheet_counts(samplesheet: str | None) -> tuple[int, int]:
-    """(rows, rows still to fetch from SRA) in the built samplesheet; (0, 0) when unreadable."""
+def _samplesheet_counts(samplesheet: str | None) -> tuple[int, list[str]]:
+    """(rows, accessions still to fetch from SRA) in the built samplesheet; (0, []) when
+    unreadable."""
     import csv
 
     from ..luria.fetchngs_helpers import needs_fetch_accessions
@@ -804,8 +809,8 @@ def _samplesheet_counts(samplesheet: str | None) -> tuple[int, int]:
         with open(samplesheet or "", newline="") as handle:
             rows = list(csv.DictReader(handle))
     except OSError:
-        return 0, 0
-    return len(rows), len(needs_fetch_accessions(rows))
+        return 0, []
+    return len(rows), needs_fetch_accessions(rows)
 
 
 def _user_msg_count(state: dict) -> int:
