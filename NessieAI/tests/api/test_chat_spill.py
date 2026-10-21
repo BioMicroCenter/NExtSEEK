@@ -298,6 +298,25 @@ class CommandTests(SpillBase):
         self.assertIsNone(self.raw("assistant_query_task", "result", "id", task.pk))
         self.assertEqual(len(self.files()), 1)
 
+    def test_rewrite_and_inline_read_each_row_under_its_row_lock(self):
+        # A live turn's save takes the same row lock (DictSessionAdapter.save), so it cannot land between our read
+        # and our write and be overwritten. SQLite has no row locks: the test sees the lock asked for, not the wait.
+        from django.db.models.query import QuerySet
+
+        self._old_row()
+        locked = []
+        real = QuerySet.select_for_update
+
+        def spy(qs, *a, **k):
+            locked.append(qs.model)
+            return real(qs, *a, **k)
+
+        with mock.patch.object(QuerySet, "select_for_update", spy):
+            call_command("chat_spill", "--rewrite", stdout=_W([]))
+            self.assertEqual(locked, [ChatSession])
+            call_command("chat_spill", "--inline", stdout=_W([]))
+            self.assertEqual(locked, [ChatSession, ChatSession])
+
     def test_inline_refuses_a_row_at_or_over_60_mb(self):
         sess = ChatSession.objects.create(user=self.user)
         link = spill.spill({"k": _blob("h", 2 * MB)})
