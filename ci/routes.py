@@ -1195,11 +1195,14 @@ REGISTRY: list[Route] = [
           effect="writes", writers=("WR-27",),
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST",
           note="the chat turn forced onto Container-CC; alias of cc-assistant/cc/query/async/"),
+    # EXCLUDE_COST stays on the two chat-turn rows below although they now carry a path and profiles:
+    # the Nessie lane's browser blocks every paid POST by that code (test_nessie.classify_request), and
+    # the guard-client refusal probes of ci/smoke/test_member_scope.py are the only calls that ever reach them.
     Route(pattern=r"^nextseek_api/^^cc-assistant/cc/query/async/$",
           path="/nextseek_api/cc-assistant/cc/query/async/",
           effect="writes", writers=("WR-27",),
           methods=("POST",), profiles="local,dev,prod", auth="smoke", expect=403,
-          prod_allows_non_get=True,
+          prod_allows_non_get=True, exclude="EXCLUDE_COST",
           note="the chat turn forced onto the Container-CC engine. CI sends only a `{}` body "
                "as the smoke member (ci/smoke/test_member_scope.py): the superuser check "
                "answers 403 before the body is read, so no turn can start"),
@@ -1207,6 +1210,7 @@ REGISTRY: list[Route] = [
           path="/nextseek_api/cc-assistant/query/async/",
           effect="writes", writers=("WR-27",),
           methods=("POST",), profiles="local,dev", auth="smoke", expect=403, lane="nessie",
+          exclude="EXCLUDE_COST",
           note="the router-dispatched chat turn; either engine may answer it. The "
                "Nessie lane's browser sends it (ci/smoke/test_nessie.py), at most "
                "four times per run. Beyond that, ci/smoke/test_member_scope.py sends "

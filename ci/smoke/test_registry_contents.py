@@ -263,9 +263,16 @@ def test_an_enabled_route_is_requestable_and_an_excluded_one_is_not():
 
 def test_an_excluded_route_has_no_requestable_path():
     """Belt and braces on top of the client-side guard: a consumer that iterates
-    the registry building URLs cannot even form one for an excluded route."""
+    the registry building URLs cannot even form one for an excluded route.
+
+    The one exception is a paid route that carries a free refusal probe (ci/smoke/test_member_scope.py):
+    it keeps its exclude code, so the Nessie lane's browser still blocks it, and it sends POST only,
+    so the GET sweep never builds a URL for it.
+    """
     for route in REGISTRY:
-        if route.exclude:
+        if route.exclude and route.profiles:
+            assert route.exclude == "EXCLUDE_COST" and route.methods == ("POST",), route.pattern
+        elif route.exclude:
             assert route.path is None, (
                 f"{route.pattern} is excluded but still carries path {route.path!r}"
             )
@@ -479,6 +486,7 @@ def test_a_lane_route_stays_out_of_reach_of_the_sweep_and_prod():
         if route.lane:
             assert "GET" not in route.methods
             assert "prod" not in route.profiles and not route.prod_allows_non_get
+            assert route.exclude == "EXCLUDE_COST"
 
 
 def test_an_unknown_lane_is_refused():
