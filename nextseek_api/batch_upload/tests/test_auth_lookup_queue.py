@@ -34,7 +34,7 @@ def engine():
 def _queue(engine):
     with engine.connect() as c:
         return c.execute(text("SELECT item_id, item_type, priority, created_at FROM auth_lookup_update_queues "
-                              "ORDER BY item_id")).fetchall()
+                              "ORDER BY item_id, item_type")).fetchall()
 
 
 def _run(engine, samples, existing, **kw):
@@ -59,7 +59,8 @@ def test_every_inserted_sample_is_queued_once(engine):
         result = _run(engine, [_sample(u) for u in ids], {})
     assert result.inserted_count == 3
     rows = _queue(engine)
-    assert [(r[0], r[1], r[2]) for r in rows] == [(10, "Sample", 0), (11, "Sample", 0), (12, "Sample", 0)]
+    # 2 is SEEK's own default (ResourceQueue::DEFAULT_PRIORITY, lib/seek/samples/extractor.rb); lowest runs first
+    assert [(r[0], r[1], r[2]) for r in rows] == [(10, "Sample", 2), (11, "Sample", 2), (12, "Sample", 2)]
     assert all(r[3] for r in rows)  # SEEK's job reads created_at
 
 
@@ -82,3 +83,16 @@ def test_a_missing_queue_table_does_not_fail_the_batch():
     eng = create_engine("sqlite://")
     with eng.begin() as c:
         assert enqueue_auth_lookup(c, [1, 2]) is False
+
+
+def test_a_sample_already_queued_keeps_its_one_row(engine):
+    # SEEK's enqueue keeps one row per item (first_or_initialize on item_id and item_type) and its priority.
+    from nextseek_api.batch_upload.insert import enqueue_auth_lookup
+
+    with engine.begin() as c:
+        c.execute(text("INSERT INTO auth_lookup_update_queues (item_id, item_type, priority) "
+                       "VALUES (11, 'Sample', 1), (12, 'Person', 2)"))
+    with engine.begin() as c:
+        assert enqueue_auth_lookup(c, [10, 11, 12]) is True
+    assert [(r[0], r[1], r[2]) for r in _queue(engine)] == [
+        (10, "Sample", 2), (11, "Sample", 1), (12, "Person", 2), (12, "Sample", 2)]
