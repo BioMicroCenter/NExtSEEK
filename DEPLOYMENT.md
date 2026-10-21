@@ -427,6 +427,10 @@ the old stop-and-start. Steps (`startup/lib/web_swap.py`):
    lets running chat turns finish; a turn still running at the cap is ended with a plain
    "please ask again"), `docker rm` it, delete the pin.
 
+The deploy that brings `0030_spill_json_fields` (the chat size guard) is such a deploy:
+the migration changes no column, but it is unapplied, so `migrate --check` sends that one
+deploy to stop-first. Plan its minute of the restart page.
+
 Any failure before the switch removes the new container and the pin; the old one never
 stopped serving. A pin left by a killed swap may name a container that is gone: `doctor`
 reports it, and `rebuild` refuses to build or replace `web` until it is deleted and nginx
@@ -623,6 +627,26 @@ restoring it is a deliberate, owner-approved action, not part of routine
 rollback. A deploy that applied `0025_cc_turn` is the case in point: reverse it
 before you repoint the image (`NessieAI/cc/DEPLOY.md`, "Approach 1 (unit B)"),
 or chats that ran a Container-CC turn cannot be deleted.
+
+A deploy that applied `0030_spill_json_fields` (the chat size guard,
+`nextseek_api/assistant/spill.py`) needs one step before you repoint: since then each
+chat value over 256 KB sits in a file under `/media/chat_spill` and its row keeps a link,
+which the code before the guard reads as data. Stop `web` and the worker so no turn
+writes, then, still on the new image, put the values back in their rows:
+
+```bash
+docker compose -p nextseek stop web nextseek
+docker compose -p nextseek run --rm --no-deps --entrypoint /app/.venv/bin/python nextseek manage.py chat_spill --inline --dry-run
+docker compose -p nextseek run --rm --no-deps --entrypoint /app/.venv/bin/python nextseek manage.py chat_spill --inline
+```
+
+`--inline` refuses a column that would come back at 60 MB or more (MySQL refuses a
+statement over 64 MB, the failure the guard exists for) and names each one on stderr
+(`refused: <table>.<column> <id> would be <n> bytes inline`). A refused column keeps its
+links: the old code reads each as `{"$spill": ..., "bytes": ...}` where the value was,
+so that chat opens without its big parts, and a `results_history` or `progress` that is
+one link as a whole is not a list to it (delete that chat first). Leave
+`/media/chat_spill` in place either way: a later roll-forward reads the links again.
 
 ### 5.2 Tag conventions and their care
 
