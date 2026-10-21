@@ -4,6 +4,8 @@
   python3 fetchngs_helpers.py ids           -> write ids.csv from samplesheet.csv
   python3 fetchngs_helpers.py fill <cache>  -> fill fastq_1/2 in samplesheet.csv from <cache>/fastq
   python3 fetchngs_helpers.py cached <cache> -> exit 0 if fill can resolve every id in ids.csv
+  python3 fetchngs_helpers.py claim <cache> <job_id>   -> mark ids.csv's accessions in use by the job
+  python3 fetchngs_helpers.py release <cache> <job_id> -> drop the job's claims (run.sh's exit trap)
 
 Because it is staged verbatim (never string-formatted with run-specific values), it
 carries no shell-injection surface. Accessions are validated as bare ids before any
@@ -12,8 +14,12 @@ path is constructed, so a malformed accession cannot cause path traversal.
 from __future__ import annotations
 
 import csv
+import fcntl
+import os
 import re
 import sys
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 _ACC_RE = re.compile(r"^[A-Za-z0-9]+$")
@@ -110,6 +116,85 @@ def uncached_accessions(accs: list[str], cache: str) -> list[str]:
     return [a for a in accs if not (_ACC_RE.match(a) and _resolve(runs, cache, a))]
 
 
+# --- download claims: what the weekly cleanup (bin/nessie_cleanup.py) reads ---------------
+# A run claims its accessions BEFORE it checks the cache and releases them when it exits, both
+# under <cache>/nessie_status/cleanup.lock, which the cleanup also holds while it deletes
+# downloads. So the cleanup can never delete a FASTQ that a starting run has just decided to
+# reuse. cleanup.py parses these files: change a format here and you change it there too.
+
+STATUS_DIR = "nessie_status"
+LOCK_NAME = "cleanup.lock"
+_JOB_RE = re.compile(r"^[A-Za-z0-9_]+$")
+_TIME_FMT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def _iso(now: float | None = None) -> str:
+    return time.strftime(_TIME_FMT, time.gmtime(time.time() if now is None else now))
+
+
+def _check_job(job_id: str) -> str:
+    if not job_id or not _JOB_RE.match(job_id):
+        raise ValueError(f"invalid job id {job_id!r}")
+    return job_id
+
+
+@contextmanager
+def _cache_lock(cache: str):
+    status = Path(cache) / STATUS_DIR
+    status.mkdir(parents=True, exist_ok=True)
+    with open(status / LOCK_NAME, "a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield status
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def _touch_last_used(status: Path, acc: str, now: float | None) -> None:
+    folder = status / "last_used"
+    folder.mkdir(exist_ok=True)
+    (folder / f"{acc}.txt").write_text(f"last_used_at: {_iso(now)}\n", encoding="utf-8")
+
+
+def claim(cache: str, job_id: str, accs: list[str], *, run_dir: str = "",
+          now: float | None = None) -> list[str]:
+    """Mark `accs` in use by `job_id` and refresh their last_used; return the bare ids claimed."""
+    _check_job(job_id)
+    accs = [a for a in accs if _ACC_RE.match(a)]
+    with _cache_lock(cache) as status:
+        for acc in accs:
+            folder = status / "in_use" / acc
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / job_id).write_text(f"claimed_at: {_iso(now)}\nrun_dir: {run_dir}\n",
+                                         encoding="utf-8")
+            _touch_last_used(status, acc, now)
+    return accs
+
+
+def release(cache: str, job_id: str, *, now: float | None = None) -> list[str]:
+    """Drop every claim `job_id` holds, refreshing last_used for each; return the ids released.
+
+    Refreshing here, not only in claim, starts the cleanup's 30-day clock when a run stops
+    using a download rather than when it started."""
+    _check_job(job_id)
+    if not (Path(cache) / STATUS_DIR / "in_use").is_dir():
+        return []
+    released: list[str] = []
+    with _cache_lock(cache) as status:
+        for folder in sorted((status / "in_use").iterdir()):
+            entry = folder / job_id
+            if not entry.is_file():
+                continue
+            entry.unlink()
+            released.append(folder.name)
+            _touch_last_used(status, folder.name, now)
+            try:
+                folder.rmdir()  # succeeds only when no other job still holds this accession
+            except OSError:
+                pass
+    return released
+
+
 def fill_rows(rows: list[dict], cache: str) -> tuple[list[dict], list[str]]:
     """Fill fastq_1/fastq_2 for blank accession rows from the cache; return (rows, missing_accessions).
 
@@ -168,6 +253,17 @@ def _main_cached(cache: str, ids: str = "ids.csv") -> int:
     return 1 if uncached_accessions(accs, cache) else 0
 
 
+def _main_claim(cache: str, job_id: str, ids: str = "ids.csv") -> int:
+    accs = [line.strip() for line in Path(ids).read_text(encoding="utf-8").splitlines() if line.strip()]
+    claim(cache, job_id, accs, run_dir=os.getcwd())
+    return 0
+
+
+def _main_release(cache: str, job_id: str) -> int:
+    release(cache, job_id)
+    return 0
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "ids":
@@ -176,5 +272,10 @@ if __name__ == "__main__":
         sys.exit(_main_fill(sys.argv[2]))
     if cmd == "cached":
         sys.exit(_main_cached(sys.argv[2]))
-    sys.stderr.write("usage: fetchngs_helpers.py ids | fill <cache> | cached <cache>\n")
+    if cmd == "claim" and len(sys.argv) == 4:
+        sys.exit(_main_claim(sys.argv[2], sys.argv[3]))
+    if cmd == "release" and len(sys.argv) == 4:
+        sys.exit(_main_release(sys.argv[2], sys.argv[3]))
+    sys.stderr.write("usage: fetchngs_helpers.py ids | fill <cache> | cached <cache> | "
+                     "claim <cache> <job_id> | release <cache> <job_id>\n")
     sys.exit(2)
