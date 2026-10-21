@@ -346,3 +346,269 @@ def build_report(root, queued, now):
         items.append(scratch)
     problems.extend(stale_claim_notes(claims, queued))
     return items, problems
+
+
+# --- sizes, the lock, deleting ----------------------------------------------------------
+
+def tree_size(path):
+    """Bytes under `path`; symlinks are counted as links and never followed."""
+    try:
+        if os.path.islink(path) or not os.path.isdir(path):
+            return os.lstat(path).st_size
+    except OSError:
+        return 0
+    total = 0
+    for dirpath, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(dirpath, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def add_sizes(items):
+    for item in items:
+        item.size = tree_size(item.path) + sum(tree_size(p) for p, _ in item.companions)
+
+
+class CacheLock(object):
+    """fastq_cache/nessie_status/cleanup.lock, the lock fetchngs_helpers.claim also takes."""
+
+    def __init__(self, cache):
+        self.path = os.path.join(cache, STATUS_DIR, LOCK_NAME)
+        self._fh = None
+
+    def acquire(self, timeout_s):
+        """"taken", or "busy" when another holder kept it for `timeout_s` seconds."""
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        fh = open(self.path, "a")
+        deadline = time.time() + timeout_s
+        while True:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self._fh = fh
+                return "taken"
+            except OSError as exc:
+                if exc.errno not in (errno.EAGAIN, errno.EACCES):
+                    fh.close()
+                    raise
+                if time.time() >= deadline:
+                    fh.close()
+                    return "busy"
+                time.sleep(1)
+
+    def release(self):
+        if self._fh is not None:
+            fcntl.flock(self._fh, fcntl.LOCK_UN)
+            self._fh.close()
+            self._fh = None
+
+
+def probe_lock(cache):
+    """Whether the download lock works on this filesystem, for the report."""
+    if not os.path.isdir(cache):
+        return "not tested (no fastq_cache/ yet)"
+    lock = CacheLock(cache)
+    try:
+        state = lock.acquire(0)
+    except OSError as exc:
+        return "FAILED ({}); --delete will not delete downloads".format(exc)
+    lock.release()
+    if state == "taken":
+        return "taken and released (locking works here)"
+    return "busy (a run is starting; try again in a minute)"
+
+
+def remove_path(path, parent):
+    """Delete `path`, which must sit directly inside `parent`. A symlink is removed as a link,
+    never followed, and shutil.rmtree does not follow the links inside a folder either."""
+    name = os.path.basename(os.path.normpath(path))
+    if name in ("", ".", "..") or not same_path(os.path.join(parent, name), path):
+        raise ValueError("refusing to delete {}: not directly inside {}".format(path, parent))
+    if os.path.islink(path) or not os.path.isdir(path):
+        os.unlink(path)
+    else:
+        shutil.rmtree(path)
+
+
+def runs_in_progress(root, queued, now):
+    """What stops --delete: Nessie runs in progress or being launched, and live download
+    claims. The admin runs --delete again once this is empty."""
+    busy = []
+    for run in read_runs(root, queued):
+        if run.state == "in_progress":
+            busy.append("{} is in progress".format(run.shown))
+        elif (run.state == "unlabelled" and run.work_name
+              and now - run.changed < LAUNCH_GRACE_DAYS * DAY):
+            busy.append("{} is being launched".format(run.shown))
+    for acc, jobs in sorted(read_claims(os.path.join(root, "fastq_cache")).items()):
+        busy.extend("job {} is using download {}".format(job, acc)
+                    for job in jobs if is_live(job, queued))
+    return busy
+
+
+def deletable(root, queued, now, kinds):
+    """Paths a fresh look at the labels still marks delete: the re-check before deleting."""
+    items, _ = build_report(root, queued, now)
+    return set(i.path for i in items if i.decision == "delete" and i.kind in kinds)
+
+
+def _delete_one(item, still, root, log):
+    shown = os.path.relpath(item.path, root)
+    if item.path not in still:
+        log.append("SKIPPED  {}  no longer qualifies on re-check".format(shown))
+        return 0
+    try:
+        remove_path(item.path, item.parent)
+        for path, parent in item.companions:
+            if os.path.lexists(path):
+                remove_path(path, parent)
+    except (OSError, ValueError) as exc:
+        log.append("FAILED   {}  {}".format(shown, exc))
+        return 0
+    log.append("DELETED  {:>9}  {}  {}".format(human_size(item.size), shown, item.reason))
+    return item.size
+
+
+def delete_pass(root, planned, queued, clock=time.time):
+    """Delete what `planned` marks delete, re-checking each item against fresh labels first;
+    downloads only while holding the download lock. Returns (log lines, bytes freed, failures)."""
+    log = []
+    freed = 0
+    targets = [i for i in planned if i.decision == "delete"]
+    work = [i for i in targets if i.kind == "work"]
+    cached = [i for i in targets if i.kind != "work"]
+    if work:
+        still = deletable(root, queued, clock(), ("work",))
+        for item in work:
+            freed += _delete_one(item, still, root, log)
+    if cached:
+        lock = CacheLock(os.path.join(root, "fastq_cache"))
+        try:
+            state = lock.acquire(LOCK_TIMEOUT_S)
+        except OSError as exc:
+            state = "failed ({})".format(exc)
+        if state != "taken":
+            log.extend("SKIPPED  {}  download lock {}".format(os.path.relpath(i.path, root), state)
+                       for i in cached)
+        else:
+            try:
+                still = deletable(root, queued, clock(), ("fastq", "fetchngs_work"))
+                for item in cached:
+                    freed += _delete_one(item, still, root, log)
+            finally:
+                lock.release()
+    failures = sum(1 for line in log if line.startswith("FAILED"))
+    return log, freed, failures
+
+
+# --- the report and the command line ----------------------------------------------------
+
+def human_size(n):
+    if n >= 1024 ** 3:
+        return "{:.1f} GB".format(n / 1024.0 ** 3)
+    if n >= 1024 ** 2:
+        return "{:.1f} MB".format(n / 1024.0 ** 2)
+    return "{} KB".format(int(math.ceil(n / 1024.0)))
+
+
+_SECTIONS = (
+    ("delete", "WILL DELETE"),
+    ("keep", "KEEPING FOR NOW"),
+    ("unlabelled", "UNLABELLED, never deleted by this script; delete by hand only if you are sure"),
+)
+
+
+def format_report(root, items, problems, queue_note, lock_note, busy, now):
+    lines = ["Nessie cleanup report for {}".format(root),
+             "Date: {}".format(format_time(now)),
+             "Job queue: {}".format(queue_note),
+             "Download lock: {}".format(lock_note)]
+    if busy:
+        lines.append("Nessie runs in progress: {} (--delete waits until they have finished)"
+                     .format(len(busy)))
+        lines += ["  " + b for b in busy]
+    else:
+        lines.append("Nessie runs in progress: none")
+    for decision, title in _SECTIONS:
+        chosen = [i for i in items if i.decision == decision]
+        lines += ["", "{} ({})".format(title, len(chosen))]
+        for item in chosen:
+            left = "; {} days left".format(item.days_left) if item.days_left is not None else ""
+            lines.append("  {:>9}  {}  {}{}".format(human_size(item.size),
+                                                    os.path.relpath(item.path, root),
+                                                    item.reason, left))
+    if problems:
+        lines += ["", "PROBLEMS ({})".format(len(problems))]
+        lines += ["  " + p for p in problems]
+    freed = sum(i.size for i in items if i.decision == "delete")
+    lines += ["", "Would free {} with --delete.".format(human_size(freed))]
+    return "\n".join(lines)
+
+
+def read_queue():
+    """(ids of jobs queued or running, note). The ids are None when squeue cannot be read."""
+    try:
+        out = subprocess.check_output(["squeue", "-h", "-o", "%i"], stderr=subprocess.STDOUT,
+                                      universal_newlines=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, "COULD NOT BE READ ({}); --delete will not delete anything".format(exc)
+    jobs = set(line.strip() for line in out.splitlines() if line.strip())
+    return jobs, "read ({} jobs queued or running)".format(len(jobs))
+
+
+def write_log(root, report, log, freed, now):
+    folder = os.path.join(root, "cleanup_logs")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, time.strftime("%Y-%m-%d_%H%M%S", time.gmtime(now)) + ".txt")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(report + "\n\nDELETE PASS\n" + "\n".join(log)
+                 + "\nFreed {}.\n".format(human_size(freed)))
+    return path
+
+
+def default_root():
+    """The working path: this script lives in <working path>/bin/."""
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def main(argv=None, queue_reader=read_queue, clock=time.time):
+    parser = argparse.ArgumentParser(
+        description="Report, or with --delete remove, the Nessie downloads and work folders "
+                    "nobody needs any more.")
+    parser.add_argument("--delete", action="store_true",
+                        help="delete what the report lists under WILL DELETE")
+    parser.add_argument("--root", help="the Luria working path (default: the folder above bin/)")
+    args = parser.parse_args(argv)
+    root = os.path.abspath(args.root or default_root())
+    if not os.path.isdir(os.path.join(root, "runs")):
+        sys.stderr.write("{} has no runs/ folder; pass --root <LURIA_WORKING_PATH>\n".format(root))
+        return 2
+    queued, queue_note = queue_reader()
+    now = clock()
+    items, problems = build_report(root, queued, now)
+    add_sizes(items)
+    lock_note = probe_lock(os.path.join(root, "fastq_cache"))
+    busy = runs_in_progress(root, queued, now)
+    report = format_report(root, items, problems, queue_note, lock_note, busy, now)
+    print(report)
+    if not args.delete:
+        return 0
+    if queued is None:
+        print("\nNot deleting anything: the job queue could not be read.")
+        return 1
+    if busy:
+        print("\nNot deleting anything while Nessie runs are in progress (listed above). "
+              "Run --delete again once they have finished.")
+        return 1
+    log, freed, failures = delete_pass(root, items, queued, clock)
+    path = write_log(root, report, log, freed, clock())
+    print("\nDELETE PASS")
+    print("\n".join(log))
+    print("Freed {}. Log: {}".format(human_size(freed), path))
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -303,3 +303,129 @@ def test_script_stays_python36_and_standard_library_only():
                         "shutil", "subprocess", "sys", "time"}
     for banned in ("from __future__", "dataclass", "capture_output", "text=True"):
         assert banned not in source, banned
+
+
+# --- the lock, the report and the delete pass -------------------------------------------
+
+def run_main(root, *args, queued=frozenset()):
+    q = None if queued is None else set(queued)
+    return cl.main(["--root", str(root), *args], queue_reader=lambda: (q, "test queue"),
+                   clock=lambda: NOW)
+
+
+def test_lock_reports_busy_while_held(tmp_path):
+    lock = cl.CacheLock(str(tmp_path))
+    assert lock.acquire(0) == "taken"
+    other = cl.CacheLock(str(tmp_path))
+    assert other.acquire(0) == "busy"
+    lock.release()
+    assert other.acquire(0) == "taken"
+    other.release()
+
+
+def test_report_mode_changes_nothing(root, capsys):
+    add_run(root, R, finished="failed", finished_days=40)
+    work = add_work(root, "foo")
+    add_work(root, "legacy")
+    assert run_main(root) == 0
+    out = capsys.readouterr().out
+    assert "WILL DELETE (1)" in out and "work/foo" in out
+    assert "UNLABELLED" in out and "work/legacy" in out
+    assert "Download lock: taken and released" in out
+    assert "Nessie runs in progress: none" in out
+    assert "Would free" in out
+    assert work.exists() and not (root / "cleanup_logs").exists()
+
+
+def test_delete_removes_only_what_the_report_lists_and_logs_it(root, capsys):
+    add_run(root, R, finished="failed", finished_days=40)
+    old = add_work(root, "foo")
+    add_run(root, "bar_261001_120000_0", finished="failed", finished_days=3)
+    recent = add_work(root, "bar")
+    legacy = add_work(root, "legacy")
+    fq = add_fastq(root, FQ, last_used_days=31, accs=["SRR1"], md5=True)
+    assert run_main(root, "--delete") == 0
+    assert not old.exists() and recent.exists() and legacy.exists()
+    assert not fq.exists() and not (fq.parent / "md5" / (FQ + ".md5")).exists()
+    assert (root / "runs" / R).exists()
+    (log,) = list((root / "cleanup_logs").iterdir())
+    text = log.read_text()
+    assert "DELETED" in text and "work/foo" in text and "fastq_cache/fastq/" + FQ in text
+
+
+def test_delete_refuses_when_the_queue_cannot_be_read(root, capsys):
+    add_run(root, R, finished="failed", finished_days=40)
+    work = add_work(root, "foo")
+    assert run_main(root, "--delete", queued=None) == 1
+    assert work.exists()
+    assert "Not deleting anything" in capsys.readouterr().out
+
+
+def test_delete_waits_while_a_run_is_in_progress(root, capsys):
+    add_run(root, R, finished="failed", finished_days=40)
+    work = add_work(root, "foo")
+    add_run(root, "bar_261020_120000_0", job="555")
+    assert run_main(root, "--delete", queued={"555"}) == 1
+    assert work.exists() and not (root / "cleanup_logs").exists()
+    out = capsys.readouterr().out
+    assert "Nessie runs in progress: 1" in out
+    assert "Not deleting anything while Nessie runs are in progress" in out
+    assert "runs/bar_261020_120000_0 is in progress" in out
+
+
+def test_delete_waits_while_a_run_is_being_launched(root, capsys):
+    add_run(root, R, finished="failed", finished_days=40)
+    work = add_work(root, "foo")
+    add_run(root, "bar_261020_120000_0", labelled=False, changed_days=0)
+    assert run_main(root, "--delete") == 1
+    assert work.exists()
+    assert "runs/bar_261020_120000_0 is being launched" in capsys.readouterr().out
+
+
+def test_delete_waits_while_a_download_is_in_use(root, capsys):
+    fq = add_fastq(root, FQ, last_used_days=40, accs=["SRR1"])
+    add_claim(root, "SRR2", "9")
+    assert run_main(root, "--delete", queued={"9"}) == 1
+    assert fq.exists()
+    assert "job 9 is using download SRR2" in capsys.readouterr().out
+
+
+def test_runs_in_progress_ignores_finished_and_old_unlabelled_runs(root):
+    add_run(root, R, finished="succeeded", finished_days=1)
+    add_run(root, "legacy_250101_120000_0", labelled=False, changed_days=200)
+    add_claim(root, "SRR1", "4821")                       # stale: job not queued
+    assert cl.runs_in_progress(str(root), set(), NOW) == []
+
+
+def test_delete_rechecks_each_item_first(root):
+    fq = add_fastq(root, FQ, last_used_days=31, accs=["SRR1"])
+    items, _ = cl.build_report(str(root), {"77"}, NOW)
+    add_claim(root, "SRR1", "77")            # a run claims it after the report was built
+    log, freed, failures = cl.delete_pass(str(root), items, {"77"}, clock=lambda: NOW)
+    assert fq.exists() and freed == 0 and failures == 0
+    assert any(line.startswith("SKIPPED") for line in log)
+
+
+def test_delete_never_follows_a_symlink(root, tmp_path_factory):
+    outside = tmp_path_factory.mktemp("outside")
+    (outside / "keep.txt").write_text("precious")
+    add_run(root, R, finished="failed", finished_days=40)
+    work = add_work(root, "foo")
+    (work / "link").symlink_to(outside, target_is_directory=True)
+    add_run(root, "bar_261001_120000_0", finished="failed", finished_days=40)
+    (root / "work" / "bar").symlink_to(outside, target_is_directory=True)
+    assert run_main(root, "--delete") == 0
+    assert not os.path.lexists(str(work)) and not os.path.lexists(str(root / "work" / "bar"))
+    assert (outside / "keep.txt").read_text() == "precious"
+
+
+def test_remove_path_refuses_anything_outside_its_folder(root):
+    (root / "runs" / "x").mkdir()
+    with pytest.raises(ValueError):
+        cl.remove_path(str(root / "runs" / "x"), str(root / "work"))
+    assert (root / "runs" / "x").exists()
+
+
+def test_a_missing_runs_folder_is_an_error(tmp_path):
+    assert cl.main(["--root", str(tmp_path)], queue_reader=lambda: (set(), "q"),
+                   clock=lambda: NOW) == 2
