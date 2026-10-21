@@ -2405,7 +2405,7 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir,
                                 record, getattr(session, "user", None), outputs_dir))
     except upload.UploadRefused as exc:
         raise OpValidationError(str(exc), field="build_ids", error_type="upload_refused") from exc
-    _mark_runs_reingested(result.get("jobs") or [])
+    _mark_runs_reingested(result.get("jobs") or [], config)
     return result
 
 
@@ -2431,17 +2431,35 @@ def _rebuild_record(record: dict, user, outputs_dir) -> list[dict]:
     return list(result.get("builds") or [])
 
 
-def _mark_runs_reingested(jobs: list[dict]) -> None:
+def _mark_runs_reingested(jobs: list[dict], config=None) -> None:
     """A run whose upload started at least one job stops waiting for run-harvest's
-    no-folder pick. Best-effort: the upload has already started."""
+    no-folder pick, and its Luria folder gets nessie_status/saved.txt, which starts the
+    weekly cleanup's 7-day clock for its work folder. Best-effort: the upload has already
+    started."""
     from NessieAI.ns.reingest import launch_record
     from NessieAI.ns.reingest.store import load_manifest
 
     for manifest_id in {job.get("manifest_id") for job in jobs if job.get("job_id")}:
         try:
-            launch_record.mark_reingested(load_manifest(manifest_id).launch_record_id)
+            manifest = load_manifest(manifest_id)
+            launch_record.mark_reingested(manifest.launch_record_id)
         except Exception:  # noqa: BLE001 -- bookkeeping never fails an upload
             logger.exception("upload-reingest: could not mark manifest %s reingested", manifest_id)
+            continue
+        _write_saved_label(config, manifest)
+
+
+def _write_saved_label(config, manifest) -> None:
+    """Best-effort, like mark_reingested: when this fails, the run's work folder waits 30
+    days instead of 7 (chat_nextseek/luria/README.md)."""
+    try:
+        from chat_nextseek.luria.status_labels import write_saved_label
+
+        write_saved_label(getattr(config, "LURIA_ENV", None) or {}, manifest.run_dir,
+                          manifest.launch_record_id)
+    except Exception:  # noqa: BLE001 -- bookkeeping never fails an upload
+        logger.exception("upload-reingest: could not write saved.txt for %s",
+                         getattr(manifest, "run_dir", "?"))
 
 
 _HANDLERS: dict[str, Callable] = {
