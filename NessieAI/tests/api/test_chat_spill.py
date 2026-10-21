@@ -150,6 +150,22 @@ class FieldTests(SpillBase):
             self.assertEqual(spill.hydrate({"k": link}), {"k": None})
         self.assertIn("0" * 64, cm.output[0])
 
+    def test_a_missing_whole_column_file_loads_as_the_default_and_the_next_save_works(self):
+        sess = ChatSession.objects.create(user=self.user)
+        ad = DictSessionAdapter(sess)
+        ad["results_history"] = [{"id": i, "x": _blob(f"w{i}", 100 * 1024)} for i in range(60)]  # 6 MB: goes whole
+        ad.save()
+        stored = json.loads(self.raw("assistant_chat_session", "results_history", "session_id", sess.pk))
+        self.assertEqual(set(stored), {"$spill", "bytes"})
+        for f in self.files():
+            os.remove(f)
+        with self.assertLogs(spill.logger, level="ERROR"):
+            ad = DictSessionAdapter(ChatSession.objects.get(pk=sess.pk))
+        self.assertEqual(ad["results_history"], [])
+        ad["results_history"] = [{"id": 1, "reply": "after"}]
+        ad.save()
+        self.assertEqual(ChatSession.objects.get(pk=sess.pk).results_history, [{"id": 1, "reply": "after"}])
+
     def test_a_column_of_many_mid_size_values_goes_whole(self):
         v = [{"id": i, "x": _blob(f"m{i}", 100 * 1024)} for i in range(60)]  # each under 256 KB, 6 MB together
         out = spill.spill(v)
