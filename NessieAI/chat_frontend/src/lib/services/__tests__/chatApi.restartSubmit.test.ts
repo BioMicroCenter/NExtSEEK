@@ -47,6 +47,14 @@ describe("submitting a question through a restart", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("does not read a bug after the request as a restart", async () => {
+    // A TypeError thrown after fetch answered (here, reading task_id off a null body) is a bug, not a restart.
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => null }));
+    const onError = await submit(fetchMock);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalledWith(RESTARTING);
+  });
+
   it("keeps a 503 detail, such as the drain message", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: false,
