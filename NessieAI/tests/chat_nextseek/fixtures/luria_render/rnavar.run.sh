@@ -36,7 +36,8 @@ NESSIE_PY="$(command -v python3)"
 mkdir -p nessie_status
 nessie_finish() {
   rc=$?
-  trap - EXIT TERM
+  trap - EXIT
+  trap '' TERM
   if [ "$rc" -eq 0 ]; then result=succeeded; else result=failed; fi
   printf 'result: %s\nexit_code: %s\nfinished_at: %s\n' "$result" "$rc" \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "/net/x/runs/run_1/nessie_status/finished.txt"
@@ -61,9 +62,9 @@ nextflow run nf-core/rnavar -r 1.3.0 -profile singularity \
     --fasta /net/x/refs/GRCh38.primary_assembly.genome.fa --gtf /net/x/refs/gencode.v46.basic.annotation.gtf \
     -w /net/x/work/run \
     -resume
-# Without this the job ends with `conda deactivate`'s status, so SLURM records a
-# failed pipeline as COMPLETED 0:0.
-nextflow_status=$?
+# The exit trap above labels the run from this script's exit status, so keep nextflow's
+# status past `conda deactivate` (whose own status would otherwise be the script's).
+nessie_rc=$?
 
 conda deactivate
-exit $nextflow_status
+exit "$nessie_rc"

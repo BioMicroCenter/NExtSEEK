@@ -1,9 +1,12 @@
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from chat_nextseek.luria.run_script import (
+    render_status_block,
     validate_resources,
     sanitize_job_name,
     render_run_script,
@@ -614,7 +617,8 @@ def _golden_kwargs():
 def test_run_script_differs_from_before_only_by_the_mem_line(case, monkeypatch):
     # Goldens are the rendered run.sh from before the executor limits were added; the
     # fetchngs one has since gained the fetchngs.config heredoc (render_fetchngs_config),
-    # and all have since gained the nessie_status/ block (render_status_block).
+    # and all have since gained the nessie_status/ block (render_status_block) and the
+    # exit-status tail after the nextflow command.
     monkeypatch.delenv("LURIA_MAIL_USER", raising=False)
     monkeypatch.delenv("LURIA_CONDA_ENV", raising=False)
     s = render_run_script(**_golden_kwargs()[case])
@@ -637,12 +641,6 @@ def test_luria_config_differs_from_before_only_by_the_executor_block(case, proce
 
 
 # --- nessie_status/: the labels the weekly cleanup reads --------------------------------
-
-import os
-import sys
-
-from chat_nextseek.luria.run_script import render_status_block  # noqa: E402
-
 
 def _status_render(**over):
     kw = dict(job_name="j", pipeline="nf-core/rnaseq", revision="3.22.2", run_dir="/r",
@@ -667,8 +665,8 @@ def test_run_sh_claims_before_the_cache_check_and_releases_on_exit():
     s = _status_render(needs_fetch=True, fastq_cache="/w/fastq_cache")
     assert s.index('fetchngs_helpers.py claim "$CACHE"') < s.index('fetchngs_helpers.py cached "$CACHE"')
     assert '|| echo "[FETCHNGS] could not mark the downloads in use; continuing" >&2' in s
-    assert ('"$NESSIE_PY" "/r/fetchngs_helpers.py" release "/w/fastq_cache" '
-            '"${SLURM_JOB_ID:-}" || true') in s
+    assert ('[ -n "$NESSIE_PY" ] && "$NESSIE_PY" "/r/fetchngs_helpers.py" release '
+            '"/w/fastq_cache" "${SLURM_JOB_ID:-}" || true') in s
 
 
 def _run_bash(tmp_path, body, env=None):
@@ -686,6 +684,7 @@ def _run_bash(tmp_path, body, env=None):
     ("exit 0", "succeeded", 0),
     ("exit 3", "failed", 3),
     ("kill -TERM $$; sleep 5", "failed", 143),   # SLURM's time limit sends TERM
+    ("(sleep 0.3; kill -TERM $$) & sleep 2", "failed", 143),   # TERM from outside, child running
 ])
 def test_status_block_labels_each_way_a_job_ends(tmp_path, tail, result, code):
     proc = _run_bash(tmp_path, render_status_block(run_dir=str(tmp_path)) + tail)
@@ -706,3 +705,29 @@ def test_status_block_releases_the_jobs_claims_on_exit(tmp_path):
     proc = _run_bash(tmp_path, block + "exit 0", env=env)
     assert proc.returncode == 0, proc.stderr
     assert not (cache / "nessie_status" / "in_use" / "SRR1").exists()
+
+
+def test_a_second_term_while_labelling_does_not_lose_the_label(tmp_path):
+    # bash runs the first TERM's trap once the foreground sleep ends (t=1.0) and `date` then
+    # takes 0.5s inside the trap, so the second TERM (t=1.2) lands while the label is written.
+    body = (render_status_block(run_dir=str(tmp_path))
+            + 'date() { sleep 0.5; command date "$@"; }\n'
+            + "(sleep 0.2; kill -TERM $$; sleep 1.0; kill -TERM $$) & sleep 1\n"
+            + "sleep 3\n")
+    proc = _run_bash(tmp_path, body)
+    assert proc.returncode == 143
+    assert "result: failed\nexit_code: 143" in (tmp_path / "nessie_status" / "finished.txt").read_text()
+
+
+@pytest.mark.parametrize("stub,result,code", [
+    ("return 7", "failed", 7),
+    ("return 0", "succeeded", 0),
+])
+def test_rendered_run_sh_is_labelled_from_nextflows_status_not_condas(tmp_path, stub, result, code):
+    s = _status_render(run_dir=str(tmp_path))
+    body = s[s.index("\ncd " + str(tmp_path)):]   # from the cd on: skips module/conda sourcing
+    stubs = "module() { :; }\nconda() { :; }\nnextflow() { " + stub + "; }\n"
+    proc = _run_bash(tmp_path, stubs + body)
+    assert proc.returncode == code, proc.stderr
+    label = (tmp_path / "nessie_status" / "finished.txt").read_text()
+    assert f"result: {result}\nexit_code: {code}\n" in label

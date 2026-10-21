@@ -127,7 +127,7 @@ fi
 
 # --- nessie_status/: the labels the weekly cleanup (bin/nessie_cleanup.py) reads ---------
 # finished.txt is written on every exit. SLURM's time limit sends TERM, which the TERM trap
-# turns into exit 143 so the EXIT trap still runs. A run that fetches also releases its
+# turns into exit 143 so the EXIT trap still runs (further TERMs are ignored while it labels). A run that fetches also releases its
 # download claims here. NESSIE_PY is captured while the conda env is active: by the time
 # the trap runs, `conda deactivate` has put the login python3 (possibly too old) first.
 _STATUS_BLOCK_TMPL = """
@@ -138,7 +138,8 @@ NESSIE_PY="$(command -v python3)"
 mkdir -p nessie_status
 nessie_finish() {{
   rc=$?
-  trap - EXIT TERM
+  trap - EXIT
+  trap '' TERM
   if [ "$rc" -eq 0 ]; then result=succeeded; else result=failed; fi
   printf 'result: %s\\nexit_code: %s\\nfinished_at: %s\\n' "$result" "$rc" \\
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "{RUN_DIR}/nessie_status/finished.txt"
@@ -148,8 +149,8 @@ trap nessie_finish EXIT
 trap 'exit 143' TERM
 """
 
-_RELEASE_LINE_TMPL = ('  "$NESSIE_PY" "{RUN_DIR}/fetchngs_helpers.py" release "{FASTQ_CACHE}" '
-                      '"${{SLURM_JOB_ID:-}}" || true\n')
+_RELEASE_LINE_TMPL = ('  [ -n "$NESSIE_PY" ] && "$NESSIE_PY" "{RUN_DIR}/fetchngs_helpers.py" release '
+                      '"{FASTQ_CACHE}" "${{SLURM_JOB_ID:-}}" || true\n')
 
 
 def render_status_block(*, run_dir: str, fastq_cache: str | None = None) -> str:

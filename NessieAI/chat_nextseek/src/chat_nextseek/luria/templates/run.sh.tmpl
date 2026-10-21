@@ -46,9 +46,9 @@ nextflow run {{PIPELINE}}{{REVISION_FLAG}} -profile singularity \
     {{REFS_FLAGS}} \
     -w {{WORK_DIR}} \
     -resume
-# Without this the job ends with `conda deactivate`'s status, so SLURM records a
-# failed pipeline as COMPLETED 0:0.
-nextflow_status=$?
+# The exit trap above labels the run from this script's exit status, so keep nextflow's
+# status past `conda deactivate` (whose own status would otherwise be the script's).
+nessie_rc=$?
 
 conda deactivate
-exit $nextflow_status
+exit "$nessie_rc"
