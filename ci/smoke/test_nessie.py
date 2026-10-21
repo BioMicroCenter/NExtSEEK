@@ -229,7 +229,9 @@ def reported_cost(result: dict | None) -> float | None:
     """The turn's engine cost as its terminal event reports it, CC or NS."""
     if not isinstance(result, dict):
         return None
-    return _usd(result.get("total_cost_usd"))
+    # The price-table number first, the CLI's own total as a fallback (the rule in ns/turn_memory.py).
+    table = _usd(result.get("cost_by_price_table_usd"))
+    return table if table is not None else _usd(result.get("total_cost_usd"))
 
 
 def ceiling_cost(route: str | None, result: dict | None) -> float | None:

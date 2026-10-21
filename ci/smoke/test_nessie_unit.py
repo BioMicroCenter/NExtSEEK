@@ -162,6 +162,12 @@ def test_the_ceiling_counts_claude_codes_own_cost_on_cc_turns_only():
     assert b.spent_usd == pytest.approx(0.5) and not b.over_ceiling
 
 
+def test_the_reported_cost_prefers_the_price_table_number():
+    assert reported_cost({"total_cost_usd": 0.6, "cost_by_price_table_usd": 0.4}) == 0.4
+    assert reported_cost({"total_cost_usd": 0.6}) == 0.6
+    assert ceiling_cost("container_cc", {"total_cost_usd": 0.6, "cost_by_price_table_usd": 0.4}) == 0.4
+
+
 def _turn(route="nextseek_query", source="baml", router=0.003, router_partial=False, **end):
     rd = {"route": route, "source": source}
     if router is not None:

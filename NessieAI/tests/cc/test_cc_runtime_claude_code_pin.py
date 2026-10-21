@@ -31,7 +31,7 @@ def _pins(text: str) -> list[tuple[int, int, int]]:
 def test_the_image_pins_one_exact_claude_code_new_enough_for_the_fallback_frames():
     pins = _pins(DOCKERFILE.read_text(encoding="utf-8"))
     assert len(pins) == 1
-    assert pins[0] >= (2, 1, 282)
+    assert pins[0] >= (2, 1, 294)  # 294 prices the global Sonnet 5.5 id at list (agent_sdk pilot)
 
 
 def test_the_auto_mode_note_stays_true():
