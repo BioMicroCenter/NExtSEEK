@@ -20,7 +20,7 @@ def _rows(want_links: bool):
                     cur.execute(f"SELECT {col} FROM {table} WHERE {pk} = %s", [key])
                     if not spill._FIND.search(spill._text(cur.fetchone()[0])):
                         continue
-                elif size <= spill.SPILL_VALUE_BYTES:
+                elif not size or size <= spill.SPILL_VALUE_BYTES:  # NULL: a task still pending or running
                     continue
                 yield _MODELS[table], col, key, size
 
