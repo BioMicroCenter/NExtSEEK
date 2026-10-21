@@ -213,3 +213,12 @@ def test_the_engine_maps_both_roots_and_survives_a_run_with_no_scratch():
     assert path_mappings_for(output_mnt="/dmac/users/p/u/output", run_scratch_mnt=None) == {
         "output": {"container_root": "/data/output", "logical_root": "/dmac/users/p/u/output"},
     }
+
+
+def test_batch_upload_harmonize_step_names_its_base_and_the_no_value_count():
+    path = paths.CC_PLUGIN_DIR / "skills" / "nextseek-batch-upload" / "SKILL.md"
+    text = path.read_text(encoding="utf-8")
+    step4 = text[text.index("4. Open the reply with one line naming the ontology"):]
+    step4 = step4[:step4.index("\n5. ")]
+    assert "out of the samples that have a value" in step4
+    assert "Give the samples with no value as their own number" in step4
