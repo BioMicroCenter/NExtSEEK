@@ -486,10 +486,6 @@ def run_project_sample_report(
         return {"ok": False, "error": repr(e)}
 
 
-def _names(items: "list[str]") -> str:
-    return f"project{'s' if len(items) > 1 else ''} " + ", ".join(items)
-
-
 def _investigation_filing(cursor, investigation_scope: dict, sop_ids: list, visible) -> None:
     """Add to ``investigation_scope`` the protocol count, the visible project(s) those protocols are filed under
     plus the investigation's own project(s), and one plain sentence for the reply. Reads only."""
