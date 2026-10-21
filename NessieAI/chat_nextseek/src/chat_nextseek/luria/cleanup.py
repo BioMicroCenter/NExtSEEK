@@ -40,9 +40,16 @@ TIME_FMT = "%Y-%m-%dT%H:%M:%SZ"
 _ACC_RE = re.compile(r"[A-Za-z0-9]+")
 # submitter names a run folder <work name>_<yymmdd>_<hhmmss>_<entry index>
 _RUN_SUFFIX_RE = re.compile(r"_\d{6}_\d{6}_\d+$")
-# a folder renamed away just before it is removed; one left behind is an interrupted delete
+# a folder renamed away just before it is removed; one left behind is an interrupted delete.
+# Recognised by its whole name only, so a run whose work folder is called .nessie-deleting-x
+# is still an ordinary work folder.
 TOMBSTONE_PREFIX = ".nessie-deleting-"
+_LEFTOVER_RE = re.compile(r"^\.nessie-deleting-.+-\d{14}$")
 LEFTOVER_REASON = "left over from an interrupted cleanup"
+
+
+def is_leftover(name):
+    return _LEFTOVER_RE.fullmatch(name) is not None
 
 
 class LabelError(Exception):
@@ -155,10 +162,11 @@ class Run(object):
         return "runs/" + os.path.basename(self.run_dir)
 
 
-def newest_activity(run_dir):
+def newest_activity(run_dir, fallback):
     """When a run with no launched.txt last did anything: the newest mtime of its folder, of
     the SLURM .out/.err logs directly in it and of its .nextflow.log. A run whose label is
-    missing may still be running, and writing these."""
+    missing may still be running, and writing these. When nothing can be read (the folder
+    has gone since the report began), `fallback` is returned."""
     times = []
     for name in [""] + list_children(run_dir):
         if name and not (name.endswith(".out") or name.endswith(".err")
@@ -168,6 +176,8 @@ def newest_activity(run_dir):
             times.append(os.lstat(os.path.join(run_dir, name)).st_mtime)
         except OSError:
             pass
+    if not times:
+        return fallback
     return max(times)
 
 
@@ -198,7 +208,7 @@ def read_run(run_dir, queued):
     try:
         launched = read_label(launched_path)
         if launched is None:
-            run.changed = newest_activity(run_dir)
+            run.changed = newest_activity(run_dir, run.changed)
             # The submitter makes nessie_status/ before sbatch: a folder that has it but no
             # launched.txt is a run whose label write failed or has not happened yet.
             if os.path.isdir(status) and not os.path.islink(status):
@@ -386,13 +396,13 @@ def build_report(root, queued, now):
     items = []
     for name in list_children(work_root):
         path = os.path.join(work_root, name)
-        if name.startswith(TOMBSTONE_PREFIX):
+        if is_leftover(name):
             items.append(Item("work", path, work_root, "delete", LEFTOVER_REASON))
         else:
             items.append(work_item(path, runs, now))
     cache = os.path.join(root, "fastq_cache")
     for name in list_children(cache):
-        if name.startswith(TOMBSTONE_PREFIX):
+        if is_leftover(name):
             items.append(Item("fetchngs_work", os.path.join(cache, name), cache, "delete",
                               LEFTOVER_REASON))
     claims = read_claims(cache)
@@ -518,7 +528,7 @@ def recheck(root, item, queued, now):
     None when it is gone or is no longer something this cleanup manages."""
     if not os.path.lexists(item.path):
         return None
-    if os.path.basename(item.path).startswith(TOMBSTONE_PREFIX):
+    if is_leftover(os.path.basename(item.path)):
         return Item(item.kind, item.path, item.parent, "delete", LEFTOVER_REASON)
     cache = os.path.join(root, "fastq_cache")
     if item.kind == "work":
@@ -547,7 +557,7 @@ def _delete_one(root, item, fresh, out, now):
     try:
         target = item.path
         if (item.kind in ("work", "fetchngs_work")
-                and not os.path.basename(item.path).startswith(TOMBSTONE_PREFIX)):
+                and not is_leftover(os.path.basename(item.path))):
             check_inside(item.path, item.parent)
             target = tombstone_for(item.path, now)
             os.rename(item.path, target)    # a symlink is renamed itself, never followed

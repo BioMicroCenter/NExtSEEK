@@ -64,6 +64,7 @@ A FASTQ belongs to every accession that is a whole token of its name
 | Work folder, run failed | 30 days after `finished_at` |
 | Work folder, run ended without `finished.txt` and its job is no longer queued | 30 days after its newest `.out` log (else `launched_at`) |
 | Work folder left as `work/.nessie-deleting-<name>-<time>` by an interrupted cleanup | the next `--delete` |
+| Folder left as `fastq_cache/.nessie-deleting-<name>-<time>` by an interrupted cleanup | the next `--delete` |
 | Downloaded FASTQ | no queued job claims any of its accessions, and 30 days after the newest `last_used_at` among them. An unreadable `last_used` label keeps the FASTQ and is listed under PROBLEMS |
 | `fastq_cache/work/` | no queued job holds any claim; the whole folder is removed |
 | Anything unlabelled | never; listed for the admin |
@@ -83,10 +84,12 @@ by hand" with a PROBLEMS line. It blocks `--delete` only during those 2 days, so
 label write cannot block every pass forever. A job that SLURM has requeued counts as in
 progress while its job id is queued, even if it left a `finished.txt`.
 
-Work folders are removed by renaming them to `.nessie-deleting-<name>-<time>` in the same
-parent and then deleting that folder, so a run of the same name that starts mid-delete gets a
-fresh folder. A leftover one (the pass was interrupted, or the removal failed) is offered as
-its own WILL DELETE item.
+Work folders (and `fastq_cache/work/`) are removed by renaming them to
+`.nessie-deleting-<name>-<time>` in the same parent and then deleting that folder, so a run of
+the same name that starts mid-delete gets a fresh folder. A leftover one (the pass was
+interrupted, or the removal failed) is recognised only by its full
+`.nessie-deleting-<name>-<14-digit stamp>` name, in `work/` or directly in `fastq_cache/`, and
+is offered as its own WILL DELETE item.
 
 A claim whose job is no longer queued is ignored and listed under PROBLEMS as a stale entry.
 When `squeue` cannot be read, every claim counts and every run without `finished.txt` counts
@@ -159,9 +162,9 @@ be taken.
 
 - `cleanup.py` is standard library only, Python 3.6 compatible, and staged verbatim.
   `test_luria_cleanup.py` checks the syntax and the imports.
-- The cleanup deletes only directly inside `work/`, `fastq_cache/fastq/` (and its `md5/`) and
-  `fastq_cache/work/`, never follows a symlink, and never deletes `runs/` or anything
-  unlabelled.
+- The cleanup deletes only directly inside `work/`, `fastq_cache/fastq/` (and its `md5/`),
+  `fastq_cache/work/` and leftover `fastq_cache/.nessie-deleting-*` folders, never follows a
+  symlink, and never deletes `runs/` or anything unlabelled.
 - The label formats are shared by `fetchngs_helpers.py`, `run_script.py`, `status_labels.py`
   and `cleanup.py`. A change to one is a change to all four; the tests parse each writer's
   output with the cleanup's reader.

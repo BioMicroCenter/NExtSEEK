@@ -219,6 +219,36 @@ def test_a_legacy_run_with_only_old_activity_stays_unlabelled(root):
     assert cl.runs_in_progress(str(root), set(), NOW) == []
 
 
+def test_a_run_folder_that_vanishes_mid_report_keeps_its_changed_time(root, monkeypatch):
+    run_dir = add_run(root, R, labelled=False, changed_days=5)
+    stamp = os.lstat(str(run_dir)).st_mtime
+    real_lstat = os.lstat
+    calls = []
+
+    def vanish_after_first(path, *args, **kwargs):
+        # Run() reads the folder's own time first; the folder is gone by newest_activity
+        if os.path.normpath(str(path)) == os.path.normpath(str(run_dir)):
+            calls.append(path)
+            if len(calls) > 1:
+                raise FileNotFoundError(2, "gone", str(path))
+        return real_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(cl.os, "lstat", vanish_after_first)
+    run = cl.read_run(str(run_dir), None)
+    assert len(calls) == 2
+    assert run.changed == stamp and run.state == "unlabelled"
+
+
+def test_newest_activity_returns_the_fallback_when_nothing_can_be_read(tmp_path, monkeypatch):
+    assert cl.newest_activity(str(tmp_path / "runs" / "gone"), 1234.5) == 1234.5
+
+    def no_lstat(path, *args, **kwargs):
+        raise FileNotFoundError(2, "gone", str(path))
+
+    monkeypatch.setattr(cl.os, "lstat", no_lstat)
+    assert cl.newest_activity(str(tmp_path), 42.0) == 42.0
+
+
 def test_a_missing_launch_label_within_the_grace_keeps_the_work_and_counts(root):
     add_run(root, R, labelled=False, status_dir=True, changed_days=0)
     add_work(root, "foo")
@@ -811,6 +841,31 @@ def test_a_leftover_fetchngs_tombstone_is_listed_and_deleted(root):
     assert got["fastq_cache/.nessie-deleting-work-20261001000000"][0] == "delete"
     assert run_main(root, "--delete") == 0
     assert not stone.exists()
+
+
+def test_only_a_whole_leftover_name_is_a_leftover(root):
+    unlabelled = root / "work" / ".nessie-deleting-x"
+    unlabelled.mkdir()
+    (unlabelled / "task.bin").write_bytes(b"x")
+    stone = root / "work" / ".nessie-deleting-foo-20261021120000"
+    stone.mkdir()
+    (stone / "task.bin").write_bytes(b"x")
+    got, _ = decide(root)
+    assert got["work/.nessie-deleting-x"][0] == "unlabelled"
+    assert got["work/.nessie-deleting-foo-20261021120000"][:2] == ("delete", cl.LEFTOVER_REASON)
+    assert run_main(root, "--delete") == 0
+    assert unlabelled.exists() and not stone.exists()
+
+
+def test_a_run_named_like_a_leftover_waits_for_its_saved_clock(root):
+    add_run(root, ".nessie-deleting-x_261001_120000_0", saved_days=10)
+    add_work(root, ".nessie-deleting-x")
+    got, _ = decide(root)
+    assert got["work/.nessie-deleting-x"][0] == "delete"
+    assert got["work/.nessie-deleting-x"][1].startswith("results saved 10 days ago")
+    assert run_main(root, "--delete") == 0
+    assert not (root / "work" / ".nessie-deleting-x").exists()
+    assert tombstones(root / "work") == []
 
 
 def test_a_rename_failure_is_logged_and_leaves_the_folder(root, monkeypatch):
