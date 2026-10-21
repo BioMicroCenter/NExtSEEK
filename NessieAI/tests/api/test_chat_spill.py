@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import stat
 import time
 from unittest import mock
 
@@ -230,6 +231,23 @@ class ValueRuleTests(SpillBase):
         self.assertEqual(self.files(), [])
 
 
+class FileModeTests(SpillBase):
+    def test_a_spill_file_is_0644_in_0755_folders_whatever_the_umask(self):
+        # The nightly backup copies /media/chat_spill as a non-root account (the backup mount squashes root).
+        root = os.path.join(self.dir, "chat_spill")
+        mask = os.umask(0o077)
+        try:
+            with override_settings(CHAT_SPILL_DIR=root):
+                rel = spill.spill({"k": _blob("mode", MB)})["k"]["$spill"]
+        finally:
+            os.umask(mask)
+        path = os.path.join(root, rel)
+        self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o644)
+        self.assertEqual(stat.S_IMODE(os.stat(os.path.dirname(path)).st_mode), 0o755)
+        self.assertEqual(stat.S_IMODE(os.stat(root).st_mode), 0o755)
+        self.assertEqual(self.files(), [path])  # no temp file left beside it
+
+
 def _age(path, seconds):
     t = time.time() - seconds
     os.utime(path, (t, t))
@@ -257,6 +275,20 @@ class SweepTests(SpillBase):
         self.assertIn(fresh, left)       # unlinked but new
         self.assertNotIn(orphan, left)
         self.assertEqual(counts["deleted"], 1)
+
+    def test_sweep_skips_a_file_that_is_gone_by_the_time_it_looks(self):
+        with mock.patch.object(spill.os, "walk", return_value=[(self.dir, [], ["ab"])]):
+            self.assertEqual(spill.sweep(), {"kept": 0, "deleted": 0, "bytes": 0})
+
+    def test_sweep_deletes_a_temp_file_a_killed_write_left_once_it_is_old(self):
+        folder = os.path.join(self.dir, "ab")
+        os.makedirs(folder)
+        old, new = os.path.join(folder, "tmpold.tmp"), os.path.join(folder, "tmpnew.tmp")
+        for p in (old, new):
+            open(p, "wb").close()
+        _age(old, 3 * 86400)
+        self.assertEqual(spill.sweep()["deleted"], 1)
+        self.assertEqual(self.files(), [new])
 
     def test_dry_run_deletes_nothing(self):
         orphan = spill.spill({"k": _blob("O", MB)})["k"]["$spill"]
