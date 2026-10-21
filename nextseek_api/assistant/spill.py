@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 import time
 
 from django.conf import settings
@@ -71,12 +72,24 @@ def _write(text: str) -> dict:
     path = os.path.join(_root(), rel)
     if os.path.exists(path):
         os.utime(path)  # a re-linked file must not look old to the sweep
-    else:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = f"{path}.{os.getpid()}.tmp"
-        with open(tmp, "wb") as fh:
+        return {"$spill": rel, "bytes": len(raw)}
+    folder = os.path.dirname(path)
+    # 0755 folders and 0644 files whatever the umask: the nightly backup copies them as a non-root account.
+    for d in (_root(), folder):
+        if not os.path.isdir(d):
+            os.makedirs(d, exist_ok=True)
+            os.chmod(d, 0o755)
+    # A unique temp name: web and the worker share the volume but not a pid namespace.
+    fd, tmp = tempfile.mkstemp(dir=folder, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as fh:
             fh.write(gzip.compress(raw, mtime=0))
+        os.chmod(tmp, 0o644)  # mkstemp makes it 0600
         os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
+        raise
     return {"$spill": rel, "bytes": len(raw)}
 
 
@@ -165,7 +178,8 @@ def linked_paths() -> set[str]:
 
 
 def sweep(min_age_s: int = 86400, dry_run: bool = False) -> dict:
-    """Delete the files no row links to that are older than ``min_age_s`` (a file is written before its row)."""
+    """Delete the files no row links to, and the temp files a killed write left, that are older than ``min_age_s``
+    (a file is written before its row)."""
     linked = linked_paths()
     cutoff = time.time() - min_age_s
     counts = {"kept": 0, "deleted": 0, "bytes": 0}
@@ -173,13 +187,18 @@ def sweep(min_age_s: int = 86400, dry_run: bool = False) -> dict:
         for name in names:
             path = os.path.join(folder, name)
             rel = os.path.relpath(path, _root())
-            st = os.stat(path)
-            if rel in linked or st.st_mtime > cutoff or not _PATH.fullmatch(rel):
+            try:
+                st = os.stat(path)
+            except FileNotFoundError:  # gone since the walk listed it
+                continue
+            ours = _PATH.fullmatch(rel) or name.endswith(".tmp")
+            if rel in linked or st.st_mtime > cutoff or not ours:
                 counts["kept"] += 1
                 continue
             logger.info("chat spill sweep: %s %s (%d bytes)", "would delete" if dry_run else "deleting", rel, st.st_size)
             counts["deleted"] += 1
             counts["bytes"] += st.st_size
             if not dry_run:
-                os.remove(path)
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(path)
     return counts
