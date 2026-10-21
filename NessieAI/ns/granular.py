@@ -2449,17 +2449,31 @@ def _mark_runs_reingested(jobs: list[dict], config=None) -> None:
         _write_saved_label(config, manifest)
 
 
+def _start_background(fn: Callable, *args) -> None:
+    """Run `fn(*args)` on a daemon thread and return at once; the one seam tests replace to
+    run it inline."""
+    import threading
+
+    threading.Thread(target=fn, args=args, daemon=True, name="nessie-saved-label").start()
+
+
 def _write_saved_label(config, manifest) -> None:
     """Best-effort, like mark_reingested: when this fails, the run's work folder waits 30
-    days instead of 7 (chat_nextseek/luria/README.md)."""
+    days instead of 7 (chat_nextseek/luria/README.md). The SSH write runs on a background
+    thread so the upload request does not wait for Luria."""
+    _start_background(_write_saved_label_now, getattr(config, "LURIA_ENV", None) or {},
+                      getattr(manifest, "run_dir", None), getattr(manifest, "launch_record_id", None))
+
+
+def _write_saved_label_now(luria_env, run_dir, launch_record_id) -> None:
+    # Runs on a background thread: write_saved_label only uses SSH, never the database, so
+    # there is no Django connection to manage here.
     try:
         from chat_nextseek.luria.status_labels import write_saved_label
 
-        write_saved_label(getattr(config, "LURIA_ENV", None) or {}, manifest.run_dir,
-                          manifest.launch_record_id)
+        write_saved_label(luria_env, run_dir, launch_record_id)
     except Exception:  # noqa: BLE001 -- bookkeeping never fails an upload
-        logger.exception("upload-reingest: could not write saved.txt for %s",
-                         getattr(manifest, "run_dir", "?"))
+        logger.exception("upload-reingest: could not write saved.txt for %s", run_dir or "?")
 
 
 _HANDLERS: dict[str, Callable] = {
