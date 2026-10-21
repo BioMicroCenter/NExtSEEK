@@ -29,6 +29,24 @@ export SSL_CERT_FILE="$(dirname /net/x/singularity_cache)/certs/ca-bundle.crt"
 
 cd /net/x/runs/run_1
 
+# --- nessie_status/: labels the weekly cleanup (bin/nessie_cleanup.py) reads ---
+# finished.txt is written on every exit, success or failure. chat_nextseek/luria/README.md
+# says what each label means.
+NESSIE_PY="$(command -v python3)"
+mkdir -p nessie_status
+nessie_finish() {
+  rc=$?
+  trap - EXIT TERM
+  if [ "$rc" -eq 0 ]; then result=succeeded; else result=failed; fi
+  printf 'result: %s\nexit_code: %s\nfinished_at: %s\n' "$result" "$rc" \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "/net/x/runs/run_1/nessie_status/finished.txt"
+  "$NESSIE_PY" "/net/x/runs/run_1/fetchngs_helpers.py" release "/net/x/fastq_cache" "${SLURM_JOB_ID:-}" || true
+  exit "$rc"
+}
+trap nessie_finish EXIT
+trap 'exit 143' TERM
+
+
 # --- fetchngs pre-stage: fetch accession-only rows to the shared cache, then fill the sheet ---
 # Rows with a local /net/bmc-* fastq are already filled and untouched; only rows with an
 # empty fastq_1 + an SRA accession are fetched. fetchngs_helpers.py is staged beside run.sh.
@@ -36,6 +54,12 @@ CACHE="/net/x/fastq_cache"
 mkdir -p "$CACHE/fastq" "$CACHE/work"
 python3 fetchngs_helpers.py ids
 if [ -s ids.csv ]; then
+  # Mark these accessions in use BEFORE checking the cache, under the lock the weekly
+  # cleanup holds while it deletes, so it can't delete a file this run is about to reuse.
+  # run.sh's exit trap releases them. Best-effort: the cleanup also refuses to delete while
+  # this job is queued, so a failed claim warns and the run carries on.
+  python3 fetchngs_helpers.py claim "$CACHE" "${SLURM_JOB_ID:-}" \
+    || echo "[FETCHNGS] could not mark the downloads in use; continuing" >&2
   # "cached" uses fill's own matcher (whole run or experiment id in fetchngs' <exp>_<run>
   # names), so the download is skipped only when fill will find every accession.
   if ! python3 fetchngs_helpers.py cached "$CACHE"; then

@@ -29,6 +29,23 @@ export SSL_CERT_FILE="$(dirname /net/x/singularity_cache)/certs/ca-bundle.crt"
 
 cd /net/x/runs/run_1
 
+# --- nessie_status/: labels the weekly cleanup (bin/nessie_cleanup.py) reads ---
+# finished.txt is written on every exit, success or failure. chat_nextseek/luria/README.md
+# says what each label means.
+NESSIE_PY="$(command -v python3)"
+mkdir -p nessie_status
+nessie_finish() {
+  rc=$?
+  trap - EXIT TERM
+  if [ "$rc" -eq 0 ]; then result=succeeded; else result=failed; fi
+  printf 'result: %s\nexit_code: %s\nfinished_at: %s\n' "$result" "$rc" \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "/net/x/runs/run_1/nessie_status/finished.txt"
+  exit "$rc"
+}
+trap nessie_finish EXIT
+trap 'exit 143' TERM
+
+
 
 # Per-pipeline scientific params come from params.yml (built from the curated
 # per-pipeline JSON in reports/templates/nfcore/); local reference genomes come

@@ -417,7 +417,8 @@ def test_run_sh_writes_the_fetchngs_config_verbatim_with_the_jobs_allocation():
     # a quoted heredoc: bash expands nothing in the config, and the terminator is at column 0
     assert _fetchngs_config_in(out) == render_fetchngs_config({"cpus": 8, "mem": "64G"})
     assert out.index("FETCHNGS_CONFIG\n    nextflow run nf-core/fetchngs") > 0
-    assert "printf" not in out
+    # the config is a heredoc, not printf; the nessie_status/ block above it legitimately uses printf
+    assert "printf" not in out[out.index("cat > fetchngs.config"):]
 
 
 def test_run_sh_with_the_fetch_block_is_valid_bash(tmp_path):
@@ -612,7 +613,8 @@ def _golden_kwargs():
 @pytest.mark.parametrize("case", sorted(_golden_kwargs()))
 def test_run_script_differs_from_before_only_by_the_mem_line(case, monkeypatch):
     # Goldens are the rendered run.sh from before the executor limits were added; the
-    # fetchngs one has since gained the fetchngs.config heredoc (render_fetchngs_config).
+    # fetchngs one has since gained the fetchngs.config heredoc (render_fetchngs_config),
+    # and all have since gained the nessie_status/ block (render_status_block).
     monkeypatch.delenv("LURIA_MAIL_USER", raising=False)
     monkeypatch.delenv("LURIA_CONDA_ENV", raising=False)
     s = render_run_script(**_golden_kwargs()[case])
@@ -632,3 +634,75 @@ def test_luria_config_differs_from_before_only_by_the_executor_block(case, proce
     assert cfg.count(block) == 1
     assert cfg.replace(block, "", 1) == \
         (_GOLDEN / f"{case}.luria.config").read_text(encoding="utf-8")
+
+
+# --- nessie_status/: the labels the weekly cleanup reads --------------------------------
+
+import os
+import sys
+
+from chat_nextseek.luria.run_script import render_status_block  # noqa: E402
+
+
+def _status_render(**over):
+    kw = dict(job_name="j", pipeline="nf-core/rnaseq", revision="3.22.2", run_dir="/r",
+              work_dir="/w", singularity_cache="/c", genome="GRCh38", resources={})
+    kw.update(over)
+    return render_run_script(**kw)
+
+
+def test_run_sh_writes_the_finished_label_on_every_exit():
+    s = _status_render()
+    assert "trap nessie_finish EXIT" in s and "trap 'exit 143' TERM" in s
+    assert '> "/r/nessie_status/finished.txt"' in s
+    assert s.index("trap nessie_finish EXIT") < s.index("nextflow run nf-core/rnaseq")
+
+
+def test_run_sh_without_downloads_never_claims_or_releases():
+    s = _status_render()
+    assert "fetchngs_helpers.py claim" not in s and " release " not in s
+
+
+def test_run_sh_claims_before_the_cache_check_and_releases_on_exit():
+    s = _status_render(needs_fetch=True, fastq_cache="/w/fastq_cache")
+    assert s.index('fetchngs_helpers.py claim "$CACHE"') < s.index('fetchngs_helpers.py cached "$CACHE"')
+    assert '|| echo "[FETCHNGS] could not mark the downloads in use; continuing" >&2' in s
+    assert ('"$NESSIE_PY" "/r/fetchngs_helpers.py" release "/w/fastq_cache" '
+            '"${SLURM_JOB_ID:-}" || true') in s
+
+
+def _run_bash(tmp_path, body, env=None):
+    import shutil
+    import subprocess
+    if not shutil.which("bash"):
+        pytest.skip("no bash")
+    script = tmp_path / "run.sh"
+    script.write_text("#!/bin/bash\ncd " + str(tmp_path) + "\n" + body + "\n")
+    return subprocess.run(["bash", str(script)], cwd=str(tmp_path), env=env,
+                          capture_output=True, timeout=30)
+
+
+@pytest.mark.parametrize("tail,result,code", [
+    ("exit 0", "succeeded", 0),
+    ("exit 3", "failed", 3),
+    ("kill -TERM $$; sleep 5", "failed", 143),   # SLURM's time limit sends TERM
+])
+def test_status_block_labels_each_way_a_job_ends(tmp_path, tail, result, code):
+    proc = _run_bash(tmp_path, render_status_block(run_dir=str(tmp_path)) + tail)
+    assert proc.returncode == code
+    label = (tmp_path / "nessie_status" / "finished.txt").read_text()
+    assert f"result: {result}\nexit_code: {code}\nfinished_at: 20" in label
+
+
+def test_status_block_releases_the_jobs_claims_on_exit(tmp_path):
+    import shutil
+    from chat_nextseek.luria import fetchngs_helpers as fh
+    cache = tmp_path / "cache"
+    fh.claim(str(cache), "77", ["SRR1"])
+    shutil.copy(fh.__file__, str(tmp_path / "fetchngs_helpers.py"))
+    env = dict(os.environ, SLURM_JOB_ID="77",
+               PATH=os.path.dirname(sys.executable) + os.pathsep + os.environ.get("PATH", ""))
+    block = render_status_block(run_dir=str(tmp_path), fastq_cache=str(cache))
+    proc = _run_bash(tmp_path, block + "exit 0", env=env)
+    assert proc.returncode == 0, proc.stderr
+    assert not (cache / "nessie_status" / "in_use" / "SRR1").exists()

@@ -29,6 +29,7 @@ export NXF_SYNTAX_PARSER={{SYNTAX_PARSER}}
 export SSL_CERT_FILE="$(dirname {{SINGULARITY_CACHE}})/certs/ca-bundle.crt"
 
 cd {{RUN_DIR}}
+{{STATUS_BLOCK}}
 {{FETCHNGS_BLOCK}}
 
 # Per-pipeline scientific params come from params.yml (built from the curated
