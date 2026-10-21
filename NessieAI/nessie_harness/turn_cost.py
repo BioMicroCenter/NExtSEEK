@@ -101,7 +101,8 @@ def read_turn(payload: dict) -> dict:
         "router_cost_partial": rd.get("router_cost_partial") is True,
         "router_model": router_model if isinstance(router_model, str) else None,
         "router_fallback": router_fallback if isinstance(router_fallback, dict) else None,
-        "engine_cost": usd(end.get("total_cost_usd")),
+        # The price-table number first, the CLI's own total only as a fallback (the rule in ns/turn_memory.py).
+        "engine_cost": usd(end.get("cost_by_price_table_usd")) if usd(end.get("cost_by_price_table_usd")) is not None else usd(end.get("total_cost_usd")),
         "cost_partial": end.get("cost_partial") is True,
         "cost_estimated": end.get("cost_estimated") is True,
         # Plan 04: a Container-CC turn sums itself (ops, pre-run, router, nested NS turns); absent on NS turns and
