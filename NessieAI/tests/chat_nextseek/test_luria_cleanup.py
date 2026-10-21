@@ -5,6 +5,7 @@ clock (NOW) because "a run folder created in the last 2 days" reads real mtimes.
 """
 import ast
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -323,10 +324,11 @@ def test_lock_reports_busy_while_held(tmp_path):
     other.release()
 
 
-def test_report_mode_changes_nothing(root, capsys):
+def test_report_mode_deletes_nothing(root, capsys):
     add_run(root, R, finished="failed", finished_days=40)
     work = add_work(root, "foo")
     add_work(root, "legacy")
+    fq = add_fastq(root, FQ, last_used_days=1, accs=["SRR1"])
     assert run_main(root) == 0
     out = capsys.readouterr().out
     assert "WILL DELETE (1)" in out and "work/foo" in out
@@ -334,7 +336,7 @@ def test_report_mode_changes_nothing(root, capsys):
     assert "Download lock: taken and released" in out
     assert "Nessie runs in progress: none" in out
     assert "Would free" in out
-    assert work.exists() and not (root / "cleanup_logs").exists()
+    assert work.exists() and fq.exists() and not (root / "cleanup_logs").exists()
 
 
 def test_delete_removes_only_what_the_report_lists_and_logs_it(root, capsys):
@@ -401,9 +403,212 @@ def test_delete_rechecks_each_item_first(root):
     fq = add_fastq(root, FQ, last_used_days=31, accs=["SRR1"])
     items, _ = cl.build_report(str(root), {"77"}, NOW)
     add_claim(root, "SRR1", "77")            # a run claims it after the report was built
-    log, freed, failures = cl.delete_pass(str(root), items, {"77"}, clock=lambda: NOW)
+    log, freed, failures, stopped = cl.delete_pass(
+        str(root), items, lambda: ({"77"}, "q"), clock=lambda: NOW)
     assert fq.exists() and freed == 0 and failures == 0
-    assert any(line.startswith("SKIPPED") for line in log)
+    assert any(line.startswith("STOPPED") or line.startswith("SKIPPED") for line in log)
+
+
+def plan(root, queued=frozenset()):
+    items, _ = cl.build_report(str(root), set(queued), NOW)
+    cl.add_sizes(items)
+    return items
+
+
+def test_a_new_in_progress_run_of_the_same_name_stops_the_pass(root):
+    add_run(root, R, finished="failed", finished_days=40)
+    work = add_work(root, "foo")
+    items = plan(root)
+    add_run(root, "foo_261020_120000_0", job="555")          # same work name, now queued
+    log, freed, failures, stopped = cl.delete_pass(
+        str(root), items, lambda: ({"555"}, "q"), clock=lambda: NOW)
+    assert stopped and freed == 0 and work.exists()
+    assert log == ["STOPPED  runs/foo_261020_120000_0 is in progress; nothing more deleted"]
+
+
+def test_a_new_finished_run_of_the_same_name_skips_the_folder(root):
+    add_run(root, R, finished="failed", finished_days=40)
+    work = add_work(root, "foo")
+    items = plan(root)
+    add_run(root, "foo_261020_120000_0", finished="failed", finished_days=1)
+    log, freed, failures, stopped = cl.delete_pass(
+        str(root), items, lambda: (set(), "q"), clock=lambda: NOW)
+    assert not stopped and failures == 0 and freed == 0 and work.exists()
+    assert len(log) == 1 and log[0].startswith("SKIPPED  work/foo  no longer qualifies on re-check (")
+    assert "run failed 1 days ago" in log[0]
+
+
+def test_a_run_starting_mid_pass_stops_the_pass(root, monkeypatch):
+    monkeypatch.setattr(cl, "QUEUE_REFRESH_S", 0)
+    add_run(root, R, finished="failed", finished_days=40)
+    add_run(root, "bar_261001_120000_0", finished="failed", finished_days=40)
+    foo, bar = add_work(root, "foo"), add_work(root, "bar")
+    items = plan(root)
+    calls = []
+
+    def reader():
+        calls.append(1)
+        if len(calls) == 1:
+            return set(), "q"
+        if len(calls) == 2:
+            add_run(root, "baz_261020_120000_0", job="555")
+        return {"555"}, "q"
+
+    log, freed, failures, stopped = cl.delete_pass(str(root), items, reader, clock=lambda: NOW)
+    assert stopped and failures == 0
+    assert not bar.exists() and foo.exists()                 # sorted: bar first, then stopped
+    assert log[0].startswith("DELETED") and "work/bar" in log[0]
+    assert log[1] == "STOPPED  runs/baz_261020_120000_0 is in progress; nothing more deleted"
+    assert len(log) == 2
+
+
+def test_delete_pass_refuses_when_its_first_queue_read_fails(root):
+    add_run(root, R, finished="failed", finished_days=40)
+    work = add_work(root, "foo")
+    items = plan(root)
+    log, freed, failures, stopped = cl.delete_pass(
+        str(root), items, lambda: (None, "bad"), clock=lambda: NOW)
+    assert stopped and work.exists()
+    assert log == ["STOPPED  job queue could not be read; nothing deleted"]
+
+
+def test_the_queue_going_unreadable_mid_pass_stops_the_pass(root, monkeypatch):
+    monkeypatch.setattr(cl, "QUEUE_REFRESH_S", 0)
+    add_run(root, R, finished="failed", finished_days=40)
+    add_run(root, "bar_261001_120000_0", finished="failed", finished_days=40)
+    foo, bar = add_work(root, "foo"), add_work(root, "bar")
+    items = plan(root)
+    answers = iter([(set(), "q"), (None, "bad")])
+    log, freed, failures, stopped = cl.delete_pass(
+        str(root), items, lambda: next(answers), clock=lambda: NOW)
+    assert stopped and not bar.exists() and foo.exists()
+    assert log[-1] == "STOPPED  job queue could not be read; nothing more deleted"
+
+
+def test_a_busy_download_lock_skips_the_downloads_and_fails_the_run(root, monkeypatch, capsys):
+    monkeypatch.setattr(cl, "LOCK_TIMEOUT_S", 0)
+    fq = add_fastq(root, FQ, last_used_days=31, accs=["SRR1"])
+    holder = cl.CacheLock(str(root / "fastq_cache"))
+    assert holder.acquire(0) == "taken"
+    try:
+        assert run_main(root, "--delete") == 1
+    finally:
+        holder.release()
+    assert fq.exists()
+    (log,) = list((root / "cleanup_logs").iterdir())
+    assert "SKIPPED  fastq_cache/fastq/" + FQ + "  download lock busy" in log.read_text()
+
+
+def test_a_failed_removal_is_logged_and_the_rest_still_go(root, monkeypatch):
+    add_run(root, R, finished="failed", finished_days=40)
+    add_run(root, "bar_261001_120000_0", finished="failed", finished_days=40)
+    foo, bar = add_work(root, "foo"), add_work(root, "bar")
+    real = cl.remove_path
+
+    def flaky(path, parent):
+        if os.path.basename(path) == "bar":
+            raise OSError("disk says no")
+        return real(path, parent)
+
+    monkeypatch.setattr(cl, "remove_path", flaky)
+    assert run_main(root, "--delete") == 1
+    assert bar.exists() and not foo.exists()
+    (log,) = list((root / "cleanup_logs").iterdir())
+    text = log.read_text()
+    assert "FAILED   work/bar  disk says no" in text and "DELETED" in text and "work/foo" in text
+
+
+def test_a_failed_md5_removal_still_logs_the_fastq_as_deleted(root, monkeypatch):
+    fq = add_fastq(root, FQ, last_used_days=31, accs=["SRR1"], md5=True)
+    real = cl.remove_path
+
+    def flaky(path, parent):
+        if path.endswith(".md5"):
+            raise OSError("md5 stuck")
+        return real(path, parent)
+
+    monkeypatch.setattr(cl, "remove_path", flaky)
+    items = plan(root)
+    log, freed, failures, stopped = cl.delete_pass(
+        str(root), items, lambda: (set(), "q"), clock=lambda: NOW)
+    assert not fq.exists() and freed == 100 and failures == 1
+    assert log[0].startswith("DELETED") and "fastq_cache/fastq/" + FQ in log[0]
+    assert log[1].startswith("FAILED   fastq_cache/fastq/md5/" + FQ + ".md5  md5 stuck")
+
+
+def test_the_log_is_written_as_the_pass_goes(root, monkeypatch):
+    add_run(root, R, finished="failed", finished_days=40)
+    add_run(root, "bar_261001_120000_0", finished="failed", finished_days=40)
+    add_work(root, "foo"), add_work(root, "bar")
+    real = cl.remove_path
+    seen = []
+
+    def interrupted(path, parent):
+        if seen:
+            raise KeyboardInterrupt
+        seen.append(path)
+        return real(path, parent)
+
+    monkeypatch.setattr(cl, "remove_path", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        run_main(root, "--delete")
+    (log,) = list((root / "cleanup_logs").iterdir())
+    text = log.read_text()
+    assert "DELETE PASS" in text and "Nessie cleanup report" in text
+    assert "DELETED" in text and "work/bar" in text
+
+
+def test_a_second_log_in_the_same_second_gets_a_suffix(root):
+    first, path1 = cl.open_log(str(root), NOW)
+    second, path2 = cl.open_log(str(root), NOW)
+    first.close(), second.close()
+    assert path1 != path2 and path2.endswith("_2.txt")
+
+
+def test_delete_does_nothing_if_the_log_cannot_be_created(root, monkeypatch, capsys):
+    add_run(root, R, finished="failed", finished_days=40)
+    work = add_work(root, "foo")
+
+    def broken(root_, now):
+        raise PermissionError("read-only")
+
+    monkeypatch.setattr(cl, "open_log", broken)
+    assert run_main(root, "--delete") == 1
+    assert work.exists() and "read-only" in capsys.readouterr().out
+
+
+def test_delete_removes_downloader_scratch(root):
+    scratch = root / "fastq_cache" / "work" / "ab"
+    scratch.mkdir(parents=True)
+    (scratch / "x.bin").write_bytes(b"x" * 10)
+    assert run_main(root, "--delete") == 0
+    assert not (root / "fastq_cache" / "work").exists()
+    (log,) = list((root / "cleanup_logs").iterdir())
+    assert "DELETED" in log.read_text() and "fastq_cache/work" in log.read_text()
+
+
+def test_read_queue_discards_squeue_stderr(monkeypatch):
+    seen = {}
+
+    def fake(cmd, **kwargs):
+        seen.update(kwargs)
+        return "12\n34\n"
+
+    monkeypatch.setattr(cl.subprocess, "check_output", fake)
+    jobs, _note = cl.read_queue()
+    assert jobs == {"12", "34"} and seen["stderr"] is subprocess.DEVNULL
+
+
+def test_the_report_says_what_the_free_space_waits_for(root, capsys):
+    add_run(root, R, finished="failed", finished_days=40)
+    add_work(root, "foo")
+    run_main(root)
+    assert "with --delete." in capsys.readouterr().out
+    add_run(root, "bar_261020_120000_0", job="555")
+    run_main(root, queued={"555"})
+    assert "with --delete, once no Nessie run is in progress." in capsys.readouterr().out
+    run_main(root, queued=None)
+    assert "with --delete, once the job queue can be read." in capsys.readouterr().out
 
 
 def test_delete_never_follows_a_symlink(root, tmp_path_factory):
