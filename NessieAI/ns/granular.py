@@ -2396,7 +2396,10 @@ def _rebuild_record(record: dict, user, outputs_dir) -> list[dict]:
     stays on disk for the comparison."""
     from types import SimpleNamespace as _NS
 
-    base = outputs_dir or os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs"
+    from NessieAI.ns.artifacts import default_outputs_dir
+
+    # Absolute, so the upload's containment check finds it whatever the working directory.
+    base = os.path.abspath(outputs_dir) if outputs_dir else default_outputs_dir()
     folder = os.path.join(base, "rebuilds", record["build_id"][:16])
     os.makedirs(folder, exist_ok=True)
     shown = record.get("shown_in")

@@ -67,3 +67,48 @@ def test_the_real_rebuild_differs_only_by_the_new_assay(rows, tmp_path, monkeypa
     assert _safe_artifact_path(stored["path"]) is not None
     assert stored["path"] != reviewed["path"]
     assert workbook_diff.assay_only_changes(reviewed["path"], stored["path"], [CREATED]) == []
+
+
+# --- With no run-root of its own, the rebuild writes under an absolute artifact root.
+
+def _rebuild_folder(monkeypatch, outputs_dir=None):
+    seen = {}
+
+    def build(args, folder, session=None, rebuilt_from=None):
+        seen["folder"] = folder
+        return {"builds": []}
+    monkeypatch.setattr(g, "_build_upload_xlsx_from_manifest", build)
+    monkeypatch.setattr(g.os, "makedirs", lambda *a, **k: None)
+    record = {"build_id": "ab" * 32, "manifest_id": "m", "mode": "new", "shown_in": TURN}
+    g._rebuild_record(record, USER, outputs_dir)
+    return seen["folder"]
+
+
+def test_the_rebuild_folder_is_absolute_under_the_outputs_dir_setting(tmp_path, monkeypatch):
+    monkeypatch.setenv("NEXTSEEK_OUTPUTS_DIR", "relative-outputs")
+    monkeypatch.chdir(tmp_path)
+    folder = _rebuild_folder(monkeypatch)
+    assert folder == str((tmp_path / "relative-outputs").resolve() / "rebuilds" / ("ab" * 8))
+
+
+def test_without_the_setting_the_rebuild_folder_is_under_the_project_outputs(tmp_path,
+                                                                             monkeypatch):
+    from django.conf import settings
+    from pathlib import Path
+
+    monkeypatch.delenv("NEXTSEEK_OUTPUTS_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+    folder = _rebuild_folder(monkeypatch)
+    assert folder == str(Path(settings.BASE_DIR, "outputs").resolve() / "rebuilds" / ("ab" * 8))
+    assert _safe_artifact_path(str(Path(folder) / "reingest_A_ALN.xlsx")) is not None
+
+
+def test_the_default_outputs_dir_is_the_settings_base_dirs_outputs(monkeypatch):
+    """artifacts.default_outputs_dir reads no settings; it must still name BASE_DIR/outputs."""
+    from django.conf import settings
+    from pathlib import Path
+
+    from NessieAI.ns.artifacts import default_outputs_dir
+
+    monkeypatch.delenv("NEXTSEEK_OUTPUTS_DIR", raising=False)
+    assert default_outputs_dir() == str(Path(settings.BASE_DIR, "outputs").resolve())
