@@ -330,3 +330,43 @@ def test_a_2xx_without_an_id_and_two_matches_is_refused(_ids, _iid):
         with pytest.raises(AssayCreateRefused):
             _call()
     links.objects.create.assert_not_called()
+
+
+# --- Pairs go in chunks no larger than the synchronous threshold, so none is queued.
+
+def test_pairs_are_sent_in_synchronous_chunks_and_their_results_merged(settings):
+    settings.ASSAY_REGISTRATION_SYNC_ROW_THRESHOLD = 2
+
+    def register(payload, request):
+        assert len(payload.registrations) <= 2
+        rows = [{"sample_uid": r.sample_uid, "assay_id": r.assay_id, "status": "written"}
+                for r in payload.registrations]
+        return ({"overall_status": "succeeded",
+                 "counts": {"submitted": len(rows), "written": len(rows), "already_present": 0,
+                            "skipped": 0, "failed": 0}, "rows": rows}, 200)
+
+    with patch("nextseek_api.assay_registration.service.register",
+               side_effect=register) as service:
+        body = reingest_assays.register_parents(REQ, _pairs())
+    assert [len(c.args[0].registrations) for c in service.call_args_list] == [2, 1]
+    assert body["counts"] == {"submitted": 3, "written": 3, "already_present": 0,
+                              "skipped": 0, "failed": 0}
+    assert [r["sample_uid"] for r in body["rows"]] == ["D.SEQ-1", "D.SEQ-2", "D.SEQ-3"]
+    assert all(r["status"] == "written" for r in body["rows"])
+
+
+def test_a_queued_chunk_is_still_reported_as_not_made(settings):
+    settings.ASSAY_REGISTRATION_SYNC_ROW_THRESHOLD = 2
+    answers = iter([
+        ({"counts": {"submitted": 2, "written": 2, "already_present": 0, "skipped": 0,
+                     "failed": 0},
+          "rows": [{"sample_uid": "D.SEQ-1", "assay_id": 315, "status": "written"},
+                   {"sample_uid": "D.SEQ-2", "assay_id": 316, "status": "written"}]}, 200),
+        ({"mode": "asynchronous", "job_id": "j", "counts": {"submitted": 1}}, 202)])
+    with patch("nextseek_api.assay_registration.service.register",
+               side_effect=lambda payload, request: next(answers)):
+        body = reingest_assays.register_parents(REQ, _pairs())
+    assert body["counts"]["written"] == 2 and body["counts"]["failed"] == 1
+    assert body["counts"]["submitted"] == 3
+    [queued] = [r for r in body["rows"] if r["status"] == "failed"]
+    assert queued["sample_uid"] == "D.SEQ-3" and queued["error"]["code"] == "queued"

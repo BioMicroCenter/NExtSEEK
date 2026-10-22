@@ -173,43 +173,54 @@ def _failed_row(pair: dict, code: str, message: str) -> dict:
             "status": "failed", "error": {"code": code, "message": message}}
 
 
+def _register_chunk(chunk: list[dict], request, counts: dict, rows: list) -> None:
+    """Send one chunk to the registration service and merge its counts and rows."""
+    from nextseek_api.assay_registration import service
+    from nextseek_api.assay_registration.schemas import RegistrationRequest, RegistrationRow
+
+    payload = RegistrationRequest(registrations=[
+        RegistrationRow(sample_uid=p["parent_uid"], assay_id=int(p["assay_id"]))
+        for p in chunk])
+    raw, code = service.register(payload, request)
+    if code == 202:
+        # Above the synchronous threshold the service only queues a job: nothing is
+        # written yet, so no pair may be counted as made. The chunking below keeps
+        # every call synchronous; this stays as a defence.
+        log.info("upload-reingest: %d parent registrations queued as job %s",
+                 len(chunk), (raw or {}).get("job_id"))
+        counts["submitted"] += len(chunk)
+        counts["failed"] += len(chunk)
+        rows.extend(_failed_row(p, "queued", "the registration was queued and will "
+                                "finish in the background") for p in chunk)
+        return
+    body = raw or {}
+    for name, value in (body.get("counts") or {}).items():
+        counts[name] = int(counts.get(name) or 0) + int(value or 0)
+    rows.extend(body.get("rows") or [])
+
+
 def register_parents(request, pairs: list[dict]) -> dict:
     """Register each (parent, assay) pair whose assay is in the caller's projects.
 
-    Every pair not sent, out of scope or queued for the background, comes back as a
-    failed row and in ``counts.failed``, so the reply never counts it as made."""
-    from nextseek_api.assay_registration import service
-    from nextseek_api.assay_registration.schemas import RegistrationRequest, RegistrationRow
+    Pairs go to the service in chunks no larger than its synchronous threshold
+    (``ASSAY_REGISTRATION_SYNC_ROW_THRESHOLD``), so it writes them now instead of
+    queueing a job. Every pair not sent, out of scope or still queued comes back as
+    a failed row and in ``counts.failed``, so the reply never counts it as made."""
+    from django.conf import settings
 
     allowed = _in_scope_ids([p["assay_id"] for p in pairs], _caller_scope(request))
     sent = [p for p in pairs if int(p["assay_id"]) in allowed]
     dropped = [p for p in pairs if int(p["assay_id"]) not in allowed]
     counts = {"submitted": 0, "written": 0, "already_present": 0, "skipped": 0, "failed": 0}
-    body: dict = {"counts": counts, "rows": []}
-    if sent:
-        payload = RegistrationRequest(registrations=[
-            RegistrationRow(sample_uid=p["parent_uid"], assay_id=int(p["assay_id"]))
-            for p in sent])
-        raw, code = service.register(payload, request)
-        if code == 202:
-            # Above the synchronous threshold the service only queues a job: nothing is
-            # written yet, so no pair may be counted as made.
-            log.info("upload-reingest: %d parent registrations queued as job %s",
-                     len(sent), (raw or {}).get("job_id"))
-            counts["submitted"] = len(sent)
-            counts["failed"] = len(sent)
-            body["rows"] = [_failed_row(p, "queued", "the registration was queued and will "
-                                        "finish in the background") for p in sent]
-        else:
-            body = dict(raw or {})
-            counts = {**counts, **(body.get("counts") or {})}
-            body["counts"] = counts
-            body["rows"] = list(body.get("rows") or [])
+    rows: list = []
+    size = max(1, int(settings.ASSAY_REGISTRATION_SYNC_ROW_THRESHOLD))
+    for start in range(0, len(sent), size):
+        _register_chunk(sent[start:start + size], request, counts, rows)
     if dropped:
         log.warning("upload-reingest: %d parent registrations outside the caller's projects "
                     "were not sent", len(dropped))
-        counts["submitted"] = int(counts.get("submitted") or 0) + len(dropped)
-        counts["failed"] = int(counts.get("failed") or 0) + len(dropped)
-        body["rows"].extend(_failed_row(p, "permission_denied", "not in your projects")
-                            for p in dropped)
-    return body
+        counts["submitted"] += len(dropped)
+        counts["failed"] += len(dropped)
+        rows.extend(_failed_row(p, "permission_denied", "not in your projects")
+                    for p in dropped)
+    return {"counts": counts, "rows": rows}
