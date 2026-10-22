@@ -360,6 +360,40 @@ def _render_one(index, code, attribute, bucket):
     detail = bucket["detail"]
     sample_type = bucket.get("sample_type", "")
     rows = _plural(count)
+    where = _workbook_ref(sample_type)
+    if code == qa.ASSAY_TO_CREATE:
+        return [f"  {index}.  The upload will create '{detail.get('assay_title')}' in study"
+                f" {detail.get('study_id')} ({detail.get('study_title')}) and file {count} {rows}"
+                f" of {where} under it."]
+    if code == qa.PARENTS_JOIN_ASSAY:
+        return [f"  {index}.  The upload will also add the {detail.get('parents')} parent samples"
+                f" to {', '.join(detail.get('assays') or [])}, so their links to the new samples"
+                " carry the assay."]
+    if code == qa.ASSAY_UNRESOLVED_TEST_ONLY:
+        return [f"  {index}.  {where}: no parents, so no study; the Assay sheet names"
+                f" '{detail.get('assay')}' unresolved. A test build only."]
+    if code == qa.ASSAY_AMBIGUOUS:
+        ids = ", ".join(str(i) for i in detail.get("assay_ids") or [])
+        return [f"  {index}.  {count} {rows} in {where}: study {detail.get('study_id')}"
+                f" ({detail.get('study_title')}) has more than one assay of this kind ({ids}).",
+                "      Tell me which one to use, or remove the extra one in SEEK, then rebuild."]
+    if code == qa.HOUSE_ASSAY_MISSING:
+        return [f"  {index}.  {where}: there is no house assay '{detail.get('assay')}' on this"
+                " instance, so its rows cannot be filed under one.",
+                "      An administrator adds it through the curated catalog (context/), then"
+                " rebuild."]
+    if code == qa.PARENT_IN_NO_STUDY:
+        parents = ", ".join(detail.get("parents") or [])
+        return [f"  {index}.  {count} {rows} in {where}: their parent samples are not in any"
+                f" study's assay: {parents}.",
+                "      Register those samples in their study's assays first, then rebuild."]
+    if code == qa.ASSAY_NOT_DECLARED:
+        return [f"  {index}.  {where}: the pipeline map names no assay for these rows.",
+                "      An administrator adds one to the map, then rebuild."]
+    if code == qa.ASSAY_SPLIT_ACROSS_STUDIES:
+        return [f"  {index}.  The rows of {where} come from different studies, and one workbook"
+                " files every row under every assay it lists.",
+                "      Reingest one study's samples at a time."]
 
     if code == qa.UNAPPROVED_ATTRIBUTE:
         return [
