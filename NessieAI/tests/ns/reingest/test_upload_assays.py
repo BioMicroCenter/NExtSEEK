@@ -232,3 +232,69 @@ def test_the_records_it_returns_carry_the_parents_with_their_assay_ids(env, monk
         records, {(51, "Genome Alignment"): 900}, _rebuilt(env, reviewed), 7)
     assert out[0]["parent_assays"] == [dict(PAIRS[0], assay_id=900)]
     assert out[0]["rebuilt_from"] == reviewed["build_id"]
+
+
+RESOLVED = [{"parent_uid": "D.SEQ-1", "study_id": 51,
+             "internal_assay_title": "Gene Expression Analysis", "assay_id": 315},
+            {"parent_uid": "D.SEQ-2", "study_id": 51,
+             "internal_assay_title": "Gene Expression Analysis", "assay_id": 315}]
+
+
+def _run_waiting(record, *, register, state="SUCCESS", failed_rows=0):
+    def job_state(job_id):
+        return {"state": state, "totals": {"uids_generated": 1, "failed": failed_rows,
+                                           "processed": 1}, "errors": [], "rows": []}
+    return upload.run(build_ids_raw=record["build_id"], user=USER, upload_context=CTX,
+                      dispatch=MagicMock(return_value="job-1"), stage=_copy_stage,
+                      chat_turn=lambda: NOW, turn_delivered=lambda task_id: True,
+                      job_state=job_state, register_parents=register)
+
+
+def test_parents_join_the_assay_after_the_new_samples_land(env):
+    record = _record(env, parent_assays=RESOLVED)
+    register = MagicMock(return_value={"counts": {"written": 1, "already_present": 1,
+                                                  "failed": 0}, "rows": []})
+    result = _run_waiting(record, register=register)
+    register.assert_called_once_with([{"parent_uid": "D.SEQ-1", "study_id": 51,
+                                       "internal_assay_title": "Gene Expression Analysis",
+                                       "assay_id": 315}, RESOLVED[1]])
+    assert result["jobs"][0]["parents"]["status"] == "registered"
+    assert "2 parent samples are in their assays" in result["reply"]
+
+
+@pytest.mark.parametrize("state, failed_rows", [("FAILURE", 0), ("SUCCESS", 1)])
+def test_no_parent_joins_when_the_new_samples_did_not_all_land(env, state, failed_rows):
+    record = _record(env, parent_assays=RESOLVED)
+    register = MagicMock()
+    _run_waiting(record, register=register, state=state, failed_rows=failed_rows)
+    register.assert_not_called()
+
+
+def test_a_registration_failure_is_reported_and_keeps_the_upload(env):
+    record = _record(env, parent_assays=RESOLVED)
+    register = MagicMock(return_value={
+        "counts": {"written": 1, "already_present": 0, "failed": 1},
+        "rows": [{"sample_uid": "D.SEQ-2", "assay_id": 315, "status": "failed",
+                  "error": {"code": "permission_denied", "message": "no"}}]})
+    result = _run_waiting(record, register=register)
+    job = result["jobs"][0]
+    assert job["outcome"]["status"] == "succeeded"
+    assert job["parents"]["failed"] == ["D.SEQ-2 → assay 315"]
+    assert "assay-registrations" in result["reply"]
+
+
+def test_a_raising_registration_is_reported_not_raised(env):
+    record = _record(env, parent_assays=RESOLVED)
+    result = _run_waiting(record, register=MagicMock(side_effect=RuntimeError("down")))
+    assert result["jobs"][0]["parents"]["status"] == "failed"
+
+
+def test_without_waiting_no_parent_is_registered(env):
+    record = _record(env, parent_assays=RESOLVED)
+    register = MagicMock()
+    result = upload.run(build_ids_raw=record["build_id"], user=USER, upload_context=CTX,
+                        dispatch=MagicMock(return_value="job-1"), stage=_copy_stage,
+                        chat_turn=lambda: NOW, turn_delivered=lambda task_id: True,
+                        register_parents=register)
+    register.assert_not_called()
+    assert "parent samples were not added" in result["reply"]

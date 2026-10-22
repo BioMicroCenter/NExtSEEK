@@ -377,7 +377,11 @@ def _outcome_line(job: dict) -> str:
 
 
 def _reply(jobs: list[dict]) -> str:
-    lines = [_outcome_line(job) for job in jobs]
+    lines = []
+    for job in jobs:
+        lines.append(_outcome_line(job))
+        if (extra := _parents_line(job)):
+            lines.append(extra)
     outcomes = [job.get("outcome") for job in jobs]
     if any(o is None for o in outcomes):
         return "Upload jobs:\n" + "\n".join(lines)
@@ -391,6 +395,47 @@ def _reply(jobs: list[dict]) -> str:
     if any("pending" in str(o.get("graph") or "") for o in outcomes if o):
         tail = "\nThe new samples are in NExtSEEK now; graph search picks them up on its next sync."
     return head + "\n" + "\n".join(lines) + tail
+
+
+def _register_parents(entry: dict, record: dict, register_parents) -> dict | None:
+    """Add a new-mode job's parents to their assays, once its samples all landed."""
+    pairs = [p for p in (record.get("parent_assays") or []) if p.get("assay_id") is not None]
+    if record["mode"] != "new" or not pairs:
+        return None
+    outcome = entry.get("outcome")
+    if outcome is None:
+        return {"status": "skipped", "written": 0, "already_present": 0, "failed": [],
+                "pending": len(pairs)}
+    if outcome.get("status") != "succeeded" or not callable(register_parents):
+        return None
+    try:
+        body = register_parents(pairs) or {}
+    except Exception as exc:  # noqa: BLE001 -- the upload already landed; report, never raise
+        logger.exception("upload-reingest: registering parents failed")
+        return {"status": "failed", "written": 0, "already_present": 0,
+                "failed": [f"{p['parent_uid']} → assay {p['assay_id']}" for p in pairs],
+                "error": type(exc).__name__}
+    counts = body.get("counts") or {}
+    failed = [f"{row.get('sample_uid')} → assay {row.get('assay_id')}"
+              for row in body.get("rows") or [] if row.get("status") == "failed"]
+    return {"status": "partial" if failed else "registered",
+            "written": int(counts.get("written") or 0),
+            "already_present": int(counts.get("already_present") or 0), "failed": failed}
+
+
+def _parents_line(job: dict) -> str | None:
+    parents = job.get("parents")
+    if not parents:
+        return None
+    if parents["status"] == "skipped":
+        return (f"  The {parents['pending']} parent samples were not added to their assays: "
+                "this call could not wait for the upload to finish.")
+    if parents["status"] == "registered":
+        total = parents["written"] + parents["already_present"]
+        return f"  {total} parent samples are in their assays now ({parents['written']} added)."
+    return ("  Some parent samples could not be added to their assays: "
+            + ", ".join(parents["failed"])
+            + ". Add them through the assay-registrations endpoint; it is safe to repeat.")
 
 
 def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
@@ -443,6 +488,8 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
             raise UploadRefused(
                 [f"{record['artifact_key']}: the staged copy does not match the reviewed workbook"])
 
+    by_build = {r["build_id"]: r for r in records}
+
     # Phase B: new mode first; a failed start is recorded and never stops the next.
     jobs: list[dict] = []
     for record, staged in staged_paths:
@@ -464,4 +511,8 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
         jobs.append(entry)
     if callable(job_state):
         _await_jobs(jobs, job_state)
+    for entry in jobs:
+        if "job_id" in entry and (parents := _register_parents(
+                entry, by_build[entry["build_id"]], register_parents)):
+            entry["parents"] = parents
     return {"jobs": jobs, "reply": _reply(jobs)}
