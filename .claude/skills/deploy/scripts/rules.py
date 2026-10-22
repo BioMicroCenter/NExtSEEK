@@ -18,13 +18,14 @@ from pathlib import Path
 # before app and cc-agent): a new app behind an old proxy names models the proxy
 # refuses (CI-COVERAGE.md 2026-09-25, "CC fallback wiring").
 # ---------------------------------------------------------------------------------
-COMPONENTS = ("bedrock-proxy", "app", "cc-agent", "nextseek-sidecar")
+COMPONENTS = ("bedrock-proxy", "cc-spawner", "app", "cc-agent", "nextseek-sidecar")
 
 # The log file each component's rebuild writes on the box, and the line that proves
 # it worked (startup/cli.py: `{name} rebuilt and restarted`, `{name} image rebuilt`).
-LOG_NAME = {"bedrock-proxy": "proxy", "app": "app", "cc-agent": "cc", "nextseek-sidecar": "sidecar"}
+LOG_NAME = {"bedrock-proxy": "proxy", "cc-spawner": "spawner", "app": "app", "cc-agent": "cc", "nextseek-sidecar": "sidecar"}
 SUCCESS_LINE = {
     "bedrock-proxy": "bedrock-proxy rebuilt and restarted",
+    "cc-spawner": "cc-spawner rebuilt and restarted",
     "app": "app rebuilt and restarted",
     "cc-agent": "cc-agent image rebuilt",
     "nextseek-sidecar": "nextseek-sidecar rebuilt and restarted",
@@ -284,10 +285,16 @@ IMAGE_RULES: tuple[PathRule, ...] = (
     # Only what each Dockerfile copies; a README or PORT-EVIDENCE.json beside it builds nothing.
     PathRule(r"^NessieAI/docker/ns-sidecar/(Dockerfile|__init__\.py|app/)", ("nextseek-sidecar",)),
     PathRule(r"^NessieAI/docker/bedrock-proxy/(Dockerfile|app/)", ("bedrock-proxy",)),
+    # What its Dockerfile copies (spawner.py, seek_scripts/); the README and tests build nothing.
+    # Rebuilding it cuts a CC turn that is streaming through it at that moment.
+    PathRule(r"^docker/cc-spawner/(Dockerfile|spawner\.py|seek_scripts/)", ("cc-spawner",)),
+    PathRule(r"^docker/cc-spawner/", (), None, "spawner tests and README: not in its image"),
     PathRule(r"^(static/|NessieAI/chat_frontend/)", ("app",), None, "then collectstatic"),
     PathRule(r"^themes/NextSeek/", (), None, "bind-mounted: live after the pull; static needs collectstatic"),
     PathRule(r"^(ci|startup)/", (), None, "CI and the CLI run from the host checkout"),
-    PathRule(r"\.(md|txt)$", (), None, "documentation"),
+    PathRule(r"\.md$", (), None, "documentation"),
+    # A prompt .txt under an app tree is app source, so only .txt elsewhere is docs.
+    PathRule(r"^(?!(nextseek_api|seek|dmac|NessieAI)/).*\.txt$", (), None, "documentation"),
     PathRule(r"^docker/scripts/db/", (), None, "MySQL init scripts: run only when the database volume is created"),
     PathRule(r"^docker/scripts/", ("app",), None, "baked into the app image (the entrypoint, the healthcheck)"),
     PathRule(r"^docker/models/[^/]+\.(json|py)$", ("app",), None, "the app image's models stage: pins and scripts"),
@@ -310,7 +317,7 @@ def rule_for(path: str) -> PathRule | None:
 # Extras a brief may allow. Anything outside the list is a proposal in the report.
 ALLOWED_EXTRAS = {
     "seek restart ok": "restart SEEK before Nessie when it holds more than 12 GiB (a minute of errors on prod)",
-    "nginx recreate ok": "docker compose up -d --no-deps --force-recreate nextseek_nginx",
+    "nginx recreate ok": "./startup.sh rebuild ... --recreate-nginx (compose up -d --no-deps --force-recreate nextseek_nginx, then app and SEEK checks)",
     "db backup ok": "prod database backup before a migration (the operator's prod runbook, backup step)",
     "bedrock-proxy rebuild ok": "rebuild the bedrock-proxy component",
     "compose recreate ok": "a --no-deps recreate after a docker-compose.yml change",
@@ -324,7 +331,7 @@ PROD_FORBIDDEN_ID_PREFIXES = ("write.",)
 # ---------------------------------------------------------------------------------
 # Time. Minutes each step took on dev (dev.md section 4), for the window check.
 # ---------------------------------------------------------------------------------
-STEP_MINUTES = {"pull": 1, "bedrock-proxy": 3, "app": 15, "cc-agent": 5, "nextseek-sidecar": 3,
+STEP_MINUTES = {"pull": 1, "bedrock-proxy": 3, "cc-spawner": 3, "app": 15, "cc-agent": 5, "nextseek-sidecar": 3,
                 "collectstatic": 1, "labs": 2, "checks": 2, "ci": 13}
 NESSIE_MINUTES_PER_CASE = 1.2
 CC_TURN_USD_UPPER = 0.50     # nessie-questions.md: estimate CC turns x $0.50

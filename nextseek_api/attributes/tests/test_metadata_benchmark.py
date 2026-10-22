@@ -15,6 +15,8 @@ from pathlib import Path
 
 import orjson
 
+_STATE_ROOT = Path(os.environ.get("ATTRIBUTE_STATE_ROOT") or Path.home() / "work/state/attribute-viewset")
+
 ROWS = (1000, 10000, 50000)
 WIDTHS = (512, 4096, 16384)
 CHUNK_ROWS = (250, 1000, 2000)
@@ -143,7 +145,7 @@ def test_chunk_selector_produces_hash_bound_artifact():
         )
         files = sorted(raw.glob("metadata-*.json"))
     assert len(files) == len(CASES)
-    output = Path("/home/taishajo/work/state/attribute-viewset/evidence/task-06/chunk-selection.pointer.json")
+    output = _STATE_ROOT / "evidence/task-06/chunk-selection.pointer.json"
     selector = Path(__file__).resolve().parents[3] / "scripts" / "select_attribute_chunk_defaults.py"
     subprocess.run([sys.executable, str(selector), str(raw), "--output", str(output)], check=True)
     pointer = orjson.loads(output.read_bytes())

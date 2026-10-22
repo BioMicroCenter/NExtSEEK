@@ -7,64 +7,12 @@ from pathlib import Path
 
 from .text import strip_html
 from ..artifacts import load_api_result_full
+from ..chat_memory import MAX_UID_EXAMPLES, bundle_rows_and_extent, named_bundle, uids_from_rows
+from ..chat_memory import _GROUP_LABEL_KEY, _GROUP_RECORDS_KEY, _flatten_groups, _grouped_records  # noqa: F401
 
 # tool_nextseek_api_request hard-defaults this. A search matching more rows than this
 # silently returns one page, so it must be disclosed rather than left implicit.
 DEFAULT_API_PAGE_SIZE = 1000
-
-
-#: `POST samples/retrieve/` (and its alias `admin/samples/retrieve/`) answers `{total_samples,
-#: total_sample_types, total_children, failed_uids, data: [{sample_type, n_samples, samples: [...]}],
-#: lineage_complete}` (`SampleRetrieveResponse`, `nextseek_api/models.py`). `data["data"]` is a list,
-#: so every row-counting and row-previewing helper below "recognised" it and then
-#: counted and previewed the sample TYPES rather than the samples.
-_GROUP_LABEL_KEY = "sample_type"
-_GROUP_RECORDS_KEY = "samples"
-
-
-def _grouped_records(data: object) -> list[dict] | None:
-    """The groups of a grouped-by-sample-type body, or None for any other shape.
-
-    Deliberately exact rather than structural: it matches only a list whose every
-    member carries both a ``sample_type`` label and a ``samples`` list. A SEEK
-    JSON:API passthrough also puts a list at ``data["data"]`` (its members carry
-    ``id``/``type``/``attributes``), and that one must keep its existing handling.
-    """
-    if not isinstance(data, dict):
-        return None
-    groups = data.get("data")
-    if not isinstance(groups, list) or not groups:
-        return None
-    for group in groups:
-        if not isinstance(group, dict):
-            return None
-        if _GROUP_LABEL_KEY not in group or not isinstance(group.get(_GROUP_RECORDS_KEY), list):
-            return None
-    return groups
-
-
-def _flatten_groups(groups: list[dict]) -> list[dict]:
-    """Records from every group, round-robin, each tagged with its group label.
-
-    Round-robin, not group order, so a preview of a mixed lineage shows every type
-    present. B7 is the reply that reported 1,904 lineage records and showed none of
-    the PAT samples the user asked about; a preview drawn from the first group only
-    would reproduce that.
-    """
-    tagged = [
-        [
-            {_GROUP_LABEL_KEY: group.get(_GROUP_LABEL_KEY), **record}
-            for record in group.get(_GROUP_RECORDS_KEY) or []
-            if isinstance(record, dict)
-        ]
-        for group in groups
-    ]
-    out: list[dict] = []
-    for index in range(max((len(rows) for rows in tagged), default=0)):
-        for rows in tagged:
-            if index < len(rows):
-                out.append(rows[index])
-    return out
 
 
 def _is_empty(value: object) -> bool:
@@ -620,67 +568,92 @@ def normalize_api_result_for_memory(api_result: dict, min_rows_for_norm: int = 1
     }
 
 
-def summarize_pinned_bundle(session) -> str:
-    """One-line summary of the user's most recent results bundle. '' when none.
+def _bundle_uids(bundle: dict) -> list[str]:
+    """The sample UIDs a build or a report on this bundle uses, through the shared reader.
 
-    Moved from pipeline/agent.py — generic results-history knowledge.
-    """
-    history = session.get("results_history") or []
-    if not isinstance(history, list) or not history:
-        return ""
-    last = history[-1]
-    if not isinstance(last, dict):
-        return ""
-    user_q = last.get("user_query") or ""
-    data = (load_api_result_full(last) or {}).get("data") or {}
-    # advanced_search/new_search pin rows under 'samples'; graph under 'nodes'; others 'rows'.
-    rows = data.get("rows") or data.get("samples") or data.get("nodes") or []
-    return f"last search: query={user_q!r}, ~{len(rows) if isinstance(rows, list) else 0} rows"
+    A bundle's rows, except a retrieve's: its set is the identifiers it asked for, not the lineage it returned,
+    which holds the ancestors whose own trees a build would fetch whole. A bundle with no rows has a set only when
+    it is a generated report, whose plan names the samples it packaged. Any other plan's UIDs are not the bundle's own: a
+    count's or an empty search's can carry the 5 UIDs the earlier turn showed. A follow-up still counts every
+    sample a retrieve returned (``chat_memory.bundle_uids``)."""
+    rows, _total, _more, from_plan = bundle_rows_and_extent(bundle)
+    retrieve = not from_plan and _grouped_records(load_api_result_full(bundle).get("data")) is not None
+    if rows and not retrieve:
+        return uids_from_rows(rows)
+    if retrieve:
+        body = ((bundle.get("api_plan") or {}).get("requestBody") or {}) if isinstance(bundle.get("api_plan"), dict) else {}
+        plan_uids = body.get("identifiers") if isinstance(body, dict) else None
+        if not (isinstance(plan_uids, list) and plan_uids):
+            pp = bundle.get("parser_plan")
+            filt = pp.get("filters") if isinstance(pp, dict) else None
+            plan_uids = filt.get("uids") if isinstance(filt, dict) else None
+    else:
+        # Only a generated report (a GEO/SRA/PRIDE package) holds a set: the UIDs it packaged. The reporter copies
+        # the parser's carried UIDs into its plan in every mode, so a summary report's are only the few shown.
+        rp = bundle.get("reporter_plan")
+        generated = isinstance(rp, dict) and rp.get("reporter_mode") == "report_generation"
+        plan_uids = rp.get("uids") if generated else None
+    return [re.sub(r"<[^>]+>", "", uid).strip() for uid in plan_uids or [] if isinstance(uid, str) and uid.strip()]
 
 
-def uids_from_last_search(session) -> list[str]:
-    """Extract sample UIDs from the most recent results bundle that has any.
+def picked_uids(target_uids: list[str], carried) -> list[str]:
+    """The rows the user picked out of a named result: the parser's carried UIDs when they are a proper part of it
+    ("a GEO package for the first two mice you showed"). Not when they are just the examples the chat showed for
+    it (CHAT_HISTORY lists a result's first ``MAX_UID_EXAMPLES`` UIDs), which the parser copies on "those": then the
+    whole result is meant. Operator 2026-10-14: "Package the 2"."""
+    picked = [u for u in carried or [] if isinstance(u, str) and u]
+    if not picked or not set(picked) < set(target_uids or []):
+        return []
+    return [] if set(picked) == set(target_uids[:MAX_UID_EXAMPLES]) else picked
 
-    Walks results_history in reverse; reads api_result_full.data rows
-    (keys rows/nodes/data), strips HTML, falls back to reporter_plan.uids
-    then parser_plan.filters.uids. Moved from pipeline/agent.py.
-    """
+
+def pinned_bundle(session, bundle_id=None) -> tuple[dict | None, list[str]]:
+    """``(bundle, its UIDs)``: the bundle ``bundle_id`` names (no walk back; ``(bundle, [])`` when it holds
+    none), else the newest bundle with UIDs. The summary and the pipeline tools both read through this, so
+    they pick the same one."""
     history = session.get("results_history") or []
     if not isinstance(history, list):
-        return []
+        return None, []
+    if bundle_id is not None:
+        named = named_bundle(history, bundle_id)
+        return (named, _bundle_uids(named)) if named is not None else (None, [])
     for bundle in reversed(history):
-        if not isinstance(bundle, dict):
-            continue
-        api_full = load_api_result_full(bundle)
-        data = api_full.get("data") if isinstance(api_full, dict) else None
-        rows = []
-        if isinstance(data, dict):
-            # advanced_search/new_search pin rows under 'samples'; graph under 'nodes'.
-            for key in ("rows", "nodes", "data", "samples"):
-                val = data.get(key)
-                if isinstance(val, list):
-                    rows = val
-                    break
-        elif isinstance(data, list):
-            rows = data
-        out: list[str] = []
-        for row in rows or []:
-            if isinstance(row, dict):
-                uid = row.get("uid") or row.get("UID") or row.get("uuid") or row.get("sample_uid")
-                if uid:
-                    out.append(re.sub(r"<[^>]+>", "", str(uid)).strip())
-            elif isinstance(row, str):
-                out.append(re.sub(r"<[^>]+>", "", row).strip())
-        if not out:
-            rp = bundle.get("reporter_plan")
-            plan_uids = rp.get("uids") if isinstance(rp, dict) else None
-            if not (isinstance(plan_uids, list) and plan_uids):
-                pp = bundle.get("parser_plan")
-                filt = pp.get("filters") if isinstance(pp, dict) else None
-                plan_uids = filt.get("uids") if isinstance(filt, dict) else None
-            for uid in plan_uids or []:
-                if isinstance(uid, str) and uid.strip():
-                    out.append(re.sub(r"<[^>]+>", "", uid).strip())
-        if out:
-            return out
-    return []
+        if isinstance(bundle, dict):
+            uids = _bundle_uids(bundle)
+            if uids:
+                return bundle, uids
+    return None, []
+
+
+def bundle_extent(bundle: dict) -> tuple[list, int | None, bool]:
+    """``(rows, total, capped)``: the shared reader's extent, with a graph result's own ``total`` and its LIMIT cap
+    (``truncated``), which the reader does not state."""
+    rows, total, capped, _plan = bundle_rows_and_extent(bundle)
+    graph = bundle.get("graph_result") if isinstance(bundle.get("graph_result"), dict) else {}
+    if total is None and isinstance(graph.get("total"), int):
+        total = graph["total"]
+    return rows, total, capped or graph.get("truncated") is True
+
+
+def summarize_pinned_bundle(session, bundle_id=None) -> str:
+    """One-line summary of the results bundle the pipeline builds on (``pinned_bundle``). '' when none.
+
+    Rows, total and cap come from the shared reader, the same extent a follow-up shows. With no UID
+    bundle at all it describes the newest bundle, as before.
+    """
+    bundle, _ = pinned_bundle(session, bundle_id)
+    if bundle is None and bundle_id is None:
+        history = session.get("results_history") or []
+        bundle = history[-1] if isinstance(history, list) and history and isinstance(history[-1], dict) else None
+    if bundle is None:
+        return ""
+    rows, total, capped = bundle_extent(bundle)
+    line = f"last search: query={bundle.get('user_query') or ''!r}, ~{len(rows)} rows"
+    if total is not None and total != len(rows):
+        line += f" of {total}"
+    return line + (" (capped)" if capped else "")
+
+
+def uids_from_last_search(session, bundle_id=None) -> list[str]:
+    """Sample UIDs of the bundle ``bundle_id`` names, else of the newest bundle that has any (``pinned_bundle``)."""
+    return pinned_bundle(session, bundle_id)[1]

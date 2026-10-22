@@ -25,11 +25,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
     && rm -rf /var/lib/apt/lists/*
 
-ENV UV_INSTALL_DIR=/usr/local/bin
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+COPY --from=ghcr.io/astral-sh/uv:0.12.8 /uv /uvx /usr/local/bin/
 # 2.1.282 declares node >= 22, so the base is node:22. The RUN claude --version after the install fails the build, not a turn, when the CLI cannot start.
 # OI-5: >= 2.1.158 required for CLAUDE_CODE_ENABLE_AUTO_MODE on Bedrock. The CC 503 fallback needs >= 2.1.282 (why: NessieAI/tests/cc/test_cc_runtime_claude_code_pin.py).
-RUN npm install -g @anthropic-ai/claude-code@2.1.282
+RUN npm install -g @anthropic-ai/claude-code@2.1.294
 RUN claude --version
 # Pin uv-managed CPython 3.14 BEFORE any downstream dependency-install or run
 # step. Two well-known symlinks make `python` and `python3.14` resolve to the

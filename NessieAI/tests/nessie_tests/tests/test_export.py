@@ -555,7 +555,7 @@ def test_an_outage_is_classified_through_the_one_detector_not_a_second_copy(tmp_
     assert export.classify_error(
         f"{outage.PROVIDER_OUTAGE_MARKER} � agent 'x': 503"
     ) == export.ERROR_OUTAGE
-    src = (pathlib.Path(__file__).resolve().parents[1] / "export.py").read_text(encoding="utf-8")
+    src = (pathlib.Path(__file__).resolve().parents[3] / "nessie_harness" / "export.py").read_text(encoding="utf-8")
     assert outage.PROVIDER_OUTAGE_MARKER not in src
 
 
@@ -1467,7 +1467,7 @@ def test_the_export_cli_names_the_manifest_through_the_constant():
     the collision above."""
     from NessieAI.tests.nessie_tests import bayes_manifest
 
-    src = (pathlib.Path(__file__).resolve().parents[1] / "export.py").read_text(encoding="utf-8")
+    src = (pathlib.Path(__file__).resolve().parents[3] / "nessie_harness" / "export.py").read_text(encoding="utf-8")
 
     assert bayes_manifest.MANIFEST_NAME not in src
     assert "MANIFEST_NAME" in src

@@ -6,8 +6,10 @@ description: >
   "show the sample tree / lineage", "run a graph query", "refine that search", "what sampletypes/assays exist", "build a project report
   (samples/protocols/published/rppr)", "generate a GEO/SRA/nf-core/PRIDE submission workbook",
   "launch/run/submit an nf-core pipeline (rnaseq/scrnaseq) on the cluster for these samples",
-  "plan a multi-step lookup", or "create/update/delete NExtSEEK data". Do NOT trigger on general
-  bioinformatics questions, code/file edits, non-NExtSEEK data sources, or file-system tasks.
+  "plan a multi-step lookup", "how would I run the method of this paper / lab" (a named paper, method or
+  lab is looked up in NExtSEEK first), or "create/update/delete NExtSEEK data". Do NOT trigger on general
+  bioinformatics questions that name no paper, method or lab, code/file edits, non-NExtSEEK data sources,
+  or file-system tasks.
 disable-model-invocation: false
 ---
 
@@ -32,8 +34,9 @@ specific file(s) it points you to. Never guess project/study/investigation names
 codes, assays, or endpoints from memory — resolve them from these files.
 
 The NExtSEEK vocabulary for the user's question is resolved **automatically on every query** and injected into your context as a note (a UserPromptSubmit hook, or, if it was not ready yet, a PostToolUse hook after one of your first commands). Never read a vocabulary file yourself. Use those resolved
-terms (and the manifest files) — e.g. expand abbreviations like **GBM → the Glioblastoma
-investigation** — rather than passing the user's raw phrasing straight to `graph`/`api-read`.
+terms (and the manifest files) — e.g. expand an abbreviation to the investigation or study title
+the note resolves it to, never to a title you guess — rather than passing the user's raw
+phrasing straight to `graph`/`api-read`.
 
 ## Tool capability matrix (authoritative contract)
 
@@ -198,6 +201,22 @@ term maps to NExtSEEK codes (e.g. "CD8 antibodies" → `AB`):
 ```bash
 nextseek-entity-extract --query "Find me all CD8 antibodies in the database."
 ```
+
+**A named paper, method or lab — `nextseek-graph-schema --query` first.** A question that names a
+paper title, a method ("Perturb-seq"), a tool or a lab is a NExtSEEK lookup before any general answer (the
+container CLAUDE.md says why). Look the titles up, then read what each match holds:
+
+```bash
+nextseek-graph-schema --query "studies, papers and protocols named Perturb-seq"
+# -> study, investigation and protocol titles, those sharing a word with it first; match loosely (case,
+#    hyphens, a word or two). Then, for a matched study:
+nextseek-aggregate --query "How many samples of each type are in the study <title>, and which Protocol values do they cite?" \
+  --parts '["How many samples of each type are in the study <title>?", "Which Protocol values do the samples in the study <title> cite, and how many samples cite each?"]' \
+  --plan '{"intent_summary": "samples and protocols of the named study", "filters": {}}'
+```
+
+Never search a method name as a sample keyword of one sample type, and never stop at `nextseek-parse`
+(it plans, it does not run). Say NExtSEEK has nothing on it only after the title lookup found nothing.
 
 **Inspect a parser plan — `nextseek-parse` standalone.** To show or verify the plan (mode,
 endpoint, filters) for a question without executing it:
@@ -365,7 +384,7 @@ After a `nextseek-*` tool returns nulls, empty data, or a non-zero exit, you MUS
 - call `--help` repeatedly looking for hidden flags — the matrix above is the complete contract; there are no hidden flags
 - call a sibling `nextseek-*` tool to attempt to "fetch what the failed tool needed"
 
-The only legitimate chaining is the documented recipe above (`nextseek-parse` → `nextseek-api-read`); do not invent others. One more is sanctioned: when `nextseek-aggregate` fails or is not available on a follow-up, the second attempt is `nextseek-graph` with the stored Cypher from `search_details.json` and the one change (the follow-up order in the container CLAUDE.md). A `nextseek-graph` answer that arrives under `fallback` is the op's own second attempt, not yours: it does not count against this cap, and it is not a reason to try another op. The same holds for `nextseek-aggregate`: its own retry and fallback inside a part are not your attempts, and one `nextseek-aggregate` call counts once however many parts it carries.
+After a failed op, the only legitimate chaining is the documented recipe above (`nextseek-parse` → `nextseek-api-read`); do not invent others. One more is sanctioned: when `nextseek-aggregate` fails or is not available on a follow-up, the second attempt is `nextseek-graph` with the stored Cypher from `search_details.json` and the one change (the follow-up order in the container CLAUDE.md). A `nextseek-graph` answer that arrives under `fallback` is the op's own second attempt, not yours: it does not count against this cap, and it is not a reason to try another op. The same holds for `nextseek-aggregate`: its own retry and fallback inside a part are not your attempts, and one `nextseek-aggregate` call counts once however many parts it carries.
 
 ## Errors
 

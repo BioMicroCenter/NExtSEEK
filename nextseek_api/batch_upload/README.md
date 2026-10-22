@@ -13,7 +13,7 @@ every write to Neo4j.
 It is shaped like a Django app and is not one. The package holds no `apps.py`, no
 `migrations/` directory, no `urls.py` and no `admin.py`: a `find` over
 `nextseek_api/batch_upload` for those four names returns nothing at all. Its `models.py`
-is a Pydantic module (`nextseek_api/batch_upload/models.py:116` is the input row), and no
+is a Pydantic module (`nextseek_api/batch_upload/models.py:146` is the input row), and no
 module in the package subclasses `models.Model` or touches `django.db` outside `tests/`:
 grep for both strings over every `*.py` under the package matches four lines in all, and all
 four sit inside `nextseek_api/batch_upload/tests/test_migration_name_identity.py:356-359`. The
@@ -98,7 +98,6 @@ thread pool once it is large enough (`nextseek_api/batch_upload/parallel.py:26`)
 `nextseek_api/batch_upload/orphan_resolution.py:50` finds children whose parent arrived in a
 later upload and `nextseek_api/batch_upload/orphan_resolution.py:125` repairs their metadata
 in MySQL, then enqueues them for the graph sync.
-`nextseek_api/batch_upload/checkpoint.py:38` is the resume point;
 `nextseek_api/batch_upload/errors.py:54-71` maps each error type to a severity and
 `nextseek_api/batch_upload/errors.py:74-76` grades anything absent from that map as an
 error.
@@ -197,10 +196,9 @@ Depends on, outside this directory:
   flag (`nextseek_api/batch_upload/config.py:111`), and stage 6 then reports
   `not_configured` rather than failing (`nextseek_api/batch_upload/orchestrator.py:589-592`),
   which the job carries as `graph: pending`.
-- `settings.MEDIA_ROOT`, the load-bearing directory this package reads and writes for four
+- `settings.MEDIA_ROOT`, the load-bearing directory this package reads and writes for three
   distinct things: uploaded workbooks (`nextseek_api/batch_upload/views.py:663`), the
-  per-user job index (`nextseek_api/batch_upload/job_index.py:12-14`), resume checkpoints
-  (`nextseek_api/batch_upload/tasks.py:45-49`) and the summary CSVs
+  per-user job index (`nextseek_api/batch_upload/job_index.py:12-14`) and the summary CSVs
   (`nextseek_api/batch_upload/orchestrator.py:691-697`).
 - `nextseek_api/authentication.py:15`, for the CSRF-exempt session authenticator the
   ViewSet installs.

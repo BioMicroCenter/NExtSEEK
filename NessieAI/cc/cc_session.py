@@ -40,6 +40,12 @@ def make_session_sniffer(
     last: dict[str, str | None] = {"id": None}
 
     def _wrapped(event: str, data: dict[str, Any]) -> None:
+        if isinstance(data, dict) and data.get("clear_cc_session"):
+            # A refused session must not be resumed: blank the stored id.
+            last["id"] = None
+            on_session_id("")
+            inner(event, data)
+            return
         sid = data.get("cc_session_id") if isinstance(data, dict) else None
         if isinstance(sid, str) and sid and sid != last["id"]:
             last["id"] = sid

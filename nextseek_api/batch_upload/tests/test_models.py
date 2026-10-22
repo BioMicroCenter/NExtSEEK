@@ -223,14 +223,14 @@ class TestInputRowModel:
         assert isinstance(hashed_identity, str)
         assert len(hashed_identity) == 64
 
-    def test_sop_validation_still_nested_under_non_null_uid(self):
-        row = InputRowModel(
-            UID=None,
-            SampleType="NHP",
-            sop_id=99,
-            json_metadata='{"Name":"test","Protocol":"/sops/100"}',
-        )
-        assert row.sop_id == 99
+    def test_sop_validation_applies_without_uid(self):
+        with pytest.raises(ValidationError, match="sop_id does not match"):
+            InputRowModel(
+                UID=None,
+                SampleType="NHP",
+                sop_id=99,
+                json_metadata='{"Name":"test","Protocol":"/sops/100"}',
+            )
 
 
 # ── InsertableSample ──────────────────────────────────────────────────────
@@ -406,3 +406,37 @@ class TestUpdateExistingConfig:
         from nextseek_api.batch_upload.config import BatchUploadConfig
         config = BatchUploadConfig(update_existing=True)
         assert config.update_existing is True
+
+
+class TestFloatAssayId:
+    def test_float_assay_id(self):
+        def ids(v):
+            return InputRowModel(SampleType="NHP", json_metadata="{}", assay_ids=v).assay_ids
+
+        assert ids(12.0) == [12]
+        assert ids("12.0") == [12]
+        assert ids(float("nan")) == []
+        assert ids("12, 13") == [12, 13]
+        with pytest.raises(ValidationError):
+            ids(12.5)
+        with pytest.raises(ValidationError):
+            ids("12.5")
+        row = InputRowModel(SampleType="NHP", json_metadata="{}", assay_ids=12.0, assay_titles=["A"])
+        assert row.assay_ids == [12]
+
+    def test_float_assay_ids_in_delimited_cells_and_lists(self):
+        def ids(v):
+            return InputRowModel(SampleType="NHP", json_metadata="{}", assay_ids=v).assay_ids
+
+        assert ids("12.0;13.0") == [12, 13]
+        assert ids([12.0, 13]) == [12, 13]
+        with pytest.raises(ValidationError):
+            ids("12.5, 13")
+        with pytest.raises(ValidationError):
+            ids([12.5])
+
+    def test_insertable_sample_float_assay_id(self):
+        s = InsertableSample(uuid="U", title="t", sample_type_id=1, json_metadata="{}", assay_ids=12.0)
+        assert s.assay_ids == [12]
+        with pytest.raises(ValidationError):
+            InsertableSample(uuid="U", title="t", sample_type_id=1, json_metadata="{}", assay_ids=12.5)

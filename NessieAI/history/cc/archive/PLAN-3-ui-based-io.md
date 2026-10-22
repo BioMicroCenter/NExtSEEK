@@ -36,7 +36,7 @@
 - **TDD-first**, bite-sized steps, frequent commits. Implementation code only after a failing test.
 - **Hermetic test command (the box cannot run the Django test-DB runner — `seek_db_user` lacks `CREATE`):**
   `uv run --no-project --with pytest --with pytest-cov --with orjson --with pydantic --with zstandard python -m pytest -q --noconftest <files>`
-  Run from `/home/taishajo/work/NExtSEEK`. No Docker, no DB, no network, no spend. (`--with zstandard` matters only for Task 1; `--with orjson --with pydantic` for the trace tests; harmless elsewhere.)
+  Run from `/home/<user>/work/NExtSEEK`. No Docker, no DB, no network, no spend. (`--with zstandard` matters only for Task 1; `--with orjson --with pydantic` for the trace tests; harmless elsewhere.)
 - **DB / migration / endpoint logic is NOT hermetically testable here** (no test DB, no live HTTP in-suite). For those tasks the hermetic test covers the pure seam (validator, partition, zip-builder, compress round-trip, schema extraction); the endpoint/persistence path is proven in the Task 13 live gate (forced-CC, ≤ $2 cap, Playwright, per-change sign-off).
 - **No regression** to 1b `--resume`, 1c memory, the NS route, Step 2 isolation, or **OI-3** (zero-creds agent). Upload/download/recover all run host-side in Django as the logged-in user using their own SEEK login; **no new credential reaches the agent**. The agent still sees only `input/` + `shared/` RO and writes only `scratch/` RW.
 - **Owner-scoping is mandatory** on every new read endpoint: `ChatSession.objects.filter(user=request.user)` — a user can never fetch another user's artifacts or transcript.
@@ -268,7 +268,7 @@ class CCSessionTranscript(models.Model):
 
 Run (uses the dmac venv python that the app runs under):
 ```bash
-cd /home/taishajo/work/NExtSEEK && python manage.py makemigrations nextseek_api --name ccsessiontranscript
+cd /home/<user>/work/NExtSEEK && python manage.py makemigrations nextseek_api --name ccsessiontranscript
 ```
 Expected: creates `nextseek_api/migrations/0007_ccsessiontranscript.py` with a single `CreateModel`. (`makemigrations` needs no DB CREATE; it only reads models. If it cannot import settings on this box, hand-author the migration mirroring `0002_querytask.py`'s structure with the fields above and `dependencies = [("nextseek_api", "0006_merge_extra_state_guards")]`.)
 
@@ -1278,7 +1278,7 @@ def test_no_dropbox_reply_copy():
 
 def test_no_laptop_default_path():
     cfg = (CC / "cc_config.py").read_text()
-    assert "/Users/taishajoseph" not in cfg
+    assert "/Users/<user>" not in cfg
     assert '/srv/dmac/users' in cfg            # neutral default present
 ```
 
@@ -1304,7 +1304,7 @@ Do NOT fail-closed; keep it a plain default (env `DMAC_USER_ROOT` still override
 `seek/views.py:94 DROPBOX_DIRECTORY` is provably dead (grep shows zero references). Remove that single line. **Do NOT** touch `dmac_assistant/src/dmac_assistant/config.py` `dropbox_root` / `_DEV_DEFAULT_DROPBOX_ROOT` — they are still referenced by the standalone bridge `load_config()` (`config.py:212`), which is NOT on the NExtSEEK CC route; removing them is out of Step-3 scope. Confirm with:
 
 ```bash
-grep -rn "DROPBOX_DIRECTORY" /home/taishajo/work/NExtSEEK   # expect: only the def line (now removed)
+grep -rn "DROPBOX_DIRECTORY" /home/<user>/work/NExtSEEK   # expect: only the def line (now removed)
 ```
 
 - [ ] **Step 6: Run the grep-guard + full suite**
@@ -2318,7 +2318,7 @@ Wire `onCcArtifactDownload` from `EmbeddedApp`/`AppLayout` using the **same subm
 
 - [ ] **Step 6: Run the frontend unit tests**
 
-Run: `cd /home/taishajo/work/NExtSEEK/chat_frontend && npm run test`
+Run: `cd /home/<user>/work/NExtSEEK/chat_frontend && npm run test`
 Expected: PASS (new `CCActivityPanel`/`UploadControl` specs + existing suite green). Fix type errors (`tsc -b` runs in build).
 
 - [ ] **Step 7: Commit**
@@ -2334,7 +2334,7 @@ git commit -m "feat(cc-step3): upload control, CC activity panel, artifact downl
 
 **Files:** image deps (`zstandard`), `nextseek_api/cc_assistant/DEPLOY.md`, built frontend bundles. Operational — no hermetic test.
 
-**Pre-req:** explicit **per-change sign-off** before touching the running instance. Use the Step-0 deploy procedure via the **service-account `docker:cli` helper** (snapshot `:pre-step3` → fast-forward the SA build-context clone → rebuild → recreate `--no-deps nextseek`). Rollback via `/home/taishajo/work/state/rollback.sh`.
+**Pre-req:** explicit **per-change sign-off** before touching the running instance. Use the Step-0 deploy procedure via the **service-account `docker:cli` helper** (snapshot `:pre-step3` → fast-forward the SA build-context clone → rebuild → recreate `--no-deps nextseek`). Rollback via `/home/<user>/work/state/rollback.sh`.
 
 Spec refs: §12 (live verification), §13 (deployment), E7 (zstd dep), E6 (migration).
 
@@ -2362,7 +2362,7 @@ Before **Task 13 Step 3** (snapshot + deploy), append (do not replace PLAN-7 Pha
 
 - [ ] **Step 2: Build the embedded frontend bundles**
 
-Run: `cd /home/taishajo/work/NExtSEEK/chat_frontend && npm run build:embedded`
+Run: `cd /home/<user>/work/NExtSEEK/chat_frontend && npm run build:embedded`
 Output: `../static/js/chat_assistant/` (relative to `chat_frontend/`) with a fingerprinted `manifest.json`. Confirm the new bundles are emitted before the image build copies `static/`.
 
 - [ ] **Step 3: Snapshot + deploy**

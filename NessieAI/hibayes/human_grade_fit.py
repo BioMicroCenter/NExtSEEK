@@ -701,7 +701,7 @@ def build_human_grade_fit(
     training_corpus_sha256 = identity.member_sha256["corpus/corpus.json"]
 
     manifest_raw = json.loads(members["set3_final/bayes_manifest.json"])
-    from NessieAI.tests.nessie_tests.bayes_manifest import BayesManifest
+    from NessieAI.nessie_harness.bayes_manifest import BayesManifest
 
     BayesManifest.model_validate(manifest_raw)
     pairs_raw = manifest_raw.get("pairs") or []

@@ -45,7 +45,7 @@ from nextseek_api.assistant.excel_export import generate_table_xlsx
 from nextseek_api.endpoint_descriptions import PROJECT_EXPORT_DESC
 from nextseek_api.models import ProjectExportRequest, ProjectExportResponse
 from nextseek_api.permissions import IsSuperUser
-from nextseek_api.services.assistant import CsrfExemptSessionAuthentication, _error_response
+from nextseek_api.services.assistant import SeekSessionAuthentication, _error_response
 
 logger = logging.getLogger(__name__)
 
@@ -258,7 +258,7 @@ class ProjectExportViewSet(viewsets.ViewSet):
 
     authentication_classes = [
         TokenAuthentication,
-        CsrfExemptSessionAuthentication,
+        SeekSessionAuthentication,
         BasicAuthentication,
     ]
     # IsAuthenticated first so anonymous callers get 401 with a WWW-Authenticate

@@ -1,6 +1,8 @@
 from django.db import models
 
 from .assistant.models_db import CCTurn, ChatSession, QueryTask  # noqa: F401
+from .seek_link import SeekPersonLink  # noqa: F401
+from .batch_upload.uid_sequence import UidSequence  # noqa: F401
 from .attributes.models_async import AttributeOutboxDispatcherHeartbeat  # noqa: F401
 from .attributes.models_db import (  # noqa: F401
     AttributeMutationJob,

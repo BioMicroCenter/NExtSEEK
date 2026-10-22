@@ -61,6 +61,7 @@ served app:
 ```bash
 git pull
 docker cp NessieAI/tests/nessie_tests nextseek:/app/NessieAI/tests/
+docker cp NessieAI/nessie_harness nextseek:/app/NessieAI/   # a box whose image predates this folder needs a rebuild first
 docker cp nextseek_api/management/commands/nessie.py nextseek:/app/nextseek_api/management/commands/nessie.py
 ```
 

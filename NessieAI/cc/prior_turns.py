@@ -60,6 +60,8 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable
 
+from chat_nextseek.chat_memory import _final_step_key, _rows_in, bundle_rows_and_extent
+
 logger = logging.getLogger(__name__)
 
 #: The staging directory's name under ``_memory/<session>/``. ``build_user_dirs``
@@ -408,11 +410,21 @@ def _stage_ns_turn(entry: dict, bundle: dict, turn_dir: Path, *, safe_ns_path: S
                            "REST request"})
 
     rows: list = []
+    # A plan's rows are its FINAL step's, read by the shared reader (a retrieve's samples likewise, below). The
+    # reader is called only for a plan with a step that holds rows: on any other bundle it would open
+    # raw_result_path itself, without safe_ns_path.
+    from_plan = _final_step_key(bundle) is not None
+    plan_rows, plan_total, plan_capped, _ = bundle_rows_and_extent(bundle) if from_plan else ([], None, False, False)
     graph_result = _as_dict(bundle.get("graph_result"))
     raw_path = bundle.get("raw_result_path") or _as_dict(bundle.get("paths")).get("raw_result_path")
     # A plan bundle stores a (possibly empty) graph list beside its REST result: the graph rows
     # are the turn's rows only when there are some, or when there is no REST result at all.
-    if isinstance(graph_result.get("data"), list) and (
+    if from_plan:
+        rows = plan_rows
+        payload = {"cypher": details.get("graph", {}).get("cypher"),
+                   "parameters": details.get("graph", {}).get("parameters"),
+                   "count": len(rows), "total": plan_total, "truncated": plan_capped, "rows": rows}
+    elif isinstance(graph_result.get("data"), list) and (
             graph_result["data"] or not (raw_path or bundle.get("api_result_full"))):
         rows = graph_result["data"]
         payload = {"cypher": details.get("graph", {}).get("cypher"),
@@ -423,7 +435,7 @@ def _stage_ns_turn(entry: dict, bundle: dict, turn_dir: Path, *, safe_ns_path: S
         raw = raw_path
         safe = safe_ns_path(raw) if isinstance(raw, str) and raw else None
         full = _read_json(safe) if safe else bundle.get("api_result_full")
-        rows = _rows_of(full)
+        rows = _rows_in(_as_dict(full).get("data")) or _rows_of(full)
         total = _as_dict(_as_dict(full).get("data")).get("total") if isinstance(full, dict) else None
         payload = {"api": details.get("api"), "total": total, "rows": rows}
     rows = _without_hidden(rows)

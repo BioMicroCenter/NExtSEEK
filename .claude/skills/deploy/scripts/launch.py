@@ -58,7 +58,7 @@ EXIT_OK, EXIT_INVALID, EXIT_EXISTS, EXIT_STOP, EXIT_WINDOW, EXIT_SSH = 0, 2, 3, 
 SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 TAG_RE = re.compile(r"^\d{8}-\d{4}[a-z0-9-]*$")
 
-Component = Literal["bedrock-proxy", "app", "cc-agent", "nextseek-sidecar"]
+Component = Literal["bedrock-proxy", "cc-spawner", "app", "cc-agent", "nextseek-sidecar"]
 
 
 class Stop(Exception):
@@ -1097,6 +1097,11 @@ def runner_values(data: dict, brief: BriefForm, d: Path, exp_full: str, cases: l
         "TAG": tag, "EXP": exp_full, "INSTANCE": inst.name, "REPO": inst.repo, "IN": inst.in_dir,
         "HOME": inst.home,
         "COMPONENTS": " ".join(images),
+        # The one rebuild that carries --recreate-nginx, only when the range changes docker/nginx.conf AND the
+        # brief allows 'nginx recreate ok': the app's when it is rebuilt (nginx.conf proxies to `web`, which the
+        # app rebuild creates or replaces), else the first. Otherwise nothing recreates nginx.
+        "RECREATE_NGINX_ON": (("app" if "app" in images else images[0]) if images and brief.nginx_change_expected
+                              and "nginx recreate ok" in brief.allowed_extras else ""),
         "CONTINUE_ON_FAILURE": " ".join(brief.continue_on_failure),
         "DO_STATIC": "1", "DO_LABS": "1" if (inst.labs_copy and "app" in images) else "0",
         "DO_CI": "1" if brief.ci else "0", "DO_NESSIE": "1" if brief.nessie else "0",
@@ -1321,6 +1326,11 @@ def _run_ssh(a, inst: rules.Instance, d: Path, tag: str, script: str) -> int:
 # =====================================================================================
 STAMP_RE = re.compile(r"\s(\d{2}:\d{2}:\d{2})\s*$")
 CASE_RE = re.compile(r"^\[\s*(\d+)/(\d+)\]\s+(\S+)\s+(\S+)\s+(\S+)\s+([\d.]+)s\s+\$([\d.]+)\s+(\S+)(?:\s+<-\s+(.*))?$")
+# The harness's current line (nextseek_api/management/commands/nessie.py on_case): a case cell ($0.4725, ~$0.0367 a
+# floor, $? unmeasured, - not sent) and a run cell ($1.29, or >=$1.33 once a floor entered the sum).
+CASE_RUN_RE = re.compile(
+    r"^\[\s*(\d+)/(\d+)\]\s+(\S+)\s+(\S+)\s+(\S+)\s+([\d.]+)s\s+case\s+(-|\$\?|~?\$[\d.]+)\s+run\s+(>=)?\$([\d.]+)"
+    r"\s+(\d+m\d{2}s)(?:\s+fallback\s+(\d+))?(?:\s+<-\s+(.*))?$")
 NOT_CONTINUATION = re.compile(r"^(╭|│|╰|FAILED|ERROR|XFAIL|XPASS|PASSED|=)")
 # Indented deeper than the text of a ✗ line (seven spaces, the mark, a space): a detail line of that red,
 # such as the problems under 'graph sync health' (startup/steps/validate.py GRAPH_SYNC_HEALTH_INDENT).
@@ -1508,6 +1518,17 @@ def parse_ci(text: str, known: list[str]) -> dict:
 def parse_nessie_log(text: str) -> dict:
     cases, prev_cost = [], 0.0
     for ln in text.splitlines():
+        n = CASE_RUN_RE.match(ln.strip())
+        if n:
+            cell = n.group(7)
+            cases.append({"n": int(n.group(1)), "of": int(n.group(2)), "status": n.group(3),
+                          "id": n.group(4), "route": n.group(5), "turn_s": float(n.group(6)),
+                          "cost_usd": float(cell.lstrip("~$")) if cell[-1].isdigit() else None,
+                          "cost_floor": cell.startswith("~") or n.group(8) is not None,
+                          "cost_running_usd": float(n.group(9)), "elapsed": n.group(10),
+                          "fallback": int(n.group(11) or 0), "failed": (n.group(12) or "").strip() or None})
+            prev_cost = float(n.group(9))
+            continue
         m = CASE_RE.match(ln.strip())
         if not m:
             continue
@@ -1607,7 +1628,7 @@ def cmd_judge(a) -> int:
 # =====================================================================================
 # 7. The report form: prefilled mechanics, the agent's judgement, one rendering
 # =====================================================================================
-StepName = Literal["preflight", "commit_review", "pull", "bedrock-proxy", "app", "cc-agent",
+StepName = Literal["preflight", "commit_review", "pull", "bedrock-proxy", "cc-spawner", "app", "cc-agent",
                    "nextseek-sidecar", "collectstatic", "labs", "checks", "ci", "nessie", "evidence"]
 StepStatus = Literal["ok", "ok_with_findings", "failed", "stopped", "skipped", "not_in_brief"]
 Verdict = Literal["pass", "real", "drift", "policy", "masked", "notrun"]

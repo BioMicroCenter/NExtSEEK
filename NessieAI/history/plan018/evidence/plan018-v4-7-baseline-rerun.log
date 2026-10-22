@@ -63,7 +63,7 @@ E               KeyError: 'cc_sweep_staging'
 
 During handling of the above exception, another exception occurred:
 
-tmp_path = PosixPath('/tmp/pytest-of-taishajo/pytest-29/test_management_command_recove0')
+tmp_path = PosixPath('/tmp/pytest-of-<user>/pytest-29/test_management_command_recove0')
 monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fced89d0aa0>
 
     def test_management_command_recovery_delivers_all(tmp_path, monkeypatch):

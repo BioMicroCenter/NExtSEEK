@@ -31,7 +31,7 @@ from .schemas import RegistrationCounts, RowError, RowResult
 #: Membership registration asserts belonging, not an input/output role.
 #: The verified 25,765-row production write used 0 and ASSAY_ASSETS_DEFAULT
 #: (seek/dbtable_assay_assets.py:26) uses 0. Note that
-#: batch_upload/associations.py:126 defaults to 1 when passed None and
+#: batch_upload/associations.py:136 defaults to 1 when passed None and
 #: batch_upload/dag.py:167 computes 1/2 from lineage, so this must be explicit.
 MEMBERSHIP_DIRECTION = 0
 

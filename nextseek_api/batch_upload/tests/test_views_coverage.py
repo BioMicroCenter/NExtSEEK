@@ -87,6 +87,7 @@ class TestBatchUploadViewSetStartAction:
         assert response.status_code == 400
 
 
+    @patch("nextseek_api.batch_upload.views._caller_project_scope", new=lambda user: (1,))  # a member of project 1
     @patch("nextseek_api.batch_upload.views._save_uploaded_file", return_value="/tmp/test.xlsx")
     @patch("nextseek_api.batch_upload.views._resolve_user_context", return_value=None)
     def test_start_user_context_none(self, mock_ctx, mock_save):
@@ -104,6 +105,7 @@ class TestBatchUploadViewSetStartAction:
         response = view(request)
         assert response.status_code == 401
 
+    @patch("nextseek_api.batch_upload.views._caller_project_scope", new=lambda user: (1,))  # a member of project 1
     @patch("nextseek_api.batch_upload.views.register_job")
     @patch("nextseek_api.batch_upload.views.run_batch_upload_task")
     @patch("nextseek_api.batch_upload.views._save_uploaded_file", return_value="/tmp/test.xlsx")
@@ -218,6 +220,25 @@ class TestBatchUploadViewSetCancel:
         with patch.object(BatchUploadViewSet, "_check_ownership", return_value=None):
             response = view(request, job_id="job-123")
         assert response.status_code == 204
+
+
+class TestCancelByNonOwner:
+    @patch("nextseek_api.batch_upload.views.celery_app")
+    def test_a_non_owner_cancel_writes_no_marker_and_revokes_nothing(self, mock_celery, tmp_path, monkeypatch):
+        from nextseek_api.batch_upload import job_index
+        from nextseek_api.batch_upload.tasks import cancel_marker_path
+        from nextseek_api.batch_upload.views import BatchUploadViewSet
+
+        monkeypatch.setenv("BATCH_UPLOAD_STATE_DIR", str(tmp_path))
+        job_index.register_job(1, "job-owned", 1)  # user 1 owns it; user 2 asks
+        request = APIRequestFactory().delete("/batch-upload/cancel/job-owned/")
+        force_authenticate(request, user=_make_user(pk=2))
+
+        response = BatchUploadViewSet.as_view({"delete": "cancel"})(request, job_id="job-owned")
+
+        assert response.status_code == 404
+        assert not os.path.exists(cancel_marker_path("job-owned"))
+        mock_celery.control.revoke.assert_not_called()
 
 
 class TestBatchUploadViewSetSummary:

@@ -1,9 +1,8 @@
 #!/usr/bin/env python
 from .seekapi import SeekAPI
 from django.conf import settings
-import json
-import shlex
 from dmac.conversion import convertDicToOptions
+from dmac.session_login import seek_password
 
 import logging
 logger = logging.getLogger(__name__)
@@ -187,7 +186,7 @@ class SeekDB(object):
             user_seek['storage'] = settings.SEEK_URL
             user_seek['storagetype'] = 'SEEK'
             user_seek['username'] = request.session.get('username')
-            user_seek['password'] = request.session.get('password')
+            user_seek['password'] = seek_password(request.session, user_seek['username'])
             if hasattr(request, 'user') and not request.user.is_authenticated:
                 # Credentials in a session nobody is logged in to are no login; the answer is the one a request with
                 # no session gets. Only an object the server builds itself carries no user at all (the attribute
@@ -351,10 +350,6 @@ class SeekDB(object):
             dicOut[id] = k
         return dicOut    
                 
-    def getInvestigations(self, project_title):
-        investigations = self.__seekapi.getInvestigations(project_title)
-        return self.__convertKeyValue(investigations)
-
     def getStudies(self, investigation_title):
         if investigation_title is None or investigation_title=="":
             return {}
@@ -380,182 +375,6 @@ class SeekDB(object):
         assays = self.__seekapi.getAssays(study_id)
         return self.__convertKeyValue(assays)
 
-    def __get_investigation_folders(self):
-        investigations = self.getInvestigations("")
-        oc_folders = ""
-        inv_folders = []
-        for dummyii, it in investigations.items():
-            inv_folders.append(it)
-        return inv_folders, oc_folders
-    
-    def __get_study_folders(self, investigation):
-        seek_inv = self.getInvestigations("")
-        inv_folders = []
-        for dummyii, it in seek_inv.items():
-            inv_folders.append(it)
-            
-        it = investigation    
-        seek_study = self.getStudies(it)
-        oc_folders = []
-        for st, dummysi in seek_study.items():
-            oc_folders.append(st)
-        return oc_folders, inv_folders
-    
-    def get_investigations_folders(self, investigation):
-        folders = []
-        investigations = []
-        if investigation is not None and investigation != "":
-            oc_folders, inv_folders = self.__get_study_folders(investigation)
-        else:
-            inv_folders, oc_folders = self.__get_investigation_folders()
-            
-        for inv in inv_folders:
-            investigation_name = inv.replace('/remote.php/webdav/', '').replace('/', '')
-            if "." not in investigation_name:
-                new = investigation_name
-                investigations.append(new)
-
-        for oc in oc_folders:
-            study = oc.replace('/remote.php/webdav/', '')
-            study = study.replace('/', '').replace(investigation, '')
-            if "." not in study:
-                new = study
-                folders.append(new)
- 
-        folders = list(filter(None, folders))
-        investigations = list(filter(None, investigations))
-        return investigations,folders
-    
-    
-    def __dataFilePayload(self, title, description, originalfilename,
-                          content_type, userid, projectid, assayid):
-        """The SEEK JSON:API body for a data-file upload.
-
-        This replaced a pair of 51-line escaped-JSON-inside-a-shell-string
-        literals that differed only by whether the ``assays`` relationship was
-        present. Building a dict and letting ``json.dumps`` escape it also
-        closes ``LATENT_BUGS.md`` #45: the hand-built version interpolated
-        ``title`` and ``description`` raw, so a quote silently dropped out of
-        the stored title, a backslash was re-interpreted as an escape, and a
-        crafted title could add arguments to the curl command line.
-        """
-        relationships = {
-            'creators': {'data': [{'id': str(userid), 'type': 'people'}]},
-            'projects': {'data': [{'id': str(projectid), 'type': 'projects'}]},
-        }
-        if not (assayid is None or assayid <= 0):
-            relationships['assays'] = {'data': [{'id': str(assayid),
-                                                 'type': 'assays'}]}
-        return {'data': {
-            'type': 'data_files',
-            'attributes': {
-                'title': title,
-                'description': description,
-                'license': 'CC-BY-4.0',
-                'content_blobs': [{'original_filename': originalfilename,
-                                   'content_type': content_type}],
-                'policy': {
-                    'access': 'no_access',
-                    'permissions': [{
-                        'resource': {'id': str(projectid), 'type': 'projects'},
-                        'access': 'manage',
-                    }],
-                },
-            },
-            'relationships': relationships,
-        }}
-
-    def __postCommand(self, endpoint, payload):
-        """A curl POST command line carrying ``payload`` as its JSON body.
-
-        ``SeekAPI.callCmdline`` runs the string through ``shlex.split`` and
-        ``Popen`` -- there is no shell -- so ``shlex.quote`` is the exact
-        inverse of how this argument will be read back.
-        """
-        apiPostCmd = self.__seekapi.apiPost()[:-1]
-        return (apiPostCmd + endpoint + "\" "
-                "-H \"accept: application/json\" "
-                "-H \"Content-Type: application/json\" "
-                "-d " + shlex.quote(json.dumps(payload)))
-
-    def seekupload_dfurl(self, title, fullfilename, originalfilename,
-               content_type, userid, projectid, assayid, description, tags, weburl):
-        payload = self.__dataFilePayload(title, description, originalfilename,
-                                         content_type, userid, projectid, assayid)
-        data_instance_query = self.__postCommand("/data_files", payload)
-        exitcode, out, err = self.__seekapi.callCmdline(data_instance_query)
-        
-        df_info = out
-        if exitcode==0:
-            msg = 'data file uploaded successfully'
-        else:
-            msg = 'Error: data file not uploaded.'
-            status = 0
-            return msg, status, df_info
-        
-        data_files = self.__seekapi.runGetQuery("/data_files")
-        df_id = 0
-        for df in range(0, len(data_files["data"])):
-            ti = data_files["data"][df]["attributes"]["title"]
-            if ti==title:
-                df_id = int(data_files["data"][df]["id"])
-            
-        if df_id==0:
-            msg = "Error: data file not found in DB:" + title
-            return msg, 0, None, None
-    
-        apiurl = "/data_files/" + str(df_id)
-        df_dic = self.__seekapi.runGetQuery(apiurl)
-        df_info = df_dic["data"]
-        content_blob = df_info["attributes"]["content_blobs"][0]
-        content_blob_url = content_blob["link"]  # noqa: F841 (kept: asserts the upload produced a content blob)
-        
-        msg = 'okay'
-        status = 1
-        object_url = apiurl
-        return msg, status, df_info, object_url
-    
-    def getISAOptions(self):
-        projects = [{ 'id': "0", 'title': " " }]
-        if 'projectOptions' in self.user_seek:
-            projects = self.user_seek['projectOptions']
-        project_options = json.dumps(projects)
-        allinvestigations = {}
-        investigation_options_dic = {}
-        for pinfo in projects:
-            project_title = pinfo['title']
-            project_id = pinfo['id']
-            investigations = self.getInvestigations(project_title)
-            allinvestigations.update(investigations)
-            
-            investigation_options = convertDicToOptions(investigations)
-            investigation_options_dic[project_id] = investigation_options
-            
-        investigation_options_dic = json.dumps(investigation_options_dic) 
-    
-        study_options_dic = {}
-        allstudies = {}
-        for iid, investigation in allinvestigations.items():
-            studies = self.getStudies(investigation)
-            study_options = convertDicToOptions(studies)
-            study_options_dic[iid] = study_options
-        
-            for sid, study in studies.items():
-                if sid not in allstudies:
-                    allstudies[sid] = study
-            
-
-        study_options_dic = json.dumps(study_options_dic)
-        assay_options_dic = {}
-        for sid, study in allstudies.items():
-            assays = self.getAssays(study)
-            assay_options = convertDicToOptions(assays)
-            assay_options_dic[sid] = assay_options
-            
-        assay_options_dic = json.dumps(assay_options_dic)
-        return project_options, investigation_options_dic, study_options_dic, assay_options_dic
-        
-    
     def updateCreator(self, instituion_id, creator_id):
         userInfo, status, msg = self.getUserInfo(creator_id)
         self.creator = userInfo

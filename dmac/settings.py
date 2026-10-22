@@ -1,9 +1,7 @@
 
-from __future__ import absolute_import, unicode_literals
 import json
 import os
 
-from django import VERSION as DJANGO_VERSION
 from django.utils.translation import gettext_lazy as _
 
 
@@ -25,6 +23,18 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 
 SESSION_COOKIE_DOMAIN = os.getenv('DJANGO_SESSION_COOKIE_DOMAIN', None)
 
+# Transport hardening, off by default so a laptop on plain http keeps working. A box turns these on in its
+# nextseek.env once its edge speaks https: secure cookies, trust of the edge's X-Forwarded-Proto (only where the
+# edge overwrites it). HSTS belongs on the TLS edge: SecurityMiddleware is not installed here.
+SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = (os.getenv("DJANGO_SECURE_COOKIES") or "").strip().lower() in ("1", "true", "yes")
+SECURE_PROXY_SSL_HEADER = (
+    ("HTTP_X_FORWARDED_PROTO", "https")
+    if (os.getenv("DJANGO_TRUST_X_FORWARDED_PROTO") or "").strip().lower() in ("1", "true", "yes")
+    else None
+)
+
+# nginx sends Host localhost on purpose: it is a guard (the docker service name is not a valid Host), and the
+# real Host travels in X-Forwarded-Host. Keep localhost here.
 ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '').split(' ')
 
 CSRF_TRUSTED_ORIGINS = os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(' ')
@@ -65,8 +75,9 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 SITE_ID = 1
 USE_I18N = False
 
-FILE_CHARSET = "utf-8"
-AUTHENTICATION_BACKENDS = ("mezzanine.core.auth_backends.MezzanineBackend",)
+# MezzanineBackend plus the failed sign-in limit (nextseek_api/throttles.py). Mezzanine puts its own backend
+# first when settings load (set_dynamic_settings), so the list is set again after that call.
+AUTHENTICATION_BACKENDS = ("nextseek_api.throttles.LoginThrottleBackend",)
 
 FILE_UPLOAD_PERMISSIONS = 0o644
 
@@ -103,6 +114,9 @@ STATICFILES_DIRS = [
 # Absolute filesystem path to the directory that will hold user-uploaded files.
 # Example: "/home/media/media.lawrence.com/media/"
 MEDIA_ROOT = "/media"
+
+# Chat values too big for a row go to files here, and the row keeps a link (nextseek_api/assistant/spill.py).
+CHAT_SPILL_DIR = os.path.join(MEDIA_ROOT, "chat_spill")
 
 # URL that handles the media served from MEDIA_ROOT. Make sure to use a
 # trailing slash.
@@ -143,9 +157,6 @@ TEMPLATES = [
         },
     },
 ]
-
-if DJANGO_VERSION < (1, 9):
-    del TEMPLATES[0]["OPTIONS"]["builtins"]
 
 ################
 # APPLICATIONS #
@@ -201,7 +212,6 @@ CHANNEL_LAYERS = {
 # response phase the middleware will be applied in reverse order.
 MIDDLEWARE = (
     "corsheaders.middleware.CorsMiddleware",
-    "django.middleware.common.CommonMiddleware",
     "mezzanine.core.middleware.UpdateCacheMiddleware",
 
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -217,10 +227,11 @@ MIDDLEWARE = (
     "mezzanine.core.middleware.SitePermissionMiddleware",
     "mezzanine.pages.middleware.PageMiddleware",
     "mezzanine.core.middleware.FetchFromCacheMiddleware",
-    "django_cprofile_middleware.middleware.ProfilerMiddleware",
 )
 
-DJANGO_CPROFILE_MIDDLEWARE_REQUIRE_STAFF = False
+# The profiler is a debugging tool: never in the middleware chain outside DEBUG (its package default is staff-only).
+if DEBUG:
+    MIDDLEWARE += ("django_cprofile_middleware.middleware.ProfilerMiddleware",)
 
 # Store these package names here as they may change in the future since
 # at the moment we are using custom forks of them.
@@ -277,6 +288,7 @@ except ImportError:
     pass
 else:
     set_dynamic_settings(globals())
+    AUTHENTICATION_BACKENDS = ["nextseek_api.throttles.LoginThrottleBackend"]
 
 APPEND_SLASH = True
 
@@ -288,6 +300,7 @@ ACCOUNTS_VERIFICATION_REQUIRED = True
 # requiring activation by a staff member.
 ACCOUNTS_APPROVAL_REQUIRED = True
 
+# Not dead: filebrowser_safe reads this old name at import (its views.py) and fails without it.
 DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
 
 STORAGES = {
@@ -314,10 +327,11 @@ STORAGES = {
 
 DATABASE_ROUTERS = ['seek.dbrouters.CustomRouter']
 
-ACCOUNTS_PROFILE_MODEL = "seek.User_profile"
-
 LOG_DIR = os.getenv("LOG_DIR", "/app/logs")
 os.makedirs(LOG_DIR, exist_ok=True)
+
+# INFO unless DEBUG: DEBUG on every request filled a box's disk. Rotation is a host logrotate job.
+LOG_LEVEL = 'DEBUG' if DEBUG else 'INFO'
 
 LOGGING = {
     'version': 1,
@@ -336,7 +350,7 @@ LOGGING = {
             'formatter': 'verbose'
         },
         'logfile': {
-            'level': 'DEBUG',
+            'level': LOG_LEVEL,
             'class': 'logging.FileHandler',
             'filename': os.path.join(LOG_DIR, 'django.log'),
             'formatter': 'verbose'
@@ -350,13 +364,13 @@ LOGGING = {
             'formatter': 'verbose'
         },
         'seekfile': {
-            'level': 'DEBUG',
+            'level': LOG_LEVEL,
             'class': 'logging.FileHandler',
             'filename': os.path.join(LOG_DIR, 'seek.log'),
             'formatter': 'verbose'
         },
         'nextseekfile': {
-            'level': 'DEBUG',
+            'level': LOG_LEVEL,
             'class': 'logging.FileHandler',
             'filename': os.path.join(LOG_DIR, 'nextseek.log'),
             'formatter': 'verbose'
@@ -371,7 +385,7 @@ LOGGING = {
         'django': {
             'handlers':['logfile'],
             'propagate': True,
-            'level':'DEBUG',
+            'level': LOG_LEVEL,
         },
         'django.utils.autoreload': {
           'level': 'INFO'  
@@ -384,7 +398,7 @@ LOGGING = {
         'seek': {
             'handlers':['seekfile'],
             'propagate': True,
-            'level':'DEBUG', 
+            'level': LOG_LEVEL,
         },
         # The SEEK proxy: one `seek_proxy ... latency_ms=` line per SEEK call, and the warnings a create that got no
         # answer logs. Without these two entries they reached only the root logger, never django.log.
@@ -400,7 +414,7 @@ LOGGING = {
         'dmac': {
             'handlers':['nextseekfile'],
             'propagate': True,
-            'level':'DEBUG',
+            'level': LOG_LEVEL,
         },
     },
 }
@@ -418,7 +432,39 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    # Request-rate limits (nextseek_api/throttles.py). Generous defaults: the chat frontend polls task status, the
+    # CI smoke suite and the nessie harness run as one user from one address. The paid endpoints get tight ones.
+    'DEFAULT_THROTTLE_CLASSES': [
+        'nextseek_api.throttles.AnonRate',
+        'nextseek_api.throttles.UserRate',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': os.getenv('DJANGO_THROTTLE_ANON', '120/min'),
+        'user': os.getenv('DJANGO_THROTTLE_USER', '1200/min'),
+        'turn_start': os.getenv('DJANGO_THROTTLE_TURN_START', '30/min'),
+        'upload': os.getenv('DJANGO_THROTTLE_UPLOAD', '10/min'),
+    },
+    # Proxies between the client and Django that append to X-Forwarded-For: the TLS edge and the inner nginx.
+    # With "client, edge" in the header DRF counts the client. Fewer entries (a laptop, the box's own CI over
+    # 127.0.0.1) just count the address that is there.
+    'NUM_PROXIES': int(os.getenv('DJANGO_NUM_PROXIES', '2')),
 }
+
+# Shared counters for the throttles and the login limiter. A separate alias, so the default cache (Mezzanine's
+# page cache) is unchanged. A file cache is shared by every gunicorn/daphne process in the container.
+CACHES = {
+    'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'},
+    'throttle': {
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': os.getenv('DJANGO_THROTTLE_CACHE_DIR', '/var/tmp/nextseek-throttle'),
+        'OPTIONS': {'MAX_ENTRIES': 10000},
+    },
+}
+
+# Failed sign-ins allowed per window, per (client address, username) and per client address; the window in seconds.
+LOGIN_FAILS_PER_USER = int(os.getenv('DJANGO_LOGIN_FAILS_PER_USER', '10'))
+LOGIN_FAILS_PER_ADDRESS = int(os.getenv('DJANGO_LOGIN_FAILS_PER_ADDRESS', '30'))
+LOGIN_WINDOW_SECONDS = int(os.getenv('DJANGO_LOGIN_WINDOW_SECONDS', '900'))
 
 
 ##############################
@@ -514,9 +560,10 @@ ASSAY_REGISTRATION_SYNC_ROW_THRESHOLD = int(
 # to nextseek_api endpoints. Authentication (Token/Basic/Session) is still
 # enforced — CORS only governs browser same-origin policy.
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-]
+# Origins come from DJANGO_CORS_ALLOWED_ORIGINS (space-separated); the Vite dev server is allowed only under DEBUG.
+CORS_ALLOWED_ORIGINS = os.getenv("DJANGO_CORS_ALLOWED_ORIGINS", "").split() + (
+    ["http://localhost:5173"] if DEBUG else []
+)
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -583,6 +630,9 @@ if "NESSIE_PARSER_START" not in globals():
 # No behavior change under Docker (all the env vars are set there).
 NEXTSEEK_DATABASE = "default"
 SEEK_DATABASE = "seek"
+# SEEK owns its schema; Django never migrates the seek alias. The test settings turn this on so the SQLite lane
+# can build that alias through migrations.
+SEEK_ALIAS_MIGRATABLE = False
 # Public, browser-reachable SEEK base URL (dev). Unconditional module-level default
 # so the attribute always exists on native/env-less hosts (dev's unguarded consumers
 # seek/views.py + seek/dbtable_sample.py read it bare); reassigned to the real value
@@ -592,8 +642,7 @@ SEEK_DATABASE = "seek"
 # and a project's shape changes at most weekly, so an hour is already fresher
 # than the data.
 #
-# No CACHES is configured for this project, so Django's default per-process
-# LocMemCache applies and each gunicorn worker warms its own copy. That is N
+# CACHES' default is Django's per-process LocMemCache, so each gunicorn worker warms its own copy. That is N
 # queries per window rather than one; acceptable at this cost, and the fix if it
 # stops being acceptable is a shared CACHES backend, not a longer TTL.
 PROJECT_CONNECTIONS_CACHE_SECONDS = int(

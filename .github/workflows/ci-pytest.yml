@@ -34,6 +34,18 @@ jobs:
     # version (ENV UV_PYTHON in the Dockerfile; test_build_context_env_guard.py keeps them equal).
     env:
       UV_PYTHON: "3.14"
+    # Read by the separate "MariaDB lane" step at the end, not by the lanes step.
+    # 10.5 is the oldest version with RETURNING. The dev compose db stays mysql:8.0.
+    services:
+      mariadb:
+        image: mariadb:10.5
+        env:
+          MARIADB_ROOT_PASSWORD: ci-only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=20
     steps:
       - uses: actions/checkout@v4
 
@@ -42,7 +54,7 @@ jobs:
           enable-cache: true
 
       # No system packages are needed. The application image is built from
-      # ghcr.io/astral-sh/uv:debian and installs nothing beyond openssh-client,
+      # ghcr.io/astral-sh/uv:0.12.8-debian and installs nothing beyond openssh-client,
       # so every dependency resolves as a wheel, mysqlclient included.
       - name: Install dependencies
         run: uv sync
@@ -51,6 +63,11 @@ jobs:
       # imports of the router fail without this step.
       - name: Generate the BAML client
         run: uv run baml-cli generate --from ./NessieAI/dmac_assistant/baml_src --no-version-check
+
+      # NessieAI/tests/chat_nextseek/evaluator/test_baml_vendoring.py imports the
+      # evaluator's baml_client (gitignored, generated).
+      - name: Generate the evaluator BAML client
+        run: uv run baml-cli generate --from ./NessieAI/chat_nextseek/src/chat_nextseek/evaluator/baml_src --no-version-check
 
       # Not continue-on-error: this step fails only when the lanes did not run at
       # all (see the exit-code check at the end), never because tests failed.
@@ -80,8 +97,14 @@ jobs:
             NessieAI/tests/cc NessieAI/tests/router NessieAI/tests/hibayes \
             NessieAI/tests/ns NessieAI/tests/api NessieAI/tests/schema_rag \
             NessieAI/tests/chat_nextseek NessieAI/tests/build_tools \
+            docker/cc-spawner/tests \
             --continue-on-collection-errors -q \
+            -n auto --dist loadfile --durations=30 \
             | tee pytest-run.txt
+          # -n auto runs the lanes on every vCPU of the runner (4 on a public repo) and
+          # --dist loadfile keeps one file's tests on one worker, so module state and
+          # fixtures behave as they do serially (worksteal was measured: no faster).
+          # --durations=30 prints the slowest tests.
           rc=${PIPESTATUS[0]}
           echo "pytest exit: $rc"
           # Exit 0 or 1 means the lanes ran; failing tests are scored by the
@@ -169,6 +192,38 @@ jobs:
           fi
           paths=$(python ci/blocking_lanes.py)
           uv run pytest $paths -q
+
+      # The MariaDB lane: the tests that need a real MariaDB/MySQL, which the SQLite lanes above skip.
+      # (a) the fixture files read SPIKE_DB_* and build a throwaway database; (b) the two-connection UID
+      # reservation test runs with the default database on the service (dmac/test_settings_mysql.py reads
+      # LANE_MYSQL_*). Informational like the lanes above: continue-on-error, read the log.
+      - name: MariaDB lane
+        if: ${{ !cancelled() && steps.lanes.outcome != 'skipped' }}
+        continue-on-error: true
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          LOG_DIR: ${{ runner.temp }}/logs
+          SPIKE_DB_HOST: 127.0.0.1
+          SPIKE_DB_USER: root
+          SPIKE_DB_PASSWORD: ci-only
+          LANE_MYSQL_HOST: 127.0.0.1
+          LANE_MYSQL_PASSWORD: ci-only
+        run: |
+          # Fixtures skip when they cannot connect, so a dead service would pass green: check first.
+          uv run python -c "import os,pymysql; pymysql.connect(host=os.environ['SPIKE_DB_HOST'], user=os.environ['SPIKE_DB_USER'], password=os.environ['SPIKE_DB_PASSWORD'], connect_timeout=10)" \
+            || { echo "::error::the MariaDB service is not reachable"; exit 1; }
+          # Run both commands even if the first is red; exit with the larger code.
+          set +e
+          DJANGO_SETTINGS_MODULE=dmac.test_settings uv run pytest -q \
+            nextseek_api/batch_upload/tests/test_insert_returning_mariadb.py \
+            nextseek_api/batch_upload/tests/test_migration_name_identity.py \
+            nextseek_api/batch_upload/tests/test_identity_drift_integration.py
+          rc1=$?
+          DJANGO_SETTINGS_MODULE=dmac.test_settings_mysql uv run pytest -q \
+            nextseek_api/batch_upload/tests/test_uid_sequence_concurrency.py \
+            nextseek_api/tests/test_migration_0007_heal_db.py
+          rc2=$?
+          exit $(( rc1 > rc2 ? rc1 : rc2 ))
 
       - uses: actions/upload-artifact@v4
         if: always()

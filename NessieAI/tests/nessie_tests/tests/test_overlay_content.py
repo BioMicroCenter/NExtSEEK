@@ -30,7 +30,7 @@ def test_has_cc_unrelated_and_green_families():
     assert {"route_gate", "green"} <= tags
     assert {v.family for v in ov if "route_gate" in v.tags} <= {
         "sample_search", "graph_traversal", "unsupported",
-        "pipeline_launch", "pipeline_output_reingest", "entity_write"}
+        "pipeline_launch", "pipeline_output_reingest", "entity_write", "writes_unsupported"}
     routes = {c.value for v in ov for t in v.turns for c in t.pass_criteria if c.field == "route"}
     assert {"container_cc", "unrelated", "nextseek_query"} <= routes
 

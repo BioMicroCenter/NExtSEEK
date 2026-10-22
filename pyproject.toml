@@ -26,8 +26,6 @@ dependencies = [
   "django-crontab",
   "django-filebrowser-no-grappelli",
   "django-markdownify",
-  "django-realtime",
-  "django-rest-framework",
   "django-widget-tweaks",
   "djangorestframework",
   "djangorestframework_simplejwt",
@@ -37,12 +35,9 @@ dependencies = [
   "et_xmlfile",
   "filebrowser-safe",
   "filelock",
-  "fpdf",
   "fsspec",
-  "future",
   "grappelli-safe",
   "gunicorn",
-  "h5py",
   "hf-xet",
   "html5lib",
   "huggingface-hub",
@@ -50,7 +45,6 @@ dependencies = [
   "importlib_metadata",
   "inflection",
   "isodate",
-  "jdcal",
   "Jinja2",
   "joblib",
   "jsonref",
@@ -73,31 +67,23 @@ dependencies = [
   "packaging",
   "pandas",
   "parse",
-  "pathlib",
   "polars[calamine]",
   "pillow",
   "psutil",
   "pydantic",
   "pydantic_core",
   "PyJWT",
-  "PyMySQL",
   "pyparsing",
   #"python-dateutil.post0",
-  "python-docx",
   "pytz",
   "PyYAML",
-  "rdflib",
   "referencing",
-  "reportlab",
   "requests",
   "requests-oauthlib",
   "rpds-py",
-  "ruff",
   "scipy",
   "simplejson",
-  "six",
   "soupsieve",
-  "SPARQLWrapper",
   "sentence-transformers",
   "sqlparse",
   "sqlalchemy",
@@ -119,7 +105,6 @@ dependencies = [
   "zipp",
   "zstandard>=0.25",
   "chat_nextseek",
-  "pytest-django",
   "channels>=4.3.2",
   "daphne>=4.2.1",
   "dmac-assistant",
@@ -157,6 +142,11 @@ markers = [
 dev = [
     "coverage",
     "import-linter",
+    "pytest-django",
+    # tests that need a real MySQL import it (they skip without it); the startup CLI brings its own
+    "PyMySQL",
+    "ruff",
+    "pytest-xdist>=3.8.0",
 ]
 # Note: the startup CLI does NOT use a uv dependency group — it runs in an
 # isolated env via `uv run --no-project --with typer --with rich`. This avoids
@@ -176,17 +166,14 @@ type = "forbidden"
 source_modules = [
     "nextseek_api", "seek", "dmac", "chat_nextseek",
     "NessieAI.build_tools", "NessieAI.cc", "NessieAI.hibayes", "NessieAI.ns",
-    "NessieAI.router", "NessieAI.schema_rag",
+    "NessieAI.router", "NessieAI.schema_rag", "NessieAI.nessie_harness",
 ]
 forbidden_modules = ["NessieAI.tests"]
 ignore_imports = [
     # test modules living inside product packages are exempt
     "nextseek_api.tests.** -> NessieAI.tests.**",
-    # known debt
+    # the harness CLI's own entry point drives the runner in the test tree
     "nextseek_api.management.commands.nessie -> NessieAI.tests.nessie_tests.*",
-    "NessieAI.hibayes.human_grade_fit -> NessieAI.tests.nessie_tests.bayes_manifest",
-    "NessieAI.cc.op_registry.paired_evidence -> NessieAI.tests.nessie_tests.*",
-    "NessieAI.build_tools.gen_op_surfaces.route_capabilities -> NessieAI.tests.nessie_tests.*",
 ]
 
 [[tool.importlinter.contracts]]
@@ -205,4 +192,43 @@ source_modules = ["NessieAI.cc"]
 forbidden_modules = ["seek", "dmac"]
 ignore_imports = [
     "NessieAI.cc.cc_provision -> seek.seekdb",
+]
+
+[[tool.importlinter.contracts]]
+name = "NessieAI engine does not import nextseek_api"
+type = "forbidden"
+source_modules = [
+    "NessieAI.ns", "NessieAI.router", "NessieAI.cc", "NessieAI.schema_rag", "NessieAI.hibayes",
+    "NessieAI.nessie_harness",
+]
+forbidden_modules = ["nextseek_api"]
+# Direct edges only: chat_nextseek reaches nextseek_api by its own known debt (contract above).
+allow_indirect_imports = true
+# Mirrors BACK_EDGE_ALLOWLIST (NessieAI/tests/api/test_nessie_boundaries.py), its nextseek_api
+# targets only (minus task6_app, an import_module string the linter cannot see); the seek/dmac
+# edges stay with the contract above. Fixing one means deleting its line.
+ignore_imports = [
+    "NessieAI.cc.cc_transcript_store -> nextseek_api.assistant.models_db",
+    "NessieAI.cc.turn -> nextseek_api.assistant.models_db",
+    "NessieAI.cc.turn -> nextseek_api.assistant.turn_pass",
+    "NessieAI.router.risk_overlay -> nextseek_api.assistant.models_db",
+    "NessieAI.router.turn_ledger -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.export -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.fit.fit_boundary -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.generation_store -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.generation_validation -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.human_grade_fit -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.judge_cache -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.paid_run_state -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.paired_run_registry -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.run_authorization -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.spend_conservation -> nextseek_api.assistant.models_db",
+    "NessieAI.hibayes.task6_replay -> nextseek_api.assistant.models_db",
+    "NessieAI.ns.reingest_qa -> nextseek_api.batch_upload.helpers",
+    "NessieAI.ns.retry -> nextseek_api.assistant.models_db",
+    "NessieAI.ns.retry -> nextseek_api.assistant.models_evaluator",
+    "NessieAI.ns.turn -> nextseek_api.assistant.session_adapter",
+    "NessieAI.ns.turn_memory -> nextseek_api.assistant.models_db",
+    "NessieAI.schema_rag -> nextseek_api.models",
+    "NessieAI.schema_rag.service -> nextseek_api.models",
 ]

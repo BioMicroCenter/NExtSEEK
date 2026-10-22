@@ -9,7 +9,7 @@ running code (signatures, line numbers, scope, byte-identical refactor, coverage
 markers). Findings are MEDIUM/LOW hardening items, no CRITICAL/HIGH. Verdict: CONDITIONAL_ACCEPTANCE.
 
 What I positively confirmed (so the next hardener does not re-litigate):
-- `cc_config.CCPaths(host_user_root, user_root_mount)` + `_DEFAULT_HOST_USER_ROOT="/Users/taishajoseph/dmac-dev/users"` at the cited spot; Task 8/E8 replacement is real.
+- `cc_config.CCPaths(host_user_root, user_root_mount)` + `_DEFAULT_HOST_USER_ROOT="/Users/<user>/dmac-dev/users"` at the cited spot; Task 8/E8 replacement is real.
 - `UserDirs`/`build_user_dirs` shape: `input_src`, `output_src`, `output_mnt`, `scratch_mnt`, `cc_state_mnt` all present; adding `input_mnt` after `input_src` is order-safe (all fields required, no defaults). Task 3 test math is correct (`/dmac/users/42-px/alice/input`).
 - `_publish_artifacts` at `:639` with `(scratch_mount, output_mount, *, output_host_root, before) -> list[str]`; `_safe_relpath`, `_snapshot_tree`, `snapshot_before` exist; `run_cc_turn` defines `dirs`/`run_id`/`translator`/`before`/`scratch_mount`/`output_mount` in scope (call-site/persist-block references resolve).
 - `translate._handle_result` success branch is exactly `[("query_complete", {reply, bundle_id:None, cc_session_id, total_cost_usd})]`; `CCStreamTranslator` at `:26`; the Task 5 `__new__` test path is valid (reply is a non-empty str so `_joined_reply` is not hit).

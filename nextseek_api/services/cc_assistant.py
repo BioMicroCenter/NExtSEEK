@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 from django.http import Http404, StreamingHttpResponse
+from dmac.session_login import seek_password
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -40,19 +41,22 @@ from drf_spectacular.utils import extend_schema, OpenApiExample
 from pydantic import ValidationError
 
 from nextseek_api.assistant.models_api import AsyncQueryResponse, QueryRequest, TaskProgressResponse
-from nextseek_api.permissions import may_read_any
+from nextseek_api.permissions import IsSuperUser, may_read_any, plan_mode_refused
 from nextseek_api.assistant.descriptions_cc import (
     NESSIE_CC_QUERY_ASYNC_DESC, NESSIE_QUERY_ASYNC_DESC, NESSIE_TASK_PROGRESS_DESC,
 )
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
+from nextseek_api.assistant.turn_drain import draining, draining_response
+from nextseek_api.throttles import TURN_THROTTLES, UPLOAD_THROTTLES
 from nextseek_api.helpers import resolve_seek_auth
 from nextseek_api.graph_search.scope import caller_block, plain_scope
 
 # Reuse the existing assistant's helpers (do NOT redefine its behavior).
 from nextseek_api.services.assistant import (
-    CsrfExemptSessionAuthentication,
+    SeekSessionAuthentication,
+    PLAN_MODE_FORBIDDEN,
     _error_response,
 )
 
@@ -86,7 +90,7 @@ def _iter_file(path: Path):
 class CCAssistantViewSet(viewsets.ViewSet):
     """Router + Container-Claude-Code assistant (additive to AssistantViewSet)."""
 
-    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [TokenAuthentication, SeekSessionAuthentication, BasicAuthentication]
     permission_classes = [IsAuthenticated]
 
     # ------------------------------------------------------------------ auth
@@ -119,10 +123,13 @@ class CCAssistantViewSet(viewsets.ViewSet):
         basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
         if basic_tuple and basic_tuple[0] and basic_tuple[1]:
             return basic_tuple
-        return request.session.get("username"), request.session.get("password")
+        username = request.session.get("username")
+        return username, seek_password(request.session, username)
 
     # ------------------------------------------------------------------ dispatch
     def _start_task(self, request, req, *, force_cc: bool) -> Response:
+        if draining():
+            return draining_response()
         try:
             chat_session = self._resolve_session(request, req)
         except ChatSession.DoesNotExist:
@@ -170,7 +177,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
             request_only=True,
         )],
     )
-    @action(detail=False, methods=["post"], url_path="query/async")
+    @action(detail=False, methods=["post"], url_path="query/async", throttle_classes=TURN_THROTTLES)
     def query_async(self, request):
         authed, err = self._check_auth(request)
         if not authed:
@@ -179,6 +186,8 @@ class CCAssistantViewSet(viewsets.ViewSet):
             req = QueryRequest.model_validate(request.data)
         except ValidationError as e:
             return _error_response("Validation error", str(e), status.HTTP_422_UNPROCESSABLE_ENTITY)
+        if plan_mode_refused(request, req.mode):
+            return _error_response("Forbidden", PLAN_MODE_FORBIDDEN, status.HTTP_403_FORBIDDEN)
         return self._start_task(request, req, force_cc=False)
 
     @extend_schema(
@@ -192,11 +201,18 @@ class CCAssistantViewSet(viewsets.ViewSet):
             request_only=True,
         )],
     )
-    @action(detail=False, methods=["post"], url_path="cc/query/async")
+    @action(detail=False, methods=["post"], url_path="cc/query/async", throttle_classes=TURN_THROTTLES)
     def cc_query_async(self, request):
         authed, err = self._check_auth(request)
         if not authed:
             return err
+        # Forcing Container-CC is a superuser's choice, the same rule as force_route on query/async/.
+        if not IsSuperUser().has_permission(request, self):
+            return _error_response(
+                "Forbidden",
+                "Forcing Container-CC is for superusers; send the turn to query/async/.",
+                status.HTTP_403_FORBIDDEN,
+            )
         try:
             req = QueryRequest.model_validate(request.data)
         except ValidationError as e:
@@ -242,7 +258,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
             status=status.HTTP_200_OK,
         )
 
-    @action(detail=False, methods=["post"], url_path="upload")
+    @action(detail=False, methods=["post"], url_path="upload", throttle_classes=UPLOAD_THROTTLES)
     def upload(self, request):
         from django.conf import settings
         from rest_framework.response import Response

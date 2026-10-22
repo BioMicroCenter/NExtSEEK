@@ -413,7 +413,8 @@ def test_apply_followup_ruling_is_idempotent_and_keeps_the_rest():
     assert once["best_for"] == before["best_for"]
     assert once["not_for"].startswith("Not intended for: Generate visualizations or charts.; "
                                       "Compare groups analytically.; A follow-up the follow-up rule sends")
-    assert once["not_for"].endswith("'what is X' stay here.")
+    assert "'what is X' stay here; A request to create, register" in once["not_for"]
+    assert once["not_for"].endswith("what a record holds before it, stay here.")
     assert [f["name"] for f in once["task_families"]] == [
         "sample_search", "followup_over_results", "search_refinement"]
     assert once["description"] == "d" and once["tools"] == ["x"]

@@ -34,7 +34,7 @@ from rest_framework import viewsets
 from rest_framework.authentication import BasicAuthentication
 from rest_framework.permissions import IsAuthenticated
 
-from nextseek_api.authentication import CsrfExemptSessionAuthentication
+from nextseek_api.authentication import SeekSessionAuthentication
 from nextseek_api.endpoint_descriptions import GRAPH_SEARCH_DESC
 from nextseek_api.graph_search import hydrate as gs_hydrate
 from nextseek_api.graph_search import service as gs_service
@@ -137,7 +137,7 @@ _EXAMPLE_ROW = {
 
 
 class GraphSearchViewSet(viewsets.ViewSet):
-    authentication_classes = [CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [SeekSessionAuthentication, BasicAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get_authenticate_header(self, request):

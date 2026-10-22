@@ -21,7 +21,7 @@ Durable, committed proof for PLAN-3 worktree execution on branch `cc-step3-ui-io
 Hermetic test base (from repo root):
 
 ```bash
-cd /home/taishajo/work/NExtSEEK
+cd /home/<user>/work/NExtSEEK
 uv run --no-project --with pytest --with pytest-cov --with orjson --with pydantic --with zstandard \
   python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/
 ```

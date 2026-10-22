@@ -24,7 +24,7 @@ The remaining eight modules define no ViewSet and no URL: they are pure function
 half of it.
 
 The one file every reader eventually lands in is `nextseek_api/services/assistant.py`, and
-not for the assistant. `CsrfExemptSessionAuthentication` and the shared error envelope
+not for the assistant. `SeekSessionAuthentication` and the shared error envelope
 `_error_response` now live in `nextseek_api/authentication.py`, but this module re-exports
 both and most of their importers still take them from here, so it is still the de-facto
 shared library of this directory as well as its largest chat engine. New code imports them
@@ -204,7 +204,7 @@ non-Python and non-import contexts, then grouped. Test modules are omitted:
   locations as prose, not imports: `ci/routes.py:800` and `ci/routes.py:629` are two.
 
 What a hit here is NOT. Three groups were excluded deliberately, each for a different reason.
-`NessieAI/tests/e2e/playwright/poll.py:11` and `NessieAI/tests/nessie_tests/manifest.py:169` name
+`NessieAI/tests/e2e/playwright/poll.py:11` and `NessieAI/nessie_harness/manifest.py:169` name
 modules here inside docstrings, which is documentation and not a dependency.
 `seek/timeline/services/` is a different `services` package entirely, imported at
 `nextseek_api/views.py:27-28`, and has nothing to do with this directory. And

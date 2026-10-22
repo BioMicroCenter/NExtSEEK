@@ -49,7 +49,7 @@ HOW_CODES = frozenset({
     "orm",           # Django ORM write on a model whose db_table is a graph source
     "dbtable",       # the legacy table layer (storeOneRecord and its siblings)
     "seek_client",   # SeekAPIClient create_*/update_*/delete_*, committed by Rails
-    "rails_runner",  # run_seek_rails_runner
+    "rails_runner",  # run_seek_op (the SEEK user scripts, run by cc-spawner)
     "cypher",        # a Cypher write, straight to Neo4j
     "rails",         # SEEK's own Rails UI, REST API or background jobs
     "external",      # a program outside this repository: an operator tool, hand SQL, a database client
@@ -288,7 +288,7 @@ WRITERS: tuple[Writer, ...] = (
            hook_site=("seek/sample/upload.py::SampleUploadMixin._storeSample",
                       "seek/sample/upload.py::SampleUploadMixin._batchUpdateSample",
                       "seek/sample/upload.py::SampleUploadMixin._batchUpdateSampleAssociation"),
-           note="the legacy sheet upload, reached by /seek/sampleupload/; the update paths enqueue too, which "
+           note="the legacy sheet upload; its /seek/sampleupload/ route is retired (no project check); the update paths enqueue too, which "
                 "the graph write it used to do never covered"),
     Writer(id="WR-13",
            sites=("seek/sample/table.py::DBtable_sample._deleteOneSample",),
@@ -442,15 +442,12 @@ WRITERS: tuple[Writer, ...] = (
            note="the Container-CC agent calls NExtSEEK endpoints as the requesting user, so it writes nothing "
                 "of its own and inherits the hooks of whatever it calls"),
     Writer(id="WR-28",
-           sites=("seek/sample/api.py::SampleApiMixin.apiInsertSample",
-                  "seek/sample/api.py::SampleApiMixin.updateSampleDFurl",
-                  "nextseek_api/batch_upload/update.py::update_sample_metadata",
+           sites=("nextseek_api/batch_upload/update.py::update_sample_metadata",
                   "nextseek_api/batch_upload/update.py::smart_merge_assay_assets"),
            tables=("samples", "assay_assets"),
            how=("dbtable", "sql"),
            reconcile="RECONCILE_DEAD",
-           note="dead code: the first two were reached only from the retired api_app and have no caller left, "
-                "and the other two have no caller either"),
+           note="dead code: the two helpers have no caller"),
     Writer(id="WR-29",
            sites=("nextseek_api/services/people.py::PeopleProxyViewSet.create",
                   "nextseek_api/services/people.py::PeopleProxyViewSet.partial_update"),
@@ -538,11 +535,6 @@ UNRESOLVED_SITES: tuple[str, ...] = (
     "dmac/dbconnection.py::DBconnection.saveOneRecord",
     "dmac/dbconnection.py::DBconnection.deleteOneRecord",
     "dmac/dbconnection.py::DBconnection.__updateRecordViaKeyword",
-    "dmac/dbconn_mysql.py::DBconn_mysql.__insertOneRecord",
-    "dmac/dbconn_mysql.py::DBconn_mysql.__insertRecords",
-    "dmac/dbconn_mysql.py::DBconn_mysql.__updateRecords",
-    "dmac/dbconn_mysql.py::DBconn_mysql.updateOneRecord",
-    "dmac/dbconn_mysql.py::DBconn_mysql.__deleteRecords",
     "dmac/datagrid_custom.py::DataGrid.__save",
     # The context generator's two table-agnostic renderers (WR-21). Both take the
     # table as an argument and read its name off cg.TABLES, so the scan sees a

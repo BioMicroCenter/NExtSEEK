@@ -5,11 +5,11 @@
 # Its Python is pinned on the RUN line, not with a second ENV UV_PYTHON (the guard
 # below reads the first one). The downloader's version cannot change the bytes: every
 # file is checked against its sha256.
-FROM ghcr.io/astral-sh/uv:debian AS models
+FROM ghcr.io/astral-sh/uv:0.12.8-debian AS models
 COPY docker/models/*.manifest.json docker/models/fetch_models.py docker/models/verify_models.py /src/
 RUN uv run --no-project --python 3.14 --with huggingface-hub==1.11.0 python /src/fetch_models.py /src /opt/models
 
-FROM ghcr.io/astral-sh/uv:debian
+FROM ghcr.io/astral-sh/uv:0.12.8-debian
 
 RUN mkdir /app
 RUN mkdir -p /var/celery
@@ -56,6 +56,10 @@ RUN /app/.venv/bin/python /app/docker/models/verify_models.py --load /opt/models
 RUN mkdir -p /app/NessieAI/dmac_assistant/src/dmac_assistant/router && \
     uv run baml-cli generate --from /app/NessieAI/dmac_assistant/baml_src --no-version-check && \
     test -d /app/NessieAI/dmac_assistant/src/dmac_assistant/router/baml_client
+
+# The evaluator's client (output_dir puts baml_client at chat_nextseek/src/).
+RUN uv run baml-cli generate --from /app/NessieAI/chat_nextseek/src/chat_nextseek/evaluator/baml_src --no-version-check && \
+    test -d /app/NessieAI/chat_nextseek/src/baml_client
 
 # The app's own source, including the BAML client just generated (uv compiles only
 # the venv). compileall writes explicitly, which PYTHONDONTWRITEBYTECODE allows.

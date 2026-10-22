@@ -43,7 +43,7 @@
   },
   "living_plan_progress": {
     "updated_at": "2026-08-11T16:00:00Z",
-    "path": "/home/taishajo/work/NExtSEEK-deploydocs/docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md",
+    "path": "/home/<user>/work/NExtSEEK-deploydocs/docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md",
     "local_sha_after_v4_2_close": "625b198ebf659ddea10a10b8355b6db06d92f8a3",
     "published_sha256_v14": "af99a24b765f04330cf25b09c005a80002d175890f66743d2b2115b9b2f74a6e",
     "note": "Progress markers only; not republished to origin/dev or registry"

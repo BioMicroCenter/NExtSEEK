@@ -265,6 +265,27 @@ def volume_create(name: str) -> None:
     _check(result, f"docker volume create {name}")
 
 
+def volume_users(name: str) -> list[str]:
+    """Names of the containers (running or stopped) that mount volume `name`."""
+    result = subprocess.run(
+        ["docker", "ps", "-a", "--filter", f"volume={name}", "--format", "{{.Names}}"],
+        capture_output=True,
+        text=True,
+    )
+    _check(result, f"docker ps --filter volume={name}")
+    return result.stdout.split()
+
+
+def volume_remove(name: str) -> None:
+    """Remove a docker volume by name."""
+    result = subprocess.run(
+        ["docker", "volume", "rm", name],
+        capture_output=True,
+        text=True,
+    )
+    _check(result, f"docker volume rm {name}")
+
+
 def bootstrap_staging_dir(volume_name: str, *, uid: int = 1001) -> None:
     """One-shot helper container: mkdir -p + chown the `_staging` subdir
     inside `volume_name` so a later VolumeOptions.Subpath mount (the NS

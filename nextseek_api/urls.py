@@ -12,8 +12,6 @@ router = DefaultRouter()
 # Register all ViewSets created in Phase 3:
 # Existing tree/legacy endpoints remain 
 router.register(r"sample-tree", views.SampleTreeViewSet, basename="sample-tree")
-# router.register(r"nhp", views.NHPViewSet, basename="nhp")
-# router.register(r"sample-queries", views.SampleQueryViewSet, basename="sample-queries")
 # Deprecated alias of samples/retrieve/ (one handler); kept for saved chats, cached pages and outside scripts.
 router.register(r"admin/samples", views.AdminSampleViewSet, basename="admin-samples")
 # Publishes one `status` action and no list route, so the API root does not advertise it.
@@ -76,7 +74,7 @@ urlpatterns = [
     # template_name overrides drf-spectacular's default to add the effective-identity
     # banner (#119). Swagger's Authorize button is silently ignored whenever the browser
     # holds a NExtSEEK session cookie, because DRF stops at the first authenticator that
-    # succeeds and CsrfExemptSessionAuthentication sits above BasicAuthentication. The
+    # succeeds and SeekSessionAuthentication sits above BasicAuthentication. The
     # banner states who the requests will ACTUALLY run as, so a mismatch is visible
     # instead of being discovered by mis-diagnosing an authorization gap.
     re_path(r'^swagger/$', SpectacularSwaggerView.as_view(

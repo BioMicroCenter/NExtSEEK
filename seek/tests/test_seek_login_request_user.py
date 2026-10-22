@@ -27,6 +27,7 @@ from django.http import HttpResponse
 from django.test import RequestFactory
 
 import seek.views.search  # noqa: F401  -- so @patch can resolve the target
+from dmac.session_login import store_seek_password
 from seek.seekdb import SeekDB
 
 ANONYMOUS = SimpleNamespace(is_authenticated=False, is_superuser=False, username="", pk=None)
@@ -35,7 +36,8 @@ MEMBER = SimpleNamespace(is_authenticated=True, is_superuser=False, username="me
 OTHER_MEMBER = "other-member"
 NOT_THEIR_PASSWORD = "not-the-password"
 VICTIM_PERSON_ID = 5
-SESSION = {"server": "http://seek:3000", "username": "member", "password": "members-password"}
+SESSION = {"server": "http://seek:3000", "username": "member"}
+store_seek_password(SESSION, "member", "members-password")
 VICTIM_INFO = {
     "user_id": VICTIM_PERSON_ID, "person_id": VICTIM_PERSON_ID, "userdata": {"attributes": {}},
     "projectid": "3", "projectname": "Victim project", "projectOptions": [{"id": "3", "title": "Victim project"}],
@@ -142,7 +144,9 @@ def test_an_anonymous_search_naming_a_member_searches_nothing(seekstub):
     """End to end: an anonymous POST naming a member, with a password that is not theirs, searches nothing."""
     dbsample = MagicMock()
     dbsample.searchAdvanced.return_value = "{}"
-    request = _request("post", ANONYMOUS, {"username": OTHER_MEMBER, "password": NOT_THEIR_PASSWORD})
+    query = "?filter_searchText=x&sampletype_id=1&attribute=none&filter_matchType=any"  # the search's own parameters
+    request = _request("post", ANONYMOUS, {"username": OTHER_MEMBER, "password": NOT_THEIR_PASSWORD},
+                       path="/seek/searchAdvanced/" + query)
 
     with patch("seek.views.search.DBtable_sample", return_value=dbsample):
         seek.views.search.searchingAdvanced(request)

@@ -240,7 +240,7 @@
 
 - Plan header date/version not duplicated in tracker (fine).
 - Task internal “Step 3” sub-steps (e.g. Task 2 Step 3) refer to task sub-steps, not integration Step 3 — mildly confusing; rename to “Sub-step 3” in hardening pass.
-- `integration-plan.json` path in Task 10 uses absolute `/home/taishajo/...` — portable enough for this user environment.
+- `integration-plan.json` path in Task 10 uses absolute `/home/<user>/...` — portable enough for this user environment.
 
 ---
 

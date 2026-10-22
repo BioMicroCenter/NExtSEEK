@@ -88,6 +88,66 @@ default = ""
 required = true
 doc = "Space-separated trusted origins. Install keeps a hand-set value and adds its port's loopback pair."
 
+[DJANGO_SECURE_COOKIES]
+files = ["nextseek.env"]
+default = ""
+doc = "1/true/yes sets the Secure flag on the session and CSRF cookies. Off by default; turn on once the box is served over https."
+
+[DJANGO_TRUST_X_FORWARDED_PROTO]
+files = ["nextseek.env"]
+default = ""
+doc = "1/true/yes trusts the edge's X-Forwarded-Proto header. Only where the edge overwrites it."
+
+[DJANGO_CORS_ALLOWED_ORIGINS]
+files = ["nextseek.env"]
+default = ""
+doc = "Space-separated origins allowed to call /nextseek_api/ cross-origin. The Vite dev origin is added only under DJANGO_DEBUG."
+
+[DJANGO_THROTTLE_ANON]
+files = ["nextseek.env"]
+default = "120/min"
+doc = "API request limit per client address for callers who are not signed in."
+
+[DJANGO_THROTTLE_USER]
+files = ["nextseek.env"]
+default = "1200/min"
+doc = "API request limit per signed-in user. Generous: the chat frontend polls and the CI suite runs as one user."
+
+[DJANGO_THROTTLE_TURN_START]
+files = ["nextseek.env"]
+default = "30/min"
+doc = "Limit per user on starting an agent turn (cc-assistant and assistant query/async, nessie/query)."
+
+[DJANGO_THROTTLE_UPLOAD]
+files = ["nextseek.env"]
+default = "10/min"
+doc = "Limit per user on starting an upload job (batch-upload start, cc-assistant upload)."
+
+[DJANGO_NUM_PROXIES]
+files = ["nextseek.env"]
+default = "2"
+doc = "Proxies that append to X-Forwarded-For before Django (TLS edge plus the inner nginx). Sets which entry counts as the client address for rate limits and sign-in counting. Set 1 if the box has no edge in front of nginx."
+
+[DJANGO_THROTTLE_CACHE_DIR]
+files = ["nextseek.env"]
+default = "/var/tmp/nextseek-throttle"
+doc = "Directory of the file cache that holds the rate-limit and sign-in counters, shared by every process in the container."
+
+[DJANGO_LOGIN_FAILS_PER_USER]
+files = ["nextseek.env"]
+default = "10"
+doc = "Failed sign-ins allowed per window for one client address and username (form login and Basic API credentials)."
+
+[DJANGO_LOGIN_FAILS_PER_ADDRESS]
+files = ["nextseek.env"]
+default = "30"
+doc = "Failed sign-ins allowed per window for one client address, across usernames."
+
+[DJANGO_LOGIN_WINDOW_SECONDS]
+files = ["nextseek.env"]
+default = "900"
+doc = "Length in seconds of the failed sign-in window."
+
 [NEXTSEEK_BASE_URL]
 files = ["nextseek.env", "internal"]
 doc = "Public NExtSEEK base URL, derived from NEXTSEEK_HOSTNAME. cc_engine hands the agent its own copy."
@@ -263,10 +323,6 @@ files = ["nextseek.env"]
 default = ""
 doc = "graph_sync loop: label-change handling switch."
 
-[SEEK_CONTAINER_NAME]
-files = ["nextseek.env"]
-doc = "SEEK container the rails runner execs into; the code default is the unprefixed name."
-
 [SEEK_RAILS_RUNNER_TIMEOUT]
 files = ["nextseek.env"]
 doc = "Seconds a SEEK rails runner call may take."
@@ -295,10 +351,6 @@ doc = "Attribute job outbox batch size."
 files = ["nextseek.env"]
 default = "0.5"
 doc = "Attribute job outbox idle wait in seconds."
-
-[ATTRIBUTE_WORKER_TELEMETRY_RESULTS]
-files = ["nextseek.env"]
-doc = "Turns on attribute worker telemetry results (dmac/attribute_performance_settings.py)."
 
 [BATCH_UPLOAD_MAX_TOTAL_BYTES]
 files = ["nextseek.env"]
@@ -625,7 +677,7 @@ default = "http://bedrock-proxy:8080"
 doc = "Bedrock proxy URL the agent calls."
 
 [NEXTSEEK_CC_MAX_TURNS]
-files = ["nextseek.env"]
+files = ["nextseek.env", "root.env"]
 default = "50"
 doc = "Most agent turns in one Container-CC turn."
 
@@ -634,21 +686,21 @@ files = ["nextseek.env"]
 doc = "Default length in seconds of one Container-CC turn."
 
 [NEXTSEEK_CC_MEM_LIMIT]
-files = ["nextseek.env"]
+files = ["nextseek.env", "root.env"]
 default = "4g"
 doc = "Memory limit of the agent container."
 
 [NEXTSEEK_CC_NANO_CPUS]
-files = ["nextseek.env"]
+files = ["nextseek.env", "root.env"]
 doc = "CPU limit of the agent container, in nano CPUs."
 
 [NEXTSEEK_CC_PIDS_LIMIT]
-files = ["nextseek.env"]
+files = ["nextseek.env", "root.env"]
 default = "512"
 doc = "Process limit of the agent container."
 
 [NEXTSEEK_CC_FSIZE_BYTES]
-files = ["nextseek.env"]
+files = ["nextseek.env", "root.env"]
 doc = "Largest file the agent may write, in bytes; the code default is 10 GiB."
 
 [NEXTSEEK_CC_MAX_RETRIES]
@@ -700,6 +752,16 @@ doc = "Container-CC memory: characters kept per item."
 files = ["nextseek.env"]
 default = "900"
 doc = "Container-CC memory: idle seconds before a sweep."
+
+[DMAC_CC_MEMORY_SWEEP_MAX_PER_RUN]
+files = ["nextseek.env"]
+default = "20"
+doc = "Container-CC memory: most sessions one sweep run summarizes, oldest first."
+
+[NEXTSEEK_CC_SUMMARY_SWEEP]
+files = ["nextseek.env"]
+default = "1"
+doc = "Container-CC memory: 0, false or off stops the scheduled paid summary sweep (the beat keeps running)."
 
 [DMAC_CC_MEMORY_SUMMARY_MODEL]
 files = ["nextseek.env"]
@@ -799,8 +861,43 @@ doc = "Host port of Neo4j bolt; install writes it."
 
 [NEXTSEEK_MEMORY]
 files = ["root.env"]
-default = "16G"
-doc = "Memory cap of the app container."
+default = "8G"
+doc = "Memory cap of the web container."
+
+[NEXTSEEK_WORKER_MEMORY]
+files = ["root.env"]
+default = "8G"
+doc = "Memory cap of the worker container (the nine background loops)."
+
+[NEXTSEEK_DRAIN_SECONDS]
+files = ["root.env"]
+default = "240"
+doc = "How long a stopping web container lets running chat turns finish before it cuts them. web's stop_grace_period must stay at least this plus 30 s."
+
+[NEXTSEEK_SPAWNER_TOKEN]
+files = ["nextseek.env"]
+secret = true
+doc = "Token web sends to cc-spawner. Install and rebuild write it, with the same value as SPAWNER_TOKEN in docker/cc-spawner.env."
+
+[NEXTSEEK_SPAWNER_URL]
+files = ["root.env"]
+default = "http://cc-spawner:8080"
+doc = "Where web sends Container-CC turns. Unset: the cc-spawner service. Set empty in .env: today's direct Docker path (the switch lives one dev cycle)."
+
+[NEXTSEEK_CC_AUTOMODE_GCP]
+files = ["root.env"]
+default = "1"
+doc = "1 when the auto-mode classifier may use GCP (the app has GCP_API_KEY set); the spawner reads this flag, never the key."
+
+[CC_SPAWNER_NEO4J_URI]
+files = ["root.env"]
+default = "neo4j://neo4j:7687"
+doc = "Neo4j URI the cc-spawner names in the Container-CC auto-mode trust text."
+
+[SPAWNER_MEMORY]
+files = ["root.env"]
+default = "512M"
+doc = "Memory cap of the cc-spawner container."
 
 [SEEK_MEMORY]
 files = ["root.env"]
@@ -819,13 +916,23 @@ doc = "RSS in whole MB at which the recycler restarts a SEEK puma worker."
 
 [SEEK_WORKERS_MEMORY]
 files = ["root.env"]
-default = "3G"
+default = "6G"
 doc = "Memory cap of the SEEK job workers."
 
 [SEEK_DB_MEMORY]
 files = ["root.env"]
-default = "2G"
+default = "6G"
 doc = "Memory cap of MySQL."
+
+[NEO4J_IMAGE_TAG]
+files = ["root.env"]
+default = "2026.05.0"
+doc = "Neo4j image tag."
+
+[NGINX_IMAGE_TAG]
+files = ["root.env"]
+default = "1.31.2"
+doc = "nginx image tag."
 
 [NEO4J_MEMORY]
 files = ["root.env"]
@@ -854,7 +961,7 @@ doc = "Neo4j plugins to load, for example the read-only APOC families."
 
 [NEO4J_PROCEDURES_ALLOWLIST]
 files = ["root.env"]
-default = "*"
+default = "db.*,dbms.*,tx.*,fleetManagement.*,apoc.path.*,apoc.meta.*,apoc.text.*,apoc.coll.*,apoc.agg.*,apoc.map.*,apoc.number.*,apoc.convert.*,apoc.date.*,apoc.temporal.*,apoc.node.*,apoc.label.*,apoc.any.*,apoc.math.*,apoc.stats.*"
 doc = "Neo4j procedures allowlist."
 
 [SOLR_MEMORY]
@@ -909,12 +1016,17 @@ default = "False"
 doc = "Router risk overlay switch."
 
 [NEXTSEEK_EXPORT_ROOT]
-files = ["local_settings"]
-doc = "Folder the SEEK exports page writes to."
+files = ["local_settings", "internal"]
+doc = "Folder the private sample exports are written to; compose sets it for web on the shared media volume, and a local_settings value wins."
 
 [BATCH_UPLOAD_JOB_TTL_HOURS]
 files = ["local_settings"]
 doc = "Hours a batch upload job record is kept."
+
+[BATCH_UPLOAD_STATE_DIR]
+files = ["nextseek.env"]
+default = "/var/celery"
+doc = "Batch upload: directory holding the queue's broker, results, job index, saved sheets and beat schedule (the batch_upload_state volume)."
 
 [SAMPLE_RETRIEVE_NEO4J_CONNECT_TIMEOUT]
 files = ["local_settings"]
@@ -1026,3 +1138,27 @@ doc = "Fault-injection control for the attribute worker tests."
 [CHAT_NEXTSEEK_SKIP_BAML_BOOTSTRAP]
 files = ["internal"]
 doc = "Skip the evaluator's BAML bootstrap (tests)."
+
+[NEXTSEEK_TURN_DIR]
+files = ["internal"]
+default = "/tmp/nextseek-turns"
+doc = "Folder of running-chat-turn marker files and the .draining flag (a stopping web container drains on them)."
+
+[NEXTSEEK_DRAIN_POLL]
+files = ["internal"]
+default = "10"
+doc = "Entrypoint (web): seconds between the drain's turn counts."
+
+[NEXTSEEK_MIGRATE_WAIT_SECONDS]
+files = ["internal"]
+default = "300"
+doc = "Entrypoint (web): seconds to wait for the worker's migrations before giving up."
+
+[NEXTSEEK_MIGRATE_WAIT_INTERVAL]
+files = ["internal"]
+default = "5"
+doc = "Entrypoint (web): seconds between migration checks."
+
+[NEXTSEEK_LABS_FILE]
+files = ["internal"]
+doc = "Path of labs_db.json when set (two containers share one copy on a volume); default is the context dir."

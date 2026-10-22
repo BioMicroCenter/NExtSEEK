@@ -226,6 +226,100 @@ class TestBatchUploadViewSetStatus:
         assert response.status_code == 200
         assert response.data["job_status"] == "succeeded"
 
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.user_owns_job", return_value=True)
+    @patch("nextseek_api.batch_upload.views.AsyncResult")
+    def test_warning_only_job_succeeds(self, mock_ar, mock_owns, factory, admin_user):
+        """A job whose only errors are advisory (WARNING) succeeded."""
+        mock_ar.return_value.state = "SUCCESS"
+        mock_ar.return_value.result = {
+            "job_id": "j3",
+            "totals": {"processed": 1, "success": 1, "skipped": 0, "failed": 0},
+            "errors": [{"type": "VALIDATION_JSON", "severity": "WARNING", "message": "advisory"}],
+        }
+        view = BatchUploadViewSet.as_view({"get": "job_status"})
+        request = factory.get("/api/batch-upload/status/j3/")
+        force_authenticate(request, user=admin_user)
+        response = view(request, job_id="j3")
+        assert response.data["job_status"] == "succeeded"
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.user_owns_job", return_value=True)
+    @patch("nextseek_api.batch_upload.views.AsyncResult")
+    def test_failed_rows_with_only_warnings_still_fail(self, mock_ar, mock_owns, factory, admin_user):
+        mock_ar.return_value.state = "SUCCESS"
+        mock_ar.return_value.result = {
+            "job_id": "j5",
+            "totals": {"processed": 1, "success": 0, "skipped": 0, "failed": 1},
+            "errors": [{"type": "VALIDATION_JSON", "severity": "WARNING", "message": "row dropped"}],
+        }
+        view = BatchUploadViewSet.as_view({"get": "job_status"})
+        request = factory.get("/api/batch-upload/status/j5/")
+        force_authenticate(request, user=admin_user)
+        response = view(request, job_id="j5")
+        assert response.data["job_status"] == "failed"
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.user_owns_job", return_value=True)
+    @patch("nextseek_api.batch_upload.views.AsyncResult")
+    def test_cancelled_job_reports_cancelled(self, mock_ar, mock_owns, factory, admin_user):
+        mock_ar.return_value.state = "SUCCESS"
+        mock_ar.return_value.result = {
+            "job_id": "j6",
+            "totals": {"processed": 0, "success": 0, "skipped": 0, "failed": 0, "cancelled": True},
+            "errors": [],
+        }
+        view = BatchUploadViewSet.as_view({"get": "job_status"})
+        request = factory.get("/api/batch-upload/status/j6/")
+        force_authenticate(request, user=admin_user)
+        response = view(request, job_id="j6")
+        assert response.data["job_status"] == "cancelled"
+
+    @pytest.mark.django_db
+    @patch("nextseek_api.batch_upload.views.user_owns_job", return_value=True)
+    @patch("nextseek_api.batch_upload.views.AsyncResult")
+    def test_error_without_severity_still_fails(self, mock_ar, mock_owns, factory, admin_user):
+        """A missing severity counts as blocking (results from before the deploy fail closed)."""
+        mock_ar.return_value.state = "SUCCESS"
+        mock_ar.return_value.result = {
+            "job_id": "j4",
+            "totals": {"processed": 1, "success": 1, "skipped": 0, "failed": 0},
+            "errors": [{"type": "VALIDATION_JSON", "message": "no severity"}],
+        }
+        view = BatchUploadViewSet.as_view({"get": "job_status"})
+        request = factory.get("/api/batch-upload/status/j4/")
+        force_authenticate(request, user=admin_user)
+        response = view(request, job_id="j4")
+        assert response.data["job_status"] == "failed"
+
+
+class TestStartRefusesBeforeSaving:
+    """start must refuse a bad project_id before any file is written to disk."""
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("data", [{"project_id": "abc"}, {}])
+    def test_bad_project_id_saves_no_file(self, factory, admin_user, data):
+        view = BatchUploadViewSet.as_view({"post": "start"})
+        upload = SimpleUploadedFile("a.xlsx", b"x" * 10)
+        request = factory.post("/api/batch-upload/start/", data={**data, "file": upload}, format="multipart")
+        force_authenticate(request, user=admin_user)
+        with patch("nextseek_api.batch_upload.views._save_uploaded_file") as save:
+            response = view(request)
+        assert response.status_code == 400
+        save.assert_not_called()
+
+    @pytest.mark.django_db
+    def test_non_member_is_refused_without_saving(self, factory, admin_user):
+        view = BatchUploadViewSet.as_view({"post": "start"})
+        upload = SimpleUploadedFile("a.xlsx", b"x" * 10)
+        request = factory.post("/api/batch-upload/start/", data={"project_id": "2", "file": upload}, format="multipart")
+        force_authenticate(request, user=admin_user)
+        with patch("nextseek_api.batch_upload.views._caller_project_scope", return_value=(1,)), \
+             patch("nextseek_api.batch_upload.views._save_uploaded_file") as save:
+            response = view(request)
+        assert response.status_code == 403
+        save.assert_not_called()
+
 
 class TestBatchUploadFileUpload:
     """Test client-side Excel file upload."""
@@ -775,7 +869,7 @@ class TestResolveUserContextV2:
 
         mock_user_info = {"person_id": 42, "lababbv": "MIT"}
 
-        with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(("testuser", "testpass"), {})) as mock_rsa, \
+        with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(("v2_basic_user", "testpass"), {})) as mock_rsa, \
              patch("seek.models.Users") as MockUsers, \
              patch("seek.seekdb.SeekDB") as MockSeekDB:
             MockUsers.objects.using.return_value.get.return_value = mock_seek_user
@@ -1245,7 +1339,8 @@ class TestResolveUserContextSeekDBInit:
                     return_value={"contributor_id": 42, "lababbv": "MIT"}), \
              patch("nextseek_api.batch_upload.views._save_uploaded_file", return_value="/tmp/test.xlsx"), \
              patch("nextseek_api.batch_upload.views.run_batch_upload_task") as mock_task, \
-             patch("nextseek_api.batch_upload.views.register_job"):
+             patch("nextseek_api.batch_upload.views.register_job"), \
+             patch("nextseek_api.batch_upload.views._caller_project_scope", return_value=(1,)):
             mock_task.delay.return_value = MagicMock(id="test-job-id")
 
             view = BatchUploadViewSet()

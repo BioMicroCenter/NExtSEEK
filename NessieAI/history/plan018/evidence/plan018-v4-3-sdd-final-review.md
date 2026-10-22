@@ -10,7 +10,7 @@ prior_implementer_review: VOID
 
 **Recorded:** 2026-08-12  
 **Branch:** `ultraplan/hibayes-eval-routing` @ worktree tip `3c6a17e` (remediation **uncommitted**)  
-**Charter:** Cold-debt remediation V43-T1…T7 per [`cold_debt_remediation_00d90d00.plan.md`](file:///home/taishajo/.cursor/plans/cold_debt_remediation_00d90d00.plan.md), evaluated against SDD plan [`plan018_v4-3_sdd_9ae91f7b.plan.md`](file:///home/taishajo/.cursor/plans/plan018_v4-3_sdd_9ae91f7b.plan.md) and cold review [`plan018-v4-3-cold-outcome-review.md`](plan018-v4-3-cold-outcome-review.md).
+**Charter:** Cold-debt remediation V43-T1…T7 per [`cold_debt_remediation_00d90d00.plan.md`](file:///home/<user>/.cursor/plans/cold_debt_remediation_00d90d00.plan.md), evaluated against SDD plan [`plan018_v4-3_sdd_9ae91f7b.plan.md`](file:///home/<user>/.cursor/plans/plan018_v4-3_sdd_9ae91f7b.plan.md) and cold review [`plan018-v4-3-cold-outcome-review.md`](plan018-v4-3-cold-outcome-review.md).
 
 Any prior `plan018-v4-3-sdd-final-review.md` without cold-subagent provenance is **VOID**. This file replaces it.
 
@@ -35,7 +35,7 @@ Any prior `plan018-v4-3-sdd-final-review.md` without cold-subagent provenance is
 **Lane C (docker worktree mount + `dmac.test_settings`):**
 
 ```bash
-docker run --rm -v /home/taishajo/work/NExtSEEK-plan018:/repo -w /repo \
+docker run --rm -v /home/<user>/work/NExtSEEK-plan018:/repo -w /repo \
   -e DJANGO_SETTINGS_MODULE=dmac.test_settings \
   -e PYTHONPATH=/repo:/repo/dmac_assistant/src \
   nextseek-nextseek:latest uv run --project /app --no-sync python -m pytest \

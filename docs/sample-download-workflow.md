@@ -91,7 +91,7 @@ Removing the gate naively would have returned 404 rather than data:
 project-filtered branch with `user_project_ids` that was **always** `[]`.
 `SeekDB(None, None, None)` takes the username-is-None branch
 (`seek/seekdb.py:31`), never calls `getSeekLogin()`, leaves `__server` as `None`,
-so `getCurrentUser()` raised `TypeError` (`seek/seekapi.py:189`) into a bare
+so `getCurrentUser()` raised `TypeError` (`seek/seekapi.py:119`) into a bare
 `except`. Empty project list → `ps.project_id IN ('')` → zero rows → 404.
 
 ---

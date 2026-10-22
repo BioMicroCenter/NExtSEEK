@@ -149,18 +149,18 @@ def test_actor_provenance_is_one_identity(seek_auth_boundary, field):
 def test_csrf_exempt_session_route_parity(seek_auth_boundary, operation):
     import sys
 
-    from nextseek_api.authentication import CsrfExemptSessionAuthentication
+    from nextseek_api.authentication import SeekSessionAuthentication
     from rest_framework.response import Response
     from rest_framework.views import APIView
     from rest_framework.test import APIRequestFactory
 
     auth_module = sys.modules["nextseek_api.attributes.auth"]
     session_auth = auth_module.SeekPersonAuthentication.authenticators[1]
-    assert session_auth is CsrfExemptSessionAuthentication
+    assert session_auth is SeekSessionAuthentication
 
     response = seek_auth_boundary.dispatch_neighbor_session_parity(operation)
     assert response.status_code == 200
-    assert response.data["authentication_class"] == "CsrfExemptSessionAuthentication"
+    assert response.data["authentication_class"] == "SeekSessionAuthentication"
     credential = seek_auth_boundary.credential("session", "valid-admin")
     factory = APIRequestFactory()
 

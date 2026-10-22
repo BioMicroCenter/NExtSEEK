@@ -808,13 +808,13 @@ class TaskProgressViewSetTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# CsrfExemptionTests — regression test for the 403 CSRF bug
+# CsrfEnforcementTests: session callers carry the CSRF token
 # ---------------------------------------------------------------------------
 
-class CsrfExemptionTests(TestCase):
+class CsrfEnforcementTests(TestCase):
     """
-    Verify session-authenticated users can POST to assistant endpoints
-    without a CSRF token.
+    A session-authenticated POST to the assistant endpoints needs Django's
+    CSRF token (cookie plus X-CSRFToken header). Basic callers need none.
 
     NOTE: force_authenticate() bypasses DRF auth entirely, so it cannot
     catch CSRF issues.  These tests use client.login() to exercise the
@@ -823,29 +823,53 @@ class CsrfExemptionTests(TestCase):
 
     def setUp(self):
         self.user = User.objects.create_user(username="csrfuser", password="pass1234")
-        self.client = APIClient(enforce_csrf_checks=True)
+        self.client = APIClient(enforce_csrf_checks=True, raise_request_exception=False)
         self.client.login(username="csrfuser", password="pass1234")
         patcher = patch('nextseek_api.services.assistant.UserInParticipatingProject.has_permission', return_value=True)
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    @patch("nextseek_api.services.assistant.DictSessionAdapter")
-    @patch("NessieAI.ns.turn.run_query")
-    def test_post_query_async_no_csrf_token(self, mock_run_query, mock_adapter_cls):
-        """POST /assistant/query/async/ must return 202, not 403, for a
-        session-authenticated user who sends no X-CSRFToken header."""
+    def _token(self):
+        return self.client.get("/login/").cookies["csrftoken"].value
+
+    def _assert_csrf_refused(self, resp):
+        self.assertEqual(resp.status_code, 403)
+        self.assertIn("CSRF", str(resp.data))
+
+    def test_post_query_async_without_token_is_refused(self):
         resp = self.client.post(
             "/nextseek_api/assistant/query/async/",
             {"query": "Find me mice", "mode": "standard"},
             format="json",
         )
-        self.assertEqual(resp.status_code, 202)
-        self.assertIn("task_id", resp.data)
+        self._assert_csrf_refused(resp)
+
+    def test_post_query_sse_without_token_is_refused(self):
+        resp = self.client.post(
+            "/nextseek_api/assistant/query/",
+            {"query": "Find me mice", "mode": "standard"},
+            format="json",
+        )
+        self._assert_csrf_refused(resp)
+
+    def test_post_create_session_without_token_is_refused(self):
+        self._assert_csrf_refused(self.client.post("/nextseek_api/assistant/sessions/"))
 
     @patch("nextseek_api.services.assistant.DictSessionAdapter")
     @patch("NessieAI.ns.turn.run_query")
-    def test_post_query_sse_no_csrf_token(self, mock_run_query, mock_adapter_cls):
-        """POST /assistant/query/ must return 200 (SSE), not 403."""
+    def test_post_query_async_with_token(self, mock_run_query, mock_adapter_cls):
+        resp = self.client.post(
+            "/nextseek_api/assistant/query/async/",
+            {"query": "Find me mice", "mode": "standard"},
+            format="json",
+            HTTP_X_CSRFTOKEN=self._token(),
+        )
+        # Past the CSRF check. The test settings lack NEXTSEEK_CHAT_CONFIG, so the view itself may fail later.
+        self.assertNotEqual(resp.status_code, 403)
+
+    @patch("nextseek_api.services.assistant.DictSessionAdapter")
+    @patch("NessieAI.ns.turn.run_query")
+    def test_post_query_sse_with_token(self, mock_run_query, mock_adapter_cls):
         def fake_run_query(adapter, chat_config, query, send_event, credentials=None):
             send_event("query_complete", {"reply": "done", "debug": {}, "bundle_id": None})
         mock_run_query.side_effect = fake_run_query
@@ -854,15 +878,21 @@ class CsrfExemptionTests(TestCase):
             "/nextseek_api/assistant/query/",
             {"query": "Find me mice", "mode": "standard"},
             format="json",
+            HTTP_X_CSRFTOKEN=self._token(),
         )
-        self.assertEqual(resp.status_code, 200)
-        self.assertIn("text/event-stream", resp["Content-Type"])
+        self.assertNotEqual(resp.status_code, 403)
 
-    def test_post_create_session_no_csrf_token(self):
-        """POST /assistant/sessions/ must return 201, not 403."""
-        resp = self.client.post("/nextseek_api/assistant/sessions/")
+    def test_post_create_session_with_token(self):
+        resp = self.client.post("/nextseek_api/assistant/sessions/", HTTP_X_CSRFTOKEN=self._token())
         self.assertEqual(resp.status_code, 201)
         self.assertIn("session_id", resp.data)
+
+    def test_basic_auth_needs_no_token(self):
+        import base64
+        client = APIClient(enforce_csrf_checks=True)
+        raw = base64.b64encode(b"csrfuser:pass1234").decode()
+        resp = client.post("/nextseek_api/assistant/sessions/", HTTP_AUTHORIZATION=f"Basic {raw}")
+        self.assertEqual(resp.status_code, 201)
 
 
 # ---------------------------------------------------------------------------

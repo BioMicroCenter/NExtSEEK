@@ -6,6 +6,7 @@ open). BatchMode=yes forces a fast non-interactive failure rather than a hang.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
@@ -34,6 +35,19 @@ def prepare_key(key_path: str) -> str:
     shutil.copyfile(key_path, tmp)
     os.chmod(tmp, 0o600)
     return tmp
+
+
+@contextlib.contextmanager
+def luria_key(key_path: str):
+    """Yield a private copy of the key (see ``prepare_key``) and always remove it afterwards."""
+    tmp = prepare_key(key_path)
+    try:
+        yield tmp
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 def ssh_run(luria_env: dict, remote_cmd: str, *, key_path: str, timeout: float | None = None) -> str:

@@ -54,7 +54,7 @@ def _crash_after_a_call(*_a, **_k):
     raise RuntimeError("boom after a paid call")
 
 
-def _start(monkeypatch, tmp_path, crash, **decision_fields):
+def _start(monkeypatch, tmp_path, crash, adapter=None, **decision_fields):
     """Run one routed NS turn whose first step is ``crash``; return the events it sent."""
     fields = dict(router_model="gemini-3.1-pro-preview", router_cost_usd=0.004, router_usage={"calls": []},
                   router_cost_partial=False)
@@ -82,7 +82,7 @@ def _start(monkeypatch, tmp_path, crash, **decision_fields):
         chat_session=SimpleNamespace(extra_state={}, session_id="s-1", results_history=[]),
         query_task=SimpleNamespace(task_id="t-1"),
         send_event=lambda ev, data: progress.append({"event": ev, "data": data}),
-        adapter=_Adapter(), api_user="caller", api_pass="caller-pw",
+        adapter=adapter if adapter is not None else _Adapter(), api_user="caller", api_pass="caller-pw",
         resolved_session_id="s-1",
     )
     return progress
@@ -149,3 +149,23 @@ def test_route_decided_says_nothing_fell_back_when_the_router_answered_first_tim
     (decided,) = [p["data"] for p in progress if p["event"] == "route_decided"]
     assert decided["router_model"] == "gemini-3.1-pro-preview"
     assert decided["router_fallback"] is None
+
+
+def test_a_crash_outside_run_query_is_seen_by_the_next_turn_with_its_type_name_only(monkeypatch, tmp_path):
+    """The exception run_query did not log: the entry _run writes is a crash, not a non-answer."""
+    from chat_nextseek.chat_memory import history_block, recent_turns
+    from NessieAI.cc.cc_turn_context import build_cc_contexts
+
+    def _crash_in_setup(*_a, **_k):
+        raise KeyError("secret detail from setup")
+
+    monkeypatch.setattr(cc_turn, "run_query", _crash_in_setup)
+    adapter = _Adapter()
+    _start(monkeypatch, tmp_path, _crash_after_a_call, adapter=adapter)
+    log = adapter["chat_log"]
+    assert log[-1]["status"] == "error" and log[-1]["error"] == "KeyError"
+    session = {"chat_log": log}
+    assert [t["user_query"] for t in recent_turns(session)] == ["how many mice"]
+    assert "(KeyError)" in history_block(session) and "secret" not in history_block(session)
+    (ctx,) = build_cc_contexts(log)
+    assert "(KeyError)" in ctx.reply and "secret" not in ctx.reply

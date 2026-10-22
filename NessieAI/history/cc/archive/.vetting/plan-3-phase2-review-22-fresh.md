@@ -39,7 +39,7 @@ Verified the plan's reuse/anchor claims against live source under `nextseek_api/
 
 - Success conditions are concrete and re-runnable per task (named pytest commands with `--cov-fail-under=95`, named live assertions). The historically gameable ones are closed:
   - "marked DONE, wiring stubbed" → the two Task 11 Step 4 source guards (verified the target strings will exist in the pasted code) + Task 13 reload.
-  - "Dropbox string moved to a comment" → Task 8 grep-guard scans whole `cc_assistant/` + `services/cc_assistant.py`; also asserts `/srv/dmac/users` present and `/Users/taishajoseph` absent (verified the laptop path is still live at `cc_config.py:15`).
+  - "Dropbox string moved to a comment" → Task 8 grep-guard scans whole `cc_assistant/` + `services/cc_assistant.py`; also asserts `/srv/dmac/users` present and `/Users/<user>` absent (verified the laptop path is still live at `cc_config.py:15`).
   - "overfit extractor to one fixture" → Task 4 Step 9b second fixture (`cc_transcript_multitool.jsonl`) with different tools.
   - "agent prose in markdown counts as live proof" → Task 13 requires committed `live_gate_transcript.txt` whose markers PLAN-7's hard start-gate independently greps; PLAN-7 Step 7 cannot begin without it.
   - Projection passthrough drop → Task 7 `test_projection_passes_cc_traces_through` source guard; substring `cc_traces=entry.get("cc_traces")` is a real substring of the Step 4 paste `cc_traces=entry.get("cc_traces") or None` (verified) — guard stays meaningful.

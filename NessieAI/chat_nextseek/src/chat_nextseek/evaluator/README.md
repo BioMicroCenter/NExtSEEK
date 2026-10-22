@@ -53,9 +53,12 @@ docker run --rm -v <scratch-copy>:/app/NessieAI/chat_nextseek:z -w /app/NessieAI
   -e CATALOG_FILE=/app/NessieAI/chat_nextseek/agent_model_catalog.json \
   -e GCP_API_KEY=... -e NEXTSEEK_BASE_URL=... -e API_USER=... -e API_PASS=... \
   nextseek-nextseek:latest \
-  /app/.venv/bin/python -m chat_nextseek.evaluator \
-      --eval-batch eval-queries.txt --eval-batch-limit 5
+  sh -c '/app/.venv/bin/baml-cli generate --from src/chat_nextseek/evaluator/baml_src --no-version-check &&
+    /app/.venv/bin/python -m chat_nextseek.evaluator --eval-batch eval-queries.txt --eval-batch-limit 5'
 ```
+
+The mount hides the client the image baked, so the command generates it into the
+scratch copy first (at the version locked in `uv.lock`).
 
 The image must be built from a commit that has `nextseek_graph/` at the checkout root: the batch finds the graph
 contract through the image's own checkout (`NessieAI/chat_nextseek/src/chat_nextseek/graph_contract.py`).

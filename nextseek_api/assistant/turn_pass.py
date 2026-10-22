@@ -47,14 +47,14 @@ class TurnPassError(Exception):
     """No pass can be issued (the server has no secret key), or a turn's login is gone (wiped or unreadable)."""
 
 
-def _cipher() -> AESGCM:
+def _cipher(info: bytes = _HKDF_INFO) -> AESGCM:
     try:
         secret = settings.SECRET_KEY
     except ImproperlyConfigured:  # Django raises this for an empty SECRET_KEY
         secret = ""
     if not isinstance(secret, str) or not secret:
         raise TurnPassError("no server secret key is configured")
-    key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=_HKDF_INFO).derive(secret.encode("utf-8"))
+    key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=info).derive(secret.encode("utf-8"))
     return AESGCM(key)
 
 

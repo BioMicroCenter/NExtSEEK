@@ -811,3 +811,10 @@ def test_assay_resolve_names_no_sample(tmp_path, capsys):
     client = StubClient()
     assert runner.main(["assay-resolve", "--project-id", "1", "--title", "RNA-seq"], transport=client) == 0
     assert ("resolve", "RNA-seq", None) in client.calls
+
+
+def test_resolve_additions_refuses_fractional_assay_id():
+    ok = runner._resolve_additions([{"assay_ids": [12.0, 13]}], None, {}, set())
+    assert ok[0]["assay_ids"] == [12, 13]
+    with pytest.raises(runner.GateError, match="assay_resolution"):
+        runner._resolve_additions([{"assay_ids": [12.5]}], None, {}, set())

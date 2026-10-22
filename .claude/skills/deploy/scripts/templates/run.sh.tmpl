@@ -10,6 +10,7 @@ EXP=@@EXP@@
 INSTANCE=@@INSTANCE@@
 IN=@@IN@@
 COMPONENTS="@@COMPONENTS@@"
+RECREATE_NGINX_ON="@@RECREATE_NGINX_ON@@"
 CONTINUE_ON_FAILURE=" @@CONTINUE_ON_FAILURE@@ "
 DO_STATIC=@@DO_STATIC@@ DO_LABS=@@DO_LABS@@ DO_CI=@@DO_CI@@ DO_NESSIE=@@DO_NESSIE@@
 CI_FLAGS="@@CI_FLAGS@@"
@@ -78,10 +79,14 @@ judge(){ # $1 log $2 label: records every red with its class; prints the reds no
     done
     if [ -n "$sum" ] && { [ -n "$bad" ] || [ -z "$why" ]; }; then echo "$sum"; fi; }
 }
+rollback_tag(){ # $1 log: the verified tag, even when the rebuild's output wrapped it onto the next line
+  tr -s ' \n' ' ' < "$1" | grep -m1 -o "rollback tag verified: [^ ]*"
+}
 rebuild(){ # $1 component; returns 1 when its success line is missing
-  ./startup.sh rebuild --component "$1" --no-ci > "$L/$(logname "$1").log" 2>&1 </dev/null
+  extra=""; [ "$1" = "$RECREATE_NGINX_ON" ] && { extra="--recreate-nginx"; say "NGINX_RECREATE with the $1 rebuild (docker/nginx.conf changed, 'nginx recreate ok')"; }
+  ./startup.sh rebuild --component "$1" --no-ci $extra > "$L/$(logname "$1").log" 2>&1 </dev/null
   say "REBUILD $1 exit=$?"
-  t=$(grep -m1 -o "rollback tag verified: [^ ]*" "$L/$(logname "$1").log")
+  t=$(rollback_tag "$L/$(logname "$1").log")
   [ -n "$t" ] && say "ROLLBACK $1 ${t#rollback tag verified: }"
   PENDING=$(echo " $PENDING " | sed "s/ $1 / /; s/^ *//; s/ *\$//")
   grep -qF "$(success_line "$1")" "$L/$(logname "$1").log"
@@ -121,18 +126,19 @@ say "HEAD $(git log --oneline -1 | cut -c1-70)"
 
 post_app(){
   if [ $DO_STATIC = 1 ]; then
-    docker compose exec -T nextseek uv run manage.py collectstatic --noinput > "$L/static.log" 2>&1 </dev/null
+    docker compose exec -T web uv run manage.py collectstatic --noinput > "$L/static.log" 2>&1 </dev/null   # the static volume is web's
     say "STATIC exit=$? $(tail -1 "$L/static.log" | cut -c1-100)"
   fi
-  if [ $DO_LABS = 1 ]; then   # the recreate dropped the copied labs file (dev only)
+  if [ $DO_LABS = 1 ]; then   # dev only; the file lives on the volume web and nextseek share (NEXTSEEK_LABS_FILE), so one write, no restart
     if [ -f /tmp/labs_db.json ]; then
-      docker cp /tmp/labs_db.json nextseek:/app/NessieAI/chat_nextseek/src/chat_nextseek/context/labs_db.json && say "LABS copied"
-      docker compose restart nextseek > /dev/null 2>&1; sleep 60
+      docker compose exec -T nextseek mkdir -p /media/context </dev/null
+      docker compose cp /tmp/labs_db.json nextseek:/media/context/labs_db.json && say "LABS copied"
     else
       say "LABS source missing: /tmp/labs_db.json"
     fi
   fi
   docker compose exec -T nextseek mkdir -p /app/runs </dev/null
+  docker compose exec -T web mkdir -p /app/runs </dev/null
 }
 
 PENDING="$COMPONENTS"
@@ -159,10 +165,15 @@ C=/app/NessieAI/chat_nextseek/src/chat_nextseek/context
   for k in nextseek nextseek-sidecar dmac-bedrock-proxy; do
     echo "CHECK container $k $(docker inspect -f 'status={{.State.Status}} restarts={{.RestartCount}} oom={{.State.OOMKilled}} started={{.State.StartedAt}}' $k 2>&1)"
   done
-  echo "CHECK boot_markers $(docker logs nextseek 2>&1 | grep -cE 'COLLECTSTATIC-FAILED|DB-UNREACHABLE|MIGRATE-FAILED')"
-  echo "CHECK cc_runner $(docker compose exec -T nextseek uv run --no-sync python -c 'from NessieAI.cc import cc_engine; print(cc_engine.cc_runner_available())' </dev/null 2>&1 | tail -1)"
-  echo "CHECK labs_line $(docker logs nextseek 2>&1 | grep -F '[CONFIG][LABS]' | tail -1 | cut -c1-200)"
-  echo "CHECK labs_file $(docker compose exec -T nextseek sh -c "stat -c %y $C/labs_db.json 2>/dev/null || echo missing" </dev/null)"
+  # web and cc-spawner have no fixed name (a swap names the new web nextseek-web-N), so ask compose which container it is
+  for s in web cc-spawner; do
+    echo "CHECK container $s $(docker inspect -f 'status={{.State.Status}} restarts={{.RestartCount}} oom={{.State.OOMKilled}} started={{.State.StartedAt}}' $(docker compose ps -q $s </dev/null | head -1) 2>&1)"
+  done
+  # collectstatic and the DB probe log from web, migrate from the worker (nextseek)
+  echo "CHECK boot_markers $({ docker compose logs --no-log-prefix web </dev/null; docker logs nextseek; } 2>&1 | grep -cE 'COLLECTSTATIC-FAILED|DB-UNREACHABLE|MIGRATE-FAILED')"
+  echo "CHECK cc_runner $(docker compose exec -T web uv run --no-sync python -c 'from NessieAI.cc import cc_engine; print(cc_engine.cc_runner_available())' </dev/null 2>&1 | tail -1)"
+  echo "CHECK labs_line $(docker compose logs --no-log-prefix web </dev/null 2>&1 | grep -F '[CONFIG][LABS]' | tail -1 | cut -c1-200)"
+  echo "CHECK labs_file $(docker compose exec -T nextseek sh -c "stat -c %y /media/context/labs_db.json 2>/dev/null || echo missing" </dev/null)"
   echo "CHECK refresh_marker $(docker compose exec -T nextseek sh -c "stat -c %y $C/.context_db_refresh 2>/dev/null || echo missing" </dev/null)"
   # The op tools take the sidecar only when NEXTSEEK_CC_OPS_ROAD says sidecar (approach 1, piece 2); a build
   # without the switch (no NessieAI/cc/ops_road.py) always used it.
@@ -176,7 +187,7 @@ C=/app/NessieAI/chat_nextseek/src/chat_nextseek/context
   else
     echo "CHECK sidecar_ops skipped"
   fi
-  for i in nextseek-nextseek:latest dmac-assistant:poc nextseek-ns-sidecar:latest nextseek-bedrock-proxy:latest; do
+  for i in nextseek-nextseek:latest dmac-assistant:poc nextseek-ns-sidecar:latest nextseek-bedrock-proxy:latest nextseek-cc-spawner:latest; do
     echo "IMAGE $i $(docker image inspect -f '{{.Created}}' $i 2>&1)"
   done
   case " $COMPONENTS " in *" cc-agent "*)

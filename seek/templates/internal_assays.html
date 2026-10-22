@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load json_script_safe %}
 {% block main %}
 
 <script type="text/javascript" src="{{STATIC_URL}}js/easyui/datagrid-filter.js"></script>
@@ -9,8 +10,8 @@
 
 <script type="text/javascript">
 
-  var internal_assays = {{ internal_assays | safe }}
-  var assay_associations = {{ assay_associations | safe }}
+  var internal_assays = {{ internal_assays|json_script_safe }}
+  var assay_associations = {{ assay_associations|json_script_safe }}
 
   $(document).ready(function(){
     window.dg_internal_assays = $('#dg_internal_assays').datagrid();

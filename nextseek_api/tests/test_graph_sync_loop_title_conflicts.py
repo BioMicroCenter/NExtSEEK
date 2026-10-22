@@ -65,8 +65,8 @@ def simulate(monkeypatch, tmp_path, *, waiting: int, riders: int, cost_s: float,
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("waiting, riders, cost_s, hours", [
-    (1000, 0, 5.5, 2),      # 5,500 s of syncs if each waiting row drained alone: over the 30-minute back-off
-    (1000, 0, 1.0, 2),      # 1,000 s: under it
+    (1000, 0, 5.5, 1),      # 5,500 s of syncs if each waiting row drained alone: over the 30-minute back-off
+    (1000, 0, 1.0, 1),      # 1,000 s: under it (one simulated hour spans two back-offs; the 1,000-row cases cost 11 s each on a runner at two)
     (300, 0, 5.5, 2),       # 1,650 s: just under it
     (1, 999, 5.5, 2),       # one waiting row among 999 healthy ones claimed with it
 ])

@@ -169,8 +169,8 @@ tools read by path:
   that registry, taking the install oracle and the plugin-identity loader.
 - `NessieAI.tests.nessie_tests` is imported at module scope by the route-capabilities
   generator for its corpus loader, exporter and fingerprint
-  (`NessieAI/build_tools/gen_op_surfaces/route_capabilities.py:29-31`): one of the three
-  frozen engine-to-harness edges (`NessieAI/CLAUDE.md` "Boundary"). The corpus file itself
+  (`NessieAI/build_tools/gen_op_surfaces/route_capabilities.py:29-31`): now read from
+  `NessieAI/nessie_harness/` (`NessieAI/CLAUDE.md` "Boundary"). The corpus file itself
   is resolved through `NessieAI/paths.py`
   (`NessieAI/build_tools/gen_op_surfaces/route_capabilities.py:39`).
 - `dmac_assistant.router.capabilities` is imported lazily inside a function, so the

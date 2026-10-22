@@ -7,7 +7,7 @@
   (`ci/routes.py:20-25`), and the module docstring says why
   (`ci/routes.py:1-19`). Add a third-party import and the smoke lane stops
   collecting: it runs under `uv run --no-project` with pytest, requests and
-  playwright and nothing else (`.github/workflows/ci-smoke.yml:112-114`). The
+  playwright and nothing else (`.github/workflows/ci-smoke.yml:129-131`). The
   gate lane will not warn you, because it runs in the application's own
   environment, whose dependency list includes requests (`pyproject.toml:92`).
 - Django is imported inside `_walk()` and `_owned_leaves()`, never at module
@@ -78,13 +78,10 @@
   '/src/schema_rag/duckdb'`. Pre-creating them is what makes the read-only mount
   work at all, because `os.makedirs(..., exist_ok=True)` swallows the read-only
   failure once the directory it wanted is already there.
-- `ci/pytest-baseline.txt` was regenerated for the NessieAI move in the gate lane
-  (the application image, the tree mounted read-only, `--network none`), not on a
-  CI runner, and its header says so (`ci/pytest-baseline.txt:22-30`). That lane
-  cannot generate the BAML client, so the first GitHub run after the move, which
-  does generate it, reports the entries the missing client broke as fixed and the
-  tests that lane could not collect, but that fail anyway, as new. Regenerate the
-  file from that run's output with `ci/diff_baseline.py <run output> --emit-baseline`
+- `ci/pytest-baseline.txt` was regenerated on a GitHub runner on 2026-10-20 (its
+  header says so, `ci/pytest-baseline.txt:22-30`), after a gate-lane baseline from the
+  NessieAI move had drifted until the job summary listed old failures as new. Regenerate the
+  file from a runner's output with `ci/diff_baseline.py <run output> --emit-baseline`
   (`ci/diff_baseline.py:77-80`), never by editing entries by hand.
 - The baseline is valid for one exact command and one tree state, and says so
   (`ci/pytest-baseline.txt:3-5`). Diff a run of any other lane set against it and
@@ -181,6 +178,7 @@ docker run --rm -i -e DJANGO_SETTINGS_MODULE=dmac.test_settings \
   NessieAI/tests/cc NessieAI/tests/router NessieAI/tests/hibayes \
   NessieAI/tests/ns NessieAI/tests/api NessieAI/tests/schema_rag \
   NessieAI/tests/chat_nextseek NessieAI/tests/build_tools \
+  docker/cc-spawner/tests \
   --continue-on-collection-errors -q -p no:cacheprovider
 ```
 

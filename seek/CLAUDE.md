@@ -16,9 +16,9 @@
   move data between schemas.
 - **A model whose DDL is applied out of band must stay `managed = False`.**
   `seek/models/nextseek.py:151-158` gives the reason in full: because
-  `allow_migrate` returns `None` for this app label (`seek/dbrouters.py:14-16`),
+  `allow_migrate` returns `None` for this app label (`seek/dbrouters.py`; it returns False only for the SEEK alias),
   a managed model would let the next unrelated `makemigrations` create the table
-  on both aliases.
+  on the default alias (the seek alias is not migrated unless `SEEK_ALIAS_MIGRATABLE` is on).
 - **Every column identifier reaching the search SQL builder is allowlisted.**
   `seek/search.py:16-35` is the set and `seek/search.py:39-47` raises on a miss,
   deliberately rather than dropping the clause — a silently dropped filter emits
@@ -49,21 +49,13 @@
   intercepts.** They build the connection from `settings.DATABASES` by hand —
   `seek/sample/core.py:33-36` and `seek/sample/core.py:229-230` are two sites in
   the first, then `seek/views/admin.py:89-90`, `seek/views/upload.py:153-154`
-  and `seek/timeline/core/database.py:7-16`. Django fills the sqlite alias's missing keys with
+  and `seek/timeline/core/database.py:11-26`. Django fills the sqlite alias's missing keys with
   empty strings, so under `dmac.test_settings` the call does not fail on a
   KeyError — measured 2026-09-03 in the throwaway container, it raises
   `OperationalError (2002, "Can't connect to local server through socket
   '/run/mysqld/mysqld.sock'")`. On any machine where MySQL is listening on the
   default socket, a suite everyone believes is hermetic reads and writes a real
   database.
-- **`seek/timeline/` takes its database NAME from an environment variable that
-  nothing sets.** `seek/timeline/core/database.py:19-21` overwrites the pool's
-  database with `os.getenv(database_name)`, defaulting to `DB_NAME`, and
-  `seek/timeline/services/nhp_service.py:34` asks for `DB_NAME1`. Neither is ever
-  set: searching the whole worktree for `DB_NAME` or `DB_NAME1` followed by `=`
-  or `:`, excluding `.git/`, `.superpowers/`, `startup/.venv/` and the unrelated
-  `SESSION_DB_NAME`, returns zero lines. The pool therefore connects with no
-  schema selected, and only the fully-qualified queries can work.
 - **Importing `seek.urls` reconfigures the root logger for the whole process.**
   `seek/timeline/services/timeline_service.py:15` calls `logging.basicConfig` at
   module scope, and it is pulled in by `seek/views/timeline.py:6`, which
@@ -93,8 +85,8 @@
   one line. A caller that names the column instead of the field gets a
   `FieldError`, and a caller that swallows it renders an empty page rather than
   an error.
-- **34 tests fail and one module cannot be collected**, against two entries in
-  `ci/pytest-baseline.txt:307-308`, one of which names
+- **34 tests fail and one module cannot be collected**, measured against a baseline that
+  then held two entries for this package, one of which named
   `seek/timeline/services/nhp_cache_test.py` — a file that no longer exists
   (`find seek -name 'nhp_cache_test.py'` returns nothing; it was renamed at
   `seek/timeline/services/nhp_cache_cli.py:2-4`). Five causes, all from the two
@@ -120,12 +112,9 @@
   44 files across the tree still spell it, measured 2026-09-03 by
   `grep -rl 'seek/views\.py'` excluding `.superpowers/`, `.git/` and this
   directory's own two documents; some of those are deliberate history.
-- **Credentials go into a shell command line, and TLS verification is off.**
-  `SeekAPI.__curlPrefix` puts the SEEK username and password into a `curl`
-  string that `SeekAPI.__queryRaw` runs with `shell=True`; `-k` there and
-  `verify=False` in `SeekAPI.getPageRequests` disable certificate checks. The
-  password is visible in the process table. It is one `shlex.quote`d word: before
-  that, a quote in a password ended the word and the rest ran as a command.
+- **TLS verification is off for SEEK reads.** `SeekAPI.runGetQuery` and `SeekAPI.getPageRequests` call
+  `requests.get(..., verify=False)`. `SEEK_URL` is plain http inside the compose network, so it changes nothing there.
+  Reads send credentials as a header over HTTP.
 - **`seek/tests/test_dbtables.py:46` cites `/workspace/deslopify/LATENT_BUGS.md`**,
   an absolute path outside this repository. `seek/views/shared.py:6` and
   `seek/models/nextseek.py:32` cite the same document by numbered entry. Nothing

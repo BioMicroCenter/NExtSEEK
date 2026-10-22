@@ -299,6 +299,9 @@ TAUGHT: list[Case] = [
          "MATCH (s:T_MUS)\n"
          "RETURN s.uuid AS uuid, COUNT { (s)<-[:DERIVED_FROM]-(:Sample) } AS children ORDER BY uuid",
          {}, ("s: sample clause", "__scope_n1: sample clause")),
+    Case("default.total_beside_groups",
+         "MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE s.type IN $types WITH count(DISTINCT s) AS total MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE s.type IN $types RETURN p.title AS project, count(DISTINCT s) AS n, total ORDER BY n DESC",
+         {"types": ["slides"]}, ("s: sample clause", "p: project clause") * 2),
 ]
 
 # Accepted shapes the prompts do not teach, which pin a rule of the spec.

@@ -52,15 +52,19 @@ loop), SEEK with its workers and Solr, MySQL, Neo4j, nginx, a message broker, an
 
 Found by the code graph; each is a real import, not a graph artefact.
 
-- Product code imports the test tree. Four product modules import from `NessieAI/tests/nessie_tests/`: the
-  `nessie` management command (`nextseek_api/management/commands/nessie.py`),
-  `NessieAI/hibayes/human_grade_fit.py`, `NessieAI/cc/op_registry/paired_evidence.py` and
-  `NessieAI/build_tools/gen_op_surfaces/route_capabilities.py`. The live router also reads that folder's
-  `corpus.json` through `NessieAI/paths.py` (a path read, not an import). That is why the app image must
-  carry `NessieAI/tests/`.
+- Product code imports the test tree in one place: the `nessie` management command
+  (`nextseek_api/management/commands/nessie.py`, the harness CLI), a named exemption in the import contract. The
+  code the engine shares with the harness (corpus, export, manifests) lives in `NessieAI/nessie_harness/`. The live
+  router also reads `NessieAI/tests/nessie_tests/corpus.json` through `NessieAI/paths.py` (a path read, not an
+  import). That is why the app image must carry `NessieAI/tests/` and `NessieAI/nessie_harness/`.
 - The NS engine package imports the Django app: `NessieAI/chat_nextseek/src/chat_nextseek/orchestrator.py`
   imports `nextseek_api.assistant.excel_export`, so `chat_nextseek` is not the standalone package its
   `pyproject.toml` suggests.
+- The engine packages `NessieAI.ns`, `.router`, `.cc`, `.schema_rag` and `.hibayes` import `nextseek_api` in 24
+  places (mostly `nextseek_api.assistant.models_db`, the ORM tables the engine reads and writes; also
+  `turn_pass`, `session_adapter`, `models_evaluator`, `batch_upload.helpers` and `models`). They are the
+  `ignore_imports` of the contract "NessieAI engine does not import nextseek_api", which mirrors
+  `BACK_EDGE_ALLOWLIST` in `NessieAI/tests/api/test_nessie_boundaries.py`; no new edge gets in.
 - The Container-CC engine reaches the legacy table layer directly: `NessieAI/cc/cc_provision.py` imports
   `seek.seekdb.SeekDB` instead of going through `nextseek_api/`.
 

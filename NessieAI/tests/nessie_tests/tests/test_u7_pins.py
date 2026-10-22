@@ -46,6 +46,13 @@ def test_pbmc_rejects_all_types_total_and_unnamed_type():
     assert not _passes(PBMC, "390 matches.")
 
 
+def test_pbmc_accepts_an_all_types_headline_that_names_the_tissue_figure():
+    """Operator 2026-10-14 on dev task 2090 ("this looks fine tbh"): leading with the all-types text-match total is
+    fine when the reply names the tissue figure too. A total with no tissue figure still fails (above)."""
+    assert _passes(PBMC, "3,682 records mention PBMC across all sample types, and I could not restrict this to "
+                         "tissue samples. The 1,826 tissue (TIS) samples are the closest figure.")
+
+
 def test_flow_accepts_either_count_when_it_says_which():
     assert _passes(FLOW, "8,372 samples have flow cytometry or CyTOF data.")
     assert _passes(FLOW, "I found 10,872 flow and CyTOF data records in the project.")

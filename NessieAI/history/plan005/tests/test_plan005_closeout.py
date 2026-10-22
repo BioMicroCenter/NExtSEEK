@@ -100,7 +100,7 @@ def test_pytest_lanes_mount_evidence_and_django_env():
         assert "{writable}:/evidence" in argv
         assert junit in argv
         assert "PYTHONPATH=/repo:/repo/dmac_assistant/src:/repo/chat_nextseek/src" in argv
-        assert "/home/taishajo/work/NExtSEEK/.git:/home/taishajo/work/NExtSEEK/.git:ro" in argv
+        assert "/home/<user>/work/NExtSEEK/.git:/home/<user>/work/NExtSEEK/.git:ro" in argv
     for record_id in ("05-future-op", "06-audit-a", "07-assistant-route"):
         assert "DJANGO_SETTINGS_MODULE=dmac.test_settings" in rows[record_id]
     assert "DJANGO_SETTINGS_MODULE=dmac.test_settings" not in rows["08-build-tools"]
@@ -289,17 +289,17 @@ def test_handoff_user_annotation_is_available_for_signoff_authentication(tmp_pat
 def test_control_mounts_require_worktree_git_mirror_and_ro_aggregate():
     from build_tools.plan005_closeout_control import CloseoutError, assert_control_stage_mounts
 
-    repo = "/home/taishajo/work/NExtSEEK-plan005"
+    repo = "/home/<user>/work/NExtSEEK-plan005"
     argv = [
         "docker", "run", "--rm", "--network", "none",
         "-e", "GIT_CONFIG_COUNT=1",
         "-e", "GIT_CONFIG_KEY_0=safe.directory",
         "-e", f"GIT_CONFIG_VALUE_0={repo}",
         "-v", f"{repo}:{repo}:ro",
-        "-v", "/home/taishajo/work/NExtSEEK/.git:/home/taishajo/work/NExtSEEK/.git:ro",
-        "-v", "/home/taishajo/work/NExtSEEK-dev:/home/taishajo/work/NExtSEEK-dev:ro",
+        "-v", "/home/<user>/work/NExtSEEK/.git:/home/<user>/work/NExtSEEK/.git:ro",
+        "-v", "/home/<user>/work/NExtSEEK-dev:/home/<user>/work/NExtSEEK-dev:ro",
         "-v", "/tmp/head:/all-evidence:ro",
-        "-v", "/home/taishajo/work/state/plan005/execution:/home/taishajo/work/state/plan005/execution:ro",
+        "-v", "/home/<user>/work/state/plan005/execution:/home/<user>/work/state/plan005/execution:ro",
         "-v", "/tmp/vet:/vet-reports:ro",
         "-v", "/tmp/session.jsonl:/signoff-transcript/session.jsonl:ro",
         "-v", "/tmp/head/control/preflight:/control-output",
@@ -318,7 +318,7 @@ def test_protocol_binding_rejects_omit_duplicate_rename_reorder_and_alt_producer
 
     evidence = tmp_path / "abc123"
     evidence.mkdir()
-    repo = "/home/taishajo/work/NExtSEEK-plan005"
+    repo = "/home/<user>/work/NExtSEEK-plan005"
     records = _synthetic_records(evidence, repo, "abc123", "tree1")
     validate_protocol_binding(records, repo=repo, evidence_root=evidence, candidate="abc123")
 
@@ -381,13 +381,13 @@ def test_write_restore_and_reuse_and_nonempty_output(tmp_path):
 
     evidence = tmp_path / "abc123"
     evidence.mkdir()
-    records = _synthetic_records(evidence, "/home/taishajo/work/NExtSEEK-plan005", "abc123", "t")
+    records = _synthetic_records(evidence, "/home/<user>/work/NExtSEEK-plan005", "abc123", "t")
     restored = deepcopy(records)
     restored[3]["evidence_root_after"] = {}
     with pytest.raises(CloseoutError, match="write\\+restore|undeclared|removed"):
         validate_protocol_binding(
             restored,
-            repo="/home/taishajo/work/NExtSEEK-plan005",
+            repo="/home/<user>/work/NExtSEEK-plan005",
             evidence_root=evidence,
             candidate="abc123",
         )
@@ -396,7 +396,7 @@ def test_write_restore_and_reuse_and_nonempty_output(tmp_path):
     with pytest.raises(CloseoutError, match="mutated"):
         validate_protocol_binding(
             mutated,
-            repo="/home/taishajo/work/NExtSEEK-plan005",
+            repo="/home/<user>/work/NExtSEEK-plan005",
             evidence_root=evidence,
             candidate="abc123",
         )
@@ -487,14 +487,14 @@ def test_signoff_and_plan_copy_and_head_swap_mutations(tmp_path):
     evidence_b = tmp_path / ("b" * 40)
     evidence_a.mkdir()
     evidence_b.mkdir()
-    rec_a = _synthetic_records(evidence_a, "/home/taishajo/work/NExtSEEK-plan005", "a" * 40, "ta")
-    rec_b = _synthetic_records(evidence_b, "/home/taishajo/work/NExtSEEK-plan005", "b" * 40, "tb")
+    rec_a = _synthetic_records(evidence_a, "/home/<user>/work/NExtSEEK-plan005", "a" * 40, "ta")
+    rec_b = _synthetic_records(evidence_b, "/home/<user>/work/NExtSEEK-plan005", "b" * 40, "tb")
     swapped = deepcopy(rec_a)
     swapped[0]["pre"]["head"] = "b" * 40
     with pytest.raises(CloseoutError, match="argv|HEAD"):
         validate_protocol_binding(
             swapped,
-            repo="/home/taishajo/work/NExtSEEK-plan005",
+            repo="/home/<user>/work/NExtSEEK-plan005",
             evidence_root=evidence_a,
             candidate="a" * 40,
         )
@@ -609,7 +609,7 @@ def test_named_closeout_mutants_plan_baml_stale_signoff_and_producer(tmp_path):
     evidence = tmp_path / "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
     evidence.mkdir()
     recs = _synthetic_records(
-        evidence, "/home/taishajo/work/NExtSEEK-plan005", evidence.name, "tree"
+        evidence, "/home/<user>/work/NExtSEEK-plan005", evidence.name, "tree"
     )
     with pytest.raises(CloseoutError, match="missing"):
         validate_producer_consumer(recs, evidence, evidence / "base")

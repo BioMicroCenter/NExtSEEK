@@ -241,7 +241,7 @@ def test_reset_carries_seek_public_url_into_the_reinstall(monkeypatch) -> None:
     monkeypatch.setattr("startup.lib.docker_ops.compose_down", lambda **kw: None)
     monkeypatch.setattr(cli, "install", lambda **kw: captured.update(kw))
 
-    cli.reset(instance=None, keep_config=True, yes=True)
+    cli.reset(instance=None, keep_config=True, yes=True, drop_data=False)
 
     assert captured.get("seek_public_url") == "https://fairdata-dev.mit.edu", (
         "reset must carry the instance's SEEK public URL into the re-install"
@@ -322,7 +322,7 @@ def test_reset_reinstall_requests_seeding(monkeypatch) -> None:
         lambda root, env: calls.append("filestore_gate") or True,
     )
 
-    cli.reset(instance=None, keep_config=True, yes=True)
+    cli.reset(instance=None, keep_config=True, yes=True, drop_data=False)
 
     assert "db_seed_gate:dmac" in calls, "reset's reinstall skipped the DB seed phase"
     assert "db_seed_gate:seek_production" in calls
@@ -340,7 +340,7 @@ def test_reset_passes_no_seed_literal_false(monkeypatch) -> None:
     monkeypatch.setattr("startup.lib.docker_ops.compose_down", lambda **kw: None)
     monkeypatch.setattr(cli, "install", lambda **kw: captured.update(kw))
 
-    cli.reset(instance=None, keep_config=True, yes=True)
+    cli.reset(instance=None, keep_config=True, yes=True, drop_data=False)
 
     assert "no_seed" in captured, "reset must pass no_seed to install explicitly"
     assert captured["no_seed"] is False, (

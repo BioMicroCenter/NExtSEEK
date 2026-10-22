@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 import os
 import time
 import uuid as uuid_mod
@@ -15,7 +16,7 @@ from .config import BatchUploadConfig, Neo4jConfig
 from .convert import merge_files
 from .dag import build_relationships, compute_directions, detect_cycles
 from .db_engine import get_connection
-from .errors import AttributeNameError, ErrorCollector, ErrorType, _classify_validation_error
+from .errors import AttributeNameError, ErrorCollector, ErrorType, Severity, _classify_validation_error
 from .insert import load_existing_samples, process_batches
 from .identity import extract_identity
 from .levels import LevelAssignment, cascade_failures, compute_levels
@@ -26,7 +27,7 @@ from .models import (
     InsertableSample,
     RowOutcome,
 )
-from .parallel import PARALLEL_THRESHOLD, process_batches_parallel
+from .parallel import process_batches_parallel
 from .prefetch import (
     prefetch_assay_ids,
     prefetch_project_sample_type_links,
@@ -55,8 +56,6 @@ def run_batch_upload(
     contributor_id: int,
     lababbv: str = "NA",
     config: Optional[BatchUploadConfig] = None,
-    checkpoint_dir: str = "",
-    resume_uid: Optional[str] = None,
     should_stop: Optional[Callable[[], bool]] = None,
     output_dir: Optional[str] = None,
     neo4j_only: bool = False,
@@ -68,18 +67,34 @@ def run_batch_upload(
         contributor_id=contributor_id,
         lababbv=lababbv,
         config=config,
-        checkpoint_dir=checkpoint_dir,
-        resume_uid=resume_uid,
         should_stop=should_stop,
         output_dir=output_dir,
         neo4j_only=neo4j_only,
     )
 
 
+def _attribute_message(bad_key: str, exc: AttributeNameError, row: InputRowModel) -> str:
+    """Why a metadata key is not allowed; a missing Parent attribute names the parent column the row used."""
+    if bad_key == "Parent":
+        try:
+            meta = json.loads(row.json_metadata or "{}")
+        except ValueError:
+            meta = {}
+        other = next((k for k in meta if k != "Parent" and "parent" in k.lower()), None)
+        if other:
+            return (
+                f"SampleType {exc.sample_type} has no Parent attribute, so the parent named in "
+                f"{other} cannot be linked. Add a Parent attribute to the sample type, "
+                f"or remove the parent column."
+            )
+    return f"{bad_key!r} is not a defined attribute for SampleType {exc.sample_type!r}"
+
+
 def _build_neo4j_only_outcomes(
     insertable_samples: List[InsertableSample],
     error_collector: ErrorCollector,
     job_id: str = "",
+    transform_failed: Optional[Dict[str, str]] = None,
 ) -> BatchResult:
     """Build synthetic outcomes for neo4j-only mode via batch DB lookup.
 
@@ -114,6 +129,10 @@ def _build_neo4j_only_outcomes(
         for uid in missing_uids
     })
 
+    # Rows TRANSFORM rejected are failed rows too, so totals add up in this mode
+    for uid, reason in (transform_failed or {}).items():
+        all_outcomes.setdefault(uid, RowOutcome(status="failed", reason=reason))
+
     if missing_uids:
         log.warning("INSERT (neo4j_only): %d UIDs not found in DB", len(missing_uids))
         for uid in missing_uids:
@@ -122,6 +141,7 @@ def _build_neo4j_only_outcomes(
                 uid=uid,
                 error_type=ErrorType.VALIDATION_JSON,
                 message="uid_not_found_in_db",
+                severity=Severity.ERROR,
             )
 
     log.info(
@@ -177,6 +197,10 @@ class PreInsertResult:
     generated_uids: Set[str] = field(default_factory=set)
     uid_gen_report: Dict = field(default_factory=lambda: {"uids_generated": 0})
     transform_errors: int = 0
+    # uid -> first error message, for every row TRANSFORM rejected
+    transform_failed: Dict[str, str] = field(default_factory=dict)
+    # flat-file rows CONVERT dropped (no UID, so they cannot be outcomes)
+    convert_failed: int = 0
 
 
 def _run_pre_insert_stages(
@@ -257,6 +281,14 @@ def _run_pre_insert_stages(
                     )
                 return _abort("error", msg)
             valid_rows = converted.rows
+            for r_idx, msgs in converted.row_errors:
+                error_collector.add(
+                    row_index=r_idx,
+                    uid=None,
+                    error_type=ErrorType.VALIDATION_JSON,
+                    message=f"Row {r_idx} dropped: " + "; ".join(msgs),
+                )
+            res.convert_failed = len(converted.row_errors)
             if converted.warnings:
                 warnings["convert_warnings"] = converted.warnings
         except Exception as exc:
@@ -378,6 +410,7 @@ def _run_pre_insert_stages(
                         uid=None,
                         error_type=ErrorType.VALIDATION_JSON,
                         message="neo4j_only mode requires pre-assigned UID",
+                        severity=Severity.ERROR,
                     )
             log.warning(
                 "UID_GEN (neo4j_only): %d rows lack UIDs, removed",
@@ -395,6 +428,7 @@ def _run_pre_insert_stages(
                     lababbv=lababbv,
                     conn=conn,
                     error_collector=error_collector,
+                    reserve=mutate_project_links,
                 )
             res.uid_gen_failed_outcomes = {
                 failed["uid"]: RowOutcome(status="failed", reason=failed["reason"])
@@ -500,6 +534,7 @@ def _run_pre_insert_stages(
     log.info("Stage 4/7: TRANSFORM")
     insertable_samples: List[InsertableSample] = []
     transform_errors = 0
+    transform_failed: Dict[str, str] = {}
 
     with get_connection() as conn:
         for row in valid_rows:
@@ -525,18 +560,22 @@ def _run_pre_insert_stages(
                         )
             except AttributeNameError as exc:
                 transform_errors += 1
+                msgs = {k: _attribute_message(k, exc, row) for k in exc.bad_keys}
+                if row.UID:
+                    transform_failed[row.UID] = (
+                        msgs[exc.bad_keys[0]] if exc.bad_keys else str(exc)
+                    )
                 for bad_key in exc.bad_keys:
                     error_collector.add(
                         row_index=row_idx,
                         uid=row.UID,
                         error_type=ErrorType.VALIDATION_ATTRIBUTE_NAME,
-                        message=(
-                            f"{bad_key!r} is not a defined attribute for "
-                            f"SampleType {exc.sample_type!r}"
-                        ),
+                        message=msgs[bad_key],
                     )
             except Exception as exc:
                 transform_errors += 1
+                if row.UID:
+                    transform_failed[row.UID] = f"TRANSFORM failed: {exc}"
                 error_collector.add(
                     row_index=row_idx,
                     uid=row.UID,
@@ -559,6 +598,7 @@ def _run_pre_insert_stages(
     res.insertable_samples = insertable_samples
     res.name_matched_outcomes = name_matched_outcomes
     res.transform_errors = transform_errors
+    res.transform_failed = transform_failed
     return res
 
 
@@ -680,8 +720,6 @@ def run_batch_upload_multi(
     contributor_id: int,
     lababbv: str = "NA",
     config: Optional[BatchUploadConfig] = None,
-    checkpoint_dir: str = "",
-    resume_uid: Optional[str] = None,
     should_stop: Optional[Callable[[], bool]] = None,
     output_dir: Optional[str] = None,
     rows: Optional[List[dict]] = None,
@@ -757,6 +795,7 @@ def run_batch_upload_multi(
             insertable_samples=insertable_samples,
             error_collector=error_collector,
             job_id=job_id,
+            transform_failed=pre.transform_failed,
         )
     else:
         if should_stop and should_stop():
@@ -774,6 +813,12 @@ def run_batch_upload_multi(
 
         all_outcomes: Dict[str, RowOutcome] = {}
         failed_uids: Set[str] = set()
+        # Rows TRANSFORM rejected: failed, and their children fail with them
+        for uid, reason in pre.transform_failed.items():
+            all_outcomes[uid] = RowOutcome(status="failed", reason=reason)
+            # a row already in the DB is not written, but its children's parent reference resolves
+            if uid not in level_assignment.preexisting_uids:
+                failed_uids.add(uid)
         total_inserted = 0
         total_project_links = 0
         total_assay_links = 0
@@ -822,10 +867,8 @@ def run_batch_upload_multi(
 
             # Decide parallel vs sequential PER LEVEL
             use_parallel = (
-                len(level_samples) >= PARALLEL_THRESHOLD
-                and resume_uid is None
+                len(level_samples) >= config.parallel_threshold
             )
-            checkpoint_name_level = f"batch_checkpoint_L{level_num}.txt"
 
             if use_parallel:
                 log.info(
@@ -858,9 +901,6 @@ def run_batch_upload_multi(
                     direction_computation=direction_computation,
                     error_collector=error_collector,
                     reporter=reporter,
-                    checkpoint_dir=checkpoint_dir,
-                    checkpoint_name=checkpoint_name_level,
-                    resume_uid=resume_uid if level_num == 0 else None,
                     should_stop=should_stop,
                     existing_samples=cumulative_existing,
                     update_existing=config.update_existing,
@@ -892,49 +932,40 @@ def run_batch_upload_multi(
                 len(cascaded),
             )
 
-        # Final pass: cycle UIDs (after all normal levels)
-        if level_assignment.cycle_uids and not any_stopped_early:
-            cycle_samples: List[InsertableSample] = []
-            for uid in sorted(level_assignment.cycle_uids):
-                if uid in failed_uids:
-                    continue
-                # Check if all parents are now resolved
-                uid_parents = parents_of.get(uid, set())
-                all_resolved = all(
-                    p in cumulative_existing for p in uid_parents
-                )
-                if all_resolved and uid in uid_to_insertable:
-                    cycle_samples.append(uid_to_insertable[uid])
-                else:
-                    all_outcomes[uid] = RowOutcome(
-                        status="failed",
-                        reason="cycle: parent(s) could not be resolved",
-                        topo_level=-1,
+        # Final pass: cycle members and everything below them. Fixpoint: each round inserts the
+        # pending UIDs whose parents are all resolved; it stops when a round inserts nothing
+        # (pending shrinks every round, so it terminates).
+        pending = (level_assignment.cycle_uids | level_assignment.cycle_descendants) - failed_uids - set(pre.transform_failed)
+        batch_uids = {r.UID for r in valid_rows if r.UID is not None}
+        if pending and not any_stopped_early:
+            round_no = 0
+            while pending:
+                ready = [
+                    uid_to_insertable[uid] for uid in sorted(pending)
+                    if uid in uid_to_insertable
+                    # a parent in neither the batch nor the DB is an orphan reference: ignored, as in levels
+                    and all(
+                        p in cumulative_existing
+                        for p in parents_of.get(uid, set())
+                        if p in batch_uids or p in level_assignment.external_parents
                     )
-                    failed_uids.add(uid)
-                    error_collector.add(
-                        row_index=-1,
-                        uid=uid,
-                        error_type=ErrorType.CYCLE_UNRESOLVABLE,
-                        message="cycle: parent(s) could not be resolved",
-                    )
-
-            if cycle_samples:
-                log.info("INSERT cycle pass: %d samples", len(cycle_samples))
+                ]
+                if not ready:
+                    break
+                tag = "cycle" if round_no == 0 else f"cycle{round_no}"
+                log.info("INSERT cycle pass round %d: %d samples", round_no, len(ready))
                 cycle_result = process_batches(
-                    insertable_samples=cycle_samples,
+                    insertable_samples=ready,
                     project_id=project_id,
                     contributor_id=contributor_id,
                     config=config,
                     direction_computation=direction_computation,
                     error_collector=error_collector,
                     reporter=reporter,
-                    checkpoint_dir=checkpoint_dir,
-                    checkpoint_name="batch_checkpoint_cycle.txt",
                     should_stop=should_stop,
                     existing_samples=cumulative_existing,
                     update_existing=config.update_existing,
-                    batch_key_prefix=outbox_key(job_id, "cycle"),
+                    batch_key_prefix=outbox_key(job_id, tag),
                 )
                 for uid, outcome in cycle_result.outcomes.items():
                     outcome.topo_level = -1
@@ -948,6 +979,43 @@ def run_batch_upload_multi(
                 total_assay_links += cycle_result.linked_assays_count
                 total_permissions += cycle_result.permissions_inserted_count
                 total_attempted.update(cycle_result.attempted_uids)
+                pending -= {s.uuid for s in ready}
+                round_no += 1
+                if cycle_result.stopped_early:
+                    any_stopped_early = True
+                    break
+
+            # What is left could not be resolved: cycle members fail as cycle members,
+            # everything below them fails because a parent did not get in.
+            # a cancel leaves the rest unattempted, not failed
+            if any_stopped_early:
+                pending = set()
+            stuck_members = sorted(pending & level_assignment.cycle_uids)
+            for uid in stuck_members:
+                all_outcomes[uid] = RowOutcome(
+                    status="failed",
+                    reason="cycle: parent(s) could not be resolved",
+                    topo_level=-1,
+                )
+                failed_uids.add(uid)
+                error_collector.add(
+                    row_index=-1,
+                    uid=uid,
+                    error_type=ErrorType.CYCLE_UNRESOLVABLE,
+                    message="cycle: parent(s) could not be resolved",
+                )
+            stuck_below = pending - level_assignment.cycle_uids
+            cascaded_below = cascade_failures(failed_uids, children_of, stuck_below)
+            for uid in sorted(stuck_below):
+                reason = cascaded_below.get(uid, "parent(s) could not be resolved")
+                all_outcomes[uid] = RowOutcome(status="failed", reason=reason, topo_level=-1)
+                failed_uids.add(uid)
+                error_collector.add(
+                    row_index=-1,
+                    uid=uid,
+                    error_type=ErrorType.PARENT_FAILED,
+                    message=reason,
+                )
 
         # Merge name-matched outcomes (skipped duplicates from NAME_CHECK stage)
         all_outcomes.update(name_matched_outcomes)
@@ -1004,6 +1072,7 @@ def run_batch_upload_multi(
     success_count = sum(1 for o in batch_result.outcomes.values() if o.status == "success")
     skipped_count = sum(1 for o in batch_result.outcomes.values() if o.status == "skipped")
     failed_count = sum(1 for o in batch_result.outcomes.values() if o.status == "failed")
+    failed_count += pre.convert_failed  # dropped flat-file rows have no UID, so no outcome
     totals = {
         "processed": success_count + skipped_count + failed_count,
         "success": success_count,
@@ -1032,7 +1101,7 @@ def run_batch_upload_multi(
         "totals": totals,
         "warnings": warnings,
         "errors": [
-            {"type": e.error_type.value, "message": e.message}
+            {"type": e.error_type.value, "message": e.message, "severity": e.severity.value}
             for e in error_collector.all_errors()[:50]
         ],
         "_identity_map": identity_map,
@@ -1074,14 +1143,18 @@ def _cancelled_result(
     error_collector: Optional[ErrorCollector] = None,
     outcomes: Optional[Dict[str, RowOutcome]] = None,
 ) -> Dict:
+    counts = Counter(o.status for o in (outcomes or {}).values())
+    done = {
+        "success": counts["success"], "skipped": counts["skipped"], "failed": counts["failed"],
+    }
     _ensure_summary_csv(
         summary_path, valid_rows=valid_rows, outcomes=outcomes,
-        error_collector=error_collector, extra_totals={"cancelled": True},
+        error_collector=error_collector, extra_totals={"cancelled": True, "processed": sum(done.values()), **done},
     )
     return {
         "job_id": job_id,
         "summary_path": summary_path,
-        "totals": {"processed": 0, "success": 0, "skipped": 0, "failed": 0, "cancelled": True},
+        "totals": {"processed": sum(done.values()), **done, "cancelled": True},
         "errors": [],
     }
 
@@ -1103,7 +1176,7 @@ def _error_result(
         "summary_path": summary_path,
         "totals": {"processed": 0, "success": 0, "skipped": 0, "failed": 0, "error": message},
         "errors": [
-            {"type": e.error_type.value, "message": e.message}
+            {"type": e.error_type.value, "message": e.message, "severity": e.severity.value}
             for e in error_collector.all_errors()[:50]
         ],
     }

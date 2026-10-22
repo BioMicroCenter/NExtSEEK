@@ -1,6 +1,6 @@
 # Wave 0 — baseline on untouched `dev`
 
-**Branch:** `dev-260718`, forked from `origin/dev` @ `8f5479a9d5b9c0a7e4660bb1469fda2cfbed2c30` (taishajo, 2026-07-18)
+**Branch:** `dev-260718`, forked from `origin/dev` @ `8f5479a9d5b9c0a7e4660bb1469fda2cfbed2c30` (<user>, 2026-07-18)
 **Captured:** 2026-07-21
 **Purpose:** record what is already failing *before* any v3 feature is replayed, so later waves can be attributed.
 

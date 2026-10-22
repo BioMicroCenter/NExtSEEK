@@ -20,11 +20,13 @@ import json
 import logging
 import os
 import queue
-import threading
+import threading  # noqa: F401  (tests patch threading.Thread through this module)
 import time
+import uuid
 from typing import TYPE_CHECKING, Any
 
 import orjson
+from dmac.session_login import seek_password
 from django.http import StreamingHttpResponse, HttpResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -37,9 +39,12 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.handlers.asgi import ASGIRequest
+from django.db.models import Q
 
 ASSISTANT_PARTICIPATING_PROJECTS = settings.ASSISTANT_PARTICIPATING_PROJECTS
 TEST_CASES = settings.TEST_CASES
+#: The 403 a caller who is neither a superuser nor a turn pass gets for mode "plan" (SEC-002).
+PLAN_MODE_FORBIDDEN = 'Mode "plan" is for superusers; send mode "standard".'
 
 from nextseek_api.assistant.descriptions import (
     ASSISTANT_BUNDLE_DOWNLOAD_DESC,
@@ -100,7 +105,7 @@ from NessieAI.cc.ops_road import SIDECAR, ops_road
 from NessieAI.ns.write_gate import WriteBlockedError, build_gate, load_allowlist
 from rest_framework.exceptions import APIException
 from nextseek_api.assistant.op_errors import HTTP_STATUS, error_body, failure_reason, op_error, validation_fields
-from nextseek_api.permissions import is_turn_pass, may_read_any
+from nextseek_api.permissions import is_turn_pass, may_read_any, plan_mode_refused, require_session_owner
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from NessieAI.ns.bundle_download import bundle_metadata
 # Moved to NessieAI/ns/ (NessieAI Phase B): the NS turn in turn.py, the on-disk
@@ -108,6 +113,7 @@ from NessieAI.ns.bundle_download import bundle_metadata
 # bodies of query and query_async run in turn.py on the threads started here.
 from NessieAI.ns.turn import (
     _granular_args,
+    apply_prod_credentials,
     _select_chat_config,
     make_sse_send_event,
     run_async_pipeline,
@@ -129,11 +135,13 @@ from nextseek_api.assistant.turn_pass_auth import TurnPassAuthentication
 # Re-exported: these two moved to nextseek_api/authentication.py (NessieAI Phase B, B1).
 # Other nextseek_api modules still import them from here, so keep both names importable.
 from nextseek_api.authentication import (  # noqa: F401
-    CsrfExemptSessionAuthentication,
+    CsrfExemptSessionAuthentication,  # deprecated alias, one release
+    SeekSessionAuthentication,
     _error_response,
 )
 
 from nextseek_api.helpers import resolve_seek_auth, SeekAPIClient
+from nextseek_api.throttles import TURN_THROTTLES
 from nextseek_api.graph_search.scope import caller_block, current_project_ids, plain_scope
 
 # No module-scope chat_nextseek import: the orchestrator entry points are called from
@@ -143,6 +151,7 @@ if TYPE_CHECKING:
     from chat_nextseek.config import ChatConfig
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
+from nextseek_api.assistant.turn_drain import draining, draining_response, start_turn_thread
 
 logger = logging.getLogger(__name__)
 
@@ -275,7 +284,8 @@ def _request_login(request) -> tuple[str | None, str | None]:
         return basic_tuple[0], basic_tuple[1]
     if is_turn_pass(request):
         return None, None
-    return request.session.get("username"), request.session.get("password")
+    username = request.session.get("username")
+    return username, seek_password(request.session, username)
 
 
 # ----------------------------------------------------------------------
@@ -315,12 +325,7 @@ def _granular_chat_config(request, req) -> ChatConfig:
     which refuses every graph query.
     """
     chat_config = _chat_config_for(request, req)
-    api_user, api_pass = _request_login(request)
-    prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
-    if not is_turn_pass(request) and prod_config is not None and chat_config is prod_config:
-        if chat_config.API_USER and chat_config.API_PASS:
-            api_user = chat_config.API_USER
-            api_pass = chat_config.API_PASS
+    api_user, api_pass = apply_prod_credentials(is_turn_pass(request), chat_config, *_request_login(request))
     cfg = copy.copy(chat_config)
     if is_turn_pass(request):
         # A pass acts only as its own turn's user, never as the shared config's login.
@@ -408,7 +413,10 @@ def _refuse_run_ls(request, req, chat_config) -> Response | None:
     if not run_dir.startswith(runs_root + "/") or may_read_any(request):
         return None
     run = runs_root + "/" + run_dir[len(runs_root) + 1:].split("/", 1)[0]
-    states = (ChatSession.objects.filter(user=request.user, extra_state__icontains=run)
+    # A run list too big for the row sits in a spill file and the row holds only its link (assistant/spill.py), so
+    # the rows that hold a link are read through the field too.
+    states = (ChatSession.objects.filter(user=request.user)
+              .filter(Q(extra_state__icontains=run) | Q(extra_state__icontains="$spill"))
               .values_list("extra_state", flat=True))
     if any(run in _launched_runs(state) for state in states):
         return None
@@ -427,7 +435,7 @@ class AssistantViewSet(viewsets.ViewSet):
 
     # The turn pass first (spec piece 1); CCAssistantViewSet deliberately does not list it, so a pass can never
     # start a Container-CC turn.
-    authentication_classes = [TurnPassAuthentication, TokenAuthentication, CsrfExemptSessionAuthentication,
+    authentication_classes = [TurnPassAuthentication, TokenAuthentication, SeekSessionAuthentication,
                               BasicAuthentication]
     permission_classes = [IsAuthenticated, UserInParticipatingProject]
 
@@ -570,9 +578,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except ChatSession.DoesNotExist:
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        if (session.user_id != request.user.pk
-                and not may_read_any(request)):
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, session, admin_read=True)) is not None:
+            return denied
 
         history = session.results_history or []
         payload = SessionDetailResponse(
@@ -611,8 +618,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except ChatSession.DoesNotExist:
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        if session.user_id != request.user.pk:
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, session)) is not None:
+            return denied
 
         raw_title = (request.data or {}).get("title")
         if not isinstance(raw_title, str):
@@ -649,8 +656,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except ChatSession.DoesNotExist:
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        if session.user_id != request.user.pk:
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, session)) is not None:
+            return denied
 
         session.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -676,11 +683,15 @@ class AssistantViewSet(viewsets.ViewSet):
             ),
         ],
     )
-    @action(detail=False, methods=["post"], url_path="query")
+    @action(detail=False, methods=["post"], url_path="query", throttle_classes=TURN_THROTTLES)
     def query(self, request):
         authed, err = self._check_auth(request)
         if not authed:
             return err
+
+        # A child turn of a running Container-CC turn is part of that turn: it finishes, it is not refused.
+        if draining() and not is_turn_pass(request):
+            return draining_response()
 
         try:
             req = QueryRequest.model_validate(request.data)
@@ -690,6 +701,9 @@ class AssistantViewSet(viewsets.ViewSet):
                 str(e),
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
+
+        if plan_mode_refused(request, req.mode):
+            return _error_response("Forbidden", PLAN_MODE_FORBIDDEN, status.HTTP_403_FORBIDDEN)
 
         if is_turn_pass(request) and not all(_request_login(request)):
             # The turn's login is gone: never fall back to the service login.
@@ -739,11 +753,7 @@ class AssistantViewSet(viewsets.ViewSet):
         # API_USER/API_PASS. The pipeline's outbound Basic-auth calls must hit
         # prod NExtSEEK with prod credentials — the local session user (e.g.
         # "demo") doesn't exist on prod and would otherwise produce a 401.
-        prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
-        if not is_turn_pass(request) and prod_config is not None and chat_config is prod_config:
-            if chat_config.API_USER and chat_config.API_PASS:
-                api_user = chat_config.API_USER
-                api_pass = chat_config.API_PASS
+        api_user, api_pass = apply_prod_credentials(is_turn_pass(request), chat_config, api_user, api_pass)
 
         # The caller's project scope for graph queries, resolved here in the request
         # thread and handed down as plain data (None refuses every graph query).
@@ -754,9 +764,9 @@ class AssistantViewSet(viewsets.ViewSet):
 
         # The pipeline body runs in NessieAI/ns/turn.py (run_sse_pipeline); the
         # thread and the SSE stream stay here.
-        thread = threading.Thread(
-            target=run_sse_pipeline,
-            kwargs=dict(
+        thread = start_turn_thread(
+            uuid.uuid4(), run_sse_pipeline,
+            **dict(
                 adapter=adapter, chat_config=chat_config, req=req,
                 send_event=send_event, api_user=api_user, api_pass=api_pass,
                 chat_session=chat_session,
@@ -764,9 +774,7 @@ class AssistantViewSet(viewsets.ViewSet):
                 event_queue=event_queue,
                 graph_scope=graph_scope,
             ),
-            daemon=True,
         )
-        thread.start()
 
         def event_stream():
             while True:
@@ -800,11 +808,15 @@ class AssistantViewSet(viewsets.ViewSet):
             ),
         ],
     )
-    @action(detail=False, methods=["post"], url_path="query/async")
+    @action(detail=False, methods=["post"], url_path="query/async", throttle_classes=TURN_THROTTLES)
     def query_async(self, request):
         authed, err = self._check_auth(request)
         if not authed:
             return err
+
+        # A child turn of a running Container-CC turn is part of that turn: it finishes, it is not refused.
+        if draining() and not is_turn_pass(request):
+            return draining_response()
 
         try:
             req = QueryRequest.model_validate(request.data)
@@ -814,6 +826,9 @@ class AssistantViewSet(viewsets.ViewSet):
                 str(e),
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
+
+        if plan_mode_refused(request, req.mode):
+            return _error_response("Forbidden", PLAN_MODE_FORBIDDEN, status.HTTP_403_FORBIDDEN)
 
         if is_turn_pass(request) and not all(_request_login(request)):
             # The turn's login is gone: never fall back to the service login.
@@ -887,11 +902,7 @@ class AssistantViewSet(viewsets.ViewSet):
             # API_USER/API_PASS. The pipeline's outbound Basic-auth calls must hit
             # prod NExtSEEK with prod credentials — the local session user (e.g.
             # "demo") doesn't exist on prod and would otherwise produce a 401.
-            prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
-            if not is_turn_pass(request) and prod_config is not None and chat_config is prod_config:
-                if chat_config.API_USER and chat_config.API_PASS:
-                    api_user = chat_config.API_USER
-                    api_pass = chat_config.API_PASS
+            api_user, api_pass = apply_prod_credentials(is_turn_pass(request), chat_config, api_user, api_pass)
 
             # The caller's project scope for graph queries, resolved here in the request
             # thread and handed down as plain data (None refuses every graph query).
@@ -903,9 +914,9 @@ class AssistantViewSet(viewsets.ViewSet):
 
             # The pipeline body runs in NessieAI/ns/turn.py (run_async_pipeline);
             # the thread start stays here.
-            thread = threading.Thread(
-                target=run_async_pipeline,
-                kwargs=dict(
+            thread = start_turn_thread(
+                task_id_str, run_async_pipeline,
+                **dict(
                     adapter=adapter, chat_config=chat_config, req=req,
                     send_event=send_event, api_user=api_user, api_pass=api_pass,
                     chat_session=chat_session,
@@ -914,9 +925,7 @@ class AssistantViewSet(viewsets.ViewSet):
                     parent_cc_turn=pass_turn,
                     deadline_epoch=nested_deadline_epoch,
                 ),
-                daemon=True,
             )
-            thread.start()
         except BaseException:
             # Nothing will run the child's finally: give the slot back here.
             if pass_turn is not None:
@@ -998,9 +1007,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except ChatSession.DoesNotExist:
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        if (chat_session.user_id != request.user.pk
-                and not may_read_any(request)):
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, chat_session, admin_read=True)) is not None:
+            return denied
 
         history = chat_session.results_history or []
         bundle_id_int = int(bundle_id)
@@ -1082,9 +1090,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except ChatSession.DoesNotExist:
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        if (chat_session.user_id != request.user.pk
-                and not may_read_any(request)):
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, chat_session, admin_read=True)) is not None:
+            return denied
 
         history = chat_session.results_history or []
         bundle_id_int = int(bundle_id)
@@ -1263,9 +1270,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except (ChatSession.DoesNotExist, DjangoValidationError):
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        is_owner = chat_session.user_id == request.user.pk
-        if not is_owner and not may_read_any(request):
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, chat_session, admin_read=True)) is not None:
+            return denied
 
         # The CC tree comes from the session itself (the project folder its CC turns
         # ran in, and the owner's username), never from the login that asks, so a

@@ -54,7 +54,6 @@ Routes, views, login redirects, error pages and the Mezzanine pages that share t
 | ID | Severity | What a user sees | Evidence | Where | Fix idea |
 |---|---|---|---|---|---|
 | UI-028 | confusing | Access errors ("You are not in this project") render `error.html` with HTTP 200, so bookmarks, monitors and CI cannot tell an error from a page; the themed 404 page is never used | code | `seek/views/projects.py` `project_page`; `dmac/urls.py` `handler404` (Mezzanine's view; the theme has no errors folder) | Pass `status=403`; add themed 404 and 500 templates in an errors folder under the theme templates |
-| UI-029 | broken | `/seek/remote/` and `/seek/url/<x>/` raise NameError (500). Unlinked, xfailed in CI | code | `seek/views/search.py` `remote` (calls undefined `samples`); `seek/views/samples.py` `seek` (calls undefined `getPageRequests`) | Delete both routes and views |
 | UI-030 | debt | Several `seek/urls.py` patterns have no end anchor, so longer paths such as `/seek/templates/zzz` and `/seek/search/anything` also answer. | code | `seek/urls.py` `^templates/`, `^search/`, `^searchUIDs/`, `^samples/upload/` and others (`^assistant/` is open on purpose: the chat's `chat/<uuid>` deep links need it) | Add `$` to each (keep `^templates/download/$` above `^templates/`), update the matching `ci/routes.py` patterns and re-run the route gate |
 | UI-031 | debt | `project_page` checks the SEEK login by hand instead of using the shared decorator | code | `seek/views/projects.py` `project_page` | Use `requires_seek_login_redirect` |
 

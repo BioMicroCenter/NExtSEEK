@@ -116,6 +116,16 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     history routed `unrelated` is never a reason to route the CURRENT message
     `unrelated`.
 
+    Choosing, building or launching an nf-core pipeline over NExtSEEK samples
+    is not such an analysis question: select `nextseek_query`, whose pipeline
+    agent picks the pipeline from the samples and builds the run. That holds
+    when the request is phrased as a scientific question and names no
+    pipeline ("which genes differ between the treated and the control
+    samples? pick the nf-core pipeline for it"). How to apply a published
+    method, or how to reanalyse a paper's data, stays `container_cc`, and a
+    message that refers back to a `container_cc` answer follows the
+    follow-up rule below.
+
     How-to questions about the site go to `nextseek_query`. "How do I upload
     samples", "how can I check my workbook before uploading it", "where do I
     download my results as a spreadsheet" and "how do I call the API" ask how
@@ -140,6 +150,19 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     the house terms, or for the update workbook that does it, is
     `container_cc`, also when it follows an answer `nextseek_query` gave
     ("harmonize those").
+
+    A request to create, register, change, upload, share or delete a stored
+    record (a sample, study, investigation, project, protocol or a sample
+    type's attributes) is `container_cc`, however short it is ("Create an
+    investigation called X", "Delete sample Y", "Update the Scientist on
+    these samples"). No write runs from this chat: Container-CC prepares the
+    upload workbook for review or says where in NExtSEEK the change is made.
+    Learning how to make such a change in the site is a how-to and stays
+    `nextseek_query`, and so does asking what a record holds before changing it.
+
+    A request that asks for the container by name ("use the container to count
+    samples per project", "run this in Container-CC", "in the sandbox") is
+    `container_cc`, whatever the task is.
 
     {% if input.followup_rule %}{{ input.followup_rule }}{% endif %}
 

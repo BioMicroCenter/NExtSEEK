@@ -45,6 +45,7 @@ Both engines write the same `QueryTask` rows and stream over one websocket, so t
 | `build_tools/` | generators for CC surfaces and `route_capabilities.json` |
 | `chat_frontend/` | React chat panel, with its own vitest and Playwright tests |
 | `docker/` | the four AI images: `cc-runtime`, `bedrock-proxy`, `ns-sidecar`, `eval` |
+| `nessie_harness/` | corpus, evidence export and manifest code shared by the engine and the test harness (`nessie_harness/README.md`) |
 | `tests/` | every Nessie Python test, mirrored by area |
 | `docs/` | live Nessie docs |
 | `history/` | frozen records: never edited, never collected, not in the image |
@@ -100,6 +101,7 @@ image, the `eval_*` tables). Its map is `NessieAI/hibayes/README.md` "HiBayes li
 | `NessieAI/build_tools/README.md`, `CLAUDE.md` | generated surfaces and the docs ingester |
 | `NessieAI/chat_frontend/README.md`, `CLAUDE.md` | the chat panel |
 | `NessieAI/docker/README.md`, `CLAUDE.md` | the AI images |
+| `NessieAI/nessie_harness/README.md` | the harness code the engine shares |
 | `NessieAI/docker/cc-runtime/container/CLAUDE.md` | what the CC agent is told (ships in the image) |
 | `NessieAI/tests/README.md` | every AI test lane and its command |
 | `NessieAI/tests/nessie_tests/README.md`, `CLAUDE.md` | the router-aware harness |

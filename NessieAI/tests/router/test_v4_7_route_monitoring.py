@@ -213,3 +213,17 @@ def test_route_monitoring_module_has_no_publish_imports():
         if isinstance(node, ast.Import):
             for alias in node.names:
                 assert alias.name not in banned
+
+
+def test_alert_message_names_max_shift():
+    baseline = build_monitoring_snapshot(
+        [_obs_row(observation_id="s1:1", route="container_cc", assignment_policy="baml")]
+    )
+    current = build_monitoring_snapshot(
+        [_obs_row(observation_id="s1:2", route="container_cc", assignment_policy="heuristic")]
+    )
+    alerts = detect_monitoring_alerts(baseline, current, drift_threshold=0.15)
+    assert alerts
+    for a in alerts:
+        assert "TV distance" not in a.message
+    assert any("max category shift" in a.message for a in alerts)

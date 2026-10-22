@@ -7,9 +7,9 @@ prompt_verbatim: true
 prior_implementer_review: VOID  
 
 **Recorded:** 2026-08-12 (independent cold review; prior parent-written artifact at this path is VOID)  
-**Worktree:** `/home/taishajo/work/NExtSEEK-plan018`  
-**Plan:** `/home/taishajo/.cursor/plans/plan018_v4-3_sdd_9ae91f7b.plan.md`  
-**Living plan §V4-3:** `/home/taishajo/work/NExtSEEK-deploydocs/docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md`  
+**Worktree:** `/home/<user>/work/NExtSEEK-plan018`  
+**Plan:** `/home/<user>/.cursor/plans/plan018_v4-3_sdd_9ae91f7b.plan.md`  
+**Living plan §V4-3:** `/home/<user>/work/NExtSEEK-deploydocs/docs/superpowers/plans/2026-07-31-hibayes-eval-routing.md`  
 **Evidence glob:** `evidence/plan018-v4-3-*`  
 **Closeout SHA:** `4e204341ae82e7cd8c99ca0c3811d7bff78f262e` (per `plan018-v4-3-closeout.json`)
 

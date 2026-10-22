@@ -8,7 +8,7 @@
     {
       "name": "v13a_zip_exists",
       "pass": true,
-      "detail": "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip"
+      "detail": "/home/<user>/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip"
     },
     {
       "name": "v13a_zip_sha",

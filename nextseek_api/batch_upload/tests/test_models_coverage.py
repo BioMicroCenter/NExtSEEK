@@ -186,6 +186,14 @@ class TestInputRowModelConsistencyValidator:
                 json_metadata='{"UID": "AAA-111111BB-1", "Protocol": "/sops/100"}',
             )
 
+    def test_sop_mismatch_without_uid(self):
+        with pytest.raises(Exception, match="sop_id does not match"):
+            InputRowModel(
+                SampleType="NHP",
+                sop_id=99,
+                json_metadata='{"Protocol": "/sops/100"}',
+            )
+
     def test_foreign_sop_url_is_not_compared_against_the_local_sop_id(self):
         """795 is FAIRDOMHub's SOP id, not one of ours, so there is nothing
         for a local sop_id to disagree with. Rejecting the row here would be a

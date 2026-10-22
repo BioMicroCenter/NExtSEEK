@@ -24,12 +24,38 @@ from startup.steps.config import (
 )
 
 
-def test_default_values_has_demo_creds() -> None:
-    v = default_values(nextseek_port=8000, seek_port=3000)
-    assert v.mysql_root_password == "seek_root"
-    assert v.mysql_password == "seek_db_password"
-    assert v.neo4j_password == "demopassword"
-    assert v.django_secret_key  # auto-generated, non-empty
+# The published defaults, read from the module rather than restated here.
+_o = default_values(8000, 3000, generate_passwords=False)
+_OLD = (_o.mysql_root_password, _o.mysql_password, _o.neo4j_password)
+
+
+def test_default_values_generates_database_passwords() -> None:
+    a = default_values(nextseek_port=8000, seek_port=3000)
+    b = default_values(8000, 3000)
+    for name in ("mysql_root_password", "mysql_password", "neo4j_password"):
+        va, vb = getattr(a, name), getattr(b, name)
+        assert va not in _OLD
+        assert len(va) >= 24 and va.isalnum()
+        assert va != vb
+    assert a.django_secret_key  # auto-generated, non-empty
+
+
+def test_kept_passwords_win_over_generation() -> None:
+    v = default_values(8000, 3000, kept={"MYSQL_ROOT_PASSWORD": "x" * 30})
+    assert v.mysql_root_password == "x" * 30
+
+
+def test_existing_volumes_keep_the_old_default() -> None:
+    v = default_values(8000, 3000, generate_passwords=False)
+    assert (v.mysql_root_password, v.mysql_password, v.neo4j_password) == _OLD
+    assert all(len(x) < 24 for x in _OLD)  # the short historical defaults, not generated
+
+
+def test_preview_does_not_flag_generated_passwords(tmp_path: Path) -> None:
+    repo = _box(tmp_path)
+    flagged = preview_changed_keys(repo)["kept_differs_from_template"]
+    for key in ("MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD", "NEXTSEEK_NEO4J_PASSWORD"):
+        assert key not in flagged
 
 
 def test_default_values_csrf_origins_match_port() -> None:
@@ -506,12 +532,13 @@ def test_read_env_and_read_rendered_value_read_a_line_the_same_way(tmp_path: Pat
 
 def test_fresh_install_renders_the_demo_values_and_keeps_nothing(tmp_path: Path) -> None:
     repo = _box(tmp_path)
-    _install(repo)
+    values = _install(repo)
     db = (repo / "docker" / "db.env").read_text()
     nx = (repo / "docker" / "nextseek.env").read_text()
-    assert 'MYSQL_ROOT_PASSWORD="seek_root"' in db.splitlines()
-    assert "NEXTSEEK_NEO4J_PASSWORD='demopassword'" in nx.splitlines()
-    assert "SESSION_DB_PASSWORD='seek_db_password'" in nx.splitlines()
+    assert f'MYSQL_ROOT_PASSWORD="{values.mysql_root_password}"' in db.splitlines()
+    assert values.mysql_root_password not in _OLD
+    assert f"NEXTSEEK_NEO4J_PASSWORD='{values.neo4j_password}'" in nx.splitlines()
+    assert f"SESSION_DB_PASSWORD='{values.mysql_password}'" in nx.splitlines()
     assert "Kept from" not in db + nx
     assert read_env(repo / "docker" / "nextseek.env")["DJANGO_ALLOWED_HOSTS"] == "127.0.0.1 localhost"
     # Wave 1's comment for the lineage timeout stays a comment.
@@ -749,3 +776,48 @@ def test_an_unchanged_local_settings_gets_no_new_copy(tmp_path: Path) -> None:
 def test_the_new_local_settings_copy_never_reaches_git_or_the_image() -> None:
     assert "local_settings.py.new" in (_REPO_ROOT / ".gitignore").read_text().splitlines()
     assert "dmac/local_settings.py*" in (_REPO_ROOT / ".dockerignore").read_text().splitlines()
+
+
+# the spawner token pair (W9 part 1): one value in two env files
+
+def _spawner_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    (repo / "docker").mkdir(parents=True)
+    (repo / "docker" / "nextseek.env").write_text('DJANGO_SECRET_KEY="k"\n')
+    return repo
+
+
+def test_render_spawner_env_writes_the_same_token_to_both_files(tmp_path: Path) -> None:
+    from startup.steps.config import render_spawner_env
+
+    repo = _spawner_repo(tmp_path)
+    out = render_spawner_env(repo)
+
+    app = read_env(repo / "docker" / "nextseek.env")
+    spawner = read_env(out)
+    assert out == repo / "docker" / "cc-spawner.env"
+    assert len(app["NEXTSEEK_SPAWNER_TOKEN"]) >= 40
+    assert spawner == {"SPAWNER_TOKEN": app["NEXTSEEK_SPAWNER_TOKEN"]}
+    assert app["DJANGO_SECRET_KEY"] == "k", "the rest of the file is untouched"
+    assert (out.stat().st_mode & 0o777) == 0o600
+
+
+def test_render_spawner_env_keeps_the_token_on_a_rerun(tmp_path: Path) -> None:
+    from startup.steps.config import render_spawner_env
+
+    repo = _spawner_repo(tmp_path)
+    render_spawner_env(repo)
+    first = read_env(repo / "docker" / "nextseek.env")["NEXTSEEK_SPAWNER_TOKEN"]
+    render_spawner_env(repo)
+    assert read_env(repo / "docker" / "nextseek.env")["NEXTSEEK_SPAWNER_TOKEN"] == first
+    assert read_env(repo / "docker" / "cc-spawner.env")["SPAWNER_TOKEN"] == first
+    assert (repo / "docker" / "nextseek.env").read_text().count("NEXTSEEK_SPAWNER_TOKEN") == 1
+
+
+def test_render_spawner_env_repairs_a_missing_spawner_file_from_the_app_value(tmp_path: Path) -> None:
+    from startup.steps.config import render_spawner_env
+
+    repo = _spawner_repo(tmp_path)
+    (repo / "docker" / "nextseek.env").write_text("NEXTSEEK_SPAWNER_TOKEN=abc123\n")
+    render_spawner_env(repo)
+    assert read_env(repo / "docker" / "cc-spawner.env") == {"SPAWNER_TOKEN": "abc123"}

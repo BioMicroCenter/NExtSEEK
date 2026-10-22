@@ -33,7 +33,7 @@ by*.
 |---|---|---|
 | `install` | `startup/cli.py:378` | 9 numbered phases, body in `_install_impl` (`startup/cli.py:86`) |
 | `doctor` | `startup/cli.py:421` | read-only diagnosis, `startup/steps/doctor.py:75` |
-| `reset` | `startup/cli.py:450` | volume drop then a re-entry into install |
+| `reset` | `startup/cli.py:450` | config and queue volumes removed, data volumes kept (`--drop-data` deletes them too), then a re-entry into install |
 | `rebuild` | `startup/cli.py:511` | one first-party component, rollback-tagged |
 | `ci` | `startup/cli.py:697` | the smoke suite as a subprocess |
 | `seed-filestore` | `startup/cli.py:746` | the SEEK blob archive into a running stack |
@@ -75,8 +75,8 @@ no install step reads them until their content is signed off (`scripts/README.md
 `startup/tests/test_env_registry_drift.py`; `DEPLOYMENT.md` section 8 is generated from it).
 
 **Two managed indexes** on Rails-owned SEEK tables are declared at
-`startup/steps/schema_fixups.py:376-392`, and applying them is opt-in behind an
-environment flag, default off (`startup/steps/schema_fixups.py:976-995`).
+`startup/steps/schema_fixups.py:373-389`, and applying them is opt-in behind an
+environment flag, default off (`startup/steps/schema_fixups.py:973-992`).
 
 **`startup/dev/`** is a separate, hand-run lane, not part of any subcommand:
 `startup/dev/run_full_test_lane.sh:6-14` runs `nextseek_api/tests startup/tests` in one
@@ -238,7 +238,7 @@ in any `.py` file under `startup/cli.py`, `startup/lib/`, `startup/steps/` or
   requests and playwright stay out of this project (`startup/ci/runner.py:1-5` and
   `startup/ci/runner.py:38`).
 - A MySQL driver chosen at runtime, preferring host mysqlclient and falling back to the
-  declared PyMySQL (`startup/steps/schema_fixups.py:898-912`).
+  declared PyMySQL (`startup/steps/schema_fixups.py:895-909`).
 - `~/.config/nextseek/ci.env` for smoke credentials, read only for the key names
   (`startup/steps/doctor.py:13` and `startup/steps/doctor.py:59-63`), and
   `~/.config/nextseek/ghcr.env` for the registry push
@@ -251,7 +251,7 @@ plan `docs/archive/2026-09/2026-09-01-ci-increment-1-skeleton-and-safety.md`, wh
 `from startup…` lines sit inside quoted code samples rather than being imports that file
 performs.
 
-- `.github/workflows/ci-smoke.yml:64` reads `startup/.instance.json` by path to learn
+- `.github/workflows/ci-smoke.yml:75` reads `startup/.instance.json` by path to learn
   the box-declared profile, deliberately rather than naming one itself.
 - `seek/tests/test_context_seed_tables.py:10` binds `startup/seed/sql/` as a directory
   and reads three DDL files out of it at `seek/tests/test_context_seed_tables.py:19`,

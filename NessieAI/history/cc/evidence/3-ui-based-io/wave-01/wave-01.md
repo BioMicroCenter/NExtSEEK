@@ -13,7 +13,7 @@
 ## Reproduction
 
 ```bash
-cd /home/taishajo/work/NExtSEEK
+cd /home/<user>/work/NExtSEEK
 git checkout cc-step3-ui-io  # at or after 8a19f5d
 PYTHONPATH="$PWD:$PWD/dmac_assistant/src" uv run --no-project --with pytest --with pytest-cov \
   --with orjson --with pydantic --with zstandard --with 'baml-py==0.222.0' --with 'Django>=5.2,<6' \

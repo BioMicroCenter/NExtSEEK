@@ -2,7 +2,7 @@
 
 **Target:** `nextseek_api/cc_assistant/archive/PLAN-7-compose-native-prod-deploy.md`  
 **Locked design:** `nextseek_api/cc_assistant/archive/SPEC-7-compose-native-prod-deploy.md`  
-**Guide:** `/home/taishajo/AGENTS.md`  
+**Guide:** `/home/<user>/AGENTS.md`  
 **Reviewer:** Independent cold-context adversarial (iter 9)  
 **Date:** 2026-06-30  
 **Prior hardening acknowledged (not read):** iter-8 — 1c memory via cc-state copy; Engine subpath floor + pre-bootstrap volume/network validator; SPEC §8 pre-bootstrap + preflight fields.
@@ -81,7 +81,7 @@
 
 ### Finding 2A-7 — LOW — `cc_config.py` laptop default persists; neutral default cutover not tied to Task 6/7
 
-**Location:** live `cc_config._DEFAULT_HOST_USER_ROOT = "/Users/taishajoseph/dmac-dev/users"`  
+**Location:** live `cc_config._DEFAULT_HOST_USER_ROOT = "/Users/<user>/dmac-dev/users"`  
 **Why:** G7-10 retires host bind; default still implies laptop host root. Task 7 env template work may miss neutralizing `from_env` default when `DMAC_USER_ROOT` unset.
 
 **Fix:** Task 6 or 7: set neutral default (empty or mount-only) and test `CCPaths.from_env()` without host bind implication.

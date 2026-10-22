@@ -113,7 +113,8 @@ with no prefix).
 The media route is unusual and its reason is recorded in place: nginx has no `/media`
 location and `DEBUG` is off under Docker, so Django serves it with a view of its own
 (`dmac/urls.py:32-36`). `dmac/media.py` sends an anonymous caller to `/login/` and serves
-a logged-in one only the legacy data-file tree (`SEEK_DATAFILE_ROOT_WEBLINK`); the rest of
+a logged-in one only the legacy data-file tree (`SEEK_DATAFILE_ROOT_WEBLINK`), and in it only
+the folders of the caller's projects unless they are a superuser; the rest of
 `MEDIA_ROOT` is working state no URL serves. Both error handlers are Mezzanine's
 (`handler404`, `handler500` in `dmac/urls.py`).
 
@@ -144,8 +145,8 @@ layer is internal and is reached through the table layer.
   lines counted the same day, `dmac/conversion.py` alone for 18.
 - **The connection abstraction.** `dmac/dbconnection.py:9` is a facade that picks a
   backend from a string at `dmac/dbconnection.py:13-24`; `dmac/dbconn_django.py:22` is the
-  ORM-and-raw-cursor implementation, and `dmac/dbconn_mysql.py:13` a direct MySQLdb one.
-  Only test modules name any of the three from outside, among them
+  ORM-and-raw-cursor implementation.
+  Only test modules name either from outside, among them
   `nextseek_api/tests/test_search_filters_sql_binding.py:182` and
   `nextseek_api/tests/test_search_filters_sql_binding.py:250`.
 - **The table abstraction.** `dmac/dbtable.py:33` is the base class, wiring a form, a
@@ -234,8 +235,6 @@ Depends on, outside this directory:
   decides which of the two database aliases every ORM query uses.
 - `nextseek_api.assistant.routing`, imported at `dmac/asgi.py:23` for the assistant
   WebSocket patterns, and `nextseek_api.urls`, imported at `dmac/urls.py:14`.
-- `nextseek_api.attributes.tests.performance_worker_telemetry`, imported at
-  `dmac/attribute_performance_settings.py:35-36`. See `dmac/CLAUDE.md` about this one.
 - `mysqlclient`, imported as `MySQLdb` at module scope in seven of this directory's
   files, including `dmac/dbconnection.py:3`. That single import is why the legacy layer
   cannot be exercised on a host without a C toolchain.
@@ -269,7 +268,7 @@ modules.
 - The settings module names are configuration, not imports, and appear in
   `pyproject.toml:147`, `.github/workflows/ci-pytest.yml:50`, `scripts/run_tests.sh:46`,
   `ci/gate/live_routes.py:18`, `scripts/dump_routes.py:20`,
-  `nextseek_api/batch_upload/celery_app.py:12` and `NessieAI/tests/nessie_tests/sources.py:249`.
+  `nextseek_api/batch_upload/celery_app.py:12` and `NessieAI/nessie_harness/sources.py:249`.
 - `dmac/local_settings.py`, which this directory never contains, is bind-mounted by path
   into the `nextseek` service (`docker-compose.yml`), the only service that runs the app
   image. It is written by

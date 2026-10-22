@@ -290,3 +290,12 @@ class TestCascadeFailures:
         """No children_of -> empty result."""
         result = cascade_failures({"A"}, {}, eligible_uids={"B"})
         assert result == {}
+
+
+def test_cycle_descendants_are_deferred():
+    rows = [_row("A", "B"), _row("B", "A"), _row("C", "A"), _row("D", "C")]
+    parents = {"A": {"B"}, "B": {"A"}, "C": {"A"}, "D": {"C"}}
+    children = {"A": {"B", "C"}, "B": {"A"}, "C": {"D"}}
+    result = _compute(rows, parents, children, cycles=[["A", "B"]])
+    assert "C" not in result.levels and "D" not in result.levels
+    assert result.cycle_descendants == {"C", "D"}

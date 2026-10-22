@@ -1,6 +1,7 @@
 """Hermetic tests for the superuser-only Users admin ViewSet."""
 
 import json
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -177,7 +178,7 @@ class TestUsersViewSetCreate:
     @patch("nextseek_api.services.users._sync_django_user")
     @patch("nextseek_api.services.users._upsert_people_mirror")
     @patch("nextseek_api.services.users.Users")
-    @patch("nextseek_api.services.users.run_seek_rails_runner")
+    @patch("nextseek_api.services.users.run_seek_op")
     def test_create_success(self, mock_runner, mock_users, mock_upsert, mock_sync):
         mock_runner.return_value = {
             "ok": True,
@@ -216,6 +217,7 @@ class TestUsersViewSetCreate:
         assert response.status_code == 201
         _assert_no_password_in_json(response.content)
         mock_runner.assert_called_once()
+        assert mock_runner.call_args.args[0] == "create"
         mock_upsert.assert_called_once()
         mock_sync.assert_called_once()
 
@@ -257,7 +259,7 @@ class TestUsersViewSetCreate:
         assert b"cannot grant is_superuser" in response.content
 
     @patch("nextseek_api.services.users.Users")
-    @patch("nextseek_api.services.users.run_seek_rails_runner")
+    @patch("nextseek_api.services.users.run_seek_op")
     def test_create_runner_error_502(self, mock_runner, mock_users):
         mock_users.objects.using.return_value.filter.return_value.exists.return_value = False
         mock_runner.side_effect = SeekRailsRunnerError("validation failed", detail="bad email")
@@ -271,7 +273,7 @@ class TestUsersViewSetCreate:
     @patch("nextseek_api.services.users._compensate_failed_create")
     @patch("nextseek_api.services.users._upsert_people_mirror")
     @patch("nextseek_api.services.users.Users")
-    @patch("nextseek_api.services.users.run_seek_rails_runner")
+    @patch("nextseek_api.services.users.run_seek_op")
     def test_create_person_mirror_missing_502(self, mock_runner, mock_users, mock_upsert, mock_compensate):
         mock_users.objects.using.return_value.filter.return_value.exists.return_value = False
         mock_runner.return_value = {"user_id": 1, "person_id": 99}
@@ -288,7 +290,7 @@ class TestUsersViewSetCreate:
     @patch("nextseek_api.services.users._sync_django_user")
     @patch("nextseek_api.services.users._upsert_people_mirror")
     @patch("nextseek_api.services.users.Users")
-    @patch("nextseek_api.services.users.run_seek_rails_runner")
+    @patch("nextseek_api.services.users.run_seek_op")
     def test_create_django_sync_failure_compensates(
         self, mock_runner, mock_users, mock_upsert, mock_sync, mock_compensate
     ):
@@ -305,7 +307,7 @@ class TestUsersViewSetCreate:
         mock_compensate.assert_called_once_with(7)
 
     @patch("nextseek_api.services.users.Users")
-    @patch("nextseek_api.services.users.run_seek_rails_runner")
+    @patch("nextseek_api.services.users.run_seek_op")
     def test_create_runner_conflict_409(self, mock_runner, mock_users):
         mock_users.objects.using.return_value.filter.return_value.exists.return_value = False
         mock_runner.side_effect = SeekRailsRunnerError("Email has already been taken", detail="taken")
@@ -320,14 +322,12 @@ class TestUsersViewSetCreate:
     def test_create_runner_killed_502_names_the_kill(self, mock_users):
         """The seek container's memory cap SIGKILLs bin/rails runner: exit 137, nothing on either stream."""
         mock_users.objects.using.return_value.filter.return_value.exists.return_value = False
-        container = MagicMock()
-        container.exec_run.return_value = (137, (b"", b""))
-        client = MagicMock()
-        client.containers.get.return_value = container
         factory = APIRequestFactory()
         request = _wrap(factory.post("/nextseek_api/users/", CREATE_BODY, format="json"))
         request.user = _superuser()
-        with patch("docker.from_env", return_value=client):
+        with patch.dict(os.environ, {"NEXTSEEK_SPAWNER_URL": "http://cc-spawner:8080"}), \
+                patch("NessieAI.cc.spawner_client.seek_op",
+                      return_value={"exit_code": 137, "last_line": "", "stderr": ""}):
             response = UsersViewSet().create(request)
         assert response.status_code == 502
         error = json.loads(response.content)["errors"][0]
@@ -335,7 +335,7 @@ class TestUsersViewSetCreate:
         assert "137" in error["detail"] and "killed" in error["detail"] and "out of memory" in error["detail"]
 
     @patch("nextseek_api.services.users.Users")
-    @patch("nextseek_api.services.users.run_seek_rails_runner")
+    @patch("nextseek_api.services.users.run_seek_op")
     def test_create_runner_unavailable_503(self, mock_runner, mock_users):
         mock_runner.side_effect = SeekRailsUnavailableError("no docker")
         mock_users.objects.using.return_value.filter.return_value.exists.return_value = False
@@ -402,7 +402,7 @@ class TestUsersViewSetPatch:
     @patch("nextseek_api.services.users._build_record")
     @patch("nextseek_api.services.users.People")
     @patch("nextseek_api.services.users.DjangoUser")
-    @patch("nextseek_api.services.users.run_seek_rails_runner")
+    @patch("nextseek_api.services.users.run_seek_op")
     @patch("nextseek_api.services.users.Users")
     def test_patch_deactivate(self, mock_users, mock_runner, mock_dj, mock_people, mock_build):
         seek_user = MagicMock(id=5, person_id=6, login="demo", activation_code=None)
@@ -555,7 +555,7 @@ class TestUsersViewSetPatchExtra:
         response = UsersViewSet().partial_update(request, uid="x")
         assert response.status_code == 404
 
-    @patch("nextseek_api.services.users.run_seek_rails_runner")
+    @patch("nextseek_api.services.users.run_seek_op")
     @patch("nextseek_api.services.users.Users")
     def test_patch_runner_unavailable_503(self, mock_users, mock_runner):
         seek_user = MagicMock(id=5, person_id=6, login="demo")
@@ -571,7 +571,7 @@ class TestUsersViewSetPatchExtra:
     @patch("nextseek_api.services.users._upsert_people_mirror")
     @patch("nextseek_api.services.users.People")
     @patch("nextseek_api.services.users.DjangoUser")
-    @patch("nextseek_api.services.users.run_seek_rails_runner")
+    @patch("nextseek_api.services.users.run_seek_op")
     @patch("nextseek_api.services.users.Users")
     def test_patch_creates_django_user_when_missing(
         self, mock_users, mock_runner, mock_dj, mock_people, mock_upsert, mock_build

@@ -1,6 +1,6 @@
 # Phase 2 Independent Review (iter 3, cold context) — PLAN-7-compose-native-prod-deploy.md
 
-**Target:** `/home/taishajo/work/NExtSEEK/nextseek_api/cc_assistant/PLAN-7-compose-native-prod-deploy.md` (Phase 2 sections + task execution contract)  
+**Target:** `/home/<user>/work/NExtSEEK/nextseek_api/cc_assistant/PLAN-7-compose-native-prod-deploy.md` (Phase 2 sections + task execution contract)  
 **Authority:** `SPEC-7-compose-native-prod-deploy.md` (G7-1–G7-9), `AGENTS.md`  
 **Reviewer:** Fresh cold-context adversarial reviewer (no prior vetting transcripts)  
 **Date:** 2026-06-30

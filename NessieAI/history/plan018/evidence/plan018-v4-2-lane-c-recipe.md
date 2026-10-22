@@ -1,10 +1,10 @@
 # Plan 018 V4-2 Lane C recipe (OPS §3.4a mirror)
 
-Authoritative for product-seam tests; canonical copy also in `/home/taishajo/work/OPS-TESTING-HARNESSES.md` §3.4a.
+Authoritative for product-seam tests; canonical copy also in `/home/<user>/work/OPS-TESTING-HARNESSES.md` §3.4a.
 
 ```bash
 docker run --rm \
-  -v /home/taishajo/work/NExtSEEK-plan018:/repo -w /repo \
+  -v /home/<user>/work/NExtSEEK-plan018:/repo -w /repo \
   -e DJANGO_SETTINGS_MODULE=dmac.test_settings \
   -e PYTHONPATH=/repo:/repo/dmac_assistant/src \
   -e GCP_API_KEY=lane-test \

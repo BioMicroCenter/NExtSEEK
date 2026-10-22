@@ -198,7 +198,15 @@ class TestCasesCatalogIsSuperuserOnly(TestCase):
     def test_the_ci_registry_expects_the_sweep_account_to_be_refused(self):
         """ci/routes.py declares the answer the post-deploy sweep's account, a SEEK login (staff, not a superuser),
         gets here."""
-        from ci.routes import REGISTRY
+        # Loaded by path: a second package named ci (startup/ci) can win `import ci` on a pytest-xdist
+        # worker that ran the startup tests first, and `from ci.routes import ...` then fails.
+        import importlib.util
+        import sys
+        spec = importlib.util.spec_from_file_location("ci_routes_by_path", REPO / "ci" / "routes.py")
+        routes = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = routes
+        spec.loader.exec_module(routes)
+        REGISTRY = routes.REGISTRY
         entry = next(r for r in REGISTRY if r.path == "/nextseek_api/assistant/test-cases/")
         refused = self._get(is_staff=True, is_superuser=False).status_code
         self.assertEqual((entry.auth, entry.expect), ("smoke", refused))

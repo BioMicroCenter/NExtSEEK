@@ -278,10 +278,10 @@ def run_validation_multi(
             )
 
     totals = BatchUploadTotals(
-        processed=insertable_count + skipped_count + pre.transform_errors,
+        processed=insertable_count + skipped_count + pre.transform_errors + pre.convert_failed,
         success=insertable_count,
         skipped=skipped_count,
-        failed=pre.transform_errors,
+        failed=pre.transform_errors + pre.convert_failed,
         elapsed_s=elapsed,
         uids_generated=pre.uid_gen_report.get("uids_generated", 0),
     )

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Literal
 
 import orjson
+from dmac.session_login import seek_password, store_seek_password
 from django.conf import settings
 from django.db import connections
 from rest_framework.authentication import BaseAuthentication, BasicAuthentication, TokenAuthentication
@@ -12,7 +13,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import BasePermission
 
 from nextseek_api.helpers import SeekAPIClient
-from nextseek_api.services.assistant import CsrfExemptSessionAuthentication as SeekSessionAuthentication
+from nextseek_api.services.assistant import SeekSessionAuthentication
 
 ADMIN_ROLE_TYPE_ID = 1
 
@@ -54,11 +55,10 @@ class SelectedSeekCredential:
     def proof_request(self):
         """A minimal request-like object containing only this selected credential."""
         meta = {"HTTP_AUTHORIZATION": self.authorization} if self.authorization else {}
-        session = (
-            {"server": settings.SEEK_URL, "username": self.username, "password": self.password}
-            if self.scheme == "session"
-            else {}
-        )
+        session = {}
+        if self.scheme == "session":
+            session = {"server": settings.SEEK_URL, "username": self.username}
+            store_seek_password(session, self.username, self.password)
         return SimpleNamespace(META=meta, COOKIES={}, session=session, method="GET")
 
 
@@ -91,7 +91,8 @@ def _selected_credential(request, authenticator, local_auth) -> SelectedSeekCred
         if not isinstance(value, str) or not value.startswith("Basic "):
             raise AuthenticationFailed("Selected Basic credential is unavailable.")
         return SelectedSeekCredential("basic", authorization=value)
-    username, password = request.session.get("username"), request.session.get("password")
+    username = request.session.get("username")
+    password = seek_password(request.session, username)
     if not isinstance(username, str) or not isinstance(password, str) or not username or not password:
         raise AuthenticationFailed("Selected session SEEK bridge is unavailable.")
     return SelectedSeekCredential("session", username=username, password=password)

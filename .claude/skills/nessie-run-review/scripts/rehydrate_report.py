@@ -73,8 +73,21 @@ _TRIAGE_KEYS = ("title", "eyebrow", "headline", "subhead", "runroot", "runline",
                 "notes_id", "notes_file")
 
 
+_DATA_RE = re.compile(r'<script type="application/json" id="review-data">(.*?)</script>', re.S)
+
+
 def _literal(html: str, name: str):
-    """Pull `const NAME = <json>;` back out of a built report."""
+    """Pull NAME (CASES, META, ...) back out of a built report.
+
+    A report from the schema-enforced generator embeds one `review-data` block; META also gets the
+    header fields (title, eyebrow, ...) the older `const META` never carried. A report from before
+    that carries `const NAME = <json>;` literals, read the old way.
+    """
+    m = _DATA_RE.search(html)
+    if m:
+        data = json.loads(m.group(1))
+        v = data.get(name.lower())
+        return {**data.get("header", {}), **v} if name == "META" else v
     m = re.search(rf"const {name}\s*=\s*(\[.*?\]|\{{.*?\}});", html, re.S)
     if not m:
         return None

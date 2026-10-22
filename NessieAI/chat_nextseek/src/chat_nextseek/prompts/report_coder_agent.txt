@@ -37,10 +37,14 @@ ALLOWED SYNTAX
   all, enumerate, range, isinstance, abs, round. (NOTE: map, zip, reversed, next are NOT
   available — use comprehensions and for-loops instead.)
 - str/dict methods incl. get, items, keys, values, append, extend, add, update, lower, upper,
-  strip, rstrip, lstrip, split, replace, startswith, endswith, find, rfind, index, join,
-  isdigit, title, count, setdefault, pop.
+  strip, rstrip, lstrip, split, rsplit, partition, rpartition, splitlines, replace,
+  removeprefix, removesuffix, startswith, endswith, find, rfind, index, rindex, join, isdigit,
+  isalpha, isalnum, isnumeric, isdecimal, isspace, islower, isupper, istitle, title, casefold,
+  capitalize, swapcase, zfill, center, ljust, rjust, count, setdefault, pop; list insert,
+  remove, sort, reverse, copy. NOT str.format or format_map: use + and str().
 
-HARD-FORBIDDEN (crash the sandbox, silent fallback to the LLM path):
+HARD-FORBIDDEN (the sandbox refuses the code; you get one retry told why, then the user is told
+the package could not be built):
   import/from-import, class, lambda, with, raise, del, global, nonlocal, generator
   expressions, eval/exec/compile/open/__import__/__builtins__, any __dunder__ access.
   Do not print. Do not access object internals (no .__class__, .gi_frame, .f_globals, etc.).

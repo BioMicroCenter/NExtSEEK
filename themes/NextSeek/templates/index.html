@@ -27,11 +27,7 @@
     <a class="dash-tile" href="/seek/search/">
       <div class="t-label">{% trans "Total samples" %}</div>
       <div class="t-num">{{ total_samples_count|default:0 }}</div>
-      {% if samples_delta_week %}
-        <div class="t-delta">+{{ samples_delta_week }} {% trans "this week" %}</div>
-      {% else %}
-        <div class="t-delta">&nbsp;</div>
-      {% endif %}
+      <div class="t-delta">&nbsp;</div>
     </a>
     <a class="dash-tile" href="/seek/projects/">
       <div class="t-label">{% trans "Active projects" %}</div>
@@ -72,7 +68,11 @@
             <span class="proj">{{ s.created_at|date:"M j, Y" }}</span>
           </li>
         {% empty %}
+          {% if request.user.is_authenticated %}
           <li class="dash-empty">{% trans "No recent activity yet." %}</li>
+          {% else %}
+          <li class="dash-empty"><a href="/login/?next=/">{% trans "Sign in to see samples." %}</a></li>
+          {% endif %}
         {% endfor %}
       </ul>
     </section>

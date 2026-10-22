@@ -15,8 +15,7 @@ FROM --platform=linux/amd64 python:3.14-slim-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
-ENV UV_INSTALL_DIR=/usr/local/bin
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+COPY --from=ghcr.io/astral-sh/uv:0.12.8 /uv /uvx /usr/local/bin/
 
 ENV VIRTUAL_ENV=/opt/proxy-venv PATH="/opt/proxy-venv/bin:$PATH"
 RUN uv venv /opt/proxy-venv

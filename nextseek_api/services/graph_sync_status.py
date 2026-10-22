@@ -40,7 +40,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from nextseek_api.authentication import CsrfExemptSessionAuthentication
+from nextseek_api.authentication import SeekSessionAuthentication
 from nextseek_api.endpoint_descriptions import GRAPH_SYNC_STATUS_DESC
 from nextseek_api.graph_sync import state, writer
 from nextseek_api.models import GraphSyncStatusResponse, JsonApiErrorResponse
@@ -90,7 +90,7 @@ class GraphSyncStatusViewSet(viewsets.ViewSet):
     the API root does not advertise this prefix.
     """
 
-    authentication_classes = [CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [SeekSessionAuthentication, BasicAuthentication]
     # IsAuthenticated first, so an anonymous caller gets 401 rather than 403. IsDjangoSuperuser, never DRF's
     # IsAdminUser: dmac/views.py sets is_staff on every SEEK user at login, so an is_staff gate enforces nothing.
     permission_classes = [IsAuthenticated, IsDjangoSuperuser]
@@ -98,7 +98,7 @@ class GraphSyncStatusViewSet(viewsets.ViewSet):
     def get_authenticate_header(self, request):
         """Advertise a challenge so an unauthenticated request is 401, not 403.
 
-        DRF asks only ``authenticators[0]``, and ``CsrfExemptSessionAuthentication`` has no challenge to give.
+        DRF asks only ``authenticators[0]``, and ``SeekSessionAuthentication`` has no challenge to give.
         Session auth stays first, which is what decides who authenticates. Same override as
         ``GraphSearchViewSet.get_authenticate_header``.
         """

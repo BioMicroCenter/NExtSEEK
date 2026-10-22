@@ -8,7 +8,8 @@ base. They hold no state of their own; every one of them operates on the
 from dmac.dbtable import DBtable
 from ..dbtable_sampleattribute import DBtable_sampleattribute
 from ..dbtable_sops import DBtable_sops
-from ..models import Samples
+from ..models import Samples, Projects_samples
+from django.db.models import Q
 from dmac.conversion import getDefaultDateTime
 import html
 from dmac.iocsv import saveDiclistIntoExcel
@@ -19,14 +20,13 @@ from .constants import SAMPLE_FILE_ACCESSOR_NAME, SAMPLE_FILTER_MAPPING, SAMPLE_
 from .upload import SampleUploadMixin, enqueueSampleSync
 from .download import SampleDownloadMixin
 from .search import SampleSearchMixin
-from .api import SampleApiMixin
 from .immport import SampleImmportMixin
 from .queries import SampleQueriesMixin
 from .trees import SampleTreesMixin
 from .core import SampleCore
 
 
-class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, SampleApiMixin, SampleImmportMixin, SampleQueriesMixin, SampleTreesMixin, SampleCore, DBtable):
+class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, SampleImmportMixin, SampleQueriesMixin, SampleTreesMixin, SampleCore, DBtable):
 
     def __init__(self, whichServer='default'):
         DBtable.__init__(self, 'SEEK', 'seek_development')
@@ -54,6 +54,14 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
         self.primaryField = "id"
         self.fieldMapping = SAMPLE_FILTER_MAPPING
         self.excludeFields = []
+
+    def retrieveRecords(self, username, filtersdic):
+        """The grid rows (``processRecords('retrieve')``): only the samples in ``restrictToProjects``' projects when it
+        was called. An empty project list matches no sample."""
+        if self._exportProjectIds is not None:
+            filtersdic['scope'] = Q(id__in=Projects_samples.objects.filter(
+                project_id__in=self._exportProjectIds).values('sample_id'))
+        return DBtable.retrieveRecords(self, username, filtersdic)
 
     def _deleteOneSample(self, sample_id, policy_id):
         sqlqueries = []
@@ -214,7 +222,8 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
         return weblink
 
     def _formatExternalLink(self, urlValue):
-        weblink = urlValue
+        # Rendered as raw HTML by the sample page: a value that is not a link is shown as text.
+        weblink = html.escape(urlValue)
         if ";" in urlValue:
             weblink = ''
             vis = urlValue.split(";")
@@ -241,7 +250,9 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
         return weblink
 
     def _formatLinkUrl(self, attrname, attrvalue):
-        weblink = attrvalue
+        # Rendered as raw HTML by the sample page (|safe): every value is escaped text unless a branch below builds
+        # a link from it, and those escape what they put in.
+        weblink = attrvalue if attrvalue is None else html.escape(attrvalue)
         value = attrvalue
         
         if SAMPLE_PARENT_ACCESSOR_NAME in attrname:
@@ -329,12 +340,13 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
                             attrdici['attrvalue'] = self._formatLinkUrl(headerStripped, valuestr)
                             diclist.append(attrdici)
                     except:
-                        attrdici['attrvalue'] = value
+                        attrdici['attrvalue'] = html.escape(str(value))
                         diclist.append(attrdici)
             
         return dici, diclist
 
-    def getSampleType(self, user_seek, sampletype_id, attribute, project_id=0):
+    def getSampleType(self, user_seek, sampletype_id, attribute, project_id=0, scoped_project_ids=None,
+                      filter_rule="No Filter", filter_valueFrom="", filter_valueTo=""):
         if attribute=='none':
             msg = 'ignore validation'
         else:
@@ -345,7 +357,7 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
                 reportData = simplejson.dumps(data, default=str)
                 return reportData
         
-        data = self._retrieveSamplesInType(user_seek, sampletype_id, project_id)
+        data = self._retrieveSamplesInType(user_seek, sampletype_id, project_id, scoped_project_ids)
         if attribute=='none':
             msg = 'ignore filtering'
         else:

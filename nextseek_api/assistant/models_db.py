@@ -3,6 +3,8 @@ import uuid
 from django.conf import settings
 from django.db import models
 
+from .spill import SpillJSONField
+
 
 class ChatSession(models.Model):
     session_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -11,9 +13,9 @@ class ChatSession(models.Model):
         on_delete=models.CASCADE,
         related_name="chat_sessions",
     )
-    results_history = models.JSONField(default=list)
-    last_debug = models.JSONField(default=dict)
-    extra_state = models.JSONField(default=dict)
+    results_history = SpillJSONField(default=list)
+    last_debug = SpillJSONField(default=dict)
+    extra_state = SpillJSONField(default=dict)
     title = models.CharField(max_length=200, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -55,8 +57,8 @@ class QueryTask(models.Model):
     )
     query = models.TextField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
-    progress = models.JSONField(default=list)
-    result = models.JSONField(null=True, blank=True)
+    progress = SpillJSONField(default=list)
+    result = SpillJSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     # The Container-CC turn whose pass started this task (a nested query/plan/pipeline turn), set once when a

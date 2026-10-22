@@ -27,7 +27,7 @@
 ## Pre-deploy checks (run before live verify)
 
 ```bash
-cd /home/taishajo/work/NExtSEEK && \
+cd /home/<user>/work/NExtSEEK && \
 PYTHONPATH="$PWD:$PWD/dmac_assistant/src" \
 uv run --no-project --with pytest --with orjson --with 'pydantic>=2.13' --with 'baml-py==0.222.0' \
   python -m pytest nextseek_api/cc_assistant/tests/ --noconftest -p no:cacheprovider -q \

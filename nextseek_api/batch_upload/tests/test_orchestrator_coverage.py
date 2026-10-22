@@ -199,7 +199,7 @@ class TestRunBatchUploadMultiRowsMode:
 
         mock_directions.return_value = DirectionComputation(
             direction_by_pair={}, parents_of={}, assays_by_uid={},
-            child_uids_by_assay={}, conflicts_by_assay={},
+            child_uids_by_assay={},
         )
         mock_build_rel.return_value = ({}, {}, set())
 
@@ -291,6 +291,33 @@ class TestBuildNeo4jOnlyOutcomes:
         assert result.outcomes["UID-1"].status == "success"
         assert result.outcomes["UID-MISSING"].status == "failed"
         assert len(ec.all_errors()) == 1
+
+    @patch("nextseek_api.batch_upload.orchestrator.get_connection")
+    @patch("nextseek_api.batch_upload.orchestrator.load_existing_samples")
+    def test_neo4j_only_unknown_uid_is_an_error(self, mock_load, mock_conn):
+        from nextseek_api.batch_upload.errors import Severity
+        from nextseek_api.batch_upload.orchestrator import _build_neo4j_only_outcomes
+        from nextseek_api.batch_upload.models import InsertableSample
+
+        mock_conn.return_value.__enter__ = MagicMock()
+        mock_conn.return_value.__exit__ = MagicMock(return_value=False)
+        mock_load.return_value = {}
+
+        samples = [InsertableSample(uuid="UID-MISSING", title="B", sample_type_id=1, json_metadata="{}")]
+        ec = ErrorCollector()
+        _build_neo4j_only_outcomes(samples, ec)
+        assert [e.severity for e in ec.all_errors()] == [Severity.ERROR]
+
+    def test_neo4j_only_uidless_row_is_an_error(self):
+        from nextseek_api.batch_upload.errors import Severity
+        from nextseek_api.batch_upload.tests.test_orchestrator_levels import FakeDB, _make_row, _run_orchestrator
+
+        rows = [_make_row("NHP-260101TST-1"), InputRowModel(UID=None, SampleType="NHP_blood", json_metadata="{}", assay_ids=[])]
+        result = _run_orchestrator(rows, FakeDB(), neo4j_only=True)
+        assert any(
+            e["message"] == "neo4j_only mode requires pre-assigned UID" and e["severity"] == "ERROR"
+            for e in result["errors"]
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -593,7 +620,7 @@ class TestAmbiguousIdentityHandling:
         )
         mock_neo4j_cfg.return_value = MagicMock(NEO4J_UPLOAD_ENABLED=False, MISSING_KEYS=["disabled"])
 
-        def _run_uid_gen(rows, lababbv, conn, error_collector):
+        def _run_uid_gen(rows, lababbv, conn, error_collector, reserve=True):
             reason = (
                 "ambiguous identity match: 2 existing samples with name_identity='Parent-X' - "
                 "duplicates must be resolved before batch can proceed (conflicting sample ids: [10, 20])"

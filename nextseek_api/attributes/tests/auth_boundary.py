@@ -20,6 +20,8 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.db import connections
 from django.test import override_settings
 from django.urls import resolve
+
+from dmac.session_login import store_seek_password
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIRequestFactory
 from rest_framework.views import APIView
@@ -121,7 +123,7 @@ class SeekAuthBoundary:
             session["_auth_user_hash"] = user.get_session_auth_hash()
             session["server"] = self.base_url
             session["username"] = login
-            session["password"] = password
+            store_seek_password(session, login, password)
             session.save()
             self._credentials[("session", login)] = BoundaryCredential(
                 "session", login, person_id, {}, {settings.SESSION_COOKIE_NAME: session.session_key},
@@ -207,17 +209,17 @@ class SeekAuthBoundary:
 
     def dispatch_neighbor_session_parity(self, operation):
         # Mirrors nextseek_api/batch_upload/views.py's AttributeJobViewSet composition
-        # (Token, CsrfExemptSessionAuthentication, Basic + IsAuthenticated) exactly, so
-        # this proves our recognized CsrfExemptSessionAuthentication subclass keeps that
+        # (Token, SeekSessionAuthentication, Basic + IsAuthenticated) exactly, so
+        # this proves our recognized SeekSessionAuthentication subclass keeps that
         # neighboring API's CSRF-exempt read/mutation parity rather than a plain
         # DRF SessionAuthentication substitution that would 403 on the POST case.
         from rest_framework.authentication import BasicAuthentication, TokenAuthentication
         from rest_framework.permissions import IsAuthenticated
-        from nextseek_api.authentication import CsrfExemptSessionAuthentication
+        from nextseek_api.authentication import SeekSessionAuthentication
         credential = self.credential("session", "valid-admin")
 
         class NeighborProbe(APIView):
-            authentication_classes = (TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication)
+            authentication_classes = (TokenAuthentication, SeekSessionAuthentication, BasicAuthentication)
             permission_classes = (IsAuthenticated,)
 
             def _respond(self, request):

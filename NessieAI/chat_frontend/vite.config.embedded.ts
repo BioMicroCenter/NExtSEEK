@@ -23,4 +23,9 @@ export default defineConfig({
   // outDir above resolve the same way whatever directory vite is launched from.
   // Kept below `base` so the line numbers the unit docs cite stay valid.
   root: __dirname,
+  // The embedded page logs in with the session cookie: never inline a login.
+  define: {
+    "import.meta.env.VITE_API_USER": '""',
+    "import.meta.env.VITE_API_PASS": '""',
+  },
 });

@@ -30,7 +30,8 @@ class SampleTreesMixin:
     _exportProjectIds = None
 
     def restrictToProjects(self, project_ids):
-        """Limit this instance's lineage exports to samples in ``project_ids``; None leaves them unscoped.
+        """Limit this instance's lineage exports and grid rows (``retrieveRecords``) to samples in ``project_ids``;
+        None leaves them unscoped.
 
         The legacy export views call it for a caller who is not a superuser, before any export method: the lineage
         walk from a sample in the caller's projects reaches relatives in other projects, and ``_scopeLineage`` keeps

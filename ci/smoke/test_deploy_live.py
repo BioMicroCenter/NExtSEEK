@@ -63,13 +63,13 @@ def test_the_served_chat_bundle_is_the_committed_one(anon, base_url):
         assert r.status_code == 200, (
             f"{url} returned {r.status_code}, but the checkout's {CHAT_MANIFEST} names "
             f"{name}: the rebuilt chat bundle was not collected. Run: docker compose "
-            f"exec nextseek uv run manage.py collectstatic --noinput"
+            f"exec web uv run manage.py collectstatic --noinput"
         )
         committed = (REPO_ROOT / CHAT_BUNDLE_DIR / name).read_bytes()
         assert r.content == committed, (
             f"{url} serves {len(r.content)} bytes that differ from the checkout's "
             f"{len(committed)}: the static volume holds another build's {name}. Run: "
-            f"docker compose exec nextseek uv run manage.py collectstatic --noinput"
+            f"docker compose exec web uv run manage.py collectstatic --noinput"
         )
 
 
@@ -145,6 +145,6 @@ def test_every_docs_page_and_its_images_are_served(anon, base_url):
                 problems.append(f"/docs/{slug}/ shows {src}, which is not served")
     assert not problems, (
         "\n".join(problems) + "\nA missing image means static was not collected after the "
-        "pull: docker compose restart nextseek. A missing page means the running app predates "
+        "pull: docker compose restart web. A missing page means the running app predates "
         "the docs route: ./startup.sh rebuild"
     )

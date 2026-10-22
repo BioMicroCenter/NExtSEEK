@@ -164,22 +164,25 @@ class TestBuildInsertable:
         assert "missing_assays" in warnings
         assert "99" in warnings["missing_assays"][0]
 
-    @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
-    @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
-    def test_per_row_project_id_override(self, mock_resolve, mock_validate):
-        mock_resolve.return_value = 42
-        mock_validate.return_value = (set(), set())
-
+    def test_row_naming_another_project_is_refused(self):
         row = InputRowModel(
             UID="TEST-260101MIT-3",
             SampleType="NHP_blood",
             json_metadata="{}",
             project_id=99,
         )
+        with pytest.raises(ValueError, match="names project 99; this upload is for project 10"):
+            build_insertable(row, project_id=10, conn=MagicMock())
+
+    @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
+    @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
+    def test_row_naming_the_same_project_is_accepted(self, mock_resolve, mock_validate):
+        mock_resolve.return_value = 42
+        mock_validate.return_value = (set(), set())
+        row = InputRowModel(UID="TEST-260101MIT-3", SampleType="NHP_blood", json_metadata="{}", project_id=10)
         conn = MagicMock()
         build_insertable(row, project_id=10, conn=conn)
-        # Should use per-row project_id=99
-        mock_resolve.assert_called_once_with("NHP_blood", 99, conn)
+        mock_resolve.assert_called_once_with("NHP_blood", conn)
 
     @patch("nextseek_api.batch_upload.transform.validate_assay_ids")
     @patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")

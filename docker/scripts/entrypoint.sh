@@ -1,8 +1,21 @@
 #!/usr/bin/env bash
 
-# NExtSEEK writes Excel exports + upload/dropbox staging under MEDIA_ROOT
-# (/media), which is not a docker volume, so the subdirs don't exist on a fresh
-# container. Without them, export/retrieve/delete/publish all 500 with
+# Two modes of one image (compose services `nextseek` and `web`):
+#   worker (default) -- the only migrator: DB probe, migrate, the batch-upload recovery and the nine background
+#                       loops. It serves nothing, so collectstatic is not its job.
+#   web              -- collectstatic, DB probe, waits for the worker's migrations (it never migrates), then the
+#                       web server. On a stop it drains: no new chat turns, running ones finish (capped), the rest
+#                       are ended with a plain message, then the server is stopped.
+MODE="${1:-worker}"
+case "$MODE" in
+  worker|web) ;;
+  *) echo "[entrypoint] unknown mode '$MODE' (expected worker or web)" >&2; exit 2 ;;
+esac
+
+# NExtSEEK writes upload/dropbox staging and the legacy download/ tree under
+# MEDIA_ROOT (/media, the nextseek-media volume shared by the worker and web),
+# and a fresh volume has none of the subdirs. Without them, export/retrieve/
+# delete/publish all 500 with
 # "Cannot save file into a non-existent directory: '/media/download'".
 mkdir -p /media/download /media/uploads /media/uploads/production /media/dropbox /media/reserved
 
@@ -15,12 +28,18 @@ mkdir -p /media/download /media/uploads /media/uploads/production /media/dropbox
 # image's venv is final (the first-party packages are editable installs of the
 # tree), and a sync re-installs those two packages on each new container's first
 # command, which is time between a restart and the first served request.
-uv run --no-sync manage.py collectstatic --noinput || {
-  echo "[COLLECTSTATIC-FAILED] FATAL: manage.py collectstatic exited non-zero;" \
-       "refusing to start servers with missing/stale static assets." \
-       "Common cause is a full disk (ENOSPC) on the static volume." >&2
-  exit 1
-}
+if [ "$MODE" = "web" ]; then
+  # A stop before the server runs (collectstatic, the migrate wait below) exits at once: bash as PID 1 ignores a
+  # TERM it has no trap for, which would sit out the whole stop_grace_period. The drain trap replaces this once the
+  # server runs.
+  trap 'exit 143' TERM INT
+  uv run --no-sync manage.py collectstatic --noinput || {
+    echo "[COLLECTSTATIC-FAILED] FATAL: manage.py collectstatic exited non-zero;" \
+         "refusing to start servers with missing/stale static assets." \
+         "Common cause is a full disk (ENOSPC) on the static volume." >&2
+    exit 1
+  }
+fi
 
 # R3: bounded DB-readiness probe. Distinguishes a transient cold-boot ordering
 # gap (db container up but mysqld not yet accepting connections) from a real
@@ -53,13 +72,29 @@ fi
 # fixed. If the failure is the heal's orphan guard, the remediation is manual
 # row triage (inspect/delete/reparent orphaned assistant_cc_transcript rows);
 # NEVER `migrate --fake` — that is what produced the FK-less fourth state.
-uv run --no-sync manage.py migrate --noinput || {
-  echo "[MIGRATE-FAILED] FATAL: manage.py migrate exited non-zero;" \
-       "refusing to start servers on an unmigrated schema." \
-       "Fix the migration wedge (for the cc-transcript orphan guard: manual" \
-       "row triage, never --fake) and let the container restart." >&2
-  exit 1
-}
+if [ "$MODE" = "web" ]; then
+  # Never migrates: the worker is the only migrator, and two web containers running one migration is how a
+  # schema gets hurt. Wait, bounded, until it has finished; a timeout crash-loops under `restart: always`.
+  _mw_deadline=$((SECONDS + ${NEXTSEEK_MIGRATE_WAIT_SECONDS:-300}))
+  until uv run --no-sync manage.py migrate --check >/dev/null 2>&1; do
+    if [ "$SECONDS" -ge "$_mw_deadline" ]; then
+      echo "[MIGRATE-WAIT-FAILED] FATAL: migrations were still pending after" \
+           "${NEXTSEEK_MIGRATE_WAIT_SECONDS:-300}s; the worker (service nextseek) applies them." \
+           "Check its log for [MIGRATE-FAILED]." >&2
+      exit 1
+    fi
+    echo "[entrypoint] waiting for the worker's migrations..." >&2
+    sleep "${NEXTSEEK_MIGRATE_WAIT_INTERVAL:-5}"
+  done
+else
+  uv run --no-sync manage.py migrate --noinput || {
+    echo "[MIGRATE-FAILED] FATAL: manage.py migrate exited non-zero;" \
+         "refusing to start servers on an unmigrated schema." \
+         "Fix the migration wedge (for the cc-transcript orphan guard: manual" \
+         "row triage, never --fake) and let the container restart." >&2
+    exit 1
+  }
+fi
 
 # Web server, selectable via NEXTSEEK_SERVER (default: daphne).
 #   daphne   — ASGI (dmac.asgi); serves the assistant WebSocket
@@ -67,16 +102,75 @@ uv run --no-sync manage.py migrate --noinput || {
 #   gunicorn — WSGI (dmac.wsgi); multi-worker, no WebSocket. The chat frontend
 #              auto-falls back to HTTP polling (chatApi.ts), so the assistant
 #              still works; lower-risk drop-in for a shared/multi-user instance.
-if [ "${NEXTSEEK_SERVER:-daphne}" = "gunicorn" ]; then
-  uv run --no-sync gunicorn dmac.wsgi &
-else
-  uv run --no-sync daphne -b 0.0.0.0 -p 8000 dmac.asgi:application &
+if [ "$MODE" = "web" ]; then
+  if [ "${NEXTSEEK_SERVER:-daphne}" = "gunicorn" ]; then
+    uv run --no-sync gunicorn dmac.wsgi &
+  else
+    uv run --no-sync daphne -b 0.0.0.0 -p 8000 dmac.asgi:application &
+  fi
+  _server_pid=$!
+
+  # Drain on stop. Chat turns run on threads inside the server and each leaves a marker file (turn_drain.py), so
+  # the count is a directory listing. The flag makes the turn-start views answer 503; the markers of turns that
+  # outlast the cap are handed to end_cut_turns, which ends them with a plain message at once.
+  _turn_dir="${NEXTSEEK_TURN_DIR:-/tmp/nextseek-turns}"
+  _turns_running() {
+    _remaining=()
+    for _m in "$_turn_dir"/*; do
+      [ -f "$_m" ] && _remaining+=("$(basename "$_m")")
+    done
+  }
+  _drain_and_stop() {
+    touch "$_turn_dir/.draining"
+    _d_deadline=$((SECONDS + ${NEXTSEEK_DRAIN_SECONDS:-240}))
+    _turns_running
+    while [ "${#_remaining[@]}" -gt 0 ] && [ "$SECONDS" -lt "$_d_deadline" ]; do
+      echo "[drain] ${#_remaining[@]} turns running" >&2
+      sleep "${NEXTSEEK_DRAIN_POLL:-10}"
+      _turns_running
+    done
+    if [ "${#_remaining[@]}" -gt 0 ]; then
+      echo "[drain] cap reached; ending ${#_remaining[@]} turns" >&2
+      uv run --no-sync manage.py end_cut_turns "${_remaining[@]}" || echo "[drain] end_cut_turns failed" >&2
+    fi
+    kill -TERM "$_server_pid" 2>/dev/null
+    wait "$_server_pid"
+    exit 143
+  }
+  rm -rf "$_turn_dir"   # a restarted container keeps /tmp: no stale flag or marker may survive the start
+  mkdir -p "$_turn_dir"
+  trap _drain_and_stop TERM INT
+  wait "$_server_pid"
+  exit $?
 fi
+
+case "${BATCH_UPLOAD_STATE_DIR:-/var/celery}" in
+  /var/celery|/var/celery/*) ;;
+  *) echo "[entrypoint] WARNING: BATCH_UPLOAD_STATE_DIR=${BATCH_UPLOAD_STATE_DIR} is not under /var/celery (the batch_upload_state volume): queued uploads will not survive a recreate" >&2 ;;
+esac
+
+# Boot recovery: no worker is running yet, so any job still STARTED/PROGRESS was killed by the restart.
+# Fail it (never re-run it) so its status page ends. Queued, not-yet-started jobs are kept.
+uv run --no-sync manage.py mark_interrupted_batch_jobs || echo "[entrypoint] mark_interrupted_batch_jobs failed; continuing" >&2
 
 uv run --no-sync celery -A nextseek_api.batch_upload.celery_app worker \
               --loglevel=info \
               -Q batch_upload \
               --concurrency=1 &
+
+# The Container-CC summary sweep (paid, ~200 s on a backlog) gets its own worker on the same broker, so it never
+# holds up an upload. Same shape as the worker plus beat sharing that broker file.
+uv run --no-sync celery -A nextseek_api.batch_upload.celery_app worker \
+              --loglevel=info \
+              -Q cc_summaries \
+              --hostname=cc_summaries@%h \
+              --concurrency=1 &
+
+# The beat that queues the periodic jobs in celery_app.py (summary sweep, stuck-turn reaper, session clean-up).
+# Its schedule file sits on /var/celery; every entry expires, so a busy worker drops missed runs.
+uv run --no-sync celery -A nextseek_api.batch_upload.celery_app beat \
+              --loglevel=info \
+              --schedule "${BATCH_UPLOAD_STATE_DIR:-/var/celery}/celerybeat-schedule" &
 
 # ---------------------------------------------------------------------------
 # The attribute-mutation pipeline and the assay-registration drain loop.
@@ -95,23 +189,24 @@ uv run --no-sync celery -A nextseek_api.batch_upload.celery_app worker \
 # WHAT THE FOLD GAVE UP, deliberately (Taisha's DD-29, task-08):
 #   * Container-level isolation. Each of the four carried its own CPU and
 #     memory ceiling (1.0/1G for the worker, 0.25/1G for the rest); inside this
-#     container they inherit the app's, which is uncapped. `--concurrency=1`
-#     still bounds the attribute worker, and a memory limit on THIS container
-#     would risk the web server rather than one worker, so the ceiling is gone
-#     on purpose. An attribute backlog can now cost the app container's memory.
-#   * Independent restart. `wait -n` below means any one of these six processes
-#     exiting takes the whole container down for compose to restart, so a
-#     dispatcher crash now bounces the web server too. That is what the
-#     batch_upload worker has always done here; the fold widens it to four more.
+#     container they share the worker's (NEXTSEEK_WORKER_MEMORY since the web
+#     server moved to its own `web` service). `--concurrency=1` still bounds the
+#     attribute worker. An attribute backlog can cost the other loops' memory,
+#     never the web server's.
+#   * Independent restart. `wait -n` below means any one of these background processes
+#     exiting takes the whole worker container down for compose to restart, so a
+#     dispatcher crash bounces the other loops too (not the web server, which runs
+#     in `web`). That is what the batch_upload worker has always done here; the
+#     fold widens it to four more.
 # What it did NOT give up: the queues stay separate (a backlog on one cannot
 # starve the other's worker), the recovery scheduler still runs no Celery
 # command and holds no broker, and the dispatcher is still the sole publisher.
 #
 # Two brokers in one container, on purpose. The attribute queue keeps the
-# durable volume it had as a service; the batch_upload queue keeps the
-# container-local default it had as a process here. Setting one container-wide
-# CELERY_BROKER_URL would move batch_upload onto a volume that survives a
-# recreate, and a queued upload would re-run after a deploy.
+# durable volume it had as a service; the batch_upload queue keeps its own
+# default, SQLite files under BATCH_UPLOAD_STATE_DIR (/var/celery, the
+# batch_upload_state volume), so a queued upload survives a recreate. Setting one
+# container-wide CELERY_BROKER_URL would put the two queues on one broker.
 _ATTRIBUTE_BROKER="sqla+sqlite:////var/lib/attribute-broker/broker.sqlite3"
 
 CELERY_BROKER_URL="$_ATTRIBUTE_BROKER" \
@@ -157,7 +252,7 @@ uv run --no-sync python manage.py run_share_jobs --interval 5 &
 # the whole container down, so the loop gets a `while` that never returns, and
 # with the switch off there is no job for `wait -n` to see at all. This is the
 # one runtime of this container that has to survive its own crash instead of
-# bouncing the web server with it, which is why it restarts itself after a
+# bouncing every other loop with it, which is why it restarts itself after a
 # delay rather than leaving that to compose. The contract is executed, block
 # and all, by nextseek_api/tests/test_graph_sync_entrypoint.py.
 if [ "${NEXTSEEK_GRAPH_SYNC_LOOP:-1}" = "1" ]; then

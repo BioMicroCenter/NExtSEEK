@@ -316,6 +316,34 @@ class DispatchTests(SimpleTestCase):
         self.assertTrue(captured["user_query"].strip(), "blank query reached generate_report_outputs")
         self.assertIn("GEO", captured["user_query"])
 
+    def test_generate_submission_hands_the_coder_in(self):
+        """Above 10 samples the workbook is built by report_coder from the metadata map, on the CC road too: without
+        it a large GEO package sent the whole set to the report writer, whose input overflowed (prod 10-14)."""
+        captured = {}
+
+        def fake_gro(**kw):
+            captured.update(kw)
+            return {"reports": []}, {"all_samples": {"report_type": "GEO", "report": {}}}, {}, ""
+        with patch("chat_nextseek.portable.generate_report_outputs", side_effect=fake_gro), \
+             patch("chat_nextseek.portable.report_writer_agent"), \
+             patch("chat_nextseek.agents.reporter.report_coder_agent") as rca:
+            self._run("generate-submission", {"type": "GEO", "uids": "MUS-1"}, outputs_dir="/o")
+        self.assertIs(captured["report_coder_fn"], rca)
+
+    def test_generate_submission_turns_a_failed_code_path_into_a_plain_note(self):
+        from chat_nextseek.reports.outputs import ReportCodePathError
+
+        def fake_gro(**kw):
+            raise ReportCodePathError("parity", "I couldn't build the GEO package for this set.")
+        with patch("chat_nextseek.portable.generate_report_outputs", side_effect=fake_gro), \
+             patch("chat_nextseek.portable.report_writer_agent"), \
+             patch("chat_nextseek.agents.reporter.report_coder_agent"):
+            out = self._run("generate-submission", {"type": "GEO", "uids": "MUS-1"}, outputs_dir="/o")
+        self.assertEqual(out["report_type"], "GEO")
+        self.assertEqual(out["report"], {})
+        self.assertEqual(out["notes"], "I couldn't build the GEO package for this set.")
+        self.assertEqual(out["saved_files"], {})
+
     # --- validation / unknown op ---
     def test_api_read_invalid_json_raises_validation(self):
         with self.assertRaises(OpValidationError):

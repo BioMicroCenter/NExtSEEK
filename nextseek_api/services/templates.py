@@ -30,7 +30,7 @@ from nextseek_api.endpoint_descriptions import (
 )
 from nextseek_api.models import TemplateCatalogResponse, TemplateGenerateRequest
 from nextseek_api.permissions import IsSuperUser
-from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
+from nextseek_api.services.assistant import SeekSessionAuthentication
 from nextseek_api.services.sample_workbook import render_template_workbook
 from nextseek_api.services.template_catalog import build_catalog, select_entries
 
@@ -51,7 +51,7 @@ class TemplatesViewSet(viewsets.ViewSet):
     # session authenticator still runs.
     #
     # No TokenAuthentication: token auth does not work in this project.
-    authentication_classes = [BasicAuthentication, CsrfExemptSessionAuthentication]
+    authentication_classes = [BasicAuthentication, SeekSessionAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get_permissions(self):

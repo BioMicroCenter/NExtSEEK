@@ -15,6 +15,10 @@ import tempfile
 # an explicit LOG_DIR in the environment still wins.
 os.environ.setdefault("LOG_DIR", os.path.join(tempfile.gettempdir(), "nextseek-test-logs"))
 
+# The batch-upload queue keeps its broker, results, job index, uploads and cancel markers under
+# BATCH_UPLOAD_STATE_DIR (production: /var/celery). A test run must not need that directory: a runner has none.
+os.environ.setdefault("BATCH_UPLOAD_STATE_DIR", tempfile.mkdtemp(prefix="nextseek-test-state-"))
+
 # The app-ready hook prefetches nf-core schemas over HTTPS. Tests must not.
 os.environ.setdefault("NEXTSEEK_SKIP_SCHEMA_WARM", "1")
 
@@ -85,3 +89,20 @@ STORAGES = {
 # No test starts a background model call unless it asks to: the vocabulary pre-run is off here, and the tests of it
 # switch it on (NessieAI/cc/prerun.py).
 NESSIE_VOCAB_PRERUN = "off"
+
+# The SQLite lane builds the seek alias through migrations.
+SEEK_ALIAS_MIGRATABLE = True
+
+# settings.py allows the Vite dev origin only under DEBUG; the CORS and websocket-origin tests use it as their example.
+CORS_ALLOWED_ORIGINS = ["http://localhost:5173"]
+
+# Request-rate limits (nextseek_api/throttles.py): out of the way for the suite, counted in memory. The tests of
+# the limits set small rates themselves.
+CACHES = {
+    "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+    "throttle": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "throttle-tests"},
+}
+REST_FRAMEWORK = {
+    **REST_FRAMEWORK,
+    "DEFAULT_THROTTLE_RATES": {k: "100000/min" for k in ("anon", "user", "turn_start", "upload")},
+}

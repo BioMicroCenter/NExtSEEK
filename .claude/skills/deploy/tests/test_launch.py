@@ -481,6 +481,31 @@ def test_the_runner_renders_and_parses(tmp_path, capsys):
     assert "marker nextseek /app/NessieAI/cc/translate.py 'cost_by_price_table_usd'" in text
 
 
+def test_the_runner_reads_the_web_process_from_the_web_service(tmp_path, capsys):
+    """The app image runs as a worker (`nextseek`) and `web` (SPEC-PLAN section 1). What means the
+    web process (collectstatic, the CC runner, the boot markers, the labs line) is read from `web`;
+    the worker keeps its name, so every other `docker exec nextseek` stays."""
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    assert "compose exec -T web uv run manage.py collectstatic" in text
+    assert "exec -T nextseek uv run manage.py collectstatic" not in text
+    assert "logs --no-log-prefix web" in text and "docker logs nextseek 2>&1 | grep -F '[CONFIG][LABS]'" not in text
+    boot = next(ln for ln in text.splitlines() if "CHECK boot_markers" in ln)
+    assert "logs --no-log-prefix web" in boot and "docker logs nextseek" in boot   # the worker migrates
+    assert "compose exec -T web uv run --no-sync python -c 'from NessieAI.cc import cc_engine" in text
+    assert "for s in web cc-spawner;" in text and "CHECK container $s " in text and "compose ps -q $s" in text
+
+
+def test_the_labs_copy_writes_once_to_the_shared_path_and_restarts_nothing(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    assert "docker compose cp /tmp/labs_db.json nextseek:/media/context/labs_db.json" in text
+    assert "mkdir -p /media/context" in text
+    after = text.split("LABS copied", 1)[1].split("else", 1)[0]
+    assert "restart" not in after and "sleep 60" not in after
+    assert "stat -c %y /media/context/labs_db.json" in text
+
+
 def test_the_paid_step_needs_every_model_id_proven(tmp_path, capsys):
     # 2026-09-28: a refused id silently moves to the fallback (F1), so a paid run needs the green line itself
     from rules import HEALTH_NEEDS
@@ -1005,6 +1030,11 @@ def test_absent_instance_key_is_named(tmp_path, monkeypatch):
     ("NessieAI/docker/bedrock-proxy/Dockerfile", ("bedrock-proxy",)),
     ("NessieAI/docker/ns-sidecar/__init__.py", ("nextseek-sidecar",)),
     ("NessieAI/docker/ns-sidecar/app/contract.py", ("nextseek-sidecar",)),
+    ("docker/cc-spawner/Dockerfile", ("cc-spawner",)),
+    ("docker/cc-spawner/spawner.py", ("cc-spawner",)),
+    ("docker/cc-spawner/seek_scripts/create.rb", ("cc-spawner",)),
+    ("docker/cc-spawner/README.md", ()),
+    ("docker/cc-spawner/tests/test_spawner.py", ()),
     ("NessieAI/docker/bedrock-proxy/README.md", ()),
     ("NessieAI/docker/ns-sidecar/README.md", ()),
     ("NessieAI/docker/cc-runtime/docs/nextseek/01-overview.md", ("cc-agent",)),
@@ -1351,3 +1381,81 @@ def test_prod_short_form_dry_run_names_every_remote_command_and_touches_no_host(
     transcript.write_text("\n".join(f"{' '.join(e['argv'])}\n--- remote script ---\n{e['script']}" for e in log))
     if os.environ.get("DEPLOY_DRYRUN_OUT"):
         Path(os.environ["DEPLOY_DRYRUN_OUT"]).write_text(transcript.read_text() + "\n=== runner ===\n" + runner.read_text())
+
+
+def test_prompt_txt_needs_the_app_image():
+    prompt = "NessieAI/chat_nextseek/src/chat_nextseek/prompts/graph_agent.txt"
+    assert rules.rule_for(prompt).images == ("app",)
+    assert rules.rule_for("ci/pytest-baseline.txt").images == ()
+
+
+def test_parse_nessie_log_reads_the_case_and_run_cost_columns():
+    got = L.parse_nessie_log((FIX / "real-nessie-case-run.log").read_text())
+    cases = got["cases"]
+    assert len(cases) == 6
+    assert cases[0]["id"] == "report.geo_for_those_mice" and cases[0]["cost_usd"] == 0.4725
+    assert cases[1]["cost_usd"] == 0.3329 and cases[1]["cost_running_usd"] == 0.8054
+    assert cases[0]["elapsed"] == "4m05s" and cases[0]["turn_s"] == 244.3
+    # '~$' marks a floor for the case, '>=$' one for the run
+    floor = next(c for c in cases if c["id"] == "unsup.method_refusal_not_sticky")
+    assert floor["cost_usd"] == 0.0367 and floor["cost_floor"] is True
+    assert floor["cost_running_usd"] == 1.3304
+    failed = cases[-1]
+    assert failed["status"] == "FAIL" and failed["failed"] == "main:last_reply"
+
+
+def test_parse_nessie_log_reads_unpriced_cells_and_a_fallback_note():
+    line = ("[  3/9] SKIP   a.b                                  -                  0.0s  case -         "
+            "run $1.0000     1m00s")
+    line2 = ("[  4/9] PASS   a.c                                  container_cc       9.0s  case $?        "
+             "run >=$1.0000   1m10s  fallback 2")
+    got = L.parse_nessie_log(line + "\n" + line2 + "\n")
+    assert [c["cost_usd"] for c in got["cases"]] == [None, None]
+    assert got["cases"][1]["fallback"] == 2
+
+
+def test_the_runner_reads_a_rollback_tag_the_rebuild_log_wrapped(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys)
+    script = tmp_path / "rb.sh"
+    log = FIX / "real-rebuild-wrapped-rollback.log"
+    script.write_text(f'{_functions(text)}\nrollback_tag "{log}"\n')
+    r = subprocess.run(["bash", str(script)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "rollback tag verified: nextseek-bedrock-proxy:pre-20261015T122302-befd5eb4"
+
+
+def test_an_nginx_flagged_launch_that_allows_the_recreate_renders_the_flag(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"], nginx_change_expected=True,
+                              allowed_extras=["nginx recreate ok"])
+    on = re.search(r'^RECREATE_NGINX_ON="(\S+)"$', text, re.M)
+    assert on and on.group(1) in ("app", "cc-agent")
+    assert "--recreate-nginx" in text and "NGINX_RECREATE" in text
+
+
+def test_the_nginx_recreate_rides_the_app_rebuild_when_app_is_rebuilt(tmp_path, capsys):
+    # nginx.conf proxies to the `web` service, which only the app rebuild creates or replaces: recreating
+    # nginx with an earlier component (cc-spawner) points it at nothing until the app rebuild ends.
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-spawner", "app", "cc-agent"],
+                              nginx_change_expected=True, allowed_extras=["nginx recreate ok"])
+    assert re.search(r'^RECREATE_NGINX_ON="app"$', text, re.M)
+
+
+def test_without_the_extra_the_runner_recreates_nothing(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"], nginx_change_expected=True)
+    assert 'RECREATE_NGINX_ON=""' in text
+
+
+def test_cc_spawner_is_a_component_rebuilt_before_the_app(tmp_path, capsys):
+    """Parity with the CLI's `--component cc-spawner`. It goes before app so a new web never
+    meets an old spawner API. Rebuilding it cuts a CC turn streaming through it."""
+    assert rules.COMPONENTS.index("cc-spawner") < rules.COMPONENTS.index("app")
+    assert rules.LOG_NAME["cc-spawner"] == "spawner"
+    assert rules.SUCCESS_LINE["cc-spawner"] == "cc-spawner rebuilt and restarted"
+    assert "cc-spawner" in rules.STEP_MINUTES
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-spawner", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    assert 'COMPONENTS="cc-spawner app"' in text
+    assert "docker inspect -f 'status=" in text and "for k in nextseek nextseek-sidecar dmac-bedrock-proxy;" in text and "for s in web cc-spawner;" in text
+    assert "nextseek-cc-spawner:latest" in text
+    note = (Path(__file__).resolve().parents[1] / "references" / "dev.md").read_text()
+    assert "cuts a CC turn" in note

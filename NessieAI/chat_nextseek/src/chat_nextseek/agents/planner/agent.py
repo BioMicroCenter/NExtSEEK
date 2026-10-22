@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -13,6 +12,7 @@ from ...helpers import (
     build_recent_results_summary,
     safe_parse_json,
 )
+from ...helpers.tools.row_compute import run_code_isolated
 from ...schemas.schema_helper import call_llm_structured, call_llm_text
 from ...schemas import (
     ContextEngineerOutput,
@@ -436,20 +436,18 @@ def context_engineer_step(
     output_section = tool_output.get("output") or {}
     data_rows = output_section.get("data") or []
     rows_for_exec = data_rows if isinstance(data_rows, list) else []
+    # Bound before the try: the fallback below reads it too, and refused code never reaches the line after the run.
+    ce_keys = {"extraction_code", "enriched_context", "method", "notes"}
 
     try:
-        exec_scope: dict = {
-            "data": tool_output,     # full {ok, tool, output, error} dict
-            "rows": rows_for_exec,   # convenience: the actual data list
-            "json": json,
-            "re": re,
-        }
-        exec(ce_out.extraction_code, exec_scope)  # noqa: S102
-        extracted = exec_scope.get("result", {})
-        if not isinstance(extracted, dict):
-            extracted = {"value": extracted}
+        # The code runs in a separate, limited process, held to the memory-code subset (SEC-002): ``data`` is the
+        # full {ok, tool, output, error} dict and ``rows`` the data list, which the sandbox reads from
+        # data["data"]["rows"]. A refusal or a failure falls back to LLM extraction below.
+        run = run_code_isolated(ce_out.extraction_code, {**tool_output, "data": {"rows": rows_for_exec}})
+        if not run["ok"]:
+            raise RuntimeError(run["error"])
+        extracted = run["result"]
         # Reject if the result looks like a ContextEngineerOutput (LLM confused the format)
-        ce_keys = {"extraction_code", "enriched_context", "method", "notes"}
         if ce_keys.issubset(extracted.keys()):
             raise ValueError("exec result looks like a CE schema object, not extracted data")
         print(f"[DEBUG][CTX_ENG] extracted keys={list(extracted.keys())}")

@@ -1,13 +1,13 @@
 # Phase 2 fresh review (iter 21) — TARGET: PLAN-7-compose-native-prod-deploy.md
 
 Cold-context independent review. Authority hierarchy: SPEC-7 (locked design) > PLAN-7 > task specs.
-Verified live against source under `/home/taishajo/work/NExtSEEK`, docker-py 7.1.0 in the dmac venv,
+Verified live against source under `/home/<user>/work/NExtSEEK`, docker-py 7.1.0 in the dmac venv,
 and the sibling PLAN-3 Task 13 Step 8 handshake.
 
 ## Verified-GOOD (no finding — recorded so the next reviewer need not re-derive)
 
 - **docker-py `VolumeOptions.Subpath` raw-dict primary (Task 6).** Probed docker-py **7.1.0** in
-  `/home/taishajo/work/dmac-assistant/.venv`: `docker.types.Mount` **is a `dict` subclass**;
+  `/home/<user>/work/dmac-assistant/.venv`: `docker.types.Mount` **is a `dict` subclass**;
   `m["VolumeOptions"] = {"Subpath": "p/u/input"}` serializes to
   `{'Target','Source','Type','ReadOnly','VolumeOptions':{'Subpath':...}}` — exactly the PascalCase
   Engine-API payload the `_mount_volume_subpath` helper (PLAN-7 Task 6 Step 2) claims. The "no

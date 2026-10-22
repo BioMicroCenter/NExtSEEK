@@ -125,3 +125,10 @@ def test_sample_type_requirements_ddl_file_exists():
     ddl = root / "startup/seed/sql/sample_type_requirements.sql"
     assert ddl.is_file()
     assert "CREATE TABLE IF NOT EXISTS sample_type_requirements" in ddl.read_text()
+
+
+@patch(f"{sf.__name__}.compose_exec")
+def test_database_check_failure_propagates(mock_exec: MagicMock) -> None:
+    mock_exec.side_effect = DockerOpsError("boom")
+    with pytest.raises(DockerOpsError):
+        sf._database_exists(TABLE_FIX, REPO_ROOT, {})

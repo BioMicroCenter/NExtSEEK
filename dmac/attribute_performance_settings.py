@@ -30,7 +30,3 @@ DATABASES = {
 }
 SEEK_DATABASE = "seek"
 DATABASE_ROUTERS = ["seek.dbrouters.CustomRouter"]
-
-# Registers Celery worker-process/task hooks before the app imports task modules.
-if os.environ.get("ATTRIBUTE_WORKER_TELEMETRY_RESULTS"):
-    from nextseek_api.attributes.tests import performance_worker_telemetry  # noqa: F401,E402

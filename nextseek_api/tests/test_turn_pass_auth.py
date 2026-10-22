@@ -90,6 +90,7 @@ def test_the_pass_validates_an_upload():
     result = MagicMock()
     result.model_dump.return_value = {"ok": True}
     with patch("nextseek_api.batch_upload.views._save_uploaded_file", return_value="/tmp/turn-pass-test.xlsx"), \
+         patch("nextseek_api.batch_upload.views._caller_project_scope", return_value=(1,)), \
          patch("nextseek_api.batch_upload.views.run_validation_multi", return_value=result) as validate:
         resp = APIClient().post(
             "/nextseek_api/batch-upload/validate/",

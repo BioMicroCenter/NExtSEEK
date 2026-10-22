@@ -13,8 +13,12 @@ def test_uids_from_api_rows_strips_html():
 
 
 def test_uids_falls_back_to_reporter_plan():
-    sess = _session([{"api_result_full": {}, "reporter_plan": {"uids": ["MUS-9-PUB"]}}])
+    # A generated report's plan names the samples it packaged; a summary's holds only the parser's carried few.
+    sess = _session([{"api_result_full": {}, "reporter_plan": {"reporter_mode": "report_generation",
+                                                               "uids": ["MUS-9-PUB"]}}])
     assert uids_from_last_search(sess) == ["MUS-9-PUB"]
+    sess["results_history"][0]["reporter_plan"]["reporter_mode"] = "summary"
+    assert uids_from_last_search(sess) == []
 
 
 def test_summarize_pinned_bundle_empty():
@@ -40,3 +44,105 @@ def test_uids_from_advanced_search_samples_key():
 def test_summarize_counts_samples_key():
     sess = _session([{"user_query": "Find me NHP", "api_result_full": {"data": {"samples": [1, 2, 3]}}}])
     assert "~3 rows" in summarize_pinned_bundle(sess)
+
+
+# A graph search keeps its rows in graph_result.data, a plan in its last step's output: the
+# pipeline agent read neither, so "run rnaseq on those mice" after "find me mice treated with
+# NDMA" (231 rows, dev 10-13) answered "no pinned search results".
+NDMA = [{"id": f"MUS-200901ENG-{n}-PUB", "uuid": f"MUS-200901ENG-{n}-PUB", "type": "MUS", "Treatment1": "NDMA"}
+        for n in (23, 24, 25)]
+
+
+def test_uids_from_a_graph_search():
+    sess = _session([{"id": 1, "mode": "graph_query", "user_query": "Find me mice treated with NDMA.",
+                      "graph_result": {"ok": True, "count": 3, "data": NDMA}}])
+    assert uids_from_last_search(sess) == [r["uuid"] for r in NDMA]
+    assert summarize_pinned_bundle(sess) == "last search: query='Find me mice treated with NDMA.', ~3 rows"
+
+
+def test_uids_from_a_graph_column_the_query_did_not_alias():
+    sess = _session([{"graph_result": {"ok": True, "data": [{"s.uuid": "NHP-220913SED-16-PUB", "s.Sex": "F"}]}}])
+    assert uids_from_last_search(sess) == ["NHP-220913SED-16-PUB"]
+
+
+def test_a_graph_breakdown_holds_no_uids_so_the_search_before_it_is_used():
+    sess = _session([
+        {"graph_result": {"ok": True, "data": NDMA}},
+        {"graph_result": {"ok": True, "data": [{"name": "RNA-seq", "n": 5}, {"name": "Mouse", "n": 2}]}},
+    ])
+    assert uids_from_last_search(sess) == [r["uuid"] for r in NDMA]
+
+
+def test_uids_from_a_plan_final_step():
+    sess = _session([{"mode": "plan", "step_results": {
+        1: {"ok": True, "output": {"data": NDMA}},
+        2: {"ok": True, "output": {"data": NDMA[:1]}},
+    }}])
+    assert uids_from_last_search(sess) == [NDMA[0]["uuid"]]
+
+
+def test_uids_from_a_body_that_nests_rows_under_data():
+    sess = _session([{"api_result_full": {"data": {"data": [{"uid": "D.SEQ-1-PUB"}]}}}])
+    assert uids_from_last_search(sess) == ["D.SEQ-1-PUB"]
+
+
+# bundle_id: the pipeline builds on the result the parser named, not the newest.
+FEMALES = NDMA[:1]
+
+
+def _two():
+    return _session([
+        {"id": 1, "user_query": "mice", "graph_result": {"ok": True, "data": NDMA}},
+        {"id": 2, "user_query": "females", "graph_result": {"ok": True, "data": FEMALES}},
+    ])
+
+
+def test_bundle_id_reads_only_that_bundle():
+    assert uids_from_last_search(_two(), 1) == [r["uuid"] for r in NDMA]
+    assert uids_from_last_search(_two(), 2) == [NDMA[0]["uuid"]]
+    assert uids_from_last_search(_two()) == [NDMA[0]["uuid"]]
+
+
+def test_bundle_id_with_no_uids_does_not_walk_back():
+    sess = _session([{"id": 1, "graph_result": {"ok": True, "data": NDMA}},
+                     {"id": 2, "graph_result": {"ok": True, "data": [{"name": "RNA-seq", "n": 5}]}}])
+    assert uids_from_last_search(sess, 2) == []
+    assert uids_from_last_search(sess, 9) == []
+    assert uids_from_last_search(sess) == [r["uuid"] for r in NDMA]
+
+
+def test_summary_and_tools_pick_the_same_bundle():
+    sess = _session([{"id": 1, "user_query": "mice", "graph_result": {"ok": True, "data": NDMA}},
+                     {"id": 2, "user_query": "breakdown", "graph_result": {"ok": True, "data": [{"name": "x", "n": 1}]}}])
+    assert "query='mice'" in summarize_pinned_bundle(sess)
+    assert "query='females'" in summarize_pinned_bundle(_two(), 2) or "query='females'" in summarize_pinned_bundle(_two())
+
+
+def test_summary_states_total_and_cap():
+    sess = _session([{"id": 1, "user_query": "q", "graph_result": {"ok": True, "total": 231, "truncated": True, "data": NDMA}}])
+    assert summarize_pinned_bundle(sess) == "last search: query='q', ~3 rows of 231 (capped)"
+
+
+def test_plan_uids_are_borrowed_only_by_a_bundle_with_no_rows():
+    count = {"id": 2, "graph_result": {"ok": True, "data": [{"n": 120}]},
+             "parser_plan": {"filters": {"uids": [NDMA[0]["uuid"]]}}}
+    sess = _session([{"id": 1, "graph_result": {"ok": True, "data": NDMA}}, count])
+    assert uids_from_last_search(sess, 2) == []
+    assert uids_from_last_search(sess) == [r["uuid"] for r in NDMA]  # the newest set walks past the count
+
+
+
+# A retrieve body holds the requested sample's whole lineage. A build or a report is on the samples asked for;
+# a follow-up still counts every sample (REVIEW-1 M3).
+RETRIEVE = {"id": 1, "user_query": "retrieve a tissue", "parser_plan": {"filters": {"uids": ["TIS-9-PUB"]}},
+            "api_result_full": {"data": {"total_samples": 3, "data": [
+                {"sample_type": "NHP", "samples": [{"uid": "NHP-9-PUB"}]},
+                {"sample_type": "TIS", "samples": [{"uid": "TIS-9-PUB"}]},
+                {"sample_type": "D.SEQ", "samples": [{"uid": "D.SEQ-9-PUB"}]}]}}}
+
+
+def test_a_retrieve_builds_on_the_requested_identifiers():
+    from chat_nextseek.chat_memory import bundle_uids
+    assert uids_from_last_search(_session([RETRIEVE]), 1) == ["TIS-9-PUB"]
+    assert uids_from_last_search(_session([RETRIEVE])) == ["TIS-9-PUB"]
+    assert sorted(bundle_uids(RETRIEVE)) == ["D.SEQ-9-PUB", "NHP-9-PUB", "TIS-9-PUB"]

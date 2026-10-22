@@ -22,8 +22,8 @@ being purely a mirror.
 
 The second half of the SEEK integration does not go through the database at all.
 `seek/seekdb.py:12-24` logs a request's user in to SEEK over HTTP and holds the
-resulting identity, and `seek/seekapi.py:11-23` is the transport underneath it:
-a `curl` command line assembled as a string. Reads of schema-shaped data go
+resulting identity, and `seek/seekapi.py:40-52` is the transport underneath it:
+`requests` calls with a UTF-8 basic auth header and a timeout. Reads of schema-shaped data go
 through the ORM; identity, permissions and asset writes go through SEEK's own
 JSON API as the logged-in user.
 
@@ -144,8 +144,8 @@ Result: **34 failed, 488 passed, 29 skipped, 2 xfailed, 1 error in 10.24s.**
 The two `mkdir` lines are not optional: `dmac/settings.py:507-508` creates
 those directories at import time and the mount is read-only.
 
-`ci/pytest-baseline.txt:307-308` records only two known failures for this
-package, so nearly all of that red is drift since the baseline was taken. See
+`ci/pytest-baseline.txt` was regenerated on a runner on 2026-10-20 (`grep -c '^seek/' ci/pytest-baseline.txt`
+counts what it records for this package); the red described below was measured before that. See
 `seek/CLAUDE.md` for what each cluster is and which refactor caused it.
 
 ## Depends on / depended on by
@@ -184,7 +184,7 @@ importer grep cannot see.
   applied by `startup/steps/schema_fixups.py:117-118` and its two neighbours,
   called only from `startup/cli.py:288`.
 - SEEK's HTTP JSON API, reached as the logged-in user through
-  `seek/seekapi.py:60-64` and wrapped by `seek/seekdb.py:11-31`. This is the
+  `seek/seekapi.py:40-52` and wrapped by `seek/seekdb.py:11-31`. This is the
   authorization boundary: project membership and supervisor status come from
   SEEK, not from Django's auth tables.
 - Neo4j, for sample lineage, to READ: `seek/sample/trees.py:31-32` opens the

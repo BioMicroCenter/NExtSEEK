@@ -13,32 +13,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-_E2E_PACKAGE = "NessieAI.tests.e2e"
-
-
-def ensure_real_e2e_catalog() -> None:
-    """Drop a stub ``NessieAI.tests.e2e.catalog`` left in ``sys.modules``.
-
-    A module registered under that name without ``load_catalog`` (a test
-    double that outlived its test) would make the harness imports below fail
-    closed. The e2e package is imported by its qualified name, so no
-    ``sys.path`` setup is involved: dropping the stub and every other
-    ``NessieAI.tests.e2e`` entry lets the next import load the real modules.
-    """
-    catalog = sys.modules.get(f"{_E2E_PACKAGE}.catalog")
-    if catalog is not None and not hasattr(catalog, "load_catalog"):
-        prefix = f"{_E2E_PACKAGE}."
-        for name in [key for key in sys.modules if key == _E2E_PACKAGE or key.startswith(prefix)]:
-            del sys.modules[name]
-
-
-ensure_real_e2e_catalog()
-
 from NessieAI import paths
-from NessieAI.tests.nessie_tests import bayes_manifest as bm
-from NessieAI.tests.nessie_tests import corpus
-from NessieAI.tests.nessie_tests import export as nexport
-from NessieAI.tests.nessie_tests import runner
+from NessieAI.nessie_harness import bayes_manifest as bm
+from NessieAI.nessie_harness import corpus
+from NessieAI.nessie_harness import export as nexport
+from NessieAI.nessie_harness.corpus import corpus_fingerprint
 
 PINNED_ZIP_SHA256 = (
     "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814"
@@ -207,7 +186,7 @@ def stream_required_members(zip_path: Path) -> dict[str, ZipMemberBytes]:
 def _corpus_authority(corpus_path: Path) -> tuple[str, dict[str, Any]]:
     if not corpus_path.is_file():
         raise PairedEvidenceError(f"missing corpus authority: {corpus_path}")
-    fingerprint = runner.corpus_fingerprint(corpus_path)
+    fingerprint = corpus_fingerprint(corpus_path)
     variants = corpus.load_all_definitions(corpus_path)
     index: dict[str, Any] = {}
     for variant in variants:

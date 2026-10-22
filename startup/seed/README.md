@@ -65,6 +65,9 @@ it into a running stack without a full reinstall:
 
 ## Test users baked in
 
+`./startup.sh install` replaces these passwords with random ones after loading the
+SEEK seed, unless `--keep-demo-passwords` is given. The seed itself still holds:
+
 | Username | Password | Role |
 |---|---|---|
 | `demo` | `demopassword` | Admin |

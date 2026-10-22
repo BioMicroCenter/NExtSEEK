@@ -1,4 +1,9 @@
 services:
+  # The app image runs in two services (SPEC-PLAN section 1). `nextseek` is the
+  # WORKER: the nine background loops (docker/scripts/entrypoint.sh worker), the
+  # only migrator, no web server. It keeps the name and container_name so every
+  # `docker exec nextseek manage.py ...` still works. `web` (below) is the web
+  # server, which `./startup.sh rebuild` replaces without a gap.
   nextseek:
     build: .
     # Every app-code process below runs this same image. COMPOSE_PROJECT_NAME
@@ -6,13 +11,10 @@ services:
     image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
     container_name: ${INSTANCE_PREFIX:-}nextseek
     restart: always
+    command: ["/app/docker/scripts/entrypoint.sh", "worker"]
     environment:
-      # cc_engine spawns the per-turn CC agent container via docker-py and mounts
-      # subpaths of this volume BY NAME. The compose `name:` indirection only
-      # covers this service's own /dmac/users mount, not the sibling container's
-      # docker-py Mount, so the prefixed volume name must reach cc_config here or
-      # cc_engine falls back to the bare `dmac-cc-users` and the mount 404s on a
-      # --instance install. Same INSTANCE_PREFIX the volume itself carries.
+      # The CC upload task writes into the per-user trees of this volume by name.
+      # Same INSTANCE_PREFIX the volume itself carries (see `web`).
       DMAC_CC_USERS_VOLUME: ${INSTANCE_PREFIX:-}dmac-cc-users
       # Kept interpolated HERE, not just read inside the container, so the knob
       # stays where it was. It used to sit in attribute_mutation_worker's
@@ -21,6 +23,112 @@ services:
       # environment instead. Without this line an operator who sets it the way
       # the old service documented would get the default and no error.
       ATTRIBUTE_MUTATION_WORKER_CONCURRENCY: ${ATTRIBUTE_MUTATION_WORKER_CONCURRENCY:-1}
+      # The loops' calls to the app's own REST API used to hit 127.0.0.1:8000.
+      # This container no longer serves, so they go through the front door.
+      NEXTSEEK_INTERNAL_BASE_URL: http://nextseek_nginx
+      # Where the dev-only labs file is read from: on a volume shared with `web`,
+      # written once by the deploy runner, so no restart is needed to pick it up.
+      NEXTSEEK_LABS_FILE: /media/context/labs_db.json
+      # The worker never talks to cc-spawner. docker/nextseek.env carries the
+      # spawner token for `web`; these empty values beat the env_file, so the
+      # worker holds no token and no spawner address.
+      NEXTSEEK_SPAWNER_TOKEN: ""
+      NEXTSEEK_SPAWNER_URL: ""
+    env_file:
+      - ./docker/db.env
+      - ./docker/nextseek.env
+    depends_on:
+      seek:
+        condition: service_started
+      db:
+        condition: service_healthy
+    # What the worker does NOT mount, on purpose: the Docker socket, laya-net, the
+    # luria key and ssh dir, and the static volume. Only the chat turn (a `web`
+    # process) launches CC containers, SEEK user admin and Luria pipelines; no
+    # loop imports them (cc_engine.py and seek_rails_runner.py are the only
+    # `docker` importers, ssh.py is reached from the assistant only).
+    volumes:
+      # :z relabels the host path for SELinux-enforcing hosts (Fedora/RHEL).
+      # No-op on macOS/Ubuntu/non-SELinux systems, so safe everywhere.
+      - ./themes/NextSeek:/app/themes/NextSeek:z
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./outputs:/app/outputs:z
+      - ./logs:/app/logs:z
+      # Container-CC user trees (G7-10). Persisted in the external named volume
+      # `dmac-cc-users` (same pattern as seek-filestore) — NOT a host bind, so
+      # no manual host mkdir/chmod is ever required and data survives
+      # `docker compose up`/recreate (lost only on `down -v` / `startup.sh reset`).
+      # The worker mounts it for the CC upload Celery task, which moves a
+      # user's files into their input tree.
+      - dmac-cc-users:/dmac/users
+      # The `attribute_mutations` Celery broker, mounted here because the
+      # attribute worker and the outbox dispatcher are processes of THIS
+      # container (docker/scripts/entrypoint.sh) rather than services of their
+      # own. Only those two processes get CELERY_BROKER_URL pointed at it; the
+      # batch_upload worker keeps the default under /var/celery, which is its own
+      # volume: a queued upload (broker, results, owner index, saved sheet)
+      # survives a recreate. `web` mounts /var/celery too, to enqueue uploads.
+      - attribute_mutation_broker:/var/lib/attribute-broker
+      - batch_upload_state:/var/celery
+      # MEDIA_ROOT, shared with `web`: the worker writes upload reports here and
+      # web serves and reads them, and two web containers during a swap must
+      # see the same export files. A named volume, so a rebuild no longer wipes it.
+      - nextseek-media:/media
+    # One probe for the four background runtimes this container carries
+    # (docker/scripts/attribute_runtime_healthcheck.py app). Nothing gates on this
+    # container's health (`nextseek_nginx` depends on it by start-order only, and
+    # startup never passes `--wait`), so an unhealthy status reports the failure
+    # without taking the site down with it. The web server lives in `web` and has
+    # its own probe.
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "app"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    # Capped like every long-lived service (a runaway process is killed inside the
+    # container instead of filling the host). memswap_limit equal to the cap means
+    # no swap on top of it. At rest the loops and their Celery children hold about
+    # 5.3 GiB, so 8G leaves room; tune it per box with NEXTSEEK_WORKER_MEMORY in the
+    # project-root .env (pinned by nextseek_api/tests/repo_guards/test_compose_app_memory_cap.py).
+    deploy:
+      resources:
+        limits:
+          memory: "${NEXTSEEK_WORKER_MEMORY:-8G}"
+    memswap_limit: "${NEXTSEEK_WORKER_MEMORY:-8G}"
+
+  # The web server (gunicorn or daphne, docker/scripts/entrypoint.sh web). Same
+  # image as `nextseek` (no second build) and NO container_name: compose names
+  # it nextseek-web-N, which is what lets a rebuild run two at once and swap them
+  # (startup/lib/web_swap.py). The chat turn runs here, so this service carries
+  # everything a turn touches: the Docker socket (CC containers and the SEEK admin
+  # scripts; one dev cycle of the spawner switch, then it goes), laya-net, the
+  # luria key and ssh dir, and the CC user trees.
+  web:
+    image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
+    # Built by `nextseek` above; never looked up in a registry under that name.
+    pull_policy: never
+    restart: always
+    command: ["/app/docker/scripts/entrypoint.sh", "web"]
+    # A stopping web container takes no new chat turns, lets running ones finish
+    # (NEXTSEEK_DRAIN_SECONDS, 240 s by default), cuts the rest with a plain
+    # message, then stops gunicorn (its own 30 s). 5m covers all of it
+    # (pinned by nextseek_api/tests/repo_guards/test_compose_web_service.py).
+    stop_grace_period: 5m
+    environment:
+      DMAC_CC_USERS_VOLUME: ${INSTANCE_PREFIX:-}dmac-cc-users
+      NEXTSEEK_DRAIN_SECONDS: ${NEXTSEEK_DRAIN_SECONDS:-240}
+      NEXTSEEK_LABS_FILE: /media/context/labs_db.json
+      # Private sample exports (seek/views/exports.py) on the shared volume, so a
+      # link made on the old web container still answers after a swap. Outside
+      # uploads/production/, the one tree /media/ serves (dmac/media.py).
+      NEXTSEEK_EXPORT_ROOT: /media/private-exports
+      # The CC spawner switch. Unset: CC turns go through the spawner. Set it EMPTY
+      # in the project-root .env (NEXTSEEK_SPAWNER_URL=) to take today's direct
+      # Docker path for the one dev cycle this switch lives. The token is
+      # NEXTSEEK_SPAWNER_TOKEN in docker/nextseek.env (install writes it, with the
+      # same value in docker/cc-spawner.env).
+      NEXTSEEK_SPAWNER_URL: ${NEXTSEEK_SPAWNER_URL-http://cc-spawner:8080}
     env_file:
       - ./docker/db.env
       - ./docker/nextseek.env
@@ -31,8 +139,6 @@ services:
         condition: service_healthy
     volumes:
       - nextseek-static-files:/static
-      # :z relabels the host path for SELinux-enforcing hosts (Fedora/RHEL).
-      # No-op on macOS/Ubuntu/non-SELinux systems, so safe everywhere.
       - ./themes/NextSeek:/app/themes/NextSeek:z
       - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
       - ./outputs:/app/outputs:z
@@ -42,68 +148,121 @@ services:
       # of LURIA_KEY needs no translation. Defaults to /dev/null so the stack
       # still comes up when the Luria backend is unused.
       - ${LURIAKEY:-/dev/null}:${LURIAKEY:-/dev/null}:ro
-      # Writable ssh dir: ssh.py copies the key here and chmods 0600, which it
-      # cannot do on the read-only bind above.
+      # Writable ssh dir: ssh.py copies the key here for one call, chmods 0600 (which it
+      # cannot do on the read-only bind above) and removes the copy after use.
       - nextseek-luria-ssh:/app/.ssh
-      # Additive (Container-CC route): lets the assistant worker spawn sibling
-      # `claude` containers on the host Docker daemon. Used only by the new
-      # cc-assistant endpoints; the existing assistant never touches it.
+      # Container-CC route: lets the assistant spawn sibling `claude` containers on
+      # the host Docker daemon. Goes away with the spawner switch (W9 part 2).
       - /var/run/docker.sock:/var/run/docker.sock
-      # Container-CC user trees (G7-10). Persisted in the external named volume
-      # `dmac-cc-users` (same pattern as seek-filestore) — NOT a host bind, so
-      # no manual host mkdir/chmod is ever required and data survives
-      # `docker compose up`/recreate (lost only on `down -v` / `startup.sh reset`).
-      # The nextseek worker mkdirs scratch/cc-state/memory/output dirs here;
-      # sibling CC containers mount per-user *subpaths* of this SAME volume
-      # (VolumeOptions.Subpath) into /data/input, /data/shared, /data/scratch,
-      # /home/user/.claude, and /home/user/.cc-memory/transcripts.
+      # Container-CC user trees (see `nextseek`). A turn mkdirs scratch, cc-state,
+      # memory and output dirs here; the sibling containers mount per-user
+      # *subpaths* of this SAME volume.
       - dmac-cc-users:/dmac/users
-      # The `attribute_mutations` Celery broker, mounted here because the
-      # attribute worker and the outbox dispatcher are processes of THIS
-      # container (docker/scripts/entrypoint.sh) rather than services of their
-      # own. Only those two processes get CELERY_BROKER_URL pointed at it; the
-      # batch_upload worker and the web process keep the container-local
-      # default under /var/celery, so a queued upload still does not survive a
-      # recreate.
-      - attribute_mutation_broker:/var/lib/attribute-broker
-    # One probe for the four background runtimes this container now carries
-    # (docker/scripts/attribute_runtime_healthcheck.py app). The app service
-    # had no healthcheck of its own, and each of the four services folded into
-    # it did, so without this the fold would trade four supervised containers
-    # for one unsupervised one. Nothing gates on this container's health
-    # (`nextseek_nginx` depends on it by start-order only, and startup never
-    # passes `--wait`), so an unhealthy status reports the failure without
-    # taking the site down with it. The web server is deliberately NOT probed
-    # here: it is already fail-fast in the entrypoint, and `wait -n` means its
-    # death takes the container down rather than leaving it to a healthcheck.
+      # Upload views enqueue batch_upload / CC upload tasks through the broker
+      # under /var/celery; the worker consumes them. No attribute broker: the
+      # outbox dispatcher in the worker is its sole publisher.
+      - batch_upload_state:/var/celery
+      - nextseek-media:/media
+      # Sign-in lockout and request-rate counters (CACHES["throttle"], a file cache):
+      # on a volume they survive a swap and both web containers share them.
+      - nextseek-throttle:/var/tmp/nextseek-throttle
+    # GET /login/ answering 200 is the same first probe CI's readiness gate uses.
+    # start_interval makes a new container visible as healthy within seconds of
+    # being ready, which is what the swap waits on (Engine 25+). start_period stays
+    # above the entrypoint's wait for the worker's migrations
+    # (NEXTSEEK_MIGRATE_WAIT_SECONDS, 300 s), so a stop-first deploy that migrates
+    # does not report web unhealthy while it waits.
     healthcheck:
-      test: ["CMD", "/app/.venv/bin/python", "/app/docker/scripts/attribute_runtime_healthcheck.py", "app"]
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/login/', timeout=5).status == 200 else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 120s
+      start_period: 330s
+      start_interval: 2s
     # With no cap, one gunicorn worker serving a broad search grew to 6-11 GB,
     # filled the host's RAM and swap, and took every container and sshd down
     # with it. Capped, the kernel kills that process inside this container
     # instead: gunicorn respawns the worker, and `restart: always` covers the
-    # rest. memswap_limit equal to the cap means no swap on top of it. At rest
-    # this container holds about 6 GiB (a dozen Python processes), so keep the
-    # cap well above that; tune it per box with NEXTSEEK_MEMORY in the
-    # project-root .env (pinned by nextseek_api/tests/repo_guards/test_compose_app_memory_cap.py).
+    # rest. memswap_limit equal to the cap means no swap on top of it. The web
+    # process holds about 3.7 GiB at rest; during a swap two run for a few
+    # minutes. Tune it per box with NEXTSEEK_MEMORY in the project-root .env
+    # (pinned by nextseek_api/tests/repo_guards/test_compose_app_memory_cap.py).
     deploy:
       resources:
         limits:
-          memory: "${NEXTSEEK_MEMORY:-16G}"
-    memswap_limit: "${NEXTSEEK_MEMORY:-16G}"
+          memory: "${NEXTSEEK_MEMORY:-8G}"
+    memswap_limit: "${NEXTSEEK_MEMORY:-8G}"
     # JevLevROUTING: the laya router sidecar is reachable only over the
     # internal `laya-net`. No depends_on on it: it is off by default (profile
     # `laya`) and the app reads a missing sidecar as "laya off" for the turn.
+    # dmac-spawner-net reaches the cc-spawner (token-authenticated).
     networks:
       - default
       - laya-net
+      - dmac-spawner-net
+
+  # The CC spawner (W9-DESIGN): the one service that holds the Docker socket for
+  # CC turns and the SEEK admin scripts, behind a token and a small fixed API, so
+  # `web` can no longer name an image, a mount, a network or a privilege. Built
+  # from its own folder; reachable only on the internal dmac-spawner-net (no
+  # `ports:`, ever). Its only secret is SPAWNER_TOKEN in docker/cc-spawner.env,
+  # which install writes with the same value as NEXTSEEK_SPAWNER_TOKEN.
+  cc-spawner:
+    build:
+      context: ./docker/cc-spawner
+    image: nextseek-cc-spawner:latest
+    # No container_name, like laya-router: the INSTANCE_PREFIX names are a pinned set
+    # (merge-survival S7), and the app reaches it by its service name.
+    restart: unless-stopped
+    # python as PID 1 ignores SIGTERM (no handler), so every stop waited 10 s and
+    # ended in SIGKILL; the init hands the signal on.
+    init: true
+    # required: false so every other compose verb still parses on a box that has
+    # not run install or rebuild since this service arrived (both write the file);
+    # the spawner itself refuses to start without a token.
+    env_file:
+      - path: ./docker/cc-spawner.env
+        required: false
+    # Passed by name, never `env_file: nextseek.env`: the spawner must not hold the
+    # app's secrets. Compose reads the project-root `.env`, NOT docker/nextseek.env,
+    # so a box that overrides a NEXTSEEK_CC_* limit in nextseek.env must copy it to
+    # `.env` too. Defaults equal cc_engine's.
+    environment:
+      DMAC_CC_USERS_VOLUME: ${INSTANCE_PREFIX:-}dmac-cc-users
+      NEXTSEEK_CC_IMAGE: dmac-assistant:poc
+      NEXTSEEK_CC_NETWORK: dmac-cc-net
+      SEEK_CONTAINER: ${INSTANCE_PREFIX:-}seek
+      NEXTSEEK_CC_MAX_TURNS: ${NEXTSEEK_CC_MAX_TURNS:-50}
+      NEXTSEEK_CC_MEM_LIMIT: ${NEXTSEEK_CC_MEM_LIMIT:-4g}
+      NEXTSEEK_CC_NANO_CPUS: ${NEXTSEEK_CC_NANO_CPUS:-2000000000}
+      NEXTSEEK_CC_PIDS_LIMIT: ${NEXTSEEK_CC_PIDS_LIMIT:-512}
+      NEXTSEEK_CC_FSIZE_BYTES: ${NEXTSEEK_CC_FSIZE_BYTES:-10737418240}
+      NEXTSEEK_INTERNAL_BASE_URL: http://nextseek_nginx
+      NEO4J_URI: ${CC_SPAWNER_NEO4J_URI:-neo4j://neo4j:7687}
+      NEXTSEEK_CC_AUTOMODE_GCP: ${NEXTSEEK_CC_AUTOMODE_GCP:-1}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: "${SPAWNER_MEMORY:-512M}"
+    memswap_limit: "${SPAWNER_MEMORY:-512M}"
+    networks:
+      - dmac-spawner-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   nextseek_nginx:
-    image: nginx:latest
+    image: nginx:${NGINX_IMAGE_TAG:-1.31.2}
     # The front door: every user and the smoke suite arrive through this port.
     # A manual `docker stop` still keeps it down, so `./startup.sh rebuild`
     # also starts it (never recreates it) after restarting the app.
@@ -118,16 +277,20 @@ services:
       # reload`). The rest ship as *.conf.example, inert until an operator copies
       # one to *.conf. See docker/nginx-optional/neo4j.conf.example.
       - ./docker/nginx-optional:/etc/nginx/optional:ro,z
+      # The swap's pin (`set $upstream "<container>";`), written by
+      # startup/lib/web_swap.py only while two web containers run. Generated
+      # content, gitignored; a directory mount so a new pin needs only a reload.
+      - ./docker/nginx-upstream:/etc/nginx/upstream:ro,z
       - nextseek-static-files:/static:ro
     depends_on:
-      - nextseek
+      - web
     # OI-3 / Container-CC route: nginx is the ONLY dual-homed service. It stays
-    # on the default stack network (reaching `nextseek`) and additionally joins
+    # on the default stack network (reaching `web`) and additionally joins
     # the segmented `dmac-cc-net`, where it is the sandboxed CC agent's ONLY
     # route back into NExtSEEK (see cc_engine._NEXTSEEK_SERVICE_HOST /
-    # _rewrite_loopback_url). `nextseek` itself is deliberately NOT listed here
-    # and so stays default-only — the de-credentialed agent must never gain L3
-    # reach to `nextseek`, `db`, `seek`, `solr`, or `neo4j` directly.
+    # _rewrite_loopback_url). `web` and `nextseek` are deliberately NOT listed here
+    # and so stay off dmac-cc-net — the de-credentialed agent must never gain L3
+    # reach to `web`, `nextseek`, `db`, `seek`, `solr`, or `neo4j` directly.
     networks:
       - default
       - dmac-cc-net
@@ -319,8 +482,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: "${SEEK_DB_MEMORY:-2G}"
-    memswap_limit: "${SEEK_DB_MEMORY:-2G}"
+          memory: "${SEEK_DB_MEMORY:-6G}"
+    memswap_limit: "${SEEK_DB_MEMORY:-6G}"
     ports:
       - "127.0.0.1:${DB_PORT:-3306}:3306"
     env_file:
@@ -330,7 +493,7 @@ services:
       - seek-mysql-db:/var/lib/mysql
 
   neo4j:
-    image: neo4j
+    image: neo4j:${NEO4J_IMAGE_TAG:-2026.05.0}
     container_name: ${INSTANCE_PREFIX:-}neo4j
     restart: always
 
@@ -395,11 +558,10 @@ services:
       #   NEO4J_PLUGINS=["apoc"]
       # An empty value loads nothing, which is how every box ran before this line.
       NEO4J_PLUGINS: "${NEO4J_PLUGINS:-}"
-      # Which plugin procedures and functions load. Unset, the image loads every one it
-      # finds. A box that enables APOC should name the read-only families it wants here
-      # (see .env.example) rather than take the loaders, periodic writers and dynamic
-      # Cypher runners with them.
-      NEO4J_dbms_security_procedures_allowlist: "${NEO4J_PROCEDURES_ALLOWLIST:-*}"
+      # Which plugin procedures and functions load. Unset, the read-only families
+      # listed in .env.example load (never the loaders, periodic writers or dynamic
+      # Cypher runners). Set NEO4J_PROCEDURES_ALLOWLIST to change the list.
+      NEO4J_dbms_security_procedures_allowlist: "${NEO4J_PROCEDURES_ALLOWLIST:-db.*,dbms.*,tx.*,fleetManagement.*,apoc.path.*,apoc.meta.*,apoc.text.*,apoc.coll.*,apoc.agg.*,apoc.map.*,apoc.number.*,apoc.convert.*,apoc.date.*,apoc.temporal.*,apoc.node.*,apoc.label.*,apoc.any.*,apoc.math.*,apoc.stats.*}"
     ports:
       - "127.0.0.1:${NEO4J_HTTP_PORT:-7474}:7474"
       - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687"
@@ -503,8 +665,8 @@ services:
       deploy:
         resources:
           limits:
-            memory: "${SEEK_WORKERS_MEMORY:-3G}"
-      memswap_limit: "${SEEK_WORKERS_MEMORY:-3G}"
+            memory: "${SEEK_WORKERS_MEMORY:-6G}"
+      memswap_limit: "${SEEK_WORKERS_MEMORY:-6G}"
       env_file:
         - ./docker/db.env
       volumes:
@@ -540,8 +702,14 @@ services:
 
 networks:
   # JevLevROUTING: no gateway, so the laya sidecar has no egress. Members:
-  # laya-router and nextseek only.
+  # laya-router and web only.
   laya-net:
+    internal: true
+  # The CC spawner's private link: no gateway, joined by `web` and `cc-spawner`
+  # only. No literal `name:` (unlike dmac-cc-net, which the spawner names): it
+  # stays per compose project, so two instances on one host never share the
+  # `cc-spawner` alias.
+  dmac-spawner-net:
     internal: true
   # Container-CC segmented network (OI-3). Compose-managed but pinned to the
   # literal name `dmac-cc-net` (no project-name prefix) so it matches
@@ -590,6 +758,16 @@ volumes:
   # it holds no seeded data — only a 0600 copy of the operator's key.
   nextseek-luria-ssh:
     name: ${INSTANCE_PREFIX:-}nextseek-luria-ssh
+  # MEDIA_ROOT (/media), shared by `nextseek` and `web`. Compose-managed like
+  # batch_upload_state: no install step creates it, and it holds only generated
+  # files (upload reports, exports, the dev labs file). `rebuild` keeps it;
+  # `startup.sh reset` drops it.
+  nextseek-media:
+    name: ${INSTANCE_PREFIX:-}nextseek-media
+  # Throttle counters for `web` only (the worker serves no requests). Compose-managed
+  # like nextseek-media; the image runs as root, so a fresh volume is writable.
+  nextseek-throttle:
+    name: ${INSTANCE_PREFIX:-}nextseek-throttle
 
   dmac-cc-users:
     external: true
@@ -608,3 +786,7 @@ volumes:
   # explicitly-confirmed `startup.sh reset` remove it. The durable MySQL
   # job/outbox records remain the application audit source of truth.
   attribute_mutation_broker:
+  # The batch-upload queue's state (BATCH_UPLOAD_STATE_DIR, /var/celery):
+  # broker, results, job index, saved sheets and the celery beat schedule.
+  # `rebuild` keeps it; `startup.sh reset` drops it.
+  batch_upload_state:

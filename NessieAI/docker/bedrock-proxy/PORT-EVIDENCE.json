@@ -31,7 +31,7 @@
     {"path": "app/config.py", "size_bytes": 4370, "sha256": "1b9b8e7baa486036cad858c99fb1d2c316af32f55cb2efa26b92b12f43438de8"},
     {"path": "app/proxy.py", "size_bytes": 16248, "sha256": "fcd40ca1ae9a670e7e49dd073cb95b6054c94376fcec39ca3d277fb5458e41bf"},
     {"path": "proxy-secret.env.example", "size_bytes": 821, "sha256": "fdbf6c5cb8184158faf9ea06668d2dcf2aee21a37516103142040cfd02bf1d16"},
-    {"path": "Dockerfile", "size_bytes": 2398, "sha256": "8449007570f2dfb9227c028d04ae2edf39fed879ed141c0a6668105af35f2a83"},
+    {"path": "Dockerfile", "size_bytes": 2377, "sha256": "907ca963d2e7ecad432b6b2823ac06474397cd32cc7c9bf675c6f2ec3dc37d06"},
     {"path": ".dockerignore", "size_bytes": 696, "sha256": "4b5f91bec5ffcd99b42d1f32a22a25396b2bd1eb6eed4d2444606084e902e820"}
   ],
   "mapping_table": [
@@ -83,6 +83,16 @@
       "why": "T7 (operator ruling 2026-10-12): the Container-CC model map names Sonnet 5.5, a global inference profile (the loader's id check now accepts global. beside us.), as its main model and keeps Opus 4.8 as its fallback. Opus 5.5, the map before it, stays allowed so an app image rolled back to that map is not refused.",
       "guards": [
         "NessieAI/tests/cc/test_cc_proxy_allow_list.py",
+        "NessieAI/tests/cc/test_step7_proxy_port.py"
+      ]
+    },
+    {
+      "date": "2026-10-15",
+      "path": "Dockerfile",
+      "change": "uv comes from a pinned image (COPY --from=ghcr.io/astral-sh/uv:0.12.8 /uv /uvx /bin/) instead of piping the uv installer into a shell. No proxy logic, dependency pins, user/uid, healthcheck or CMD changed.",
+      "why": "Code modernization W7-B: every image pins what it pulls, and nothing pipes a download into a shell.",
+      "guards": [
+        "nextseek_api/tests/repo_guards/test_compose_images_pinned.py",
         "NessieAI/tests/cc/test_step7_proxy_port.py"
       ]
     }

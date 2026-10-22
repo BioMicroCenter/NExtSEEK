@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load json_script_safe %}
 {% block main %}
 <div class="easyui-mobile-notice">
     Data and Protocol Upload is desktop-only. Open NExtSEEK on a laptop or desktop to use it.
@@ -82,8 +83,8 @@
 	const file = document.getElementById("upload_file");
 	const statusBox = document.getElementById("messages")
 	
-	const lab_options = {{ report.lab_options | safe }}.slice(1);
-	const all_lab_users = {{ report.all_lab_users | safe }};
+	const lab_options = {{ report.lab_options|json_script_safe }}.slice(1);
+	const all_lab_users = {{ report.all_lab_users|json_script_safe }};
 	
 	const seek_url = "{{ report.seek_url }}";
 	

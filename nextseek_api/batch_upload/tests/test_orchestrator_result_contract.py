@@ -9,7 +9,7 @@ contract, this fails loudly.
 from __future__ import annotations
 
 from nextseek_api.batch_upload.errors import ErrorCollector, ErrorType
-from nextseek_api.batch_upload.models import BatchUploadResult
+from nextseek_api.batch_upload.models import BatchUploadResult, InputRowModel, RowOutcome
 from nextseek_api.batch_upload.orchestrator import _cancelled_result, _error_result
 
 # Reuse the DB-mocking harness from the level-ordering integration tests.
@@ -59,3 +59,43 @@ class TestBatchUploadResultContract:
         assert model.totals.cancelled is True
         assert model.totals.error is None
         assert model.errors == []
+
+
+class TestResultSeverityAndCancelCounts:
+    def test_result_errors_carry_severity(self):
+        """Each result error says whether it was a WARNING or an ERROR."""
+        rows = [
+            InputRowModel(UID="NHP-260101TST-1", SampleType="NHP_blood", json_metadata="{}", assay_ids=[]),
+            InputRowModel(UID="NHP-260101TST-2", SampleType="NHP_blood", json_metadata='{"Bogus": "x"}', assay_ids=[]),
+        ]
+        result = _run_orchestrator(rows, FakeDB(), row_errors=[(7, ["bad cell"])])
+
+        sev = {e["type"]: e["severity"] for e in result["errors"]}
+        assert sev[ErrorType.VALIDATION_JSON.value] == "WARNING"
+        assert sev[ErrorType.VALIDATION_ATTRIBUTE_NAME.value] == "ERROR"
+
+    def test_cancelled_result_counts_committed_rows(self):
+        """A cancel after some batches committed still reports those rows."""
+        outcomes = {
+            "A": RowOutcome(status="success", sample_id=1),
+            "B": RowOutcome(status="success", sample_id=2),
+            "C": RowOutcome(status="success", sample_id=3),
+            "D": RowOutcome(status="failed", reason="x"),
+            "E": RowOutcome(status="skipped", reason="y"),
+        }
+        result = _cancelled_result("job-3", "/tmp/summary.csv", outcomes=outcomes)
+
+        totals = result["totals"]
+        assert (totals["success"], totals["failed"], totals["skipped"]) == (3, 1, 1)
+        assert totals["processed"] == 5
+        assert totals["cancelled"] is True
+
+    def test_cancelled_summary_csv_counts_committed_rows(self):
+        from unittest.mock import patch
+        outcomes = {"A": RowOutcome(status="success", sample_id=1), "B": RowOutcome(status="failed", reason="x")}
+        rows = [InputRowModel(UID=u, SampleType="NHP_blood", json_metadata="{}", assay_ids=[]) for u in outcomes]
+        with patch("nextseek_api.batch_upload.orchestrator.write_summary_csv") as w, \
+             patch("nextseek_api.batch_upload.orchestrator.os.path.isfile", return_value=False):
+            _cancelled_result("j", "/tmp/none.csv", valid_rows=rows, outcomes=outcomes)
+        totals = w.call_args[0][2]
+        assert (totals["processed"], totals["success"], totals["failed"]) == (2, 1, 1)

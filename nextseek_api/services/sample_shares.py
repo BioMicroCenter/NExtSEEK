@@ -26,7 +26,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from nextseek_api.authentication import CsrfExemptSessionAuthentication
+from nextseek_api.authentication import SeekSessionAuthentication
 from nextseek_api.endpoint_descriptions import (SAMPLE_SHARE_APPLY_DESC, SAMPLE_SHARE_CREATE_DESC,
                                                 SAMPLE_SHARE_DETAIL_DESC)
 from nextseek_api.graph_sync import state as outbox_state
@@ -129,7 +129,7 @@ def _graph_check(row) -> dict:
 
 
 class SampleShareViewSet(viewsets.ViewSet):
-    authentication_classes = [CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [SeekSessionAuthentication, BasicAuthentication]
     permission_classes = [IsAuthenticated, IsDjangoSuperuser]
     lookup_field = "share_id"
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -12,6 +12,7 @@ from sqlalchemy.engine import Connection
 from .associations import batch_insert_assay_assets, batch_insert_projects_samples
 from .identity import canonicalize_file_primary_data
 from .models import InsertableSample, RowOutcome
+from .permissions import PermissionsInserter
 
 try:
     import orjson
@@ -68,13 +69,17 @@ def deep_merge_metadata(
 
 
 def load_existing_sample_details(
-    uuids: List[str], conn: Connection
+    uuids: List[str], conn: Connection, project_ids: Optional[Sequence[int]] = None
 ) -> Dict[str, dict]:
     """Load existing sample details needed for update.
 
     Returns {uuid: {"sample_id": int, "policy_id": int, "json_metadata": str, "title": str}}.
+    With ``project_ids`` (SEC-001), only samples linked to one of those projects are returned, so an
+    upload never updates another project's sample; an empty ``project_ids`` returns nothing.
     """
     details: Dict[str, dict] = {}
+    if project_ids is not None and not project_ids:
+        return details
     for chunk_start in range(0, len(uuids), 1000):
         chunk = uuids[chunk_start : chunk_start + 1000]
         params = {f"u{i}": u for i, u in enumerate(chunk)}
@@ -93,7 +98,37 @@ def load_existing_sample_details(
                 "json_metadata": jmeta or "{}",
                 "title": title or "",
             }
-    return details
+    if project_ids is None or not details:
+        return details
+    in_scope = samples_in_projects([d["sample_id"] for d in details.values()], project_ids, conn)
+    return {u: d for u, d in details.items() if d["sample_id"] in in_scope}
+
+
+def samples_in_projects(sample_ids, project_ids: Sequence[int], conn: Connection) -> Set[int]:
+    """The subset of ``sample_ids`` linked to one of ``project_ids`` (SEC-001); empty ``project_ids``, none.
+
+    Same plain IN shape as associations.batch_insert_projects_samples: projects_samples has no index, so one
+    scan per chunk, never a per-row subquery.
+    """
+    in_scope: Set[int] = set()
+    sample_ids = sorted({int(s) for s in sample_ids})
+    if not sample_ids or not project_ids:
+        return in_scope
+    pparams = {f"p{i}": int(p) for i, p in enumerate(project_ids)}
+    pmarks = ", ".join(f":p{i}" for i in range(len(pparams)))
+    for chunk_start in range(0, len(sample_ids), 1000):
+        chunk = sample_ids[chunk_start : chunk_start + 1000]
+        params = dict(pparams, **{f"s{i}": s for i, s in enumerate(chunk)})
+        smarks = ", ".join(f":s{i}" for i in range(len(chunk)))
+        result = conn.execute(
+            text(
+                f"SELECT DISTINCT sample_id FROM projects_samples "
+                f"WHERE project_id IN ({pmarks}) AND sample_id IN ({smarks})"
+            ),
+            params,
+        )
+        in_scope.update(int(r[0]) for r in result.fetchall())
+    return in_scope
 
 
 def update_sample_metadata(
@@ -246,102 +281,13 @@ def delete_assay_links(removals: List[Tuple[int, int]], conn: Connection) -> int
     return len(removals)
 
 
-def _bulk_insert_permissions_ignore(
-    policy_ids: List[int],
-    project_id: int,
-    conn: Connection,
-    now: str,
-    contributor_type: str = "Project",
-    access_type: int = 4,
-) -> int:
-    """Bulk INSERT IGNORE permissions — no per-row SELECT needed.
-
-    Returns count of policy_ids submitted (actual insert count may be lower
-    due to IGNORE on duplicates).
-    """
-    if not policy_ids:
-        return 0
-    # De-duplicate
-    seen: Set[int] = set()
-    unique: List[int] = []
-    for pid in policy_ids:
-        if pid not in seen:
-            seen.add(pid)
-            unique.append(pid)
-    if not unique:
-        return 0
-
-    for chunk_start in range(0, len(unique), 1000):
-        chunk = unique[chunk_start : chunk_start + 1000]
-        values_parts = []
-        params: Dict = {}
-        for i, pid in enumerate(chunk):
-            values_parts.append(
-                f"(:ct_{i}, :cid_{i}, :pid_{i}, :at_{i}, :ca_{i}, :ua_{i})"
-            )
-            params[f"ct_{i}"] = contributor_type
-            params[f"cid_{i}"] = project_id
-            params[f"pid_{i}"] = pid
-            params[f"at_{i}"] = access_type
-            params[f"ca_{i}"] = now
-            params[f"ua_{i}"] = now
-        conn.execute(
-            text(
-                "INSERT IGNORE INTO permissions "
-                "(contributor_type, contributor_id, policy_id, access_type, "
-                "created_at, updated_at) "
-                f"VALUES {', '.join(values_parts)}"
-            ),
-            params,
-        )
-    return len(unique)
-
-
-def _bulk_restore_private_policy_defaults(
-    policy_ids: List[int],
-    conn: Connection,
-    now: str,
-    access_type: int = 0,
-) -> int:
-    """Repair touched policies back to private-by-default access."""
-    if not policy_ids:
-        return 0
-
-    seen: Set[int] = set()
-    unique: List[int] = []
-    for pid in policy_ids:
-        if pid and pid not in seen:
-            seen.add(pid)
-            unique.append(pid)
-    if not unique:
-        return 0
-
-    for chunk_start in range(0, len(unique), 1000):
-        chunk = unique[chunk_start : chunk_start + 1000]
-        params: Dict[str, int | str] = {"access_type": access_type, "now": now}
-        placeholders = []
-        for i, pid in enumerate(chunk):
-            key = f"pid_{i}"
-            params[key] = pid
-            placeholders.append(f":{key}")
-        conn.execute(
-            text(
-                "UPDATE policies "
-                "SET access_type = :access_type, updated_at = :now "
-                f"WHERE id IN ({', '.join(placeholders)})"
-            ),
-            params,
-        )
-    return len(unique)
-
-
 def bulk_update_samples(
     rows: List[InsertableSample],
     details: Dict[str, dict],
     project_id: int,
     direction_by_pair: Dict[Tuple[str, int], int],
     conn: Connection,
-    enable_auto_permissions: bool = False,
+    permissions_inserter: Optional[PermissionsInserter] = None,
 ) -> Dict[str, RowOutcome]:
     """Bulk-update existing samples, eliminating per-row N+1 queries.
 
@@ -353,7 +299,8 @@ def bulk_update_samples(
     5. Bulk DELETE removed assay links
     6. Bulk INSERT new assay links (via batch_insert_assay_assets)
     7. Bulk INSERT projects_samples links (via batch_insert_projects_samples)
-    8. Bulk permissions via INSERT IGNORE (no SELECT+INSERT per row)
+    8. Project grant via the configured PermissionsInserter (de-duplicated,
+       chunked; policy access_type is never changed)
 
     Returns Dict[str, RowOutcome] keyed by UUID.
     """
@@ -449,15 +396,18 @@ def bulk_update_samples(
     # ── Step 7: Bulk INSERT projects_samples links ───────────────────────
     batch_insert_projects_samples(project_id, all_sample_ids, conn)
 
-    # ── Step 8: Bulk permissions via INSERT IGNORE ───────────────────────
-    if enable_auto_permissions:
+    # ── Step 8: project grant through the configured inserter ────────────
+    # (de-duplicated; never touches a policy's access_type)
+    if permissions_inserter is not None:
         policy_ids = [
             details[s.uuid]["policy_id"]
             for s in valid_rows
             if details[s.uuid].get("policy_id")
         ]
-        _bulk_restore_private_policy_defaults(policy_ids, conn, now)
-        _bulk_insert_permissions_ignore(policy_ids, project_id, conn, now)
+        # one update call spans every batch's rows: keep each grant INSERT bounded
+        policy_ids = list(dict.fromkeys(policy_ids))
+        for i in range(0, len(policy_ids), 1000):
+            permissions_inserter.insert_for_policy_ids(policy_ids[i : i + 1000], conn)
 
     # ── Build outcomes ───────────────────────────────────────────────────
     for sample in valid_rows:

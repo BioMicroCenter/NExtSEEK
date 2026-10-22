@@ -24,7 +24,7 @@ from NessieAI.tests.hibayes.v4_8_mysql_workers import (
     mp_reserve_worker,
 )
 
-pytestmark = pytest.mark.django_db(transaction=True)
+pytestmark = [pytest.mark.mysql_lane, pytest.mark.django_db(transaction=True)]
 
 
 def _manifest_body(suffix: str) -> dict:

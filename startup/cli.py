@@ -9,6 +9,7 @@ import typer
 from rich.markup import escape
 
 from startup.lib import layout, ui
+from startup.lib.docker_ops import volume_exists
 from startup.lib.env import read_env, write_env
 from startup.lib.instance import (
     InstanceState,
@@ -155,6 +156,7 @@ def _install_impl(
     yes: bool = False,
     no_disk_check: bool = False,
     disk_floor: int | None = None,
+    keep_demo_passwords: bool = False,
 ) -> None:
     """Install body as plain Python with real defaults.
 
@@ -245,6 +247,16 @@ def _install_impl(
         ui.fail(str(exc))
         raise typer.Exit(code=2)
 
+    # A database volume that already exists was made with some password: a new
+    # one would not match it, so only a box with no data volume gets generated ones.
+    fresh_db = not (volume_exists(f"{prefix}seek-mysql-db") or volume_exists(f"{prefix}neo4j-data"))
+    if not fresh_db and not all(
+        kept.get(k) for k in ("MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD", "NEXTSEEK_NEO4J_PASSWORD")
+    ):
+        ui.warn("a database data volume already exists but docker/db.env or docker/nextseek.env "
+                "lacks a password: install is using the old default. Restore the env files "
+                "if the database was set up with other passwords.")
+
     state = InstanceState(
         name=name,
         prefix=prefix,
@@ -271,13 +283,13 @@ def _install_impl(
         ui.console.print(f"    SEEK             http://localhost:{ports['seek']}")
         ui.console.print(f"    Neo4j HTTP       http://localhost:{ports['neo4j_http']}")
         ui.console.print(f"    Neo4j Bolt       [link=bolt://localhost:{ports['neo4j_bolt']}]bolt://localhost:{ports['neo4j_bolt']}[/link]")
-        ui.console.print("  Default credentials (rotate after install per NExtSTEPS.md):")
-        ui.console.print(f"    demo / demopassword   (admin)")
-        ui.console.print(f"    user / userpassword   (regular)")
-        if kept.get("NEXTSEEK_NEO4J_PASSWORD", "demopassword") == "demopassword":
-            ui.console.print(f"    neo4j / demopassword")
-        else:
-            ui.console.print("    neo4j / the password kept in docker/nextseek.env")
+        ui.console.print("  Credentials:")
+        ui.console.print("    database passwords  generated, kept in docker/db.env and docker/nextseek.env"
+                         if fresh_db else
+                         "    database passwords  a data volume exists: the old defaults unless kept on disk")
+        ui.console.print("    demo / user logins  random if this run loads the SEEK seed (shown once)"
+                         if not keep_demo_passwords else
+                         "    demo / user logins  the seed's published passwords (--keep-demo-passwords)")
         if kept:
             # Names only: these are the box's credentials.
             ui.console.print(f"  Kept from disk      {', '.join(kept)}")
@@ -321,6 +333,7 @@ def _install_impl(
         seek_public_url=state.seek_public_url,
         kept=kept,
         previous_ports=existing.ports if existing else None,
+        generate_passwords=fresh_db,
     )
     changes = config.preview_changed_keys(REPO_ROOT, values)
     if changes["kept_differs_from_template"]:
@@ -331,6 +344,7 @@ def _install_impl(
                 + ", ".join(changes["rerendered"]))
     config.render_db_env(REPO_ROOT, values)
     config.render_nextseek_env(REPO_ROOT, values)
+    config.render_spawner_env(REPO_ROOT)
     if config.render_local_settings(REPO_ROOT, values).name == "local_settings.py.new":
         ui.warn("dmac/local_settings.py kept as it is; the template's version is in "
                 "dmac/local_settings.py.new: diff the two and merge by hand")
@@ -344,7 +358,7 @@ def _install_impl(
     _warn_if_proxy_token_empty(proxy_env_path)
     config.render_root_env(REPO_ROOT, compose_env, neo4j_password=values.neo4j_password)
     ui.ok(
-        "docker/db.env, docker/nextseek.env, "
+        "docker/db.env, docker/nextseek.env, docker/cc-spawner.env, "
         f"{layout.PROXY_SECRET_ENV.as_posix()}, docker/seek-nginx.conf, dmac/local_settings.py, .env"
     )
 
@@ -360,6 +374,7 @@ def _install_impl(
 
     # [6/9] Seeds (gated on populated check, or skipped entirely with --no-seed)
     ui.step(6, total, "Importing seed databases")
+    loaded_seek_seed = False
     if no_seed:
         ui.warn("--no-seed: starting database containers only, no seed import")
         build.start_databases(REPO_ROOT, db_env, neo4j_password=values.neo4j_password)
@@ -382,6 +397,7 @@ def _install_impl(
             with ui.spinner("loading seek_production.sql.gz"):
                 seed.load_mysql_dump(REPO_ROOT / "startup" / "seed" / "seek_production.sql.gz", "seek_production", REPO_ROOT, db_env)
             ui.ok("seek_production loaded")
+            loaded_seek_seed = True
         if seed.neo4j_is_populated(values.neo4j_password, REPO_ROOT, compose_env):
             ui.ok("neo4j already populated; skipping")
         else:
@@ -470,6 +486,18 @@ def _install_impl(
         ui.warn(f"missing users: {', '.join(missing_users)} (seed dump should include them; investigate)")
     else:
         ui.ok("demo + user present")
+    new_logins: dict[str, str] | None = None
+    if loaded_seek_seed and not keep_demo_passwords:
+        new_logins = users.set_random_passwords(REPO_ROOT, db_env, compose_env)
+        if new_logins is None:
+            ui.warn("demo and user still have the published passwords: change them in SEEK now")
+        else:
+            ui.ok("demo + user given random passwords (shown once, not saved):")
+            # Shown here, before any step that can fail: a failed health check
+            # later must not leave the changed passwords unseen.
+            for login, pw in new_logins.items():
+                ui.info(f"      {login} / {pw}")
+            ui.info("  Change them again in SEEK: My Account")
 
     # [9/9] Validate
     ui.step(9, total, "Health checks")
@@ -483,8 +511,10 @@ def _install_impl(
     ui.info("")
     ui.info("Next steps before this install goes beyond a private localhost demo:")
     ui.info("  → Read NExtSTEPS.md (top of the repo)")
-    ui.info("  → At minimum: rotate demo/demopassword + user/userpassword via SEEK admin UI")
-    ui.info(f"  → Log in: http://localhost:{ports['nextseek']}/  (demo/demopassword for admin)")
+    ui.info(f"  → Log in: http://localhost:{ports['nextseek']}/")
+    if not new_logins:
+        ui.info("  → If this install loaded the seed with --keep-demo-passwords, rotate the "
+                "published demo/user passwords via the SEEK admin UI")
     for line in _ci_next_step_lines(ci_profile):
         ui.info(line)
 
@@ -526,6 +556,11 @@ def install(
         "--disk-floor",
         help="Override the per-profile free-space floor, in GB.",
     ),
+    keep_demo_passwords: bool = typer.Option(
+        False,
+        "--keep-demo-passwords",
+        help="Keep the seed's published demo/user passwords (a private laptop only).",
+    ),
 ) -> None:
     """First-time install: prereqs, config, volumes, seeds, build, users, validate."""
     # Thin CLI shim: NO logic here. Anything beyond this delegate would run
@@ -541,6 +576,7 @@ def install(
         yes=yes,
         no_disk_check=no_disk_check,
         disk_floor=disk_floor,
+        keep_demo_passwords=keep_demo_passwords,
     )
 
 
@@ -580,9 +616,18 @@ def reset(
     instance: str | None = typer.Option(None, "--instance"),
     keep_config: bool = typer.Option(False, "--keep-config"),
     yes: bool = typer.Option(False, "--yes", "-y"),
+    drop_data: bool = typer.Option(
+        False, "--drop-data",
+        help="Also delete the instance's data volumes (MySQL, Neo4j, SEEK files, Solr, CC users). "
+             "Asks for the instance name even with --yes.",
+    ),
 ) -> None:
-    """Drop volumes and re-run install."""
-    from startup.lib.docker_ops import compose_down
+    """Delete the config files and the queue volumes, then re-run install.
+
+    The data volumes (MySQL, Neo4j, SEEK files, Solr, CC users) are kept; add
+    --drop-data to delete them too.
+    """
+    from startup.lib.docker_ops import DockerOpsError, compose_down
 
     state = load_instance(REPO_ROOT)
     if state is None:
@@ -597,13 +642,47 @@ def reset(
             ui.fail(str(exc))
             raise typer.Exit(code=2)
 
-    if not yes:
-        ui.warn(f"This will DROP all data for instance '{state.name}' (volumes: {state.prefix}*)")
-        typer.confirm("Continue?", abort=True)
+    if not keep_config and (
+        volume_exists(f"{state.prefix}seek-mysql-db") or volume_exists(f"{state.prefix}neo4j-data")
+    ):
+        # The data volumes survive the teardown and need these passwords back.
+        env_now = {**read_env(REPO_ROOT / "docker" / "db.env"),
+                   **read_env(REPO_ROOT / "docker" / "nextseek.env")}
+        bad = [k for k in ("MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD", "NEXTSEEK_NEO4J_PASSWORD")
+               if "$" in env_now.get(k, "")]
+        if bad:
+            ui.fail(f"{', '.join(bad)} holds a $, so reset cannot carry it to the data volumes "
+                    "that survive. Nothing was changed. Run `reset --keep-config` or fix the value first.")
+            raise typer.Exit(code=2)
 
-    ui.step(1, 3, "Stopping containers and dropping volumes")
+    if drop_data:
+        ui.warn(f"--drop-data DELETES the data volumes of instance '{state.name}' "
+                "(MySQL, Neo4j, SEEK files, Solr, CC users), then re-seeds.")
+    else:
+        ui.info(
+            f"Reset deletes the config files and the queue volumes (attribute broker, batch "
+            f"upload state, Luria ssh) of instance '{state.name}' and re-runs install. "
+            "Your data volumes (MySQL, Neo4j, SEEK files, Solr, CC users) are kept."
+        )
+    if not yes:
+        typer.confirm("Continue?", abort=True)
+    if drop_data:
+        # Never skipped by --yes: this is the one step that cannot be undone.
+        typed = typer.prompt(f"Type the instance name ({state.name}) to delete its data")
+        if typed.strip() != state.name:
+            ui.fail("name did not match; nothing was changed")
+            raise typer.Exit(code=1)
+
+    ui.step(1, 3, "Stopping containers and dropping the queue volumes")
     compose_down(project_dir=REPO_ROOT, env=state.compose_env(), volumes=True)
-    ui.ok("stack down, volumes dropped")
+    ui.ok("stack down, queue volumes dropped")
+    if drop_data:
+        try:
+            removed = volumes.remove_volumes(state.prefix)
+        except DockerOpsError as exc:
+            ui.fail(str(exc))
+            raise typer.Exit(code=1) from exc
+        ui.ok(f"data volumes removed: {', '.join(removed) or 'none present'}")
 
     if not keep_config:
         ui.step(2, 3, "Removing config files")
@@ -614,9 +693,22 @@ def reset(
             for key in ("DJANGO_ALLOWED_HOSTS", "DJANGO_CSRF_TRUSTED_ORIGINS")
             if (value := config.read_rendered_value(REPO_ROOT, key))
         }
+        # The data volumes are external: `compose down -v` keeps them, and with them
+        # the database passwords the env files hold. Carry those across too, or the
+        # re-install would fall back to the old defaults and be refused. A value
+        # with a $ is left out (install refuses it; reset is the way out of that).
+        db_kept = {}
+        if volume_exists(f"{state.prefix}seek-mysql-db") or volume_exists(f"{state.prefix}neo4j-data"):
+            db_env_now = read_env(REPO_ROOT / "docker" / "db.env")
+            db_kept = {k: db_env_now[k] for k in ("MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD")
+                       if db_env_now.get(k) and "$" not in db_env_now[k]}
+            neo = config.read_rendered_value(REPO_ROOT, "NEXTSEEK_NEO4J_PASSWORD")
+            if neo and "$" not in neo:
+                carried["NEXTSEEK_NEO4J_PASSWORD"] = neo
         for p in [
             REPO_ROOT / "docker" / "db.env",
             REPO_ROOT / "docker" / "nextseek.env",
+            REPO_ROOT / "docker" / "cc-spawner.env",
             layout.proxy_secret_env(REPO_ROOT),
             # A box that never moved its token still has it here. Reset claims
             # to remove config, so it must not leave the real token behind.
@@ -629,6 +721,9 @@ def reset(
             if p.exists():
                 p.unlink()
                 ui.ok(f"removed {p.relative_to(REPO_ROOT)}")
+        if db_kept:
+            write_env(REPO_ROOT / "docker" / "db.env", db_kept)
+            ui.ok(f"carried {', '.join(db_kept)} (the data volumes survive)")
         if carried:
             write_env(REPO_ROOT / "docker" / "nextseek.env", carried)
             ui.ok(f"carried {', '.join(carried)} into the re-install")
@@ -657,6 +752,7 @@ def reset(
         yes=True,
         no_disk_check=False,
         disk_floor=None,
+        keep_demo_passwords=False,
     )
 
 
@@ -667,7 +763,7 @@ def rebuild(
         "app",
         "--component",
         "--service",
-        help="app, cc-agent, nextseek-sidecar, bedrock-proxy, or custom-stack",
+        help="app, cc-agent, nextseek-sidecar, bedrock-proxy, cc-spawner, or custom-stack",
     ),
     source_tree: Path | None = typer.Option(
         None,
@@ -712,8 +808,19 @@ def rebuild(
         help="Include the Nessie lane (three NS questions and one CC question, about "
              "$0.30) in the post-rebuild CI. App rebuilds on local and dev only.",
     ),
+    stop_first: bool = typer.Option(
+        False, "--stop-first",
+        help="Stop and recreate the web server in place (a gap of about a minute) instead "
+             "of swapping a new one in beside the old. A pending migration forces this.",
+    ),
+    recreate_nginx: bool = typer.Option(
+        False, "--recreate-nginx",
+        help="Recreate nextseek_nginx (and only it) so it serves the checkout's "
+             "docker/nginx.conf, then check the app and SEEK. Never on by default.",
+    ),
 ) -> None:
     """Safely rebuild a first-party component without touching volumes."""
+    from startup.lib import web_swap
     from startup.lib.docker_ops import compose_build, compose_up
     from startup.lib.deploy_source import DeploySourceError, resolve_verified_source
     from startup.lib.rebuild_policy import resolve_component
@@ -733,6 +840,19 @@ def rebuild(
     # Before the disk review: a box that is going to be refused should not be
     # walked through a purge first.
     _nessie_env_preflight_or_exit()
+    # A pin a killed swap left behind may name a container that is gone. Every way
+    # this rebuild replaces web (swap, start, stop-first recreate) would then report
+    # success while nginx answers 502, so refuse before building anything.
+    if restart and "web" in policy.restart_services:
+        try:
+            web_swap.refuse_leftover_pin(REPO_ROOT)
+        except web_swap.SwapError as exc:
+            ui.fail(str(exc))
+            raise typer.Exit(code=1) from exc
+    # A box installed before the CC spawner existed has no token pair yet; write it
+    # here (it only adds a key to docker/nextseek.env, never re-renders the file).
+    if (REPO_ROOT / "docker" / "nextseek.env").exists():
+        config.render_spawner_env(REPO_ROOT)
 
     _disk_preflight_or_exit(
         ci_profile=state.ci_profile,
@@ -788,32 +908,87 @@ def rebuild(
             builder=builder,
         )
     if policy.restart_services and restart:
+        # The web server is replaced without a gap unless the operator asked for
+        # stop-first or the new image carries a migration (old code must not run on
+        # a new schema). Everything else restarts in place, as it always did.
+        swap_web = "web" in policy.restart_services and not stop_first
+        if swap_web:
+            run_docker = web_swap.make_runner(REPO_ROOT, state.compose_env())
+            with ui.spinner("checking the new image for pending migrations"):
+                pending, why = web_swap.migrations_pending(run_docker)
+            if pending:
+                swap_web = False
+                ui.warn("this image has pending migrations (or the check could not run), so web is "
+                        "stopped and recreated instead of swapped: users see the restart page for "
+                        f"about a minute. {why}")
+        in_place = tuple(s for s in policy.restart_services if s != "web")
         with ui.spinner(f"recreating {policy.name} runtimes"):
+            if "web" in policy.restart_services and not swap_web:
+                # Stop-first: web alone, before the worker. The old web drains and
+                # stops before the worker is recreated and migrates, so old code never
+                # serves on the new schema; the new web waits in the entrypoint until
+                # the worker has migrated.
+                compose_up(
+                    services=("web",),
+                    project_dir=REPO_ROOT,
+                    env=state.compose_env(),
+                    force_recreate=True,
+                    no_deps=True,
+                )
             compose_up(
-                services=policy.restart_services,
+                services=in_place,
                 project_dir=REPO_ROOT,
                 env=state.compose_env(),
                 force_recreate=True,
                 no_deps=True,
             )
+        if swap_web:
+            try:
+                ui.info("swapping web (the old container finishes its chat turns first)")
+                web_swap.swap(run_docker, REPO_ROOT, say=ui.info, warn=ui.warn)
+            except web_swap.SwapError as exc:
+                ui.fail(f"web swap failed: {exc}")
+                raise typer.Exit(code=1) from exc
         ui.ok(f"{policy.name} rebuilt and restarted")
         # Start the front door if it is down, and do nothing else to it. `up`
         # without --force-recreate is a no-op on a running nginx, which needs no
-        # restart anyway (docker/nginx.conf re-resolves `nextseek` per request);
+        # restart anyway (docker/nginx.conf re-resolves `web` per request);
         # --no-deps keeps it from touching any other service. A stopped nginx
         # used to survive every rebuild, and the CI hook then spent its whole
         # readiness floor on a refused port.
-        compose_up(
-            services=("nextseek_nginx",),
-            project_dir=REPO_ROOT,
-            env=state.compose_env(),
-            no_deps=True,
-        )
-        ui.ok("front door (nextseek_nginx) running")
+        if not recreate_nginx:  # the recreate below starts it too
+            compose_up(
+                services=("nextseek_nginx",),
+                project_dir=REPO_ROOT,
+                env=state.compose_env(),
+                no_deps=True,
+            )
+            ui.ok("front door (nextseek_nginx) running")
     elif not policy.restart_services:
         ui.ok(f"{policy.name} image rebuilt; no persistent container to restart")
     else:
         ui.ok(f"{policy.name} image rebuilt; runtime restart deferred by request")
+
+    recreate_failed = False
+    if recreate_nginx:
+        # Its own step: nginx only (--no-deps), never SEEK, neo4j or anything else.
+        ui.step(1, 1, "recreating the front door (nextseek_nginx) for docker/nginx.conf")
+        seek_before = validate.seek_started_at(REPO_ROOT, state.compose_env())
+        compose_up(
+            services=("nextseek_nginx",),
+            project_dir=REPO_ROOT,
+            env=state.compose_env(),
+            force_recreate=True,
+            no_deps=True,
+        )
+        checks = validate.check_after_nginx_recreate(
+            state.ports, seek_before, validate.seek_started_at(REPO_ROOT, state.compose_env()))
+        _print_health_results(list(checks))
+        recreate_failed = not all(c.ok for c in checks)
+    else:
+        nginx_cfg = validate.check_nginx_config(REPO_ROOT, state.compose_env())
+        if not nginx_cfg.ok:
+            ui.warn(nginx_cfg.detail)
 
     # Stack health, step 1 of CI. Every first-party image, not just this
     # component's: a bare `rebuild` builds only the app image, so the routine
@@ -916,7 +1091,7 @@ def rebuild(
                 raise typer.Exit(code=rc)
             ui.ok(f"CI passed: {outcome}")
 
-    if (not health.ok or (graph_drift is not None and not graph_drift.ok)
+    if (not health.ok or recreate_failed or (graph_drift is not None and not graph_drift.ok)
             or (graph_sync_health is not None and not graph_sync_health.ok)):
         # The build itself succeeded; the box is nonetheless short an image, a
         # service, or the front door, which only a user would otherwise report,
@@ -925,6 +1100,7 @@ def rebuild(
         # Said last, after the suite's green line, so a terminal ends on the reason for the exit.
         red = [name for name, bad in (
             ("stack health", not health.ok),
+            ("nginx recreate checks", recreate_failed),
             ("graph drift", graph_drift is not None and not graph_drift.ok),
             ("graph sync health", graph_sync_health is not None and not graph_sync_health.ok),
         ) if bad]

@@ -9,7 +9,7 @@ from typing import Any
 import requests
 
 from ... import call_scope
-from ...chat_memory import MEMORY_WINDOW
+from ...chat_memory import MEMORY_WINDOW, bundle_rows_and_extent
 from ...config import ChatConfig
 from ...cypher_text import mask_cypher
 from ...session import SessionState
@@ -431,6 +431,10 @@ def _bundle_total(bundle: dict) -> tuple[Any, dict | None]:
     ``api_result_slim``, so reading the slim copy alone gave every graph bundle
     total=None.
     """
+    if isinstance(bundle.get("step_results"), dict):  # a plan: its FINAL step's total, as a follow-up reads it
+        _rows, plan_total, _capped, from_plan = bundle_rows_and_extent(bundle)
+        if from_plan and plan_total is not None:
+            return plan_total, None
     graph_result = bundle.get("graph_result")
     if isinstance(graph_result, dict) and graph_result:
         return _graph_total(graph_result), _aggregate_values(graph_result)

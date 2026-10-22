@@ -31,7 +31,7 @@ vestigially Dropbox-shaped:
   `chat_nextseek` shows a "Search Details" panel from live `agent_complete` events, but those
   `debugEntries` are **ephemeral — empty on reload**; `MessageBubble.tsx:111-159`.)
 - **Dropbox/laptop cruft.** `cc_config.py:15` hardcodes a laptop default
-  `_DEFAULT_HOST_USER_ROOT = "/Users/taishajoseph/dmac-dev/users"`; dead `dropbox_root`
+  `_DEFAULT_HOST_USER_ROOT = "/Users/<user>/dmac-dev/users"`; dead `dropbox_root`
   config and `seek/views.py:94 DROPBOX_DIRECTORY` linger.
 - **Frontend session-id (3e).** New-chat `activeSessionId` is promoted from the WS
   `query_complete` `d.session_id` (`AppLayout.tsx:117`, `EmbeddedApp.tsx:126`); both sites
@@ -320,7 +320,7 @@ in the deployed venv.
   the §5 `artifacts` channel now delivers files. No replacement copy needed (the UI shows the
   download); if any text is kept it must not say "Dropbox".
 - **Laptop default (Decision E8 — needs per-change sign-off, behavior change):** replace
-  `cc_config.py:15 _DEFAULT_HOST_USER_ROOT = "/Users/taishajoseph/dmac-dev/users"` with a
+  `cc_config.py:15 _DEFAULT_HOST_USER_ROOT = "/Users/<user>/dmac-dev/users"` with a
   **neutral container default `/srv/dmac/users`** (the real prod/dev host root). Do **not**
   fail-closed; keep a sane default.
 - **Dead config audit:** remove `dmac_assistant/src/dmac_assistant/config.py` `dropbox_root`

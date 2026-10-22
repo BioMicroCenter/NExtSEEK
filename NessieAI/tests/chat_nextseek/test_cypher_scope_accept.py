@@ -266,3 +266,4 @@ def test_the_lane_fixture_s_assay_layer_follows_the_role_rule():
     assert fixture_graph.GRAPH_META["schema_version"] == "1.3"
     staining = {uuid for (uuid, role, assay) in links if role == "INPUT_TO" and assay == "Staining"}
     assert staining == {"TIS-230102AAA-2", "TIS-230202BBB-2", "TIS-230402DDD-2"}
+

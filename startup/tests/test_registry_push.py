@@ -163,6 +163,15 @@ def test_gate_passes_with_the_laya_env_example(mock_run: MagicMock) -> None:
     assert ok is True, detail
 
 
+@pytest.mark.parametrize("baked", ["/app/docker/cc-spawner.env", "/app/docker/laya.env"])
+@patch("startup.steps.registry_push.subprocess.run")
+def test_gate_fails_on_the_spawner_token_and_the_laya_key(mock_run: MagicMock, baked: str) -> None:
+    mock_run.side_effect = _gate_run_dispatcher(f"/app/docker/nextseek.env.example\n{baked}\n")
+    ok, detail = baked_secret_gate("img:latest")
+    assert ok is False
+    assert baked in detail
+
+
 @patch("startup.steps.registry_push.subprocess.run")
 def test_gate_applies_optional_disposable_resource_limits(mock_run: MagicMock) -> None:
     mock_run.side_effect = _gate_run_dispatcher("")
@@ -726,13 +735,15 @@ def test_rebuild_nextseek_triggers_baseline_push(
         result = CliRunner().invoke(app, ["rebuild"])
     assert result.exit_code == 0
     assert mock_build.call_args.kwargs["services"] == ("nextseek",)
-    # Default rebuild restarts only the always-on app runtime. The attribute
-    # runtimes are gated on the `attributes` compose profile, and naming them
-    # here would start them regardless of that profile.
-    app_up, front_door_up = mock_up.call_args_list
-    assert app_up.kwargs["services"] == ("nextseek",)
-    assert app_up.kwargs["no_deps"] is True
-    assert app_up.kwargs["force_recreate"] is True
+    # The conftest answers "migrations pending", so this is the stop-first path: web
+    # alone first (the old one drains and stops; the new one waits for the
+    # migration), then the worker, which migrates, then the front door.
+    web_up, worker_up, front_door_up = mock_up.call_args_list
+    assert web_up.kwargs["services"] == ("web",)
+    assert worker_up.kwargs["services"] == ("nextseek",)
+    for up in (web_up, worker_up):
+        assert up.kwargs["no_deps"] is True
+        assert up.kwargs["force_recreate"] is True
     # Then nginx is started if it is down, never recreated.
     assert front_door_up.kwargs["services"] == ("nextseek_nginx",)
     assert front_door_up.kwargs["no_deps"] is True

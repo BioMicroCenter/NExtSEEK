@@ -9,7 +9,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-MANIFEST = Path("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json")
+_STATE_ROOT = Path(os.environ.get("ATTRIBUTE_STATE_ROOT") or Path.home() / "work/state/attribute-viewset")
+
+MANIFEST = _STATE_ROOT / "VERIFICATION-MANIFEST.json"
 OUTCOMES = ("killed", "survived", "timed_out", "skipped", "errored")
 HANDSHAKE_KEYS = {"schema_version", "mutant_id", "source_path", "symbol",
                   "expected_matches", "observed_matches", "pre_sha256",

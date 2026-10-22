@@ -162,13 +162,6 @@ def test_edge_attributes_are_enriched(api, base_url):
     )
 
 
-@pytest.mark.xfail(
-    reason="34 sample types have no attribute definitions, so this endpoint "
-           "refuses to emit metadata_fields and returns an application-level 502. "
-           "Measured on the local stack 2026-09-01. A data condition, not a "
-           "deployment failure. Flips to XPASS when the data is fixed.",
-    strict=False,
-)
 def test_entity_tree_nodes(api, base_url):
     r = api.get(f"{base_url}/nextseek_api/entity_tree/nodes/", timeout=90)
     check_gateway(r)

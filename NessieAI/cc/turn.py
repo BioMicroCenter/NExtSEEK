@@ -31,11 +31,12 @@ from nextseek_api.assistant.models_db import CCSessionTranscript, ChatSession
 # Spec piece 1: the Container-CC turn issues, dates and revokes its turn pass (a frozen edge in
 # NessieAI/tests/api/test_nessie_boundaries.py).
 from nextseek_api.assistant import turn_pass as cc_turn_pass
+from NessieAI.turn_drain import start_turn_thread
 
 from chat_nextseek.agents.parser import FORCE_MODES as PARSER_FORCE_MODES
 from chat_nextseek import prompt_variants
 from chat_nextseek.prompt_variants import VARIANT_NAMES as PROMPT_VARIANT_NAMES
-from chat_nextseek.chat_memory import next_turn_id
+from chat_nextseek.chat_memory import CRASH_INTENT_SUMMARY, next_turn_id
 from chat_nextseek.orchestrator import run_query, run_query_plan, vocabulary_not_needed
 from chat_nextseek import turn_spend
 
@@ -46,7 +47,9 @@ from NessieAI.router.policy import (
     _fallback_when_cc_unavailable,
     _record_ledger_row,
 )
-from NessieAI.ns.turn import _auto_title_if_unset, _error_tracking_send_event, _select_chat_config
+from NessieAI.ns.turn import (
+    _auto_title_if_unset, _error_tracking_send_event, _select_chat_config, apply_prod_credentials,
+)
 from NessieAI.cc import cc_engine
 from NessieAI.cc import prerun as prerun_mod
 from NessieAI.cc import cc_config
@@ -150,7 +153,8 @@ def _persist_summary_standalone(user, session_id, summary_dict, fp):
         es["summary"] = summary_dict
         es["summary_fingerprint"] = fp
         sess.extra_state = es
-        sess.save(update_fields=["extra_state", "updated_at"])
+        # No updated_at: a background summary must not move an idle chat to the top of the sidebar.
+        sess.save(update_fields=["extra_state"])
     except Exception:
         logger.exception("cc-1c: failed to persist summary for %s", session_id)
 
@@ -525,12 +529,9 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
     user_api_user, user_api_pass = api_user, api_pass
     chat_config = _select_chat_config(request, req)
 
-    # Prod-config credential swap (mirror AssistantViewSet).
-    from django.conf import settings
-    prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
-    if prod_config is not None and chat_config is prod_config:
-        if chat_config.API_USER and chat_config.API_PASS:
-            api_user, api_pass = chat_config.API_USER, chat_config.API_PASS
+    # Prod-config credential swap (the same helper as AssistantViewSet).
+    # False: no turn pass reaches CCAssistantViewSet (nextseek_api/tests/test_turn_pass_routes.py pins it).
+    api_user, api_pass = apply_prod_credentials(False, chat_config, api_user, api_pass)
     if caller:
         # The system agent's CALLER block (round 4): this user's own session, on a per-request copy so the
         # shared config never carries one user's details. Resolved by the ViewSet, as graph_scope is.
@@ -555,6 +556,9 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
 
     def _run() -> None:
         ran_ns = False
+        # The orchestrator wrote this turn's error entry itself (it marks the exception).
+        orchestrator_logged = {"done": False}
+        crashed = {"type": None}  # type name of an unhandled exception, for the next turn to see
         decision = None
         prerun = None
         cc_pass_row = None
@@ -871,6 +875,8 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 )
         except Exception as exc:
             logger.exception("cc-assistant pipeline error")
+            orchestrator_logged["done"] = bool(getattr(exc, "chat_log_turn_written", False))
+            crashed["type"] = type(exc).__name__
             # run_query sends its own query_error (the real message, with the turn's cost)
             # before it re-raises, and the task keeps the last one: a second, generic one
             # here would replace the real error the user needs to see (F13).
@@ -896,16 +902,21 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 except Exception:  # noqa: BLE001 - the next issue_pass wipes an expired row
                     logger.warning("cc: revoking the turn pass failed", exc_info=True)
             unrelated = decision is not None and decision.route == cc_router.ROUTE_UNRELATED
-            if cc_turn_complete.should_append_non_answer(terminal_seen, unrelated=unrelated):
+            if (cc_turn_complete.should_append_non_answer(terminal_seen, unrelated=unrelated)
+                    and not orchestrator_logged["done"]):
                 from django.utils import timezone
                 ts = timezone.now().isoformat(timespec="seconds")
                 rc = decision.route if decision is not None else None
                 err = terminal_seen["error"]
+                if crashed["type"]:
+                    err = crashed["type"]  # type name only; recent_turns shows it as a crash
                 if ran_ns:
                     log = list(adapter.get("chat_log") or [])
                     entry = cc_turn_complete.serialize_non_answer_entry(
                         user_query=req.query, router_choice=rc, status="error",
                         error=err, ts=ts, turn_id=next_turn_id(log))
+                    if crashed["type"]:
+                        entry["intent_summary"] = CRASH_INTENT_SUMMARY
                     adapter["chat_log"] = cc_turn_complete.append_capped(
                         log, entry, cap=MAX_CC_CHAT_LOG_TURNS)
                 else:
@@ -914,6 +925,8 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                         chat_session.extra_state, user_query=req.query,
                         router_choice=rc, status="error", error=err, ts=ts,
                         cap=MAX_CC_CHAT_LOG_TURNS)
+                    if crashed["type"]:
+                        chat_session.extra_state["chat_log"][-1]["intent_summary"] = CRASH_INTENT_SUMMARY
                     chat_session.save(update_fields=["extra_state", "updated_at"])
             if ran_ns:
                 adapter.save()
@@ -923,4 +936,4 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
             # this turn's query as the fallback title source.
             _auto_title_if_unset(chat_session, fallback_query=req.query)
 
-    threading.Thread(target=_run, daemon=True).start()
+    start_turn_thread(query_task.task_id, _run, thread_cls=threading.Thread)

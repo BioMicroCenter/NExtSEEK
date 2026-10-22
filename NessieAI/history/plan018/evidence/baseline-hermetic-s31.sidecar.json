@@ -3,7 +3,7 @@
   "lane": "A-hermetic-OPS-3.1",
   "authority": "OPS-TESTING-HARNESSES.md \u00a73.1 best-known working host variant",
   "baml_generate": "baml-cli generate --from dmac_assistant/baml_src (throwaway container; not hand-copied)",
-  "argv_note": "Exact \u00a73.1 uv/pytest invocation; cwd=/home/taishajo/work/NExtSEEK-plan018; plus --junitxml for evidence",
+  "argv_note": "Exact \u00a73.1 uv/pytest invocation; cwd=/home/<user>/work/NExtSEEK-plan018; plus --junitxml for evidence",
   "utc_start": "2026-08-11T14:13:19Z",
   "utc_end": "2026-08-11T14:13:38Z",
   "duration_s": 19,

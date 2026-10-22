@@ -269,7 +269,7 @@ class TestConvertSamplesToInputRows:
             batch = parse_traditional_file(path)
             assert len(batch.rows) == 1
             meta = json.loads(batch.rows[0].json_metadata)
-            assert meta["Displayed Tissue"] == "brain"
+            assert meta["Displayed Tissue"] == "Brain"  # casing corrected to the vocabulary term
         finally:
             if os.path.isfile(path):
                 os.unlink(path)
@@ -547,3 +547,54 @@ class TestOriginalRowIndex:
         finally:
             if os.path.isfile(path):
                 os.unlink(path)
+
+
+class TestDroppedAndCorrectedRows:
+    def test_flat_row_failure_is_reported(self):
+        path = _make_flat_xlsx([
+            {"uid": "U1", "SampleType": "A.Sample", "json_metadata": '{"UID":"U1","Name":"a"}', "assay_ids": "1"},
+            {"uid": "U2", "SampleType": "A.Sample", "json_metadata": '{"UID":"OTHER","Name":"b"}', "assay_ids": "1"},
+            {"uid": "U3", "SampleType": "A.Sample", "json_metadata": '{"UID":"U3","Name":"c"}', "assay_ids": "1"},
+        ])
+        try:
+            batch = convert_file(path)
+            assert len(batch.rows) == 2
+            assert [i for i, _ in batch.row_errors] == [1]
+            assert batch.row_errors[0][1]
+            merged = merge_files([path, path])
+            assert len(merged.row_errors) == 2
+        finally:
+            os.unlink(path)
+
+    def test_two_fields_one_attribute_keep_their_own_values(self):
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {"Field": "F1", "Database Field": "A.Sample::Notes", "Field Type": "Free Text", "Ontology": None},
+                {"Field": "F2", "Database Field": "A.Sample::Notes", "Field Type": "Free Text", "Ontology": None},
+                {"Field": "T", "Database Field": "A.Sample::Tissue", "Field Type": "Controlled Ontology", "Ontology": "Tissue"},
+            ],
+            samples_rows=[{"T": "liver", "F2": "two", "F1": "one"}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 42, "Direction": 1}],
+            ontology_rows=[{"Tissue": "Liver"}],
+        )
+        try:
+            meta = json.loads(parse_traditional_file(path).rows[0].json_metadata)
+            assert (meta["F1"], meta["F2"], meta["T"]) == ("one", "two", "Liver")
+        finally:
+            os.unlink(path)
+
+    def test_ontology_casing_is_stored(self):
+        path = _make_traditional_xlsx(
+            instructions_rows=[
+                {"Field": "Tissue", "Database Field": "A.Sample::Tissue",
+                 "Field Type": "Controlled Ontology", "Ontology": "Tissue"},
+            ],
+            samples_rows=[{"Tissue": "liver"}, {"Tissue": "Kidney"}],
+            assay_rows=[{"SampleType": "A.Sample", "AssayType": None, "Assay": 42, "Direction": 1}],
+            ontology_rows=[{"Tissue": "Liver"}, {"Tissue": "Kidney"}],
+        )
+        try:
+            batch = parse_traditional_file(path)
+            assert [json.loads(r.json_metadata)["Tissue"] for r in batch.rows] == ["Liver", "Kidney"]
+        finally:
+            os.unlink(path)

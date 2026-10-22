@@ -40,6 +40,7 @@ case "$*" in
   *"MySQLdb.connect"*) exit "${DB_PROBE_EXIT:-0}" ;;
   *"manage.py collectstatic"*) exit "${COLLECTSTATIC_EXIT:-0}" ;;
   *"manage.py migrate"*) exit "${MIGRATE_EXIT:-0}" ;;
+  *"manage.py mark_interrupted_batch_jobs"*) exit 0 ;;
   *) sleep "${STUB_LINGER:-0.5}"; exit 0 ;;
 esac
 """
@@ -69,6 +70,8 @@ def _run_entrypoint(tmp_path, migrate_exit: int = 0, **env_overrides):
         "NEXTSEEK_GRAPH_SYNC_LOOP": "0",
         **{k: str(v) for k, v in env_overrides.items()},
     }
+    if "BATCH_UPLOAD_STATE_DIR" not in env_overrides:
+        env.pop("BATCH_UPLOAD_STATE_DIR", None)  # test settings point it at a temp dir; the script's default is under test
     proc = subprocess.run(
         ["bash", str(ENTRYPOINT)],
         env=env,
@@ -88,15 +91,19 @@ def _line_for(calls: str, needle: str) -> str:
 class TestEveryRuntimeStarts:
     """All six processes, or the fold silently dropped one."""
 
-    def test_the_web_server_and_all_five_workers_start(self, tmp_path):
+    def test_the_workers_start_and_the_web_server_does_not(self, tmp_path):
         proc, calls = _run_entrypoint(tmp_path)
         assert proc.returncode == 0
-        assert "gunicorn" in calls
+        assert "gunicorn" not in calls
         assert "-Q batch_upload" in calls
         assert "-Q attribute_mutations" in calls
         assert "manage.py dispatch_attribute_outbox" in calls
         assert "manage.py recover_attribute_sync_jobs" in calls
         assert "manage.py run_assay_registration_jobs" in calls
+
+    def test_the_beat_starts_with_its_schedule_on_the_durable_dir(self, tmp_path):
+        _, calls = _run_entrypoint(tmp_path)
+        assert "--schedule /var/celery/celerybeat-schedule" in _line_for(calls, " beat")
 
     def test_the_share_worker_starts_with_no_broker(self, tmp_path):
         """The studies tool's share worker drains its MySQL job rows by lease, like the registration loop."""
@@ -136,7 +143,17 @@ class TestBrokerIsolation:
         line = _line_for(calls, "-Q attribute_mutations")
         assert "/var/lib/attribute-broker/broker.sqlite3" in line
 
+    def test_interrupted_jobs_are_failed_after_migrate_and_before_the_batch_worker(self, tmp_path):
+        _, calls = _run_entrypoint(tmp_path)
+        lines = calls.splitlines()
+
+        def at(needle):
+            return next(i for i, line in enumerate(lines) if needle in line)
+
+        assert at("manage.py migrate") < at("manage.py mark_interrupted_batch_jobs") < at("-Q batch_upload")
+
     def test_the_batch_upload_worker_keeps_the_container_default(self, tmp_path):
+        """Same default URL (CELERY_BROKER_URL unset); /var/celery is now the batch_upload_state volume."""
         _, calls = _run_entrypoint(tmp_path)
         line = _line_for(calls, "-Q batch_upload")
         assert "CELERY_BROKER_URL=<unset>" in line, (
@@ -214,7 +231,7 @@ class TestRetiredServiceArguments:
 _LINGERING_UV_STUB = """#!/usr/bin/env bash
 echo "start uv $*" >> "$CALL_LOG"
 case "$*" in
-  *"MySQLdb.connect"*|*"manage.py collectstatic"*|*"manage.py migrate"*) exit 0 ;;
+  *"MySQLdb.connect"*|*"manage.py collectstatic"*|*"manage.py migrate"*|*"manage.py mark_interrupted_batch_jobs"*) exit 0 ;;
 esac
 trap 'kill $! 2>/dev/null; echo "TERM uv $*" >> "$CALL_LOG"; exit 143' TERM
 sleep 30 & wait $!
@@ -249,7 +266,7 @@ class TestStopSignal:
         )
         try:
             deadline = time.monotonic() + 30
-            while call_log.read_text().count("start uv") < 10:  # 3 boot steps + 7 runtimes
+            while call_log.read_text().count("start uv") < 9:  # 3 boot steps + 6 runtimes
                 assert time.monotonic() < deadline, call_log.read_text()
                 assert proc.poll() is None, call_log.read_text()
                 time.sleep(0.05)
@@ -260,7 +277,17 @@ class TestStopSignal:
             if proc.poll() is None:
                 proc.kill()
         calls = call_log.read_text()
-        for runtime in ("gunicorn", "-Q batch_upload", "-Q attribute_mutations",
+        for runtime in ("-Q batch_upload", "-Q attribute_mutations",
                         "dispatch_attribute_outbox", "recover_attribute_sync_jobs",
                         "run_assay_registration_jobs", "run_share_jobs"):
             assert any(l.startswith("TERM ") and runtime in l for l in calls.splitlines()), runtime
+
+
+class TestStateDirWarning:
+    def test_a_state_dir_off_the_volume_warns_once(self, tmp_path):
+        proc, _ = _run_entrypoint(tmp_path, BATCH_UPLOAD_STATE_DIR="/tmp/elsewhere")
+        assert proc.stderr.count("BATCH_UPLOAD_STATE_DIR=/tmp/elsewhere is not under /var/celery") == 1
+
+    def test_the_default_does_not_warn(self, tmp_path):
+        proc, _ = _run_entrypoint(tmp_path)
+        assert "is not under /var/celery" not in proc.stderr

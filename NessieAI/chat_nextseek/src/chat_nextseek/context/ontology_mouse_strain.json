@@ -47,27 +47,101 @@
   "DEF": "PWK/PhJ wild-derived inbred strain (Collaborative Cross founder).",
   "ONT_SOURCE": "house",
   "ONT_ID": null,
-  "SYNONYMS": []
+  "SYNONYMS": [
+   "PWK"
+  ]
  },
  {
   "TERM": "CAST/EiJ",
   "DEF": "CAST/EiJ wild-derived inbred strain (Collaborative Cross founder).",
   "ONT_SOURCE": "house",
   "ONT_ID": null,
-  "SYNONYMS": []
+  "SYNONYMS": [
+   "CAST"
+  ]
  },
  {
   "TERM": "WSB/EiJ",
   "DEF": "WSB/EiJ wild-derived inbred strain (Collaborative Cross founder).",
   "ONT_SOURCE": "house",
   "ONT_ID": null,
-  "SYNONYMS": []
+  "SYNONYMS": [
+   "WSB"
+  ]
  },
  {
   "TERM": "PWD/PhJ",
   "DEF": "PWD/PhJ wild-derived inbred strain.",
   "ONT_SOURCE": "house",
   "ONT_ID": null,
-  "SYNONYMS": []
+  "SYNONYMS": [
+   "PWD"
+  ]
+ },
+ {
+  "TERM": "CC009/UncJ",
+  "DEF": "Collaborative Cross recombinant inbred line CC009.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "CC009J",
+   "CC009"
+  ]
+ },
+ {
+  "TERM": "CC011/UncJ",
+  "DEF": "Collaborative Cross recombinant inbred line CC011.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "CC011J",
+   "CC011"
+  ]
+ },
+ {
+  "TERM": "CC024/GeniUncJ",
+  "DEF": "Collaborative Cross recombinant inbred line CC024.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "CC024J",
+   "CC024"
+  ]
+ },
+ {
+  "TERM": "CC039/Unc",
+  "DEF": "Collaborative Cross recombinant inbred line CC039.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "CC039"
+  ]
+ },
+ {
+  "TERM": "CC046/Unc",
+  "DEF": "Collaborative Cross recombinant inbred line CC046.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "CC046"
+  ]
+ },
+ {
+  "TERM": "CC059/TauUnc",
+  "DEF": "Collaborative Cross recombinant inbred line CC059.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "CC059"
+  ]
+ },
+ {
+  "TERM": "CC061/GeniUncJ",
+  "DEF": "Collaborative Cross recombinant inbred line CC061.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "CC061"
+  ]
  }
 ]

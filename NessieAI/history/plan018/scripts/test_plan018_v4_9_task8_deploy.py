@@ -26,11 +26,11 @@ def _write_json(path: Path, payload: object) -> None:
 
 
 def _operational_config(tmp_path: Path) -> gate.OperationalConfig:
-    run_root = Path("/home/taishajo/work/state/task8-runs") / tmp_path.name
+    run_root = Path("/home/<user>/work/state/task8-runs") / tmp_path.name
     return gate.OperationalConfig(
         repo_root=gate.ROOT,
         run_root=run_root,
-        approval_path=Path("/home/taishajo/work/state") / f"{tmp_path.name}-approval.json",
+        approval_path=Path("/home/<user>/work/state") / f"{tmp_path.name}-approval.json",
         prior_sha="1" * 40,
         candidate_sha="2" * 40,
     )
@@ -62,8 +62,8 @@ def _valid_bundle(tmp_path: Path) -> tuple[Path, Path, dict]:
     new_sha = "2" * 40
     config = gate.OperationalConfig(
         repo_root=gate.ROOT,
-        run_root=Path("/home/taishajo/work/state/task8-runs/synthetic-bundle"),
-        approval_path=Path("/home/taishajo/work/state/task8-synthetic-approval.json"),
+        run_root=Path("/home/<user>/work/state/task8-runs/synthetic-bundle"),
+        approval_path=Path("/home/<user>/work/state/task8-synthetic-approval.json"),
         prior_sha=old_sha,
         candidate_sha=new_sha,
     )
@@ -476,7 +476,7 @@ def test_operational_layout_refuses_broad_or_overlapping_targets(tmp_path: Path)
 
     broad = gate.OperationalConfig(
         repo_root=config.repo_root,
-        run_root=Path("/home/taishajo/work/state/task8-runs"),
+        run_root=Path("/home/<user>/work/state/task8-runs"),
         approval_path=config.approval_path,
         prior_sha=config.prior_sha,
         candidate_sha=config.candidate_sha,
@@ -922,8 +922,8 @@ def test_real_evidence_writer_uses_only_completed_run_facts(tmp_path: Path) -> N
     artifact_dir.mkdir(parents=True)
     config = gate.OperationalConfig(
         repo_root=root,
-        run_root=Path("/home/taishajo/work/state/task8-runs/evidence-writer-test"),
-        approval_path=Path("/home/taishajo/work/state/task8-writer-approval.json"),
+        run_root=Path("/home/<user>/work/state/task8-runs/evidence-writer-test"),
+        approval_path=Path("/home/<user>/work/state/task8-writer-approval.json"),
         prior_sha="1" * 40,
         candidate_sha="2" * 40,
     )

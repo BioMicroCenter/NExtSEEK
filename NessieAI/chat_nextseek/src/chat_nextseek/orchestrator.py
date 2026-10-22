@@ -24,16 +24,18 @@ from .artifacts import (
 )
 from .chat_memory import (
     CHAT_LOG_KEY,
+    CRASH_INTENT_SUMMARY,
     append_turn,
     build_tool_summary_for_mode,
+    bundle_rows,
+    named_bundle,
     next_turn_id,
+    plan_step_extent,
     resolve_bundle_for_recall,
 )
 from .pipeline import agent as pipeline_agent
 from .agents.followup import (
-    _stored_rows,
     describe_stored_result,
-    plan_step_extent,
     preview_rows,
     resolve_followup_outcome,
     run_followup,
@@ -83,13 +85,16 @@ from .helpers import (
     tool_nextseek_api_request,
     matched_nothing,
     tool_neo4j_query,
+    uids_from_last_search,
 )
 from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, normalized_cypher, timed_out, timeout_retry_context,
                           zero_row_retry_context)
 from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
+from .helpers.results import bundle_extent, picked_uids
 from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
+from .reports.outputs import ReportCodePathError, session_reporter_result
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .schemas.entity import EntityItem
 from .schemas.graph import GraphAgentPlan
@@ -393,6 +398,28 @@ def _artifacts_for(bundle: dict[str, Any] | None) -> list[dict[str, Any]] | None
         return None
 
 
+def _report_unhandled(session, user_text, send_event, exc, *, agent, mode_label) -> None:
+    """Report a pipeline crash as an error: log it, leave an error turn, send ``query_error``.
+
+    The error turn carries no reply (the chat view hides such turns, PD-6) and no exception
+    text but its type; the traceback goes to the log. The exception is marked
+    ``chat_log_turn_written`` so ``cc/turn.py`` does not write a second entry for it.
+    The caller re-raises, so the task ends as failed, never as a completed answer.
+    """
+    _LOG.exception("unhandled exception in %s", mode_label)
+    cost = turn_spend.cost_fields()
+    try:
+        append_turn(session, user_query=user_text, mode=mode_label,
+                    intent_summary=CRASH_INTENT_SUMMARY,
+                    status="error", error=type(exc).__name__)
+        exc.chat_log_turn_written = True
+    except Exception:
+        _LOG.exception("failed to log the chat_log turn for an unhandled error")
+    if send_event:
+        # The turn's last event: it carries what the turn spent before it failed.
+        send_event("query_error", {"error": str(exc), "agent": agent, **cost})
+
+
 def _emit_query_complete(
     send_event: SendEvent | None,
     reply: str,
@@ -620,10 +647,7 @@ def _followup_graph_context(session, user_text: str, plan=None) -> tuple[str, di
     session keeps those UIDs only as a placeholder. Returns (context, debug record)."""
     try:
         history = session.get("results_history") or []
-        named = None
-        target = getattr(plan, "target_result_id", None)
-        if target is not None and not isinstance(target, bool):
-            named = next((b for b in reversed(history) if isinstance(b, dict) and b.get("id") == target), None)
+        named = named_bundle(history, getattr(plan, "target_result_id", None))
         if named is not None and named.get("user_query"):
             last, by, cue = named, "parser", None
         else:
@@ -966,7 +990,7 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             if run.get("scope_note"):
                 payload["scope_note"] = " ".join(n for n in (run["scope_note"], payload.get("scope_note")) if n)
         else:
-            rows = _stored_rows(bundle)
+            rows = bundle_rows(bundle)
             total = described.get("total")
             complete = bool(rows) and not described.get("capped")
             origin = {"kind": "stored", "bundle_id": bundle.get("id"), "rows_in": len(rows), "total": total,
@@ -2002,6 +2026,58 @@ def _followup_result_bundle(session, artifact_store, *, outcome: dict | None, us
 BUNDLE_SEQ_KEY = "bundle_seq"
 
 
+#: The LIMIT the graph agent puts on a list of samples (``prompts/graph_agent.txt``, "LIMIT 5000 as a safety cap").
+# ponytail: mirrors the prompt's number; a LIMIT below it is read as one the user asked for.
+GRAPH_SAFETY_CAP = 5000
+
+
+def _report_generation_uids(session, user_text: str, plan, reporter_plan) -> tuple[list[str], str | None]:
+    """``(the UIDs a report is generated over, a narrowing reply or None)``.
+
+    UIDs the reporter or the user's own text named win, with the parser's added. Else the rows the user picked out of
+    the result the parser named (``picked_uids``: "the first two mice you showed"). Else that result (``target_result_id``) when it holds samples, as the pipeline builds on it (``pipeline.agent.start``): the UIDs
+    the parser carried are the few an earlier turn showed, not the set. A named result with no sample list (a count,
+    a breakdown, a search that found nothing) gets an ask, as the pipeline's does, not a package on those few. With
+    no named result, the carried UIDs. A named result that was cut short (a capped graph result, a total above its
+    rows) gets a narrowing reply rather than a silent partial package.
+    """
+    uids = reporter_plan.uids or []
+    try:
+        parser_uids = plan.filters.uids if hasattr(plan, "filters") else []
+    except Exception:
+        parser_uids = []
+    target_id = getattr(plan, "target_result_id", None)
+    # The reporter copies the parser's carried UIDs into its own plan whenever it names none, so only a UID the
+    # parser did not carry, or one the user typed, says the user named the set here.
+    carried = set(parser_uids or [])
+    named_here = any(u not in carried for u in uids) or bool(uids_in(user_text or ""))
+    target_uids = uids_from_last_search(session, target_id) if target_id is not None and not named_here else []
+    if target_uids:
+        picked = picked_uids(target_uids, parser_uids)
+        if picked:
+            return picked, None
+        target = named_bundle(session.get("results_history") or [], target_id)
+        rows, total, capped = bundle_extent(target)
+        graph = target.get("graph_result") if isinstance(target.get("graph_result"), dict) else {}
+        # A LIMIT under the graph agent's safety cap is one the question set ("show me 10"): those rows are the set.
+        asked = isinstance(graph.get("limit"), int) and graph["limit"] < GRAPH_SAFETY_CAP
+        if asked or not (capped or (total is not None and total > len(rows))):
+            return target_uids, None
+        held = f"{len(rows)} of {total}" if total is not None else f"only the first {len(rows)}"
+        return [], (f"The result you mean ({target.get('user_query') or 'that result'!r}) holds {held} samples: "
+                    "it was cut short, so a package from it would be partial. Narrow the set first: a tighter "
+                    "search, one study or project, or the samples' UIDs.")
+    target = named_bundle(session.get("results_history") or [], target_id) if target_id is not None else None
+    if target is not None and not named_here:
+        what = "is a count or a breakdown" if bundle_rows(target) else "found no samples"
+        return [], (f"The result you mean ({target.get('user_query') or 'that result'!r}) {what}, so it has no list "
+                    "of samples to package. Run a search for the samples first, or give me their UIDs.")
+    if parser_uids:
+        existing = set(uids)
+        uids.extend([u for u in parser_uids if u not in existing])
+    return uids, None
+
+
 def _next_bundle_id(session) -> int:
     """Allocate a monotonic bundle id for this session.
 
@@ -2234,6 +2310,8 @@ def run_query(
         if _raw_send_event:
             _raw_send_event(event_name, payload)
 
+    # Read by the fatal handler: a crash after the parser keeps the plan (and the result it named) in the debug.
+    plan: ParserPlan | None = None
     try:
         # An in-progress samplesheet build always advances through the
         # pipeline_agent before the normal parser path.
@@ -2350,7 +2428,7 @@ def run_query(
                     f"query={bundle.get('user_query')!r}"
                 )
             else:
-                bundle = next((b for b in history if b.get("id") == target_id), None)
+                bundle = named_bundle(history, target_id)
                 if bundle is None:
                     reply = (
                         f"You referred to previous results with id={target_id}, but I couldn't find that "
@@ -2505,29 +2583,44 @@ def run_query(
                     print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
                     return _emit_query_complete(send_event, reply, debug_payload, None)
 
+                uids, narrow = _report_generation_uids(session, user_text, plan, reporter_plan)
+                if narrow:
+                    session["last_debug"] = debug_payload
+                    append_turn(
+                        session,
+                        user_query=user_text,
+                        mode=mode,
+                        intent_summary=plan.intent_summary,
+                        entity_result=entity_result,
+                        tool_summary=build_tool_summary_for_mode("reporter", reporter_plan=reporter_plan.model_dump()),
+                        assistant_reply=narrow,
+                    )
+                    print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
+                    return _emit_query_complete(send_event, narrow, debug_payload, None)
+                # The bundle remembers the samples this report packaged, so a later "run rnaseq on those" builds on them.
+                reporter_plan = reporter_plan.model_copy(update={"uids": uids})
+
                 current_agent = "report_writer"
                 send_event("agent_started", {"agent": "report_writer", "mode": reporter_mode})
-                uids = reporter_plan.uids or []
+                print("[DEBUG][REPORTER] Report generation UIDs:", len(uids))
                 try:
-                    parser_uids = plan.filters.uids if hasattr(plan, "filters") else []
-                except Exception:
-                    parser_uids = []
-                if parser_uids:
-                    existing = set(uids)
-                    uids.extend([u for u in parser_uids if u not in existing])
-
-                print("[DEBUG][REPORTER] Report generation UIDs:", uids)
-                reporter_result, report_writer_output, saved_files, reply = generate_report_outputs(
-                    config=config,
-                    user_query=user_text,
-                    parser_plan=plan,
-                    reporter_plan=reporter_plan,
-                    uids=uids,
-                    log_dir=log_dir,
-                    report_writer_fn=report_writer_agent,
-                    report_coder_fn=report_coder_agent,
-                    per_sample_reports=per_sample_reports,
-                )
+                    reporter_result, report_writer_output, saved_files, reply = generate_report_outputs(
+                        config=config,
+                        user_query=user_text,
+                        parser_plan=plan,
+                        reporter_plan=reporter_plan,
+                        uids=uids,
+                        log_dir=log_dir,
+                        report_writer_fn=report_writer_agent,
+                        report_coder_fn=report_coder_agent,
+                        per_sample_reports=per_sample_reports,
+                    )
+                except ReportCodePathError as code_path_failed:
+                    # The code path failed twice on a set too large for the report writer: a plain reply, not
+                    # the writer's input overflow (prod 10-14, task 39a967f9).
+                    print(f"[DEBUG][REPORT_CODER] Code path failed twice: {code_path_failed}")
+                    reporter_result = {"ok": False, "error": str(code_path_failed)}
+                    report_writer_output, saved_files, reply = {}, {}, code_path_failed.reply
                 send_event("agent_complete", {"agent": "report_writer", "summary": None})
             else:
                 summary_mode = reporter_plan.summary_mode or "samples"
@@ -2621,7 +2714,10 @@ def run_query(
                 ])
                 reply = "\n".join(reply_lines)
 
-            debug_payload["reporter_result"] = reporter_result
+            # The session keeps a generated report's summary, not the metadata it fetched: prod 10-14, a GEO
+            # package over 1,641 mice was built and then could not be saved (last_debug 112 MB). The files keep it.
+            session_result = session_reporter_result(reporter_result)
+            debug_payload["reporter_result"] = session_result
             debug_payload["report_writer_output"] = (
                 report_writer_output.model_dump()
                 if isinstance(report_writer_output, ReportWriterOutput)
@@ -2631,11 +2727,6 @@ def run_query(
             if isinstance(reporter_result, dict):
                 if "metadata" in reporter_result:
                     debug_payload["reporter_metadata"] = reporter_result.get("metadata")
-                elif isinstance(reporter_result.get("reports"), list) and reporter_result["reports"]:
-                    debug_payload["reporter_metadata"] = {
-                        entry.get("uid") or f"item_{idx}": entry.get("metadata")
-                        for idx, entry in enumerate(reporter_result["reports"])
-                    }
                 if saved_files:
                     debug_payload["report_saved_files"] = saved_files
 
@@ -2653,7 +2744,7 @@ def run_query(
                 user_query=user_text,
                 parser_plan=plan.model_dump(),
                 reporter_plan=reporter_plan.model_dump(),
-                reporter_result=reporter_result,
+                reporter_result=session_result,
                 report_writer_output=report_writer_output_payload,
                 report_saved_files=saved_files,
                 terminal_reply=reply,
@@ -3064,13 +3155,14 @@ def run_query(
             )
         except Exception as log_err:  # pragma: no cover
             print(f"[FATAL] failed to log chat_log turn: {log_err!r}")
-        return _emit_query_complete(send_event, reply, {"fatal_error": msg, "agent": agent}, None)
+        fatal_debug: dict[str, Any] = {"fatal_error": msg, "agent": agent}
+        if plan is not None:
+            fatal_debug["parser_plan"] = plan.model_dump()
+        return _emit_query_complete(send_event, reply, fatal_debug, None)
 
     except Exception as exc:
-        if send_event:
-            # The turn's last event: it carries what the turn spent before it failed.
-            send_event("query_error", {"error": str(exc), "agent": current_agent,
-                                       **turn_spend.cost_fields()})
+        _report_unhandled(session, user_text, send_event, exc, agent=current_agent,
+                          mode_label=f"error_{current_agent or 'unknown'}")
         raise
 
 
@@ -3577,17 +3669,9 @@ def run_query_plan(
         return _emit_query_complete(send_event, reply, {"fatal_error": msg, "agent": agent}, None)
 
     except Exception as e:
-        import traceback
-
-        print(f"[ERROR][PLAN] run_query_plan unhandled exception: {e!r}")
-        traceback.print_exc()
-        reply = f"An unexpected error occurred in the planner pipeline: {e}"
-        try:
-            append_turn(session, user_query=user_text, mode="error_plan_pipeline",
-                        assistant_reply=reply, status="error", error=repr(e))
-        except Exception:
-            print("[FATAL] failed to log chat_log turn for plan pipeline error")
-        return _emit_query_complete(send_event, reply, {"error": repr(e)}, None)
+        _report_unhandled(session, user_text, send_event, e, agent="unknown",
+                          mode_label="error_plan_pipeline")
+        raise
 
 
 def handle_query_plan(session: SessionState | SessionStateProxy, config: ChatConfig, user_text: str) -> str:

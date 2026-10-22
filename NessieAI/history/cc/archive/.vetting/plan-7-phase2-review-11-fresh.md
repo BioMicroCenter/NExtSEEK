@@ -4,14 +4,14 @@
 **Reviewer:** Independent adversarial (iter-11)  
 **Target:** `PLAN-7-compose-native-prod-deploy.md`  
 **Locked spec:** `SPEC-7-compose-native-prod-deploy.md`  
-**Guide:** `/home/taishajo/AGENTS.md`  
+**Guide:** `/home/<user>/AGENTS.md`  
 **Iter-10 hardening under test:** `cc_config.py` in Task 6, expanded test inventory, `cc_runner_available` message update, Task 6 cc-state copy substeps, atomic cutover gate.
 
 **Live repo spot-checks (read-only, claim verification only):**
 - `docker-compose.yml` host-binds `/srv/dmac/users`; six `external: true` volumes; no `dmac-cc-users`, `bedrock-proxy`, or `dmac-cc-net`.
 - `startup/steps/volumes.py` lists six volumes only.
 - Only lean `docker/cc-runner/Dockerfile` exists (no `docker/cc-runtime/`).
-- `cc_config.CCPaths` still requires `host_user_root`; default is laptop path `/Users/taishajoseph/dmac-dev/users`.
+- `cc_config.CCPaths` still requires `host_user_root`; default is laptop path `/Users/<user>/dmac-dev/users`.
 - `cc_engine._build_volumes` / `_run_kwargs` use host bind dict + `volumes=` (not `mounts=`).
 - `run_cc_turn` passes `path_mappings` with `dirs.output_src` / `dirs.scratch_src` host roots; `_publish_artifacts(..., output_host_root=dirs.output_src)`.
 - `services/cc_assistant._session_metas` host-translates `transcript_path`; memory staging still builds `user_memory_file` / `transcripts_dir` via mount→host replace.

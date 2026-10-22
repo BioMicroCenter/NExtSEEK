@@ -77,8 +77,9 @@ def test_auto_or_none_uses_router(val):
     assert d.source == "baml"
 
 
-def test_cc_endpoint_still_forces_cc_for_anyone():
-    # the dedicated cc/query/async endpoint (force_cc=True) is unchanged
+def test_force_cc_forces_cc_at_the_policy_layer():
+    # _decide_route honours force_cc for any user; the cc/query/async view gates it to superusers
+    # (nextseek_api/tests/test_cc_query_force_gate.py).
     d = policy._decide_route(USER, _req(None), force_cc=True)
     assert d.route == cc_router.ROUTE_CC
     assert d.source == "forced"

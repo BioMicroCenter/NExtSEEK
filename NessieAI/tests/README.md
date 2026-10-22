@@ -32,7 +32,7 @@ There is no `conftest.py` at `NessieAI/tests/` itself; that keeps the harness ho
 | CC clean lane | live app container | "CC clean lane" block below | inside `nextseek`, which runs the baked image | free |
 | CC hermetic | host uv | "CC hermetic lane" block below | repo root | free |
 | Graph scope lane | app image beside a throwaway Neo4j | "Graph scope lane" block below | host, over an exported tree | free |
-| Harness unit tests | host uv | `uv run --no-project --with pytest --with pydantic --with requests --with beautifulsoup4 --with orjson python -m pytest NessieAI/tests/nessie_tests/tests -q -p no:cacheprovider` | repo root | free |
+| Harness unit tests | host uv | `uv run --no-project --with pytest --with pydantic --with jsonschema --with requests --with beautifulsoup4 --with orjson python -m pytest NessieAI/tests/nessie_tests/tests -q -p no:cacheprovider` | repo root | free |
 | Harness DB/contract tests | live app container | "Harness container lane" block below | inside `nextseek` | free |
 | Harness route tier | host uv, or the app container | host: `uv run --no-project --with pydantic --with requests --with beautifulsoup4 --with orjson python -m NessieAI.tests.nessie_tests --base-url http://localhost:8000 --tier route --scope specific`; container: `docker exec nextseek uv run manage.py nessie --tier route` | repo root, or inside `nextseek` | cheap, not free: the router runs on every turn |
 | Harness full tier | app container only | `docker exec nextseek uv run manage.py nessie --base-url http://localhost:8000 --tier full --scope all` | inside `nextseek` | PAID, approval per run |
@@ -111,8 +111,11 @@ docker run --rm -v <WRITABLE checkout copy>:/repo -w /repo \
 
 `docker cp` is ephemeral and only for testing (`DEPLOYMENT.md` §1). The old form, copying `nessie_tests` to `/app/`, succeeds and tests stale code.
 
+A box whose image predates `NessieAI/nessie_harness/` needs a rebuild first; the old paths are aliases that import it.
+
 ```bash
 docker cp NessieAI/tests/nessie_tests nextseek:/app/NessieAI/tests/
+docker cp NessieAI/nessie_harness nextseek:/app/NessieAI/
 docker exec -e DJANGO_SETTINGS_MODULE=dmac.test_settings nextseek \
   sh -c 'cd /app && uv run pytest NessieAI/tests/nessie_tests/tests_container/ --no-migrations -v'
 ```

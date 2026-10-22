@@ -164,3 +164,38 @@ def test_a_failed_turn_carries_its_cost_and_its_move(remembered):
     (complete,) = [d for e, d in events if e == "query_complete"]
     assert complete["total_cost_usd"] == payload["total_cost_usd"]
     assert complete["model_fallback"] == [item]
+
+
+# Prod 10-14 (task 39a967f9): a GEO package over 1,641 mice ended in Bedrock's "Input is too long", shown raw.
+TOO_LONG_RAW = ("Unrecoverable LLM error — agent 'report_writer', model 'm': An error occurred (ValidationException) "
+                "when calling the Converse operation: Input is too long for requested model.")
+
+
+@pytest.mark.parametrize("entry", ENTRIES, ids=IDS)
+def test_an_input_too_long_is_told_plainly(entry):
+    payload, events, turns = _run(entry, LLMFatalError(TOO_LONG_RAW, agent="report_writer"))
+
+    assert payload["reply"] == failure_replies.INPUT_TOO_LONG_REPLY
+    assert "Input is too long" not in payload["reply"]
+    (error,) = [d for e, d in events if e == "query_error"]
+    assert error == {"error": failure_replies.INPUT_TOO_LONG_REPLY, "reason": "input_too_long",
+                     "detail": TOO_LONG_RAW, "agent": "report_writer", "fatal": True}
+    assert payload["debug"]["fatal_error"] == TOO_LONG_RAW
+    assert turns[0]["error"] == TOO_LONG_RAW
+
+
+def test_a_fatal_after_the_parser_keeps_its_plan_in_the_debug():
+    """The fatal handler used to keep only {fatal_error, agent}, so a crash after the parser hid which result it
+    named (prod 10-14: last_target_result_id read None on the GEO crash)."""
+    plan = orch.ParserPlan(mode="report_generation", intent_summary="GEO for those mice", target_result_id=1)
+
+    def clamp(*args, **kwargs):
+        raise LLMFatalError(TOO_LONG_RAW, agent="report_writer")
+
+    with patch.object(orch, "_turn_vocabulary", return_value=(MagicMock(), {}, None)), \
+            patch.object(orch, "_early_or_parse", return_value=plan), \
+            patch.object(orch, "_clamp_lab_codes_to_entity", clamp):
+        payload, _events, _turns = _run(orch.run_query, LLMFatalError("unused", agent="entity"))
+
+    assert payload["debug"]["parser_plan"]["target_result_id"] == 1
+    assert payload["debug"]["fatal_error"] == TOO_LONG_RAW

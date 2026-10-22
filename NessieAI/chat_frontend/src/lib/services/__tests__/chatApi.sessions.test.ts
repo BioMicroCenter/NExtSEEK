@@ -112,10 +112,11 @@ describe("NextseekApiService — sessions methods", () => {
           json: () => Promise.resolve({ task_id: taskId, session_id: sessionId }),
           headers: new Headers(),
         })
-        // Poll endpoint — non-ok causes pollProgress to call onError and return
+        // Poll endpoint: a 500 causes pollProgress to call onError and return (a 502,
+        // 503 or 504 reads as a restart and keeps it polling)
         .mockResolvedValue({
           ok: false,
-          status: 503,
+          status: 500,
           json: () => Promise.resolve({}),
           headers: new Headers(),
         });
