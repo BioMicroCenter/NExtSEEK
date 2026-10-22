@@ -376,6 +376,11 @@ def _outcome_line(job: dict) -> str:
             f" ({done}){': ' + errors if errors else ''}")
 
 
+def _parents_registered(parents: dict | None) -> bool:
+    """True when a job has no parents entry, or every parent link was made."""
+    return not parents or (parents["status"] == "registered" and not parents.get("unresolved"))
+
+
 def _reply(jobs: list[dict]) -> str:
     lines = []
     for job in jobs:
@@ -388,7 +393,12 @@ def _reply(jobs: list[dict]) -> str:
     if any(o["status"] == "running" for o in outcomes):
         head = "Upload started; some jobs are still running:"
     elif all(o["status"] == "succeeded" for o in outcomes):
-        head = "Upload finished: everything was written to NExtSEEK."
+        # Succeeded jobs only wrote the samples; a parent that was not added is not "written".
+        if all(_parents_registered(job.get("parents")) for job in jobs):
+            head = "Upload finished: everything was written to NExtSEEK."
+        else:
+            head = ("Upload finished: the samples were written to NExtSEEK, but not every "
+                    "parent sample was added to its assay:")
     else:
         head = "Upload finished with problems:"
     tail = ""
@@ -440,9 +450,16 @@ def _register_parents(entry: dict, record: dict, register_parents) -> dict | Non
     failed = [_link_label({"parent_uid": row.get("sample_uid"), "assay_id": row.get("assay_id")},
                           titles)
               for row in body.get("rows") or [] if row.get("status") == "failed"]
-    return {**base, "status": "partial" if failed else "registered",
-            "written": int(counts.get("written") or 0),
-            "already_present": int(counts.get("already_present") or 0), "failed": failed}
+    written = int(counts.get("written") or 0)
+    already = int(counts.get("already_present") or 0)
+    # A failure is never hidden: a failed count, or fewer links than pairs sent, is partial
+    # even when the rows do not list it.
+    missing = max(len(failed), int(counts.get("failed") or 0), len(pairs) - written - already)
+    result = {**base, "status": "partial" if missing else "registered",
+              "written": written, "already_present": already, "failed": failed}
+    if missing:
+        result["failed_count"] = missing
+    return result
 
 
 _AFTERWARDS = ("An administrator can add them afterwards through NExtSEEK's assay "
@@ -467,8 +484,8 @@ def _parents_line(job: dict) -> str | None:
         lines.append(f"  This server could not add the {samples} to their assays. {_AFTERWARDS}")
     elif status == "not_added":
         lines.append(f"  {samples} {'was' if n == 1 else 'were'} not added to their assays "
-                     "because not every new sample was created; once the upload is fixed and "
-                     "rerun, they are added.")
+                     "because not every new sample was created. An administrator can add them once "
+                     "the samples exist; it is safe to repeat.")
     elif status == "registered":
         links = parents["pending"]
         lines.append(
@@ -477,10 +494,12 @@ def _parents_line(job: dict) -> str | None:
             f"added, {parents['already_present']} already there).")
     elif status == "partial":
         done = parents["written"] + parents["already_present"]
+        not_made = parents.get("failed_count", len(parents["failed"]))
+        listed = (": " + _uid_list(parents["failed"], len(parents["failed"]))
+                  if parents["failed"] else "")
         lines.append(f"  {done} of {_plural(parents['pending'], 'link')} "
-                     f"{'was' if done == 1 else 'were'} made; {len(parents['failed'])} could "
-                     f"not be made: {_uid_list(parents['failed'], len(parents['failed']))}. "
-                     f"{_AFTERWARDS}")
+                     f"{'was' if done == 1 else 'were'} made; {not_made} could not be made"
+                     f"{listed}. {_AFTERWARDS}")
     elif status == "failed":
         lines.append(f"  Could not confirm that the {samples} joined their assays (the "
                      f"registration call failed): "

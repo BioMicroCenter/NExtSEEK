@@ -277,7 +277,8 @@ def test_no_parent_joins_when_the_new_samples_did_not_all_land(env, state, faile
     assert job["parents"] == {"status": "not_added", "written": 0, "already_present": 0,
                               "failed": [], "pending": 2, "parents": 2, "unresolved": 0}
     assert ("2 parent samples were not added to their assays because not every new sample "
-            "was created; once the upload is fixed and rerun, they are added") in result["reply"]
+            "was created. An administrator can add them once the samples exist; it is safe to "
+            "repeat.") in result["reply"]
 
 
 def test_a_registration_failure_is_reported_and_keeps_the_upload(env):
@@ -416,3 +417,71 @@ def test_a_job_that_did_not_start_has_no_parents_entry(env):
     register.assert_not_called()
     assert "parents" not in result["jobs"][0]
     assert "did not start" in result["reply"]
+
+
+EVERYTHING = "Upload finished: everything was written to NExtSEEK."
+NOT_EVERY_PARENT = ("Upload finished: the samples were written to NExtSEEK, but not every "
+                    "parent sample was added to its assay:")
+
+
+def _head(reply):
+    return reply.splitlines()[0]
+
+
+def test_a_fully_registered_upload_keeps_the_everything_was_written_head(env):
+    record = _record(env, parent_assays=RESOLVED)
+    register = MagicMock(return_value={"counts": {"written": 2, "already_present": 0,
+                                                  "failed": 0}, "rows": []})
+    assert _head(_run_waiting(record, register=register)["reply"]) == EVERYTHING
+
+
+def test_the_head_does_not_claim_everything_when_the_registration_seam_is_missing(env):
+    record = _record(env, parent_assays=RESOLVED)
+    result = _run_waiting(record, register=None)
+    assert result["jobs"][0]["parents"]["status"] == "unavailable"
+    assert _head(result["reply"]) == NOT_EVERY_PARENT
+
+
+def test_the_head_does_not_claim_everything_when_the_registration_was_partial(env):
+    record = _record(env, parent_assays=RESOLVED)
+    register = MagicMock(return_value={
+        "counts": {"written": 1, "already_present": 0, "failed": 1},
+        "rows": [{"sample_uid": "D.SEQ-2", "assay_id": 315, "status": "failed", "error": {}}]})
+    result = _run_waiting(record, register=register)
+    assert result["jobs"][0]["parents"]["status"] == "partial"
+    assert _head(result["reply"]) == NOT_EVERY_PARENT
+
+
+def test_the_head_does_not_claim_everything_when_the_registration_failed(env):
+    record = _record(env, parent_assays=RESOLVED)
+    result = _run_waiting(record, register=MagicMock(side_effect=RuntimeError("down")))
+    assert result["jobs"][0]["parents"]["status"] == "failed"
+    assert _head(result["reply"]) == NOT_EVERY_PARENT
+
+
+def test_the_head_does_not_claim_everything_when_a_pair_had_no_assay(env):
+    record = _record(env, parent_assays=RESOLVED + [dict(PAIRS[0], parent_uid="D.SEQ-3")])
+    register = MagicMock(return_value={"counts": {"written": 2, "already_present": 0,
+                                                  "failed": 0}, "rows": []})
+    assert _head(_run_waiting(record, register=register)["reply"]) == NOT_EVERY_PARENT
+
+
+def test_counts_that_report_failures_are_never_hidden_by_empty_rows(env):
+    record = _record(env, parent_assays=RESOLVED)
+    register = MagicMock(return_value={"counts": {"written": 1, "already_present": 0,
+                                                  "failed": 1}, "rows": []})
+    result = _run_waiting(record, register=register)
+    parents = result["jobs"][0]["parents"]
+    assert parents["status"] == "partial"
+    assert parents["failed"] == []
+    assert _head(result["reply"]) == NOT_EVERY_PARENT
+    assert "1 of 2 links was made; 1 could not be made." in result["reply"]
+
+
+def test_fewer_links_than_pairs_sent_is_partial_even_without_a_failed_count(env):
+    record = _record(env, parent_assays=RESOLVED)
+    register = MagicMock(return_value={"counts": {"written": 1, "already_present": 0,
+                                                  "failed": 0}, "rows": []})
+    result = _run_waiting(record, register=register)
+    assert result["jobs"][0]["parents"]["status"] == "partial"
+    assert _head(result["reply"]) == NOT_EVERY_PARENT
