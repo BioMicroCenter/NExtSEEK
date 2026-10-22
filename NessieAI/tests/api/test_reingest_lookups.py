@@ -418,6 +418,9 @@ class _Recorder:
             def fetchall(self):
                 return recorder.rows
 
+            def fetchone(self):
+                return recorder.rows[0] if recorder.rows else None
+
         conn = MagicMock()
         conn.cursor.return_value = _Cursor()
         return conn
@@ -525,3 +528,74 @@ def test_house_assay_title_refuses_two_matching_titles():
     with patch("django.db.connections", recorder):
         with pytest.raises(ValueError):
             reingest_lookups.house_assay_title_strict("Single Cell Expression Analysis")
+
+
+# The study-assay lookups upload-reingest reads before it creates or adopts an assay.
+
+def _down():
+    broken = MagicMock()
+    broken.__getitem__.side_effect = OSError("down")
+    return broken
+
+
+def test_assay_ids_in_study_are_the_tagged_assays_of_the_house_assay(settings):
+    _seek_settings(settings)
+    recorder = _Recorder(rows=[(315,), (468,)])
+    with patch("django.db.connections", recorder):
+        assert reingest_lookups.assay_ids_in_study_strict("51", "Genome Alignment") == [315, 468]
+    [(alias, sql, params)] = recorder.calls
+    assert alias == "default"
+    assert "`seek_production`.assays AS a" in sql
+    assert "JOIN assays_internal_assays AS j ON j.assay_id = a.id" in sql
+    assert "ia.internal_assay_title = %s" in sql
+    assert params == [51, "Genome Alignment"]
+
+
+def test_assay_ids_in_study_raise_on_an_outage(settings):
+    _seek_settings(settings)
+    with patch("django.db.connections", _down()):
+        with pytest.raises(RuntimeError):
+            reingest_lookups.assay_ids_in_study_strict(51, "Genome Alignment")
+
+
+def test_internal_assay_id_is_the_lowest_id_of_that_exact_title():
+    recorder = _Recorder(rows=[(34,)])
+    with patch("django.db.connections", recorder):
+        assert reingest_lookups.internal_assay_id_strict("Genome Alignment") == 34
+    [(alias, sql, params)] = recorder.calls
+    assert alias == "default"
+    assert "FROM internal_assays WHERE internal_assay_title = %s" in sql
+    assert params == ["Genome Alignment"]
+
+
+def test_internal_assay_id_is_none_when_no_house_assay_has_the_title():
+    with patch("django.db.connections", _Recorder(rows=[(None,)])):
+        assert reingest_lookups.internal_assay_id_strict("No Such Assay") is None
+
+
+def test_internal_assay_id_raises_on_an_outage():
+    with patch("django.db.connections", _down()):
+        with pytest.raises(RuntimeError):
+            reingest_lookups.internal_assay_id_strict("Genome Alignment")
+
+
+def test_untagged_assays_in_study_match_the_title_exactly_and_have_no_house_tag(settings):
+    _seek_settings(settings)
+    title = "Genome Alignment - Data Linked"
+    # The database compares titles without regard to case or trailing blanks; the lookup does not.
+    recorder = _Recorder(rows=[(470, title), (471, title.lower()), (472, title + " "), (473, title)])
+    with patch("django.db.connections", recorder):
+        assert reingest_lookups.untagged_assay_ids_in_study_strict("51", title) == [470, 473]
+    [(alias, sql, params)] = recorder.calls
+    assert alias == "default"
+    assert "`seek_production`.assays AS a" in sql
+    assert "LEFT JOIN assays_internal_assays AS j ON j.assay_id = a.id" in sql
+    assert "j.assay_id IS NULL" in sql
+    assert params == [51, title]
+
+
+def test_untagged_assays_in_study_raise_on_an_outage(settings):
+    _seek_settings(settings)
+    with patch("django.db.connections", _down()):
+        with pytest.raises(RuntimeError):
+            reingest_lookups.untagged_assay_ids_in_study_strict(51, "Genome Alignment - Data Linked")

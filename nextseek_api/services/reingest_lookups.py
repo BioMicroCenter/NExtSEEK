@@ -672,3 +672,28 @@ def internal_assay_id_strict(title: str) -> int | None:
     except Exception as exc:
         raise RuntimeError(f"house assays unreachable: {exc}") from exc
     return int(row[0]) if row and row[0] is not None else None
+
+
+def untagged_assay_ids_in_study_strict(study_id: int, title: str) -> list[int]:
+    """The study's SEEK assays titled exactly ``title`` with no house-assay tag, sorted.
+
+    What a SEEK create that answered with a timeout or a 5xx may have left
+    behind. The title is compared in Python, exactly: the database's own
+    comparison ignores case and trailing blanks. An outage raises.
+    """
+    from django.db import connections
+
+    seek = _seek_schema()
+    sql = f"""
+        SELECT a.id, a.title FROM {seek}.assays AS a
+          LEFT JOIN assays_internal_assays AS j ON j.assay_id = a.id
+         WHERE a.study_id = %s AND a.title = %s AND j.assay_id IS NULL
+         ORDER BY a.id
+    """
+    try:
+        with connections["default"].cursor() as cur:
+            cur.execute(sql, [int(study_id), title])
+            rows = cur.fetchall()
+    except Exception as exc:
+        raise RuntimeError(f"assays of study {study_id} unreachable: {exc}") from exc
+    return sorted(int(r[0]) for r in rows if r[1] == title)
