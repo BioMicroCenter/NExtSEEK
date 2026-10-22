@@ -232,6 +232,13 @@ def verify(build_ids: list[str], *, user_id, chat_turn=None,
             reasons.append(f"{key}: built from a run Nessie didn't launch (test only); "
                            "it can't be uploaded")
             continue
+        # A rebuild carries its reviewed record's shown_in, so the chat-turn check
+        # alone would pass it; it is accepted only inside the call that made it,
+        # through _rebuild_after_create's comparison (spec 3.5 step 4).
+        if record.get("rebuilt_from"):
+            reasons.append(f"{key}: a rebuilt workbook is uploaded only by the upload that "
+                           "made it; build it again")
+            continue
         safe = _safe_artifact_path(record.get("path"))
         if safe is None or not safe.is_file():
             reasons.append(f"{key}: workbook missing or outside the artifact root")

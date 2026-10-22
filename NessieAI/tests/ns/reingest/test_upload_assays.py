@@ -485,3 +485,26 @@ def test_fewer_links_than_pairs_sent_is_partial_even_without_a_failed_count(env)
     result = _run_waiting(record, register=register)
     assert result["jobs"][0]["parents"]["status"] == "partial"
     assert _head(result["reply"]) == NOT_EVERY_PARENT
+
+
+# --- A rebuilt record is uploaded only by the call that made it.
+
+def test_a_rebuilt_record_sent_on_its_own_is_refused(env):
+    reviewed = _record(env)
+    rebuilt = _record(env, name="reingest_A_ALN_rebuilt", data=b"rebuilt",
+                      rebuilt_from=reviewed["build_id"])
+    dispatch = MagicMock()
+    with pytest.raises(upload.UploadRefused) as caught:
+        _run(rebuilt, dispatch=dispatch)
+    assert ("reingest_A_ALN_rebuilt: a rebuilt workbook is uploaded only by the upload that "
+            "made it; build it again") in str(caught.value)
+    dispatch.assert_not_called()
+
+
+def test_the_rebuild_made_inside_the_call_is_still_uploaded(env, monkeypatch):
+    reviewed = _record(env, assays_to_create=TO_CREATE, parent_assays=PAIRS)
+    monkeypatch.setattr(upload.workbook_diff, "assay_only_changes", lambda a, b, ids: [])
+    dispatch = MagicMock(return_value="job-1")
+    _run(reviewed, create=MagicMock(return_value=900), rebuild=_rebuilt(env, reviewed),
+         dispatch=dispatch)
+    assert "reingest_A_ALN_rebuilt" in dispatch.call_args.kwargs["xlsx_paths"][0]
