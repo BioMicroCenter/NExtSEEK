@@ -19,7 +19,7 @@ import logging
 import os
 import time
 
-from NessieAI.ns.reingest import build_records
+from NessieAI.ns.reingest import build_records, workbook_diff
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,95 @@ class UploadRefused(ValueError):
     def __init__(self, reasons: list[str]):
         self.reasons = list(reasons)
         super().__init__("; ".join(self.reasons))
+
+
+class AssayCreateRefused(Exception):
+    """A host seam could not create a study assay; the message is user-facing."""
+
+
+def _manual_fix(entry: dict) -> str:
+    return (f"create '{entry['assay_title']}' in study {entry['study_id']} "
+            f"({entry.get('study_title') or 'untitled'}) in SEEK, tag it with the house assay "
+            f"'{entry['internal_assay_title']}', then build again")
+
+
+def _create_assays(records: list[dict], create_study_assay) -> dict[tuple, int]:
+    """Create every study assay the builds list, once each. Any failure refuses
+    the call before anything is staged; assays already created stay, empty, and
+    a retry reuses them (the seam re-resolves first)."""
+    wanted = [e for r in records for e in (r.get("assays_to_create") or [])]
+    if not wanted:
+        return {}
+    if not callable(create_study_assay):
+        raise UploadRefused(["this server cannot create study assays; "
+                             + "; ".join(_manual_fix(e) for e in wanted)])
+    created: dict[tuple, int] = {}
+    for entry in wanted:
+        key = (entry["study_id"], entry["internal_assay_title"])
+        if key in created:
+            continue
+        try:
+            created[key] = int(create_study_assay(
+                study_id=entry["study_id"], internal_assay_title=entry["internal_assay_title"],
+                assay_title=entry["assay_title"]))
+        except Exception as exc:  # noqa: BLE001 -- one reason, never raw text
+            logger.exception("upload-reingest: could not create %s", entry["assay_title"])
+            why = str(exc) if isinstance(exc, AssayCreateRefused) else type(exc).__name__
+            reasons = [f"could not create '{entry['assay_title']}' in study "
+                       f"{entry['study_id']}: {why}. To go on, {_manual_fix(entry)}"]
+            if created:
+                reasons.append("already created, empty, and reused next time: " + ", ".join(
+                    f"assay {i} in study {s}" for (s, _), i in created.items()))
+            raise UploadRefused(reasons) from exc
+    return created
+
+
+def _rebuild_after_create(records: list[dict], created: dict[tuple, int], rebuild,
+                          user_id) -> list[dict]:
+    """Each record that listed assays to create, replaced by its rebuild, but
+    only when the rebuild is the reviewed workbook plus Assay rows for them."""
+    from NessieAI.ns.artifacts import _safe_artifact_path
+
+    if not created:
+        return records
+    if not callable(rebuild):
+        raise UploadRefused(["this server cannot rebuild a workbook; build it again in this chat"])
+    rebuilt_by_run: dict[tuple, list[dict]] = {}
+    out: list[dict] = []
+    for record in records:
+        if not record.get("assays_to_create"):
+            out.append(record)
+            continue
+        run_key = (record.get("manifest_id"), record["mode"])
+        if run_key not in rebuilt_by_run:
+            rebuilt_by_run[run_key] = rebuild(record)
+        new = next((b for b in rebuilt_by_run[run_key]
+                    if b.get("sample_type") == record["sample_type"]), None)
+        key = record["artifact_key"]
+        # The rebuild hands back the public records (no path); the stored one has it.
+        try:
+            stored = build_records.load(new["build_id"], user_id) if new else None
+        except build_records.BuildRecordError:
+            stored = None
+        safe = _safe_artifact_path(stored.get("path")) if stored else None
+        if (stored is None or safe is None or not safe.is_file()
+                or build_records.sha256_of(str(safe)) != stored.get("build_id")
+                or stored.get("built_by_user_id") != user_id or stored.get("test_only") is not False
+                or stored.get("project_id") != record.get("project_id")
+                or stored.get("disposition") not in _PASSING):
+            raise UploadRefused([f"{key}: the rebuild after creating its assay did not pass QA; "
+                                 "build it again"])
+        if stored.get("assays_to_create"):
+            raise UploadRefused([f"{key}: its study assay still cannot be found after creating "
+                                 "it; build it again"])
+        ids = [created[(e["study_id"], e["internal_assay_title"])]
+               for e in record["assays_to_create"]]
+        changes = workbook_diff.assay_only_changes(record["path"], str(safe), ids)
+        if changes:
+            raise UploadRefused([f"{key}: the rebuilt workbook is not the one you reviewed "
+                                 f"({'; '.join(changes)}); build it again"])
+        out.append(dict(stored, path=str(safe)))
+    return out
 
 
 def parse_build_ids(raw) -> list[str]:
@@ -271,13 +360,17 @@ def _reply(jobs: list[dict]) -> str:
 
 
 def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
-        turn_delivered, job_state=None) -> dict:
+        turn_delivered, job_state=None, create_study_assay=None, rebuild=None,
+        register_parents=None) -> dict:
     """``dispatch`` and ``stage`` are the host's batch-upload seams
     (``dispatch_batch_job`` and ``stage_workbook_copy``), and ``chat_turn`` and
     ``turn_delivered`` its chat-turn lookups, all handed in by the REST layer so
     this engine module never imports Django. ``job_state`` (job id -> the job's
     Celery state, totals and errors) lets the call wait for the jobs and report
-    how each ended; without it the reply says only that they started."""
+    how each ended; without it the reply says only that they started.
+    ``create_study_assay``, ``rebuild`` and ``register_parents`` carry out spec
+    2026-10-20 3.5; without them a build that needs a new study assay is refused
+    with the manual fix."""
     if not all(callable(seam) for seam in (dispatch, stage, chat_turn, turn_delivered)):
         raise UploadRefused(["upload is not wired on this server"])
     user_id = getattr(user, "pk", None)
@@ -289,6 +382,8 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
     _check_scope(len(ids))
     records = verify(ids, user_id=user_id, chat_turn=chat_turn(),
                      turn_delivered=turn_delivered)
+    created = _create_assays(records, create_study_assay)
+    records = _rebuild_after_create(records, created, rebuild, user_id)
 
     # Phase A: stage every copy and prove it is the reviewed file, before any job starts.
     staged_paths: list[tuple[dict, str]] = []

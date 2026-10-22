@@ -2375,11 +2375,34 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir,
                             stage=getattr(session, "stage_workbook", None),
                             chat_turn=getattr(session, "chat_turn", None),
                             turn_delivered=getattr(session, "turn_delivered", None),
-                            job_state=getattr(session, "job_state", None))
+                            job_state=getattr(session, "job_state", None),
+                            create_study_assay=getattr(session, "create_study_assay", None),
+                            register_parents=getattr(session, "register_parents", None),
+                            rebuild=lambda record: _rebuild_record(
+                                record, getattr(session, "user", None), outputs_dir))
     except upload.UploadRefused as exc:
         raise OpValidationError(str(exc), field="build_ids", error_type="upload_refused") from exc
     _mark_runs_reingested(result.get("jobs") or [])
     return result
+
+
+def _rebuild_record(record: dict, user, outputs_dir) -> list[dict]:
+    """Build a reviewed record's run again, after the upload created its study
+    assays. Same manifest, mode and answers, as the same user, stamped as shown
+    where the reviewed one was, into its own folder so the reviewed workbook
+    stays on disk for the comparison."""
+    from types import SimpleNamespace as _NS
+
+    base = outputs_dir or os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs"
+    folder = os.path.join(base, "rebuilds", record["build_id"][:16])
+    os.makedirs(folder, exist_ok=True)
+    shown = record.get("shown_in")
+    result = _build_upload_xlsx_from_manifest(
+        {"manifest_id": record["manifest_id"], "mode": record["mode"],
+         "answers": record.get("answers")},
+        folder, session=_NS(user=user, chat_turn=lambda: shown),
+        rebuilt_from=record["build_id"])
+    return list(result.get("builds") or [])
 
 
 def _mark_runs_reingested(jobs: list[dict]) -> None:
