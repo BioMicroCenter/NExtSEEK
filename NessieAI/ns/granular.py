@@ -1812,7 +1812,7 @@ def _existing_notes(rows) -> dict[str, str]:
     return notes_for_uids([u for u in uids if u])
 
 
-def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
+def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_from=None):
     """Manifest-driven path: render workbooks from a harvested manifest.
 
     Takes a manifest_id, not values: CC sends a mode and the server fills every
@@ -1844,7 +1844,10 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
     from NessieAI.ns.reingest import build_records
     from NessieAI.ns.reingest.notes import compose as compose_notes
     from NessieAI.ns.reingest.store import load_manifest
-    from NessieAI.ns.reingest_qa import HARD, HARD_REJECT, Finding, NO_ATTRIBUTES_TO_WRITE, qa_rows
+    from NessieAI.ns.reingest import assay_plan as assay_plan_mod
+    from NessieAI.ns.reingest_qa import (
+        ASSAY_SPLIT_ACROSS_STUDIES, HARD, HARD_REJECT, NO_ATTRIBUTES_TO_WRITE,
+        PARENTS_JOIN_ASSAY, SOFT, Finding, qa_rows)
     from NessieAI.ns.upload_workbook import MODE_NEW, MODE_UPDATE, render_upload_workbook
     from nextseek_api.services.reingest_lookups import (
         attributes_for, known_sample_types, lab_code_from_uid,
@@ -1959,33 +1962,38 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
         for rule in effective_map.outputs
         if rule.assay
     }
-    assay_cache: dict[tuple[str, str], list[int]] = {}
+    plan_cache: dict[tuple[str, str], object] = {}
 
-    def _assay_ids(sample_type: str, parent_value) -> list[int]:
-        """Study-scoped SEEK assay ids for one row, or [] if unresolvable.
+    def _assay_plan(row, row_index: int, parent_value):
+        """The row's study assay plan (NessieAI/ns/reingest/assay_plan.py).
 
-        Keyed on (sample_type, Parent) because the answer is a property of the
-        study the parents sit in, so every row sharing a parent set shares an
-        answer -- a per-sample run of 24 costs one query, not 24.
-
-        Deliberately not try/except'd, exactly as `_attribute_exists` is not:
-        `assay_ids_for_parents_strict` raises RuntimeError on an unreachable
-        assay catalog, and a workbook whose samples are silently unassociated
-        because the database blinked is worse than a run that stops.
+        Only output-rule rows are filed; a QC backfill row (no rule_id) keeps
+        its sample's own assays. Keyed on (sample_type, Parent): every row
+        sharing a parent set shares an answer. Lookups are not try/except'd:
+        an outage stops the build rather than reading as "no assay".
         """
-        name = assay_name_by_type.get(sample_type)
-        parents = str(parent_value or "")
-        if not name or not parents:
-            return []
-        key = (sample_type, parents)
-        if key not in assay_cache:
-            from nextseek_api.services.reingest_lookups import (
-                assay_ids_for_parents_strict,
-            )
-            assay_cache[key] = assay_ids_for_parents_strict(
-                [u for u in parents.split(";") if u.strip()], name
-            )
-        return assay_cache[key]
+        from NessieAI.ns.reingest import assay_plan
+        from nextseek_api.services.reingest_lookups import (
+            house_assay_title_strict, study_assays_for_parents_strict,
+        )
+        if not row.rule_id:
+            return None
+        parents = sorted({u.strip() for u in str(parent_value or "").split(";") if u.strip()})
+        key = (row.sample_type, ";".join(parents))
+        if key not in plan_cache:
+            plan_cache[key] = assay_plan.plan_row(
+                sample_type=row.sample_type, row_index=row_index,
+                house_name=assay_name_by_type.get(row.sample_type), parents=parents,
+                test_only=test_only, house_title=house_assay_title_strict,
+                study_assays=study_assays_for_parents_strict)
+        cached = plan_cache[key]
+        # Same plan, this row's own index on its findings and creations.
+        return assay_plan.RowAssayPlan(
+            assay_ids=list(cached.assay_ids),
+            findings=[f.__class__(**{**f.__dict__, "row_index": row_index})
+                      for f in cached.findings],
+            to_create=[dict(e, rows=[row_index]) for e in cached.to_create],
+            parent_assays=list(cached.parent_assays), studies=cached.studies)
 
     notes_once: dict[str, dict | None] = {}
 
@@ -2025,6 +2033,7 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
         # rows carrying at least one parked value, so their Notes can be composed
         # once existing Notes for their UIDs are known (below, after this loop).
         dseq_parked: list[tuple[dict, dict, dict]] = []
+        assay_plans_by_type: dict[str, list] = {}
 
         for row in mapped_rows:
             want_update = row.sample_type == "D.SEQ"
@@ -2058,8 +2067,12 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
             if row.uid:
                 meta["UID"] = row.uid
 
+            row_plan = _assay_plan(row, len(rows_by_type.get(row.sample_type, [])),
+                                   meta.get("Parent"))
+            if row_plan is not None:
+                assay_plans_by_type.setdefault(row.sample_type, []).append(row_plan)
             row_dict = {"json_metadata": meta,
-                        "assay_ids": _assay_ids(row.sample_type, meta.get("Parent")),
+                        "assay_ids": row_plan.assay_ids if row_plan is not None else [],
                         "provenance": provenance_entry}
             rows_by_type.setdefault(row.sample_type, []).append(row_dict)
             mapped_by_type.setdefault(row.sample_type, []).append(row)
@@ -2146,12 +2159,28 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
                 built.add(Finding(code=NO_ATTRIBUTES_TO_WRITE, severity=HARD,
                                   sample_type=sample_type))
                 built._finalize()
+            plans = assay_plans_by_type.get(sample_type, [])
+            for row_plan in plans:
+                for finding in row_plan.findings:
+                    built.add(finding)
+            if assay_plan_mod.split_across_studies(plans):
+                built.add(Finding(code=ASSAY_SPLIT_ACROSS_STUDIES, severity=HARD,
+                                  sample_type=sample_type))
+            parent_pairs = assay_plan_mod.merge_parent_assays(
+                [p for row_plan in plans for p in row_plan.parent_assays])
+            if parent_pairs:
+                built.add(Finding(code=PARENTS_JOIN_ASSAY, severity=SOFT, sample_type=sample_type,
+                                  detail={"parents": len({p["parent_uid"] for p in parent_pairs}),
+                                          "assays": sorted({p["internal_assay_title"]
+                                                            for p in parent_pairs})}))
+            built._finalize()
             reports_by_type[sample_type] = built
         return SimpleNamespace(
             ambiguous_primary_groups=ambiguous_primary_groups,
             provenance_by_type=provenance_by_type, rows_by_type=rows_by_type,
             mapped_by_type=mapped_by_type, needs_definition=needs_definition,
-            reports_by_type=reports_by_type, schema_fields_by_type=schema_fields_by_type)
+            reports_by_type=reports_by_type, schema_fields_by_type=schema_fields_by_type,
+            assay_plans_by_type=assay_plans_by_type)
 
     def _existing_values(uids: list[str], attribute: str) -> dict:
         """What a place would overwrite: the samples' current SEEK values.
@@ -2237,7 +2266,14 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
             open_warnings=built.soft, row_count=len(type_rows),
             project_id=project_id, project_note=project_note,
             answers_digest=answers.digest(), user_id=user_id,
-            test_only=test_only, chat_turn=chat_turn))
+            test_only=test_only, chat_turn=chat_turn,
+            answers=answers.model_dump(),
+            assays_to_create=assay_plan_mod.merge_to_create(
+                [e for p in final.assay_plans_by_type.get(sample_type, []) for e in p.to_create]),
+            parent_assays=assay_plan_mod.merge_parent_assays(
+                [e for p in final.assay_plans_by_type.get(sample_type, [])
+                 for e in p.parent_assays]),
+            rebuilt_from=rebuilt_from))
 
     # A HARD_REJECT sample type's own workbook was skipped above (the
     # `continue` two lines up), so asking the reader to confirm a

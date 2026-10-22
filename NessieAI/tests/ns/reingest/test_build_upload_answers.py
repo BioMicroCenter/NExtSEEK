@@ -316,11 +316,15 @@ def test_an_override_only_rules_assay_is_looked_up(rows, tmp_path, monkeypatch):
     _gene_counts_only_in_an_override(monkeypatch)
     asked = []
 
+    from nextseek_api.services.reingest_lookups import StudyAssayPlan
+
     def _assays(parent_uids, internal_assay_title):
         asked.append(internal_assay_title)
-        return []
+        return StudyAssayPlan({1: [500]}, {1: sorted(parent_uids)}, [], {1: "Study"})
 
     monkeypatch.setattr(
-        "nextseek_api.services.reingest_lookups.assay_ids_for_parents_strict", _assays)
+        "nextseek_api.services.reingest_lookups.study_assays_for_parents_strict", _assays)
+    monkeypatch.setattr(
+        "nextseek_api.services.reingest_lookups.house_assay_title_strict", lambda name: name)
     _new(tmp_path, manifest_id)
     assert "Gene Expression Analysis" in asked

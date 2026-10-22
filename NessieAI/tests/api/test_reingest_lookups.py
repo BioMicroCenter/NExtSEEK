@@ -429,22 +429,6 @@ def _seek_settings(settings):
                           "seek": {**settings.DATABASES["default"], "NAME": "seek_production"}}
 
 
-def test_assay_ids_read_seeks_tables_by_schema_and_ours_from_default(settings):
-    _seek_settings(settings)
-    recorder = _Recorder(rows=[(7,), (9,)])
-    with patch("django.db.connections", recorder):
-        got = reingest_lookups.assay_ids_for_parents_strict(["D.SEQ-1"], "Genome Alignment")
-
-    assert got == [7, 9]
-    [(alias, sql, params)] = recorder.calls
-    assert alias == "default"
-    for seek_table in ("samples", "assay_assets", "assays"):
-        assert f"`seek_production`.{seek_table} AS" in sql, seek_table
-    assert "JOIN assays_internal_assays AS j" in sql
-    assert "JOIN internal_assays AS ia" in sql
-    assert params == ["D.SEQ-1", "Genome Alignment"]
-
-
 def test_project_ids_are_read_from_the_seek_connection(settings):
     _seek_settings(settings)
     recorder = _Recorder(rows=[(14,)])

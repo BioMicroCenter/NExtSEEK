@@ -50,7 +50,8 @@ def _owner_dir(user_id) -> str:
 
 def write(*, path, artifact_key, sample_type, mode, manifest_id, disposition,
           open_warnings, row_count, project_id, project_note, answers_digest,
-          user_id, test_only, chat_turn=None) -> dict:
+          user_id, test_only, chat_turn=None, answers=None, assays_to_create=(),
+          parent_assays=(), rebuilt_from=None) -> dict:
     record = {
         "build_id": sha256_of(path), "artifact_key": artifact_key,
         "sample_type": sample_type, "mode": mode, "manifest_id": manifest_id,
@@ -62,6 +63,12 @@ def write(*, path, artifact_key, sample_type, mode, manifest_id, disposition,
                      if isinstance(chat_turn, dict) else None),
         "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "path": os.path.abspath(path),
+        # The upload rebuilds from these (spec 3.5): the curator's answers, the
+        # study assays it must create first, and the parents it then registers.
+        "answers": answers,
+        "assays_to_create": list(assays_to_create),
+        "parent_assays": list(parent_assays),
+        "rebuilt_from": rebuilt_from,
     }
     owner = _owner_dir(user_id)
     os.makedirs(owner, exist_ok=True)

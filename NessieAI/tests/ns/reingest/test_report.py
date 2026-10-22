@@ -595,3 +595,33 @@ def test_unmapped_metrics_are_one_line():
     assert len(lines) == 1
     assert "review" in lines[0]
     assert "QC metrics" not in _two_workbook_text()
+
+
+@pytest.mark.parametrize("code, severity, detail, expect", [
+    (qa.ASSAY_TO_CREATE, qa.SOFT,
+     {"study_id": 51, "study_title": "Kamm", "assay_title": "Genome Alignment - Data Linked"},
+     "The upload will create 'Genome Alignment - Data Linked' in study 51 (Kamm)"),
+    (qa.ASSAY_AMBIGUOUS, qa.HARD,
+     {"study_id": 17, "study_title": "S", "assay_ids": [40, 41]},
+     "study 17 (S) has more than one assay of this kind (40, 41)"),
+    (qa.HOUSE_ASSAY_MISSING, qa.HARD, {"assay": "Variant Call Filtering"},
+     "there is no house assay 'Variant Call Filtering' on this instance"),
+    (qa.PARENT_IN_NO_STUDY, qa.HARD, {"parents": ["D.SEQ-1"]},
+     "not in any study's assay: D.SEQ-1"),
+    (qa.ASSAY_NOT_DECLARED, qa.HARD, {}, "names no assay"),
+    (qa.ASSAY_SPLIT_ACROSS_STUDIES, qa.HARD, {}, "come from different studies"),
+    (qa.PARENTS_JOIN_ASSAY, qa.SOFT, {"parents": 2, "assays": ["Gene Expression Analysis"]},
+     "also add the 2 parent samples to Gene Expression Analysis"),
+])
+def test_assay_findings_say_what_happens(code, severity, detail, expect):
+    built = _single_finding_report(code, severity, sample_type="A.GEX", row_index=0, detail=detail)
+    text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
+    assert expect in text
+    assert code not in text
+
+
+def test_an_unresolved_test_only_assay_is_one_line():
+    built = _single_finding_report(qa.ASSAY_UNRESOLVED_TEST_ONLY, qa.SOFT, sample_type="A.GEX",
+                                   row_index=0, detail={"assay": "Gene Expression Analysis"})
+    text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
+    assert "no parents, so no study" in text
