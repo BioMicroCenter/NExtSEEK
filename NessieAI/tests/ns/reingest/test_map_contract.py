@@ -142,6 +142,32 @@ def test_every_output_rule_names_a_known_sample_type(name):
                 f"{name}: {rule.sample_type} has no attribute {attribute!r}"
 
 
+# The committed house-assay catalog: {name or alternative name: child sample types}.
+_ASSAY_CATALOG = json.loads((Path(maps.__file__).resolve().parents[2] / "chat_nextseek" / "src"
+                             / "chat_nextseek" / "context" / "assays_db.json").read_text())
+_ASSAY_CHILDREN = {
+    alias.strip(): {t.strip() for t in (entry.get("Children Sample Types") or "").split(" or ")}
+    for entry in _ASSAY_CATALOG
+    for alias in [entry["Name"], *(entry.get("Alternative Assay Names") or "").split(",")]
+    if alias.strip()
+}
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_output_rule_files_its_rows_under_a_catalog_assay(name):
+    """A rule with no assay, or one the catalog does not know, writes an empty
+    ASSAY sheet: its samples join no assay and sit outside their study in the
+    graph. The name may be the catalog's or one of its alternatives."""
+    pipeline_map = maps.load(name)
+    rules = list(pipeline_map.outputs) + [r for o in pipeline_map.versions for r in o.outputs]
+    for rule in rules:
+        assert rule.assay, f"{name}: rule {rule.id!r} ({rule.sample_type}) names no assay"
+        assert rule.assay in _ASSAY_CHILDREN, \
+            f"{name}: rule {rule.id!r} names {rule.assay!r}, which the assay catalog does not list"
+        assert rule.sample_type in _ASSAY_CHILDREN[rule.assay], \
+            f"{name}: {rule.assay!r} does not produce {rule.sample_type}"
+
+
 @pytest.mark.parametrize("name", ALL_MAPS)
 def test_every_provenance_attribute_exists_on_every_opted_in_output_sample_type(name):
     """provenance_attributes has no target of its own: mapper.apply() merges

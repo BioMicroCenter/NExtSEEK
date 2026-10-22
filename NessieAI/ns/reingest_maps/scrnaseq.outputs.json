@@ -26,6 +26,7 @@
         "{star,alevin,simpleaf,kallisto,cellranger}/mtx_conversions/combined_matrix.h5ad"
       ],
       "sample_type": "A.SCXP",
+      "assay": "Single Cell Expression Matrix Analysis",
       "cardinality": "per_run",
       "primary_data": true,
       "include_provenance": true,
