@@ -47,16 +47,26 @@ def _manual_fix(entry: dict) -> str:
             f"'{entry['internal_assay_title']}', then build again")
 
 
-def _create_assays(records: list[dict], create_study_assay) -> dict[tuple, int]:
+def _created_line(created: dict[tuple, int]) -> str:
+    """What a refusal says about assays this call already made (spec 3.5 step 1)."""
+    return "already created, empty, and reused next time: " + ", ".join(
+        f"assay {i} in study {s}" for (s, _), i in created.items())
+
+
+def _create_assays(records: list[dict], create_study_assay, rebuild=None) -> dict[tuple, int]:
     """Create every study assay the builds list, once each. Any failure refuses
     the call before anything is staged; assays already created stay, empty, and
-    a retry reuses them (the seam re-resolves first)."""
+    a retry reuses them (the seam re-resolves first). A server that cannot
+    rebuild is refused before the first create, so no assay is made and then
+    abandoned."""
     wanted = [e for r in records for e in (r.get("assays_to_create") or [])]
     if not wanted:
         return {}
     if not callable(create_study_assay):
         raise UploadRefused(["this server cannot create study assays; "
                              + "; ".join(_manual_fix(e) for e in wanted)])
+    if not callable(rebuild):
+        raise UploadRefused(["this server cannot rebuild a workbook; build it again in this chat"])
     created: dict[tuple, int] = {}
     for entry in wanted:
         key = (entry["study_id"], entry["internal_assay_title"])
@@ -72,8 +82,7 @@ def _create_assays(records: list[dict], create_study_assay) -> dict[tuple, int]:
             reasons = [f"could not create '{entry['assay_title']}' in study "
                        f"{entry['study_id']}: {why}. To go on, {_manual_fix(entry)}"]
             if created:
-                reasons.append("already created, empty, and reused next time: " + ", ".join(
-                    f"assay {i} in study {s}" for (s, _), i in created.items()))
+                reasons.append(_created_line(created))
             raise UploadRefused(reasons) from exc
     return created
 
@@ -81,47 +90,72 @@ def _create_assays(records: list[dict], create_study_assay) -> dict[tuple, int]:
 def _rebuild_after_create(records: list[dict], created: dict[tuple, int], rebuild,
                           user_id) -> list[dict]:
     """Each record that listed assays to create, replaced by its rebuild, but
-    only when the rebuild is the reviewed workbook plus Assay rows for them."""
+    only when the rebuild is the reviewed workbook plus Assay rows for them.
+    Every refusal here names the assays already created."""
     from NessieAI.ns.artifacts import _safe_artifact_path
 
     if not created:
         return records
+
+    def refuse(reason: str) -> UploadRefused:
+        return UploadRefused([f"{reason}; build it again", _created_line(created)])
+
     if not callable(rebuild):
-        raise UploadRefused(["this server cannot rebuild a workbook; build it again in this chat"])
+        raise refuse("this server cannot rebuild a workbook")
     rebuilt_by_run: dict[tuple, list[dict]] = {}
     out: list[dict] = []
     for record in records:
         if not record.get("assays_to_create"):
             out.append(record)
             continue
+        key = record["artifact_key"]
         run_key = (record.get("manifest_id"), record["mode"])
         if run_key not in rebuilt_by_run:
-            rebuilt_by_run[run_key] = rebuild(record)
+            try:
+                rebuilt_by_run[run_key] = rebuild(record)
+            except Exception as exc:  # noqa: BLE001 -- the class name only, never raw text
+                logger.exception("upload-reingest: the rebuild for %s failed", key)
+                raise refuse(f"{key}: the rebuild after creating its assay failed "
+                             f"({type(exc).__name__}); see the server log") from exc
         new = next((b for b in rebuilt_by_run[run_key]
                     if b.get("sample_type") == record["sample_type"]), None)
-        key = record["artifact_key"]
+        if new is None:
+            raise refuse(f"{key}: the rebuild did not include its {record['sample_type']} workbook")
         # The rebuild hands back the public records (no path); the stored one has it.
         try:
-            stored = build_records.load(new["build_id"], user_id) if new else None
+            stored = build_records.load(new["build_id"], user_id)
         except build_records.BuildRecordError:
-            stored = None
-        safe = _safe_artifact_path(stored.get("path")) if stored else None
-        if (stored is None or safe is None or not safe.is_file()
-                or build_records.sha256_of(str(safe)) != stored.get("build_id")
-                or stored.get("built_by_user_id") != user_id or stored.get("test_only") is not False
-                or stored.get("project_id") != record.get("project_id")
-                or stored.get("disposition") not in _PASSING):
-            raise UploadRefused([f"{key}: the rebuild after creating its assay did not pass QA; "
-                                 "build it again"])
+            raise refuse(f"{key}: the rebuilt workbook has no build record of yours") from None
+        safe = _safe_artifact_path(stored.get("path"))
+        if safe is None or not safe.is_file():
+            raise refuse(f"{key}: the rebuilt workbook is missing or outside the artifact folder")
+        if build_records.sha256_of(str(safe)) != stored.get("build_id"):
+            raise refuse(f"{key}: the rebuilt workbook changed after it was written")
+        if stored.get("built_by_user_id") != user_id:
+            raise refuse(f"{key}: the rebuilt workbook was built by another user")
+        if stored.get("test_only") is not False:
+            raise refuse(f"{key}: the rebuilt workbook is a test-only build")
+        if stored.get("project_id") != record.get("project_id"):
+            raise refuse(f"{key}: the rebuilt workbook belongs to another project")
+        if (stored.get("mode") != record["mode"]
+                or stored.get("manifest_id") != record.get("manifest_id")
+                or stored.get("rebuilt_from") != record["build_id"]):
+            raise refuse(f"{key}: the rebuilt workbook is not a rebuild of the one you reviewed")
+        if stored.get("disposition") not in _PASSING:
+            raise refuse(f"{key}: the rebuild after creating its assay did not pass QA")
         if stored.get("assays_to_create"):
-            raise UploadRefused([f"{key}: its study assay still cannot be found after creating "
-                                 "it; build it again"])
+            raise refuse(f"{key}: its study assay still cannot be found after creating it")
         ids = [created[(e["study_id"], e["internal_assay_title"])]
                for e in record["assays_to_create"]]
-        changes = workbook_diff.assay_only_changes(record["path"], str(safe), ids)
+        try:
+            changes = workbook_diff.assay_only_changes(record["path"], str(safe), ids)
+        except Exception as exc:  # noqa: BLE001 -- the class name only, never raw text
+            logger.exception("upload-reingest: could not compare the rebuild of %s", key)
+            raise refuse(f"{key}: could not compare the rebuilt workbook with the one you "
+                         f"reviewed ({type(exc).__name__}); see the server log") from exc
         if changes:
-            raise UploadRefused([f"{key}: the rebuilt workbook is not the one you reviewed "
-                                 f"({'; '.join(changes)}); build it again"])
+            raise refuse(f"{key}: the rebuilt workbook is not the one you reviewed "
+                         f"({'; '.join(changes)})")
         out.append(dict(stored, path=str(safe)))
     return out
 
@@ -382,7 +416,7 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
     _check_scope(len(ids))
     records = verify(ids, user_id=user_id, chat_turn=chat_turn(),
                      turn_delivered=turn_delivered)
-    created = _create_assays(records, create_study_assay)
+    created = _create_assays(records, create_study_assay, rebuild)
     records = _rebuild_after_create(records, created, rebuild, user_id)
 
     # Phase A: stage every copy and prove it is the reviewed file, before any job starts.
