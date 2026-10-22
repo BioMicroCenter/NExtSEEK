@@ -25,6 +25,7 @@ not values, so no measured number round-trips through a model.
 | `proposals.py` | the approval queue's service: `record` (idempotent per `(pipeline, raw_key)`), `approved_rules`, `attribute_exists` |
 | `answers.py` | the fix loop's curator answers: `parse_answers`, `validate` (an allowlist from the first QA pass's findings), `apply_answers`. Pure, no I/O |
 | `build_records.py` | one JSON record per rendered workbook, keyed by the workbook's sha256 and filed under the building user. `write`, `load`, `sha256_of` |
+| `workbook_diff.py` | `assay_only_changes`: may a rebuilt workbook replace the reviewed one? Only Assay rows for the assays the upload created may differ. openpyxl only, no Django |
 | `upload.py` | `run`, `verify`: the batch-upload start for reviewed workbooks. `CONFIRMATION_SCOPE` is a module constant |
 | `store.py` | server-side manifest cache, keyed by `run_dir` plus content digest |
 
