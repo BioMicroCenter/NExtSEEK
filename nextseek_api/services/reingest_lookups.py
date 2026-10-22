@@ -638,3 +638,37 @@ def lab_for_code_strict(code: str) -> str | None:
         return None
     matches.sort(key=lambda vn: (-vn[1], vn[0]))
     return matches[0][0]
+
+
+def assay_ids_in_study_strict(study_id: int, internal_assay_title: str) -> list[int]:
+    """The study's SEEK assays tagged with the house assay, sorted. Outage raises."""
+    from django.db import connections
+
+    seek = _seek_schema()
+    sql = f"""
+        SELECT a.id FROM {seek}.assays AS a
+          JOIN assays_internal_assays AS j ON j.assay_id = a.id
+          JOIN internal_assays AS ia ON ia.id = j.internal_assay_id
+         WHERE a.study_id = %s AND ia.internal_assay_title = %s
+         ORDER BY a.id
+    """
+    try:
+        with connections["default"].cursor() as cur:
+            cur.execute(sql, [int(study_id), internal_assay_title])
+            return [int(r[0]) for r in cur.fetchall()]
+    except Exception as exc:
+        raise RuntimeError(f"assays of study {study_id} unreachable: {exc}") from exc
+
+
+def internal_assay_id_strict(title: str) -> int | None:
+    """``internal_assays.id`` for an exact title, None when absent. Outage raises."""
+    from django.db import connections
+
+    try:
+        with connections["default"].cursor() as cur:
+            cur.execute("SELECT MIN(id) FROM internal_assays WHERE internal_assay_title = %s",
+                        [title])
+            row = cur.fetchone()
+    except Exception as exc:
+        raise RuntimeError(f"house assays unreachable: {exc}") from exc
+    return int(row[0]) if row and row[0] is not None else None

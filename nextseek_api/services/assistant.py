@@ -1402,6 +1402,7 @@ class AssistantViewSet(viewsets.ViewSet):
             # when a job starts, so a member uploads only into their own projects.
             from nextseek_api.assistant import chat_turns
             from nextseek_api.batch_upload import views as batch_views
+            from nextseek_api.services import reingest_assays
 
             def _upload_context():
                 return batch_views._resolve_user_context(request)
@@ -1415,7 +1416,9 @@ class AssistantViewSet(viewsets.ViewSet):
                 dispatch_job=_dispatch_job, stage_workbook=batch_views.stage_workbook_copy,
                 chat_turn=lambda: chat_turns.running_cc_turn(request.user),
                 turn_delivered=lambda task_id: chat_turns.turn_delivered(request.user, task_id),
-                job_state=batch_views.job_outcome)
+                job_state=batch_views.job_outcome,
+                create_study_assay=lambda **kw: reingest_assays.create_study_assay(request, **kw),
+                register_parents=lambda pairs: reingest_assays.register_parents(request, pairs))
         return None
 
     def _run_granular_op(self, request, op: str) -> Response:
