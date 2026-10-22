@@ -425,6 +425,9 @@ def _render_one(index, code, attribute, bucket):
     if code == qa.ASSAY_UNRESOLVED_TEST_ONLY:
         return [f"  {index}.  {where}: these rows have no parent samples, so no study assay"
                 f" could be found for '{detail.get('assay')}'. This build is for testing only."]
+    if code == qa.ASSAY_NO_PARENTS:
+        return [f"  {index}.  {where}: these rows have no parent samples, so they cannot be"
+                " filed under a study. Check the run's sample sheet, then rebuild."]
     if code == qa.ASSAY_AMBIGUOUS:
         return [*_assay_lines(index, code, bucket, where),
                 "      Remove the extra assay in SEEK, then rebuild."]

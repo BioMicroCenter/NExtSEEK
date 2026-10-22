@@ -11,8 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from NessieAI.ns.reingest_qa import (
-    ASSAY_AMBIGUOUS, ASSAY_NOT_DECLARED, ASSAY_TO_CREATE, ASSAY_UNRESOLVED_TEST_ONLY,
-    HARD, HOUSE_ASSAY_MISSING, PARENT_IN_NO_STUDY, SOFT, Finding,
+    ASSAY_AMBIGUOUS, ASSAY_NO_PARENTS, ASSAY_NOT_DECLARED, ASSAY_TO_CREATE,
+    ASSAY_UNRESOLVED_TEST_ONLY, HARD, HOUSE_ASSAY_MISSING, PARENT_IN_NO_STUDY, SOFT, Finding,
 )
 
 DATA_LINKED = " - Data Linked"
@@ -49,6 +49,9 @@ def plan_row(*, sample_type: str, row_index: int, house_name, parents: list[str]
         if test_only:
             plan.assay_ids.append(f"{title} (unresolved: no parents)")
             _finding(ASSAY_UNRESOLVED_TEST_ONLY, SOFT, assay=title)
+        else:
+            # No parents, no study: a real row would reach NExtSEEK outside every study.
+            _finding(ASSAY_NO_PARENTS, HARD, assay=title)
         return plan
     placed = study_assays(parents, title)
     if placed.parents_without_study:

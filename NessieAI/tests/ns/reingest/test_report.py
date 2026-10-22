@@ -701,3 +701,13 @@ def test_assay_ambiguous_gets_one_line_per_study_with_its_assays_and_rows():
     assert "2 rows in the A.GEX workbook: study 17 (S) has more than one assay of this kind (40, 41)" in text
     assert "1 row in the A.GEX workbook: study 18 (T) has more than one assay of this kind (50, 51)" in text
     assert text.count("Remove the extra assay in SEEK, then rebuild.") == 1
+
+
+def test_a_real_row_with_no_parents_blocks_and_says_what_to_check():
+    built = _multi_report(qa.ASSAY_NO_PARENTS, qa.HARD, [{"assay": "Genome Alignment"}] * 3)
+    text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
+    assert "WHAT IS BLOCKING" in text
+    assert ("the A.GEX workbook: these rows have no parent samples, so they cannot be filed "
+            "under a study. Check the run's sample sheet, then rebuild.") in text
+    assert text.count("these rows have no parent samples") == 1
+    assert qa.ASSAY_NO_PARENTS not in text

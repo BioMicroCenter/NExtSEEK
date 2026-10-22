@@ -91,9 +91,10 @@ def test_a_test_only_row_with_no_parents_names_the_assay_unresolved():
     assert asked == []
 
 
-def test_a_real_row_with_no_parents_adds_nothing():
+def test_a_real_row_with_no_parents_blocks():
     result, asked = _row(parents=())
-    assert (result.assay_ids, result.findings, asked) == ([], [], [])
+    assert (result.assay_ids, result.to_create, result.parent_assays, asked) == ([], [], [], [])
+    assert _codes(result) == [(qa.ASSAY_NO_PARENTS, qa.HARD)]
 
 
 def test_rows_in_different_studies_cannot_share_one_assay_sheet():

@@ -66,6 +66,7 @@ PARENT_IN_NO_STUDY = "parent_in_no_study"
 ASSAY_AMBIGUOUS = "assay_ambiguous"
 ASSAY_TO_CREATE = "assay_to_create"
 ASSAY_UNRESOLVED_TEST_ONLY = "assay_unresolved_test_only"
+ASSAY_NO_PARENTS = "assay_no_parents"
 ASSAY_SPLIT_ACROSS_STUDIES = "assay_split_across_studies"
 PARENTS_JOIN_ASSAY = "parents_join_assay"
 # A required attribute the CATALOG wants but SEEK's own sample_attributes
