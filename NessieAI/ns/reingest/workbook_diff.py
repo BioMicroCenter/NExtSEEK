@@ -7,14 +7,28 @@ openpyxl only.
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 
 ASSAY_SHEET = "Assay"
 ASSAY_ID_COLUMN = 2  # SampleType, AssayType, Assay, Direction
+# The Provenance sheet's "Answered by" cell is "<curator> on <build date>"; a
+# rebuild stamps its own date, so a build reviewed one day and confirmed the
+# next would otherwise always differ. Only that trailing date is ignored.
+PROVENANCE_SHEET = "Provenance"
+ANSWERED_BY = "Answered by"
+_ANSWER_DATE = re.compile(r" on \d{4}-\d{2}-\d{2}$")
 
 
 def _rows(book, name) -> list[tuple]:
-    return [tuple(row) for row in book[name].iter_rows(values_only=True)]
+    rows = [tuple(row) for row in book[name].iter_rows(values_only=True)]
+    if name != PROVENANCE_SHEET or not rows or ANSWERED_BY not in rows[0]:
+        return rows
+    column = rows[0].index(ANSWERED_BY)
+    return [rows[0]] + [
+        row[:column] + (_ANSWER_DATE.sub("", row[column]),) + row[column + 1:]
+        if len(row) > column and isinstance(row[column], str) else row
+        for row in rows[1:]]
 
 
 def assay_only_changes(reviewed_path: str, rebuilt_path: str, created_ids) -> list[str]:
