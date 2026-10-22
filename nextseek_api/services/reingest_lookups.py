@@ -386,74 +386,6 @@ def _seek_schema() -> str:
     return f"`{name}`"
 
 
-def assay_ids_for_parents_strict(
-    parent_uids: list[str], internal_assay_title: str
-) -> list[int]:
-    """SEEK ``assays.id`` of the given house assay, in the parents' studies.
-
-    The ASSAY sheet's ``Assay`` column is a **study-scoped** ``assays.id``, not
-    the house-wide ``internal_assays.id``. One internal assay maps to many SEEK
-    assays -- "Gene Expression Analysis" to eight, "Genome Alignment" to three --
-    one per study, so the id cannot be committed to a map. It is derived here
-    from the samples the new analysis sample descends from:
-
-        parent UID -> samples.id -> assay_assets -> assays.study_id
-                   -> that study's assay whose internal assay is the one named
-
-    Returns the distinct ids, sorted. An EMPTY list means "genuinely could not
-    resolve" -- no parent carries an assay, or none of their studies has an
-    assay of this type -- and the caller must emit no ASSAY rows rather than
-    guess one. Compare ``attributes_for_strict``: an outage RAISES rather than
-    coming back as the same empty list, because a silently unassociated sample
-    and an unreachable database are different problems and only one of them is
-    safe to write a workbook for.
-
-    More than one id is returned when the parents span several studies. That is
-    a real condition (a run mixing projects), not an error here; the caller
-    decides whether to write them all or refuse.
-    """
-    if not parent_uids or not internal_assay_title:
-        return []
-    from django.db import connections
-
-    uids = sorted({str(u).strip() for u in parent_uids if str(u or "").strip()})
-    if not uids:
-        return []
-
-    # One query across both schemas, on `default`: the internal-assay tables
-    # are NExtSEEK's, the rest are SEEK's and are named by schema. See
-    # _seek_schema for why an unqualified `samples` must never reach `default`.
-    seek = _seek_schema()
-    uid_ph = ", ".join(["%s"] * len(uids))
-    sql = f"""
-        SELECT DISTINCT target.id
-          FROM {seek}.samples AS s
-          JOIN {seek}.assay_assets AS aa
-            ON aa.asset_id = s.id AND aa.asset_type = 'Sample'
-          JOIN {seek}.assays AS parent_assay
-            ON parent_assay.id = aa.assay_id
-          JOIN {seek}.assays AS target
-            ON target.study_id = parent_assay.study_id
-          JOIN assays_internal_assays AS j
-            ON j.assay_id = target.id
-          JOIN internal_assays AS ia
-            ON ia.id = j.internal_assay_id
-         WHERE s.uuid IN ({uid_ph})
-           AND parent_assay.study_id IS NOT NULL
-           AND ia.internal_assay_title = %s
-         ORDER BY target.id
-    """
-    try:
-        with connections["default"].cursor() as cur:
-            cur.execute(sql, [*uids, internal_assay_title])
-            return [int(r[0]) for r in cur.fetchall()]
-    except Exception as exc:
-        raise RuntimeError(
-            f"assay catalog unreachable while resolving "
-            f"{internal_assay_title!r} for {len(uids)} parent UID(s): {exc}"
-        ) from exc
-
-
 @dataclass(frozen=True)
 class StudyAssayPlan:
     """Per study the parents' assays sit in: that study's assays of one house assay.
@@ -472,8 +404,8 @@ def study_assays_for_parents_strict(parent_uids: list[str],
                                     internal_assay_title: str) -> StudyAssayPlan:
     """Where the parents sit, and each of those studies' assays of the house assay.
 
-    One query on ``default``, SEEK's tables named by schema as in
-    ``assay_ids_for_parents_strict``. An outage raises ``RuntimeError``.
+    One query on ``default``, SEEK's tables named by schema (see
+    ``_seek_schema``). An outage raises ``RuntimeError``.
     """
     uids = sorted({str(u).strip() for u in parent_uids or () if str(u or "").strip()})
     if not uids or not internal_assay_title:
@@ -562,7 +494,7 @@ def project_ids_for_uids_strict(uids: list[str]) -> list[int]:
 
     An upload needs exactly one project; the caller decides what zero or
     several mean. An outage RAISES rather than returning [], for the same
-    reason assay_ids_for_parents_strict does.
+    reason the other ``_strict`` lookups do.
     """
     clean = sorted({str(u).strip() for u in uids if str(u or "").strip()})
     if not clean:

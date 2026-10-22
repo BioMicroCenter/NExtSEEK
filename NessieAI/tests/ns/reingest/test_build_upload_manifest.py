@@ -146,18 +146,19 @@ def _patch_seek_required(monkeypatch):
 
 
 def _patch_seek_assays(monkeypatch):
-    """No parent belongs to a SEEK assay here, so no ASSAY rows.
+    """Every parent sits in one study whose house assay is assay 500.
 
-    The lookup joins SEEK's tables by schema name, and this module's sqlite
-    lane has no SEEK schema: the real query raises, and the build stops on
-    it as an outage, by design. Until the lookup was pointed at SEEK it ran
-    against the empty `samples` table on `default` and returned [] quietly,
-    which is what these tests had been seeing. They are about the mapped
-    cells, not the Assay sheet; return that same [] on purpose.
+    These tests are about the mapped cells, not the Assay sheet. The real
+    lookups join SEEK's tables by schema name, which this sqlite lane lacks,
+    so they are replaced by the simplest honest answer: one study, one assay.
     """
+    from nextseek_api.services.reingest_lookups import StudyAssayPlan
     monkeypatch.setattr(
-        "nextseek_api.services.reingest_lookups.assay_ids_for_parents_strict",
-        lambda parent_uids, internal_assay_title: [])
+        "nextseek_api.services.reingest_lookups.study_assays_for_parents_strict",
+        lambda parent_uids, title: StudyAssayPlan(
+            {1: [500]}, {1: sorted(parent_uids)}, [], {1: "Study"}))
+    monkeypatch.setattr(
+        "nextseek_api.services.reingest_lookups.house_assay_title_strict", lambda name: name)
 
 # Default per-sample output inventory a real `run-harvest` would have found
 # for a `star_salmon`-aligned run -- matching rnaseq.outputs.json's own
