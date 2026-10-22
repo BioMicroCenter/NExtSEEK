@@ -604,14 +604,23 @@ def test_unmapped_metrics_are_one_line():
     (qa.ASSAY_AMBIGUOUS, qa.HARD,
      {"study_id": 17, "study_title": "S", "assay_ids": [40, 41]},
      "study 17 (S) has more than one assay of this kind (40, 41)"),
+    (qa.ASSAY_AMBIGUOUS, qa.HARD,
+     {"study_id": 17, "study_title": "S", "assay_ids": [40, 41]},
+     "Remove the extra assay in SEEK, then rebuild."),
     (qa.HOUSE_ASSAY_MISSING, qa.HARD, {"assay": "Variant Call Filtering"},
      "there is no house assay 'Variant Call Filtering' on this instance"),
+    (qa.HOUSE_ASSAY_MISSING, qa.HARD, {"assay": "Variant Call Filtering"},
+     "An administrator needs to add this assay type to NExtSEEK; then rebuild."),
     (qa.PARENT_IN_NO_STUDY, qa.HARD, {"parents": ["D.SEQ-1"]},
      "not in any study's assay: D.SEQ-1"),
-    (qa.ASSAY_NOT_DECLARED, qa.HARD, {}, "names no assay"),
+    (qa.ASSAY_NOT_DECLARED, qa.HARD, {},
+     "NExtSEEK does not yet say which assay these results belong to."),
+    (qa.ASSAY_NOT_DECLARED, qa.HARD, {}, "An administrator needs to set that up; then rebuild."),
     (qa.ASSAY_SPLIT_ACROSS_STUDIES, qa.HARD, {}, "come from different studies"),
     (qa.PARENTS_JOIN_ASSAY, qa.SOFT, {"parents": 2, "assays": ["Gene Expression Analysis"]},
      "also add the 2 parent samples to Gene Expression Analysis"),
+    (qa.PARENTS_JOIN_ASSAY, qa.SOFT, {"parents": 2, "assays": ["Gene Expression Analysis"]},
+     "so NExtSEEK shows which samples each new one came from in that assay."),
 ])
 def test_assay_findings_say_what_happens(code, severity, detail, expect):
     built = _single_finding_report(code, severity, sample_type="A.GEX", row_index=0, detail=detail)
@@ -624,4 +633,71 @@ def test_an_unresolved_test_only_assay_is_one_line():
     built = _single_finding_report(qa.ASSAY_UNRESOLVED_TEST_ONLY, qa.SOFT, sample_type="A.GEX",
                                    row_index=0, detail={"assay": "Gene Expression Analysis"})
     text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
-    assert "no parents, so no study" in text
+    assert "these rows have no parent samples, so no study assay could be found" in text
+    assert "'Gene Expression Analysis'" in text
+    assert "This build is for testing only." in text
+
+
+def test_one_parent_sample_is_not_pluralised():
+    built = _single_finding_report(qa.PARENTS_JOIN_ASSAY, qa.SOFT, sample_type="A.GEX",
+                                   row_index=0, detail={"parents": 1, "assays": ["Gene Expression"]})
+    text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
+    assert "the 1 parent sample to Gene Expression" in text
+    assert "1 parent samples" not in text
+
+
+def _multi_report(code, severity, details):
+    built = qa.QaReport()
+    for i, detail in enumerate(details):
+        built.add(qa.Finding(code=code, severity=severity, sample_type="A.GEX",
+                             row_index=i, detail=detail))
+    return built._finalize()
+
+
+def test_parent_in_no_study_lists_the_parents_of_every_row():
+    built = _multi_report(qa.PARENT_IN_NO_STUDY, qa.HARD,
+                          [{"parents": ["D.SEQ-1"]}, {"parents": ["D.SEQ-2", "D.SEQ-1"]}])
+    text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
+    assert "2 rows" in text
+    assert "D.SEQ-1, D.SEQ-2" in text
+    assert text.count("D.SEQ-1") == 1
+
+
+def test_parent_in_no_study_caps_the_parent_list():
+    built = _multi_report(qa.PARENT_IN_NO_STUDY, qa.HARD,
+                          [{"parents": [f"D.SEQ-{i:03d}"]} for i in range(25)])
+    text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
+    assert "25 rows" in text
+    assert "and 15 more" in text
+    assert "D.SEQ-000" in text
+    assert "D.SEQ-024" not in text
+
+
+def test_assay_to_create_gets_one_line_per_study_with_its_own_row_count():
+    built = qa.QaReport()
+    for row, (study, title) in enumerate([(51, "Kamm"), (51, "Kamm"), (51, "Kamm"), (52, "Vo")]):
+        built.add(qa.Finding(code=qa.ASSAY_TO_CREATE, severity=qa.SOFT, sample_type="A.GEX",
+                             row_index=row,
+                             detail={"study_id": study, "study_title": title,
+                                     "assay_title": "Genome Alignment - Data Linked"}))
+    # Two findings on one row (a row that sits in both studies) is still one row.
+    built.add(qa.Finding(code=qa.ASSAY_TO_CREATE, severity=qa.SOFT, sample_type="A.GEX",
+                         row_index=3,
+                         detail={"study_id": 51, "study_title": "Kamm",
+                                 "assay_title": "Genome Alignment - Data Linked"}))
+    text = report.render_qa_for_user({"A.GEX": built._finalize()}, ARTIFACTS, RUN)
+    assert ("create 'Genome Alignment - Data Linked' in study 51 (Kamm)"
+            " and file 4 rows of the A.GEX workbook under it") in text
+    assert ("create 'Genome Alignment - Data Linked' in study 52 (Vo)"
+            " and file 1 row of the A.GEX workbook under it") in text
+
+
+def test_assay_ambiguous_gets_one_line_per_study_with_its_assays_and_rows():
+    built = _multi_report(qa.ASSAY_AMBIGUOUS, qa.HARD, [
+        {"study_id": 17, "study_title": "S", "assay_ids": [40, 41]},
+        {"study_id": 17, "study_title": "S", "assay_ids": [40, 41]},
+        {"study_id": 18, "study_title": "T", "assay_ids": [50, 51]}])
+    text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
+    assert "2 rows in the A.GEX workbook: study 17 (S) has more than one assay of this kind (40, 41)" in text
+    assert "1 row in the A.GEX workbook: study 18 (T) has more than one assay of this kind (50, 51)" in text
+    assert text.count("Remove the extra assay in SEEK, then rebuild.") == 1

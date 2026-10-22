@@ -58,8 +58,6 @@ def test_a_missing_study_assay_is_recorded_to_create(rows, tmp_path, monkeypatch
     assert _assay_column(out["saved_files"]["reingest_A_ALN"]) == []
     assert [(e["study_id"], e["assay_title"]) for e in aln["assays_to_create"]] == \
         [(25, "Genome Alignment - Data Linked")]
-    # The reply's plain-language "will create" wording is Task 4's (report.py);
-    # until then the creation shows as a QA soft finding.
     assert any("assay_to_create" in item for item in out["qa"]["A.ALN"]["soft"])
     assert "will create" in out["reply"]
 

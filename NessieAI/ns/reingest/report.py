@@ -43,6 +43,11 @@ _COMPACT_CODES = (qa.LINEAGE_UNRESOLVED, qa.CATALOG_REQUIRED_MISSING)
 # batch doesn't turn into the exact log-in-a-chat-window leak rule 1 forbids.
 _MAX_SAMPLES_LISTED = 10
 
+# Codes whose findings differ from row to row, so the bucket carries every
+# finding's detail (`all_details`, parallel to the bucket's `rows`) and the
+# renderer reads them all instead of the first.
+_PER_ROW_DETAIL_CODES = (qa.ASSAY_TO_CREATE, qa.ASSAY_AMBIGUOUS, qa.PARENT_IN_NO_STUDY)
+
 
 def _cap(s: str) -> str:
     """Capitalize only the first character. str.capitalize() also lowercases
@@ -241,6 +246,12 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
             # we're iterating is already scoped to one sample type, which is
             # the reliable source, so it wins over whatever group() carried.
             bucket["sample_type"] = sample_type
+            if code in _PER_ROW_DETAIL_CODES:
+                # group() keeps only the first finding's detail; these codes
+                # differ row to row (each row's parents, each row's study), so
+                # the renderer needs every one, with its row, in the same order.
+                bucket["all_details"] = [f.detail for f in built.findings
+                                         if (f.code, f.attribute) == (code, attribute)]
             bucket["missed_rules"] = [m["rule_id"] for m in missed_rules or ()
                                       if m["sample_type"] == sample_type]
             # Route explicitly on the two known severities and fail loudly on
@@ -355,6 +366,48 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
     return "\n".join(lines)
 
 
+def _details_by_row(bucket):
+    """[(row, detail)] for a bucket carrying `all_details`, falling back to the
+    first finding's detail alone. A finding with no row index counts as its own
+    row, so two of them are never merged into one."""
+    details = bucket.get("all_details") or [bucket["detail"]]
+    rows = bucket.get("rows") or []
+    return [(rows[i] if i < len(rows) and rows[i] >= 0 else ("finding", i), detail)
+            for i, detail in enumerate(details)]
+
+
+def _assay_lines(index, code, bucket, where):
+    """One line per distinct study for ASSAY_TO_CREATE / ASSAY_AMBIGUOUS, each
+    with the number of distinct rows in that study. The planner emits one
+    finding per study per row, so the bucket's own count can overstate rows."""
+    per_key: dict[tuple, dict] = {}
+    for row, detail in _details_by_row(bucket):
+        if code == qa.ASSAY_TO_CREATE:
+            key = (detail.get("study_id"), detail.get("assay_title"))
+        else:
+            key = (detail.get("study_id"),)
+        entry = per_key.setdefault(key, {"detail": detail, "rows": set(), "ids": []})
+        entry["rows"].add(row)
+        for assay_id in detail.get("assay_ids") or []:
+            if assay_id not in entry["ids"]:
+                entry["ids"].append(assay_id)
+    lines = []
+    for position, entry in enumerate(per_key.values()):
+        detail, n = entry["detail"], len(entry["rows"])
+        if code == qa.ASSAY_TO_CREATE:
+            lead = "The upload will create" if position == 0 else "It will also create"
+            text = (f"{lead} '{detail.get('assay_title')}' in study"
+                    f" {detail.get('study_id')} ({detail.get('study_title')}) and file"
+                    f" {n} {_plural(n)} of {where} under it.")
+        else:
+            ids = ", ".join(str(i) for i in entry["ids"])
+            text = (f"{n} {_plural(n)} in {where}: study {detail.get('study_id')}"
+                    f" ({detail.get('study_title')}) has more than one assay of this"
+                    f" kind ({ids}).")
+        lines.append(f"  {index}.  {text}" if position == 0 else f"      {text}")
+    return lines
+
+
 def _render_one(index, code, attribute, bucket):
     count = bucket["count"]
     detail = bucket["detail"]
@@ -362,34 +415,35 @@ def _render_one(index, code, attribute, bucket):
     rows = _plural(count)
     where = _workbook_ref(sample_type)
     if code == qa.ASSAY_TO_CREATE:
-        return [f"  {index}.  The upload will create '{detail.get('assay_title')}' in study"
-                f" {detail.get('study_id')} ({detail.get('study_title')}) and file {count} {rows}"
-                f" of {where} under it."]
+        return _assay_lines(index, code, bucket, where)
     if code == qa.PARENTS_JOIN_ASSAY:
-        return [f"  {index}.  The upload will also add the {detail.get('parents')} parent samples"
-                f" to {', '.join(detail.get('assays') or [])}, so their links to the new samples"
-                " carry the assay."]
+        parents = detail.get("parents")
+        word = _plural(parents, "parent sample") if isinstance(parents, int) else "parent samples"
+        return [f"  {index}.  The upload will also add the {parents} {word}"
+                f" to {', '.join(detail.get('assays') or [])}, so NExtSEEK shows which"
+                " samples each new one came from in that assay."]
     if code == qa.ASSAY_UNRESOLVED_TEST_ONLY:
-        return [f"  {index}.  {where}: no parents, so no study; the Assay sheet names"
-                f" '{detail.get('assay')}' unresolved. A test build only."]
+        return [f"  {index}.  {where}: these rows have no parent samples, so no study assay"
+                f" could be found for '{detail.get('assay')}'. This build is for testing only."]
     if code == qa.ASSAY_AMBIGUOUS:
-        ids = ", ".join(str(i) for i in detail.get("assay_ids") or [])
-        return [f"  {index}.  {count} {rows} in {where}: study {detail.get('study_id')}"
-                f" ({detail.get('study_title')}) has more than one assay of this kind ({ids}).",
-                "      Tell me which one to use, or remove the extra one in SEEK, then rebuild."]
+        return [*_assay_lines(index, code, bucket, where),
+                "      Remove the extra assay in SEEK, then rebuild."]
     if code == qa.HOUSE_ASSAY_MISSING:
         return [f"  {index}.  {where}: there is no house assay '{detail.get('assay')}' on this"
                 " instance, so its rows cannot be filed under one.",
-                "      An administrator adds it through the curated catalog (context/), then"
-                " rebuild."]
+                "      An administrator needs to add this assay type to NExtSEEK; then rebuild."]
     if code == qa.PARENT_IN_NO_STUDY:
-        parents = ", ".join(detail.get("parents") or [])
+        every = sorted({p for _, d in _details_by_row(bucket) for p in d.get("parents") or []})
+        shown = every[:_MAX_SAMPLES_LISTED]
+        extra = len(every) - len(shown)
+        parents = ", ".join(shown) + (f" ...and {extra} more" if extra > 0 else "")
         return [f"  {index}.  {count} {rows} in {where}: their parent samples are not in any"
                 f" study's assay: {parents}.",
                 "      Register those samples in their study's assays first, then rebuild."]
     if code == qa.ASSAY_NOT_DECLARED:
-        return [f"  {index}.  {where}: the pipeline map names no assay for these rows.",
-                "      An administrator adds one to the map, then rebuild."]
+        return [f"  {index}.  {where}: NExtSEEK does not yet say which assay these results"
+                " belong to.",
+                "      An administrator needs to set that up; then rebuild."]
     if code == qa.ASSAY_SPLIT_ACROSS_STUDIES:
         return [f"  {index}.  The rows of {where} come from different studies, and one workbook"
                 " files every row under every assay it lists.",
