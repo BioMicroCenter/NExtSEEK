@@ -559,3 +559,86 @@ def test_a_roomy_limit_keeps_the_configured_wait(env, monkeypatch):
     monkeypatch.setenv("NEXTSEEK_UPLOAD_WAIT_S", "10")
     _, ended, _ = _slow_upload(env, monkeypatch, create_s=1, limit_s=600)
     assert 100 + 1 + 10 <= ended <= 100 + 1 + 11
+
+
+# --- The reply names every study assay the call created or found, whatever happens next.
+
+ASSAY_LINE = ("Study 51 has the assay for the new samples: 'Genome Alignment - Data Linked' "
+              "(assay 900).")
+
+
+def _created_run(env, monkeypatch, **kw):
+    reviewed = _record(env, assays_to_create=TO_CREATE, parent_assays=PAIRS)
+    monkeypatch.setattr(upload.workbook_diff, "assay_only_changes", lambda a, b, ids: [])
+    return upload.run(build_ids_raw=reviewed["build_id"], user=USER, upload_context=CTX,
+                      stage=kw.pop("stage", _copy_stage), chat_turn=lambda: NOW,
+                      turn_delivered=lambda task_id: True,
+                      create_study_assay=MagicMock(return_value=900),
+                      rebuild=_rebuilt(env, reviewed),
+                      **{"dispatch": MagicMock(return_value="job-1"), **kw})
+
+
+def test_the_run_returns_the_assays_it_created(env, monkeypatch):
+    result = _created_run(env, monkeypatch)
+    assert result["created_assays"] == [
+        {"study_id": 51, "internal_assay_title": "Genome Alignment",
+         "assay_title": "Genome Alignment - Data Linked", "assay_id": 900}]
+
+
+def test_a_run_that_created_nothing_returns_no_assays(env):
+    result = _run(_record(env))
+    assert result["created_assays"] == []
+    assert "has the assay for the new samples" not in result["reply"]
+
+
+@pytest.mark.parametrize("seams", [
+    {},  # no job_state: the reply says only that the jobs started
+    {"job_state": lambda job_id: {"state": "SUCCESS", "totals": {"uids_generated": 1,
+                                                                 "processed": 1}}},
+    {"job_state": lambda job_id: {"state": "FAILURE", "error": "worker lost"}},
+    {"dispatch": MagicMock(side_effect=RuntimeError("broker down"))},
+], ids=["started", "succeeded", "failed", "did-not-start"])
+def test_the_reply_names_the_created_assay_whatever_the_jobs_did(env, monkeypatch, seams):
+    monkeypatch.setenv("NEXTSEEK_UPLOAD_WAIT_S", "0")
+    reply = _created_run(env, monkeypatch, **seams)["reply"]
+    assert ASSAY_LINE in reply
+
+
+def test_a_rebuild_record_that_breaks_the_checks_is_refused_with_its_class_name(env):
+    reviewed = _record(env, assays_to_create=TO_CREATE)
+    dispatch = MagicMock()
+    with pytest.raises(upload.UploadRefused) as caught:
+        _run(reviewed, create=MagicMock(return_value=900), dispatch=dispatch,
+             rebuild=lambda record: [{"sample_type": "A.ALN"}])  # no build_id
+    text = str(caught.value)
+    assert "KeyError" in text
+    assert "build_id" not in text
+    assert "build it again" in text
+    assert CREATED_LINE in text
+    dispatch.assert_not_called()
+
+
+def _failing_stage(path):
+    raise OSError("disk full at /secret/path")
+
+
+def _wrong_stage(path):
+    staged = path + ".staged"
+    with open(staged, "wb") as fh:
+        fh.write(b"not the reviewed bytes")
+    return staged
+
+
+@pytest.mark.parametrize("stage, wording", [
+    (_failing_stage, "could not stage the workbook"),
+    (_wrong_stage, "the staged copy does not match the reviewed workbook"),
+], ids=["staging-failed", "staged-copy-differs"])
+def test_a_staging_refusal_names_the_assays_already_created(env, monkeypatch, stage, wording):
+    dispatch = MagicMock()
+    with pytest.raises(upload.UploadRefused) as caught:
+        _created_run(env, monkeypatch, stage=stage, dispatch=dispatch)
+    text = str(caught.value)
+    assert wording in text
+    assert CREATED_LINE in text
+    assert "/secret/path" not in text
+    dispatch.assert_not_called()

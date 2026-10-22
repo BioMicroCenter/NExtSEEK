@@ -47,6 +47,22 @@ def _manual_fix(entry: dict) -> str:
             f"'{entry['internal_assay_title']}', then build again")
 
 
+def _created_assays(records: list[dict], created: dict[tuple, int]) -> list[dict]:
+    """The study assays this call created or found, in the order it made them."""
+    titles = {(e["study_id"], e["internal_assay_title"]): e["assay_title"]
+              for r in records for e in (r.get("assays_to_create") or [])}
+    return [{"study_id": study_id, "internal_assay_title": house,
+             "assay_title": titles.get((study_id, house)), "assay_id": assay_id}
+            for (study_id, house), assay_id in created.items()]
+
+
+def _assay_lines(created_assays: list[dict]) -> list[str]:
+    """One line per study assay: true whether this call created it or found it there."""
+    return [f"Study {a['study_id']} has the assay for the new samples: "
+            f"'{a['assay_title'] or a['internal_assay_title']}' (assay {a['assay_id']})."
+            for a in created_assays]
+
+
 def _created_line(created: dict[tuple, int]) -> str:
     """What a refusal says about assays this call already made (spec 3.5 step 1)."""
     return "already created, empty, and reused next time: " + ", ".join(
@@ -103,11 +119,8 @@ def _rebuild_after_create(records: list[dict], created: dict[tuple, int], rebuil
     if not callable(rebuild):
         raise refuse("this server cannot rebuild a workbook")
     rebuilt_by_run: dict[tuple, list[dict]] = {}
-    out: list[dict] = []
-    for record in records:
-        if not record.get("assays_to_create"):
-            out.append(record)
-            continue
+
+    def checked(record: dict) -> dict:
         key = record["artifact_key"]
         run_key = (record.get("manifest_id"), record["mode"])
         if run_key not in rebuilt_by_run:
@@ -156,7 +169,22 @@ def _rebuild_after_create(records: list[dict], created: dict[tuple, int], rebuil
         if changes:
             raise refuse(f"{key}: the rebuilt workbook is not the one you reviewed "
                          f"({'; '.join(changes)})")
-        out.append(dict(stored, path=str(safe)))
+        return dict(stored, path=str(safe))
+
+    out: list[dict] = []
+    for record in records:
+        if not record.get("assays_to_create"):
+            out.append(record)
+            continue
+        try:
+            out.append(checked(record))
+        except UploadRefused:
+            raise
+        except Exception as exc:  # noqa: BLE001 -- the class name only, never raw text
+            logger.exception("upload-reingest: could not check the rebuild of %s",
+                             record.get("artifact_key"))
+            raise refuse(f"{record.get('artifact_key')}: could not check the rebuilt workbook "
+                         f"({type(exc).__name__}); see the server log") from exc
     return out
 
 
@@ -401,12 +429,14 @@ def _parents_registered(parents: dict | None) -> bool:
     return not parents or (parents["status"] == "registered" and not parents.get("unresolved"))
 
 
-def _reply(jobs: list[dict]) -> str:
+def _reply(jobs: list[dict], created_assays: list[dict] | None = None) -> str:
     lines = []
     for job in jobs:
         lines.append(_outcome_line(job))
         if (extra := _parents_line(job)):
             lines.append(extra)
+    # Every reply names the study assays the call made or found, whatever the jobs did.
+    lines += _assay_lines(created_assays or [])
     outcomes = [job.get("outcome") for job in jobs]
     if any(o is None for o in outcomes):
         return "Upload jobs:\n" + "\n".join(lines)
@@ -557,8 +587,12 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
     _check_scope(len(ids))
     records = verify(ids, user_id=user_id, chat_turn=chat_turn(),
                      turn_delivered=turn_delivered)
+    verified = records
     created = _create_assays(records, create_study_assay, rebuild)
     records = _rebuild_after_create(records, created, rebuild, user_id)
+    created_assays = _created_assays(verified, created)
+    # What a refusal from here on says about the assays already made.
+    already = [_created_line(created)] if created else []
 
     # Phase A: stage every copy and prove it is the reviewed file, before any job starts.
     staged_paths: list[tuple[dict, str]] = []
@@ -578,11 +612,13 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
         except Exception:  # noqa: BLE001 -- the caller sees no raw text
             logger.exception("upload-reingest: could not stage %s", record["artifact_key"])
             _discard()
-            raise UploadRefused([f"{record['artifact_key']}: could not stage the workbook"])
+            raise UploadRefused([f"{record['artifact_key']}: could not stage the workbook",
+                                 *already])
         if not matches:
             _discard()
             raise UploadRefused(
-                [f"{record['artifact_key']}: the staged copy does not match the reviewed workbook"])
+                [f"{record['artifact_key']}: the staged copy does not match the reviewed workbook",
+                 *already])
 
     by_build = {r["build_id"]: r for r in records}
 
@@ -611,4 +647,5 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
         if "job_id" in entry and (parents := _register_parents(
                 entry, by_build[entry["build_id"]], register_parents)):
             entry["parents"] = parents
-    return {"jobs": jobs, "reply": _reply(jobs)}
+    return {"jobs": jobs, "reply": _reply(jobs, created_assays),
+            "created_assays": created_assays}
