@@ -397,45 +397,99 @@ def _reply(jobs: list[dict]) -> str:
     return head + "\n" + "\n".join(lines) + tail
 
 
+def _plural(n: int, noun: str) -> str:
+    return f"{n} {noun}" + ("" if n == 1 else "s")
+
+
+def _link_label(pair: dict, titles: dict) -> str:
+    """"D.SEQ-2 → Gene Expression Analysis": the assay by its title, by id when unknown."""
+    title = titles.get(pair["assay_id"]) or f"assay {pair['assay_id']}"
+    return f"{pair['parent_uid']} \u2192 {title}"
+
+
 def _register_parents(entry: dict, record: dict, register_parents) -> dict | None:
-    """Add a new-mode job's parents to their assays, once its samples all landed."""
-    pairs = [p for p in (record.get("parent_assays") or []) if p.get("assay_id") is not None]
-    if record["mode"] != "new" or not pairs:
+    """Add a new-mode job's parents to their assays, once its samples all landed.
+    Whenever they are not added, the status says why, so the reply can say so."""
+    if record["mode"] != "new" or not record.get("parent_assays"):
         return None
+    # After _rebuild_after_create every pair carries an assay id; one without is a
+    # surprise, and it is counted and reported, never dropped.
+    pairs = [p for p in record["parent_assays"] if p.get("assay_id") is not None]
+    base = {"written": 0, "already_present": 0, "failed": [], "pending": len(pairs),
+            "parents": len({p["parent_uid"] for p in pairs}),
+            "unresolved": len(record["parent_assays"]) - len(pairs)}
+    if not pairs:
+        return {**base, "status": "unresolved"}
     outcome = entry.get("outcome")
     if outcome is None:
-        return {"status": "skipped", "written": 0, "already_present": 0, "failed": [],
-                "pending": len(pairs)}
-    if outcome.get("status") != "succeeded" or not callable(register_parents):
-        return None
+        return {**base, "status": "skipped"}
+    if outcome.get("status") == "running":
+        return {**base, "status": "waiting"}
+    if outcome.get("status") != "succeeded":
+        return {**base, "status": "not_added"}
+    if not callable(register_parents):
+        return {**base, "status": "unavailable"}
+    titles = {p["assay_id"]: p.get("internal_assay_title") for p in pairs}
     try:
         body = register_parents(pairs) or {}
     except Exception as exc:  # noqa: BLE001 -- the upload already landed; report, never raise
         logger.exception("upload-reingest: registering parents failed")
-        return {"status": "failed", "written": 0, "already_present": 0,
-                "failed": [f"{p['parent_uid']} → assay {p['assay_id']}" for p in pairs],
+        return {**base, "status": "failed", "failed": [_link_label(p, titles) for p in pairs],
                 "error": type(exc).__name__}
     counts = body.get("counts") or {}
-    failed = [f"{row.get('sample_uid')} → assay {row.get('assay_id')}"
+    failed = [_link_label({"parent_uid": row.get("sample_uid"), "assay_id": row.get("assay_id")},
+                          titles)
               for row in body.get("rows") or [] if row.get("status") == "failed"]
-    return {"status": "partial" if failed else "registered",
+    return {**base, "status": "partial" if failed else "registered",
             "written": int(counts.get("written") or 0),
             "already_present": int(counts.get("already_present") or 0), "failed": failed}
+
+
+_AFTERWARDS = ("An administrator can add them afterwards through NExtSEEK's assay "
+               "registration; it is safe to repeat.")
 
 
 def _parents_line(job: dict) -> str | None:
     parents = job.get("parents")
     if not parents:
         return None
-    if parents["status"] == "skipped":
-        return (f"  The {parents['pending']} parent samples were not added to their assays: "
-                "this call could not wait for the upload to finish.")
-    if parents["status"] == "registered":
-        total = parents["written"] + parents["already_present"]
-        return f"  {total} parent samples are in their assays now ({parents['written']} added)."
-    return ("  Some parent samples could not be added to their assays: "
-            + ", ".join(parents["failed"])
-            + ". Add them through the assay-registrations endpoint; it is safe to repeat.")
+    n = parents["parents"]
+    samples = _plural(n, "parent sample")
+    status = parents["status"]
+    lines = []
+    if status == "skipped":
+        lines.append(f"  {samples} {'was' if n == 1 else 'were'} not added to their assays: "
+                     f"this call could not wait for the upload to finish. {_AFTERWARDS}")
+    elif status == "waiting":
+        lines.append(f"  {samples} will not be added to their assays automatically: the upload "
+                     f"was still running when the wait ended. {_AFTERWARDS}")
+    elif status == "unavailable":
+        lines.append(f"  This server could not add the {samples} to their assays. {_AFTERWARDS}")
+    elif status == "not_added":
+        lines.append(f"  {samples} {'was' if n == 1 else 'were'} not added to their assays "
+                     "because not every new sample was created; once the upload is fixed and "
+                     "rerun, they are added.")
+    elif status == "registered":
+        links = parents["pending"]
+        lines.append(
+            f"  {samples} {'is' if n == 1 else 'are'} in {'its' if n == 1 else 'their'} "
+            f"{'assay' if links == 1 else 'assays'} now ({_plural(parents['written'], 'link')} "
+            f"added, {parents['already_present']} already there).")
+    elif status == "partial":
+        done = parents["written"] + parents["already_present"]
+        lines.append(f"  {done} of {_plural(parents['pending'], 'link')} "
+                     f"{'was' if done == 1 else 'were'} made; {len(parents['failed'])} could "
+                     f"not be made: {_uid_list(parents['failed'], len(parents['failed']))}. "
+                     f"{_AFTERWARDS}")
+    elif status == "failed":
+        lines.append(f"  Could not confirm that the {samples} joined their assays (the "
+                     f"registration call failed): "
+                     f"{_uid_list(parents['failed'], len(parents['failed']))}. {_AFTERWARDS}")
+    if parents.get("unresolved"):
+        k = parents["unresolved"]
+        lines.append(f"  {_plural(k, 'link')} could not be made: "
+                     f"{'its' if k == 1 else 'their'} assay was not found.")
+    return "\n".join(lines) or None
 
 
 def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,

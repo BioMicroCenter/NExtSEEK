@@ -240,12 +240,12 @@ RESOLVED = [{"parent_uid": "D.SEQ-1", "study_id": 51,
              "internal_assay_title": "Gene Expression Analysis", "assay_id": 315}]
 
 
-def _run_waiting(record, *, register, state="SUCCESS", failed_rows=0):
+def _run_waiting(record, *, register, state="SUCCESS", failed_rows=0, dispatch=None):
     def job_state(job_id):
         return {"state": state, "totals": {"uids_generated": 1, "failed": failed_rows,
                                            "processed": 1}, "errors": [], "rows": []}
     return upload.run(build_ids_raw=record["build_id"], user=USER, upload_context=CTX,
-                      dispatch=MagicMock(return_value="job-1"), stage=_copy_stage,
+                      dispatch=dispatch or MagicMock(return_value="job-1"), stage=_copy_stage,
                       chat_turn=lambda: NOW, turn_delivered=lambda task_id: True,
                       job_state=job_state, register_parents=register)
 
@@ -262,12 +262,22 @@ def test_parents_join_the_assay_after_the_new_samples_land(env):
     assert "2 parent samples are in their assays" in result["reply"]
 
 
+NEXT_STEP = "through NExtSEEK's assay registration"
+TITLE = "Gene Expression Analysis"
+
+
 @pytest.mark.parametrize("state, failed_rows", [("FAILURE", 0), ("SUCCESS", 1)])
 def test_no_parent_joins_when_the_new_samples_did_not_all_land(env, state, failed_rows):
     record = _record(env, parent_assays=RESOLVED)
     register = MagicMock()
-    _run_waiting(record, register=register, state=state, failed_rows=failed_rows)
+    result = _run_waiting(record, register=register, state=state, failed_rows=failed_rows)
     register.assert_not_called()
+    job = result["jobs"][0]
+    assert job["outcome"]["status"] == "failed"
+    assert job["parents"] == {"status": "not_added", "written": 0, "already_present": 0,
+                              "failed": [], "pending": 2, "parents": 2, "unresolved": 0}
+    assert ("2 parent samples were not added to their assays because not every new sample "
+            "was created; once the upload is fixed and rerun, they are added") in result["reply"]
 
 
 def test_a_registration_failure_is_reported_and_keeps_the_upload(env):
@@ -279,14 +289,49 @@ def test_a_registration_failure_is_reported_and_keeps_the_upload(env):
     result = _run_waiting(record, register=register)
     job = result["jobs"][0]
     assert job["outcome"]["status"] == "succeeded"
-    assert job["parents"]["failed"] == ["D.SEQ-2 → assay 315"]
-    assert "assay-registrations" in result["reply"]
+    assert job["parents"]["failed"] == [f"D.SEQ-2 \u2192 {TITLE}"]
+    assert NEXT_STEP in result["reply"]
+    assert "assay-registrations" not in result["reply"]
+    assert "safe to repeat" in result["reply"]
+
+
+def test_a_partial_result_says_how_many_links_were_made_and_how_many_were_not(env):
+    record = _record(env, parent_assays=RESOLVED)
+    register = MagicMock(return_value={
+        "counts": {"written": 1, "already_present": 0, "failed": 1},
+        "rows": [{"sample_uid": "D.SEQ-2", "assay_id": 315, "status": "failed", "error": {}}]})
+    reply = _run_waiting(record, register=register)["reply"]
+    assert (f"1 of 2 links was made; 1 could not be made: D.SEQ-2 \u2192 {TITLE}. "
+            "An administrator can add them afterwards") in reply
 
 
 def test_a_raising_registration_is_reported_not_raised(env):
     record = _record(env, parent_assays=RESOLVED)
     result = _run_waiting(record, register=MagicMock(side_effect=RuntimeError("down")))
     assert result["jobs"][0]["parents"]["status"] == "failed"
+    reply = result["reply"]
+    assert "could not confirm" in reply.lower()
+    assert f"D.SEQ-1 \u2192 {TITLE}" in reply
+    assert NEXT_STEP in reply
+    assert "could not be added" not in reply
+
+
+def test_one_parent_is_counted_and_worded_in_the_singular(env):
+    record = _record(env, parent_assays=RESOLVED[:1])
+    register = MagicMock(return_value={"counts": {"written": 1, "already_present": 0,
+                                                  "failed": 0}, "rows": []})
+    reply = _run_waiting(record, register=register)["reply"]
+    assert "1 parent sample is in its assay now" in reply
+
+
+def test_parents_are_counted_by_sample_not_by_assay_link(env):
+    two_assays = [RESOLVED[0], dict(RESOLVED[0], assay_id=316)]
+    record = _record(env, parent_assays=two_assays)
+    register = MagicMock(return_value={"counts": {"written": 2, "already_present": 0,
+                                                  "failed": 0}, "rows": []})
+    reply = _run_waiting(record, register=register)["reply"]
+    assert "1 parent sample is in its assay now" not in reply
+    assert "1 parent sample is in its assays now (2 links added" in reply
 
 
 def test_without_waiting_no_parent_is_registered(env):
@@ -298,3 +343,76 @@ def test_without_waiting_no_parent_is_registered(env):
                         register_parents=register)
     register.assert_not_called()
     assert "parent samples were not added" in result["reply"]
+    assert NEXT_STEP in result["reply"]
+
+
+def test_a_job_still_running_when_the_wait_ends_says_its_parents_were_not_added(
+        env, monkeypatch):
+    monkeypatch.setenv("NEXTSEEK_UPLOAD_WAIT_S", "0")
+    record = _record(env, parent_assays=RESOLVED)
+    register = MagicMock()
+    result = _run_waiting(record, register=register, state="STARTED")
+    register.assert_not_called()
+    job = result["jobs"][0]
+    assert job["outcome"]["status"] == "running"
+    assert job["parents"]["status"] == "waiting"
+    assert job["parents"]["pending"] == 2
+    reply = result["reply"]
+    assert ("2 parent samples will not be added to their assays automatically: the upload "
+            "was still running when the wait ended") in reply
+    assert NEXT_STEP in reply
+    assert "safe to repeat" in reply
+
+
+def test_a_server_without_the_registration_seam_says_so(env):
+    record = _record(env, parent_assays=RESOLVED)
+    result = _run_waiting(record, register=None)
+    job = result["jobs"][0]
+    assert job["outcome"]["status"] == "succeeded"
+    assert job["parents"]["status"] == "unavailable"
+    reply = result["reply"]
+    assert "This server could not add the 2 parent samples to their assays" in reply
+    assert NEXT_STEP in reply
+    assert "safe to repeat" in reply
+
+
+def test_an_unresolved_pair_is_counted_and_reported_not_dropped(env):
+    record = _record(env, parent_assays=RESOLVED + [dict(PAIRS[0], parent_uid="D.SEQ-3")])
+    register = MagicMock(return_value={"counts": {"written": 2, "already_present": 0,
+                                                  "failed": 0}, "rows": []})
+    result = _run_waiting(record, register=register)
+    assert register.call_args.args[0] == RESOLVED  # only the pairs with an assay id
+    assert result["jobs"][0]["parents"]["unresolved"] == 1
+    reply = result["reply"]
+    assert "2 parent samples are in their assay" in reply
+    assert "1 link could not be made: its assay was not found" in reply
+
+
+def test_pairs_that_are_all_unresolved_are_reported_and_register_nothing(env):
+    record = _record(env, parent_assays=[dict(PAIRS[0]), dict(PAIRS[0], parent_uid="D.SEQ-3")])
+    register = MagicMock()
+    result = _run_waiting(record, register=register)
+    register.assert_not_called()
+    job = result["jobs"][0]
+    assert job["parents"]["status"] == "unresolved"
+    assert job["parents"]["unresolved"] == 2
+    assert "2 links could not be made: their assay was not found" in result["reply"]
+
+
+def test_an_update_job_never_registers_parents(env):
+    record = _record(env, mode="update", parent_assays=RESOLVED)
+    register = MagicMock()
+    result = _run_waiting(record, register=register)
+    register.assert_not_called()
+    assert "parents" not in result["jobs"][0]
+    assert "parent sample" not in result["reply"]
+
+
+def test_a_job_that_did_not_start_has_no_parents_entry(env):
+    record = _record(env, parent_assays=RESOLVED)
+    register = MagicMock()
+    result = _run_waiting(record, register=register,
+                          dispatch=MagicMock(side_effect=RuntimeError("broker down")))
+    register.assert_not_called()
+    assert "parents" not in result["jobs"][0]
+    assert "did not start" in result["reply"]
