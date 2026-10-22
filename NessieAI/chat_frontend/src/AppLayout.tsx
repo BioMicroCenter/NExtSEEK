@@ -19,6 +19,7 @@ import type {
   QueryCompleteData,
   QueryErrorData,
   RouteDecidedData,
+  PreludeStepData,
   CcTurnMetaData,
   Turn,
 } from "@/lib/types/api";
@@ -42,6 +43,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
   const pendingDebugRef = useRef<DebugEntry[]>([]);
   const {
     processingState,
+    handlePreludeStep,
     handleRouteDecided,
     handleAgentStarted,
     handleAgentComplete,
@@ -119,6 +121,10 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
             ...prev,
             entries: [...prev.entries, entry],
           }));
+          break;
+        }
+        case "prelude_step": {
+          handlePreludeStep(event.data as PreludeStepData);
           break;
         }
         case "route_decided": {
@@ -199,7 +205,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         }
       }
     },
-    [handleRouteDecided, handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, handleSelectionEvent, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, getAuthoritativeSessionId, sessions],
+    [handlePreludeStep, handleRouteDecided, handleAgentStarted, handleAgentComplete, handleSearchStarted, handleSearchComplete, handleSelectionEvent, addAssistantMessage, addSystemMessage, updateLastAssistantMessage, resetProcessing, getAuthoritativeSessionId, sessions],
   );
 
   const handleQueryError = useCallback(

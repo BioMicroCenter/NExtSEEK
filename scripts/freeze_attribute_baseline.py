@@ -13,7 +13,9 @@ from pathlib import Path
 
 from django.db import connections
 
-STATE_ROOT = Path("/home/taishajo/work/state/attribute-viewset")
+_STATE_ROOT = Path(os.environ.get("ATTRIBUTE_STATE_ROOT") or Path.home() / "work/state/attribute-viewset")
+
+STATE_ROOT = _STATE_ROOT
 MANIFEST = STATE_ROOT / "VERIFICATION-MANIFEST.json"
 _SURFACE_KEYS = {
     "name", "table", "sample_type_column", "attribute_column", "applies_to",

@@ -7,7 +7,7 @@
 #   - Full env table: startup/dev/run_full_test_lane.sh
 set -euo pipefail
 
-REPO="${REPO:-/home/taishajo/work/NExtSEEK-plan018}"
+REPO="${REPO:-/home/<user>/work/NExtSEEK-plan018}"
 MYSQL_IMAGE="${MYSQL_IMAGE:-mysql:8.0@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b}"
 APP_IMAGE="${APP_IMAGE:-nextseek-nextseek:latest}"
 OVERLAY="${OVERLAY:-$REPO/startup/dev/lane_local_settings.py}"

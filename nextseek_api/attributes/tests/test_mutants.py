@@ -1,12 +1,16 @@
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
+import os
+
+_STATE_ROOT = Path(os.environ.get("ATTRIBUTE_STATE_ROOT") or Path.home() / "work/state/attribute-viewset")
 
 ROOT = Path(__file__).resolve().parents[3]
-MANIFEST = Path("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json")
-ADAPTERS = Path("/home/taishajo/work/state/attribute-viewset/verification/MUTATION-ADAPTERS.json")
+MANIFEST = _STATE_ROOT / "VERIFICATION-MANIFEST.json"
+ADAPTERS = _STATE_ROOT / "verification/MUTATION-ADAPTERS.json"
 MUTANTS = ROOT / "scripts/run_attribute_mutants.py"
 DRIVER = Path(__file__).resolve().parent / "mutation_driver.py"
 
@@ -98,6 +102,12 @@ def test_mutation_driver_restores_source_on_unconfigure(tmp_path, monkeypatch):
     driver = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(driver)
     original = target.read_bytes()
+    # The driver reloads these when they are imported. A reload in this run would leave the schema's auth
+    # extension (openapi.py, a string target) on a new class the views do not hold, and batch-create would lose
+    # its security entry in test_openapi. Hide them for this test; monkeypatch puts them back.
+    for name in ("nextseek_api.attributes.auth", "nextseek_api.attributes.tests.auth_boundary",
+                 "nextseek_api.attributes.tests.test_auth"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
     driver.pytest_configure(type("Config", (), {})())
     assert target.read_bytes() != original
     driver.pytest_unconfigure(type("Config", (), {})())

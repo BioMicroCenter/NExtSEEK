@@ -1,604 +1,263 @@
-# Endpoint authorization register (`nextseek_api` read surface)
+# Endpoint authorization register (`/nextseek_api/`)
 
-Issue #64 deliverable. Branch `dev-v4-merge`. Compiled 2026-08-11.
+Tracking: #64. Rewritten 2026-10-13 to match the code and the buckets ruled under #64. It replaces the 2026-08-11
+register, whose bucket names (public-to-authenticated, project-scoped, admin-only) map onto the buckets below as
+3, 1 and 2, with owner-scoped rows in bucket 2.
 
 ## What this is
 
-A classification of every **read** endpoint routed by the `nextseek_api` app, with a
-`file:line` citation for whether any project-membership predicate is applied to the data
-the endpoint returns, and a **proposed** authorization bucket for each.
+One row for every route and method served under `/nextseek_api/`: who may call it, what limits apply to what it
+returns or changes, and its bucket. `nextseek_api/urls.py` decides what is routed; `ci/routes.py` is the CI copy of
+the same list. The handler and permission columns were read from Django's URL resolver, not from the source by eye.
+When you add or change a route, add or change its row here in the same change.
 
-## What this is not
+## The buckets
 
-- It is **not** a code sweep. No `permission_classes` were changed to produce it.
-- The proposed buckets are **proposals for the user to rule on**, not decisions. Nothing in
-  this document has been applied.
-- Exactly **one** endpoint's behavior changed in this branch: `sample-tree/{uid}/tree/` is now
-  project-scoped (commit `665a103`, issue #60). Everything else is described exactly as the tree
-  is today.
-- The other endpoint named in #60, `samples/advanced_search/`, was **deliberately not changed**.
-  The reasons are in note A, and they are the kind of thing this register exists to surface.
-
-**Authority for what is routed:** `nextseek_api/urls.py`, mounted at `/nextseek_api/` by
-`dmac/urls.py:29`. Two registrations are commented out at `nextseek_api/urls.py:14-15`, so
-`NHPViewSet` (`nextseek_api/views.py:274`) and `SampleQueryViewSet` (`nextseek_api/views.py:428`)
-are **NOT ROUTED** and are excluded from the register proper (see the notes at the end).
-The routed list below was cross-checked against Django's live resolver inside the `nextseek`
-container, not just read off the router registrations.
-
-**Line-number caveat:** several files were being edited in this working tree while the register
-was compiled (a UTF-8 Basic-auth fix in `nextseek_api/helpers.py`, `seek/seekapi.py` and
-`seek/views.py`, a module that no longer exists; then the #60 scoping fix in
-`nextseek_api/views.py`). Every citation below was read from the tree at compile time. The
-views are now the `seek/views/` package and the sample table the `seek/sample/` package, so
-citations into those two name the owning module and symbol. Citations into `nextseek_api/views.py` below the sample-tree
-viewset have since shifted by roughly +75 lines; the surrounding symbol names are the reliable
-anchor, not the numbers.
-
----
-
-## THE OPEN QUESTION: does `is_staff` still mean "admin"?
-
-This is unfiled and it is the headline decision. It is a **product decision**, not a bug
-report, and this section does not propose a fix.
-
-### The three facts
-
-**1.** The one read endpoint that actually implements project scoping decides admin like this
-(`nextseek_api/views.py:642`):
-
-```python
-is_superuser = bool(getattr(request.user, 'is_superuser', False) or getattr(request.user, 'is_staff', False))
-```
-
-**2.** Every SEEK user synchronized into NExtSEEK is marked staff. `dmac/views.py:80` (the
-create branch) and `dmac/views.py:97` (the update branch, which runs on **every** login) both
-read:
-
-```python
-user.is_staff = 1
-```
-
-**3.** Net effect: `is_superuser or is_staff` is true for essentially every account, so
-`getChildrenUIDs(requested_uids, user_project_ids, is_superuser)` in what was then
-`AdminSampleViewSet.admin_retrieve_samples` took the admin branch of `getChildrenUIDs` in `seek/sample/trees.py` (`WHERE uuid IN (...)`,
-no project join) rather than its scoped branch
-(`... JOIN projects_samples ps ... AND ps.project_id IN (...)`). The same bypass applies to
-the MySQL fallback path in the same method (superuser branch versus project-joined branch). The download
-API's data path now lives in `nextseek_api/services/sample_retrieve.py` and is scoped by `resolve_scope`. The project ids
-are resolved correctly and for real at `nextseek_api/views.py:621-627`; they are simply not
-reached.
-
-The codebase already states this in two places. `nextseek_api/permissions.py:8-16`:
-
-> Deliberately NOT `rest_framework.permissions.IsAdminUser`: that checks `is_staff`, and
-> `dmac.views.userSynchronization` sets `is_staff = 1` on every SEEK user at login
-> (dmac/views.py:80 and :97, on both the create and the update branch). `IsAdminUser` is
-> therefore equivalent to `IsAuthenticated` in this project. `is_superuser` is never assigned
-> by any live application code path, so it is the only trustworthy admin signal.
-
-And the explicit comment at `nextseek_api/views.py:628-641`, which opens (its em-dash
-rendered here as a comma, per this document's style):
-
-> `# SECURITY, known gap, still open, deliberately. Read before touching this line.`
-
-and closes (quoted verbatim except that the source's two em-dashes are rendered here as commas,
-per this document's style):
-
-> The prerequisite this comment used to name, resolving the caller's projects for real, is now
-> done above, so dropping the is_staff clause is a safe one-line change on its own terms. It is
-> NOT made here because it changes what every staff account can read (11 of 20 accounts in the
-> local seed) and would narrow the assistant and container-CC consumers, which currently depend
-> on unfiltered reads. Assess that impact first, then drop it.
-
-The comment's "11 of 20 accounts in the local seed" was independently re-verified against the
-running stack and is still exact.
-
-Note the comment is more specific than "we left it because it would break things": it records
-that the technical prerequisite is satisfied and that what remains is an impact assessment.
-This section is that assessment. For contrast, the legacy path this mirrors,
-`adminRetrieveSamples` in `seek/views/admin.py`, uses `verifySuperUser(request)`
-(`seek/decorators.py`), which tests `is_superuser` alone.
-
-### The question
-
-**What breaks if `is_staff` stops implying admin?**
-
-### Who is affected, by account
-
-Counted live against the local seed DB:
-
-| Population | Count | Effect of dropping the `is_staff` clause |
+| Bucket | Meaning | Routes |
 |---|---|---|
-| Total Django users | 20 | |
-| `is_staff or is_superuser` (unfiltered today) | 11 | |
-| `is_superuser` | 8 | No change, still unfiltered |
-| `is_staff` and not `is_superuser` | 3 | Flip to project-scoped reads |
-| Neither | 9 | No change, already project-scoped |
-
-The 3 staff-not-superuser accounts are `cdemu`, `fallback_user` and `user`. That shape matters
-more than the count: `dmac/views.py:80,97` sets `is_staff` and never sets `is_superuser`, and
-`nextseek_api/permissions.py:14-15` states `is_superuser` is never assigned by live application
-code. So **on any instance where accounts arrive via SEEK login, every account is
-staff-not-superuser**. The local seed's 8 superusers are hand-made fixtures. The practical blast
-radius is therefore "every real user", not "3 accounts".
-
-### The concrete consumers
-
-All four consumer families below call the download API (`/nextseek_api/samples/retrieve/`, formerly
-`/nextseek_api/admin/samples/retrieve/`, which remains as its alias) **as the end
-user**, not as a service account. That is the crux: their `request.user` is a staff account, so
-they all take the unfiltered branch today, and they would all become project-scoped together.
-
-| # | Consumer | Entry point | Identity it authenticates as |
-|---|---|---|---|
-| 1 | Browser sample-download controls | `static/js/ns_sample_download.js:10` sets `ENDPOINT = "/nextseek_api/samples/retrieve/"`; loaded by `seek/templates/newSearch.html:3`, `seek/templates/searchAdvanced.html:3`, `seek/templates/pages/samples.embed.html:1` | Django session cookie + CSRF, i.e. the logged-in user |
-| 2 | NExtSEEK assistant (`chat_nextseek` engine, in-process) | endpoint allowlisted at `NessieAI/chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:39`; outbound Basic auth built at `:132` from `config.API_USER/API_PASS`; report path at `NessieAI/chat_nextseek/src/chat_nextseek/reports/metadata.py:66` | The caller. `nextseek_api/services/assistant.py:235-250` and `:744-749` overwrite `API_USER`/`API_PASS` on a per-request `ChatConfig` copy with the credentials `resolve_seek_auth` returned |
-| 3 | Container-CC agent, via the ns-sidecar | sidecar forwards ops to `/nextseek_api/assistant/{op}/` (`NessieAI/docker/ns-sidecar/app/ns_client.py:97`); the `api-read` op reaches this path because it is allowlisted at `NessieAI/ns/read_safe_endpoints.json:27` and gated by `NessieAI/ns/write_gate.py:94` | The caller. The sidecar holds no credentials of its own; per-request Basic auth is built from the `ns_login` frame at `NessieAI/docker/ns-sidecar/app/server.py:40-47` |
-| 4 | LLM endpoint catalogs that steer both engines toward it | `NessieAI/chat_nextseek/src/chat_nextseek/context/min_api_endpoints.json:3`, `.../min_api_endpoints_enriched.json:3,71`, which the cc-agent image bakes into `/app/plugins/nextseek/context/` through the `chat_nextseek` named context | n/a, prompt context |
-
-The **one** exception to "always the end user" is the admin-only PROD toggle: when a turn routes
-to the PROD `ChatConfig`, `nextseek_api/services/assistant.py:639-643` and `:758-762` (and, for the routed endpoint, `NessieAI/cc/turn.py:285-288`) substitute
-the configured `API_USER`/`API_PASS` instead. That is a genuine service identity, and its scope
-would be whatever that account's SEEK projects are.
-
-`/nextseek_api/entity_tree/lineage/` was allowlisted for both engines until 2026-09-18 (it left
-`NessieAI/ns/read_safe_endpoints.json` when sample lineage moved to the graph) and is recommended to the model by
-`nextseek_api/endpoint_descriptions.py:18`, but it has no project predicate at all today, so
-tightening `admin/samples` does not touch it. `entity_tree/nodes`, `edges` and `edge_attributes`
-have **no consumer anywhere in the worktree**.
-
-### What the user is actually being asked to decide
-
-1. **Should ordinary users see only their own projects' samples in downloads and in assistant
-   answers?** SEEK itself answers yes for its own resources (the proxy endpoints in the table
-   below already inherit that). NExtSEEK's direct-DB and Neo4j endpoints answer no.
-2. **If yes, who is admin?** `is_superuser` is the only trustworthy signal today, and no live
-   code path grants it. Some set of curator and operator accounts would need it granted
-   explicitly, and that list has to come from the user.
-3. **Should the assistant and container-CC read as the end user (current behavior) or as a
-   designated service identity?** These have opposite consequences. As the end user, scoping
-   applies and answers narrow per user. As a service identity, scoping is centralized in one
-   account, but every user's answer is that account's view.
-4. **Should a scoped read tell the caller that rows were withheld?** Today the scoped branches
-   in the download API (`_hydrate` in `nextseek_api/services/sample_retrieve.py`) silently return
-   fewer rows. An assistant cannot distinguish "no such data" from "not your project", which is
-   a correctness problem for generated answers regardless of which way question 1 is decided.
-5. **What is the measurement cost?** Assistant ground-truth values in `nessie_tests` were all
-   measured against unfiltered reads. Scoping changes the expected answers, so the corpus needs
-   a re-baseline against whichever account the harness runs as.
-
-Note that a cross-project export path already exists and is correctly gated:
-`GET /nextseek_api/admin/project-export/{pk}/` is `IsSuperUser` (`nextseek_api/services/project_export.py:267`).
-
----
-
-## Register
-
-57 routed read endpoints. `permission_classes` values are the declared class list; several
-endpoints add a second inline auth gate inside the handler, which is noted where it matters.
-
-| Path | Viewset / action | permission_classes | Project predicate applied? (file:line) | Proposed bucket |
-|---|---|---|---|---|
-| `GET /nextseek_api/schema/` | `SpectacularAPIView` | `IsAuthenticated` at the route (`nextseek_api/urls.py:61`, #77). Was AllowAny: drf-spectacular sets `permission_classes` from `SERVE_PERMISSIONS` in its own class body, shadowing the project default | n/a, no data | public-to-authenticated |
-| `GET /nextseek_api/swagger/` | `SpectacularSwaggerView` | `IsAuthenticated` at the route (`nextseek_api/urls.py:62`, #77) | n/a, no data | public-to-authenticated |
-| `GET /nextseek_api/redoc/` | `SpectacularRedocView` | `IsAuthenticated` at the route (`nextseek_api/urls.py:63`, #77) | n/a, no data | public-to-authenticated |
-| `GET /nextseek_api/sample-tree/{uid}/tree/` | `SampleTreeViewSet.get_tree` | `IsAuthenticated` (`views.py:109`) | **Yes, added in this branch** (`665a103`): root gate + lineage pruning against `projects_samples`, admin bypass on `is_superuser` alone. Pre-fix: none | project-scoped (done) |
-| `POST /nextseek_api/samples/advanced_search/` | `SampleAdvancedSearchViewSet.create` | `IsAuthenticated` (`services/samples.py:357`) | **None. Deliberately NOT changed** in this branch, see note A | project-scoped (open, blocked) |
-| `POST /nextseek_api/samples/graph_search/` | `GraphSearchViewSet.create` | `IsAuthenticated` (`services/graph_search.py:140`) | **Yes, since it was added (2026-09-14)**: project-scoped through `group_memberships` x `work_groups` over `projects_samples` (`graph_search/scope.py:22-26`, resolved at `services/graph_search.py:270`); superuser unscoped on `is_superuser` alone (`graph_search/scope.py:53-54`) | project-scoped (done) |
-| `POST /nextseek_api/samples/retrieve/` (alias `POST /nextseek_api/admin/samples/retrieve/`) | `SampleRetrieveViewSet.create` (alias `AdminSampleViewSet.admin_retrieve_samples`), both `handle_retrieve` in `services/sample_retrieve.py` | `IsAuthenticated` | Yes: `resolve_scope` (MySQL membership, superuser unscoped on `is_superuser` alone), applied to the walk's start samples and to every row read. See note B | project-scoped (done) |
-| `GET /nextseek_api/samples/{uid}/` | `SampleProxyViewSet.retrieve` | `IsAuthenticated` (`services/samples.py:74`) | Delegated to SEEK under the caller's creds (`services/samples.py:129` -> `helpers.py:135-148`) | project-scoped (already, upstream) |
-| `GET /nextseek_api/sample_types/` | `SampleTypeProxyViewSet.list` | `IsAuthenticated` (`services/sample_types.py:58`) | Delegated to SEEK (`services/sample_types.py:89`) | public-to-authenticated |
-| `GET /nextseek_api/sample_types/{uid}/` | `SampleTypeProxyViewSet.retrieve` | `IsAuthenticated` (same) | Delegated to SEEK (`services/sample_types.py:120`) | public-to-authenticated |
-| `GET /nextseek_api/sampletypes/{uid}/child_types/` | `SampleTypeChildrenViewSet.child_types` | `IsAuthenticated` (`services/sample_types.py`) | **Yes** (2026-09-18): the sample and every sample on the lineage path pass graph_search's scope clause, from `graph_search/scope.py::resolve_scope`; a sample outside the caller's projects answers 404; superuser unscoped. See note C | project-scoped (done) |
-| `POST /nextseek_api/sample_types/get_parents/parents_by_child_types/` | `SamplesByChildTypesViewSet.parents_by_child_types` | `IsAuthenticated` (`services/sample_types.py`) | **Yes** (2026-09-18): parent, child and every sample on the path pass graph_search's scope clause, from `graph_search/scope.py::resolve_scope`; superuser unscoped. See note C | project-scoped (done) |
-| `GET /nextseek_api/entity_tree/nodes/` | `EntityTreeViewSet.list_nodes` | `IsAuthenticated` (`services/entity_tree.py:85`) | **None.** `SELECT ... FROM dmac.sample_types_context` at `services/entity_tree.py:138-148`. See note D | public-to-authenticated |
-| `GET /nextseek_api/entity_tree/edges/` | `EntityTreeViewSet.list_edges` | `IsAuthenticated` (same) | **None.** Cypher at `services/entity_tree.py:303-311` | public-to-authenticated |
-| `GET /nextseek_api/entity_tree/edge_attributes/` | `EntityTreeViewSet.list_edge_attributes` | `IsAuthenticated` (same) | **None.** Cypher at `services/entity_tree.py:388-397` | public-to-authenticated |
-| `POST /nextseek_api/entity_tree/lineage/` | `EntityTreeViewSet.lineage` | `IsAuthenticated` (same) | **Yes** (2026-09-18): the sample and every sample on each lineage path pass graph_search's scope clause, from `graph_search/scope.py::resolve_scope`; a sample outside the caller's projects answers as one that does not exist; superuser unscoped. See note D | project-scoped (done) |
-| `GET /nextseek_api/sops/` | `SopProxyViewSet.list` | `IsAuthenticated` (`services/sops.py:48`) | Delegated to SEEK (`services/sops.py:84` -> `helpers.py:135-148`) | public-to-authenticated |
-| `GET /nextseek_api/sops/{uid}/` | `SopProxyViewSet.retrieve` | `IsAuthenticated` (same) | Delegated to SEEK (`services/sops.py:140`) | public-to-authenticated |
-| `POST /nextseek_api/sops/download/` | `SopProxyViewSet.download` | `IsAuthenticated` (same) | Delegated to SEEK, blob streamed under caller creds (`services/content_blobs.py:220-221` -> `helpers.py:334-342`). See note E | public-to-authenticated |
-| `GET /nextseek_api/data_files/` | `DataFileProxyViewSet.list` | `IsAuthenticated` (`services/data_files.py:46`) | Delegated to SEEK (`services/data_files.py:79`) | public-to-authenticated |
-| `GET /nextseek_api/data_files/{uid}/` | `DataFileProxyViewSet.retrieve` | `IsAuthenticated` (same) | Delegated to SEEK (`services/data_files.py:139`) | public-to-authenticated |
-| `POST /nextseek_api/data_files/download/` | `DataFileProxyViewSet.download` | `IsAuthenticated` (same) | Delegated to SEEK, streamed under caller creds (`services/data_files.py:439-446`). See note E | public-to-authenticated |
-| `GET /nextseek_api/projects/` | `ProjectProxyViewSet.list` | `IsAuthenticated` (`services/projects.py:40`) | Delegated to SEEK (`services/projects.py:72`) | public-to-authenticated |
-| `GET /nextseek_api/projects/{uid}/` | `ProjectProxyViewSet.retrieve` | `IsAuthenticated` (same) | Delegated to SEEK (`services/projects.py:136`) | public-to-authenticated |
-| `GET /nextseek_api/people/` | `PeopleProxyViewSet.list` | `IsAuthenticated` (`services/people.py:34`) | Delegated to SEEK (`services/people.py:65`) | public-to-authenticated |
-| `GET /nextseek_api/people/{uid}/` | `PeopleProxyViewSet.retrieve` | `IsAuthenticated` (same) | Delegated to SEEK (`services/people.py:127`) | public-to-authenticated |
-| `GET /nextseek_api/people/current/` | `PeopleProxyViewSet.current` | `IsAuthenticated` (same) | Delegated to SEEK; the answer *is* the caller identity (`services/people.py:182`) | public-to-authenticated |
-| `GET /nextseek_api/investigations/` | `InvestigationProxyViewSet.list` | `IsAuthenticated` (`services/investigations.py:38`) | Delegated to SEEK (`services/investigations.py:69`) | public-to-authenticated |
-| `GET /nextseek_api/investigations/{uid}/` | `InvestigationProxyViewSet.retrieve` | `IsAuthenticated` (same) | Delegated to SEEK (`services/investigations.py:116`) | public-to-authenticated |
-| `GET /nextseek_api/studies/` | `StudyProxyViewSet.list` | `IsAuthenticated` (`services/studies.py:38`) | Delegated to SEEK (`services/studies.py:69`) | public-to-authenticated |
-| `GET /nextseek_api/studies/{uid}/` | `StudyProxyViewSet.retrieve` | `IsAuthenticated` (same) | Delegated to SEEK (`services/studies.py:116`) | public-to-authenticated |
-| `GET /nextseek_api/assays/` | `AssayProxyViewSet.list` | `IsAuthenticated` (`services/assays.py:37`) | Delegated to SEEK (`services/assays.py:68`) | public-to-authenticated |
-| `GET /nextseek_api/assays/{uid}/` | `AssayProxyViewSet.retrieve` | `IsAuthenticated` (same) | Delegated to SEEK (`services/assays.py:115`) | public-to-authenticated |
-| `GET /nextseek_api/users/` | `UsersViewSet.list` | `IsAuthenticated, IsDjangoSuperuser` (`services/users.py:361`) | **None**, full-table read at `services/users.py:385`. Correctly gated instead. See note F | admin-only |
-| `GET /nextseek_api/users/{uid}/` | `UsersViewSet.retrieve` | `IsAuthenticated, IsDjangoSuperuser` (same) | **None**, id lookup at `services/users.py:427` | admin-only |
-| `POST /nextseek_api/schema_rag/ingest/` | `SchemaRAGViewSet.ingest` | `IsAuthenticated` (`services/schema_rag.py:50`) | n/a, ingests a caller-supplied OpenAPI URL. No NExtSEEK data. See note G | public-to-authenticated |
-| `POST /nextseek_api/schema_rag/retrieve/` | `SchemaRAGViewSet.retrieve_endpoints` | `IsAuthenticated` (same) | n/a, but NOT read-only: it auto-ingests when no live session exists, so it inherits every side effect of `ingest`. Classified WRITE for the CC agent (#86). See note G | public-to-authenticated |
-| `GET /nextseek_api/assistant/me/` | `AssistantViewSet.me` | `IsAuthenticated, UserInParticipatingProject` (`services/assistant.py:280`) | n/a, echoes `request.user`. See note H | public-to-authenticated |
-| `GET /nextseek_api/assistant/sessions/` | `AssistantViewSet.list_sessions` | same (`services/assistant.py:280`) | Owner-scoped, not project: `filter(user=request.user)` at `services/assistant.py:363` | public-to-authenticated (owner-scoped) |
-| `GET /nextseek_api/assistant/sessions/{sid}/` | `AssistantViewSet.get_session` | same | Owner-scoped: `services/assistant.py:421-423` | public-to-authenticated (owner-scoped) |
-| `GET /nextseek_api/assistant/sessions/{sid}/bundles/{bid}/` | `AssistantViewSet.download_bundle` | same | Owner-scoped: `services/assistant.py:853-855` | public-to-authenticated (owner-scoped) |
-| `GET /nextseek_api/assistant/sessions/{sid}/bundles/{bid}/artifacts/{key}/` | `AssistantViewSet.download_artifact` | same | Owner-scoped: `services/assistant.py:937-939` | public-to-authenticated (owner-scoped) |
-| `GET /nextseek_api/assistant/tasks/{task_id}/progress/` | `AssistantViewSet.task_progress` | same | Owner-scoped: `get(task_id=..., user=request.user)` at `services/assistant.py:805-809` | public-to-authenticated (owner-scoped) |
-| `GET /nextseek_api/assistant/test-cases/` | `AssistantViewSet.test_cases` | same, plus inline `is_staff or is_superuser` at `services/assistant.py:1109` | n/a, static prompt catalog. The inline gate is `is_staff`, so effectively any account | public-to-authenticated |
-| `GET /nextseek_api/cc-assistant/tasks/{task_id}/progress/` | `CCAssistantViewSet.task_progress` | `IsAuthenticated` (`services/cc_assistant.py:90`) | Owner-scoped: `services/cc_assistant.py:218-220` | public-to-authenticated (owner-scoped) |
-| `GET /nextseek_api/cc-assistant/upload/status/{job_id}/` | `CCAssistantViewSet.upload_status` | same | Owner-scoped: `user_owns_job(request.user.pk, job_id)` at `services/cc_assistant.py:289-290` | public-to-authenticated (owner-scoped) |
-| `GET /nextseek_api/cc-assistant/upload/list/` | `CCAssistantViewSet.upload_list` | same | Owner-scoped by construction: dir built from caller creds + username at `services/cc_assistant.py:309-314` | public-to-authenticated (owner-scoped) |
-| `GET /nextseek_api/cc-assistant/artifacts/{session}/download/` | `CCAssistantViewSet.download_artifact` | same | Owner-scoped: `services/cc_assistant.py:325-327`, plus path guards at `:331, :344, :358` | public-to-authenticated (owner-scoped) |
-| `GET /nextseek_api/cc-assistant/transcript/{session}/{turn}/` | `CCAssistantViewSet.recover_transcript` | same | Owner-scoped: `services/cc_assistant.py:375` then `:379` | public-to-authenticated (owner-scoped) |
-| `GET /nextseek_api/evaluator/tasks/{task_id}/retry-context/` | `EvaluatorViewSet.retry_context_by_task` | `IsAuthenticated, IsAdminUser` (`services/evaluator.py:91`) | **None, and no owner check**: `get(task_id=task_id)` at `services/evaluator.py:109-110`. See note I | admin-only |
-| `GET /nextseek_api/evaluator/sessions/{sid}/bundles/{bid}/retry-context/` | `EvaluatorViewSet.retry_context_by_bundle` | same | **None, and no owner check**: `services/evaluator.py:141` | admin-only |
-| `GET /nextseek_api/evaluator/runs/` | `EvaluatorViewSet.runs_list` | same | **None.** All users' tasks at `services/evaluator.py:188`; `user_id` at `:203-205` is an optional caller-supplied filter, not a predicate | admin-only |
-| `GET /nextseek_api/batch-upload/` | `BatchUploadViewSet.list` | `IsAuthenticated` (`batch_upload/views.py:101`) | Owner-scoped: `list_jobs(user_id=request.user.pk, ...)` at `batch_upload/views.py:630-632` | public-to-authenticated (owner-scoped) |
-| `GET /nextseek_api/batch-upload/status/{job_id}/` | `BatchUploadViewSet.job_status` | same | Owner-scoped: `_check_ownership` at `batch_upload/views.py:538` | public-to-authenticated (owner-scoped) |
-| `GET /nextseek_api/batch-upload/summary/{job_id}/` | `BatchUploadViewSet.summary` | same | Owner-scoped: `_check_ownership` at `batch_upload/views.py:589` | public-to-authenticated (owner-scoped) |
-| `GET /nextseek_api/admin/project-export/{pk}/` | `ProjectExportViewSet.retrieve` | `IsAuthenticated, IsSuperUser` (`services/project_export.py:267`) | **None on the caller's own membership**: `project_id` comes from the URL (`services/project_export.py:316` -> `:197`). Superuser gate is the whole control. See note J | admin-only |
-| `GET /nextseek_api/reingest-proposals/` | `ReingestProposalViewSet.list` | `IsAuthenticated, IsSuperUser` (`services/reingest_proposals.py:75`) | **None**, global operator worklist rather than project data -- same posture as `users/`. Also accepts `?status=` and `?pipeline=` filters | admin-only |
-| `GET /nextseek_api/reingest-proposals/{pk}/` | `ReingestProposalViewSet.retrieve` | same | **None**, id lookup, same posture as `users/{uid}/` | admin-only |
-| `POST /nextseek_api/reingest-proposals/{pk}/approve/` | `ReingestProposalViewSet.approve` | same | n/a -- a mutation, not a read. Re-checks `attribute_exists` before writing, so approval can never hand the mapper a rule for an attribute that is not defined (`services/reingest_proposals.py:97-126`). See note K | admin-only |
-| `POST /nextseek_api/reingest-proposals/{pk}/reject/` | `ReingestProposalViewSet.reject` | same | n/a -- a mutation, not a read | admin-only |
-| `GET /nextseek_api/admin/graph-sync/status/` | `GraphSyncStatusViewSet.status` | `IsAuthenticated, IsDjangoSuperuser` (`services/graph_sync_status.py:85`) | n/a, no sample data: it reads `graph_sync_outbox` and `graph_sync_run` on the dmac connection and nothing else (`services/graph_sync_status.py:54`), and answers 503 in the JSON:API envelope when they cannot be read. Declared for `local` and `dev` only in `ci/routes.py`, because an instance without migration 0021 does not have those tables | admin-only |
-
-### Bucket totals
-
-| Bucket | Count |
-|---|---|
-| public-to-authenticated | 42 (of which 13 are owner-scoped) |
-| project-scoped | 8 |
-| admin-only | 11 |
-| **Total** | **61** |
-
-The two `POST .../approve/` and `.../reject/` rows are mutations, outside this document's
-original "every read endpoint" scope (see "What this is not", above) -- recorded here anyway
-because they share the superuser-only worklist with the two read rows immediately above them,
-and `nextseek_api/CLAUDE.md` and the root `CLAUDE.md` both ask for a per-endpoint authorization
-ruling on every new endpoint, not only reads. No other mutation endpoint in this app has a row
-here; this is the first, not a precedent that the omission above was wrong.
-
-### NOT ROUTED
-
-Registered lines are commented out at `nextseek_api/urls.py:14-15`. These are dead surface and
-carry no current exposure. They are listed so a future re-enable is a deliberate act.
-
-| Would-be path | Viewset / action | permission_classes | Project predicate | Note |
-|---|---|---|---|---|
-| `GET /nextseek_api/nhp/{pk}/info/` | `NHPViewSet.info` (`views.py:301`) | `IsAuthenticated` (`views.py:279`) | **NOT ROUTED** | `save_nhp_info_to_json(pk)` |
-| `GET /nextseek_api/nhp/{pk}/events/{type}/{date}/` | `NHPViewSet.events` (`views.py:345`) | same | **NOT ROUTED** | |
-| `GET /nextseek_api/nhp/{pk}/timeline/` | `NHPViewSet.timeline` (`views.py:379`) | same | **NOT ROUTED** | |
-| `GET /nextseek_api/nhp/{pk}/download/` | `NHPViewSet.download` (`views.py:405`) | same | **NOT ROUTED** | Would stream an xlsx |
-| `POST /nextseek_api/sample-queries/retrieve/` | `SampleQueryViewSet.retrieve_samples` (`views.py:465`) | `IsAuthenticated` (`views.py:433`) | **NOT ROUTED**. Would be the only caller passing a real `project_id` (`views.py:505`) | See note A |
-
----
-
-## Per-family notes
-
-### Note A: `samples/advanced_search` and the dead `project_id` hook
-
-`DBtable_sample.searchAdvanced` in `seek/sample/search.py` declared, when this was compiled:
-
-```python
-def searchAdvanced(self, user_seek, filters, searchType, project_id=0, skip_tree=False):
-```
-
-and the predicate is appended only when the argument is positive
-(now `_retrieveRecords_advanced` in `seek/sample/queries.py`, which since #93 also binds
-the value as a query parameter):
-
-```python
-if 'project_id' in filtersdic:
-    project_id = filtersdic['project_id']
-    if int(project_id)>0:
-        sqlquery_filter = sqlquery_filter.replace('WHERE ', 'WHERE (')
-        sqlquery_filter = sqlquery_filter + ") AND D.project_id=" + str(project_id)
-```
-
-The `projects_samples D` join that the predicate needs is likewise conditional
-(`_sqlQuery_select_records_from` in `seek/sample/queries.py`), and the value flows in via
-`_initSearchFilters` in the same module, default `0`.
-
-The routed API path never supplies it. `nextseek_api/services/samples.py:509` calls:
-
-```python
-raw = DBtable_sample().searchAdvanced(user_seek, sub_filters, search_type, skip_tree=True)
-```
-
-with `search_type` in the third positional slot and `skip_tree` as a keyword, so `project_id`
-takes its default of `0` and the predicate is never appended. Confirmed by grep: the only two
-callers of `searchAdvanced` in application code are `nextseek_api/views.py:505` (inside
-`SampleQueryViewSet`, **NOT ROUTED**) and `nextseek_api/services/samples.py:509`. In the routed
-surface the `project_id` hook in `_retrieveRecords_advanced` is therefore **dead code today**.
-
-**Status in this branch: NOT CHANGED, deliberately.** The plan was to generalize the
-`_retrieveRecords_advanced` hook from `= project_id` to an `IN (...)` set and pass the caller's
-SEEK project ids through. `SampleTreeViewSet.get_tree` was scoped that way and landed
-(`665a103`). This endpoint was not, for three reasons, in descending order of weight.
-
-**A1. The hook that was to be "generalized" emits invalid SQL for the searchType this endpoint
-actually uses.** Not a theoretical concern; run against the live code in the container:
-
-```
-UIDs     + project 7 -> " WHERE (A.uuid in ('NHP-1','TIS-2');) AND D.project_id=7"
-Advanced + project 7 -> "WHERE (A.json_metadata LIKE '%blood%' ) AND D.project_id=7"
-```
-
-The UID branch is a **syntax error**: `__designSearchMatchKeywords` terminates its clause with a
-semicolon (`seek/search.py:368`), and the hook's `replace('WHERE ', 'WHERE (')` + `") AND ..."`
-surgery wraps that semicolon inside the parentheses. That branch is not an edge case, it is the
-fast path this endpoint takes for every UID term (`nextseek_api/services/samples.py:511`,
-`search_type="UIDs"`). Turning the hook on would 500 every UID search. So the change is not
-"generalize one line", it is "rewrite the clause assembly", and there is no routed caller today
-whose tests would protect that rewrite (the hook's only real-value caller, `views.py:505`, is
-NOT ROUTED).
-
-While proving this, a second latent defect surfaced in the same builder: with
-`searchType="Advanced"` and `searchText=None`, `designSearchPubmed` returns a bare `''`
-(`seek/search.py:303`) while its caller unpacks two values (`seek/search.py:609`), raising
-`ValueError: not enough values to unpack (expected 2, got 0)`. Independent of project scoping.
-Worth a separate issue.
-
-**A2. Silent row-dropping here is a data-integrity bug, not a visibility change.** The
-container-CC batch-upload client calls this endpoint to recover the pre-update state of samples
-(`NessieAI/docker/cc-runtime/build_context/plugins/nextseek/bin/_batch_upload_client.py:179`,
-`search_samples_by_uid`). If scoping silently drops a row, the runner sees the UID as absent and
-takes the **create** branch instead of **update**. `nextseek_api/batch_upload/views.py` performs
-no project-membership check of its own, so a curator operating outside their SEEK project
-memberships would silently fork records rather than update them. Any scoping added here needs an
-explicit "N rows withheld by scope" signal first, which is question 4 in the headline section.
-
-**A3. The blast radius is every search surface at once**, and all of them authenticate as the
-real end user (no service account): the SEEK simple-search page
-(`seek/templates/pages/samples_newsearch.embed.html:95`), the advanced-search page
-(`seek/templates/pages/searchAdvanced_newsearch.embed.html:157`), the `chat_nextseek` NS engine,
-and container-CC through both the sidecar `api-read` op and the direct client in A2.
-
-`sample-tree` had none of these properties: one production consumer, no write path downstream,
-and no broken SQL hook to rebuild. That asymmetry is why one landed and one did not.
-
-**What the user is being asked to decide here:** whether to accept narrower search results in
-exchange for scoping, and if so, to sequence it after (a) the clause-assembly rewrite in
-`seek/search.py` / `dbtable_sample.py`, and (b) a decision on withheld-row signalling.
-
-### Note B: the download API (`samples/retrieve`, formerly `admin/samples/retrieve`) is not admin-gated
-
-The `admin/` in the old route was historical; the route is now `samples/retrieve/`, and the old path
-remains as an alias to the same handler. Commit `2690598` ("feat(nextseek_api): un-gate sample
-retrieval, resolve projects, add include_tree") deliberately dropped `IsAdminUser` and left
-`IsAuthenticated`, because `IsAdminUser` checks `is_staff` and
-therefore already admitted everyone. The same commit fixed the project resolution that had
-always silently produced `user_project_ids = []`, and the `AdminSampleViewSet` docstring
-recorded the intent: this is the single download API behind every sample-download control in the
-UI. Do not describe it as admin-gated.
-
-It is nonetheless the **only** read endpoint in the whole register that implements real project
-scoping in NExtSEEK's own query layer (`_visible_ids` and `_hydrate` in
-`nextseek_api/services/sample_retrieve.py`), and that scoping is what the headline open question is about.
-
-### Note C: two unscoped Neo4j traversals in `sample_types.py`
-
-**Resolved 2026-09-18.** Both actions now resolve the caller with `graph_search/scope.py::resolve_scope` and,
-for anyone but a superuser, require graph_search's scope clause on the named sample (`child_types`) and on
-every sample of the `DERIVED_FROM` path (both), so lineage stops at the edge of the caller's projects. A caller
-whose scope cannot be resolved, or who has no projects, reads nothing. `parents_by_child_types` no longer
-post-filters through SEEK. The text below describes the code before that change.
-
-`grep -in project nextseek_api/services/sample_types.py` returns **zero** hits (verified,
-exit 1). Both actions call `resolve_seek_auth(request, ["BASIC", "SESSION"])` at
-`services/sample_types.py:252` and `:355`, but the returned credentials are then discarded.
-That call is a second **authentication** check, not authorization, and it is easy to misread as
-scoping.
-
-- `child_types` runs `MATCH (s: Sample {id: toInteger($id)}) MATCH (s)<-[:DERIVED_FROM*1..]-(child) RETURN DISTINCT child.type`
-  (`services/sample_types.py:266-272`) against a caller-supplied sample id resolved at `:258`.
-- `parents_by_child_types` runs an instance-wide `MATCH (p:Sample)` and returns `p.id, p.uuid, p.type`
-  for every match (`services/sample_types.py:412-422`, executed at `:430-434`).
-
-Neither goes through SEEK, so there is no upstream authorization to inherit either. Any
-authenticated user can enumerate sample ids, uuids and types across all projects. Proposed
-bucket `project-scoped` for both, but note that `child_types` returns only type names (low
-sensitivity) while `parents_by_child_types` returns concrete sample identifiers.
-
-### Note D: `entity_tree` has no project awareness at all
-
-`grep -n -i project nextseek_api/services/entity_tree.py` returns **zero** hits (verified,
-exit 1). This confirms the claim in the task brief, and is in fact stronger than stated: the
-case-insensitive grep also finds nothing. All four actions gate on authentication only
-(`services/entity_tree.py:132-134, :296-298, :380-382, :846-850`) and then query without any
-membership filter.
-
-**`lineage` resolved 2026-09-18.** It now resolves the caller with `graph_search/scope.py::resolve_scope` and, for
-anyone but a superuser, requires graph_search's scope clause on the named sample and on every sample of each
-`DERIVED_FROM` path, so lineage stops at the edge of the caller's projects. A sample outside them answers exactly as
-one that does not exist, and a caller whose scope cannot be resolved, or who has no projects, reads no graph. The
-paragraph below describes the code before that change; `nodes`, `edges` and `edge_attributes` are unchanged.
-
-`lineage` (`services/entity_tree.py:844`) is the one that returns per-sample data: it resolves
-each caller-supplied identifier via `_resolve_uid_to_seek_id` and walks Neo4j from there, so an
-authenticated user can retrieve the full derivation tree of any sample in the instance. Proposed
-`project-scoped`.
-
-`nodes`, `edges` and `edge_attributes` return schema-shaped information (sample type names,
-clades, which types derive from which, assay titles), not per-sample data. They also have **zero
-consumers anywhere in the worktree**: no frontend, no template, no static JS, no `chat_nextseek`
-or `dmac_assistant` caller, and they are absent from the LLM endpoint catalogs, so even the
-api_agent cannot normally select them. Proposed `public-to-authenticated`, which is a proposal
-to accept the status quo for these three specifically because the payload is schema, not data.
-
-### Note E: SEEK proxy endpoints inherit SEEK's authorization
-
-Sixteen of the read endpoints in the table are thin proxies to the upstream SEEK Rails API. For
-all of them the mechanism is the same and it is sound:
-
-1. `resolve_seek_auth` (`nextseek_api/helpers.py:89`) resolves the **caller's own** credentials,
-   trying the Basic header (`helpers.py:44`), then the SEEK password stored in the Django
-   session (`helpers.py:58-62`), then a forwarded token (`helpers.py:70-86`).
-2. `SeekAPIClient._request` (`helpers.py:132`) synthesizes a 401 when no credentials resolve
-   (`helpers.py:136-138`) and otherwise builds a per-request `Authorization` header
-   (`helpers.py:148`) before issuing the upstream call (`helpers.py:149-156`).
-3. SEEK applies its own project and policy authorization server-side.
-
-**There is no shared or service SEEK account on any read path.** Verified by grep for
-`SEEK_USERNAME`/`SEEK_PASSWORD`-style settings (none exist) and by the hard 401s at
-`helpers.py:136-138` and `helpers.py:334-336`. The one full-privilege escape hatch,
-`run_seek_rails_runner` (`nextseek_api/services/seek_rails_runner.py:85`), is reachable only
-from `users.py` write actions behind `IsDjangoSuperuser`.
-
-The `sops/download/` and `data_files/download/` actions genuinely stream file blobs
-(`StreamingHttpResponse` at `services/content_blobs.py:268-273`), and those streams are
-authorized entirely by the caller's own SEEK credentials
-(`services/content_blobs.py:220-221` -> `helpers.py:334-346`). Upstream 401/403/404 are
-propagated (`services/content_blobs.py:228-247`).
-
-Two wrinkles worth recording, neither a leak:
-
-- **Effective principal is the SEEK identity, not `request.user`.** `IsAuthenticated` validates
-  the Django user, while scoping is done by SEEK against whatever identity `resolve_seek_auth`
-  produced. A request can pass `IsAuthenticated` as Django user A while SEEK scopes it as user B
-  if a Basic header for B is supplied. That requires B's password, so it is not escalation, but
-  the register's "who is this" answer for these rows is the SEEK identity.
-- **UID resolution is project-blind.** The `_resolve_uid_to_seek_id`-style helpers
-  (`services/samples.py:54-70`, `services/content_blobs.py:41-67`) map a title or UID to a
-  numeric id with no membership filter, and the DataFile variant does a `title__startswith`
-  prefix match picking the highest id on ties. SEEK then 403/404s on the actual fetch, so no
-  content escapes, but the resolution step is an existence oracle and can silently pick a
-  cross-project asset.
-
-### Note F: `users/` is correctly gated, and shows the right pattern
-
-`UsersViewSet` reads the full SEEK `users` table with no predicate
-(`services/users.py:385`, `:427`) and joins `group_memberships`/`work_groups` to emit each
-person's project and institution memberships (`services/users.py:230-242`). `project_id` there
-is **output, not a filter**. That is fine because the gate is
-`IsAuthenticated, IsDjangoSuperuser` (`services/users.py:361`), and `IsDjangoSuperuser`
-(`services/users.py:215-220`) checks `is_superuser`, deliberately not `is_staff`.
-
-This is the pattern the headline open question is about: two places in the codebase already
-reject `IsAdminUser` as meaningless here (`services/users.py:215-220` and
-`nextseek_api/permissions.py:6-30`), while `nextseek_api/views.py:642` still treats `is_staff`
-as admin. `IsDjangoSuperuser` is a near-duplicate of `nextseek_api/permissions.py:IsSuperUser`
-minus `has_object_permission`; consolidating them is cosmetic and out of scope here.
-
-### Note G: `schema_rag` handles no NExtSEEK data
-
-Both actions gate through `_check_auth` (`services/schema_rag.py:52-66`), which accepts BASIC,
-SESSION or TOKEN. Neither touches NExtSEEK samples, projects or files: `ingest`
-(`services/schema_rag.py:103`) fetches a caller-supplied OpenAPI URL and stores parsed endpoint
-descriptions in a per-session DuckDB file, and `retrieve` (`services/schema_rag.py:304`) runs
-semantic search over one of those files -- but `retrieve` also AUTO-INGESTS at
-`NessieAI/schema_rag/service.py:747` when no live session exists, and
-`RetrieveRequest` accepts `schema_url` with no `session_id`, so that is its
-first-call path rather than an edge case. It therefore carries every side effect
-listed for `ingest`, and is classified WRITE for the CC agent (#86). There is nothing to apply a project predicate to,
-hence `public-to-authenticated`.
-
-Two things the user may still want to note, both out of scope for a project-scoping register:
-sessions carry no owner (`NessieAI/schema_rag/session.py:88-116` stores no user, and
-`retrieve` resolves by `session_id` or `schema_url` with no ownership check), and `ingest`
-fetches an arbitrary caller-supplied URL from the Django container.
-
-### Note H: `UserInParticipatingProject` is a feature flag, not a data scope
-
-`services/assistant.py:280` adds `UserInParticipatingProject` to the assistant's
-`permission_classes`. It is easy to mistake for project scoping. It is not.
-
-`UserInParticipatingProject.has_permission` (`services/assistant.py:140`) calls SEEK's
-`/people/current`, extracts the caller's project ids, and tests
-`project_ids & ASSISTANT_PARTICIPATING_PROJECTS != set()` (`services/assistant.py:148-152`).
-`ASSISTANT_PARTICIPATING_PROJECTS` is a **static allowlist read from settings at import**
-(`services/assistant.py:37`; `set(["1"])` in `dmac/local_settings.example.py:3` and
-`startup/templates/local_settings.py.template:7`). Positive results are cached for 60s per user
-(`services/assistant.py:138`, `:157-158`).
-
-So it answers "is this caller a member of at least one project in the hard-coded pilot list",
-i.e. **may this account use the assistant at all**. It never touches a queryset, never returns
-the caller's project ids to downstream code, and is not consulted when building any response.
-All actual data scoping on this viewset is per-user row ownership on `ChatSession` and
-`QueryTask`.
-
-Minor defect worth recording but not fixing here: `has_object_permission`
-(`services/assistant.py:161-162`) has the wrong signature (no `obj`) and calls a non-existent
-`self.has_permissions`. It would raise `AttributeError` if invoked. These ViewSet actions never
-invoke object permissions, so it is latent.
-
-`CCAssistantViewSet` does **not** carry `UserInParticipatingProject`
-(`services/cc_assistant.py:90` is `[IsAuthenticated]` alone), so the container-CC route is not
-behind the pilot allowlist while the NExtSEEK route is. Whether that asymmetry is intended is a
-secondary question for the user.
-
-### Note I: `evaluator` reads every user's history under an `is_staff` gate
-
-`EvaluatorViewSet` declares `IsAuthenticated, IsAdminUser` (`services/evaluator.py:91`). Per
-`nextseek_api/permissions.py:8-16`, `IsAdminUser` checks `is_staff` and is therefore equivalent
-to `IsAuthenticated` in this project. All three read actions are deliberately cross-user, with
-no owner or project predicate:
-
-- `retry_context_by_task`: `QueryTask.objects...get(task_id=task_id)` (`services/evaluator.py:109-110`)
-- `retry_context_by_bundle`: `ChatSession.objects.get(session_id=session_id)` (`services/evaluator.py:141`)
-- `runs_list`: `QueryTask.objects.select_related("session").order_by("-created_at")`
-  (`services/evaluator.py:188`) over all users; the `user_id` query param at `:203-205` is an
-  optional caller-supplied filter
-
-Net: any account can read any other user's assistant query history, prompts and result bundles.
-Cross-user visibility is the point of an evaluator, so the proposed bucket is `admin-only`; the
-decision for the user is whether `admin-only` here should mean `IsSuperUser`
-(`nextseek_api/permissions.py:6`) rather than the `IsAdminUser` that currently admits everyone.
-This is the same `is_staff` question as the headline, applied to a second endpoint family.
-
-### Note J: `admin/project-export` is superuser-gated but not membership-checked
-
-`GET /nextseek_api/admin/project-export/{pk}/` (`services/project_export.py:316`) exports every
-sample in the named project via `export_project(project_id, output_format)`
-(`services/project_export.py:197`), as JSON or one xlsx sheet per sample type. `project_id`
-comes straight from the URL; the caller's own SEEK membership is never consulted. The
-`IsSuperUser` gate (`services/project_export.py:267`, real `is_superuser` check) is the entire
-control, and that is a defensible design for a deliberate cross-project export tool. Recorded
-here so that "superuser can export any project" is an explicit, ruled-on property rather than an
-accident.
-
-### Note K: `reingest-proposals/approve` re-checks the attribute exists before writing
-
-A `needs_definition` row on the reingest attribute-approval queue means precisely that: the
-proposed attribute was NOT defined on its target sample type when the row was queued
-(`nextseek_api/assistant/models_db.py`, `ReingestAttributeProposal`). Nothing about a later
-`approve` call guarantees the attribute has since been defined, and
-`proposals.approved_rules()` (`NessieAI/ns/reingest/proposals.py`) hands every `approved` row
-straight to the mapper as a rule -- so an approval on an undefined attribute would let reingest
-write a sample attribute that was never created, breaking the project's invariant that reingest
-never invents one. `services/reingest_proposals.py:approve` calls
-`proposals.attribute_exists(row.proposed_target, row.proposed_attribute)` before writing the
-ruling and refuses with `409` when it is still undefined. `attribute_exists` raises when the
-sample-type catalog itself is unreachable rather than returning `False`, and that exception is
-let through as `503`, not folded into the `409` refusal -- an infrastructure outage must never
-be reported to a superuser as "this attribute does not exist". This is the only enforcement
-point for approved rows: the CI contract test for reingest map files covers committed files,
-never database rows.
-
----
-
-## Verification notes
-
-Facts in this document were established as follows. Anything not verifiable is marked in place.
-
-- **Routed surface**: read from `nextseek_api/urls.py`, then cross-checked against Django's live
-  URL resolver inside the running `nextseek` container (read-only introspection, no writes).
-- **`entity_tree` has no project predicate**: `grep -n -i project nextseek_api/services/entity_tree.py`
-  returns zero hits (exit 1). Case-insensitive, so stronger than the case-sensitive claim.
-- **`sample_types` has no project predicate**: `grep -in project nextseek_api/services/sample_types.py`
-  returns zero hits (exit 1).
-- **`searchAdvanced` callers**: `grep -rn "searchAdvanced" --include=*.py .` finds exactly two
-  application call sites, `nextseek_api/views.py:505` (NOT ROUTED) and
-  `nextseek_api/services/samples.py:509` (no `project_id`).
-- **Account counts**: queried live against the local stack's Django `auth_user` table
-  (20 total, 11 staff, 8 superuser, 3 staff-not-superuser).
-- **drf-spectacular serve permissions**: `SPECTACULAR_SETTINGS` (`dmac/settings.py:376-383`)
-  sets no `SERVE_PERMISSIONS`, and the installed package defaults to
-  `['rest_framework.permissions.AllowAny']` (confirmed by reading
-  `drf_spectacular/settings.py:59` in the container). So `/schema/`, `/swagger/` and `/redoc/`
-  are reachable **unauthenticated**. They expose the API surface description, not data.
-- **Consumer inventory** for `admin/samples/retrieve` and `entity_tree`: whole-worktree grep
-  across `NessieAI/chat_nextseek/`, `NessieAI/dmac_assistant/`, `NessieAI/docker/ns-sidecar/`,
-  `NessieAI/docker/cc-runtime/`, `NessieAI/chat_frontend/`, `NessieAI/tests/nessie_tests/`,
-  `seek/templates/`, `templates/` and `static/js/` (the AI trees at their homes after the
-  NessieAI move).
+| 1. Project-scoped | Reads project-owned rows and returns only those in the caller's projects. Superusers are not limited. | 13 |
+| 2. Restricted another way | Superuser only, or only the owner of the chat, task, job or upload, or works on the caller's own folder or SEEK person. | 67 |
+| 3. Correct as it is | Needs no project filter of its own: SEEK decides with the caller's own SEEK login, or it returns definitions only, or it reads no project rows. | 59 |
+| **Total** | | **139** |
+
+Of these, 116 routes are served from `nextseek_api/services/` (11, 54 and 51 by bucket)
+and 23 from elsewhere in `nextseek_api/` (the sample tree, the older retrieve path, attributes,
+assay registrations, batch upload, the API root and the three API description pages).
+
+## Rules every route shares
+
+- **Sign-in.** The default authenticators are the Container-CC turn pass, a DRF token, the Django session and HTTP
+  Basic (`REST_FRAMEWORK` in `dmac/settings.py`); several ViewSets narrow that list. A turn pass is accepted only on
+  the routes in its allow table (`nextseek_api/assistant/turn_pass_allow.py`), checked before any view runs, and a
+  caller on a pass acts as the turn's user with no superuser read-any (`may_read_any` in
+  `nextseek_api/permissions.py`).
+- **Admin means `is_superuser`.** The SEEK login sets `is_staff` on every account, so no route treats `is_staff` as
+  admin (`IsSuperUser` in `nextseek_api/permissions.py`, `IsDjangoSuperuser` in `nextseek_api/services/users.py`).
+- **Project scope.** The caller's projects are read per request from SEEK's MySQL tables
+  (`nextseek_api/graph_search/scope.py`: `resolve_scope`, `plain_scope`, `caller_block`, `current_project_ids`). A
+  membership counts until the person leaves the project: SEEK's `has_left` flag, or a `time_left_at` that has passed.
+  The scope fails closed: a caller who maps to no SEEK person, or whose memberships cannot be read, sees nothing.
+  Readers that take the caller's projects from SEEK's own person record go through `seek.seekdb.SeekDB.getCurrentUser`,
+  which keeps only the projects the person still belongs to.
+- **SEEK proxies run as the caller.** Every proxy call carries the caller's own SEEK credential
+  (`SeekAPIClient` and `resolve_seek_auth` in `nextseek_api/helpers.py`); there is no shared SEEK account on any proxy
+  path, and SEEK applies its own project and sharing policies. A sample, SOP or data file the caller may not see answers
+  404 with the same body as one that does not exist, on reads, writes and the two download routes. A caller with no
+  SEEK login of its own gets 401 on those routes before anything is looked up (`HasOwnSeekLogin` in
+  `nextseek_api/services/content_blobs.py`).
+- **Assistant ops run with the caller's own login.** The granular ops under `assistant/` (`entity` to
+  `build-upload-xlsx`) need a login of the caller's own (a Basic pair, or the SEEK login held in the Django session);
+  without one they answer 401 `AUTH_FAILED` and never run as the configured service login.
+- **The pilot gate is a feature gate.** `UserInParticipatingProject` (`nextseek_api/services/assistant.py`) lets an
+  account use the `assistant/` routes when it is a member of one of the projects listed in
+  `ASSISTANT_PARTICIPATING_PROJECTS` that it has not left (SEEK's leaving rule, as in the project scope above). A
+  member who has left every pilot project still reads their own past chats (the owner-only GETs under
+  `assistant/sessions/` and `assistant/tasks/`) and is refused everything else; an account that was never in a pilot
+  project is refused every route. A superuser's left pilot projects still count. It limits no data; the data limits
+  are the project scope above. The `cc-assistant/` and `nessie/` chat routes do not carry it, by decision under #64.
+
+## 1. Project-scoped (13)
+
+| Method | Path | Guard | Handler | Permission classes | #64 |
+|---|---|---|---|---|---|
+| POST | `samples/advanced_search/` | Limited to the projects the caller belongs to in SEEK, read with the caller's own SEEK login; a caller with only a token, or a failed project read, finds nothing. Superusers are not limited. Validation details in an error answer are for superusers only. | `SampleAdvancedSearchViewSet.create` | IsAuthenticated | changed |
+| POST | `samples/graph_search/` | Limited to the caller's projects: every match, the count and every sample on a lineage path must be in them, and a caller with no projects reads nothing. Superusers are not limited. | `GraphSearchViewSet.create` | IsAuthenticated | changed |
+| POST | `samples/retrieve/` | Limited to the caller's projects: a sample outside them answers 404, the same as an unknown one, and related samples (parents and children) are filtered the same way. Superusers are not limited. | `SampleRetrieveViewSet.create` | IsAuthenticated | changed |
+| GET | `entity_tree/edge_attributes/` | Any signed-in user sees the sample type structure over the whole graph, with no counts; the study titles it adds are limited to the caller's projects. Superusers are not limited. | `EntityTreeViewSet.list_edge_attributes` | IsAuthenticated | changed |
+| POST | `entity_tree/lineage/` | Limited to the caller's projects: the sample and every sample on the path must be in them, otherwise the answer is not found. Superusers are not limited. | `EntityTreeViewSet.lineage` | IsAuthenticated | changed |
+| GET | `sampletypes/{uid}/child_types/` | Limited to the caller's projects: it follows only samples in them, and anything outside them answers not found. Superusers are not limited. | `SampleTypeChildrenViewSet.child_types` | IsAuthenticated | changed |
+| POST | `sample_types/get_parents/parents_by_child_types/` | Limited to the caller's projects: the child samples, their parents and every sample on the path must be in them. Superusers are not limited. | `SamplesByChildTypesViewSet.parents_by_child_types` | IsAuthenticated | changed |
+| POST | `assistant/graph/` | Members of the pilot projects only. It answers a question from the graph; the graph reader sees only samples in the caller's projects and refuses without a project scope. Superusers are not limited. | `AssistantViewSet.graph` | IsAuthenticated, UserInParticipatingProject | changed |
+| POST | `assistant/aggregate/` | Members of the pilot projects only. It counts and groups graph results; the graph reader sees only samples in the caller's projects. Superusers are not limited. | `AssistantViewSet.aggregate` | IsAuthenticated, UserInParticipatingProject | changed |
+| POST | `assistant/graph-schema/` | Members of the pilot projects only. It returns the graph's shape and value lists; counts and bounds are hidden from non-superusers and the value lists use the caller's project scope. | `AssistantViewSet.graph_schema` | IsAuthenticated, UserInParticipatingProject | changed |
+| POST | `assistant/report/` | Members of the pilot projects only. It builds a report; a project outside the caller's projects is refused, and the investigation path goes through the scoped graph reader. | `AssistantViewSet.report` | IsAuthenticated, UserInParticipatingProject | changed |
+| GET | `sample-tree/{uid}/tree/` | Limited to the caller's projects, read with the caller's own SEEK login: the root sample must be in them and the tree is cut at their edge. Superusers are not limited. | `SampleTreeViewSet.get_tree` | IsAuthenticated | changed |
+| POST | `admin/samples/retrieve/` | The older path of samples/retrieve/: the same handler and the same limits. | `AdminSampleViewSet.admin_retrieve_samples` | IsAuthenticated | changed |
+
+## 2. Restricted another way (67)
+
+| Method | Path | Guard | Handler | Permission classes | #64 |
+|---|---|---|---|---|---|
+| POST | `sample-shares/` | Superuser only. It creates a job that shares samples between any two projects. | `SampleShareViewSet.create` | IsAuthenticated, IsDjangoSuperuser |  |
+| GET | `sample-shares/{share_id}/` | Superuser only. It reads the state of any share job. | `SampleShareViewSet.retrieve` | IsAuthenticated, IsDjangoSuperuser |  |
+| POST | `sample-shares/{share_id}/apply/` | Superuser only. It applies one step of a share job and adds the project links; the caller's own SEEK login is checked first. | `SampleShareViewSet.apply` | IsAuthenticated, IsDjangoSuperuser |  |
+| GET | `sample_types/connections/` | Superuser only. It lists which sample types connect to which, with counts across all projects, by design. | `SampleTypeConnectionsViewSet.list` | IsAuthenticated, IsSuperUser |  |
+| POST | `templates/generate/` | Superuser only. It generates a blank upload template. | `TemplatesViewSet.generate` | IsAuthenticated, IsSuperUser |  |
+| GET | `users/` | Superuser only. It lists every user account. | `UsersViewSet.list` | IsAuthenticated, IsDjangoSuperuser |  |
+| POST | `users/` | Superuser only. It creates a user account. | `UsersViewSet.create` | IsAuthenticated, IsDjangoSuperuser |  |
+| GET | `users/{uid}/` | Superuser only. It reads one user account. | `UsersViewSet.retrieve` | IsAuthenticated, IsDjangoSuperuser |  |
+| PATCH | `users/{uid}/` | Superuser only. It changes one user account. | `UsersViewSet.partial_update` | IsAuthenticated, IsDjangoSuperuser |  |
+| GET | `reingest-proposals/` | Superuser only. It lists the reingest attribute proposal queue, a global operator worklist, not project data. | `ReingestProposalViewSet.list` | IsAuthenticated, IsSuperUser |  |
+| GET | `reingest-proposals/{pk}/` | Superuser only. It reads one reingest attribute proposal. | `ReingestProposalViewSet.retrieve` | IsAuthenticated, IsSuperUser |  |
+| POST | `reingest-proposals/{pk}/approve/` | Superuser only. It approves one proposal, which the reingest mapper then reads as a rule; it refuses (409) while the proposed attribute is not defined on its sample type. | `ReingestProposalViewSet.approve` | IsAuthenticated, IsSuperUser |  |
+| POST | `reingest-proposals/{pk}/reject/` | Superuser only. It rejects one proposal for good. | `ReingestProposalViewSet.reject` | IsAuthenticated, IsSuperUser |  |
+| POST | `schema_rag/ingest/` | Superuser only. It loads an API description from a web address into a temporary search index. | `SchemaRAGViewSet.ingest` | IsAuthenticated, IsSuperUser | changed |
+| GET | `admin/project-export/{pk}/` | Superuser only. It exports every sample of any project you name, as a file, by design. | `ProjectExportViewSet.retrieve` | IsAuthenticated, IsSuperUser |  |
+| POST | `admin/project-export/run/` | Superuser only. It starts a bulk export of every sample in a project. | `ProjectExportViewSet.run` | IsAuthenticated, IsSuperUser |  |
+| GET | `admin/graph-sync/status/` | Superuser only. It shows the graph sync's own state; no sample data. | `GraphSyncStatusViewSet.status` | IsAuthenticated, IsDjangoSuperuser |  |
+| GET | `assistant/sessions/` | Members of a pilot project they have not left, or one who has left, reading their own past chats. It lists only the caller's own chats. | `AssistantViewSet.list_sessions` | IsAuthenticated, UserInParticipatingProject |  |
+| POST | `assistant/sessions/` | Members of the pilot projects only. It creates a chat for the caller. | `AssistantViewSet.create_session` | IsAuthenticated, UserInParticipatingProject |  |
+| GET | `assistant/sessions/{sid}/` | Members of a pilot project they have not left, or one who has left, reading their own past chats. Only the chat's owner or a superuser may read it. | `AssistantViewSet.get_session` | IsAuthenticated, UserInParticipatingProject |  |
+| PATCH | `assistant/sessions/{sid}/` | Members of the pilot projects only. Only the chat's owner may change it. | `AssistantViewSet.patch_session` | IsAuthenticated, UserInParticipatingProject |  |
+| DELETE | `assistant/sessions/{sid}/` | Members of the pilot projects only. Only the chat's owner may delete it. | `AssistantViewSet.delete_session` | IsAuthenticated, UserInParticipatingProject |  |
+| POST | `assistant/query/` | Members of the pilot projects only. It runs a question in the caller's own chat, with the caller's login and project scope; the production model setup and `mode` `plan` are for superusers only (`plan` also for a turn pass; 403 otherwise). | `AssistantViewSet.query` | IsAuthenticated, UserInParticipatingProject | changed |
+| POST | `assistant/query/async/` | Members of the pilot projects only. It runs a question in the caller's own chat in the background, with the caller's login and project scope; the production model setup and `mode` `plan` are for superusers only (`plan` also for a turn pass; 403 otherwise). | `AssistantViewSet.query_async` | IsAuthenticated, UserInParticipatingProject | changed |
+| GET | `assistant/tasks/{id}/progress/` | Members of a pilot project they have not left, or one who has left, reading their own past chats. Only the task's owner or a superuser may read its progress. | `AssistantViewSet.task_progress` | IsAuthenticated, UserInParticipatingProject |  |
+| GET | `assistant/sessions/{sid}/bundles/{bid}/` | Members of a pilot project they have not left, or one who has left, reading their own past chats. Only the chat's owner or a superuser may read the result bundle. | `AssistantViewSet.download_bundle` | IsAuthenticated, UserInParticipatingProject |  |
+| GET | `assistant/sessions/{sid}/bundles/{bid}/artifacts/{key}/` | Members of a pilot project they have not left, or one who has left, reading their own past chats. Only the chat's owner or a superuser may download the file, and it must sit inside the bundle's own folder. | `AssistantViewSet.download_artifact` | IsAuthenticated, UserInParticipatingProject |  |
+| GET | `assistant/sessions/{sid}/download/` | Members of a pilot project they have not left, or one who has left, reading their own past chats. Only the chat's owner or a superuser may download it. | `AssistantViewSet.download_session` | IsAuthenticated, UserInParticipatingProject |  |
+| GET | `assistant/test-cases/` | Superuser only, and the caller must also be in a pilot project. It returns the fixed list of test cases from the site settings. | `AssistantViewSet.test_cases` | IsAuthenticated, UserInParticipatingProject | changed |
+| POST | `assistant/run-ls/` | Members of the pilot projects only. It lists the files of one Luria run folder over the cluster connection, for the run's owner or a superuser only. | `AssistantViewSet.run_ls` | IsAuthenticated, UserInParticipatingProject | changed |
+| POST | `assistant/run-harvest/` | Members of the pilot projects only. It copies the allowlisted outputs of one finished Luria run folder off the cluster and parses them into a manifest; without a folder named, it picks the caller's own waiting launched run. It writes nothing to Luria or NExtSEEK. | `AssistantViewSet.run_harvest` | IsAuthenticated, UserInParticipatingProject |  |
+| POST | `assistant/run-checksum/` | Members of the pilot projects only. It checksums files the caller names inside one Luria run folder over the cluster connection, and can fold the sums into a manifest the caller made. It writes nothing to Luria or NExtSEEK. | `AssistantViewSet.run_checksum` | IsAuthenticated, UserInParticipatingProject |  |
+| POST | `assistant/upload-reingest/` | Members of the pilot projects only, with `confirmed_write` true. It uploads only build records the caller made, shown in an earlier turn of the caller's own running Container-CC chat, and starts each batch-upload job with the caller's project scope, so a project outside the caller's projects is refused before any job starts. | `AssistantViewSet.upload_reingest` | IsAuthenticated, UserInParticipatingProject |  |
+| POST | `cc-assistant/query/async/` | Any signed-in user. The chat must be the caller's, and the caller's login and project scope are handed down; only a superuser can use the production model setup or `mode` `plan` (403 otherwise). | `CCAssistantViewSet.query_async` | IsAuthenticated | changed |
+| POST | `cc-assistant/cc/query/async/` | A superuser (403 otherwise), the same rule as `force_route`. The same as the query route above, forced to a Container-CC run. | `CCAssistantViewSet.cc_query_async` | IsAuthenticated + superuser check in the method | changed |
+| GET | `cc-assistant/tasks/{id}/progress/` | Any signed-in user, but only the task's owner or a superuser may read its progress. | `CCAssistantViewSet.task_progress` | IsAuthenticated |  |
+| POST | `cc-assistant/upload/` | Any signed-in user. It writes only into the caller's own upload folder; the project comes from the caller's SEEK login. Only projects the caller still belongs to count. | `CCAssistantViewSet.upload` | IsAuthenticated | changed |
+| GET | `cc-assistant/upload/status/{job}/` | Any signed-in user, but only the upload's owner or a superuser may read its status. | `CCAssistantViewSet.upload_status` | IsAuthenticated |  |
+| GET | `cc-assistant/upload/list/` | Any signed-in user. It lists only the caller's own upload folder. The folder follows the caller's current SEEK project. | `CCAssistantViewSet.upload_list` | IsAuthenticated | changed |
+| GET | `cc-assistant/artifacts/{session}/download/` | Any signed-in user, but only the chat's owner or a superuser may download its files. The files come from the chat owner's folder; a chat with no Container-CC turn has none. | `CCAssistantViewSet.download_artifact` | IsAuthenticated | changed |
+| GET | `cc-assistant/transcript/{session}/{turn}/` | Any signed-in user, but only the chat's owner or a superuser may read the transcript. | `CCAssistantViewSet.recover_transcript` | IsAuthenticated |  |
+| GET | `evaluator/tasks/{id}/retry-context/` | Superuser only. It reads the retry details of any user's task. | `EvaluatorViewSet.retry_context_by_task` | IsAuthenticated, IsSuperUser |  |
+| GET | `evaluator/sessions/{sid}/bundles/{bid}/retry-context/` | Superuser only. It reads the retry details of one result bundle. | `EvaluatorViewSet.retry_context_by_bundle` | IsAuthenticated, IsSuperUser |  |
+| GET | `evaluator/runs/` | Superuser only. It lists every user's evaluator tasks. | `EvaluatorViewSet.runs_list` | IsAuthenticated, IsSuperUser |  |
+| POST | `evaluator/retry/` | Superuser only. It runs a retry with the superuser's own login. | `EvaluatorViewSet.retry_execute` | IsAuthenticated, IsSuperUser |  |
+| GET | `nessie/sessions/{id}/debug/` | Superuser only. It shows the debug record of any user's chat. | `NessieViewSet.session_debug` | IsAuthenticated, IsSuperUser |  |
+| POST | `nessie/query/` | Any signed-in user. The same rules as cc-assistant/query/async/. | `NessieChatViewSet.query` | IsAuthenticated | changed |
+| POST | `nessie/query/cc/` | A superuser (403 otherwise). The same rules as cc-assistant/cc/query/async/. | `NessieChatViewSet.query_cc` | IsAuthenticated + superuser check in the delegated method | changed |
+| GET | `nessie/tasks/{id}/progress/` | Any signed-in user, but only the task's owner or a superuser may read its progress. | `NessieChatViewSet.task_progress` | IsAuthenticated |  |
+| GET | `nessie/uploads/` | Any signed-in user. It lists only the caller's own upload folder. The folder follows the caller's current SEEK project. | `NessieChatViewSet.uploads_list` | IsAuthenticated | changed |
+| POST | `nessie/uploads/` | Any signed-in user. It writes only into the caller's own upload folder; the project comes from the caller's SEEK login. Only projects the caller still belongs to count. | `NessieChatViewSet.uploads_create` | IsAuthenticated | changed |
+| GET | `nessie/uploads/{job}/` | Any signed-in user, but only the upload's owner or a superuser may read its status. | `NessieChatViewSet.uploads_status` | IsAuthenticated |  |
+| GET | `nessie/sessions/{s}/artifacts/` | Any signed-in user, but only the chat's owner or a superuser may download its files. The files come from the chat owner's folder; a chat with no Container-CC turn has none. | `NessieChatViewSet.session_artifacts` | IsAuthenticated | changed |
+| GET | `nessie/sessions/{s}/transcript/{turn}/` | Any signed-in user, but only the chat's owner or a superuser may read the transcript. | `NessieChatViewSet.session_transcript` | IsAuthenticated |  |
+| POST | `attributes/batch-create/` | Superuser only, with a proved SEEK login. | `AttributeViewSet.batch_create` | SeekAuthenticated, IsSuperUser |  |
+| PATCH | `attributes/batch-patch/` | Superuser only, with a proved SEEK login. | `AttributeViewSet.batch_patch` | SeekAuthenticated, IsSuperUser |  |
+| POST | `attributes/batch-delete/` | Superuser only, with a proved SEEK login. | `AttributeViewSet.batch_delete` | SeekAuthenticated, IsSuperUser |  |
+| GET | `attributes/jobs/{job_id}/` | Superuser only. The state of one attribute change job. | `AttributeViewSet.job` | SeekAuthenticated, IsSuperUser |  |
+| POST | `attributes/jobs/{job_id}/cancel/` | Superuser only, and only the superuser who started the job. | `AttributeViewSet.job_cancel` | SeekAuthenticated, IsSuperUser, CanCancelAttributeJob |  |
+| POST | `assay-registrations/` | Superuser only. Records which samples belong to which assays. | `AssayRegistrationViewSet.create` | IsAuthenticated, IsSuperUser |  |
+| GET | `assay-registrations/jobs/{job_id}/` | Superuser only. The state of one registration job. | `AssayRegistrationViewSet.job` | IsAuthenticated, IsSuperUser |  |
+| POST | `assay-registrations/jobs/{job_id}/cancel/` | Superuser only. | `AssayRegistrationViewSet.job_cancel` | IsAuthenticated, IsSuperUser |  |
+| POST | `batch-upload/start/` | A signed-in member of the target project (403 otherwise; a superuser may use any project). The job belongs to the caller and files the rows under the caller's own SEEK person; another person or lab, and the access grant in `config_overrides`, are a superuser's choice only. An upsert updates only samples in the caller's own projects. | `BatchUploadViewSet.start` | IsAuthenticated |  |
+| GET | `batch-upload/` | Any signed-in user. Lists only the caller's own jobs. | `BatchUploadViewSet.list` | IsAuthenticated |  |
+| GET | `batch-upload/status/{job_id}/` | Any signed-in user, but only the job's owner; another user's job answers 404. | `BatchUploadViewSet.job_status` | IsAuthenticated |  |
+| GET | `batch-upload/summary/{job_id}/` | Any signed-in user, but only the job's owner; another user's job answers 404. | `BatchUploadViewSet.summary` | IsAuthenticated |  |
+| DELETE | `batch-upload/cancel/{job_id}/` | Any signed-in user, but only the job's owner; another user's job answers 404. | `BatchUploadViewSet.cancel` | IsAuthenticated |  |
+
+## 3. Correct as it is (59)
+
+| Method | Path | Guard | Handler | Permission classes | #64 |
+|---|---|---|---|---|---|
+| GET | `projects/` | Any signed-in user. It reads the list of projects from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `ProjectProxyViewSet.list` | IsAuthenticated |  |
+| POST | `projects/` | Any signed-in user. It creates a project in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `ProjectProxyViewSet.create` | IsAuthenticated |  |
+| GET | `projects/{uid}/` | Any signed-in user. It reads one project, found by its title from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `ProjectProxyViewSet.retrieve` | IsAuthenticated |  |
+| PATCH | `projects/{uid}/` | Any signed-in user. It changes one project in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `ProjectProxyViewSet.partial_update` | IsAuthenticated |  |
+| GET | `people/` | Any signed-in user. It reads the list of people from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `PeopleProxyViewSet.list` | IsAuthenticated |  |
+| POST | `people/` | Any signed-in user. It creates a person in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `PeopleProxyViewSet.create` | IsAuthenticated |  |
+| GET | `people/{uid}/` | Any signed-in user. It reads one person, found by SEEK number from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `PeopleProxyViewSet.retrieve` | IsAuthenticated |  |
+| PATCH | `people/{uid}/` | Any signed-in user. It changes one person in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `PeopleProxyViewSet.partial_update` | IsAuthenticated |  |
+| GET | `people/current/` | Any signed-in user. It returns the caller's own SEEK person record, read with the caller's own SEEK login. | `PeopleProxyViewSet.current` | IsAuthenticated |  |
+| GET | `investigations/` | Any signed-in user. It reads the list of investigations from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `InvestigationProxyViewSet.list` | IsAuthenticated |  |
+| POST | `investigations/` | Any signed-in user. It creates an investigation in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `InvestigationProxyViewSet.create` | IsAuthenticated |  |
+| GET | `investigations/{uid}/` | Any signed-in user. It reads one investigation, found by SEEK number from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `InvestigationProxyViewSet.retrieve` | IsAuthenticated |  |
+| PATCH | `investigations/{uid}/` | Any signed-in user. It changes one investigation in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `InvestigationProxyViewSet.partial_update` | IsAuthenticated |  |
+| GET | `studies/` | Any signed-in user. It reads the list of studies from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `StudyProxyViewSet.list` | IsAuthenticated |  |
+| POST | `studies/` | Any signed-in user. It creates a study in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `StudyProxyViewSet.create` | IsAuthenticated |  |
+| GET | `studies/{uid}/` | Any signed-in user. It reads one study from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `StudyProxyViewSet.retrieve` | IsAuthenticated |  |
+| PATCH | `studies/{uid}/` | Any signed-in user. It changes one study in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `StudyProxyViewSet.partial_update` | IsAuthenticated |  |
+| GET | `assays/` | Any signed-in user. It reads the list of assays from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `AssayProxyViewSet.list` | IsAuthenticated |  |
+| POST | `assays/` | Any signed-in user. It creates an assay in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `AssayProxyViewSet.create` | IsAuthenticated |  |
+| GET | `assays/{uid}/` | Any signed-in user. It reads one assay from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `AssayProxyViewSet.retrieve` | IsAuthenticated |  |
+| PATCH | `assays/{uid}/` | Any signed-in user. It changes one assay in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may; it also looks up the assay's files to keep the graph in step and returns none of that. | `AssayProxyViewSet.partial_update` | IsAuthenticated |  |
+| GET | `sops/` | Any signed-in user. It reads the list of SOPs from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. The answer then gives each listed SOP's file names, read from SEEK's `content_blobs` table for only the ids SEEK returned to this caller. | `SopProxyViewSet.list` | IsAuthenticated, HasOwnSeekLogin |  |
+| POST | `sops/` | Any signed-in user. It creates a SOP in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. A title that already exists answers 409, with the existing SOP's id only when the caller can see it. | `SopProxyViewSet.create` | IsAuthenticated, HasOwnSeekLogin |  |
+| GET | `sops/{uid}/` | Any signed-in user. It finds the SOP by its title or UID, then reads it from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `SopProxyViewSet.retrieve` | IsAuthenticated, HasOwnSeekLogin | changed |
+| PATCH | `sops/{uid}/` | Any signed-in user. It finds the SOP by its title or UID, then changes it in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. A path that names no SOP the caller can see answers 404, whatever id the body carries. | `SopProxyViewSet.partial_update` | IsAuthenticated, HasOwnSeekLogin | changed |
+| DELETE | `sops/{uid}/` | Any signed-in user. It reads the SOP from SEEK with the caller's own SEEK login (a SOP the caller cannot see answers 404), refuses with 409, giving no count, while any sample names it as its Protocol (a title another SOP also holds does not count), then deletes it in SEEK with the caller's own SEEK login, so SEEK decides who may: on dev, only the SOP's creator. | `SopProxyViewSet.destroy` | IsAuthenticated, HasOwnSeekLogin | new |
+| POST | `sops/download/` | Any signed-in user. It finds the SOP, then fetches both its record and its file with the caller's own SEEK login, so SEEK decides whether the caller may download it. | `SopProxyViewSet.download` | IsAuthenticated, HasOwnSeekLogin | changed |
+| GET | `data_files/` | Any signed-in user. It reads the list of data files from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `DataFileProxyViewSet.list` | IsAuthenticated, HasOwnSeekLogin |  |
+| POST | `data_files/` | Any signed-in user. It creates a data file in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `DataFileProxyViewSet.create` | IsAuthenticated, HasOwnSeekLogin |  |
+| GET | `data_files/{uid}/` | Any signed-in user. It finds the data file by its title, UID or title prefix, then reads it from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `DataFileProxyViewSet.retrieve` | IsAuthenticated, HasOwnSeekLogin | changed |
+| PATCH | `data_files/{uid}/` | Any signed-in user. It finds the data file by its title, UID or title prefix, then changes it in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. A path that names no data file the caller can see answers 404, whatever id the body carries. | `DataFileProxyViewSet.partial_update` | IsAuthenticated, HasOwnSeekLogin | changed |
+| POST | `data_files/download/` | Any signed-in user. It finds the data file, then fetches both its record and its file with the caller's own SEEK login, so SEEK decides whether the caller may download it. | `DataFileProxyViewSet.download` | IsAuthenticated, HasOwnSeekLogin | changed |
+| POST | `samples/` | Any signed-in user. It creates a sample in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. Validation details in an error answer are for superusers only. | `SampleProxyViewSet.create` | IsAuthenticated, HasOwnSeekLogin |  |
+| GET | `samples/{uid}/` | Any signed-in user. It finds the sample by its UID, then reads it from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. Validation details in an error answer are for superusers only. | `SampleProxyViewSet.retrieve` | IsAuthenticated, HasOwnSeekLogin | changed |
+| PATCH | `samples/{uid}/` | Any signed-in user. It finds the sample by its UID, then changes it in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. A sample the caller cannot see answers 404, whatever id the body carries; a refused change to a sample the caller can see keeps SEEK's 403. Validation details in an error answer are for superusers only. | `SampleProxyViewSet.partial_update` | IsAuthenticated, HasOwnSeekLogin | changed |
+| DELETE | `samples/{uid}/` | Any signed-in user. It finds the sample by its UID, then asks SEEK to delete it with the caller's own SEEK login, so SEEK decides whether the caller may; the graph copy is removed only once the sample is gone from the database. A refused delete of a sample the caller can see keeps SEEK's answer. | `SampleProxyViewSet.destroy` | IsAuthenticated, HasOwnSeekLogin | changed |
+| GET | `entity_tree/nodes/` | Any signed-in user. It shows the sample type definitions only, with no samples. | `EntityTreeViewSet.list_nodes` | IsAuthenticated |  |
+| GET | `entity_tree/edges/` | Any signed-in user. It shows which sample types connect, and the internal assay titles, over the whole graph: structure only, no counts. | `EntityTreeViewSet.list_edges` | IsAuthenticated |  |
+| GET | `sample_types/` | Any signed-in user. It reads the list of sample types from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `SampleTypeProxyViewSet.list` | IsAuthenticated |  |
+| POST | `sample_types/` | Any signed-in user. It creates a sample type in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `SampleTypeProxyViewSet.create` | IsAuthenticated |  |
+| GET | `sample_types/{uid}/` | Any signed-in user. It reads one sample type from SEEK with the caller's own SEEK login, so SEEK decides what the caller sees. | `SampleTypeProxyViewSet.retrieve` | IsAuthenticated |  |
+| PATCH | `sample_types/{uid}/` | Any signed-in user. It changes one sample type in SEEK with the caller's own SEEK login, so SEEK decides whether the caller may. | `SampleTypeProxyViewSet.partial_update` | IsAuthenticated |  |
+| GET | `templates/catalog/` | Any signed-in user. It lists the blank upload templates that can be generated: sample type definitions only. | `TemplatesViewSet.catalog` | IsAuthenticated |  |
+| POST | `schema_rag/retrieve/` | Any signed-in user, by a session id or by this instance's own API description; naming any other API description by web address is superuser only, because that loads it. It reads no project rows. | `SchemaRAGViewSet.retrieve_endpoints` | IsAuthenticated | changed |
+| GET | `assistant/me/` | Members of the pilot projects only. It returns who the caller is. | `AssistantViewSet.me` | IsAuthenticated, UserInParticipatingProject |  |
+| POST | `assistant/entity/` | Members of the pilot projects only. It matches names in a question against the site-wide lists of projects, labs and sample types; it reads no project samples. | `AssistantViewSet.entity` | IsAuthenticated, UserInParticipatingProject | changed |
+| POST | `assistant/parse/` | Members of the pilot projects only. It parses a question inside the caller's own chat, or a throwaway one; it reads no samples. | `AssistantViewSet.parse` | IsAuthenticated, UserInParticipatingProject | changed |
+| POST | `assistant/api-read/` | Members of the pilot projects only. It makes one read call from a fixed list of allowed routes, with the caller's own login, so that route's own rules apply. | `AssistantViewSet.api_read` | IsAuthenticated, UserInParticipatingProject | changed |
+| POST | `assistant/api-write/` | Members of the pilot projects only. It cannot write by itself: it needs a confirmed-write flag, the REST tool refuses every write anyway, and the caller's own login is used. | `AssistantViewSet.api_write` | IsAuthenticated, UserInParticipatingProject | changed |
+| POST | `assistant/generate-submission/` | Members of the pilot projects only. It builds a repository submission file from sample metadata fetched through the retrieve route as the caller, so the caller's project limits apply. | `AssistantViewSet.generate_submission` | IsAuthenticated, UserInParticipatingProject | changed |
+| POST | `assistant/build-upload-xlsx/` | Members of the pilot projects only. It builds upload spreadsheets from rows the caller supplies or from a manifest the caller's own run-harvest made, and files a build record under the caller; it writes nothing to SEEK. | `AssistantViewSet.build_upload_xlsx` | IsAuthenticated, UserInParticipatingProject | changed |
+| GET | `/` | Any signed-in user. The API root: it lists the routes, no records. | `APIRootView` | IsAuthenticated |  |
+| GET | `schema/` | Any signed-in user. The OpenAPI description of the API, no records. | `SpectacularAPIView` | IsAuthenticated |  |
+| GET | `swagger/` | Any signed-in user. The Swagger page over the API description, no records. | `SpectacularSwaggerView` | IsAuthenticated |  |
+| GET | `redoc/` | Any signed-in user. The ReDoc page over the API description, no records. | `SpectacularRedocView` | IsAuthenticated |  |
+| GET | `attributes/` | A signed-in user whose SEEK login is proved. Attribute definitions only, no sample values. | `AttributeViewSet.list` | SeekAuthenticated |  |
+| GET | `attributes/{pk}/` | A signed-in user whose SEEK login is proved. One attribute definition. | `AttributeViewSet.retrieve` | SeekAuthenticated |  |
+| POST | `attributes/search/` | A signed-in user whose SEEK login is proved. Searches attribute definitions. | `AttributeViewSet.search` | SeekAuthenticated |  |
+| POST | `batch-upload/validate/` | A signed-in member of the target project (403 otherwise; a superuser may use any project). Checks an upload sheet and writes nothing. | `BatchUploadViewSet.validate` | IsAuthenticated |  |
+
+## What changed for #64 (2026-10-13)
+
+- Leaving a project ends read scope for it on every project-scoped route, in the assistant and Container-CC turns,
+  and on the pages and routes that take the caller's projects from SEEK's person record.
+- A sample, SOP or data file the caller may not see answers like one that does not exist, on its read, write and
+  download routes, whatever id a write's body carries. A SOP or data file write whose path names nothing answers
+  404. A write by SEEK's numeric id answers the same 404 for an item
+  that does not exist. `debug_validation` details are for superusers only. A caller with no SEEK login of its own gets
+  401 on these routes before anything is looked up.
+- `entity_tree/edge_attributes/` and `entity_tree/lineage/` with attributes return only the study titles of studies
+  that hold a sample in the caller's projects.
+- `schema_rag/ingest/` is superuser only; references inside a loaded API description are followed over http and https
+  only; `schema_rag/retrieve/` names another API description by web address for a superuser only.
+- `assistant/run-ls/` lists a run folder for the superuser, or for the user one of whose chats launched that run, and
+  never the runs folder itself.
+- The assistant ops need the caller's own login.
+- `assistant/test-cases/` is superuser only.
+- The Container-CC file download reads the chat owner's folder, for the owner and for a superuser alike.
+- The Container-CC and Nessie upload routes pick the caller's upload folder from the projects they still belong to.
+
+## Notes by family
+
+- **Sample search and download.** `samples/advanced_search/` takes the caller's projects from SEEK's person record and
+  filters in SQL; `samples/graph_search/`, `samples/retrieve/` (and its older `admin/samples/retrieve/` path), the
+  sample tree, `entity_tree/lineage/` and the two sample type lineage routes take them from `resolve_scope`. A sample
+  outside the caller's projects answers as one that does not exist, and rows outside them are left out without a
+  separate signal.
+- **`entity_tree`.** `nodes/` returns sample type definitions and `edges/` which types derive from which, with internal
+  assay names and no counts: structure, not samples, over the whole graph.
+- **`schema_rag`.** A session holds a parsed API description and no NExtSEEK records. Retrieval by session id, or by
+  this instance's own API description (built in process), is open to any signed-in user.
+- **Cross-project by design, superuser only.** `admin/project-export/` exports any project named in the URL;
+  `sample-shares/` links samples from one project into another; `sample_types/connections/` counts across projects;
+  `users/` reads and writes accounts; `evaluator/` reads every user's tasks; `nessie/sessions/{id}/debug/` reads any
+  chat's debug record. The superuser gate is the whole control on each.
+- **Reingest.** `reingest-proposals/` is a superuser worklist over every pipeline, like `users/`. Its `approve`
+  re-checks that the proposed attribute is defined on its sample type before writing, and answers 503, never 409, when
+  the sample type catalog cannot be read: reingest never writes an attribute that does not exist.
+  `assistant/upload-reingest/` is the one Container-CC op that writes to NExtSEEK; the turn pass allows it
+  (`turn_pass_allow.py`).
+- **Container-CC folders.** Uploads go to, and are listed from, the caller's own folder under the caller's current SEEK
+  project. Files a Container-CC turn wrote are read from the folder saved with the chat.
+
+## Not covered here
+
+- The progress WebSocket (`nextseek_api/assistant/consumers.py`): not a DRF route.
+- Code inside the Container-CC and sidecar images, and SEEK's own policies behind the proxies.
+- Routes outside `/nextseek_api/` (the SEEK pages under `seek/`, the site pages under `dmac/`).
+- The #64 route review covered the routes served from `nextseek_api/services/`. The rows for the sample tree, the older
+  retrieve path, attributes, assay registrations, batch upload and the API description pages record their gates as
+  routed; their buckets were not part of that review.

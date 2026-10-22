@@ -274,7 +274,7 @@ class TestTheRePostRepairPath:
     def test_the_already_present_sample_ids_are_queued(self, superuser):
         response = self._repost(superuser)
         assert response.status_code == 200
-        assert _queued() == [("samples", "sample:100"), ("samples", "sample:200")], (
+        assert list(GraphSyncOutbox.objects.values_list("kind", "payload")) == [("samples", [100, 200])], (
             "the rows the caller asked about, not the rows this request "
             "happened to insert -- which was none of them"
         )
@@ -887,10 +887,10 @@ class TestAuthenticationClassesAreGuarded:
         from rest_framework.authentication import BasicAuthentication
 
         from nextseek_api.assay_registration.views import AssayRegistrationViewSet
-        from nextseek_api.authentication import CsrfExemptSessionAuthentication
+        from nextseek_api.authentication import SeekSessionAuthentication
 
         assert AssayRegistrationViewSet.authentication_classes == [
-            CsrfExemptSessionAuthentication, BasicAuthentication]
+            SeekSessionAuthentication, BasicAuthentication]
 
     def test_token_authentication_is_absent(self):
         """Stated as the rule rather than as a list equality, so it still holds

@@ -10,7 +10,7 @@ from typing import Callable, Dict, List, Optional, Set
 
 from .config import BatchUploadConfig
 from .db_engine import get_connection, get_engine
-from .errors import ErrorCollector, _ThreadSafeErrorCollector
+from .errors import ErrorCollector, ErrorType, _ThreadSafeErrorCollector
 from .insert import process_batches
 from .models import (
     BatchResult,
@@ -23,8 +23,7 @@ from .report import ProgressReporter, _ThreadSafeProgressReporter
 
 log = logging.getLogger(__name__)
 
-PARALLEL_THRESHOLD = 5000
-
+PARALLEL_THRESHOLD = 5000  # BatchUploadConfig.parallel_threshold default; the orchestrator reads the config
 
 @dataclass
 class SharedState:
@@ -86,9 +85,6 @@ def _worker_process_chunk(
         conn_factory=get_connection,
         error_collector=safe_errors,
         reporter=safe_reporter,
-        checkpoint_dir="",  # Per-worker checkpoints disabled
-        checkpoint_name="",
-        resume_uid=None,
         should_stop=should_stop,
         existing_samples=existing_samples,
         update_existing=update_existing,
@@ -159,7 +155,7 @@ def process_batches_parallel(
     # Split and dispatch
     chunks = _split_equal(rows, num_workers)
 
-    futures = []
+    futures: Dict = {}
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         for i, chunk in enumerate(chunks):
             future = executor.submit(
@@ -176,15 +172,32 @@ def process_batches_parallel(
                 update_existing=update_existing,
                 batch_key_prefix=f"{batch_key_prefix}:w{i}" if batch_key_prefix else "",
             )
-            futures.append(future)
+            futures[future] = chunk
 
         # Wait for all workers
         results: List[BatchResult] = []
         for future in as_completed(futures):
             try:
                 results.append(future.result())
-            except Exception:
+            except Exception as exc:
                 log.exception("Worker failed")
+                chunk = futures[future]
+                with shared_state.outcomes_lock:
+                    for r in chunk:
+                        shared_state.outcomes.setdefault(
+                            r.uuid, RowOutcome(status="failed", reason="worker failed")
+                        )
+                with shared_state.error_lock:
+                    error_collector.add(
+                        row_index=-1,
+                        uid=None,
+                        error_type=ErrorType.UNKNOWN,
+                        message=(
+                            f"Worker failed on a chunk of {len(chunk)} rows "
+                            f"({chunk[0].uuid} to {chunk[-1].uuid}); some of them may have been "
+                            f"saved before the crash, so check before re-uploading: {exc}"
+                        ),
+                    )
 
     # Aggregate results
     total_inserted = sum(r.inserted_count for r in results)

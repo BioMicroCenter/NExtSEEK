@@ -19,11 +19,19 @@ from typer.testing import CliRunner
 
 from startup import cli
 from startup.ci import runner as ci_runner
+from startup.lib.env import read_env
 from startup.lib.instance import InstanceState, load_instance, save_instance
 from startup.steps.config import InvalidSeekPublicUrl
 from startup.steps.prereqs import PrereqResult
 
 runner = CliRunner()
+
+
+def _old_defaults():
+    # The published defaults, read from the module rather than restated here.
+    from startup.steps.config import default_values
+
+    return default_values(8000, 3000, generate_passwords=False)
 
 
 @pytest.fixture()
@@ -52,7 +60,12 @@ def steps(repo: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 
     config = MagicMock()
     config.InvalidSeekPublicUrl = InvalidSeekPublicUrl
-    config.default_values.return_value = SimpleNamespace(neo4j_password="pw")
+    config.kept_values.return_value = {}
+    config.default_values.return_value = SimpleNamespace(
+        neo4j_password="pw", mysql_root_password="rootpw"
+    )
+    config.preview_changed_keys.return_value = {"rerendered": [], "kept_differs_from_template": []}
+    config.render_local_settings.return_value = repo / "dmac" / "local_settings.py"
     config.resolve_seek_public_url.return_value = "http://localhost:3000"
     config.render_proxy_secret_env.return_value = proxy_env
 
@@ -100,6 +113,8 @@ def steps(repo: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     for name in vars(mocks):
         monkeypatch.setattr(cli, name, getattr(mocks, name))
     monkeypatch.setattr(cli, "allocate_ports", lambda desired: dict(desired))
+    # No database volumes yet: a fresh install. Tests that need otherwise reset it.
+    monkeypatch.setattr(cli, "volume_exists", lambda name: False)
     return mocks
 
 
@@ -117,6 +132,58 @@ def test_install_happy_path_writes_instance_and_runs_all_phases(repo: Path, step
     steps.build.build_and_start_nextseek.assert_called_once()
     steps.build.start_cc_stack.assert_called_once()
     steps.validate.run_all_health_checks.assert_called_once()
+
+
+def _seed_populated(steps, seek_production: bool) -> None:
+    steps.seed.mysql_db_is_populated.side_effect = (
+        lambda db, *a, **k: seek_production if db == "seek_production" else True
+    )
+
+
+def test_install_randomizes_logins_only_after_loading_the_seek_seed(repo: Path, steps) -> None:
+    steps.users.set_random_passwords.return_value = {"demo": "a" * 24, "user": "b" * 24}
+    # (i) this run loaded the seed
+    _seed_populated(steps, seek_production=False)
+    result = runner.invoke(cli.app, ["install", "--yes"])
+    assert result.exit_code == 0, result.output
+    steps.users.set_random_passwords.assert_called_once()
+    # the generated logins are shown once, never the published pair
+    assert result.output.count("a" * 24) == 1
+    # (ii) a populated box: never touched
+    steps.users.set_random_passwords.reset_mock()
+    _seed_populated(steps, seek_production=True)
+    assert runner.invoke(cli.app, ["install", "--yes"]).exit_code == 0
+    steps.users.set_random_passwords.assert_not_called()
+    # (iii) the flag keeps the published ones
+    _seed_populated(steps, seek_production=False)
+    assert runner.invoke(cli.app, ["install", "--yes", "--keep-demo-passwords"]).exit_code == 0
+    steps.users.set_random_passwords.assert_not_called()
+
+
+def test_a_failed_health_check_still_shows_the_new_logins_once(repo: Path, steps) -> None:
+    steps.users.set_random_passwords.return_value = {"demo": "a" * 24, "user": "b" * 24}
+    _seed_populated(steps, seek_production=False)
+    steps.validate.run_all_health_checks.return_value = [
+        SimpleNamespace(name="http", ok=False, detail="down", warn=False)
+    ]
+    result = runner.invoke(cli.app, ["install", "--yes"])
+    assert result.exit_code == 1
+    assert result.output.count("a" * 24) == 1 and result.output.count("b" * 24) == 1
+
+
+def test_install_warns_loudly_when_randomizing_fails(repo: Path, steps) -> None:
+    steps.users.set_random_passwords.return_value = None
+    _seed_populated(steps, seek_production=False)
+    result = runner.invoke(cli.app, ["install", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "still have the published passwords" in " ".join(result.output.split())
+
+
+def test_install_with_existing_data_volume_does_not_generate_passwords(repo: Path, steps, monkeypatch) -> None:
+    monkeypatch.setattr(cli, "volume_exists", lambda name: True)
+    result = runner.invoke(cli.app, ["install", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert steps.config.default_values.call_args.kwargs["generate_passwords"] is False
 
 
 def test_install_fails_fast_when_prereqs_fail(repo: Path, steps) -> None:
@@ -313,6 +380,7 @@ def test_reset_without_instance_exits_1(repo: Path) -> None:
 def test_reset_drops_volumes_removes_config_and_reinstalls(
     mock_down: MagicMock, repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(cli, "volume_exists", lambda name: False)  # reset never reaches docker
     _saved_state(repo)
     for rel in ["docker/db.env", "docker/nextseek.env", ".env"]:
         p = repo / rel
@@ -354,6 +422,7 @@ def test_reset_removes_the_proxy_token_at_both_homes(
     """Reset claims to remove config. A box that never moved its token after
     the NessieAI move still holds it at the old path, and reset must not
     leave the real token behind there."""
+    monkeypatch.setattr(cli, "volume_exists", lambda name: False)  # reset never reaches docker
     _saved_state(repo)
     homes = [
         repo / "NessieAI" / "docker" / "bedrock-proxy" / "proxy-secret.env",
@@ -376,6 +445,83 @@ def test_reset_confirmation_abort_leaves_stack_alone(mock_down: MagicMock, repo:
     result = runner.invoke(cli.app, ["reset"], input="n\n")
     assert result.exit_code != 0
     mock_down.assert_not_called()
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_keeps_data_volumes(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _saved_state(repo)
+    monkeypatch.setattr(cli, "install", MagicMock())
+
+    result = runner.invoke(cli.app, ["reset", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    steps.volumes.remove_volumes.assert_not_called()
+    out = " ".join(result.output.split())
+    assert "data volumes" in out and "kept" in out
+    assert "DROP all data" not in out
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_confirmation_says_the_data_volumes_are_kept(
+    mock_down: MagicMock, repo: Path, steps
+) -> None:
+    _saved_state(repo)
+    result = runner.invoke(cli.app, ["reset"], input="n\n")
+    out = " ".join(result.output.split())
+    assert "data volumes" in out and "kept" in out
+    assert "DROP all data" not in out
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_drop_data_needs_the_typed_name(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _saved_state(repo)
+    reinstall = MagicMock()
+    monkeypatch.setattr(cli, "install", reinstall)
+
+    result = runner.invoke(cli.app, ["reset", "--yes", "--drop-data"], input="wrong\n")
+
+    assert result.exit_code != 0
+    mock_down.assert_not_called()
+    steps.volumes.remove_volumes.assert_not_called()
+    reinstall.assert_not_called()
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_drop_data_removes_the_instance_volumes(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _saved_state(repo)
+    monkeypatch.setattr(cli, "install", MagicMock())
+    order = MagicMock()
+    order.attach_mock(mock_down, "down")
+    order.attach_mock(steps.volumes.remove_volumes, "remove")
+
+    result = runner.invoke(cli.app, ["reset", "--yes", "--drop-data"], input="nextseek\n")
+
+    assert result.exit_code == 0, result.output
+    steps.volumes.remove_volumes.assert_called_once_with("")
+    assert [c[0] for c in order.mock_calls if c[0] in ("down", "remove")] == ["down", "remove"]
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_drop_data_stops_when_a_container_still_uses_a_volume(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from startup.lib.docker_ops import DockerOpsError
+
+    _saved_state(repo)
+    reinstall = MagicMock()
+    monkeypatch.setattr(cli, "install", reinstall)
+    steps.volumes.remove_volumes.side_effect = DockerOpsError("seek-mysql-db is in use by x")
+
+    result = runner.invoke(cli.app, ["reset", "--yes", "--drop-data"], input="nextseek\n")
+
+    assert result.exit_code == 1
+    reinstall.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -761,6 +907,18 @@ def _the_nessie_prerequisites_hold(monkeypatch: pytest.MonkeyPatch) -> None:
     _stub_nessie_prerequisites(monkeypatch)
 
 
+def _stub_web_swap(monkeypatch: pytest.MonkeyPatch, *, pending: bool = False) -> list[str]:
+    """No docker: the swap and the migration check are recorded, not run."""
+    from startup.lib import web_swap
+
+    seen: list[str] = []
+    monkeypatch.setattr(web_swap, "make_runner", lambda project_dir, env: object())
+    monkeypatch.setattr(web_swap, "migrations_pending",
+                        lambda run: (pending, "Your models have changes" if pending else ""))
+    monkeypatch.setattr(web_swap, "swap", lambda run, repo_root, **kw: seen.append("swap") or "swapped")
+    return seen
+
+
 def _mock_rebuild(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -783,7 +941,13 @@ def _mock_rebuild(
     )
     monkeypatch.setattr(docker_ops, "compose_build", lambda **kwargs: None)
     monkeypatch.setattr(docker_ops, "compose_up", lambda **kwargs: None)
+    _stub_web_swap(monkeypatch)
     monkeypatch.setattr(registry_push, "push_baselines", lambda *args, **kwargs: ())
+    from startup.steps import validate as _validate
+    monkeypatch.setattr(
+        _validate, "check_nginx_config",
+        lambda *a, **k: _validate.HealthResult("nginx config", True, "matches the checkout"),
+    )
     _stub_stack_health(
         monkeypatch,
         runtimes_ok=runtimes_ok, runtimes_detail=runtimes_detail,
@@ -951,6 +1115,74 @@ def test_rebuild_no_restart_leaves_the_front_door_alone(
 
     assert result.exit_code == 0, result.output
     assert calls == []
+
+
+def test_rebuild_warns_when_nginx_serves_an_old_config(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import validate
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    monkeypatch.setattr(
+        validate, "check_nginx_config",
+        lambda *a, **k: validate.HealthResult(
+            "nginx config", False,
+            "nginx serves an old config; run ./startup.sh rebuild --recreate-nginx"),
+    )
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert "nginx serves an old config; run ./startup.sh rebuild --recreate-nginx" in " ".join(
+        result.output.split())
+    assert not any(c.get("force_recreate") and "nextseek_nginx" in c["services"] for c in calls)
+
+
+def test_recreate_nginx_is_its_own_step(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import validate
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(validate, "seek_started_at", lambda *a, **k: "t0")
+    monkeypatch.setattr(
+        validate, "check_after_nginx_recreate",
+        lambda *a, **k: (validate.HealthResult("app", True, "200"),
+                         validate.HealthResult("seek", True, "200")),
+    )
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild", "--recreate-nginx"])
+
+    assert result.exit_code == 0, result.output
+    nginx = [c for c in calls if "nextseek_nginx" in c["services"]]
+    assert len(nginx) == 1, calls
+    assert list(nginx[0]["services"]) == ["nextseek_nginx"]
+    assert nginx[0]["no_deps"] is True and nginx[0]["force_recreate"] is True
+    assert "recreating the front door" in " ".join(result.output.split())
+
+
+def test_recreate_nginx_fails_the_rebuild_when_seek_restarted(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import validate
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    _record_compose_up(monkeypatch)
+    monkeypatch.setattr(validate, "seek_started_at", lambda *a, **k: "t0")
+    monkeypatch.setattr(
+        validate, "check_after_nginx_recreate",
+        lambda *a, **k: (validate.HealthResult("SEEK start time", False, "changed"),),
+    )
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    assert runner.invoke(cli.app, ["rebuild", "--recreate-nginx"]).exit_code != 0
 
 
 _NGINX_DOWN = ("not running: nextseek_nginx -- start it with: "
@@ -1371,6 +1603,7 @@ def test_reset_carries_the_declared_ci_profile_across_the_wipe(
 ) -> None:
     """.instance.json is deleted by reset, so an unforwarded value would silently
     re-declare a dev box as prod."""
+    monkeypatch.setattr(cli, "volume_exists", lambda name: False)  # reset never reaches docker
     _saved_state(repo, ci_profile="dev")
     reinstall = MagicMock()
     monkeypatch.setattr(cli, "install", reinstall)
@@ -1981,3 +2214,383 @@ def test_install_stops_when_the_preflight_refuses(repo: Path, steps) -> None:
     result = runner.invoke(cli.app, ["install", "--yes"])
     assert result.exit_code == 1
     steps.build.build_and_start_nextseek.assert_not_called()
+
+
+def test_reinstall_keeps_hand_set_django_host_keys(repo: Path, steps, monkeypatch) -> None:
+    """#103: install renders the real templates and keeps the box's host keys.
+
+    The real config module runs (only the step modules around it stay mocked),
+    so this pins the step-4 wiring: the values are read back before the write.
+    """
+    import shutil
+
+    from startup.steps import config as real_config
+
+    shutil.copytree(Path(__file__).resolve().parents[1] / "templates", repo / "startup" / "templates")
+    monkeypatch.setattr(cli, "config", real_config)
+    monkeypatch.setattr(real_config, "render_proxy_secret_env",
+                        lambda _root: repo / "docker" / "proxy-secret.env")
+    hosts = "nextseek.example.org 127.0.0.1 localhost"
+    origins = "https://nextseek.example.org http://127.0.0.1:8000 http://localhost:8000"
+    (repo / "docker" / "nextseek.env").write_text(
+        f'DJANGO_ALLOWED_HOSTS="{hosts}"\nDJANGO_CSRF_TRUSTED_ORIGINS="{origins}"\n'
+    )
+
+    result = runner.invoke(cli.app, ["install", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    rendered = (repo / "docker" / "nextseek.env").read_text()
+    assert f'DJANGO_ALLOWED_HOSTS="{hosts}"' in rendered
+    assert f'DJANGO_CSRF_TRUSTED_ORIGINS="{origins}"' in rendered
+
+
+# --- #103 Task 4: install keeps every value on disk, and its own database
+# steps use the passwords it kept. The real config module runs on real
+# templates; the step modules around it stay mocked.
+
+
+def _real_config(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import shutil
+
+    from startup.steps import config as real_config
+
+    shutil.copytree(Path(__file__).resolve().parents[1] / "templates", repo / "startup" / "templates")
+    monkeypatch.setattr(cli, "config", real_config)
+    monkeypatch.setattr(real_config, "render_proxy_secret_env",
+                        lambda _root: repo / "docker" / "proxy-secret.env")
+
+
+def _rotated_box(repo: Path) -> None:
+    (repo / "docker" / "db.env").write_text(
+        "MYSQL_ROOT_PASSWORD='root-rotated'\nMYSQL_PASSWORD='app-rotated'\n"
+    )
+    (repo / "docker" / "nextseek.env").write_text(
+        "NEXTSEEK_NEO4J_PASSWORD='neo-rotated'\nGCP_API_KEY=\"test-key-not-real\"\n"
+        "DJANGO_SECRET_KEY=\"old-key\"\n"
+        'DJANGO_ALLOWED_HOSTS="nextseek.example.org localhost"\n'
+        'DJANGO_CSRF_TRUSTED_ORIGINS="https://nextseek.example.org http://127.0.0.1:8000 '
+        'http://localhost:8000"\n'
+    )
+
+
+def test_install_db_steps_use_the_kept_passwords(repo: Path, steps, monkeypatch) -> None:
+    _real_config(repo, monkeypatch)
+    _rotated_box(repo)
+
+    result = runner.invoke(cli.app, ["install", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    db_calls = [
+        steps.build.start_databases, steps.seed.mysql_db_is_populated,
+        steps.schema_fixups.apply_all, steps.seek_settings.apply_site_base_host,
+        steps.seed_cleanup.clear_stale_chat_sessions, steps.users.verify_users_present,
+        steps.validate.run_all_health_checks,
+    ]
+    for step in db_calls:
+        envs = [a for a in step.call_args.args if isinstance(a, dict) and "COMPOSE_PROJECT_NAME" in a]
+        assert [e.get("MYSQL_ROOT_PASSWORD") for e in envs] == ["root-rotated"], step
+    assert steps.build.start_databases.call_args.kwargs["neo4j_password"] == "neo-rotated"
+    assert steps.seed.neo4j_is_populated.call_args.args[0] == "neo-rotated"
+    # The compose targeting file gets the Neo4j password it needs and never the MySQL root one.
+    root_env = read_env(repo / ".env")
+    assert root_env["NEO4J_PASSWORD"] == "neo-rotated"
+    assert "root-rotated" not in (repo / ".env").read_text()
+
+
+def test_install_names_the_kept_keys_and_never_prints_a_kept_password(
+    repo: Path, steps, monkeypatch
+) -> None:
+    _real_config(repo, monkeypatch)
+    _rotated_box(repo)
+    steps.seed.neo4j_is_populated.return_value = False  # the graph seed hint prints
+
+    result = runner.invoke(cli.app, ["install", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    for secret in ("root-rotated", "app-rotated", "neo-rotated", "test-key-not-real", "old-key"):
+        assert secret not in result.output
+    flat = " ".join(result.output.split())
+    for key in ("MYSQL_ROOT_PASSWORD", "NEXTSEEK_NEO4J_PASSWORD", "GCP_API_KEY", "DJANGO_ALLOWED_HOSTS"):
+        assert key in flat
+
+
+def test_install_stops_before_writing_on_a_dollar_outside_single_quotes(
+    repo: Path, steps, monkeypatch
+) -> None:
+    _real_config(repo, monkeypatch)
+    db_env = repo / "docker" / "db.env"
+    db_env.write_text('MYSQL_ROOT_PASSWORD="ab$cd"\n')
+
+    result = runner.invoke(cli.app, ["install", "--yes"])
+
+    assert result.exit_code == 2
+    assert "MYSQL_ROOT_PASSWORD" in " ".join(result.output.split())
+    assert "ab$cd" not in result.output
+    assert db_env.read_text() == 'MYSQL_ROOT_PASSWORD="ab$cd"\n'
+    assert not (repo / "docker" / "nextseek.env").exists()
+    assert load_instance(repo) is None
+    steps.build.start_databases.assert_not_called()
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_without_keep_config_carries_only_the_host_keys(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch
+) -> None:
+    _real_config(repo, monkeypatch)
+    _saved_state(repo)
+    _rotated_box(repo)
+    monkeypatch.setattr(cli, "volume_exists", lambda name: True)  # external volumes survive
+
+    result = runner.invoke(cli.app, ["reset", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    nx = read_env(repo / "docker" / "nextseek.env")
+    assert nx["DJANGO_ALLOWED_HOSTS"] == "nextseek.example.org localhost"
+    assert nx["DJANGO_CSRF_TRUSTED_ORIGINS"] == (
+        "https://nextseek.example.org http://127.0.0.1:8000 http://localhost:8000"
+    )
+    # Everything else starts fresh, as reset promises.
+    assert nx["GCP_API_KEY"] == "SET_IN_LOCAL_ENV"
+    assert nx["DJANGO_SECRET_KEY"] != "old-key"
+    # Reset dropped the volumes, so the passwords are generated, not the old defaults.
+    # The data volumes survive `compose down -v` (they are external), so the
+    # passwords of the database they hold are carried across, like the host keys.
+    assert nx["NEXTSEEK_NEO4J_PASSWORD"] == "neo-rotated"
+    assert read_env(repo / "docker" / "db.env")["MYSQL_ROOT_PASSWORD"] == "root-rotated"
+    assert read_env(repo / "docker" / "db.env")["MYSQL_PASSWORD"] == "app-rotated"
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_with_the_volumes_gone_generates_new_passwords(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch
+) -> None:
+    _real_config(repo, monkeypatch)
+    _saved_state(repo)
+    _rotated_box(repo)
+    monkeypatch.setattr(cli, "volume_exists", lambda name: False)
+
+    result = runner.invoke(cli.app, ["reset", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    root = read_env(repo / "docker" / "db.env")["MYSQL_ROOT_PASSWORD"]
+    assert root not in ("root-rotated", _old_defaults().mysql_root_password)
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_keep_config_refuses_a_dollar_before_dropping_the_volumes(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch
+) -> None:
+    """The re-install would refuse the kept value, so reset must refuse it first,
+    while the stack and its volumes are still there."""
+    _real_config(repo, monkeypatch)
+    _saved_state(repo)
+    (repo / "docker" / "db.env").write_text('MYSQL_ROOT_PASSWORD="ab$cd"\n')
+
+    result = runner.invoke(cli.app, ["reset", "--yes", "--keep-config"])
+
+    assert result.exit_code == 2
+    assert "MYSQL_ROOT_PASSWORD" in " ".join(result.output.split())
+    assert "ab$cd" not in result.output
+    mock_down.assert_not_called()
+    assert load_instance(repo) is not None
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_plain_reset_still_runs_with_a_dollar_when_the_volumes_are_gone(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch
+) -> None:
+    """With no data volume left there is nothing to carry: a plain reset deletes the
+    file that holds the $, so it is the way out for a box whose config install refuses."""
+    _real_config(repo, monkeypatch)
+    _saved_state(repo)
+    (repo / "docker" / "db.env").write_text('MYSQL_ROOT_PASSWORD="ab$cd"\n')
+    monkeypatch.setattr(cli, "volume_exists", lambda name: False)
+
+    result = runner.invoke(cli.app, ["reset", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    mock_down.assert_called_once()
+    steps.build.start_databases.assert_called_once()
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_refuses_before_teardown_when_a_surviving_volume_needs_a_dollar_password(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch
+) -> None:
+    _real_config(repo, monkeypatch)
+    _saved_state(repo)
+    (repo / "docker" / "db.env").write_text("MYSQL_ROOT_PASSWORD='ab$cd'\n")
+    monkeypatch.setattr(cli, "volume_exists", lambda name: True)
+
+    result = runner.invoke(cli.app, ["reset", "--yes"])
+
+    assert result.exit_code == 2
+    assert "--keep-config" in result.output
+    assert "ab$cd" not in result.output
+    mock_down.assert_not_called()
+    assert (repo / "docker" / "db.env").exists()
+
+
+@patch("startup.lib.docker_ops.compose_down")
+def test_reset_keep_config_keeps_every_value(
+    mock_down: MagicMock, repo: Path, steps, monkeypatch
+) -> None:
+    _real_config(repo, monkeypatch)
+    _saved_state(repo)
+    _rotated_box(repo)
+
+    result = runner.invoke(cli.app, ["reset", "--yes", "--keep-config"])
+
+    assert result.exit_code == 0, result.output
+    nx = read_env(repo / "docker" / "nextseek.env")
+    assert (nx["GCP_API_KEY"], nx["DJANGO_SECRET_KEY"], nx["NEXTSEEK_NEO4J_PASSWORD"]) == (
+        "test-key-not-real", "old-key", "neo-rotated"
+    )
+    assert read_env(repo / "docker" / "db.env")["MYSQL_ROOT_PASSWORD"] == "root-rotated"
+    assert steps.build.start_databases.call_args.args[1]["MYSQL_ROOT_PASSWORD"] == "root-rotated"
+
+
+# the web swap (SPEC-PLAN section 3) and --stop-first
+
+def test_rebuild_swaps_web_and_recreates_only_the_worker_in_place(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    swaps = _stub_web_swap(monkeypatch)
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert swaps == ["swap"]
+    assert [list(c["services"]) for c in calls] == [["nextseek"], ["nextseek_nginx"]]
+    assert calls[0]["force_recreate"] is True
+
+
+def test_rebuild_stop_first_recreates_web_in_place_and_never_swaps(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    swaps = _stub_web_swap(monkeypatch)
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild", "--stop-first"])
+
+    assert result.exit_code == 0, result.output
+    assert swaps == []
+    # web first, alone: the old one drains and stops before the worker is recreated and migrates; the new one
+    # waits in the entrypoint until the worker has migrated.
+    assert [list(c["services"]) for c in calls] == [["web"], ["nextseek"], ["nextseek_nginx"]]
+    assert calls[0]["force_recreate"] is True and calls[1]["force_recreate"] is True
+
+
+def test_rebuild_with_a_pending_migration_falls_back_to_stop_first_and_says_why(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    swaps = _stub_web_swap(monkeypatch, pending=True)
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert swaps == []
+    # old web code must never serve on the new schema: it is stopped before the worker migrates
+    assert [list(c["services"]) for c in calls][:2] == [["web"], ["nextseek"]]
+    flat = "".join(result.output.split())
+    assert "pendingmigrations" in flat and "Yourmodelshavechanges" in flat
+
+
+def test_rebuild_exits_red_when_the_swap_fails(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.lib import web_swap
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+
+    def boom(run, repo_root, **kw):
+        raise web_swap.SwapError("web-2 is unhealthy; removed it, the old container still serves")
+
+    monkeypatch.setattr(web_swap, "swap", boom)
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 1
+    assert "webswapfailed" in "".join(result.output.split())
+
+
+@pytest.mark.parametrize("args", [["rebuild"], ["rebuild", "--stop-first"]])
+def test_rebuild_refuses_a_leftover_pin_before_touching_any_container(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, args: list[str],
+) -> None:
+    """A killed swap can leave nginx pinned to a container that is gone; replacing web in place would then report
+    success while every request answers 502."""
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    swaps = _stub_web_swap(monkeypatch)
+    calls = _record_compose_up(monkeypatch)
+    (repo / "docker" / "nginx-upstream").mkdir(parents=True, exist_ok=True)
+    (repo / "docker" / "nginx-upstream" / "pin.conf").write_text('set $upstream "nextseek-web-3";\n')
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, args)
+
+    assert result.exit_code == 1
+    assert calls == [] and swaps == []
+    assert "pin.confnamesnextseek-web-3" in "".join(result.output.split())
+
+
+def test_rebuild_no_restart_neither_swaps_nor_checks_migrations(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    swaps = _stub_web_swap(monkeypatch)
+    from startup.lib import web_swap
+    monkeypatch.setattr(web_swap, "migrations_pending", lambda run: (_ for _ in ()).throw(AssertionError("no docker")))
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-restart", "--no-ci"])
+
+    assert result.exit_code == 0, result.output
+    assert swaps == []
+
+
+def test_rebuild_custom_stack_swaps_web_and_restarts_the_rest_including_the_spawner(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    swaps = _stub_web_swap(monkeypatch)
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild", "--component", "custom-stack"])
+
+    assert result.exit_code == 0, result.output
+    assert swaps == ["swap"]
+    assert list(calls[0]["services"]) == ["nextseek", "nextseek-sidecar", "bedrock-proxy", "cc-spawner"]
+
+
+def test_rebuild_of_the_spawner_restarts_only_it(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    swaps = _stub_web_swap(monkeypatch)
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild", "--component", "cc-spawner"])
+
+    assert result.exit_code == 0, result.output
+    assert swaps == []
+    assert list(calls[0]["services"]) == ["cc-spawner"]

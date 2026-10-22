@@ -1,4 +1,4 @@
-# TARGET: `/home/taishajo/work/NExtSEEK/nextseek_api/cc_assistant/PLAN-3-ui-based-io.md`
+# TARGET: `/home/<user>/work/NExtSEEK/nextseek_api/cc_assistant/PLAN-3-ui-based-io.md`
 
 ## 2A — Vet
 
@@ -151,7 +151,7 @@ Plan correctly points to `rollback.sh` and tracker flip only after Task 13; pers
 - **Location:** Task 8 Step 1 grep-guard
 - **Quote:** "`assert 'artifacts_published' not in (CC / 'cc_engine.py').read_text()`"
 - **Cheapest fake:** Rename symbol to `artifactsPublished` or move Dropbox string to a constant in another module outside grep scope (`cc_assistant/` + `services/cc_assistant.py` only).
-- **Remedy:** Extend grep-guard to scan `nextseek_api/cc_assistant/` **and** `nextseek_api/services/cc_assistant.py` for "Dropbox", "artifacts_published", "/Users/taishajoseph" (partially done); add case-insensitive "dropbox" scan across both trees.
+- **Remedy:** Extend grep-guard to scan `nextseek_api/cc_assistant/` **and** `nextseek_api/services/cc_assistant.py` for "Dropbox", "artifacts_published", "/Users/<user>" (partially done); add case-insensitive "dropbox" scan across both trees.
 
 ### Finding 17
 - **SEVERITY:** LOW

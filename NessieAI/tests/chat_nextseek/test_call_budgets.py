@@ -63,12 +63,15 @@ def test_only_the_parsers_keep_a_timeout_from_marking_the_model():
     assert {agent for agent, b in CALL_BUDGETS.items() if not b.timeout_marks_model} == {"parser", "multi_parser"}
 
 
-def test_only_the_graph_agent_and_the_report_writer_skip_the_op_reserve():
+def test_only_the_report_writer_skips_the_op_reserve():
     """Operator ruling on review finding 1 (option A, 2026-09-28): inside a CC op their first try is not cut to leave
-    20 s for a move, because the move could not redo their work in 20 s (a 4k-token graph answer, a report)."""
-    assert {agent for agent, b in CALL_BUDGETS.items() if not b.op_move_reserve} == {"graph", "report_writer"}
+    20 s for a move, because the move could not redo their work in 20 s (a 4k-token graph answer, a report).
+    Round 6: the graph agent takes the reserve, but only inside an op (a nested NS turn's deadline is not one)."""
+    assert {agent for agent, b in CALL_BUDGETS.items() if not b.op_move_reserve} == {"report_writer"}
+    assert {agent for agent, b in CALL_BUDGETS.items() if b.move_reserve_only_in_op} == {"graph"}
     assert call_budgets.DEFAULT_BUDGET.op_move_reserve is True
     assert call_budgets.TOOL_LOOP_DEFAULT_BUDGET.op_move_reserve is True
+    assert call_budgets.DEFAULT_BUDGET.move_reserve_only_in_op is False
 
 
 def test_an_agent_the_table_does_not_name_keeps_the_old_budgets():
@@ -278,3 +281,13 @@ def test_the_tool_loop_windows_come_from_the_table(tmp_path, monkeypatch, agent)
     expected = RULED.get(agent, (120, 120))
     assert client.calls == [OPUS, SONNET]
     assert seen == list(expected)
+
+
+def test_inside_an_op_the_parsers_and_the_graph_agent_follow_the_measured_speed():
+    k = {agent: (b.op_speed_k, b.op_speed_floor_s) for agent, b in CALL_BUDGETS.items() if b.op_speed_k is not None}
+    assert k == {"parser": (4, 20), "multi_parser": (4, 20), "graph": (5, 20)}
+
+
+def test_inside_an_op_only_the_parsers_cut_their_first_try_to_20_s():
+    cut = {agent: b.op_first_try_s for agent, b in CALL_BUDGETS.items() if b.op_first_try_s is not None}
+    assert cut == {"parser": 20, "multi_parser": 20}

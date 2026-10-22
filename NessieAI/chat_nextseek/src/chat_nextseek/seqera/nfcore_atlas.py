@@ -16,7 +16,7 @@ from typing import Any
 
 from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
 
-ATLAS_PATH = Path(__file__).resolve().parent.parent / "context" / "nfcore_rna_atlas.json"
+ATLAS_PATH = Path(__file__).resolve().parent / "nfcore_rna_atlas.json"
 
 
 class AtlasError(Exception):

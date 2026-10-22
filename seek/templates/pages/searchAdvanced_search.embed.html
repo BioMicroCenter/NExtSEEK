@@ -1,6 +1,7 @@
+{% load json_script_safe %}
 <script type="text/javascript">
 
-	var type_options = {{report.type_options|safe}};
+	var type_options = {{ report.type_options|json_script_safe }};
 	var logic_options = [{
 		logicid: 'AND',
 		logicname: 'Add with AND',

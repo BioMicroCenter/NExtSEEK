@@ -73,7 +73,7 @@ describe.each(SHELLS)("%s during a turn whose progress socket dropped", (_name, 
 
     expect(await screen.findByText("Connection lost. Still waiting for the answer.")).toBeInTheDocument();
     expect(screen.queryByText(/^Error:/)).toBeNull();
-    expect(screen.getByTestId("chat-input")).toBeDisabled();
+    expect(screen.getByTestId("chat-input")).toHaveAttribute("readonly");
   });
 });
 
@@ -169,7 +169,7 @@ describe.each(SHELLS)("%s after a reply that carries the reviewer's chips", (_na
     await act(async () => t.onProgress(NS_WITH_CHIP));
     const chip = await screen.findByTestId("suggestion-chip");
     expect(chip).toHaveTextContent("Only Converter");
-    expect(chip).toHaveAttribute("title", "57 of 98 were Non-converter.");
+    expect(chip).not.toHaveAttribute("title");
     expect(chip).toHaveAttribute("data-suggestion-id", "b7-r0");
     expect(chip).toHaveAttribute("data-source", "reviewer");
 
@@ -235,5 +235,17 @@ describe.each(SHELLS)("%s after a reply without chips", (_name, make) => {
     );
     expect(screen.getByText("There are 42.")).toBeInTheDocument();
     expect(screen.queryByTestId("suggestion-chip")).toBeNull();
+  });
+});
+
+describe.each(SHELLS)("%s while a turn is being routed", (_name, make) => {
+  it("shows each routing step in the stepper", async () => {
+    const t = await sendAQuestion(make);
+
+    act(() => t.onProgress({ event: "prelude_step", data: { label: "Reading your question" } }));
+    act(() => t.onProgress({ event: "prelude_step", data: { label: "Choosing an engine" } }));
+
+    expect(await screen.findByText("Reading your question")).toBeInTheDocument();
+    expect(await screen.findByText("Choosing an engine")).toBeInTheDocument();
   });
 });

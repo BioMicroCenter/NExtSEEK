@@ -33,6 +33,13 @@ def _qe(**data):
 
 # ── reading one turn ─────────────────────────────────────────────────────────
 
+def test_engine_cost_prefers_the_price_table_number_and_falls_back_to_the_cli_total():
+    both = {"progress": [_rd(), _qc(total_cost_usd=0.60, cost_by_price_table_usd=0.40)]}
+    only_cli = {"progress": [_rd(), _qc(total_cost_usd=0.60)]}
+    assert tc.read_turn(both)["engine_cost"] == 0.40
+    assert tc.read_turn(only_cli)["engine_cost"] == 0.60
+
+
 def test_the_router_fields_come_from_route_decided_and_the_engine_fields_from_the_end():
     payload = {"progress": [
         _rd(router_model="gemini-3.1-pro-preview", router_cost_usd=0.004,
@@ -253,7 +260,7 @@ def test_a_turn_fell_back_when_any_model_did():
 
 
 def test_the_module_imports_nothing_outside_the_standard_library():
-    """`output-skill/scripts/fetch_run.py` loads this file by path on an operator's
+    """`.claude/skills/nessie-run-review/scripts/fetch_run.py` loads this file by path on an operator's
     host that has python3 and nothing else."""
     import ast
     import sys
@@ -267,3 +274,47 @@ def test_the_module_imports_nothing_outside_the_standard_library():
         elif isinstance(node, ast.ImportFrom) and node.module:
             roots.add(node.module.split(".")[0])
     assert roots <= set(sys.stdlib_module_names) | {"__future__"}, roots
+
+
+# ── the whole Container-CC turn, summed by the server (plan 04) ──────────────
+
+def test_a_cc_turn_that_reports_its_whole_cost_is_read_off_the_server_not_re_added():
+    payload = {"progress": [
+        _rd(router_cost_usd=0.004, router_fallback=None, router_cost_partial=False),
+        _qc(total_cost_usd=0.30, cost_partial=False, ops_cost_usd=0.15, turn_cost_usd=0.454,
+            models_used=[], model_fallback=[]),
+    ]}
+    t = tc.read_turn(payload)
+    assert t["ops_cost"] == 0.15 and t["server_turn_cost"] == 0.454
+    cost, partial = tc.turn_total(engine_cost=t["engine_cost"], router_cost=t["router_cost"], route=t["route"],
+                                  source=t["source"], cost_partial=t["cost_partial"],
+                                  router_cost_partial=t["router_cost_partial"],
+                                  server_turn_cost=t["server_turn_cost"])
+    assert (cost, partial) == (0.454, False)
+
+
+def test_a_killed_cc_turn_keeps_its_ops_cost_and_stays_partial():
+    payload = {"progress": [_rd(router_cost_usd=0.004, router_fallback=None),
+                            _qe(ops_cost_usd=0.012, turn_cost_usd=0.016, cost_partial=True, model_fallback=[])]}
+    t = tc.read_turn(payload)
+    cost, partial = tc.turn_total(engine_cost=t["engine_cost"], router_cost=t["router_cost"], route=t["route"],
+                                  source=t["source"], cost_partial=t["cost_partial"],
+                                  router_cost_partial=t["router_cost_partial"],
+                                  server_turn_cost=t["server_turn_cost"])
+    assert (cost, partial) == (0.016, True)
+
+
+def test_an_older_server_without_the_fields_is_summed_as_before():
+    payload = {"progress": [_rd(router_cost_usd=0.004, router_fallback=None), _qc(total_cost_usd=0.3)]}
+    t = tc.read_turn(payload)
+    assert t["ops_cost"] is None and t["server_turn_cost"] is None
+    assert tc.turn_total(engine_cost=0.3, router_cost=0.004, route="container_cc",
+                         server_turn_cost=None) == (0.304, False)
+
+
+def test_a_case_sums_its_turns_ops_cost():
+    from NessieAI.tests.nessie_tests.manifest import TurnMeta, case_money
+    turns = [TurnMeta(cost=0.5, ops_cost=0.1), TurnMeta(cost=0.2, ops_cost=None), TurnMeta(cost=0.3, ops_cost=0.05)]
+    money = case_money(turns, turns_sent=3)
+    assert money["ops_cost"] == pytest.approx(0.15)
+    assert case_money([TurnMeta(cost=0.2)], turns_sent=1)["ops_cost"] is None

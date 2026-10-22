@@ -27,6 +27,10 @@ def _posterior_for(route: str, task_family: str) -> FamilyPosterior | None:
     snapshot = get_active_snapshot()
     if snapshot is None:
         return None
+    from NessieAI.router.posterior_selector import snapshot_is_current
+
+    if not snapshot_is_current(snapshot):
+        return None
     for row in snapshot.posteriors:
         if row.task_family == task_family and row.route == route:
             return row

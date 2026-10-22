@@ -198,13 +198,7 @@ def pending_for(session, items: list[dict], *, turn_id: int) -> None:
     session[SESSION_KEY] = {"for_turn": turn_id, "items": [dict(i) for i in items]}
 
 
-def accept(session, user_text: str, *, last_turn_id: int) -> dict | None:
-    """The chip this message clicked, or None. Always clears what was pending, so a chip is good for one turn.
-
-    A click is a message whose stripped text equals a chip's ``query``, sent right after the turn that offered it
-    (``last_turn_id`` is that turn's id). Any turn in between, a CC turn included, cancels the offer.
-    """
-    pending = session.pop(SESSION_KEY, None)
+def _match(pending: Any, user_text: Any, last_turn_id: int) -> dict | None:
     if not isinstance(pending, dict) or not isinstance(user_text, str):
         return None
     for_turn = pending.get("for_turn")
@@ -217,3 +211,18 @@ def accept(session, user_text: str, *, last_turn_id: int) -> dict | None:
         if isinstance(item, dict) and item.get("query") == text:
             return item
     return None
+
+
+def peek(session, user_text: str, *, last_turn_id: int) -> dict | None:
+    """The chip this message would click, or None, with the offer left in place: the read-only check the vocabulary
+    pre-run makes before the turn is routed (``accept`` is the one that clears it)."""
+    return _match(session.get(SESSION_KEY), user_text, last_turn_id)
+
+
+def accept(session, user_text: str, *, last_turn_id: int) -> dict | None:
+    """The chip this message clicked, or None. Always clears what was pending, so a chip is good for one turn.
+
+    A click is a message whose stripped text equals a chip's ``query``, sent right after the turn that offered it
+    (``last_turn_id`` is that turn's id). Any turn in between, a CC turn included, cancels the offer.
+    """
+    return _match(session.pop(SESSION_KEY, None), user_text, last_turn_id)

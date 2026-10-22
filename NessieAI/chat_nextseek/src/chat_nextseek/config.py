@@ -214,10 +214,9 @@ class ChatConfig:
 
         # Published-report umbrella projects (DEV-ONLY opt-in; DEFAULT EMPTY so
         # prod is unaffected). For a project listed here, run_project_published_report
-        # reports ALL investigations' samples instead of filtering investigation
-        # titles by the project-name hint — needed where one umbrella project
-        # (e.g. the dev "Published Data") contains every investigation and so
-        # matches no investigation title. Set via NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS
+        # reports ALL investigations' samples instead of only the named project's
+        # investigations, for an umbrella project (e.g. the dev "Published Data")
+        # that contains every investigation. Set via NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS
         # (comma-separated project names and/or ids). See issue #1 / option 2.
         self.PUBLISHED_UMBRELLA_PROJECTS = self._parse_umbrella_projects(
             os.environ.get("NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS", "")
@@ -225,7 +224,7 @@ class ChatConfig:
 
         # Min JSONs actually used by the agents
         self.MIN_SAMPLETYPES = self._load_json_list("min_sampletypes_db.json", "min sampletypes (db)")
-        self.MIN_ASSAYS = self._load_json_list("min_assays_db.json", "min assays (db)")
+        self.MIN_ASSAYS = self._load_json_list("min_assays_db.json", "min assays (db)")  # the setter keeps the file
         self.MIN_PROJECTS = self.FULL_PROJECTS
         self.MIN_API_ENDPOINTS = self._load_json_list("min_api_endpoints_enriched.json", "min API endpoints")
         # graph_search's entry, kept out of the catalog the parser chooses from: only the scope fallback (a graph
@@ -512,6 +511,11 @@ class ChatConfig:
         env_config_map["OUTPUTS_DIR"] = os.path.expanduser(os.getenv("NEXTSEEK_OUTPUTS_DIR", env_config_map["XDG_STATE_HOME"] + "/chat_nextseek/outputs/"))
         env_config_map["PROMPTS_DIR"] = os.getenv("PROMPTS_DIR", str(env_config_map["BASE_DIR"]) + "/prompts")
         env_config_map["CONTEXT_DIR"] = os.getenv("CONTEXT_DIR", str(env_config_map["BASE_DIR"]) + "/context")
+        # The user docs the site serves at /docs/ (themes/NextSeek/docs; chat_nextseek is an editable install,
+        # so the repository root is two folders above REPO_ROOT, NessieAI/chat_nextseek). The system agent's read_doc reads them.
+        env_config_map["DOCS_DIR"] = os.getenv(
+            "NESSIE_DOCS_DIR", str(env_config_map["REPO_ROOT"].parent.parent / "themes" / "NextSeek" / "docs")
+        )
         env_config_map["SEQ_TEMPLATE_PATH"] = os.getenv("SEQ_TEMPLATE_PATH", str(env_config_map["BASE_DIR"]) + "/reports/templates/GEO_template.xlsx")
         env_config_map["CATALOG_FILE"] = os.getenv(
             "CATALOG_FILE", str(env_config_map["REPO_ROOT"]) + "/agent_model_catalog.json"
@@ -552,7 +556,7 @@ class ChatConfig:
             if not env_config_map["GCP_API_KEY"] and not getattr(self, "GCP_API_KEY", None):
                 raise RuntimeError("GCP mode selected but GCP_API_KEY is not set.")
             _gcp_defaults = {
-                "gcp:lite": "gemini-2.5-flash",
+                "gcp:lite": "gemini-3.5-flash",
                 "gcp:current": "gemini-3.8-flash",
             }
             env_config_map["LLM_MODEL"] = os.getenv("GCP_LLM_MODEL", _gcp_defaults.get(_mode, "gemini-3.8-flash"))
@@ -762,6 +766,17 @@ class ChatConfig:
         except Exception as e:
             print(f"[CONFIG][DB] Connection to {target} failed: {e!r}")
             return None
+
+    @property
+    def MIN_ASSAYS(self) -> list:
+        """This box's assay list from ``dmac.internal_assays`` (``assay_catalog``), or the catalog list loaded at start
+        (``min_assays_db.json``) when the table cannot be read."""
+        from . import assay_catalog  # noqa: PLC0415
+        return assay_catalog.min_assays(self, getattr(self, "_min_assays_file", []))
+
+    @MIN_ASSAYS.setter
+    def MIN_ASSAYS(self, rows: list) -> None:
+        self._min_assays_file = rows
 
     def _live_db_conn(self, env: str = "prod"):
         """Return a usable connection, replacing the cached one once it has died."""
@@ -1028,6 +1043,22 @@ class ChatConfig:
         return datetime.fromtimestamp(ts, timezone.utc).date() == today
 
 
+    # A test run must never write into this package's context directory: every
+    # file _ensure_context_files writes is git-tracked, so any lane with BOTH a
+    # writable checkout and a reachable database rewrites tracked source merely
+    # as a side effect of building the config -- silently, with pytest still
+    # exiting 0 (scripts/run_tests.sh is exactly such a lane). The refresh
+    # itself is wanted on a real instance, where the app and cc-agent images
+    # bake the refreshed bytes, so the gate is on the LANE, never on the
+    # refresh. Absence of the variable means production: this fails toward
+    # refreshing, never toward silently disabling it on a live box.
+    @staticmethod
+    def _db_context_refresh_enabled() -> bool:
+        """False when DJANGO_SETTINGS_MODULE names a test settings module
+        (``dmac.test_settings``, ``dmac.test_settings_realstack``)."""
+        return "test_settings" not in os.environ.get("DJANGO_SETTINGS_MODULE", "dmac.settings")
+
+
     def _write_refresh_marker(self) -> None:
         """Record that a successful DB refresh happened now. Best-effort: if the
         context dir is read-only the marker simply never registers as today, so
@@ -1040,7 +1071,8 @@ class ChatConfig:
             print(f"[CONFIG][DB] Could not write refresh marker: {e!r}")
 
 
-    def _ensure_context_files(self, env: str = "prod") -> dict[str, Path]:
+    def _ensure_context_files(self, env: str = "prod", *,
+                              refresh: bool | None = None) -> dict[str, Path]:
         """
         Ensure DB-driven context JSON files exist and are fresh for today.
         Returns a dict of {label: Path}.
@@ -1050,6 +1082,10 @@ class ChatConfig:
         baked into the image on run-day carries a today mtime but stale content,
         so trusting file mtime silently skipped the refresh (BUG-2). We still
         refresh when any target file is missing.
+
+        ``refresh`` defaults to ``_db_context_refresh_enabled()``: a test lane
+        reports the files already on disk and writes nothing. Pass it
+        explicitly to pin either behavior regardless of the lane.
         """
         targets = {
             "sampletypes_full": Path(self.CONTEXT_DIR) / "sampletypes_db.json",
@@ -1058,6 +1094,13 @@ class ChatConfig:
             "assays_min": Path(self.CONTEXT_DIR) / "min_assays_db.json",
             "projects_full": Path(self.CONTEXT_DIR) / "projects_db.json",
         }
+
+        if refresh is None:
+            refresh = self._db_context_refresh_enabled()
+        if not refresh:
+            print("[CONFIG][DB] Test lane: skipping the DB context refresh; "
+                  "using the context files already on disk.")
+            return {k: v for k, v in targets.items() if v.exists()}
 
         marker = Path(self.CONTEXT_DIR) / self._REFRESH_MARKER_NAME
         needs_refresh = (not self._is_today(marker)) or any(not p.exists() for p in targets.values())
@@ -1128,8 +1171,8 @@ class ChatConfig:
         }
 
     def is_umbrella_published_project(self, project, project_id=None) -> bool:
-        """True when the published report should SKIP the investigation-title
-        hint (report ALL samples) for this project. Opt-in via
+        """True when the published report should SKIP its project or investigation
+        filter (report every investigation's samples) for this project. Opt-in via
         NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS; empty by default so prod is
         unchanged. Matches on normalized project name OR id."""
         umbrella = getattr(self, "PUBLISHED_UMBRELLA_PROJECTS", None) or set()
@@ -1726,51 +1769,6 @@ class ChatConfig:
 
         print("[CONFIG][SCHEMA] Validation OK for endpoint", endpoint)
         return True, None
-
-    # ======================================================
-    # Neo4j / Graph DB helpers
-    # ======================================================
-
-    def _connect_neo4j(self):
-        """
-        Return a connected neo4j Driver, or None when unconfigured or unavailable.
-        Caller is responsible for closing the driver after use.
-        """
-        try:
-            from neo4j import GraphDatabase  # type: ignore
-        except ImportError:
-            print("[CONFIG][GRAPHDB] neo4j driver not installed; run 'uv add neo4j'.")
-            return None
-
-        if not getattr(self, "NEO4J_PASSWORD", None):
-            print("[CONFIG][GRAPHDB] NEO4J_PASSWORD not set; skipping Neo4j connection.")
-            return None
-
-        try:
-            try:
-                driver = GraphDatabase.driver(
-                    self.NEO4J_URI,
-                    auth=(self.NEO4J_USER, self.NEO4J_PASSWORD),
-                    notifications_min_severity="OFF",
-                )
-            except TypeError:
-                driver = GraphDatabase.driver(
-                    self.NEO4J_URI,
-                    auth=(self.NEO4J_USER, self.NEO4J_PASSWORD),
-                )
-            driver.verify_connectivity()
-            print(f"[CONFIG][GRAPHDB] Connected to Neo4j at {self.NEO4J_URI}")
-            return driver
-        except Exception as e:
-            print(f"[CONFIG][GRAPHDB] Failed to connect to Neo4j: {e!r}")
-            return None
-
-    def _close_neo4j_driver(self, driver) -> None:
-        """Close a Neo4j driver instance without surfacing cleanup errors."""
-        try:
-            driver.close()
-        except Exception:
-            pass
 
     def get_config_snapshot(self) -> dict[str, object]:
         """

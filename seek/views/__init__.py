@@ -8,15 +8,15 @@ reaches the call site -- the call site reads its own module's globals. Patch
 the owning module instead, e.g. `seek.views.admin.write_samples_workbook`.
 """
 
-from .samples import (editSample, getAssaysOptions, getAttributes, getInstituionUsers, getOperators, getSampleType, getStudiesOptions, manageSample, retrieveSamples, sample, sampleAttributeDelete, sampleAttributeSave, sampleAttributes, sampleDelete, sampleDownload, sampleExport, sampleFindAjax, sampleQuery, sampleTree, sample_type, seek)
+from .samples import (editSample, getAssaysOptions, getAttributes, getInstituionUsers, getOperators, getSampleType, getStudiesOptions, manageSample, retrieveSamples, sample, sampleAttributeDelete, sampleAttributeSave, sampleAttributes, sampleDelete, sampleDownload, sampleExport, sampleFindAjax, sampleQuery, sampleTree, sample_type)
 from .upload import (batchUpload, datafileUpload, sampleUploadAjax, samplesValidate)
 from .assets import (datafileQuery, document, sopQuery, templatesDownload, templatesList)
 from .catalog import (assayDetail, assaysList, sampleTypeDetail, sampleTypesList)
-from .search import (newSearch, remote, runSampleSearch, sampleSearch, sampleSearching, searchAdvanced, searchingAdvanced, searchingUIDs, smartSearch)
+from .search import (runSampleSearch, sampleSearch, sampleSearching, searchAdvanced, searchingAdvanced, searchingUIDs, smartSearch)
 from .admin import (adminClades, adminRetrieveSamples, assayAssociationSave, cladeDelete, cladeSampleTypesSave, cladeSave, cladesSyncSampleTypes, get_children_uids, internalAssayDelete, internalAssaySave, internalAssaySuggestions, internalAssays, parse_children_uids, parse_json_metadata, sample_retrieval_data, syncInternalAssays)
 from .projects import (project_connections, project_page, project_samples, projects)
 from .timeline import (download_nhp_data, fetch_event_data, get_nhp_data, nhp_info)
-from .pages import (getting_started)
+from .pages import (getting_started, docs_page)
 from .exports import (exportFile)
 from .shared import report
 
@@ -48,12 +48,12 @@ __all__ = [
     'get_children_uids',
     'get_nhp_data',
     'getting_started',
+    'docs_page',
     'internalAssayDelete',
     'internalAssaySave',
     'internalAssaySuggestions',
     'internalAssays',
     'manageSample',
-    'newSearch',
     'nhp_info',
     'parse_children_uids',
     'parse_json_metadata',
@@ -61,7 +61,6 @@ __all__ = [
     'project_samples',
     'project_page',
     'projects',
-    'remote',
     'report',
     'retrieveSamples',
     'runSampleSearch',
@@ -86,7 +85,6 @@ __all__ = [
     'searchAdvanced',
     'searchingAdvanced',
     'searchingUIDs',
-    'seek',
     'smartSearch',
     'sopQuery',
     'syncInternalAssays',

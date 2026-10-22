@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,8 @@ from startup.lib.env import read_env
 from startup.lib.layout import (
     CANONICAL_CONTEXT_DIR,
     CANONICAL_CONTEXT_FILES,
+    CANONICAL_DOCS_HASH,
+    CC_AGENT_DOCS_HASH,
     CC_AGENT_CONTEXT_DIR,
     LEGACY_PROXY_SECRET_ENV,
     PROXY_SECRET_ENV,
@@ -163,9 +166,9 @@ def check_proxy_token(repo_root: Path) -> HealthResult:
 
 # A rendered docker/nextseek.env value that still points into a Nessie unit's
 # pre-move location (/app/<unit> for chat_nextseek, dmac_assistant and
-# nessie_tests, all now under /app/NessieAI/). The file is gitignored, rebuild never
-# re-renders it, and install rewrites it whole (rotating DJANGO_SECRET_KEY), so
-# nothing in git ever fixes these lines on a box. A superset of
+# nessie_tests, all now under /app/NessieAI/). The file is gitignored and rebuild never
+# re-renders it, so nothing in git ever fixes these lines on a box; install re-renders
+# just these lines from the template and keeps the rest (#103). A superset of
 # ^[A-Z_]+=.*?/app/(chat_nextseek|dmac_assistant|nessie_tests)/ : digits are
 # allowed in the key, and the unit name may also end at a quote, a colon,
 # whitespace or the end of the line.
@@ -236,14 +239,14 @@ def check_stale_nessie_env(repo_root: Path) -> HealthResult:
         detail=(
             "docker/nextseek.env still names the pre-NessieAI layout, which a "
             "rebuild would load into nextseek. Edit it by hand (rebuild never "
-            "re-renders it, and install rotates DJANGO_SECRET_KEY): "
+            "re-renders it): "
             f"{fixes}. A rebuild then recreates nextseek, which re-reads the file"
         ),
     )
 
 
 def check_cc_services(repo_root: Path, env: dict[str, str]) -> HealthResult:
-    wanted = ["bedrock-proxy", "nextseek-sidecar"]
+    wanted = ["bedrock-proxy", "nextseek-sidecar", "cc-spawner"]
     try:
         running = compose_ps_running(wanted, repo_root, env)
     except DockerOpsError as exc:
@@ -254,7 +257,7 @@ def check_cc_services(repo_root: Path, env: dict[str, str]) -> HealthResult:
             name="cc services", ok=False, detail=f"not running: {', '.join(missing)}"
         )
     return HealthResult(
-        name="cc services", ok=True, detail="bedrock-proxy + nextseek-sidecar running"
+        name="cc services", ok=True, detail=f"{' + '.join(wanted)} running"
     )
 
 
@@ -287,6 +290,81 @@ def check_app_runtimes(repo_root: Path, env: dict[str, str]) -> HealthResult:
                     f"docker compose up -d --no-deps {' '.join(missing)}"),
         )
     return HealthResult(name=name, ok=True, detail=f"{' + '.join(wanted)} running")
+
+
+NGINX_CONF_PATH = "/etc/nginx/nginx.conf"
+
+
+def check_nginx_config(repo_root: Path, env: dict[str, str]) -> HealthResult:
+    """Whether the running nginx serves the checkout's docker/nginx.conf.
+
+    The file is a single-file bind mount, which a `git pull` orphans: nginx keeps
+    the old inode and nothing says so. A failed look (nginx down, docker error) is
+    a warning that it could not check, never a red result.
+    """
+    name = "nginx config"
+    try:
+        served = compose_exec(
+            service=FRONT_DOOR_SERVICE, command=["cat", NGINX_CONF_PATH],
+            project_dir=repo_root, env=env,
+        )
+        wanted = (repo_root / "docker" / "nginx.conf").read_text(encoding="utf-8")
+    except (DockerOpsError, OSError) as exc:
+        return HealthResult(name=name, ok=True, warn=True,
+                            detail=f"could not check what nginx serves ({exc})")
+    if served != wanted:
+        return HealthResult(
+            name=name, ok=False,
+            detail="nginx serves an old config; run ./startup.sh rebuild --recreate-nginx")
+    return HealthResult(name=name, ok=True, detail="matches the checkout")
+
+
+def seek_started_at(repo_root: Path, env: dict[str, str]) -> str | None:
+    """SEEK's container start time, or None when it cannot be read."""
+    try:
+        cid = subprocess.run(["docker", "compose", "ps", "-q", "seek"], cwd=str(repo_root),
+                             env={**os.environ, **env}, capture_output=True, text=True,
+                             timeout=30).stdout.strip()
+        if not cid:
+            return None
+        out = subprocess.run(["docker", "inspect", "-f", "{{.State.StartedAt}}", cid],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() or None
+
+
+def check_after_nginx_recreate(
+    ports: dict[str, int], seek_before: str | None, seek_after: str | None,
+    *, wait_s: float = 120.0, interval_s: float = 3.0,
+    sleep=time.sleep, clock=time.monotonic,
+) -> tuple[HealthResult, ...]:
+    """After `--recreate-nginx`: the app and SEEK answer, and SEEK was not restarted.
+
+    The app may be mid-boot (the runner can put the recreate on the app's own rebuild),
+    so each probe is retried until it answers or `wait_s` has passed.
+    """
+    def probe(name: str, url: str) -> HealthResult:
+        deadline = clock() + wait_s
+        while True:
+            r = check_http(name, url)
+            if r.ok or clock() >= deadline:
+                return r
+            sleep(interval_s)
+
+    if seek_before is None or seek_after is None:
+        unchanged = HealthResult("SEEK start time", False,
+                                 "could not read SEEK's container start time")
+    elif seek_before != seek_after:
+        unchanged = HealthResult("SEEK start time", False,
+                                 f"SEEK restarted ({seek_before} -> {seek_after})")
+    else:
+        unchanged = HealthResult("SEEK start time", True, "unchanged")
+    return (
+        probe("NExtSEEK", f"http://localhost:{ports.get('nextseek', 8000)}"),
+        probe("SEEK", f"http://localhost:{ports.get('seek', 3000)}"),
+        unchanged,
+    )
 
 
 @dataclass(frozen=True)
@@ -442,7 +520,7 @@ def check_cc_agent_context(
 ) -> HealthResult:
     """Whether the cc-agent image still bakes the checkout's canonical context.
 
-    The six chat_nextseek context files (``startup/lib/layout.py``) are baked
+    The chat_nextseek context files (``startup/lib/layout.py``) are baked
     into the app image and, through the Compose named context
     ``chat_nextseek``, into the cc-agent image. A bare ``./startup.sh rebuild``
     builds only the first, so editing one of them and skipping
@@ -479,18 +557,34 @@ def check_cc_agent_context(
                 detail=f"could not read {CC_AGENT_CONTEXT_DIR} out of {image}: {exc}",
             )
         stale = _context_mismatches(checkout / CANONICAL_CONTEXT_DIR, baked)
+        docs_hash = Path(tmp) / "docs-content-hash"
+        try:
+            copy_from_image(image, CC_AGENT_DOCS_HASH, docs_hash)
+        except (DockerOpsError, OSError) as exc:
+            return HealthResult(
+                name=name, ok=False,
+                detail=f"could not read {CC_AGENT_DOCS_HASH} out of {image}: {exc}",
+            )
+        source_hash = checkout / CANONICAL_DOCS_HASH
+        docs_stale = not source_hash.is_file() or (
+            source_hash.read_bytes() != docs_hash.read_bytes()
+        )
     total = len(CANONICAL_CONTEXT_FILES)
+    n_files = len(stale)
+    if docs_stale:
+        # The Nessie docs snapshot is baked into the cc-agent image alone.
+        stale.append("the Nessie docs snapshot (.content-hash differs)")
     if stale:
         return HealthResult(
             name=name, ok=False,
-            detail=(f"STALE: {image} bakes {len(stale)} of {total} canonical context "
+            detail=(f"STALE: {image} bakes {n_files} of {total} canonical context "
                     f"files unlike the checkout: {', '.join(stale)}. The CC agent "
                     "reads its baked copy until you run: "
                     "./startup.sh rebuild --component cc-agent"),
         )
     return HealthResult(
         name=name, ok=True,
-        detail=f"{image} bakes all {total} canonical context files as the checkout has them",
+        detail=f"{image} bakes all {total} canonical context files and the docs snapshot as the checkout has them",
     )
 
 
@@ -666,6 +760,167 @@ def check_graph_drift(repo_root: Path, env: dict[str, str]) -> HealthResult:
                                _stream_text(result.stdout), _stream_text(result.stderr))
 
 
+# The small tables the drift compares (projects, investigations, people, memberships, every SEEK study's node) are
+# written by the nightly reconcile, so on local and dev, where the drift runs after every rebuild, an edit made in
+# SEEK's own UI since then would read as drift and fail the rebuild until the next nightly. The app container
+# rewrites them right before the drift, with the code an `isa` outbox row runs; production is not asked (cli.py).
+GRAPH_SMALL_TABLES_SERVICE = GRAPH_DRIFT_SERVICE
+GRAPH_SMALL_TABLES_COMMAND = (
+    "uv", "run", "--no-sync", "python", "manage.py", "graph_sync", "--small-tables", "--json",
+    "--trigger", "startup",
+    # The app container's own graph is the live one: the flag says this write means it, as the loop's children do.
+    "--i-mean-the-live-graph",
+)
+GRAPH_SMALL_TABLES_TIMEOUT_S = 300    # Django's start-up, the graph-write lock's 60 s wait and a few hundred rows
+_SMALL_TABLES_SHOWN = (("projects_written", "projects"), ("investigations_written", "investigations"),
+                       ("memberships_written", "memberships"), ("seek_studies", "SEEK studies"))
+
+
+def refresh_graph_small_tables(repo_root: Path, env: dict[str, str]) -> HealthResult:
+    """Ask the app container to rewrite the graph's small tables from SEEK, right before the post-rebuild drift.
+
+    Never red: the drift that follows judges the graph, and this write only spares it a SEEK edit made since the
+    nightly. A refusal (a graph below the writer's version, a graph-write lock another write held) or any failure is
+    a warning that carries the reason. Asked as the drift is, through ``subprocess`` with empty stdin and the exit
+    status kept (``check_graph_drift``), and not at all in a tree with no compose file.
+    """
+    name = "graph small tables"
+    if not (repo_root / "docker-compose.yml").is_file():
+        return HealthResult(
+            name=name, ok=True, warn=True,
+            detail=("skipped: this tree has no docker-compose.yml, so there is no "
+                    f"{GRAPH_SMALL_TABLES_SERVICE} container to ask"),
+        )
+    cmd = ["docker", "compose", "exec", "-T", GRAPH_SMALL_TABLES_SERVICE, *GRAPH_SMALL_TABLES_COMMAND]
+    try:
+        result = subprocess.run(
+            cmd, cwd=str(repo_root), env={**os.environ, **env},
+            input=b"",                 # empty stdin, never the caller's (check_graph_drift)
+            capture_output=True, timeout=GRAPH_SMALL_TABLES_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        return HealthResult(name=name, ok=True, warn=True,
+                            detail=f"timed out after {GRAPH_SMALL_TABLES_TIMEOUT_S}s; the drift below compares the "
+                                   "small tables the nightly wrote")
+    except OSError as exc:
+        return HealthResult(name=name, ok=True, warn=True, detail=f"cannot run docker: {exc}")
+    stdout, stderr = _stream_text(result.stdout), _stream_text(result.stderr)
+    payload = _graph_drift_payload(stdout)
+    if result.returncode == 0:
+        counts = ", ".join(f"{payload[key]} {label}" for key, label in _SMALL_TABLES_SHOWN if key in payload)
+        detail = "rewrote SEEK's small tables before the drift check"
+        return HealthResult(name=name, ok=True, detail=f"{detail}: {counts}" if counts else detail)
+    reason = (payload.get("status") or _last_line(stderr) or _last_line(stdout) or "no output")
+    if result.returncode == 2:
+        return HealthResult(name=name, ok=True, warn=True, detail=f"skipped, nothing written: {reason}")
+    return HealthResult(name=name, ok=True, warn=True,
+                        detail=f"could not rewrite them (exit {result.returncode}): {reason}")
+
+
+# The graph sync health line, on every box, production included. The app container's own
+# manage.py judges the graph_sync tables, so it needs no HTTP login and runs where the smoke suite holds no superuser
+# rights. Exit 0 nothing to fail on, 1 a problem, 3 the tables could not be read, 4 migrations not applied yet.
+GRAPH_SYNC_HEALTH_SERVICE = "nextseek"
+GRAPH_SYNC_HEALTH_COMMAND = (
+    "uv", "run", "--no-sync", "python", "manage.py", "graph_sync_health", "--json",
+)
+GRAPH_SYNC_HEALTH_TIMEOUT_S = 120     # one ask: Django's start-up and two small tables
+GRAPH_SYNC_HEALTH_WAIT_S = 300        # how long a just-recreated container may take to finish `migrate`
+GRAPH_SYNC_HEALTH_POLL_S = 10
+GRAPH_SYNC_HEALTH_NOT_READY = 4
+# Detail lines sit under the text of a printed health line: ui's seven spaces, the mark, a space, then two more.
+GRAPH_SYNC_HEALTH_INDENT = "\n" + " " * 11
+
+
+def _graph_sync_health_payload(stdout: str) -> dict:
+    """The JSON line ``graph_sync_health --json`` printed, or an empty dict. The last such line wins; a line that
+    is not JSON (a library writing to stdout) is passed over."""
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            payload = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def _indented(head: str, lines: list[str]) -> str:
+    return head + "".join(GRAPH_SYNC_HEALTH_INDENT + line for line in lines)
+
+
+def _graph_sync_health_result(name: str, returncode: int, stdout: str, stderr: str,
+                              wait_s: float) -> HealthResult:
+    """Read the command's exit status and its JSON line into one health line."""
+    payload = _graph_sync_health_payload(stdout)
+    verdict = payload.get("verdict")
+    summary = str(payload.get("summary") or "")
+    problems = [str(p) for p in payload.get("problems") or []]
+    warnings = [str(w) for w in payload.get("warnings") or []]
+    if returncode == 0 and verdict == "ok":
+        if warnings:
+            return HealthResult(name=name, ok=True, warn=True,
+                                detail=_indented(f"{summary}; warnings:", warnings))
+        return HealthResult(name=name, ok=True, detail=summary)
+    if returncode == 1 and verdict == "problems":
+        return HealthResult(name=name, ok=False,
+                            detail=_indented(summary, problems + [f"warning: {w}" for w in warnings]))
+    if returncode == 3 and verdict == "unavailable":
+        return HealthResult(name=name, ok=False, detail=summary)
+    if returncode == GRAPH_SYNC_HEALTH_NOT_READY:
+        return HealthResult(name=name, ok=True, warn=True,
+                            detail=(f"skipped: the app container had not applied its migrations after "
+                                    f"{int(wait_s)}s ({summary or 'no detail'}); run `./startup.sh ci` once it "
+                                    "is up"))
+    if "Unknown command" in stderr:
+        return HealthResult(name=name, ok=True, warn=True,
+                            detail=("skipped: the running app image has no graph_sync_health command, so it "
+                                    "predates this check; rebuild the app"))
+    return HealthResult(name=name, ok=False,
+                        detail=(f"graph_sync_health could not complete (exit {returncode}): "
+                                f"{_last_line(stderr) or _last_line(stdout) or 'no output'}"))
+
+
+def check_graph_sync_health(repo_root: Path, env: dict[str, str], *,
+                            wait_s: float = GRAPH_SYNC_HEALTH_WAIT_S, poll_s: float = GRAPH_SYNC_HEALTH_POLL_S,
+                            sleep=time.sleep, clock=time.monotonic) -> HealthResult:
+    """How the graph sync is doing, asked of the app container. Reads only.
+
+    Not through ``compose_exec``, like ``check_graph_drift``: the exit status is the verdict and stdout its detail.
+    A container still running its entrypoint's ``migrate`` answers 4 and is asked again every ``poll_s`` seconds for
+    up to ``wait_s``. A red line is advisory in ``rebuild`` and fails ``ci`` after the suite (``startup/cli.py``).
+    """
+    name = "graph sync health"
+    if not (repo_root / "docker-compose.yml").is_file():
+        return HealthResult(
+            name=name, ok=True, warn=True,
+            detail=("skipped: this tree has no docker-compose.yml, so there is no "
+                    f"{GRAPH_SYNC_HEALTH_SERVICE} container to ask"),
+        )
+    cmd = ["docker", "compose", "exec", "-T", GRAPH_SYNC_HEALTH_SERVICE, *GRAPH_SYNC_HEALTH_COMMAND]
+    deadline = clock() + wait_s
+    while True:
+        try:
+            # Empty stdin, never the caller's: `exec -T` swallows whatever it is given (check_graph_drift).
+            result = subprocess.run(cmd, cwd=str(repo_root), env={**os.environ, **env}, input=b"",
+                                    capture_output=True, timeout=GRAPH_SYNC_HEALTH_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            return HealthResult(
+                name=name, ok=False,
+                detail=(f"timed out after {GRAPH_SYNC_HEALTH_TIMEOUT_S}s; run `docker compose exec "
+                        f"{GRAPH_SYNC_HEALTH_SERVICE} {' '.join(GRAPH_SYNC_HEALTH_COMMAND)}` by hand"),
+            )
+        except OSError as exc:
+            return HealthResult(name=name, ok=False, detail=f"cannot run docker: {exc}")
+        if result.returncode != GRAPH_SYNC_HEALTH_NOT_READY or clock() >= deadline:
+            return _graph_sync_health_result(name, result.returncode, _stream_text(result.stdout),
+                                             _stream_text(result.stderr), wait_s)
+        sleep(poll_s)
+
+
 def check_seek_url_consistency(
     repo_root: Path, state, env: dict[str, str]
 ) -> HealthResult:
@@ -725,6 +980,57 @@ def check_seek_url_consistency(
     return HealthResult(name=name, ok=True, detail=f"{in_seek} (env, instance and SEEK agree)")
 
 
+_DOLLAR_REF = re.compile(r"^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))$")
+_ENV_FILES = (("docker/nextseek.env", "nextseek.env"), ("docker/db.env", "db.env"), (".env", "root.env"))
+
+
+def check_env_registry(repo_root: Path) -> HealthResult:
+    """Advisory: the rendered env files against startup/env_registry.toml (#103).
+
+    Reports key names only, never a value. Always ``ok``; a finding sets ``warn``, so it
+    never changes a rebuild's exit code. A value that is exactly ``$NAME`` or ``${NAME}``
+    is resolved against its own file first; the root .env doubles its ``$``.
+    """
+    from startup.lib.env_registry import load
+
+    name = "env registry"
+    registry = load()
+    files = {tag: read_env(repo_root / rel) for rel, tag in _ENV_FILES if (repo_root / rel).is_file()}
+    if not files:
+        return HealthResult(name=name, ok=True, detail="docker env files not rendered, nothing to check")
+
+    def value(tag: str, key: str) -> str:
+        v = files[tag][key]
+        if tag == "root.env":
+            v = v.replace("$$", "$")
+        m = _DOLLAR_REF.match(v)
+        return files[tag].get(m.group(1) or m.group(2), v) if m else v
+
+    findings: list[str] = []
+    for tag, env in files.items():
+        unknown = sorted(k for k in env if k not in registry)
+        forbidden = sorted(k for k in env if k in registry and registry[k].forbidden)
+        absent = sorted(k for k, e in registry.items() if e.required and tag in e.files and k not in env)
+        unset = sorted(k for k, e in registry.items() if e.required and tag in e.files and k in env
+                       and env[k].strip() in ("", "SET_IN_LOCAL_ENV"))
+        for label, keys in (("unknown key", unknown), ("forbidden key", forbidden),
+                            ("required key missing", absent), ("required key not filled in", unset)):
+            if keys:
+                findings.append(f"{tag}: {label} {', '.join(keys)}")
+    for key, entry in registry.items():
+        if not entry.alias_of:
+            continue
+        seen = {value(t, k) for t in files for k in (key, entry.alias_of) if k in files[t]}
+        if len(seen - {""}) > 1:
+            findings.append(f"{key} and {entry.alias_of} differ")
+    if not findings:
+        return HealthResult(name=name, ok=True, detail="rendered env files match the registry")
+    return HealthResult(
+        name=name, ok=True, warn=True,
+        detail="; ".join(findings) + " (startup/env_registry.toml; advisory, names only)",
+    )
+
+
 def run_all_health_checks(
     ports: dict[str, int], repo_root: Path, env: dict[str, str]
 ) -> list[HealthResult]:
@@ -740,6 +1046,8 @@ def run_all_health_checks(
         check_cc_services(repo_root, env),
         check_first_party_images(env.get("COMPOSE_PROJECT_NAME", "nextseek")),
         check_cc_runner(repo_root, env),
+        check_env_registry(repo_root),
+        check_nginx_config(repo_root, env),
     ]
     return results
 
@@ -764,4 +1072,6 @@ def run_app_health_checks(
         # cc-agent, so it is the one that most needs to be told the image is gone.
         check_first_party_images(env.get("COMPOSE_PROJECT_NAME", "nextseek")),
         check_cc_runner(repo_root, env),
+        check_env_registry(repo_root),
+        check_nginx_config(repo_root, env),
     ]

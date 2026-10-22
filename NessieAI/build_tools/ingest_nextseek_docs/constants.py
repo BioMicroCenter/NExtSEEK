@@ -8,12 +8,9 @@ from NessieAI import paths
 BEGIN_MARKER = "<!-- BEGIN NEXTSEEK-DOCS (auto-generated) -->"
 END_MARKER = "<!-- END NEXTSEEK-DOCS (auto-generated) -->"
 
-DEFAULT_DOC_URL = (
-    "https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/"
-    "~gitbook/site-index"
-)
+DEFAULT_SOURCE = paths.repo_relative(paths.REPO_ROOT / "themes" / "NextSeek" / "docs")
 
-# Repo-relative, so they resolve against the working directory exactly as
+# The source and outputs are repo-relative, so they resolve against the working directory exactly as
 # before the move: run the CLI from the checkout root.
 DEFAULT_DOCS_DIR = Path(paths.repo_relative(paths.CC_RUNTIME_DIR / "docs" / "nextseek"))
 DEFAULT_CLAUDE_MD_PATH = Path(

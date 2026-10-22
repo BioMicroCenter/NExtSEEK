@@ -53,7 +53,7 @@ COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
 # PORT_SOURCE_PATH_RECORDED is a plain string used ONLY to cross-check what
 # PORT-EVIDENCE.json records -- no test touches that filesystem path (it is
 # not mounted in the mandated hermetic harness container).
-PORT_SOURCE_PATH_RECORDED = "/home/taishajo/work/dmac-assistant/sidecar"
+PORT_SOURCE_PATH_RECORDED = "<source-checkout>/sidecar"
 PORT_SOURCE_COMMIT = "a429f1372a075e5db586a1b6efc8c3b1663e211a"
 
 APP_MODULES = (
@@ -88,14 +88,14 @@ PINNED_SOURCE_SHA256 = {
     "__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "app/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "app/config.py": "2e79ac3f162df3fb1782be583db775da2faa3890378ecd582922603766ffc9df",
-    "app/contract.py": "bf027c93c5070ecaea5e3df5860909f8803b1bfbc72407abdb641c8661d806d6",
-    "app/exceptions.py": "172d216e9c7373a491007c2eb4b39992b863c78f383f8a4cbd07a76a3ec8b0fb",
-    "app/granular_models.py": "2ad5fa6c7b003579294ffa28e3ab21b963b9b7393aff7ce3776c3b38715b4f0c",
+    "app/contract.py": "0e1813d5d5d0c7e5bb74d7a23b83d764f1455f9733db8cff3fa52c8b4e091dd0",
+    "app/exceptions.py": "ecd217b0a353c1ce400b8bfcad5c76c28485e354f14b05012ec991c6e21c6068",
+    "app/granular_models.py": "ca8ea3088d607c06b4176609f193da9e3691385f470a2baa1ac3ad804bac55ef",
     "app/healthcheck.py": "bb0bb5db69201a895ea6c55bad3f74142971a550c167e9e0b8b99c2b1dfb8ba3",
-    "app/ns_client.py": "e565dea4c67bccb1fcccc14356b0c1988b1cd0e4f9f4606e7c06a519b0f59ae5",
-    "app/ops.py": "ee0cc7acff1c18d84a2ddcc7d337cf5153f935a2b11cce2833cae33149f319c5",
-    "app/server.py": "dd2a9266dba4fb61287c1b18eb1fb639408abedb6dbd3a2fddf69a5113f3c17b",
-    "app/staging.py": "8e967dc65311628794c043fec22bbe03c1a4c98f4836c3e74d73ec54bca6e24b",
+    "app/ns_client.py": "649c36f54f47918fbdd11eb887d9d9919f013d74cb99d4fd7e394ca8a94f3803",
+    "app/ops.py": "a8a6efda01f1e28f457adcb0b350d4a2c601a5d80c78334f665906ed68d498d2",
+    "app/server.py": "f778f274a64e90fef1b7f094515dacccf0ea6be925791562967c8f1d8eda3474",
+    "app/staging.py": "8af94adc7a2c1b452d3f698517a140404a5bd381d639c9be1563e0da32acc168",
     "app/write_gate.py": "86ec8f617cd287d89b35856307bd7a04fdd0bdafc4edbc789391eb69ce4b788e",
 }
 
@@ -227,12 +227,14 @@ def test_server_py_redacts_credentials_in_repr():
     api_user/api_pass through accidental logging of the config object."""
     text = _read(SIDECAR_DIR / "app" / "server.py")
     assert "<redacted>" in text
-    assert "auth=('<redacted>', '<redacted>')" in text
+    assert "turn_pass='<redacted>'" in text
 
 
-def test_staging_py_hashes_api_user_never_stores_raw_username():
+def test_staging_py_names_the_folder_by_the_pass_hash_never_the_username():
+    """Ruling R1: the drop folder is the hash of the turn pass; the frame's api_user never names a path."""
     text = _read(SIDECAR_DIR / "app" / "staging.py")
-    assert "hashlib.sha256(api_user.encode" in text
+    assert "hashlib.sha256(turn_pass.encode" in text
+    assert "api_user" not in text
 
 
 def test_ops_py_commits_bytes_exactly_once_outside_the_artifact_loop():

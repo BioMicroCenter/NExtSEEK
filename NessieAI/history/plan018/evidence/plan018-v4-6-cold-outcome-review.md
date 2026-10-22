@@ -2,7 +2,7 @@
 
 **Reviewer:** independent cold agent (no implementer conversation history)  
 **Date:** 2026-08-12  
-**Worktree:** `/home/taishajo/work/NExtSEEK-plan018` @ `ultraplan/hibayes-eval-routing`  
+**Worktree:** `/home/<user>/work/NExtSEEK-plan018` @ `ultraplan/hibayes-eval-routing`  
 **Base:** `0a5b052a` (V4-5 vault-sync DONE)  
 **HEAD:** `85d2660a` + uncommitted V4-6 WIP (`dirty_diff_sha256` 47f6de0d…)  
 **deploydocs:** local V4-6 progress update (not pushed)

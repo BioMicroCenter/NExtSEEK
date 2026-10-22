@@ -21,12 +21,15 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from nextseek_api.permissions import IsSuperUser
-from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
+from nextseek_api.assistant.turn_pass_auth import TurnPassAuthentication
+from nextseek_api.graph_search.scope import resolve_scope
+from nextseek_api.services.assistant import SeekSessionAuthentication
 
 from .celery_app import app as celery_app
-from .job_index import list_jobs, register_job, user_owns_job
+from nextseek_api.throttles import UPLOAD_THROTTLES
+from .job_index import list_jobs, register_job, state_dir, user_owns_job
 from .models import InputRowModel, ValidationResult
-from .tasks import run_batch_upload_task
+from .tasks import cancel_marker_path, run_batch_upload_task
 from .validation import run_validation_multi
 from nextseek_api.endpoint_descriptions import (
     BATCH_UPLOAD_START_DESC,
@@ -52,7 +55,7 @@ class BatchUploadStartRequest(BaseModel):
             "List of InputRowModel objects for direct programmatic upload. "
             "Bypasses Excel file parsing. Each object must have at minimum: "
             "SampleType (str), json_metadata (str or dict). "
-            "Optional: UID, assay_ids, project_id (overrides top-level), "
+            "Optional: UID, assay_ids, project_id (must match the top-level project_id), "
             "study_title, study_id, sop_id, assay_titles."
         ),
     )
@@ -100,7 +103,9 @@ class BatchUploadViewSet(viewsets.ViewSet):
     and provides status tracking, cancellation, and result download.
     """
 
-    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
+    # The turn pass first (spec piece 1); its allow table opens only validate/ to it.
+    authentication_classes = [TurnPassAuthentication, TokenAuthentication, SeekSessionAuthentication,
+                              BasicAuthentication]
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
@@ -160,7 +165,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
         },
         description=BATCH_UPLOAD_START_DESC,
     )
-    @action(detail=False, methods=["post"], url_path="start")
+    @action(detail=False, methods=["post"], url_path="start", throttle_classes=UPLOAD_THROTTLES)
     def start(self, request):
         """POST /api/batch-upload/start/ -- dispatch a batch upload job.
 
@@ -172,7 +177,6 @@ class BatchUploadViewSet(viewsets.ViewSet):
         """
         uploaded_files = request.FILES.getlist("file")
         raw_rows = request.data.get("rows")
-        xlsx_paths = []
         validated_rows = None
         input_warnings = []
 
@@ -215,8 +219,6 @@ class BatchUploadViewSet(viewsets.ViewSet):
                     {"detail": f"Total upload size ({mb_actual:.1f} MB) exceeds limit ({mb_limit:.0f} MB)."},
                     status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 )
-            for uf in uploaded_files:
-                xlsx_paths.append(_save_uploaded_file(uf))
 
         # ── Neither provided ──
         else:
@@ -240,6 +242,11 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # SEC-001: a caller uploads only into a project they belong to; a superuser into any.
+        scope_project_ids = _caller_project_scope(request.user)
+        if scope_project_ids is not None and project_id not in scope_project_ids:
+            return _not_a_member(project_id)
+
         # config_overrides + update_existing handling
         config_overrides = request.data.get("config_overrides", {})
         if isinstance(config_overrides, str):
@@ -254,6 +261,13 @@ class BatchUploadViewSet(viewsets.ViewSet):
                         {"detail": "config_overrides must be a JSON object"},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
+
+        # Pipeline tunables, the access grant among them, are not the caller's to change unless a superuser.
+        if scope_project_ids is not None:
+            config_overrides = (
+                {k: v for k, v in config_overrides.items() if k in _MEMBER_OVERRIDES}
+                if isinstance(config_overrides, dict) else {}
+            )
 
         update_existing = request.data.get("update_existing")
         if update_existing is not None:
@@ -300,12 +314,18 @@ class BatchUploadViewSet(viewsets.ViewSet):
 
         if input_warnings:
             config_overrides["_input_warnings"] = input_warnings
+        rows = [r.model_dump() for r in validated_rows] if validated_rows is not None else None
+        # Saved last, after every check that can refuse the request, so a refusal leaves no file behind.
+        xlsx_paths = None if rows is not None else [_save_uploaded_file(uf) for uf in uploaded_files]
         job_id = dispatch_batch_job(
             user_pk=request.user.pk, user_ctx=user_ctx, lababbv=effective_lababbv,
             project_id=project_id, config_overrides=config_overrides,
-            neo4j_only=neo4j_only,
-            rows=[r.model_dump() for r in validated_rows] if validated_rows is not None else None,
-            xlsx_paths=xlsx_paths if validated_rows is None else None)
+            neo4j_only=neo4j_only, scope_project_ids=scope_project_ids,
+            rows=rows, xlsx_paths=xlsx_paths)
+        log.info(
+            "batch upload queued job=%s user=%s project=%s rows=%d files=%d",
+            job_id, request.user.pk, project_id, len(rows or ()), len(xlsx_paths or ()),
+        )
 
         return Response(
             {"job_id": job_id, "status": "queued"},
@@ -439,6 +459,11 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # SEC-001: validate only against a project the caller belongs to, as /start/ requires.
+        scope_project_ids = _caller_project_scope(request.user)
+        if scope_project_ids is not None and project_id not in scope_project_ids:
+            return _not_a_member(project_id)
+
         # ── Mode 1: Direct rows (JSON, checked first -- rows wins) ──
         if raw_rows is not None:
             from pydantic import ValidationError as PydanticValidationError
@@ -543,7 +568,11 @@ class BatchUploadViewSet(viewsets.ViewSet):
             response["result"] = result.result
             totals = payload.get("totals") or {}
             errors = payload.get("errors") or []
-            if totals.get("error") or errors:
+            # Only advisory errors leave a job succeeded; a missing severity is blocking.
+            blocking = [e for e in errors if e.get("severity") not in ("WARNING", "INFO")]
+            if totals.get("cancelled"):
+                response["job_status"] = "cancelled"
+            elif totals.get("error") or totals.get("failed") or blocking:
                 response["job_status"] = "failed"
                 response["error"] = totals.get("error") or "Job completed with errors"
                 response["errors"] = errors
@@ -566,6 +595,9 @@ class BatchUploadViewSet(viewsets.ViewSet):
         denied = self._check_ownership(request, job_id)
         if denied:
             return denied
+        marker = cancel_marker_path(job_id)
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        open(marker, "a").close()
         celery_app.control.revoke(job_id, terminate=True)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -645,12 +677,12 @@ class BatchUploadViewSet(viewsets.ViewSet):
 
 # ── helpers ───────────────────────────────────────────────────────────────
 
-_UPLOAD_DIR = "batch_upload_uploads"
+_UPLOAD_DIR = "uploads"
 
 
 def _save_uploaded_file(uploaded_file) -> str:
-    """Save an uploaded Django file to MEDIA_ROOT/batch_upload_uploads/ and return the path."""
-    upload_dir = os.path.join(getattr(settings, "MEDIA_ROOT", "/tmp"), _UPLOAD_DIR)
+    """Save an uploaded Django file to <state_dir>/uploads/ (the durable volume) and return the path."""
+    upload_dir = os.path.join(state_dir(), _UPLOAD_DIR)
     os.makedirs(upload_dir, exist_ok=True)
     safe_name = os.path.basename(getattr(uploaded_file, "name", "upload.xlsx") or "upload.xlsx")
     filename = f"{int(time.time())}_{safe_name}"
@@ -662,7 +694,7 @@ def _save_uploaded_file(uploaded_file) -> str:
 
 
 def dispatch_batch_job(*, user_pk: int, user_ctx: dict, lababbv: str, project_id: int,
-                       config_overrides: dict, neo4j_only: bool = False,
+                       config_overrides: dict, scope_project_ids, neo4j_only: bool = False,
                        rows: list[dict] | None = None,
                        xlsx_paths: list[str] | None = None) -> str:
     """Queue one batch-upload job and register it to its owner. Returns the job id.
@@ -671,14 +703,20 @@ def dispatch_batch_job(*, user_pk: int, user_ctx: dict, lababbv: str, project_id
     upload-reingest op both call it, so ownership registration and the
     contributor identity cannot drift between them. Exactly one of rows or
     xlsx_paths: the endpoint lets rows silently win over files, and a caller
-    here must never be able to send both.
+    here must never be able to send both. ``scope_project_ids`` is the
+    caller's project scope from ``_caller_project_scope`` (SEC-001): None for
+    a superuser, else the ids; it has no default, so no caller can forget it,
+    and a project outside it is refused here, before anything is queued.
     """
     if (rows is None) == (xlsx_paths is None):
         raise ValueError("exactly one of rows or xlsx_paths")
+    if scope_project_ids is not None and project_id not in scope_project_ids:
+        raise PermissionError(f"not a member of project {project_id}")
     task_kwargs = dict(
         project_id=project_id, contributor_id=user_ctx["contributor_id"],
         lababbv=lababbv, user_id=user_pk, config_overrides=config_overrides,
-        neo4j_only=neo4j_only)
+        neo4j_only=neo4j_only,
+        scope_project_ids=None if scope_project_ids is None else list(scope_project_ids))
     if rows is not None:
         task_kwargs["rows"] = rows
     else:
@@ -751,6 +789,31 @@ def stage_workbook_copy(path: str) -> str:
     return dest
 
 
+# The only config_overrides key anyone may send; every other tunable (the access grant among them) is a
+# superuser's alone (SEC-001). An allowlist, so a tunable added to BatchUploadConfig later stays closed.
+_MEMBER_OVERRIDES = frozenset({"update_existing"})
+
+
+def _caller_project_scope(user):
+    """The SEEK projects ``user`` may upload into: ``None`` for a superuser (any project), else a tuple of ids.
+
+    Fails closed: a caller with no SEEK person, or a membership read that fails, gets ``()`` (no project).
+    """
+    try:
+        scope = resolve_scope(user)
+    except Exception as exc:  # noqa: BLE001 (ScopeUnavailable or a database error: refuse, never widen)
+        log.warning("batch upload: project membership could not be read (%s); refusing", type(exc).__name__)
+        return ()
+    return None if scope.is_admin else scope.project_ids
+
+
+def _not_a_member(project_id: int) -> Response:
+    return Response(
+        {"detail": f"You are not a member of project {project_id}."},
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
 def _resolve_user_context(request) -> dict | None:
     """Resolve contributor_id and lababbv from the authenticated user.
 
@@ -774,6 +837,12 @@ def _resolve_user_context(request) -> dict | None:
         from seek.models import Users
 
         creds, _headers = resolve_seek_auth(request)
+        # SEC-008: DRF authenticates the session before a Basic header, and nothing here checks that
+        # header's password, so a credential naming another login would file the upload under that
+        # person. Only the authenticated user's own login counts.
+        if creds is not None and creds[0] != getattr(request.user, "username", None):
+            log.warning("batch upload: ignoring a credential for a login other than the authenticated user")
+            creds = None
         if creds is not None:
             _auth_creds = creds
             username, _password = creds

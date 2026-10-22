@@ -9,11 +9,11 @@ from typing import Callable
 
 from NessieAI.build_tools.ingest_nextseek_docs.constants import (
     DEFAULT_CLAUDE_MD_PATH,
-    DEFAULT_DOC_URL,
+    DEFAULT_SOURCE,
     DEFAULT_DOCS_DIR,
 )
 from NessieAI.build_tools.ingest_nextseek_docs.fetch import (
-    load_gitbook_markdown_corpus,
+    load_repo_docs_corpus,
 )
 from NessieAI.build_tools.ingest_nextseek_docs.hashing import (
     compute_content_hash,
@@ -39,14 +39,14 @@ def ingest(
     *,
     docs_dir: Path,
     claude_md_path: Path,
-    doc_url: str,
+    source: str,
     force: bool,
-    loader: Callable[[str], str] = load_gitbook_markdown_corpus,
+    loader: Callable[[str], str] = load_repo_docs_corpus,
 ) -> int:
     """Run the full ingestion pipeline and return an exit code."""
     try:
         snapshot = _load_stable_snapshot(
-            doc_url=doc_url,
+            source=source,
             loader=loader,
         )
         if snapshot is None:
@@ -71,7 +71,7 @@ def ingest(
             section_path = docs_dir / f"{section.ordinal:02d}-{section.slug}.md"
             section_path.write_text(section.body)
 
-        readme = render_readme(sections, doc_url, content_hash)
+        readme = render_readme(sections, source, content_hash)
         (docs_dir / "README.md").write_text(readme)
 
         overview = _extract_overview_paragraph(sections)
@@ -100,7 +100,7 @@ class _Snapshot:
 
 def _load_stable_snapshot(
     *,
-    doc_url: str,
+    source: str,
     loader: Callable[[str], str],
 ) -> _Snapshot | None:
     """Load the source corpus until the section snapshot repeats, or give up."""
@@ -109,11 +109,11 @@ def _load_stable_snapshot(
     for attempt in range(1, MAX_STABILITY_ATTEMPTS + 1):
         logger.info(
             "Loading source from %s (attempt %d/%d)",
-            doc_url,
+            source,
             attempt,
             MAX_STABILITY_ATTEMPTS,
         )
-        raw_markdown = loader(doc_url)
+        raw_markdown = loader(source)
         logger.info("Loaded %d characters of markdown", len(raw_markdown))
         sections = split_by_h1(raw_markdown)
         if not sections:
@@ -183,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser = argparse.ArgumentParser(
         prog="ingest_nextseek_docs",
-        description="Fetch NExtSEEK GitBook, split, and regenerate docs.",
+        description="Read the in-repo NExtSEEK docs, split, and regenerate docs.",
     )
     parser.add_argument(
         "--force",
@@ -191,9 +191,9 @@ def main(argv: list[str] | None = None) -> int:
         help="regenerate even if the content hash matches",
     )
     parser.add_argument(
-        "--doc-url",
-        default=DEFAULT_DOC_URL,
-        help=f"source URL (default: {DEFAULT_DOC_URL})",
+        "--source",
+        default=DEFAULT_SOURCE,
+        help=f"source docs dir (default: {DEFAULT_SOURCE})",
     )
     parser.add_argument(
         "--docs-dir",
@@ -211,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
     return ingest(
         docs_dir=args.docs_dir,
         claude_md_path=args.claude_md_path,
-        doc_url=args.doc_url,
+        source=args.source,
         force=args.force,
     )
 

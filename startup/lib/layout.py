@@ -33,13 +33,33 @@ CHAT_NEXTSEEK_DIR = Path("NessieAI") / "chat_nextseek"
 # `cc-agent context` is what notices when the second one was skipped.
 CANONICAL_CONTEXT_DIR = CHAT_NEXTSEEK_DIR / "src" / "chat_nextseek" / "context"
 CC_AGENT_CONTEXT_DIR = "/app/plugins/nextseek/context"
+# Nessie's user-docs snapshot (generated from themes/NextSeek/docs/ by
+# NessieAI/build_tools/ingest_nextseek_docs) is baked into the cc-agent image
+# only; its .content-hash stands for the whole snapshot.
+CANONICAL_DOCS_HASH = Path("NessieAI") / "docker" / "cc-runtime" / "docs" / "nextseek" / ".content-hash"
+CC_AGENT_DOCS_HASH = "/app/docs/nextseek/.content-hash"
 CANONICAL_CONTEXT_FILES = (
     "capabilities.md",
     "min_api_endpoints.json",
     "min_api_endpoints_enriched.json",
-    "min_assays_db.json",
     "min_sampletypes_db.json",
     "projects_db.json",
+    "ONTOLOGIES.json",
+    "ontology_species.json",
+    "ontology_sex.json",
+    "ontology_organ.json",
+    "ontology_disease.json",
+    "ontology_units.json",
+    "ontology_mouse_genotype.json",
+    "ontology_mouse_strain.json",
+    "ontology_library_strategy.json",
+    "ontology_library_source.json",
+    "ontology_library_selection.json",
+    "ontology_library_layout.json",
+    "ontology_extracted_molecule.json",
+    "ontology_instrument_model.json",
+    "ontology_file_format.json",
+    "ontology_genome_assembly.json",
 )
 
 

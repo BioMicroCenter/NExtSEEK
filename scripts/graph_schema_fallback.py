@@ -24,6 +24,11 @@ Run it inside the app container, which has the driver and the Neo4j environment,
 
     docker exec -i nextseek /app/.venv/bin/python - --out /tmp/graph-fallback < scripts/graph_schema_fallback.py
     docker cp nextseek:/tmp/graph-fallback/. NessieAI/chat_nextseek/src/chat_nextseek/context/
+
+The names it leaves out and the Sample system properties it adds are the graph contract's
+(``nextseek_graph/schema.py``). Fed over stdin, as above, it imports ``nextseek_graph`` from its working directory,
+which the ``docker exec`` line's default makes the image's checkout; so the image must be built from a commit that has
+``nextseek_graph/``. Run by its file path, it puts its own checkout root on ``sys.path`` first.
 """
 from __future__ import annotations
 
@@ -36,14 +41,25 @@ from pathlib import Path
 
 from neo4j import READ_ACCESS, GraphDatabase, unit_of_work
 
-try:  # the guard's own list, so the fallback and the guard name the same system properties
-    from chat_nextseek.agents.graph import V12_SYSTEM_PROPERTIES
-except ImportError:  # outside the app image: the same set, docs/neo4j-schema.md v1.1 and v1.2
-    V12_SYSTEM_PROPERTIES = frozenset({"id", "uuid", "type", "title", "project_ids", "search_text", "synced_at",
-                                       "source_hash", "parent_titles", "parent_title_hashes"})
+_HERE = globals().get("__file__") or "<stdin>"
+if not _HERE.startswith("<"):  # run by its path: its own checkout root first, as ci/gate/writer_scan.py does
+    _ROOT = str(Path(_HERE).resolve().parents[1])
+    if _ROOT not in sys.path:
+        sys.path.insert(0, _ROOT)
+try:
+    from nextseek_graph import schema
+except ModuleNotFoundError as exc:
+    if exc.name != "nextseek_graph":
+        raise
+    raise SystemExit("graph_schema_fallback.py needs the graph contract, nextseek_graph/: run it from the NExtSEEK "
+                     "checkout root, and in a container from an app image built from a commit that has "
+                     "nextseek_graph/") from exc
+
+# The Sample system properties of the contract's 1.1 and 1.2 groups, which the graph agent's guard allows too.
+V12_SYSTEM_PROPERTIES = schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12
 
 TIMEOUT_S = 300
-NOT_QUERIED = ("GraphMeta",)  # graph_sync's bookkeeping node; no question reads it
+NOT_QUERIED = (schema.GRAPH_META,)  # graph_sync's bookkeeping node; no question reads it
 
 META = "MATCH (m:GraphMeta) RETURN m.schema_version AS version, m.catalog_hash AS hash, m.synced_at AS synced"
 LABELS = "CALL db.labels() YIELD label RETURN label ORDER BY label"

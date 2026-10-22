@@ -16,6 +16,7 @@ from drf_spectacular.utils import extend_schema, OpenApiExample
 from pydantic import ValidationError
 
 from nextseek_api.helpers import resolve_seek_auth
+from nextseek_api.permissions import IsSuperUser
 from nextseek_api.endpoint_descriptions import SCHEMA_RAG_INGEST_DESC, SCHEMA_RAG_RETRIEVE_DESC
 from nextseek_api.models import (
     IngestRequest,
@@ -24,7 +25,7 @@ from nextseek_api.models import (
     RetrieveRequest,
     RetrieveResponse,
 )
-from NessieAI.schema_rag import service as schema_rag_service
+from NessieAI.schema_rag import schema_processor, service as schema_rag_service
 from NessieAI.schema_rag.errors import (
     SCHEMA_FETCH_FAILED,
     SCHEMA_TOO_LARGE,
@@ -74,6 +75,7 @@ class SchemaRAGViewSet(viewsets.ViewSet):
             201: IngestResponse,
             400: {"description": "Schema too large - exceeds maximum endpoint limit"},
             401: {"description": "Authentication required"},
+            403: {"description": "Superuser access required"},
             422: {"description": "Invalid request payload"},
             502: {"description": "Failed to fetch or parse schema from URL"},
         },
@@ -100,7 +102,9 @@ class SchemaRAGViewSet(viewsets.ViewSet):
             ),
         ],
     )
-    @action(detail=False, methods=["post"], url_path="ingest")
+    # Ingesting fetches a caller-named URL from inside the app container: superuser only.
+    @action(detail=False, methods=["post"], url_path="ingest",
+            permission_classes=[IsAuthenticated, IsSuperUser])
     def ingest(self, request):
         """
         Ingest an OpenAPI schema from a URL.
@@ -154,6 +158,7 @@ class SchemaRAGViewSet(viewsets.ViewSet):
         responses={
             200: RetrieveResponse,
             401: {"description": "Authentication required"},
+            403: {"description": "Superuser access required to name a schema_url other than this instance's own schema"},
             422: {"description": "Invalid request payload"},
         },
         tags=['Schema RAG'],
@@ -323,10 +328,20 @@ class SchemaRAGViewSet(viewsets.ViewSet):
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY
             )
 
-        # 3. Call schema_rag_service.retrieve_endpoints(req)
+        # 3. A schema_url is ingested when no live session holds it, and ingesting is superuser only.
+        #    This instance's own schema is built in process, so any caller may name it.
+        if (req.schema_url and not request.user.is_superuser
+                and not schema_processor.is_self_schema_url(req.schema_url)):
+            return Response(
+                {"detail": "Superuser access required to retrieve by a schema_url other than this "
+                           "instance's own schema; retrieve by session_id instead."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # 4. Call schema_rag_service.retrieve_endpoints(req)
         response: RetrieveResponse = schema_rag_service.retrieve_endpoints(req)
 
-        # 4. Return serialized RetrieveResponse
+        # 5. Return serialized RetrieveResponse
         # Use mode='json' to properly serialize datetime and other types
         return Response(
             response.model_dump(mode='json', exclude_none=True),

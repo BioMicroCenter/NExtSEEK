@@ -7,7 +7,6 @@ from .seekdb import SeekDB
 from .models import Data_files
 from .models import Projects
 from dmac.dbtable import DBtable
-from dmac.conversion import handle_uploaded_file, correctFileName, getFileChecksum, verifyFileChecksum
 
 from django.conf import settings
 from django import forms
@@ -39,12 +38,6 @@ CATEGORY_CHOICES = (
 )
   
 DATAFILE_ERRORCODE = {
-    '001': 'Error: User not logged in.',
-    '101': 'Warning: File already uploaded in Seek thus no update.',
-    '201': 'Error: Data file UID not in right format: ',
-    '202': 'Error: Data file uploading into datafile table failed: ',
-    '203': 'Error: Data file uploading into content_blob table failed: ',
-    '204': 'Warning: Data file and sample association not saved correctly into DB: ',
     '301': 'Error: Data file UID not in right format: ',
     '302': 'Error: Data file UID not found in DB: ',
     '303': 'Error: More than one data file found for the UID: ',
@@ -95,22 +88,9 @@ class DBtable_data_files(DBtable):
         self.formDefault = BATCHSEARCHFORM_DEFAULT
         self.formMapping = BATCHSEARCHFORM_MAPPING
     
-    def __getUID(self, lababbv, filename, nassets=0, sample_uid=None):
-        if sample_uid in filename:
-            uid = filename
-        else:
-            uid = sample_uid + DATA_FILE_UID_DELIMITER + filename    
-        return uid
-
     def __defineUploadFilename(self, username, infilename, uid):
         outfilename = uid
         return outfilename
-    
-    def __getWeblink(self, uid):
-        url = "/seek/datafile/uid=" + uid + "/"
-        weburl = settings.SEEK_DATAFILE_SERVER + url
-        weblink = '<a href="' + url + '" target="_blank">' + weburl + '</a>'
-        return weblink, weburl
     
     def __getUploadPath(self, creator):
         projectname = creator['projectname']
@@ -184,199 +164,6 @@ class DBtable_data_files(DBtable):
         fileInfo['fullfilename'] = fullfilename
         return fileInfo
     
-    def __defineUploadPath(self, creator, originalfilename, nassets=0, sample_uid=None):
-        infilename_corrected = correctFileName(originalfilename)
-        username = None 
-        lababbv, upload_full_path = self.__getUploadPath(creator)
-        pid = 0
-        uid = self.__getUID(lababbv, infilename_corrected, nassets, sample_uid)
-        outfilename = self.__defineUploadFilename(username, infilename_corrected, uid)
-            
-        weblink, weburl = self.__getWeblink(uid)
-        dfrecord = {}
-        dfrecord['id'] = pid
-        dfrecord['uid'] = uid
-        dfrecord['originalname'] = originalfilename
-        dfrecord['weburl'] = weblink               
-        dfrecord['fileurl'] = weburl                 
-        dfrecord['notes'] = ''
-        dfrecord['outfilename'] = outfilename
-        dfrecord['upload_full_path'] = upload_full_path
-        fullfilename = os.path.join(upload_full_path, outfilename)
-        dfrecord['fullfilename'] = fullfilename
-        return dfrecord
-    
-    def __getSeeklink(self, originalfilename, datafile_id):
-        seek_url = settings.SEEK_PUBLIC_URL + "/data_files/" + str(datafile_id)
-        seeklink = '<a href="' + seek_url + '" target="_blank">' + originalfilename + '</a>'
-        return seeklink
-    
-    def __defineDatafile(self, creator, originalfilename, sample_uid):
-        dbcb = DBtable_content_blobs("DEFAULT")
-        asset_id, asset_type, asset_version, nassets = dbcb.searchFile(originalfilename, 'DataFile')
-        dfrecord = self.__defineUploadPath(creator, originalfilename, nassets, sample_uid)
-        return asset_id, asset_type, dfrecord
-    
-    def __searchDatafile(self, creator, originalfilename, sample_uid):
-        asset_id, asset_type, dfrecord = self.__defineDatafile(creator, originalfilename, sample_uid)
-        if asset_id is not None and asset_type=='DataFile':
-            record = self.getOneRecord(asset_id)
-            contributor_id = None
-            if 'contributor_id' in record:
-                contributor_id = record['contributor_id']
-                
-            if contributor_id is not None and int(contributor_id)==creator['user_id']:
-                dfrecord['id'] = asset_id
-                dfrecord['uid'] = record['title']
-                dfrecord['originalname'] = originalfilename
-                dfrecord['originalname_url'] = self.__getSeeklink(originalfilename, asset_id)
-                dfrecord['notes'] = 'Warning: already uploaded, no update enforced.'
-                weblink, weburl = self.__getWeblink(record['title'])
-                dfrecord['weburl'] = weblink
-                dfrecord['fileurl'] = weburl 
-                return asset_id, dfrecord
-    
-        return None, dfrecord
-    
-    
-    def uploadDF_toStorage(self, creator, infile, sample_uid, md5In):
-        originalfilename = infile.name
-        report = {}
-        if creator is None:
-            report['msg'] = DATAFILE_ERRORCODE['001']
-            report['status'] = 0
-            dfrecord = {}
-            dfrecord['uid'] = ''
-            dfrecord['originalname'] = originalfilename
-            dfrecord['notes'] = report['msg']
-            report['newrow'] = dfrecord
-            return report
-        
-        content_type = infile.content_type       
-        df_id, dfrecord = self.__searchDatafile(creator, originalfilename, sample_uid)
-        dfrecord['content_type'] = content_type
-        
-        fullfilename = dfrecord['fullfilename']
-        if df_id is not None:
-            if df_id>0:
-                report['msg'] = DATAFILE_ERRORCODE['101']
-                report['status'] = -1
-                dfrecord['notes'] = report['msg']
-                report['newrow'] = dfrecord
-                return report
-        
-        handle_uploaded_file(infile, fullfilename)
-        md5Now = getFileChecksum(fullfilename, 'MD5')
-        if md5In is None:
-            msg = 'Warning: File MD5 checksum on server: ' + md5Now
-            status = 1
-        elif md5Now!=md5In:
-            msg = 'Error: File MD5 checksum not match: ' + md5Now
-            status = 0
-        else:
-            msg = 'File uploaded to storage server'
-            status = 1
-        
-        report['md5'] = md5Now
-        report['msg'] = msg
-        report['status'] = status
-        dfrecord['notes'] = report['msg']
-        report['newrow'] = dfrecord
-        return report
-        
-    def uploadDF_storageToSeek(self, seekdb, originalfilename, content_type, df_uid, weburl, istest=False):
-        report = {}
-        if DATA_FILE_UID_DELIMITER not in df_uid:
-            msg = DATAFILE_ERRORCODE['201'] + df_uid
-            report['msg'] = msg
-            report['status'] = status
-            report['df_info'] = df_info
-            report['newrow'] = {'notes':msg}
-            return report
-        
-        terms = df_uid.split(DATA_FILE_UID_DELIMITER)
-        sample_uid = terms[0]
-        creator = seekdb.creator
-        submitter = seekdb.user_seek['username']
-        dfrecord = self.__defineUploadPath(creator, originalfilename, 0, sample_uid)
-        
-        userid = creator['user_id']
-        project_id = creator['projectid']
-        assay_id = None
-        tags = None
-        
-        dfrecord['content_type'] = content_type
-        datatitle = dfrecord['uid']
-        fullfilename = dfrecord['fullfilename']
-        description = 'File uploaded from DropZone'
-        
-        if istest:
-            print('sample_uid: %s'%sample_uid)
-            print('userid: %s'%userid)
-            print('project_id: %s'%project_id)
-            print('content_type: %s'%content_type)
-            print('datatitle: %s'%datatitle)
-        
-        msg, status, df_info, datafile_url = seekdb.seekupload_dfurl(
-            datatitle,
-            fullfilename,
-            originalfilename,
-            content_type,
-            userid,
-            project_id,
-            assay_id,
-            description,
-            tags,
-            weburl
-        )
-        if status==1:
-            record_cb = df_info["attributes"]["content_blobs"][0]
-            record_cb['url'] = weburl
-            
-            md5, sha1, filesize = verifyFileChecksum(fullfilename)
-            record_cb['md5sum'] = md5
-            record_cb['sha1sum'] = sha1
-            record_cb['size'] = filesize
-            
-            record_cb['is_webpage'] = 1
-            record_cb['external_link'] = 1
-            dbcb = DBtable_content_blobs("DEFAULT")
-            msg, status, cb_id = dbcb.storeOneRecord(submitter, record_cb)
-            if status:
-                df_link = df_info["attributes"]["versions"][0]['url']
-                dfrecord = {}
-                dfrecord['id'] = df_info['id']
-                dfrecord['uid'] = df_uid
-                dfrecord['originalname'] = originalfilename
-                dfrecord['fileurl'] = weburl
-                
-                dfrecord['notes'] = df_link
-                dfrecord['fullfilename'] = fullfilename
-                
-                if istest:
-                    print('Skip sample update in a test run.')
-                else:
-                    from .dbtable_sample import DBtable_sample  # deferred: circular import, see dbtable_sample.py:29
-                    dbsample = DBtable_sample()
-                    msg, status = dbsample.updateSampleDFurl(submitter, sample_uid, originalfilename, df_link)
-                    if not status:
-                        msg = DATAFILE_ERRORCODE['204'] + msg
-            else:
-                msg = DATAFILE_ERRORCODE['203'] + msg
-                dfrecord['notes'] = msg
-            
-        else:
-            dfrecord['id'] = ''
-            dfrecord['uid'] = ''
-            msg = DATAFILE_ERRORCODE['202'] + msg
-            dfrecord['notes'] = msg
-            
-        report['msg'] = msg
-        report['status'] = status
-        report['df_info'] = df_info
-        report['newrow'] = dfrecord
-        return report                   
-        
     def downloadDF_fromStorage(self, user_seek, uid):
         msg = 'Waening: File to be found on server: ' + uid
         status = 0
@@ -517,30 +304,4 @@ class DBtable_data_files(DBtable):
                         sampleDic_rev[datafile_uid] = fileInfo['weblink']
                     
         return sampleDic_rev
-        
-    def apiUploadFile(self, user_seek, infile, sample_info):
-        sample_uid = sample_info['sample_uid']
-        user_seek['lababbv'] = sample_info['lababbv']
-        user_seek['projectname'] = sample_info['projectname']
-        user_seek['projectid'] = sample_info['project_id']
-        seekdb = SeekDB(None, user_seek['username'], user_seek['password'])
-        seekdb.user_seek = user_seek
-        
-        report = {}
-        report['msg'] = 'Data file associated with sample: ' + sample_uid
-        report['status'] = 1
-        
-        md5 = None
-        report = self.uploadDF_toStorage(seekdb.user_seek, infile, sample_uid, md5)
-        status = report['status']
-        if status==0:
-            return report
-        
-        originalfilename = infile.name
-        content_type = infile.content_type
-        dfrecord = report['newrow']
-        df_uid = dfrecord['uid']
-        weburl = dfrecord['fileurl']
-        report = self.uploadDF_storageToSeek(seekdb, originalfilename, content_type, df_uid, weburl)
-        return report
         

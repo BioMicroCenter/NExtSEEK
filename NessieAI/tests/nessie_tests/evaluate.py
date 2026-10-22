@@ -427,6 +427,8 @@ def _split_local_criteria(criteria: list) -> tuple[list, list]:
 # `active`, `pipeline_key`, `selection`, `cohort_count`, `message_count`. `launch_plan` is NOT one
 # of them, so `pipeline_agent.launch_plan.*` still dot-navigates to None and must stay
 # skipped. That is the only sub-family left in this tuple.
+# 2026-10-14, big-merge dev review siblings: the snapshot now carries a sixth key, `source_bundle_id`
+# (the results bundle the pipeline agent builds on); `pipeline_agent.source_bundle_id` resolves like `active`.
 #
 # Scope, measured against the corpus rather than estimated: 17 `pipeline_agent.*`
 # criteria exist, 11 of them on RETIRED variants. Of the 6 on active variants, 3 are
@@ -707,8 +709,23 @@ def any_criterion_evaluated(results: list[dict]) -> bool:
     return any(not r.get("skipped") for r in results)
 
 
+_DEBUG_MARKER = "**Debug info**"
+
+
+def visible_reply(reply):
+    """The reply a user reads: everything before the admin Debug info block.
+
+    A last_reply regex must not be able to pass on the parser's summary, the Cypher
+    or the explanation echoed in that block."""
+    if not isinstance(reply, str):
+        return reply
+    at = reply.find(_DEBUG_MARKER)
+    return reply[:at].rstrip() if at > 0 else reply
+
+
 def evaluate_turn(payload, criteria, obs, *, last_reply=None, bundle_summary=None,
                   forced=False):
+    last_reply = visible_reply(last_reply)
     raw_debug = build_observed_debug(payload)
     debug = augment_debug(raw_debug, obs, bundle_summary,
                           artifact_index=build_artifact_index(raw_debug, payload))

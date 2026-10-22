@@ -1,0 +1,1552 @@
+{
+  "schema": "launch-commit-review-form/v1",
+  "range": {
+    "base": "926be1e3f3658b57512062293fe95e11681bf0e4",
+    "head": "1c070c081ee87cbd54500ea22a17ed6a3dba3569",
+    "total": 106,
+    "listed": 50,
+    "skipped": 56
+  },
+  "derived": {
+    "images_needed": [
+      "bedrock-proxy",
+      "app",
+      "cc-agent"
+    ],
+    "brief_images": [
+      "bedrock-proxy",
+      "app",
+      "cc-agent"
+    ],
+    "paths_by_image": {
+      "app": [
+        "NessieAI/cc/cc_engine.py",
+        "NessieAI/cc/cc_summary.py",
+        "NessieAI/cc/cc_trace.py",
+        "NessieAI/cc/translate.py",
+        "NessieAI/cc/turn.py",
+        "NessieAI/chat_frontend/src/components/Layout/AboutDialog.tsx",
+        "NessieAI/chat_frontend/src/components/__tests__/AboutDialog.test.tsx",
+        "NessieAI/chat_frontend/src/components/__tests__/shellTurnEvents.test.tsx",
+        "NessieAI/chat_frontend/src/lib/__tests__/debugEntries.test.ts",
+        "NessieAI/chat_frontend/src/lib/debugEntries.ts",
+        "NessieAI/chat_frontend/src/lib/types/api.ts",
+        "NessieAI/chat_nextseek/agent_model_catalog.json",
+        "NessieAI/chat_nextseek/model_prices.json",
+        "NessieAI/chat_nextseek/src/chat_nextseek/agents/api.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/agents/entity.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/agents/followup.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/agents/graph.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/agents/memory.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/agents/planner/agent.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/agents/planner/evaluator.py"
+      ],
+      "bedrock-proxy": [
+        "NessieAI/docker/bedrock-proxy/PORT-EVIDENCE.json",
+        "NessieAI/docker/bedrock-proxy/app/config.py"
+      ],
+      "cc-agent": [
+        "NessieAI/docker/cc-runtime/Dockerfile",
+        "NessieAI/docker/cc-runtime/build_context/plugins/nextseek/bin/_assistant_models.py",
+        "NessieAI/docker/cc-runtime/build_context/plugins/nextseek/skills/nextseek/SKILL.md",
+        "NessieAI/docker/cc-runtime/container/CLAUDE.md",
+        "NessieAI/docker/cc-runtime/pyproject.toml",
+        "NessieAI/docker/cc-runtime/uv.lock"
+      ]
+    },
+    "flags": {},
+    "stops": [],
+    "warnings": []
+  },
+  "commits": [
+    {
+      "sha": "1c070c08",
+      "full": "1c070c081ee87cbd54500ea22a17ed6a3dba3569",
+      "subject": "Merge fix/cc-leftovers-fallback-pricing (f11ff382): model fallback everywhere, a cost on every turn, Container-CC on Claude Code 2.1.282",
+      "date": "2026-09-25T17:53:41-04:00",
+      "merge": true,
+      "files": [],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "f11ff382",
+      "full": "f11ff382e89aa1a98a6e3757056303de6abfc181",
+      "subject": "fix(chat_nextseek): a request error named after the model id is not a refused model",
+      "date": "2026-09-25T17:47:38-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/chat_nextseek/src/chat_nextseek/llm_clients.py",
+        "NessieAI/tests/chat_nextseek/test_bedrock_model_unusable.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "df963ab1",
+      "full": "df963ab1ef5ff8d5b0c50b3d8fcdc1a24fe98ff9",
+      "subject": "Merge a/u7-ns-f1-f6: a refused Bedrock model id moves to the fallback model, every ladder attempt is ledgered, and a model failure inside a granular op ends in its AGENT_FAILED envelope",
+      "date": "2026-09-25T17:46:48-04:00",
+      "merge": true,
+      "files": [],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "284aecf7",
+      "full": "284aecf71dee6383c4bff9d4d5422224fe6a190a",
+      "subject": "Merge test/ci-coverage-rebuild-2 (b985d024): the post-rebuild CI shows each rebuild-2 change is live",
+      "date": "2026-09-25T17:42:23-04:00",
+      "merge": true,
+      "files": [],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "b985d024",
+      "full": "b985d0243be2cb188f0377bd1b513090b81e5bd8",
+      "subject": "test(ci): judge /seek/search/ on the fastest of 6 loads under 5 s",
+      "date": "2026-09-25T17:40:43-04:00",
+      "merge": false,
+      "files": [
+        "ci/smoke/README.md",
+        "ci/smoke/test_deploy_live.py"
+      ],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "4cbf8f91",
+      "full": "4cbf8f91cf4513fe35d3ef39af25ce909238640b",
+      "subject": "fix(ns): an error whose send failed is not counted as sent",
+      "date": "2026-09-25T17:36:56-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/ns/turn.py",
+        "NessieAI/tests/ns/test_error_event_not_clobbered.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "a8dbac2f",
+      "full": "a8dbac2f8d3bfb88b92ad6babb3e20fbaf4c0628",
+      "subject": "test(ci): smoke proves the served chat bundle and the /seek/search/ fix are live",
+      "date": "2026-09-25T17:36:30-04:00",
+      "merge": false,
+      "files": [
+        "ci/README.md",
+        "ci/smoke/README.md",
+        "ci/smoke/deploy_live.py",
+        "ci/smoke/test_deploy_live.py",
+        "ci/smoke/test_deploy_live_unit.py",
+        "startup/tests/test_deploy_checks.py"
+      ],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "d0f5e056",
+      "full": "d0f5e056e6d922cebf0501bfbef96e80289b0365",
+      "subject": "fix(cc): the Celery sweep summarizes under its own 60 s limit, the turn keeps 10 s",
+      "date": "2026-09-25T17:36:29-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/cc/cc_summary.py",
+        "NessieAI/tests/cc/test_cc_summary_summarize.py",
+        "NessieAI/tests/cc/test_cc_sweep_scrub_gate.py",
+        "nextseek_api/cc_assistant/cc_sweep.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "ecd04701",
+      "full": "ecd04701adffaa39a2f211105fe7ff2382f518d6",
+      "subject": "Merge a/u8-cc-f7-f13-f12: the CC summary and ClassifyQuery get time limits, the routed chat keeps its real error, and the agent image runs node 22 with a build-time CLI check",
+      "date": "2026-09-25T17:34:45-04:00",
+      "merge": true,
+      "files": [],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "463ecb9f",
+      "full": "463ecb9f8b65dae5700eed667d6ec74db7a24556",
+      "subject": "test(ci): stack health shows a rebuild is live, not only built",
+      "date": "2026-09-25T17:34:28-04:00",
+      "merge": false,
+      "files": [
+        "ci/README.md",
+        "startup/CLAUDE.md",
+        "startup/steps/deploy_checks.py",
+        "startup/steps/validate.py",
+        "startup/tests/test_deploy_checks.py",
+        "startup/tests/test_validate.py"
+      ],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "a8710e27",
+      "full": "a8710e2746b6549c23c202de6546f959fe5a842d",
+      "subject": "fix(api): a model failure inside a granular op ends in its AGENT_FAILED envelope",
+      "date": "2026-09-25T16:59:51-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/tests/ns/test_granular_op_fatal.py",
+        "nextseek_api/services/assistant.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "2dca5313",
+      "full": "2dca53133d8d3e03318b6fa8910f145707ae2b2c",
+      "subject": "fix(chat_nextseek): every model attempt the ladder makes gets its ledger record",
+      "date": "2026-09-25T16:57:41-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/chat_nextseek/src/chat_nextseek/schemas/schema_helper.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/tool_loop.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/turn_spend.py",
+        "NessieAI/tests/chat_nextseek/test_ladder_records_every_attempt.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "9c6ffdca",
+      "full": "9c6ffdca10370b3e0615fbf03d5ee12cb0268454",
+      "subject": "fix(chat_nextseek): a Bedrock model id that is refused moves to the fallback model",
+      "date": "2026-09-25T16:57:11-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/chat_nextseek/src/chat_nextseek/llm_clients.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/schemas/schema_helper.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/tool_loop.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/turn_spend.py",
+        "NessieAI/tests/chat_nextseek/test_bedrock_model_unusable.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "86166006",
+      "full": "86166006880ec7fce5bc3629146be07987fdccdc",
+      "subject": "fix(cc-runtime): the agent image runs node 22 and the build checks that the Claude Code CLI starts",
+      "date": "2026-09-25T16:53:41-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/docker/README.md",
+        "NessieAI/docker/cc-runtime/Dockerfile",
+        "NessieAI/tests/cc/test_cc_runtime_claude_code_pin.py"
+      ],
+      "images": [
+        "app",
+        "cc-agent"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "b126f9e1",
+      "full": "b126f9e10de1f60b097c4e17200e0211cb110550",
+      "subject": "fix(cc): the routed chat keeps the real error instead of sending \"Internal pipeline error\" over it",
+      "date": "2026-09-25T16:52:40-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/cc/turn.py",
+        "NessieAI/tests/cc/test_cc_route_ns_crash_cost.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "dd8a42ce",
+      "full": "dd8a42ce25dcc6e013666b53ddf313601138c935",
+      "subject": "fix(router): ClassifyQuery gets the router's 30 s limit and a timeout is handled as an error",
+      "date": "2026-09-25T16:50:16-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/router/README.md",
+        "NessieAI/router/router.py",
+        "NessieAI/tests/router/test_router_cost.py",
+        "NessieAI/tests/router/test_router_time_limits.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "74417bc8",
+      "full": "74417bc88a400d037a9f51e569b302c14b6b3da8",
+      "subject": "fix(cc): the summary of another chat gives up after 10 s and uses the actions-only summary",
+      "date": "2026-09-25T16:50:16-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/cc/cc_summary.py",
+        "NessieAI/tests/cc/test_cc_summary_summarize.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "67ada903",
+      "full": "67ada9039ed300fe8f295f8060047546869263b4",
+      "subject": "Merge a/u3-pricing: every NS turn, the router and Container-CC report a cost from one sourced price table, and the CC plugin accepts the new turn record",
+      "date": "2026-09-25T16:37:53-04:00",
+      "merge": true,
+      "files": [],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "b337c9cd",
+      "full": "b337c9cd1a37b562bee3d623c6742622de669885",
+      "subject": "fix(cc): an NS turn that crashed on the routed path ends on an event that carries its cost",
+      "date": "2026-09-25T16:35:25-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/cc/turn.py",
+        "NessieAI/tests/cc/test_cc_route_ns_crash_cost.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "71cf4864",
+      "full": "71cf4864017c1a5e1cbf535c6007c9cf1ee0bd11",
+      "subject": "fix(ci): the Nessie lane's ceiling still counts Claude Code's cost only, with the whole spend beside it",
+      "date": "2026-09-25T16:21:02-04:00",
+      "merge": false,
+      "files": [
+        "ci/smoke/README.md",
+        "ci/smoke/test_nessie.py",
+        "ci/smoke/test_nessie_unit.py",
+        "startup/ci/runner.py",
+        "startup/tests/test_ci_runner.py"
+      ],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "e91b9db2",
+      "full": "e91b9db2cbc6ec38ece74883366b1e1e9903cb17",
+      "subject": "fix(cc): a Container-CC turn that ran an op backed by NS agents says its cost is partial",
+      "date": "2026-09-25T16:18:01-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/cc/translate.py",
+        "NessieAI/tests/cc/test_cc_cost_partial.py",
+        "NessieAI/tests/cc/test_translate.py",
+        "NessieAI/tests/nessie_tests/turn_cost.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "4222bde3",
+      "full": "4222bde36a0b16c4a0ea93284d51b4a1b72834bc",
+      "subject": "fix(cc): a model Claude Code lists but billed nothing to needs no price",
+      "date": "2026-09-25T16:14:26-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/cc/translate.py",
+        "NessieAI/tests/cc/test_cc_price_table_cost.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "e24f5eb4",
+      "full": "e24f5eb441bd4c640285ad66ecd08c2ddd8e2bd2",
+      "subject": "fix(ns): a turn that crashed says what it spent before it failed",
+      "date": "2026-09-25T16:14:26-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/chat_nextseek/src/chat_nextseek/orchestrator.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/turn_spend.py",
+        "NessieAI/ns/turn.py",
+        "NessieAI/tests/cc/test_plugin_event_contract.py",
+        "NessieAI/tests/chat_nextseek/test_turn_spend.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "0cc5f1ec",
+      "full": "0cc5f1ec34812d80f23c01b1d1287441225c83b7",
+      "subject": "docs(nextseek_api): the documented query_complete and query_error name every key they carry",
+      "date": "2026-09-25T16:14:26-04:00",
+      "merge": false,
+      "files": [
+        "nextseek_api/assistant/models_api.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "ca293d3d",
+      "full": "ca293d3d85a2f6d3b87421298080d9508feb2551",
+      "subject": "fix(cc-runtime): the plugin accepts the NS turn record and the fatal query_error",
+      "date": "2026-09-25T16:11:47-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/docker/cc-runtime/build_context/plugins/nextseek/bin/_assistant_models.py",
+        "NessieAI/tests/cc/test_plugin_event_contract.py"
+      ],
+      "images": [
+        "app",
+        "cc-agent"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "6da2b00c",
+      "full": "6da2b00c762b51f1959f1177670b183fb37337a2",
+      "subject": "test(chat_nextseek): the query_complete key pin allows the NS turn record",
+      "date": "2026-09-25T15:46:14-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/tests/chat_nextseek/test_graph_review_wiring.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "037f4b8a",
+      "full": "037f4b8aa9f224a349d2c938cc533055c08c67d0",
+      "subject": "fix(ns): a turn whose fatal escaped the orchestrator still reports what it spent",
+      "date": "2026-09-25T15:45:03-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/chat_nextseek/src/chat_nextseek/turn_spend.py",
+        "NessieAI/ns/turn.py",
+        "NessieAI/tests/chat_nextseek/test_turn_spend.py",
+        "NessieAI/tests/ns/test_pipeline_body_fatal.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "d4f398a5",
+      "full": "d4f398a5e8775b8bb89a35d3139b8e949baa0f43",
+      "subject": "docs(chat_nextseek): where model prices live and how a turn's cost is made",
+      "date": "2026-09-25T15:42:38-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/chat_nextseek/README.md"
+      ],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "909b5ae1",
+      "full": "909b5ae160a54e3fb117a34109e4cde80e931010",
+      "subject": "feat(cc): a Container-CC turn is also costed on the NS price table",
+      "date": "2026-09-25T15:42:12-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/cc/translate.py",
+        "NessieAI/tests/cc/test_cc_price_table_cost.py",
+        "NessieAI/tests/cc/test_translate.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "011a7d67",
+      "full": "011a7d67faa178161438c69696e88187ad306dbb",
+      "subject": "feat(router): the router says what its model calls cost, on every route that made one",
+      "date": "2026-09-25T15:40:46-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/cc/turn.py",
+        "NessieAI/router/README.md",
+        "NessieAI/router/policy.py",
+        "NessieAI/router/router.py",
+        "NessieAI/tests/router/test_router_cost.py",
+        "NessieAI/tests/router/test_router_time_limits.py",
+        "NessieAI/tests/router/test_runtime_p0.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "af941204",
+      "full": "af941204f0679d01f5705f87bff16872ccfab314",
+      "subject": "feat(chat_nextseek): every NS turn says what it cost, which models answered and what fell back",
+      "date": "2026-09-25T15:32:56-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/chat_nextseek/src/chat_nextseek/orchestrator.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/schemas/schema_helper.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/tool_loop.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/turn_spend.py",
+        "NessieAI/tests/chat_nextseek/test_turn_spend.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "f4b36175",
+      "full": "f4b36175bff299eef0dbcb72ac3547e0a551930c",
+      "subject": "Merge a/u6-integ: a turn that ended only in a query_error is classified by its reason, the Gemini retry test is order-proof, and the Debug panel shows the raw error",
+      "date": "2026-09-25T15:29:54-04:00",
+      "merge": true,
+      "files": [],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "9a602b1c",
+      "full": "9a602b1cb0915cd72df0d79934c09fe2f829a7fc",
+      "subject": "feat(chat_nextseek): the clients keep every token count a price needs, and so does the ledger",
+      "date": "2026-09-25T15:29:12-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/chat_nextseek/src/chat_nextseek/llm_clients.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/schemas/schema_helper.py",
+        "NessieAI/tests/chat_nextseek/test_usage_capture.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "de70af92",
+      "full": "de70af923b8afe1e40cf850be8632fa462e1a1ee",
+      "subject": "feat(chat_nextseek): one price table for every model a turn can reach",
+      "date": "2026-09-25T15:27:42-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/chat_nextseek/model_prices.json",
+        "NessieAI/chat_nextseek/src/chat_nextseek/model_prices.py",
+        "NessieAI/tests/chat_nextseek/test_model_prices.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "b9cae3d4",
+      "full": "b9cae3d4b829f0930693e9428dc1ea742ba68a8a",
+      "subject": "build(chat_frontend): rebuild the embedded bundle for the Debug panel's error detail",
+      "date": "2026-09-25T15:25:57-04:00",
+      "merge": false,
+      "files": [
+        "static/js/chat_assistant/.vite/manifest.json",
+        "static/js/chat_assistant/assets/main.embedded-DXaaviWd.js"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "8f65ded0",
+      "full": "8f65ded0daf63b4c379a526ae357303cbf2e237b",
+      "subject": "fix(chat_frontend): the Debug panel shows a failed turn's raw error again",
+      "date": "2026-09-25T15:25:33-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/chat_frontend/src/lib/__tests__/debugEntries.test.ts",
+        "NessieAI/chat_frontend/src/lib/debugEntries.ts",
+        "NessieAI/chat_frontend/src/lib/types/api.ts"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "4611e81d",
+      "full": "4611e81db1dcd30ce8981f11642300f56d067f2f",
+      "subject": "test(chat_nextseek): the Gemini retry check stubs the SDK however it was imported before",
+      "date": "2026-09-25T15:24:43-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/tests/chat_nextseek/test_provider_resilience.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "a834097c",
+      "full": "a834097c0c83efa2c80b2e889137fc9f2303c328",
+      "subject": "test(nessie_tests): an unclassified detail falls through to the unavailable-model text, an outage",
+      "date": "2026-09-25T15:23:41-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/tests/nessie_tests/tests/test_export.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "8785f16c",
+      "full": "8785f16c115eb76575e5f4028572d57c5c7f9053",
+      "subject": "fix(nessie_tests): a turn that ended only in a query_error is classified by its reason",
+      "date": "2026-09-25T15:23:17-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/tests/nessie_tests/README.md",
+        "NessieAI/tests/nessie_tests/consistency.py",
+        "NessieAI/tests/nessie_tests/engine_compare.py",
+        "NessieAI/tests/nessie_tests/evaluate.py",
+        "NessieAI/tests/nessie_tests/outage.py",
+        "NessieAI/tests/nessie_tests/preflight.py",
+        "NessieAI/tests/nessie_tests/runner.py",
+        "NessieAI/tests/nessie_tests/tests/test_consistency.py",
+        "NessieAI/tests/nessie_tests/tests/test_engine_compare.py",
+        "NessieAI/tests/nessie_tests/tests/test_outage_model_unavailable.py",
+        "NessieAI/tests/nessie_tests/tests/test_preflight.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "92aae3b7",
+      "full": "92aae3b7c3934f30d9e39bdf71819498ceb990e9",
+      "subject": "test(nessie_tests): an unclassifiable detail leaves the CC outage sentence to decide",
+      "date": "2026-09-25T15:20:05-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/tests/nessie_tests/tests/test_export.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "5f3f63a2",
+      "full": "5f3f63a21044cab4917b0c98cd4f905f98586aff",
+      "subject": "Merge fix/reviewer-live-values (b4aae4a0): the graph reviewer fires live and a chip click reruns from its offer",
+      "date": "2026-09-25T15:16:50-04:00",
+      "merge": true,
+      "files": [],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "5d36e2d1",
+      "full": "5d36e2d114c0863261989e4bef15f530ca47fa0d",
+      "subject": "Merge fix/seek-search-type-options (47afaea3): /seek/search/ no longer formats ~10,000 template tracebacks per load",
+      "date": "2026-09-25T15:16:50-04:00",
+      "merge": true,
+      "files": [],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "f1685b09",
+      "full": "f1685b09e95abca15e3d86d840bfa1be9a63099d",
+      "subject": "Merge test/drop-manifest-criterion (a61086f9): drop the MANIFEST.md trace criterion from ccfu.newest_turn_after_ns_cc_ns",
+      "date": "2026-09-25T15:16:50-04:00",
+      "merge": true,
+      "files": [],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "b4aae4a0",
+      "full": "b4aae4a046a2206f0183b0d0261f0015b185ed21",
+      "subject": "test(nessie_tests): the reviewer probe asks the plain counts and clicks the chip",
+      "date": "2026-09-25T15:15:23-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/tests/nessie_tests/probes/probe-2026-09-25-reviewer-live.json"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "2c1eda20",
+      "full": "2c1eda204da1dd8b5ba151a949c202b0a975e1f2",
+      "subject": "Merge a/u2-ns-fallback: every NS model call and the router move to a second model on a timeout, empty body, 503, 429 or dropped connection, and say so plainly",
+      "date": "2026-09-25T15:13:47-04:00",
+      "merge": true,
+      "files": [],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "ee6f6294",
+      "full": "ee6f6294c06d80ca010c844d7cf73d70b33df0bd",
+      "subject": "feat(chat_nextseek): a click on a reviewer chip reruns from the turn that offered it",
+      "date": "2026-09-25T15:13:40-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/chat_nextseek/src/chat_nextseek/graph_review.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/graph_review_counts.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/helpers/suggestions.py",
+        "NessieAI/chat_nextseek/src/chat_nextseek/orchestrator.py",
+        "NessieAI/tests/chat_nextseek/test_chip_click.py",
+        "NessieAI/tests/chat_nextseek/test_graph_review_tier1.py",
+        "NessieAI/tests/chat_nextseek/test_suggestions_wiring.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "3b53fc2e",
+      "full": "3b53fc2ef48802bce9dedd504539fafd3130e7ec",
+      "subject": "Merge a/u1-cc: Container-CC names real paths, computes its numbers, charts with matplotlib, and survives a Bedrock 503 on a second model",
+      "date": "2026-09-25T15:04:17-04:00",
+      "merge": true,
+      "files": [],
+      "images": [],
+      "flags": []
+    },
+    {
+      "sha": "d83ded8f",
+      "full": "d83ded8fce5f09e18f0aa742c30b063a5d26aab8",
+      "subject": "fix(cc): a turn stopped long after a retry that worked keeps the time-limit message",
+      "date": "2026-09-25T15:03:03-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/cc/cc_engine.py",
+        "NessieAI/cc/translate.py",
+        "NessieAI/tests/cc/test_cc_time_limit_message.py",
+        "NessieAI/tests/cc/test_translate_model_fallback.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "70fcd97e",
+      "full": "70fcd97e550fa8d0d60f2345d29e9aaee6e2a783",
+      "subject": "docs(chat_nextseek): the _fallback block applies under aws:* too, as accepted in review",
+      "date": "2026-09-25T15:02:02-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/chat_nextseek/agent_model_catalog.json",
+        "NessieAI/chat_nextseek/src/chat_nextseek/schemas/schema_helper.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    },
+    {
+      "sha": "20c3eceb",
+      "full": "20c3eceb6f137b6016043d8f87d209d52379614e",
+      "subject": "fix(chat_nextseek): the entity raw fallback's retry gets 60 s, so its worst case stays near 180 s",
+      "date": "2026-09-25T15:02:02-04:00",
+      "merge": false,
+      "files": [
+        "NessieAI/chat_nextseek/src/chat_nextseek/agents/entity.py",
+        "NessieAI/tests/chat_nextseek/test_direct_calls_use_the_ladder.py"
+      ],
+      "images": [
+        "app"
+      ],
+      "flags": []
+    }
+  ],
+  "summary": "The latest 50 of 106 commits hold 16 behaviour changes: 3 are proven live by the stack-health and smoke checks rebuild 2 added (Container-CC runtime, wiring and proxy allow list; the served chat bundle; /seek/search/), 7 need a paid turn (every cost and models_used key, the router record, the CC reply rules, the graph reviewer firing and the chip rerun) and 6 are failure paths proven by unit tests only, none of which can fail GitHub CI except the /seek/search/ tests. The gaps that matter most: nothing checks that the model ids the box calls are accessible, so a refused id falls back silently (F1) and run 2 could measure the fallback model; the graph reviewer, rebuild 1's headline miss, still has no free live proof; and the turn record is asserted by no CI at all.",
+  "behaviour_changes": [
+    {
+      "id": "BC1",
+      "summary": "Container-CC runs Claude Code 2.1.282 on node 22 with matplotlib, the CLI is checked at build; the app starts it with --fallback-model Opus 4.7, 3 retries and a 60 s request timeout; the bedrock-proxy allows exactly opus-4-8, opus-4-7 and sonnet-4-6. Most of it came in by merge 3b53fc2e (9dc614a7, 4f367bd5, d5b8b245, a1ffc65c, a0d62dd9, 06f7809a, dde4c1cf, all outside the listed 50); F12 is 86166006.",
+      "commits": [
+        "3b53fc2e",
+        "86166006"
+      ],
+      "unit_tests": [
+        {
+          "path": "NessieAI/tests/cc/test_cc_runtime_claude_code_pin.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/cc/test_cc_runtime_plotting_dependency.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/cc/test_cc_engine_env.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/router/test_model_class_map_cc_resolvers.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/cc/test_cc_proxy_allow_list.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/cc/test_step7_proxy_port.py",
+          "lane": "informational"
+        }
+      ],
+      "live_check": {
+        "kind": "stack_health",
+        "ref": "cc-agent runtime; bedrock-proxy allow list; CC fallback wiring (startup/steps/deploy_checks.py)",
+        "proves": "the built dmac-assistant:poc has node 22, Claude Code 2.1.282 and imports matplotlib; the running proxy allows the checkout's three ids; the running app's CC command carries --fallback-model opus-4-7 and the three env keys and names nothing the proxy refuses. Advisory lines: judge them on the CI step, the intermediate rebuilds are expected red, and the claude --version probe (--network none) was never run on a 2.1.282 image"
+      },
+      "status": "live",
+      "proposals": [
+        "P4",
+        "P8"
+      ],
+      "accepted_gap": null
+    },
+    {
+      "id": "BC2",
+      "summary": "A Container-CC reply names this turn's real paths, never the container's, computes every number it states, is told a turn can switch model, records which model answered and what fell back, and says in plain words when it hit the time limit or the model was unavailable, keeping the time-limit text after a retry that worked (d83ded8f; the rest via merge 3b53fc2e: 5ca22e3f, 06f7809a, a6ac28b2, 72c71a31, 5584b9c3, c4affc18).",
+      "commits": [
+        "d83ded8f"
+      ],
+      "unit_tests": [
+        {
+          "path": "NessieAI/tests/cc/test_cc_reply_paths.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/cc/test_cc_agent_reply_rules.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/cc/test_cc_time_limit_message.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/cc/test_translate_model_fallback.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/cc/test_cc_turn_record.py",
+          "lane": "informational"
+        }
+      ],
+      "live_check": {
+        "kind": "stack_health",
+        "ref": "app image code (startup/steps/deploy_checks.py check_app_code)",
+        "proves": "the changed files are byte-identical inside the serving nextseek container; it does not exercise the behaviour"
+      },
+      "status": "needs_paid_turn",
+      "proposals": [
+        "P7"
+      ],
+      "accepted_gap": null
+    },
+    {
+      "id": "BC3",
+      "summary": "A Container-CC turn is also costed on the NS price table (cost_by_price_table_usd), a model Claude Code lists but billed nothing needs no price, and a turn that ran an op backed by NS agents says its cost is partial.",
+      "commits": [
+        "909b5ae1",
+        "4222bde3",
+        "e91b9db2"
+      ],
+      "unit_tests": [
+        {
+          "path": "NessieAI/tests/cc/test_cc_price_table_cost.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/cc/test_cc_cost_partial.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/cc/test_translate.py",
+          "lane": "informational"
+        }
+      ],
+      "live_check": {
+        "kind": "runner_check",
+        "ref": "live marker cost_by_price_table_usd in /app/NessieAI/cc/translate.py (nextseek)",
+        "proves": "the price-table code is in the running app, not that a turn reports it"
+      },
+      "status": "needs_paid_turn",
+      "proposals": [
+        "P3",
+        "P7"
+      ],
+      "accepted_gap": null
+    },
+    {
+      "id": "BC4",
+      "summary": "The cc-agent plugin accepts the NS turn record and the fatal query_error, and the OpenAPI event models document every key query_complete and query_error carry; before this a CC op backed by NS would end AGENT_FAILED after a paid turn.",
+      "commits": [
+        "ca293d3d",
+        "0cc5f1ec"
+      ],
+      "unit_tests": [
+        {
+          "path": "NessieAI/tests/cc/test_plugin_event_contract.py",
+          "lane": "informational"
+        }
+      ],
+      "live_check": {
+        "kind": "smoke",
+        "ref": "ci/smoke/test_reachability.py [/nextseek_api/schema/]",
+        "proves": "drf-spectacular still builds the schema with the new optional fields; not that the plugin accepts a live payload"
+      },
+      "status": "needs_paid_turn",
+      "proposals": [
+        "P3",
+        "P4"
+      ],
+      "accepted_gap": null
+    },
+    {
+      "id": "BC5",
+      "summary": "Every NS model call and the router move to a second model on a timeout, empty body, 5xx, 429 or dropped connection (tool loops to Sonnet 4.6 under a wall clock, the entity raw fallback's retry gets 60 s), a follow-up answers from what it found when both fail, and a turn the models could not answer says so in plain words (via merge 2c1eda20: 7a971df2, 3379a004, 32e261d1, 3f6ea3df, 3e0344fc, 6cbb05c3, 1eb61201, cf3419a5, 6cb1e622, be80de9c, outside the listed 50).",
+      "commits": [
+        "2c1eda20",
+        "20c3eceb"
+      ],
+      "unit_tests": [
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_provider_fallback_trigger.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_llm_clients_transport_errors.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_direct_calls_use_the_ladder.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_fallback_labels.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_llm_fallback_chain.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_followup_partial_on_fatal.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_model_unavailable_reply.py",
+          "lane": "informational"
+        }
+      ],
+      "live_check": {
+        "kind": "stack_health",
+        "ref": "app image code (startup/steps/deploy_checks.py check_app_code)",
+        "proves": "the changed files are byte-identical inside the serving nextseek container; it does not exercise the behaviour"
+      },
+      "status": "unit_only",
+      "proposals": [
+        "P1",
+        "P9"
+      ],
+      "accepted_gap": null
+    },
+    {
+      "id": "BC6",
+      "summary": "A Bedrock model id that is refused (AccessDenied, ResourceNotFound, a bad id) moves to the fallback model and is not billed, every attempt the ladder makes is ledgered, and a request error that merely names the model id is not mistaken for a refusal (F1).",
+      "commits": [
+        "9c6ffdca",
+        "2dca5313",
+        "f11ff382"
+      ],
+      "unit_tests": [
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_bedrock_model_unusable.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_ladder_records_every_attempt.py",
+          "lane": "informational"
+        }
+      ],
+      "live_check": {
+        "kind": "stack_health",
+        "ref": "app image code (startup/steps/deploy_checks.py check_app_code)",
+        "proves": "the changed files are byte-identical inside the serving nextseek container; it does not exercise the behaviour"
+      },
+      "status": "unit_only",
+      "proposals": [
+        "P1"
+      ],
+      "accepted_gap": null
+    },
+    {
+      "id": "BC7",
+      "summary": "Every NS turn reports what it cost (total_cost_usd, cost_partial, debug.cost), which models answered (models_used) and what fell back (model_fallback), priced from one sourced table (model_prices.json) with every token count the clients now keep.",
+      "commits": [
+        "de70af92",
+        "9a602b1c",
+        "af941204"
+      ],
+      "unit_tests": [
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_turn_spend.py::test_query_complete_carries_the_turn_record_and_the_breakdown",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_usage_capture.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_model_prices.py",
+          "lane": "informational"
+        }
+      ],
+      "live_check": {
+        "kind": "stack_health",
+        "ref": "app image code (startup/steps/deploy_checks.py check_app_code)",
+        "proves": "the changed files are byte-identical inside the serving nextseek container; it does not exercise the behaviour"
+      },
+      "status": "needs_paid_turn",
+      "proposals": [
+        "P3",
+        "P4",
+        "P11"
+      ],
+      "accepted_gap": null
+    },
+    {
+      "id": "BC8",
+      "summary": "A turn that crashes, on the NS endpoint or on the routed path, still ends on exactly one terminal event that carries its real error (not \"Internal pipeline error\") and what it spent; an error whose send failed is not counted as sent.",
+      "commits": [
+        "b337c9cd",
+        "b126f9e1",
+        "4cbf8f91",
+        "e24f5eb4",
+        "037f4b8a"
+      ],
+      "unit_tests": [
+        {
+          "path": "NessieAI/tests/cc/test_cc_route_ns_crash_cost.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/ns/test_error_event_not_clobbered.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/ns/test_pipeline_body_fatal.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_turn_spend.py",
+          "lane": "informational"
+        }
+      ],
+      "live_check": {
+        "kind": "stack_health",
+        "ref": "app image code (startup/steps/deploy_checks.py check_app_code)",
+        "proves": "the changed files are byte-identical inside the serving nextseek container; it does not exercise the behaviour"
+      },
+      "status": "unit_only",
+      "proposals": [
+        "P11"
+      ],
+      "accepted_gap": null
+    },
+    {
+      "id": "BC9",
+      "summary": "A model failure inside a granular op ends in that op's AGENT_FAILED envelope (F6).",
+      "commits": [
+        "a8710e27"
+      ],
+      "unit_tests": [
+        {
+          "path": "NessieAI/tests/ns/test_granular_op_fatal.py",
+          "lane": "informational"
+        }
+      ],
+      "live_check": {
+        "kind": "stack_health",
+        "ref": "app image code (startup/steps/deploy_checks.py check_app_code)",
+        "proves": "the changed files are byte-identical inside the serving nextseek container; it does not exercise the behaviour"
+      },
+      "status": "unit_only",
+      "proposals": [],
+      "accepted_gap": "only an induced model failure inside a CC granular op shows it live; the test drives the real envelope code, and staging an outage on dev is not worth it"
+    },
+    {
+      "id": "BC10",
+      "summary": "The router says what its model calls cost on every route that made one, names its model and any fallback on route_decided (30 s, one 15 s Gemini Flash try, then keyword rules; 5056a425 via 2c1eda20), and ClassifyQuery gets the same 30 s limit with a timeout handled as an error (F7).",
+      "commits": [
+        "011a7d67",
+        "dd8a42ce"
+      ],
+      "unit_tests": [
+        {
+          "path": "NessieAI/tests/router/test_router_cost.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/router/test_router_time_limits.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/router/test_runtime_p0.py",
+          "lane": "informational"
+        }
+      ],
+      "live_check": {
+        "kind": "stack_health",
+        "ref": "app image code (startup/steps/deploy_checks.py check_app_code)",
+        "proves": "the changed files are byte-identical inside the serving nextseek container; it does not exercise the behaviour"
+      },
+      "status": "needs_paid_turn",
+      "proposals": [
+        "P1",
+        "P3",
+        "P10"
+      ],
+      "accepted_gap": null
+    },
+    {
+      "id": "BC11",
+      "summary": "The summary of another chat gives up after 10 s inside a turn and uses the actions-only summary, while the Celery sweep summarizes under its own 60 s limit (F7).",
+      "commits": [
+        "74417bc8",
+        "d0f5e056"
+      ],
+      "unit_tests": [
+        {
+          "path": "NessieAI/tests/cc/test_cc_summary_summarize.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/cc/test_cc_sweep_scrub_gate.py",
+          "lane": "informational"
+        }
+      ],
+      "live_check": {
+        "kind": "stack_health",
+        "ref": "app image code (startup/steps/deploy_checks.py check_app_code)",
+        "proves": "the changed files are byte-identical inside the serving nextseek container; it does not exercise the behaviour"
+      },
+      "status": "unit_only",
+      "proposals": [],
+      "accepted_gap": "only a slow Gemini Flash call shows either limit live; the tests drive both limits and the sweep's own summarizer"
+    },
+    {
+      "id": "BC12",
+      "summary": "The chat bundle: the Debug panel shows a failed turn's raw error (detail) again, and the About dialog quotes the new time-limit message and says a second model is tried (4c5c531f, 28b7865d via 3b53fc2e). Checked offline: the committed main.embedded-DXaaviWd.js carries both new strings.",
+      "commits": [
+        "8f65ded0",
+        "b9cae3d4"
+      ],
+      "unit_tests": [
+        {
+          "path": "NessieAI/chat_frontend/src/lib/__tests__/debugEntries.test.ts",
+          "lane": "no_ci"
+        },
+        {
+          "path": "NessieAI/chat_frontend/src/components/__tests__/AboutDialog.test.tsx",
+          "lane": "no_ci"
+        }
+      ],
+      "live_check": {
+        "kind": "smoke",
+        "ref": "ci/smoke/test_deploy_live.py::test_the_served_chat_bundle_is_the_committed_one, ::test_the_chat_page_loads_the_committed_bundle",
+        "proves": "nginx serves the manifest's JS and CSS byte for byte and the chat page names that JS; not that the bundle was built from this source"
+      },
+      "status": "live",
+      "proposals": [
+        "P5",
+        "P12"
+      ],
+      "accepted_gap": null
+    },
+    {
+      "id": "BC13",
+      "summary": "The nessie_tests harness classifies a turn that ended only in a query_error by its reason (model_unavailable and the CC unavailability text are outages), and a case's cost is the sum of its turns with the router's (u4 via 65c250dd, outside the listed 50).",
+      "commits": [
+        "8785f16c"
+      ],
+      "unit_tests": [
+        {
+          "path": "NessieAI/tests/nessie_tests/tests/test_outage_model_unavailable.py",
+          "lane": "harness_host"
+        },
+        {
+          "path": "NessieAI/tests/nessie_tests/tests/test_export.py",
+          "lane": "harness_host"
+        },
+        {
+          "path": "NessieAI/tests/nessie_tests/tests/test_turn_cost.py",
+          "lane": "harness_host"
+        }
+      ],
+      "live_check": null,
+      "status": "unit_only",
+      "proposals": [
+        "P5",
+        "P13"
+      ],
+      "accepted_gap": null
+    },
+    {
+      "id": "BC14",
+      "summary": "The graph reviewer fires live: a value-first index probe under a 2 s statement budget with max_cold 8, the catalog lists each type's range-indexed attributes, and a count with no grouping column no longer hides a value split, so the RNA-seq count discloses the miRNA-Seq mix and offers 'Only RNA-Seq?' (merge 5f3f63a2: dab77461, 3c1d04ef, 3422cb1c, outside the listed 50).",
+      "commits": [
+        "5f3f63a2"
+      ],
+      "unit_tests": [
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_graph_review_tier1.py::test_live_mode_fires_unapplied_value_on_the_rna_seq_case",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_graph_catalog_seekable.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_graph_review_counts.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_graph_review_wiring.py",
+          "lane": "informational"
+        }
+      ],
+      "live_check": {
+        "kind": "stack_health",
+        "ref": "app image code (startup/steps/deploy_checks.py check_app_code)",
+        "proves": "the changed files are byte-identical inside the serving nextseek container; it does not exercise the behaviour"
+      },
+      "status": "needs_paid_turn",
+      "proposals": [
+        "P2",
+        "P6"
+      ],
+      "accepted_gap": null
+    },
+    {
+      "id": "BC15",
+      "summary": "A click on a reviewer chip reruns from the turn that offered it, from the stored offer only and in the clicker's scope (suggestion_accepted, chip_rerun).",
+      "commits": [
+        "ee6f6294"
+      ],
+      "unit_tests": [
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_chip_click.py",
+          "lane": "informational"
+        },
+        {
+          "path": "NessieAI/tests/chat_nextseek/test_suggestions_wiring.py",
+          "lane": "informational"
+        }
+      ],
+      "live_check": {
+        "kind": "stack_health",
+        "ref": "app image code (startup/steps/deploy_checks.py check_app_code)",
+        "proves": "the changed files are byte-identical inside the serving nextseek container; it does not exercise the behaviour"
+      },
+      "status": "needs_paid_turn",
+      "proposals": [
+        "P6"
+      ],
+      "accepted_gap": null
+    },
+    {
+      "id": "BC16",
+      "summary": "/seek/search/ no longer formats about 10,000 template tracebacks per load: the phone Sample type dropdown loops over the parsed list and the django.template logger runs at INFO (merge 5d36e2d1: c8d6ef63, 47afaea3, outside the listed 50).",
+      "commits": [
+        "5d36e2d1"
+      ],
+      "unit_tests": [
+        {
+          "path": "seek/tests/test_sample_search_page.py::test_the_phone_dropdown_has_one_option_per_sample_type",
+          "lane": "blocking"
+        },
+        {
+          "path": "seek/tests/test_sample_search_page.py::test_the_page_renders_without_a_failed_variable_lookup",
+          "lane": "blocking"
+        },
+        {
+          "path": "seek/tests/test_sample_search_page.py::test_a_failed_variable_lookup_formats_no_traceback",
+          "lane": "blocking"
+        }
+      ],
+      "live_check": {
+        "kind": "smoke",
+        "ref": "ci/smoke/test_deploy_live.py::test_seek_search_renders_its_type_dropdown_once_per_type_and_fast",
+        "proves": "every m_sampletype option has a value, the fastest of 6 loads is under 5 s, and logs/django.log gains no failed-lookup record"
+      },
+      "status": "live",
+      "proposals": [],
+      "accepted_gap": null
+    }
+  ],
+  "no_behaviour_change": [
+    {
+      "commits": [
+        "1c070c08",
+        "df963ab1",
+        "284aecf7",
+        "ecd04701",
+        "67ada903",
+        "f4b36175"
+      ],
+      "reason": "merge_commit",
+      "note": "merges whose branch commits are all in the listed 50 and reviewed there; the merges that bring in commits outside the list (3b53fc2e, 2c1eda20, 5f3f63a2, 5d36e2d1) are rows of their own"
+    },
+    {
+      "commits": [
+        "463ecb9f",
+        "a8dbac2f",
+        "b985d024"
+      ],
+      "reason": "ci_or_startup_only",
+      "note": "the four stack-health lines and three smoke tests the live rows above cite; their first run is this launch's CI step"
+    },
+    {
+      "commits": [
+        "71cf4864"
+      ],
+      "reason": "ci_or_startup_only",
+      "note": "the paid Nessie lane's ceiling still counts Claude Code's cost only and prints the all-turns total beside it; the lane is off for this launch (ci/smoke/test_nessie_unit.py)"
+    },
+    {
+      "commits": [
+        "6da2b00c",
+        "4611e81d",
+        "a834097c",
+        "92aae3b7"
+      ],
+      "reason": "tests_only",
+      "note": "test pins and stubs only (query_complete key pin, Gemini retry stub, nessie_tests export cases)"
+    },
+    {
+      "commits": [
+        "d4f398a5",
+        "70fcd97e"
+      ],
+      "reason": "docs",
+      "note": "README on model prices; 70fcd97e changes only the catalog _comment and a code comment on the aws:* _fallback block"
+    },
+    {
+      "commits": [
+        "b4aae4a0",
+        "f1685b09"
+      ],
+      "reason": "data_or_fixture",
+      "note": "b4aae4a0 is the reviewer probe file P6 would run; f1685b09 merges a61086f9, which drops one MANIFEST.md criterion from a harness probe"
+    }
+  ],
+  "proposed_checks": [
+    {
+      "id": "P1",
+      "kind": "stack_health",
+      "where": "startup/steps/deploy_checks.py",
+      "proves": "every model id the checkout's agent_model_catalog.json, router map and CC map name is available to this box's credentials (Bedrock GetFoundationModel / GetInferenceProfile, Gemini models.get: control-plane calls, no tokens)",
+      "fails_when": "any id answers AccessDenied, ResourceNotFound or 404, or is not offered in the box's region; F1 would otherwise move that call to the fallback model with no red anywhere, so run 2's model switch could grade the fallback model",
+      "cost": "free",
+      "priority": "before_next_launch",
+      "covers": [
+        "BC5",
+        "BC6",
+        "BC10"
+      ]
+    },
+    {
+      "id": "P2",
+      "kind": "smoke",
+      "where": "ci/smoke/test_graph_reviewer_live.py",
+      "proves": "on the box's live graph, graph_catalog.get_seekable returns range-indexed attributes and a Tier 1 review of the RNA-seq Cypher with the live value provider fires unapplied_value naming miRNA-Seq, with no model call",
+      "fails_when": "get_seekable is empty, or the review returns no unapplied_value finding inside its 2 s budget (rebuild 1's failure: the reviewer ran on 25 dev turns and never fired while offline tests passed)",
+      "cost": "free",
+      "priority": "soon",
+      "covers": [
+        "BC14"
+      ]
+    },
+    {
+      "id": "P3",
+      "kind": "smoke",
+      "where": "ci/smoke/test_nessie.py (spend wiring as a record_spend helper tested in ci/smoke/test_nessie_unit.py)",
+      "proves": "the turns the lane already makes carry total_cost_usd, models_used and model_fallback on query_complete, router_model and router_cost_usd on route_decided, and cost_by_price_table_usd on the CC turn",
+      "fails_when": "any of those keys is absent, or a cost is null without cost_partial set",
+      "cost": "paid",
+      "priority": "soon",
+      "covers": [
+        "BC3",
+        "BC4",
+        "BC7",
+        "BC10"
+      ]
+    },
+    {
+      "id": "P4",
+      "kind": "blocking_glob",
+      "where": "ci/blocking_lanes.py",
+      "proves": "the proxy allow list matches the CC model map, the plugin accepts the server's real event payloads, and every model a turn can reach has a price, before anything merges (operator ruling: it makes these files gate CI)",
+      "fails_when": "NessieAI/tests/cc/test_cc_proxy_allow_list.py, NessieAI/tests/cc/test_plugin_event_contract.py or NessieAI/tests/chat_nextseek/test_model_prices.py fails in ci-pytest",
+      "cost": "free",
+      "priority": "soon",
+      "covers": [
+        "BC1",
+        "BC4",
+        "BC7"
+      ]
+    },
+    {
+      "id": "P5",
+      "kind": "ci_lane",
+      "where": ".github/workflows/ci-pytest.yml",
+      "proves": "NessieAI/tests/nessie_tests/tests and the chat_frontend vitest suite run on every push (with test_progress_printer.py's host collection fixed)",
+      "fails_when": "a harness or vitest test fails, reported against the baseline like the other informational lanes",
+      "cost": "free",
+      "priority": "soon",
+      "covers": [
+        "BC12",
+        "BC13"
+      ]
+    },
+    {
+      "id": "P6",
+      "kind": "nessie_case",
+      "where": "NessieAI/tests/nessie_tests/probes/probe-2026-09-25-reviewer-live.json (run 1)",
+      "proves": "the RNA-seq count turn has debug.graph_review.fired == ['unapplied_value'] and offers 'Only RNA-Seq?', and clicking the chip reruns with suggestion_accepted and chip_rerun in debug",
+      "fails_when": "fired is empty, no chip is offered, or the rerun turn lacks chip_rerun",
+      "cost": "paid",
+      "priority": "soon",
+      "covers": [
+        "BC14",
+        "BC15"
+      ]
+    },
+    {
+      "id": "P7",
+      "kind": "nessie_case",
+      "where": "NessieAI/tests/nessie_tests/probes/ (a Container-CC chart-and-count probe, run 1)",
+      "proves": "a Container-CC turn that charts and counts names no container path in its reply, states a number it computed, saves a matplotlib chart, and carries models_used and cost_by_price_table_usd",
+      "fails_when": "the reply contains a container path, the count is not computed in the transcript, no chart file is staged, or either key is missing",
+      "cost": "paid",
+      "priority": "soon",
+      "covers": [
+        "BC2",
+        "BC3"
+      ]
+    },
+    {
+      "id": "P8",
+      "kind": "unit",
+      "where": "NessieAI/tests/cc/test_cc_turn_record.py",
+      "proves": "the command run_cc_turn starts the agent container with carries --fallback-model <map opus_fallback> after --model",
+      "fails_when": "the fake containers.run records a command without --fallback-model or with a model other than the map's",
+      "cost": "free",
+      "priority": "later",
+      "covers": [
+        "BC1"
+      ]
+    },
+    {
+      "id": "P9",
+      "kind": "unit",
+      "where": "NessieAI/tests/chat_nextseek/test_direct_calls_use_the_ladder.py",
+      "proves": "the intended outcome when the entity raw fallback fails on both models (it now ends the turn, at 926be1e3 it returned no entities), and that call_llm_text takes its chain from agent_label while logging under log_label on a real first-model 503",
+      "fails_when": "the both-models failure ends differently from the pinned outcome, or the chain is looked up by log_label",
+      "cost": "free",
+      "priority": "soon",
+      "covers": [
+        "BC5"
+      ]
+    },
+    {
+      "id": "P10",
+      "kind": "unit",
+      "where": "NessieAI/tests/cc/test_cc_route_ns_crash_cost.py",
+      "proves": "route_decided's router_model and router_fallback values on the driven start_task progress entry, not only by an AST check",
+      "fails_when": "either value is missing or wrong on the progress entry",
+      "cost": "free",
+      "priority": "later",
+      "covers": [
+        "BC10"
+      ]
+    },
+    {
+      "id": "P11",
+      "kind": "unit",
+      "where": "NessieAI/tests/chat_nextseek/test_model_unavailable_reply.py",
+      "proves": "a failed turn's payload carries total_cost_usd and model_fallback after a recorded move, end to end through run_query",
+      "fails_when": "the query_error payload lacks either key after the ladder moved",
+      "cost": "free",
+      "priority": "later",
+      "covers": [
+        "BC7",
+        "BC8"
+      ]
+    },
+    {
+      "id": "P12",
+      "kind": "unit",
+      "where": "NessieAI/tests/build_tools/test_chat_bundle_matches_source.py",
+      "proves": "the manifest's entry file contains one new string each from AboutDialog.tsx and debugEntries.ts, and the About quote equals cc_engine._time_limit_message(180)",
+      "fails_when": "the committed bundle predates a source change, or the About text drifts from the server's message",
+      "cost": "free",
+      "priority": "later",
+      "covers": [
+        "BC12"
+      ]
+    },
+    {
+      "id": "P13",
+      "kind": "unit",
+      "where": "NessieAI/tests/nessie_tests/tests/test_outage_model_unavailable.py and test_bayesian.py",
+      "proves": "the harness imports the CC outage texts and reason from NessieAI/cc/translate.py instead of copies, and --max-usd counts NS and router spend",
+      "fails_when": "translate.py's texts change without the harness following, or --max-usd ignores NS or router spend",
+      "cost": "free",
+      "priority": "later",
+      "covers": [
+        "BC13"
+      ]
+    }
+  ]
+}

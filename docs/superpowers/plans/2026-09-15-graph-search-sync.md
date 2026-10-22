@@ -536,7 +536,7 @@ Stage 4A: T3, T13, T16, T17, T18a in parallel. Stage 4B: T14, T18b, T20 in paral
 ### Task T3: the schedule (spec 12; R9)
 
 **Interfaces:** pure: `Cadence(kind, weekday, hour, minute)`, `DEFAULT_CADENCES` (reconcile daily 02:00, drift daily
-02:30, full Sunday 03:00, UTC), `last_boundary(cadence, now)`, `slot_key(cadence, boundary)`, `due_slots(cadences,
+02:30, full Sunday 03:00, US Eastern since 2026-10), `last_boundary(cadence, now)`, `slot_key(cadence, boundary)`, `due_slots(cadences,
 now, last_ok_started)`. **Tests first:** boundaries around the hour, midnight, the ISO week and year; a full sync
 after the boundary satisfies the reconcile; a missed slot is due at the next pass. **Commit:** `feat(graph_sync): add the sync schedule`
 

@@ -43,6 +43,7 @@ class GranularEndpointBase(TestCase):
         self.user = User.objects.create_user("u1", password="p")
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
+        self.client.credentials(HTTP_AUTHORIZATION="Basic dTE6cA==")  # u1:p: an op runs only as the caller's own login (#64)
         patcher = patch(
             "nextseek_api.services.assistant.UserInParticipatingProject.has_permission",
             return_value=True,
@@ -474,10 +475,30 @@ class ReingestEndpointTests(GranularEndpointBase):
                                     {"build_ids": "a" * 64, "confirmed_write": True},
                                     format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
-        self.assertIs(run.call_args.kwargs["dispatch"], batch_views.dispatch_batch_job)
         self.assertIs(run.call_args.kwargs["stage"], batch_views.stage_workbook_copy)
         # ...and the job-state lookup, so the op can wait and report how each job ended.
         self.assertIs(run.call_args.kwargs["job_state"], batch_views.job_outcome)
+
+    def test_upload_reingest_dispatches_with_the_callers_project_scope(self):
+        """SEC-001: every job the op starts carries the caller's project scope, read
+        when the job starts, so a member uploads only into their own projects."""
+        with patch("NessieAI.ns.reingest.upload.run",
+                   return_value={"jobs": [], "reply": ""}) as run, \
+                patch("nextseek_api.batch_upload.views._resolve_user_context",
+                      return_value={"lababbv": "MIT"}):
+            resp = self.client.post(f"{self.BASE}/upload-reingest/",
+                                    {"build_ids": "a" * 64, "confirmed_write": True},
+                                    format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        dispatch = run.call_args.kwargs["dispatch"]
+        with patch("nextseek_api.batch_upload.views._caller_project_scope",
+                   return_value=(14,)) as scope, \
+                patch("nextseek_api.batch_upload.views.dispatch_batch_job",
+                      return_value="job-1") as batch:
+            self.assertEqual(dispatch(project_id=14, xlsx_paths=["/m/a.xlsx"]), "job-1")
+        self.assertEqual(scope.call_args.args[0].pk, self.user.pk)
+        self.assertEqual(batch.call_args.kwargs,
+                         {"scope_project_ids": (14,), "project_id": 14, "xlsx_paths": ["/m/a.xlsx"]})
 
     def test_upload_reingest_asks_the_server_which_turn_the_call_runs_in(self):
         """The agent supplies no chat or turn: the REST layer looks both up for the
@@ -617,7 +638,7 @@ class AggregateEndpointTests(GranularEndpointBase):
         self.assertEqual(result["parts"][0]["sum_of_group_counts"], 4)
         self.assertTrue(result["parts"][0]["groups_may_overlap"])
         self.assertEqual(result["parts"][0]["null_group"], 1)
-        self.assertEqual(len(captured["sessions"]), 2)
+        self.assertEqual(len(captured["sessions"]), 1, "one fallback parse for the whole question")
         self.assertTrue(all(s is not None for s in captured["sessions"]))
 
     def test_aggregate_without_parts_answers_the_question(self):

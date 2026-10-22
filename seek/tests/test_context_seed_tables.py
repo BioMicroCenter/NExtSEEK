@@ -150,8 +150,9 @@ def test_a_curated_seed_uses_no_backslash_escape(table):
 def test_the_curated_sample_types_header_tells_the_truth_about_the_dump():
     """The seeded dump DOES create and populate sample_types_context.
 
-    Measured with `zcat startup/seed/dmac.sql.gz | grep 'CREATE TABLE'`: of the
-    three context tables it creates exactly this one. A header saying otherwise
+    Measured with `zcat startup/seed/dmac.sql.gz | grep 'CREATE TABLE'`: since the
+    46cba3ac seed refresh it creates all three context tables (assay_context,
+    projects_context, sample_types_context); before, only this one. A header saying otherwise
     sends an operator to hand-apply the file to a stack that already has the table.
     """
     import gzip
@@ -159,7 +160,7 @@ def test_the_curated_sample_types_header_tells_the_truth_about_the_dump():
     dump = gzip.open(ROOT / "startup" / "seed" / "dmac.sql.gz", "rt",
                      encoding="utf-8", errors="replace").read()
     creates = {table for table in CURATED if f"CREATE TABLE `{table}`" in dump}
-    assert creates == {"sample_types_context"}, creates
+    assert creates == set(CURATED), creates
     header = (SQL / CURATED["sample_types_context"][0]).read_text().split("CREATE TABLE", 1)[0]
     header = " ".join(header.replace("\n--", "").split())
     assert "startup/seed/dmac.sql.gz DOES create and populate it" in header

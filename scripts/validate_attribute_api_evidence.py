@@ -15,9 +15,9 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-_CORPUS_VERIFIER_PATH = Path(
-    "/home/taishajo/work/state/attribute-viewset/verification/verify_corrupt_corpus.py"
-)
+_STATE_ROOT = Path(os.environ.get("ATTRIBUTE_STATE_ROOT") or Path.home() / "work/state/attribute-viewset")
+
+_CORPUS_VERIFIER_PATH = _STATE_ROOT / "verification/verify_corrupt_corpus.py"
 _corpus_spec = importlib.util.spec_from_file_location(
     "verify_corrupt_corpus", _CORPUS_VERIFIER_PATH
 )
@@ -25,7 +25,7 @@ _corpus_verifier = importlib.util.module_from_spec(_corpus_spec)
 assert _corpus_spec.loader is not None
 _corpus_spec.loader.exec_module(_corpus_verifier)
 
-MANIFEST_PATH = Path("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json")
+MANIFEST_PATH = _STATE_ROOT / "VERIFICATION-MANIFEST.json"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 TASK_DEPENDENCIES = {

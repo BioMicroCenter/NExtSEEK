@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 from coverage import Coverage
 
+_STATE_ROOT = Path(os.environ.get("ATTRIBUTE_STATE_ROOT") or Path.home() / "work/state/attribute-viewset")
+
 # Task-08 Review Blocker 6: `run_attribute_mutation`'s body only ever runs
 # inside a real, separately spawned Celery worker subprocess
 # (`DisposableAttributeBroker.start_worker`), and the synchronous-web-owner
@@ -30,7 +32,7 @@ from coverage import Coverage
 # no-op when no parallel `.coverage.*` files exist.
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = Path("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json")
+MANIFEST = _STATE_ROOT / "VERIFICATION-MANIFEST.json"
 SOURCE_PATHS = (
     "nextseek_api/attributes",
     "startup/steps/schema_fixups.py",

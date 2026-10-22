@@ -35,8 +35,8 @@ def sidecar(monkeypatch):
 
 def _stage_bytes(sidecar, tmp_path):
     cfg = types.SimpleNamespace(staging_dir=str(tmp_path))
-    login = sidecar.contract.NsLogin(api_user="someone", api_pass="x")
-    return sidecar.staging.make_stage_bytes(cfg, login, "req-1")
+    turn = sidecar.contract.NsTurn(api_user="someone", turn_pass="x")
+    return sidecar.staging.make_stage_bytes(cfg, turn, "req-1")
 
 
 def test_an_artifact_is_staged_under_its_real_filename(sidecar, tmp_path):
@@ -71,7 +71,7 @@ def test_build_upload_xlsx_stages_each_workbook_under_its_filename(sidecar, monk
         calls.append((key, filename))
         return f"/staged/{filename or key}"
 
-    config = types.SimpleNamespace(base_url="http://x", auth=None)
+    config = types.SimpleNamespace(base_url="http://x", turn_pass="pass")
     result = sidecar.ops._build_upload_xlsx(
         {"manifest_id": "abc"}, config, None, None, None, stage_bytes, lambda: None)
 

@@ -33,11 +33,12 @@
   because Django creates two directories at settings-import time
   (`dmac/settings.py:507-508`); pre-create them, or hand the mount a writable overlay,
   exactly as the gate lane does at `ci/gate/live_routes.py:16`.
-- Several group D programs, and the Django test module that drives them, hardcode one
-  developer's home directory as their state root. On any other machine
-  `nextseek_api/tests/test_attribute_api_harness.py` fails most of its tests on that
-  missing root (`nextseek_api/tests/test_attribute_api_harness.py:13-14`).
-- Two of the files carrying such a path explode at IMPORT time rather than at run time,
+- Several group D programs, and the Django test module that drives them, read their state
+  root from `ATTRIBUTE_STATE_ROOT` (default `~/work/state/attribute-viewset`). On any
+  machine without that directory,
+  `nextseek_api/tests/test_attribute_api_harness.py` fails most of its tests on the
+  missing root (`nextseek_api/tests/test_attribute_api_harness.py:15-16`).
+- Two of the files that read it explode at IMPORT time rather than at run time,
   because they execute an out-of-repo module at module scope, so even loading one to
   introspect it raises (`scripts/validate_attribute_api_evidence.py:18-26`,
   `scripts/select_attribute_evidence.py:5-11`).
@@ -87,10 +88,10 @@ root (Landmines, above); everything else in that selection is expected to pass.
 
 ## See also
 
-- See README.md in this directory for the seven purpose groups, what each reads and writes,
+- See README.md in this directory for the nine purpose groups, what each reads and writes,
   and the dependency edges in both directions.
 - See `ci/README.md` for how the route-registry gate consumes the dumper.
 - See `docs/ISSUE-CONVENTIONS.md` for the issue taxonomy these validators own.
-- See `.claude/skills/nextseek-viewset/SKILL.md` for when to run the ViewSet validator.
+- See `.claude/skills/nextseek-create-endpoint/SKILL.md` for when to run the ViewSet validator.
 - See `nextseek_api/batch_upload/README.md` for the live E2E program's context.
 - See `NessieAI/history/INDEX.md` for the Plan 018 tooling that used to live here.

@@ -112,16 +112,21 @@ def model_class_map(checkout: Path) -> dict[str, str]:
 CC_RUNTIME_PROBE = r"""
 import importlib, importlib.metadata as md, json, subprocess, sys
 
-def run(*argv):
+def run(*argv, ok_on_stdout=False):
     try:
         p = subprocess.run(list(argv), capture_output=True, text=True, timeout=60)
     except Exception as exc:
         return "error: %s: %s" % (type(exc).__name__, exc)
+    if ok_on_stdout and p.returncode == 0 and (p.stdout or "").strip() == "ok":
+        return "ok"  # a warning on stderr is not a failure
     return ((p.stdout or "") + (p.stderr or "")).strip()
 
 imports = json.loads(sys.argv[1])
 out = {"node": run("node", "--version"), "claude": run("claude", "--version"),
-       "dists": {}, "imports": {}}
+       "dists": {}, "imports": {},
+       # P12: a shim's bare `python` must be the image venv (the 10-14 httpx failure).
+       "shim_python": run("sh", "-c", ". /app/plugins/nextseek/bin/_nextseek_common.sh; python -c 'import httpx' && echo ok",
+                           ok_on_stdout=True)}
 for dist in sys.argv[2:]:
     try:
         out["dists"][dist] = md.version(dist)
@@ -179,6 +184,9 @@ def cc_runtime_problems(expected: dict, seen: dict) -> list[str]:
         if dist in (expected.get("dists") or []) and dists.get(dist):
             if imports.get(module) != "ok":
                 problems.append(f"{module} does not import: {imports.get(module)}")
+    if seen.get("shim_python") != "ok":
+        problems.append("a shim's python cannot import httpx after sourcing _nextseek_common.sh: "
+                        f"{str(seen.get('shim_python'))[:120]}")
     return problems
 
 
@@ -257,7 +265,7 @@ CC_WIRING_PROBE = (
     "from NessieAI.cc import cc_engine\n"
     "from dmac_assistant.router import models\n"
     "cmd = cc_engine._build_command(model_id=models.resolve_cc_model())\n"
-    "env = cc_engine.build_agent_environment(api_user=None, api_pass=None, path_mappings={})\n"
+    "env = cc_engine.build_agent_environment(api_user=None, turn_pass=None, path_mappings={})\n"
     "def flag(n):\n"
     "    return cmd[cmd.index(n) + 1] if n in cmd else None\n"
     "keys = ('CLAUDE_CODE_MAX_RETRIES', 'API_TIMEOUT_MS', 'ANTHROPIC_DEFAULT_SONNET_MODEL')\n"
@@ -397,8 +405,9 @@ def check_cc_models(repo_root: Path, env: dict[str, str], checkout: Path) -> tup
 # --------------------------------------------------------------------------- #
 
 # What the app image is built from (`COPY . /app/`) and runs. Tracked files only.
-APP_CODE_ROOTS = ("dmac", "seek", "nextseek_api", "api_app", "templates", "NessieAI",
-                  "static/js/chat_assistant", "manage.py", "gunicorn.conf.py")
+# docker/models holds the embedding model pins the image bakes (#28).
+APP_CODE_ROOTS = ("dmac", "seek", "nextseek_api", "NessieAI",
+                  "static/js/chat_assistant", "manage.py", "gunicorn.conf.py", "docker/models")
 # Tracked paths the image does not carry (.dockerignore) or rewrites at run time:
 # the chat_nextseek context files are refreshed from the database inside the
 # container, and the cc-agent context check already compares them.

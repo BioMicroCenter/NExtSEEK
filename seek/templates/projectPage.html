@@ -38,6 +38,13 @@
 .project-bundle .codes { display: block; font-family: var(--ns-font-mono); font-size: 0.68rem; color: var(--ns-muted); margin-top: 0.15rem; }
 
 .project-diagram { width: 100%; height: 460px; border: 1px solid var(--ns-border); border-radius: 8px; background: var(--ns-bg); }
+/* On a phone the inline frame is a thumbnail that also captures touch scrolling:
+   offer the full-screen diagram instead (a hidden lazy iframe never loads). */
+.project-diagram-open { display: none; }
+@media (max-width: 767.98px) {
+    .project-diagram { display: none; }
+    .project-diagram-open { display: flex; align-items: center; justify-content: center; gap: 0.4rem; min-height: 44px; border: 1px solid var(--ns-crimson-border); border-radius: 8px; color: var(--ns-crimson); background: var(--ns-crimson-soft); font-weight: 600; text-decoration: none; }
+}
 
 .project-types { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .project-types a { font-family: var(--ns-font-mono); font-size: 0.74rem; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 11px; border: 1px solid var(--ns-border); background: var(--ns-sidebar-bg); color: var(--ns-ink); text-decoration: none; }
@@ -119,6 +126,8 @@
         <iframe class="project-diagram" loading="lazy"
                 src="/seek/projects/{{ id }}/connections/"
                 title="Sample type connections for {{ title }}"></iframe>
+        <a class="project-diagram-open" href="/seek/projects/{{ id }}/connections/"
+           data-modal-route data-modal-iframe>Open the Sample flow diagram</a>
     </div>
 
     {% if bundles %}

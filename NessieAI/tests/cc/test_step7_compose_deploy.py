@@ -508,10 +508,10 @@ def test_tracker_path_inside_bundle_rejected_with_no_meta_json(tmp_path):
     assert _names(checks)["tracker_path_not_arbitrary"] is False
 
 
-@pytest.mark.parametrize("host_label", ["taishajo-mbp", "MBP.local", "MacBook-Pro-2.local"])
+@pytest.mark.parametrize("host_label", ["dev-mbp", "MBP.local", "MacBook-Pro-2.local"])
 def test_mbp_snapshot_exception_satisfied_on_quasi_mbp_labels(tmp_path, host_label):
     """Task 1's in-bundle tracker-snapshot exception uses a fuzzy MBP_HOST_LABEL_RE
-    ("taishajo-mbp", "MBP.local", etc.) predating Task 2's LOCKED host_label
+    ("dev-mbp", "MBP.local", etc.) predating Task 2's LOCKED host_label
     enum (exact "mbp" only). Both coexist: these quasi-MBP labels still
     satisfy the narrow snapshot-bypass (the two checks asserted below), but
     the bundle as a whole no longer passes `all_ok` under Task 2's stricter
@@ -551,7 +551,7 @@ def test_mbp_snapshot_wrong_basename_fails(tmp_path):
     bundle = tmp_path / "bundle"
     wrong_name = bundle / "integration-plan-copy.json"  # not the exact required basename
     _pass_bundle(bundle, wrong_name, deploy_commit=sha)
-    _write_meta(bundle, host_label="taishajo-mbp")
+    _write_meta(bundle, host_label="dev-mbp")
 
     all_ok, checks = validate_run(bundle, repo_root=repo)
 
@@ -565,7 +565,7 @@ def test_mbp_snapshot_missing_canonical_sha_fails(tmp_path):
     snapshot = bundle / "integration_plan_snapshot.json"
     _pass_bundle(bundle, snapshot, deploy_commit=sha,
                  canonical_integration_plan_sha256=None)
-    _write_meta(bundle, host_label="taishajo-mbp")
+    _write_meta(bundle, host_label="dev-mbp")
 
     all_ok, checks = validate_run(bundle, repo_root=repo)
 
@@ -578,7 +578,7 @@ def test_mbp_snapshot_tampered_sha_mismatch_fails(tmp_path):
     bundle = tmp_path / "bundle"
     snapshot = bundle / "integration_plan_snapshot.json"
     _pass_bundle(bundle, snapshot, deploy_commit=sha)
-    _write_meta(bundle, host_label="taishajo-mbp")
+    _write_meta(bundle, host_label="dev-mbp")
 
     # Tamper the snapshot AFTER collection without updating integration_plan_sha256.
     snapshot.write_text(json.dumps(_mk_tracker("done")).replace("done", "done "), encoding="utf-8")
@@ -784,7 +784,7 @@ def test_resolve_integration_plan_path_default_is_repo_relative(monkeypatch):
     p = resolve_integration_plan_path(repo_root)
     assert str(p) == str(repo_root / ".." / "state" / "integration-plan.json")
     # never a baked-in absolute home path other than what was passed in
-    assert "/home/taishajo" not in str(p)
+    assert str(p).startswith(str(repo_root))
 
 
 def test_read_tracker_step3_status_finds_step_3(tmp_path):

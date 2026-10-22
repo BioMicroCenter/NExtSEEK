@@ -86,8 +86,43 @@ def test_an_investigation_name_reaches_the_investigation_title_this_graph_holds(
 
 
 def test_a_second_investigation_name_with_another_box_title():
-    hits = gctx.container_titles_for(["Delta Trial"], [INV_ROW_2], _levels(inv=("Epsilon",)))
+    """Epsilon is also a project row's name here, so it can be the owner's: used, not the row's own scope."""
+    epsilon_project = {"name": "Epsilon Group", "alternative_names": ["Epsilon"], "entity_type": "project"}
+    hits = gctx.container_titles_for(["Delta Trial"], [INV_ROW_2, epsilon_project], _levels(inv=("Epsilon",)))
     assert hits == {"Delta Trial": ("investigation", "Epsilon", False)}
+
+
+# --- A4: an alias only one investigation row holds, and no project row, is that investigation's own scope -------------
+
+
+def test_an_alias_only_one_investigation_row_holds_is_its_own_scope():
+    """The counter-example shape: one investigation row, one alias, no project row holding it, one title."""
+    row = {"name": "Alpha Study", "alternative_names": ["Alpha Group"], "entity_type": "investigation",
+           "parent_project": "Alpha Programme"}
+    hits = gctx.container_titles_for(["Alpha Study"], [row], _levels(inv=("Alpha Group",), proj=("Alpha Programme",)))
+    assert hits == {"Alpha Study": ("investigation", "Alpha Group", True)}
+
+
+def test_another_investigation_and_alias_is_its_own_scope_too():
+    row = {"name": "Beta Cohort", "alternative_names": ["Beta Superfund"], "entity_type": "investigation",
+           "parent_project": "Beta Programme"}
+    hits = gctx.container_titles_for(["Beta Cohort"], [row], _levels(inv=("Beta Superfund",)))
+    assert hits == {"Beta Cohort": ("investigation", "Beta Superfund", True)}
+
+
+def test_an_alias_two_investigation_rows_share_stays_broader():
+    rows = [{"name": "Alpha Study", "alternative_names": ["Alpha Group"], "entity_type": "investigation",
+             "parent_project": "Alpha Programme"},
+            {"name": "Alpha Study Two", "alternative_names": ["Alpha Group"], "entity_type": "investigation",
+             "parent_project": "Alpha Programme"}]
+    hits = gctx.container_titles_for(["Alpha Study"], rows, _levels(inv=("Alpha Group",)))
+    assert hits == {"Alpha Study": ("investigation", "Alpha Group", False)}
+
+
+def test_the_alias_scope_reaches_the_reply_check():
+    """The title is recorded as the name's own, so a query on it leaves no not-applied caveat."""
+    scope = _inv_scope({"Alpha Cohort": "Gamma Lab"}, "Gamma Lab")
+    assert not scope.not_applied
 
 
 def test_an_investigation_titled_with_the_rows_own_name_is_its_own_scope():
@@ -396,10 +431,10 @@ def test_step5_scopes_a_resolved_project_on_its_exact_title():
     assert "EXACT title" in rule
     assert re.search(r"MATCH \(s:Sample\)-\[:IN_PROJECT\]->\(p:Project\)\s*WHERE p\.title = \$project_title", rule)
     assert "PROJECTS NAMED IN THIS QUESTION" in rule
-    assert '"Impact" is the project titled `IMPAcTb`' in rule
+    assert "use the title the block or the list gives, never a title you remember" in rule
     assert "Never `CONTAINS` on a project's name" in rule
     assert "never OR a Study or Investigation title match beside it" in rule
-    assert "892" in rule and "Impact of fibrinogen" in rule
+    assert "took in a paper whose title only began with the same word" in rule
 
 
 def test_the_study_and_investigation_form_is_kept_for_a_name_that_is_no_project_title():
@@ -414,11 +449,13 @@ def test_the_study_and_investigation_form_is_kept_for_a_name_that_is_no_project_
 
 
 def test_the_tuned_scope_behaviours_stand():
-    """Shoulders (an investigation whose project holds 568) and the no-search_text-beside-a-scope rule."""
+    """A name that is an investigation title while its project holds the samples, and the no-search_text-beside-a-
+    scope rule. N8: the example names no real project or number."""
     assert "A NAME YOU WERE GIVEN in PROJECT TITLES, INVESTIGATION TITLES or STUDY TITLES is a scope" in STEP5
-    assert "its project held 568 samples" in STEP5
+    assert "found nothing while the project held the samples" in STEP5
+    assert "568" not in STEP5 and "Shoulders" not in STEP5
     assert "try the other two of Project title, Investigation title and Study title" in STEP5
-    assert '"Shoulders" is `Shoulders Independent Projects`' in STEP5
+    assert "never a title you remember or one from this prompt" in STEP5
 
 
 @pytest.mark.parametrize("name", ["PUBLISHED", "Published Data", "Published"])

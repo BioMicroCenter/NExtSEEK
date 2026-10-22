@@ -332,3 +332,31 @@ def test_graph_search_is_a_permitted_read_post():
 
 def test_graph_search_is_in_the_shared_read_post_set():
     assert GRAPH_SEARCH in _READ_POST_PATHS
+
+
+# --------------------------------------------- an op's limit caps the request (approach 1, piece 2)
+
+
+def test_with_no_deadline_the_timeouts_are_as_before(transport):
+    tool_nextseek_api_request(_Cfg(), endpoint=ADVANCED_SEARCH, method="POST", requestBody={})
+    tool_nextseek_api_request(_Cfg(), endpoint=SAMPLES_RETRIEVE, method="POST", requestBody={})
+    assert [call["timeout"] for call in transport.calls] == [120, 90]
+
+
+def test_inside_an_op_the_request_timeout_is_the_time_left(transport, monkeypatch):
+    from chat_nextseek import call_scope
+    monkeypatch.setattr(call_scope, "_monotonic", lambda: 1000.0)
+    with call_scope.scope(deadline_s=30.0):
+        tool_nextseek_api_request(_Cfg(), endpoint=ADVANCED_SEARCH, method="POST", requestBody={})
+    [call] = transport.calls
+    assert call["timeout"] == 30.0
+
+
+def test_with_no_time_left_nothing_is_sent(transport, monkeypatch):
+    from chat_nextseek import call_scope
+    monkeypatch.setattr(call_scope, "_monotonic", lambda: 1000.0)
+    with call_scope.scope(deadline_s=1.0):
+        result = tool_nextseek_api_request(_Cfg(), endpoint=ADVANCED_SEARCH, method="POST", requestBody={})
+    assert transport.calls == []
+    assert result["ok"] is False
+    assert result["error"] == api.OUT_OF_TIME_NOT_SENT

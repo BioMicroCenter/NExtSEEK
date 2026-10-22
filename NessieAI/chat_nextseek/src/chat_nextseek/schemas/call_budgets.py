@@ -15,10 +15,13 @@ being down. A 5xx, a 429, a refusal or a connection error still marks.
 
 ``op_move_reserve`` False means that inside a Container-CC op the first try is not cut to leave the move its
 reserve (``call_scope.MOVE_RESERVE_S``): it gets its own budget or what is left of the op, whichever is less, as
-before 2026-09-28. For the graph agent (its repair calls too) and the report writer, whose moved call could not redo
+before 2026-09-28. For the report writer, whose moved call could not redo
 the work in 20 s (a 4k-token graph answer takes 30 to 50 s, a report longer): cutting them only broke healthy calls
-late in an op (operator ruling on review finding 1, option A, 2026-09-28). NS turns have no op deadline, so this
-changes nothing there.
+late in an op (operator ruling on review finding 1, option A, 2026-09-28). A turn of its own has no deadline, so this
+changes nothing there; a nested NS turn started by a Container-CC turn has one (``orchestrator._limit_turn``) but is
+not an op. Round 6 (operator, 2026-10-07): the graph agent and its repair keep the 20 s reserve inside an op only
+(``move_reserve_only_in_op``); ops of 90 s still give their first try 50 s or more. Under a deadline that is not an
+op (a nested NS turn) the graph agent's first try gets what is left, as before round 6.
 
 An explicit ``timeout_seconds`` or ``timeout_retry_seconds`` from a caller still wins over this table. An agent the
 table does not name gets ``DEFAULT_BUDGET`` in the recovery ladder (report_coder and the plan-mode agents) and
@@ -55,6 +58,18 @@ class CallBudget:
     moved_s: float
     timeout_marks_model: bool = True
     op_move_reserve: bool = True
+    #: True: the move reserve is taken only inside a Container-CC op (``call_scope.CallScope.is_op``); under a deadline
+    #: that is not an op (a nested NS turn) the first try gets what is left. Round 6, the graph agent only.
+    move_reserve_only_in_op: bool = False
+    #: Inside a Container-CC op only (``call_scope.CallScope.is_op``): the first try's ceiling. Round 6 (operator,
+    #: 2026-10-07): no healthy Opus 5.5 parser call of 420 finished between 28.1 and 50 s, so inside an op a parser
+    #: call past 20 s is a hang and moves to Gemini 3.1 Pro (6 to 12 s). None: the first try keeps ``first_try_s``.
+    op_first_try_s: float | None = None
+    #: Round 7 (T4, operator 2026-10-08), inside an op, first try only: the window is
+    #: clamp(op_speed_k x median of this agent's last 20 first tries on its primary model on this box (the LLM
+    #: ledger), op_speed_floor_s, first_try_s). Under 20 rows the constant stands. Evidence: .claude/work/2026-10-08-cc-slow/analysis/t4_windows.py.
+    op_speed_k: float | None = None
+    op_speed_floor_s: float = 20
 
 
 #: Unlisted agents in the recovery ladder: the budgets every agent had before this table.
@@ -73,13 +88,17 @@ CALL_BUDGETS: dict[str, CallBudget] = {
     "seqera_agent": CallBudget(first_try_s=30, moved_s=90),
     "system": CallBudget(first_try_s=45, moved_s=90),
     "memory_coder": CallBudget(first_try_s=45, moved_s=90),
-    "graph": CallBudget(first_try_s=60, moved_s=90, op_move_reserve=False),
+    # The graph agent: Sonnet 5.5 primary on prod and dev since 2026-10-09 (the box catalog; the repo default
+    # follows with #133), Gemini 3.8 Flash the move. 60 s clears Sonnet's prod max (12 s) and T4 takes over.
+    "graph": CallBudget(first_try_s=60, moved_s=90, move_reserve_only_in_op=True, op_speed_k=5),
     # Sonnet 5.5 primary (the legacy memory agent), Gemini 3.8 Flash fallback.
     "memory": CallBudget(first_try_s=60, moved_s=90),
     # Opus primaries, Gemini 3.1 Pro fallback. The first try was 35 s (ruling 9, 2026-09-25); run 2's always-thinking
     # Opus 5.5 gets 50 s (operator, 2026-09-28). The move keeps 60 s, and a timeout here still marks nothing (D3).
-    "parser": CallBudget(first_try_s=50, moved_s=60, timeout_marks_model=False),
-    "multi_parser": CallBudget(first_try_s=50, moved_s=60, timeout_marks_model=False),
+    "parser": CallBudget(first_try_s=50, moved_s=60, timeout_marks_model=False, op_first_try_s=20,
+                           op_speed_k=4),
+    "multi_parser": CallBudget(first_try_s=50, moved_s=60, timeout_marks_model=False, op_first_try_s=20,
+                           op_speed_k=4),
     "report_writer": CallBudget(first_try_s=240, moved_s=180, op_move_reserve=False),
     # The tool loops, per step. Opus 5.5 primary (sized on Opus 4.7 without thinking), Sonnet 5.5 fallback (the
     # catalog's _fallback block).

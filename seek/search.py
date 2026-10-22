@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import logging
+import re
 logger = logging.getLogger(__name__)
 
     
@@ -276,6 +277,9 @@ class Search():
         return isValid, operatorFound   
         
     def __designIterativeQuery(self, expression, field, termsdic, categoryField='sample_type_id'):
+        # #79: a whole operand that is one group, "(a AND b)" or "((a))", is its contents.
+        while expression.strip() in termsdic:
+            expression = termsdic[expression.strip()]
         isValid, operatorFound = self.__validateExpression(expression)
         if not isValid:
             msg = 'Search expression not in the valid format: ' + expression
@@ -323,6 +327,8 @@ class Search():
         return keywords
     
     def __getKeywords(self, expression, termsdic):
+        while expression.strip() in termsdic:
+            expression = termsdic[expression.strip()]
         keywords = []
         isValid, operatorFound = self.__validateExpression(expression)
         if operatorFound is None:
@@ -364,6 +370,9 @@ class Search():
         if searchText is None:
             return query, [], []
         try:
+            # #79: group placeholders below are NUL-delimited; NUL is never a search
+            # character, so dropping it from user text means no operand can equal one.
+            searchText = searchText.replace('\x00', '')
             pts = self.__findMatchedParentheses(searchText)
         except:
             logger.debug("Warning: Search text has mismatched parentheses in : " + searchText)
@@ -382,15 +391,16 @@ class Search():
                 iterations.append(si)    
                 searching = False
                 
-            for i, j in pts.items():
-                term = sss[(i+1):j]
-                termi = sss[i:(j+1)]
-                if '(' not in term and ')' not in term:
-                    termRep = 'term_' + str(i) + '_' + str(j+1)
-                    if termRep not in termsdic:
-                        termsdic[termRep] = term   
-                    sss = sss.replace(termi, termRep)
-            
+            # #79: replace every innermost "(...)" from the *current* text. The old
+            # loop sliced the mutating string with indices taken before any
+            # replacement, so a placeholder longer than its term (short terms)
+            # shifted the text and broke the parentheses.
+            def _replace(m):
+                termRep = '\x00' + str(len(termsdic)) + '\x00'
+                termsdic[termRep] = m.group(1)
+                return termRep
+            sss = re.sub(r'\(([^()]*)\)', _replace, sss)
+
             si = {}
             si['sss'] = sss
             si['pts'] = pts
@@ -402,6 +412,8 @@ class Search():
         expression = si['sss']
         query, params = self.__designIterativeQuery(expression, tableField, termsdic, categoryField)
         if query is None:
+            # #79: match the user's own text, never the placeholders in it.
+            expression = searchText
             query = tableField + " LIKE %s "
             params = ["%" + str(expression) + "%"]
 

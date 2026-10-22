@@ -1,5 +1,5 @@
 {
-  "port_source_path": "/home/taishajo/work/dmac-assistant",
+  "port_source_path": "<source-checkout>",
   "port_source_commit": "a429f1372a075e5db586a1b6efc8c3b1663e211a",
   "port_source_verified_clean_tree": true,
   "generated_at": "2026-07-01T00:00:00Z",
@@ -7,7 +7,7 @@
     {
       "target": "build_context/plugins/nextseek/context/min_*.json catalog snapshot",
       "discovered_entrypoint": "make snapshot-nextseek-catalogs (dmac-assistant/Makefile:296-309)",
-      "attempted_command": "make -C /home/taishajo/work/dmac-assistant snapshot-nextseek-catalogs CHAT_NEXTSEEK_SRC=/nonexistent/chat_nextseek",
+      "attempted_command": "make -C <source-checkout> snapshot-nextseek-catalogs CHAT_NEXTSEEK_SRC=/nonexistent/chat_nextseek",
       "attempted_command_note": "CHAT_NEXTSEEK_SRC overridden to a deliberately-absent path so the Makefile's own fast-fail existence check (first line of the recipe) runs and exits before any copy -- zero writes to the read-only port source clone either way.",
       "result": "BLOCKED",
       "blocker_output": "ERROR: CHAT_NEXTSEEK_SRC not found at /nonexistent/chat_nextseek/src/chat_nextseek/context. Override via 'make snapshot-nextseek-catalogs CHAT_NEXTSEEK_SRC=/path/to/chat_nextseek'.\nmake: *** [Makefile:133: snapshot-nextseek-catalogs] Error 1",

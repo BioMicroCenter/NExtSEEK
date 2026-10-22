@@ -13,7 +13,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VALIDATOR_PATH = REPO_ROOT / "scripts" / "validate_viewset_conventions.py"
-SKILL = REPO_ROOT / ".claude" / "skills" / "nextseek-viewset" / "SKILL.md"
+SKILL = REPO_ROOT / ".claude" / "skills" / "nextseek-create-endpoint" / "SKILL.md"
 AGENTS_MD = REPO_ROOT / "AGENTS.md"
 
 
@@ -83,17 +83,8 @@ class TestGrandfatherLockstep:
         assert vc.INLINE_DESCRIPTION_ALLOWLIST == expected_inline
         assert vc.SCHEMA_EXAMPLES_OPERATION_ID_ALLOWLIST == expected_schema
 
-    def test_inline_allowlist_is_views_nhp_timeline_only(self):
-        assert all(k[0] == "nextseek_api/views.py" for k in vc.INLINE_DESCRIPTION_ALLOWLIST)
-        assert vc.INLINE_DESCRIPTION_ALLOWLIST == frozenset(
-            {
-                ("nextseek_api/views.py", "download"),
-                ("nextseek_api/views.py", "events"),
-                ("nextseek_api/views.py", "info"),
-                ("nextseek_api/views.py", "retrieve_samples"),
-                ("nextseek_api/views.py", "timeline"),
-            }
-        )
+    def test_inline_allowlist_is_empty(self):
+        assert vc.INLINE_DESCRIPTION_ALLOWLIST == frozenset()
 
     def test_cc_assistant_not_on_ast_or_inline_allowlists(self):
         cc_keys = {k for k in vc.EXTEND_SCHEMA_EXAMPLES_ALLOWLIST if k[0].endswith("cc_assistant.py")}
@@ -357,49 +348,26 @@ class TestExtendSchemaDecorators:
         assert any(v.kind == "parse" for v in violations)
 
     def test_grandfather_skips_examples_violation(self, tmp_path):
-        key = ("nextseek_api/views.py", "download")
+        key = ("nextseek_api/services/samples.py", "destroy")
         assert key in vc.EXTEND_SCHEMA_EXAMPLES_ALLOWLIST
         root = tmp_path / "repo"
-        views = root / "nextseek_api"
+        views = root / "nextseek_api" / "services"
         views.mkdir(parents=True)
-        (views / "views.py").write_text(
+        (views / "samples.py").write_text(
             textwrap.dedent(
                 """
                 from drf_spectacular.utils import extend_schema
 
                 class V:
                     @extend_schema(description=FOO_DESC)
-                    def download(self, request):
+                    def destroy(self, request):
                         pass
                 """
             ),
             encoding="utf-8",
         )
         violations = vc.validate_extend_schema_decorators(root)
-        assert not any(v.location.endswith("download") for v in violations)
-
-    def test_inline_grandfather_skips_violation(self, tmp_path):
-        root = tmp_path / "repo"
-        views = root / "nextseek_api"
-        views.mkdir(parents=True)
-        (views / "views.py").write_text(
-            textwrap.dedent(
-                """
-                from drf_spectacular.utils import extend_schema, OpenApiExample
-
-                class V:
-                    @extend_schema(
-                        description="legacy timeline inline",
-                        examples=[OpenApiExample(name="x", value={})],
-                    )
-                    def timeline(self, request):
-                        pass
-                """
-            ),
-            encoding="utf-8",
-        )
-        violations = vc.validate_extend_schema_decorators(root)
-        assert violations == []
+        assert not any(v.location.endswith("destroy") for v in violations)
 
 
 class TestValidatorHelpers:
@@ -413,7 +381,7 @@ class TestValidatorHelpers:
 class TestSkillAndPointers:
     def test_skill_exists_with_frontmatter(self):
         text = SKILL.read_text(encoding="utf-8")
-        assert text.startswith("---\n") and "name: nextseek-viewset" in text
+        assert text.startswith("---\n") and "name: nextseek-create-endpoint" in text
         assert "validate_viewset_conventions.py" in text
         assert "endpoint_descriptions" in text
         assert "descriptions_cc.py" in text
@@ -426,7 +394,7 @@ class TestSkillAndPointers:
 
     def test_agents_md_points_at_skill(self):
         text = AGENTS_MD.read_text(encoding="utf-8")
-        assert "nextseek-viewset" in text
+        assert "nextseek-create-endpoint" in text
         assert "validate_viewset_conventions.py" in text
 
 

@@ -113,8 +113,8 @@ def test_contract_rejects_mutable_image_tags():
 def test_contract_rejects_repository_local_evidence_output():
     rows = _rows()
     cov = next(row for row in rows if row["id"] == "12-coverage-run")
-    cov["declared_output_namespace"] = "/home/taishajo/work/NExtSEEK-plan005/evidence"
+    cov["declared_output_namespace"] = "/home/<user>/work/NExtSEEK-plan005/evidence"
     with pytest.raises(ProtocolError, match="repository-local"):
         validate_protocol_rows(rows)
-    assert EVIDENCE_PARENT.startswith("/home/taishajo/work/state/plan005/execution")
+    assert EVIDENCE_PARENT.startswith("/home/<user>/work/state/plan005/execution")
     assert COVERAGE_MIN_TOTAL == 95

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import stat
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -32,13 +31,9 @@ from NessieAI.build_tools.gen_op_surfaces.constants import (
     CLAUDE_PLUGINS_END,
     CLAUDE_SKILLS_BEGIN,
     CLAUDE_SKILLS_END,
-    CONTENT_HASH_REL,
     DOCKERFILE_REL,
     NEXTSEEK_DOCS_BEGIN,
     NEXTSEEK_DOCS_END,
-    NEXTSEEK_DOCS_PIN_CLAUDE_MD_REL,
-    NEXTSEEK_DOCS_PIN_CONTENT_HASH_REL,
-    NEXTSEEK_DOCS_PIN_REF,
     PLUGINS_ROOT_REL,
 )
 from NessieAI.build_tools.gen_op_surfaces.emit import (
@@ -53,7 +48,6 @@ from NessieAI.cc.op_registry.ops import OPS
 
 REPO_ROOT = paths.REPO_ROOT
 CLAUDE_MD = REPO_ROOT / CLAUDE_MD_REL
-CONTENT_HASH = REPO_ROOT / CONTENT_HASH_REL
 
 REQUIRED_PROSE = (
     # Writes are refused (no CC write path, 2026-09-24 ruling), and the user is told where the
@@ -67,13 +61,6 @@ REQUIRED_PROSE = (
     "Do NOT retry a third time.",
     "Write-safety on NExtSEEK.",
 )
-
-
-def _git_show(rel: str) -> bytes:
-    return subprocess.check_output(
-        ["git", "show", f"{NEXTSEEK_DOCS_PIN_REF}:{rel}"],
-        cwd=REPO_ROOT,
-    )
 
 
 def _fixture_op(op_id: str, bin_name: str, *, purpose: str = "") -> OpSpec:
@@ -425,16 +412,6 @@ def test_marker_inside_docs_block_is_rejected() -> None:
         validate_plan005_markers_outside_docs(text)
 
 
-def test_changing_docs_block_fails_pin_contract() -> None:
-    pinned = extract_nextseek_docs_block(
-        _git_show(NEXTSEEK_DOCS_PIN_CLAUDE_MD_REL).decode("utf-8")
-    )
-    mutated = pinned.replace("NExtSEEK Documentation", "mutated documentation heading")
-    assert mutated != pinned
-    with pytest.raises(AssertionError):
-        assert mutated == pinned
-
-
 def test_guard_rejects_docs_block_rewrite() -> None:
     original = CLAUDE_MD.read_text(encoding="utf-8")
     updated = original.replace("NExtSEEK Documentation", "mutated documentation heading")
@@ -442,22 +419,10 @@ def test_guard_rejects_docs_block_rewrite() -> None:
         guard_claude_md_render(original=original, updated=updated)
 
 
-def test_changing_content_hash_fails_pin_contract() -> None:
-    pinned = _git_show(NEXTSEEK_DOCS_PIN_CONTENT_HASH_REL)
-    mutated = b"0" * 64 + b"\n"
-    assert mutated != pinned
-    with pytest.raises(AssertionError):
-        assert mutated == pinned
-
-
-def test_committed_docs_block_and_hash_match_pin() -> None:
-    current_text = CLAUDE_MD.read_text(encoding="utf-8")
-    pinned_text = _git_show(NEXTSEEK_DOCS_PIN_CLAUDE_MD_REL).decode("utf-8")
-    assert extract_nextseek_docs_block(current_text) == extract_nextseek_docs_block(
-        pinned_text
-    )
-    assert CONTENT_HASH.read_bytes() == _git_show(NEXTSEEK_DOCS_PIN_CONTENT_HASH_REL)
-    validate_plan005_markers_outside_docs(current_text)
+def test_committed_claude_md_keeps_markers_outside_docs() -> None:
+    # That the docs block matches the user docs is
+    # NessieAI/tests/build_tools/integration/test_docs_snapshot_current.py.
+    validate_plan005_markers_outside_docs(CLAUDE_MD.read_text(encoding="utf-8"))
 
 
 def test_write_keeps_markers_outside_docs_and_preserves_prose(tmp_path: Path) -> None:

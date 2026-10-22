@@ -1,0 +1,615 @@
+[
+ {
+  "TERM": "HiSeq X Five",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "HiSeq X Ten",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina Genome Analyzer",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina Genome Analyzer II",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina Genome Analyzer IIx",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina HiScanSQ",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina HiSeq 1000",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina HiSeq 1500",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina HiSeq 2000",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina HiSeq 2500",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina HiSeq 3000",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina HiSeq 4000",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina HiSeq X",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina MiSeq",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina MiSeq i100",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina MiniSeq",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina NovaSeq 6000",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "NovaSeq 6000",
+   "Illumina NovaSeq6000",
+   "NovaSeq 6000, Illumina",
+   "NovaSeq6000"
+  ]
+ },
+ {
+  "TERM": "Illumina NovaSeq X",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "Illumina NovaSeqX",
+   "Illumina NovaSeq X 25B"
+  ]
+ },
+ {
+  "TERM": "Illumina NovaSeq X Plus",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina iSeq 100",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Illumina NextSeq 1000",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "NextSeq 1000"
+  ]
+ },
+ {
+  "TERM": "Illumina NextSeq 2000",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "NextSeq 2000"
+  ]
+ },
+ {
+  "TERM": "Illumina NextSeq 500",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "NextSeq 500",
+   "Illumina NextSeq500"
+  ]
+ },
+ {
+  "TERM": "Illumina NextSeq 550",
+  "DEF": "Illumina sequencing instrument.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "NextSeq 550"
+  ]
+ },
+ {
+  "TERM": "PacBio RS",
+  "DEF": "Pacbio Smrt sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "PacBio RS II",
+  "DEF": "Pacbio Smrt sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Revio",
+  "DEF": "Pacbio Smrt sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Sequel",
+  "DEF": "Pacbio Smrt sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Sequel II",
+  "DEF": "Pacbio Smrt sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Sequel IIe",
+  "DEF": "Pacbio Smrt sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Onso",
+  "DEF": "Pacbio Smrt sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB 5500 Genetic Analyzer",
+  "DEF": "Abi Solid sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB 5500xl Genetic Analyzer",
+  "DEF": "Abi Solid sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB 5500x-Wl Genetic Analyzer",
+  "DEF": "Abi Solid sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB SOLiD 3 Plus System",
+  "DEF": "Abi Solid sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB SOLiD 4 System",
+  "DEF": "Abi Solid sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB SOLiD 4hq System",
+  "DEF": "Abi Solid sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB SOLiD PI System",
+  "DEF": "Abi Solid sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB SOLiD System",
+  "DEF": "Abi Solid sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB SOLiD System 2.0",
+  "DEF": "Abi Solid sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB SOLiD System 3.0",
+  "DEF": "Abi Solid sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Ion Torrent PGM",
+  "DEF": "Ion Torrent sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Ion Torrent Proton",
+  "DEF": "Ion Torrent sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Ion Torrent S5 XL",
+  "DEF": "Ion Torrent sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Ion Torrent S5",
+  "DEF": "Ion Torrent sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Ion Torrent Genexus",
+  "DEF": "Ion Torrent sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Ion GeneStudio S5",
+  "DEF": "Ion Torrent sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Ion GeneStudio S5 Plus",
+  "DEF": "Ion Torrent sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Ion GeneStudio S5 Prime",
+  "DEF": "Ion Torrent sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB 310 Genetic Analyzer",
+  "DEF": "Capillary sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB 3130 Genetic Analyzer",
+  "DEF": "Capillary sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB 3130xL Genetic Analyzer",
+  "DEF": "Capillary sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB 3500 Genetic Analyzer",
+  "DEF": "Capillary sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB 3500xL Genetic Analyzer",
+  "DEF": "Capillary sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB 3730 Genetic Analyzer",
+  "DEF": "Capillary sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "AB 3730xL Genetic Analyzer",
+  "DEF": "Capillary sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "BGISEQ-50",
+  "DEF": "Bgiseq sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "BGISEQ-500",
+  "DEF": "Bgiseq sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "MGISEQ-2000RS",
+  "DEF": "Bgiseq sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "DNBSEQ-G400",
+  "DEF": "Dnbseq sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "DNBSEQ-G50",
+  "DEF": "Dnbseq sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "DNBSEQ-T7",
+  "DEF": "Dnbseq sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "DNBSEQ-G400 FAST",
+  "DEF": "Dnbseq sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "FASTASeq 300",
+  "DEF": "Genemind sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "GenoCare 1600",
+  "DEF": "Genemind sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "GenoLab M",
+  "DEF": "Genemind sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "454 GS",
+  "DEF": "Ls454 sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "454 GS 20",
+  "DEF": "Ls454 sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "454 GS FLX",
+  "DEF": "Ls454 sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "454 GS FLX+",
+  "DEF": "Ls454 sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "454 GS FLX Titanium",
+  "DEF": "Ls454 sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "454 GS Junior",
+  "DEF": "Ls454 sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Helicos HeliScope",
+  "DEF": "Helicos sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Complete Genomics",
+  "DEF": "Complete Genomics sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "GridION",
+  "DEF": "Oxford Nanopore sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "MinION",
+  "DEF": "Oxford Nanopore sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "PromethION",
+  "DEF": "Oxford Nanopore sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "Prometheon 24"
+  ]
+ },
+ {
+  "TERM": "Element AVITI",
+  "DEF": "Element sequencing instrument.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "Aviti"
+  ]
+ },
+ {
+  "TERM": "GS111",
+  "DEF": "Genapsys sequencing instrument.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Tapestri",
+  "DEF": "Tapestri sequencing instrument.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "UG 100",
+  "DEF": "Ultima sequencing instrument.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Sentosa SQ301",
+  "DEF": "Vela Diagnostics sequencing instrument.",
+  "ONT_SOURCE": "GEO",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Singular G4",
+  "DEF": "Singular Genomics sequencing instrument.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "SingularG4"
+  ]
+ },
+ {
+  "TERM": "PromethION P2 Solo",
+  "DEF": "Oxford Nanopore sequencing instrument.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "P2 Solo"
+  ]
+ }
+]

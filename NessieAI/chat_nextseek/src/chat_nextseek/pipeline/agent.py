@@ -27,7 +27,10 @@ if TYPE_CHECKING:
 
 from .agent_tools import build_pipeline_tool_schemas, dispatch_pipeline_tool_call, format_luria_followup
 from ..tool_loop import call_tools
-from ..helpers import summarize_pinned_bundle
+from ..chat_memory import bundle_rows, history_block, named_bundle
+from ..helpers import summarize_pinned_bundle, uids_from_last_search
+from ..helpers.results import picked_uids, pinned_bundle
+from ..helpers.uid_check import uids_in
 from ..seqera.catalog import catalog_for_prompt
 
 PIPELINE_AGENT_KEY = "pipeline_agent"
@@ -64,6 +67,7 @@ def snapshot_for_chat_log(session) -> dict[str, Any]:
         "active": state.get("active"),
         "pipeline_key": state.get("pipeline_key"),
         "selection": state.get("selection") or {},
+        "source_bundle_id": state.get("source_bundle_id"),
         "cohort_count": len(artifacts.get("cohorts") or []),
         "message_count": len(state.get("messages") or []),
     }
@@ -78,26 +82,107 @@ def _text_of(content: list) -> str:
     return "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text").strip()
 
 
+#: The most carried UIDs the seed lists; the rest are counted, so a 351-sample set does not flood the build.
+CARRIED_UIDS_MAX = 50
+
+
+def _carried_uids(parser_plan: Any, user_query: str) -> list[str]:
+    """The UIDs in ``parser_plan.filters.uids`` that ``user_query`` does not already name, upper-cased, once each."""
+    plan = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else parser_plan
+    uids = ((plan or {}).get("filters") or {}).get("uids") if isinstance(plan, dict) else None
+    named = set(uids_in(user_query or ""))
+    return [u for u in uids_in("", [u for u in uids or [] if isinstance(u, str)]) if u not in named]
+
+
+def _plan_uids(parser_plan: Any) -> list:
+    """``parser_plan.filters.uids`` as the parser wrote them, from a model or a dict; [] for the CC bridge."""
+    plan = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else parser_plan
+    uids = ((plan or {}).get("filters") or {}).get("uids") if isinstance(plan, dict) else None
+    return uids if isinstance(uids, list) else []
+
+
+def _target_id(parser_plan: Any) -> Any:
+    """The result the parser says the user means (``target_result_id``), from a model or a dict; None for the CC bridge."""
+    plan = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else parser_plan
+    return plan.get("target_result_id") if isinstance(plan, dict) else None
+
+
+def _no_samples_reply(target: dict, offered: dict | None) -> str:
+    """The deterministic ask when the result the user means holds no sample list: a count or a breakdown, or a
+    search that found nothing. It offers only what the build can do: the offered set, explicit UIDs, or a new
+    search."""
+    what = "is a count or a breakdown" if bundle_rows(target) else "found no samples"
+    reply = (f"The result you mean ({target.get('user_query') or 'that result'!r}) {what}, "
+             "so it has no list of samples to build a pipeline on. ")
+    if offered is None:
+        return reply + "Run a search for the samples first, or give me their UIDs."
+    n = len(uids_from_last_search({"results_history": [offered]}, offered.get("id")))
+    return (reply + f"The newest result with samples is {offered.get('user_query') or 'an earlier search'!r} "
+            f"({n} samples). Say yes to use those, give me their UIDs, or ask a new search.")
+
+
 def start(session, config: "ChatConfig", *, user_query: str, parser_plan: Any = None,
           reporter_plan: Any = None, log_dir: str | None = None,
           send_event=None) -> dict[str, Any]:
     """Launch a fresh pipeline conversation.
 
-    ``parser_plan``/``reporter_plan`` are accepted for the reporter-branch caller
-    (orchestrator.py) but are unused — the wizard seeds from ``user_query`` + pinned
-    context only. The CC bridge (run_pipeline_launch) calls this with neither.
+    The build is on one results bundle, ``source_bundle_id``, which the tools read too: the one the parser
+    named in ``target_result_id`` ("the mice from my first search"), else the newest with sample UIDs. A named
+    result with no sample list (a count) is not built on: the agent asks and offers the newest set, and a "yes"
+    builds on exactly that one. With no named result the wizard also seeds from the sample UIDs ``parser_plan``
+    carried that the text does not name: a follow-up such as "yes, build it" names no samples, and the parser
+    copies the earlier turn's into ``filters.uids`` (dev chat 0ddfba7a). ``reporter_plan`` is unused. The CC
+    bridge (run_pipeline_launch) calls this with neither.
     """
-    pinned = summarize_pinned_bundle(session)
-    seed = user_query if not pinned else f"{user_query}\n\n[context] {pinned}"
+    seed = user_query
+    history = session.get("results_history") or []
+    target = named_bundle(history, _target_id(parser_plan))
+    messages: list[dict] = [{"role": "user", "content": seed}]
+    if target is not None:
+        uids = uids_from_last_search(session, target.get("id"))
+        if uids:
+            source_id = target.get("id")
+            summary = summarize_pinned_bundle(session, source_id).removeprefix("last search: ")
+            seed += f"\n\n[context] the result you mean: id {source_id}, {summary}, {len(uids)} sample UIDs"
+            picked = picked_uids(uids, _plan_uids(parser_plan))
+            if picked:
+                more = len(picked) - CARRIED_UIDS_MAX
+                seed += (f"\n\n[context] the user picked {len(picked)} samples of it: "
+                         + ", ".join(picked[:CARRIED_UIDS_MAX]) + (f", and {more} more" if more > 0 else "")
+                         + ". Build on exactly these.")
+            earlier = history_block(session)
+            if earlier:
+                seed += f"\n\n[context] earlier turns of this chat:\n{earlier}"
+            messages = [{"role": "user", "content": seed}]
+        else:
+            offered, _ = pinned_bundle(session)
+            reply = _no_samples_reply(target, offered)
+            messages.append({"role": "assistant", "content": [{"type": "text", "text": reply}]})
+            _save(session, {"active": True, "messages": messages, "resolved": {"uids": [], "accessions": []},
+                            "artifacts": {}, "pipeline_key": None,
+                            "source_bundle_id": offered.get("id") if offered else None})
+            return {"action": "ask", "reply": reply, "params": None}
+    else:
+        pinned = summarize_pinned_bundle(session)
+        if pinned:
+            seed += f"\n\n[context] {pinned}"
+        carried = _carried_uids(parser_plan, user_query)
+        if carried:
+            more = len(carried) - CARRIED_UIDS_MAX
+            seed += ("\n\n[context] samples from the earlier turn: " + ", ".join(carried[:CARRIED_UIDS_MAX])
+                     + (f", and {more} more" if more > 0 else ""))
+        messages = [{"role": "user", "content": seed}]
+        source_id = (pinned_bundle(session)[0] or {}).get("id")
     state = {
         "active": True,
-        "messages": [{"role": "user", "content": seed}],
+        "messages": messages,
         "resolved": {"uids": [], "accessions": []},
         "artifacts": {},
         "pipeline_key": None,
         # Who the run is for: submit_to_luria writes it onto the launch record, so a
         # finished run can be found again for this user. A plain dict session has none.
         "launched_by_user_id": getattr(session, "owner_user_id", None),
+        "source_bundle_id": source_id,
     }
     _save(session, state)
     return _run_loop(session, config, log_dir=log_dir, send_event=send_event)

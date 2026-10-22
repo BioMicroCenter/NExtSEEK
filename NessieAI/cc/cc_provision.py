@@ -10,6 +10,8 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
+from . import safe_fs
+
 _NON_SLUG_RE = re.compile(r"[^a-z0-9]+")
 _SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@+-]{1,128}$")
 
@@ -99,6 +101,10 @@ class UserDirs:
     # ``memory_*``, so one chat never sees another's.
     previous_turns_subpath: str | None = None
     previous_turns_mnt: str | None = None
+    # 2026-09-28 (plan 04): this turn's own Django-owned folder, mounted read-only at /data/turn when it holds the
+    # turn's vocabulary. No agent mount covers it, and it is removed when the turn's container has stopped.
+    turn_subpath: str | None = None
+    turn_mnt: str | None = None
 
 
 def build_user_dirs(
@@ -130,7 +136,7 @@ def build_user_dirs(
     user_rel = f"{project_rel}/{user_id}"
     project_mount = f"{mount_root}/{project_rel}"
     user_mount = f"{project_mount}/{user_id}"
-    return UserDirs(
+    dirs = UserDirs(
         input_subpath=f"{user_rel}/input",
         shared_subpath=f"{project_rel}/shared",  # project-scoped: NO user segment
         scratch_subpath=f"{user_rel}/scratch",
@@ -149,7 +155,15 @@ def build_user_dirs(
                                 if session_id else None),
         previous_turns_mnt=(f"{user_mount}/_memory/{session_id}/previous_turns"
                             if session_id else None),
+        turn_subpath=f"{user_rel}/_turn/{run_id}" if run_id else None,
+        turn_mnt=f"{user_mount}/_turn/{run_id}" if run_id else None,
     )
+    # Step 1: the backing roots of the agent's read-write mounts. safe_fs refuses a root below one, so every
+    # caller passes one of these (or a Django folder above them) and puts the agent's path components in rel.
+    for agent_root in (dirs.cc_state_mnt, dirs.run_scratch_mnt):
+        if agent_root:
+            safe_fs.register_agent_root(agent_root)
+    return dirs
 
 
 class ProjectResolutionError(Exception):

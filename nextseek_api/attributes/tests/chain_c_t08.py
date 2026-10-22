@@ -22,6 +22,8 @@ import os
 import re
 from pathlib import Path
 
+_STATE_ROOT = Path(os.environ.get("ATTRIBUTE_STATE_ROOT") or Path.home() / "work/state/attribute-viewset")
+
 CHAIN_C_SCHEMA = "chain-c-t08-lifecycle/v1"
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
@@ -32,7 +34,7 @@ def chain_c_root() -> Path:
     base = (
         Path(run_root)
         if run_root
-        else Path("/home/taishajo/work/state/attribute-viewset/evidence/task-08/chain-c-dev")
+        else _STATE_ROOT / "evidence/task-08/chain-c-dev"
     )
     root = base / "chain-c"
     root.mkdir(parents=True, exist_ok=True)

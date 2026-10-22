@@ -6,12 +6,14 @@
 #
 #   uv sync
 #   uv run baml-cli generate --from ./NessieAI/dmac_assistant/baml_src --no-version-check
+#   uv run baml-cli generate --from ./NessieAI/chat_nextseek/src/chat_nextseek/evaluator/baml_src --no-version-check
 #   DJANGO_SETTINGS_MODULE=dmac.test_settings PYTHONDONTWRITEBYTECODE=1 \
 #     uv run pytest nextseek_api seek startup scripts \
 #                   NessieAI/tests/cc NessieAI/tests/router NessieAI/tests/hibayes \
 #                   NessieAI/tests/ns NessieAI/tests/api NessieAI/tests/schema_rag \
 #                   NessieAI/tests/chat_nextseek NessieAI/tests/build_tools \
-#                   --continue-on-collection-errors -q
+#                   docker/cc-spawner/tests \
+#                   --continue-on-collection-errors -q -n auto --dist loadfile --durations=30
 #
 # --continue-on-collection-errors is MANDATORY. Without it the collection
 # errors below abort the session and ZERO tests execute.
@@ -19,62 +21,27 @@
 # Do NOT pass -p no:logging: it removes the plugin providing caplog and
 # manufactures "fixture 'caplog' not found" errors.
 #
-# Regenerated 2026-09-10 for the NessieAI move, from a post-move run of the
-# tree at refactor/nessieai-phase-a b563fa55, NOT on a CI runner. It ran in
-# the gate lane: the application image nextseek-nextseek:latest (built
-# 2026-09-03), the tree mounted read-only at /src, --network none, the pytest
-# part of the command above run as /app/.venv/bin/python -m pytest ...
-# -p no:cacheprovider, with
-# PYTHONPATH=/src:/src/NessieAI/chat_nextseek/src:/src/NessieAI/dmac_assistant/src
-#   8713 collected; 288 failed / 8271 passed / 83 skipped / 8 xfailed /
-#   73 errors in 6m17s
-# 361 unique IDs in that run (358 since the update below). The 7 without "::"
-# are collection-level and each hides an
-# unknown number of tests. nextseek_api/attributes/tests is an evidence lane
-# that cannot run off its author's machine.
+# Regenerated 2026-10-20 ON A CI RUNNER (GitHub Actions, ubuntu-24.04, 4 vCPU), from the
+# pytest-run artifact of a workflow_dispatch run of ci-pytest.yml on branch
+# ci-extras-scrub-baseline-speed, with `python ci/diff_baseline.py pytest-run.txt
+# --emit-baseline`. That run: 195 failed / 22337 passed / 639 skipped / 11 xfailed /
+# 41 errors. 235 unique IDs; the 3 without "::" are collection-level and each hides an
+# unknown number of tests. The earlier, hand-written history of this file (the 2026-09
+# gate-lane baseline and its updates) is in git log for this path.
 #
-# Where the gate lane differs from CI:
-#   - No BAML client. The read-only tree has none, and the moved dmac_assistant
-#     on PYTHONPATH hides the image's generated copy. So 3 router files fail to
-#     collect (test_agent_history_conversion.py, test_route_capabilities.py,
-#     test_router_history_plumbing.py), 12 more IDs fail on the missing module
-#     (test_router_v46_calltable 4, test_runtime_p0 2, test_task4_coverage 2,
-#     test_posterior_selector 1, test_task12_remaining_holes 3), and the 3
-#     test_cc_summary_* files skip. CI generates the client first. With the
-#     image's client those files fail only 6 tests, all in
-#     test_route_capabilities.py and all failing before the move. So on the
-#     first CI run expect those 15 entries to read as fixed and those 6 to read
-#     as new.
-#   - The rest is not enumerated. On the pre-move tree this lane and the
-#     previous CI baseline (uv:debian, 2026-09-01) disagreed on 126 new and
-#     17 fixed IDs, partly environment and partly tree drift.
+# Re-checked 2026-10-20 on a runner after docker/cc-spawner/tests joined the command
+# (workflow_dispatch run 39488282917 of ci-pytest.yml on branch cm/w9-ci-integration):
+# 195 failed / 22518 passed / 638 skipped / 11 xfailed / 41 errors, and
+# `ci/diff_baseline.py pytest-run.txt --emit-baseline` gave the same 235 IDs, so the
+# entries below are unchanged; only the command above gained the spawner's suite.
 #
-# Updated 2026-09-11: the move had broken 3 tests that load one-shot scripts it
-# archived to NessieAI/history/cc (test_live_probe_missing_memory_and_runner and
-# test_verify_merge_survivals_import_does_not_kill_pytest in
-# test_cc_scripts_attribution.py, test_gap3_fourteen_production_units in
-# test_task12_remaining_holes.py). They now run the scripts through pre-move
-# shims, and every test that loads a history script is host_only and skips
-# where that tree is absent. A rerun of the same lane on the same image at
-# bb3e4226 plus that change reported those 3 fixed and nothing new, so their
-# IDs are removed:
-#   8753 collected; 285 failed / 8304 passed / 83 skipped / 8 xfailed /
-#   73 errors in 6m48s
+# Regenerate it the same way after a run of the exact command above on a runner, never by
+# editing entries by hand (ci/CLAUDE.md).
 #
-# After this lands, regenerate from the CI runner's own artifact, never with an
-# ad-hoc grep:
-#   python ci/diff_baseline.py pytest-run.txt --emit-baseline
-NessieAI/tests/api/test_artifact_endpoint.py::DownloadArtifactEndpointTests::test_geo_workbook_serves_file_from_disk
-NessieAI/tests/api/test_artifact_endpoint_manifest.py::ManifestDownloadTests::test_a_manifest_entry_whose_file_is_gone_reports_not_found
-NessieAI/tests/api/test_artifact_endpoint_manifest.py::ManifestDownloadTests::test_a_manifest_path_outside_the_artifact_root_is_refused
-NessieAI/tests/api/test_artifact_endpoint_manifest.py::ManifestDownloadTests::test_report_saved_files_still_resolves_when_a_bundle_has_no_manifest
-NessieAI/tests/api/test_artifact_endpoint_manifest.py::ManifestDownloadTests::test_search_result_file_is_served_from_the_manifest
 NessieAI/tests/api/test_assistant_unit.py::AsyncQueryViewSetTests::test_query_async_auto_session_creates
 NessieAI/tests/api/test_assistant_unit.py::AsyncQueryViewSetTests::test_query_async_explicit_session
 NessieAI/tests/api/test_assistant_unit.py::AsyncQueryViewSetTests::test_query_async_returns_202_with_task_id
 NessieAI/tests/api/test_assistant_unit.py::AsyncQueryViewSetTests::test_query_async_reuses_recent_session
-NessieAI/tests/api/test_assistant_unit.py::CsrfExemptionTests::test_post_query_async_no_csrf_token
-NessieAI/tests/api/test_assistant_unit.py::CsrfExemptionTests::test_post_query_sse_no_csrf_token
 NessieAI/tests/api/test_assistant_unit.py::ViewSetTests::test_query_auto_session_creates_when_none
 NessieAI/tests/api/test_assistant_unit.py::ViewSetTests::test_query_auto_session_reuses_recent
 NessieAI/tests/api/test_assistant_unit.py::ViewSetTests::test_query_explicit_session_still_works
@@ -86,26 +53,15 @@ NessieAI/tests/api/test_query_force_new.py::ForceNewFlagTests::test_force_new_cr
 NessieAI/tests/api/test_query_force_new.py::ForceNewFlagTests::test_force_new_false_reuses_most_recent
 NessieAI/tests/api/test_query_force_new.py::ForceNewFlagTests::test_force_new_ignored_when_session_id_present
 NessieAI/tests/api/test_query_force_new.py::ForceNewFlagTests::test_force_new_omitted_defaults_to_false
-NessieAI/tests/api/test_services_assistant.py::DownloadArtifactTests::test_artifact_geo_seq_workbooks_success
 NessieAI/tests/api/test_services_assistant.py::QueryAsyncExtraTests::test_query_async_creates_query_task_with_running_status
 NessieAI/tests/api/test_services_assistant.py::QueryAsyncExtraTests::test_query_async_task_linked_to_session
 NessieAI/tests/api/test_services_assistant.py::QuerySSEPipelineErrorTests::test_query_multiple_events_stream
 NessieAI/tests/api/test_services_assistant.py::QuerySSEPipelineErrorTests::test_query_pipeline_error_includes_session_id
 NessieAI/tests/api/test_services_assistant.py::QuerySSEPipelineErrorTests::test_query_pipeline_exception_sends_error_event
 NessieAI/tests/api/test_services_assistant.py::QuerySSEPipelineErrorTests::test_query_sse_cache_control_headers
-NessieAI/tests/build_tools/unit/test_gen_op_surfaces.py::test_capabilities_copy_matches_canonical_bytes
-NessieAI/tests/build_tools/unit/test_gen_op_surfaces.py::test_check_surfaces_does_not_rewrite_targets_or_create_repo_pyc
-NessieAI/tests/build_tools/unit/test_gen_op_surfaces.py::test_check_surfaces_passes_on_current_tree
-NessieAI/tests/build_tools/unit/test_gen_op_surfaces.py::test_gen_op_surfaces_check_cli_exits_zero
-NessieAI/tests/build_tools/unit/test_gen_op_surfaces.py::test_readonly_repo_mount_no_write_oracle_for_export_and_gen_surfaces
-NessieAI/tests/build_tools/unit/test_gen_op_surfaces_claude_md.py::test_changing_content_hash_fails_pin_contract
-NessieAI/tests/build_tools/unit/test_gen_op_surfaces_claude_md.py::test_changing_docs_block_fails_pin_contract
-NessieAI/tests/build_tools/unit/test_gen_op_surfaces_claude_md.py::test_committed_docs_block_and_hash_match_pin
-NessieAI/tests/build_tools/unit/test_gen_op_surfaces_commands.py::test_gen_op_surfaces_check_passes_with_generated_command_block
-NessieAI/tests/build_tools/unit/test_gen_op_surfaces_dockerfile.py::test_gen_op_surfaces_check_includes_docker_surfaces
-NessieAI/tests/build_tools/unit/test_gen_op_surfaces_skills.py::test_gen_op_surfaces_check_covers_skill_matrices
-NessieAI/tests/cc/test_cc_context_drift_guard.py::test_shared_context_file_is_identical_to_source[capabilities.md]
-NessieAI/tests/cc/test_cc_context_drift_guard.py::test_shared_context_file_is_identical_to_source[min_graph_schema.json]
+NessieAI/tests/build_tools/unit/test_gen_op_surfaces_dockerfile.py::test_real_compose_config_json_resolves_chat_nextseek_inside_repo
+NessieAI/tests/build_tools/unit/test_gen_op_surfaces_dockerfile.py::test_real_compose_config_quiet_succeeds
+NessieAI/tests/build_tools/unit/test_plan005_validate_plugins.py::test_real_claude_validator_passes_current_tree
 NessieAI/tests/cc/test_cc_sweep_select.py::test_run_sweep_skips_empty_path_and_swallows_errors
 NessieAI/tests/cc/test_future_op_dropin.py::test_future_op_dropin_real_clis_change_generated_targets[local_subcommand]
 NessieAI/tests/cc/test_future_op_dropin.py::test_future_op_dropin_real_clis_change_generated_targets[sidecar]
@@ -113,7 +69,7 @@ NessieAI/tests/cc/test_future_op_dropin.py::test_future_op_dropin_real_clis_chan
 NessieAI/tests/cc/test_future_op_dropin.py::test_future_op_negatives_fail_actual_audit_and_check
 NessieAI/tests/cc/test_future_op_dropin.py::test_viewset_route_tool_omission_fails_real_surface_check
 NessieAI/tests/cc/test_paired_evidence.py::test_pinned_real_zip_streams_once_within_sixty_seconds
-NessieAI/tests/cc/test_plugin_container_claude_md.py::test_container_claude_md_is_git_tracked_not_ignored
+NessieAI/tests/cc/test_step7_cc_runtime_port.py::test_port_evidence_context_file_inventory_matches_ported_files
 NessieAI/tests/cc/test_step7_compose_deploy.py::test_compose_bedrock_proxy_container_name_matches_realstack_default
 NessieAI/tests/cc/test_step7_compose_deploy.py::test_compose_config_backend_services_not_on_dmac_cc_net[db]
 NessieAI/tests/cc/test_step7_compose_deploy.py::test_compose_config_backend_services_not_on_dmac_cc_net[neo4j]
@@ -148,9 +104,7 @@ NessieAI/tests/cc/test_step7_compose_deploy.py::test_compose_config_sidecar_env_
 NessieAI/tests/cc/test_step7_compose_deploy.py::test_compose_config_sidecar_has_no_host_ports_key
 NessieAI/tests/cc/test_step7_compose_deploy.py::test_compose_config_sidecar_healthcheck_present_with_cold_start_tolerance
 NessieAI/tests/cc/test_step7_compose_deploy.py::test_compose_config_sidecar_mounts_staging_subpath_of_dmac_cc_users
-NessieAI/tests/cc/test_task12_remaining_holes.py::test_cc_summary_and_catalog_and_per_op
-NessieAI/tests/cc/test_task12_remaining_holes.py::test_gap2_production_misses
-NessieAI/tests/cc/test_task12_remaining_holes.py::test_router_heuristic_and_context_dir
+NessieAI/tests/cc/test_step7_compose_deploy.py::test_realstack_host_side_inspection_uses_container_name_not_service_name
 NessieAI/tests/cc/test_within_chat_db.py::test_within_chat_db_cc_writer_survives_midturn_op_append
 NessieAI/tests/cc/test_within_chat_db.py::test_within_chat_db_digest_composed_fresh_and_not
 NessieAI/tests/cc/test_within_chat_db.py::test_within_chat_db_history_reaches_decide_read_before_append
@@ -158,14 +112,8 @@ NessieAI/tests/cc/test_within_chat_db.py::test_within_chat_db_mixed_sequence_exa
 NessieAI/tests/cc/test_within_chat_db.py::test_within_chat_db_ns_run_root_is_emitted_on_the_plan_branch
 NessieAI/tests/cc/test_within_chat_db.py::test_within_chat_db_ns_run_root_reaches_the_event_stream
 NessieAI/tests/cc/test_within_chat_db.py::test_within_chat_db_ns_run_root_survives_a_raising_orchestrator
-NessieAI/tests/cc/test_within_chat_db.py::test_within_chat_db_plan_mode_error_leaves_trace
 NessieAI/tests/cc/test_within_chat_db.py::test_within_chat_db_route_decided_carries_real_reasoning
-NessieAI/tests/chat_nextseek/evaluator/test_baml_vendoring.py::test_baml_client_import_shape
-NessieAI/tests/chat_nextseek/evaluator/test_baml_vendoring.py::test_convert_signals_handles_graph_and_plan_modes
-NessieAI/tests/chat_nextseek/evaluator/test_baml_vendoring.py::test_convert_to_baml_input
-NessieAI/tests/chat_nextseek/evaluator/test_baml_vendoring.py::test_default_runtime_and_bare_runtime_paths
-NessieAI/tests/chat_nextseek/evaluator/test_baml_vendoring.py::test_evaluator_client_uses_repo_native_env
-NessieAI/tests/chat_nextseek/evaluator/test_baml_vendoring.py::test_repo_native_env_mapping
+NessieAI/tests/chat_nextseek/evaluator/test_dashboard_render.py::test_find_latest_report_returns_most_recent_json
 NessieAI/tests/chat_nextseek/evaluator/test_demo_server.py
 NessieAI/tests/chat_nextseek/evaluator/test_frozen_planner_evaluator.py::test_plan_evaluator_agent_symbol_present
 NessieAI/tests/chat_nextseek/evaluator/test_models_and_contracts.py::test_external_schema_parity
@@ -192,73 +140,13 @@ NessieAI/tests/chat_nextseek/test_shortlist_recall.py::test_semantic_path_recall
 NessieAI/tests/chat_nextseek/test_shortlist_recall.py::test_semantic_path_recall[T cell populations stained for flow-must_st7-must_a7]
 NessieAI/tests/chat_nextseek/test_shortlist_recall.py::test_semantic_path_recall[Tissues from the GBM cohort-must_st4-must_a4]
 NessieAI/tests/chat_nextseek/test_shortlist_recall.py::test_semantic_path_recall[Which samples have flow cytometry data?-must_st2-must_a2]
-NessieAI/tests/hibayes/test_generation_store_mysql.py::test_mysql_reader_observes_single_generation_hash
 NessieAI/tests/hibayes/test_generation_store_mysql.py::test_mysql_two_activators_second_loses_race
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_authenticated_manifest_corpus_fingerprint_must_match_training
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_authenticated_manifest_run_meta_identity_details_fail_closed[<lambda>-run_meta.base_url0]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_authenticated_manifest_run_meta_identity_details_fail_closed[<lambda>-run_meta.base_url1]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_authenticated_manifest_run_meta_identity_details_fail_closed[<lambda>-run_meta.git_sha]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_authenticated_manifest_run_meta_identity_details_fail_closed[<lambda>-run_meta.max_usd0]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_authenticated_manifest_run_meta_identity_details_fail_closed[<lambda>-run_meta.max_usd1]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_authenticated_manifest_run_meta_identity_details_fail_closed[<lambda>-superseded_runs.0.git_sha]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_authenticated_manifest_run_meta_identity_details_fail_closed[<lambda>-superseded_runs.0]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_authenticated_manifest_run_meta_semantics_fail_closed[arms-value1-run_meta.arms]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_authenticated_manifest_run_meta_semantics_fail_closed[max_usd--0.01-run_meta.max_usd]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_authenticated_manifest_run_meta_semantics_fail_closed[mode-ordinary-run_meta.mode]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_authenticated_manifest_run_meta_semantics_fail_closed[resumed-false-run_meta.resumed]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_authenticated_manifest_run_meta_semantics_fail_closed[superseded_runs-value4-run_meta.superseded_runs]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_authenticated_manifest_selected_ids_must_exactly_match_pairs
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_combined_fit_cannot_publish_without_explicit_evidence
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_coordinated_source_hash_and_evidence_forgery_is_reauthenticated
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_current_corpus_annotation_drift_is_compatible
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_current_corpus_semantic_drift_refuses[<lambda>-version drift]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_current_corpus_semantic_drift_refuses[_add_family-family set drift]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_current_corpus_semantic_drift_refuses[_add_variant-variant ID drift]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_current_corpus_semantic_drift_refuses[_change_variant_family-variant family mapping drift]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_current_corpus_semantic_drift_refuses[_remove_first_variant-variant ID drift]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_derived_publication_evidence_tampering_refuses_before_write[<lambda>0]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_derived_publication_evidence_tampering_refuses_before_write[<lambda>1]
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_dev_dry_run_report_is_deterministic_and_explicitly_non_authoritative
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_exact_four_digest_stack_identity_is_used
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_forged_authority_and_stack_provenance_refuse_before_write
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_full_delivery_conserves_all_298_arms_and_149_pairs
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_hash_tampering_refused_before_archive_members_are_parsed
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_human_grade_is_only_the_functional_axis
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_initial_human_grade_publication_requires_explicit_override
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_initial_release_publish_is_immutable_and_activation_is_separate_cas
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_initial_release_routes_proven_equivalence_to_ns
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_legacy_stack_cannot_claim_authoritative_publication
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_nested_paired_batch_mutation_refuses_before_any_durable_write
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_partial_stack_digest_identity_is_refused
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_post_registration_publish_failure_rolls_back_registry
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_publication_manifest_is_current_corpus_compatible_and_honest
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_refused_dev_publication_writes_no_paired_registry
-NessieAI/tests/hibayes/test_human_grade_fit.py::test_wrong_registered_content_hash_refuses_generation_publication
-NessieAI/tests/hibayes/test_task4_coverage.py::test_label_helpers_cover_refusals_and_empty_descriptions
-NessieAI/tests/hibayes/test_task4_coverage.py::test_router_provider_and_selector_exceptions_fall_back
 NessieAI/tests/hibayes/test_v14_quality_hierarchical.py::test_shared_model_uses_indexed_multivariate_family_offsets
 NessieAI/tests/hibayes/test_v14_quality_hierarchical.py::test_sparse_family_borrows_strength_and_strong_family_keeps_direction
-NessieAI/tests/hibayes/test_v4_8_mysql.py::test_mysql_broker_redelivery_replays_without_double_spend
-NessieAI/tests/hibayes/test_v4_8_mysql.py::test_mysql_crash_injection_family[CRASH_AFTER_PROVIDER-True-pending]
-NessieAI/tests/hibayes/test_v4_8_mysql.py::test_mysql_crash_injection_family[CRASH_AFTER_RESERVE-True-pending]
-NessieAI/tests/hibayes/test_v4_8_mysql.py::test_mysql_crash_injection_family[CRASH_BEFORE_RECONCILE-True-pending]
-NessieAI/tests/hibayes/test_v4_8_mysql.py::test_mysql_crash_injection_family[CRASH_BEFORE_RESERVE-False-missing]
-NessieAI/tests/hibayes/test_v4_8_mysql.py::test_mysql_idempotency_replay_under_contention
-NessieAI/tests/hibayes/test_v4_8_mysql.py::test_mysql_nway_contention_no_overspend
 NessieAI/tests/hibayes/test_v4_9_task6_replay.py::test_authenticated_stored_evidence_to_local_routing_chain
-NessieAI/tests/ns/test_bundle_download.py::RehydrationForHttpConsumersTests::test_a_pointer_bundle_is_served_with_the_payload_inlined
-NessieAI/tests/ns/test_bundle_download.py::RehydrationForHttpConsumersTests::test_a_pruned_file_does_not_break_the_download
-NessieAI/tests/ns/test_bundle_download.py::RehydrationForHttpConsumersTests::test_an_old_inline_bundle_is_served_unchanged
-NessieAI/tests/ns/test_bundle_download.py::RehydrationForHttpConsumersTests::test_the_metadata_summary_never_rehydrates_the_payload
-NessieAI/tests/ns/test_granular_artifacts.py::ArtifactCoverageTests::test_geo_workbook_served
-NessieAI/tests/ns/test_granular_artifacts.py::ArtifactCoverageTests::test_merged_report_json_served
-NessieAI/tests/ns/test_granular_artifacts.py::ArtifactCoverageTests::test_nfcore_samplesheet_served
-NessieAI/tests/ns/test_granular_artifacts.py::ArtifactCoverageTests::test_path_outside_allowed_dirs_blocked
-NessieAI/tests/ns/test_granular_artifacts.py::ArtifactCoverageTests::test_pride_px_served
-NessieAI/tests/ns/test_granular_artifacts.py::ArtifactCoverageTests::test_pride_sdrf_served
-NessieAI/tests/ns/test_granular_artifacts.py::ArtifactCoverageTests::test_sra_biosample_workbooks_served
-NessieAI/tests/ns/test_granular_artifacts.py::ArtifactCoverageTests::test_sra_submission_workbooks_served
-NessieAI/tests/ns/test_granular_artifacts.py::ArtifactCoverageTests::test_unknown_key_returns_404
+NessieAI/tests/ns/test_child_turn_slots.py::ChildTurnSlotTests::test_a_child_that_fails_to_start_gives_its_slot_back
+NessieAI/tests/ns/test_child_turn_slots.py::ChildTurnSlotTests::test_one_op_and_one_running_child_leave_no_room_for_a_second_child
+NessieAI/tests/ns/test_child_turn_slots.py::ChildTurnSlotTests::test_the_childs_slot_is_held_while_it_runs_and_given_back_when_it_finishes
 NessieAI/tests/ns/test_granular_endpoints.py::ApiReadEndpointTests::test_api_read_allowlisted_returns_response
 NessieAI/tests/ns/test_granular_endpoints.py::ApiWriteEndpointTests::test_confirmed_write_executes
 NessieAI/tests/ns/test_granular_endpoints.py::ApiWriteEndpointTests::test_unconfirmed_write_returns_403_and_never_calls_agent
@@ -272,36 +160,10 @@ NessieAI/tests/ns/test_granular_endpoints.py::ReingestEndpointTests::test_build_
 NessieAI/tests/ns/test_granular_endpoints.py::ReingestEndpointTests::test_run_ls_endpoint_is_routed_and_csrf_exempt
 NessieAI/tests/ns/test_granular_endpoints.py::ReportEndpointTests::test_report_returns_result
 NessieAI/tests/ns/test_granular_endpoints.py::SubmissionEndpointTests::test_generate_submission_returns_result
-NessieAI/tests/router/test_agent_history_conversion.py
-NessieAI/tests/router/test_decide_route_sticky_cc.py::test_force_route_cc_beats_sticky
-NessieAI/tests/router/test_decide_route_sticky_cc.py::test_force_route_ns_beats_sticky
-NessieAI/tests/router/test_posterior_selector.py::test_poisoned_store_non_blocking_on_decide_path
-NessieAI/tests/router/test_route_capabilities.py
-NessieAI/tests/router/test_route_override.py::test_admin_forces_ns
-NessieAI/tests/router/test_router_history_plumbing.py
-NessieAI/tests/router/test_router_v46_calltable.py::test_flag_off_byte_equivalent_destination_model_vs_frozen_baseline
-NessieAI/tests/router/test_router_v46_calltable.py::test_flag_off_transport_integration_counts_real_baml_dispatch
-NessieAI/tests/router/test_router_v46_calltable.py::test_flag_on_posterior_decisive_transport_skips_route_llm
-NessieAI/tests/router/test_router_v46_calltable.py::test_flag_on_zero_variant_family_one_classify_one_route_transport
-NessieAI/tests/router/test_runtime_p0.py::test_classifier_supplies_generated_type_builder_to_baml
-NessieAI/tests/router/test_runtime_p0.py::test_generated_type_builder_contains_every_corpus_family
-NessieAI/tests/router/test_v4_2_force_route_http.py::test_http_admin_force_route_cc_crosses_to_dispatch
-NessieAI/tests/router/test_v4_2_force_route_http.py::test_http_admin_force_route_ns_crosses_to_dispatch
-NessieAI/tests/router/test_v4_2_force_route_http.py::test_http_force_route_beats_sticky_cc
-NessieAI/tests/router/test_v4_2_force_route_http.py::test_http_nonadmin_force_route_ignored_at_controller
-NessieAI/tests/router/test_v4_2_force_route_http.py::test_http_sticky_cc_applies_without_force_route
-NessieAI/tests/router/test_v4_2_product_mutations.py::test_mutation_admin_force_route_must_be_forced
-NessieAI/tests/router/test_v4_2_product_mutations.py::test_mutation_force_route_beats_sticky_not_relabled_baml
-NessieAI/tests/schema_rag/test_schema_rag_integration.py::SchemaRAGFullModeIntegrationTests::test_retrieve_full_mode_includes_resolved_schema
-NessieAI/tests/schema_rag/test_schema_rag_integration.py::SchemaRAGIntegrationTests::test_retrieve_after_ingest
-NessieAI/tests/schema_rag/test_schema_rag_integration.py::SchemaRAGIntegrationTests::test_retrieve_with_schema_url
-NessieAI/tests/schema_rag/test_schema_rag_integration.py::SchemaRAGIntegrationTests::test_retrieve_with_session_id
-nextseek_api/attributes/tests
-nextseek_api/batch_delete/tests/test_models.py::TestDeleteEligibility::test_can_delete_true_requires_no_block_reason
-nextseek_api/batch_delete/tests/test_models.py::TestDeleteEligibility::test_forbidden_block_reason_rejects_permission_basis
-nextseek_api/batch_upload/tests/test_neo4j_integration.py::TestInStudyIntegration::test_creates_in_study_relationship
-nextseek_api/batch_upload/tests/test_neo4j_integration.py::TestInStudyIntegration::test_idempotent_merge
-nextseek_api/batch_upload/tests/test_neo4j_integration.py::TestOfTypeIntegration::test_creates_of_type_relationship
+NessieAI/tests/ns/test_turn_deadline.py::TestThroughThePass::test_a_nested_turn_gets_the_deadline_less_the_reserve
+NessieAI/tests/ns/test_turn_deadline.py::TestThroughThePass::test_a_no_model_op_with_30_s_left_runs_with_the_10_s_floor
+NessieAI/tests/ns/test_turn_deadline.py::TestThroughThePass::test_an_op_that_calls_no_model_is_never_time_up
+NessieAI/tests/router/test_route_capabilities.py::test_ns_tools_keep_fallback_router_agent_vocabulary
 nextseek_api/tests/test_attribute_api_db_lane.py::test_disposable_database_identity_is_random_and_not_shared
 nextseek_api/tests/test_attribute_api_db_lane.py::test_disposable_uuid_is_required
 nextseek_api/tests/test_attribute_api_db_lane.py::test_freeze_measured_baseline_artifacts
@@ -359,23 +221,6 @@ nextseek_api/tests/test_views.py::TestGetChildrenUIDsSQLInjection::test_no_proje
 nextseek_api/tests/test_views.py::TestGetChildrenUIDsSQLInjection::test_project_scoped_branch_binds_uids_and_project_ids
 nextseek_api/tests/test_views.py::TestGetChildrenUIDsSQLInjection::test_quote_in_uid_does_not_change_the_statement
 nextseek_api/tests/test_views.py::TestGetChildrenUIDsSQLInjection::test_uids_from_the_graph_are_bound_not_interpolated
-seek/tests/test_dbtable_sample_lineage.py::TestBatchUploadTestCountsLineageFailures::test_clean_batch_stays_a_success
-seek/tests/test_dbtable_sample_lineage.py::TestBatchUploadTestCountsLineageFailures::test_lineage_failure_count_reaches_the_uploader
-seek/tests/test_dbtable_sample_lineage.py::TestBatchUploadTestCountsLineageFailures::test_lineage_failure_makes_the_batch_not_a_success
-seek/tests/test_dbtable_sample_lineage.py::TestBatchUploadTestCountsLineageFailures::test_row_is_still_returned_in_the_feedback_sheet
-seek/tests/test_dbtable_sample_lineage.py::TestFeedbackCallStillSurfacesRealFailures::test_it_does_not_reach_the_uploader_facing_count
-seek/tests/test_dbtable_sample_lineage.py::TestFeedbackCallStillSurfacesRealFailures::test_non_keyerror_denies_the_batch_its_success
-seek/tests/test_dbtable_sample_lineage.py::TestFeedbackCallStillSurfacesRealFailures::test_non_keyerror_is_logged_at_error_with_a_traceback
-seek/tests/test_dbtable_sample_lineage.py::TestFeedbackCallStillSurfacesRealFailures::test_non_keyerror_reaches_the_uploader_with_the_s603_code
-seek/tests/test_dbtable_sample_lineage.py::TestFeedbackDictGraphCallIsLoggedOncePerBatch::test_dead_call_does_not_pollute_the_error_channel
-seek/tests/test_dbtable_sample_lineage.py::TestFeedbackDictGraphCallIsLoggedOncePerBatch::test_logged_once_per_batch_not_once_per_row
-seek/tests/test_dbtable_sample_lineage.py::TestStoreSampleNeo4jGuarded::test_failure_does_not_propagate
-seek/tests/test_dbtable_sample_lineage.py::TestStoreSampleNeo4jGuarded::test_failure_is_logged_with_a_traceback
-seek/tests/test_dbtable_sample_lineage.py::TestStoreSampleNeo4jGuarded::test_failure_message_names_the_code_uid_and_cause
-seek/tests/test_dbtable_sample_lineage.py::TestStoreSampleNeo4jGuarded::test_success_reports_no_warning
-seek/tests/test_dbtable_sample_lineage.py::TestStoreSampleSurfacesLineageFailure::test_clean_write_reports_no_lineage_failure
-seek/tests/test_dbtable_sample_lineage.py::TestStoreSampleSurfacesLineageFailure::test_failed_write_is_flagged_and_described
-seek/tests/test_dbtable_sample_lineage.py::TestStoreSampleSurfacesLineageFailure::test_failed_write_still_admits_the_row_landed_in_mysql
 seek/tests/test_dbtables.py::test_discovery_found_the_tables
 seek/tests/test_search_sql_binding.py::TestDesignSearchAdvancedBinding::test_filtering_path_returns_fragment_and_params
 seek/tests/test_search_sql_binding.py::TestDesignSearchFiltersBinding::test_equal_rule_binds_a_hostile_value
@@ -394,16 +239,23 @@ seek/tests/test_views_children_uids_sql.py::TestSeekViewsGetChildrenUIDsSQLInjec
 seek/tests/test_views_children_uids_sql.py::TestSeekViewsGetChildrenUIDsSQLInjection::test_project_scoped_branch_binds_uids_and_project_ids
 seek/tests/test_views_children_uids_sql.py::TestSeekViewsGetChildrenUIDsSQLInjection::test_quote_in_uid_does_not_change_the_statement
 seek/tests/test_views_children_uids_sql.py::TestSeekViewsGetChildrenUIDsSQLInjection::test_uids_from_the_graph_are_bound_not_interpolated
-startup/tests/test_cli_commands.py::test_rebuild_rejects_unverified_source_tree
+seek/tests/test_vocab_endpoints.py::test_a_real_value_error_is_reported_with_its_type
+seek/tests/test_vocab_endpoints.py::test_association_save_collects_per_row_errors
+seek/tests/test_vocab_endpoints.py::test_association_save_commits_the_rows_that_worked
+seek/tests/test_vocab_endpoints.py::test_association_save_rejects_empty_records
+seek/tests/test_vocab_endpoints.py::test_association_save_reports_updated_count
+seek/tests/test_vocab_endpoints.py::test_clade_sample_types_save_returns_same_envelope
+seek/tests/test_vocab_endpoints.py::test_clade_save_defaults_missing_order_to_zero
+seek/tests/test_vocab_endpoints.py::test_delete_message_reads_as_a_deletion
+seek/tests/test_vocab_endpoints.py::test_internal_assay_delete_reports_does_not_exist
+seek/tests/test_vocab_endpoints.py::test_internal_assay_delete_reports_missing_id
+seek/tests/test_vocab_endpoints.py::test_internal_assay_save_reports_missing_title_and_commits_sibling
+seek/tests/test_vocab_endpoints.py::test_partial_delete_message_reads_as_a_deletion
+seek/tests/test_vocab_endpoints.py::test_save_message_still_reads_as_a_save
+seek/tests/test_vocab_endpoints.py::test_suggestions_returns_envelope
 startup/tests/test_cli_startup_gaps.py::test_install_applies_site_base_host_before_seek_first_boot
 startup/tests/test_cli_startup_gaps.py::test_install_calls_render_start_health_in_order
-startup/tests/test_cli_startup_gaps.py::test_reset_reinstall_requests_seeding
-startup/tests/test_registry_push.py::test_rebuild_aborts_before_build_when_rollback_tag_fails
-startup/tests/test_registry_push.py::test_rebuild_can_build_clean_source_and_recreate_from_runtime_root
-startup/tests/test_registry_push.py::test_rebuild_can_defer_restart_and_registry_push
-startup/tests/test_registry_push.py::test_rebuild_cc_agent_builds_without_starting_container
-startup/tests/test_registry_push.py::test_rebuild_nextseek_triggers_baseline_push
-startup/tests/test_registry_push.py::test_rebuild_survives_push_step_blowing_up
+startup/tests/test_env_registry_drift.py::test_rule1_code_reads_are_declared
 startup/tests/test_schema_fixups.py::test_attribute_concurrent_insert_enforces_unique_identity
 startup/tests/test_schema_fixups.py::test_attribute_ddl_telemetry_binds_run_sql_lock_and_post_state
 startup/tests/test_schema_fixups.py::test_attribute_duplicate_preflight_aborts_without_rewrite
@@ -421,4 +273,3 @@ startup/tests/test_schema_fixups_coverage.py::test_observe_concurrent_lock_probe
 startup/tests/test_schema_fixups_coverage.py::test_reverse_refuses_to_drop_owned_index_whose_shape_has_drifted
 startup/tests/test_schema_fixups_coverage.py::test_reverse_reports_already_absent_for_untouched_indexes
 startup/tests/test_schema_fixups_coverage.py::test_verify_final_shape_raises_on_shape_drift
-startup/tests/test_validate.py::test_prod_overlay_guard_wired_into_health_checks

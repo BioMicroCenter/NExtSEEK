@@ -652,6 +652,37 @@ def test_a_count_per_value_still_states_the_split():
     assert rv.verdict == "ok", [c for c in rv.checks if c.fired]
 
 
+# --- graph schema 1.3: a zero over Assay nodes is a catalog zero, not a sample zero ---------------------------------
+
+
+def _zero(cypher, params):
+    return ReviewInput(question="how many", cypher=cypher, parameters=params, keyword_fields={}, rows=[{"n": 0}],
+                       count=1, total=None, ok=True, error=None)
+
+
+@pytest.mark.parametrize("label", ["Attribute", "SampleType", "Assay"])
+def test_a_zero_over_catalog_nodes_is_not_a_sample_zero(label):
+    cypher = (f"MATCH (a:{label}) WHERE toLower(a.title) CONTAINS toLower($x) "
+              "AND toLower(a.description) CONTAINS toLower($y) RETURN count(a) AS n")
+    rv = review_tier1(_zero(cypher, {"x": "seq", "y": "rna"}), DictCatalog({}))
+    assert not _check(rv, "zero_unproven_base").fired
+
+
+@pytest.mark.parametrize("cypher", [
+    "MATCH (s:T_TIS)-[:INPUT_TO]->(a:Assay) WHERE toLower(s.search_text) CONTAINS toLower($x) "
+    "AND toLower(a.title) CONTAINS toLower($y) RETURN count(DISTINCT s) AS n",
+    "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay) WHERE toLower(s.search_text) CONTAINS toLower($x) "
+    "AND toLower(a.title) CONTAINS toLower($y) RETURN count(DISTINCT s) AS n",
+    # the taught "went through" form: the Assay by name, then the samples with an edge to it
+    "MATCH (a:Assay) WHERE toLower(a.title) = toLower($y) MATCH (s:Sample) "
+    "WHERE (EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }) "
+    "AND toLower(s.search_text) CONTAINS toLower($x) RETURN count(DISTINCT s) AS n",
+], ids=["type_label", "sample_label", "went_through"])
+def test_a_zero_over_samples_that_reach_an_assay_still_opens(cypher):
+    rv = review_tier1(_zero(cypher, {"x": "lung", "y": "rna"}), DictCatalog({}))
+    assert _check(rv, "zero_unproven_base").fired
+
+
 # ------------------------------------- short values and negations over a free-text search (round 2, D1 and D2) -------
 # Reviewer-only records, inline: the shared replay fixture must cover exactly the query-scope replay's turns. Types,
 # attributes and values are made up.
@@ -724,3 +755,43 @@ def test_a_short_stored_code_on_another_field_does_not_fire_either():
                         "MATCH (s:T_GAD)\nWHERE s.Condition = 'multiple sclerosis'\nRETURN count(s) AS n",
                         "T_GAD", "Abbrev", ["MS", "CF"])
     assert not _check(rv, "unapplied_value").fired
+
+
+# --- R5 G5: "has no samples" judged by the node, not the title -------------------------------------------------
+
+EMPTY_INVESTIGATIONS = (
+    "MATCH (inv:Investigation)\nWHERE NOT EXISTS {\n  MATCH (:Sample)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv)\n}\n"
+    "RETURN inv.id AS id, inv.title AS title\nORDER BY inv.title")
+EMPTY_STUDIES = (
+    "MATCH (st:Study)-[:IN_INVESTIGATION]->(inv:Investigation) WHERE inv.title = $investigation_title\n"
+    "  AND NOT EXISTS { (:Sample)-[:IN_STUDY]->(st) } RETURN st.id AS id, st.title AS title ORDER BY st.id")
+EMPTY_BY_TITLE = (
+    "MATCH (inv:Investigation)\nWHERE NOT EXISTS { MATCH (:Sample)-[:IN_STUDY]->(:Study)"
+    "-[:IN_INVESTIGATION]->(i2:Investigation) WHERE i2.title = inv.title }\n"
+    "RETURN DISTINCT inv.title AS title ORDER BY title")
+
+
+@pytest.mark.parametrize("cypher", [EMPTY_INVESTIGATIONS, EMPTY_STUDIES])
+def test_empty_by_node_fires_when_the_node_is_judged_alone(cypher):
+    rv = _plain("Which investigations have no samples?", cypher, {}, rows=[{"id": 19, "title": "X"}])
+    assert _check(rv, "empty_by_node").fired
+    assert rv.verdict == "suggest"
+    assert "recorded twice" in rv.disclosure and "other record" in rv.disclosure
+
+
+def test_empty_by_node_stays_quiet_on_the_title_form():
+    rv = _plain("Which investigations have no samples?", EMPTY_BY_TITLE, {}, rows=[{"title": "X"}])
+    assert not _check(rv, "empty_by_node").fired
+
+
+def test_empty_by_node_stays_quiet_on_a_question_with_no_samples_in_it():
+    cy = ("MATCH (st:Study) WHERE NOT EXISTS { MATCH (st)-[:IN_INVESTIGATION]->(:Investigation) } "
+          "RETURN st.title AS title")
+    rv = _plain("Which studies belong to no investigation?", cy, {}, rows=[{"title": "X"}])
+    assert not _check(rv, "empty_by_node").fired
+
+
+def test_empty_by_node_stays_quiet_on_an_empty_list():
+    inp = ReviewInput(question="Which investigations have no samples?", cypher=EMPTY_INVESTIGATIONS, parameters={},
+                      keyword_fields={}, rows=[], count=0, total=0, ok=True, error=None)
+    assert not _check(review_tier1(inp, DictCatalog({})), "empty_by_node").fired

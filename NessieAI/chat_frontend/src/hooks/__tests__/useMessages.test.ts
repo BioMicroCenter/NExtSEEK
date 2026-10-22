@@ -93,6 +93,19 @@ describe("useMessages — hydrateFromTurns", () => {
     expect(result.current.messages).toHaveLength(0);
   });
 
+  it("hydrateFromTurns: keeps the reviewer's chip a turn offered", () => {
+    const { result } = renderHook(() => useMessages());
+    const chip = { id: "b1-r0", source: "reviewer", kind: "narrow_value", label: "Only RNA-Seq", query: "q", reason: "r" };
+    act(() => {
+      result.current.hydrateFromTurns([
+        { bundle_id: 1, user_query: "first", reply: "one", mode: "graph_query", suggestions: [chip] },
+        { bundle_id: 2, user_query: "second", reply: "two", mode: "graph_query" },
+      ]);
+    });
+    expect(result.current.messages[1].suggestions).toEqual([chip]);
+    expect(result.current.messages[3].suggestions).toBeUndefined();
+  });
+
   it("hydrateFromTurns: rebuilds Search Details for NExtSEEK-engine turns", () => {
     const { result } = renderHook(() => useMessages());
 

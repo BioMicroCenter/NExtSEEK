@@ -6,9 +6,11 @@ Moved out of ``helpers.py`` during Phase 2 of the src/ restructure.
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any, Callable
 
+from .. import call_scope
 from ..artifacts import ArtifactStore
 from ..config import ChatConfig
 from ..schemas import ReportWriterPlan, ReportWriterOutput, ReportWriterOutputGEO
@@ -39,10 +41,21 @@ from .templates_meta import (
 
 
 # Report types that emit one row per sample of a target type, and the type whose
-# count drives the deterministic code path. Above this many samples, the report_writer
-# LLM tends to truncate the list, so the report_coder generates rows deterministically.
+# count the code path's row-parity check uses. Above _REPORT_CODE_PATH_THRESHOLD samples
+# in the metadata, the report_writer LLM truncates the list or overflows its input (prod
+# 10-14: 1,641 mice), so the report_coder writes code that builds the rows from the metadata.
 _TARGET_TYPE_FOR_REPORT = {"GEO": "D.SEQ", "SRA": "D.SEQ", "PRIDE": "D.MSP"}
-_REPORT_CODE_PATH_THRESHOLD = 20
+_TARGET_TYPE_WORDS = {"D.SEQ": "sequencing data", "D.MSP": "mass spectrometry data"}
+#: Operator 2026-10-14: more than 10 samples takes the code path (was 20).
+_REPORT_CODE_PATH_THRESHOLD = 10
+
+
+class ReportCodePathError(RuntimeError):
+    """The code path failed twice on a set too large for the report writer. ``reply`` is the plain text for the user."""
+
+    def __init__(self, detail: str, reply: str):
+        super().__init__(detail)
+        self.reply = reply
 
 # The per-sample row list key in each report body (one entry per target-type sample).
 # Used for the row-parity guard so the code path works for SRA/PRIDE, not just GEO.
@@ -58,6 +71,41 @@ def _count_target_samples(metadata: dict | None, target_type: str) -> int:
     except Exception:
         pass
     return 0
+
+
+def _count_all_samples(metadata: dict | None) -> int:
+    """Every sample in the metadata, any type: what the report writer would be handed. A GEO package over mice whose
+    metadata holds no D.SEQ group counts 0 by the target type, and used to send the whole set to the writer."""
+    try:
+        groups = ((metadata or {}).get("data") or {}).get("data") or []
+        return sum(len(g.get("samples") or []) for g in groups if isinstance(g, dict))
+    except Exception:
+        return 0
+
+
+def session_reporter_result(reporter_result):
+    """What a report turn keeps in the chat session (last_debug and the results_history bundle).
+
+    A generated report's result carries, per report, the fetched metadata of every sample and its relatives and every
+    protocol's text. Prod 10-14: a GEO package over 1,641 mice held 26,064 samples' metadata, the session write
+    (last_debug 112 MB, results_history 57 MB) was refused by MySQL, and the user got an empty reply. The turn's files
+    keep all of it (persisted by generate_report_outputs); the session keeps each report's uid, how many samples its
+    fetched metadata held (the lineage, not the set asked for: 26,064 for those 1,641 mice) and its protocol ids. The
+    writer output stays at the top level (``merged_report``, and the caller's ``report_writer_output``), so the
+    per-report copy goes too. A summary result (no ``reports``) is kept as it is.
+    """
+    if not isinstance(reporter_result, dict) or not isinstance(reporter_result.get("reports"), list):
+        return reporter_result
+    reports = []
+    for entry in reporter_result["reports"]:
+        if not isinstance(entry, dict):
+            continue
+        slim = {k: v for k, v in entry.items() if k not in ("metadata", "protocols", "report_writer_output")}
+        slim["metadata_samples"] = _count_all_samples(entry.get("metadata"))
+        protocols = entry.get("protocols")
+        slim["protocol_ids"] = sorted(map(str, protocols)) if isinstance(protocols, dict) else []
+        reports.append(slim)
+    return {**reporter_result, "reports": reports}
 
 
 def _wrap_report_result(report_type_value, result: dict, coder_output):
@@ -82,32 +130,64 @@ def _produce_report_output(
     notes="",
     log_dir=None,
 ):
-    """Gate between the deterministic code path (large submissions) and the LLM
-    report_writer (small submissions / fallback). Returns a report-writer output model."""
+    """Gate between the deterministic code path (more than ``_REPORT_CODE_PATH_THRESHOLD`` samples) and the LLM
+    report_writer (small submissions). Returns a report-writer output model; raises ``ReportCodePathError`` when
+    the code path fails twice, rather than handing a large set to the writer."""
     canonical = normalize_report_type(report_type_value)
     target_type = _TARGET_TYPE_FOR_REPORT.get(canonical)
     count = _count_target_samples(metadata, target_type) if target_type else 0
+    total = _count_all_samples(metadata)
 
-    if report_coder_fn is not None and target_type and count > _REPORT_CODE_PATH_THRESHOLD:
-        print(f"[DEBUG][REPORT_CODER] {canonical}: {count} {target_type} samples > "
+    if report_coder_fn is not None and target_type and total > _REPORT_CODE_PATH_THRESHOLD:
+        print(f"[DEBUG][REPORT_CODER] {canonical}: {total} samples ({count} {target_type}) > "
               f"{_REPORT_CODE_PATH_THRESHOLD}; using code path.")
-        try:
-            from ..helpers.tools.report_code import execute_report_code
-            coder_output = report_coder_fn(
-                config, user_query=user_query, report_type=report_type_value,
-                template=template_for_llm, metadata=metadata, log_dir=log_dir,
-            )
-            result = execute_report_code(coder_output.extraction_code, metadata)
-            row_key = _ROW_KEY_FOR_REPORT.get(canonical, "samples")
-            rows = (result or {}).get(row_key)
-            if isinstance(rows, list) and len(rows) == count:
-                print(f"[DEBUG][REPORT_CODER] Emitted {len(rows)} '{row_key}' rows (parity OK).")
-                return _wrap_report_result(report_type_value, result, coder_output)
-            got = len(rows) if isinstance(rows, list) else "n/a"
-            print(f"[DEBUG][REPORT_CODER] Row parity failed for '{row_key}' (got {got}, want {count}); "
-                  "falling back to report_writer.")
-        except Exception as e:
-            print(f"[DEBUG][REPORT_CODER] Code path failed; falling back to report_writer: {e!r}")
+        from ..helpers.tools import report_code
+
+        if count == 0:
+            # Nothing to package: an empty workbook passed off as a success (0 rows meet a 0-row parity check) is
+            # worse than saying so, and the writer would overflow on the whole set.
+            what = _TARGET_TYPE_WORDS.get(target_type, target_type)
+            raise ReportCodePathError(
+                f"no {target_type} samples in {total}",
+                f"This set holds no {what} ({target_type}) samples, so there is nothing to put in a {canonical} "
+                "package. Ask for the package on the data samples themselves, or on a study or project that has them.")
+
+        row_key = _ROW_KEY_FOR_REPORT.get(canonical, "samples")
+        previous_error = None
+        coder_output = None
+        busy = False
+        # One retry. Never the all-metadata report_writer above the threshold: its input overflows on a large set
+        # (prod 10-14, task 39a967f9). A busy report slot is no fault of the code: the retry runs the same code.
+        for _attempt in range(2):
+            try:
+                if coder_output is None or not busy:
+                    retry = {"previous_error": previous_error} if previous_error else {}
+                    coder_output = report_coder_fn(
+                        config, user_query=user_query, report_type=report_type_value,
+                        template=template_for_llm, metadata=metadata, log_dir=log_dir, **retry,
+                    )
+                busy = False
+                result = report_code.execute_report_code(coder_output.extraction_code, metadata)
+                rows = (result or {}).get(row_key)
+                if isinstance(rows, list) and len(rows) == count:
+                    print(f"[DEBUG][REPORT_CODER] Emitted {len(rows)} '{row_key}' rows (parity OK).")
+                    return _wrap_report_result(report_type_value, result, coder_output)
+                got = len(rows) if isinstance(rows, list) else "n/a"
+                previous_error = (f"row parity failed for '{row_key}': got {got}, want {count} "
+                                  f"(one row per {target_type} sample)")
+            except report_code.ReportCodeBusyError as e:
+                busy = True
+                previous_error = f"{type(e).__name__}: {e}"
+            except Exception as e:
+                previous_error = f"{type(e).__name__}: {e}"
+            print(f"[DEBUG][REPORT_CODER] Code path attempt failed: {previous_error}")
+        if busy:
+            reply = (f"Another report is being built right now, so I couldn't start the {canonical} package. "
+                     "Ask me again in a minute.")
+        else:
+            reply = (f"I couldn't build the {canonical} package for this set: the step that writes it from the "
+                     "samples' metadata failed twice. Try a smaller set (one study or project), or ask me again.")
+        raise ReportCodePathError(previous_error or "code path failed", reply)
 
     report_writer_plan = ReportWriterPlan(
         report_type=report_type_value,
@@ -224,13 +304,16 @@ def generate_report_outputs(
             key = (ref.get("source", ""), ref.get("value", ""))
             if key[1]:
                 all_protocol_refs[key] = ref
-    protocol_payloads = fetch_protocols(config, list(all_protocol_refs.values())) if all_protocol_refs else {}
+    # Inside an op the fetches and downloads stop at its deadline (approach 1, piece 2); an NS turn sets none.
+    left = call_scope.time_left_for(float("inf"))
+    deadline = None if left == float("inf") else time.monotonic() + (left or 0.0)
+    protocol_payloads = fetch_protocols(config, list(all_protocol_refs.values()), deadline=deadline) if all_protocol_refs else {}
     if protocol_payloads:
         ok_ids = [pid for pid, resp in protocol_payloads.items() if isinstance(resp, dict) and resp.get("ok")]
         print("[DEBUG][REPORTER_PROTOCOL] Protocol fetch complete. ok:", ok_ids, "total:", len(protocol_payloads))
     else:
         print("[DEBUG][REPORTER_PROTOCOL] No protocols discovered.")
-    protocol_files = download_and_extract_protocol_blobs(protocol_payloads, log_dir, config=config) if protocol_payloads else {}
+    protocol_files = download_and_extract_protocol_blobs(protocol_payloads, log_dir, config=config, deadline=deadline) if protocol_payloads else {}
     if protocol_files:
         print("[DEBUG][REPORTER_PROTOCOL] Downloaded/extracted protocol files for IDs:", list(protocol_files.keys()))
 

@@ -18,11 +18,8 @@ def test_end_marker_exact_string() -> None:
     assert C.END_MARKER == "<!-- END NEXTSEEK-DOCS (auto-generated) -->"
 
 
-def test_default_doc_url_is_gitbook_site_index() -> None:
-    assert C.DEFAULT_DOC_URL == (
-        "https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/"
-        "~gitbook/site-index"
-    )
+def test_default_source_is_repo_docs_dir() -> None:
+    assert C.DEFAULT_SOURCE == "themes/NextSeek/docs"
 
 
 def test_default_docs_dir_is_pathlib_path() -> None:

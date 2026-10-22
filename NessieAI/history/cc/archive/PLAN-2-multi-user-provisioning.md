@@ -14,7 +14,7 @@
 - **TDD-first**, bite-sized steps, frequent commits. Implementation code only after a failing test.
 - **Hermetic test command (the box cannot run the Django test-DB runner):**
   `uv run --no-project --with pytest python -m pytest -q --noconftest nextseek_api/cc_assistant/tests/`
-  Run from `/home/taishajo/work/NExtSEEK`. No Docker, no DB, no network, no spend.
+  Run from `/home/<user>/work/NExtSEEK`. No Docker, no DB, no network, no spend.
 - **No regression** to 1b `--resume`, 1c memory, the NS route, or **OI-3** (zero-creds agent: SEEK resolution runs host-side in the trusted Django process using the user's own login; **no new credential enters the agent**).
 - **Validate-before-interpolate** is a hard precondition: `cc_engine._build_volumes` interpolates path segments without re-validating, so every new path segment (`<project>`, `<user>`, `<session>`) MUST be validated before it reaches a bind source.
 - **Credentialed SEEK only:** construct `SeekDB(None, api_user, api_pass)`. The bare `SeekDB(None, None, None)` (`nextseek_api/views.py:596`) is NOT user-scoped — never copy it.
@@ -393,7 +393,7 @@ Expected: FAIL — `TypeError: __init__() got an unexpected keyword argument 'ho
 In `nextseek_api/cc_assistant/cc_config.py`, add the two fields + env defaults. Add near the other defaults:
 
 ```python
-_DEFAULT_HOST_USER_ROOT = "/Users/taishajoseph/dmac-dev/users"
+_DEFAULT_HOST_USER_ROOT = "/Users/<user>/dmac-dev/users"
 _DEFAULT_USER_ROOT_MOUNT = "/dmac/users"
 ```
 
@@ -1148,7 +1148,7 @@ git commit -m "chore(cc-step2): single DMAC_USER_ROOT bind/env; remove legacy ro
 
 Spec refs: §7 (D3 wipe, mandatory re-verification), §10 (live verification), ANN-9 (risk).
 
-**Pre-req:** explicit per-change sign-off from the user before touching the running instance. Use the Step-0 deploy procedure (snapshot `:pre-step2` → fast-forward the SA build-context clone → rebuild → recreate `--no-deps nextseek` via the SA `docker:cli` helper). Rollback via `/home/taishajo/work/state/rollback.sh` if needed.
+**Pre-req:** explicit per-change sign-off from the user before touching the running instance. Use the Step-0 deploy procedure (snapshot `:pre-step2` → fast-forward the SA build-context clone → rebuild → recreate `--no-deps nextseek` via the SA `docker:cli` helper). Rollback via `/home/<user>/work/state/rollback.sh` if needed.
 
 - [ ] **Step 1: Snapshot for rollback**
 

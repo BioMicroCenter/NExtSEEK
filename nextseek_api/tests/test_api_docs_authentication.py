@@ -15,7 +15,7 @@ The gate is deliberately ``IsAuthenticated`` and NOT an admin gate:
   (see #74 / #75).
 * ``IsSuperUser`` would over-gate. These routes are the working reference for
   legitimate token-holding API consumers; ``docs/endpoint-authorization-register.md``
-  buckets all three as ``public-to-authenticated``.
+  files all three under bucket 3 (correct as it is).
 
 ``test_plain_user_*`` therefore uses an account that is neither staff nor superuser,
 which pins BOTH halves of that ruling.

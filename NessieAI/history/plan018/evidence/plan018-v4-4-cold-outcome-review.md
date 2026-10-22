@@ -2,7 +2,7 @@
 
 **Reviewer:** fresh cold-context agent (no implementer conversation history)  
 **Recorded:** 2026-08-12 (post-remediation)  
-**Worktree:** `/home/taishajo/work/NExtSEEK-plan018`  
+**Worktree:** `/home/<user>/work/NExtSEEK-plan018`  
 **Branch:** `ultraplan/hibayes-eval-routing` (remediation delta on `80c726f3` base)  
 **Charter:** Task 12 — evaluate outcome against SDD Tasks 0–12 and living-plan §V4-4 / V14 DONE predicates after cold-PASS remediation (ruling B).
 

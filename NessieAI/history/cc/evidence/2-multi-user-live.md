@@ -41,7 +41,7 @@ Result: `176 passed, 1 warning`.
 
 ### 1b resume re-verification
 
-Script: `/home/taishajo/work/state/pw/resume_ui.mjs`
+Script: `/home/<user>/work/state/pw/resume_ui.mjs`
 
 Run method: Dockerized Playwright with `--network host` against `https://nextseek-dev.mit.edu`.
 
@@ -56,7 +56,7 @@ Result: **PASS**
 
 ### 1c memory re-verification
 
-Script: `/home/taishajo/work/state/pw/xsession_1c.mjs`
+Script: `/home/<user>/work/state/pw/xsession_1c.mjs`
 
 Result: **MECHANISM PASS / conversational recall still router-gated**
 
@@ -69,7 +69,7 @@ Result: **MECHANISM PASS / conversational recall still router-gated**
 
 ### Step 2 mount and artifact check
 
-Script: `/home/taishajo/work/state/pw/chat_test.mjs`
+Script: `/home/<user>/work/state/pw/chat_test.mjs`
 
 Prompt asked CC via the UI to create `/data/scratch/step2_probe.txt` containing `STEP2-ARTIFACT-ROOT`.
 

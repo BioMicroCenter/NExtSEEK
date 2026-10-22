@@ -52,8 +52,12 @@ def build_insertable(
     """
     warnings: Dict[str, List[str]] = {}
 
-    # 1. Effective project_id (per-row override > global default)
-    effective_pid = row.project_id if row.project_id is not None else project_id
+    # 1. A row may name a project only if it is the request's project.
+    if row.project_id is not None and row.project_id != project_id:
+        raise ValueError(
+            f"This row names project {row.project_id}; this upload is for project {project_id}. "
+            f"Upload it under project {row.project_id}."
+        )
 
     # 2. Parse and minify JSON metadata
     try:
@@ -70,7 +74,7 @@ def build_insertable(
     canonical_meta = canonicalize_file_primary_data(parsed_meta)
 
     # 3. Resolve sample type (needed for attribute-name check)
-    sample_type_id = resolve_sample_type_id(row.SampleType, effective_pid, conn)
+    sample_type_id = resolve_sample_type_id(row.SampleType, conn)
 
     # 4. Verify json_metadata keys are defined attributes for this SampleType.
     #    No skip-list — every key (including SEEK-conventional UID/Parent/Protocol)

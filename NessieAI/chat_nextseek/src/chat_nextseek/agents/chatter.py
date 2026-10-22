@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from streamlit.runtime.state.session_state_proxy import SessionStateProxy
 
 from ..session import SessionState
+from .. import graph_scope
 from ..config import ChatConfig
 from ..context_rows import is_project_row
 from ..graph_review import PREMISE_FACT_RE
@@ -17,7 +18,7 @@ from ..helpers import (
     api_row_count,
     log_prompt,
 )
-from ..helpers.query_scope import describe_query_scope, render_query_scope
+from ..helpers.query_scope import _named_in, describe_query_scope, names_only_the_kind, render_query_scope
 from ..uid_links import link_sample_uids
 from ..schemas import (
     PlannerOutput,
@@ -135,6 +136,39 @@ def _breakdown_sum(rows: list) -> tuple[str, int | float] | None:
         return None
     col = next(iter(numeric[0]))
     return col, sum(r[col] for r in rows)
+
+
+# Fix 6: a sample sits in several projects, studies or investigations, and a link can carry several assay titles.
+# When the rows are grouped by such a container, adding the group counts counts the shared item once per group.
+# R4: decided on the rows' group column, not the Cypher: a scope through IN_PROJECT (STEP 5's standard scope) with
+# rows by type is still a disjoint breakdown whose sum is the total.
+_CONTAINER_COLUMN = re.compile(r"project|study|investigation|title|assay|group", re.IGNORECASE)
+_OVERLAP_SUM_NOTE = (
+    "The rows are groups a sample or link can belong to more than once (projects, studies, investigations or "
+    "titles), so this sum counts a shared item once per group and is NOT a count of distinct samples or links. "
+    "Give it only as 'counted in each group they belong to', never as the total of distinct items, and say that "
+    "items in more than one group are counted in each."
+)
+
+
+def _groups_may_overlap(rows: list, count_column: str) -> bool:
+    return any(_CONTAINER_COLUMN.search(k) for k in (rows[0] if rows else {}) if k != count_column)
+
+
+def _attached_rows_line(shown: int, attached: int, total, truncated: bool) -> str:
+    """What the writer may say about the table attached to a graph turn. Fix 5: a result that stopped at the row
+    cap is a capped part of the answer, so it is never called the full list; the reply says how many came back of
+    how many."""
+    if shown >= attached:
+        return ""
+    if truncated or (isinstance(total, int) and total > attached):
+        of = f" of {total:,}" if isinstance(total, int) else ""
+        return (f"The table and downloadable file attached to the turn hold only {attached:,}{of} rows: the "
+                f"result stopped at the row cap. Say {attached:,}{of} came back, never call it the full list, "
+                "and never say there is nothing to narrow.\n")
+    return ("Every row of this result is attached to the turn as a table and a downloadable "
+            "file, so say the full list is available rather than offering to re-run the "
+            "query or telling the user to narrow it.\n")
 
 
 def _type_histogram_block(all_rows: list, shown: int) -> str:
@@ -290,6 +324,60 @@ def _type_names_block(config: Any, rows: list) -> str:
         return ""
     return ("Sample type names for the codes in these rows (use these names; never invent one):\n"
             + "\n".join(f"- {code} = {names[code]}" for code in seen) + "\n")
+
+
+def _fold_name(name: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(name or "").lower())
+
+
+#: REST answers a member's project scope does not decide: SEEK's own sharing governs an SOP, and the people list is
+#: every account. A zero there is not "none in your projects".
+_UNSCOPED_REST = ("/nextseek_api/people/", "/nextseek_api/sops/")
+
+
+def _row_names(row: dict) -> list[str]:
+    return [n for n in [row.get("name"), *(row.get("alternative_names") or [])] if n]
+
+
+def _member_scope_notes(config: Any, entity_result: dict, parser_plan: dict, zero: bool, question: str) -> list[str]:
+    """What a non-admin's reply must say about project scope (G2). Admin or no scope: nothing.
+    A named project every catalog row of which sits in a project outside the caller's is "not a member", once per
+    project, and only when the question writes one of those rows' names (``_named_in``, as describe_query_scope
+    reads it: the entity step reads a project into a -PUB UID); a name with no row, or a row with no project_id
+    (TCGA), decides nothing. A zero names the caller's own projects.
+    Reads only the static catalog and CALLER, never the graph, so it leaks no count."""
+    scope = graph_scope.scope_of(config)
+    if scope is None or scope.is_admin:
+        return []
+    own = set(scope.project_ids)
+    rows = [r for r in (getattr(config, "FULL_PROJECTS", None) or []) if isinstance(r, dict)]
+    named = [*(entity_result.get("projects") or []),
+             *(((parser_plan.get("resolved") or {}).get("projects")) or [])]
+    notes: list[str] = []
+    seen: set[str] = set()
+    noted: set[frozenset] = set()
+    for name in named:
+        key = _fold_name(name)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        hits = [r for r in rows if key in {_fold_name(n) for n in _row_names(r)}]
+        ids = frozenset(r.get("project_id") for r in hits)
+        written = any(_named_in(question or "", n) for r in hits for n in _row_names(r))
+        if ids and None not in ids and not (ids & own) and written and ids not in noted:
+            noted.add(ids)
+            notes.append(f"{name} is a project this account is not a member of, so none of its records were "
+                         "searched or counted. Say so, and give no number for it.")
+    if zero:
+        projects = (getattr(config, "CALLER", None) or {}).get("projects")
+        names = [str(p.get("name")) for p in projects if isinstance(p, dict) and p.get("name")] \
+            if isinstance(projects, list) else []
+        # The instruction first and at most five names: describe_query_scope cuts a note at 400 characters.
+        listed = ", ".join(names[:5]) + (f", and {len(names) - 5} more" if len(names) > 5 else "")
+        notes.append(("This account is not an admin: its searches cover only the projects it belongs to, so a zero "
+                      "means none in those projects; give that as the reason. "
+                      + (f"Its projects: {listed}." if names else "")).rstrip())
+    return notes
 
 
 def _container_aliases(config: Any) -> list[set[str]]:
@@ -699,19 +787,6 @@ def chatter_agent_answer(
     # notes against what ran (chatter_agent.txt, "ONE EXCEPTION, AND ONLY ONE"). The rule that a reply
     # never names Cypher, a graph pattern or a query operator is unchanged, and a REST turn still gets
     # no plumbing: `_scrub_plumbing` above.
-    offered_step = _one_line(offered_step) or None
-    scope = describe_query_scope(
-        entity_result=entity_result,
-        parser_plan=parser_plan,
-        api_plan=api_plan if not (is_graph or is_reporter) else None,
-        graph_plan=graph_plan,
-        extra_notes=query_notes,
-        user_query=user_query,
-        container_aliases=_container_aliases(config),
-        type_names=_type_names(config),
-        type_tags=_type_tags(config),
-    )
-
     def _fmt_entities(items: Any) -> str:
         if not items:
             return "(none)"
@@ -736,7 +811,8 @@ def chatter_agent_answer(
     # ["keywords"] rendered "(none)" in every turn, in every mode, since the line was
     # written. The system prompt's "state ... what the key filters were (sample type,
     # assay, keywords)" was unsatisfiable for keywords the whole time.
-    keywords_list = [str(k) for k in (entity_result.get("keywords") or []) if str(k).strip()]
+    keywords_list = [str(k) for k in (entity_result.get("keywords") or [])
+                     if str(k).strip() and not names_only_the_kind(k)]  # "researchers" names the list, filters nothing
     keywords_str = ", ".join(keywords_list) if keywords_list else "(none)"
 
     # Compute total_matches + preview_count for the mode at hand, AND
@@ -818,11 +894,11 @@ def chatter_agent_answer(
         breakdown = _breakdown_sum(records) if complete else None
         data_section = (
             f"{heading}\n{preview_json}\n"
-            + (f"Sum of {breakdown[0]} across all {len(records)} rows: {breakdown[1]:,}. When the question "
-               "asks how many, give this total first, then the breakdown.\n" if breakdown else "")
-            + ("Every row of this result is attached to the turn as a table and a downloadable "
-               "file, so say the full list is available rather than offering to re-run the "
-               "query or telling the user to narrow it.\n" if len(records) < len(all_rows) else "")
+            + (f"Sum of {breakdown[0]} across all {len(records)} rows: {breakdown[1]:,}. "
+               + (_OVERLAP_SUM_NOTE if _groups_may_overlap(records, breakdown[0])
+                  else "When the question asks how many, give this total first, then the breakdown.")
+               + "\n" if breakdown else "")
+            + _attached_rows_line(len(records), len(all_rows), total_matches, graph_truncated)
             + _type_histogram_block(all_rows, len(records))
             + _value_counts_block(all_rows, len(records),
                                   capped=graph_truncated or (isinstance(total_matches, int)
@@ -859,6 +935,43 @@ def chatter_agent_answer(
     # behaves (NOT APPLIED, TRUNCATED, substitution) fires only when it changes the
     # reading. Grant it on the same footing.
     slim_flags = api_result_slim if isinstance(api_result_slim, dict) else {}
+    # F-d's closer drop is for an answered result only: rows, or a count or total above zero. On a zero, a failed
+    # query or an error, a question that asks the user to choose (which project, the closest spelling of a
+    # misspelled lab) is the answer, not a stock offer.
+    # `zero` (G2): a search that ran and counted nothing. A REST answer with no count (one SOP record) is not one.
+    if is_graph:
+        answered = bool((graph_result or {}).get("ok")) and _returned_something(
+            (graph_result or {}).get("data"), total_matches)
+        zero = bool((graph_result or {}).get("ok")) and not answered
+    elif is_reporter:
+        answered = _report_returned_rows(reporter_summary)
+        zero = not answered
+    else:
+        api_source = api_result_full if isinstance(api_result_full, dict) else slim_flags
+        rest_rows = api_row_count(api_result_full)
+        ran = not error_context and api_source.get("ok") is not False
+        answered = ran and (_above_zero(rest_rows if rest_rows is not None else slim_flags.get("rows_returned"))
+                            or _above_zero(total_matches))
+        endpoint = str((api_plan or {}).get("endpoint") or "").split("?", 1)[0].rstrip("/") + "/"
+        zero = (ran and not endpoint.startswith(_UNSCOPED_REST)
+                and 0 in (rest_rows, slim_flags.get("rows_returned"), total_matches))
+
+    query_notes = [*(query_notes or []), *_member_scope_notes(config, entity_result, parser_plan, zero=zero,
+                                                               question=user_query)] \
+        or query_notes
+    offered_step = _one_line(offered_step) or None
+    scope = describe_query_scope(
+        entity_result=entity_result,
+        parser_plan=parser_plan,
+        api_plan=api_plan if not (is_graph or is_reporter) else None,
+        graph_plan=graph_plan,
+        extra_notes=query_notes,
+        user_query=user_query,
+        container_aliases=_container_aliases(config),
+        type_names=_type_names(config),
+        type_tags=_type_tags(config),
+    )
+
     # `query_notes`, not `scope.notes`: the scope's notes also carry the graph agent's own
     # `explanation` on every graph turn (helpers/query_scope.py), so using them qualified
     # every turn and turn 1151 answered "There are 57,441 samples in the SRP project. This
@@ -876,21 +989,6 @@ def chatter_agent_answer(
     # at all (12 of the 13 named nothing), because every rule about naming them is written
     # for rows ("from the preview", "when you were given all the rows") and none can fire.
     count_only = is_graph and _is_count_only((graph_result or {}).get("data") or [])
-    # F-d's closer drop is for an answered result only: rows, or a count or total above zero. On a zero, a failed
-    # query or an error, a question that asks the user to choose (which project, the closest spelling of a
-    # misspelled lab) is the answer, not a stock offer.
-    if is_graph:
-        answered = bool((graph_result or {}).get("ok")) and _returned_something(
-            (graph_result or {}).get("data"), total_matches)
-    elif is_reporter:
-        answered = _report_returned_rows(reporter_summary)
-    else:
-        api_source = api_result_full if isinstance(api_result_full, dict) else slim_flags
-        rest_rows = api_row_count(api_result_full)
-        answered = (not error_context and api_source.get("ok") is not False
-                    and (_above_zero(rest_rows if rest_rows is not None else slim_flags.get("rows_returned"))
-                         or _above_zero(total_matches)))
-
     examples_block = ""
     if example_ids:
         examples_block = (
@@ -973,6 +1071,9 @@ def chatter_agent_answer(
             "the answer say in one or two plain sentences what was counted: which records, of which type, "
             "under which conditions. Never name Cypher, a field name, a query operator or an endpoint.\n"
         )
+        + ("- Give a split across groups (studies, projects, types, spellings) only from counts shown in this "
+           "message, never one you worked out from the preview rows. A note that tells the reply what to say is "
+           "an instruction to you: act on it, never repeat it to the user.\n" if is_graph else "")
         + "- Skip filler phrases like 'diverse set', 'I have truncated the list', 'feel free to refine'. "
         "Be informative and brief."
     )

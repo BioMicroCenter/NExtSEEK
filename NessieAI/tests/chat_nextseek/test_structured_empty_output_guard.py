@@ -199,7 +199,7 @@ GOOD_MULTI = json.dumps({
     "intent_summary": "Find mouse samples treated with NDMA.",
     "resolved": {"sampletypes": [{"code": "MUS", "name": "Mouse"}], "assays": [],
                  "keywords": ["NDMA"], "projects": []},
-    "candidates": [{"mode": "new_search", "target_endpoint": ADVANCED_SEARCH,
+    "candidates": [{"mode": "new_search", "target_endpoint": "/nextseek_api/samples/retrieve/",
                     "rationale": "attribute search", "confidence": 0.9}],
     "notes": "",
 })

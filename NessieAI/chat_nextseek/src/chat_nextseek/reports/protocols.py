@@ -19,9 +19,11 @@ from zipfile import ZipFile
 
 import requests
 
+from .. import call_scope
 from ..artifacts import ArtifactStore
 from ..config import ChatConfig
 from ..helpers.json_io import estimate_tokens_from_text
+from ..helpers.tools.nextseek_api import OUT_OF_TIME_NOT_SENT
 
 
 def extract_protocol_refs_from_metadata(metadata: dict) -> list[dict[str, str]]:
@@ -91,6 +93,18 @@ def _request_protocol_record(config: ChatConfig, base_url: str, protocol_ref: st
         url = f"{base_url.rstrip('/')}/sops/{quote(protocol_ref, safe='')}/"
     else:
         url = f"{base_url.rstrip('/')}/nextseek_api/sops/{quote(protocol_ref, safe='')}/"
+    # Inside an op the request waits at most what is left of it (approach 1, piece 2); an NS turn keeps its 90 s.
+    capped = call_scope.time_left_for(90.0)
+    if capped is None:
+        print(f"[DEBUG][API] {OUT_OF_TIME_NOT_SENT}")
+        return {
+            "ok": False,
+            "error": OUT_OF_TIME_NOT_SENT,
+            "url": url,
+            "method": "GET",
+            "source_base_url": base_url.rstrip("/"),
+            "protocol_ref": protocol_ref,
+        }
     auth = None
     headers: dict[str, str] = {}
     auth_mode = "None"
@@ -111,10 +125,10 @@ def _request_protocol_record(config: ChatConfig, base_url: str, protocol_ref: st
     print("  PARAMS: {'page_size': 1000}")
     print("  BODY:   {}")
     print(f"  AUTH:   {auth_mode}")
-    print("  TIMEOUT:90s")
+    print(f"  TIMEOUT:{capped:.0f}s")
 
     try:
-        resp = requests.get(url, auth=auth, headers=headers or None, params={"page_size": 1000}, timeout=90)
+        resp = requests.get(url, auth=auth, headers=headers or None, params={"page_size": 1000}, timeout=capped)
         print("[DEBUG][API] Response:")
         print(f"  STATUS: {resp.status_code}")
         preview = resp.text[:300].replace("\n", " ")
@@ -234,13 +248,15 @@ def _extract_pdf_text(content: bytes) -> str | None:
 def sanitize_protocols_for_llm(protocol_payloads: dict) -> dict:
     """
     Sanitize protocol payloads for LLM consumption:
-    - Replace localhost URLs with fairdata-dev.mit.edu
+    - Replace localhost URLs with this box's SEEK_PUBLIC_URL (the path alone when none is set)
     - Remove internal fields not needed by the LLM
     Returns a cleaned copy of the protocol payloads.
     Keeps URLs model-safe while preserving useful content for prompt context.
     """
     if not protocol_payloads:
         return {}
+    # N2: the same address protocol_link_note gives the writer; never another box's host.
+    base = os.getenv("SEEK_PUBLIC_URL", "").strip().rstrip("/")
 
     def fix_url(url: str | None) -> str | None:
         if not url:
@@ -248,7 +264,7 @@ def sanitize_protocols_for_llm(protocol_payloads: dict) -> dict:
         if "localhost" in url or "127.0.0.1" in url:
             path_match = re.search(r"https?://[^/]+(/.*)", url)
             if path_match:
-                return f"https://fairdata-dev.mit.edu{path_match.group(1)}"
+                return f"{base}{path_match.group(1)}"
         return url
 
     def sanitize_dict(d: dict) -> dict:
@@ -265,6 +281,15 @@ def sanitize_protocols_for_llm(protocol_payloads: dict) -> dict:
         return result
 
     return {pid: sanitize_dict(resp) if isinstance(resp, dict) else resp for pid, resp in protocol_payloads.items()}
+
+
+def _sop_download_request(source_base_url: str | None, link: str | None) -> tuple[str, dict] | None:
+    """URL and body of POST /nextseek_api/sops/download/ on the record's host for a SEEK SOP blob link, else None."""
+    match = re.search(r"/sops/(\d+)/content_blobs/(\d+)", urlparse(link or "").path)
+    if not (match and source_base_url):
+        return None
+    body = {"uid_or_id": match.group(1), "blob_id": int(match.group(2))}
+    return f"{source_base_url.rstrip('/')}/nextseek_api/sops/download/", body
 
 
 def download_and_extract_protocol_blobs(
@@ -311,8 +336,11 @@ def download_and_extract_protocol_blobs(
         blobs = attrs.get("content_blobs") or []
         for idx, blob in enumerate(blobs):
             link = blob.get("link") or blob.get("url")
-            # Fix localhost URLs - content blobs are served from fairdata-dev.mit.edu
-            if link and ("localhost" in link or "127.0.0.1" in link):
+            # A NExtSEEK record carries SEEK's own blob link, on SEEK's site_base_host, which the app container
+            # may not reach (http://localhost:3000 by default). Download it through the record's own host
+            # instead, with the record's credentials: the app's SOP download endpoint streams it from SEEK (#91).
+            via_api = None if source_host == "fairdomhub.org" else _sop_download_request(source_base_url, link)
+            if via_api is None and link and ("localhost" in link or "127.0.0.1" in link):
                 path_match = re.search(r"https?://[^/]+(/.*)", link)
                 if path_match and source_base_url:
                     link = f"{source_base_url}{path_match.group(1)}"
@@ -324,14 +352,18 @@ def download_and_extract_protocol_blobs(
             try:
                 content_resp = None
                 attempted = []
-                for candidate in (f"{link}/download", f"{link}?download=1", link):
+                for candidate in [via_api[0]] if via_api else [f"{link}/download", f"{link}?download=1", link]:
                     timeout = 30
                     if deadline is not None:
                         timeout = min(30, deadline - time.monotonic())
                         if timeout <= 0:
                             break
                     attempted.append(candidate)
-                    r = session.get(candidate, timeout=timeout)
+                    if via_api:
+                        # Not the session: no cookie may turn this Basic call into a CSRF-checked session call.
+                        r = requests.post(candidate, json=via_api[1], auth=session.auth, timeout=timeout)
+                    else:
+                        r = session.get(candidate, timeout=timeout)
                     ctype_hdr = (r.headers.get("Content-Type") or "").lower()
                     looks_json = ctype_hdr.startswith("application/vnd.api+json") or r.content[:1] in (b"{", b"[")
                     is_ok = r.status_code == 200 and not looks_json

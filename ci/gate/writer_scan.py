@@ -19,7 +19,7 @@ ci/gate/test_writer_scan_unit.py:
     on self, on a variable made from such a class, or through self.tablemodel;
   * Django ORM writes on the models whose db_table is a graph source, read from
     seek/models/ rather than restated here;
-  * SeekAPIClient create_*/update_*/delete_* and run_seek_rails_runner. These
+  * SeekAPIClient create_*/update_*/delete_* and run_seek_op. These
     carry NO table: what Rails commits behind a proxy is declared in
     ci/writers.py, because the route trace corrected two of the guesses a table
     map made (the inventory, section 5);
@@ -57,7 +57,7 @@ from ci.writers import GRAPH_SOURCE_TABLES  # noqa: E402
 
 # Everything the application, its tools and its installer hold. docs/ is scanned
 # for .sql only: the publication rollout's hand SQL is archived there.
-SCAN_ROOTS = ("nextseek_api", "seek", "dmac", "api_app", "NessieAI", "scripts", "startup", "ci", "docker")
+SCAN_ROOTS = ("nextseek_api", "nextseek_graph", "seek", "dmac", "NessieAI", "scripts", "startup", "ci", "docker")
 SQL_ROOTS = ("docs",)
 SKIP_PARTS = frozenset({".git", ".venv", "__pycache__", "node_modules", "migrations", "history", "baml_client"})
 
@@ -309,7 +309,7 @@ class _Scanner(ast.NodeVisitor):
             self._orm_call(node, func, name)
             self._dbtable_call(node, func, name)
             self._seek_client_call(node, func, name)
-        if name == "run_seek_rails_runner":
+        if name == "run_seek_op":
             self.add("rails_runner", node, (), ("create", "update"), ast.unparse(node))
         self.generic_visit(node)
 

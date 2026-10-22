@@ -1,0 +1,21 @@
+[
+ {
+  "TERM": "Paired End",
+  "DEF": "Both ends of each fragment sequenced.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "Paired",
+   "Paired-end"
+  ]
+ },
+ {
+  "TERM": "Single End",
+  "DEF": "One end of each fragment sequenced.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "single"
+  ]
+ }
+]

@@ -12,7 +12,7 @@
 ### CRITICAL — Hardcoded absolute tracker path breaks portable validation
 
 **Location:** Task 1 Step 1 / Step 2 (L81, L87)  
-**Quote:** *"validator **re-reads** `/home/taishajo/work/state/integration-plan.json` at validation time"*  
+**Quote:** *"validator **re-reads** `/home/<user>/work/state/integration-plan.json` at validation time"*  
 **Why:** The tracker lives outside the NExtSEEK repo on a user-specific absolute path. Task 10 (MBP greenfield) and any cold implementer on another machine will not have this path. The Step 7 validator therefore fails every evidence bundle on the authoritative 7d gate host even when Step 7 work is correct — or forces a non-portable machine layout not documented in SPEC §7 or Permissions.  
 **Fix:** Parameterize via env (e.g. `INTEGRATION_PLAN_PATH`, default relative to repo or documented monorepo root). Record the resolved path in `preflight.json`; validator reads path from bundle metadata, not a baked-in home directory. Document in Permissions Required.
 
@@ -157,7 +157,7 @@ Subprocess `docker compose config` (Task 5); Markdown-only rejection (Task 2); s
 
 **Top findings (one line each):**
 
-1. **CRITICAL:** Validator hardcodes `/home/taishajo/work/state/integration-plan.json` — breaks MBP/portable 7d gate.
+1. **CRITICAL:** Validator hardcodes `/home/<user>/work/state/integration-plan.json` — breaks MBP/portable 7d gate.
 2. **HIGH:** Step 3 live evidence path required on disk but PLAN-3 does not commit it — fresh clone fails gate.
 3. **HIGH:** Task 6 volume Mount API incompatible with current `_run_kwargs` bind-dict contract.
 4. **HIGH:** `path_mappings` / agent artifact path reporting not specified for G7-10 cutover.

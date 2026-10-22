@@ -22,6 +22,7 @@ from __future__ import annotations
 import ast
 import json
 from pathlib import Path
+from urllib.parse import urlencode
 from unittest.mock import MagicMock
 
 import pytest
@@ -294,7 +295,7 @@ def _seekdb():
 
 
 def _attribute_request(params):
-    request = RequestFactory().get("/seek/attribute/save/", params)
+    request = RequestFactory().post("/seek/attribute/save/?" + urlencode(params))
     request.user = MagicMock(is_authenticated=True, is_superuser=True)
     return request
 

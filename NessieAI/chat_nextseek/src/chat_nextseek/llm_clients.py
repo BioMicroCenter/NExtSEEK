@@ -336,15 +336,15 @@ class GeminiClient(BaseLLMClient):
                 f"({len(messages)} message(s), all system)"
             )
 
-        generation_config: dict[str, Any] = {"system_instruction": system_instruction, "temperature": temperature}
+        # No temperature, top_p, top_k or thinking_budget: Gemini 3 ignores the sampling fields
+        # (deprecated 2026-07-21) and later models answer 400 to all four (Google notice, 2026-10-06).
+        # `temperature` stays in the signature for the other providers' callers.
+        generation_config: dict[str, Any] = {"system_instruction": system_instruction}
         if isinstance(response_format, dict) and response_format.get("type") == "json_object":
             generation_config["response_mime_type"] = "application/json"
         if thinking_budget is not None:
-            if model.startswith("gemini-3"):
-                # Gemini 3 models take a level, not a token budget: the catalog's level is sent as it is.
-                generation_config["thinking_config"] = {"thinking_level": _BUDGET_TO_EFFORT.get(thinking_budget, "high")}
-            else:
-                generation_config["thinking_config"] = {"thinking_budget": thinking_budget}
+            # A level, not a token budget: the catalog's level is sent as it is.
+            generation_config["thinking_config"] = {"thinking_level": _BUDGET_TO_EFFORT.get(thinking_budget, "high")}
 
         try:
             resp = self.client.models.generate_content(
@@ -966,14 +966,26 @@ class BedrockClient(BaseLLMClient):
             return False
 
     def _convert_messages(self, messages: List[dict]) -> tuple[list[dict], list[dict]]:
-        """Split system messages out; convert the rest to Bedrock Converse format."""
+        """Split system messages out; convert the rest to Bedrock Converse format.
+
+        System messages become one text block. A system message carrying ``cache_point`` (a TTL,
+        "1h") ends the block after it and adds a cache point there: head block (ending with the blank
+        line that joined the parts), cache point, tail block.
+        """
         system_parts: list[str] = []
+        system_blocks: list[dict] = []
         converted: list[dict] = []
         for msg in messages:
             role = (msg.get("role") or "").lower()
             content = msg.get("content") or ""
             if role == "system":
                 system_parts.append(str(content))
+                if msg.get("cache_point"):
+                    # The head block keeps the blank line that separated it from what follows in the
+                    # one-block request, so the model reads the same text however Bedrock joins blocks.
+                    system_blocks.append({"text": "\n\n".join(system_parts) + "\n\n"})
+                    system_blocks.append({"cachePoint": {"type": "default", "ttl": msg["cache_point"]}})
+                    system_parts = []
                 continue
             if role not in ("user", "assistant"):
                 continue
@@ -984,7 +996,8 @@ class BedrockClient(BaseLLMClient):
                 # prior empty response; substitute a placeholder so the block is valid.
                 text = "(no content)"
             converted.append({"role": role, "content": [{"text": text}]})
-        system_blocks = [{"text": "\n\n".join(system_parts)}] if system_parts else []
+        if system_parts:
+            system_blocks.append({"text": "\n\n".join(system_parts)})
         return system_blocks, converted
 
     def chat(
@@ -1039,8 +1052,22 @@ class BedrockClient(BaseLLMClient):
                 # max_tokens must cover thinking tokens + text output tokens
                 kwargs["inferenceConfig"]["maxTokens"] = max(self.max_output_tokens, thinking_budget + 2048)
 
+        # The TTL of the request's cache point, if the messages carried one (recorded on the usage).
+        cache_ttl = next((b["cachePoint"].get("ttl") for b in system_blocks if "cachePoint" in b), None)
         try:
-            resp = self.client.converse(**kwargs)
+            try:
+                resp = self.client.converse(**kwargs)
+            except ClientError as e:
+                # A 400 that names the cache point: send the same call once as the plain one-block
+                # request. Any other 400, or a second failure, goes the way it always did.
+                err = e.response.get("Error") or {}
+                if not (cache_ttl and err.get("Code") == "ValidationException"
+                        and re.search(r"cache ?point", str(e), re.IGNORECASE)):
+                    raise
+                print(f"[BEDROCK] model='{model}' refused the cache point, retrying without it: {e}")
+                kwargs["system"] = [{"text": "".join(b["text"] for b in system_blocks if "text" in b)}]
+                cache_ttl = None
+                resp = self.client.converse(**kwargs)
         except ClientError as e:
             code = e.response["Error"]["Code"]
             if code == "ThrottlingException":
@@ -1077,7 +1104,7 @@ class BedrockClient(BaseLLMClient):
 
         usage = None
         try:
-            usage = _converse_usage(resp)
+            usage = _converse_usage(resp, cache_ttl=cache_ttl)
         except Exception:
             pass
 
@@ -1205,12 +1232,16 @@ class BedrockClient(BaseLLMClient):
         for msg in messages:
             content = msg.get("content")
             if isinstance(content, str):
-                converse_messages.append({"role": msg["role"], "content": [{"text": content}]})
+                blocks = [{"text": content}]
             elif isinstance(content, list):
-                translated = [self._anthropic_block_to_converse(b) for b in content]
-                converse_messages.append({"role": msg["role"], "content": translated})
+                blocks = [self._anthropic_block_to_converse(b) for b in content]
             else:
                 raise ValueError(f"Unsupported message content type: {type(content).__name__}")
+            if converse_messages and converse_messages[-1]["role"] == msg["role"]:
+                # Converse rejects two turns of one role in a row (a tool_result turn then a user text turn).
+                converse_messages[-1]["content"] += blocks
+            else:
+                converse_messages.append({"role": msg["role"], "content": blocks})
         if not (traits.always_thinks or thinking_budget is not None):
             # A model that is not thinking is not handed another model's reasoning (an Opus 5.5 step's blocks
             # sent on to a Sonnet 4.6 or older). Removing every reasoning block is the documented way to send such

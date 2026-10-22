@@ -139,7 +139,7 @@ def _observational_row(**overrides):
 
 def test_monitoring_empty_and_no_optional_summary_paths():
     empty = route_monitoring.RouteMonitoringSnapshot({}, {}, 0, 0, {})
-    assert route_monitoring._distribution_drift({}, {}) == 0.0
+    assert route_monitoring._max_category_shift({}, {}) == 0.0
     assert route_monitoring.detect_monitoring_alerts(empty, empty) == []
     assert route_monitoring.build_route_monitoring_summary([]) == route_monitoring.MONITORING_DISCLAIMER
     row = _observational_row()
@@ -156,10 +156,12 @@ def test_monitoring_empty_and_no_optional_summary_paths():
 
 
 @pytest.mark.parametrize(
-    ("task_family", "reasoning", "expected"),
-    [(None, "unrelated", None), ("not_declared", "bad label", None)],
+    ("task_family", "reasoning", "expected", "expected_source"),
+    [(None, "unrelated", None, "unrelated"), ("not_declared", "bad label", None, None)],
 )
-def test_classifier_refuses_null_and_undeclared_labels(monkeypatch, task_family, reasoning, expected):
+def test_classifier_refuses_null_and_undeclared_labels(
+    monkeypatch, task_family, reasoning, expected, expected_source
+):
     class FakeBaml:
         @staticmethod
         async def ClassifyQuery(**_kwargs):
@@ -178,7 +180,7 @@ def test_classifier_refuses_null_and_undeclared_labels(monkeypatch, task_family,
     )
     family, source, returned_reasoning = router._classify_query("query")
     assert family is expected
-    assert source is None
+    assert source == expected_source
     assert returned_reasoning
 
 

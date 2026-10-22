@@ -5,8 +5,11 @@ import pytest
 from drf_spectacular.generators import SchemaGenerator
 
 from nextseek_api.attributes import openapi, schemas
+import os
 
-SCHEMA_CONTRACT = Path("/home/taishajo/work/state/attribute-viewset/verification/SCHEMA-CONTRACT.json")
+_STATE_ROOT = Path(os.environ.get("ATTRIBUTE_STATE_ROOT") or Path.home() / "work/state/attribute-viewset")
+
+SCHEMA_CONTRACT = _STATE_ROOT / "verification/SCHEMA-CONTRACT.json"
 
 
 @pytest.fixture(scope="module")

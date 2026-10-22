@@ -12,15 +12,15 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import psutil
 from django.conf import settings
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Connection
 
 from nextseek_api.graph_sync import hooks
 
 from .associations import batch_insert_assay_assets, batch_insert_projects_samples
-from .checkpoint import determine_resume_uid, write_checkpoint
 from .config import BatchUploadConfig
 from .db_engine import get_connection
+from .edit_rights import UNKNOWN as EDIT_UNKNOWN, YES as EDIT_YES, edit_verdicts
 from .errors import ErrorCollector, ErrorType
 from .insert_strategies import compute_first_letter, insert_samples
 from .models import (
@@ -86,6 +86,43 @@ def enqueue_samples_outbox(conn: Connection, key: str, sample_ids, *, now=None) 
         return False
 
 
+def enqueue_auth_lookup(conn: Connection, sample_ids, *, now=None) -> bool:
+    """Queue samples in SEEK's ``auth_lookup_update_queues`` so its AuthLookupUpdateJob refreshes their
+    ``sample_auth_lookup`` rows (SEEK 1.15.1 columns: item_id, item_type, priority, created_at, updated_at).
+
+    As SEEK's own ``ResourceQueue.enqueue`` does: priority 2 (its default; lowest runs first), and a sample already
+    queued keeps its one row. Unlike it, no AuthLookupUpdateJob is queued: its ``delayed_jobs`` handler carries a
+    fresh job id and time, so it is not ours to write. The rows wait until SEEK queues such a job for its own
+    reasons (a permission, policy or user change); a running job then re-queues itself while the table holds rows.
+    While Sample rows wait, SEEK's 8-hourly AuthLookupMaintenanceJob skips samples altogether.
+
+    Written on the batch's own connection, inside its transaction: one query for the rows already queued, one bulk
+    insert. It goes to its own savepoint: a refusal (no table, no grant) must not take the samples with it, so it
+    is logged and reported False. True when written, and when there was nothing to write.
+    """
+    ids = sorted({int(i) for i in sample_ids})
+    if not ids:
+        return True
+    stamp = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    queued = text(
+        "SELECT item_id FROM auth_lookup_update_queues WHERE item_type = 'Sample' AND item_id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True))
+    statement = text(
+        "INSERT INTO auth_lookup_update_queues (item_id, item_type, priority, created_at, updated_at) "
+        "VALUES (:item_id, 'Sample', 2, :stamp, :stamp)"
+    )
+    try:
+        with conn.begin_nested():
+            have = {int(r[0]) for r in conn.execute(queued, {"ids": ids})}
+            rows = [{"item_id": i, "stamp": stamp} for i in ids if i not in have]
+            if rows:
+                conn.execute(statement, rows)
+        return True
+    except Exception:  # noqa: BLE001 - the batch's own write stands; SEEK's lookup catches up on its next sweep
+        log.warning("INSERT: could not queue %d samples in auth_lookup_update_queues", len(ids), exc_info=True)
+        return False
+
+
 class AdaptiveBatchSizer:
     """Self-tuning batch sizer targeting a rows-per-second rate."""
 
@@ -136,6 +173,53 @@ def load_existing_samples(
     return existing
 
 
+def _refuse_out_of_scope_assays(samples, existing, project_ids, conn_factory, outcomes, error_collector):
+    """The rows whose assay links stay inside ``project_ids``; every other row is failed as PERMISSION_DENIED.
+
+    A row may name an assay of another project only when its sample is already linked to it, so an upsert
+    that lists the link keeps it. An assay whose project cannot be read counts as outside.
+    """
+    wanted = sorted({a for s in samples for a in s.assay_ids})
+    if not wanted:
+        return samples
+    from nextseek_api.assay_registration.resolver import projects_for_assays
+
+    scope = set(int(p) for p in project_ids)
+    with conn_factory() as conn:
+        assay_projects = projects_for_assays(wanted, conn)
+        foreign = {a for a in wanted if not (assay_projects.get(a, set()) & scope)}
+        if not foreign:
+            return samples
+        linked = _assay_links([existing[s.uuid] for s in samples if s.uuid in existing], conn)
+    kept = []
+    for s in samples:
+        bad = sorted(a for a in s.assay_ids if a in foreign and a not in linked.get(existing.get(s.uuid), set()))
+        if not bad:
+            kept.append(s)
+            continue
+        message = f"Assay(s) {bad} are not in one of your projects"
+        outcomes[s.uuid] = RowOutcome(status="failed", reason=message)
+        error_collector.add(row_index=-1, uid=s.uuid, error_type=ErrorType.PERMISSION_DENIED, message=message)
+    return kept
+
+
+def _assay_links(sample_ids, conn) -> Dict[int, Set[int]]:
+    """sample_id -> the assay ids it is linked to now."""
+    out: Dict[int, Set[int]] = defaultdict(set)
+    ids = sorted({int(s) for s in sample_ids})
+    for chunk_start in range(0, len(ids), 1000):
+        chunk = ids[chunk_start : chunk_start + 1000]
+        params = {f"s{i}": s for i, s in enumerate(chunk)}
+        marks = ", ".join(f":s{i}" for i in range(len(chunk)))
+        rows = conn.execute(
+            text(f"SELECT asset_id, assay_id FROM assay_assets WHERE asset_type = 'Sample' AND asset_id IN ({marks})"),
+            params,
+        ).fetchall()
+        for sample_id, assay_id in rows:
+            out[int(sample_id)].add(int(assay_id))
+    return out
+
+
 def _plan_next_batch(
     rows: List[InsertableSample],
     start_idx: int,
@@ -177,9 +261,6 @@ def process_batches(
     conn_factory: Callable[[], Connection.__class__] = get_connection,
     error_collector: Optional[ErrorCollector] = None,
     reporter: Optional[ProgressReporter] = None,
-    checkpoint_dir: str = "",
-    checkpoint_name: str = "batch_checkpoint.txt",
-    resume_uid: Optional[str] = None,
     should_stop: Optional[Callable[[], bool]] = None,
     existing_samples: Optional[Dict[str, int]] = None,
     update_existing: bool = False,
@@ -194,8 +275,7 @@ def process_batches(
     4. Link assays to samples
     5. Insert permissions (if enabled)
     6. Cleanup failed policies
-    7. Write checkpoint
-    8. Write the graph_sync outbox row
+    7. Write the graph_sync outbox row
 
     ``batch_key_prefix`` is the job's outbox key for this call
     (``orchestrator.outbox_key``); each batch appends its own index to it. Given
@@ -226,9 +306,6 @@ def process_batches(
         with conn_factory() as conn:
             existing = load_existing_samples(all_uuids, conn)
 
-    # Determine resume point
-    effective_resume = determine_resume_uid(resume_uid, checkpoint_dir, checkpoint_name)
-
     # Filter and mark existing/skipped
     rows_to_process: List[InsertableSample] = []
     rows_to_update: List[InsertableSample] = []
@@ -243,12 +320,14 @@ def process_batches(
                     sample_id=existing[sample.uuid],
                 )
             continue
-        if effective_resume and sample.uuid < effective_resume:
-            outcomes[sample.uuid] = RowOutcome(
-                status="skipped", reason="before checkpoint"
-            )
-            continue
         rows_to_process.append(sample)
+
+    # SEC-001: a member links samples only to assays in their own projects (or keeps links a sample has).
+    if config.scope_project_ids is not None:
+        rows_to_process = _refuse_out_of_scope_assays(
+            rows_to_process, existing, config.scope_project_ids, conn_factory, outcomes, error_collector)
+        rows_to_update = _refuse_out_of_scope_assays(
+            rows_to_update, existing, config.scope_project_ids, conn_factory, outcomes, error_collector)
 
     if not rows_to_process and not rows_to_update:
         log.info("INSERT: no rows to process or update")
@@ -368,14 +447,13 @@ def process_batches(
                     if failed_policy_ids:
                         cleanup_unused_policies(failed_policy_ids, conn)
 
-                    # Step 7: Checkpoint
-                    if batch_uids:
-                        write_checkpoint(checkpoint_dir, checkpoint_name, batch_uids[-1])
-
-                    # Step 8: this batch's graph_sync outbox row, inside this batch's
+                    # Step 7: this batch's graph_sync outbox row, inside this batch's
                     # own transaction, so the graph hears about exactly what committed.
                     if outbox_key:
                         outbox_written = enqueue_samples_outbox(conn, outbox_key, sample_ids)
+
+                    # Step 8: SEEK's auth lookup learns the new samples (same transaction).
+                    enqueue_auth_lookup(conn, sample_ids)
 
                 # The row is the record, so a batch whose insert was refused writes it
                 # here instead, after the commit, through the hook that never raises.
@@ -409,6 +487,7 @@ def process_batches(
 
             except Exception as exc:
                 log.exception("Batch %d failed: %s", batch_idx, exc)
+                uuid_to_id = {}  # the batch rolled back: no row of it was saved
                 for sample in batch:
                     outcomes[sample.uuid] = RowOutcome(
                         status="failed", reason=str(exc)[:200]
@@ -458,7 +537,49 @@ def process_batches(
         try:
             with conn_factory() as conn:
                 update_uuids = [s.uuid for s in rows_to_update]
-                details = load_existing_sample_details(update_uuids, conn)
+                scope = config.scope_project_ids
+                details = load_existing_sample_details(update_uuids, conn, project_ids=scope)
+
+                # SEC-001: an existing sample outside the caller's projects is refused, never updated.
+                if scope is not None:
+                    for sample in rows_to_update:
+                        if sample.uuid not in details:
+                            outcomes[sample.uuid] = RowOutcome(
+                                status="failed", reason="update refused: the sample is not in one of your projects"
+                            )
+                            error_collector.add(
+                                row_index=-1,
+                                uid=sample.uuid,
+                                error_type=ErrorType.PERMISSION_DENIED,
+                                message="Update refused: the sample is not in one of your projects",
+                            )
+                    rows_to_update = [s for s in rows_to_update if s.uuid in details]
+
+                    # A project member also needs SEEK's own edit right on the sample.
+                    verdicts = edit_verdicts(
+                        [details[s.uuid]["sample_id"] for s in rows_to_update], contributor_id, scope, conn
+                    )
+                    for sample in rows_to_update:
+                        verdict = verdicts.get(details[sample.uuid]["sample_id"])
+                        if verdict == EDIT_YES:
+                            continue
+                        if verdict == EDIT_UNKNOWN:
+                            message = (
+                                f"Update refused: NExtSEEK cannot confirm your edit right on sample {sample.uuid} "
+                                "(it is shared through a group); ask the project's admin"
+                            )
+                            reason = "update refused: NExtSEEK cannot confirm your edit right on this sample"
+                        else:
+                            message = "Update refused: SEEK does not let you edit this sample"
+                            reason = "update refused: SEEK does not let you edit this sample"
+                        outcomes[sample.uuid] = RowOutcome(status="failed", reason=reason)
+                        error_collector.add(
+                            row_index=-1,
+                            uid=sample.uuid,
+                            error_type=ErrorType.PERMISSION_DENIED,
+                            message=message,
+                        )
+                    rows_to_update = [s for s in rows_to_update if s.uuid not in outcomes]
 
                 update_outcomes = bulk_update_samples(
                     rows=rows_to_update,
@@ -466,7 +587,7 @@ def process_batches(
                     project_id=project_id,
                     direction_by_pair=direction_computation.direction_by_pair,
                     conn=conn,
-                    enable_auto_permissions=config.enable_auto_permissions,
+                    permissions_inserter=permissions_inserter,
                     keep_assay_links=config.keep_assay_links,
                 )
 
@@ -482,6 +603,8 @@ def process_batches(
                 })
                 if update_key and updated_ids:
                     update_written = enqueue_samples_outbox(conn, update_key, updated_ids)
+                if updated_ids:
+                    enqueue_auth_lookup(conn, updated_ids)
 
             if update_key and updated_ids and not update_written:
                 hooks.enqueue(OUTBOX_KIND_SAMPLES, update_key, updated_ids)

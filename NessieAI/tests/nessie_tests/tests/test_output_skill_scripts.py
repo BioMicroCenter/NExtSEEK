@@ -1,4 +1,4 @@
-"""Coverage for the two scripts the output-skill ships.
+"""Coverage for the two scripts the nessie-run-review skill ships.
 
 Neither had a single test, and both had rotted in the same direction: they were
 written before the `outage` flag existed and they each quietly undo it.
@@ -29,7 +29,7 @@ from NessieAI import paths
 from NessieAI.tests.nessie_tests import limits, manifest as M, runner
 
 ROOT = paths.REPO_ROOT
-SCRIPTS = Path(__file__).resolve().parents[1] / "output-skill" / "scripts"
+SCRIPTS = Path(__file__).resolve().parents[4] / ".claude" / "skills" / "nessie-run-review" / "scripts"
 
 
 def _load(name):
@@ -113,7 +113,7 @@ def test_build_report_produces_a_report_with_one_record_per_case(tmp_path):
 
     cases = _literal(html, "CASES")
     assert [c["id"] for c in cases] == [e["id"] for e in _entries()]
-    assert "__CASES__" not in html and "__META__" not in html
+    assert "__CASES__" not in html and "__META__" not in html and "__DATA__" not in html
 
 
 # --------------------------------------------------------------------------- #
@@ -340,6 +340,33 @@ def test_the_turn_records_survive_the_round_trip(tmp_path):
             == M.fallback_summary(original)["fallback_display"])
 
 
+def test_a_case_outside_the_corpus_gets_its_turns_from_the_manifest_task_ids(tmp_path):
+    """Made-up ids: the manifest hyphenated, the pull 32 hex, the query only on the pulled turn."""
+    entry = {"id": "prod.made_up_case", "family": "project_summary_report", "tier": "full",
+             "status": "passed", "route": "nextseek_query", "engine": "reporter", "elapsed_s": 1.0,
+             "failed_criteria": [], "expected_fail": False, "observations": [],
+             "task_ids": ["aaaaaaaa-1111-2222-3333-444444444444"],
+             "turns_meta": [{"turn": "main", "task_id": "aaaaaaaa-1111-2222-3333-444444444444"}],
+             "turns_sent": 1}
+    run, tri = _run_dir(tmp_path, entries=[entry])
+    (run / "turns.json").write_text(json.dumps([
+        {"id": "9", "q": "A made-up question about nothing", "task_uuid": "aaaaaaaa111122223333444444444444",
+         "route": "nextseek_query", "reply": "A made-up reply", "status": "completed"},
+        {"id": "10", "q": "Some other turn", "task_uuid": "bbbbbbbb111122223333444444444444"}]), encoding="utf-8")
+    out = tmp_path / "report.html"
+    old, sys.argv = sys.argv, ["build_report.py", "--run", str(run), "--repo", str(ROOT),
+                               "--triage", str(tri), "--out", str(out)]
+    try:
+        build_report.main()
+    finally:
+        sys.argv = old
+
+    (case,) = _literal(out.read_text(encoding="utf-8"), "CASES")
+    (turn,) = case["turns"]
+    assert turn["query"] == "A made-up question about nothing" and turn["task"] == "9"
+    assert turn["reply"] == "A made-up reply" and case["task"] == "9"
+
+
 def test_a_pulled_turn_brings_its_summed_cost_into_the_report():
     turns = [{"query": "How many mice?"}]
     tasks = [{"q": "How many mice?", "id": 5, "cost": 0.5, "turn_cost": 0.51,
@@ -419,10 +446,15 @@ def test_a_report_that_is_not_ours_is_rejected(tmp_path):
 fetch_run = _load("fetch_run")
 
 
-def test_every_instance_preset_resolves():
+def test_every_instance_preset_resolves(tmp_path, monkeypatch):
     assert fetch_run.resolve_target("local") == ("", "")
-    assert fetch_run.resolve_target("dev") == ("fairdata-dev", "service-account")
-    assert fetch_run.resolve_target("prod") == ("fairdata", "")
+    cfg = tmp_path / "boxes.json"
+    cfg.write_text(json.dumps({"instances": {
+        "dev": {"ssh_host": "dev-alias", "transport": "sudo", "run_as": "owner"},
+        "prod": {"ssh_host": "prod-alias", "transport": "direct", "run_as": "owner"}}}))
+    monkeypatch.setenv("NEXTSEEK_BOXES", str(cfg))
+    assert fetch_run.resolve_target("dev") == ("dev-alias", "owner")
+    assert fetch_run.resolve_target("prod") == ("prod-alias", "")
 
 
 def test_an_explicit_empty_host_still_means_the_local_daemon():
@@ -432,8 +464,8 @@ def test_an_explicit_empty_host_still_means_the_local_daemon():
 
 
 def test_production_never_sudoes_and_dev_does():
-    assert "sudo" not in fetch_run.remote_cmd("fairdata", "", "true")
-    assert "sudo" in fetch_run.remote_cmd("fairdata-dev", "service-account", "true")
+    assert "sudo" not in fetch_run.remote_cmd("prod-alias", "", "true")
+    assert "sudo" in fetch_run.remote_cmd("dev-alias", "owner", "true")
 
 
 def test_only_a_plain_outputs_folder_is_ever_handed_to_tar():
@@ -519,7 +551,7 @@ def test_the_ledger_is_pulled_from_the_log_dir_not_the_outputs_dir(monkeypatch, 
     monkeypatch.setattr(fetch_run.subprocess, "run", fake_run)
     monkeypatch.setattr(fetch_run.subprocess, "Popen", _Popen)
 
-    got = fetch_run.pull_logs("fairdata", "", "nextseek", "/app/logs", tmp_path / "logs")
+    got = fetch_run.pull_logs("prod-alias", "", "nextseek", "/app/logs", tmp_path / "logs")
 
     # remote_cmd base64-encodes the script it sends, so read the decoded payload rather
     # than the wrapper: the path this test is about is inside it.
@@ -544,7 +576,7 @@ def test_a_box_without_a_ledger_does_not_fail_the_pull(monkeypatch, tmp_path):
         stderr = b""
 
     monkeypatch.setattr(fetch_run.subprocess, "run", lambda cmd, **kw: _Done())
-    assert fetch_run.pull_logs("fairdata", "", "nextseek", "/app/logs", tmp_path / "logs") == []
+    assert fetch_run.pull_logs("prod-alias", "", "nextseek", "/app/logs", tmp_path / "logs") == []
 
 
 def test_the_ledger_can_be_skipped():
@@ -576,7 +608,8 @@ def test_the_turn_pull_reads_the_router_price_and_the_turn_record_read_only():
     import re as _re
 
     for key in ("total_cost_usd", "router_cost_usd", "router_cost_partial", "router_model",
-                "router_fallback", "cost_partial", "models_used", "model_fallback"):
+                "router_fallback", "cost_partial", "models_used", "model_fallback",
+                "parent_cc_turn_id"):
         assert key in fetch_run.REMOTE, key
     for sql in (fetch_run.REMOTE, fetch_run.RAW):
         upper = sql.upper()
@@ -596,6 +629,39 @@ def test_a_pulled_turn_is_priced_by_the_harness_rule():
 
     got = [(t["turn_cost"], t["turn_cost_partial"]) for t in turns]
     assert got == [(0.51, False), (0.01, True), (0.003, False), (0.4, False), (0.21, True)]
+
+
+def test_the_parent_column_is_read_only_where_the_instance_has_it():
+    """parent_cc_turn_id arrives with migration 0025; an instance without it reads NULL. Named straight in the
+    select, the query fails there, and q() hides mysql's error: the pull would come back with no turns."""
+    turns_sql = fetch_run.REMOTE.split('echo "@@@TURNS@@@"', 1)[1]
+    assert "information_schema.columns" in fetch_run.REMOTE
+    assert "t.parent_cc_turn_id," not in turns_sql
+    assert "'parent',  $PARENT," in turns_sql
+
+
+def test_the_window_total_counts_a_nested_turn_once_through_its_parent():
+    """A nested NS turn is already inside its parent's server_turn_cost: counted once, through the parent. "c" and
+    "x" carry no router price, so the rule marks both partial; only "x" is the window's own."""
+    turns = fetch_run.price_turns([
+        _pulled("p", cost=0.5, router_cost=0.01, server_turn_cost=0.7),   # the parent, nested turns inside
+        _pulled("c", route="nextseek_query", cost=0.2, parent="p"),
+        _pulled("x", route="nextseek_query", cost=0.1),
+    ])
+    total, priced, partial, estimated, nested = fetch_run.window_total(turns)
+    assert (total, priced, partial, estimated, nested) == (pytest.approx(0.8), 2, 1, 0, 1)
+
+
+def test_the_window_total_counts_estimated_turns_apart_from_partial():
+    """Round 6 (SPEC-1 T5): a turn whose timed-out call was priced at its prompt's input cost is estimated, not
+    partial; a nested turn's estimate is counted through its parent only."""
+    turns = fetch_run.price_turns([
+        _pulled("p", cost=0.5, router_cost=0.01, server_turn_cost=0.7, cost_estimated=True),
+        _pulled("c", route="nextseek_query", cost=0.2, parent="p", cost_estimated=True),
+        _pulled("q", cost=0.3, router_cost=0.01, server_turn_cost=0.4),
+    ])
+    total, priced, partial, estimated, nested = fetch_run.window_total(turns)
+    assert (total, priced, partial, estimated, nested) == (pytest.approx(1.1), 2, 0, 1, 1)
 
 
 def test_a_pulled_turn_and_the_harness_price_the_same_payload_the_same():
@@ -670,6 +736,34 @@ def test_a_pulled_case_counts_a_turn_the_run_sent_but_could_not_join():
     assert cases["run.partial"]["cost_partial"] is True
 
 
+def test_a_pulled_case_joins_hyphenated_manifest_ids_to_bare_and_upper_case_task_ids():
+    """SQL returns 32 hex with no hyphens, the manifest hyphenated, either may be upper case."""
+    manifest = {"entries": [
+        {"id": "hy", "task_ids": ["3f2a9c10-aaaa-bbbb-cccc-0123456789ab"]},
+        {"id": "up", "task_ids": ["3F2A9C10-AAAA-BBBB-CCCC-0123456789AB"]},
+    ]}
+    turns = fetch_run.price_turns([
+        _pulled("3f2a9c10aaaabbbbcccc0123456789ab", route="nextseek_query", cost=0.2,
+                router_cost=0.01, cost_partial=False)])
+
+    cases = fetch_run.case_costs(manifest, turns)
+
+    for cid in ("hy", "up"):
+        assert cases[cid]["turns"] == 1 and cases[cid]["cost"] == 0.21, cid
+
+
+def test_a_pulled_case_that_joins_nothing_keeps_the_manifest_cost():
+    manifest = {"entries": [
+        {"id": "a", "task_ids": ["aaaa"], "cost": 0.3, "cost_partial": True},
+        {"id": "b", "task_ids": ["bbbb"]}]}
+
+    cases = fetch_run.case_costs(manifest, fetch_run.price_turns([_pulled("zzzz")]))
+
+    assert cases["a"] == {"cost": 0.3, "cost_partial": True, "turns": 0,
+                          "missing_turns": 1, "fallback_turns": 0}
+    assert cases["b"]["cost"] is None
+
+
 # The launch skill copies fetch_run.py ALONE into a scratch directory and runs it
 # there, so the summing rule may be absent. The pull must still work: priced
 # fields come back None, never a crash.
@@ -742,7 +836,7 @@ def test_a_standalone_copy_pulls_and_leaves_the_prices_empty(tmp_path, monkeypat
 def test_a_copy_beside_the_rule_uses_it(tmp_path):
     script = _standalone_copy(tmp_path)
     (script.parent / "turn_cost.py").write_text(
-        (SCRIPTS.parents[1] / "turn_cost.py").read_text(encoding="utf-8"), encoding="utf-8")
+        (Path(__file__).resolve().parents[3] / "nessie_harness" / "turn_cost.py").read_text(encoding="utf-8"), encoding="utf-8")
     spec = importlib.util.spec_from_file_location("_beside_fetch_run", script)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -761,5 +855,22 @@ def test_the_in_tree_pull_prices_the_same_fixture(tmp_path, monkeypatch):
     assert cases["cc.two"]["cost"] == 0.52 and cases["cc.two"]["cost_partial"] is True
 
 
+def test_a_pull_that_joins_no_case_says_so(tmp_path, monkeypatch, capsys):
+    manifest = {"entries": [{"id": "x.one", "task_ids": ["no-such-turn"], "cost": 0.4}]}
+
+    out = _pull(fetch_run, monkeypatch, tmp_path, manifest=manifest)
+
+    assert "0 of 1 cases joined" in capsys.readouterr().out
+    cases = json.loads((out / "case_costs.json").read_text(encoding="utf-8"))
+    assert cases["x.one"]["cost"] == 0.4
+
+
 def test_a_pull_loads_the_summing_rule_from_the_harness_not_a_copy():
-    assert fetch_run.turn_cost.__file__.endswith("nessie_tests/turn_cost.py")
+    assert fetch_run.turn_cost.__file__.endswith("nessie_harness/turn_cost.py")
+
+
+def test_price_turns_prefers_the_servers_whole_turn_cost():
+    turns = [{"cost": 0.3, "router_cost": 0.004, "route": "container_cc", "src": "baml", "cost_partial": False,
+              "router_cost_partial": False, "server_turn_cost": 0.454, "ops_cost": 0.15}]
+    (t,) = fetch_run.price_turns(turns)
+    assert t["turn_cost"] == 0.454 and t["turn_cost_partial"] is False

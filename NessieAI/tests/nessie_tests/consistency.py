@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -77,6 +78,13 @@ def get_result_count(payload: dict) -> int | None:
     return len(gr) if isinstance(gr, list) else None
 
 
+def count_from_reply(reply) -> int | None:
+    """The first whole number in a reply, thousands commas allowed: the fallback for a member (a
+    Container-CC turn) whose payload carries no structured count."""
+    m = re.search(r"(?<![\w.,/-])(\d{1,3}(?:,\d{3})+|\d+)(?![\w]|[.,]\d)", reply or "")
+    return int(m.group(1).replace(",", "")) if m else None
+
+
 def run_group(group: dict, drive_fn: Callable[[str], dict]) -> GroupResult:
     obs = [{"query": q, **drive_fn(q)} for q in group["queries"]]
 
@@ -104,6 +112,10 @@ def run_group(group: dict, drive_fn: Callable[[str], dict]) -> GroupResult:
             [f"{OUTAGE_REASON}. Hit {len(outaged)} of {len(obs)} queries "
              f"({outaged}); the group's assertions were not evaluated"],
             obs, outage=True)
+
+    for o in obs:   # 2026-10-07 test-set review (SPEC-2): a Container-CC member has no structured count
+        if o.get("count") is None:
+            o["count"] = count_from_reply(o.get("reply"))
 
     a = group.get("assert", {})
     reasons: list[str] = []

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% include "pages/seek_includes.html" %} 
+{% load json_script_safe %}
 {% block main %}
 
 <script type="text/javascript" src="{{STATIC_URL}}js/easyui/datagrid-filter.js"></script>
@@ -10,8 +10,8 @@
 
 <script type="text/javascript">
 
-  var clades = {{ clades | safe }};
-  var sample_types = {{ stc | safe }};
+  var clades = {{ clades|json_script_safe }};
+  var sample_types = {{ stc|json_script_safe }};
 
   var nsWorkbench;
 

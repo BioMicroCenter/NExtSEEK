@@ -3,6 +3,7 @@
 from ..dbtable_sops import DBtable_sops
 from dmac.csv_excel import load_excelfile_asdic
 import os
+import shutil
 from dmac.iocsv import removeDiclistDuplicates
 from dmac.csv_excel import reviseExcelDiclist
 import simplejson
@@ -149,8 +150,7 @@ class SampleImmportMixin:
             
         excelfile = downloadfile.replace('zip', 'xlsx')
         templatefile = IMMPORT_TEMPLATE_FILE
-        cmd = 'cp ' + templatefile + ' ' + excelfile
-        os.system(cmd)
+        shutil.copyfile(templatefile, excelfile)
         
         msg = "Load Immport template file"
         status = 0
@@ -192,8 +192,7 @@ class SampleImmportMixin:
             
         excelfile = downloadfile
         templatefile = IMMPORT_TEMPLATE_FILE
-        cmd = 'cp ' + templatefile + ' ' + excelfile
-        os.system(cmd)
+        shutil.copyfile(templatefile, excelfile)
         
         msg = "Load Immport template file"
         status = 0

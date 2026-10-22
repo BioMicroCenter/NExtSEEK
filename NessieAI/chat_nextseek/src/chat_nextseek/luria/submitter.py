@@ -27,6 +27,7 @@ from .run_script import (luria_params_overrides, render_run_script, render_luria
 from .fetchngs_helpers import needs_fetch_accessions
 from .ssh import prepare_key, ssh_run, scp_file
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
+from ..seqera.pipeline_params import refuse_shell_syntax
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ def _build_params_yml(launch_params: dict | None, overrides: dict | None = None)
     p = {k: v for k, v in (launch_params or {}).items()
          if k not in _PARAMS_STRIP and v is not None}
     p.update(overrides or {})
+    refuse_shell_syntax(p)
     return _yaml.safe_dump(p, sort_keys=True, default_flow_style=False) if p else "{}\n"
 
 

@@ -322,3 +322,106 @@ def test_a_missing_password_still_refuses_before_connecting(fake):
     assert out["ok"] is False
     assert out["error"] == "NEO4J_PASSWORD not configured"
     assert fake.opened == []
+
+
+# --------------------------------------------------------------------------- #
+# An op's limit caps every transaction (approach 1, piece 2)
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture
+def op_clock(monkeypatch):
+    from chat_nextseek import call_scope
+    now = [1000.0]
+    monkeypatch.setattr(call_scope, "_monotonic", lambda: now[0])
+    return now
+
+
+class _ClockedSession(_Session):
+    """Each transaction takes five seconds of the op's clock."""
+
+    def __init__(self, now, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.now = now
+
+    def _managed(self, mode, fn, args, kwargs):
+        try:
+            return super()._managed(mode, fn, args, kwargs)
+        finally:
+            self.now[0] += 5.0
+
+
+def test_inside_an_op_the_timeout_is_the_time_left(fake, op_clock):
+    from chat_nextseek import call_scope
+    session = fake.install(_Session([{"n": 7}]))
+
+    with call_scope.scope(deadline_s=12.0):
+        out = tool_neo4j_query(_cfg(), "MATCH (s:T_TIS) RETURN count(s) AS n", {})
+
+    assert out["ok"] is True
+    assert session.transactions == [("READ", 12.0)]
+
+
+def test_the_total_probe_gets_what_the_query_left(fake, op_clock):
+    from chat_nextseek import call_scope
+    session = fake.install(_ClockedSession(op_clock, [{"id": i} for i in range(3)], total=10))
+
+    with call_scope.scope(deadline_s=12.0):
+        out = tool_neo4j_query(_cfg(), CAPPED, {})
+
+    assert out["total"] == 10
+    assert [timeout for _, timeout in session.transactions] == [12.0, 7.0]
+
+
+def test_with_no_time_left_no_driver_opens(fake, op_clock):
+    from chat_nextseek import call_scope
+    fake.install(_Session([{"n": 7}]))
+
+    with call_scope.scope(deadline_s=1.5):
+        out = tool_neo4j_query(_cfg(), "MATCH (s:T_TIS) RETURN count(s) AS n", {})
+
+    assert out["ok"] is False
+    assert out["error"] == tool_module.OUT_OF_TIME_REFUSED
+    assert fake.opened == []
+
+
+# --------------------------------------------------------------------------- #
+# Inside an op the driver neither retries nor waits to connect past the time left (W1-3)
+# --------------------------------------------------------------------------- #
+
+DRIVER_WAITS = {"connection_timeout", "connection_acquisition_timeout", "max_transaction_retry_time"}
+
+
+@pytest.mark.parametrize("deadline_s, cap", [(10.0, 10.0), (300.0, 60.0)])
+def test_inside_an_op_the_driver_stops_at_the_time_left(fake, op_clock, deadline_s, cap):
+    from chat_nextseek import call_scope
+    fake.install(_Session([{"n": 7}]))
+
+    with call_scope.scope(deadline_s=deadline_s):
+        tool_neo4j_query(_cfg(), "MATCH (s:T_TIS) RETURN count(s) AS n", {})
+
+    (_args, kwargs), = fake.opened
+    assert kwargs["max_transaction_retry_time"] == 0
+    assert 0 < kwargs["connection_timeout"] <= cap
+    assert 0 < kwargs["connection_acquisition_timeout"] <= cap
+
+
+def test_outside_an_op_the_driver_keeps_its_defaults(fake):
+    fake.install(_Session([{"n": 7}]))
+
+    tool_neo4j_query(_cfg(), "MATCH (s:T_TIS) RETURN count(s) AS n", {})
+
+    (_args, kwargs), = fake.opened
+    assert not DRIVER_WAITS & set(kwargs)
+
+
+def test_with_no_time_left_after_the_query_no_total_probe_runs(fake, op_clock):
+    from chat_nextseek import call_scope
+    session = fake.install(_ClockedSession(op_clock, [{"id": i} for i in range(3)], total=10))
+
+    with call_scope.scope(deadline_s=7.0):  # the query takes 5 s: 2 s left, the floor
+        out = tool_neo4j_query(_cfg(), CAPPED, {})
+
+    assert out["ok"] is True
+    assert out["total"] is None
+    assert out["truncated"] is True
+    assert len(session.transactions) == 1

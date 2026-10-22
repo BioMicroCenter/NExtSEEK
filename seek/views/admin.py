@@ -44,7 +44,11 @@ logger = logging.getLogger(__name__)
 def adminRetrieveSamples(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
-    user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+    try:
+        user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
+    except Exception:
+        logger.exception("could not resolve caller projects; retrieving through none")
+        user_projects = []
     user_project_ids = map(lambda x: x['id'], user_projects)
 
     if verifySuperUser(request) == 1:
@@ -169,7 +173,7 @@ def sample_retrieval_data(children_uids, output):
     # nextseek_api.services.sample_workbook so it cannot drift per call path.
     write_samples_workbook(parse_children_uids(children_uids), output)
 
-@requires_seek_login_redirect('/seek/samples/attributes/')
+@requires_seek_login_redirect()
 @requires_supervisor('Error: You login as admin to view this page.', with_message_key=True)
 def adminClades(request):
     cladedb = DBtable_clades()
@@ -178,6 +182,7 @@ def adminClades(request):
     
     return render(request,"clades.html", {'clades': list(cladedb.getAll()), 'stc': stc})
 
+@require_POST
 @requires_seek_login
 @requires_supervisor('The login user does not have the permission to perform this action.')
 def cladesSyncSampleTypes(request):
@@ -372,7 +377,7 @@ def cladeSampleTypesSave(request):
     return _wb_batch(records, apply_row, 'association(s)',
                      on_change=lambda: hooks.enqueue('catalog', '*'))
 
-@requires_seek_login_redirect('/seek/samples/attributes/')
+@requires_seek_login_redirect()
 @requires_supervisor('Error: You login as admin to view this page.', with_message_key=True)
 def internalAssays(request):
     db_ia = DBtable_internalassays()
@@ -505,6 +510,7 @@ def assayAssociationSave(request):
     return _wb_batch(records, apply_row, 'association(s)',
                      on_change=lambda: hooks.enqueue('assay_map', '*'))
 
+@require_POST
 @requires_seek_login
 @requires_supervisor('The login user does not have the permission to perform this action.')
 def syncInternalAssays(request):

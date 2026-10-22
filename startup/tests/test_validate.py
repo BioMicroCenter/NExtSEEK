@@ -434,7 +434,7 @@ def test_run_all_health_checks_surfaces_cc_warnings_and_services(monkeypatch, tm
     by_name = {r.name: r for r in results}
     assert by_name["bedrock proxy token"].warn is True
     assert by_name["cc services"].ok is True
-    assert calls == [["bedrock-proxy", "nextseek-sidecar"]]
+    assert calls == [["bedrock-proxy", "nextseek-sidecar", "cc-spawner"]]
 
 
 def test_app_health_checks_exclude_seek_and_neo4j(monkeypatch, tmp_path):
@@ -471,6 +471,10 @@ def test_app_health_checks_exclude_seek_and_neo4j(monkeypatch, tmp_path):
         lambda repo, env: validate.HealthResult("CC runner", True, "(True, 'ok')"),
     )
 
+    monkeypatch.setattr(
+        validate, "check_nginx_config",
+        lambda repo, env: validate.HealthResult("nginx config", True, "matches the checkout"),
+    )
     results = validate.run_app_health_checks(
         {"nextseek": 18000, "seek": 13000, "neo4j_http": 17474},
         tmp_path,
@@ -481,7 +485,7 @@ def test_app_health_checks_exclude_seek_and_neo4j(monkeypatch, tmp_path):
     assert {result.name for result in results} == {
         "NExtSEEK", "django check", "prod overlay guard", "nextseek.env paths",
         "bedrock proxy token", "cc services",
-        "first-party images", "CC runner",
+        "first-party images", "CC runner", "env registry", "nginx config",
     }
 
 
@@ -527,6 +531,18 @@ def test_check_cc_services_ok_when_both_running(monkeypatch, tmp_path):
     assert result.ok is True
     assert result.warn is False
     assert "bedrock-proxy" in result.detail and "nextseek-sidecar" in result.detail
+    assert "cc-spawner" in result.detail
+
+
+def test_check_cc_services_fails_when_the_spawner_is_down(monkeypatch, tmp_path):
+    """No spawner means no CC turn: the web service points at it by default."""
+    monkeypatch.setattr(
+        validate, "compose_ps_running",
+        lambda services, project_dir, env: [s for s in services if s != "cc-spawner"],
+    )
+    result = validate.check_cc_services(tmp_path, env={})
+    assert result.ok is False
+    assert "cc-spawner" in result.detail
 
 
 def test_check_cc_services_fails_when_one_missing(monkeypatch, tmp_path):
@@ -665,6 +681,7 @@ def test_check_first_party_images_probes_every_canonical_image(monkeypatch):
     assert sorted(probed) == [
         "dmac-assistant:poc",
         "nextseek-bedrock-proxy:latest",
+        "nextseek-cc-spawner:latest",
         "nextseek-nextseek:latest",
         "nextseek-ns-sidecar:latest",
     ]
@@ -716,7 +733,7 @@ def test_check_app_runtimes_names_a_stopped_front_door_and_how_to_start_it(monke
     spent five minutes finding out. This is the line that says so at once."""
     monkeypatch.setattr(
         validate, "compose_ps_running",
-        lambda services, project_dir, env: ["nextseek"],
+        lambda services, project_dir, env: ["nextseek", "web"],
     )
 
     result = validate.check_app_runtimes(Path("/repo"), {})
@@ -738,7 +755,20 @@ def test_check_app_runtimes_asks_for_the_app_and_the_front_door(monkeypatch):
     result = validate.check_app_runtimes(Path("/repo"), {})
 
     assert result.ok is True
-    assert sorted(asked) == ["nextseek", "nextseek_nginx"]
+    assert sorted(asked) == ["nextseek", "nextseek_nginx", "web"]
+
+
+def test_check_app_runtimes_fails_when_the_web_service_is_down(monkeypatch):
+    """The worker alone serves nobody: web is a service of its own since the split."""
+    monkeypatch.setattr(
+        validate, "compose_ps_running",
+        lambda services, project_dir, env: ["nextseek", "nextseek_nginx"],
+    )
+
+    result = validate.check_app_runtimes(Path("/repo"), {})
+
+    assert result.ok is False
+    assert "not running: web" in result.detail
 
 
 def test_check_app_runtimes_reports_a_daemon_outage(monkeypatch):
@@ -1040,3 +1070,71 @@ def test_nessie_prerequisites_carry_the_image_service_and_runner_checks(tmp_path
     ]
     assert [r.ok for r in results] == [True, False, False, True]
     assert asked == {"project": "nextseek-v2", "services_env": env, "runner_env": env}
+
+
+# --------------------------------------------------------------------------- #
+# nginx serves the checkout's config / after --recreate-nginx
+# --------------------------------------------------------------------------- #
+
+def _nginx_repo(tmp_path: Path, text: str = "events {}\n") -> Path:
+    (tmp_path / "docker").mkdir()
+    (tmp_path / "docker" / "nginx.conf").write_text(text)
+    return tmp_path
+
+
+def test_nginx_config_ok_when_the_served_file_equals_the_checkout(monkeypatch, tmp_path):
+    repo = _nginx_repo(tmp_path)
+    monkeypatch.setattr(validate, "compose_exec", lambda **k: "events {}\n")
+    r = validate.check_nginx_config(repo, {})
+    assert r.ok is True and r.warn is False
+
+
+def test_nginx_config_red_and_names_the_fix_when_the_served_file_differs(monkeypatch, tmp_path):
+    repo = _nginx_repo(tmp_path)
+    monkeypatch.setattr(validate, "compose_exec", lambda **k: "events { old }\n")
+    r = validate.check_nginx_config(repo, {})
+    assert r.ok is False
+    assert r.detail == "nginx serves an old config; run ./startup.sh rebuild --recreate-nginx"
+
+
+def test_nginx_config_says_it_could_not_check_when_exec_fails(monkeypatch, tmp_path):
+    repo = _nginx_repo(tmp_path)
+
+    def boom(**k):
+        raise validate.DockerOpsError("service nextseek_nginx is not running")
+
+    monkeypatch.setattr(validate, "compose_exec", boom)
+    r = validate.check_nginx_config(repo, {})
+    assert r.ok is True and r.warn is True
+    assert "could not check" in r.detail
+
+
+def test_after_nginx_recreate_needs_app_and_seek_up_and_seek_not_restarted(monkeypatch):
+    monkeypatch.setattr(validate, "check_http",
+                        lambda name, url, timeout=5.0: HealthResult(name, True, f"{url} -> 200"))
+    ok = validate.check_after_nginx_recreate({"nextseek": 8000, "seek": 3000}, "t0", "t0")
+    assert all(r.ok for r in ok)
+    moved = validate.check_after_nginx_recreate({"nextseek": 8000, "seek": 3000}, "t0", "t1")
+    assert [r.ok for r in moved if "start time" in r.name] == [False]
+
+
+def test_after_nginx_recreate_waits_out_a_502_then_passes(monkeypatch):
+    seq = iter([False, False, True, True])
+    monkeypatch.setattr(validate, "check_http",
+                        lambda name, url, timeout=5.0: HealthResult(name, next(seq), "x"))
+    now = [0.0]
+    r = validate.check_after_nginx_recreate(
+        {}, "t", "t", sleep=lambda s: now.__setitem__(0, now[0] + s), clock=lambda: now[0])
+    assert all(x.ok for x in r)
+
+
+def test_after_nginx_recreate_fails_after_the_bound_when_always_502(monkeypatch):
+    calls = []
+    monkeypatch.setattr(validate, "check_http",
+                        lambda name, url, timeout=5.0: calls.append(name) or HealthResult(name, False, "502"))
+    now = [0.0]
+    r = validate.check_after_nginx_recreate(
+        {}, "t", "t", wait_s=30, interval_s=10,
+        sleep=lambda s: now.__setitem__(0, now[0] + s), clock=lambda: now[0])
+    assert [x.ok for x in r] == [False, False, True]
+    assert 0 < len(calls) <= 10

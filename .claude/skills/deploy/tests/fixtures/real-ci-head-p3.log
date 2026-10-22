@@ -1,0 +1,35 @@
+       ✓ app + front door: nextseek + nextseek_nginx running
+       ✓ first-party images: all 4 present (nextseek-nextseek:latest, 
+dmac-assistant:poc, nextseek-ns-sidecar:latest, nextseek-bedrock-proxy:latest)
+       ✓ cc services: bedrock-proxy + nextseek-sidecar running
+       ✓ cc-agent context: dmac-assistant:poc bakes all 6 canonical context 
+files as the checkout has them
+       ✗ graph drift: DRIFT: 1 of 43 checks failed: 
+catalog.assistant_investigations
+       CI profile: dev (startup/.instance.json)
+       stack: http://127.0.0.1:8000
+       credentials: ~/.config/nextseek/ci.env (present)
+       readiness gate on: the suite prints its floor countdown and every probe 
+before the first test runs
+       command: uv run --no-project --with pytest --with requests --with 
+playwright==1.60.0 pytest ci/smoke/ --base-url http://127.0.0.1:8000 
+--junitxml=/home/runas/Documents/Programs/NExtSEEK/startup/.ci-last-ru
+n.xml --wait-ready --no-nessie
+BEWARE: your OS is not officially supported by Playwright; downloading fallback build for ubuntu24.04-x64.
+BEWARE: your OS is not officially supported by Playwright; downloading fallback build for ubuntu24.04-x64.
+BEWARE: your OS is not officially supported by Playwright; downloading fallback build for ubuntu24.04-x64.
+XFAIL ci/smoke/test_reachability.py::test_route_is_reachable[/seek/samples/searching/] - MultiValueDictKeyError: 'sampletype_id' from seek/views/search.py::sampleSearching, whose filter builder indexes the query string for required parameters with no default, so a bare GET is a 500 rather than a 400
+XFAIL ci/smoke/test_reachability.py::test_route_is_reachable[/seek/searchAdvanced/] - MultiValueDictKeyError: 'filter_searchText' from seek/views/search.py::searchingAdvanced, whose filter builder indexes the query string for required parameters with no default, so a bare GET is a 500 rather than a 400
+XFAIL ci/smoke/test_reachability.py::test_route_is_reachable[/seek/searchUIDs/] - MultiValueDictKeyError: 'filter_searchUIDs' from seek/views/search.py::searchingUIDs, whose filter builder indexes the query string for required parameters with no default, so a bare GET is a 500 rather than a 400
+XFAIL ci/smoke/test_reachability.py::test_route_is_reachable[/seek/nhpdata/NEXTSEEK-CI-NO-SUCH-NHP/] - TypeError: 'NoneType' object does not support item assignment, surfaced by seek/views/timeline.py::get_nhp_data. The timeline builder does not handle an NHP it cannot find, so an unknown name is a 500 rather than the 404 its siblings return
+XFAIL ci/smoke/test_reachability.py::test_route_is_reachable[/nextseek_api/entity_tree/nodes/] - 34 sample types have no attribute definitions, so nextseek_api/services/entity_tree.py::EntityTreeViewSet.list_nodes returns an application-level 502 rather than emit empty metadata_fields
+FAILED ci/smoke/test_reachability.py::test_route_is_reachable[/seek/sample_types/id={sample_type_id}/]
+FAILED ci/smoke/test_reachability.py::test_route_is_reachable[/nextseek_api/sample_types/{sample_type_id}/]
+====== 2 failed, 304 passed, 59 skipped, 13 xfailed in 686.61s (0:11:26) =======
+       CI record: 
+/home/runas/Documents/Programs/NExtSEEK/startup/ci-reports/nextseek-ne
+xtseek-latest-20260925T090313.md
+       ✗ CI failed: 2 failed, 304 passed, 59 skipped, 13 xfailed in 11:27 
+(readiness 5:22). See DEPLOYMENT.md for the rollback procedure.
+       report: 
+/home/runas/Documents/Programs/NExtSEEK/startup/.ci-last-run.xml

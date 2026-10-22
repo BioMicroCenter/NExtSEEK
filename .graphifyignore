@@ -1,0 +1,25 @@
+# Input exclusions for graphify when it builds the code graph behind docs/graph/
+# (docs/graph/README.md). graphify also honours .gitignore.
+# Vendored and built static trees
+static/admin/
+static/grappelli/
+static/filebrowser/
+static/mezzanine/
+static/css/
+jquery-easyui-*/
+static/js/chat_assistant/
+static/js/bootstrap*.js
+static/js/html5shiv.js
+static/js/respond.min.js
+node_modules/
+.venv/
+# Frozen history, seed data, migrations
+NessieAI/history/
+docs/archive/
+startup/seed/
+migrations/
+# Runtime folders
+filestore/
+logs/
+outputs/
+/schema_rag/

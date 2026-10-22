@@ -37,6 +37,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from chat_nextseek.helpers.suggestions import SESSION_KEY as PENDING_SUGGESTIONS, public_chip
 from NessieAI.ns.artifacts import _safe_artifact_path
 from NessieAI.ns.debug_projection import bundle_debug_entries
 from nextseek_api.assistant.excel_export import (
@@ -89,6 +90,7 @@ def turn_rows(session) -> list[TurnRow]:
     """
     history = session.results_history or []
     chat_log = (session.extra_state or {}).get("chat_log") or []
+    pending = _pending_chips(session)
     bundles_by_id = {b.get("id"): b for b in history if isinstance(b, dict)}
     rows: list[TurnRow] = []
     if chat_log:
@@ -124,6 +126,7 @@ def turn_rows(session) -> list[TurnRow]:
                 artifacts=artifacts or None,
                 cc_traces=entry.get("cc_traces"),
                 debug_entries=bundle_debug_entries(bundle) or None,
+                suggestions=((bundle or {}).get("suggestions") or pending.get(entry.get("turn_id"))) or None,
             ).model_dump(mode="json")
             rows.append(TurnRow(payload=payload, entry=entry, bundle=bundle))
     else:
@@ -138,9 +141,21 @@ def turn_rows(session) -> list[TurnRow]:
                 ts=b.get("ts"),
                 artifacts=(build_artifacts(b) or None),
                 debug_entries=bundle_debug_entries(b) or None,
+                suggestions=b.get("suggestions") or None,
             ).model_dump(mode="json")
             rows.append(TurnRow(payload=payload, entry=None, bundle=b))
     return rows
+
+
+def _pending_chips(session) -> dict[Any, list[dict[str, Any]]]:
+    """{turn id: its chips as the client sees them} for the chips the server still keeps for a click
+    (``pending_suggestions``): the newest turn's, in a chat written before chips were saved with their turn."""
+    pending = (session.extra_state or {}).get(PENDING_SUGGESTIONS)
+    if not isinstance(pending, dict) or not isinstance(pending.get("items"), list) \
+            or not isinstance(pending.get("for_turn"), int):
+        return {}
+    items = [public_chip(i) for i in pending["items"] if isinstance(i, dict)]
+    return {pending.get("for_turn"): items} if items else {}
 
 
 # ----------------------------------------------------------------------

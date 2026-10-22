@@ -1,4 +1,4 @@
-"""The importable half of `output-skill` (the nessie-run-review skill).
+"""The importable half of the nessie-run-review skill folder (the nessie-run-review skill).
 
 The skill directory is named with a hyphen, which is not a Python identifier, so nothing
 under it can be imported and nothing under it can be unit tested (see
@@ -11,5 +11,5 @@ deterministic writer:
 * `notes`   the reviewer's downloaded notes, folded back into a triage as decisions.
 
 Run them with `python -m NessieAI.tests.nessie_tests.output_skill <form> ...`, or through
-`output-skill/scripts/review_forms.py`, which is a thin entry point over this package.
+`.claude/skills/nessie-run-review/scripts/review_forms.py`, which is a thin entry point over this package.
 """

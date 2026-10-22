@@ -16,7 +16,7 @@ from NessieAI import paths
 from NessieAI.tests.nessie_tests import bayes_manifest, collect, export
 
 ROOT = paths.REPO_ROOT
-SKILL_DIR = pathlib.Path(__file__).resolve().parents[1] / "output-skill-bayesian"
+SKILL_DIR = pathlib.Path(__file__).resolve().parents[4] / ".claude" / "skills" / "nessie-bayes-report"
 SCRIPTS = SKILL_DIR / "scripts"
 
 
@@ -545,12 +545,15 @@ def test_every_module_command_in_the_runbook_has_an_entry_point():
         path = ROOT / (dotted.replace(".", "/") + ".py")
         assert path.is_file(), f"{dotted} names no module"
         src = path.read_text(encoding="utf-8")
+        if "Alias of NessieAI.nessie_harness." in src:  # moved module: its old path is an alias
+            path = ROOT / "NessieAI" / "nessie_harness" / path.name
+            src = path.read_text(encoding="utf-8")
         assert re.search(r"^def main\(", src, re.M), f"{dotted} has no main()"
         assert '__name__ == "__main__"' in src, f"{dotted} never calls its main()"
 
 
 def test_every_script_command_in_the_runbook_exists_and_is_executable():
-    named = set(re.findall(r"python (NessieAI/tests/nessie_tests/[\w./-]+\.py)", _skill_text()))
+    named = set(re.findall(r"python ((?:NessieAI/tests/nessie_tests|\.claude/skills)/[\w./-]+\.py)", _skill_text()))
 
     assert named, "the runbook names no scripts at all"
     for rel in sorted(named):

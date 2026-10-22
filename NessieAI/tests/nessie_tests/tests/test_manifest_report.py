@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import pytest
 from NessieAI.tests.nessie_tests import manifest as M
@@ -238,7 +239,8 @@ def test_the_vacuous_turn_the_docs_promise_really_is_visible(tmp_path):
     # turn is what produces the outcome_observed skip; it fails exactly one criterion,
     # the route, and the skips are still counted apart from it.
     failed = [o for o in entry.observations if not o.passed and not o.skipped]
-    assert [(o.turn, o.field) for o in failed] == [("follow_up", "route")]
+    # 2026-10-07 test-set review (SPEC-2, graph-search grading): plus the follow-up turn's own mode check
+    assert [(o.turn, o.field) for o in failed] == [("follow_up", "route"), ("follow_up", "parser_plan.mode")]
     assert (f"{len(entry.observations)} criteria, {len(failed)} failed, "
             f"{len(skipped)} skipped") in doc
 
@@ -257,14 +259,15 @@ def test_the_manifest_records_what_makes_a_diff_honest(tmp_path):
 
     m = runner.run_suite(
         base_url="http://dev:8000", auth_header="Basic x", tier="route", scope="specific",
-        corpus_path=CORPUS, out_dir=tmp_path, variant_id="route.ns_advanced",
+        corpus_path=CORPUS, out_dir=tmp_path, variant_id="route.ns_pipeline_by_question",  # 2026-10-07 test-set review (SPEC-2): route.ns_advanced was retired as a duplicate
+       
         post_query=lambda b: {"task_id": "t", "session_id": "s"},
         get_progress=lambda tid: ROUTED, sleep=lambda s: None, clock=lambda: 0.0,
         sample=0.1, seed=7)
 
     assert m.seed == 7
     assert m.sample == 0.1
-    assert m.selected_ids == ["route.ns_advanced"]
+    assert m.selected_ids == ["route.ns_pipeline_by_question"]
     assert m.base_url == "http://dev:8000"
     assert len(m.corpus_fingerprint) == 64
     # src != "baml" is an infrastructure condition, so the source must be recorded.
@@ -328,7 +331,7 @@ def test_an_outaged_known_fail_is_not_rendered_as_xfail(tmp_path):
 # change still load.
 # --------------------------------------------------------------------------- #
 
-SEED6B = Path("/home/cdemu/nessie-run-seed6b/manifest.json")
+SEED6B = Path(os.environ.get("NESSIE_SEED6B_DIR", "nessie-run-seed6b"), "manifest.json")
 
 
 def test_route_sources_defaults_to_empty_so_old_manifests_still_load(tmp_path):
@@ -561,6 +564,18 @@ def test_remembered_skips_are_not_counted_as_more_failures():
     assert s["fallback_display"] == "1 of 2 turn(s) fell back to another model, in 1 case(s)"
     # The failures in the turn are the items that are not skips: one.
     assert [i for i in turn.model_fallback if not i.get("remembered")] == [live]
+
+
+def test_a_turn_record_keeps_whether_its_cost_was_estimated():
+    """Round 6: a turn whose timed-out call was priced at its prompt's input cost says ``cost_estimated``; the
+    harness keeps it on the turn, apart from partial."""
+    def payload(**end):
+        return {"progress": [{"event": "query_complete", "data": {"total_cost_usd": 0.2, "cost_partial": False,
+                                                                   **end}}]}
+    estimated = M.TurnMeta.from_payload(payload(cost_estimated=True))
+    assert estimated.cost_estimated is True and estimated.cost_partial is False
+    assert estimated.model_dump()["cost_estimated"] is True
+    assert M.TurnMeta.from_payload(payload()).cost_estimated is False
 
 
 def test_a_run_that_recorded_no_turn_says_so_rather_than_no_fallback():

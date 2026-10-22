@@ -14,6 +14,7 @@ No live calls — the genai client is faked and injected.
 """
 from __future__ import annotations
 
+import re
 import types
 
 import pytest
@@ -179,14 +180,11 @@ def test_repair_loop_reaches_the_model_on_the_second_attempt():
     ("gemini-3.8-flash", 8000, {"thinking_level": "medium"}),
     ("gemini-3.8-flash", 16000, {"thinking_level": "high"}),
     ("gemini-3.1-pro-preview", 16000, {"thinking_level": "high"}),
-    # Older Gemini models still take the token budget.
-    ("gemini-2.5-flash", 4000, {"thinking_budget": 4000}),
-    ("gemini-2.5-pro", 16000, {"thinking_budget": 16000}),
+    ("gemini-3.5-flash", 16000, {"thinking_level": "high"}),
     # No level in the catalog: nothing is sent and the model runs at its own default.
     ("gemini-3.8-flash", None, None),
-    ("gemini-2.5-flash", None, None),
 ])
-def test_the_thinking_setting_is_a_level_for_gemini_3_and_a_budget_for_older_models(model, budget, expected):
+def test_the_thinking_setting_is_a_level(model, budget, expected):
     recorder = _Recorder(["{}"])
     _client(recorder).chat(messages=[{"role": "user", "content": "q"}], model=model, thinking_budget=budget)
     config = recorder.calls[0]["config"]
@@ -194,3 +192,61 @@ def test_the_thinking_setting_is_a_level_for_gemini_3_and_a_budget_for_older_mod
         assert "thinking_config" not in config
     else:
         assert config["thinking_config"] == expected
+
+
+# Google, 2026-10-06: upcoming Gemini models answer 400 INVALID_ARGUMENT to thinking_budget and to
+# the sampling fields, and Gemini 3 already ignores the sampling fields. Gemini 2.x, which still
+# wanted them, was retired from every profile (operator, 2026-10-06), so no request sends them.
+_REFUSED = {"thinking_budget", "thinkingBudget", "temperature", "top_p", "topP", "top_k", "topK"}
+
+
+def _all_keys(obj):
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            yield key
+            yield from _all_keys(value)
+    elif isinstance(obj, (list, tuple)):
+        for value in obj:
+            yield from _all_keys(value)
+
+
+def _gemini_ids_we_name():
+    from NessieAI import paths
+    files = [paths.CHAT_NEXTSEEK_DIR / "agent_model_catalog.json",
+             paths.CHAT_NEXTSEEK_DIR / "src" / "chat_nextseek" / "config.py",
+             *(paths.DMAC_ASSISTANT_DIR / "baml_src").glob("*.baml")]
+    return sorted({m for f in files for m in re.findall(r'"(gemini-[\w.-]+)"', f.read_text())})
+
+
+def test_every_gemini_model_we_name_is_3_or_later():
+    ids = _gemini_ids_we_name()
+    assert "gemini-3.8-flash" in ids  # the scan found the catalog
+    assert not [m for m in ids if m.startswith(("gemini-1", "gemini-2"))]
+
+
+@pytest.mark.parametrize("model", _gemini_ids_we_name())
+@pytest.mark.parametrize("budget", [None, 4000, 8000, 16000])
+def test_no_gemini_request_carries_thinking_budget_or_sampling_fields(model, budget):
+    recorder = _Recorder(["{}"])
+    _client(recorder).chat(messages=[{"role": "user", "content": "q"}], model=model, temperature=0.7,
+                           response_format={"type": "json_object"}, thinking_budget=budget)
+    assert not _REFUSED & set(_all_keys(recorder.calls[0]["config"])), (model, budget)
+
+
+def _baml_client_blocks(text):
+    for match in re.finditer(r"client<llm>\s+\w+\s*\{", text):
+        depth, end = 1, match.end()
+        while depth:
+            depth += {"{": 1, "}": -1}.get(text[end], 0)
+            end += 1
+        yield text[match.start():end]
+
+
+def test_no_baml_client_sets_thinking_budget_or_sampling_fields():
+    """BAML's google-ai provider sends only the options a client names (contents alone today)."""
+    from NessieAI import paths
+    blocks = [block for baml in (paths.DMAC_ASSISTANT_DIR / "baml_src").glob("*.baml")
+              for block in _baml_client_blocks(baml.read_text())]
+    assert len(blocks) >= 2  # GCPReasoner and GCPFlash at least: the parse found them
+    for block in blocks:
+        assert not set(re.findall(r"\w+", block)) & _REFUSED, block

@@ -78,7 +78,7 @@ Fix: add `from django.conf import settings` inside `recover_transcript` (or at m
 
 **No-op / mutation observations (mostly closed):**
 - Task 4 extractor is anti-overfit (second `multitool` fixture + distinct-`kind` assertion). Good. Minor residual: the orphan-`tool_result` branch (`step = by_id.get(...)` → `None` → skip) is not exercised by either fixture, a plausible sub-95% line if the coverage gate is wired per 2A; add one record whose `tool_result.tool_use_id` has no matching `tool_use`.
-- Task 8 grep-guard scans both `cc_engine.py` and `services/cc_assistant.py` for "Saved to your Dropbox" and `artifacts_published`, and asserts `/srv/dmac/users` present + `/Users/taishajoseph` absent. Verified the live strings exist today (cc_engine.py:584-587 Dropbox block; cc_config.py:15 laptop default). Guard is real, not gameable by moving to a comment within those two files. OK.
+- Task 8 grep-guard scans both `cc_engine.py` and `services/cc_assistant.py` for "Saved to your Dropbox" and `artifacts_published`, and asserts `/srv/dmac/users` present + `/Users/<user>` absent. Verified the live strings exist today (cc_engine.py:584-587 Dropbox block; cc_config.py:15 laptop default). Guard is real, not gameable by moving to a comment within those two files. OK.
 - Task 13 success is gated on committed transcript evidence, not agent prose. OK.
 
 ---

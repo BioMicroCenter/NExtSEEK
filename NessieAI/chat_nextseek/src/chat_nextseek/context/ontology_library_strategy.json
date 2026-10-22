@@ -1,0 +1,307 @@
+[
+ {
+  "TERM": "RNA-Seq",
+  "DEF": "Random sequencing of whole transcriptome.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "RNAseq"
+  ]
+ },
+ {
+  "TERM": "Bulk RNA-Seq",
+  "DEF": "RNA-Seq of a bulk population of cells.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "scRNA-Seq",
+  "DEF": "Single-cell RNA-Seq.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "WGS",
+  "DEF": "Random sequencing of the whole genome.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Amplicon",
+  "DEF": "Sequencing of overlapping or distinct PCR or RT-PCR products.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Targeted Capture",
+  "DEF": "Sequencing after hybrid capture of target regions.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "Targeted-Capture"
+  ]
+ },
+ {
+  "TERM": "Hi-C",
+  "DEF": "Chromosome Conformation Capture technique where a biotin-labeled nucleotide is incorporated at the ligation junction, enabling selective purification of chimeric DNA ligation junctions followed by deep sequencing.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Other",
+  "DEF": "None of the listed terms.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "WGA",
+  "DEF": "Random sequencing of the whole genome following non-pcr amplification.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "WXS",
+  "DEF": "Random sequencing of exonic regions selected from the genome.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "miRNA-Seq",
+  "DEF": "Random sequencing of small miRNAs.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "WCS",
+  "DEF": "Random sequencing of a whole chromosome or other replicon isolated from a genome.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "CLONE",
+  "DEF": "Genomic clone based (hierarchical) sequencing.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "POOLCLONE",
+  "DEF": "Shotgun of pooled clones (usually BACs and Fosmids).",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "CLONEEND",
+  "DEF": "Clone end (5', 3', or both) sequencing.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "FINISHING",
+  "DEF": "Sequencing intended to finish (close) gaps in existing coverage.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "ChIP-Seq",
+  "DEF": "Direct sequencing of chromatin immunoprecipitates.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "MNase-Seq",
+  "DEF": "Direct sequencing following MNase digestion.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "DNase-Hypersensitivity",
+  "DEF": "Sequencing of hypersensitive sites, or segments of open chromatin that are more readily cleaved by DNaseI.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Bisulfite-Seq",
+  "DEF": "Sequencing following treatment of DNA with bisulfite to convert cytosine residues to uracil depending on methylation status.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Tn-Seq",
+  "DEF": "Sequencing from transposon insertion sites.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "EST",
+  "DEF": "Single pass sequencing of cDNA templates.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "FL-cDNA",
+  "DEF": "Full-length sequencing of cDNA templates.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "CTS",
+  "DEF": "Concatenated Tag Sequencing.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "MRE-Seq",
+  "DEF": "Methylation-Sensitive Restriction Enzyme Sequencing strategy.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "MeDIP-Seq",
+  "DEF": "Methylated DNA Immunoprecipitation Sequencing strategy.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "MBD-Seq",
+  "DEF": "Direct sequencing of methylated fractions sequencing strategy.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Synthetic-Long-Read",
+  "DEF": "Synthetic long reads assembled from barcoded short reads.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "ATAC-seq",
+  "DEF": "Assay for Transposase-Accessible Chromatin (ATAC) strategy is used to study genome-wide chromatin accessibility. alternative method to DNase-seq that uses an engineered Tn5 transposase to cleave DNA and to integrate primer DNA sequences into the cleaved genomic DNA.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "ChIA-PET",
+  "DEF": "Direct sequencing of proximity-ligated chromatin immunoprecipitates.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "FAIRE-seq",
+  "DEF": "Formaldehyde Assisted Isolation of Regulatory Elements. reveals regions of open chromatin.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "ncRNA-Seq",
+  "DEF": "Capture of other non-coding RNA types, including post-translation modification types such as snRNA (small nuclear RNA) or snoRNA (small nucleolar RNA), or expression regulation types such as siRNA (small interfering RNA) or piRNA/piwi/RNA (piwi-interacting RNA).",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "RAD-Seq",
+  "DEF": "Restriction site associated DNA sequencing.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "RIP-Seq",
+  "DEF": "Direct sequencing of RNA immunoprecipitates (includes CLIP-Seq, HITS-CLIP and PAR-CLIP).",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "SELEX",
+  "DEF": "Systematic Evolution of Ligands by EXponential enrichment.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "ssRNA-seq",
+  "DEF": "strand-specific RNA sequencing.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Tethered Chromatin Conformation Capture",
+  "DEF": "Chromosome conformation capture with ligation on a solid substrate.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "DIP-Seq",
+  "DEF": "DNA immunoprecipitation sequencing (DIP-Seq).",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "GBS",
+  "DEF": "Genotyping by sequencing.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Inverse rRNA",
+  "DEF": "depletion of ribosomal RNA by oligo hybridization.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "NOMe-Seq",
+  "DEF": "Nucleosome occupancy and methylome sequencing.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Ribo-seq",
+  "DEF": "Sequencing of ribosome-protected mRNA fragments (ribosome profiling).",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "VALIDATION",
+  "DEF": "CGHub special request: Independent experiment to re-evaluate putative variants.",
+  "ONT_SOURCE": "SRA",
+  "ONT_ID": null,
+  "SYNONYMS": []
+ }
+]

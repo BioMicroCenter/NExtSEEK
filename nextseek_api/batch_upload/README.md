@@ -13,7 +13,7 @@ every write to Neo4j.
 It is shaped like a Django app and is not one. The package holds no `apps.py`, no
 `migrations/` directory, no `urls.py` and no `admin.py`: a `find` over
 `nextseek_api/batch_upload` for those four names returns nothing at all. Its `models.py`
-is a Pydantic module (`nextseek_api/batch_upload/models.py:116` is the input row), and no
+is a Pydantic module (`nextseek_api/batch_upload/models.py:146` is the input row), and no
 module in the package subclasses `models.Model` or touches `django.db` outside `tests/`:
 grep for both strings over every `*.py` under the package matches four lines in all, and all
 four sit inside `nextseek_api/batch_upload/tests/test_migration_name_identity.py:356-359`. The
@@ -56,7 +56,7 @@ authenticated callers only (`nextseek_api/batch_upload/views.py:102`).
 | `summary/{job_id}` | `nextseek_api/batch_upload/views.py:586` | the summary CSV as a download |
 | `list` | `nextseek_api/batch_upload/views.py:617` | the caller's own jobs, paged |
 
-`dispatch_batch_job` in `nextseek_api/batch_upload/views.py` is the one place a job starts: `start` and the assistant's `upload-reingest` op both call it, so ownership registration (`register_job`) and the contributor identity cannot drift. It takes exactly one of `rows` or `xlsx_paths`. `stage_workbook_copy` copies a server-side workbook under a uuid name into the upload directory for the worker.
+`dispatch_batch_job` in `nextseek_api/batch_upload/views.py` is the one place a job starts: `start` and the assistant's `upload-reingest` op both call it, so ownership registration (`register_job`) and the contributor identity cannot drift. It takes exactly one of `rows` or `xlsx_paths`, and the caller's project scope (`scope_project_ids`, from `_caller_project_scope`; `None` for a superuser) with no default: a project outside it raises `PermissionError` before anything is queued, and the job carries the scope to its SEC-001 checks. `stage_workbook_copy` copies a server-side workbook under a uuid name into the upload directory for the worker.
 
 `start` takes two input modes and rows win when both arrive
 (`nextseek_api/batch_upload/views.py:177-178`); uploads must end in `.xlsx`
@@ -102,7 +102,6 @@ thread pool once it is large enough (`nextseek_api/batch_upload/parallel.py:26`)
 `nextseek_api/batch_upload/orphan_resolution.py:50` finds children whose parent arrived in a
 later upload and `nextseek_api/batch_upload/orphan_resolution.py:125` repairs their metadata
 in MySQL, then enqueues them for the graph sync.
-`nextseek_api/batch_upload/checkpoint.py:38` is the resume point;
 `nextseek_api/batch_upload/errors.py:54-71` maps each error type to a severity and
 `nextseek_api/batch_upload/errors.py:74-76` grades anything absent from that map as an
 error.
@@ -128,10 +127,8 @@ of two strategies (`nextseek_api/batch_upload/insert_strategies.py:32` and
 
 Read only: `sample_types` (`nextseek_api/batch_upload/prefetch.py:47`), `assays`
 (`nextseek_api/batch_upload/prefetch.py:73`), `sample_attributes`
-(`nextseek_api/batch_upload/prefetch.py:286-289`), `sops`
-(`nextseek_api/batch_upload/helpers.py:289`), `studies`
-(`nextseek_api/batch_upload/neo4j_sync.py:84`) and `investigations`
-(`nextseek_api/batch_upload/neo4j_sync.py:117`). `assays_tbl` and `child_assays` are not
+(`nextseek_api/batch_upload/prefetch.py:286-289`) and `sops`
+(`nextseek_api/batch_upload/helpers.py:289`). `assays_tbl` and `child_assays` are not
 tables in that schema at all: they are an in-memory DuckDB registration and a CTE inside
 `nextseek_api/batch_upload/dag.py:201-205`.
 
@@ -148,9 +145,9 @@ this job's outbox rows only when that succeeded
 carry the outcome as `graph: synced (N)` or `graph: pending (N)`
 (`nextseek_api/batch_upload/orchestrator.py:637`,
 `nextseek_api/batch_upload/report.py:182-187`), and `pending` is not a failure: the outbox
-rows stand and the sync loop drains them. What is left in
-`nextseek_api/batch_upload/neo4j_sync.py` reads MySQL and builds payloads; graph_sync's own
-labels and parent lists are coded against it and compared with it on the same fixtures.
+rows stand and the sync loop drains them. graph_sync's labels and parent lists are checked
+against the frozen outputs of this package's former graph payload rule
+(`nextseek_api/tests/fixtures/graph_sync_batch_upload_parity.json`).
 
 ### Background work and scripts
 
@@ -203,10 +200,9 @@ Depends on, outside this directory:
   flag (`nextseek_api/batch_upload/config.py:111`), and stage 6 then reports
   `not_configured` rather than failing (`nextseek_api/batch_upload/orchestrator.py:589-592`),
   which the job carries as `graph: pending`.
-- `settings.MEDIA_ROOT`, the load-bearing directory this package reads and writes for four
+- `settings.MEDIA_ROOT`, the load-bearing directory this package reads and writes for three
   distinct things: uploaded workbooks (`nextseek_api/batch_upload/views.py:663`), the
-  per-user job index (`nextseek_api/batch_upload/job_index.py:12-14`), resume checkpoints
-  (`nextseek_api/batch_upload/tasks.py:45-49`) and the summary CSVs
+  per-user job index (`nextseek_api/batch_upload/job_index.py:12-14`) and the summary CSVs
   (`nextseek_api/batch_upload/orchestrator.py:691-697`).
 - `nextseek_api/authentication.py:15`, for the CSRF-exempt session authenticator the
   ViewSet installs.

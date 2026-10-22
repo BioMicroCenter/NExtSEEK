@@ -56,6 +56,7 @@ class OpScopeTests(SimpleTestCase):
             return ParserPlan(mode="graph_query", target_endpoint=None)
 
         def graph(config, query, entity_out, parser_plan, retry_context=None, refine_context=None):
+            remember(query)
             assert call_scope.current().failed(("gcp", "gemini-3.5-flash")) is not None, "the part sees the mark"
             return GraphAgentPlan(cypher="MATCH (s:T_TIS) RETURN count(DISTINCT s) AS n", parameters={})
 
@@ -68,6 +69,7 @@ class OpScopeTests(SimpleTestCase):
                          neo4j_exec=lambda config, cypher, params: _ok([{"n": 3}]))
 
         self.assertTrue(out["complete"], out)
-        self.assertEqual({where for where, _ in scopes}, {"prelude", *parts})
+        self.assertEqual({where for where, _ in scopes},
+                         {"prelude", "TIS and NHP\n\nParts:\n- " + "\n- ".join(parts), *parts})
         self.assertEqual(len({id(s) for _, s in scopes}), 1, "one scope object across the pool's threads")
         self.assertIsNotNone(scopes[0][1])

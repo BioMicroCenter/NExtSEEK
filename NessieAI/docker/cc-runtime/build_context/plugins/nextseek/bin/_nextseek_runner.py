@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 """Shared entry point for nextseek-* shims.
 
-Thin WS/viewset client: dispatches to the NExtSEEK assistant viewset (query/plan)
-or to the sidecar via WebSocket (all other 7 ops). Imports NO chat_nextseek (U-11).
+Thin client: sends query/plan/pipeline/recall to the NExtSEEK assistant viewset, and the 11
+op tools on the road NEXTSEEK_CC_OPS_ROAD names (_op_road.py): straight to the viewset (default)
+or through the WebSocket sidecar (one release). Imports NO chat_nextseek (U-11).
 
 Emits one of:
   - stdout: result JSON (one line)
@@ -18,6 +19,9 @@ Exit codes:
   7  transport error (sidecar/viewset unreachable)
   8  auth failed (viewset 401)
   9  staging error
+  10 busy (two ops or NS queries of this turn already running)
+  11 time up (not enough of the turn left to run the op)
+  12 pass not allowed (the turn pass does not allow the request)
 
 Dry-run mode: when NEXTSEEK_DRY_RUN=1, each dispatcher returns a minimal
 valid typed JSON response without invoking any LLM, REST, or Neo4j call.
@@ -38,10 +42,38 @@ import typing
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-def _err(code: str, message: str, exit_code: int) -> typing.NoReturn:  # Minor-7
-    payload = {"error": {"code": code, "message": message}}
-    sys.stderr.write(json.dumps(payload) + "\n")
+def _err(code: str, message: str, exit_code: int, *, reason: str | None = None,
+         errors: list | None = None) -> typing.NoReturn:  # Minor-7
+    error: dict = {"code": code, "message": message}
+    if reason:
+        error["reason"] = reason
+    if errors:
+        error["errors"] = errors
+    sys.stderr.write(json.dumps({"error": error}) + "\n")
     sys.exit(exit_code)
+
+
+#: The ops whose server side calls a model, and the three that start an NS turn: the ones a turn's deadline can leave
+#: no time for (ruling 3). The server's list is NessieAI/ns/op_limits.MODEL_OPS; a test pins the two.
+_MODEL_AGENTS = frozenset({"entity", "parse", "graph", "aggregate", "api-read", "api-write", "generate-submission",
+                           "query", "plan", "pipeline"})
+_TOOL_NAMES = {"entity": "nextseek-entity-extract"}
+
+
+def _tool_name(agent: str) -> str:
+    return _TOOL_NAMES.get(agent, f"nextseek-{agent}")
+
+
+def _refuse_when_out_of_time(agent: str) -> None:
+    """Exit TIME_UP before a model op the turn has no usable time for (advice; the server's check is the control)."""
+    if agent not in _MODEL_AGENTS:
+        return
+    import time
+    from _turn_deadline import preflight
+    from _op_errors import EXIT
+    message = preflight(_tool_name(agent), time.time())
+    if message is not None:
+        _err("TIME_UP", message, EXIT["TIME_UP"])
 
 
 def _sanitize_env_quotes() -> None:
@@ -67,38 +99,50 @@ def _dry_run() -> bool:
     return os.environ.get("NEXTSEEK_DRY_RUN") == "1"
 
 
+def _call_op(op: str, body: dict) -> dict:
+    """One of the 11 op tools, on the road NEXTSEEK_CC_OPS_ROAD names (_op_road.py, approach 1 piece 2)."""
+    import _op_road
+    try:
+        return _op_road.call(op, body, client_factory=_make_client)
+    except _op_road.OpCallError as e:
+        _err(e.code, e.message, e.exit_code, reason=e.reason, errors=e.errors)
+
 # ---------------------------------------------------------------- dispatchers
 
 def _dispatch_entity(args):
     if _dry_run():  # pragma: no branch
         return {"sampletypes": [], "assays": [], "keywords": [], "projects": []}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("entity", {"query": args.query},  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("entity", {"query": args.query})
+
+
+def _exit_on_op_code(resp) -> None:
+    """A refusal from the assistant viewset that carries an op error code (BUSY when two ops or NS queries of this turn
+    are already running, TIME_UP, PASS_NOT_ALLOWED) exits with that code, as the 11 op tools do; anything else returns
+    and the caller keeps its own mapping."""
+    import _op_errors
+    import _op_road
+    try:
+        body = resp.json()
+    except ValueError:
+        return
+    if isinstance(body, dict) and body.get("code") in _op_errors.EXIT:
+        e = _op_road.error_from_response(resp)
+        _err(e.code, e.message, e.exit_code, reason=e.reason, errors=e.errors)
 
 
 def _dispatch_parse(args):
     if _dry_run():  # pragma: no branch
         return {"mode": "new_search", "target_endpoint": None}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("parse", {"query": args.query},  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("parse", {"query": args.query})
 
 
 def _make_client():  # pragma: no cover
     import _assistant_client as ac  # pragma: no cover
+    import _turn_pass as tp  # pragma: no cover
     return ac.AssistantClient(  # pragma: no cover
         base_url=os.environ["NEXTSEEK_URL"],  # pragma: no cover
         assistant_prefix=os.environ.get("NEXTSEEK_ASSISTANT_PREFIX", "nextseek_api/assistant"),  # pragma: no cover
-        auth=(_api_user(), _api_pass()),  # pragma: no cover
+        auth=tp.TurnPassAuth(tp.turn_pass_from_env()),  # pragma: no cover
     )  # pragma: no cover
 
 
@@ -169,6 +213,7 @@ def _run_viewset(query: str, mode: str, *, session_id: str | None = None) -> dic
     try:  # pragma: no cover
         terminal, _ = client.run_query(query, mode=mode, session_id=session_id)  # pragma: no cover
     except httpx.HTTPStatusError as e:  # pragma: no cover
+        _exit_on_op_code(e.response)  # pragma: no cover
         if e.response.status_code == 401:  # pragma: no cover
             _err("AUTH_FAILED", "authentication failed (check NS credentials)", 8)  # pragma: no cover
         _err("AGENT_FAILED", f"HTTP {e.response.status_code}", 4)  # pragma: no cover
@@ -184,7 +229,10 @@ def _run_viewset(query: str, mode: str, *, session_id: str | None = None) -> dic
 
 
 def _dispatch_plan(args):
-    """multi_parser + planner advisor via the assistant viewset (plan mode)."""
+    """multi_parser + planner advisor via the assistant viewset (plan mode), in the live chat session.
+
+    The chat session id is required: the server accepts a turn pass on query/async only for this turn's own chat.
+    """
     if _dry_run():  # pragma: no branch
         return {  # pragma: no cover
             "plan": [],
@@ -194,7 +242,10 @@ def _dispatch_plan(args):
             "skipped_steps": [],
             "recommended_next_actions": [],
         }
-    return _run_viewset(args.query, mode="plan")  # pragma: no cover
+    session_id = os.environ.get("NEXTSEEK_CHAT_SESSION_ID")
+    if not session_id:
+        _err("CONFIG_MISSING", "NEXTSEEK_CHAT_SESSION_ID not set", 2)
+    return _run_viewset(args.query, mode="plan", session_id=session_id)  # pragma: no cover
 
 
 def _dispatch_api_read(args):
@@ -207,13 +258,7 @@ def _dispatch_api_read(args):
 
     if _dry_run():  # pragma: no branch
         return {"endpoint": "/dry-run/", "method": "GET", "response": {}}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("api-read", {"parser_plan": args.parser_plan},  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("api-read", {"parser_plan": args.parser_plan})
 
 
 def _dispatch_api_write(args):
@@ -226,44 +271,27 @@ def _dispatch_api_write(args):
 
     if _dry_run():  # pragma: no branch
         return {"endpoint": "/dry-run/", "method": "POST", "response": {}}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op(  # pragma: no cover
-            "api-write",  # pragma: no cover
-            {"parser_plan": args.parser_plan, "confirmed_write": args.confirmed_write},  # pragma: no cover
-            ns_login=(_api_user(), _api_pass()),  # pragma: no cover
-            sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("api-write", {"parser_plan": args.parser_plan, "confirmed_write": args.confirmed_write})
 
 
 def _dispatch_graph(args):
     if _dry_run():  # pragma: no branch
         return {"cypher": "", "result": []}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("graph", {"query": args.query},  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    body = {"query": args.query}
+    if args.plan:
+        body["plan"] = args.plan
+    return _call_op("graph", body)
 
 
 def _dispatch_graph_schema(args):
     if _dry_run():  # pragma: no branch
         return {"source": "catalog", "schema": "", "vocabulary": ""}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
     body = {}  # pragma: no cover
     if args.types:  # pragma: no cover
         body["types"] = args.types  # pragma: no cover
     if args.query:  # pragma: no cover
         body["query"] = args.query  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("graph-schema", body,  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("graph-schema", body)
 
 
 def _dispatch_aggregate(args):
@@ -272,16 +300,12 @@ def _dispatch_aggregate(args):
     if _dry_run():
         return {"question": args.query, "complete": True, "elapsed_s": 0.0, "deadline_s": 50.0,
                 "parts": [], "notes": []}
-    import _sidecar_client as sc
     body = {"query": args.query}
     if args.parts:
         body["parts"] = args.parts
-    try:
-        return sc.call_op("aggregate", body,
-                          ns_login=(_api_user(), _api_pass()),
-                          sidecar_url=sc.sidecar_url_from_env())
-    except sc.SidecarCallError as e:
-        _err(e.code, e.message, e.exit_code)
+    if args.plan:
+        body["plan"] = args.plan
+    return _call_op("aggregate", body)
 
 
 def _dispatch_report(args):
@@ -294,13 +318,7 @@ def _dispatch_report(args):
 
     if _dry_run():  # pragma: no branch
         return {"summary": "", "saved_files": [], "rows": []}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("report", {"mode": args.mode, "project": args.project},  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("report", {"mode": args.mode, "project": args.project})
 
 
 def _dispatch_generate_submission(args):
@@ -311,15 +329,7 @@ def _dispatch_generate_submission(args):
 
     if _dry_run():  # pragma: no branch
         return {"report": "", "type": args.type}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op(  # pragma: no cover
-            "generate-submission",  # pragma: no cover
-            {"type": args.type, "uids": args.uids, "query": args.query},  # pragma: no cover
-            ns_login=(_api_user(), _api_pass()),  # pragma: no cover
-            sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("generate-submission", {"type": args.type, "uids": args.uids, "query": args.query})
 
 
 def _dispatch_query(args):
@@ -349,6 +359,7 @@ def _dispatch_query(args):
     except Exception as e:
         import httpx  # pragma: no cover
         if isinstance(e, httpx.HTTPStatusError):
+            _exit_on_op_code(e.response)
             if e.response.status_code == 401:
                 _err("AUTH_FAILED", "authentication failed (check NS credentials)", 8)
             _err("AGENT_FAILED", f"HTTP {e.response.status_code}", 4)
@@ -484,14 +495,6 @@ def _dispatch_recall(args):
     }
 
 
-def _api_user() -> str:  # pragma: no cover
-    return os.environ.get("API_USER", "")  # pragma: no cover
-
-
-def _api_pass() -> str:  # pragma: no cover
-    return os.environ.get("API_PASS", "")  # pragma: no cover
-
-
 def _dispatch_pipeline(args):
     """Hand a CC-composed summary message to NS pipeline_agent (deterministic bridge).
 
@@ -515,13 +518,7 @@ def _dispatch_run_ls(args):
         return {"run_dir": args.run_dir, "truncated": False, "tree": "[dry-run]"}  # pragma: no cover
     if not args.run_dir:  # pragma: no cover
         _err("VALIDATION", "missing --run-dir", 3)  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("run-ls", {"run_dir": args.run_dir},  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("run-ls", {"run_dir": args.run_dir})
 
 
 def _dispatch_run_harvest(args):
@@ -529,18 +526,12 @@ def _dispatch_run_harvest(args):
     cluster and parse them into a manifest. Never writes to Luria or NExtSEEK."""
     if _dry_run():  # pragma: no branch
         return {"run_dir": args.run_dir, "manifest_id": "dryrun", "manifest": {}}  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
     # No --run-dir: the server picks the caller's one waiting launched run, or
     # returns the candidates for the agent to ask about.
     body = {"run_dir": args.run_dir} if args.run_dir else {}  # pragma: no cover
     if getattr(args, "allow_failed_run", False):  # pragma: no cover
         body["allow_failed_run"] = True  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("run-harvest", body,  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("run-harvest", body)  # pragma: no cover
 
 
 def _dispatch_run_checksum(args):
@@ -555,16 +546,10 @@ def _dispatch_run_checksum(args):
         _err("VALIDATION", "missing --run-dir", 3)  # pragma: no cover
     if not args.paths:  # pragma: no cover
         _err("VALIDATION", "missing --paths", 3)  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
     body = {"run_dir": args.run_dir, "paths": args.paths}  # pragma: no cover
     if getattr(args, "manifest_id", None):  # pragma: no cover
         body["manifest_id"] = args.manifest_id  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("run-checksum", body,  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("run-checksum", body)  # pragma: no cover
 
 
 def _dispatch_build_upload_xlsx(args):
@@ -575,7 +560,6 @@ def _dispatch_build_upload_xlsx(args):
     manifest_id = getattr(args, "manifest_id", None)  # pragma: no cover
     if not manifest_id and not args.rows:  # pragma: no cover
         _err("VALIDATION", "missing --manifest-id or --rows", 3)  # pragma: no cover
-    import _sidecar_client as sc  # pragma: no cover
     if manifest_id:  # pragma: no cover
         body = {"manifest_id": manifest_id}  # pragma: no cover
         if getattr(args, "mode", None):  # pragma: no cover
@@ -586,12 +570,7 @@ def _dispatch_build_upload_xlsx(args):
         body = {"rows": args.rows}  # pragma: no cover
         if getattr(args, "existing_parent_uids", None):  # pragma: no cover
             body["existing_parent_uids"] = args.existing_parent_uids  # pragma: no cover
-    try:  # pragma: no cover
-        return sc.call_op("build-upload-xlsx", body,  # pragma: no cover
-                          ns_login=(_api_user(), _api_pass()),  # pragma: no cover
-                          sidecar_url=sc.sidecar_url_from_env())  # pragma: no cover
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("build-upload-xlsx", body)
 
 
 def _dispatch_upload_reingest(args):
@@ -607,15 +586,8 @@ def _dispatch_upload_reingest(args):
 
     if _dry_run():  # pragma: no cover
         return {"jobs": [], "reply": "[dry-run]"}  # pragma: no cover
-    import _sidecar_client as sc
-    try:
-        return sc.call_op(
-            "upload-reingest",
-            {"build_ids": args.build_ids, "confirmed_write": args.confirmed_write},
-            ns_login=(_api_user(), _api_pass()),
-            sidecar_url=sc.sidecar_url_from_env())
-    except sc.SidecarCallError as e:  # pragma: no cover
-        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+    return _call_op("upload-reingest",
+                    {"build_ids": args.build_ids, "confirmed_write": args.confirmed_write})
 
 
 _DISPATCH = {
@@ -648,6 +620,7 @@ def main() -> None:
     p.add_argument("--confirmed-write", action="store_true")  # api-write / upload-reingest
     p.add_argument("--build-ids")  # for upload-reingest (comma-separated build ids)
     p.add_argument("--types")  # for graph-schema (comma-separated sample type codes)
+    p.add_argument("--plan")  # for graph and aggregate (JSON {intent_summary, filters, notes})
     p.add_argument("--parts")  # for aggregate (JSON array of 1 to 4 sub-questions)
     p.add_argument("--mode")  # for report
     p.add_argument("--project")  # for report
@@ -672,23 +645,24 @@ def main() -> None:
     # See _sanitize_env_quotes docstring for the rationale (docker --env-file
     # / dotenv_values preserve surrounding quotes from .env literals).
     _sanitize_env_quotes()
+    _refuse_when_out_of_time(args.agent)
 
     # Important-2: enforce CONFIG_MISSING before any dispatch (matches the old
     # runner's _load_config guard). In dry-run mode the credentials are not
     # exercised, so we skip the check -- matching old runner behavior where
     # _load_config was only called outside the dry-run branch.
     if not _dry_run():
-        if not os.environ.get("API_USER") or not os.environ.get("API_PASS"):
-            _err("CONFIG_MISSING", "API_USER / API_PASS not set", 2)
+        import _turn_pass as tp
+        if not tp.turn_pass_from_env():
+            _err("CONFIG_MISSING", "NEXTSEEK_TURN_PASS not set", 2)
 
     try:
         result = _DISPATCH[args.agent](args)
     except SystemExit:  # pragma: no cover
         raise  # pragma: no cover
-    except Exception as exc:
-        _err("AGENT_FAILED",
-             f"{type(exc).__name__}: {exc}",
-             4)
+    except Exception:
+        # The exception text is not shown: the agent reads only the approved "internal" sentence.
+        _err("AGENT_FAILED", "The op failed inside NExtSEEK.", 4, reason="internal")
     sys.stdout.write(json.dumps(result, default=str) + "\n")  # pragma: no cover
 
 

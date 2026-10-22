@@ -317,3 +317,62 @@ def test_the_turn_runs_without_a_reporting_callback(monkeypatch, tmp_path):
         results=[_ok(3)],
     )
     assert payload is not None
+
+
+# --- G4 F1: a timed-out statement is never run again, and the retry is told it timed out ---
+
+WALK = "MATCH (t:T_X) WHERE EXISTS { MATCH (t)<-[:DERIVED_FROM*1..12]-(c:Sample) } RETURN t.id AS id LIMIT 5000"
+OTHER = "MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample) RETURN p"
+TIMEOUT = {"ok": False, "count": 0, "data": [], "error": (
+    "{neo4j_code: Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration} "
+    "{message: The transaction has not completed within the specified timeout (dbms.transaction.timeout).}")}
+
+
+def _plans(*cyphers):
+    return [GraphAgentPlan(cypher=c, context_mode="catalog") for c in cyphers]
+
+
+def test_a_statement_that_timed_out_is_not_run_again(monkeypatch, tmp_path):
+    _, debug, calls = _run(monkeypatch, tmp_path, plans=_plans(WALK, OTHER, WALK),
+                           results=[TIMEOUT, _err("SyntaxError"), TIMEOUT])
+    assert calls["neo4j"] == 2
+    last = debug["graph_attempts"][-1]
+    assert last["reason"] == "repeat_of_timeout" and last["elapsed_ms"] == 0
+
+
+def test_a_repeat_with_other_whitespace_is_still_a_repeat(monkeypatch, tmp_path):
+    spaced = WALK.replace(" WHERE", "\n  WHERE")
+    _, debug, calls = _run(monkeypatch, tmp_path, plans=_plans(WALK, spaced), results=[TIMEOUT, TIMEOUT])
+    assert calls["neo4j"] == 1
+    assert debug["graph_attempts"][-1]["reason"] == "repeat_of_timeout"
+
+
+def test_the_retry_after_a_timeout_is_told_it_timed_out(monkeypatch, tmp_path):
+    _, debug, calls = _run(monkeypatch, tmp_path, plans=_plans(WALK, OTHER),
+                           results=[TIMEOUT, _ok(3)])
+    ctx = calls["retry_contexts"][0]
+    assert "stopped" in ctx.lower() and "time" in ctx.lower()
+    assert WALK in ctx
+    assert "do not rerun" in ctx.lower() and "narrow" in ctx.lower()
+    assert "check property types" not in ctx
+
+
+def test_the_loop_stops_after_the_second_timeout(monkeypatch, tmp_path):
+    _, debug, calls = _run(monkeypatch, tmp_path, plans=_plans(WALK, OTHER, "MATCH (n) RETURN n"),
+                           results=[TIMEOUT, TIMEOUT, _ok(1)])
+    assert calls["neo4j"] == 2
+    assert calls["agent"] == 2   # the initial statement and one retry, no third
+    assert debug["graph_attempts"][-1]["ok"] is False
+
+
+def test_a_repeat_after_another_error_records_itself_and_keeps_the_timeout(monkeypatch, tmp_path):
+    """WALK times out, OTHER has a syntax error, the agent writes WALK again: the repeat is not run, its record
+    says so, and the turn reports the timeout (with WALK's plan), not OTHER's syntax error."""
+    _, debug, calls = _run(monkeypatch, tmp_path, plans=_plans(WALK, OTHER, WALK),
+                           results=[TIMEOUT, _err("SyntaxError: bad"), TIMEOUT])
+    last = debug["graph_attempts"][-1]
+    assert last["reason"] == "repeat_of_timeout"
+    assert last["ok"] is False and last["count"] is None
+    assert last["error"] == "not run: it repeats a statement that timed out"
+    assert calls["chatter_kwargs"]["graph_result"] is TIMEOUT
+    assert calls["chatter_kwargs"]["graph_plan"]["cypher"] == WALK

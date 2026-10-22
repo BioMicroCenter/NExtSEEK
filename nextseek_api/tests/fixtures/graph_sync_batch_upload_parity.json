@@ -1,0 +1,332 @@
+{
+ "edge_labels": [
+  {
+   "child_id": 101,
+   "labels": {
+    "assay_id": 10,
+    "internal_assay_id": 50,
+    "internal_assay_ids": [
+     50
+    ],
+    "internal_assay_title": "Internal Alpha",
+    "internal_assay_titles": [
+     "Internal Alpha"
+    ],
+    "protocol_id": 5,
+    "protocol_title": "SOP Five"
+   },
+   "parent_id": 201
+  },
+  {
+   "child_id": 102,
+   "labels": {
+    "assay_id": 100,
+    "internal_assay_id": 5,
+    "internal_assay_ids": [
+     5,
+     200
+    ],
+    "internal_assay_title": "Internal Five",
+    "internal_assay_titles": [
+     "Internal Five",
+     "Internal Two Hundred"
+    ],
+    "protocol_id": 12,
+    "protocol_title": "P.ISO-210101-V2_y.docx"
+   },
+   "parent_id": 202
+  },
+  {
+   "child_id": 103,
+   "labels": {
+    "assay_id": 20,
+    "internal_assay_id": 20,
+    "internal_assay_ids": [
+     20
+    ],
+    "internal_assay_title": "Unmapped Twenty",
+    "internal_assay_titles": [
+     "Unmapped Twenty"
+    ],
+    "protocol_id": 7,
+    "protocol_title": "P.FOR-200623-V1_x.docx"
+   },
+   "parent_id": 203
+  },
+  {
+   "child_id": 104,
+   "labels": {
+    "assay_id": 20,
+    "internal_assay_id": 20,
+    "internal_assay_ids": [
+     20,
+     50
+    ],
+    "internal_assay_title": "Unmapped Twenty",
+    "internal_assay_titles": [
+     "Unmapped Twenty",
+     "Internal Alpha"
+    ],
+    "protocol_id": 11,
+    "protocol_title": "Mixed Case SOP"
+   },
+   "parent_id": 204
+  },
+  {
+   "child_id": 105,
+   "labels": {
+    "assay_id": null,
+    "internal_assay_id": null,
+    "internal_assay_ids": [],
+    "internal_assay_title": null,
+    "internal_assay_titles": [],
+    "protocol_id": null,
+    "protocol_title": null
+   },
+   "parent_id": 205
+  },
+  {
+   "child_id": 106,
+   "labels": {
+    "assay_id": 30,
+    "internal_assay_id": 60,
+    "internal_assay_ids": [
+     60
+    ],
+    "internal_assay_title": "IA 60",
+    "internal_assay_titles": [
+     "IA 60"
+    ],
+    "protocol_id": null,
+    "protocol_title": null
+   },
+   "parent_id": 206
+  },
+  {
+   "child_id": 107,
+   "labels": {
+    "assay_id": 40,
+    "internal_assay_id": 70,
+    "internal_assay_ids": [
+     70
+    ],
+    "internal_assay_title": null,
+    "internal_assay_titles": [
+     ""
+    ],
+    "protocol_id": 9999,
+    "protocol_title": null
+   },
+   "parent_id": 207
+  },
+  {
+   "child_id": 108,
+   "labels": {
+    "assay_id": null,
+    "internal_assay_id": null,
+    "internal_assay_ids": [],
+    "internal_assay_title": null,
+    "internal_assay_titles": [],
+    "protocol_id": null,
+    "protocol_title": null
+   },
+   "parent_id": 208
+  },
+  {
+   "child_id": 109,
+   "labels": {
+    "assay_id": 10,
+    "internal_assay_id": 50,
+    "internal_assay_ids": [
+     50
+    ],
+    "internal_assay_title": "Internal Alpha",
+    "internal_assay_titles": [
+     "Internal Alpha"
+    ],
+    "protocol_id": 5,
+    "protocol_title": "SOP Five"
+   },
+   "parent_id": 201
+  },
+  {
+   "child_id": 109,
+   "labels": {
+    "assay_id": null,
+    "internal_assay_id": null,
+    "internal_assay_ids": [],
+    "internal_assay_title": null,
+    "internal_assay_titles": [],
+    "protocol_id": 5,
+    "protocol_title": "SOP Five"
+   },
+   "parent_id": 209
+  },
+  {
+   "child_id": 110,
+   "labels": {
+    "assay_id": 10,
+    "internal_assay_id": 50,
+    "internal_assay_ids": [
+     50
+    ],
+    "internal_assay_title": "Internal Alpha",
+    "internal_assay_titles": [
+     "Internal Alpha"
+    ],
+    "protocol_id": null,
+    "protocol_title": null
+   },
+   "parent_id": 101
+  },
+  {
+   "child_id": 110,
+   "labels": {
+    "assay_id": 100,
+    "internal_assay_id": 5,
+    "internal_assay_ids": [
+     5,
+     200
+    ],
+    "internal_assay_title": "Internal Five",
+    "internal_assay_titles": [
+     "Internal Five",
+     "Internal Two Hundred"
+    ],
+    "protocol_id": null,
+    "protocol_title": null
+   },
+   "parent_id": 202
+  },
+  {
+   "child_id": 111,
+   "labels": {
+    "assay_id": 100,
+    "internal_assay_id": 5,
+    "internal_assay_ids": [
+     5
+    ],
+    "internal_assay_title": "Internal Five",
+    "internal_assay_titles": [
+     "Internal Five"
+    ],
+    "protocol_id": 5,
+    "protocol_title": "SOP Five"
+   },
+   "parent_id": 202
+  },
+  {
+   "child_id": 112,
+   "labels": {
+    "assay_id": 11,
+    "internal_assay_id": 5,
+    "internal_assay_ids": [
+     5
+    ],
+    "internal_assay_title": "Internal Five",
+    "internal_assay_titles": [
+     "Internal Five"
+    ],
+    "protocol_id": 11,
+    "protocol_title": "Mixed Case SOP"
+   },
+   "parent_id": 210
+  }
+ ],
+ "parent_lists": {
+  "external_uid": [
+   [
+    "External_Parent"
+   ],
+   [
+    "a86924918c08951ac0fdf20de5f78558dfa33e97769a28a3b128fc8ec8f05758"
+   ]
+  ],
+  "external_uid_not_in_mysql": [
+   [],
+   []
+  ],
+  "file_based_external": [
+   [
+    "external_image.tiff"
+   ],
+   [
+    "c12fe601ad8748563bb67766f985dbd128f22011157e6b2d7af8030ba5252e85"
+   ]
+  ],
+  "file_based_in_batch": [
+   [
+    "image_data.tiff"
+   ],
+   [
+    "559fbeaf6a99f86a26c9b0b33673c799b390f1ddb5a64333f202747901f0ed67"
+   ]
+  ],
+  "in_batch_uid": [
+   [
+    "Parent_Sample"
+   ],
+   [
+    "db00eee5303214bbc63167e227111e3f70fd1dd5bf7684059b9996f83f1dfba6"
+   ]
+  ],
+  "mixed": [
+   [
+    "Resolved_Parent",
+    "Unresolved_Name"
+   ],
+   [
+    "6a1772e185b5880ac754a34704a332be37fddd167984a795b0261c8e29da227b",
+    "73a1b49e22bf4cb8a7795e01655ea75fc29ff96a2b9c6ac9204dc6c9a55f6015"
+   ]
+  ],
+  "no_parents": [
+   [],
+   []
+  ],
+  "unresolved_name": [
+   [
+    "My_Parent_Name"
+   ],
+   [
+    "e46702d170266e71ed69d6166840c806c3586e0b1c37b158376d4daf7e0dea28"
+   ]
+  ],
+  "variant_key": [
+   [
+    "Treatment_Parent"
+   ],
+   [
+    "082d5511bfdde85f8624b2aab7115815965f56d0309f4a95d53d6006bc743712"
+   ]
+  ],
+  "variant_key_unresolved_name": [
+   [
+    "My_Antibody_Parent"
+   ],
+   [
+    "88f351a3c649d8630948239bba6c72fc3850dd16466fecbaf78993a8a8c06534"
+   ]
+  ],
+  "variant_keys_merged": [
+   [
+    "Parent_A",
+    "Parent_B"
+   ],
+   [
+    "05a9f6aec87bf5904515a205792235830cafa9efbe7594f96f04bd2477eb0f6a",
+    "e3dbcdc99d72a7c2da679abfe7247d32190a4b792d3f6236634565ccf563e6d3"
+   ]
+  ]
+ },
+ "resolved_internal_assays": {
+  "10": [
+   50,
+   "IA 50"
+  ],
+  "20": [
+   60,
+   "IA 60"
+  ]
+ }
+}

@@ -24,7 +24,7 @@ The remaining eight modules define no ViewSet and no URL: they are pure function
 half of it.
 
 The one file every reader eventually lands in is `nextseek_api/services/assistant.py`, and
-not for the assistant. `CsrfExemptSessionAuthentication` and the shared error envelope
+not for the assistant. `SeekSessionAuthentication` and the shared error envelope
 `_error_response` now live in `nextseek_api/authentication.py`, but this module re-exports
 both and most of their importers still take them from here, so it is still the de-facto
 shared library of this directory as well as its largest chat engine. New code imports them
@@ -87,7 +87,8 @@ reads what those two wrote back out, normalized for retry by `NessieAI/ns/retry.
 | `nextseek_api/services/content_blobs.py` | `download_single` at `nextseek_api/services/content_blobs.py:191`, `download_batch` at `nextseek_api/services/content_blobs.py:276`, `upload_content_blobs` at `nextseek_api/services/content_blobs.py:417` | the SOP and DataFile proxies |
 | `nextseek_api/services/seek_rails_runner.py` | `run_seek_rails_runner` at `nextseek_api/services/seek_rails_runner.py:85` | the Users admin ViewSet |
 
-**The data file.** `nextseek_api/services/controlled_vocabularies.json` is load-bearing
+**The data file.** `nextseek_api/services/controlled_vocabularies.json` is generated from the
+ontology files by `python -m NessieAI.build_tools.gen_house_vocabularies` (never hand-edit it) and is load-bearing
 input, not scratch: `nextseek_api/services/sample_workbook.py:76` binds it by
 `Path(__file__).with_name(...)` and every dropdown in every downloaded workbook comes from
 it. The loader swallows a read failure and returns empty maps
@@ -202,10 +203,8 @@ non-Python and non-import contexts, then grouped. Test modules are omitted:
 - `ci/routes.py` declares the HTTP routes this directory serves and annotates them with source
   locations as prose, not imports: `ci/routes.py:800` and `ci/routes.py:629` are two.
 
-What a hit here is NOT. Four groups were excluded deliberately, each for a different reason.
-`nextseek_api/tests.py` imports service ViewSets on more than 40 lines, `nextseek_api/tests.py:875`
-among them, and none of them run; see `nextseek_api/CLAUDE.md` for why that module is
-unreachable. `NessieAI/tests/e2e/playwright/poll.py:11` and `NessieAI/tests/nessie_tests/manifest.py:169` name
+What a hit here is NOT. Three groups were excluded deliberately, each for a different reason.
+`NessieAI/tests/e2e/playwright/poll.py:11` and `NessieAI/nessie_harness/manifest.py:169` name
 modules here inside docstrings, which is documentation and not a dependency.
 `seek/timeline/services/` is a different `services` package entirely, imported at
 `nextseek_api/views.py:27-28`, and has nothing to do with this directory. And

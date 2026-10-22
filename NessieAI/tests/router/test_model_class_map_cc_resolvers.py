@@ -1,7 +1,7 @@
 """The two extra model ids a Container-CC turn needs, read from the one model-id file.
 
 ``router_model_class_map.json`` is the only place model ids live. A CC turn now needs
-two more than its main Opus id:
+two more than its main model id (the ``opus`` entry, Sonnet 5.5 since T7, 2026-10-12):
 
 - ``opus_fallback``: the model Claude Code switches to (``--fallback-model``) when the
   main one answers with a server error, so a Bedrock 503 no longer ends the turn.
@@ -81,7 +81,9 @@ def test_the_required_entries_are_still_required(tmp_path):
 @pytest.mark.parametrize("value, ok", [
     ("us.anthropic.claude-sonnet-4-6", True),
     ("us.anthropic.claude-haiku-4-5-20251001-v1:0", True),
+    ("global.anthropic.claude-sonnet-5-5", True),  # a global profile (T7, 2026-10-12)
     ("claude-sonnet-4-6", False), ("us.anthropic.", False), ("us.anthropic.A B", False),
+    ("anthropic.claude-sonnet-5-5", False), ("eu.anthropic.claude-sonnet-5-5", False), ("global.anthropic.", False),
     ("", False), (None, False), (7, False),
 ])
 def test_the_bedrock_id_check_is_public_for_callers_that_take_an_override(value, ok):

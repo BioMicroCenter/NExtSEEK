@@ -1,14 +1,18 @@
 """Typed httpx client for NExtSEEK's assistant viewset (U-3, OD-6). No chat_nextseek.
 
-Auth = per-call user NS login as Basic (recon:nsApi §2 _check_auth accepts Basic).
+Auth = the turn pass (Authorization: NextseekTurn, see _turn_pass.py); the container holds no password.
 Transport = POST query/async/ -> 202 AsyncQueryResponse, then GET tasks/{task_id}/progress/
 polling until a terminal event (query_complete | query_error) appears in the progress list.
 The assistant_prefix (with/without the i18n locale segment) is resolved by T0a.
 """
 from __future__ import annotations
 
+import os
+import re
 import time
+import uuid
 from collections.abc import Callable
+from pathlib import Path
 
 import httpx
 
@@ -20,7 +24,7 @@ from _assistant_models import (
     SessionDetailResponse,
     TaskProgressResponse,
 )
-from _turn_deadline import MIN_WAIT_S, TURN_DEADLINE_ENV, TURN_DEADLINE_HEADROOM_S, wait_s
+from _turn_deadline import MIN_WAIT_S, TURN_DEADLINE_ENV, TURN_DEADLINE_HEADROOM_S, deadline_headers, wait_s
 
 # Sentinel string emitted when polling ends without a terminal event.
 # runner_ns._STREAM_ENDED_WITHOUT_TERMINAL must equal this value (drift-pinned in test_runner_ns.py).
@@ -75,7 +79,7 @@ _PROGRESS_GET_RETRY_BACKOFF: float = 0.5
 
 
 class AssistantClient:
-    def __init__(self, *, base_url: str, assistant_prefix: str, auth: tuple[str, str],
+    def __init__(self, *, base_url: str, assistant_prefix: str, auth: httpx.Auth,
                  timeout: float | None = None, request_timeout: float = 30.0,
                  transport: httpx.BaseTransport | None = None,
                  poll_interval: float = _DEFAULT_POLL_INTERVAL) -> None:
@@ -105,8 +109,10 @@ class AssistantClient:
     def _url(self, suffix: str) -> str:
         return f"{self._base}/{self._prefix}/{suffix.lstrip('/')}"
 
-    def _client(self) -> httpx.Client:
-        return httpx.Client(auth=self._auth, timeout=self._request_timeout, transport=self._transport)
+    def _client(self, timeout: float | None = None) -> httpx.Client:
+        # Piece 4: every request carries this turn's deadline; the server lets it only shorten its own.
+        return httpx.Client(auth=self._auth, timeout=self._request_timeout if timeout is None else timeout,
+                            transport=self._transport, headers=deadline_headers())
 
     def run_query(self, query: str, *, mode: str, session_id: str | None = None,
                   force_new: bool = False,
@@ -268,3 +274,52 @@ class AssistantClient:
             r = client.get(self._url(f"sessions/{session_id}/bundles/{bundle_id}/artifacts/{artifact_key}/"))
             r.raise_for_status()
             return r.content
+
+    def post_op(self, op: str, body: dict, *, timeout_s: float) -> httpx.Response:
+        """POST one granular op (the direct road, approach 1 piece 2). The caller maps a non-2xx reply."""
+        with self._client(timeout=timeout_s) as client:
+            return client.post(self._url(f"{op}/"), json=body)
+
+    def download_artifact_to(self, session_id: str, bundle_id: int, artifact_key: str, dest_dir: Path, *,
+                             timeout_s: float | None = None) -> Path:
+        """Stream one bundle artifact into ``dest_dir`` under its own file name, made plain, never over a file an
+        earlier op left; a partial download never takes the final name."""
+        url = self._url(f"sessions/{session_id}/bundles/{bundle_id}/artifacts/{artifact_key}/")
+        with self._client(timeout=timeout_s) as client, client.stream("GET", url) as response:
+            response.raise_for_status()
+            final = _free_name(dest_dir, _artifact_name(response.headers.get("content-disposition"), artifact_key),
+                               bundle_id, artifact_key)
+            part = dest_dir / f".{final.name}.{uuid.uuid4().hex}.part"
+            try:
+                with open(part, "xb") as fh:
+                    for chunk in response.iter_bytes():
+                        fh.write(chunk)
+                # A link never replaces a file, so a name another op took after _free_name's check is kept.
+                try:
+                    os.link(part, final)
+                except FileExistsError:
+                    final = dest_dir / f"{bundle_id}-{artifact_key}-{final.name}"
+                    os.link(part, final)
+                part.unlink()
+            except BaseException:
+                part.unlink(missing_ok=True)
+                raise
+        return final
+
+
+_UNSAFE_NAME_CHARS = re.compile(r"[^A-Za-z0-9._-]")
+_CD_FILENAME = re.compile(r'filename="([^"]*)"|filename=([^;\s]+)')
+
+
+def _artifact_name(content_disposition: str | None, key: str) -> str:
+    """The file's own name from Content-Disposition, reduced to a plain basename, else the artifact key."""
+    match = _CD_FILENAME.search(content_disposition or "")
+    raw = (match.group(1) or match.group(2) or "") if match else ""
+    name = _UNSAFE_NAME_CHARS.sub("_", raw.replace("\\", "/").rsplit("/", 1)[-1]).lstrip(".")[:150]
+    return name or key
+
+
+def _free_name(dest_dir: Path, name: str, bundle_id: int, key: str) -> Path:
+    """``dest_dir/name``, or ``dest_dir/<bundle>-<key>-name`` when an earlier op already left that name."""
+    first = dest_dir / name
+    return first if not first.exists() else dest_dir / f"{bundle_id}-{key}-{name}"

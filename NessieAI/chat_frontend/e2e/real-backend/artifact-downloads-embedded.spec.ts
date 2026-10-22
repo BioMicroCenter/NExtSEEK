@@ -2,6 +2,10 @@ import { test, expect, Page, Download } from "@playwright/test";
 
 // Skip guard: only run when USE_REAL_BACKEND is explicitly set
 test.skip(!process.env.USE_REAL_BACKEND, "Requires USE_REAL_BACKEND=true");
+test.skip(
+  !process.env.E2E_USER || !process.env.E2E_PASS,
+  "Requires E2E_USER and E2E_PASS",
+);
 
 const EMBEDDED_URL = "https://nextseek-dev.mit.edu/seek/salt/";
 
@@ -29,8 +33,8 @@ async function ensureLoggedIn(page: Page): Promise<void> {
     .isVisible({ timeout: 2_000 })
     .catch(() => false);
   if (hasUserField) {
-    await page.fill(userSel, "demo");
-    await page.fill(passSel, "demopassword");
+    await page.fill(userSel, process.env.E2E_USER!);
+    await page.fill(passSel, process.env.E2E_PASS!);
     await Promise.all([
       page
         .waitForNavigation({

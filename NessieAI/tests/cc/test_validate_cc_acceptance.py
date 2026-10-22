@@ -44,7 +44,7 @@ def test_clean_bundle_passes(tmp_path):
     all_ok, checks = validate_run(tmp_path)
     failed = [c for c in checks if not c[1]]
     assert all_ok, f"expected all pass, failed: {failed}"
-    assert len(checks) == 10
+    assert len(checks) == 11
 
 
 def test_leaked_token_and_key_fail(tmp_path):
@@ -166,3 +166,13 @@ def test_nested_project_user_prefixed_key_passes(tmp_path):
     all_ok, checks = validate_run(tmp_path)
     assert dict((n, ok) for n, ok, _ in checks)["artifacts_turn_scoped"] is True
     assert all_ok, checks
+
+
+def test_a_user_password_in_the_agent_env_fails(tmp_path):
+    """Spec piece 1: the agent holds a one-turn pass, never the user's password, under any name."""
+    for key in ("NEXTSEEK_PASSWORD", "API_PASS", "SEEK_PASSWORD"):
+        _pass_bundle(tmp_path)
+        _write(tmp_path, "agent_env_scan.txt", f"NEXTSEEK_USERNAME=demo\nNEXTSEEK_TURN_PASS=xyz\n{key}=hunter2\n")
+        all_ok, checks = validate_run(tmp_path)
+        assert not all_ok
+        assert dict((n, ok) for n, ok, _ in checks)["agent_env_no_user_password"] is False, key

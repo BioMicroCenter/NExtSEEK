@@ -28,9 +28,11 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from ... import call_scope
 from ...config import ChatConfig
 from ...cypher_scope import Refused, scope_cypher, strip_hidden
 from ...cypher_text import write_clause
+from ...graph_review import TOTAL_COLUMN_RE, sample_ids, total_column_value  # noqa: F401
 from ...graph_scope import GraphScope, scope_of
 
 # Server-side transaction timeout, seconds, for the query and for its total probe.
@@ -39,6 +41,7 @@ QUERY_TIMEOUT_S = 60
 _WRITE_REFUSED = "Write operations are not permitted; only read (MATCH/RETURN) queries are allowed."
 SCOPE_REFUSED = "This graph query could not be confirmed to stay within your projects, so it was not run."
 NO_SCOPE_REFUSED = "No project scope is set for this request, so no graph query can run."
+OUT_OF_TIME_REFUSED = "The op ran out of time before this graph query could run, so it was not run."
 
 #: What a caller who is not an admin is told when a statement failed while it ran. Neo4j's message for such a failure
 #: can quote the stored value it failed on (a type error prints the value, a date it cannot parse prints the text), and
@@ -179,7 +182,13 @@ def matched_nothing(result: dict | None) -> bool:
     numbers = [v for v in rows[0].values() if isinstance(v, (int, float)) and not isinstance(v, bool)]
     if not numbers or len(numbers) != len(rows[0]):
         return False
-    return all(n == 0 for n in numbers)
+    if all(n == 0 for n in numbers):
+        return True
+    # A zero answer beside a total: {total_x: 165, with_y: 0} is an empty answer. Only total-named columns may be
+    # non-zero, and at least one other column must be the zero answer.
+    row = rows[0]
+    nonzero = [k for k, v in row.items() if v != 0]
+    return all(TOTAL_COLUMN_RE.search(str(k)) for k in nonzero) and len(nonzero) < len(row)
 
 
 def is_scope_refusal(result: Any) -> bool:
@@ -318,7 +327,25 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
     if not getattr(config, "NEO4J_PASSWORD", None):
         return failed("NEO4J_PASSWORD not configured")
 
-    timed = unit_of_work(timeout=timeout_s or QUERY_TIMEOUT_S)
+    # An op's limit caps every statement (approach 1, piece 2): with no time left nothing is sent, and each
+    # transaction below gets at most what is left when it starts. An NS turn has no deadline: 60 s, as before.
+    base_timeout = float(timeout_s or QUERY_TIMEOUT_S)
+    left = call_scope.time_left_for(base_timeout)
+    if left is None:
+        return failed(OUT_OF_TIME_REFUSED)
+    # Inside an op the driver neither retries nor waits to connect past what is left (graph_catalog.py's options);
+    # outside one (an NS turn) it keeps its defaults.
+    options = {} if call_scope.time_left_for(float("inf")) == float("inf") else {
+        "connection_timeout": left,
+        "connection_acquisition_timeout": left,
+        "max_transaction_retry_time": 0,
+    }
+
+    def timed(work):
+        left = call_scope.time_left_for(base_timeout)
+        # Never 0: the driver reads a zero timeout as none at all.
+        return unit_of_work(timeout=max(1.0, left if left is not None else 1.0))(work)
+
     driver = None
     try:
         try:
@@ -326,11 +353,13 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
                 config.NEO4J_URI,
                 auth=(config.NEO4J_USER, config.NEO4J_PASSWORD),
                 notifications_min_severity="OFF",
+                **options,
             )
         except TypeError:
             driver = GraphDatabase.driver(
                 config.NEO4J_URI,
                 auth=(config.NEO4J_USER, config.NEO4J_PASSWORD),
+                **options,
             )
         with driver.session(database=getattr(config, "NEO4J_DATABASE", "neo4j")) as db_session:
             if total_only:
@@ -360,10 +389,18 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
             # that ran, so it carries the same scope.
             body, effective_limit = split_trailing_limit(ran, params)
             total: int | None = len(records)
+            # Rows that carry a sample id count samples, not rows (U2.4): a to-many column beside the sample
+            # (a study, a parent) repeats it. A statement cut at its LIMIT keeps the probe's count of rows.
+            ids = sample_ids(records)
+            if ids is not None:
+                total = len(set(ids))
             truncated = False
             if effective_limit is not None and len(records) >= effective_limit:
                 truncated = True
                 total = None
+            if truncated and call_scope.time_left_for(base_timeout) is None:
+                print("[DEBUG][GRAPHDB] Result hit its LIMIT; no time left for the total probe")
+            elif truncated:
                 try:
                     total = _probe_total(db_session, body, params, timed(_read_total))
                     print(f"[DEBUG][GRAPHDB] Result hit LIMIT {effective_limit}; true total = {total}")

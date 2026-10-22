@@ -79,6 +79,7 @@ VOCAB_ROWS = {
     "VOCAB_PROJECTS": [{"title": "Project B"}, {"title": "Project A"}],
     "VOCAB_STUDIES": [{"title": "Study 1"}],
     "VOCAB_PUBLISHED": [{"title": "Study 1", "doi": "10.1000/example", "pmid": ""}],
+    "VOCAB_PUBLISHED_SAMPLES": [],
     "VOCAB_EDGES": [{"assay": "Short Read Sequencing", "protocol": "RNA prep", "parent_type": "TIS",
                      "child_type": "D.SEQ"}],
 }
@@ -95,7 +96,8 @@ COLUMN_TOKENS = ("n=", "range")
 # The one line that names those columns for every caller: the resolved-types legend in graph_context._assemble.
 LEGEND_PREFIX = "## Resolved sample types:"
 
-VOCAB_NAMES = ("VOCAB_INVESTIGATIONS", "VOCAB_PROJECTS", "VOCAB_STUDIES", "VOCAB_PUBLISHED", "VOCAB_EDGES")
+VOCAB_NAMES = ("VOCAB_INVESTIGATIONS", "VOCAB_PROJECTS", "VOCAB_STUDIES", "VOCAB_PUBLISHED", "VOCAB_PUBLISHED_SAMPLES",
+               "VOCAB_EDGES")
 SCOPED_VOCAB_NAMES = tuple(name + "_SCOPED" for name in VOCAB_NAMES)
 # What the scoped statements return: a strict subset of the rows above, so a test can tell which statement answered.
 SCOPED_VOCAB_ROWS = {
@@ -103,6 +105,7 @@ SCOPED_VOCAB_ROWS = {
     "VOCAB_PROJECTS_SCOPED": [{"title": "Project A"}],
     "VOCAB_STUDIES_SCOPED": [],
     "VOCAB_PUBLISHED_SCOPED": [],
+    "VOCAB_PUBLISHED_SAMPLES_SCOPED": [],
     "VOCAB_EDGES_SCOPED": [{"assay": "Short Read Sequencing", "protocol": None, "parent_type": "TIS",
                             "child_type": "D.SEQ"}],
 }
@@ -366,7 +369,8 @@ def test_the_scoped_statements_carry_graph_searchs_scope_clause():
     def visible(var):
         return SCOPE_CLAUSE_TEMPLATE.format(element="__scope_p", var=var, param=SCOPE_PARAM)
 
-    for name in ("VOCAB_INVESTIGATIONS_SCOPED", "VOCAB_STUDIES_SCOPED", "VOCAB_PUBLISHED_SCOPED"):
+    for name in ("VOCAB_INVESTIGATIONS_SCOPED", "VOCAB_STUDIES_SCOPED", "VOCAB_PUBLISHED_SCOPED",
+                 "VOCAB_PUBLISHED_SAMPLES_SCOPED"):
         assert visible("s") in getattr(gc, name), name
     assert visible("c") in gc.VOCAB_EDGES_SCOPED and visible("p") in gc.VOCAB_EDGES_SCOPED
     assert f"p.id IN ${SCOPE_PARAM}" in gc.VOCAB_PROJECTS_SCOPED

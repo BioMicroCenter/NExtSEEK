@@ -7,7 +7,8 @@ reaches any other database.
 
 ``Lane.reload`` wipes the private database and loads the fixture fresh in one write transaction, so each caller's run
 starts from the same graph; ``Lane.prune`` deletes what a caller cannot see, for the differential oracle; ``Lane.read``
-runs a statement in a READ transaction, as the tool does.
+runs a statement in a READ transaction, as the tool does; ``Lane.write`` runs one write statement, for a test that adds
+rows of its own after a reload.
 
 Spec: docs/superpowers/specs/2026-09-18-graph-cypher-scope.md section 11.2.
 """
@@ -44,6 +45,11 @@ class Lane:
 
         with self.driver.session() as session:
             session.execute_write(work)
+
+    def write(self, cypher: str, params: dict | None = None) -> None:
+        """Run one write statement on the private database (a test's own rows, beside the fixture)."""
+        with self.driver.session() as session:
+            session.run(cypher, params or {}).consume()
 
     def read(self, cypher: str, params: dict | None = None) -> list[dict]:
         def work(tx):

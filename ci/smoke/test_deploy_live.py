@@ -1,4 +1,4 @@
-"""Two changes the rest of the suite cannot tell apart from the build before them.
+"""Three changes the rest of the suite cannot tell apart from the build before them.
 
   * The served chat bundle is the one the checkout commits. The chat page's
     script tag comes from the app image's manifest, but the file it names is
@@ -10,12 +10,17 @@
     seconds, and logs no failed template lookup. Before the 2026-09-25 fix the
     dropdown looped over a JSON string: about 10,000 empty options, one
     formatted traceback each in django.log, and 8 s a load.
+  * Every user docs page answers, and every image it shows is served. The pages
+    are read from the bind-mounted theme, but their images come from the static
+    volume, which only collectstatic fills (at container start): a new image
+    pulled without an app restart is a broken picture on a 200 page.
 
-No model call and no write. The static asset and /seek/search/ are declared for
-every profile, so this runs on prod too.
+No model call and no write. The static asset, /seek/search/ and /docs/ are declared
+for every profile, so this runs on prod too.
 """
 from __future__ import annotations
 
+import re
 import sys
 import time
 from pathlib import Path
@@ -58,13 +63,13 @@ def test_the_served_chat_bundle_is_the_committed_one(anon, base_url):
         assert r.status_code == 200, (
             f"{url} returned {r.status_code}, but the checkout's {CHAT_MANIFEST} names "
             f"{name}: the rebuilt chat bundle was not collected. Run: docker compose "
-            f"exec nextseek uv run manage.py collectstatic --noinput"
+            f"exec web uv run manage.py collectstatic --noinput"
         )
         committed = (REPO_ROOT / CHAT_BUNDLE_DIR / name).read_bytes()
         assert r.content == committed, (
             f"{url} serves {len(r.content)} bytes that differ from the checkout's "
             f"{len(committed)}: the static volume holds another build's {name}. Run: "
-            f"docker compose exec nextseek uv run manage.py collectstatic --noinput"
+            f"docker compose exec web uv run manage.py collectstatic --noinput"
         )
 
 
@@ -120,4 +125,26 @@ def test_seek_search_renders_its_type_dropdown_once_per_type_and_fast(web, base_
         f"during {SEEK_SEARCH_LOADS} loads of /seek/search/: the django.template logger "
         "is at DEBUG, and each record formats a traceback. dmac/settings.py sets it to "
         "INFO; the running app predates that. ./startup.sh rebuild"
+    )
+
+
+def test_every_docs_page_and_its_images_are_served(anon, base_url):
+    readme = (REPO_ROOT / "themes" / "NextSeek" / "docs" / "README.md").read_text()
+    slugs = re.findall(r"^- \[.+?\]\(([\w-]+)\.md\)", readme, re.M)
+    assert slugs, "themes/NextSeek/docs/README.md lists no pages"
+    problems = []
+    for slug in slugs:
+        # Not followed: a docs page that redirects (to a login, say) is not a served page.
+        r = anon.get(f"{base_url}/docs/{slug}/", timeout=60, allow_redirects=False)
+        check_gateway(r)
+        if r.status_code != 200:
+            problems.append(f"/docs/{slug}/ answered {describe_shape(r)}")
+            continue
+        for src in sorted(set(re.findall(r'<img[^>]*\ssrc="(/static/[^"]+)"', r.text))):
+            if anon.get(f"{base_url}{src}", timeout=60, allow_redirects=False).status_code != 200:
+                problems.append(f"/docs/{slug}/ shows {src}, which is not served")
+    assert not problems, (
+        "\n".join(problems) + "\nA missing image means static was not collected after the "
+        "pull: docker compose restart web. A missing page means the running app predates "
+        "the docs route: ./startup.sh rebuild"
     )

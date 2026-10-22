@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 from unittest.mock import MagicMock, patch
 from django.contrib.auth.models import User
@@ -81,3 +83,29 @@ def mock_assistant_permission():
         return_value=True,
     ):
         yield
+
+
+# A turn runs on a daemon thread that keeps saving after its task row is terminal, and the wait
+# helpers return on terminal. With transaction=True the next test flushes the tables under it, and
+# SQLite says "database table is locked: assistant_query_task". Join those threads at teardown.
+TURN_THREAD_MODULES = ("NessieAI.cc.turn", "NessieAI.ns.turn")
+
+
+def join_turn_threads(timeout=30, ignore=()):
+    """Join every live turn thread (target defined in a TURN_THREAD_MODULES module) not in ``ignore``; fail if one
+    outlives timeout."""
+    # ponytail: private Thread._target; a start() wrapper if a turn thread ever stops naming its target.
+    turn = [t for t in threading.enumerate()
+            if t not in ignore and getattr(getattr(t, "_target", None), "__module__", None) in TURN_THREAD_MODULES]
+    for t in turn:
+        t.join(timeout)
+    alive = [t.name for t in turn if t.is_alive()]
+    assert not alive, f"turn threads still running after {timeout}s: {alive}"
+
+
+@pytest.fixture(autouse=True)
+def join_turn_threads_at_teardown():
+    # Threads alive at setup (an earlier test's leak) are that test's to fail on, not every later test's.
+    before = set(threading.enumerate())
+    yield
+    join_turn_threads(ignore=before)

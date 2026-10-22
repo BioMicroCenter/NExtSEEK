@@ -194,34 +194,6 @@
 		});
 	}
 
-	function simple_publishSamples(dg, url_publish) {
-		return simple_publishSamplesAjax(dg, url_publish);
-	}
-
-	function simple_publishSamplesAjax(dg, url_publish) {
-		var rows = dg.datagrid('getRows');
-		if (rows.length == 0) {
-			alert('No sample in the table is selected for publish.');
-			return;
-		}
-		var allIds = [];
-		for (var i = 0; i < rows.length; i++) {
-			var row = rows[i];
-			if (row.ck) {
-				allIds.push(row.id);
-			} else {
-			}
-		}
-		if (allIds.length == 0) {
-			alert('No sample in the table is selected for publish.');
-			return;
-		}
-
-		var url = '/seek/samples/publishlist/' + allIds.toString() + '/';
-		window.open(url);
-		return;
-	}
-
 	function showTimeline(dg) {
 		var url = '/seek/sample_timeline/';
 		var rows = dg.datagrid('getRows');
@@ -326,8 +298,6 @@
 			onclick="simple_downloadSamples($('#simple_dgtable'))">Download samples</a>
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-remove', plain: true"
 			onclick="simple_deleteSamples($('#simple_dgtable'), '/seek/samples/delete/')">Delete samples</a>
-		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-save', plain: true"
-			onclick="simple_publishSamples($('#simple_dgtable'), '/seek/samples/publish/')">Publish samples to FairdomHub</a>
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-save', plain: true"
 			onclick="simple_exportSamples($('#simple_dgtable'), '/seek/samples/export/')">Export samples to Import</a>
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-timeline', plain: true"

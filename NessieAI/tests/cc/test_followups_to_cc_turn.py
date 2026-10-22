@@ -24,6 +24,7 @@ from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from NessieAI.cc import cc_engine
 from NessieAI.cc.cc_provision import ProjectIdentity
 from NessieAI.router import router as cc_router
+from nextseek_api.services.cc_assistant import CCAssistantViewSet
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -72,6 +73,8 @@ def cc_root(tmp_path, monkeypatch):
     root.mkdir()
     monkeypatch.setenv("DMAC_USER_ROOT_MOUNT", str(root))
     monkeypatch.setattr("NessieAI.cc.cc_provision.resolve_user_project", lambda *a, **k: _PROJECT)
+    # A CC turn with no stored login is refused at once (P03-R3); these turns have one.
+    monkeypatch.setattr(CCAssistantViewSet, "_resolve_credentials", lambda self, request: ("fu-user", "x"))
     return root
 
 

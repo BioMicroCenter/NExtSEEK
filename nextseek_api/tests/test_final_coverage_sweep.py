@@ -11,21 +11,6 @@ from unittest.mock import patch, MagicMock
 
 
 # ---------------------------------------------------------------------------
-# batch_upload/checkpoint.py — lines 34-35 (OSError in read_last_checkpoint)
-# ---------------------------------------------------------------------------
-
-class TestCheckpointOSError:
-
-    def test_get_last_checkpoint_uid_oserror(self):
-        from nextseek_api.batch_upload.checkpoint import get_last_checkpoint_uid
-        # Mock os.path.isfile to return True but open to raise OSError
-        with patch("nextseek_api.batch_upload.checkpoint.os.path.isfile", return_value=True), \
-             patch("builtins.open", side_effect=OSError("permission denied")):
-            result = get_last_checkpoint_uid("/some/path", "checkpoint.txt")
-            assert result is None
-
-
-# ---------------------------------------------------------------------------
 # batch_upload/job_index.py — lines 61-62 (JSONDecodeError), 93-94 (OSError)
 # ---------------------------------------------------------------------------
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Independent re-verification of every asserted count in the 2026-08-06 question set.
-S=/tmp/claude-1000/-home-cdemu-code-dmac-docker/7c6b89bb-13b7-48d6-8ccd-7b0eda6e02a0/scratchpad
+S=${SCRATCH:?set SCRATCH to the directory holding q.sh and cy.sh}
 Q() { printf '%-46s %s\n' "$1" "$($S/q.sh "$2" | tr '\n' ' ')"; }
 C() { printf '%-46s %s\n' "$1" "$($S/cy.sh "$2" | tail -n +2 | tr '\n' ' ')"; }
 J="JSON_UNQUOTE(JSON_EXTRACT(s.json_metadata,"

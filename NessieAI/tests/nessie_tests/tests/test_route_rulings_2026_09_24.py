@@ -56,9 +56,9 @@ def _overrides():
 
 
 def _ns_verdict(vid, reply):
-    obs = RouteObservation("nextseek_query", None, "baml", "", "unsupported", "nextseek_query")
+    obs = RouteObservation("container_cc", None, "baml", "", None, "container_cc")
     payload = {"status": "completed", "progress": [
-        {"event": "route_decided", "data": {"route": "nextseek_query", "model_class": None,
+        {"event": "route_decided", "data": {"route": "container_cc", "model_class": None,
                                             "source": "baml", "reasoning": ""}},
         {"event": "query_complete", "data": {"reply": reply}},
     ]}
@@ -67,10 +67,16 @@ def _ns_verdict(vid, reply):
     return ok, [r for r in results if not r.get("passed")]
 
 
-@pytest.mark.parametrize("vid", WRITES + (GEO,))
-def test_writes_and_submissions_expect_nextseek_query(vid):
-    assert _route(vid) == ("eq", "nextseek_query")
-    assert _overrides().get(vid) == {"op": "eq", "value": "nextseek_query"}
+@pytest.mark.parametrize("vid", WRITES)
+def test_writes_expect_container_cc(vid):
+    # 2026-10-21: writes go to container_cc (operator 2026-10-14); the family rule gives the route, no override.
+    assert _route(vid) == ("eq", "container_cc")
+    assert vid not in _overrides()
+
+
+def test_the_geo_submission_expects_nextseek_query():
+    assert _route(GEO) == ("eq", "nextseek_query")
+    assert _overrides().get(GEO) == {"op": "eq", "value": "nextseek_query"}
 
 
 def test_the_recorded_ns_refusal_passes_the_create_case():
@@ -96,7 +102,3 @@ def test_the_summary_case_expects_container_cc_and_no_reporter_plan():
     assert any(c.field == "last_reply" and c.op == "matches_re" and "MetNet" in c.value
                for c in _merged()[SUMMARY].turns[0].pass_criteria)
 
-
-def test_the_refine_recall_seed_accepts_either_route():
-    assert _route(REFINE_RECALL, 0) == EITHER
-    assert _overrides().get(REFINE_RECALL) == {"op": EITHER[0], "value": EITHER[1]}

@@ -87,10 +87,25 @@ EXPECTED_BAKED_FILES = frozenset({
     "capabilities.md",
     "min_api_endpoints.json",
     "min_api_endpoints_enriched.json",
-    "min_assays_db.json",
     "min_sampletypes_db.json",
     "ops.json",
     "projects_db.json",
+    "ONTOLOGIES.json",
+    "ontology_species.json",
+    "ontology_sex.json",
+    "ontology_organ.json",
+    "ontology_disease.json",
+    "ontology_units.json",
+    "ontology_mouse_genotype.json",
+    "ontology_mouse_strain.json",
+    "ontology_library_strategy.json",
+    "ontology_library_source.json",
+    "ontology_library_selection.json",
+    "ontology_library_layout.json",
+    "ontology_extracted_molecule.json",
+    "ontology_instrument_model.json",
+    "ontology_file_format.json",
+    "ontology_genome_assembly.json",
     "read_safe_endpoints.json",
 })
 
@@ -100,9 +115,24 @@ EXPECTED_FROM_SOURCE = frozenset({
     "capabilities.md",
     "min_api_endpoints.json",
     "min_api_endpoints_enriched.json",
-    "min_assays_db.json",
     "min_sampletypes_db.json",
     "projects_db.json",
+    "ONTOLOGIES.json",
+    "ontology_species.json",
+    "ontology_sex.json",
+    "ontology_organ.json",
+    "ontology_disease.json",
+    "ontology_units.json",
+    "ontology_mouse_genotype.json",
+    "ontology_mouse_strain.json",
+    "ontology_library_strategy.json",
+    "ontology_library_source.json",
+    "ontology_library_selection.json",
+    "ontology_library_layout.json",
+    "ontology_extracted_molecule.json",
+    "ontology_instrument_model.json",
+    "ontology_file_format.json",
+    "ontology_genome_assembly.json",
 })
 
 # What the plugin tree's context directory itself holds: the baked-only files.
@@ -136,14 +166,19 @@ EXPECTED_BAKED_ONLY = frozenset({
 # work removed _fetch_neo4j_schema / _ensure_neo4j_schema / _ensure_schema_file from
 # ChatConfig (pinned by NessieAI/tests/chat_nextseek/test_graph_catalog.py), so every name
 # below is a committed file that changes only by hand or, for the three graph fallback files,
-# by scripts/graph_schema_fallback.py. Three database exports in this
-# directory ARE still rewritten daily (min_sampletypes_db.json, min_assays_db.json,
-# projects_db.json, by _ensure_context_files) — those are baked, so they are not listed here.
+# by scripts/graph_schema_fallback.py. Five database exports in this
+# directory ARE still rewritten daily (sampletypes_db.json, min_sampletypes_db.json,
+# assays_db.json, min_assays_db.json, projects_db.json, by _ensure_context_files); the min sample
+# type catalog and projects_db.json are baked, so they are not listed here; the rest are.
 EXPECTED_SOURCE_ONLY = frozenset({
     ".gitignore",                     # not context; _files() uses iterdir(), which keeps dotfiles
-    "assays_db.json",                 # full catalog; the agent gets min_assays_db.json instead
+    "assays_db.json",                 # full catalog; the agent reads the box's assays live (below)
+    # The NS engine's assay catalog (its fallback when the box's dmac.internal_assays cannot be read). The CC agent
+    # no longer gets a copy: one baked list is one box's for every box, so it reads this box's list in the
+    # nextseek-graph-schema op's `assays` field, which test_the_cc_agent_reads_the_assay_list_live_rather_than_baked
+    # below pins.
+    "min_assays_db.json",
     "sampletypes_db.json",            # full catalog; the agent gets min_sampletypes_db.json
-    "nextseek_api.yaml",              # full OpenAPI spec; the agent gets min_api_endpoints*.json
     "neo4j_assay-sample-conn.json",   # pipeline-internal graph connectivity map
     "neo4j_protocol_schema.json",     # pipeline-internal protocol schema
     # The NS-side fallback the graph agent uses when the live catalog cannot be read
@@ -162,11 +197,6 @@ EXPECTED_SOURCE_ONLY = frozenset({
     # request from ChatConfig.FALLBACK_API_ENDPOINTS. The CC agent never builds that body itself:
     # nextseek-api-read hands its parser plan to the same in-app API agent.
     "scope_fallback_endpoints.json",
-    # The nf-core pipeline selector's catalogs (seqera/nfcore_atlas.py, seqera/param_atlas.py). The
-    # selector runs in the app's pipeline agent; the CC agent never selects or configures a pipeline
-    # itself, so it does not need a copy.
-    "nfcore_rna_atlas.json",
-    "nfcore_param_atlas.json",
 })
 
 # ---------------------------------------------------------------------------
@@ -341,6 +371,24 @@ def test_the_cc_agent_reads_the_graph_schema_live_rather_than_baked():
     assert op.assistant_endpoint == "/nextseek_api/assistant/graph-schema/"
 
 
+def test_the_cc_agent_reads_the_assay_list_live_rather_than_baked():
+    """Each box lists the assays its own dmac.internal_assays holds (fix 21), so the list reaches the agent as an op.
+
+    * the image bakes no assay list: a baked one is the checkout's for every box;
+    * the source copy is still there: it is the NS engine's fallback when the table cannot be read;
+    * the graph-schema op, which the agent already calls, says it returns ``assays``.
+    """
+    from NessieAI.cc.op_registry.ops import OPS
+
+    assert "min_assays_db.json" not in image_context_files(), (
+        "an assay list is baked into the cc-agent image again. It is one box's list on every box: the agent reads "
+        "this box's list in the nextseek-graph-schema op's assays field."
+    )
+    assert (SOURCE_DIR / "min_assays_db.json").is_file(), "the NS engine's assay catalog (its fallback) is gone"
+    op = next(o for o in OPS if o.op_id == "graph-schema")
+    assert "assays" in op.skill_row.output, "the graph-schema op no longer advertises the box's assay list"
+
+
 # ---------------------------------------------------------------------------
 # #83: advertised read-safety must equal enforced read-safety
 # ---------------------------------------------------------------------------
@@ -371,7 +419,8 @@ def test_write_gate_loads_the_allowlist_this_guard_watches():
     assert actual.is_file(), (
         f"the write gate's read-safe allowlist is missing from disk at {actual}. "
         "load_allowlist() raises AllowlistMissingError there, which the viewset "
-        "maps to CONFIG_ERROR, so every api-read op fails closed."
+        "maps to AGENT_FAILED (reason internal) at the op view, so every api-read "
+        "op fails closed."
     )
 
 

@@ -1,19 +1,14 @@
-import json
-import io
 import datetime
 import logging
 import os
-import tempfile
+import secrets
 import MySQLdb
 from django.conf import settings
-from django.http import FileResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from rest_framework.pagination import PageNumberPagination
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.openapi import OpenApiExample
 from pydantic import ValidationError
 
@@ -24,9 +19,6 @@ from neo4j.exceptions import AuthError, Neo4jError
 
 # Import legacy classes and functions needed for core logic
 from seek.seekdb import SeekDB
-from seek.dbtable_sample import DBtable_sample
-from seek.timeline.services.timeline_service import run_All, get_event_data
-from seek.timeline.services.nhp_service import save_nhp_info_to_json, get_timeline_data, save_nhp_data
 from .batch_upload.views import BatchUploadViewSet
 
 logger = logging.getLogger(__name__)
@@ -39,7 +31,6 @@ from .serializers import (
     SampleTreeSerializer,
     SampleNodeSerializer,
     SampleRetrieveRequestSerializer,
-    SampleAdvancedRetrieveRequestSerializer,
 )
 from .services.sops import SopProxyViewSet as SopViewSet
 from .services.data_files import DataFileProxyViewSet as DataFileViewSet
@@ -50,6 +41,7 @@ from .services.investigations import InvestigationProxyViewSet as InvestigationV
 from .services.studies import StudyProxyViewSet as StudyViewSet
 from .attributes.views import AttributeViewSet
 from .assay_registration.views import AssayRegistrationViewSet  # noqa: F401
+from .services.sample_shares import SampleShareViewSet  # noqa: F401
 from .services.assays import AssayProxyViewSet as AssayViewSet
 from .services.sample_types import SampleTypeProxyViewSet as SampleTypeViewSet
 from .services.sample_types import SampleTypeChildrenViewSet as SampleTypeChildrenViewSet
@@ -71,7 +63,6 @@ from .services.project_export import ProjectExportViewSet
 from .services.graph_sync_status import GraphSyncStatusViewSet
 from .services.nessie import NessieChatViewSet, NessieViewSet
 from .helpers import resolve_seek_auth
-from nextseek_api.helpers import StandardResultsSetPagination
 from nextseek_api.endpoint_descriptions import SAMPLE_TREE_GET_DESC, ADMIN_SAMPLE_RETRIEVE_DESC
 from nextseek_api.models import (
     SampleTreeResponse,
@@ -180,6 +171,14 @@ def _samples_visible_to_projects(sample_ids, project_ids):
             conn.close()
         except Exception:
             pass
+
+
+def _tree_error(where, exc, http_status):
+    """A fixed error text plus a reference. The exception text (it can carry the graph host) goes to the log, with
+    the same reference, never to the caller."""
+    ref = secrets.token_hex(3)
+    logger.error("%s failed (ref %s): %s", where, ref, exc, exc_info=exc)
+    return Response({"detail": f"{where} failed (ref {ref})"}, status=http_status)
 
 
 class SampleTreeViewSet(viewsets.GenericViewSet):
@@ -381,272 +380,11 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
                 )
                 return Response(response.model_dump(), status=status.HTTP_200_OK)
         except AuthError as e:
-            return Response(
-                {"detail": f"Neo4j authentication failed: {str(e)}"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
-            )
+            return _tree_error("Neo4j authentication", e, status.HTTP_503_SERVICE_UNAVAILABLE)
         except Neo4jError as e:
-            return Response(
-                {"detail": f"Neo4j query failed: {str(e)}"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
-            )
+            return _tree_error("Neo4j query", e, status.HTTP_503_SERVICE_UNAVAILABLE)
         except Exception as e:
-            return Response(
-                {"detail": f"Tree query failed: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-class NHPViewSet(viewsets.GenericViewSet):
-    """
-    ViewSet for NHP (Non-Human Primate) data operations.
-    Extracts core logic from NHP functions without decorator bypass issues.
-    """
-    permission_classes = [IsAuthenticated]
-    
-    @extend_schema(
-        operation_id="Get NHP Info",
-        description="Get NHP info by UID",
-        tags=['Timeline'],
-        responses={200: OpenApiTypes.OBJECT},
-        parameters=[
-            OpenApiParameter(
-                name='id',
-                type=str,
-                location=OpenApiParameter.PATH,
-                description='NHP identifier/name'
-            )
-        ],
-        examples=[
-            OpenApiExample(
-                name="NHP Info Response",
-                value={"id": "FLY001", "metadata": {"info": "example"}}
-            )
-        ]
-    )
-    @action(detail=True, methods=["get"], url_path="info")
-    def info(self, request, pk=None):
-        """Extract core logic from nhp_info function."""
-        try:
-            nhp_info = save_nhp_info_to_json(pk)
-            if nhp_info:
-                return Response(nhp_info, status=status.HTTP_200_OK)
-            else:
-                return Response({"detail": "NHP Info not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    @extend_schema(
-        operation_id="Get NHP Events",
-        description="Get NHP events by UID, event type, and date",
-        tags=['Timeline'],
-        responses={200: OpenApiTypes.OBJECT},
-        parameters=[
-            OpenApiParameter(
-                name='id',
-                type=str,
-                location=OpenApiParameter.PATH,
-                description='NHP identifier/name'
-            ),
-            OpenApiParameter(
-                name='event_type',
-                type=str,
-                location=OpenApiParameter.PATH,
-                description='Type of event (e.g., feeding, medication)'
-            ),
-            OpenApiParameter(
-                name='date',
-                type=str,
-                location=OpenApiParameter.PATH,
-                description='Date in YYYY-MM-DD format'
-            )
-        ],
-        examples=[
-            OpenApiExample(
-                name="Event Data Response",
-                value={"event_type": "feeding", "date": "2023-01-01", "data": {}}
-            )
-        ]
-    )
-    @action(detail=True, methods=["get"], url_path=r"events/(?P<event_type>[^/]+)/(?P<date>[^/]+)")
-    def events(self, request, pk=None, event_type=None, date=None):
-        """Extract core logic from fetch_event_data function."""
-        if not pk:
-            return Response({"detail": "NHP data not found"}, status=status.HTTP_404_NOT_FOUND)
-        try:
-            event_data = get_event_data(pk, event_type, date)
-            if event_data:
-                return Response(event_data, status=status.HTTP_200_OK)
-            else:
-                return Response({"detail": "Event data not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    @extend_schema(
-        operation_id="Get NHP Timeline Data",
-        description="Get NHP timeline by UID",
-        tags=['Timeline'],
-        responses={200: OpenApiTypes.OBJECT},
-        parameters=[
-            OpenApiParameter(
-                name='id',
-                type=str,
-                location=OpenApiParameter.PATH,
-                description='NHP identifier/name'
-            )
-        ],
-        examples=[
-            OpenApiExample(
-                name="Timeline Data Response",
-                value={"timeline": "data"}
-            )
-        ]
-    )
-    @action(detail=True, methods=["get"], url_path="timeline")
-    def timeline(self, request, pk=None):
-        """Extract core logic from get_nhp_data function."""
-        try:
-            timeline_data = run_All(pk)
-            if timeline_data:
-                return Response(timeline_data, status=status.HTTP_200_OK)
-            else:
-                return Response({"detail": "Event Data not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    @extend_schema(
-        operation_id="Download NHP Data",
-        description="Download NHP data as Excel file by UID",
-        tags=['Timeline'],
-        responses={200: OpenApiTypes.STR},
-        parameters=[
-            OpenApiParameter(
-                name='id',
-                type=str,
-                location=OpenApiParameter.PATH,
-                description='NHP identifier/name'
-            )
-        ],
-    )
-    @action(detail=True, methods=["get"], url_path="download")
-    def download(self, request, pk=None):
-        """Extract core logic from download_nhp_data function."""
-        try:
-            timeline_data = get_timeline_data(pk)
-            if not timeline_data:
-                return Response({"detail": "NHP data not found"}, status=status.HTTP_404_NOT_FOUND)
-            
-            # Convert to Excel
-            excel_data = save_nhp_data(timeline_data)
-            
-            # Create a streaming response with proper content type
-            response = FileResponse(
-                io.BytesIO(excel_data),
-                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                as_attachment=True,
-                filename=f"{pk}_data.xlsx"
-            )
-            return response
-        except Exception as e:
-            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-class SampleQueryViewSet(viewsets.GenericViewSet):
-    """
-    ViewSet for sample query operations with pagination.
-    Extracts core logic from retrieveSamples and converts HttpResponse to DRF Response.
-    """
-    permission_classes = [IsAuthenticated]
-    pagination_class = StandardResultsSetPagination
-    
-    @extend_schema(
-        responses={200: OpenApiTypes.OBJECT},
-        operation_id="Simple Sample Search",
-        description="Simple sample retrieval via stable SQL path (FILTERING).",
-        request=SampleAdvancedRetrieveRequestSerializer,
-        tags=['Samples'],
-        examples=[
-            OpenApiExample(
-                name="Keyword within json_metadata",
-                value={
-                    "sampletype_id": 12,
-                    "attribute": "none",
-                    "filter_valueFrom": "SARS-CoV-2",
-                    "project_id": 0
-                }
-            ),
-            OpenApiExample(
-                name="Attribute-based range",
-                value={
-                    "sampletype_id": 12,
-                    "attribute": "CollectionDate",
-                    "filter_rule": "range",
-                    "filter_valueFrom": "2023-01-01",
-                    "filter_valueTo": "2023-12-31",
-                    "project_id": 0
-                }
-            ),
-        ],
-    )
-    @action(detail=False, methods=["post"], url_path="retrieve")
-    def retrieve_samples(self, request):
-        """
-        Extract core logic from retrieveSamples function.
-        Convert HttpResponse to DRF Response and add pagination.
-        """
-        # Core logic extracted from retrieveSamples (lines 892-896)
-        # Gate using BASIC header or session only (no token)
-        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-        if not basic_tuple:
-            return Response(
-                {"detail": "Authentication required"}, 
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        
-        dbsample = DBtable_sample()
-        try:
-            # Validate advanced search body
-            params = SampleAdvancedRetrieveRequestSerializer(data=request.data)
-            params.is_valid(raise_exception=True)
-            body = params.validated_data
-
-            # Build filters expected by __parseSearchFilters for searchType "FILTERING"
-            filters = {
-                'sampletype_id': body.get('sampletype_id'),
-                'attribute': body.get('attribute', 'none') or 'none',
-                'filter_rule': body.get('filter_rule'),
-                'filter_valueFrom': body.get('filter_valueFrom'),
-                'filter_valueTo': body.get('filter_valueTo'),
-            }
-            project_id = int(body.get('project_id') or 0)
-
-            # Execute advanced retrieval (stable SQL path) and return JSON
-            # Reconstruct minimal user_seek dict required by legacy code when using BASIC header
-            if isinstance(basic_tuple, tuple):
-                user_seek = {'status': True, 'username': basic_tuple[0], 'password': basic_tuple[1]}
-            else:
-                seekdb = SeekDB(None, None, None)
-                user_seek = seekdb.getSeekLogin(request, False)
-
-            reportData = dbsample.searchAdvanced(user_seek, filters, 'FILTERING', project_id)
-        except Exception as e:
-            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-        # Convert underlying JSON string to DRF Response
-        try:
-            payload = json.loads(reportData)
-        except json.JSONDecodeError:
-            return Response({"data": reportData}, status=status.HTTP_200_OK)
-
-        # Paginate rows array if present
-        if isinstance(payload, dict) and isinstance(payload.get('rows'), list):
-            paginator = self.pagination_class()
-            page = paginator.paginate_queryset(payload['rows'], request)
-            # Keep other keys (e.g., msg/status) while replacing rows with the page
-            paginated_payload = {k: v for k, v in payload.items() if k != 'rows'}
-            paginated_payload['rows'] = page
-            return paginator.get_paginated_response(paginated_payload['rows'])
-
-        return Response(payload, status=status.HTTP_200_OK)
+            return _tree_error("Tree query", e, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class AdminSampleViewSet(viewsets.GenericViewSet):

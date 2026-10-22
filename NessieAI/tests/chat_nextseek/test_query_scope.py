@@ -1161,6 +1161,25 @@ def test_a_gpt_keyword_over_the_gpt_type_label_is_applied():
     assert scope.not_applied == []
 
 
+def test_the_graph_names_are_the_contracts():
+    # The Sample system properties and the type label rule are the graph contract's (nextseek_graph/schema.py). A
+    # restated literal would give equal values, so the assignments themselves must read the contract.
+    import ast
+    import inspect
+
+    from chat_nextseek.graph_contract import schema
+    from chat_nextseek.helpers import query_scope
+
+    assert query_scope._SYSTEM_PROPERTIES == schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12
+    for code in ("RNA", "D.SEQ", "X Y-1"):
+        assert query_scope._type_label(code) == schema.type_label(code)
+    bound = {target.id: ast.unparse(node.value) for node in ast.parse(inspect.getsource(query_scope)).body
+             if isinstance(node, ast.Assign) for target in node.targets if isinstance(target, ast.Name)}
+    assert bound["_SYSTEM_PROPERTIES"] == "schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12"
+    assert "schema.TYPE_LABEL_PATTERN" in bound["_GRAPH_LABEL"]
+    assert "return schema.type_label(code)" in inspect.getsource(query_scope._type_label)
+
+
 # --- A2 (N8): a type reached only through a tag the user did not write is not asked for ---------------------------------
 
 _TAGS = {"QZ": ["crystal lattice", "geode", "mineral assembly"], "WV": ["oscillation trace", "WV", "spectral analysis"]}
@@ -1232,3 +1251,72 @@ def test_a_tag_written_in_an_ies_or_es_plural_keeps_the_caveat(code, name, quest
 def test_a_longer_word_on_a_tag_stem_is_not_the_tag(code, name, question):
     scope = _type_scope(question, code=code, name=name)
     assert not scope.not_applied, scope.not_applied
+
+
+# ---- R5 G1: a word the query searched as text, an SOP title, a document adjective ----
+
+def _g1(question, ent, graph=None, api=None, parser=None, tags=None):
+    return describe_query_scope(
+        entity_result={"sampletypes": [], "assays": [], "projects": [], "keywords": [], **ent},
+        parser_plan=parser or {"mode": "graph_query", "filters": {}},
+        graph_plan=graph, api_plan=api, user_query=question, type_tags=tags,
+    )
+
+
+@pytest.mark.parametrize("question, code, name, tag_list, param, value", [
+    ("How many samples were acquired on the Cytek Aurora spectral cytometer?", "D.FLOW",
+     "Flow Cytometry Data", ["flow cytometry", "Cytek Aurora"], "instrument", "cytek aurora"),
+    ('Try that search again with "Water" instead of "Water Study"', "WTR",
+     "Water Sample", ["water sample", "water"], "study", "Water"),
+    ("Which samples come from the paper about polyploid MDA-MB-231 cells?", "CEL",
+     "Cell", ["cell", "cell line"], "study_title", "Polyploidy of MDA-MB-231 cells drives adhesion"),
+])
+def test_a_type_word_the_query_searched_as_text_is_not_a_dropped_type(question, code, name, tag_list, param, value):
+    graph = {"cypher": f"MATCH (s:Sample) WHERE toLower(s.x) CONTAINS toLower(${param}) RETURN s.id",
+             "parameters": {param: value}}
+    scope = _g1(question, {"sampletypes": [{"code": code, "name": name}]}, graph=graph, tags={code: tag_list})
+    assert scope.not_applied == [], scope.not_applied
+
+
+def test_a_type_asked_by_code_with_no_matching_constraint_is_still_listed():
+    graph = {"cypher": "MATCH (s:Sample) WHERE s.x CONTAINS $t RETURN s.id", "parameters": {"t": "liver"}}
+    scope = _g1("How many RNA samples mention liver?", {"sampletypes": [{"code": "RNA", "name": "RNA Sample"}]},
+                graph=graph, tags={"RNA": ["rna", "total rna"]})
+    assert any("RNA" in label for label in scope.not_applied), scope.not_applied
+
+
+def test_an_assay_inside_an_applied_sop_title_is_applied():
+    title = "P.GRI-231030-V1_Cell_Culture_and_Organoid_Generation_Protocol.docx"
+    scope = _g1(
+        "Give me the file for the SOP titled " + title,
+        {"assays": [{"code": "Cell Culture and Organoid Generation", "name": "Cell Culture and Organoid Generation"}],
+         "keywords": [title]},
+        api={"endpoint": f"/nextseek_api/sops/{title}/", "requestBody": {}, "queryParameters": {}},
+        parser={"mode": "new_search", "filters": {"keywords": [title]}, "target_endpoint": "/nextseek_api/sops/"},
+    )
+    assert scope.not_applied == [], scope.not_applied
+
+
+def test_a_project_named_as_a_paper_adjective_is_not_asked():
+    graph = {"cypher": "MATCH (s:Sample) WHERE $doi IN s.DOI RETURN s.id", "parameters": {"doi": "10.1/x"},
+             "project_titles": {"MetNet": "MetNet"}}
+    scope = _g1("Which samples come from the MetNet paper?", {"projects": ["MetNet"]}, graph=graph)
+    assert scope.not_applied == [], scope.not_applied
+
+
+@pytest.mark.parametrize("question, code, name, tags, value", [
+    # "<type> samples" in the question, a tag of the type inside the title the query matched, no type constraint.
+    ("How many water samples are in the Delta SRP project?", "WTR", "Water Sample",
+     ["water sample", "water", "Superfund", "SRP"], "Delta_SRP"),
+    ("How many tissue samples are in the Gamma Tissue Atlas study?", "TIS", "Tissue Sample",
+     ["tissue", "biopsy"], "Gamma Tissue Atlas"),
+    ("How many mouse samples are in the CC study?", "MUS", "Mouse", ["mouse", "CC"], "CC"),
+    # The catalog name, which ends in Sample, written in the question.
+    ("Count the Water Sample records in the Delta SRP project", "WTR", "Water Sample",
+     ["water sample", "water", "Superfund", "SRP"], "Delta_SRP"),
+])
+def test_a_type_asked_as_samples_is_listed_when_only_a_title_holds_its_tag(question, code, name, tags, value):
+    graph = {"cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE st.title = $t RETURN count(DISTINCT s) AS n",
+             "parameters": {"t": value}}
+    scope = _g1(question, {"sampletypes": [{"code": code, "name": name}]}, graph=graph, tags={code: tags})
+    assert any(code in label for label in scope.not_applied), scope.not_applied

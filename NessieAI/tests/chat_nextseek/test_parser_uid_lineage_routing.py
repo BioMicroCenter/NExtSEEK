@@ -34,7 +34,7 @@ def _plan(mode="new_search", **over) -> ParserPlan:
     # (agents/parser.py, _route_retired_sample_search), so it cannot show which route the lineage guard chose.
     base = dict(
         mode=mode,
-        target_endpoint="/nextseek_api/sample-tree/{uid}/tree/",
+        target_endpoint="/nextseek_api/samples/retrieve/",
         intent_summary="",
         filters=ParserFilters(),
     )

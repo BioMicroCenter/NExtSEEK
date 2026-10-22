@@ -9,9 +9,11 @@ from pydantic import BaseModel, ValidationError
 
 from .. import call_scope, turn_spend
 from ..config import ChatConfig
+from . import call_speed
 from .call_budgets import DEFAULT_BUDGET, budget_for
 from ..helpers import log_prompt, log_usage, log_llm_call, safe_parse_json
 from ..llm_clients import (
+    BedrockClient,
     LLMAPIConnectionError,
     LLMError,
     LLMModelUnusableError,
@@ -618,6 +620,15 @@ class _Failover:
         self.accept = accept
         self.timeout_marks = timeout_marks
         self.move_reserve = move_reserve  # False: under a deadline the first try keeps what is left (option A)
+        # Round 6: inside an op some agents cut their first try further (call_budgets.CallBudget.op_first_try_s).
+        # chain_label is the key budget_for is looked up by (call_llm_structured's _chain_key).
+        self.op_first_s = budget_for(chain_label).op_first_try_s
+        # Round 6: the graph agent takes the move reserve only inside an op, never under a nested NS turn's deadline.
+        self.reserve_only_in_op = budget_for(chain_label).move_reserve_only_in_op
+        # Round 7 (T4): inside an op the first try follows the measured speed (call_budgets.CallBudget.op_speed_k).
+        self.op_speed_k = budget_for(chain_label).op_speed_k
+        self.op_speed_floor_s = budget_for(chain_label).op_speed_floor_s
+        self.op_speed_median_s: float | None = None  # the median the window followed, for the ledger record
         self.scope = call_scope.current()
         self.attempt = 0  # the caller's attempt index, for a record written between attempts
         self.capped = False  # whether the scope's deadline cut this attempt's window
@@ -738,9 +749,11 @@ class _Failover:
 
         With no deadline it is the call's own window. Under one, a first try that can still
         move leaves ``MOVE_RESERVE_S`` for the move (never below ``MIN_FIRST_TRY_S``), unless
-        its agent's budget says ``op_move_reserve=False`` (the graph agent, the report writer),
+        its agent's budget says ``op_move_reserve=False`` (the report writer), or says
+        ``move_reserve_only_in_op`` (the graph agent) and the scope is not an op (a nested NS turn),
         and any attempt gets at most what is left. With ``DEADLINE_FLOOR_S`` or less left, no call
         starts: ``LLMFatalError`` with ``reason="deadline"``, and one ``deadline`` ledger record.
+        Inside an op (``scope.is_op``) an agent with ``op_first_try_s`` gets at most that on its first try.
         """
         self.capped = False
         remaining = self.scope.remaining() if self.scope is not None else None
@@ -757,7 +770,15 @@ class _Failover:
                 reason="deadline", unavailable=False,
             )
         window = self.window
-        if self.move_reserve and not self.switches and self._can_move():
+        if not self.switches and self.op_first_s is not None and self.scope.is_op:
+            window = min(window, self.op_first_s)
+        if not self.switches and self.op_speed_k is not None and self.scope.is_op:
+            median = call_speed.median_first_try(getattr(self.config, "LOG_DIR", None), self.agent_label, self.model)
+            self.op_speed_median_s = median
+            if median is not None:
+                window = min(self.window, max(self.op_speed_k * median, self.op_speed_floor_s))
+        reserve = self.move_reserve and (self.scope.is_op or not self.reserve_only_in_op)
+        if reserve and not self.switches and self._can_move():
             window = min(window, max(remaining - call_scope.MOVE_RESERVE_S, call_scope.MIN_FIRST_TRY_S))
         window = min(window, remaining)
         self.capped = window < self.window
@@ -784,6 +805,16 @@ class _Failover:
         """The call's end: ``reason`` is the failure that ended it; the move it made goes in ``model_fallback``."""
         return LLMFatalError(message, agent=self.agent_label, unavailable=unavailable,
                              model_fallback=self.moves, reason=reason)
+
+
+def _keeps_cache_point(current_client, current_model: str, client, model_name: str) -> bool:
+    """A cache point rides only on a Bedrock client that has not moved (the tool loop's rule)."""
+    return current_client is client and current_model == model_name and isinstance(client, BedrockClient)
+
+
+def _without_cache_point(messages: list[dict]) -> list[dict]:
+    return [{k: v for k, v in m.items() if k != "cache_point"} if isinstance(m, dict) and "cache_point" in m else m
+            for m in messages]
 
 
 def _call_with_recovery(
@@ -902,6 +933,12 @@ def _call_with_recovery(
             timeout_seconds=_timeout, thinking_budget=fo.budget, deadline_capped=fo.capped,
             **kw, **fo.take_pending(),
         )
+        if fo.op_speed_median_s is not None and not fo.switches:
+            entry["op_speed_median_s"] = fo.op_speed_median_s
+        if outcome == "timeout":
+            # Round 6 (SPEC-1 T5): the prompt's size, so turn_spend can price a call nobody saw answer.
+            entry["prompt_chars"] = sum(len(str(m.get("content") or "")) for m in attempt_messages
+                                        if isinstance(m, dict))
         log_llm_call(config.LOG_DIR, entry)
         turn_spend.record_call(entry, resp=kw.get("resp"), err=kw.get("err"))
 
@@ -916,7 +953,8 @@ def _call_with_recovery(
                 client=fo.client,
                 model_name=fo.model,
                 temperature=temperature,
-                messages=attempt_messages,
+                messages=attempt_messages if _keeps_cache_point(fo.client, fo.model, client, model_name)
+                else _without_cache_point(attempt_messages),
                 response_format=response_format,
                 timeout_seconds=_timeout,
                 thinking_budget=fo.budget,

@@ -2,7 +2,7 @@ import yaml
 from pathlib import Path
 import chat_nextseek.luria.submitter as sub
 
-LE = {"user": "cdemu", "host": "luria.mit.edu", "key": "/k", "working_path": "/net/x"}
+LE = {"user": "alice", "host": "luria.mit.edu", "key": "/k", "working_path": "/net/x"}
 
 
 def _fixture(tmp_path):
@@ -398,3 +398,12 @@ def test_submit_executor_block_sits_before_the_process_args(tmp_path, monkeypatc
                     process_args={"SIMPLEAF_QUANT": "--knee"})
     cfg = staged["luria.config"]
     assert cfg.index("executor {") < cfg.index("withName: '.*:SIMPLEAF_QUANT'")
+
+
+def test_build_params_yml_refuses_shell_syntax():
+    # The params file the Luria node runs from is the last place a steered value can be stopped.
+    import pytest
+    from chat_nextseek.luria.submitter import _build_params_yml
+    with pytest.raises(ValueError, match="multiqc_title"):
+        _build_params_yml({"multiqc_title": "`id`", "aligner": "star_salmon"})
+    assert "star_salmon" in _build_params_yml({"aligner": "star_salmon", "genome": "GRCm39"})

@@ -15,6 +15,7 @@ export interface ProgressEvent {
     | QueryCompleteData
     | QueryErrorData
     | RouteDecidedData
+    | PreludeStepData
     | CcTurnMetaData
     | Record<string, unknown>;
 }
@@ -25,6 +26,17 @@ export interface RouteDecidedData {
   model_class?: string;
   source?: string;
   reasoning?: string;
+  router_elapsed_s?: number;
+  vocabulary_elapsed_s?: number | null;
+}
+
+/** A routing step reported before the engine runs (Reading your question, Choosing an engine, Vocabulary ready). */
+export interface PreludeStepData {
+  label: string;
+  /** Seconds the vocabulary took, on "Vocabulary ready". */
+  elapsed_s?: number | null;
+  /** How the vocabulary pre-run ended, on "Vocabulary ready": completed, late, failed, cancelled, skipped. */
+  outcome?: string | null;
 }
 
 /** Container-CC turn parameters, emitted just before the CC turn starts. */
@@ -204,6 +216,8 @@ export interface Turn {
    * hydrate path stamps these with the turn's own `ts`.
    */
   debug_entries?: HydratedDebugEntry[];
+  /** The reviewer's chips (#128) the turn offered, saved with it. */
+  suggestions?: Suggestion[];
 }
 
 // A debug entry as it arrives from the server, before the client adds a Date.

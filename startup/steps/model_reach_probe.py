@@ -89,7 +89,7 @@ VALID_MODES = (
 # The agents that run a tool loop (tool_loop.call_tools). A loop moves only to a
 # client with a tool surface (tool_loop._tool_capable), which is the Bedrock client
 # alone. Pinned to the call sites by startup/tests/test_model_reach.py.
-TOOL_LOOP_AGENTS = ("followup", "pipeline_agent")
+TOOL_LOOP_AGENTS = ("followup", "pipeline_agent", "system")
 TOOL_CAPABLE_PROVIDERS = ("anth",)
 
 # Catalog provider -> (path, the env var holding its credential).

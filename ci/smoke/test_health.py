@@ -33,7 +33,8 @@ from ci.smoke.assertions import check_gateway, describe_shape
 def test_api_root_advertises_exactly_the_expected_viewsets(api, base_url):
     """A changed router registration is a real regression and this is the cheapest
     way to see it. Measured: exactly 15 keys; samples/graph_search (2026-09-14)
-    makes 16, samples/retrieve (the download API's new path, 2026-09-24) 17."""
+    makes 16, samples/retrieve (the download API's new path, 2026-09-24) 17, sample-shares (the studies tool's
+    share mode, 2026-10-01) 18."""
     r = api.get(f"{base_url}/nextseek_api/", timeout=30)
     check_gateway(r)
     assert r.status_code == 200
@@ -41,7 +42,7 @@ def test_api_root_advertises_exactly_the_expected_viewsets(api, base_url):
         "assay-registrations", "assays", "attributes", "batch-upload",
         "data_files", "investigations", "people", "projects", "sample_types",
         "sample_types/connections", "samples", "samples/advanced_search",
-        "samples/graph_search", "samples/retrieve", "sops", "studies", "users",
+        "samples/graph_search", "samples/retrieve", "sample-shares", "sops", "studies", "users",
     }
     got = set(r.json())
     assert got == expected, (
@@ -79,7 +80,7 @@ def test_identity_probe_responds(api, base_url, smoke_creds):
     """Run this first when triaging. It proves MySQL and SEEK Rails are both up.
 
     It deliberately does NOT assert *which* person comes back; that is the next
-    test, which currently fails for a real reason.
+    test.
     """
     r = api.get(f"{base_url}/nextseek_api/people/current/", timeout=60)
     check_gateway(r)
@@ -92,28 +93,32 @@ def test_identity_probe_responds(api, base_url, smoke_creds):
     assert r.json().get("data", {}).get("id"), "no person in the response body"
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Two different authenticated accounts are reported as the same SEEK "
-        "person. Measured 2026-09-01 on the local stack. Cause and fix are "
-        "recorded in the private findings note, which this public repo does "
-        "not carry. Flips to XPASS when the proxy client is fixed."
-    ),
-    strict=False,
-)
 def test_seek_identity_matches_the_authenticated_caller(api, base_url, smoke_creds):
     """The API must report the caller's own SEEK identity, not somebody else's.
 
     This is not cosmetic. Project scoping and the participating-project
     permission both key off the SEEK person, so resolving the wrong one decides
     authorization against the wrong account.
+
+    SEEK puts ``login`` on a person only when the caller is a SEEK admin
+    (``PersonSerializer``: ``attribute :login, if: -> { User.current_user&.is_admin? }``),
+    and the smoke account is not one, so its own record comes back without it.
+    The proof is ``/nextseek_api/attributes/``: on every request it asks SEEK's
+    ``/people/current`` with the caller's own credential and refuses (401) unless
+    that person is the one bound to this login in SEEK's ``users`` table.
     """
     r = api.get(f"{base_url}/nextseek_api/people/current/", timeout=60)
     check_gateway(r)
     assert r.status_code == 200
     login = r.json().get("data", {}).get("attributes", {}).get("login")
-    assert login == smoke_creds[0], (
+    assert login in (None, smoke_creds[0]), (
         f"authenticated as {smoke_creds[0]!r} but SEEK reports {login!r}"
+    )
+    r = api.get(f"{base_url}/nextseek_api/attributes/", timeout=60)
+    check_gateway(r)
+    assert r.status_code == 200, (
+        f"SEEK's current person is not the one bound to {smoke_creds[0]!r}: "
+        f"/nextseek_api/attributes/ answered {r.status_code}: {r.text[:200]}"
     )
 
 
@@ -157,13 +162,6 @@ def test_edge_attributes_are_enriched(api, base_url):
     )
 
 
-@pytest.mark.xfail(
-    reason="34 sample types have no attribute definitions, so this endpoint "
-           "refuses to emit metadata_fields and returns an application-level 502. "
-           "Measured on the local stack 2026-09-01. A data condition, not a "
-           "deployment failure. Flips to XPASS when the data is fixed.",
-    strict=False,
-)
 def test_entity_tree_nodes(api, base_url):
     r = api.get(f"{base_url}/nextseek_api/entity_tree/nodes/", timeout=90)
     check_gateway(r)
@@ -211,18 +209,17 @@ def test_seek_page_bounces_an_anonymous_visitor(anon, base_url, path):
     )
 
 
-def test_assistant_denies_anonymous_visitors_at_status_200(anon, base_url):
-    """Pins a known wart rather than pretending it is not there.
+def test_assistant_redirects_anonymous_visitors_to_login(anon, base_url):
+    """An anonymous visitor is sent to the login page and never gets the assistant.
 
-    smartSearch checks request.user.is_authenticated and renders an error
-    template with HTTP 200 instead of redirecting. Nothing sensitive is served,
-    but it means a status-code sweep cannot tell allowed from denied here. If
-    this ever starts returning 302 the assertion should be tightened, not
-    deleted.
+    Until the 1 Oct 2026 UI fixes, smartSearch rendered an error template with
+    HTTP 200 instead of redirecting, and this test pinned that wart. It now
+    redirects, so the assertion is tightened as the old docstring asked.
     """
     r = anon.get(f"{base_url}/seek/assistant/", timeout=60, allow_redirects=False)
     check_gateway(r)
-    assert r.status_code == 200
+    assert r.status_code == 302, f"expected a redirect to the login page, got {r.status_code}"
+    assert "login" in r.headers.get("Location", ""), r.headers.get("Location")
     body = r.text.lower()
     assert "chat-assistant-root" not in body, (
         "the assistant mount point was served to an anonymous visitor"

@@ -1,8 +1,10 @@
+import os
 import json
 from pathlib import Path
 
 import pytest
 
+from NessieAI.paths import NESSIE_CORPUS
 from NessieAI.tests.nessie_tests import evaluate
 from NessieAI.tests.nessie_tests.route_observer import RouteObservation
 
@@ -413,7 +415,7 @@ def test_the_unobservable_prefix_tuple_is_pinned():
 # run's signal is lost.
 # --------------------------------------------------------------------------- #
 
-# The real string, copied from /home/cdemu/nessie-run-seed6b/turns.json. The
+# The real string, copied from the seed6b run's turns.json. The
 # U+FFFD between "exhausted" and "agent" is a genuine mojibake in the stored
 # evidence (the source emits an em dash); the detector deliberately matches the
 # PHRASE only, so the separator can be anything.
@@ -481,8 +483,10 @@ def test_the_detector_lives_in_exactly_one_module():
     assert consistency.is_provider_outage is outage.is_provider_outage
 
     root = Path(evaluate.__file__).resolve().parent
-    defines = sorted(p.name for p in root.glob("*.py")
-                     if outage.PROVIDER_OUTAGE_MARKER in p.read_text(encoding="utf-8"))
+    harness = Path(outage.__file__).resolve().parent  # outage.py lives in NessieAI/nessie_harness
+    defines = sorted(p.name for d in (root, harness) for p in d.glob("*.py")
+                     if outage.PROVIDER_OUTAGE_MARKER in p.read_text(encoding="utf-8")
+                     and "Alias of" not in p.read_text(encoding="utf-8"))
     assert defines == ["outage.py"], f"the marker phrase is duplicated in {defines}"
 
 
@@ -491,7 +495,7 @@ def test_the_detector_lives_in_exactly_one_module():
 # manifest and the real turn log.
 # --------------------------------------------------------------------------- #
 
-_EVIDENCE = Path("/home/cdemu/nessie-run-seed6b")
+_EVIDENCE = Path(os.environ.get("NESSIE_SEED6B_DIR", "nessie-run-seed6b"))
 _TURNS = _EVIDENCE / "turns.json"
 _MANIFEST = _EVIDENCE / "manifest.json"
 
@@ -854,8 +858,9 @@ def test_the_one_mixed_route_variant_in_a_floored_family_now_passes():
         _TREE_CC_FOLLOWUP, list(follow.pass_criteria), OBS_CC,
         last_reply="38 of them are sequencing samples.")
     assert not follow_passed
+    # 2026-10-07 test-set review (SPEC-2, graph-search grading): the follow-up turn also carries its own follow-up mode check, which a CC-routed turn fails
     assert [r["field"] for r in follow_results
-            if not r["passed"] and not r.get("skipped")] == ["route"]
+            if not r["passed"] and not r.get("skipped")] == ["route", "parser_plan.mode"]
     assert {r["field"] for r in follow_results if r.get("skipped")} == {
         "chat_log.length", "outcome_observed"}
 
@@ -886,7 +891,9 @@ def test_it_is_still_the_only_multi_turn_variant_in_a_floored_family():
     multi = [v.id for v in corpus.merged(corpus_json)
              if v.family in floors and len(v.turns) > 1]
 
-    assert multi == ["tree.then_ask_about"]
+    assert multi == ["tree.then_ask_about", "report.geo_for_those_mice", "report.geo_package_the_picked_two",
+                     "report.geo_package_empty_result_asks", "harmon.onto_mouse_genotype_slide",
+                     "harmon.onto_offer_after_listing"]  # 2026-10-13 harmo_onto: two multi-turn harmonization cases. 2026-10-14, big-merge dev review siblings: + report.geo_for_those_mice (submission_package, tagged no_floor)
     assert corpus.variant_meta(corpus_json)["retrieve.then_inspect"]["status"] == "retired"
 
 
@@ -1266,7 +1273,7 @@ def test_reply_length_criterion_is_engine_neutral_and_scored_on_a_forced_cc_arm(
 
 def test_cannot_do_this_analysis_cases_cap_the_reply_length():
     from NessieAI.tests.nessie_tests import corpus
-    raw = json.loads((Path(corpus.__file__).parent / "corpus.json").read_text())
+    raw = json.loads((NESSIE_CORPUS).read_text())
     found = []
     def walk(o):
         if isinstance(o, dict):
@@ -1278,3 +1285,72 @@ def test_cannot_do_this_analysis_cases_cap_the_reply_length():
     walk(raw)
     crits = found[0]["turns"][0]["pass_criteria"]
     assert {"field": "last_reply.lines", "op": "lte", "value": 12} in crits
+
+
+# Fix 3 (U7): a last_reply regex reads the reply proper, never the Debug info block.
+_DBG = "\n\n**Debug info**\n\n```json\n{\"intent_summary\": \"study title cohort 4 week\"}\n```"
+
+
+def _reply_check(reply, pattern):
+    crit = [{"field": "last_reply", "op": "matches_re", "value": pattern}]
+    return evaluate.evaluate_turn(NS_PAYLOAD, crit, OBS_NS, last_reply=reply)[0]
+
+
+@pytest.mark.parametrize("pattern", [r"(?i)\btitle", r"(?i)cohort", r"4[- ]?week"])
+def test_reply_check_ignores_debug_block(pattern):
+    assert not _reply_check("There are 18 samples." + _DBG, pattern)
+
+
+@pytest.mark.parametrize("reply,pattern", [
+    ("Matched on the study title." + _DBG, r"(?i)\btitle"),
+    ("Cohort value used." + _DBG, r"(?i)cohort"),
+    ("A plain reply with no debug block: 4 week", r"4[- ]?week"),
+])
+def test_reply_check_passes_on_reply_proper(reply, pattern):
+    assert _reply_check(reply, pattern)
+
+
+# 2026-10-13 harmo_onto review S6: a harmonize turn must not pass on a reply that only re-lists the
+# stored values and offers to act, nor on a proposal that does not ask before the workbook.
+_ONTO_TURNS = {  # case id -> (turn index, a re-list with an offer, a proposal from the ontology, its ask)
+    "harmon.onto_imaging_datatype_house_terms": (0,
+        "DataType values: tif 1,754, TIF 1, czi 69, .czi 360, CZI 2. Would you like me to harmonize them?",
+        "Matched against Data file format (https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_file_format.json).\n"
+        "| Before | Samples | After | Ontology |\n|---|---|---|---|\n| tif | 1,754 | TIF | EDAM:format_3591 |\n"
+        "| .czi | 360 | CZI | |\nThe house list spells file types in capitals.", "Shall I build the workbook?"),
+    "harmon.onto_cell_species": (0,
+        "Species values: Homo sapiens 191, homo sapiens 154, Homo Sapiens 9. Should I harmonize them?",
+        "Matched against Species (https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_species.json).\n"
+        "| Before | Samples | After | Ontology |\n|---|---|---|---|\n| homo sapiens | 154 | Homo sapiens | "
+        "NCBITaxon:9606 |", "Shall I build the update workbook?"),
+    "harmon.onto_mouse_genotype_slide": (1,
+        "Genotypes: RaDR+/+; GPT+/+ 1,111; RGAM 141; RG 95. Want me to harmonize them?",
+        "Matched against Mouse genotypes (https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_mouse_genotype.json).\n"
+        "| Before | Samples | After | Ontology |\n|---|---|---|---|\n| RG | 95 | RaDR+/+; GPT+/+ | Mouse genotypes, house list |\n"
+        "| RGAM | 141 | RaDR+/+; GPT+/+; Aag -/-; Mgmt-/- | Mouse genotypes, house list |\n"
+        "GX (2) fits no term: what does it stand for?", "Shall I go ahead?"),
+    "harmon.onto_library_layout": (0,
+        None,  # no re-list check: the house term is also the most common spelling, so no reply text tells them apart
+        "Matched against Library layout (https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_library_layout.json).\n"
+        "| Before | Samples | After | Ontology |\n|---|---|---|---|\n| PAIRED | 705 | Paired End | Library layout, house list |\n"
+        "3DGE (384) fits no layout term: it is a prep method.", "Shall I build the update workbook?"),
+}
+
+
+def _onto_turn_passes(vid, reply):
+    from NessieAI.tests.nessie_tests import corpus
+    v = next(x for x in corpus.merged(NESSIE_CORPUS) if x.id == vid)
+    crits = list(v.turns[_ONTO_TURNS[vid][0]].pass_criteria)
+    return evaluate.evaluate_turn(_cc_payload(reply=reply), crits, OBS_CC, last_reply=reply)[0]
+
+
+@pytest.mark.parametrize("vid", sorted(_ONTO_TURNS))
+def test_a_harmonize_turn_passes_only_on_an_ontology_proposal_that_asks(vid):
+    _, relist, proposal, ask = _ONTO_TURNS[vid]
+    if relist:
+        assert not _onto_turn_passes(vid, relist)
+    assert not _onto_turn_passes(vid, proposal)
+    assert _onto_turn_passes(vid, proposal + "\n" + ask)
+    # The same proposal without the line naming and linking the ontology fails (operator 2026-10-14).
+    unlinked = "\n".join(line for line in proposal.splitlines() if "github.com" not in line)
+    assert not _onto_turn_passes(vid, unlinked + "\n" + ask)

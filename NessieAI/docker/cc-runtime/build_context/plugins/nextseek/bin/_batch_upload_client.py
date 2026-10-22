@@ -9,17 +9,26 @@ from typing import Any
 
 import httpx
 import orjson
+from _turn_pass import TurnPassAuth, turn_pass_from_env
 
 _API = "/nextseek_api"
 _UID_CHUNK_SIZE = 1000
 _PAGE_SIZE = 1000
+
+# The studies tool's bucket rule (nextseek_api/studies/buckets.py), copied because this image carries no
+# nextseek_api; nextseek_api/studies/tests/test_cc_bucket_suffix.py keeps the two equal.
+BUCKET_TITLE_SUFFIX = "unpublished"
+
+
+def _is_bucket_title(title: Any) -> bool:
+    return isinstance(title, str) and title.strip().casefold().endswith(BUCKET_TITLE_SUFFIX)
 
 
 class BatchUploadClient:
     def __init__(
         self,
         base_url: str,
-        auth: tuple[str, str],
+        auth: httpx.Auth,
         *,
         transport: httpx.BaseTransport | None = None,
         timeout: float = 60.0,
@@ -34,29 +43,23 @@ class BatchUploadClient:
         # the lifetime of this client so update-path disambiguation fetches each assay
         # once instead of once per referencing UID.
         self._assay_samples_cache: dict[int, set[str]] = {}
+        # An assay's study and a study's title, read once per client for the bucket rule.
+        self._assay_study_cache: dict[int, int | None] = {}
+        self._study_title_cache: dict[int, str | None] = {}
 
     @classmethod
     def from_env(
         cls, *, transport: httpx.BaseTransport | None = None
     ) -> "BatchUploadClient":
+        """A client for this turn: NEXTSEEK_URL (or NEXTSEEK_BASE_URL) and the turn pass. Never a password."""
         base = os.environ.get("NEXTSEEK_URL") or os.environ.get("NEXTSEEK_BASE_URL") or ""
-        ns_user = os.environ.get("NEXTSEEK_USERNAME") or ""
-        ns_password = os.environ.get("NEXTSEEK_PASSWORD") or ""
-        legacy_user = os.environ.get("API_USER") or ""
-        legacy_password = os.environ.get("API_PASS") or ""
-        if ns_user or ns_password:
-            user = ns_user
-            password = ns_password
-        else:
-            user = legacy_user
-            password = legacy_password
-        if not base or not user or not password:
+        turn_pass = turn_pass_from_env()
+        if not base or not turn_pass:
             sys.stderr.write(
-                "nextseek-error: CONFIG_MISSING — NEXTSEEK_URL/NEXTSEEK_BASE_URL "
-                "and NEXTSEEK_USERNAME/NEXTSEEK_PASSWORD or API_USER/API_PASS not set\n"
+                "nextseek-error: CONFIG_MISSING: NEXTSEEK_URL/NEXTSEEK_BASE_URL and NEXTSEEK_TURN_PASS not set\n"
             )
             raise SystemExit(2)
-        return cls(base_url=base, auth=(user, password), transport=transport)
+        return cls(base_url=base, auth=TurnPassAuth(turn_pass), transport=transport)
 
     def list_sample_types(self) -> list[dict[str, Any]]:
         response = self._client.get(f"{_API}/sample_types/")
@@ -98,19 +101,69 @@ class BatchUploadClient:
         rel = body["data"]["relationships"]["assays"]["data"]
         return {int(item["id"]) for item in rel}
 
+    def assay_study_id(self, assay_id: int | str) -> int | None:
+        key = int(assay_id)
+        if key not in self._assay_study_cache:
+            response = self._client.get(f"{_API}/assays/{key}/")
+            response.raise_for_status()
+            body = _json(response)
+            try:
+                self._assay_study_cache[key] = int(body["data"]["relationships"]["study"]["data"]["id"])
+            except (KeyError, TypeError, ValueError):
+                self._assay_study_cache[key] = None
+        return self._assay_study_cache[key]
+
+    def study_title(self, study_id: int | str) -> str | None:
+        key = int(study_id)
+        if key not in self._study_title_cache:
+            response = self._client.get(f"{_API}/studies/{key}/")
+            response.raise_for_status()
+            body = _json(response)
+            title = (((body or {}).get("data") or {}).get("attributes") or {}).get("title")
+            self._study_title_cache[key] = title if isinstance(title, str) else None
+        return self._study_title_cache[key]
+
     def resolve_assay_title(
         self,
         title: str,
         title_map: dict[str, list[int]],
         project_assay_ids: set[int],
+        *,
+        sample_numeric_id: int | str | None = None,
     ) -> int:
+        """One in-project candidate: it. Several: the one the sample is in (when a sample is named), else the one in
+        an Unpublished study (one the sample is in, when it is in several), else ValueError('ambiguous assay title:
+        ...'), as the registration resolver decides."""
         candidates = [int(item) for item in title_map.get(title, [])]
         if not candidates:
             raise ValueError(f"assay title not accessible: {title}")
-        in_project = [item for item in candidates if item in project_assay_ids]
-        if len(in_project) != 1:
+        in_project = sorted({item for item in candidates if item in project_assay_ids})
+        if len(in_project) == 1:
+            return in_project[0]
+        if not in_project:
             raise ValueError(f"ambiguous assay title: {title}")
-        return in_project[0]
+        holding: list[int] = []
+        try:
+            if sample_numeric_id is not None:
+                members = self.assay_samples(in_project)
+                key = str(sample_numeric_id)
+                holding = [item for item in in_project if key in members.get(item, set())]
+                if len(holding) == 1:
+                    return holding[0]
+            in_bucket = []
+            for item in in_project:
+                study_id = self.assay_study_id(item)
+                if study_id is not None and _is_bucket_title(self.study_title(study_id)):
+                    in_bucket.append(item)
+        except Exception as exc:  # noqa: BLE001 - fail closed: an unreadable candidate never picks one
+            raise ValueError(f"ambiguous assay title: {title} (could not read the candidates: "
+                             f"{type(exc).__name__})") from exc
+        # A sample several candidates hold (a shared sample in two same-titled clones) only gets one it is in.
+        pickable = [item for item in in_bucket if item in holding] if len(holding) > 1 else in_bucket
+        if len(pickable) == 1:
+            return pickable[0]
+        raise ValueError(f"ambiguous assay title: {title} (candidates {in_project}; "
+                         f"in an Unpublished study: {in_bucket or 'none'})")
 
     def assay_samples(self, assay_ids: Iterable[int]) -> dict[int, set[str]]:
         out: dict[int, set[str]] = {}

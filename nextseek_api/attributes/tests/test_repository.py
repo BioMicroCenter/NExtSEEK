@@ -43,7 +43,9 @@ from nextseek_api.attributes.resolver import (
     normalize_identifier,
 )
 
-MANIFEST = Path("/home/taishajo/work/state/attribute-viewset/VERIFICATION-MANIFEST.json")
+_STATE_ROOT = Path(os.environ.get("ATTRIBUTE_STATE_ROOT") or Path.home() / "work/state/attribute-viewset")
+
+MANIFEST = _STATE_ROOT / "VERIFICATION-MANIFEST.json"
 MAX_ENCODED_BYTES = 4_194_304
 CHECKSUM_TABLES = (
     "sample_types",

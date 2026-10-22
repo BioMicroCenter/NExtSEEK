@@ -35,12 +35,20 @@ def _rel(kind):
 
 def test_protocols_samples_used_are_graph_query_and_the_graph_holds_no_sop_records():
     assert "Questions about the protocols (SOPs) that samples used are sample metadata" in CORE
-    assert "The graph holds no SOP" in CORE
+    # R4, ruling 9: listing, counting or searching SOPs is the graph's too; REST only downloads one named SOP.
+    assert "The\n  SOP records and files themselves are not on the graph" in CORE
 
 
 def test_the_reporter_keeps_only_sops_registered_to_a_project():
     assert "SOPs registered to a project:" in CORE
     assert "The reporter counts the SOP records filed under a project." in CORE
+
+
+def test_sops_registered_to_an_investigation_are_the_reporters_too():
+    """R7b: the reporter counts an investigation's protocols (fix 10), so the parser no longer sends them away."""
+    assert "SOPs registered to an investigation's studies are reporter too" in CORE
+    assert "cannot scope protocols to an investigation" not in CORE
+    assert "a protocol question scoped to one study is graph_query" in CORE
 
 
 def test_protocol_usage_is_no_longer_a_reporter_signal():
@@ -56,11 +64,10 @@ def test_the_reporter_exclusions_and_step_six_send_protocol_usage_to_the_graph()
     assert '("protocol summary for SRP" is graph_query; go on to step 6)' in CORE
 
 
-def test_the_catalog_record_line_is_unchanged():
-    """Edit B was dropped by the operator: the SOP list stays a catalog record in the original words."""
-    assert ("- The user wants catalog records themselves (assays, sample types, SOPs, projects or\n"
-            "  investigations as records), registered user accounts, or files; use new_search with that\n"
-            "  endpoint.") in CORE
+def test_the_catalog_record_line_is_gone_and_rest_is_three_things():
+    """Ruling 9 (round 4): the SOP list is no longer a catalog record; REST downloads one SOP by id."""
+    assert "The user wants catalog records themselves" not in CORE
+    assert "- The user wants the file of one SOP named by its id or its exact title, or the registered user accounts" in CORE
 
 
 @pytest.mark.parametrize("question, fires", [
@@ -82,19 +89,24 @@ def test_sop_is_a_plain_word_like_protocol():
 def test_f1_studies_are_paper_level_or_seek_studies():
     study = _node("Study")
     assert "IS a published paper" not in study
-    assert "IS NOT NULL" in study and "coalesce(st.DOI,'') <> ''" in study
-    assert "a SEEK study, which carries neither key" in study
+    assert "IS NOT NULL" in study and "coalesce(s.DOI,'') <> ''" in study
+    assert "a graph-only paper study (no 'seek_study_id') carries 'DOI' and 'PMID'" in study
+    assert "the samples of a published study may carry its paper's 'DOI' and 'PMID'" in study
+    assert "match the sample or its study" in study
     assert "it is true for every study" not in study
 
 
-def test_f2_the_known_investigation_titles_include_the_live_ones():
-    for title in ("Griffith", "Impact", "RMS-NGC", "SRP", "Shoulders"):
-        assert title in _node("Investigation"), title
-        rule = next(r for r in SCHEMA["disambiguation_rules"] if r.startswith("Investigation titles to recognize"))
-        assert title in rule, title
-        line = next(l for l in CORE.splitlines() if l.startswith("Known investigation titles:"))
-        assert title in line, title
+def test_f2_the_known_investigation_titles_come_from_the_graph_and_the_aliases_resolve():
+    """Fix 9: no box's titles are fixed text; the lines are placeholders the live graph fills."""
+    rule = next(r for r in SCHEMA["disambiguation_rules"] if r.startswith("Investigation titles to recognize"))
+    line = next(l for l in CORE.splitlines() if l.startswith("Known investigation titles:"))
+    for text in (_node("Investigation"), rule, line):
+        assert "{{KNOWN_INVESTIGATION_TITLES}}" in text
     assert "MyTestInvestigation" not in CORE
+    from chat_nextseek import known_titles
+    assert known_titles.resolve_aliases(["Endometriosis", "MIT_SRP"], "investigation") == {
+        "Griffith": ["Endometriosis"], "SRP": ["MIT_SRP"]}
+    assert known_titles.resolve_aliases(["Griffith"], "investigation") == {"Griffith": ["Griffith"]}
 
 
 def test_f3_derived_from_names_the_plural_assay_list_and_the_approved_test():

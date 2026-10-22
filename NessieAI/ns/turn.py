@@ -39,6 +39,7 @@ from chat_nextseek.failure_replies import fatal_query_error
 from chat_nextseek.llm_clients import LLMFatalError
 from chat_nextseek.orchestrator import run_query, run_query_plan, run_pipeline_launch
 from chat_nextseek import turn_spend
+from NessieAI.ns.turn_memory import release_op_slot
 
 logger = logging.getLogger(__name__)
 
@@ -105,14 +106,29 @@ def _select_chat_config(request, req) -> ChatConfig:
     return prod_config
 
 
+def apply_prod_credentials(turn_pass, chat_config, api_user, api_pass):
+    """The (user, password) a turn calls the API with.
+
+    On the prod config the service login replaces the caller's (the caller, e.g. "demo", has no prod account).
+    ``turn_pass`` is True for a Container-CC turn pass, which never swaps: it acts only as its own turn's user.
+    """
+    prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
+    if (not turn_pass and prod_config is not None and chat_config is prod_config
+            and chat_config.API_USER and chat_config.API_PASS):
+        return chat_config.API_USER, chat_config.API_PASS
+    return api_user, api_pass
+
+
 def _granular_args(op: str, req) -> dict:
     """Project a validated request model into the op's chat_nextseek arg dict."""
-    if op in ("entity", "parse", "graph"):
+    if op in ("entity", "parse"):
         return {"query": req.query}
+    if op == "graph":
+        return {"query": req.query, "plan": req.plan}
     if op == "graph-schema":
         return {"types": req.types, "query": req.query}
     if op == "aggregate":
-        return {"query": req.query, "parts": req.parts}
+        return {"query": req.query, "parts": req.parts, "plan": req.plan}
     if op == "api-read":
         return {"parser_plan": req.parser_plan}
     if op == "api-write":
@@ -268,16 +284,22 @@ def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pas
 
 
 def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pass,
-                       chat_session, resolved_session_id, graph_scope=None) -> None:
+                       chat_session, resolved_session_id, graph_scope=None, parent_cc_turn=None,
+                       deadline_epoch=None) -> None:
     """Pipeline body of the ``query/async`` endpoint, run on its daemon thread.
 
     Runs the orchestrator for ``req.mode`` (``plan``, ``pipeline`` or
     standard), turns an unhandled error into a ``query_error`` event, and
     saves the turn. Progress reaches the client only through ``send_event``.
     ``graph_scope`` is the caller's project scope (``_scope_kwargs``).
+    ``parent_cc_turn``: the Container-CC turn whose pass started this child turn (query_async took one of its two
+    slots for it), or None. The slot is given back in the finally, after the save, however the child ended.
+    ``deadline_epoch``: a nested turn's Unix deadline (NessieAI/ns/op_limits.nested_deadline), or None.
     """
     tracked_send_event, error_state = _error_tracking_send_event(send_event)
     scope_kw = _scope_kwargs(graph_scope)
+    if deadline_epoch is not None:
+        scope_kw = {**scope_kw, "deadline_epoch": deadline_epoch}
     try:
         match getattr(req, "mode", "standard"):
             case "plan":
@@ -299,5 +321,11 @@ def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_p
                 "session_id": resolved_session_id,
             })
     finally:
-        _save_session_or_report(
-            adapter, chat_session, send_event, resolved_session_id)
+        try:
+            _save_session_or_report(
+                adapter, chat_session, send_event, resolved_session_id)
+        finally:
+            if parent_cc_turn is not None:
+                # A child turn a Container-CC pass started holds one of that turn's two slots (operator ruling
+                # 2026-09-30); it gives it back here, done, failed or interrupted. Never raises.
+                release_op_slot(parent_cc_turn)

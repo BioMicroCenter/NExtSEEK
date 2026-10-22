@@ -1,0 +1,33 @@
+{
+  "reports_dir": "~/nextseek-launch-reports",
+  "workstation_repo": "~/src/NExtSEEK",
+  "instances": {
+    "local": {
+      "box": "this workstation",
+      "repo": "~/src/NExtSEEK",
+      "url": "http://localhost:8000"
+    },
+    "dev": {
+      "box": "dev box",
+      "ssh_host": "dev-box-alias",
+      "transport": "sudo",
+      "run_as": "stack-owner",
+      "home": "/home/stack-owner",
+      "in_dir": "/tmp",
+      "repo": "/home/stack-owner/NExtSEEK",
+      "url": "https://dev.example.org",
+      "test_logins": ["smoke-user", "write-user"]
+    },
+    "prod": {
+      "box": "prod box",
+      "ssh_host": "prod-box-alias",
+      "transport": "direct",
+      "run_as": "stack-owner",
+      "home": "/home/stack-owner",
+      "in_dir": "/home/stack-owner",
+      "repo": "/home/stack-owner/NExtSEEK",
+      "url": "https://prod.example.org",
+      "test_logins": ["smoke-user"]
+    }
+  }
+}

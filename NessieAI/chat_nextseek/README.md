@@ -79,11 +79,13 @@ The catalog-driven E2E runner moved to the test tree: `NessieAI/tests/e2e/__main
 run as `python -m NessieAI.tests.e2e`. Its catalog is `NessieAI/tests/e2e/catalog.json`,
 whose variants carry a tag for the Playwright browser tier.
 
+The hand-run nf-core selection evals are in `NessieAI/chat_nextseek/evals/README.md`; their outputs are built from production data and stay out of git.
+
 ### 3. Data other build steps read
 
 `NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md` is named as the
 canonical capabilities document by `NessieAI/build_tools/gen_op_surfaces/constants.py:38-46`.
-It and five catalogs beside it (`projects_db.json` and four `min_*.json`, the
+It, five catalogs beside it (`projects_db.json` and four `min_*.json`) and the house ontology files (`ONTOLOGIES.json`, `ontology_*.json`; the
 `CANONICAL_CONTEXT_FILES` list at `NessieAI/build_tools/gen_op_surfaces/constants.py:30-37`)
 are the only copies the agent image bakes: it takes them from the named build context
 `chat_nextseek`, declared at `docker-compose.yml:159-161` and consumed at
@@ -141,9 +143,9 @@ and both surfaces move through the same `_Failover` object:
   nothing. The ledger names a skip (`fallback_remembered`, and a `not_called` record for a
   fallback not asked); `model_fallback` items carry `remembered: true` when the primary was
   skipped (not a new failure) and `not_called: true` when the fallback was.
-- **An op's deadline.** A CC op's scope carries 55 s (the aggregate op's 50 s), and each
-  attempt is cut to fit it, leaving 20 s for the move; the graph agent and the report writer
-  leave none (`op_move_reserve` in the table: their move could not redo the work in 20 s). With
+- **An op's deadline.** A CC op's scope carries its limit (90 s for graph, parse and aggregate, 55 s for entity and
+  the API ops; the aggregate op answers at 85 s), and each attempt is cut to fit it, leaving 20 s for the move; the
+  report writer leaves none (`op_move_reserve` in the table: its move could not redo the work in 20 s). With
   2 s or less left no call starts.
 
 
@@ -191,6 +193,7 @@ Depends on, outside this directory:
 - `docker/db.env`, `docker/nextseek.env` and `dmac/local_settings.py`, read by file path from the repo root by the E2E runner's `NessieAI/tests/e2e/import_env.py:31-34`.
 - `nextseek_api.assistant.excel_export`, imported lazily and behind a guard by the orchestrator: an allowed back-edge (`NessieAI/CLAUDE.md` "Boundary").
 - The NExtSEEK REST API, whose base URL and Basic-auth pair are read from the environment at `NessieAI/chat_nextseek/src/chat_nextseek/config.py:561-563` and then overridden per turn with the caller's own identity at `NessieAI/chat_nextseek/src/chat_nextseek/orchestrator.py:195-199`.
+- The graph contract `nextseek_graph/schema.py` at the checkout root, through `NessieAI/chat_nextseek/src/chat_nextseek/graph_contract.py`, which imports it where the checkout root is on `sys.path` and otherwise loads the file by its path from the checkout around this package. The evaluator batch therefore needs an app image built from a commit that has `nextseek_graph/`, and a non-editable or git install of chat_nextseek finds the contract only where the checkout root is on `sys.path`.
 - Neo4j, whose URI defaults to a localhost bolt endpoint at `NessieAI/chat_nextseek/src/chat_nextseek/config.py:600`.
 - The SEEK database, read by the daily context export (`_fetch_context_files_from_db` in `NessieAI/chat_nextseek/src/chat_nextseek/config.py`) over the MySQL connection it already holds for the `dmac.*_context` tables. Its first statement is one fixed SELECT over `seek_production.institutions` and `seek_production.work_groups` (`INSTITUTIONS_SQL` in `NessieAI/chat_nextseek/src/chat_nextseek/labs.py`), run inside a read-only transaction, at most once per UTC day per starting process and never per turn. It writes `labs_db.json` and adds each project's labs to the project rows of `projects_db.json`; the config exposes them as `ChatConfig.LABS` and `LABS_STATUS`. `python -m chat_nextseek.labs --report` runs the same read and prints the result without writing anything.
 

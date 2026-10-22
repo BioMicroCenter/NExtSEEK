@@ -63,16 +63,10 @@ def test_a_caller_who_sees_no_project_is_shown_no_project_name(scope):
     assert "numeric project_id" in message
 
 
-def test_the_lab_note_names_every_investigation_for_an_admin():
-    footer = _lab_footer(GraphScope.admin("test"))
-    assert "lab BBB, not a project" in footer
-    for name in INVESTIGATIONS:
-        assert name in footer
-
-
-@pytest.mark.parametrize("scope", [GraphScope.for_projects([2], source="test"), GraphScope.for_projects([], source="test"),
-                                   None], ids=["member", "no-projects", "no-scope"])
-def test_the_lab_note_names_no_investigation_for_anyone_else(scope):
+@pytest.mark.parametrize("scope", [GraphScope.admin("test"), GraphScope.for_projects([2], source="test"),
+                                   GraphScope.for_projects([], source="test"), None],
+                         ids=["admin", "member", "no-projects", "no-scope"])
+def test_the_lab_note_names_no_investigation_to_anyone(scope):
     footer = _lab_footer(scope)
     assert "lab BBB, not a project" in footer
     for name in INVESTIGATIONS:

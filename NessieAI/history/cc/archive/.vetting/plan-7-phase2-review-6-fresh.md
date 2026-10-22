@@ -81,7 +81,7 @@ user_memory_file = str(written).replace(
 
 **Location:** Task 11 (L483).
 
-**Quote:** *"Modify: `/home/taishajo/work/state/integration-plan.json` status fields only."*
+**Quote:** *"Modify: `/home/<user>/work/state/integration-plan.json` status fields only."*
 
 **Why:** Conflicts with Task 1 / Permissions `INTEGRATION_PLAN_PATH` portability principle. MBP or CI implementer may write to wrong path or skip tracker update.
 

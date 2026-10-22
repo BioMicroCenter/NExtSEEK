@@ -249,11 +249,10 @@ PLACEHOLDERS: dict[str, str] = {
 # A UUID that is valid syntax and belongs to nothing, for the job / task /
 # session id spaces. Every route that takes one is declared with whatever it
 # answers for an identifier it cannot find once it behaves, and that is three
-# different things: a 404 for most; a 200 whose body carries the failure instead,
-# for two of the seek helpers (their notes say so); and, for
-# /seek/nhpdata/<name>/, the same 404 its two siblings return, which it does not
-# manage today -- that entry carries an xfail naming what it raises instead. All
-# three prove the route resolves without a fixture.
+# different things: a 404 for most, and for /seek/nhpdata/<name>/ as the smoke
+# account (not a superuser) too; and a 200 whose body carries the failure instead,
+# for two of the seek helpers (their notes say so). All
+# of them prove the route resolves without a fixture.
 _NO_SUCH_UUID = "00000000-0000-4000-8000-000000000000"
 _NO_SUCH_ID = "999999999"
 _NO_SUCH_NHP = "NEXTSEEK-CI-NO-SUCH-NHP"
@@ -278,15 +277,29 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
           note="home dashboard; each tile query is separately guarded, so 200 "
                "does not prove the database is answering"),
-    Route(pattern=r"^accounts/login/", path="/accounts/login/",
+    Route(pattern=r"^docs/(?:(?P<slug>[\w-]+)/)?$", path="/docs/",
+          effect="reads",
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
+          note="the user docs, markdown under themes/NextSeek/docs/; /docs/ shows the "
+               "first page and seek/tests/test_docs_pages.py renders every page"),
+    Route(pattern=r"^accounts/login/$", path="/accounts/login/",
           effect="external",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
-          note="second registration of the login view, below the CMS catch-all"),
-    Route(pattern=r"^accounts/signup/", path="/accounts/signup/",
+          note="the SEEK login again, at Django's default LOGIN_URL, above the CMS include"),
+    Route(pattern=r"^accounts/logout/$", path=None,
+          effect="external",
+          methods=(), profiles="", auth="anon", exclude="EXCLUDE_UNSAFE_METHOD",
+          note="sign out (Mezzanine's view, the user menu's link); a GET ends the session"),
+    Route(pattern=r"^(?:blog|search|accounts|password_reset|reset)(?:/.*)?/$", path="/blog/",
+          effect="reads",
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=404,
+          note="Mezzanine's blog, site search, account forms and local password reset "
+               "are not part of NExtSEEK: shadowed with a 404 above the CMS include"),
+    Route(pattern=r"^accounts/signup/$", path="/accounts/signup/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=302,
           note="hands account creation to SEEK; redirects to SEEK_PUBLIC_URL/signup"),
-    Route(pattern=r"^login", path="/login/",
+    Route(pattern=r"^login/?$", path="/login/",
           effect="external",
           methods=("GET", "POST"), profiles="local,dev,prod", auth="anon", expect=200,
           prod_allows_non_get=True,
@@ -305,12 +318,6 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=302,
           note="hands account creation to SEEK; redirects to SEEK_PUBLIC_URL/signup"),
 
-    # project-level, excluded
-    Route(pattern=r"^logout$", path=None,
-          effect="external",
-          methods=(), profiles="", auth="anon", exclude="EXCLUDE_UNSAFE_METHOD",
-          note="the SEEK logout view"),
-
     # ----------------------------------------------------------------- #
     # not in the application resolver: nginx-served asset, Django admin
     # The gate ignores resolver=False entries in both directions.
@@ -321,6 +328,12 @@ REGISTRY: list[Route] = [
           resolver=False,
           note="Django admin is outside the gate's denominator; kept as the "
                "cheapest proof Django itself serves"),
+    Route(pattern=r"^seek/newsearch/$", path="/seek/newsearch/",
+          effect="n/a",
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=404,
+          resolver=False,
+          note="guards that the retired /seek/newsearch/ page stays gone (removed "
+               "in 118c28fd); a 404 here means the route or a catch-all brought it back"),
     Route(pattern=r"^static/(?P<path>.*)$", path="/static/css/nextseek.css",
           effect="n/a",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
@@ -366,11 +379,8 @@ REGISTRY: list[Route] = [
                "rendered no assays to scrape a link from"),
     Route(pattern=r"^seek/^help/$", path="/seek/help/",
           effect="reads",
-          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200),
-    Route(pattern=r"^seek/^newsearch/", path="/seek/newsearch/",
-          effect="reads",
-          methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
-          note="unlinked from the UI; recorded so nobody mistakes it for the daily driver"),
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=301,
+          note="the old Getting Started page; a permanent redirect to /docs/"),
     Route(pattern=r"^seek/^projects/$", path="/seek/projects/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200),
@@ -391,11 +401,6 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
           note="the project page's sample-counts full view, opened as a modal "
                "or visited directly; membership-gated like connections"),
-    Route(pattern=r"^seek/^remote/", path="/seek/remote/",
-          effect="reads",
-          methods=("GET",), profiles="local,dev", auth="web", expect=200,
-          xfail="NameError: samples is not defined, raised by "
-                "seek/views/search.py::remote"),
     Route(pattern=r"^seek/^sample/id=(?P<id>\d+)/$", path="/seek/sample/id={sample_id}/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200),
@@ -431,8 +436,7 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^seek/^samples/upload/", path="/seek/samples/upload/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
-          note="bounces an anonymous visitor to /login/?next=/seek/samples/batchupload/, "
-               "which is not the requested path; do not assert on next"),
+          note="bounces an anonymous visitor to /login/?next=/seek/samples/upload/"),
     Route(pattern=r"^seek/^sampletree/uid=(?P<uid>[\w.-]{0,256})/$",
           path="/seek/sampletree/uid={sample_uid}/",
           effect="reads",
@@ -457,11 +461,6 @@ REGISTRY: list[Route] = [
           note="the Download Templates picker's submit target. A bare GET carries no "
                "codes and re-renders the picker with a message; the POST that streams "
                "a workbook is write-lane material on local and dev"),
-    Route(pattern=r"^seek/^url/(?P<url>[\w-]+)/$", path="/seek/url/smoke/",
-          effect="reads",
-          methods=("GET",), profiles="local,dev", auth="web", expect=200,
-          xfail="NameError: getPageRequests is not defined, raised by "
-                "seek/views/samples.py::seek"),
 
     # ----------------------------------------------------------------- #
     # seek: JSON helpers behind the pages
@@ -515,11 +514,7 @@ REGISTRY: list[Route] = [
           note="NHP timeline workbook. Unknown name: proves the route resolves and denies"),
     Route(pattern=r"^seek/^operators/$", path="/seek/operators/",
           effect="reads",
-          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
-          xfail="MultiValueDictKeyError: 'sampletype_id' from "
-                "seek/views/samples.py::getOperators, which indexes the query string "
-                "for two required parameters with no default, so a bare GET is a 500 "
-                "rather than a 400"),
+          methods=("GET",), profiles="local,dev", auth="web", expect=400),
     Route(pattern=r"^seek/^sample/id=(?P<id>\d+)/edit",
           path="/seek/sample/id={sample_id}/edit",
           effect="reads",
@@ -537,64 +532,35 @@ REGISTRY: list[Route] = [
                "which writes an export file, so this stays off prod"),
     Route(pattern=r"^seek/^samples/download/", path="/seek/samples/download/",
           effect="external",
-          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
-          xfail="MultiValueDictKeyError: 'includeSampleTree' from "
-                "seek/views/samples.py::sampleDownload, which indexes the query "
-                "string for a required parameter with no default, so a bare GET is "
-                "a 500 rather than a 400",
+          methods=("GET",), profiles="local,dev", auth="web", expect=400,
           note="a parameterised call writes an export file, so this stays off prod"),
     Route(pattern=r"^seek/^samples/export/", path="/seek/samples/export/",
           effect="external",
-          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
-          xfail="MultiValueDictKeyError: 'allids' from "
-                "seek/views/samples.py::sampleExport, which indexes the query string "
-                "for a required parameter with no default, so a bare GET is a 500 "
-                "rather than a 400",
+          methods=("GET",), profiles="local,dev", auth="web", expect=400,
           note="a parameterised call writes an export file, so this stays off prod"),
     Route(pattern=r"^seek/^samples/retrieveType/", path="/seek/samples/retrieveType/",
           effect="reads",
-          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
-          xfail="MultiValueDictKeyError: 'sampletype_id' from "
-                "seek/views/samples.py::getSampleType, which indexes the query string "
-                "for two required parameters with no default, so a bare GET is a 500 "
-                "rather than a 400"),
+          methods=("GET",), profiles="local,dev", auth="web", expect=400),
     Route(pattern=r"^seek/^samples/searching/", path="/seek/samples/searching/",
           effect="reads",
-          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
-          xfail="MultiValueDictKeyError: 'sampletype_id' from "
-                "seek/views/search.py::sampleSearching, whose filter builder indexes "
-                "the query string for required parameters with no default, so a bare "
-                "GET is a 500 rather than a 400"),
+          methods=("GET",), profiles="local,dev", auth="web", expect=400),
     Route(pattern=r"^seek/^samplesvalidate/", path="/seek/samplesvalidate/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
           note="upload validator; a GET returns the not-a-POST envelope at 200 and "
                "reads nothing"),
-    Route(pattern=r"^seek/^sampleupload/", path="/seek/sampleupload/",
-          effect="writes", writers=("WR-12",),
-          methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
-          note="upload receiver; a GET returns the not-a-POST envelope at 200 and "
-               "reads nothing"),
     Route(pattern=r"^seek/^searchAdvanced/", path="/seek/searchAdvanced/",
           effect="reads",
-          methods=("GET",), profiles="local,dev,prod", auth="web", expect=(200, 400),
-          xfail="MultiValueDictKeyError: 'filter_searchText' from "
-                "seek/views/search.py::searchingAdvanced, whose filter builder indexes "
-                "the query string for required parameters with no default, so a bare "
-                "GET is a 500 rather than a 400",
+          methods=("GET",), profiles="local,dev,prod", auth="web", expect=400,
           note="the JSON the Sample Search page's Advanced box read before both of its "
                "boxes moved to graph_search; no page calls it now. Read-only, and "
                "prod-enabled for that reason: it is where the sample fixtures find a real "
                "sample id and UID, so without it the sample pages and the sample-page flow "
-               "have nothing to ask for under prod. The bare GET T0 sends is pinned by the "
-               "xfail above; the parameterised query is the one discovery makes"),
+               "have nothing to ask for under prod. The bare GET T0 sends is a 400 naming the "
+               "missing parameter; the parameterised query is the one discovery makes"),
     Route(pattern=r"^seek/^searchUIDs/", path="/seek/searchUIDs/",
           effect="reads",
-          methods=("GET",), profiles="local,dev", auth="web", expect=(200, 400),
-          xfail="MultiValueDictKeyError: 'filter_searchUIDs' from "
-                "seek/views/search.py::searchingUIDs, whose filter builder indexes the "
-                "query string for required parameters with no default, so a bare GET "
-                "is a 500 rather than a 400"),
+          methods=("GET",), profiles="local,dev", auth="web", expect=400),
     Route(pattern=r"^seek/^studies/id=(?P<id>\d+)/$", path="/seek/studies/id={study_id}/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
@@ -603,10 +569,7 @@ REGISTRY: list[Route] = [
           path="/seek/nhpdata/" + _NO_SUCH_NHP + "/",
           effect="reads",
           methods=("GET",), profiles="local,dev", auth="smoke", expect=404,
-          xfail="TypeError: 'NoneType' object does not support item assignment, "
-                "surfaced by seek/views/timeline.py::get_nhp_data. The timeline "
-                "builder does not handle an NHP it cannot find, so an unknown name is "
-                "a 500 rather than the 404 its siblings return"),
+          note="NHP timeline data. Unknown name: proves the route resolves and denies"),
     Route(pattern=r"^seek/nhpinfo/(?P<nhp_name>[\w-]+)/$",
           path="/seek/nhpinfo/" + _NO_SUCH_NHP + "/",
           effect="reads",
@@ -619,11 +582,11 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^seek/^admin/clades/syncSampleTypes/$", path=None,
           effect="writes", writers=("WR-14",),
           methods=(), profiles="", auth="write", exclude="EXCLUDE_UNSAFE_METHOD",
-          note="clade / sample-type synchronisation action"),
+          note="clade / sample-type synchronisation action; POST only"),
     Route(pattern=r"^seek/^admin/internal_assays/syncInternalAssays$", path=None,
           effect="writes", writers=("WR-15",),
           methods=(), profiles="", auth="write", exclude="EXCLUDE_UNSAFE_METHOD",
-          note="assay / internal-assay synchronisation action"),
+          note="assay / internal-assay synchronisation action; POST only"),
     Route(pattern=r"^seek/^attribute/delete/", path=None,
           effect="writes", writers=("WR-06",),
           methods=(), profiles="", auth="write", exclude="EXCLUDE_UNSAFE_METHOD",
@@ -750,8 +713,9 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^nextseek_api/^^assistant/test-cases/$",
           path="/nextseek_api/assistant/test-cases/",
           effect="reads",
-          methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
-          shape="test_cases"),
+          methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=403,
+          note="superuser only: the sweep's account is refused. "
+               "ci/smoke/test_nessie.py reads the catalog as a superuser"),
     Route(pattern=r"^nextseek_api/^^attributes/$", path="/nextseek_api/attributes/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
@@ -834,10 +798,6 @@ REGISTRY: list[Route] = [
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
           shape="results",
-          xfail="34 sample types have no attribute definitions, so "
-                "nextseek_api/services/entity_tree.py::EntityTreeViewSet.list_nodes "
-                "returns an application-level 502 rather than emit empty "
-                "metadata_fields",
           note="the envelope is doubly wrapped: assert results.total, never a "
                "top-level total"),
     Route(pattern=r"^nextseek_api/^^evaluator/runs/$", path="/nextseek_api/evaluator/runs/",
@@ -962,7 +922,8 @@ REGISTRY: list[Route] = [
           path="/nextseek_api/sops/{sop_id}/",
           effect="writes", writers=("WR-09",),
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
-          shape="data", note="also accepts PATCH, which the write lane sends on local and dev"),
+          shape="data", note="also accepts PATCH, which the write lane sends on local and dev, and DELETE, "
+                              "which no lane sends"),
     Route(pattern=r"^nextseek_api/^^studies/$", path="/nextseek_api/studies/",
           effect="writes", writers=("WR-09",),
           methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
@@ -1037,6 +998,22 @@ REGISTRY: list[Route] = [
           effect="external",
           methods=("POST",), profiles="local,dev", auth="write", expect=404,
           note="unknown id: proves the route resolves and denies"),
+    Route(pattern=r"^nextseek_api/^^sample-shares/$", path="/nextseek_api/sample-shares/",
+          effect="external",
+          methods=("POST",), profiles="local,dev", auth="write", expect=422,
+          note="a share's dry run: a job row the worker plans, nothing the graph reads. CI sends no body, which "
+               "is refused before anything is written. Superuser only, so the expectation is by inspection"),
+    Route(pattern=r"^nextseek_api/^^sample-shares/(?P<share_id>[^/.]+)/$",
+          path="/nextseek_api/sample-shares/" + _NO_SUCH_UUID + "/",
+          effect="reads",
+          methods=("GET",), profiles="local,dev", auth="write", expect=404,
+          note="unknown id: proves the route resolves and denies. Superuser only"),
+    Route(pattern=r"^nextseek_api/^^sample-shares/(?P<share_id>[^/.]+)/apply/$",
+          path="/nextseek_api/sample-shares/" + _NO_SUCH_UUID + "/apply/",
+          effect="writes", writers=("WR-33",),
+          methods=("POST",), profiles="local,dev", auth="write", expect=404,
+          note="unknown id: proves the route resolves and denies; a real call creates SEEK assays as the caller, "
+               "their internal-assay rows and the queued share (the studies tool's share mode)"),
     Route(pattern=r"^nextseek_api/^^assistant/build-upload-xlsx/$",
           path="/nextseek_api/assistant/build-upload-xlsx/",
           effect="external",
@@ -1094,8 +1071,11 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^nextseek_api/^^batch-upload/validate/$",
           path="/nextseek_api/batch-upload/validate/",
           effect="external",
-          methods=("POST",), profiles="local,dev", auth="smoke", expect=200,
-          note="the fifth safe preview: a separate action rather than a dry_run flag"),
+          methods=("POST",), profiles="local,dev,prod", auth="smoke", expect=200,
+          prod_allows_non_get=True,
+          note="the fifth safe preview: a separate action rather than a dry_run flag. Under prod "
+               "only ci/smoke/test_member_scope.py sends it, with no rows or files, so it ends "
+               "at 403 or 400 before the pipeline runs"),
     Route(pattern=r"^nextseek_api/^^cc-assistant/upload/$",
           path="/nextseek_api/cc-assistant/upload/",
           effect="external",
@@ -1162,9 +1142,10 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^nextseek_api/^^schema_rag/ingest/$",
           path="/nextseek_api/schema_rag/ingest/",
           effect="external",
-          methods=("POST",), profiles="local,dev", auth="smoke", expect=201,
-          note="201 by inspection at "
-               "nextseek_api/services/schema_rag.py::SchemaRAGViewSet.ingest; unprobed"),
+          methods=("POST",), profiles="local,dev", auth="smoke", expect=403,
+          note="superuser only, so the sweep's account is refused (201 for a superuser), "
+               "by inspection at nextseek_api/services/schema_rag.py::SchemaRAGViewSet.ingest; "
+               "unprobed"),
     Route(pattern=r"^nextseek_api/^^schema_rag/retrieve/$",
           path="/nextseek_api/schema_rag/retrieve/",
           effect="external",
@@ -1255,16 +1236,27 @@ REGISTRY: list[Route] = [
           effect="writes", writers=("WR-27",),
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST",
           note="the chat turn forced onto Container-CC; alias of cc-assistant/cc/query/async/"),
-    Route(pattern=r"^nextseek_api/^^cc-assistant/cc/query/async/$", path=None,
+    # EXCLUDE_COST stays on the two chat-turn rows below although they now carry a path and profiles:
+    # the Nessie lane's browser blocks every paid POST by that code (test_nessie.classify_request), and
+    # the guard-client refusal probes of ci/smoke/test_member_scope.py are the only calls that ever reach them.
+    Route(pattern=r"^nextseek_api/^^cc-assistant/cc/query/async/$",
+          path="/nextseek_api/cc-assistant/cc/query/async/",
           effect="writes", writers=("WR-27",),
-          methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST",
-          note="the chat turn forced onto the Container-CC engine"),
-    Route(pattern=r"^nextseek_api/^^cc-assistant/query/async/$", path=None,
+          methods=("POST",), profiles="local,dev,prod", auth="smoke", expect=403,
+          prod_allows_non_get=True, exclude="EXCLUDE_COST",
+          note="the chat turn forced onto the Container-CC engine. CI sends only a `{}` body "
+               "as the smoke member (ci/smoke/test_member_scope.py): the superuser check "
+               "answers 403 before the body is read, so no turn can start"),
+    Route(pattern=r"^nextseek_api/^^cc-assistant/query/async/$",
+          path="/nextseek_api/cc-assistant/query/async/",
           effect="writes", writers=("WR-27",),
-          methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST", lane="nessie",
+          methods=("POST",), profiles="local,dev", auth="smoke", expect=403, lane="nessie",
+          exclude="EXCLUDE_COST",
           note="the router-dispatched chat turn; either engine may answer it. The "
                "Nessie lane's browser sends it (ci/smoke/test_nessie.py), at most "
-               "four times per run; nothing else in CI does"),
+               "four times per run. Beyond that, ci/smoke/test_member_scope.py sends "
+               "two refused bodies (plan mode, unknown mode) as the smoke member; "
+               "never under prod, since a broken plan-mode check would start a turn"),
     Route(pattern=r"^nextseek_api/^^evaluator/retry/$", path=None,
           effect="external",
           methods=(), profiles="", auth="write", exclude="EXCLUDE_COST",

@@ -9,9 +9,9 @@ None of this is a Python package: the Python in each context runs only inside it
 
 | Context | Built by | Produces |
 |---|---|---|
-| `cc-runtime/` | compose service `cc-agent` (build target only, never runs) | `dmac-assistant:poc`, the per-turn Container-CC agent image |
-| `bedrock-proxy/` | compose service `bedrock-proxy` | `nextseek-bedrock-proxy:latest` |
-| `ns-sidecar/` | compose service `nextseek-sidecar` | `nextseek-ns-sidecar:latest` |
+| [`cc-runtime/`](cc-runtime/README.md) | compose service `cc-agent` (build target only, never runs) | `dmac-assistant:poc`, the per-turn Container-CC agent image |
+| [`bedrock-proxy/`](bedrock-proxy/README.md) | compose service `bedrock-proxy` | `nextseek-bedrock-proxy:latest` |
+| [`ns-sidecar/`](ns-sidecar/README.md) | compose service `nextseek-sidecar` | `nextseek-ns-sidecar:latest` |
 | `eval/` | an explicit `docker build -f NessieAI/docker/eval/Dockerfile .` from the repo root | the JAX/NumPyro HiBayes fit image (`NessieAI/hibayes`, plus the router and harness files `human_grade_fit.py` needs from outside it) |
 
 Rebuild verbs: `./startup.sh rebuild --component cc-agent | bedrock-proxy | nextseek-sidecar` (`DEPLOYMENT.md` §3.2).

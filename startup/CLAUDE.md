@@ -8,7 +8,7 @@ Breaking one is a regression, not a refactor.
 - **`mysqlclient` must never become a dependency of this project.** The reason is
   recorded beside the driver pin at `startup/pyproject.toml:13-22`, and the code keeps
   it optional at runtime by trying `MySQLdb` and falling back to the declared pure-Python
-  driver (`startup/steps/schema_fixups.py:898-912`). Adding the C extension makes
+  driver (`startup/steps/schema_fixups.py:895-909`). Adding the C extension makes
   `./startup.sh` fail to bootstrap on a machine with no compiler and no MySQL headers,
   which is exactly the machine this isolation exists to serve.
 - **This project never imports `ci/`.** The three profile names are restated in place
@@ -24,12 +24,13 @@ Breaking one is a regression, not a refactor.
 - **`reset` passes every install parameter explicitly** (`startup/cli.py:497-507`),
   including `no_seed=False` and the carried-over CI profile. Omit one and it arrives as
   the truthy sentinel above, on a stack whose volumes have just been dropped.
-- **The app image runs in exactly one service, `nextseek`** (`BASE_APP_RUNTIME_SERVICES`
-  in `startup/lib/rebuild_policy.py`). The attribute and assay-registration workers are
-  processes of that container (`docker/scripts/entrypoint.sh`), so a rebuild cannot leave
-  one on the old image. A second service running the app image re-opens that failure
-  unless startup also restarts it; `startup/tests/test_rebuild_policy.py` asserts the set
-  against compose.
+- **The app image runs in exactly two services, `nextseek` (the worker) and `web`**
+  (`BASE_APP_RUNTIME_SERVICES` in `startup/lib/rebuild_policy.py`). The attribute and
+  assay-registration workers are processes of the worker container
+  (`docker/scripts/entrypoint.sh`), so a rebuild cannot leave one on the old image; `web`
+  is swapped (`startup/lib/web_swap.py`). A third service running the app image re-opens
+  that failure unless startup also restarts it; `startup/tests/test_rebuild_policy.py`
+  asserts the set against compose.
 - **An absent or empty `ci_profile` resolves to the narrowest value, `prod`**: at the
   install default (`startup/cli.py:46-47`), at the runner
   (`startup/ci/runner.py:54`) and in the diagnostic (`startup/steps/doctor.py:31-36`).
@@ -60,7 +61,10 @@ Breaking one is a regression, not a refactor.
   (`startup/lib/rebuild_policy.py:66`), the smoke suite never requests the Container-CC
   routes (`ci/routes.py` declares both `path=None`), and `cc-agent` has no container for
   a compose healthcheck to watch. An advisory failure never stops the run; `rebuild`
-  exits non-zero on it at the end, after the CI hook, and `ci` only prints it. Moving an
+  exits non-zero on it at the end, after the CI hook, and `ci` only prints it. One
+  exception: `ci` also exits non-zero, after the suite, on a red graph sync health line,
+  since on production nothing else checks the sync
+  (`startup/README.md` "Graph sync health on every box"). Moving an
   advisory check to blocking throws away a suite run whose result was still true.
   `doctor` runs the same checks except the cc-agent context, but its exit code is read
   by nothing while the rebuild hook's is. The Nessie lane is a separate
@@ -72,7 +76,7 @@ Breaking one is a regression, not a refactor.
   cannot pass without them. `--no-nessie` skips that step, and a component rebuild
   never runs it.
 - **The cc-agent context check reads the built image and never runs it**
-  (`validate.check_cc_agent_context`, through `docker_ops.copy_from_image`). The six
+  (`validate.check_cc_agent_context`, through `docker_ops.copy_from_image`). The
   canonical context files (`CANONICAL_CONTEXT_FILES` in `startup/lib/layout.py`, pinned
   to gen_op_surfaces and the cc-agent Dockerfile by `startup/tests/test_layout.py`) are
   baked into both the app image and `dmac-assistant:poc`. A bare `rebuild` refreshes only
@@ -116,9 +120,10 @@ Breaking one is a regression, not a refactor.
 - **`rebuild` starts the front door and never recreates it.** After restarting the app it
   runs `up -d --no-deps nextseek_nginx` without `--force-recreate`, which is a no-op on a
   running nginx and a start on a stopped one. nginx needs no restart for a new app
-  container (`docker/nginx.conf` re-resolves `nextseek` per request), and an unscoped
-  recreate took SEEK down on dev on 2026-09-02. Only a rebuild that restarts something
-  does this; an image-only component (`cc-agent`) and `--no-restart` leave it alone.
+  container (`docker/nginx.conf` re-resolves `web`, or the pinned container, per
+  request), and an unscoped recreate took SEEK down on dev on 2026-09-02. Only a rebuild
+  that restarts something does this; an image-only component (`cc-agent`) and
+  `--no-restart` leave it alone.
 - **An absent rollback source is a first build, an unreachable daemon is an outage**
   (`startup/steps/rollback_tags.py`, `startup/lib/docker_ops.py:image_exists`).
   `docker image inspect` exits 1 for both, which once made `./startup.sh rebuild
@@ -129,21 +134,30 @@ Breaking one is a regression, not a refactor.
   `startup/steps/registry_push.py:8-12` and enforced by the blanket handler wrapping the
   whole step (`startup/cli.py:616-628`). A registry outage must not strand a rebuilt
   stack mid-deploy.
-- **Managed-index DDL stays opt-in.** `startup/steps/schema_fixups.py:980-993` spells
+- **Managed-index DDL stays opt-in.** `startup/steps/schema_fixups.py:977-990` spells
   out what unconditional application costs: a stock install aborting after the seeds are
   in and the containers are up, on real data, with no remediation path.
-- **A hand-filled Bedrock token is never reset to empty by a re-run**
-  (`startup/steps/config.py:197-203`). The precedence is operator environment, then the
-  existing `NessieAI/docker/bedrock-proxy/proxy-secret.env`, then the pre-move
+- **A re-run of `install` never resets a value already on disk** (#103). `kept_values`
+  reads the credentials and host keys back before anything is written, and
+  `_render_keeping` keeps every line of `docker/db.env` and `docker/nextseek.env`,
+  re-rendering only what its docstring names; `render_local_settings` never overwrites an
+  existing `dmac/local_settings.py` (it writes `local_settings.py.new`), and install's own
+  database steps log in with the kept passwords (all in `startup/steps/config.py` and
+  `_install_impl`). `render_root_env` keeps every line of the repo-root `.env` whose key
+  it does not own (the memory caps, `SEEK_PUMA_WORKERS`). A hand-filled Bedrock token is
+  never reset to empty either (`render_proxy_secret_env`): operator environment, then the existing
+  `NessieAI/docker/bedrock-proxy/proxy-secret.env`, then the pre-move
   `docker/bedrock-proxy/proxy-secret.env` (read only, never written), then empty.
 - **No broad exception handler is permitted on the index readiness, apply or reverse
   path** (`startup/steps/schema_fixups.py:27-29`). A swallowed connectivity error would
   be reported as an absent index, and the next step would try to create one that is
   already there.
 - **The repo-root `.env` is written from a fixed key allowlist**
-  (`startup/steps/config.py:240-249`), for the reason given at
-  `startup/steps/config.py:223-224`: a secret sitting in the instance's environment
-  would otherwise be persisted into a file that lives in the working tree.
+  (`render_root_env` in `startup/steps/config.py`, whose docstring gives the reason): a
+  secret sitting in the instance's environment would otherwise be persisted into a file
+  that lives in the working tree. Install hands it `compose_env`, never the `db_env` that
+  carries the MySQL root password to its database steps. The lines it keeps for other
+  keys come from the file itself, never from the environment.
 
 ## Landmines
 
@@ -166,27 +180,27 @@ Breaking one is a regression, not a refactor.
 - **Two tests fail wherever they run, and both are test-side.**
   `startup/tests/test_schema_fixups_tables.py:98` queues three canned replies for a
   registry that now holds five entries (`startup/steps/schema_fixups.py:109-152`), each
-  consuming one reply at `startup/steps/schema_fixups.py:226`, so the fourth gets an
+  consuming one reply at `startup/steps/schema_fixups.py:223`, so the fourth gets an
   empty string and `startup/steps/schema_fixups.py:171` raises `IndexError`. And
   `startup/tests/test_schema_fixups_coverage.py:213-218` stubs only the column pass while
-  `apply_all` runs the table pass first (`startup/steps/schema_fixups.py:1002`), against a
+  `apply_all` runs the table pass first (`startup/steps/schema_fixups.py:999`), against a
   literal `/repo` that does not exist. Do not read either failure as a regression you
   introduced.
 - **A named developer's home directory is hardcoded** at
   `startup/steps/schema_fixups.py:72`. Blast radius measured for this directory on
   2026-09-03: zero test failures, because the one test that touches the constant
   monkeypatches it to a nonexistent path (`startup/tests/test_schema_fixups_coverage.py:108-110`).
-  The damage is silent instead. `startup/steps/schema_fixups.py:567-571` returns `None`
+  The damage is silent instead. `startup/steps/schema_fixups.py:564-568` returns `None`
   whenever that file is absent, so on every other machine the telemetry record's
-  `base_sha` field (`startup/steps/schema_fixups.py:663`) is null and the record cannot be
-  tied back to a source revision. Its neighbour at `startup/steps/schema_fixups.py:665`
+  `base_sha` field (`startup/steps/schema_fixups.py:660`) is null and the record cannot be
+  tied back to a source revision. Its neighbour at `startup/steps/schema_fixups.py:662`
   has the same shape, falling back to a hardcoded image digest
   (`startup/steps/schema_fixups.py:71`) that no reader can have built.
 - **The DatabaseError lookup has no pure-Python fallback**, unlike the driver lookup:
   `startup/steps/schema_fixups.py:47-56` imports from `MySQLdb` unconditionally. Python
   evaluates an `except` expression only when something is raised, so on a host with only
   the fallback driver and the managed-index flag on, the first database error inside
-  `startup/steps/schema_fixups.py:530-535` or `startup/steps/schema_fixups.py:716-723`
+  `startup/steps/schema_fixups.py:527-532` or `startup/steps/schema_fixups.py:713-720`
   surfaces as an `ImportError` that hides the error it was meant to handle.
 - **A second checkout installed with no `--instance` silently attaches the first one's
   volumes.** The instance name defaults to the checkout directory's own basename
@@ -194,29 +208,30 @@ Breaking one is a regression, not a refactor.
   basename (`startup/cli.py:144`), and the compose project then resolves to plain
   `nextseek` (`startup/cli.py:165`). Both trees end up driving the same unprefixed
   external volumes, so a `reset` in one destroys the other's data.
-- **Re-running `install` rotates the Django secret key.** A fresh key is minted on every
-  call (`startup/steps/config.py:124`) and written into the settings overlay
-  (`startup/steps/config.py:166-171`), invalidating every live session. That is why the
-  diagnostic tells operators to hand-edit the state file instead
-  (`startup/steps/doctor.py:34-35`).
+- **Re-running `install` keeps an old template default exactly like a hand edit.** It
+  cannot tell the two apart, so a template default changed later never reaches a box
+  that already has the key; step 4 prints the kept names so the operator sees them.
+  A credential holding `$` outside single quotes stops install before it writes
+  anything (`UnsafeKeptValue`): compose expands it, so the file's text is not the
+  password the containers were given.
 - **One misspelled key in the hand-edited state file breaks every command.**
   `startup/lib/instance.py:63-68` splats the JSON straight into the dataclass with no
   guard, so an unexpected field raises `TypeError` inside `doctor`, `rebuild` and
   `reset` alike, including the very command an operator would run to find out what went
   wrong.
 - **Template rendering silently tolerates an unknown placeholder.**
-  `startup/steps/config.py:147` uses `safe_substitute`, which leaves the literal `${…}`
-  in the output file rather than raising. That is why reading a value back has to sniff
-  for the residue (`startup/steps/config.py:63-65`); a rendered env file can look
-  complete and still contain an uninterpolated token.
+  `_render` in `startup/steps/config.py` uses `safe_substitute`, which leaves the literal
+  `${…}` in the output file rather than raising. That is why reading a value back has to
+  sniff for the residue (`_is_placeholder`); a rendered env file can look complete and
+  still contain an uninterpolated token.
 - **The frozen full-lane script's own header contradicts the pin it enforces.**
   `startup/dev/run_full_test_lane.sh:38-40` names one image and one digest; the constants
   actually checked are a different image and a different digest
   (`startup/dev/run_full_test_lane.sh:106-107`), and the preflight compares against those
   (`startup/dev/run_full_test_lane.sh:146`). Trusting the header wastes a build.
 - **The Django settings overlay exists twice, and nothing keeps the copies in step.**
-  Install renders `dmac/local_settings.py` from the template at
-  `startup/steps/config.py:167`, while the full lane bind-mounts its own file over that
+  Install renders `dmac/local_settings.py` from the template (`render_local_settings`
+  in `startup/steps/config.py`), while the full lane bind-mounts its own file over that
   same path (`startup/dev/run_full_test_lane.sh:114` and
   `startup/dev/run_full_test_lane.sh:240`). The two are byte-identical today, verified
   2026-09-03 by running `cmp startup/dev/lane_local_settings.py
@@ -226,10 +241,10 @@ Breaking one is a regression, not a refactor.
 - **A skipped managed index prints as a normal green line.** `startup/cli.py:289`
   selects the warning style only for `applied` and `constraints reset`, so the `skipped`
   status every index returns when `NEXTSEEK_APPLY_MANAGED_INDEXES` is unset
-  (`startup/steps/schema_fixups.py:1004-1012`) is rendered with the ok style. An operator
+  (`startup/steps/schema_fixups.py:1001-1009`) is rendered with the ok style. An operator
   watching an install sees green and concludes the indexes were created. The flag is
-  read at `startup/steps/schema_fixups.py:995` and is true only for `1/true/yes/on`;
-  its own docstring calls it opt-in, default off (`startup/steps/schema_fixups.py:979-994`).
+  read at `startup/steps/schema_fixups.py:992` and is true only for `1/true/yes/on`;
+  its own docstring calls it opt-in, default off (`startup/steps/schema_fixups.py:976-991`).
 - **Three of the eleven DDL files in `startup/seed/sql/` are wired to nothing.** A
   recursive grep of the worktree for the three basenames
   `sample_attributes_description.sql`, `sample_attributes_unique_data.sql` and
@@ -241,10 +256,10 @@ Breaking one is a regression, not a refactor.
   `scripts/context_gen.py --emit seed` writes them from `context/`, and no fixup names
   them until the curated content is signed off. Switching them on is the reviewed change
   `scripts/README.md` group C describes, never a quiet edit to the fixup list.
-- **The default credentials are committed, not generated.** `startup/steps/config.py:121-123`
-  hardcodes the MySQL root password, the MySQL user password and the Neo4j password into
-  every rendered install, and only the Django key is random. An install exposed beyond
-  localhost with these untouched is open.
+- **The default credentials are committed, not generated.** `default_values` in
+  `startup/steps/config.py` hardcodes the MySQL root password, the MySQL user password
+  and the Neo4j password into every first install, and only the Django key is random.
+  An install exposed beyond localhost with these untouched is open.
 - **`--source-tree` accepts exactly one revision.** `startup/lib/deploy_source.py:44-49`
   refuses any tree whose `HEAD` is not that tree's own `origin/dev`, so a release tag, a
   hotfix branch or a commit one ahead is rejected however clean it is, and the

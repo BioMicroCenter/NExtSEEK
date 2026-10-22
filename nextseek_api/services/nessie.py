@@ -22,6 +22,7 @@ from rest_framework.authentication import BasicAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from nextseek_api.throttles import TURN_THROTTLES, UploadRate, enforce
 from nextseek_api.assistant import session_debug
 from nextseek_api.assistant.descriptions_cc import (
     NESSIE_ARTIFACTS_DESC, NESSIE_CC_QUERY_ASYNC_DESC, NESSIE_QUERY_ASYNC_DESC,
@@ -32,7 +33,7 @@ from nextseek_api.assistant.models_api import AsyncQueryResponse, QueryRequest, 
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from nextseek_api.endpoint_descriptions import NESSIE_SESSION_DEBUG_DESC
 from nextseek_api.permissions import IsSuperUser
-from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
+from nextseek_api.services.assistant import SeekSessionAuthentication
 from nextseek_api.services.cc_assistant import CCAssistantViewSet
 
 _DEBUG_EXAMPLE = {
@@ -64,7 +65,7 @@ class NessieViewSet(viewsets.ViewSet):
     # authenticators[0], and SessionAuthentication returns None for it, which
     # turns an anonymous call into a bare 403 instead of a 401. No
     # TokenAuthentication -- token auth does not work in this project.
-    authentication_classes = [BasicAuthentication, CsrfExemptSessionAuthentication]
+    authentication_classes = [BasicAuthentication, SeekSessionAuthentication]
     # IsAuthenticated first so anonymous callers get the 401. IsSuperUser, not
     # DRF's IsAdminUser: dmac/views.py sets is_staff on every SEEK user at
     # login, so IsAdminUser here would collapse to IsAuthenticated.
@@ -157,7 +158,7 @@ class NessieChatViewSet(viewsets.ViewSet):
     gate must match the route each one forwards to.
     """
 
-    authentication_classes = [BasicAuthentication, CsrfExemptSessionAuthentication]
+    authentication_classes = [BasicAuthentication, SeekSessionAuthentication]
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -170,7 +171,7 @@ class NessieChatViewSet(viewsets.ViewSet):
             value={"query": "Find me mice treated with NDMA", "mode": "standard"},
         )],
     )
-    @action(detail=False, methods=["post"], url_path="query")
+    @action(detail=False, methods=["post"], url_path="query", throttle_classes=TURN_THROTTLES)
     def query(self, request):
         return _delegate(CCAssistantViewSet, "query_async", request)
 
@@ -184,7 +185,7 @@ class NessieChatViewSet(viewsets.ViewSet):
             value={"query": "List the files in my run directory", "mode": "standard"},
         )],
     )
-    @action(detail=False, methods=["post"], url_path="query/cc")
+    @action(detail=False, methods=["post"], url_path="query/cc", throttle_classes=TURN_THROTTLES)
     def query_cc(self, request):
         return _delegate(CCAssistantViewSet, "cc_query_async", request)
 
@@ -243,6 +244,7 @@ class NessieChatViewSet(viewsets.ViewSet):
     )
     @uploads_list.mapping.post
     def uploads_create(self, request):
+        enforce(request, self, UploadRate())  # the forwarded action's own throttles do not run
         return _delegate(CCAssistantViewSet, "upload", request)
 
     @extend_schema(

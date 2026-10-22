@@ -94,3 +94,49 @@ class TestBatchInsertProjectsSamples:
 
         result = batch_insert_projects_samples(1, [10, 20], conn)
         assert result == 1  # only sample_id=20 inserted
+
+
+class TestAssayAssetsKeyOnAssetType:
+    def test_duplicate_record_in_one_call_inserts_once(self):
+        conn = MagicMock()
+        select_result = MagicMock()
+        select_result.fetchall.return_value = []
+        conn.execute.side_effect = [select_result, MagicMock()]
+
+        rec = (42, 101, "Sample", 2, None, None)
+        assert batch_insert_assay_assets([rec, rec], conn) == 1
+        insert_params = conn.execute.call_args_list[1][0][1]
+        assert "sid_1" not in insert_params
+
+    def test_select_binds_the_asset_type(self):
+        conn = MagicMock()
+        select_result = MagicMock()
+        select_result.fetchall.return_value = []
+        conn.execute.side_effect = [select_result, MagicMock()]
+
+        batch_insert_assay_assets([(42, 101, "DataFile", 1, None, None)], conn)
+        select_sql, select_params = conn.execute.call_args_list[0][0]
+        assert "'Sample'" not in str(select_sql)
+        assert select_params["atype"] == "DataFile"
+
+    def test_same_id_different_type_is_not_a_duplicate(self):
+        conn = MagicMock()
+        select_result = MagicMock()
+        select_result.fetchall.return_value = []
+        conn.execute.side_effect = [select_result, select_result, MagicMock(), MagicMock()]
+
+        recs = [(42, 7, "Sample", 1, None, None), (42, 7, "DataFile", 1, None, None)]
+        assert batch_insert_assay_assets(recs, conn) == 2
+
+    def test_existing_row_of_another_type_does_not_block_insert(self):
+        """(42, 7) already linked as a Sample must not hide the same id as a DataFile."""
+        conn = MagicMock()
+
+        def execute(sql, params=None):
+            r = MagicMock()
+            r.fetchall.return_value = [(42, 7)] if params.get("atype") == "Sample" else []
+            return r
+
+        conn.execute.side_effect = execute
+        recs = [(42, 7, "Sample", 1, None, None), (42, 7, "DataFile", 1, None, None)]
+        assert batch_insert_assay_assets(recs, conn) == 1

@@ -229,16 +229,19 @@ def undeclared_attribute(sample_type_id: int, sample_type: str, title: str) -> d
             "role": role_for(title), "needs_backticks": needs_backticks(title)}
 
 
-def catalog_hash(sample_types: list[dict], attributes: list[dict]) -> str:
+def catalog_hash(sample_types: list[dict], attributes: list[dict], with_values=()) -> str:
     """sha256 hex digest of what the query side caches from the catalog.
 
-    The canonical JSON of the sorted (type id, title, label) and (key, value_type, declared) tuples, so it is
-    independent of input order and changes when a type, a label, an attribute, a ``value_type`` or ``declared``
-    changes, but not when descriptive text such as ``meaning`` does.
+    The canonical JSON of the sorted (type id, title, label) and (key, value_type, declared) tuples, and the sorted
+    keys of ``with_values`` (the attributes whose ``sample_count`` is above 0: Nessie lists only those, and its guard
+    lets a Cypher read only those), so it is independent of input order and changes when a type, a label, an
+    attribute, a ``value_type``, ``declared`` or whether an attribute holds any value changes, but not when a count
+    moves or descriptive text such as ``meaning`` changes.
     """
     payload = {
         "sample_types": sorted([int(t["id"]), t["title"], t["label"]] for t in sample_types),
         "attributes": sorted([a["key"], a["value_type"], bool(a["declared"])] for a in attributes),
+        "with_values": sorted(str(key) for key in with_values),
     }
     text = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(text.encode("ascii")).hexdigest()

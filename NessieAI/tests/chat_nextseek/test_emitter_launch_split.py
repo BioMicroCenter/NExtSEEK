@@ -224,3 +224,29 @@ def test_luria_mixed_cohort_local_and_srr(tmp_path):
     out = _read(res.saved_files["samplesheet"])
     assert out["D.SEQ-1"]["fastq_1"] == "/net/bmc-x/1_1.fastq.gz"
     assert out["D.SEQ-2"]["fastq_1"] == "" and out["D.SEQ-2"]["accession"] == "SRR200"
+
+
+# Every writer of a params file refuses a value with shell syntax, whichever path built the params: some nf-core
+# modules splice params into bash script blocks.
+import pytest as _pytest
+
+
+def test_emit_luria_launch_artifacts_refuses_shell_syntax(tmp_path):
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("sample,fastq_1\nD.SEQ-1,/net/bmc-x/1.fastq.gz\n")
+    with _pytest.raises(ValueError, match="multiqc_title"):
+        emit_luria_launch_artifacts(
+            tmp_path, pipeline="rnaseq", samplesheet_path=sheet,
+            launch_plan={"run_name": "r", "params": {"multiqc_title": "$(id)"}})
+    assert not (tmp_path / "params.yml").exists()
+
+
+def test_emit_launch_artifacts_refuses_shell_syntax(tmp_path):
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("sample,accession\nS1,SRR1\n", encoding="utf-8")
+    with _pytest.raises(ValueError, match="multiqc_title"):
+        emit_launch_artifacts(
+            tmp_path, pipeline="rnaseq", samplesheet_path=sheet,
+            launch_plan={"run_name": "r1", "params": {"multiqc_title": "a; id"}},
+            tower_env=TOWER, excluded=[])
+    assert not (tmp_path / "params.yml").exists()

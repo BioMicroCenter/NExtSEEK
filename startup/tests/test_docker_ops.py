@@ -195,6 +195,23 @@ def test_compose_exec_passes_service_and_command(mock_run: MagicMock) -> None:
 
 
 @patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_exec_error_never_carries_a_password(mock_run: MagicMock) -> None:
+    """#103: install's database steps log in with the box's kept passwords, so a
+    failing step must name the command without them. Both spellings are in use:
+    mysql's -p<password> and cypher-shell's -p <password>."""
+    mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="ERROR 1045")
+    for command in (
+        ["mysql", "-uroot", "-protated-S3cret", "dmac"],
+        ["cypher-shell", "-u", "neo4j", "-p", "rotated-S3cret", "RETURN 1"],
+    ):
+        with pytest.raises(DockerOpsError) as exc:
+            compose_exec(service="db", command=command, project_dir="/repo", env={})
+        assert "rotated-S3cret" not in str(exc.value)
+        assert f"{command[0]} " in str(exc.value) and "ERROR 1045" in str(exc.value)
+        assert "rotated-S3cret" in " ".join(mock_run.call_args.args[0])  # still logs in
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
 def test_compose_exec_can_allocate_interactive_terminal(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
 

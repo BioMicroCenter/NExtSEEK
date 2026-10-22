@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
@@ -44,6 +45,35 @@ def _minify_json_string(json_value: Union[str, dict]) -> str:
 
 
 _ASSAY_ID_RE = re.compile(r"\d+")
+_ASSAY_NUM_RE = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _whole_id(x):
+    """12.0 is 12; 12.5 is an error. NaN and inf are dropped by the caller."""
+    f = float(x)
+    if f != int(f):
+        raise ValueError(f"assay id must be a whole number, got {x}")
+    return int(f)
+
+
+def _coerce_assay_ids(v):
+    """Assay ids from a list, int, float or delimited string, whole numbers only."""
+    if isinstance(v, float):
+        return [_whole_id(v)] if math.isfinite(v) else []
+    if isinstance(v, list):
+        return [_whole_id(x) if isinstance(x, (float, str)) and "." in str(x) else int(x)
+                for x in v if x is not None and str(x).strip() and str(x).lower() != "nan"]
+    if isinstance(v, int):
+        return [v]
+    if isinstance(v, str):
+        s = v.strip()
+        if not s or s.lower() == "nan":
+            return []
+        return [_whole_id(m) if "." in m else int(m) for m in _ASSAY_NUM_RE.findall(s)]
+    if v is None:
+        return []
+    return [int(x) for x in v]
+
 
 
 # ── 1. SampleTypeDescription ──────────────────────────────────────────────
@@ -179,18 +209,7 @@ class InputRowModel(BaseModel):
     @field_validator("assay_ids", mode="before")
     @classmethod
     def coerce_assay_ids(cls, v):
-        if isinstance(v, list):
-            return [int(x) for x in v if x is not None and str(x).strip()]
-        if isinstance(v, int):
-            return [v]
-        if isinstance(v, (str, float)):
-            s = str(v).strip()
-            if not s or s.lower() == "nan":
-                return []
-            return [int(m) for m in _ASSAY_ID_RE.findall(s)]
-        if v is None:
-            return []
-        return [int(x) for x in v]
+        return _coerce_assay_ids(v)
 
     @field_validator("json_metadata", mode="before")
     @classmethod
@@ -244,23 +263,23 @@ class InputRowModel(BaseModel):
             if meta_uid is not None and str(meta_uid).strip() and str(meta_uid).strip() != str(self.UID).strip():
                 raise ValueError("UID column does not match json_metadata.UID")
 
-            # 2) SOP consistency if sop_id provided and Protocol encodes SOP
-            #
-            # This is VALIDATION, not resolution: it stays purely syntactic (no
-            # DB), so it can only compare two integers. It shares
-            # parse_protocol_value only to agree with the ingest path on what
-            # "the Protocol encodes a SOP id" means. Two consequences, both
-            # intended:
-            #   * a title-shaped Protocol carries no id, so there is nothing to
-            #     disagree with — ingest resolves it by title later;
-            #   * an id in a FOREIGN SOP URL (fairdomhub.org/sops/795, 1,855
-            #     live values) is not in our sops table, so comparing it to a
-            #     local sop_id would reject perfectly good rows.
-            if self.sop_id is not None:
-                protocol_val = meta.get("Protocol") or meta.get("protocol") or ""
-                parsed = parse_protocol_value(protocol_val).sop_id
-                if parsed is not None and int(self.sop_id) != parsed:
-                    raise ValueError("sop_id does not match SOP id in json_metadata.Protocol")
+        # 2) SOP consistency if sop_id provided and Protocol encodes SOP
+        #
+        # This is VALIDATION, not resolution: it stays purely syntactic (no
+        # DB), so it can only compare two integers. It shares
+        # parse_protocol_value only to agree with the ingest path on what
+        # "the Protocol encodes a SOP id" means. Two consequences, both
+        # intended:
+        #   * a title-shaped Protocol carries no id, so there is nothing to
+        #     disagree with — ingest resolves it by title later;
+        #   * an id in a FOREIGN SOP URL (fairdomhub.org/sops/795, 1,855
+        #     live values) is not in our sops table, so comparing it to a
+        #     local sop_id would reject perfectly good rows.
+        if isinstance(meta, dict) and self.sop_id is not None:
+            protocol_val = meta.get("Protocol") or meta.get("protocol") or ""
+            parsed = parse_protocol_value(protocol_val).sop_id
+            if parsed is not None and int(self.sop_id) != parsed:
+                raise ValueError("sop_id does not match SOP id in json_metadata.Protocol")
 
         # 3) assay_titles length consistency if provided
         if self.assay_titles is not None:
@@ -287,18 +306,7 @@ class InsertableSample(BaseModel):
     @field_validator("assay_ids", mode="before")
     @classmethod
     def coerce_assay_ids(cls, v):
-        if isinstance(v, list):
-            return [int(x) for x in v if x is not None and str(x).strip()]
-        if isinstance(v, int):
-            return [v]
-        if isinstance(v, (str, float)):
-            s = str(v).strip()
-            if not s or s.lower() == "nan":
-                return []
-            return [int(m) for m in _ASSAY_ID_RE.findall(s)]
-        if v is None:
-            return []
-        return [int(x) for x in v]
+        return _coerce_assay_ids(v)
 
     @field_validator("json_metadata", mode="before")
     @classmethod
@@ -358,304 +366,6 @@ class PermissionCreate(BaseModel):
         return v.strip().title()
 
 
-# ── 7. Neo4jRuntimeConfig ─────────────────────────────────────────────────
-
-
-class Neo4jRuntimeConfig(BaseModel):
-    NEO4J_DB: str = ""
-    URI: str = ""
-    NEO4J_USER: str = ""
-    PASSWORD: str = ""
-    NEO4J_UPLOAD_ENABLED: bool = False
-    NEO4J_NODE_CHUNK: int = 10_000
-    NEO4J_REL_CHUNK: int = 20_000
-    NEO4J_DEBUG: bool = False
-    DRIVER_AVAILABLE: bool = False
-    MISSING_KEYS: List[str] = Field(default_factory=list)
-
-    model_config = ConfigDict(extra="forbid")
-
-
-# ── 8. Metrics ─────────────────────────────────────────────────────────────
-
-
-class Metrics(BaseModel):
-    nodes_input: int = 0
-    nodes_created: int = 0
-    nodes_matched: int = 0
-    rels_input: int = 0
-    rels_created: int = 0
-    rels_matched: int = 0
-    eligible_children: int = 0
-    # Children whose metadata names a parent UID that matches no row in
-    # `samples`, so no edge could even be BUILT for it. Complements
-    # derived_from_rels_dropped below, which is the other half of the same
-    # loss: the row was built and the graph had no node to hang it on.
-    skipped_children_missing_parents: int = 0
-    derived_from_rels_created: int = 0
-    # Same reasoning as in_study_rels_dropped: rows whose Sample node did not
-    # exist are dropped by the MERGE's double MATCH with no error. The
-    # attempted half is already `rels_input` above, so only the shortfall is
-    # new; a caller can now check created + dropped == rels_input without
-    # reading the log.
-    derived_from_rels_dropped: int = 0
-    # Parent-changed children whose stored json_metadata could not be read, so
-    # the stale-edge delete declined to run for them at all. The third loss
-    # class in this family and counted for the same reason as the other two:
-    # the delete quietly not happening is indistinguishable from a clean run,
-    # and it leaves a removed parent's edge in the graph.
-    parent_changed_children_skipped_unreadable: int = 0
-    of_type_rels_created: int = 0
-    in_study_rels_created: int = 0
-    # #44: IN_STUDY rows whose Sample or Study node did not exist are dropped by the
-    # MERGE's MATCH with no error. `attempted - created` is the only evidence, so it
-    # is recorded rather than inferred, and the drop count also lands in
-    # in_study_warnings so an existing reader of that field sees it.
-    in_study_rels_attempted: int = 0
-    in_study_rels_dropped: int = 0
-    in_study_warnings: int = 0
-    # Children whose json_metadata Protocol named no SOP, so their DERIVED_FROM
-    # edge carries no protocol. Same reasoning as in_study_rels_dropped above:
-    # a silent null is indistinguishable from "this sample has no protocol",
-    # so it is counted rather than inferred.
-    protocols_unresolved: int = 0
-    # Protocol values pointing at a SOP hosted elsewhere. Counted apart from
-    # protocols_unresolved because these are fine: the edge correctly has no
-    # LOCAL protocol, and folding them together would bury the real failures.
-    protocols_external_links: int = 0
-    sample_type_nodes_created: int = 0
-    study_nodes_created: int = 0
-    investigation_nodes_created: int = 0
-    in_investigation_rels_created: int = 0
-    elapsed_ms_total: float = 0.0
-    per_chunk_timings: List[dict] = Field(default_factory=list)
-
-    model_config = ConfigDict(extra="forbid")
-
-
-# ── 9. NodeRow ─────────────────────────────────────────────────────────────
-
-
-class NodeRow(BaseModel):
-    sample_id: int
-    sample_uuid: str
-    sample_type: str
-    properties: Dict[str, Any] = Field(default_factory=dict)
-    parent_titles: List[str] = Field(default_factory=list)
-    parent_title_hashes: List[str] = Field(default_factory=list)
-
-    model_config = ConfigDict(extra="allow")
-
-    @field_validator("sample_id")
-    @classmethod
-    def positive_id(cls, v):
-        if v <= 0:
-            raise ValueError("sample_id must be positive")
-        return v
-
-    @field_validator("sample_uuid")
-    @classmethod
-    def non_empty_uuid(cls, v):
-        if not v or not v.strip():
-            raise ValueError("sample_uuid must be non-empty")
-        return v.strip()
-
-
-# ── 10. RelRow ─────────────────────────────────────────────────────────────
-
-
-class RelRow(BaseModel):
-    child_id: int
-    child_uuid: str
-    parent_uuid: str
-
-    model_config = ConfigDict(extra="forbid")
-
-    @field_validator("child_id")
-    @classmethod
-    def positive_child_id(cls, v):
-        if v <= 0:
-            raise ValueError("child_id must be positive")
-        return v
-
-    @field_validator("child_uuid", "parent_uuid")
-    @classmethod
-    def non_empty(cls, v):
-        if not v or not v.strip():
-            raise ValueError("uuid must be non-empty")
-        return v.strip()
-
-
-# ── 11. DerivedFromRelRow ──────────────────────────────────────────────────
-
-
-class DerivedFromRelRow(BaseModel):
-    child_id: int
-    child_uuid: str
-    parent_id: int
-    parent_uuid: str
-    protocol_id: Optional[int] = None
-    protocol_title: Optional[str] = None
-    assay_id: Optional[int] = None
-    internal_assay_id: Optional[int] = None
-    internal_assay_title: Optional[str] = None
-    #: EVERY internal assay shared by this edge's two endpoints, not just the
-    #: winner above. The singular fields keep the lowest-id assay for backward
-    #: compatibility -- entity_tree, the download workbook, chat_nextseek's
-    #: context files and seek/views.py all read them -- while these carry what
-    #: used to be discarded. Kept parallel and sorted by id, so
-    #: internal_assay_ids[i] names internal_assay_titles[i]. See issue #118.
-    internal_assay_ids: List[int] = Field(default_factory=list)
-    internal_assay_titles: List[str] = Field(default_factory=list)
-
-    model_config = ConfigDict(extra="forbid")
-
-    @field_validator("child_id", "parent_id")
-    @classmethod
-    def positive_ids(cls, v):
-        if v <= 0:
-            raise ValueError("id must be positive")
-        return v
-
-    @field_validator("child_uuid", "parent_uuid")
-    @classmethod
-    def non_empty_uuids(cls, v):
-        if not v or not v.strip():
-            raise ValueError("uuid must be non-empty")
-        return v.strip()
-
-
-# ── 12. OfTypeRelRow ──────────────────────────────────────────────────────
-
-
-class OfTypeRelRow(BaseModel):
-    sample_id: int
-    sample_uuid: str
-    sample_type_id: int
-
-    model_config = ConfigDict(extra="forbid")
-
-    @field_validator("sample_id", "sample_type_id")
-    @classmethod
-    def positive_ids(cls, v):
-        if v <= 0:
-            raise ValueError("id must be positive")
-        return v
-
-
-# ── 12b. InStudyRelRow ───────────────────────────────────────────────────
-
-
-class InStudyRelRow(BaseModel):
-    sample_uuid: str
-    study_id: int
-    model_config = ConfigDict(extra="forbid")
-
-    @field_validator("study_id")
-    @classmethod
-    def positive_study_id(cls, v):
-        if v <= 0:
-            raise ValueError("study_id must be positive")
-        return v
-
-    @field_validator("sample_uuid")
-    @classmethod
-    def non_empty_uuid(cls, v):
-        if not v or not v.strip():
-            raise ValueError("sample_uuid must be non-empty")
-        return v.strip()
-
-
-# ── 12c. StudyNodeRow ────────────────────────────────────────────────────
-
-
-class StudyNodeRow(BaseModel):
-    id: int
-    title: str
-    description: str = ""
-    model_config = ConfigDict(extra="forbid")
-
-    @field_validator("title")
-    @classmethod
-    def non_empty_title(cls, v):
-        if not v or not v.strip():
-            raise ValueError("title must be non-empty")
-        return v.strip()
-
-
-# ── 12d. InvestigationNodeRow ────────────────────────────────────────────
-
-
-class InvestigationNodeRow(BaseModel):
-    id: int
-    title: str
-    description: str = ""
-    model_config = ConfigDict(extra="forbid")
-
-    @field_validator("title")
-    @classmethod
-    def non_empty_title(cls, v):
-        if not v or not v.strip():
-            raise ValueError("title must be non-empty")
-        return v.strip()
-
-
-# ── 12e. InInvestigationRelRow ───────────────────────────────────────────
-
-
-class InInvestigationRelRow(BaseModel):
-    study_id: int
-    investigation_id: int
-    model_config = ConfigDict(extra="forbid")
-
-    @field_validator("study_id", "investigation_id")
-    @classmethod
-    def positive_ids(cls, v):
-        if v <= 0:
-            raise ValueError("id must be positive")
-        return v
-
-
-# ── 13. SampleTypeNodeRow ─────────────────────────────────────────────────
-
-
-class SampleTypeNodeRow(BaseModel):
-    id: Optional[int] = None
-    title: str
-
-    model_config = ConfigDict(extra="forbid")
-
-    @field_validator("title")
-    @classmethod
-    def non_empty_title(cls, v):
-        if not v or not v.strip():
-            raise ValueError("title must be non-empty")
-        return v.strip()
-
-
-# ── 14. PayloadStats ──────────────────────────────────────────────────────
-
-
-class PayloadStats(BaseModel):
-    eligible_children: int = 0
-    skipped_children_missing_parents: int = 0
-    created_count: int = 0
-
-    model_config = ConfigDict(extra="forbid")
-
-
-# ── 15. ConstraintStatus ──────────────────────────────────────────────────
-
-
-class ConstraintStatus(BaseModel):
-    sample_id: str = "skipped"
-    sample_uuid: str = "skipped"
-    sample_type_id: str = "skipped"
-    sample_type_title: str = "skipped"
-
-    model_config = ConfigDict(extra="forbid")
-
-
 # ── 16. StreamResult ──────────────────────────────────────────────────────
 
 
@@ -690,7 +400,6 @@ class DirectionComputation:
     parents_of: Dict[str, Set[str]]  # child_uid -> set(parent_uids)
     assays_by_uid: Dict[str, Set[int]]  # uid -> set(assay_ids)
     child_uids_by_assay: Dict[int, Set[str]]  # assay_id -> set(child_uids)
-    conflicts_by_assay: Dict[int, Set[str]]  # assay_id -> set(uids with conflict)
 
 
 # ── 18. InstructionRow ────────────────────────────────────────────────────
@@ -782,6 +491,8 @@ class ConvertedBatch(BaseModel):
     source_files: List[str] = Field(default_factory=list)
     ontology_result: Optional[OntologyValidationResult] = None
     warnings: List[str] = Field(default_factory=list)
+    # Flat-file rows that failed validation and were dropped: (row index, messages).
+    row_errors: List[Tuple[int, List[str]]] = Field(default_factory=list)
     model_config = ConfigDict(extra="forbid")
 
 
@@ -851,7 +562,6 @@ class BatchUploadTotals(BaseModel):
 
     Tracks per-stage row counts plus pipeline outcome flags. Populated by
     the Stage 7 REPORT step in orchestrator.py:run_batch_upload_multi.
-    Distinct from the in-flight Metrics dataclass used during INSERT.
     """
     processed: int
     success: int

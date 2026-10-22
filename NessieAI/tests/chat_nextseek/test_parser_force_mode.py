@@ -33,7 +33,7 @@ from chat_nextseek.agents.parser import (
 from chat_nextseek.schemas import ParserFilters, ParserPlan
 from chat_nextseek.schemas.router import EndpointCandidate
 
-SAMPLE_TREE = "/nextseek_api/samples/sample-tree/"
+SAMPLE_TREE = "/nextseek_api/admin/samples/retrieve/"  # a kept REST endpoint other than RETRIEVE
 RETRIEVE = "/nextseek_api/samples/retrieve/"
 PLAIN_QUERY = "How many tissue samples are in the database?"
 MULTI_UID_LINEAGE_QUERY = (

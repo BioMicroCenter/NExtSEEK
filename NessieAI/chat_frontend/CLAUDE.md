@@ -189,6 +189,6 @@ the built page in a browser (`ci/smoke/test_flows.py:105-121`).
   `collectstatic` step it depends on.
 - See `NessieAI/docs/architecture.md` "Anatomy of a turn" for the whole turn, from page load to progress
   transport.
-- See `docs/UI.md` "Architecture Overview" for how this sits beside the server-rendered pages.
+- See `docs/ui/chat-frontend.md` and `docs/ui/README.md` "The UI in one picture" for how this sits beside the server-rendered pages.
 - See `NessieAI/router/README.md` for the route rules (overrides and sticky CC) that
   decide what these progress events describe.

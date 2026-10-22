@@ -10,6 +10,10 @@ recognizer for one fixed grammar (spec section 5.3), classifies every node and r
 - A Sample-capable node (every label ``Sample`` or ``T_*``, or no label as an end of ``DERIVED_FROM``) gets
   graph_search's clause, ``any(p IN s.project_ids WHERE p IN $projects)``, rendered with generated names.
 - A ``Project`` gets ``p.id IN $__scope_projects``.
+- An ``Assay`` (graph schema 1.3) is a catalog node, the same for every caller: no predicate, every property reads.
+  ``INPUT_TO`` and ``OUTPUT_OF`` reach it, at fixed length, from a scoped sample; an alternation of those two types
+  alone is one such link (``assay_alternation``), and every other alternation is refused. A name that may hold an
+  Assay (``_Names.assay``) proves no joined node: an Assay is visible to everyone and contains nothing.
 - A ``Study``, ``Investigation`` or ``Person`` carries no ``project_ids``; it must be joined, by a relationship
   pattern in the same pattern list, as the container of something visible: the study of a scoped sample, the
   investigation of such a study or of the caller's project, a member of the caller's project (``prove_joined``).
@@ -23,8 +27,9 @@ recognizer for one fixed grammar (spec section 5.3), classifies every node and r
   test) stay outside, where Neo4j can seek an index on them (``_Parser.harmless``).
 - The sample fulltext search is scoped in its ``YIELD``'s ``WHERE``.
 - Catalog nodes (``SampleType``, ``Attribute``), ``GraphMeta``, ``OrphanSample``, unknown labels, untyped or other
-  relationships, subqueries other than ``EXISTS``/``COUNT``, procedures, pattern expressions, path selectors, the hidden
-  sample properties, dynamic property access and any function outside the allowlist are refused.
+  relationships (``ACCEPTED_BY``, ``GENERATES`` and ``RUN_IN`` among them), subqueries other than ``EXISTS``/``COUNT``,
+  procedures, pattern expressions, path selectors, the hidden sample properties, dynamic property access and any
+  function outside the allowlist are refused.
 
 The output is the input plus insertions only: deleting what was inserted gives the input back byte for byte. Every
 generated name starts with ``__scope``, which is why that prefix is reserved in the statement and its parameters.
@@ -32,7 +37,8 @@ generated name starts with ``__scope``, which is why that prefix is reserved in 
 The module is pure: no driver, no Django, no import of the agents, the config or the API side. The tool
 (``helpers/tools/neo4j.py``) calls it after ``write_clause``; writes never reach it.
 
-Spec: docs/superpowers/specs/2026-09-18-graph-cypher-scope.md section 5.
+Spec: docs/superpowers/specs/2026-09-18-graph-cypher-scope.md section 5; the Assay rows,
+docs/superpowers/specs/2026-09-25-graph-assay-nodes-design.md section 6.4.
 """
 from __future__ import annotations
 
@@ -40,6 +46,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from .graph_contract import schema
 from .graph_scope import HIDDEN_SAMPLE_PROPERTIES, RESERVED_PREFIX, SCOPE_PARAM, GraphScope
 
 SCOPE_CLAUSE_TEMPLATE = "any({element} IN {var}.project_ids WHERE {element} IN ${param})"
@@ -57,15 +64,22 @@ REFUSAL_CODES = (
     "function_not_allowed",
 )
 
-# The node and relationship tables of spec section 5.4.
-SAMPLE_LABEL = "Sample"
-SAMPLE_TYPE_LABEL_PREFIX = "T_"
-PROJECT_LABEL = "Project"
-JOINED_LABELS = frozenset({"Study", "Investigation", "Person"})
-LINEAGE_RELATIONSHIP = "DERIVED_FROM"
-FIXED_RELATIONSHIPS = frozenset({"IN_STUDY", "IN_INVESTIGATION", "IN_PROJECT", "MEMBER_OF"})
+# The node and relationship tables of spec section 5.4. The names are the graph contract's; JOINED_LABELS and
+# FIXED_RELATIONSHIPS are this prover's policy, spelled with the contract's names and never derived from its groups,
+# so a label or relationship a later schema version adds joins neither until it is added here.
+SAMPLE_LABEL = schema.SAMPLE
+SAMPLE_TYPE_LABEL_PREFIX = schema.TYPE_LABEL_PREFIX
+PROJECT_LABEL = schema.PROJECT
+JOINED_LABELS = frozenset({schema.STUDY, schema.INVESTIGATION, schema.PERSON})
+ASSAY_LABEL = schema.ASSAY   # graph schema 1.3: a catalog kind, the contract's name
+LINEAGE_RELATIONSHIP = schema.DERIVED_FROM
+# Policy sets (the contract spec, D6): contract constants, pinned by literals in test_cypher_scope_accept.py.
+FIXED_RELATIONSHIPS = frozenset({schema.IN_STUDY, schema.IN_INVESTIGATION, schema.IN_PROJECT, schema.MEMBER_OF,
+                                 schema.INPUT_TO, schema.OUTPUT_OF})
+# INPUT_TO and OUTPUT_OF join a sample, which carries the sample clause, to an Assay (``finalize`` checks the ends).
+ASSAY_RELATIONSHIPS = frozenset({schema.INPUT_TO, schema.OUTPUT_OF})
 FULLTEXT_PROCEDURE = "db.index.fulltext.queryNodes"
-FULLTEXT_INDEX = "sample_search_text"
+FULLTEXT_INDEX = schema.FULLTEXT_INDEX
 
 # Functions a statement may call (case-insensitive): none of them fetches or walks the graph, so every node or
 # relationship value in a row came from a pattern the prover scoped (spec section 5.4, "the invariant").
@@ -443,14 +457,17 @@ _OPENERS = {"(": ")", "[": "]", "{": "}"}
 @dataclass(frozen=True)
 class _Names:
     """Names in scope. `strict` holds what a pattern may reference; `loose` adds names an expression alone may use
-    (the previous clause's names in an ORDER BY). A pattern naming a loose-only name is refused."""
+    (the previous clause's names in an ORDER BY). A pattern naming a loose-only name is refused. `assay` holds the
+    names that may hold an Assay node: bound to one by a pattern, or computed by an expression that read one (an
+    alias, ``collect``, ``UNWIND``, a comprehension's local). A reference to one of them proves no joined node."""
 
     strict: frozenset = frozenset()
     loose: frozenset = frozenset()
+    assay: frozenset = frozenset()
 
-    def bind(self, names) -> "_Names":
+    def bind(self, names, assay=()) -> "_Names":
         names = frozenset(names)
-        return _Names(self.strict | names, self.loose | names)
+        return _Names(self.strict | names, self.loose | names, (self.assay - names) | frozenset(assay))
 
 
 @dataclass
@@ -490,6 +507,7 @@ class _PatternList:
     paths: list[_Path]
     end_off: int
     bound: set[str]
+    assay: set[str] = field(default_factory=set)   # the names in `bound` a pattern labels Assay
 
 
 @dataclass
@@ -503,7 +521,8 @@ class _Vertex:
     reference: bool = False
     derived_end: bool = False
     in_varlen: bool = False
-    kind: str = ""                     # "sample", "project", "joined", "reference", "none"
+    assay: bool = False                # a reference to a name that may hold an Assay (_Names.assay)
+    kind: str = ""                     # "sample", "project", "joined", "assay", "reference", "none"
     ref_text: str | None = None        # how an injected clause names it
 
 
@@ -515,7 +534,20 @@ def _label_kind(label: str) -> str:
         return "project"
     if label in JOINED_LABELS:
         return "joined"
+    if label == ASSAY_LABEL:
+        return "assay"
     return "none"
+
+
+def _assay_end(v: _Vertex) -> bool:
+    """An Assay binding, or a reference to a name that may hold one."""
+    return v.kind == "assay" or (v.kind == "reference" and v.assay)
+
+
+def _sample_end(v: _Vertex) -> bool:
+    """A sample binding (scoped by its clause), or a reference to a name that holds no Assay (every bound value is
+    visible, spec section 5.4)."""
+    return v.kind == "sample" or (v.kind == "reference" and not v.assay)
 
 
 class _Parser:
@@ -533,6 +565,7 @@ class _Parser:
         self.paren_closes: set[int] = set()
         self.anon = 0
         self.list_params: frozenset[str] = frozenset()   # parameters whose value is a list (or null): IN cannot raise
+        self.reads: list[str] = []         # every name an expression read, in order (``variable``)
 
     # ------------------------------------------------------------------ token helpers
     @property
@@ -609,6 +642,11 @@ class _Parser:
         self.counters[kind] += 1
         return f"{RESERVED_PREFIX}_{kind}{self.counters[kind]}"
 
+    def reads_assay(self, mark: int, names: _Names) -> bool:
+        """Whether the expression parsed since ``mark`` (an index into ``self.reads``) read a name that may hold an
+        Assay: then whatever it computes may hold one too."""
+        return any(name in names.assay for name in self.reads[mark:])
+
     def skip_balanced(self) -> None:
         """Skip the bracketed group opening at the cursor."""
         stack: list[str] = []
@@ -673,10 +711,11 @@ class _Parser:
                 names = self.call_clause(names)
             elif self.at_kw("UNWIND"):
                 self.i += 1
+                mark = len(self.reads)
                 self.expr(names)
                 self.expect_kw("AS")
                 name, _ = self.binding()
-                names = names.bind({name})
+                names = names.bind({name}, assay={name} if self.reads_assay(mark, names) else ())
             elif self.at_kw("WITH"):
                 names = self.with_clause(names)
             elif self.at_kw("RETURN"):
@@ -697,7 +736,7 @@ class _Parser:
             if self.at_name():
                 self.i += 1
         plist = self.pattern_list(names)
-        inner = names.bind(plist.bound)
+        inner = names.bind(plist.bound, assay=plist.assay)
         where = self.optional_where(inner)
         self.finalize(plist, names, where)
         return inner
@@ -736,10 +775,11 @@ class _Parser:
         self.i += 1
         if self.at_kw("DISTINCT"):
             self.i += 1
-        projected, star = self.projection(names)
+        projected, star, assay = self.projection(names)
         kept = frozenset(projected) | (names.strict if star else frozenset())
-        new = _Names(kept, kept | (names.loose if star else frozenset()))
-        self.order_skip_limit(_Names(new.strict, names.loose | new.loose))
+        carried = frozenset(assay) | (names.assay & names.strict if star else frozenset())
+        new = _Names(kept, kept | (names.loose if star else frozenset()), carried)
+        self.order_skip_limit(_Names(new.strict, names.loose | new.loose, new.assay))
         if self.at_kw("WHERE"):
             self.i += 1
             self.expr(new)
@@ -749,35 +789,43 @@ class _Parser:
         self.i += 1
         if self.at_kw("DISTINCT"):
             self.i += 1
-        projected, star = self.projection(names)
+        projected, star, assay = self.projection(names)
         # A pattern in ORDER BY may reference only what the projection guarantees (after an aggregation or
         # DISTINCT the earlier names are gone); an expression may read the earlier names too.
         kept = frozenset(projected) | (names.strict if star else frozenset())
-        self.order_skip_limit(_Names(kept, names.loose | kept))
+        carried = frozenset(assay) | (names.assay & names.strict if star else frozenset())
+        self.order_skip_limit(_Names(kept, names.loose | kept, carried))
 
-    def projection(self, names: _Names) -> tuple[set[str], bool]:
+    def projection(self, names: _Names) -> tuple[set[str], bool, set[str]]:
+        """(the names projected, whether ``*`` keeps the rest, the projected names that may hold an Assay)."""
         out: set[str] = set()
+        assay: set[str] = set()
         star = False
         if self.at_p("*"):
             self.i += 1
             star = True
             if not self.at_p(","):
-                return out, star
+                return out, star, assay
             self.i += 1
         while True:
             start = self.i
+            mark = len(self.reads)
             self.expr(names)
+            name = None
             if self.at_kw("AS"):
                 self.i += 1
                 name, _ = self.binding()
-                out.add(name)
             elif self.i == start + 1 and self.toks[start].kind in ("name", "bname") \
                     and self.toks[start].value.upper() not in ("TRUE", "FALSE", "NULL"):
-                out.add(self.toks[start].value)
+                name = self.toks[start].value
+            if name is not None:
+                out.add(name)
+                if self.reads_assay(mark, names):
+                    assay.add(name)
             if self.at_p(","):
                 self.i += 1
                 continue
-            return out, star
+            return out, star, assay
 
     def order_skip_limit(self, names: _Names) -> None:
         if self.at_kw("ORDER"):
@@ -936,16 +984,19 @@ class _Parser:
             self.i += 1
             paths.append(self.path(names))
         bound: set[str] = set()
+        assay: set[str] = set()
         for path in paths:
             if path.name:
                 bound.add(path.name)
             for node in path.nodes:
                 if node.var and node.var not in names.strict:
                     bound.add(node.var)
+                    if ASSAY_LABEL in node.labels:
+                        assay.add(node.var)
             for rel in path.rels:
                 if rel.var:
                     bound.add(rel.var)
-        return _PatternList(paths, self.toks[self.i - 1].end, bound)
+        return _PatternList(paths, self.toks[self.i - 1].end, bound, assay)
 
     def path(self, names: _Names) -> _Path:
         start = self.tok.start
@@ -1079,6 +1130,21 @@ class _Parser:
         self.expect_p("}")
         self.leave()
 
+    def assay_alternation(self, first: str) -> str | None:
+        """After ``first`` in a relationship pattern: INPUT_TO and OUTPUT_OF are the two roles of one link, both from a
+        sample to an Assay under one rule, so ``first|...`` naming those two types alone reads as one assay
+        relationship (``first``, whose ends ``finalize`` checks as for either type). Any other type, any other label
+        operator, and every other alternation answer None, with the position left where it was."""
+        start, types = self.i, {first}
+        while self.at_p("|") and self.at_name(1):
+            types.add(self.peek(1).value)
+            self.i += 2
+        if not (self.at_p("|") or self.at_p(":") or self.at_p("&") or self.at_p("!")) \
+                and types <= ASSAY_RELATIONSHIPS:
+            return first
+        self.i = start
+        return None
+
     def rel(self, names: _Names) -> _Rel:
         start = self.tok
         if self.at_p("<"):
@@ -1102,7 +1168,7 @@ class _Parser:
                 rtype = self.tok.value
                 self.i += 1
                 if self.at_p("|") or self.at_p(":") or self.at_p("&") or self.at_p("!"):
-                    rtype = None
+                    rtype = self.assay_alternation(rtype)
             if rtype is None:
                 self.refuse("relationship_type", start.start, "a relationship without exactly one type")
                 self.skip_label_tokens(rel=True)
@@ -1165,6 +1231,7 @@ class _Parser:
                 typed[node.key] = []
                 if node.var and node.var in names.strict:
                     v.reference = True
+                    v.assay = node.var in names.assay
                 elif node.var and node.var in names.loose:
                     self.f.add("syntax", node.open_off, f"the name {node.var} is not bound here")
                     raise _Stop
@@ -1173,6 +1240,7 @@ class _Parser:
             return v
 
         live_paths = [p for p in plist.paths if not p.opaque]
+        assay_rels: list[tuple[_Rel, _Vertex, _Vertex]] = []
         for path in live_paths:
             path_vertices = [vertex_of(node) for node in path.nodes]
             for k, rel in enumerate(path.rels):
@@ -1180,6 +1248,8 @@ class _Parser:
                 rtype = None if rel.refused else rel.rtype
                 typed[a.key].append((b.key, rtype))
                 typed[b.key].append((a.key, rtype))
+                if rtype in ASSAY_RELATIONSHIPS:
+                    assay_rels.append((rel, a, b))
                 if rel.rtype == LINEAGE_RELATIONSHIP and not rel.refused:
                     a.derived_end = b.derived_end = True
             path.varlen = any(r.varlen and r.rtype == LINEAGE_RELATIONSHIP and not r.refused for r in path.rels)
@@ -1212,12 +1282,24 @@ class _Parser:
                     v.kind = "project"
                 elif kinds == {"joined"} and len(v.labels) == 1:
                     v.kind = "joined"
+                elif kinds == {"assay"}:
+                    v.kind = "assay"
                 else:
                     v.kind = "none"
                     self.refuse("label_not_allowed", v.first.open_off,
                                 f"the label {':'.join(sorted(v.labels))} may not be read")
             if v.kind in ("sample", "project") and v.var_raw:
                 v.ref_text = v.var_raw
+
+        # INPUT_TO and OUTPUT_OF join a sample to an Assay, in either direction as written. Any other pair of ends
+        # is refused; a refused end has refused the statement already.
+        for rel, a, b in assay_rels:
+            if "none" in (a.kind, b.kind) or (_assay_end(a) and _sample_end(b)) or (_assay_end(b) and _sample_end(a)):
+                continue
+            self.refuse("relationship_type", rel.start_off, f"{rel.rtype} may only join a sample to an Assay")
+            for this, other in ((a, b), (b, a)):
+                typed[this.key] = [(key, None if key == other.key and t == rel.rtype else t)
+                                   for key, t in typed[this.key]]
 
         joined_lines: list[tuple[int, str]] = []
         pending_joined = [v for v in order if v.kind == "joined"]
@@ -1299,7 +1381,8 @@ class _Parser:
         - a Person, by MEMBER_OF to a scoped project or a bound name (a member of the caller's project).
 
         Walking down from a container is never a proof: a study reached from its investigation may hold only samples
-        the caller cannot see.
+        the caller cannot see. Nor is a bound name that may hold an Assay: an Assay is a catalog node every caller
+        sees, so being joined to one says nothing about the caller's projects.
         """
         proven: dict[Any, Any] = {}
         changed = True
@@ -1311,7 +1394,7 @@ class _Parser:
                 label = next(iter(v.labels))
                 for other_key, rtype in typed.get(v.key, []):
                     other = vertices[other_key]
-                    bound = other.kind == "reference"
+                    bound = other.kind == "reference" and not other.assay
                     if label == "Study":
                         ok = rtype == "IN_STUDY" and (bound or other.kind == "sample")
                     elif label == "Investigation":
@@ -1655,6 +1738,7 @@ class _Parser:
             self.syntax()
         if t.value not in names.loose:
             self.syntax(f"the name {t.value} is not bound here")
+        self.reads.append(t.value)
         self.i += 1
 
     def label_test(self) -> None:
@@ -1771,10 +1855,11 @@ class _Parser:
         self.i += 2
         local, _ = self.binding()
         self.expect_kw("IN")
+        mark = len(self.reads)
         self.expr(names)
         if self.at_kw("WHERE"):
             self.i += 1
-            self.expr(names.bind({local}))
+            self.expr(names.bind({local}, assay={local} if self.reads_assay(mark, names) else ()))
         self.expect_p(")")
         self.leave()
 
@@ -1783,13 +1868,18 @@ class _Parser:
         self.i += 2
         acc, _ = self.binding()
         self.expect_p("=")
+        mark = len(self.reads)
         self.expr(names)
+        tainted = {acc} if self.reads_assay(mark, names) else set()
         self.expect_p(",")
         local, _ = self.binding()
         self.expect_kw("IN")
+        mark = len(self.reads)
         self.expr(names)
+        if self.reads_assay(mark, names):
+            tainted.add(local)
         self.expect_p("|")
-        self.expr(names.bind({acc, local}))
+        self.expr(names.bind({acc, local}, assay=tainted))
         self.expect_p(")")
         self.leave()
 
@@ -1800,8 +1890,9 @@ class _Parser:
                                                            and self.tok.value.upper() in _RESERVED):
             local, _ = self.binding()
             self.i += 1
+            mark = len(self.reads)
             self.expr(names)
-            inner = names.bind({local})
+            inner = names.bind({local}, assay={local} if self.reads_assay(mark, names) else ())
             if self.at_kw("WHERE"):
                 self.i += 1
                 self.expr(inner)
@@ -1862,11 +1953,11 @@ class _Parser:
             return
         self.enter()
         self.expect_p("{")
-        inner = _Names(names.strict, names.strict)
+        inner = _Names(names.strict, names.strict, names.assay)
         if self.at_p("(") or (self.at_name() and self.at_p("=", 1)):
             first = self.tok.start
             plist = self.pattern_list(inner)
-            where = self.optional_where(inner.bind(plist.bound))
+            where = self.optional_where(inner.bind(plist.bound, assay=plist.assay))
             self.finalize(plist, inner, where, bare_first_off=first)
         else:
             if not (self.at_kw("MATCH") or self.at_kw("CALL") or self.at_kw("UNION")):
@@ -1875,7 +1966,7 @@ class _Parser:
                 if self.at_kw("MATCH"):
                     self.i += 1
                     plist = self.pattern_list(inner)
-                    bound = inner.bind(plist.bound)
+                    bound = inner.bind(plist.bound, assay=plist.assay)
                     where = self.optional_where(bound)
                     self.finalize(plist, inner, where)
                     inner = bound

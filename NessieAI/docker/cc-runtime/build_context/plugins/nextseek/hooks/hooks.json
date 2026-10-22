@@ -1,5 +1,5 @@
 {
-  "description": "Always resolve NExtSEEK vocabulary (entity-extract) before the agent acts.",
+  "description": "Inject the auto-resolved NExtSEEK vocabulary before the agent acts.",
   "hooks": {
     "UserPromptSubmit": [
       {

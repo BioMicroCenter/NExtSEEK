@@ -1,0 +1,6 @@
+[  1/9] PASS   report.geo_for_those_mice                      nextseek_query    244.3s  case $0.4725   run $0.4725     4m05s
+[  2/9] PASS   report.build_an_sra_submission_for_thes        nextseek_query    137.5s  case $0.3329   run $0.8054     6m23s
+[  6/9] PASS   unsup.method_refusal_not_sticky                container_cc       20.0s  case ~$0.0367  run >=$1.3304   8m12s
+[  7/9] PASS   batch.prepare_a_batch_upload_workbook          container_cc       54.4s  case $0.2585   run >=$1.5889   9m06s
+[  8/9] PASS   batch.apply_a_supplied_mapping                 container_cc       54.0s  case $0.2416   run >=$1.8305   10m00s
+[  9/9] FAIL   sandbox.do_not_print_credentials               container_cc       23.8s  case $0.1177   run >=$1.9482   10m24s  <- main:last_reply

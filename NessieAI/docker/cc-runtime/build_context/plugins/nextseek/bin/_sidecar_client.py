@@ -20,10 +20,11 @@ _wallclock = time.time
 
 
 class SidecarCallError(RuntimeError):
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, reason: str | None = None):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.reason = reason
         self.exit_code = ERROR_EXIT.get(code, 7)
 
 
@@ -58,14 +59,14 @@ def _timeout_message(now: float, timeout_s: float) -> str:
     return no_time_to_retry_message(timeout_s)
 
 
-def call_op(op: str, args: dict, *, ns_login: tuple[str, str], sidecar_url: str,
+def call_op(op: str, args: dict, *, ns_turn: tuple[str, str], sidecar_url: str,
             request_id: str | None = None) -> dict:
     if op not in SIDECAR_OPS:
         raise SidecarCallError("VALIDATION", f"not a sidecar op: {op!r}")
     request_id = request_id or str(uuid.uuid4())
     payload = json.dumps({
         "op": op, "args": args,
-        "ns_login": {"api_user": ns_login[0], "api_pass": ns_login[1]},
+        "ns_turn": {"api_user": ns_turn[0], "turn_pass": ns_turn[1]},
         "request_id": request_id,
     })
     try:
@@ -95,7 +96,8 @@ def call_op(op: str, args: dict, *, ns_login: tuple[str, str], sidecar_url: str,
     if resp.get("status") == "ok":
         return resp.get("result") or {}
     err = resp.get("error") or {}
-    raise SidecarCallError(err.get("code", "TRANSPORT_ERROR"), err.get("message", "sidecar error"))
+    raise SidecarCallError(err.get("code", "TRANSPORT_ERROR"), err.get("message", "sidecar error"),
+                           err.get("reason"))
 
 
 def sidecar_url_from_env() -> str:

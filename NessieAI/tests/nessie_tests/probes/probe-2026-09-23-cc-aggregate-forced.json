@@ -3,11 +3,11 @@
   "_why": "Proves nextseek-aggregate live on Container-CC, which has never been observed. Metadata aggregation stays routed to NS (it answers correctly there, ~30 s, $0), so the case is FORCED onto CC; it cannot share a file with the routed probe because --force-route applies to every turn of a run.\n  manage.py nessie --tier full --force-route cc --cases /app/NessieAI/tests/nessie_tests/probes/probe-2026-09-23-cc-aggregate-forced.json --out /app/runs/cc-aggregate-<date>\nA forced run needs a superuser account (a non-admin's force is dropped silently; the harness preflight proves it landed). Route criteria are stripped from forced arms, so none is written here; cc_trace_text is engine-neutral and is scored.",
   "_instance_warning": "Measured on the workstation's graph on 2026-09-23. Re-pin with pin_probe_truths.py (mode 'each', four numbers).",
   "families": {
-    "cc_aggregate_forced": {
-      "description": "A metadata breakdown, forced onto Container-CC.",
+    "graph_traversal": {
+      "description": "Questions that follow the graph's structure: which study, investigation or project samples belong to and counts scoped to them, which samples went into or came out of an assay (Assay nodes joined by INPUT_TO and OUTPUT_OF), which protocols samples used, and which studies, projects or assays hold something.",
       "variants": [
         {
-          "family": "cc_aggregate_forced",
+          "family": "graph_traversal",
           "id": "ccagg.impactb_species_forced",
           "name": "Operator case b: Container-CC aggregates a metadata question NS answers today",
           "_why": "Run with --force-route cc: the router would send this to nextseek_query, which answers it. The point is that CC can aggregate too, through nextseek-aggregate (the trace must show it). IMPAcTb samples by Species: 83,582 have none; of those that do, Macaca fascicularis 327, Macaca mulatta (Rhesus) 239, Mus musculus 119, Rhesus macaque 88, then smaller spellings. The four largest are pinned.",

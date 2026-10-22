@@ -49,11 +49,11 @@ class RouteMonitoringSnapshot:
     route_outcome_counts: dict[str, dict[str, int]]
 
 
-def _distribution_drift(
+def _max_category_shift(
     baseline_counts: dict[str, int],
     current_counts: dict[str, int],
 ) -> float:
-    """Total variation distance between normalized count distributions."""
+    """Largest single-category change between normalized count distributions (not total variation distance)."""
     keys = set(baseline_counts) | set(current_counts)
     if not keys:
         return 0.0
@@ -113,25 +113,25 @@ def detect_monitoring_alerts(
     if baseline.total == 0 or current.total == 0:
         return alerts
 
-    policy_drift = _distribution_drift(baseline.policy_counts, current.policy_counts)
+    policy_drift = _max_category_shift(baseline.policy_counts, current.policy_counts)
     if policy_drift >= drift_threshold:
         alerts.append(
             RouteMonitoringAlert(
                 kind=AlertKind.policy_drift,
                 message=(
-                    f"assignment_policy distribution shifted (TV distance {policy_drift:.2f} "
+                    f"assignment_policy distribution shifted (max category shift {policy_drift:.2f} "
                     f">= {drift_threshold:.2f})"
                 ),
             )
         )
 
-    family_drift = _distribution_drift(baseline.family_counts, current.family_counts)
+    family_drift = _max_category_shift(baseline.family_counts, current.family_counts)
     if family_drift >= drift_threshold:
         alerts.append(
             RouteMonitoringAlert(
                 kind=AlertKind.family_mix_shift,
                 message=(
-                    f"task_family mix shifted (TV distance {family_drift:.2f} "
+                    f"task_family mix shifted (max category shift {family_drift:.2f} "
                     f">= {drift_threshold:.2f})"
                 ),
             )

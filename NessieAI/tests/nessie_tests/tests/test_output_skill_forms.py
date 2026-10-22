@@ -22,7 +22,7 @@ from NessieAI.tests.nessie_tests.output_skill.__main__ import main as forms_main
 from NessieAI.tests.nessie_tests.output_skill.common import FormError
 
 HERE = Path(__file__).resolve().parents[1]
-SKILL = HERE / "output-skill"
+SKILL = HERE.parents[2] / ".claude" / "skills" / "nessie-run-review"
 EXAMPLE_TRIAGE = SKILL / "examples" / "triage.json"
 EXAMPLE_GRADES = SKILL / "examples" / "grades-form.json"
 EXAMPLE_RUN = SKILL / "examples" / "run-2026-07-24"

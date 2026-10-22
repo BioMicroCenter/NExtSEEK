@@ -24,7 +24,7 @@ from .shared import SEEK_DATABASE, UPLOAD_DIRECTORY, report
 
 logger = logging.getLogger(__name__)
 
-@requires_seek_login_redirect('/seek/samples/batchupload/', whetherFullInfo=True)
+@requires_seek_login_redirect(whetherFullInfo=True)
 def batchUpload(request):
     seekdb = request.seekdb
     user_seek = request.user_seek
@@ -50,8 +50,23 @@ def batchUpload(request):
 
     report['lab_options'] = json.dumps(lab_options, default=str)
     report['all_lab_users'] = json.dumps(all_lab_users, default=str)
-    
-    return render(request,"batchUpload.html", {'report': report})
+
+    # The upload accepts only a project the caller belongs to (SEC-001), so the page offers only those.
+    # null = a superuser, every project. Its own context key: ``report`` is shared between requests.
+    my_project_ids = _uploadable_project_ids(request.user)
+
+    return render(request, "batchUpload.html", {'report': report, 'my_project_ids': json.dumps(my_project_ids)})
+
+
+def _uploadable_project_ids(user):
+    """The projects ``user`` may upload into: ``None`` for a superuser, else a list of ids; ``[]`` when unreadable."""
+    from nextseek_api.graph_search.scope import resolve_scope
+    try:
+        scope = resolve_scope(user)
+    except Exception:  # noqa: BLE001 (the page then offers no project; the API refuses anyway)
+        logger.warning("upload page: the caller's projects could not be read")
+        return []
+    return None if scope.is_admin else list(scope.project_ids)
 
 def sampleUploadAjax(request):
     """Upload a sample sheet; the view requires a login."""
@@ -142,7 +157,10 @@ def samplesValidate(request):
     logger.debug('samplesValidate')
     username = str(request.user)  # noqa: F841 (kept: resolves the lazy request.user)
     seekdb = SeekDB(None, None, None)
-    seekdb.getSeekLogin(request)
+    if not request.user.is_authenticated:
+        return json_response(LOGIN_REQUIRED, 0, message=LOGIN_REQUIRED)
+    if not seekdb.getSeekLogin(request)['status']:
+        return json_response(LOGIN_REQUIRED, 0, message=LOGIN_REQUIRED)
 
     msg = "Error: File not valid"
     message = ''
@@ -301,7 +319,7 @@ def samplesValidate(request):
                 
     return HttpResponse(simplejson.dumps(data, default=str))       
 
-@requires_seek_login_redirect('/seek/data/upload/', whetherFullInfo=True)
+@requires_seek_login_redirect(whetherFullInfo=True)
 def datafileUpload(request):
     seekdb = request.seekdb
     user_seek = request.user_seek

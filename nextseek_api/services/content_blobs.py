@@ -11,7 +11,10 @@ import requests as upstream_requests
 from django.conf import settings
 from django.http import HttpResponse, StreamingHttpResponse
 
-from nextseek_api.helpers import SeekAPIClient
+from rest_framework.exceptions import APIException
+from rest_framework.permissions import BasePermission
+
+from nextseek_api.helpers import SeekAPIClient, resolve_seek_auth
 from nextseek_api.services.uid_suffix import resolve_uid_with_suffix
 from nextseek_api.models import (
     SopDownloadRequest,
@@ -86,7 +89,32 @@ def _get_asset(client, request, asset_type: str, seek_id: str):
         return client.get_sop(request, seek_id)
     elif asset_type == "data_files":
         return client.get_data_file(request, seek_id, 1)
+    elif asset_type == "samples":
+        return client.get_sample(request, seek_id)
     raise ValueError(f"Unknown asset_type: {asset_type}")
+
+
+class _SeekLoginRequired(APIException):
+    status_code = 401
+    default_detail = "Authentication required"
+
+
+class HasOwnSeekLogin(BasePermission):
+    """A caller with no SEEK login of its own gets 401 before the proxy looks anything up, so a UID or title answers
+    the same whether it names an item or not."""
+
+    def has_permission(self, request, view):
+        basic, token = resolve_seek_auth(request)
+        if basic or token:
+            return True
+        raise _SeekLoginRequired()
+
+
+def caller_cannot_view(client, request, asset_type: str, seek_id) -> bool:
+    """Whether SEEK keeps the item from the caller (403, or 404). A proxy that resolved a UID or a title then answers
+    as for an item that does not exist, before it tells the caller anything else about the request: a body id that
+    does not match, or SEEK refusing the write."""
+    return _get_asset(client, request, asset_type, str(seek_id))[1] in (403, 404)
 
 
 def resolve_asset_and_blobs(client, request, asset_type: str, req,
@@ -101,13 +129,17 @@ def resolve_asset_and_blobs(client, request, asset_type: str, req,
         seek_id_str = str(req.seek_id)
     else:
         seek_id_str = _resolve_uid_to_seek_id(req.uid_or_id, asset_type)
+    not_found = {"success": False, "error": f"{asset_type} not found", "status": 404}
     if seek_id_str is None:
-        return {"success": False, "error": f"{asset_type} not found", "status": 404}
+        return not_found
 
     # 2. Fetch asset metadata
     body, code, headers, resp = _get_asset(client, request, asset_type, seek_id_str)
     if code == 401:
         return {"success": False, "error": "Authentication required", "status": 401}
+    if code in (403, 404):
+        # An asset the caller may not see answers as one that does not exist (SEEK answers 403 for it).
+        return not_found
     if code >= 400:
         return {"success": False, "error": f"Failed to fetch metadata (status {code})", "status": 502}
 
@@ -125,6 +157,8 @@ def resolve_asset_and_blobs(client, request, asset_type: str, req,
         body, code, headers, resp = _get_asset(client, request, asset_type, seek_id_str)
         if code == 401:
             return {"success": False, "error": "Authentication required", "status": 401}
+        if code in (403, 404):
+            return not_found
         if code >= 400:
             return {"success": False, "error": f"Failed to fetch latest version (status {code})", "status": 502}
         try:

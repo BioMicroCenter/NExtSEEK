@@ -5,9 +5,11 @@ empty working directory, so it imports only the standard library, and it reads t
 beside this file by path. It reads one JSON request from stdin, ``{code, data}``, parses it under its memory limit,
 limits its CPU time, runs the code and writes one JSON reply to stdout, at most ``reply_max`` bytes:
 ``{"ok": true, "result": ...}`` or ``{"ok": false, "error": "<Type>: <message>"}``.
+Before the code runs it drops root and closes every descriptor above 2, capping new ones, so the code opens no file or socket.
 """
 import importlib
 import json
+import os
 import resource
 import sys
 import types
@@ -38,6 +40,26 @@ def _limit_memory_and_files(mem_mb: int) -> None:
     resource.setrlimit(resource.RLIMIT_NOFILE, (16, 16))
 
 
+NOBODY = 65534
+
+
+def _lock_down() -> None:
+    """Drop root and make every new file or socket fail: no descriptor above 2 stays open and none can be opened.
+
+    ponytail: this is not a network namespace (Docker's default profile blocks unshare). The ceiling is a socket
+    inherited from the parent, which close_fds=True already prevents and the closerange below repeats.
+    """
+    if os.geteuid() == 0:
+        os.setgroups([])
+        os.setgid(NOBODY)
+        os.setuid(NOBODY)
+        if os.geteuid() == 0:
+            raise RuntimeError("could not drop root")
+    open_fds = [int(name) for name in os.listdir("/proc/self/fd")]
+    os.closerange(3, max(open_fds) + 1)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (3, 3))
+
+
 def _limit_cpu(cpu_s: int) -> None:
     """CPU time is counted from the start of this process, so the time reading the input took is added to it."""
     usage = resource.getrusage(resource.RUSAGE_SELF)
@@ -53,6 +75,7 @@ def _run(kind: str, cpu_s: int, mem_mb: int) -> dict:
         del raw
         _limit_cpu(cpu_s)
         run = _executor(kind)
+        _lock_down()
         return {"ok": True, "result": run(request["code"], request["data"], timeout_seconds=cpu_s)}
     except MemoryError:
         return {"ok": False, "error": MEMORY_ERROR}

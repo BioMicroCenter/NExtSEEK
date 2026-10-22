@@ -3,15 +3,20 @@ from django.http import HttpResponseRedirect, HttpResponse
 from django.contrib.auth.models import User
 from django import forms
 from django.db.models import Q
+from django.db import IntegrityError, transaction
 from django.contrib.auth import authenticate, login
 from django.conf import settings
+from django.core.cache import cache
+from nextseek_api.throttles import login_blocked, login_failed, login_succeeded
+from django.utils.http import url_has_allowed_host_and_scheme
+from mezzanine.core.views import server_error
 
 import simplejson
+import sys
+import requests
 import datetime
 import json
 import os
-from subprocess import call
-from subprocess import check_call
 
 import logging
 logging.basicConfig(
@@ -23,6 +28,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from seek.seekdb import SeekDB
+from dmac.session_login import store_seek_password
+from nextseek_api.seek_link import SeekPersonLink
 from seek.models import People
 from dmac.dbtable import DBtable
 
@@ -30,6 +37,24 @@ DOWNLOAD_DIRECTORY  = settings.MEDIA_ROOT + "download/"
 DOWNLOAD_DIRECTORY_LINK = settings.MEDIA_URL + 'download/'
 
 report = {}
+def api_server_error(request):
+    """handler500. Under /nextseek_api/ an unhandled error answers JSON, and one that comes from SEEK not answering
+    says so, with a warning that a write may have happened anyway. The site keeps Mezzanine's page. Django still
+    logs the traceback to django.log after this returns."""
+    if not request.path.startswith("/nextseek_api/"):
+        return server_error(request)
+    exc = sys.exc_info()[1]
+    if isinstance(exc, requests.RequestException):
+        timed_out = isinstance(exc, requests.ReadTimeout)
+        detail = "SEEK did not answer in time." if timed_out else "SEEK could not be reached."
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            detail += (" The change may still have been made: look the record up before you send it again.")
+        body, status = {"errors": [{"title": "SEEK did not answer", "detail": detail}]}, 504 if timed_out else 502
+    else:
+        body, status = {"errors": [{"title": "Server error"}]}, 500
+    return HttpResponse(json.dumps(body).encode(), status=status, content_type="application/json")
+
+
 def __process(request, operation):
     dbtable = DBtable("DEFAULT")
     return dbtable.process(request, operation) 
@@ -49,71 +74,86 @@ def save(request):
 def delete(request):
     return __process(request, "delete")
 
+NOT_LINKED_MSG = "This NExtSEEK account is not linked to your SEEK login; ask an admin."
+
+
 def userSynchronization(user_seek):
-    status = 0
-    msg = ''
+    """Create or update the NExtSEEK account for a SEEK login, only through its SeekPersonLink.
+
+    Returns (status, msg). An existing account is touched only when it is linked to this SEEK person; it never gains
+    staff or superuser rights here.
+    """
     username = user_seek['username']
     password = user_seek['password']
     try:
         person_id = user_seek['user_id']
         person = People.objects.get(id__exact=person_id)
-    except:
-        person = None
+    except Exception:
         msg = "Error: Login user not found in SEEK people table, ask admin for help."
         logger.error(msg)
-        return status
+        return 0, msg
 
-    try:
-        user = User.objects.get(username__exact=username)
-    except:
-        user = None
-        msg = "username not found in NExtSEEK: " + username
-        logger.debug(msg)
-
+    user = User.objects.filter(username__exact=username).first()
     if user is None:
         logger.debug("Register new SEEK user in NExtSEEK")
         try:
             attributes = user_seek['userdata']['attributes']
-            user = User.objects.create_user(username, person.email, password)
-            user.last_name = attributes['last_name']
-            user.first_name = attributes['first_name']
-            user.is_staff = 1
-            user.is_active = 1
-            user.save()
-            msg = "Registration of SEEK user successful."
-            status = 1
-        except:
+            with transaction.atomic():
+                user = User.objects.create_user(username, person.email, password)
+                user.last_name = attributes['last_name']
+                user.first_name = attributes['first_name']
+                user.is_active = 1
+                user.save()
+                SeekPersonLink.objects.create(user=user, person_id=person_id)
+        except IntegrityError:
+            logger.warning("SEEK person already linked to another account; refused new account %s", username)
+            return 0, NOT_LINKED_MSG
+        except Exception:
             msg = "Error: Registration of SEEK user failed, ask admin for help."
             logger.error(msg)
-            status = 0
-    else:
-        logger.debug("Update SEEK user in NExtSEEK")
-        try:
-            attributes = user_seek['userdata']['attributes']
-            user.email = person.email
-            user.set_password(password)
-            user.last_name = attributes['last_name']
-            user.first_name = attributes['first_name']
-            user.is_staff = 1
-            user.is_active = 1
-            user.save()
-            msg = "Update of SEEK user successful."
-            logger.debug(msg)
-            status = 1
-        except:
-            msg = "Error: Update of SEEK user failed, ask admin for help."
-            logger.error(msg)
-            status = 0
+            return 0, msg
+        return 1, "Registration of SEEK user successful."
 
-    return status, msg
+    link = SeekPersonLink.objects.filter(user=user).first()
+    if link is None or link.person_id != person_id:
+        logger.warning("SEEK login refused: account %s is not linked to this SEEK person", username)
+        return 0, NOT_LINKED_MSG
+    try:
+        attributes = user_seek['userdata']['attributes']
+        user.email = person.email
+        user.set_password(password)
+        user.last_name = attributes['last_name']
+        user.first_name = attributes['first_name']
+        user.is_active = 1
+        user.save()
+    except Exception:
+        msg = "Error: Update of SEEK user failed, ask admin for help."
+        logger.error(msg)
+        return 0, msg
+    return 1, "Update of SEEK user successful."
+
+def _safe_next(request):
+    """The ``next`` page to return to after signing in: a path on this site, else home.
+
+    Relative paths only (no allowed hosts): behind nginx every request's Host is
+    the upstream name, so an absolute URL naming it would leave the site.
+    """
+    next_url = request.GET.get('next', '')
+    if url_has_allowed_host_and_scheme(next_url, allowed_hosts=set()):
+        return next_url
+    return '/'
+
 
 def login_seek(request):
+    if request.method == 'POST' and login_blocked(request, request.POST.get('username')):
+        return render(request, 'login.html',
+                      {'error': "Too many sign-in attempts. Wait a few minutes and try again."}, status=429)
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, fromLoginForm=True)  # body credentials, once SEEK accepts them
 
     # Never log user_seek itself: it carries the plaintext SEEK password, and this
     # line put every user's password into `docker logs` on production.
-    logger.debug(
+    logger.info(
         f"User trying to log in: username={user_seek.get('username')!r} "
         f"storage={user_seek.get('storage')!r} status={user_seek.get('status')}"
     )
@@ -130,7 +170,7 @@ def login_seek(request):
             request.session['storage_type'] = user_seek['storagetype']
             request.session['storage'] = user_seek['storage']
             request.session['username'] = user_seek['username']
-            request.session['password'] = user_seek['password']
+            store_seek_password(request.session, user_seek['username'], user_seek['password'])
             if user_seek['noexpire'] == "yes":
                 request.session.set_expiry(0)
             else:
@@ -155,14 +195,10 @@ def login_seek(request):
                     request.session.flush()
                     return render(request, 'login.html', {'error': msg})
             
-            httpurl = request.get_full_path()
-            urls = httpurl.split('?next=')
-            if len(urls)>1:
-                url_redirect = urls[1]
-            else:
-                url_redirect = "/"
-            return HttpResponseRedirect(url_redirect)
+            login_succeeded(request, request.POST.get('username'))
+            return HttpResponseRedirect(_safe_next(request))
         else:
+            login_failed(request, request.POST.get('username'))
             logger.debug("SEEK authentication failed, re-login")
             request.session.flush()
             return render(request, 'login.html', {'error': user_seek['err']})
@@ -172,103 +208,6 @@ def login_seek(request):
         
     return render(request, 'login.html')
 
-def logout_seek(request):
-    if request.session.get('username') is not None:
-        call(["rm", "-r", request.session.get('username')])
-        request.session.flush()
-    return HttpResponseRedirect(reverse('index'))
-    
-def login_full(request):
-    if request.method == 'POST':
-        err = []
-        if request.POST.get('server')[-1] == '/':
-            server = request.POST.get('server')
-        else:
-            server = request.POST.get('server') + '/'
-        username = request.POST.get('username')
-        password = request.POST.get('password')
-        server = settings.SEEK_URL
-        storage = settings.SEEK_URL
-        storagetype = request.POST.get("storagetype")
-        noexpire = request.POST.get('no-expire')
-        if storage != "":
-            request.session['storage_type'] = storagetype
-            request.session['storage'] = storage
-        else:
-            request.session.flush()
-        
-        if server != "":
-            request.session['server'] = server
-        else:
-            err.append("No server selected")
-            request.session.flush()
-            return render(request, 'login.html', context={
-                'error': err})
-            
-        if username != "" and password != "":
-            request.session['username'] = username
-            request.session['password'] = password
-        else:
-            err.append("No valid username or password")
-            request.session.flush()
-            return render(request, 'login.html', context={'error': err})
-        if noexpire == "yes":
-            request.session.set_expiry(0)
-        else:
-            request.session.set_expiry(43200)
-        return render(request, 'home.html', context={'error': err})
-        
-    return render(request, 'login.html')
-    
-def index(request):
-    if (request.method == 'POST' and
-        request.session.get('username') is None
-    ):
-        login(request)
-    else:
-        pass
-    
-    
-    if (
-        request.session.get('username') is None or
-        request.session.get('username') == ""
-    ):
-        err = ""
-        return render(request, 'login.html', context={'error': err})
-    else:
-        if not os.path.isdir(request.session.get('username')):
-            call(["mkdir", request.session.get('username')])
-        if request.POST.get('inv') is not None:
-            investigation = request.POST.get('inv')
-        else:
-            investigation = ""
-            
-        username = request.session.get('username')
-        password = request.session.get('password')
-        storage = settings.SEEK_URL
-        virtuoso = settings.VIRTUOSO_JS_URL
-        server = request.session.get('server')
-        seekdb = SeekDB(storage, username, password)
-        user_seek = seekdb.getSeekLogin(request)
-        if user_seek['status']:
-            userinfo_seek = user_seek['userdata']
-        else:
-            userinfo_seek = None
-        
-        investigations,folders = seekdb.get_investigations_folders(investigation)
-        return render(
-            request, 'seek_login.html',
-            context={'user': username, 'username': username,
-                     'password': password, 'server': server,
-                     'storage': storage,
-                     'storagetype': request.session.get('storage_type'),
-                     'virtuoso_url': virtuoso,
-                     'investigations': investigations,
-                     'studies': folders,
-                     'inv': investigation
-            }
-        )    
-    
 def signup_seek(request):
     """Hand account creation off to SEEK, which owns the user records.
 
@@ -332,52 +271,68 @@ def _home_projects(request, limit=8):
         return []
 
 
+def _home_totals():
+    """The home tiles' totals. Each block is in its own try/except so one failing lookup leaves only its tile at 0."""
+    from datetime import timedelta
+    from django.utils import timezone
+
+    totals = {}
+    try:
+        from seek.models import Samples
+        totals["total_samples_count"] = Samples.objects.count()
+    except Exception:
+        pass
+    try:
+        from seek.models import Projects
+        totals["total_projects_count"] = Projects.objects.count()
+    except Exception:
+        pass
+    try:
+        from seek.models import Data_files
+        totals["total_data_files_count"] = Data_files.objects.count()
+        totals["data_files_delta_week"] = Data_files.objects.filter(
+            created_at__gte=timezone.now() - timedelta(days=7)).count()
+    except Exception:
+        pass
+    return totals
+
+
 def home(request):
     """
     Home dashboard. Passes counts + a 'recent samples' list to
     themes/NextSeek/templates/index.html. Each block is in its own try/
     except so any one model lookup failing doesn't blank the whole page.
     """
-    from datetime import timedelta
-    from django.utils import timezone
-
     context = {
         "total_samples_count": 0,
         "total_projects_count": 0,
         "total_data_files_count": 0,
-        "samples_delta_week": 0,
         "data_files_delta_week": 0,
         "projects_user_count": 0,  # v1: not yet wired — needs User<->People<->Projects bridge
         "recent_samples": [],
         "home_projects": _home_projects(request),
     }
 
-    week_ago = timezone.now() - timedelta(days=7)
+    # The totals are the same for every visitor and cost seconds on a large box (986k samples on dev: the sample
+    # count is ~2.6 s), so they are counted once per hour per app process. A weekly sample count is not shown: with
+    # no index on created_at it was a full scan (~7.7 s on dev).
+    context.update(cache.get_or_set("home_totals", _home_totals, 3600))
 
     try:
-        from seek.models import Samples
-        context["total_samples_count"] = Samples.objects.count()
-        context["samples_delta_week"] = Samples.objects.filter(created_at__gte=week_ago).count()
-        # Samples has `title` + `created_at`; no native UID or direct project FK
-        # (project link goes through the Projects_samples junction). For v1 we
-        # surface id + title + created_at and let the template render a stub
-        # for the project column.
-        context["recent_samples"] = list(
-            Samples.objects.order_by("-id").values("id", "title", "created_at")[:4]
-        )
-    except Exception:
-        pass
-
-    try:
-        from seek.models import Projects
-        context["total_projects_count"] = Projects.objects.count()
-    except Exception:
-        pass
-
-    try:
-        from seek.models import Data_files
-        context["total_data_files_count"] = Data_files.objects.count()
-        context["data_files_delta_week"] = Data_files.objects.filter(created_at__gte=week_ago).count()
+        from seek.models import Projects_samples, Samples
+        from nextseek_api.graph_search.scope import ScopeUnavailable, resolve_scope  # function-level: no import cycle
+        # The totals are for everyone. Recent rows (sample titles) are for logged-in callers only, limited to their
+        # projects (a superuser sees all); a logged-out caller or an unresolved scope shows none.
+        scope = None
+        if request.user.is_authenticated:
+            try:
+                scope = resolve_scope(request.user)
+            except ScopeUnavailable:
+                scope = None
+        if scope is not None:
+            rows = Samples.objects if scope.is_admin else Samples.objects.filter(
+                id__in=Projects_samples.objects.filter(project_id__in=scope.project_ids).values("sample_id"))
+            context["recent_samples"] = list(rows.order_by("-id").values("id", "title", "created_at")[:4])
     except Exception:
         pass
 

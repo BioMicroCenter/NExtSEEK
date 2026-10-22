@@ -20,11 +20,14 @@ import json
 import logging
 import os
 import queue
-import threading
+import threading  # noqa: F401  (tests patch threading.Thread through this module)
+import time
+import uuid
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import orjson
+from dmac.session_login import seek_password
 from django.http import StreamingHttpResponse, HttpResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -37,9 +40,12 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.handlers.asgi import ASGIRequest
+from django.db.models import Q
 
 ASSISTANT_PARTICIPATING_PROJECTS = settings.ASSISTANT_PARTICIPATING_PROJECTS
 TEST_CASES = settings.TEST_CASES
+#: The 403 a caller who is neither a superuser nor a turn pass gets for mode "plan" (SEC-002).
+PLAN_MODE_FORBIDDEN = 'Mode "plan" is for superusers; send mode "standard".'
 
 from nextseek_api.assistant.descriptions import (
     ASSISTANT_BUNDLE_DOWNLOAD_DESC,
@@ -95,9 +101,15 @@ from nextseek_api.assistant.models_api import (
     SubmissionRequest,
     SubmissionResponse,
 )
-from NessieAI.ns.granular import OpValidationError, run_op
+from NessieAI.ns.granular import OpBusyError, OpValidationError, run_op
+from NessieAI.ns.turn_memory import release_op_slot, take_op_slot
+from NessieAI.ns.op_limits import (DEADLINE_HEADER_META, MIN_USABLE_S, MODEL_OPS, NO_MODEL_FLOOR_S, SIDECAR_ROAD_CAP_S,
+                                   nested_deadline, op_limit_s, turn_deadline_epoch)
+from NessieAI.cc.ops_road import SIDECAR, ops_road
 from NessieAI.ns.write_gate import WriteBlockedError, build_gate, load_allowlist
-from nextseek_api.permissions import may_read_any_users_data
+from rest_framework.exceptions import APIException
+from nextseek_api.assistant.op_errors import HTTP_STATUS, error_body, failure_reason, op_error, validation_fields
+from nextseek_api.permissions import is_turn_pass, may_read_any, plan_mode_refused, require_session_owner
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from NessieAI.ns.bundle_download import bundle_metadata
 # Moved to NessieAI/ns/ (NessieAI Phase B): the NS turn in turn.py, the on-disk
@@ -105,12 +117,14 @@ from NessieAI.ns.bundle_download import bundle_metadata
 # bodies of query and query_async run in turn.py on the threads started here.
 from NessieAI.ns.turn import (
     _granular_args,
+    apply_prod_credentials,
     _select_chat_config,
     make_sse_send_event,
     run_async_pipeline,
     run_sse_pipeline,
 )
 from NessieAI.ns.artifacts import (
+    _discard_empty_dir,
     _granular_outputs_dir,
     _resolve_saved_path,
     _safe_artifact_path,
@@ -120,16 +134,19 @@ from rest_framework.authentication import (
     BasicAuthentication,
     TokenAuthentication,
 )
+from nextseek_api.assistant.turn_pass_auth import TurnPassAuthentication
 
 # Re-exported: these two moved to nextseek_api/authentication.py (NessieAI Phase B, B1).
 # Other nextseek_api modules still import them from here, so keep both names importable.
 from nextseek_api.authentication import (  # noqa: F401
-    CsrfExemptSessionAuthentication,
+    CsrfExemptSessionAuthentication,  # deprecated alias, one release
+    SeekSessionAuthentication,
     _error_response,
 )
 
 from nextseek_api.helpers import resolve_seek_auth, SeekAPIClient
-from nextseek_api.graph_search.scope import plain_scope
+from nextseek_api.throttles import TURN_THROTTLES
+from nextseek_api.graph_search.scope import caller_block, current_project_ids, plain_scope
 
 # No module-scope chat_nextseek import: the orchestrator entry points are called from
 # NessieAI/ns/turn.py, so patch them there. Importing them here again would let a
@@ -138,8 +155,18 @@ if TYPE_CHECKING:
     from chat_nextseek.config import ChatConfig
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
+from nextseek_api.assistant.turn_drain import draining, draining_response, start_turn_thread
 
 logger = logging.getLogger(__name__)
+
+class SeekNotAnswering(APIException):
+    """SEEK could not be read for the project check: a retryable outage (503, TRANSPORT_ERROR), never a refusal."""
+    status_code = HTTP_STATUS["TRANSPORT_ERROR"]
+
+    def __init__(self):
+        super().__init__()
+        self.detail = error_body("TRANSPORT_ERROR")
+
 
 class UserInParticipatingProject(BasePermission):
     message = "User needs to be in a participating project to use assistant"
@@ -147,6 +174,10 @@ class UserInParticipatingProject(BasePermission):
     # the assistant does not re-fetch the ~16 KB /people/current on every request
     # (the batch-upload flow alone makes dozens of assistant calls per turn).
     _CACHE_TTL_SECONDS = 60
+    # A member who has left every pilot project keeps reading their own past chats (these GETs answer the owner or
+    # a superuser only); everything else stays gated.
+    _OWN_CHAT_READS = frozenset({"list_sessions", "get_session", "download_bundle", "download_artifact",
+                                 "download_session", "task_progress"})
 
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
@@ -155,22 +186,48 @@ class UserInParticipatingProject(BasePermission):
             cache_key = f"assistant_participating:{user.pk}"
             if cache.get(cache_key):
                 return True
+        # Told apart on purpose: SEEK that did not answer (no reply, a 5xx) is an outage and answers a retryable code.
+        # SEEK that ANSWERED without the project, or with a 200 that is not a person record (its HTML page for a
+        # wrong password), is a refusal (403). Neither ever allows.
         try:
-            client = SeekAPIClient()
-            person = orjson.loads(client.get_current_person(request)[0])
-            projects = person['data']['relationships']['projects']['data']
-            project_ids = set(map(lambda project: project['id'], projects))
-            allowed = project_ids & ASSISTANT_PARTICIPATING_PROJECTS != set()
+            reply = SeekAPIClient().get_current_person(request)
+            # (content, status, headers, response); only the content is guaranteed by older callers.
+            content, status_code = reply[0], (reply[1] if len(reply) > 1 else 200)
         except Exception:
+            logger.warning("participating-project check: SEEK did not answer", exc_info=True)
+            raise SeekNotAnswering() from None
+        if status_code is not None and status_code >= 500:
+            logger.warning("participating-project check: SEEK answered HTTP %s", status_code)
+            raise SeekNotAnswering()
+        if status_code != 200:
             return False
+        try:
+            person = orjson.loads(content)['data']
+            project_ids = set(map(lambda project: project['id'], person['relationships']['projects']['data']))
+        except Exception:
+            logger.warning("participating-project check: SEEK sent an unreadable person record", exc_info=True)
+            return False
+        ever = project_ids & ASSISTANT_PARTICIPATING_PROJECTS  # SEEK REST keeps the projects a person has left
+        if getattr(user, "is_superuser", False) is not True:
+            try:
+                project_ids &= {str(p) for p in current_project_ids(int(person['id']))}
+            except Exception:
+                logger.warning("participating-project check: the projects the person still holds could not be read",
+                               exc_info=True)
+                return False
+        allowed = project_ids & ASSISTANT_PARTICIPATING_PROJECTS != set()
+        if not allowed:
+            # Not cached: the cache below means "may do everything".
+            return bool(ever) and getattr(request, "method", None) in ("GET", "HEAD") \
+                and getattr(view, "action", None) in self._OWN_CHAT_READS
         # Cache only positive results: a transient SEEK failure must re-check, and a
         # newly-added member should not be blocked for the TTL.
         if allowed and cache_key is not None:
             cache.set(cache_key, True, self._CACHE_TTL_SECONDS)
         return allowed
 
-    def has_object_permission(self, request, view):
-        return self.has_permissions(request, view)
+    def has_object_permission(self, request, view, obj):
+        return self.has_permission(request, view)
 
 def _most_recent_session(user) -> "ChatSession | None":
     """The user's most recently updated ChatSession, or None.
@@ -209,6 +266,32 @@ def _most_recent_session(user) -> "ChatSession | None":
         return None
 
 
+def _chat_config_for(request, req):
+    """The ChatConfig for this request: the default one under a turn pass, else ``_select_chat_config``'s choice.
+
+    A pass never reaches the prod ChatConfig. TurnPassAuthentication already refuses a body that sets ``use_prod``;
+    this is the second lock, so no future request model can open it by accident.
+    """
+    if is_turn_pass(request):
+        return settings.NEXTSEEK_CHAT_CONFIG
+    return _select_chat_config(request, req)
+
+
+def _request_login(request) -> tuple[str | None, str | None]:
+    """The (username, password) this request acts as downstream.
+
+    A Basic header first, then the Django session; under a turn pass, only the login the turn holds
+    (``resolve_seek_auth``), so a pass never picks up a session's login.
+    """
+    basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+    if basic_tuple and basic_tuple[0] and basic_tuple[1]:
+        return basic_tuple[0], basic_tuple[1]
+    if is_turn_pass(request):
+        return None, None
+    username = request.session.get("username")
+    return username, seek_password(request.session, username)
+
+
 # ----------------------------------------------------------------------
 # Granular ops (native) — shared helpers
 # ----------------------------------------------------------------------
@@ -231,13 +314,11 @@ _GRANULAR_REQUEST_MODELS = {
 }
 
 
-def _op_error_response(code: str, detail: str, http_status: int) -> Response:
-    """Granular-op error envelope: the NExtSEEK ``errors`` list plus the canonical
-    dmac error ``code`` so the dmac thin client can map it to its CLI exit."""
-    return Response(
-        {"code": code, "errors": [{"title": code, "detail": detail}]},
-        status=http_status,
-    )
+def _with_caller(chat_config, user):
+    """A per-request copy of ``chat_config`` carrying the CALLER block (``scope.caller_block``) for the system agent."""
+    cfg = copy.copy(chat_config)
+    cfg.CALLER = caller_block(user)
+    return cfg
 
 
 def _granular_chat_config(request, req) -> ChatConfig:
@@ -250,23 +331,17 @@ def _granular_chat_config(request, req) -> ChatConfig:
     the graph catalog read; an unresolved or malformed scope is stored as ``None``,
     which refuses every graph query.
     """
-    chat_config = _select_chat_config(request, req)
-    basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-    if basic_tuple and basic_tuple[0] and basic_tuple[1]:
-        api_user, api_pass = basic_tuple
-    else:
-        api_user = request.session.get("username")
-        api_pass = request.session.get("password")
-    prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
-    if prod_config is not None and chat_config is prod_config:
-        if chat_config.API_USER and chat_config.API_PASS:
-            api_user = chat_config.API_USER
-            api_pass = chat_config.API_PASS
+    chat_config = _chat_config_for(request, req)
+    api_user, api_pass = apply_prod_credentials(is_turn_pass(request), chat_config, *_request_login(request))
     cfg = copy.copy(chat_config)
-    if api_user:
-        cfg.API_USER = api_user
-    if api_pass:
-        cfg.API_PASS = api_pass
+    if is_turn_pass(request):
+        # A pass acts only as its own turn's user, never as the shared config's login.
+        cfg.API_USER, cfg.API_PASS = api_user or "", api_pass or ""
+    else:
+        if api_user:
+            cfg.API_USER = api_user
+        if api_pass:
+            cfg.API_PASS = api_pass
     from chat_nextseek.graph_scope import GraphScope, with_scope
 
     plain = plain_scope(request.user)
@@ -313,6 +388,68 @@ def artifact_download_entries(saved_files, base: str) -> list[dict]:
     return entries
 
 
+#: The ops that answer on a throwaway parser session. Under a turn pass they take no session id: the chat's history
+#: would reach the parser and change answers.
+_THROWAWAY_SESSION_OPS = frozenset({"entity", "parse", "graph", "aggregate"})
+#: The ops whose outputs are files, registered as a bundle in the asking chat and downloaded by the tool.
+_ARTIFACT_OPS = frozenset({"report", "generate-submission", "build-upload-xlsx"})
+
+
+def _refuse_for_pass(op: str, req, turn) -> Response | None:
+    """A turn-pass request's body rules, checked here as well as in plan 02's allow table: a throwaway-session op
+    names no session, and an artifact op names only the turn's own chat. None when the request may go on."""
+    if turn is None:
+        return None
+    session_id = getattr(req, "session_id", None)
+    if op in _THROWAWAY_SESSION_OPS and session_id is not None:
+        return op_error("VALIDATION", fields=[{"field": "session_id", "type": "not_accepted_with_turn_pass"}],
+                        status=HTTP_STATUS["VALIDATION"])
+    if op in _ARTIFACT_OPS and session_id is not None and str(session_id) != str(turn.chat_id):
+        return op_error("PASS_NOT_ALLOWED", status=HTTP_STATUS["PASS_NOT_ALLOWED"])
+    return None
+
+
+def _launched_runs(state) -> list:
+    """The ``remote_dir`` of each Luria run a chat's pipeline wizard records as launched (``tool_submit_to_luria``).
+
+    Only the wizard writes ``extra_state["pipeline_agent"]``; nothing a user types lands there.
+    """
+    wizard = state.get("pipeline_agent") if isinstance(state, dict) else None
+    artifacts = wizard.get("artifacts") if isinstance(wizard, dict) else None
+    runs = artifacts.get("luria_runs") if isinstance(artifacts, dict) else None
+    return [os.path.normpath(str(r["remote_dir"])) for r in (runs if isinstance(runs, list) else [])
+            if isinstance(r, dict) and r.get("remote_dir")]
+
+
+def _refuse_run_ls(request, req, chat_config) -> Response | None:
+    """run-ls lists one run the caller launched (any run for a superuser off a turn pass), never the runs root.
+
+    A run is the caller's when one of the caller's own chats records it as launched (``_launched_runs``); its
+    folders are the caller's too. None when the op may go on; without a configured Luria the op answers itself,
+    and so does a path outside the runs root.
+    """
+    working = str((getattr(chat_config, "LURIA_ENV", None) or {}).get("working_path") or "").rstrip("/")
+    if not working:
+        return None
+    runs_root = working + "/runs"
+    run_dir = os.path.normpath(str(req.run_dir))
+    if run_dir == runs_root:
+        return op_error("VALIDATION", fields=[{"field": "run_dir", "type": "the_runs_root"}],
+                        status=HTTP_STATUS["VALIDATION"])
+    if not run_dir.startswith(runs_root + "/") or may_read_any(request):
+        return None
+    run = runs_root + "/" + run_dir[len(runs_root) + 1:].split("/", 1)[0]
+    # A run list too big for the row sits in a spill file and the row holds only its link (assistant/spill.py), so
+    # the rows that hold a link are read through the field too.
+    states = (ChatSession.objects.filter(user=request.user)
+              .filter(Q(extra_state__icontains=run) | Q(extra_state__icontains="$spill"))
+              .values_list("extra_state", flat=True))
+    if any(run in _launched_runs(state) for state in states):
+        return None
+    return op_error("VALIDATION", fields=[{"field": "run_dir", "type": "not_your_run"}],
+                    status=HTTP_STATUS["VALIDATION"])
+
+
 def _artifact_content_type(path) -> str:
     ext = os.path.splitext(str(path))[1].lower()
     return _ARTIFACT_CONTENT_TYPES.get(ext, "application/octet-stream")
@@ -322,7 +459,10 @@ def _artifact_content_type(path) -> str:
 class AssistantViewSet(viewsets.ViewSet):
     """ViewSet for the NExtSEEK Assistant (multi-agent chat)."""
 
-    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
+    # The turn pass first (spec piece 1); CCAssistantViewSet deliberately does not list it, so a pass can never
+    # start a Container-CC turn.
+    authentication_classes = [TurnPassAuthentication, TokenAuthentication, SeekSessionAuthentication,
+                              BasicAuthentication]
     permission_classes = [IsAuthenticated, UserInParticipatingProject]
 
     # ------------------------------------------------------------------
@@ -464,9 +604,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except ChatSession.DoesNotExist:
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        if (session.user_id != request.user.pk
-                and not may_read_any_users_data(request.user)):
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, session, admin_read=True)) is not None:
+            return denied
 
         history = session.results_history or []
         payload = SessionDetailResponse(
@@ -505,8 +644,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except ChatSession.DoesNotExist:
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        if session.user_id != request.user.pk:
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, session)) is not None:
+            return denied
 
         raw_title = (request.data or {}).get("title")
         if not isinstance(raw_title, str):
@@ -543,8 +682,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except ChatSession.DoesNotExist:
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        if session.user_id != request.user.pk:
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, session)) is not None:
+            return denied
 
         session.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -570,11 +709,15 @@ class AssistantViewSet(viewsets.ViewSet):
             ),
         ],
     )
-    @action(detail=False, methods=["post"], url_path="query")
+    @action(detail=False, methods=["post"], url_path="query", throttle_classes=TURN_THROTTLES)
     def query(self, request):
         authed, err = self._check_auth(request)
         if not authed:
             return err
+
+        # A child turn of a running Container-CC turn is part of that turn: it finishes, it is not refused.
+        if draining() and not is_turn_pass(request):
+            return draining_response()
 
         try:
             req = QueryRequest.model_validate(request.data)
@@ -583,6 +726,17 @@ class AssistantViewSet(viewsets.ViewSet):
                 "Validation error",
                 str(e),
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        if plan_mode_refused(request, req.mode):
+            return _error_response("Forbidden", PLAN_MODE_FORBIDDEN, status.HTTP_403_FORBIDDEN)
+
+        if is_turn_pass(request) and not all(_request_login(request)):
+            # The turn's login is gone: never fall back to the service login.
+            return _error_response(
+                "Authentication required",
+                "The turn's login is no longer held.",
+                status.HTTP_401_UNAUTHORIZED,
             )
 
         if req.session_id:
@@ -615,36 +769,30 @@ class AssistantViewSet(viewsets.ViewSet):
 
         adapter = DictSessionAdapter(chat_session)
 
-        # Resolve credentials: try Basic auth header first, fall back to session
-        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-        if basic_tuple and basic_tuple[0] and basic_tuple[1]:
-            api_user, api_pass = basic_tuple
-        else:
-            api_user = request.session.get("username")
-            api_pass = request.session.get("password")
+        # Resolve credentials: a Basic header, else the session; under a turn pass, the login its turn holds.
+        api_user, api_pass = _request_login(request)
 
-        chat_config = _select_chat_config(request, req)
+        chat_config = _chat_config_for(request, req)
 
         # When the request routed to the prod ChatConfig, swap the
         # session-derived credentials for the prod config's baked-in
         # API_USER/API_PASS. The pipeline's outbound Basic-auth calls must hit
         # prod NExtSEEK with prod credentials — the local session user (e.g.
         # "demo") doesn't exist on prod and would otherwise produce a 401.
-        prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
-        if prod_config is not None and chat_config is prod_config:
-            if chat_config.API_USER and chat_config.API_PASS:
-                api_user = chat_config.API_USER
-                api_pass = chat_config.API_PASS
+        api_user, api_pass = apply_prod_credentials(is_turn_pass(request), chat_config, api_user, api_pass)
 
         # The caller's project scope for graph queries, resolved here in the request
         # thread and handed down as plain data (None refuses every graph query).
         graph_scope = plain_scope(request.user)
+        # The system agent's CALLER block (round 4): this user's own session, on a per-request copy
+        # so the shared config never carries one user's details.
+        chat_config = _with_caller(chat_config, request.user)
 
         # The pipeline body runs in NessieAI/ns/turn.py (run_sse_pipeline); the
         # thread and the SSE stream stay here.
-        thread = threading.Thread(
-            target=run_sse_pipeline,
-            kwargs=dict(
+        thread = start_turn_thread(
+            uuid.uuid4(), run_sse_pipeline,
+            **dict(
                 adapter=adapter, chat_config=chat_config, req=req,
                 send_event=send_event, api_user=api_user, api_pass=api_pass,
                 chat_session=chat_session,
@@ -652,9 +800,7 @@ class AssistantViewSet(viewsets.ViewSet):
                 event_queue=event_queue,
                 graph_scope=graph_scope,
             ),
-            daemon=True,
         )
-        thread.start()
 
         def event_stream():
             while True:
@@ -688,11 +834,15 @@ class AssistantViewSet(viewsets.ViewSet):
             ),
         ],
     )
-    @action(detail=False, methods=["post"], url_path="query/async")
+    @action(detail=False, methods=["post"], url_path="query/async", throttle_classes=TURN_THROTTLES)
     def query_async(self, request):
         authed, err = self._check_auth(request)
         if not authed:
             return err
+
+        # A child turn of a running Container-CC turn is part of that turn: it finishes, it is not refused.
+        if draining() and not is_turn_pass(request):
+            return draining_response()
 
         try:
             req = QueryRequest.model_validate(request.data)
@@ -702,6 +852,26 @@ class AssistantViewSet(viewsets.ViewSet):
                 str(e),
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
+
+        if plan_mode_refused(request, req.mode):
+            return _error_response("Forbidden", PLAN_MODE_FORBIDDEN, status.HTTP_403_FORBIDDEN)
+
+        if is_turn_pass(request) and not all(_request_login(request)):
+            # The turn's login is gone: never fall back to the service login.
+            return _error_response(
+                "Authentication required",
+                "The turn's login is no longer held.",
+                status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # The Container-CC turn behind a turn pass, or None for a browser or Basic caller.
+        pass_turn = request.auth if is_turn_pass(request) else None
+        # Piece 4: a nested turn started with the turn pass runs under the Container-CC turn's deadline less the
+        # answer reserve; with no usable time left it is not started (and takes no slot).
+        nested_deadline_epoch, time_up = nested_deadline(pass_turn, request.META.get(DEADLINE_HEADER_META),
+                                                         time.time())
+        if time_up:
+            return op_error("TIME_UP", status=HTTP_STATUS["TIME_UP"])
 
         # Resolve session (same logic as /query/)
         if req.session_id:
@@ -724,60 +894,69 @@ class AssistantViewSet(viewsets.ViewSet):
             if chat_session is None:
                 chat_session = ChatSession.objects.create(user=request.user)
 
-        # Create task record
-        query_task = QueryTask.objects.create(
-            session=chat_session,
-            user=request.user,
-            query=req.query,
-            status="running",
-        )
+        # A child turn a Container-CC pass starts (nextseek-query, nextseek-plan, nextseek-pipeline) is one of that
+        # turn's two slots, the same two its ops share (operator ruling 2026-09-30). Taken before anything is made;
+        # given back by the child's runner (NessieAI/ns/turn.py run_async_pipeline) when the child ends, or here when
+        # the child never started.
+        if pass_turn is not None and not take_op_slot(pass_turn):
+            return op_error("BUSY", status=HTTP_STATUS["BUSY"])
+        try:
+            # Create task record. A nested turn a Container-CC pass starts names that turn (set once, here): the
+            # pass's progress check and the turn's cost read it.
+            query_task = QueryTask.objects.create(
+                session=chat_session,
+                user=request.user,
+                query=req.query,
+                status="running",
+                parent_cc_turn=pass_turn,
+            )
 
-        resolved_session_id = str(chat_session.session_id)
-        task_id_str = str(query_task.task_id)
+            resolved_session_id = str(chat_session.session_id)
+            task_id_str = str(query_task.task_id)
 
-        # Build DB-backed event callback
-        send_event = make_db_event_callback(task_id_str, resolved_session_id)
-        adapter = DictSessionAdapter(chat_session)
+            # Build DB-backed event callback
+            send_event = make_db_event_callback(task_id_str, resolved_session_id)
+            adapter = DictSessionAdapter(chat_session)
 
-        # Resolve credentials: try Basic auth header first, fall back to session
-        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-        if basic_tuple and basic_tuple[0] and basic_tuple[1]:
-            api_user, api_pass = basic_tuple
-        else:
-            api_user = request.session.get("username")
-            api_pass = request.session.get("password")
+            # Resolve credentials: a Basic header, else the session; under a turn pass, the login its turn holds.
+            api_user, api_pass = _request_login(request)
 
-        chat_config = _select_chat_config(request, req)
+            chat_config = _chat_config_for(request, req)
 
-        # When the request routed to the prod ChatConfig, swap the
-        # session-derived credentials for the prod config's baked-in
-        # API_USER/API_PASS. The pipeline's outbound Basic-auth calls must hit
-        # prod NExtSEEK with prod credentials — the local session user (e.g.
-        # "demo") doesn't exist on prod and would otherwise produce a 401.
-        prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
-        if prod_config is not None and chat_config is prod_config:
-            if chat_config.API_USER and chat_config.API_PASS:
-                api_user = chat_config.API_USER
-                api_pass = chat_config.API_PASS
+            # When the request routed to the prod ChatConfig, swap the
+            # session-derived credentials for the prod config's baked-in
+            # API_USER/API_PASS. The pipeline's outbound Basic-auth calls must hit
+            # prod NExtSEEK with prod credentials — the local session user (e.g.
+            # "demo") doesn't exist on prod and would otherwise produce a 401.
+            api_user, api_pass = apply_prod_credentials(is_turn_pass(request), chat_config, api_user, api_pass)
 
-        # The caller's project scope for graph queries, resolved here in the request
-        # thread and handed down as plain data (None refuses every graph query).
-        graph_scope = plain_scope(request.user)
+            # The caller's project scope for graph queries, resolved here in the request
+            # thread and handed down as plain data (None refuses every graph query).
+            graph_scope = plain_scope(request.user)
+            # The system agent's CALLER block (round 4): this user's own session, on a per-request copy
+            # so the shared config never carries one user's details. On a turn pass request.user is the
+            # turn's own user (TurnPassAuthentication returns turn.user), never the pass.
+            chat_config = _with_caller(chat_config, request.user)
 
-        # The pipeline body runs in NessieAI/ns/turn.py (run_async_pipeline);
-        # the thread start stays here.
-        thread = threading.Thread(
-            target=run_async_pipeline,
-            kwargs=dict(
-                adapter=adapter, chat_config=chat_config, req=req,
-                send_event=send_event, api_user=api_user, api_pass=api_pass,
-                chat_session=chat_session,
-                resolved_session_id=resolved_session_id,
-                graph_scope=graph_scope,
-            ),
-            daemon=True,
-        )
-        thread.start()
+            # The pipeline body runs in NessieAI/ns/turn.py (run_async_pipeline);
+            # the thread start stays here.
+            thread = start_turn_thread(
+                task_id_str, run_async_pipeline,
+                **dict(
+                    adapter=adapter, chat_config=chat_config, req=req,
+                    send_event=send_event, api_user=api_user, api_pass=api_pass,
+                    chat_session=chat_session,
+                    resolved_session_id=resolved_session_id,
+                    graph_scope=graph_scope,
+                    parent_cc_turn=pass_turn,
+                    deadline_epoch=nested_deadline_epoch,
+                ),
+            )
+        except BaseException:
+            # Nothing will run the child's finally: give the slot back here.
+            if pass_turn is not None:
+                release_op_slot(pass_turn)
+            raise
 
         return Response(
             AsyncQueryResponse(
@@ -808,7 +987,7 @@ class AssistantViewSet(viewsets.ViewSet):
         try:
             query_task = QueryTask.objects.select_related("session").get(
                 task_id=task_id,
-                **({} if may_read_any_users_data(request.user)
+                **({} if may_read_any(request)
                    else {"user": request.user}),
             )
         except QueryTask.DoesNotExist:
@@ -854,9 +1033,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except ChatSession.DoesNotExist:
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        if (chat_session.user_id != request.user.pk
-                and not may_read_any_users_data(request.user)):
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, chat_session, admin_read=True)) is not None:
+            return denied
 
         history = chat_session.results_history or []
         bundle_id_int = int(bundle_id)
@@ -938,9 +1116,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except ChatSession.DoesNotExist:
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        if (chat_session.user_id != request.user.pk
-                and not may_read_any_users_data(request.user)):
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, chat_session, admin_read=True)) is not None:
+            return denied
 
         history = chat_session.results_history or []
         bundle_id_int = int(bundle_id)
@@ -1119,9 +1296,8 @@ class AssistantViewSet(viewsets.ViewSet):
         except (ChatSession.DoesNotExist, DjangoValidationError):
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
-        is_owner = chat_session.user_id == request.user.pk
-        if not is_owner and not may_read_any_users_data(request.user):
-            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+        if (denied := require_session_owner(request, chat_session, admin_read=True)) is not None:
+            return denied
 
         # The CC tree comes from the session itself (the project folder its CC turns
         # ran in, and the owner's username), never from the login that asks, so a
@@ -1154,8 +1330,8 @@ class AssistantViewSet(viewsets.ViewSet):
         if not authed:
             return err
 
-        if not (request.user.is_staff or request.user.is_superuser):
-            return _error_response("Forbidden", "Admin access required.", status.HTTP_403_FORBIDDEN)
+        if not request.user.is_superuser:
+            return _error_response("Forbidden", "Superuser access required.", status.HTTP_403_FORBIDDEN)
 
         test_cases = {}
         for tc in TEST_CASES.values():
@@ -1190,39 +1366,29 @@ class AssistantViewSet(viewsets.ViewSet):
             chat_session = ChatSession(user=request.user)  # transient; not persisted
         return DictSessionAdapter(chat_session)
 
-    def _run_granular_op(self, request, op: str) -> Response:
-        authed, err = self._check_auth(request)
-        if not authed:
-            return err
-
-        model = _GRANULAR_REQUEST_MODELS[op]
-        try:
-            req = model.model_validate(request.data)
-        except ValidationError as e:
-            return _op_error_response("VALIDATION", str(e), status.HTTP_422_UNPROCESSABLE_ENTITY)
-
-        chat_config = _granular_chat_config(request, req)
+    def _granular_op_session(self, request, req, op: str):
+        """The session ``run_op`` hands the op, or None for the ops that never touch one."""
         # parse, graph and aggregate all run parser_agent, which reads results_history
-        # off the session — build a (transient) session for them, else parser_agent
-        # crashes on None. build-upload-xlsx needs only the user (below); the
-        # other ops don't touch the session.
+        # off the session: build a (transient) session for them, else parser_agent
+        # crashes on None. build-upload-xlsx, run-harvest and upload-reingest need
+        # only the user and the seams below.
         if op in ("parse", "graph", "aggregate"):
-            session = self._granular_session(request, req)
-        elif op == "build-upload-xlsx":
+            return self._granular_session(request, req)
+        if op == "build-upload-xlsx":
             # The build record is filed under this user, and Scientist is
             # this user (mapper's @nextseek_user); without a session both are blank.
             # The record also names the chat turn the build ran in, looked up from
             # this server's own records, so upload-reingest can require a later turn.
             from nextseek_api.assistant import chat_turns
 
-            session = SimpleNamespace(
+            return SimpleNamespace(
                 user=request.user,
                 chat_turn=lambda: chat_turns.running_cc_turn(request.user))
-        elif op == "run-harvest":
+        if op == "run-harvest":
             # With no run_dir the op picks the caller's waiting launched run;
             # without a session it sees nobody and reports that no run is waiting.
-            session = SimpleNamespace(user=request.user)
-        elif op == "upload-reingest":
+            return SimpleNamespace(user=request.user)
+        if op == "upload-reingest":
             # The identity lookup is handed over uncalled: the op resolves it
             # only after the write gate passes, so an unconfirmed call never
             # reaches SEEK. The request model forbids extra keys, so the
@@ -1232,89 +1398,134 @@ class AssistantViewSet(viewsets.ViewSet):
             # well, so the engine never imports the batch-upload views. So do the
             # chat-turn lookups: a build is uploaded only from a later turn of the
             # chat it was shown in, and the agent never names the chat or the turn.
+            # The dispatch carries the caller's project scope (SEC-001), read
+            # when a job starts, so a member uploads only into their own projects.
             from nextseek_api.assistant import chat_turns
-            from nextseek_api.batch_upload.views import (
-                _resolve_user_context, dispatch_batch_job, job_outcome, stage_workbook_copy,
-            )
+            from nextseek_api.batch_upload import views as batch_views
 
             def _upload_context():
-                return _resolve_user_context(request)
+                return batch_views._resolve_user_context(request)
 
-            session = SimpleNamespace(
+            def _dispatch_job(**kwargs):
+                return batch_views.dispatch_batch_job(
+                    scope_project_ids=batch_views._caller_project_scope(request.user), **kwargs)
+
+            return SimpleNamespace(
                 user=request.user, upload_context=_upload_context,
-                dispatch_job=dispatch_batch_job, stage_workbook=stage_workbook_copy,
+                dispatch_job=_dispatch_job, stage_workbook=batch_views.stage_workbook_copy,
                 chat_turn=lambda: chat_turns.running_cc_turn(request.user),
                 turn_delivered=lambda task_id: chat_turns.turn_delivered(request.user, task_id),
-                job_state=job_outcome)
-        else:
-            session = None
-        gate = build_gate(load_allowlist())
-        args = _granular_args(op, req)
-        # report + generate-submission both persist real artifacts to disk (the
-        # reporter summary / the submission-emitter workbooks), so both need a
-        # writable run-root under an allowed artifact root.
-        outputs_dir = _granular_outputs_dir() if op in ("report", "generate-submission", "build-upload-xlsx") else None
+                job_state=batch_views.job_outcome)
+        return None
+
+    def _run_granular_op(self, request, op: str) -> Response:
+        timing = [("view", time.monotonic())]
+        authed, err = self._check_auth(request)
+        if not authed:
+            return err
+
+        model = _GRANULAR_REQUEST_MODELS[op]
+        try:
+            req = model.model_validate(request.data)
+        except ValidationError as e:
+            return op_error("VALIDATION", fields=validation_fields(e), status=HTTP_STATUS["VALIDATION"])
+
+        # Under a turn pass (plan 02) request.auth is the turn's CCTurn row.
+        turn = request.auth if is_turn_pass(request) else None
+        refused = _refuse_for_pass(op, req, turn)
+        if refused is not None:
+            return refused
+        timing.append(("checked", time.monotonic()))
+
+        # Piece 4: the limit is the table's value capped by the turn's own deadline (a X-Nextseek-Deadline header may
+        # only bring it forward), and on the sidecar road by the sidecar's wait. A model op with too little of it
+        # usable is refused before any slot is taken or model called; an op that calls no model is never refused and
+        # keeps a floor of NO_MODEL_FLOOR_S.
+        deadline = turn_deadline_epoch(turn, request.META.get(DEADLINE_HEADER_META))
+        limit_s = op_limit_s(op, deadline, time.time())
+        if ops_road() == SIDECAR:
+            limit_s = min(limit_s, SIDECAR_ROAD_CAP_S)
+        if op in MODEL_OPS and deadline is not None and limit_s < MIN_USABLE_S:
+            return op_error("TIME_UP", status=HTTP_STATUS["TIME_UP"])
+        if op not in MODEL_OPS:
+            limit_s = max(limit_s, NO_MODEL_FLOOR_S)
+
+        if not all(_request_login(request)):
+            # An op runs only with the caller's own login, never with the shared ChatConfig login. The NS turn keeps
+            # the same rule.
+            return op_error("AUTH_FAILED", status=HTTP_STATUS["AUTH_FAILED"])
+        chat_config = _granular_chat_config(request, req)
+        if op == "run-ls":
+            refused = _refuse_run_ls(request, req, chat_config)
+            if refused is not None:
+                return refused
+        timing.append(("config", time.monotonic()))
         # A BaseException, so the except Exception below never sees it (F6). Imported here:
         # this module keeps chat_nextseek out of its module scope (see the note on imports).
-        from chat_nextseek.failure_replies import MODEL_UNAVAILABLE_REASON
         from chat_nextseek.llm_clients import LLMFatalError
 
+        outputs_dir = None
+        # Every failure from here on maps to a closed code (Task 4 Step 6), the bundle registration included.
         try:
+            session = self._granular_op_session(request, req, op)
+            gate = build_gate(load_allowlist())
+            args = _granular_args(op, req)
+            timing.append(("session", time.monotonic()))
+            # The artifact ops persist real files, so they need a writable run-root under an
+            # allowed artifact root.
+            outputs_dir = _granular_outputs_dir() if op in _ARTIFACT_OPS else None
             result = run_op(
                 op, args, config=chat_config, session=session,
-                write_gate=gate, outputs_dir=outputs_dir,
+                write_gate=gate, outputs_dir=outputs_dir, limit_s=limit_s, turn=turn, timing=timing,
             )
+            # The artifact ops register a bundle so their files are fetchable over HTTP via
+            # download_artifact, and hand back the URLs.
+            download = self._register_artifact_bundle(request, req, op, result) if op in _ARTIFACT_OPS else None
+        except OpBusyError:
+            _discard_empty_dir(outputs_dir)
+            return op_error("BUSY", status=HTTP_STATUS["BUSY"])
         except OpValidationError as e:
-            return _op_error_response("VALIDATION", str(e), status.HTTP_422_UNPROCESSABLE_ENTITY)
-        except WriteBlockedError as e:
-            return _op_error_response("WRITE_BLOCKED", str(e), status.HTTP_403_FORBIDDEN)
+            _discard_empty_dir(outputs_dir)
+            # The value the caller sent may be in the message: it goes to the log, never the reply.
+            logger.info("granular op %s refused its arguments: %s", op, e)
+            return op_error("VALIDATION", fields=[e.field_error()], status=HTTP_STATUS["VALIDATION"])
+        except WriteBlockedError:
+            return op_error("WRITE_BLOCKED", status=HTTP_STATUS["WRITE_BLOCKED"])
         except LLMFatalError as fatal:
-            # A model failure that ended the op, a double 503 say. The envelope and the
-            # sidecar contract stay as they are: when the models were unavailable the
-            # reason leads the error's detail, and the raw message follows it.
             logger.exception("granular op %s failed", op)
-            detail = str(fatal)
-            if getattr(fatal, "unavailable", False):
-                detail = f"{MODEL_UNAVAILABLE_REASON}: {detail}"
-            return _op_error_response("AGENT_FAILED", detail, status.HTTP_502_BAD_GATEWAY)
-        except Exception as e:  # noqa: BLE001 — any agent failure maps to AGENT_FAILED
+            return op_error("AGENT_FAILED", reason=failure_reason(fatal), status=HTTP_STATUS["AGENT_FAILED"])
+        except Exception as e:  # noqa: BLE001 - any agent failure maps to AGENT_FAILED
             logger.exception("granular op %s failed", op)
-            return _op_error_response("AGENT_FAILED", str(e), status.HTTP_502_BAD_GATEWAY)
+            return op_error("AGENT_FAILED", reason=failure_reason(e), status=HTTP_STATUS["AGENT_FAILED"])
 
         resp_body = {"op": op, "result": result}
-        # report/generate-submission produce artifacts; register a bundle so they
-        # are fetchable over HTTP via download_artifact, and hand back the URLs.
-        if op in ("report", "generate-submission", "build-upload-xlsx"):
-            resp_body["download"] = self._register_artifact_bundle(request, req, op, result)
+        if download is not None:
+            resp_body["download"] = download
         return Response(resp_body, status=status.HTTP_200_OK)
 
     def _register_artifact_bundle(self, request, req, op: str, result) -> dict:
-        """Persist a lightweight bundle in the caller's chat session so the op's
-        outputs are downloadable via the (ownership-checked) download_artifact
-        endpoint. Returns ``{session_id, bundle_id, artifacts:[{key,url}]}``."""
+        """Persist a lightweight bundle in the asking chat so the op's outputs are downloadable via the
+        (ownership-checked) download_artifact endpoint. Returns ``{session_id, bundle_id, artifacts:[{key,url}]}``.
+
+        Under a turn pass the chat is always the turn's own (plan 02's allow table and ``_refuse_for_pass`` refuse any
+        other), so the files land in the chat that asked (issue 13) and the tool's artifact GET is allowed. The bundle
+        id comes from the chat's one allocator (bundle_ids.py), taken and written under the same row lock as the
+        append: the chat is live, and a nested NS turn may be numbering its own bundle at the same moment.
+        """
+        from django.db import transaction
+
+        from nextseek_api.assistant.bundle_ids import next_bundle_id_locked
+
+        turn = request.auth if is_turn_pass(request) else None
+        chat_pk = turn.chat_id if turn is not None else None
         session_id = getattr(req, "session_id", None)
-        chat_session = None
-        if session_id:
-            try:
-                chat_session = ChatSession.objects.get(session_id=session_id, user=request.user)
-            except ChatSession.DoesNotExist:
-                chat_session = None
-        if chat_session is None:
-            chat_session = ChatSession.objects.create(user=request.user)
+        if chat_pk is None and session_id:
+            chat_pk = (ChatSession.objects.filter(session_id=session_id, user=request.user)
+                       .values_list("pk", flat=True).first())
+        if chat_pk is None:
+            chat_pk = ChatSession.objects.create(user=request.user).pk
 
-        history = chat_session.results_history or []
-        bundle_id = max((b.get("id", 0) for b in history if isinstance(b, dict)), default=0) + 1
         saved_files = result.get("saved_files") if isinstance(result, dict) else None
-        if op == "generate-submission":
-            # real emitter workbooks in saved_files PLUS the on-the-fly all_tables xlsx.
-            bundle = {"id": bundle_id, "mode": "generate-submission",
-                      "report_saved_files": saved_files or {}, "report_writer_output": result}
-        else:  # report / build-upload-xlsx — saved_files (report file / reingest workbooks)
-               # are served directly; no writer-output payload.
-            bundle = {"id": bundle_id,
-                      "mode": "reingest" if op == "build-upload-xlsx" else "reporter",
-                      "report_saved_files": saved_files or {}, "report_writer_output": {}}
-
         if op == "build-upload-xlsx":
             # The op returns proposals; persisting them is a service-layer
             # concern, so build-upload-xlsx keeps its "writes nothing" invariant.
@@ -1326,19 +1537,27 @@ class AssistantViewSet(viewsets.ViewSet):
                        manifest_digest=pending[0].get("manifest_digest", ""),
                        user_id=getattr(request.user, "id", None))
 
-        history.append(bundle)
-        chat_session.results_history = history
-        chat_session.save(update_fields=["results_history", "updated_at"])
+        with transaction.atomic():
+            locked = ChatSession.objects.select_for_update().get(pk=chat_pk)
+            bundle_id = next_bundle_id_locked(locked)
+            if op == "generate-submission":
+                # real emitter workbooks in saved_files PLUS the on-the-fly all_tables xlsx.
+                bundle = {"id": bundle_id, "mode": "generate-submission",
+                          "report_saved_files": saved_files or {}, "report_writer_output": result}
+            else:  # report / build-upload-xlsx: saved_files (report file / reingest workbooks) are served directly.
+                bundle = {"id": bundle_id,
+                          "mode": "reingest" if op == "build-upload-xlsx" else "reporter",
+                          "report_saved_files": saved_files or {}, "report_writer_output": {}}
+            locked.results_history = [*(locked.results_history or []), bundle]
+            locked.save(update_fields=["results_history", "extra_state", "updated_at"])
 
-        base = (f"/nextseek_api/assistant/sessions/{chat_session.session_id}"
-                f"/bundles/{bundle_id}/artifacts")
+        base = f"/nextseek_api/assistant/sessions/{chat_pk}/bundles/{bundle_id}/artifacts"
         artifacts = artifact_download_entries(saved_files, base)
         if op == "generate-submission":
             # The submission output has no on-disk file; expose it as a combined xlsx.
             artifacts.append({"key": "all_tables", "url": f"{base}/all_tables/",
                               "filename": "all_tables.xlsx"})
-        return {"session_id": str(chat_session.session_id), "bundle_id": bundle_id,
-                "artifacts": artifacts}
+        return {"session_id": str(chat_pk), "bundle_id": bundle_id, "artifacts": artifacts}
 
     @extend_schema(
         operation_id="Assistant: Entity Extract",
@@ -1377,10 +1596,10 @@ class AssistantViewSet(viewsets.ViewSet):
             "plain-language parts, each answered by the graph op's own chain in parallel, as a small table "
             "per part (`groups`, `sum_of_group_counts`, `groups_may_overlap`, `null_group`), never sample "
             "records; a breakdown's `sum_of_group_counts` counts a sample once per group it falls in, so it is "
-            "not a number of samples when `groups_may_overlap` is true. Answers what finished within "
-            "50 s and marks the rest `timed_out`. A part refused for its project scope carries the "
-            "project-scoped sample search's total only (`status` fallback). The body takes no Cypher and "
-            "no scope."
+            "not a number of samples when `groups_may_overlap` is true. Answers what finished 5 s inside "
+            "the op's time limit (85 s of 90 s) and marks the rest `timed_out`. A part refused for its "
+            "project scope carries the project-scoped sample search's total only (`status` fallback). The "
+            "body takes no Cypher and no scope."
         ),
         request=AggregateOpRequest,
         responses={200: AggregateOpResponse, 401: OpErrorResponse, 422: OpErrorResponse},

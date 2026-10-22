@@ -44,7 +44,7 @@ GITIGNORE_FILE = REPO_ROOT / ".gitignore"
 # PORT_SOURCE_PATH_RECORDED is a plain string used ONLY to cross-check what
 # PORT-EVIDENCE.json records -- no test touches that filesystem path (it is
 # not mounted in the mandated hermetic harness container).
-PORT_SOURCE_PATH_RECORDED = "/home/taishajo/work/dmac-assistant/bedrock-proxy"
+PORT_SOURCE_PATH_RECORDED = "<source-checkout>/bedrock-proxy"
 PORT_SOURCE_COMMIT = "a429f1372a075e5db586a1b6efc8c3b1663e211a"
 
 REAL_SECRET_FILENAME = "proxy-secret.env"
@@ -55,7 +55,7 @@ REAL_SECRET_FILENAME = "proxy-secret.env"
 #
 # These constants pinned the byte-identical port at source commit a429f137,
 # and all but app/config.py and app/proxy.py still do (changed deliberately on
-# 2026-09-25 and 2026-09-28; see their entries below). At port time the worktree copies were verified byte-identical to the pinned
+# 2026-09-25, 2026-09-28 and 2026-10-12; see their entries below). At port time the worktree copies were verified byte-identical to the pinned
 # dmac-assistant/bedrock-proxy source both by a live `diff` against the clone
 # (empty for all five files) and by matching sha256 digests (task-4-report.md
 # sections 1-2 record that one-time manual verification); these literals are
@@ -70,10 +70,11 @@ PINNED_SOURCE_SHA256 = {
     "app/__init__.py": "e81e6cfec1157608321d2166cda98f3376486f49308c7ea80038fc1fb6bd86fd",
     # Deliberately changed after the port on 2026-09-25 (the allow list gained the
     # Container-CC fallback model and the classifier's Sonnet) and on 2026-09-28 (the
-    # streamed-invoke header deadline; then run 2's Opus 5.5 joined the allow list,
-    # PORT-EVIDENCE.json "post_port_changes"). Every other digest is still the pinned
-    # source's.
-    "app/config.py": "09c0283b782059bb166d8c80fd7e72012163b31abad6fe5abadae3db42409451",
+    # streamed-invoke header deadline; then run 2's Opus 5.5 joined the allow list) and
+    # on 2026-10-12 (T7: Sonnet 5.5's global profile leads the allow list, Opus 5.5 stays
+    # as a rollback id; PORT-EVIDENCE.json "post_port_changes"). Every other digest is
+    # still the pinned source's.
+    "app/config.py": "1b9b8e7baa486036cad858c99fb1d2c316af32f55cb2efa26b92b12f43438de8",
     # Deliberately changed on 2026-09-28: a stalled streamed invoke is relayed as a 504
     # and an upstream 429 as a 503 (PORT-EVIDENCE.json "post_port_changes").
     "app/proxy.py": "fcd40ca1ae9a670e7e49dd073cb95b6054c94376fcec39ca3d277fb5458e41bf",

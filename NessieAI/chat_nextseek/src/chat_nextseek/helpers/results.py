@@ -7,64 +7,69 @@ from pathlib import Path
 
 from .text import strip_html
 from ..artifacts import load_api_result_full
+from ..chat_memory import MAX_UID_EXAMPLES, bundle_rows_and_extent, named_bundle, uids_from_rows
+from ..chat_memory import _GROUP_LABEL_KEY, _GROUP_RECORDS_KEY, _flatten_groups, _grouped_records  # noqa: F401
 
 # tool_nextseek_api_request hard-defaults this. A search matching more rows than this
 # silently returns one page, so it must be disclosed rather than left implicit.
 DEFAULT_API_PAGE_SIZE = 1000
 
 
-#: `POST samples/retrieve/` (and its alias `admin/samples/retrieve/`) answers `{total_samples,
-#: total_sample_types, total_children, failed_uids, data: [{sample_type, n_samples, samples: [...]}],
-#: lineage_complete}` (`SampleRetrieveResponse`, `nextseek_api/models.py`). `data["data"]` is a list,
-#: so every row-counting and row-previewing helper below "recognised" it and then
-#: counted and previewed the sample TYPES rather than the samples.
-_GROUP_LABEL_KEY = "sample_type"
-_GROUP_RECORDS_KEY = "samples"
+def _is_empty(value: object) -> bool:
+    return value is None or value == "" or value == [] or value == {}
 
 
-def _grouped_records(data: object) -> list[dict] | None:
-    """The groups of a grouped-by-sample-type body, or None for any other shape.
-
-    Deliberately exact rather than structural: it matches only a list whose every
-    member carries both a ``sample_type`` label and a ``samples`` list. A SEEK
-    JSON:API passthrough also puts a list at ``data["data"]`` (its members carry
-    ``id``/``type``/``attributes``), and that one must keep its existing handling.
-    """
-    if not isinstance(data, dict):
-        return None
-    groups = data.get("data")
-    if not isinstance(groups, list) or not groups:
-        return None
-    for group in groups:
-        if not isinstance(group, dict):
-            return None
-        if _GROUP_LABEL_KEY not in group or not isinstance(group.get(_GROUP_RECORDS_KEY), list):
-            return None
-    return groups
-
-
-def _flatten_groups(groups: list[dict]) -> list[dict]:
-    """Records from every group, round-robin, each tagged with its group label.
-
-    Round-robin, not group order, so a preview of a mixed lineage shows every type
-    present. B7 is the reply that reported 1,904 lineage records and showed none of
-    the PAT samples the user asked about; a preview drawn from the first group only
-    would reproduce that.
-    """
-    tagged = [
-        [
-            {_GROUP_LABEL_KEY: group.get(_GROUP_LABEL_KEY), **record}
-            for record in group.get(_GROUP_RECORDS_KEY) or []
-            if isinstance(record, dict)
-        ]
-        for group in groups
-    ]
-    out: list[dict] = []
-    for index in range(max((len(rows) for rows in tagged), default=0)):
-        for rows in tagged:
-            if index < len(rows):
-                out.append(rows[index])
+def _drop_empty(record: dict) -> dict:
+    """The record without its empty fields (None, "", [], {}), one level into a nested dict too: a retrieve record
+    holds every attribute under ``metadata`` (R8). The group label stays."""
+    out = {}
+    for k, v in record.items():
+        if isinstance(v, dict):
+            v = {ik: iv for ik, iv in v.items() if not _is_empty(iv)}
+        if k == _GROUP_LABEL_KEY or not _is_empty(v):
+            out[k] = v
     return out
+
+
+#: Named records shown in full in a retrieve preview; any more are listed by UID and type in ``also_named`` (R8).
+_PINNED_MAX = 20
+
+
+def _record_uid(record: dict) -> str:
+    return next((str(record[f]) for f in ("uid", "UID", "uuid", "sample_uid", "id") if record.get(f) is not None), "?")
+
+
+def _named_identifiers(api_plan: dict | None) -> list[str]:
+    """Identifiers the request named (a retrieve body's ``identifiers``), lower-cased."""
+    body = (api_plan or {}).get("requestBody")
+    ids = body.get("identifiers") if isinstance(body, dict) else None
+    if not isinstance(ids, list):
+        return []
+    return [str(i).strip().lower() for i in ids if str(i).strip()]
+
+
+def _record_keys(record: dict) -> set[str]:
+    """Every identifier a record answers to: its uid fields and its SEEK id."""
+    keys = set()
+    for field in ("uid", "UID", "uuid", "sample_uid", "id"):
+        value = record.get(field)
+        if value is not None and not isinstance(value, (dict, list)):
+            keys.add(re.sub(r"<[^>]+>", "", str(value)).strip().lower())
+    return keys
+
+
+def _order_named_first(flat: list[dict], named: list[str]) -> tuple[list[dict], int]:
+    """Records the request named first (in the order named), then the rest. Returns the order and the named count."""
+    if not named:
+        return flat, 0
+    rank = {n: i for i, n in enumerate(named)}
+    hits = []
+    rest = []
+    for record in flat:
+        found = [rank[k] for k in _record_keys(record) if k in rank]
+        (hits if found else rest).append((min(found), record) if found else record)
+    hits.sort(key=lambda pair: pair[0])
+    return [r for _, r in hits] + rest, len(hits)
 
 
 def _group_record_count(groups: list[dict]) -> int:
@@ -269,9 +274,19 @@ def slim_api_result_for_llm(
         # reach: how many samples of each type there are (B7's missing sentence,
         # "1,904 records, 40 of them PAT"), and a preview whose every record names
         # the type it came from (B8's fix, "name types from the query that ran").
-        flat = _flatten_groups(groups)
+        flat = [_drop_empty(r) for r in _flatten_groups(groups)]
+        # Records the request named (retrieve by UID) always lead the preview and
+        # are never cut by the row cap, so a second named record cannot drop out.
+        # A UID named without its suffix comes back under its stored spelling (`resolved_as`), and is pinned as that.
+        resolved = {str(k).strip().lower(): str(v).strip().lower()
+                    for k, v in ((data.get("resolved_as") if isinstance(data, dict) else None) or {}).items()}
+        flat, pinned = _order_named_first(flat, [resolved.get(n, n) for n in _named_identifiers(api_plan)])
+        shown, also_named = flat, []
+        if pinned > _PINNED_MAX:
+            also_named = [f"{_record_uid(r)} ({r.get(_GROUP_LABEL_KEY)})" for r in flat[_PINNED_MAX:pinned]]
+            shown, pinned = flat[:_PINNED_MAX] + flat[pinned:], _PINNED_MAX
         preview_key = "samples_preview"
-        preview_items = flat[:max_rows]
+        preview_items = shown[:max(max_rows, pinned)]
         preview_rows = len(preview_items)
         new_data = {
             **{k: v for k, v in data.items() if k != "data"},
@@ -285,6 +300,7 @@ def slim_api_result_for_llm(
             },
             "samples_preview": preview_items,
             "samples_truncated": len(preview_items) < len(flat),
+            **({"also_named": "also named, not shown in full: " + ", ".join(also_named)} if also_named else {}),
         }
         truncated_key = "samples_truncated"
     elif isinstance(data, dict):
@@ -337,6 +353,7 @@ def slim_api_result_for_llm(
     if preview_key:
         slimmed, preview_rows = _shrink_preview_to_budget(
             slimmed, preview_key, max_chars, truncated_key=truncated_key,
+            pinned=pinned if groups is not None else 0,
         )
 
     # Row counts come from the ORIGINAL result; `preview_rows` is what actually
@@ -345,7 +362,54 @@ def slim_api_result_for_llm(
     if preview_rows is None:
         preview_rows = _rows_actually_returned(slimmed)
     slimmed.update(build_result_disclosure(api_result, api_plan, preview_rows=preview_rows))
+    slimmed.update(_rest_list_flags(api_result, api_plan))
     return slimmed
+
+
+#: The two REST answers that are a single record or a whole list rather than a sample page (R4, U3b).
+_PEOPLE_LIST = "/nextseek_api/people/"
+_SOPS_RECORD = "/nextseek_api/sops/"
+
+
+def _rest_list_flags(api_result: dict, api_plan: dict | None) -> dict:
+    """``full_list_attached`` + ``rows_returned`` for the people list (the table under the reply holds every row, so
+    the chatter gives the total and never "the first N"), with ``match_terms`` + ``matching_rows`` when the request
+    looks for names; ``download_links`` for one SOP record (the file it offers)."""
+    endpoint = str((api_plan or {}).get("endpoint") or "").split("?", 1)[0]
+    data = api_result.get("data") if isinstance(api_result, dict) else None
+    if endpoint.rstrip("/") + "/" == _PEOPLE_LIST:
+        rows = data.get("data") if isinstance(data, dict) else data
+        if isinstance(rows, list):
+            flags = {"full_list_attached": True, "rows_returned": len(rows)}
+            terms = [str(t) for t in (api_plan or {}).get("match_terms") or [] if str(t).strip()]
+            if terms:
+                # Review F8: an account matches a term when its name holds every word of it, any case.
+                flags["match_terms"] = terms
+                flags["matching_rows"] = [
+                    {"id": row.get("id"), "title": title} for row in rows if isinstance(row, dict)
+                    for title in [str((row.get("attributes") or {}).get("title") or "")]
+                    if title and any(all(w in title.lower() for w in t.lower().split()) for t in terms)]
+            return flags
+    elif endpoint.startswith(_SOPS_RECORD.rstrip("/") + "/") and isinstance(data, dict):
+        record = data.get("data") if isinstance(data.get("data"), dict) else data
+        links = _download_links(record)
+        return {"download_links": links} if links else {}
+    return {}
+
+
+def _download_links(record: dict) -> list[dict]:
+    """The file(s) an SOP record offers: each content blob's name and link, as the record states them."""
+    blobs = ((record.get("attributes") or {}).get("content_blobs")) or []
+    out = []
+    for blob in blobs if isinstance(blobs, list) else []:
+        if not isinstance(blob, dict):
+            continue
+        link = blob.get("link") or (blob.get("links") or {}).get("download") or (blob.get("links") or {}).get("self")
+        if link:
+            # SEEK serves the blob resource at the link and the file at <link>/download (content_blobs.py, review N8).
+            link = re.sub(r"(/content_blobs/\d+)/?$", r"\1/download", str(link))
+            out.append({"file": blob.get("original_filename") or blob.get("title"), "link": link})
+    return out
 
 
 def _shrink_preview_to_budget(
@@ -354,6 +418,7 @@ def _shrink_preview_to_budget(
     max_chars: int,
     *,
     truncated_key: str | None = None,
+    pinned: int = 0,
 ) -> tuple[dict, int | None]:
     """Drop previewed rows until the payload fits, keeping at least one.
 
@@ -371,14 +436,27 @@ def _shrink_preview_to_budget(
         return slimmed, None
 
     items = list(data[preview_key])
-    while len(items) > 1 and len(json.dumps(slimmed, default=str)) > max_chars:
+    while len(items) > max(1, pinned) and len(json.dumps(slimmed, default=str)) > max_chars:
         items = items[:-1]
         data = {**data, preview_key: items,
                 "note": f"Result truncated for LLM context (>{max_chars} chars)."}
         if truncated_key:
             data[truncated_key] = True
         slimmed = {**slimmed, "data": data}
+    # Pinned (named) records are never dropped: trim their long text instead.
+    for cap in (400, 200, 100, 50):
+        if not pinned or len(json.dumps(slimmed, default=str)) <= max_chars:
+            break
+        items = [_trim_long_fields(r, cap) if i < pinned else r for i, r in enumerate(items)]
+        slimmed = {**slimmed, "data": {**slimmed["data"], preview_key: items, "fields_trimmed": True}}
     return slimmed, len(items)
+
+
+def _trim_long_fields(record: dict, cap: int) -> dict:
+    """Long text cut to ``cap``, one level into a nested dict too (a retrieve record's ``metadata``, R8)."""
+    def trim(v):
+        return v[:cap] + "...[trimmed]" if isinstance(v, str) and len(v) > cap else v
+    return {k: ({ik: trim(iv) for ik, iv in v.items()} if isinstance(v, dict) else trim(v)) for k, v in record.items()}
 
 
 def collect_bundle_files(bundle: dict) -> list[tuple[str, str]]:
@@ -490,67 +568,92 @@ def normalize_api_result_for_memory(api_result: dict, min_rows_for_norm: int = 1
     }
 
 
-def summarize_pinned_bundle(session) -> str:
-    """One-line summary of the user's most recent results bundle. '' when none.
+def _bundle_uids(bundle: dict) -> list[str]:
+    """The sample UIDs a build or a report on this bundle uses, through the shared reader.
 
-    Moved from pipeline/agent.py — generic results-history knowledge.
-    """
-    history = session.get("results_history") or []
-    if not isinstance(history, list) or not history:
-        return ""
-    last = history[-1]
-    if not isinstance(last, dict):
-        return ""
-    user_q = last.get("user_query") or ""
-    data = (load_api_result_full(last) or {}).get("data") or {}
-    # advanced_search/new_search pin rows under 'samples'; graph under 'nodes'; others 'rows'.
-    rows = data.get("rows") or data.get("samples") or data.get("nodes") or []
-    return f"last search: query={user_q!r}, ~{len(rows) if isinstance(rows, list) else 0} rows"
+    A bundle's rows, except a retrieve's: its set is the identifiers it asked for, not the lineage it returned,
+    which holds the ancestors whose own trees a build would fetch whole. A bundle with no rows has a set only when
+    it is a generated report, whose plan names the samples it packaged. Any other plan's UIDs are not the bundle's own: a
+    count's or an empty search's can carry the 5 UIDs the earlier turn showed. A follow-up still counts every
+    sample a retrieve returned (``chat_memory.bundle_uids``)."""
+    rows, _total, _more, from_plan = bundle_rows_and_extent(bundle)
+    retrieve = not from_plan and _grouped_records(load_api_result_full(bundle).get("data")) is not None
+    if rows and not retrieve:
+        return uids_from_rows(rows)
+    if retrieve:
+        body = ((bundle.get("api_plan") or {}).get("requestBody") or {}) if isinstance(bundle.get("api_plan"), dict) else {}
+        plan_uids = body.get("identifiers") if isinstance(body, dict) else None
+        if not (isinstance(plan_uids, list) and plan_uids):
+            pp = bundle.get("parser_plan")
+            filt = pp.get("filters") if isinstance(pp, dict) else None
+            plan_uids = filt.get("uids") if isinstance(filt, dict) else None
+    else:
+        # Only a generated report (a GEO/SRA/PRIDE package) holds a set: the UIDs it packaged. The reporter copies
+        # the parser's carried UIDs into its plan in every mode, so a summary report's are only the few shown.
+        rp = bundle.get("reporter_plan")
+        generated = isinstance(rp, dict) and rp.get("reporter_mode") == "report_generation"
+        plan_uids = rp.get("uids") if generated else None
+    return [re.sub(r"<[^>]+>", "", uid).strip() for uid in plan_uids or [] if isinstance(uid, str) and uid.strip()]
 
 
-def uids_from_last_search(session) -> list[str]:
-    """Extract sample UIDs from the most recent results bundle that has any.
+def picked_uids(target_uids: list[str], carried) -> list[str]:
+    """The rows the user picked out of a named result: the parser's carried UIDs when they are a proper part of it
+    ("a GEO package for the first two mice you showed"). Not when they are just the examples the chat showed for
+    it (CHAT_HISTORY lists a result's first ``MAX_UID_EXAMPLES`` UIDs), which the parser copies on "those": then the
+    whole result is meant. Operator 2026-10-14: "Package the 2"."""
+    picked = [u for u in carried or [] if isinstance(u, str) and u]
+    if not picked or not set(picked) < set(target_uids or []):
+        return []
+    return [] if set(picked) == set(target_uids[:MAX_UID_EXAMPLES]) else picked
 
-    Walks results_history in reverse; reads api_result_full.data rows
-    (keys rows/nodes/data), strips HTML, falls back to reporter_plan.uids
-    then parser_plan.filters.uids. Moved from pipeline/agent.py.
-    """
+
+def pinned_bundle(session, bundle_id=None) -> tuple[dict | None, list[str]]:
+    """``(bundle, its UIDs)``: the bundle ``bundle_id`` names (no walk back; ``(bundle, [])`` when it holds
+    none), else the newest bundle with UIDs. The summary and the pipeline tools both read through this, so
+    they pick the same one."""
     history = session.get("results_history") or []
     if not isinstance(history, list):
-        return []
+        return None, []
+    if bundle_id is not None:
+        named = named_bundle(history, bundle_id)
+        return (named, _bundle_uids(named)) if named is not None else (None, [])
     for bundle in reversed(history):
-        if not isinstance(bundle, dict):
-            continue
-        api_full = load_api_result_full(bundle)
-        data = api_full.get("data") if isinstance(api_full, dict) else None
-        rows = []
-        if isinstance(data, dict):
-            # advanced_search/new_search pin rows under 'samples'; graph under 'nodes'.
-            for key in ("rows", "nodes", "data", "samples"):
-                val = data.get(key)
-                if isinstance(val, list):
-                    rows = val
-                    break
-        elif isinstance(data, list):
-            rows = data
-        out: list[str] = []
-        for row in rows or []:
-            if isinstance(row, dict):
-                uid = row.get("uid") or row.get("UID") or row.get("uuid") or row.get("sample_uid")
-                if uid:
-                    out.append(re.sub(r"<[^>]+>", "", str(uid)).strip())
-            elif isinstance(row, str):
-                out.append(re.sub(r"<[^>]+>", "", row).strip())
-        if not out:
-            rp = bundle.get("reporter_plan")
-            plan_uids = rp.get("uids") if isinstance(rp, dict) else None
-            if not (isinstance(plan_uids, list) and plan_uids):
-                pp = bundle.get("parser_plan")
-                filt = pp.get("filters") if isinstance(pp, dict) else None
-                plan_uids = filt.get("uids") if isinstance(filt, dict) else None
-            for uid in plan_uids or []:
-                if isinstance(uid, str) and uid.strip():
-                    out.append(re.sub(r"<[^>]+>", "", uid).strip())
-        if out:
-            return out
-    return []
+        if isinstance(bundle, dict):
+            uids = _bundle_uids(bundle)
+            if uids:
+                return bundle, uids
+    return None, []
+
+
+def bundle_extent(bundle: dict) -> tuple[list, int | None, bool]:
+    """``(rows, total, capped)``: the shared reader's extent, with a graph result's own ``total`` and its LIMIT cap
+    (``truncated``), which the reader does not state."""
+    rows, total, capped, _plan = bundle_rows_and_extent(bundle)
+    graph = bundle.get("graph_result") if isinstance(bundle.get("graph_result"), dict) else {}
+    if total is None and isinstance(graph.get("total"), int):
+        total = graph["total"]
+    return rows, total, capped or graph.get("truncated") is True
+
+
+def summarize_pinned_bundle(session, bundle_id=None) -> str:
+    """One-line summary of the results bundle the pipeline builds on (``pinned_bundle``). '' when none.
+
+    Rows, total and cap come from the shared reader, the same extent a follow-up shows. With no UID
+    bundle at all it describes the newest bundle, as before.
+    """
+    bundle, _ = pinned_bundle(session, bundle_id)
+    if bundle is None and bundle_id is None:
+        history = session.get("results_history") or []
+        bundle = history[-1] if isinstance(history, list) and history and isinstance(history[-1], dict) else None
+    if bundle is None:
+        return ""
+    rows, total, capped = bundle_extent(bundle)
+    line = f"last search: query={bundle.get('user_query') or ''!r}, ~{len(rows)} rows"
+    if total is not None and total != len(rows):
+        line += f" of {total}"
+    return line + (" (capped)" if capped else "")
+
+
+def uids_from_last_search(session, bundle_id=None) -> list[str]:
+    """Sample UIDs of the bundle ``bundle_id`` names, else of the newest bundle that has any (``pinned_bundle``)."""
+    return pinned_bundle(session, bundle_id)[1]

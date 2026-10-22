@@ -13,7 +13,7 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-DELIVERY = Path("/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07")
+DELIVERY = Path("/home/<user>/work/NExtSEEK-dev/testquestions-2026-08-07")
 APP_IMAGE = "nextseek-nextseek:latest"
 APP_IMAGE_ID = "sha256:704e0936c966a5e4121957104f236d111c251db0feb413aa2c8e8a5e3f7fa651"
 EVAL_IMAGE = "nextseek-eval:v4-4"

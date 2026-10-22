@@ -136,6 +136,35 @@ populating rows.
    because the server default skips populated-UID updates. Flag mixed create+update
    sheets so the curator knows that setting matters.
 
+## Harmonizing values
+
+"Harmonize / normalize / standardize these values" means: map the stored values of one attribute onto the house ontology terms. A mapping the user supplies ("X means Y") is the same task: check each target with the snippet and reply in the same form. Discovery is Step 0 and the write-out is the Required Flow; only the steps below are new.
+
+1. Find the values and their counts, held to the curator's projects: the previous turn's rows when it listed them, else one `nextseek-aggregate` call.
+2. Look the attribute up in `/app/plugins/nextseek/context/ONTOLOGIES.json` (sample type + attribute name) and read every ontology file that covers it.
+3. Match each value with the snippet below, nothing looser. A value equal to `r["TERM"]` exactly is already harmonized. When several ontologies cover the attribute, take the first that matches. Never map a value the snippet does not match: put your guess as a question.
+
+```python
+import json, fnmatch
+C = "/app/plugins/nextseek/context/"
+IDX = json.load(open(C + "ONTOLOGIES.json"))
+def covering(sample_type, attribute):
+    key = f"{sample_type}.{attribute}"
+    return [e for e in IDX["ontologies"] if any(fnmatch.fnmatchcase(key, p) for p in e["attributes"])]
+def match(entry, value):
+    norm = (lambda s: " ".join(str(s).split())) if entry["case_sensitive"] else (lambda s: " ".join(str(s).split()).casefold())
+    for r in json.load(open(C + entry["file"])):
+        if norm(value) in {norm(r["TERM"]), *map(norm, r["SYNONYMS"])}:
+            return r
+    return None  # no term fits
+def link(entry):
+    return IDX["source_url"] + entry["file"]  # the ontology's public page, for the reply
+```
+
+4. Open the reply with one line naming the ontology or ontologies you matched against, each linked: its `title` from `ONTOLOGIES.json` and `link(entry)`. Then one table, columns Before | Samples | After | Ontology, and the number of samples that would change out of the samples that have a value (the table's rows add up to it). Give the samples with no value as their own number; never call a total that includes them samples with a value. The Ontology cell is the record's `ONT_ID` when it has one; otherwise it is the ontology's `title` and "house list". Never leave it empty or write "none". The house term wins over the most common form; when they differ, say so in one line. Name the values no term fits, each with your guess as a question. Write the per-sample list to `harmonization_proposal.csv` (UID, current value, proposed TERM, ONT_ID). Then ask the user to confirm.
+5. No ontology covers the attribute, or no term fits a value: say so, propose the most common form of each group, and ask whether it should become a house term. Write the proposed terms to `ontology_additions.json`, a list of records with the five keys `TERM`, `DEF`, `ONT_SOURCE`, `ONT_ID`, `SYNONYMS`, for the NExtSEEK team to add. Write this file only when new terms or synonyms are proposed. When the user supplies or confirms what an unmatched value means, offer it as a synonym of that term: put that term's record in `ontology_additions.json` with the value added to its `SYNONYMS`, and say the house list will map it without asking once the team adds it. Nothing is added from the chat.
+6. After the user confirms, run one `nextseek-validate-upload` per project the affected samples belong to, each after its own project resolve (Required Flow steps 1 and 7), with only that attribute changed: the validator takes one project. When the user did not name the projects, ask which ones first. The user uploads each workbook with `update_existing=true`. Nothing is written to NExtSEEK from the chat.
+
 ## Forbidden Actions
 
 POST .../batch-upload/start/ is forbidden. Never submit a batch, trigger write

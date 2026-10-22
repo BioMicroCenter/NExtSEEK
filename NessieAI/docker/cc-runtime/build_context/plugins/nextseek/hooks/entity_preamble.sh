@@ -7,25 +7,35 @@
 #    whether it carries sample UIDs, which files hold it, and to read MANIFEST.md first. A
 #    resumed conversation did not look at the staged turns again and answered about the wrong
 #    turn or redid its own (CC-RERUN-FINDINGS fix 3).
-# 2. The NExtSEEK vocabulary nextseek-entity-extract resolves for the prompt
-#    ({sampletypes, assays, keywords, projects}), so op calls use canonical terms and
-#    abbreviations are expanded (e.g. "GBM" -> the Glioblastoma investigation).
+# 2. The NExtSEEK vocabulary Django resolved for the user's question before the turn started
+#    ({sampletypes, assays, keywords, projects, ...}), so op calls use canonical terms and
+#    abbreviations are expanded (e.g. "GBM" -> the Glioblastoma investigation). Django writes it
+#    to /data/turn/vocabulary.json, the turn's own read-only mount.
 #
-# Isolation (OI-3): reads the read-only staging mount and reuses the existing bin -> sidecar
-# path only. No new credentials, no new network, scratch-only. Fail-OPEN: a missing prompt,
-# manifest or bin, a timeout, or malformed output drops that note; with neither note the hook
-# emits nothing, and it can never block or break a turn.
+# "post" mode (PostToolUse): the vocabulary can be written while the container runs, when the
+# pre-run is slower than the start's wait. After a tool call, if the prompt run did not already
+# inject it and /data/turn/vocabulary.json is valid now, the same note is added once. The marker is
+# the container's own /tmp (a new container per turn): touching it only withholds the note from the
+# agent itself.
+#
+# Isolation (OI-3): reads two read-only mounts only. No credentials, no network, no bin call.
+# Fail-OPEN: a missing or malformed manifest or vocabulary file drops that note; with neither
+# note the hook emits nothing, and it can never block or break a turn.
 set -eu
 
-INPUT="$(cat)"
+MODE="${1:-prompt}"
+MARKER="${NEXTSEEK_VOCAB_MARKER:-/tmp/nextseek-vocab-injected}"
+[ "$MODE" = post ] && [ -e "$MARKER" ] && { cat >/dev/null || true; exit 0; }
+
+cat >/dev/null || true   # the prompt on stdin is not needed: the vocabulary is the turn's own
 
 # The two paths can be pointed elsewhere for the tests; the container sets neither.
 PREV_DIR="${NEXTSEEK_PREVIOUS_TURNS_DIR:-/data/previous_turns}"
-BIN="${NEXTSEEK_ENTITY_EXTRACT_BIN:-/app/plugins/nextseek/bin/nextseek-entity-extract}"
+VOCAB_FILE="${NEXTSEEK_TURN_VOCABULARY_FILE:-/data/turn/vocabulary.json}"
 
 # 1. The newest staged turn (manifest turns are newest first).
 PREV=""
-if [ -r "$PREV_DIR/manifest.json" ]; then
+if [ "$MODE" != post ] && [ -r "$PREV_DIR/manifest.json" ]; then
   PREV="$(jq -r '
     (.container_path // "/data/previous_turns") as $root
     | (if (.turns | type) == "array" then .turns else [] end) as $turns
@@ -59,22 +69,26 @@ if [ -r "$PREV_DIR/manifest.json" ]; then
   ' "$PREV_DIR/manifest.json" 2>/dev/null || true)"
 fi
 
-# 2. The vocabulary. UserPromptSubmit carries the prompt as .prompt (older builds: .user_prompt).
+# 2. The vocabulary, when Django had it before the container started.
 VOCAB=""
-PROMPT="$(printf '%s' "$INPUT" | jq -r '.prompt // .user_prompt // empty' 2>/dev/null || true)"
-if [ -n "${PROMPT:-}" ] && [ -x "$BIN" ]; then
-  # Bounded so a slow/failed resolve never stalls the turn.
-  RESOLVED="$(timeout 25 "$BIN" --query "$PROMPT" 2>/dev/null || true)"
-  # Only inject if entity-extract returned non-empty valid JSON.
-  if printf '%s' "$RESOLVED" | jq -e . >/dev/null 2>&1; then
-    VOCAB="$(printf '%s' "$RESOLVED" | jq -r '
-      "NExtSEEK vocabulary auto-resolved for this query (nextseek-entity-extract ran automatically before you act). Use these canonical terms, not the raw phrasing or abbreviations, when building op calls (investigation/project names, sampletype codes, assays, keywords). If a term you need is not here, consult context/MANIFEST.md:\n"
-      + tojson
-    ' 2>/dev/null || true)"
-  fi
+WHEN="before your turn started"
+[ "$MODE" = post ] && WHEN="while your turn was starting"
+if [ -r "$VOCAB_FILE" ] && jq -e . "$VOCAB_FILE" >/dev/null 2>&1; then
+  VOCAB="$(jq -r --arg when "$WHEN" '
+    "NExtSEEK vocabulary auto-resolved for this query (NExtSEEK resolved it \($when); do not run nextseek-entity-extract again for it). Use these canonical terms, not the raw phrasing or abbreviations, when building op calls (investigation/project names, sampletype codes, assays, keywords). If a term you need is not here, consult context/MANIFEST.md:\n"
+    + tojson
+  ' "$VOCAB_FILE" 2>/dev/null || true)"
+fi
+
+if [ "$MODE" = post ]; then
+  [ -n "$VOCAB" ] || exit 0
+  jq -n -c --arg vocab "$VOCAB" '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $vocab}}' \
+    2>/dev/null && : >"$MARKER" 2>/dev/null || true
+  exit 0
 fi
 
 [ -n "$PREV$VOCAB" ] || exit 0
+[ -z "$VOCAB" ] || : >"$MARKER" 2>/dev/null || true
 
 jq -n -c --arg prev "$PREV" --arg vocab "$VOCAB" '{
   hookSpecificOutput: {

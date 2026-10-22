@@ -60,7 +60,7 @@ def test_the_sidecar_forwards_no_run_dir_when_none_was_given(sidecar, monkeypatc
     sent = {}
     monkeypatch.setattr(sidecar.ops.ns_client, "call_op",
                         lambda op, body, **kw: (sent.update(body), {"result": {}})[1])
-    config = SimpleNamespace(base_url="http://x", auth=None)
+    config = SimpleNamespace(base_url="http://x", turn_pass="pass")
     sidecar.ops._run_harvest({"run_dir": None}, config, None, None, None, None, None)
     assert "run_dir" not in sent
     sidecar.ops._run_harvest({"run_dir": "/net/x/runs/r"}, config, None, None, None, None, None)

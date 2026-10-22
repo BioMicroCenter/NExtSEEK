@@ -36,9 +36,12 @@ describe("MessageInput", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it("is disabled when disabled prop is true", () => {
+  it("is read-only, not disabled, while a turn runs, and does not send", () => {
     render(<MessageInput onSend={vi.fn()} disabled />);
     const textarea = screen.getByPlaceholderText("Ask NExtSEEK a question...");
-    expect(textarea).toBeDisabled();
+    expect(textarea).not.toBeDisabled();
+    expect(textarea).toHaveAttribute("readonly");
+    expect(textarea).toHaveAttribute("aria-disabled", "true");
+    fireEvent.keyDown(textarea, { key: "Enter" });
   });
 });

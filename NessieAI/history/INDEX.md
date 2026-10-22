@@ -12,7 +12,7 @@ Append a row when something new arrives; never rewrite an old one.
 | `ns/` | paid real-stack acceptance records for the native granular ops (2026-06-12, 2026-06-25) | `NessieAI/ns/README.md` |
 | `plan018/` | Plan 018 (HiBayes) closeouts and evidence, verifier scripts, SDD task reports (`sdd/`), the Task 8 rehearsal compose file, the Task 6 image, the test-question manifest builder, and the plan itself (`2026-07-31-hibayes-eval-routing.md`) | `NessieAI/hibayes/README.md` |
 | `plan005/` | the Plan 005 closeout protocol, sign-offs and schemas, pinned to digests | `NessieAI/build_tools/README.md` |
-| `retired/` | the chat_nextseek snapshot-sync script, the old e2e issue note, retired chat_frontend screenshots and HTML reports, `post_uv_sync.sh` and its GEO templates | the live unit docs |
+| `retired/` | the chat_nextseek agent atlas page (`agent_atlas.html`), the chat_nextseek snapshot-sync script, the old e2e issue note, retired chat_frontend screenshots and HTML reports, `post_uv_sync.sh` and its GEO templates | the live unit docs |
 | `docs/` | superseded Nessie design docs, plans, handoffs and reviews (table below) | the successor in each row |
 
 Evidence files may hold data about human subjects. Never quote them in a doc, issue or commit.

@@ -14,7 +14,7 @@ exposed here for:
 Runs in the ``nextseek`` container as the trusted Django process:
 
     docker exec nextseek python manage.py cc_sweep_staging \\
-        --user-id <django_user> --api-user <ns_login> --project <pid>-<slug>
+        --user-id <django_user> --staging-folder <64-hex> --project <pid>-<slug>
 
 Sweeps ALL completed ``.complete`` request dirs for the given user (recovery
 mode, ``since_ts=None``): staged artifacts are moved into that user's own
@@ -30,6 +30,7 @@ from django.core.management.base import BaseCommand, CommandError
 from NessieAI.cc import cc_staging
 from NessieAI.cc.cc_config import CCPaths
 from NessieAI.cc.cc_provision import build_user_dirs
+from nextseek_api.assistant.models_db import CCTurn
 
 
 class Command(BaseCommand):
@@ -40,12 +41,14 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser) -> None:
         parser.add_argument("--user-id", required=True, help="Django username (scratch subpath segment).")
-        parser.add_argument("--api-user", required=True, help="NExtSEEK login the sidecar hashed the staging dir by.")
+        parser.add_argument("--staging-folder", required=True,
+                            help="The sidecar's drop folder name: the sha256 of the turn pass (64 hex), which is "
+                                 "the turn's `pass_hash` in the CC turn table.")
         parser.add_argument("--project", required=True, help="Validated project dirname ({pid}-{slug}).")
 
     def handle(self, *args, **options) -> None:
         user_id = options["user_id"]
-        api_user = options["api_user"]
+        staging_folder = options["staging_folder"]
         project = options["project"]
 
         paths = CCPaths.from_env()
@@ -55,11 +58,17 @@ class Command(BaseCommand):
         except ValueError as exc:
             raise CommandError(f"invalid identity: {exc}") from exc
 
+        # The folder's owner is on record when its turn row is: never deliver it into another user's scratch. A folder
+        # with no row (older than the table, or rows purged) is the operator's call, as before.
+        turn = CCTurn.objects.filter(pass_hash=staging_folder).select_related("user").first()
+        if turn is not None and turn.user.get_username() != user_id:
+            raise CommandError("the staging folder belongs to another user")
+
         try:
             result = cc_staging.sweep_user_staging(
                 user_root_mount=paths.user_root_mount,
                 scratch_dir=dirs.scratch_mnt,
-                api_user=api_user,
+                staging_folder=staging_folder,
                 user_id=user_id,
                 project_dirname=project,
                 since_ts=None,  # recovery: sweep ALL completed request dirs

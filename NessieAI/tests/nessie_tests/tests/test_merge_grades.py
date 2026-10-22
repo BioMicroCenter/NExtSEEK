@@ -359,8 +359,8 @@ def test_the_skill_script_is_a_thin_wrapper_over_the_package():
     second copy of the logic: an entry point that cannot be imported cannot be
     tested, which is the whole reason the package exists."""
     import pathlib
-    script = (pathlib.Path(__file__).resolve().parents[1]
-              / "output-skill-bayesian" / "scripts" / "merge_grades.py")
+    script = (pathlib.Path(__file__).resolve().parents[4]
+              / ".claude" / "skills" / "nessie-bayes-report" / "scripts" / "merge_grades.py")
     body = script.read_text(encoding="utf-8")
     assert "from NessieAI.tests.nessie_tests.output_skill_bayesian import merge_grades" in body
     assert "SUCCESS_OUTCOMES" not in body
@@ -384,7 +384,7 @@ def test_the_script_turns_a_refusal_into_exit_2(tmp_path):
     import subprocess
     import sys
     from pathlib import Path
-    script = Path(__file__).resolve().parents[1] / "output-skill-bayesian" / "scripts" / "merge_grades.py"
+    script = Path(__file__).resolve().parents[4] / ".claude" / "skills" / "nessie-bayes-report" / "scripts" / "merge_grades.py"
     _write_run(tmp_path, ns=[_row("a.one", "ns")], grades={})
     r = subprocess.run([sys.executable, str(script), "--run", str(tmp_path)], capture_output=True, text=True)
     assert r.returncode == 2 and "no human grade" in r.stderr

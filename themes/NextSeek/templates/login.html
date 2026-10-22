@@ -97,9 +97,17 @@ body.nextseek-auth {
 }
 
 .auth-panel-foot img {
-    height: 22px;
-    opacity: 0.55;
-    filter: brightness(0) invert(1);
+    /* The partner strip is full-colour logos on white boxes: show it as it is,
+       on a white card, rather than recolouring it (that made a flat pale bar). */
+    display: block;
+    box-sizing: border-box;
+    height: 44px;
+    width: auto;
+    max-width: 100%;
+    object-fit: contain;
+    padding: 7px 12px;
+    background: #fff;
+    border-radius: 8px;
 }
 
 /* ── Right panel (form) ──────────────────────────── */
@@ -240,8 +248,12 @@ body.nextseek-auth {
         flex-direction: row;
         align-items: center;
         justify-content: space-between;
+        flex-wrap: wrap;
+        row-gap: 0.85rem;
     }
-    .auth-panel-copy, .auth-panel-foot { display: none; }
+    .auth-panel-copy { display: none; }
+    .auth-panel-foot { flex-basis: 100%; }
+    .auth-panel-foot img { height: 38px; padding: 6px 10px; }
     .auth-brand { margin: 0; }
     .auth-wordmark { font-size: 1.5rem; margin-bottom: 0.2rem; }
     .auth-tagline { display: none; }
@@ -326,7 +338,6 @@ body.nextseek-auth {
             </form>
 
             {% url "signup_seek" as signup_url %}
-            {% url "mezzanine_password_reset" as password_reset_url %}
             <div class="auth-links">
                 <div>{% blocktrans with request.GET.next as next %}Need an account? <a href="{{ signup_url }}?next={{ next }}">Sign up</a>{% endblocktrans %}</div>
                 {% comment %}
@@ -335,13 +346,11 @@ body.nextseek-auth {
                   not the credential people actually sign in with.
                   seek_forgot_password_url comes from SEEK_PUBLIC_URL (the
                   browser-facing host) via dmac.context_processors.seek_urls, so it
-                  resolves per instance instead of being pinned to production. Falls
-                  back to the Mezzanine URL when SEEK_PUBLIC_URL is unset.
+                  resolves per instance instead of being pinned to production. No link
+                  when SEEK_PUBLIC_URL is unset: there is no local reset.
                 {% endcomment %}
                 {% if seek_forgot_password_url %}
                 <div>{% trans "Forgot your password?" %} <a href="{{ seek_forgot_password_url }}">{% trans "Reset it" %}</a></div>
-                {% else %}
-                <div>{% trans "Forgot your password?" %} <a href="{{ password_reset_url }}">{% trans "Reset it" %}</a></div>
                 {% endif %}
             </div>
 

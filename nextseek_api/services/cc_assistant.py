@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 from django.http import Http404, StreamingHttpResponse
+from dmac.session_login import seek_password
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -40,19 +41,22 @@ from drf_spectacular.utils import extend_schema, OpenApiExample
 from pydantic import ValidationError
 
 from nextseek_api.assistant.models_api import AsyncQueryResponse, QueryRequest, TaskProgressResponse
-from nextseek_api.permissions import may_read_any_users_data
+from nextseek_api.permissions import IsSuperUser, may_read_any, plan_mode_refused
 from nextseek_api.assistant.descriptions_cc import (
     NESSIE_CC_QUERY_ASYNC_DESC, NESSIE_QUERY_ASYNC_DESC, NESSIE_TASK_PROGRESS_DESC,
 )
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
+from nextseek_api.assistant.turn_drain import draining, draining_response
+from nextseek_api.throttles import TURN_THROTTLES, UPLOAD_THROTTLES
 from nextseek_api.helpers import resolve_seek_auth
-from nextseek_api.graph_search.scope import plain_scope
+from nextseek_api.graph_search.scope import caller_block, plain_scope
 
 # Reuse the existing assistant's helpers (do NOT redefine its behavior).
 from nextseek_api.services.assistant import (
-    CsrfExemptSessionAuthentication,
+    SeekSessionAuthentication,
+    PLAN_MODE_FORBIDDEN,
     _error_response,
 )
 
@@ -86,7 +90,7 @@ def _iter_file(path: Path):
 class CCAssistantViewSet(viewsets.ViewSet):
     """Router + Container-Claude-Code assistant (additive to AssistantViewSet)."""
 
-    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [TokenAuthentication, SeekSessionAuthentication, BasicAuthentication]
     permission_classes = [IsAuthenticated]
 
     # ------------------------------------------------------------------ auth
@@ -119,10 +123,13 @@ class CCAssistantViewSet(viewsets.ViewSet):
         basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
         if basic_tuple and basic_tuple[0] and basic_tuple[1]:
             return basic_tuple
-        return request.session.get("username"), request.session.get("password")
+        username = request.session.get("username")
+        return username, seek_password(request.session, username)
 
     # ------------------------------------------------------------------ dispatch
     def _start_task(self, request, req, *, force_cc: bool) -> Response:
+        if draining():
+            return draining_response()
         try:
             chat_session = self._resolve_session(request, req)
         except ChatSession.DoesNotExist:
@@ -148,6 +155,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
             api_user=api_user, api_pass=api_pass,
             resolved_session_id=resolved_session_id,
             graph_scope=plain_scope(request.user),
+            caller=caller_block(request.user),
         )
 
         return Response(
@@ -169,7 +177,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
             request_only=True,
         )],
     )
-    @action(detail=False, methods=["post"], url_path="query/async")
+    @action(detail=False, methods=["post"], url_path="query/async", throttle_classes=TURN_THROTTLES)
     def query_async(self, request):
         authed, err = self._check_auth(request)
         if not authed:
@@ -178,6 +186,8 @@ class CCAssistantViewSet(viewsets.ViewSet):
             req = QueryRequest.model_validate(request.data)
         except ValidationError as e:
             return _error_response("Validation error", str(e), status.HTTP_422_UNPROCESSABLE_ENTITY)
+        if plan_mode_refused(request, req.mode):
+            return _error_response("Forbidden", PLAN_MODE_FORBIDDEN, status.HTTP_403_FORBIDDEN)
         return self._start_task(request, req, force_cc=False)
 
     @extend_schema(
@@ -191,11 +201,18 @@ class CCAssistantViewSet(viewsets.ViewSet):
             request_only=True,
         )],
     )
-    @action(detail=False, methods=["post"], url_path="cc/query/async")
+    @action(detail=False, methods=["post"], url_path="cc/query/async", throttle_classes=TURN_THROTTLES)
     def cc_query_async(self, request):
         authed, err = self._check_auth(request)
         if not authed:
             return err
+        # Forcing Container-CC is a superuser's choice, the same rule as force_route on query/async/.
+        if not IsSuperUser().has_permission(request, self):
+            return _error_response(
+                "Forbidden",
+                "Forcing Container-CC is for superusers; send the turn to query/async/.",
+                status.HTTP_403_FORBIDDEN,
+            )
         try:
             req = QueryRequest.model_validate(request.data)
         except ValidationError as e:
@@ -224,7 +241,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
             return err
         try:
             _tasks = QueryTask.objects.select_related("session")
-            if not may_read_any_users_data(request.user):
+            if not may_read_any(request):
                 _tasks = _tasks.filter(user=request.user)
             query_task = _tasks.get(task_id=task_id)
         except QueryTask.DoesNotExist:
@@ -241,7 +258,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
             status=status.HTTP_200_OK,
         )
 
-    @action(detail=False, methods=["post"], url_path="upload")
+    @action(detail=False, methods=["post"], url_path="upload", throttle_classes=UPLOAD_THROTTLES)
     def upload(self, request):
         from django.conf import settings
         from rest_framework.response import Response
@@ -296,7 +313,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
         from nextseek_api.batch_upload.job_index import user_owns_job
 
         if not (user_owns_job(request.user.pk, job_id)
-                or may_read_any_users_data(request.user)):
+                or may_read_any(request)):
             return Response({"error": "not found"}, status=404)
         r = AsyncResult(job_id, app=celery_app)
         resp = {"job_id": job_id, "state": r.state, "meta": {}, "result": None}
@@ -326,12 +343,11 @@ class CCAssistantViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["get"], url_path=r"artifacts/(?P<session>[0-9a-f-]+)/download")
     def download_artifact(self, request, session=None):
         from nextseek_api.assistant.models_db import ChatSession
-        from NessieAI.cc.cc_config import CCPaths
-        from NessieAI.cc.cc_provision import resolve_user_project, build_user_dirs
+        from nextseek_api.assistant.session_export import cc_artifacts_root
         from NessieAI.cc.cc_engine import _safe_relpath
 
         _sessions = ChatSession.objects.all()
-        if not may_read_any_users_data(request.user):
+        if not may_read_any(request):
             _sessions = _sessions.filter(user=request.user)
         cs = _sessions.filter(session_id=session).first()
         if cs is None:
@@ -340,14 +356,13 @@ class CCAssistantViewSet(viewsets.ViewSet):
         if not key or (key != "all" and not _safe_relpath(key)):
             raise Http404("bad key")
 
-        api_user, api_pass = self._resolve_credentials(request)
+        # The session owner's CC folder, the one its turns ran in, whoever asks: a superuser reading another
+        # user's session gets that user's files, and no SEEK call is needed to find them.
         try:
-            project = resolve_user_project(api_user, api_pass)
-        except ProjectResolutionError:
-            return Response({"error": "could not resolve SEEK project"}, status=503)
-        dirs = build_user_dirs(CCPaths.from_env(), project.dirname, request.user.username)
+            art_dir = cc_artifacts_root(cs)
+        except ValueError:
+            raise Http404("no CC files for this session")
         from nextseek_api.cc_assistant.cc_endpoint_guards import resolve_artifact_path
-        art_dir = Path(dirs.output_mnt) / "artifacts"
         if key == "all":
             turn_id = request.query_params.get("turn_id", "")
             if not turn_id or not _safe_relpath(turn_id):
@@ -376,10 +391,10 @@ class CCAssistantViewSet(viewsets.ViewSet):
         from django.conf import settings
         from django.http import HttpResponse
         from nextseek_api.assistant.models_db import ChatSession, CCSessionTranscript
-        from NessieAI.cc.cc_transcript_store import decompress
+        from NessieAI.cc.cc_transcript_store import TranscriptTooLarge, decompress
 
         _sessions = ChatSession.objects.all()
-        if not may_read_any_users_data(request.user):
+        if not may_read_any(request):
             _sessions = _sessions.filter(user=request.user)
         cs = _sessions.filter(session_id=session).first()
         if cs is None:
@@ -393,7 +408,10 @@ class CCAssistantViewSet(viewsets.ViewSet):
         row = qs.order_by("-created_at").first()
         if row is None:
             raise Http404("no transcript")
-        jsonl = decompress(bytes(row.blob), max_bytes=getattr(settings, "CC_TRANSCRIPT_MAX_BYTES", 256 * 1024 * 1024))
+        try:
+            jsonl = decompress(bytes(row.blob), max_bytes=getattr(settings, "CC_TRANSCRIPT_MAX_BYTES", 256 * 1024 * 1024))
+        except TranscriptTooLarge:
+            return Response({"error": "transcript too large"}, status=413)
         resp = HttpResponse(jsonl, content_type="application/x-ndjson")
         resp["Content-Disposition"] = f'attachment; filename="transcript-{turn}.jsonl"'
         return resp

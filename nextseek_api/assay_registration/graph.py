@@ -1,4 +1,4 @@
-"""Read assay_assets and the internal-assay mapping. Nothing here writes a graph.
+"""Read assay_assets. Nothing here writes a graph.
 
 This module used to recompute DERIVED_FROM assay labels and write them itself.
 One rule owns those labels now, for every writer
@@ -23,14 +23,14 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import Dict, Set, Tuple
+from typing import Dict, Set
 
 from django.conf import settings
 from django.db import connections
 
 log = logging.getLogger(__name__)
 
-#: SQL chunk size for the two helpers below. Named SQL_CHUNK, not CHUNK: resolver.py
+#: SQL chunk size for the helper below. Named SQL_CHUNK, not CHUNK: resolver.py
 #: defines its own CHUNK = 1000 in this same package, and two module constants sharing
 #: a name with different values reads like a bug even when it is not.
 SQL_CHUNK = 5000
@@ -65,34 +65,3 @@ def assays_by_sample(sample_ids: Set[int]) -> Dict[int, Set[int]]:
             for asset_id, assay_id in cursor.fetchall():
                 out[int(asset_id)].add(int(assay_id))
     return out
-
-
-def resolve_internal(assay_ids: Set[int]) -> Dict[int, Tuple[int, str]]:
-    """assay_id -> (internal_assay_id, title), junction table first, id fallback."""
-    cursor, dbname = _seek_cursor()
-    ns = settings.DATABASES[settings.NEXTSEEK_DATABASE]["NAME"]
-    mapping: Dict[int, Tuple[int, str]] = {}
-    ids = sorted(assay_ids)
-    with cursor:
-        for start in range(0, len(ids), SQL_CHUNK):
-            chunk = ids[start : start + SQL_CHUNK]
-            ph = ", ".join(["%s"] * len(chunk))
-            cursor.execute(
-                f"SELECT aia.assay_id, ia.id, ia.internal_assay_title "
-                f"FROM {ns}.assays_internal_assays aia "
-                f"JOIN {ns}.internal_assays ia ON ia.id = aia.internal_assay_id "
-                f"WHERE aia.assay_id IN ({ph})",
-                chunk,
-            )
-            for assay_id, ia_id, ia_title in cursor.fetchall():
-                mapping[int(assay_id)] = (int(ia_id), ia_title or "")
-        unresolved = [a for a in ids if a not in mapping]
-        for start in range(0, len(unresolved), SQL_CHUNK):
-            chunk = unresolved[start : start + SQL_CHUNK]
-            ph = ", ".join(["%s"] * len(chunk))
-            cursor.execute(
-                f"SELECT id, title FROM {dbname}.assays WHERE id IN ({ph})", chunk
-            )
-            for assay_id, title in cursor.fetchall():
-                mapping[int(assay_id)] = (int(assay_id), title or "")
-    return mapping

@@ -83,25 +83,35 @@ def batch_insert_assay_assets(
     inserted_total = 0
 
     for assay_id, group in grouped.items():
-        # Fetch existing rows for this assay_id
-        asset_ids = list({int(r[1]) for r in group})
-        existing_keys: Set[Tuple[int, int]] = set()  # (assay_id, asset_id)
+        # One row per (assay, asset, asset_type); a repeated record in one call is dropped
+        deduped: Dict[Tuple[int, int, str], AssayAssetRecord] = {}
+        for rec in group:
+            key = (int(rec[0]), int(rec[1]), str(rec[2]) if rec[2] else "Sample")
+            deduped.setdefault(key, rec)
 
-        for chunk_start in range(0, len(asset_ids), 1000):
-            chunk = asset_ids[chunk_start : chunk_start + 1000]
-            params = {"aid": assay_id}
-            params.update({f"sid_{i}": sid for i, sid in enumerate(chunk)})
-            placeholders = ", ".join(f":sid_{i}" for i in range(len(chunk)))
-            sql = text(
-                f"SELECT assay_id, asset_id FROM assay_assets "
-                f"WHERE assay_id = :aid AND asset_id IN ({placeholders}) "
-                f"AND asset_type = 'Sample'"
-            )
-            rows = conn.execute(sql, params).fetchall()
-            existing_keys.update((int(r[0]), int(r[1])) for r in rows)
+        # Fetch existing rows for this assay_id, per asset type
+        ids_by_type: Dict[str, Set[int]] = {}
+        for _aid, asset_id, atype in deduped:
+            ids_by_type.setdefault(atype, set()).add(asset_id)
+        existing_keys: Set[Tuple[int, int, str]] = set()
+
+        for atype, id_set in ids_by_type.items():
+            asset_ids = list(id_set)
+            for chunk_start in range(0, len(asset_ids), 1000):
+                chunk = asset_ids[chunk_start : chunk_start + 1000]
+                params = {"aid": assay_id, "atype": atype}
+                params.update({f"sid_{i}": sid for i, sid in enumerate(chunk)})
+                placeholders = ", ".join(f":sid_{i}" for i in range(len(chunk)))
+                sql = text(
+                    f"SELECT assay_id, asset_id FROM assay_assets "
+                    f"WHERE assay_id = :aid AND asset_id IN ({placeholders}) "
+                    f"AND asset_type = :atype"
+                )
+                rows = conn.execute(sql, params).fetchall()
+                existing_keys.update((int(r[0]), int(r[1]), atype) for r in rows)
 
         # Filter to new records only
-        new_records = [rec for rec in group if (int(rec[0]), int(rec[1])) not in existing_keys]
+        new_records = [(key[2], rec) for key, rec in deduped.items() if key not in existing_keys]
         if not new_records:
             continue
 
@@ -110,8 +120,8 @@ def batch_insert_assay_assets(
             chunk = new_records[chunk_start : chunk_start + 1000]
             values_parts = []
             params = {}
-            for i, rec in enumerate(chunk):
-                _assay_id, asset_id, asset_type, direction, rel_type_id, _version = rec
+            for i, (asset_type, rec) in enumerate(chunk):
+                _assay_id, asset_id, _t, direction, rel_type_id, _version = rec
                 values_parts.append(
                     f"(:aid_{i}, :sid_{i}, :ver_{i}, :cat_{i}, :cau_{i}, "
                     f":rtid_{i}, :atype_{i}, :dir_{i})"
@@ -122,7 +132,7 @@ def batch_insert_assay_assets(
                 params[f"cat_{i}"] = now
                 params[f"cau_{i}"] = now
                 params[f"rtid_{i}"] = None if rel_type_id is None else int(rel_type_id)
-                params[f"atype_{i}"] = str(asset_type) if asset_type else "Sample"
+                params[f"atype_{i}"] = asset_type
                 params[f"dir_{i}"] = int(direction) if direction is not None else 1
 
             sql = text(

@@ -45,6 +45,24 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Protocol
 
+#: A column that holds the denominator beside an answer: ``total``, ``total_mice``, ``baseline``, ``overall_samples``.
+#: Not ``base`` or ``all``: they name measures as often (``base_pairs``, ``all_reads``).
+TOTAL_COLUMN_RE = re.compile(r"(^|_)(total|baseline|overall|denominator)(_|$)", re.IGNORECASE)
+
+
+def _is_number(v: object) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def total_column_value(row: object) -> "int | float | None":
+    """The value of a total-named numeric column in an aggregate row, or None (the premise check reads it)."""
+    if isinstance(row, dict):
+        for k, v in row.items():
+            if _is_number(v) and TOTAL_COLUMN_RE.search(str(k)):
+                return v
+    return None
+
+
 VALUES_CAP = 50
 DISCLOSURE_MAX = 299
 LABEL_MAX = 60
@@ -125,6 +143,24 @@ class _Memo:
         return self._call("attributes_holding", label, tuple(attributes), tuple(spellings))
 
 
+#: The row columns that name a sample, in the order they are tried (round 4, U2.4).
+SAMPLE_ID_COLUMNS = ("uuid", "sample_uuid", "sample_id")  # never "id": a study, project or person has one too
+
+
+def sample_ids(rows) -> list | None:
+    """The sample id of every row, or None when the rows do not all carry one in the same column.
+
+    The first of ``SAMPLE_ID_COLUMNS`` that every row holds as a plain value (a string or an integer). Used to count
+    distinct samples when a to-many column repeats one sample on several rows."""
+    if not rows or not all(isinstance(r, dict) for r in rows):
+        return None
+    for column in SAMPLE_ID_COLUMNS:
+        values = [r.get(column) for r in rows]
+        if all(isinstance(v, (str, int)) and not isinstance(v, bool) for v in values):
+            return values
+    return None
+
+
 @dataclass
 class ReviewInput:
     question: str
@@ -161,7 +197,8 @@ class GraphReview:
 
 # The ship set, in the order their facts are disclosed. The last two are recorded, never fired.
 SHIP = ("breakage", "negated_value", "value_split_rows", "value_split_catalog", "stem_miss",
-        "all_question_narrowed", "zero_unproven_base", "unapplied_value", "premise_count")
+        "all_question_narrowed", "zero_unproven_base", "unapplied_value", "free_text_beside_field", "premise_count",
+        "duplicate_rows", "empty_by_node")
 INFO_ONLY = ("title_contains_multi", "count_only")
 
 NEGATION = re.compile(r"\b(non|not|no|un|anti|never)[\s\-_]*$")
@@ -346,9 +383,34 @@ def _resolve(tok: str, params: dict) -> str | None:
     return None
 
 
-def _contains_filters(cy: str, params: dict) -> list[tuple[str, str, str]]:
-    """[(var, attr, term)] for every ``...var.attr...) CONTAINS term`` and the ``any(v IN [s.a, s.b] ...)`` form."""
+def _list_terms(cy: str, params: dict, *, negated: bool = False) -> list[tuple[str, str, str, str]]:
+    """[(var, attr, the list as written, term)] for every ``any(t IN $terms WHERE ...var.attr...) CONTAINS t)``: one
+    term per item of the list, a ``$param`` or a literal ``['a', 'b']`` (dev QueryTask 1917 wrote RNA-Seq this way).
+    ``negated`` picks the ``NOT any(...)`` ones instead: what the query leaves out, never what it matches."""
     out = []
+    for m in re.finditer(r"\bany\(\s*(\w+)\s+IN\s+(\$\w+|\[[^\]]*\])\s+WHERE\b", cy, re.I):
+        if bool(re.search(r"\bNOT\s*\(?\s*$", cy[:m.start()], re.I)) != negated:
+            continue
+        loop, tok = m.group(1), m.group(2)
+        depth, end = 1, m.end()
+        while end < len(cy) and depth:      # the body runs to the paren that closes ``any(``
+            depth += {"(": 1, ")": -1}.get(cy[end], 0)
+            end += 1
+        if tok.startswith("$"):
+            items = params.get(tok[1:])
+            items = [i for i in items if isinstance(i, str)] if isinstance(items, list) else []
+        else:
+            items = re.findall(r"'([^']*)'", tok)
+        for var, attr in re.findall(r"(\w+)\.(\w+)\s*\)*\s+CONTAINS\s+(?:toLower\(\s*)?(?:trim\(\s*)?" + re.escape(loop)
+                                    + r"\b", cy[m.end():end]):
+            out += [(var, attr, tok, i.lower()) for i in items if i]
+    return out
+
+
+def _contains_filters(cy: str, params: dict) -> list[tuple[str, str, str]]:
+    """[(var, attr, term)] for every ``...var.attr...) CONTAINS term``, the ``any(v IN [s.a, s.b] ...)`` form and a
+    list of terms (``_list_terms``)."""
+    out = [(var, attr, term) for var, attr, _tok, term in _list_terms(cy, params)]
     for var, attr, tok in re.findall(r"(\w+)\.(\w+)\s*\)*\s+CONTAINS\s+" + TERM, cy):
         term = _resolve(tok, params)
         if term:
@@ -369,7 +431,7 @@ def _name_words(cy: str) -> set[str]:
 
 def _excluded_terms(cy: str, params: dict) -> set[tuple[str, str, str]]:
     """{(var, attr, term)} for every ``NOT ...var.attr...) CONTAINS term`` (or STARTS WITH): what the query leaves out."""
-    out = set()
+    out = {(var, attr, term) for var, attr, _tok, term in _list_terms(cy, params, negated=True)}
     for var, attr, tok in re.findall(r"\bNOT\s*\(?\s*(?:\w+\(\s*)*(\w+)\.(\w+)\s*\)*\s+(?:CONTAINS|STARTS\s+WITH)\s+"
                                      + TERM, cy):
         term = _resolve(tok, params)
@@ -379,8 +441,9 @@ def _excluded_terms(cy: str, params: dict) -> set[tuple[str, str, str]]:
 
 
 def _free_text_terms(cy: str, params: dict) -> list[tuple[str, str, str]]:
-    """[(var, the term as written, term)] for every ``var.search_text CONTAINS term``."""
-    out = []
+    """[(var, the term as written, term)] for every ``var.search_text CONTAINS term``, a list of terms included (the
+    list as written, once per item: ``_list_terms``)."""
+    out = [(var, tok, term) for var, attr, tok, term in _list_terms(cy, params) if attr == "search_text"]
     for var, attr, tok in re.findall(r"(\w+)\.(\w+)\s*\)*\s+CONTAINS\s+" + TERM, cy):
         term = _resolve(tok, params)
         if attr == "search_text" and term:
@@ -634,7 +697,9 @@ def _value_checks(t: _Turn) -> dict[str, _Finding]:
                                                   fact, _split_suggestion(t, term, matched, fact, False, attr))
         # a stored value is a shorter stem of the term (tif for tiff), so CONTAINS misses it
         stems = [v for v in names if 3 <= len(v.strip(".").lower()) < len(term)
-                 and term.startswith(v.strip(".").lower()) and term not in v.lower()]
+                 and term.startswith(v.strip(".").lower()) and term not in v.lower()
+                 # another term on the same field (a list such as ['tiff', 'tif']) already matches it
+                 and not any(x in v.lower() for v2, a2, x in t.cf if (v2, a2) == (var, attr))]
         if stems and "stem_miss" not in out:
             fact = f"The search matched '{term}' only; stored values also include {_quoted(stems[:4])}."
             stem = min((s.strip(".").lower() for s in stems), key=len)
@@ -663,23 +728,62 @@ def _all_question_narrowed(t: _Turn) -> _Finding | None:
     return None
 
 
+def _braced_blocks(cy: str, opener: str):
+    """Yield ``(start, body)`` for each ``opener { ... }`` in ``cy``, braces balanced."""
+    for m in re.finditer(opener + r"\s*\{", cy, re.I):
+        depth, i = 1, m.end()
+        while i < len(cy) and depth:
+            depth += {"{": 1, "}": -1}.get(cy[i], 0)
+            i += 1
+        yield m.start(), cy[m.end():i - 1]
+
+
+def _empty_by_node(t: _Turn) -> _Finding | None:
+    """A "has no samples" test that judges a Study or Investigation by its own node.
+
+    ``NOT EXISTS { (:Sample)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv) }`` lists every node that holds no
+    sample itself. A title can sit on two nodes (a SEEK node that holds none and a graph-only node that holds the
+    samples), so such a list can include a title that holds thousands (production review 4 Oct, G5). Fires when
+    the block holds a Sample, ends in an outer Study or Investigation variable and never compares that variable's
+    title, and the list has rows.
+    """
+    if not t.rows:
+        return None
+    for start, body in _braced_blocks(t.cy, r"\bNOT\s+EXISTS"):
+        if not (re.search(r"IN_STUDY|IN_INVESTIGATION", body) and re.search(r":\s*Sample\b", body)):
+            continue
+        for var in re.findall(r"\(\s*(\w+)\s*\)", body):
+            if re.search(rf"\b{re.escape(var)}\s*:\s*(Study|Investigation)\b", t.cy[:start]) \
+                    and not re.search(rf"\b{re.escape(var)}\.title\b", body):
+                return _Finding(
+                    detail=f"NOT EXISTS over {var} with no title comparison",
+                    fact=("Some titles are recorded twice, once without samples, so a title listed here may still "
+                          "hold samples under its other record."))
+    return None
+
+
 def _zero_unproven_base(t: _Turn) -> _Finding | None:
     """A zero behind a fuzzy anchor and another filter, whose starting set was never counted.
 
-    Explained zeros stay quiet: an exact UID that is absent ("not found"), a count over the catalog nodes, an exact
-    value missing from a complete stored list, and a reply that already offers dropping the filter.
+    Explained zeros stay quiet: an exact UID that is absent ("not found"), a count over the catalog nodes (SampleType,
+    Attribute and, at graph schema 1.3, Assay) with no sample in the query, an exact value missing from a complete
+    stored list, and a reply that already offers dropping the filter. A zero over samples that reach an Assay is a
+    sample zero like any other.
     """
     if t.result_n() != 0:
         return None
     if re.search(r"uuid\s*[:=]\s*\$\w+", t.cy):
         return None
-    if re.search(r"\(\w+:(Attribute|SampleType)\b", t.cy) and not t.vl:
+    if (re.search(r"\(\w+:(Attribute|SampleType|Assay)\b", t.cy) and not t.vl
+            and not re.search(r"\(\w*:(?:Sample|T_\w+)\b", t.cy)):
         return None
     for var, attr, term in t.eq:
         stored = t.vals(t.vl.get(var), attr)
         if stored and len(stored) < VALUES_CAP and term not in {str(v).lower() for v, _n in stored}:
             return None
-    n_filters = len(t.cf) + len(t.eq) + len(re.findall(r"\bEXISTS\s*\{", t.cy))
+    lists = _list_terms(t.cy, t.params)     # a list of spellings is one filter, however many items it has
+    n_cf = len(t.cf) - len(lists) + len({(v, a, tok) for v, a, tok, _term in lists})
+    n_filters = n_cf + len(t.eq) + len(re.findall(r"\bEXISTS\s*\{", t.cy))
     if not t.cf or n_filters < 2:
         return None
     if t.inp.reply_draft and DROP_FILTER_OFFER.search(t.inp.reply_draft):
@@ -757,6 +861,14 @@ NARROW_QUERY_NO_TYPE = "{question} Count only records whose {attribute} is {valu
 
 #: The fact for a named value the query matched only as free text, when that text also matches other stored values.
 TEXT_MATCH_FACT = "The search matched '{value}' as text, which also matches {others}."
+
+#: The fact for a term the query compares in a structured field and also matches anywhere in a sample's text.
+#: ``where`` is "sample" or "related sample" (a match inside another variable, as an EXISTS arm).
+FIELD_AND_TEXT_FACT = ("The count matches '{term}' in the {fields} field and also anywhere in a {where}'s text, so it "
+                       "can include records whose {fields} does not say {term}.")
+#: The same fact for two or more fields (operator, 2026-10-02).
+FIELDS_AND_TEXT_FACT = ("The count matches '{term}' in the {fields} fields and also anywhere in a {where}'s text, so "
+                        "it can include records whose {fields} fields do not say {term}.")
 
 
 def _narrow_suggestion(t: _Turn, lab: str, attr: str, value: str, fact: str) -> dict:
@@ -843,12 +955,82 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
     return None
 
 
+def _free_text_beside_field(t: _Turn) -> _Finding | None:
+    """A term the plan matched in structured fields (``keyword_fields``) that the query also matches as free text.
+
+    "How many Arcadia rats ..." counted ``m.Strain =~ $p OR toLower(m.search_text) CONTAINS $k``: the OR takes in every
+    record whose text says Arcadia, whatever its Strain (R3 A5). The same term through an EXISTS arm over a related
+    sample's text widens it again (A6). Fires when a free-text term equals a ``keyword_fields`` key and one of that
+    key's fields is also read by the query."""
+    # The field must be read by the matching, not only returned to group by: look before the final RETURN.
+    returns = [m.start() for m in re.finditer(r"\bRETURN\b", t.cy, re.IGNORECASE)]
+    cy = t.cy[:returns[-1]] if returns else t.cy
+    for var, _tok, term in _free_text_terms(t.cy, t.params):
+        for key, fields in (t.inp.keyword_fields or {}).items():
+            if str(key).strip().lower() != term:
+                continue
+            fields = [fields] if isinstance(fields, str) else [f for f in fields or [] if isinstance(f, str)]
+            used = [f for f in fields if f != "search_text" and re.search(rf"\b\w+\.{re.escape(f)}\b", cy)]
+            if not used:
+                continue
+            holders = {m.group(1) for f in used for m in re.finditer(rf"\b(\w+)\.{re.escape(f)}\b", cy)}
+            where = "sample" if var in holders else "related sample"
+            names = used[0] if len(used) == 1 else ", ".join(used[:-1]) + " and " + used[-1]
+            template = FIELD_AND_TEXT_FACT if len(used) == 1 else FIELDS_AND_TEXT_FACT
+            fact = template.format(term=key, fields=names, where=where)
+            return _Finding(f"'{key}' compared in {names} and matched as free text on {var}", fact)
+    return None
+
+
 def _premise_count(t: _Turn) -> _Finding | None:
-    got = {t.result_n(), t.inp.total, t.inp.count}
+    # An aggregate row with a total column beside the answer (one row, count 1) is compared on that total.
+    row_total = total_column_value(t.rows[0]) if len(t.rows) == 1 else None
+    got = {t.result_n(), t.inp.total, t.inp.count, row_total}
+    shown = row_total if row_total is not None else t.result_n()
     partners = _of_partners(t.q)
     for x in claimed_counts(t.q):
         if x >= 50 and x not in got and not partners.get(x, set()) & got:
-            return _Finding(f"question states {x}, result is {t.result_n()}", PREMISE_FACT.format(n=f"{x:,}"))
+            return _Finding(f"question states {x}, result is {shown}", PREMISE_FACT.format(n=f"{x:,}"))
+    return None
+
+
+DUPLICATE_ROWS_FACT = "The query returned {rows} rows for {distinct} distinct samples; the count is of distinct samples."
+
+
+def _duplicate_rows(t: _Turn) -> _Finding | None:
+    """U2.4: rows that carry a sample id and repeat one (a to-many column beside the sample), so rows > distinct."""
+    ids = sample_ids(t.inp.rows)
+    if ids is None or len(set(ids)) >= len(ids):
+        return None
+    return _Finding(f"{len(ids)} rows, {len(set(ids))} distinct sample ids",
+                    DUPLICATE_ROWS_FACT.format(rows=f"{len(ids):,}", distinct=f"{len(set(ids)):,}"))
+
+
+#: Told to the reply when a count or list is scoped to a holding study (U2.5, ruling 4 of round 4). Code-owned: the
+#: graph agent's prompt (U1-12) only asks it to say the same in its explanation.
+HOLDING_STUDY_NOTE = ("The study is a holding study (its title ends in Unpublished). State plainly that samples "
+                      "that belong to a paper are counted under that paper, so this number may differ from the "
+                      "list SEEK shows for the study.")
+_STRING_LITERAL = re.compile(r"""(['"])(.*?)\1""")
+
+
+def holding_study_note(cypher: str | None, parameters, rows) -> str | None:
+    """HOLDING_STUDY_NOTE when the statement is about one Study whose title is a name followed by "Unpublished"
+    (surrounding space and case aside): in a Cypher literal, a parameter value, or the one such string every
+    returned row holds. A bare 'Unpublished' (a `NOT st.title ENDS WITH 'Unpublished'` test) and a list of studies
+    are not one holding study (review N2). None otherwise."""
+    if not cypher or not re.search(r"\bStudy\b|\bIN_STUDY\b", cypher):
+        return None
+
+    def holding(value) -> bool:
+        return isinstance(value, str) and re.fullmatch(r".*\S\s+unpublished", value.strip(), re.I | re.S) is not None
+
+    if (any(holding(m.group(2)) for m in _STRING_LITERAL.finditer(cypher))
+            or any(holding(v) for v in (parameters or {}).values())):
+        return HOLDING_STUDY_NOTE
+    held = [{v.strip() for v in row.values() if holding(v)} for row in rows or () if isinstance(row, dict)]
+    if held and all(held) and len(set().union(*held)) == 1:
+        return HOLDING_STUDY_NOTE
     return None
 
 
@@ -913,7 +1095,10 @@ def review_tier1(inp: ReviewInput, catalog: CatalogProvider, *, skip: dict[str, 
         run("all_question_narrowed", lambda: _all_question_narrowed(turn))
         run("zero_unproven_base", lambda: _zero_unproven_base(turn))
         run("unapplied_value", lambda: _unapplied_value(turn))
+        run("free_text_beside_field", lambda: _free_text_beside_field(turn))
         run("premise_count", lambda: _premise_count(turn))
+        run("duplicate_rows", lambda: _duplicate_rows(turn))
+        run("empty_by_node", lambda: _empty_by_node(turn))
 
     # recorded, never fired: the title gate belongs to Tier 2; count_only is information only
     try:
@@ -942,7 +1127,7 @@ def review_tier1(inp: ReviewInput, catalog: CatalogProvider, *, skip: dict[str, 
                 facts.append(f.fact)
         disclosure = " ".join(facts) or None
         for name in ("negated_value", "value_split_rows", "value_split_catalog", "stem_miss",
-                     "all_question_narrowed", "unapplied_value"):
+                     "all_question_narrowed", "unapplied_value", "free_text_beside_field"):
             f = findings.get(name)
             if f and f.suggestion:
                 suggestion = f.suggestion
@@ -977,7 +1162,9 @@ FOLLOWUP_TIER1_SKIP = {"premise_count": "skipped: a follow-up's result is part o
 #: A loop query bound to the earlier result's UIDs ($uids) holds every filter that result had: "How many of the
 #: 1,641 NDMA-treated mice are female?" rightly filters on sex alone, so unapplied_value would call NDMA dropped.
 FOLLOWUP_SEEDED_SKIP = {"unapplied_value": "skipped: the query is scoped to the earlier result's UIDs, "
-                                            "which carry that result's filters"}
+                                            "which carry that result's filters",
+                        "free_text_beside_field": "skipped: the query is scoped to the earlier result's UIDs, "
+                                                  "which carry that result's filters"}
 
 #: A number the user states as the size of the earlier set: "these 1,206 mouse sample records", "all the 4,095
 #: Sequencing Data (D.SEQ) files". It must follow a word that points at a set (``SET_ANCHOR``, which premise_count's

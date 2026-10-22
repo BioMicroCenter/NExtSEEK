@@ -2,7 +2,7 @@
 """Validate NExtSEEK ViewSet conventions (endpoint descriptions + extend_schema).
 
 This module is the SINGLE SOURCE OF TRUTH for mechanically enforceable ViewSet
-conventions. The committed nextseek-viewset skill, hermetic tests, and the
+conventions. The committed nextseek-create-endpoint skill, hermetic tests, and the
 SchemaGenerator guard import constants from here.
 
 Exit codes: 0 clean, 1 violations, 2 usage/parse error.
@@ -153,33 +153,6 @@ GRANDFATHER_OPS: tuple[GrandfatherOp, ...] = (
         func_name="destroy",
         operation_ids=("Delete a Sample",),
         ast_missing_examples=True,
-    ),
-    GrandfatherOp(
-        rel_path="nextseek_api/views.py",
-        func_name="download",
-        operation_ids=("Download NHP Data",),
-        ast_missing_examples=True,
-        inline_description=True,
-    ),
-    GrandfatherOp(
-        rel_path="nextseek_api/views.py",
-        func_name="events",
-        inline_description=True,
-    ),
-    GrandfatherOp(
-        rel_path="nextseek_api/views.py",
-        func_name="info",
-        inline_description=True,
-    ),
-    GrandfatherOp(
-        rel_path="nextseek_api/views.py",
-        func_name="retrieve_samples",
-        inline_description=True,
-    ),
-    GrandfatherOp(
-        rel_path="nextseek_api/views.py",
-        func_name="timeline",
-        inline_description=True,
     ),
     GrandfatherOp(operation_ids=("cc_assistant_artifacts_download_retrieve",)),
     GrandfatherOp(operation_ids=("cc_assistant_transcript_retrieve",)),

@@ -18,6 +18,8 @@ from ...helpers import (
     fix_sample_endpoint,
     generate_report_outputs,
     normalize_report_type,
+    lab_names_by_name,
+    scope_kind_word,
     run_reporter_summary,
     tool_neo4j_query,
     tool_nextseek_api_request,
@@ -344,7 +346,9 @@ def _plan_tool_reporter(
     if reporter_updates:
         rplan = rplan.model_copy(update=reporter_updates)
     print(f"[DEBUG][PLAN_TOOL][REPORTER] reporter_mode={rplan.reporter_mode!r} summary_mode={rplan.summary_mode!r} project={rplan.project!r}")
-    reporter_result, saved_files, reporter_summary = run_reporter_summary(config, rplan, log_dir)
+    reporter_result, saved_files, reporter_summary = run_reporter_summary(
+        config, rplan, log_dir, lab_names=lab_names_by_name(entity_result),
+        scope_kind=scope_kind_word(query))
     ok = bool(reporter_result.get("ok"))
     rows = reporter_result.get("rows_returned", 0) or 0
     print(f"[DEBUG][PLAN_TOOL][REPORTER] ok={ok}, rows={rows}, files={list(saved_files.keys())}")
@@ -678,7 +682,7 @@ def _plan_tool_system_question(
     """Execute a planner system-question step using a lightweight synthetic parser plan."""
     query = step.execution.tool_query or query
     stub_plan = ParserPlan(mode="system_question", intent_summary=query)
-    sys_out = system_agent(config, query, entity_result, stub_plan)
+    sys_out = system_agent(config, query, entity_result, stub_plan, session=session)
     return {"ok": True, "tool": "system_question", "output": {"reply": sys_out.narrative, "count": 1}, "error": None}
 
 

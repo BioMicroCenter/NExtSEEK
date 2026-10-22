@@ -24,6 +24,9 @@ from nextseek_api.batch_upload.uid_gen import (
 )
 
 
+pytestmark = pytest.mark.django_db
+
+
 def _make_row(uid=None, sample_type="NHP", meta=None, assay_ids=None):
     """Helper to create InputRowModel with sensible defaults."""
     if meta is None:
@@ -112,6 +115,13 @@ class TestExtractIdentity:
 
 
 class TestDeduplicateRows:
+    def test_names_differing_only_by_case_are_one_sample(self):
+        rows = [_make_row(meta='{"Name":"Mouse7"}'), _make_row(meta='{"Name":"mouse7"}')]
+        result, warnings = _deduplicate_rows(rows)
+        assert len(result) == 1
+        assert len(warnings) == 1
+        assert "'mouse7'" in warnings[0]  # identity as written
+
     def test_no_duplicates(self):
         rows = [
             _make_row(meta='{"Name":"A"}'),
@@ -162,6 +172,22 @@ class TestDeduplicateRows:
 
 
 class TestGenerateUids:
+    def test_two_reservations_without_insert_get_different_indexes(self):
+        conn = self._mock_conn(max_index=7)
+        first, _ = generate_uids([_make_row(meta='{"Name":"A"}')], "MIT", conn)
+        second, _ = generate_uids([_make_row(meta='{"Name":"B"}')], "MIT", conn)
+        assert first[0].UID.endswith("MIT-8")
+        assert second[0].UID.endswith("MIT-9")
+
+    def test_validation_does_not_reserve(self):
+        from nextseek_api.batch_upload.uid_sequence import UidSequence
+
+        conn = self._mock_conn(max_index=7)
+        for _ in range(2):
+            rows, _ = generate_uids([_make_row(meta='{"Name":"A"}')], "MIT", conn, reserve=False)
+            assert rows[0].UID.endswith("MIT-8")
+        assert not UidSequence.objects.exists()
+
     def _mock_conn(self, max_index=0):
         """Create a mock connection that returns max_index from queries."""
         conn = MagicMock()
@@ -439,6 +465,43 @@ class TestResolveParents:
         rows, warnings, _count, failed_rows, _unresolved = _resolve_parents(rows, identity_map, conn)
         assert any("unresolved" in w.lower() for w in warnings)
         assert failed_rows == []
+
+    def test_parent_matches_kept_row_ignoring_case(self):
+        rows = [
+            _make_row(uid="NHP-260101MIT-1", meta='{"UID":"NHP-260101MIT-1","Name":"Mouse7"}'),
+            _make_row(uid="CHD-260101MIT-1", sample_type="CHD",
+                      meta='{"UID":"CHD-260101MIT-1","Name":"c","Parent":"mouse7"}'),
+        ]
+        identity_map = _build_identity_to_uid_map(rows)
+        rows, _w, count, failed_rows, unresolved = _resolve_parents(rows, identity_map, self._mock_conn(db_results=[]))
+        assert json.loads(rows[1].json_metadata)["Parent"] == "NHP-260101MIT-1"
+        assert count == 1 and unresolved == [] and failed_rows == []
+
+    def _child(self, parent):
+        return _make_row(uid="CHD-260101MIT-1", sample_type="CHD",
+                         meta=json.dumps({"UID": "CHD-260101MIT-1", "Name": "c", "Parent": parent}))
+
+    def test_exact_name_wins_over_case_variant(self):
+        rows = [self._child("mouse7")]
+        mapping = {"Mouse7": "NHP-260101MIT-1", "mouse7": "NHP-260101MIT-2"}
+        rows, _w, _c, failed, _u = _resolve_parents(rows, mapping, self._mock_conn(db_results=[]))
+        assert failed == []
+        assert json.loads(rows[0].json_metadata)["Parent"] == "NHP-260101MIT-2"
+
+    def test_single_case_variant_still_links(self):
+        rows = [self._child("MOUSE7")]
+        rows, _w, count, failed, _u = _resolve_parents(
+            rows, {"Mouse7": "NHP-260101MIT-1"}, self._mock_conn(db_results=[]))
+        assert failed == [] and count == 1
+        assert json.loads(rows[0].json_metadata)["Parent"] == "NHP-260101MIT-1"
+
+    def test_ambiguous_case_variants_without_exact_match_are_flagged(self):
+        rows = [self._child("MOUSE7")]
+        mapping = {"Mouse7": "NHP-260101MIT-1", "mouse7": "NHP-260101MIT-2"}
+        rows, _w, count, failed, _u = _resolve_parents(rows, mapping, self._mock_conn(db_results=[]))
+        assert count == 0
+        assert len(failed) == 1
+        assert isinstance(failed[0]["error"], AmbiguousIdentityError)
 
     def test_unresolved_name_token_preserved_in_parent(self):
         """Unresolved Name-based parent tokens should remain in Parent field."""

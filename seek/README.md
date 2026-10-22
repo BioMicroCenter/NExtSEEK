@@ -22,8 +22,8 @@ being purely a mirror.
 
 The second half of the SEEK integration does not go through the database at all.
 `seek/seekdb.py:12-24` logs a request's user in to SEEK over HTTP and holds the
-resulting identity, and `seek/seekapi.py:11-23` is the transport underneath it:
-a `curl` command line assembled as a string. Reads of schema-shaped data go
+resulting identity, and `seek/seekapi.py:40-52` is the transport underneath it:
+`requests` calls with a UTF-8 basic auth header and a timeout. Reads of schema-shaped data go
 through the ORM; identity, permissions and asset writes go through SEEK's own
 JSON API as the logged-in user.
 
@@ -96,7 +96,7 @@ with no database, network or settings dependency.
 
 `seek/timeline/` is a 10-module NHP timeline subtree with its own MySQL
 connection pool (`seek/timeline/core/database.py:7-16`) rather than Django's,
-reached through `seek/views/timeline.py:1-11`.
+reached through `seek/views/timeline.py:1-11`. Its own doc: `seek/timeline/README.md`.
 
 ### Templates
 
@@ -105,11 +105,15 @@ seek/templates -name '*.html'`), reached by Django's app-directories loader
 (`dmac/settings.py:131`). 24 template names are passed directly to a `render`
 call or a `TemplateView` in `seek/views/` and `seek/urls.py`, measured 2026-09-03
 by extracting every `render(request, "...")` and `template_name="..."` literal
-from those files; 23 of those files live here and one, `help/getting_started.html`,
-does not. The remaining 42 are reached by `{% extends %}` and `{% include %}`,
+from those files; 23 of those files live here. `help/getting_started.html` was the one
+that did not; it is gone, replaced by the theme's `docs/page.html`. The remaining 42 are reached by `{% extends %}` and `{% include %}`,
 or are dead. The inline JavaScript inside them is not untested: a Node harness
 lifts the script body out of `templatesList.html` verbatim and runs it against a
 stub DOM (`seek/tests/js/harness.js:3-9`).
+
+`seek/templatetags/` holds two tag libraries: `vite_assets`, the tag the chat page uses to emit the
+committed chat bundle's hashed script and stylesheet tags from its Vite manifest (`docs/ui/chat-frontend.md`),
+and `index`, a list-index filter that only `projectsList.html` loads and never uses (`docs/ui/known-issues.md` UI-211).
 
 ## Running and testing
 
@@ -140,8 +144,8 @@ Result: **34 failed, 488 passed, 29 skipped, 2 xfailed, 1 error in 10.24s.**
 The two `mkdir` lines are not optional: `dmac/settings.py:507-508` creates
 those directories at import time and the mount is read-only.
 
-`ci/pytest-baseline.txt:307-308` records only two known failures for this
-package, so nearly all of that red is drift since the baseline was taken. See
+`ci/pytest-baseline.txt` was regenerated on a runner on 2026-10-20 (`grep -c '^seek/' ci/pytest-baseline.txt`
+counts what it records for this package); the red described below was measured before that. See
 `seek/CLAUDE.md` for what each cluster is and which refactor caused it.
 
 ## Depends on / depended on by
@@ -180,7 +184,7 @@ importer grep cannot see.
   applied by `startup/steps/schema_fixups.py:117-118` and its two neighbours,
   called only from `startup/cli.py:288`.
 - SEEK's HTTP JSON API, reached as the logged-in user through
-  `seek/seekapi.py:60-64` and wrapped by `seek/seekdb.py:11-31`. This is the
+  `seek/seekapi.py:40-52` and wrapped by `seek/seekdb.py:11-31`. This is the
   authorization boundary: project membership and supervisor status come from
   SEEK, not from Django's auth tables.
 - Neo4j, for sample lineage, to READ: `seek/sample/trees.py:31-32` opens the
@@ -203,12 +207,10 @@ omitted from the list below.
 
 - Django itself: `dmac/settings.py:145` installs the app, and `dmac/urls.py:12`
   imports its URL conf.
-- `api_app/`: `api_app/views.py:11-14` and `api_app/serializers.py:2-3` take
-  `Samples`, `Data_files`, `DBtable_sample`, `DBtable_data_files` and `SeekDB`.
 - `nextseek_api/` is the heaviest consumer, reaching the models
   (`nextseek_api/services/users.py:39`,
   `nextseek_api/services/template_catalog.py:20`), the SEEK login wrapper
-  (`nextseek_api/seek_api_helpers.py:5`, `nextseek_api/views.py:25`), the
+  (`nextseek_api/views.py:25`), the
   table layer (`nextseek_api/models.py:16-17`) and the timeline services
   (`nextseek_api/views.py:27-28`).
   `nextseek_api/management/commands/fill_study_publications.py:29` is the only

@@ -180,5 +180,5 @@ def test_the_gate_sits_between_the_read_and_the_summarize():
         "cc_sweep has no credentials of its own, so gating on a watermark "
         "written by a turn that did is the only check available to it"
     )
-    assert lines["read_bytes"] < lines["transcript_is_verified_scrubbed"] \
+    assert lines["read_store_transcript"] < lines["transcript_is_verified_scrubbed"] \
         < lines["summarize_transcript"]

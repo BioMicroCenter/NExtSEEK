@@ -9,16 +9,20 @@ from typing import List, Optional
 
 from django.conf import settings
 
-_JOBS_DIR = os.path.join(
-    getattr(settings, "MEDIA_ROOT", "/tmp"), "celery_jobs"
-)
+
+
+def state_dir() -> str:
+    """The durable directory for the upload queue's state (broker, results, jobs, uploads, cancel markers)."""
+    return os.environ.get("BATCH_UPLOAD_STATE_DIR") or "/var/celery"
+
+
 DEFAULT_TTL_HOURS = 168  # 7 days default
 
 def _get_ttl_seconds() -> int:
     return getattr(settings, "BATCH_UPLOAD_JOB_TTL_HOURS", DEFAULT_TTL_HOURS) * 3600
 
 def _user_file(user_id: int, jobs_dir: str = None) -> str:
-    d = jobs_dir or _JOBS_DIR
+    d = jobs_dir or os.path.join(state_dir(), "jobs")
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, f"{user_id}.json")
 

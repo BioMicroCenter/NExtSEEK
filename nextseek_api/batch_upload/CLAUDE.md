@@ -19,10 +19,10 @@ lineage, and none of them fails loudly.
   first undeclared key. Adding a column to a curator's sheet before adding the attribute to
   the sample type fails every row that carries it.
 - **New sample policies are created private and access is granted separately.**
-  `nextseek_api/batch_upload/policies.py:71-73` writes `access_type = 0`, and the upsert
-  path puts touched policies back to that value at
-  `nextseek_api/batch_upload/update.py:300-306`. Changing that constant silently publishes
-  every sample a batch touches to the whole project.
+  `nextseek_api/batch_upload/policies.py:71-73` writes `access_type = 0`. A re-upload
+  (update path) keeps each policy's access as it is and grants the configured project
+  access once, through the same `PermissionsInserter` new uploads use. Changing that
+  constant silently publishes every sample a batch touches to the whole project.
 - **Project permission granting is on by the pipeline's default and off by the class's.**
   `nextseek_api/batch_upload/config.py:35-37` defaults the switch to true, and
   `nextseek_api/batch_upload/insert.py:272-276` is the one place that passes it through
@@ -35,7 +35,19 @@ lineage, and none of them fails loudly.
   superuser alone, never from staff, because the SEEK login sets `is_staff` on every
   account; `nextseek_api/batch_upload/views.py:796-797` refuses the request outright when no
   identity resolves rather than falling back to the Django primary key. Accepting the client
-  value would attribute samples to any person id a caller names.
+  value would attribute samples to any person id a caller names. For the same reason a Basic
+  header counts only when its login is the authenticated user's own (SEC-008): DRF
+  authenticates the session first, and nothing here checks that header's password.
+- **A caller writes only into their own projects (SEC-001).** `start` and `validate` answer 403
+  unless the caller belongs to the target project (`_caller_project_scope` in `views.py`, which
+  fails closed to no project); the view hands the caller's projects to the task as
+  `scope_project_ids`. Three writers honour it: the upsert path loads existing samples only from
+  those projects (`load_existing_sample_details`), a row may link a sample only to its own
+  projects' assays or to an assay the sample is already linked to (`_refuse_out_of_scope_assays`
+  in `insert.py`), and orphan resolution rewrites only children in those projects (the task
+  passes the scope on to `resolve_orphans_task`). Anything else fails as `PERMISSION_DENIED`. A
+  superuser passes `None`, meaning any project. Both tasks treat a message without the key as no
+  project, so a new dispatcher that forgets it changes nothing rather than everything.
 - **Job ownership is the only authorization on status, cancel and summary.**
   `nextseek_api/batch_upload/views.py:105-112` turns a non-owner into a 404 by consulting
   the per-user index file (`nextseek_api/batch_upload/job_index.py:80-94`). A job id is a
@@ -59,12 +71,6 @@ lineage, and none of them fails loudly.
   row. The caches are plain module dicts
   (`nextseek_api/batch_upload/prefetch.py:18-24`), so any in-process invalidation hook
   looks correct on one worker and leaves the others rejecting rows against a stale schema.
-- **Parallel insertion is disabled whenever a run is resuming.**
-  `nextseek_api/batch_upload/orchestrator.py:810-811` requires both a level of at least
-  `PARALLEL_THRESHOLD` rows and a null resume UID, because the checkpoint file is a single
-  append-only sequence (`nextseek_api/batch_upload/checkpoint.py:11-18`) whose last line is
-  taken as the high-water mark (`nextseek_api/batch_upload/checkpoint.py:38-51`). Threads
-  appending out of order would make a resume skip rows that were never written.
 - **One definition of Protocol-to-SOP resolution, shared by three call sites.**
   `nextseek_api/batch_upload/helpers.py:53-74` records why: resolving by URL alone wrote a
   null protocol on nearly every upload, and the three-format rule reproduced the stored
@@ -83,39 +89,35 @@ lineage, and none of them fails loudly.
 
 ## Landmines
 
-- **`config_overrides` travels from the request body into the pipeline config unfiltered.**
+- **`config_overrides` travels from a superuser's request body into the pipeline config unfiltered.**
   `nextseek_api/batch_upload/views.py:241` reads it, `nextseek_api/batch_upload/views.py:305`
   forwards it, and `nextseek_api/batch_upload/tasks.py:40` splats it into the constructor,
   so any authenticated caller can set any tunable the constructor pulls out of `overrides`
-  (`nextseek_api/batch_upload/config.py:20-59`): the permission switch and its access type
-  among them. Both of those consult an environment variable first
-  (`nextseek_api/batch_upload/config.py:35-40`), so an instance that sets those variables is
-  covered and one that leaves them unset is not. Adding a tunable here adds a request
-  parameter whether you meant to or not.
+  (`nextseek_api/batch_upload/config.py:20-59`), but only for a superuser: anyone else keeps
+  just the keys in `_MEMBER_OVERRIDES` (`views.py`, an allowlist). Adding a tunable here adds a
+  superuser request parameter whether you meant to or not; adding it to that allowlist opens it
+  to every member.
 - **A graph failure does not fail the job, and the job reports it in one word.**
   `nextseek_api/batch_upload/orchestrator.py:606-609` logs the exception and returns a
   status, so the task still reports SUCCESS with the SQL rows committed. What tells you
-  which happened is the `graph:` line in the totals and the summary CSV: `synced (N)` means
-  those samples are in the graph, `pending (N)` means the outbox rows are still owed and the
-  sync loop holds them. A graph not yet at schema 1.2, a busy graph-write lock, a Neo4j that
-  is down and no Neo4j configured at all all read as `pending`, so a run of `pending` jobs
-  is a question about the loop, not about this package.
+  which happened is the `graph:` line in the totals and the summary CSV: `synced (N)`
+  means those samples are in the graph, `pending (N)` means the outbox rows are still owed
+  and the sync loop holds them. A graph not yet at graph_sync's schema version
+  (`writer.SCHEMA_VERSION`), a busy graph-write lock, a Neo4j that is down and no Neo4j
+  configured at all all read as `pending`, so a run of `pending` jobs is a question about
+  the loop, not about this package.
 - **A parent this sheet does not resolve is still reported here, but the edge is no longer
-  this package's to write.** `nextseek_api/batch_upload/neo4j_sync.py:689`, called at
-  `nextseek_api/batch_upload/neo4j_sync.py:1062`, puts every child whose parent could not be
-  resolved into the job's errors. The edge itself is created by graph_sync from what MySQL's
-  parent tokens declare, and gate G check 1 fails on a declared pair the graph lacks, so a
-  parent that arrives in a later upload is repaired by orphan resolution and the nightly
-  sync instead of being dropped by a Cypher MATCH that found nothing. Reading this reporter
-  as the writer sends you looking for a statement that is gone.
-- **Nothing under `MEDIA_ROOT` survives a container rebuild.**
-  `dmac/settings.py:95` puts it at a path the `nextseek` service never mounts: a
-  case-insensitive grep for `media` over the whole of `docker-compose.yml` matched nothing on
-  2026-09-03, and the service's mount list at `docker-compose.yml:25-53` is nine entries
-  covering other paths.
-  Rebuilding therefore destroys the job index, the uploaded workbooks, the checkpoints and
-  every downloadable summary at once, and the ownership check above then 404s a user on
-  their own jobs.
+  this package's to write.** Stage 2 puts every row whose parent UID is in neither the batch
+  nor the database into the job's errors ("Parent UID(s) not found in batch or database;
+  treating as root sample", `nextseek_api/batch_upload/orchestrator.py:452-464`). The edge
+  itself is created by graph_sync from what MySQL's parent tokens declare, and gate G check 1
+  fails on a declared pair the graph lacks, so a parent that arrives in a later upload is
+  repaired by orphan resolution and the nightly sync instead of being dropped by a Cypher
+  MATCH that found nothing.
+- **`MEDIA_ROOT` (`/media`) is the `nextseek-media` volume, shared by the worker and `web`.**
+  The worker writes the batch reports and checkpoints there and `web` serves and reads them,
+  so they survive a rebuild; `./startup.sh reset` drops the volume. The job index and the
+  saved sheets live on `batch_upload_state` (`/var/celery`), not here.
 - **`nextseek_api/batch_upload/job_index.py:12-14` reads `MEDIA_ROOT` at import time.**
   Overriding the setting later, in a test or at runtime, does not move the directory; that
   is what the explicit `jobs_dir` parameter at
@@ -163,15 +165,6 @@ lineage, and none of them fails loudly.
   `docker-compose.yml`). Copy-pasting that command fails on a missing interpreter.
   `nextseek_api/batch_upload/tests/WAVE3_LIVE_TESTING.md` already runs its lane with
   `/app/.venv/bin/python` inside the `nextseek` container.
-- **`nextseek_api/batch_upload/neo4j_sync.py` writes nothing to Neo4j, although its name
-  still says it does.** `upload_all`, the bulk merges, the constraint and index DDL, both
-  `DERIVED_FROM` deleters and the two read-only endpoint audits were deleted when stage 6
-  moved to `nextseek_api/graph_sync/targeted.py`. What stays reads MySQL and builds
-  payloads, and `nextseek_api/graph_sync/labels.py` and `nextseek_api/graph_sync/sources.py`
-  are checked against it on the same fixtures, so it is the reference for a lineage edge's
-  labels rather than a second writer. Reach in here for a writer and you will find a
-  payload builder no graph ever sees.
-
 ## Test command
 
 ```

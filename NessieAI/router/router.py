@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import functools
 import logging
+import random
 import re
 import threading
 from dataclasses import dataclass, replace
@@ -92,11 +93,13 @@ class RouteDecision:
     router_cost_usd: float | None = None
     router_usage: dict | None = None
     router_cost_partial: bool = False
+    # The laya record (JevLevROUTING SPEC s7): None when laya is off.
+    laya: dict | None = None
 
 
 # The fields a policy rebuild of a decision must carry over from the router's decision.
 ROUTER_RECORD_FIELDS = ("router_model", "router_fallback", "router_cost_usd", "router_usage",
-                        "router_cost_partial")
+                        "router_cost_partial", "laya")
 
 
 def router_record(decision: RouteDecision) -> dict:
@@ -115,6 +118,12 @@ def router_cost_fields(decision) -> dict:
         "router_cost_usd": getattr(decision, "router_cost_usd", None),
         "router_cost_partial": bool(getattr(decision, "router_cost_partial", False)),
         "router_usage": usage,
+        # The router's own answer on a turn the policy moved (follow-up, sticky, cc_unavailable): the
+        # laya training view's teacher for those turns (JevLevROUTING SPEC s8). None when nothing moved it.
+        "attempted_route": getattr(decision, "attempted_route", None),
+        # laya's record (JevLevROUTING SPEC s7), absent when laya was off for the turn. It rides
+        # this one spread because every routed decision has usage and test_router_cost pins one spread.
+        **({"laya": decision.laya} if getattr(decision, "laya", None) else {}),
     }
 
 
@@ -242,7 +251,8 @@ def _route_from_baml(decision, Route) -> RouteDecision | None:
 
 
 def _classify_query(query: str, history: list[HistoryTurn] | None = None) -> tuple[str | None, str | None, str]:
-    """Return (task_family, family_source, reasoning). None family on failure/unrelated."""
+    """Return (task_family, family_source, reasoning). None family on failure/unrelated;
+    family_source is "unrelated" only for a null label, None on every failure."""
     try:
         _, _, Route, b = _load_router_deps()
         from dmac_assistant.router.baml_client.types import ClassificationInput
@@ -265,7 +275,7 @@ def _classify_query(query: str, history: list[HistoryTurn] | None = None) -> tup
             _note_spend(collector, _baml_client_model(ROUTER_PRIMARY_CLIENT), cut_off=cut_off)
         label = getattr(decision.task_family, "value", decision.task_family) if decision.task_family else None
         if label is None:
-            return None, None, decision.reasoning or "unrelated"
+            return None, "unrelated", decision.reasoning or "unrelated"
         if not validate_member(str(label), allowed):
             return None, None, f"invalid family label {label!r}"
         return str(label), "baml", decision.reasoning or "baml"
@@ -523,7 +533,7 @@ def _route_query(query: str, history: list[HistoryTurn] | None = None) -> RouteD
             user_query=query,
             routes=caps,
             history=_history_to_baml(history, Route),
-            followup_rule=followup.followup_rule_text(),
+            followup_rule=(followup.followup_rule_text() if followup.has_answered_engine_turn(history) else None),
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("CC router: RouteQuery failed (%s)", type(exc).__name__)
@@ -575,7 +585,7 @@ def _posterior_enabled_decide(query: str, history: list[HistoryTurn] | None = No
         )
 
     task_family, family_source, classify_reason = _classify_query(query, history)
-    if task_family is None and "unrelated" in (classify_reason or "").lower():
+    if task_family is None and family_source == "unrelated":
         return RouteDecision(
             route=ROUTE_UNRELATED,
             model_class=None,
@@ -624,6 +634,57 @@ def _posterior_enabled_decide(query: str, history: list[HistoryTurn] | None = No
     )
 
 
+def _laya_decision(rec: dict, baml: RouteDecision | None) -> RouteDecision:
+    """The fast-path decision for a gate-passing laya record; ``baml`` is the audit's own BAML answer."""
+    route = rec["route"]
+    if baml is not None:
+        rec = {**rec, "mode": "audit", "baml_route": baml.route}
+    return RouteDecision(
+        route=route,
+        model_class="opus" if route == ROUTE_CC else None,
+        model_id=_resolve_cc_model_id() if route == ROUTE_CC else None,
+        reasoning=f"laya p={rec['calibrated_confidence']:.2f}",
+        source="laya",
+        router_model="laya:" + str(rec["revision"]),
+        laya=rec,
+    )
+
+
+def _decide_with_laya(query: str, history: list[HistoryTurn] | None = None) -> RouteDecision:
+    """laya in front of BAML (SPEC s2). Off: today's path, nothing imported. Any laya failure, an
+    exception included, leaves the BAML decision, with ``laya.error`` set."""
+    md, job = "off", None
+    try:
+        from NessieAI.router import laya  # lazy: the router imports neither torch nor laya (SPEC test 13)
+        md = laya.mode()
+        if md != "off":
+            job = laya.start(query, history, md)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CC router: laya setup failed (%s)", type(exc).__name__)
+        decision = _legacy_decide(query, history)
+        return replace(decision, laya={"mode": md, "gate": "exception", "error": type(exc).__name__})
+    if job is None:
+        return _legacy_decide(query, history)
+    rec, err, baml = None, None, None
+    if md == "live":
+        try:
+            rec = job.result()
+            if rec["gate"] == "pass":
+                if random.random() < laya.AUDIT_RATE:
+                    baml = _legacy_decide(query, history)
+                return _laya_decision(rec, baml)
+        except Exception as exc:  # noqa: BLE001
+            err = exc
+    baml = baml or _legacy_decide(query, history)
+    try:
+        rec = rec or job.result()
+    except Exception as exc:  # noqa: BLE001
+        err = exc
+    if err is not None:
+        rec = {**(rec or {"mode": md}), "gate": "exception", "error": type(err).__name__}
+    return replace(baml, laya=rec)
+
+
 def decide(query: str, history: list[HistoryTurn] | None = None) -> RouteDecision:
     """Return the route decision for a user query.
 
@@ -635,7 +696,7 @@ def decide(query: str, history: list[HistoryTurn] | None = None) -> RouteDecisio
         if posterior_selector.posterior_routing_enabled():
             decision = _posterior_enabled_decide(query, history)
         else:
-            decision = _legacy_decide(query, history)
+            decision = _decide_with_laya(query, history)
     try:
         return replace(decision, **spend.fields())
     except Exception as exc:  # noqa: BLE001 - routing never raises over bookkeeping

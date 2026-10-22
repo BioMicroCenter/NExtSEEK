@@ -210,6 +210,36 @@ class TestRunValidationMulti:
         assert attr_errors[0].row == 1
         assert attr_errors[0].uid == UID_B
 
+    def test_transform_failure_is_counted_once_in_totals(self):
+        good = InputRowModel(
+            UID=UID_A, SampleType="NHP_blood", json_metadata="{}",
+            assay_ids=[], original_row_index=0,
+        )
+        bad = InputRowModel(
+            UID=UID_B, SampleType="NHP_blood", json_metadata='{"BadKey":"x"}',
+            assay_ids=[], original_row_index=1,
+        )
+
+        result = _run_validation([good, bad], FakeDB())
+
+        assert result.totals.failed == 1
+        assert result.totals.success == 1
+        assert result.totals.processed == 2
+
+    def test_dropped_flat_rows_count_in_validate_totals(self):
+        def _merge(paths):
+            return ConvertedBatch(
+                rows=[_make_row(UID_A)], source_files=["x"],
+                row_errors=[(3, ["bad cell"])],
+            )
+
+        result = _run_validation(
+            [], FakeDB(),
+            extra_patches={"nextseek_api.batch_upload.orchestrator.merge_files": _merge},
+        )
+        assert result.totals.failed == 1
+        assert result.totals.processed == 2
+
     def test_new_sample_error_has_row_but_no_generated_uid(self):
         """For a new sample (no pre-assigned UID), the error carries `row` but not
         the throwaway UID that UID_GEN generated in validate mode."""

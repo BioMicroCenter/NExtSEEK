@@ -10,6 +10,7 @@ otherwise.
 Every test drives a fake LLM client and a patched catalog reader; nothing reaches Neo4j or a model.
 """
 
+import dataclasses
 import importlib.util
 import json
 import re
@@ -25,7 +26,7 @@ from chat_nextseek import orchestrator as orch
 from chat_nextseek.agents import graph as graph_mod
 from chat_nextseek.agents import system as system_mod
 from chat_nextseek.graph_scope import GraphScope
-from chat_nextseek.schemas import EntityAgentOutput, GraphAgentPlan, ParserPlan, SystemAgentOutput
+from chat_nextseek.schemas import EntityAgentOutput, GraphAgentPlan, ParserPlan
 
 FALLBACK_SCHEMA = {
     "fetched_at": "2026-08-21T00:00:00Z",
@@ -157,7 +158,9 @@ def test_a_live_catalog_sends_the_rendering(monkeypatch, live):
     out = run(monkeypatch, llm, entity={"sampletypes": [{"code": "TIS"}]})
     assert out.cypher == GOOD
     assert out.context_mode == graph_mod.CONTEXT_CATALOG == "catalog"
-    schema = llm.calls[0]["messages"][1]["content"]
+    # The schema is two system messages since T2: the head (structure, type index) under a cache point, then the
+    # resolved types' sections (test_graph_prompt_cache.py); joined with a blank line they are the rendering.
+    schema = "\n\n".join(m["content"] for m in llm.calls[0]["messages"][1:3])
     assert gctx.load_structure() in schema
     assert gctx.render_type_index(SNAPSHOT.index) in schema
     assert "### TIS :T_TIS" in schema
@@ -265,6 +268,9 @@ def test_an_attribute_the_type_lacks_is_repaired_once_then_refused(monkeypatch, 
     out = run(monkeypatch, llm)
     assert len(llm.calls) == 2
     assert "TIS.Sequencer" in llm.calls[1]["messages"][-1]["content"]
+    # T2: the repair call reuses the list, so the schema head keeps its cache point (test_graph_prompt_cache.py).
+    assert llm.calls[1]["messages"][1].get("cache_point") == "1h"
+    assert llm.calls[1]["messages"][1]["content"].startswith("GRAPH SCHEMA (")
     assert out.cypher == ""
     assert "TIS.Sequencer" in out.explanation
     assert out.context_mode == "catalog"
@@ -376,16 +382,10 @@ def _system_config(scope=ADMIN):
 
 
 def _system_schema_block(monkeypatch, scope=ADMIN):
-    seen = {}
-
-    def fake(**kwargs):
-        seen["messages"] = kwargs["messages"]
-        return SystemAgentOutput(mode="get_capabilities", narrative="ok")
-
-    monkeypatch.setattr(system_mod, "call_llm_structured", fake)
-    system_mod.system_agent(_system_config(scope), "what is a tissue sample", {"sampletypes": [{"code": "TIS"}]},
-                            ParserPlan(mode="system_question"))
-    return next(m["content"] for m in seen["messages"] if m["content"].startswith("GRAPH_SCHEMA"))
+    messages = system_mod.build_messages(_system_config(scope), "what is a tissue sample",
+                                         {"sampletypes": [{"code": "TIS"}]},
+                                         ParserPlan(mode="system_question").model_dump())
+    return next(m["content"] for m in messages if m["content"].startswith("GRAPH_SCHEMA"))
 
 
 def test_the_system_agent_sends_the_rendering_when_the_catalog_is_live(monkeypatch, live):
@@ -525,3 +525,32 @@ def test_the_schema_snapshot_is_exported_as_portable():
 
     assert portable.graph_schema_snapshot is graph_mod.graph_schema_snapshot
     assert "graph_schema_snapshot" in portable.__all__
+
+
+# --- graph schema 1.3: the live turn, the graph-schema op and the MCP resource read the Assay section ---------------
+
+
+def test_the_schema_snapshot_of_a_13_graph_carries_the_assay_section(monkeypatch, live):
+    monkeypatch.setattr(gcat, "get_snapshot", lambda config: dataclasses.replace(SNAPSHOT, schema_version="1.3"))
+    out = graph_mod.graph_schema_snapshot(_config(), types=["TIS"])
+    assert out["schema_version"] == "1.3"
+    assert out["schema"].startswith(gctx.structure_for(None, "1.3") + "\n\n")
+
+
+def test_the_live_schema_header_names_a_13_graphs_version(monkeypatch, live):
+    monkeypatch.setattr(gcat, "get_snapshot", lambda config: dataclasses.replace(SNAPSHOT, schema_version="1.3"))
+    llm = FakeLLM(GOOD)
+    run(monkeypatch, llm, entity={"sampletypes": [{"code": "TIS"}]})
+    schema = llm.calls[0]["messages"][1]["content"]
+    assert schema.splitlines()[0].startswith("GRAPH SCHEMA (v1.3 structure, ")
+    assert schema.splitlines()[1] == "# NExtSEEK graph schema v1.3, for writing read-only Cypher"
+    assert gctx.load_assay_structure() in schema
+
+
+def test_the_mcp_neo4j_schema_resource_on_a_13_graph(monkeypatch, tmp_path):
+    server = _mcp_server()
+    (tmp_path / "neo4j_schema.json").write_text('{"from": "the committed file"}', encoding="utf-8")
+    monkeypatch.setattr(server, "_cfg", lambda: SimpleNamespace(CONTEXT_DIR=str(tmp_path)))
+    monkeypatch.setattr(gcat, "get_snapshot", lambda config: dataclasses.replace(SNAPSHOT, schema_version="1.3"))
+    text = server.context_resource("neo4j-schema")
+    assert text.startswith(gctx.structure_for(None, "1.3") + "\n\n" + gctx.render_type_index(SNAPSHOT.index))

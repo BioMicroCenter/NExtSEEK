@@ -61,8 +61,8 @@ except ImportError:  # pragma: no cover - defensive; repo_root always has startu
         "seek-cache", "nextseek" + "-static-files", "neo4j-data",
     ]
 
-# Matches typical MBP host_label spellings: "taishajo-mbp", "MBP.local",
-# "mbp-taishajo", "MacBook-Pro", "MacBookPro16,1", etc. Used ONLY for the
+# Matches typical MBP host_label spellings: "dev-mbp", "MBP.local",
+# "mbp-dev", "MacBook-Pro", "MacBookPro16,1", etc. Used ONLY for the
 # narrow Task-1 in-bundle tracker-snapshot exception below -- NOT the same
 # thing as the Task-2 locked host_label enum (HOST_LABEL_VALID), which
 # requires the *exact* literal "mbp" (see check_host_label_enum_valid).

@@ -1,26 +1,29 @@
 """granular._run_ls: runs-root path guard + read-only SSH ls (ssh_run mocked)."""
 import pytest
 
+from chat_nextseek import call_scope
+
 import chat_nextseek.luria.ssh as ssh
 import NessieAI.ns.granular as g
 
 
 class _Cfg:
     LURIA_ENV = {"working_path": "/net/bmc-pub10/data1/bmc/pipeline_cd",
-                 "key": "/keys/luria", "user": "cdemu", "host": "luria.mit.edu"}
+                 "key": "/keys/luria", "user": "alice", "host": "luria.mit.edu"}
 
 
-def _call(monkeypatch, run_dir, ssh_out="total 0\n-rw-r--r-- 1 u u 10 matrix.h5\n"):
-    monkeypatch.setattr(ssh, "prepare_key", lambda k: "/tmp/key")
+def _call(monkeypatch, run_dir, ssh_out="total 0\n-rw-r--r-- 1 u u 10 matrix.h5\n", **op_ctx):
+    monkeypatch.setattr(ssh, "prepare_key", lambda k: "/nonexistent/key")
     seen = {}
 
-    def fake_ssh_run(env, cmd, *, key_path):
+    def fake_ssh_run(env, cmd, *, key_path, timeout=None):
         seen["cmd"] = cmd
         seen["key_path"] = key_path
+        seen["timeout"] = timeout
         return ssh_out
 
     monkeypatch.setattr(ssh, "ssh_run", fake_ssh_run)
-    result = g._run_ls({"run_dir": run_dir}, _Cfg(), None, None, None, None)
+    result = g._run_ls({"run_dir": run_dir}, _Cfg(), None, None, None, None, **op_ctx)
     return result, seen
 
 
@@ -30,6 +33,7 @@ def test_valid_run_dir_lists_recursively(monkeypatch):
     assert result["truncated"] is False
     assert seen["cmd"].startswith("ls -laR ")
     assert "runs/nfcore_gideon_1" in seen["cmd"]
+    assert seen["timeout"] == 60  # outside an op: the table's limit
 
 
 def test_traversal_out_of_runs_root_rejected(monkeypatch):
@@ -49,12 +53,103 @@ def test_truncation_flag(monkeypatch):
     assert len(result["tree"]) == g._RUN_LS_CAP
 
 
-def test_unconfigured_luria_rejected(monkeypatch):
-    monkeypatch.setattr(ssh, "prepare_key", lambda k: "/tmp/key")
-    monkeypatch.setattr(ssh, "ssh_run", lambda *a, **k: "")
+def test_unconfigured_luria_is_an_internal_failure_not_a_validation(monkeypatch):
+    # F-LURIA (operator ruling 2026-10-02): a box without LURIA_ENV is NExtSEEK's fault, AGENT_FAILED internal.
+    from nextseek_api.assistant.op_errors import failure_reason
+
+    calls = []
+    monkeypatch.setattr(ssh, "prepare_key", lambda k: calls.append("key") or "/nonexistent/key")
+    monkeypatch.setattr(ssh, "ssh_run", lambda *a, **k: calls.append("ssh") or "")
 
     class _NoLuria:
         LURIA_ENV = {"working_path": "", "key": ""}
 
-    with pytest.raises(g.OpValidationError):
+    with pytest.raises(Exception) as exc:
         g._run_ls({"run_dir": "/whatever"}, _NoLuria(), None, None, None, None)
+    assert not isinstance(exc.value, g.OpValidationError)
+    assert failure_reason(exc.value) == "internal"
+    assert calls == []
+
+
+RUN = "/net/bmc-pub10/data1/bmc/pipeline_cd/runs/r1"
+
+
+def test_inside_an_op_the_listing_waits_at_most_the_time_left(monkeypatch):
+    with call_scope.scope(deadline_s=20):
+        _, seen = _call(monkeypatch, RUN, limit_s=60)
+    assert 0 < seen["timeout"] <= 20
+
+
+def test_with_no_time_left_nothing_is_sent(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ssh, "prepare_key", lambda k: calls.append("key") or "/nonexistent/key")
+    monkeypatch.setattr(ssh, "ssh_run", lambda *a, **k: calls.append("ssh") or "")
+    with call_scope.scope(deadline_s=1), pytest.raises(RuntimeError):
+        g._run_ls({"run_dir": RUN}, _Cfg(), None, None, None, None, limit_s=60)
+    assert calls == []
+
+
+def test_out_of_time_before_the_listing_is_a_deadline_failure(monkeypatch):
+    from nextseek_api.assistant.op_errors import failure_reason
+
+    monkeypatch.setattr(ssh, "prepare_key", lambda k: "/nonexistent/key")
+    with call_scope.scope(deadline_s=1), pytest.raises(g.OpDeadlineError) as exc:
+        g._run_ls({"run_dir": RUN}, _Cfg(), None, None, None, None, limit_s=60)
+    assert failure_reason(exc.value) == "deadline"
+
+
+def test_an_ssh_timeout_is_a_deadline_failure_and_other_ssh_errors_are_not(monkeypatch):
+    import subprocess
+    from nextseek_api.assistant.op_errors import failure_reason
+
+    monkeypatch.setattr(ssh, "prepare_key", lambda k: "/nonexistent/key")
+
+    def run(returncode=None):
+        def fake_run(cmd, **kw):
+            if returncode is None:
+                raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+            return subprocess.CompletedProcess(cmd, returncode, "", "boom")
+        monkeypatch.setattr(ssh.subprocess, "run", fake_run)
+        with pytest.raises(RuntimeError) as exc:
+            g._run_ls({"run_dir": RUN}, _Cfg(), None, None, None, None, limit_s=60)
+        return exc.value
+
+    timed_out = run()
+    assert isinstance(timed_out.__cause__, ssh.SshTimeout) and failure_reason(timed_out) == "deadline"
+    failed = run(255)
+    assert not isinstance(failed, g.OpDeadlineError) and failure_reason(failed) == "internal"
+
+
+def _real_key_run(monkeypatch, tmp_path, fake_ssh_run):
+    key = tmp_path / "luria_key"
+    key.write_text("not a real key")
+    made = []
+    real = ssh.prepare_key
+    monkeypatch.setattr(ssh, "prepare_key", lambda k: made.append(real(k)) or made[-1])
+    monkeypatch.setattr(ssh, "ssh_run", fake_ssh_run)
+
+    class Cfg(_Cfg):
+        LURIA_ENV = {**_Cfg.LURIA_ENV, "key": str(key)}
+
+    run_dir = "/net/bmc-pub10/data1/bmc/pipeline_cd/runs/x"
+    try:
+        g._run_ls({"run_dir": run_dir}, Cfg(), None, None, None, None)
+    except RuntimeError:
+        pass
+    return made
+
+
+def test_the_key_copy_is_removed_after_a_listing(monkeypatch, tmp_path):
+    import os
+    made = _real_key_run(monkeypatch, tmp_path, lambda *a, **k: "total 0\n")
+    assert len(made) == 1 and not os.path.exists(made[0])
+
+
+def test_the_key_copy_is_removed_when_ssh_fails(monkeypatch, tmp_path):
+    import os
+
+    def boom(*a, **k):
+        raise RuntimeError("ssh failed")
+
+    made = _real_key_run(monkeypatch, tmp_path, boom)
+    assert len(made) == 1 and not os.path.exists(made[0])

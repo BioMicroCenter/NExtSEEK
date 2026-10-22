@@ -192,9 +192,8 @@ def test_the_legacy_memory_agent_still_degrades_on_a_connection_error(monkeypatc
 # ---------------------------------------------------------------------------- context engineer
 
 # Code whose result looks like a ContextEngineerOutput, which the step rejects and hands to
-# the LLM fallback. (Code that raises reaches the fallback too, but the fallback then fails
-# on its own before any model call: ``ce_keys`` is bound only once the code has run. That
-# is older than this change and reported, not fixed, here.)
+# the LLM fallback. Code the sandbox refuses or that fails reaches the same fallback
+# (test_context_engineer_sandbox.py).
 CE_SHAPED = ('result = {"extraction_code": "", "enriched_context": {}, "method": "code", '
              '"notes": ""}')
 

@@ -57,7 +57,7 @@ def test_canonical_context_files_are_the_ones_gen_op_surfaces_bakes() -> None:
 
 
 def test_the_cc_agent_dockerfile_bakes_exactly_these_files_from_the_checkout() -> None:
-    """The image check compares these six paths; the Dockerfile is what fills them.
+    """The image check compares these paths; the Dockerfile is what fills them.
 
     Each COPY reads the compose named context ``chat_nextseek``, which must be
     CHAT_NEXTSEEK_DIR, so the checkout file on one side of the comparison is the

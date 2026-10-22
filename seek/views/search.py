@@ -9,11 +9,12 @@ from ..dbtable_sampletype import DBtable_sampletype
 from django.http import HttpResponse
 from django.http import HttpResponseRedirect
 from ..seekdb import SeekDB
+from ..responses import missing_param
 from django.shortcuts import render
-from ..decorators import requires_seek_login_redirect
+from ..decorators import login_redirect, requires_seek_login_redirect
 from ..decorators import verifySuperUser
 
-@requires_seek_login_redirect('/seek/samples/search/')
+@requires_seek_login_redirect()
 def sampleSearch(request):
     report = {}
     stype = DBtable_sampletype()
@@ -63,11 +64,22 @@ def _callerProjectIds(user_seek):
     return []
 
 
+# The query-string parameters each search type reads without a default (seek/sample/search.py).
+_SEARCH_PARAMS = {
+    'FILTERING': ('sampletype_id', 'attribute', 'filter_rule', 'filter_valueFrom', 'filter_valueTo'),
+    'Advanced': ('filter_searchText', 'sampletype_id', 'attribute', 'filter_matchType'),
+    'UIDs': ('filter_searchUIDs',),
+}
+
+
 def runSampleSearch(request, searchType):
     '''
     Input:
         searchType = 'FILTERING', 'UIDs', or'Advanced'
     '''
+    bad = missing_param(request.GET, *_SEARCH_PARAMS[searchType])
+    if bad:
+        return bad
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, True)
     isSupervisor = verifySuperUser(request)
@@ -91,9 +103,6 @@ def sampleSearching(request):
     searchType = 'FILTERING'
     return runSampleSearch(request, searchType)
 
-def remote(request):
-    return samples(request)
-
 def _with_names(type_options):
     """The sample type options with each type's curated name (sample_types_context), "" when it has none, for the
     Associated with dropdown's name and code. load_sample_types never raises: without the catalog the names are
@@ -105,7 +114,7 @@ def _with_names(type_options):
     return json.dumps(options, default=str)
 
 
-@requires_seek_login_redirect('/seek/search/')
+@requires_seek_login_redirect()
 def searchAdvanced(request):
     report = {}
     stype = DBtable_sampletype()
@@ -127,10 +136,5 @@ def searchingUIDs(request):
 
 def smartSearch(request):
     if not request.user.is_authenticated:
-        data = {'msg': 'You do not have access to this page', 'status': 0, 'link': ''}
-        return render(request, 'error.html', {'data': data})
+        return login_redirect(request)
     return render(request, "smartSearch.html")
-
-@requires_seek_login_redirect()
-def newSearch(request):
-    return render(request, "newSearch.html")

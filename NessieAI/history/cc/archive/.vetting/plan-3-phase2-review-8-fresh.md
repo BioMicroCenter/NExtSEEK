@@ -4,7 +4,7 @@
 **Reviewer:** Independent adversarial (cold context only)  
 **Target:** `PLAN-3-ui-based-io.md`  
 **Locked spec:** `SPEC-3-ui-based-io.md`  
-**Guide:** `/home/taishajo/AGENTS.md`  
+**Guide:** `/home/<user>/AGENTS.md`  
 **Iter-7 hardening claimed:** zip-if-multiple publish, bundleId reload fix (mode/cc), pytest-cov in harness, Task 10 guard helpers, realstack artifacts update, jsonl retry  
 
 **Live spot-checks (anchors only):** `translate.py:130-156` (no `num_turns`/`duration_ms` yet), `cc_engine.py:573-672` (Dropbox + list return), `cc_config.py:15` (laptop default), `cc_provision.py:60-107` (no `input_mnt`), `models_api.py:122-138` (no `cc_traces`), `assistant.py:521-529` (no `cc_traces`/CC artifacts passthrough), `useChatApi.ts` (no sync session id export), `MessageBubble.tsx:106` (`bundleId!` only), `test_cc_realstack.py:190` (`artifacts_published`), `batch_upload/celery_app.py:50-54` (no upload task import yet).

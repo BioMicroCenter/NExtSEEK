@@ -5,8 +5,11 @@ sample, and anyone else sees the samples whose ``projects_samples`` projects int
 they belong to. Membership is read per request from MySQL, the source of truth, instead of the SEEK
 REST call ``advanced_search`` makes, so no SEEK password is needed.
 
-Membership is ``group_memberships`` joined to ``work_groups``. Former members are included, as SEEK
-REST's ``Person#projects`` does today, so the scope matches ``advanced_search`` exactly.
+Membership is ``group_memberships`` joined to ``work_groups``, and it ends when the person leaves the project: SEEK
+records leaving on the membership as ``time_left_at`` (UTC), and its leaving job sets ``has_left`` once that time has
+passed, so a membership counts while ``has_left`` is unset and ``time_left_at`` is empty or still ahead (SEEK's own
+``GroupMembership#has_left``). SEEK REST's ``Person#projects`` keeps former projects; ``seek.seekdb.SeekDB.getCurrentUser``
+applies ``current_project_ids`` to it, so the REST-based resolvers (``advanced_search`` among them) end on leaving too.
 
 The query builder turns a ``Scope`` into the Cypher clause; nothing else may supply scope.
 
@@ -17,6 +20,7 @@ down, because the engine packages never import this module.
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Optional
 
 from django.conf import settings
@@ -29,8 +33,11 @@ _PERSON_SQL = "SELECT person_id FROM users WHERE login = %s"
 _PROJECTS_SQL = (
     "SELECT DISTINCT wg.project_id FROM group_memberships gm "
     "JOIN work_groups wg ON wg.id = gm.work_group_id "
-    "WHERE gm.person_id = %s ORDER BY wg.project_id"
+    "WHERE gm.person_id = %s AND (gm.has_left IS NULL OR gm.has_left = 0) "
+    "AND (gm.time_left_at IS NULL OR gm.time_left_at > %s) ORDER BY wg.project_id"
 )
+
+_PROJECT_TITLES_SQL = "SELECT id, title FROM projects WHERE id IN ({marks}) ORDER BY title"
 
 
 @dataclass(frozen=True)
@@ -47,6 +54,14 @@ class Scope:
 
 class ScopeUnavailable(Exception):
     """The caller maps to no SEEK person."""
+
+
+def current_project_ids(person_id: int) -> tuple[int, ...]:
+    """The projects SEEK person ``person_id`` belongs to and has not left, ascending. Raises on a read failure."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")  # SEEK stores time_left_at in UTC
+    with connections[settings.SEEK_DATABASE].cursor() as cursor:
+        cursor.execute(_PROJECTS_SQL, [int(person_id), now])
+        return tuple(sorted({int(r[0]) for r in cursor.fetchall() if r[0] is not None}))
 
 
 def resolve_scope(user) -> Scope:
@@ -71,11 +86,7 @@ def resolve_scope(user) -> Scope:
             raise ScopeUnavailable("Cannot determine project scope for this caller")
         person_id = int(row[0])
 
-        cursor.execute(_PROJECTS_SQL, [person_id])
-        project_rows = cursor.fetchall()
-
-    project_ids = tuple(sorted({int(r[0]) for r in project_rows if r[0] is not None}))
-    return Scope(is_admin=False, person_id=person_id, project_ids=project_ids)
+    return Scope(is_admin=False, person_id=person_id, project_ids=current_project_ids(person_id))
 
 
 def plain_scope(user) -> Optional[dict]:
@@ -94,3 +105,38 @@ def plain_scope(user) -> Optional[dict]:
                     "request", type(exc).__name__)
         return None
     return {"is_admin": bool(scope.is_admin), "project_ids": [] if scope.is_admin else list(scope.project_ids)}
+
+
+def caller_block(user) -> Optional[dict]:
+    """The signed-in user's own session as plain data, for the system agent's CALLER block (round 4, U5.1).
+
+    ``{"username", "is_admin", "projects": [{"id", "name"}, ...], "project_count"}``, built only from ``user`` (the
+    request's authenticated account), never from the question. Memberships are read from MySQL for an admin as well
+    as for anyone else (``resolve_scope`` skips the read for an admin because an admin is unscoped; here the
+    question is who the user belongs to). ``projects`` and ``project_count`` are ``None`` when the read failed: the
+    block then says so rather than claiming the user has no projects. ``project_count`` is there so the system
+    agent's number check finds the count it states (review F7). ``None`` when the account has no username.
+    """
+    login = getattr(user, "username", None)
+    if not login:
+        return None
+    block = {"username": str(login), "is_admin": getattr(user, "is_superuser", False) is True, "projects": None,
+             "project_count": None}
+    try:
+        with connections[settings.SEEK_DATABASE].cursor() as cursor:
+            cursor.execute(_PERSON_SQL, [login])
+            row = cursor.fetchone()
+            if row is None or row[0] is None:
+                block["projects"], block["project_count"] = [], 0
+                return block
+            ids = list(current_project_ids(int(row[0])))
+            titles = {}
+            if ids:
+                cursor.execute(_PROJECT_TITLES_SQL.format(marks=", ".join(["%s"] * len(ids))), ids)
+                titles = {int(r[0]): r[1] for r in cursor.fetchall()}
+    except Exception as exc:  # noqa: BLE001 (the block degrades to "unknown", never to a wrong list)
+        log.warning("caller block: project membership could not be read (%s)", type(exc).__name__)
+        return block
+    block["projects"] = [{"id": i, "name": titles.get(i) or f"project {i}"} for i in ids]
+    block["project_count"] = len(ids)
+    return block

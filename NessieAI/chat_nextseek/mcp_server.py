@@ -24,6 +24,7 @@ Register in Claude Desktop ~/.config/claude/claude_desktop_config.json:
 """
 
 import contextlib
+import json
 import sys
 from pathlib import Path
 
@@ -44,7 +45,7 @@ def _quiet_stdout():
     finally:
         sys.stdout = old
 
-from chat_nextseek import graph_catalog, graph_context
+from chat_nextseek import graph_catalog, graph_context, known_titles
 from chat_nextseek.config import ChatConfig
 from chat_nextseek.graph_scope import operator_scope_from_env, with_scope
 from chat_nextseek.session import SessionState
@@ -157,7 +158,8 @@ _CONTEXT_MAP = {
 
 
 def _live_neo4j_schema() -> str | None:
-    """The v1.1 structure and sample type index when the graph catalog is live, else None.
+    """The structure (with the Assay section on a graph at 1.3 or later, ``graph_context.structure_for``) and the
+    sample type index when the graph catalog is live, else None.
 
     The same text the graph agent reads, without the per-question sections. None means the committed
     neo4j_schema.json is served (a graph that is down, or not synced to v1.1).
@@ -166,7 +168,8 @@ def _live_neo4j_schema() -> str | None:
         snapshot = graph_catalog.get_snapshot(_cfg())
     except Exception:  # noqa: BLE001 (any failure serves the committed file)
         return None
-    return graph_context.load_structure() + "\n\n" + graph_context.render_type_index(snapshot.index) + "\n"
+    return (graph_context.structure_for(None, getattr(snapshot, "schema_version", None)) + "\n\n"
+            + graph_context.render_type_index(snapshot.index) + "\n")
 
 
 @mcp.resource("nextseek://context/{name}")
@@ -191,7 +194,9 @@ def context_resource(name: str) -> str:
         if live is not None:
             return live
     path = Path(_cfg().CONTEXT_DIR) / filename
-    return path.read_text()
+    text = path.read_text()
+    # The graph schema is JSON: its titles are filled JSON-escaped, so a title with a quote cannot break it (N4).
+    return known_titles.schema_json(_cfg(), json.loads(text)) if name == "graph-schema" else text
 
 
 # ── Prompts — agent system prompts ────────────────────────────────────────────
@@ -205,13 +210,13 @@ def entity_agent() -> str:
 @mcp.prompt()
 def parser_agent() -> str:
     """Canonical parser prompt used by the standard parser compatibility wrapper."""
-    return _cfg().MULTI_PARSER_SYSTEM_PROMPT
+    return known_titles.fill(_cfg(), _cfg().MULTI_PARSER_SYSTEM_PROMPT)
 
 
 @mcp.prompt()
 def multi_parser_agent() -> str:
     """System prompt for the multi-path parser (all viable execution paths)."""
-    return _cfg().MULTI_PARSER_SYSTEM_PROMPT
+    return known_titles.fill(_cfg(), _cfg().MULTI_PARSER_SYSTEM_PROMPT)
 
 
 @mcp.prompt()

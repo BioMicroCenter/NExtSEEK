@@ -20,7 +20,7 @@ Two distinct shapes are guarded here, and they fail in opposite directions:
 
 import pathlib
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 
@@ -121,11 +121,10 @@ class StaffIsNotAdminForEvaluatorReads(SimpleTestCase):
 
 
 class StaffAdminWideningIsConfinedToCapabilities(SimpleTestCase):
-    """Document where `is_staff or is_superuser` deliberately survives.
+    """Pin that no `is_staff or is_superuser` site is left.
 
-    These are capability toggles and a static catalog, not data scope, so #74/#75
-    do not change them. This test pins the inventory: if a new data-scope site
-    starts accepting is_staff, the count moves and someone has to look.
+    The inventory is empty: every admin test reads is_superuser alone. If a site
+    starts accepting is_staff again, the count moves and someone has to look.
     """
 
     ALLOWED = {
@@ -135,7 +134,8 @@ class StaffAdminWideningIsConfinedToCapabilities(SimpleTestCase):
         # Admin badge AND the Debug panel (PROD toggle, force_route, max-turn-length),
         # and the PROD toggle selects a ChatConfig that authenticates as a superuser
         # service account -- so it was a privilege escalation, not a capability toggle.
-        ("nextseek_api/services/assistant.py", "static test-case catalog"),
+        # The static test-case catalog (assistant/test-cases/) is superuser only
+        # since #64, so it left this inventory too.
     }
 
     def test_known_capability_sites_only(self):
@@ -169,3 +169,44 @@ class StaffAdminWideningIsConfinedToCapabilities(SimpleTestCase):
             "capability toggle, never a data-scope decision — a data-scope site here is "
             f"a #74 regression. Found: {found}",
         )
+
+
+class TestCasesCatalogIsSuperuserOnly(TestCase):
+    """#64: assistant/test-cases/ answers a superuser only, never a staff account."""
+
+    def setUp(self):
+        from unittest.mock import patch
+
+        p = patch("nextseek_api.services.assistant.UserInParticipatingProject.has_permission", return_value=True)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def _get(self, **flags):
+        from django.contrib.auth.models import User
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(user=User.objects.create_user("someone", password="p", **flags))
+        return client.get("/nextseek_api/assistant/test-cases/")
+
+    def test_a_staff_account_is_refused(self):
+        self.assertEqual(self._get(is_staff=True, is_superuser=False).status_code, 403)
+
+    def test_a_superuser_is_answered(self):
+        self.assertEqual(self._get(is_staff=False, is_superuser=True).status_code, 200)
+
+    def test_the_ci_registry_expects_the_sweep_account_to_be_refused(self):
+        """ci/routes.py declares the answer the post-deploy sweep's account, a SEEK login (staff, not a superuser),
+        gets here."""
+        # Loaded by path: a second package named ci (startup/ci) can win `import ci` on a pytest-xdist
+        # worker that ran the startup tests first, and `from ci.routes import ...` then fails.
+        import importlib.util
+        import sys
+        spec = importlib.util.spec_from_file_location("ci_routes_by_path", REPO / "ci" / "routes.py")
+        routes = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = routes
+        spec.loader.exec_module(routes)
+        REGISTRY = routes.REGISTRY
+        entry = next(r for r in REGISTRY if r.path == "/nextseek_api/assistant/test-cases/")
+        refused = self._get(is_staff=True, is_superuser=False).status_code
+        self.assertEqual((entry.auth, entry.expect), ("smoke", refused))

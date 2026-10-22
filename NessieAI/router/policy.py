@@ -20,7 +20,9 @@ this module adds no ORM edge of its own (the ledger write goes through
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
+import re
 
 from chat_nextseek.pipeline import agent as pipeline_agent
 
@@ -106,6 +108,44 @@ def _record_ledger_row(chat_session: ChatSession, decision: cc_router.RouteDecis
         )
 
 
+# How-to rule (round 4, ruling 6; operator 2026-10-13): whether a how-to question belongs to the user docs or to an
+# analysis is the router's intent call, stated in the router.baml how-to paragraph and the container_cc not_for text,
+# not a regex here. Learning to use the site is the docs; finding samples or data is a NExtSEEK search; doing an
+# analysis or applying a method is Container-CC.
+_SUPPLIED_CONTENT = re.compile(
+    r"\t|```|(?:^|\s)(?:/|~/|[A-Za-z]:\\)[\w.\-]+[/\\]|"
+    r"\b[\w\-]+\.(?:xlsx?|csv|tsv|txt|json|docx?|pdf|py|zip|gz|fastq|fq|bam|h5|ya?ml)\b",
+    re.IGNORECASE,
+)
+
+
+# Named-SOP rule (fix round 4.1, ruling 9): the file of ONE SOP named by its id or its exact title is NExtSEEK's sops/
+# download, and Container-CC cannot read that endpoint. A turn the router sent to Container-CC moves to NExtSEEK when it
+# names one SOP (singular, by id, a quoted title or "titled/called/named" title), asks for its file, supplies nothing
+# else and asks for no new file to be made. The id and file-word forms mirror the parser's _SOP_ID and _SOP_FILE_WORD.
+_SOP_ID_REF = re.compile(r"\bsop\s*(?:id\s*)?#?\s*\d+\b", re.IGNORECASE)
+_SOP_TITLE_REF = re.compile(
+    r"\b(?:titled|called|named)\s+[^\n?]*|[\"“][^\"“”\n]+[\"”]|(?<!\w)'[^'\n]+'(?!\w)",
+    re.IGNORECASE)
+_SOP_FILE = re.compile(r"\b(?:download|file|pdf|docx?|document|attachment|copy)\b", re.IGNORECASE)
+# ponytail: a title that holds one of these words keeps the router's choice; parse titles if that ever bites.
+_NEW_FILE = re.compile(
+    r"\b(?:make|create|build|write|draft|generate|convert|merge|combine|compare|summari[sz]e|translate|rewrite|edit|"
+    r"template)\b", re.IGNORECASE)
+
+
+def _is_named_sop_file(query: str | None) -> bool:
+    """True for a request for the file of one SOP named by id or exact title, with nothing supplied or to be made."""
+    q = query or ""
+    rest = _SOP_TITLE_REF.sub(" ", q)  # a named title is neither supplied content nor a second SOP
+    titles = len(_SOP_TITLE_REF.findall(q)) if re.search(r"\b(?:sop|protocol)\b", rest, re.IGNORECASE) else 0
+    if len(_SOP_ID_REF.findall(rest)) + titles != 1 or re.search(r"\b(?:sops|protocols)\b", rest, re.IGNORECASE):
+        return False
+    if not _SOP_FILE.search(q) or _NEW_FILE.search(q):
+        return False
+    return not (_SUPPLIED_CONTENT.search(rest) or len([ln for ln in q.splitlines() if ln.strip()]) > 2)
+
+
 def _decide_route(user, req, *, force_cc: bool, session=None,
                   history: list[router_context.HistoryTurn] | None = None,
                   chat_log: list[dict] | None = None) -> cc_router.RouteDecision:
@@ -139,8 +179,8 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
             forced = None  # non-admins can never force a route
 
     if force_cc or forced == "cc":
-        # CC always runs Opus (the only proxy-allowlisted model); hardcoding
-        # sonnet here would 403 at the Bedrock proxy.
+        # CC runs the map's "opus" class (global Sonnet 5.5 today); hardcoding
+        # sonnet here would pick the wrong model id.
         return cc_router.RouteDecision(
             route=cc_router.ROUTE_CC, model_class="opus",
             model_id=cc_router._resolve_cc_model_id(),
@@ -177,6 +217,12 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
             attempted_route=decision.route,
             attempted_source=decision.source,
             **cc_router.router_record(decision),
+        )
+    if decision.route == cc_router.ROUTE_CC and _is_named_sop_file(req.query):
+        decision = dataclasses.replace(
+            decision, route=cc_router.ROUTE_NS, model_class=None, model_id=None,
+            reasoning=f"named SOP file; router said container_cc ({decision.reasoning})",
+            source="sop_file",
         )
     if (
         session is not None

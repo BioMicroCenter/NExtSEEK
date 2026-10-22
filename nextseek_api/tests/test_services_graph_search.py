@@ -195,10 +195,10 @@ def test_the_viewset_uses_session_then_basic_authentication_and_is_authenticated
     from rest_framework.authentication import BasicAuthentication
     from rest_framework.permissions import IsAuthenticated
 
-    from nextseek_api.authentication import CsrfExemptSessionAuthentication
+    from nextseek_api.authentication import SeekSessionAuthentication
     from nextseek_api.services.graph_search import GraphSearchViewSet
 
-    assert GraphSearchViewSet.authentication_classes == [CsrfExemptSessionAuthentication, BasicAuthentication]
+    assert GraphSearchViewSet.authentication_classes == [SeekSessionAuthentication, BasicAuthentication]
     assert GraphSearchViewSet.permission_classes == [IsAuthenticated]
 
 

@@ -1,0 +1,108 @@
+[
+ {
+  "TERM": "RaDR+/+; GPT+/+",
+  "DEF": "Homozygous for the Rosa26 Direct Repeat (RaDR) recombination reporter and the gpt delta (GPT) point-mutation reporter. Lab short codes: R = RaDR+/+, G = GPT+/+, A = Aag -/-, ATG = AagTg -/+, M = Mgmt-/-.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "RG",
+   "Rosa26 Direct Repeat (RaDR)+/+; guanine phosphoribosyltransferase (GPT)+/+",
+   "RaDR R/R; gpt g/g"
+  ]
+ },
+ {
+  "TERM": "RaDR+/+; GPT+/+; Aag -/-",
+  "DEF": "RaDR and GPT reporters, alkyladenine DNA glycosylase (Aag) knockout.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "RGA"
+  ]
+ },
+ {
+  "TERM": "RaDR+/+; GPT+/+; Mgmt-/-",
+  "DEF": "RaDR and GPT reporters, O6-methylguanine-DNA methyltransferase (Mgmt) knockout.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "RGM"
+  ]
+ },
+ {
+  "TERM": "RaDR+/+; GPT+/+; Aag -/-; Mgmt-/-",
+  "DEF": "RaDR and GPT reporters, Aag and Mgmt double knockout.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "Rosa26 Direct Repeat (RaDR)+/+; guanine phosphoribosyltransferase (GPT)+/+; 3-alkyladenine DNA glycosylase (Aag) -/-; O6-methylguanine-DNA methyltransferase (Mgmt)-/-",
+   "RGAM"
+  ]
+ },
+ {
+  "TERM": "RaDR+/+; GPT+/+; AagTg -/+",
+  "DEF": "RaDR and GPT reporters, hemizygous Aag-overexpressing transgene.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "RGATG"
+  ]
+ },
+ {
+  "TERM": "RaDR+/+",
+  "DEF": "Homozygous RaDR recombination reporter only.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "R"
+  ]
+ },
+ {
+  "TERM": "RaDR+/+; Aag -/-",
+  "DEF": "RaDR reporter, Aag knockout.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "RA"
+  ]
+ },
+ {
+  "TERM": "GPT+/+; Aag -/-",
+  "DEF": "GPT reporter, Aag knockout.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "GA"
+  ]
+ },
+ {
+  "TERM": "Rag1-/-",
+  "DEF": "Recombination activating gene 1 knockout; no mature B or T cells.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "RAG1 KO",
+   "Rag1-null (immunodeficient host)"
+  ]
+ },
+ {
+  "TERM": "CD11a-/-",
+  "DEF": "CD11a (integrin alpha L, Itgal) knockout.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "CD11aKO",
+   "CD11a KO"
+  ]
+ },
+ {
+  "TERM": "Wild type",
+  "DEF": "No engineered allele.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "WT",
+   "wildtype",
+   "wild-type"
+  ]
+ }
+]

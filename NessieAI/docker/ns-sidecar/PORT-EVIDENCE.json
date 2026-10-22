@@ -1,5 +1,5 @@
 {
- "port_source_path": "/home/taishajo/work/dmac-assistant/sidecar",
+ "port_source_path": "<source-checkout>/sidecar",
  "port_source_commit": "a429f1372a075e5db586a1b6efc8c3b1663e211a",
  "port_source_verified_clean_tree": true,
  "generated_at": "2026-07-02T09:54:00Z",
@@ -8,11 +8,7 @@
   "__init__.py",
   "app/__init__.py",
   "app/config.py",
-  "app/exceptions.py",
   "app/healthcheck.py",
-  "app/ns_client.py",
-  "app/server.py",
-  "app/staging.py",
   "app/write_gate.py"
  ],
  "adapted_files": [
@@ -49,18 +45,18 @@
   },
   {
    "path": "app/contract.py",
-   "size_bytes": 7737,
-   "sha256": "bf027c93c5070ecaea5e3df5860909f8803b1bfbc72407abdb641c8661d806d6"
+   "size_bytes": 8802,
+   "sha256": "0e1813d5d5d0c7e5bb74d7a23b83d764f1455f9733db8cff3fa52c8b4e091dd0"
   },
   {
    "path": "app/exceptions.py",
-   "size_bytes": 793,
-   "sha256": "172d216e9c7373a491007c2eb4b39992b863c78f383f8a4cbd07a76a3ec8b0fb"
+   "size_bytes": 1228,
+   "sha256": "ecd217b0a353c1ce400b8bfcad5c76c28485e354f14b05012ec991c6e21c6068"
   },
   {
    "path": "app/granular_models.py",
-   "size_bytes": 10283,
-   "sha256": "2ad5fa6c7b003579294ffa28e3ab21b963b9b7393aff7ce3776c3b38715b4f0c"
+   "size_bytes": 10440,
+   "sha256": "ca8ea3088d607c06b4176609f193da9e3691385f470a2baa1ac3ad804bac55ef"
   },
   {
    "path": "app/healthcheck.py",
@@ -69,23 +65,23 @@
   },
   {
    "path": "app/ns_client.py",
-   "size_bytes": 5030,
-   "sha256": "e565dea4c67bccb1fcccc14356b0c1988b1cd0e4f9f4606e7c06a519b0f59ae5"
+   "size_bytes": 5854,
+   "sha256": "649c36f54f47918fbdd11eb887d9d9919f013d74cb99d4fd7e394ca8a94f3803"
   },
   {
    "path": "app/ops.py",
-   "size_bytes": 11118,
-   "sha256": "ee0cc7acff1c18d84a2ddcc7d337cf5153f935a2b11cce2833cae33149f319c5"
+   "size_bytes": 11468,
+   "sha256": "a8a6efda01f1e28f457adcb0b350d4a2c601a5d80c78334f665906ed68d498d2"
   },
   {
    "path": "app/server.py",
-   "size_bytes": 6026,
-   "sha256": "dd2a9266dba4fb61287c1b18eb1fb639408abedb6dbd3a2fddf69a5113f3c17b"
+   "size_bytes": 6000,
+   "sha256": "f778f274a64e90fef1b7f094515dacccf0ea6be925791562967c8f1d8eda3474"
   },
   {
    "path": "app/staging.py",
-   "size_bytes": 5078,
-   "sha256": "8e967dc65311628794c043fec22bbe03c1a4c98f4836c3e74d73ec54bca6e24b"
+   "size_bytes": 5291,
+   "sha256": "8af94adc7a2c1b452d3f698517a140404a5bd381d639c9be1563e0da32acc168"
   },
   {
    "path": "app/write_gate.py",
@@ -94,8 +90,8 @@
   },
   {
    "path": "Dockerfile",
-   "size_bytes": 1643,
-   "sha256": "862786c54e6960b3d13e23fe95a45431ac8f4feb7b448b4ffea6ee045e1ecf76"
+   "size_bytes": 1622,
+   "sha256": "986c49bf4e35378329567909201a3c340f4ccf1091a0bd246af491a74b4d9bef"
   },
   {
    "path": ".dockerignore",
@@ -183,20 +179,32 @@
  "local_additions_beyond_port_source": [
   {
    "path": "app/contract.py",
-   "addition": "Registered the reingest ops run-ls + build-upload-xlsx + run-harvest + run-checksum (SIDECAR_OPS set, _RunLsArgs / _BuildUploadXlsxArgs / _RunHarvestArgs / _RunChecksumArgs models). NOT present in port_source_commit a429f137; added locally in the NExtSEEK tree for the reingest feature. 2026-09-17 (Task 7, manifest-driven build-upload-xlsx): _BuildUploadXlsxArgs gained optional manifest_id + mode fields alongside the now-optional legacy rows field, mirrored byte-for-byte in the plugin's own _ws_contract.py copy. 2026-09-17 (Task 7 review fix, Important 2): _BuildUploadXlsxArgs gained a model_validator(mode=\"after\") requiring exactly one of manifest_id/rows -- loosening rows to optional had left a well-formed args dict naming neither field passing validation and then KeyError'ing inside ops.py's forwarder (server.py dispatches the raw pre-validation args dict, not this model's own defaults). Mirrored byte-for-byte in _ws_contract.py again. 2026-09-17 (checksum-manifest wiring): _RunChecksumArgs gained an optional manifest_id field, so a caller can fold run-checksum's result into a run-harvest manifest server-side. Mirrored byte-for-byte in _ws_contract.py. 2026-10-01 (upload-reingest op): SIDECAR_OPS gained the write-class upload-reingest op and _UploadReingestArgs (build_ids: str, confirmed_write: bool, strict like ApiWriteArgs). Mirrored byte-for-byte in _ws_contract.py. 2026-09-17: registered graph-schema (SIDECAR_OPS, _GraphSchemaArgs), the read-only live-graph-schema op that replaces the neo4j_schema.json snapshot the cc-agent image used to bake. Also not upstream. 2026-09-18: registered aggregate (SIDECAR_OPS, _AggregateArgs), the read-only counts-and-breakdowns op (plan task 13b.4, decision D8). Also not upstream. 2026-10-19 (run lookup): _RunHarvestArgs.run_dir is optional; absent, NExtSEEK picks the caller's waiting launched run."
+   "addition": "Registered the reingest ops run-ls + build-upload-xlsx + run-harvest + run-checksum (SIDECAR_OPS set, _RunLsArgs / _BuildUploadXlsxArgs / _RunHarvestArgs / _RunChecksumArgs models). NOT present in port_source_commit a429f137; added locally in the NExtSEEK tree for the reingest feature. 2026-09-17 (Task 7, manifest-driven build-upload-xlsx): _BuildUploadXlsxArgs gained optional manifest_id + mode fields alongside the now-optional legacy rows field, mirrored byte-for-byte in the plugin's own _ws_contract.py copy. 2026-09-17 (Task 7 review fix, Important 2): _BuildUploadXlsxArgs gained a model_validator(mode=\"after\") requiring exactly one of manifest_id/rows -- loosening rows to optional had left a well-formed args dict naming neither field passing validation and then KeyError'ing inside ops.py's forwarder (server.py dispatches the raw pre-validation args dict, not this model's own defaults). Mirrored byte-for-byte in _ws_contract.py again. 2026-09-17 (checksum-manifest wiring): _RunChecksumArgs gained an optional manifest_id field, so a caller can fold run-checksum's result into a run-harvest manifest server-side. Mirrored byte-for-byte in _ws_contract.py. 2026-10-01 (upload-reingest op): SIDECAR_OPS gained the write-class upload-reingest op and _UploadReingestArgs (build_ids: str, confirmed_write: bool, strict like ApiWriteArgs). Mirrored byte-for-byte in _ws_contract.py. 2026-09-17: registered graph-schema (SIDECAR_OPS, _GraphSchemaArgs), the read-only live-graph-schema op that replaces the neo4j_schema.json snapshot the cc-agent image used to bake. Also not upstream. 2026-09-18: registered aggregate (SIDECAR_OPS, _AggregateArgs), the read-only counts-and-breakdowns op (plan task 13b.4, decision D8). Also not upstream. 2026-10-19 (run lookup): _RunHarvestArgs.run_dir is optional; absent, NExtSEEK picks the caller's waiting launched run. 2026-10-02 (approach 1, piece 2): contract.py, exceptions.py, ns_client.py, ops.py, server.py and staging.py carry the turn pass instead of the login (the frame's ns_turn, the NextseekTurn header), pass NExtSEEK's op error code, reason and fixed message through, and staging.py names the drop folder after the hash of the pass (ruling R1). Kept one release behind NEXTSEEK_CC_OPS_ROAD, then removed with the sidecar. Pins and inventory updated consciously. 2026-10-08 (round 7 T1): the graph and aggregate forwarders and contract models carry the agent's optional plan (JSON text). Pins and inventory updated consciously."
   },
   {
    "path": "app/ops.py",
-   "addition": "Added the run-ls + build-upload-xlsx + run-harvest + run-checksum forwarders (_run_ls, _build_upload_xlsx, _run_harvest, _run_checksum) that proxy to the NExtSEEK /assistant/run-ls/, /build-upload-xlsx/, /run-harvest/ and /run-checksum/ endpoints. NOT present in port_source_commit a429f137; added locally for the reingest feature. 2026-09-17 (Task 7, manifest-driven build-upload-xlsx): _build_upload_xlsx now forwards manifest_id + mode when the caller sends a manifest_id, else the legacy rows + existing_parent_uids body. 2026-09-17 (Task 7 review fix, Important 2): the legacy-branch body now reads args.get(\"rows\", \"\") instead of args[\"rows\"] -- args is server.py's raw pre-validation dict, so this forwarder must not assume the key is present even though contract.py's model_validator now requires it before dispatch reaches here. 2026-09-17 (checksum-manifest wiring): _run_checksum now forwards manifest_id to the NExtSEEK endpoint when the caller supplied one. 2026-10-01 (upload-reingest op): added the _upload_reingest forwarder, which calls the local write gate under the api-write label (only boolean True confirms) before proxying to /assistant/upload-reingest/, where NExtSEEK gates again. 2026-09-17: added the graph-schema forwarder (_graph_schema) that proxies to the NExtSEEK /assistant/graph-schema/ endpoint. Also not upstream. 2026-09-18: added the aggregate forwarder (_aggregate) that proxies to the NExtSEEK /assistant/aggregate/ endpoint. Also not upstream. 2026-10-02 (artifact filenames): the build-upload-xlsx, report and generate-submission forwarders pass each download artifact's server-sent filename to stage_bytes, so a workbook is staged as reingest_A.ALN.xlsx rather than under its word-only key. 2026-10-19 (run lookup): _run_harvest forwards run_dir only when given."
+   "addition": "Added the run-ls + build-upload-xlsx + run-harvest + run-checksum forwarders (_run_ls, _build_upload_xlsx, _run_harvest, _run_checksum) that proxy to the NExtSEEK /assistant/run-ls/, /build-upload-xlsx/, /run-harvest/ and /run-checksum/ endpoints. NOT present in port_source_commit a429f137; added locally for the reingest feature. 2026-09-17 (Task 7, manifest-driven build-upload-xlsx): _build_upload_xlsx now forwards manifest_id + mode when the caller sends a manifest_id, else the legacy rows + existing_parent_uids body. 2026-09-17 (Task 7 review fix, Important 2): the legacy-branch body now reads args.get(\"rows\", \"\") instead of args[\"rows\"] -- args is server.py's raw pre-validation dict, so this forwarder must not assume the key is present even though contract.py's model_validator now requires it before dispatch reaches here. 2026-09-17 (checksum-manifest wiring): _run_checksum now forwards manifest_id to the NExtSEEK endpoint when the caller supplied one. 2026-10-01 (upload-reingest op): added the _upload_reingest forwarder, which calls the local write gate under the api-write label (only boolean True confirms) before proxying to /assistant/upload-reingest/, where NExtSEEK gates again. 2026-09-17: added the graph-schema forwarder (_graph_schema) that proxies to the NExtSEEK /assistant/graph-schema/ endpoint. Also not upstream. 2026-09-18: added the aggregate forwarder (_aggregate) that proxies to the NExtSEEK /assistant/aggregate/ endpoint. Also not upstream. 2026-10-02 (artifact filenames): the build-upload-xlsx, report and generate-submission forwarders pass each download artifact's server-sent filename to stage_bytes, so a workbook is staged as reingest_A.ALN.xlsx rather than under its word-only key. 2026-10-19 (run lookup): _run_harvest forwards run_dir only when given. 2026-10-02 (approach 1, piece 2): contract.py, exceptions.py, ns_client.py, ops.py, server.py and staging.py carry the turn pass instead of the login (the frame's ns_turn, the NextseekTurn header), pass NExtSEEK's op error code, reason and fixed message through, and staging.py names the drop folder after the hash of the pass (ruling R1). Kept one release behind NEXTSEEK_CC_OPS_ROAD, then removed with the sidecar. Pins and inventory updated consciously. 2026-10-08 (round 7 T1): the graph and aggregate forwarders and contract models carry the agent's optional plan (JSON text). Pins and inventory updated consciously."
   },
   {
    "path": "app/granular_models.py",
-   "addition": "Added RunHarvestRequest and RunChecksumRequest (mirror nextseek_api/assistant/models_api.py's models of the same names). NOT present in port_source_commit a429f137; added locally for the reingest feature. This is a documentation-only local copy -- nothing under docker/ns-sidecar/app/ imports granular_models.py at runtime. 2026-09-17 (checksum-manifest wiring): RunChecksumRequest gained the optional manifest_id field, mirroring models_api.py's RunChecksumRequest. 2026-10-19 (run lookup): RunHarvestRequest.run_dir is optional, as in models_api.py."
+   "addition": "Added RunHarvestRequest and RunChecksumRequest (mirror nextseek_api/assistant/models_api.py's models of the same names). NOT present in port_source_commit a429f137; added locally for the reingest feature. This is a documentation-only local copy -- nothing under docker/ns-sidecar/app/ imports granular_models.py at runtime. 2026-09-17 (checksum-manifest wiring): RunChecksumRequest gained the optional manifest_id field, mirroring models_api.py's RunChecksumRequest. 2026-10-19 (run lookup): RunHarvestRequest.run_dir is optional, as in models_api.py. 2026-09-28 (approach 1, piece 2): granular_models.py's OpErrorResponse documents the optional reason and message fields NExtSEEK now sends. Pins and inventory updated consciously; the same TODO applies. 2026-10-08 (round 7 T1): the graph and aggregate forwarders and contract models carry the agent's optional plan (JSON text). Pins and inventory updated consciously."
+  },
+  {
+   "path": "app/exceptions.py",
+   "addition": "2026-10-02 (approach 1, piece 2): contract.py, exceptions.py, ns_client.py, ops.py, server.py and staging.py carry the turn pass instead of the login (the frame's ns_turn, the NextseekTurn header), pass NExtSEEK's op error code, reason and fixed message through, and staging.py names the drop folder after the hash of the pass (ruling R1). Kept one release behind NEXTSEEK_CC_OPS_ROAD, then removed with the sidecar. Pins and inventory updated consciously."
+  },
+  {
+   "path": "app/ns_client.py",
+   "addition": "2026-10-02 (approach 1, piece 2): contract.py, exceptions.py, ns_client.py, ops.py, server.py and staging.py carry the turn pass instead of the login (the frame's ns_turn, the NextseekTurn header), pass NExtSEEK's op error code, reason and fixed message through, and staging.py names the drop folder after the hash of the pass (ruling R1). Kept one release behind NEXTSEEK_CC_OPS_ROAD, then removed with the sidecar. Pins and inventory updated consciously."
+  },
+  {
+   "path": "app/server.py",
+   "addition": "2026-10-02 (approach 1, piece 2): contract.py, exceptions.py, ns_client.py, ops.py, server.py and staging.py carry the turn pass instead of the login (the frame's ns_turn, the NextseekTurn header), pass NExtSEEK's op error code, reason and fixed message through, and staging.py names the drop folder after the hash of the pass (ruling R1). Kept one release behind NEXTSEEK_CC_OPS_ROAD, then removed with the sidecar. Pins and inventory updated consciously."
   },
   {
    "path": "app/staging.py",
-   "addition": "2026-10-02 (artifact filenames): make_stage_bytes' stage_bytes takes an optional filename and stages under its last path component, falling back to the key. NOT present in port_source_commit a429f137."
+   "addition": "2026-10-02 (artifact filenames): make_stage_bytes' stage_bytes takes an optional filename and stages under its last path component, falling back to the key. NOT present in port_source_commit a429f137. 2026-10-02 (approach 1, piece 2): contract.py, exceptions.py, ns_client.py, ops.py, server.py and staging.py carry the turn pass instead of the login (the frame's ns_turn, the NextseekTurn header), pass NExtSEEK's op error code, reason and fixed message through, and staging.py names the drop folder after the hash of the pass (ruling R1). Kept one release behind NEXTSEEK_CC_OPS_ROAD, then removed with the sidecar. Pins and inventory updated consciously."
   }
  ],
- "notes": "2026-07-22 (dev/v3 reconciliation Wave 5): contract.py + ops.py are NO LONGER byte-identical to port_source_commit a429f137 -- the reingest ops run-ls + build-upload-xlsx were added directly to this NExtSEEK copy rather than upstream-first. Pins + inventory updated consciously per the test_step7_sidecar_port drift-guard contract. 2026-09-16 (Task 9, run-harvest op): contract.py, ops.py AND granular_models.py gained the run-harvest reingest op (SIDECAR_OPS/_RunHarvestArgs, the _run_harvest forwarder, and RunHarvestRequest respectively) -- granular_models.py is consequently removed from byte_identical_files too. Pins + inventory updated consciously again, same contract. 2026-09-16 (Task 10, run-checksum op): contract.py, ops.py AND granular_models.py gained the run-checksum reingest op (SIDECAR_OPS/_RunChecksumArgs, the _run_checksum forwarder, and RunChecksumRequest respectively). Pins + inventory updated consciously again, same contract. 2026-09-17 (Task 7 review fix, Important 2): contract.py's _BuildUploadXlsxArgs gained a model_validator(mode=\"after\") requiring exactly one of manifest_id/rows (loosening rows to optional for the manifest-id path had left an args dict naming neither field passing validation, then KeyError'ing inside ops.py's forwarder, since server.py dispatches the raw pre-validation args dict, not this model's own defaults); ops.py's legacy branch also now reads args.get(\"rows\", \"\") instead of args[\"rows\"] so the forwarder cannot KeyError regardless. Mirrored byte-for-byte in _ws_contract.py. Pins + inventory updated consciously again, same contract. 2026-09-17 (checksum-manifest wiring): contract.py (_RunChecksumArgs) and granular_models.py (RunChecksumRequest) gained an optional manifest_id field, and ops.py's _run_checksum forwarder now passes it through -- lets run-checksum fold its result into a run-harvest manifest server-side and return the new manifest_id, closing the gap where a computed checksum had no way to reach build-upload-xlsx's render. Mirrored byte-for-byte in _ws_contract.py. Pins + inventory updated consciously again, same contract. 2026-10-01 (upload-reingest op): contract.py and ops.py gained the write-class upload-reingest op (SIDECAR_OPS/_UploadReingestArgs and the gated _upload_reingest forwarder). Mirrored byte-for-byte in _ws_contract.py. Pins + inventory updated consciously again, same contract. TODO(taisha): fold the reingest sidecar ops into dmac-assistant upstream, then re-port and restore byte-identity. 2026-09-17 (Nessie master plan 7.3): graph-schema was added to contract.py and ops.py the same way, so the CC agent reads the deployed graph's schema instead of a snapshot baked into its image. Pins and inventory updated consciously; the same TODO applies. 2026-09-18 (plan task 13b.4, decision D8): aggregate was added to contract.py and ops.py the same way; ns_client.py is unchanged (the op answers inside its 60 s). Pins and inventory updated consciously; the same TODO applies."
+ "notes": "2026-07-22 (dev/v3 reconciliation Wave 5): contract.py + ops.py are NO LONGER byte-identical to port_source_commit a429f137 -- the reingest ops run-ls + build-upload-xlsx were added directly to this NExtSEEK copy rather than upstream-first. Pins + inventory updated consciously per the test_step7_sidecar_port drift-guard contract. 2026-09-16 (Task 9, run-harvest op): contract.py, ops.py AND granular_models.py gained the run-harvest reingest op (SIDECAR_OPS/_RunHarvestArgs, the _run_harvest forwarder, and RunHarvestRequest respectively) -- granular_models.py is consequently removed from byte_identical_files too. Pins + inventory updated consciously again, same contract. 2026-09-16 (Task 10, run-checksum op): contract.py, ops.py AND granular_models.py gained the run-checksum reingest op (SIDECAR_OPS/_RunChecksumArgs, the _run_checksum forwarder, and RunChecksumRequest respectively). Pins + inventory updated consciously again, same contract. 2026-09-17 (Task 7 review fix, Important 2): contract.py's _BuildUploadXlsxArgs gained a model_validator(mode=\"after\") requiring exactly one of manifest_id/rows (loosening rows to optional for the manifest-id path had left an args dict naming neither field passing validation, then KeyError'ing inside ops.py's forwarder, since server.py dispatches the raw pre-validation args dict, not this model's own defaults); ops.py's legacy branch also now reads args.get(\"rows\", \"\") instead of args[\"rows\"] so the forwarder cannot KeyError regardless. Mirrored byte-for-byte in _ws_contract.py. Pins + inventory updated consciously again, same contract. 2026-09-17 (checksum-manifest wiring): contract.py (_RunChecksumArgs) and granular_models.py (RunChecksumRequest) gained an optional manifest_id field, and ops.py's _run_checksum forwarder now passes it through -- lets run-checksum fold its result into a run-harvest manifest server-side and return the new manifest_id, closing the gap where a computed checksum had no way to reach build-upload-xlsx's render. Mirrored byte-for-byte in _ws_contract.py. Pins + inventory updated consciously again, same contract. 2026-10-01 (upload-reingest op): contract.py and ops.py gained the write-class upload-reingest op (SIDECAR_OPS/_UploadReingestArgs and the gated _upload_reingest forwarder). Mirrored byte-for-byte in _ws_contract.py. Pins + inventory updated consciously again, same contract. TODO(taisha): fold the reingest sidecar ops into dmac-assistant upstream, then re-port and restore byte-identity. 2026-09-17 (Nessie master plan 7.3): graph-schema was added to contract.py and ops.py the same way, so the CC agent reads the deployed graph's schema instead of a snapshot baked into its image. Pins and inventory updated consciously; the same TODO applies. 2026-09-18 (plan task 13b.4, decision D8): aggregate was added to contract.py and ops.py the same way; ns_client.py is unchanged (the op answers inside its 60 s). Pins and inventory updated consciously; the same TODO applies. 2026-09-28 (approach 1, piece 2): granular_models.py's OpErrorResponse documents the optional reason and message fields NExtSEEK now sends. Pins and inventory updated consciously; the same TODO applies. 2026-10-02 (approach 1, piece 2): contract.py, exceptions.py, ns_client.py, ops.py, server.py and staging.py carry the turn pass instead of the login (the frame's ns_turn, the NextseekTurn header), pass NExtSEEK's op error code, reason and fixed message through, and staging.py names the drop folder after the hash of the pass (ruling R1). Kept one release behind NEXTSEEK_CC_OPS_ROAD, then removed with the sidecar. Pins and inventory updated consciously. 2026-10-15 (code modernization W7-B): the Dockerfile takes uv from a pinned image (COPY --from=ghcr.io/astral-sh/uv:0.12.8) instead of piping the installer into a shell; no sidecar logic, pins, user, WORKDIR/PYTHONPATH or CMD changed. 2026-10-22 (reingest integration merged dev): the reingest forwarders (run-harvest, run-checksum, upload-reingest) carry the turn pass like every other op. Pins and inventory updated consciously."
 }

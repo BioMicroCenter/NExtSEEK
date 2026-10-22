@@ -11,7 +11,8 @@ with the operator. Two places use it.
   reply with ``model_unavailable_reply`` and emit ``query_error`` with
   ``reason = MODEL_UNAVAILABLE_REASON``; the raw provider message goes to the event's
   ``detail``, the debug payload's ``fatal_error`` and the chat log's ``error``, never to
-  the reply. A fatal error that is not unavailability (a bare 400) keeps its old reply.
+  the reply. An over-limit input ("Input is too long") gets ``INPUT_TOO_LONG_REPLY`` the same
+  way, with ``reason = INPUT_TOO_LONG_REASON``. Any other fatal error (a bare 400) keeps its old reply.
   Since 2026-09-28 (D2) every double failure ends this way, both models timing out
   included, except where real work already answers part of the question: the chatter's
   unformatted answer, the follow-up's partial answer (ending with
@@ -55,6 +56,21 @@ FOLLOWUP_MODEL_OUTAGE_PARTIAL = (
 )
 
 
+#: ``query_error`` data ``reason`` for a turn whose model input was over the provider's limit.
+INPUT_TOO_LONG_REASON = "input_too_long"
+
+#: A model was handed more than its input limit (prod 10-14: a GEO package over 1,641 mice sent all their metadata
+#: to the report writer, and Bedrock answered "Input is too long for requested model").
+INPUT_TOO_LONG_REPLY = (
+    "This request was too large for me to finish in one go. Please narrow it, for example to one study or "
+    "project, and ask again."
+)
+
+#: Provider messages for an over-limit input (Bedrock, Anthropic, Gemini).
+_TOO_LONG_MARKERS = ("input is too long", "prompt is too long", "exceeds the maximum number of tokens",
+                     "maximum context length")
+
+
 def model_unavailable_reply(fatal: BaseException) -> str | None:
     """The reply for a fatal model failure that was unavailability, or None when it was not."""
     if not getattr(fatal, "unavailable", False):
@@ -72,6 +88,9 @@ def fatal_query_error(fatal: BaseException, *, agent: str | None) -> tuple[str |
     else: ``(None, {"error": raw message, "agent", "fatal": True})``, the event as it was.
     """
     message = str(fatal)
+    if any(marker in message.lower() for marker in _TOO_LONG_MARKERS):
+        return INPUT_TOO_LONG_REPLY, {"error": INPUT_TOO_LONG_REPLY, "reason": INPUT_TOO_LONG_REASON,
+                                      "detail": message, "agent": agent, "fatal": True}
     reply = model_unavailable_reply(fatal)
     if reply is None:
         return None, {"error": message, "agent": agent, "fatal": True}

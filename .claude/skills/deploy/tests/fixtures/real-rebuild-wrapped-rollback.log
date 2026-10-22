@@ -1,0 +1,12 @@
+       Disk /var/lib/docker: 268.4 GB total, 63.9 GB free
+       Floor for profile 'dev': 20 GB
+       ✓ 63.9 GB free, at or above the 20 GB floor
+╭────────────────────────────────────────────────╮
+│ Rebuilding bedrock-proxy for instance NExtSEEK │
+╰────────────────────────────────────────────────╯
+
+       ✓ rollback tag verified: 
+nextseek-bedrock-proxy:pre-20261015T122302-befd5eb4 
+(sha256:897a9ccd0724b9476586da2415940b3799c7da928115893c3d7959f4d6719f10)
+
+

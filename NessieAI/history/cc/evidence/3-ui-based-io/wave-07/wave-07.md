@@ -7,7 +7,7 @@
 ## Reproduction
 
 ```bash
-cd /home/taishajo/work/NExtSEEK/chat_frontend
+cd /home/<user>/work/NExtSEEK/chat_frontend
 npm ci
 npm run test
 ```

@@ -25,6 +25,22 @@ def _check(result: subprocess.CompletedProcess[Any], context: str) -> None:
         raise DockerOpsError(f"{context} failed (exit {result.returncode}): {stderr.strip() or stdout.strip()}")
 
 
+def _redacted(command: Sequence[str]) -> str:
+    """The command for an error message, with a -p<password> or -p <password> masked.
+
+    Install's database steps log in with the box's kept passwords (#103), and a
+    failure's message reaches the operator's terminal.
+    """
+    out: list[str] = []
+    for i, arg in enumerate(command):
+        if i and command[i - 1] == "-p":
+            arg = "***"
+        elif arg.startswith("-p") and len(arg) > 2:
+            arg = "-p***"
+        out.append(arg)
+    return " ".join(out)
+
+
 def compose_up(
     services: Sequence[str],
     project_dir: str | Path,
@@ -125,7 +141,7 @@ def compose_exec(
             capture_output=True,
             input=stdin,
         )
-    _check(result, f"docker compose exec {service} {' '.join(command)}")
+    _check(result, f"docker compose exec {service} {_redacted(command)}")
     return result.stdout if isinstance(result.stdout, str) else result.stdout.decode()
 
 
@@ -247,6 +263,27 @@ def volume_create(name: str) -> None:
         text=True,
     )
     _check(result, f"docker volume create {name}")
+
+
+def volume_users(name: str) -> list[str]:
+    """Names of the containers (running or stopped) that mount volume `name`."""
+    result = subprocess.run(
+        ["docker", "ps", "-a", "--filter", f"volume={name}", "--format", "{{.Names}}"],
+        capture_output=True,
+        text=True,
+    )
+    _check(result, f"docker ps --filter volume={name}")
+    return result.stdout.split()
+
+
+def volume_remove(name: str) -> None:
+    """Remove a docker volume by name."""
+    result = subprocess.run(
+        ["docker", "volume", "rm", name],
+        capture_output=True,
+        text=True,
+    )
+    _check(result, f"docker volume rm {name}")
 
 
 def bootstrap_staging_dir(volume_name: str, *, uid: int = 1001) -> None:

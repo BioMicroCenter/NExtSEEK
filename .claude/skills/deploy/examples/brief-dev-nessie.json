@@ -1,0 +1,21 @@
+{
+  "instance": "dev",
+  "expected_sha": "926be1e3",
+  "parent": "SUPERVISOR-GFxRR",
+  "change": "Rebuild 1: the follow-up split routing, Container-CC reading staged files, the graph reviewer (runs on every graph turn), samples/retrieve. App only; the cc-agent and sidecar are current.",
+  "images": ["app"],
+  "live_markers": [
+    {"pattern": "graph_review", "file": "/app/NessieAI/chat_nextseek/src/chat_nextseek/orchestrator.py", "proves": "the reviewer is wired into the running orchestrator"}
+  ],
+  "ci": true,
+  "nessie": {
+    "cases": [
+      {"file": "<reports_dir>/dev-launch-20260925-0921/local/launch-20260925-0921-cases-1.json", "cc_turns_estimate": 9},
+      {"file": "<reports_dir>/dev-launch-20260925-0921/local/launch-20260925-0921-cases-2.json", "cc_turns_estimate": 3}
+    ]
+  },
+  "paid": {"approved": true, "budget_usd": 10, "approved_by": "operator in the supervisor chat, 2026-09-25: 'yes, run both probes, up to $10'"},
+  "allowed_extras": ["seek restart ok"],
+  "ruled_out": ["any database write, including the rename --apply"],
+  "tag": "20260925-1300"
+}

@@ -51,16 +51,15 @@ from ci.smoke.test_reachability import _callable_routes
 # moves, and the COMPLETENESS GATE (ci/gate/test_route_registry.py) is the
 # authority on what the right number is: it diffs the registry against the live
 # resolver. This constant only stops the registry drifting silently between gate
-# runs, which happen in a different environment. 176 -> 183 when
+# runs, which happen in a different environment. 177 -> 184 when
 # feat/nfcore-reingest-integration merged dev: its seven routes (the four
 # /nextseek_api/reingest-proposals/ routes and /nextseek_api/assistant/ run-harvest,
-# run-checksum and upload-reingest) were absent from dev's 176, and the number
-# was read off a run of this test against the merged registry, not hand-counted.
-OWNED_ROUTE_COUNT = 183
+# run-checksum and upload-reingest) were absent from dev's 177.
+OWNED_ROUTE_COUNT = 184
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
-# static asset and the Django admin login page.
-NON_RESOLVER_COUNT = 2
+# static asset, the Django admin login page and the retired /seek/newsearch/ (404).
+NON_RESOLVER_COUNT = 3
 
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
@@ -74,10 +73,16 @@ def test_no_pattern_is_declared_twice():
     _check_unique_patterns(REGISTRY)
 
 
-def test_exactly_one_route_may_send_a_non_get_under_prod():
-    """Authenticating is a precondition of a read-only sweep. Nothing else qualifies."""
+def test_only_the_named_routes_may_send_a_non_get_under_prod():
+    """Authenticating is a precondition of a read-only sweep. The two member-scope probes
+    (ci/smoke/test_member_scope.py) are the only other holes, and each answers before it can write
+    or start a turn: validate with no rows or files, the forced-CC turn at its superuser check."""
     allowed = [r for r in REGISTRY if r.prod_allows_non_get]
-    assert [r.pattern for r in allowed] == [r"^login"], (
+    assert sorted(r.pattern for r in allowed) == sorted([
+        r"^login/?$",
+        r"^nextseek_api/^^batch-upload/validate/$",
+        r"^nextseek_api/^^cc-assistant/cc/query/async/$",
+    ]), (
         "prod_allows_non_get is the single hole in the read-only guarantee. "
         f"Found: {[r.pattern for r in allowed]}"
     )
@@ -261,9 +266,16 @@ def test_an_enabled_route_is_requestable_and_an_excluded_one_is_not():
 
 def test_an_excluded_route_has_no_requestable_path():
     """Belt and braces on top of the client-side guard: a consumer that iterates
-    the registry building URLs cannot even form one for an excluded route."""
+    the registry building URLs cannot even form one for an excluded route.
+
+    The one exception is a paid route that carries a free refusal probe (ci/smoke/test_member_scope.py):
+    it keeps its exclude code, so the Nessie lane's browser still blocks it, and it sends POST only,
+    so the GET sweep never builds a URL for it.
+    """
     for route in REGISTRY:
-        if route.exclude:
+        if route.exclude and route.profiles:
+            assert route.exclude == "EXCLUDE_COST" and route.methods == ("POST",), route.pattern
+        elif route.exclude:
             assert route.path is None, (
                 f"{route.pattern} is excluded but still carries path {route.path!r}"
             )
@@ -469,11 +481,14 @@ def test_exactly_one_route_is_sent_by_a_lane_and_it_is_the_chat_turn():
     assert lane_routes("nessie") == tagged
 
 
-def test_a_lane_route_stays_out_of_reach_of_the_sweep_and_the_guard():
-    """The lane's browser sends this route; T0 and GuardedSession never do."""
+def test_a_lane_route_stays_out_of_reach_of_the_sweep_and_prod():
+    """The lane's browser sends this route. T0 never does (POST only), and the guard lets the
+    member-scope probes through under local and dev, never under prod: a broken check there
+    would start a paid turn."""
     for route in REGISTRY:
         if route.lane:
-            assert route.path is None and not route.profiles
+            assert "GET" not in route.methods
+            assert "prod" not in route.profiles and not route.prod_allows_non_get
             assert route.exclude == "EXCLUDE_COST"
 
 

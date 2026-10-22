@@ -66,7 +66,7 @@ def emit_cypher(spec: dict) -> str:
     """The read-only batch, in the probe's own order, one labelled statement per case.
 
     Comments are Cypher's `//`: cypher-shell rejects a `--` line outright, which is how the
-    first run on fairdata-dev (2026-09-22) produced four lines of error and no numbers. Each
+    first run on the dev box (2026-09-22) produced four lines of error and no numbers. Each
     case also opens with `RETURN '<case_id>' AS case`, so the output labels its own numbers
     instead of relying on statement order.
     """

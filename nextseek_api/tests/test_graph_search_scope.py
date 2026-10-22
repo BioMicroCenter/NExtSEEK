@@ -5,6 +5,7 @@ test patches that connection, so no database is touched.
 """
 
 import dataclasses
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -64,26 +65,29 @@ def test_known_login_returns_sorted_project_ids(mock_connections):
     assert scope == Scope(is_admin=False, person_id=145, project_ids=(2, 7, 16))
     assert isinstance(scope.project_ids, tuple)
     mock_connections.__getitem__.assert_called_with("seek")
-    login_sql, project_sql = _sql_calls(cursor)
+    login_sql, (project_sql, project_params) = _sql_calls(cursor)
     assert login_sql == ("SELECT person_id FROM users WHERE login = %s", ["tcgamember"])
     assert project_sql == (
         "SELECT DISTINCT wg.project_id FROM group_memberships gm "
         "JOIN work_groups wg ON wg.id = gm.work_group_id "
-        "WHERE gm.person_id = %s ORDER BY wg.project_id",
-        [145],
+        "WHERE gm.person_id = %s AND (gm.has_left IS NULL OR gm.has_left = 0) "
+        "AND (gm.time_left_at IS NULL OR gm.time_left_at > %s) ORDER BY wg.project_id"
     )
+    assert project_params[0] == 145
+    assert re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d", project_params[1])  # now, in UTC
 
 
 @patch("nextseek_api.graph_search.scope.connections")
-def test_former_members_are_not_filtered_out(mock_connections):
+def test_a_membership_the_person_has_left_is_filtered_out(mock_connections):
+    """Leaving a project ends read scope for it (test_scope_ends_on_leaving.py runs the statement on SQLite)."""
     cursor = _cursor((145,), [(3,)])
     _wire(mock_connections, cursor)
 
     resolve_scope(_user("tcgamember"))
 
     _, (project_sql, _params) = _sql_calls(cursor)
-    assert "has_left" not in project_sql
-    assert "time_left_at" not in project_sql
+    assert "has_left" in project_sql
+    assert "time_left_at" in project_sql
 
 
 @patch("nextseek_api.graph_search.scope.connections")

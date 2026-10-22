@@ -1,4 +1,4 @@
-# themes/ and templates/ — what will bite you
+# themes/ — what will bite you
 
 ## Invariants
 
@@ -10,9 +10,8 @@
   renders it.
 - `{% block title %}` in this theme fills the HTML `<title>` element
   (`themes/NextSeek/templates/base.html:7`), which inverts the upstream
-  Mezzanine convention preserved at `templates/base.html:10` where `meta_title`
-  is the document title and `title` is the page `<h1>`
-  (`templates/base.html:87`); a child template written to the upstream
+  Mezzanine convention (the package's own `base.html`) where `meta_title`
+  is the document title and `title` is the page `<h1>`; a child template written to the upstream
   convention loses its document title silently, since Django discards an
   override of a block the parent does not define.
 - The sidebar reverses nothing: grepping for the string `{% url` in
@@ -30,10 +29,9 @@
   (`seek/tests/test_admin_template_gating.py:29`).
 - The sign-out link resolves through the URL *name* `logout`
   (`themes/NextSeek/templates/accounts/includes/user_panel.html:38`), which
-  belongs to Mezzanine's accounts URLconf and not to this project's own
-  `logout_seek` pattern (`dmac/urls.py:23`); repointing that single tag at
-  `logout_seek` would send every signed-in user through the project view for
-  the first time, so treat it as a routing change, not a template tidy-up.
+  is Mezzanine's logout view, registered by name in `dmac/urls.py` above the
+  404 route that shadows the rest of Mezzanine's account pages; it is the only
+  sign-out the site has.
 - Multi-line commentary in these templates must use `{% comment %}`, because
   Django's `{# #}` form is single-line and a multi-line one renders as visible
   page text — the reason is written into the template itself
@@ -73,39 +71,13 @@
   (`docker/scripts/entrypoint.sh:13`). Editing CSS without restarting the
   container leaves the old file in the volume and looks exactly like a caching
   problem.
-- The entire repo-root `templates/` directory is inert. Resolving every one of
-  its 81 filenames through the real Django loader on 2026-09-03 put 0 of them in
-  that directory, so a fix applied to `templates/accounts/includes/user_panel.html`
-  or `templates/base.html:101` changes nothing; the live copies are under
-  `themes/NextSeek/templates/`.
-- Two of this theme's own twelve templates are equally inert, so time spent
-  restyling either is wasted. `content.embed.html` is a superseded home
-  fragment: grepping `content.embed` across every `.py` and `.html` file in the
-  worktree outside the vendored `static/` trees matches no `{% extends %}`, no
-  `{% include %}` and no render call, and matches nothing else either. Its one
-  button calls `homeNavUID()`
-  (`themes/NextSeek/templates/content.embed.html:144`), a name that grepping
-  `homeNavUID` across every `.js`, `.html` and `.py` file in the worktree
-  matches on that one line alone, so the handler has no definition at all.
-- The other inert one is `pages/menus/tree.html`, entered only by a
+- One of this theme's templates is inert, so time spent restyling it is
+  wasted (the other, `content.embed.html`, was deleted on 2026-10-01). It is `pages/menus/tree.html`, entered only by a
   `{% page_menu %}` tag, and no such tag survives in the live chrome: grepping
   `page_menu` across `themes/NextSeek/templates/` and `seek/templates/` finds
   it in that file's own recursive self-call and nowhere else
   (`themes/NextSeek/templates/pages/menus/tree.html:20`), so an edit here
   reaches no page.
-- The theme's dead `content.embed.html` also shadows the live-looking
-  `seek/templates/content.embed.html:2`, so wiring up an include of that name
-  gets the theme's copy, not the `seek` file you were reading.
-- Two template names this project renders exist in no directory on the search
-  path, verified on 2026-09-03 by calling `get_template` on all 30 rendered
-  names swept out of the tree: `dmac/views.py:214` and `dmac/views.py:255` both
-  raise `TemplateDoesNotExist`. Adding a file of either name here would quietly
-  turn two dead code paths back on.
-- `themes/media/` sits on no path Django serves: `STATICFILES_DIRS` names only
-  the theme's own static dir and the repo-root one (`dmac/settings.py:88-91`),
-  and `MEDIA_ROOT` is the container path `/media` (`dmac/settings.py:95`). A
-  `{% static %}` or media URL aimed at one of its 8 logo files therefore
-  renders a broken image instead of failing loudly.
 
 ## Test command
 
@@ -129,6 +101,6 @@ under pytest on its own. See `themes/README.md` for why the anonymous
   `themes/NextSeek/templates/accounts/includes/user_panel.html:38` reverses.
 - See `NessieAI/chat_frontend/README.md` for the React panel, which this tree neither
   loads nor styles.
-- See `docs/UI.md` for the page-by-page route and view map, a dated snapshot to
-  check against the tree.
+- See `docs/ui/README.md` for the UI guide: the page-by-page route and view map is
+  `docs/ui/pages.md`, and every open UI problem is in `docs/ui/known-issues.md`.
 - See `DEPLOYMENT.md` for what a rebuild does and does not replace.

@@ -250,3 +250,31 @@ def test_the_report_lock_holds_across_processes(monkeypatch, tmp_path):
         holder.kill()
         holder.wait()
     assert execute_report_code("result = {'n': 1}", SAMPLE_DATA) == {"n": 1}, "free again once the holder is gone"
+
+
+def test_harmless_string_methods_run():
+    """Prod 10-14 (task 39a967f9): the coder's code used str.rsplit and the sandbox refused it, so a 1,641-sample GEO
+    package fell back to the all-metadata report writer and overflowed its input. Splitting, partitioning and
+    prefix-trimming methods read a string and return new values; none reaches I/O, an import or a dunder."""
+    code = (
+        "rows = []\n"
+        "for group in data['data']['data']:\n"
+        "    for s in group.get('samples', []):\n"
+        "        uid = (s.get('metadata') or {}).get('UID') or ''\n"
+        "        head, _, tail = uid.rpartition('-')\n"
+        "        kind, sep, rest = uid.partition('-')\n"
+        "        rows.append({'run': uid.rsplit('-', 1)[-1], 'head': head, 'kind': kind,\n"
+        "                     'bare': uid.removeprefix('D.').removesuffix('-1'),\n"
+        "                     'lines': len('a\\nb'.splitlines()), 'title': kind.casefold().capitalize()})\n"
+        "rows.reverse()\n"
+        "result = {'samples': rows}\n"
+    )
+    out = execute_report_code(code, SAMPLE_DATA)
+    assert out["samples"][-1] == {"run": "1", "head": "D.SEQ", "kind": "D.SEQ", "bare": "SEQ",
+                                 "lines": 2, "title": "D.seq"}
+
+
+def test_str_format_stays_blocked():
+    # A format string can walk attributes ("{0.__class__}"), so format and format_map are not harmless.
+    with pytest.raises(ReportCodeSafetyError):
+        execute_report_code("result = {'x': '{0}'.format(data)}", SAMPLE_DATA)

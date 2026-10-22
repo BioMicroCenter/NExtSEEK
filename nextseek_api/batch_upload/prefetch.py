@@ -145,7 +145,7 @@ def prefetch_project_sample_type_links(
         _PROJECT_SAMPLE_TYPE_LINKED.setdefault(project_id, set()).update(all_linked)
 
 
-def resolve_sample_type_id(title: str, project_id: Optional[int], conn: Connection) -> int:
+def resolve_sample_type_id(title: str, conn: Connection) -> int:
     """Resolve a sample type title to its ID, with cache lookup and fallback query.
 
     Raises ValueError if the sample type is not found.

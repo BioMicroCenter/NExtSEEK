@@ -13,8 +13,6 @@ router = DefaultRouter()
 # Register all ViewSets created in Phase 3:
 # Existing tree/legacy endpoints remain 
 router.register(r"sample-tree", views.SampleTreeViewSet, basename="sample-tree")
-# router.register(r"nhp", views.NHPViewSet, basename="nhp")
-# router.register(r"sample-queries", views.SampleQueryViewSet, basename="sample-queries")
 # Deprecated alias of samples/retrieve/ (one handler); kept for saved chats, cached pages and outside scripts.
 router.register(r"admin/samples", views.AdminSampleViewSet, basename="admin-samples")
 # Publishes one `status` action and no list route, so the API root does not advertise it.
@@ -29,6 +27,7 @@ router.register(r"studies", views.StudyViewSet, basename="studies")
 router.register(r"attributes", views.AttributeViewSet, basename="attribute")
 router.register(r"assay-registrations", views.AssayRegistrationViewSet,
                 basename="assay-registrations")
+router.register(r"sample-shares", views.SampleShareViewSet, basename="sample-shares")
 router.register(r"assays", views.AssayViewSet, basename="assays")
 router.register(r"sample_types/connections", views.SampleTypeConnectionsViewSet, basename="sampletype-connections")
 router.register(r"sample_types", views.SampleTypeViewSet, basename="sample_types")
@@ -69,15 +68,15 @@ urlpatterns = [
     #     user at login -- it is IsAuthenticated under a misleading name (#74, #75).
     #   * IsSuperUser would over-gate: this is the working reference for legitimate
     #     token-holding API consumers, and it describes endpoints, it returns no
-    #     records. docs/endpoint-authorization-register.md buckets all three as
-    #     "public-to-authenticated".
+    #     records. docs/endpoint-authorization-register.md files all three under
+    #     bucket 3 (correct as it is).
     # Authentication is untouched: SERVE_AUTHENTICATION is unset, so the views fall
-    # back to DEFAULT_AUTHENTICATION_CLASSES (Token, Session, Basic).
+    # back to DEFAULT_AUTHENTICATION_CLASSES (the turn pass, Token, Session, Basic).
     re_path(r'^schema/$', SpectacularAPIView.as_view(permission_classes=[IsAuthenticated]), name='schema'),
     # template_name overrides drf-spectacular's default to add the effective-identity
     # banner (#119). Swagger's Authorize button is silently ignored whenever the browser
     # holds a NExtSEEK session cookie, because DRF stops at the first authenticator that
-    # succeeds and CsrfExemptSessionAuthentication sits above BasicAuthentication. The
+    # succeeds and SeekSessionAuthentication sits above BasicAuthentication. The
     # banner states who the requests will ACTUALLY run as, so a mismatch is visible
     # instead of being discovered by mis-diagnosing an authorization gap.
     re_path(r'^swagger/$', SpectacularSwaggerView.as_view(

@@ -18,6 +18,8 @@ Spend is summed from USAGE, never by counting ledger records:
   never seen; a connection error may have reached the provider; an exception that is not
   an ``LLMError`` at all (a raw ``ClientError``, a bug in a client) says nothing about
   whether the call ran. Each is an unobserved call and makes the turn's cost partial;
+  a timed-out call whose prompt size is known is priced at its prompt's input cost and the
+  turn says ``cost_estimated``; without a prompt size it stays unobserved;
 * a 5xx, a 429, a refused model (``LLMModelUnusableError``) and a 400 are not billed:
   nothing is recorded;
 * a model with no price is named in ``unpriced_models`` and makes the cost partial.
@@ -74,6 +76,23 @@ def _has_counts(usage: dict | None) -> bool:
     )
 
 
+def _estimate(model: str | None, prompt_chars: Any) -> dict | None:
+    """A timed-out call's price: its prompt at the model's input rate, 4 characters a token. None when the prompt
+    size is unknown or the model has no price. ponytail: characters / 4 and input only; a tokenizer per provider,
+    or output at the agent's median, if estimates must be closer than about 15%."""
+    if not isinstance(prompt_chars, int) or isinstance(prompt_chars, bool) or prompt_chars <= 0 or not model:
+        return None
+    tokens = max(1, prompt_chars // 4)  # never priced at zero
+    try:
+        priced = model_prices.call_cost(model, {"prompt_tokens": tokens, "completion_tokens": 0},
+                                        on=model_prices.today())
+    except Exception:  # a missing or malformed table: no estimate, the call stays unobserved
+        return None
+    if priced.cost_usd is None:
+        return None
+    return {"cost_usd": priced.cost_usd, "prompt_tokens_est": tokens}
+
+
 class TurnSpend:
     """The model calls of one turn, as the ledger saw them."""
 
@@ -81,6 +100,7 @@ class TurnSpend:
         self._lock = threading.Lock()
         self.calls: list[dict[str, Any]] = []
         self.unobserved: list[dict[str, Any]] = []
+        self.estimated: list[dict[str, Any]] = []
         self.fallbacks: list[dict[str, Any]] = []
         self.answered: list[str] = []
 
@@ -102,7 +122,12 @@ class TurnSpend:
                 self.fallbacks.append(item)
             if resp is None:
                 if isinstance(err, LLMTimeoutError):
-                    self.unobserved.append({**who, "why": "timed out: abandoned while it may still be billed"})
+                    estimate = _estimate(model, entry.get("prompt_chars"))
+                    if estimate is not None:
+                        self.estimated.append({**who, **estimate,
+                                               "why": "timed out: its prompt priced at the model's input rate"})
+                    else:
+                        self.unobserved.append({**who, "why": "timed out: abandoned while it may still be billed"})
                 elif isinstance(err, LLMAPIConnectionError):
                     self.unobserved.append({**who, "why": "connection error: whether it was billed is unknown"})
                 elif err is not None and not isinstance(err, LLMError):
@@ -126,18 +151,47 @@ class TurnSpend:
                 row.update(billed={}, cost_usd=None, unpriced=f"price table: {type(exc).__name__}")
             self.calls.append(row)
 
+    def absorb(self, other: "TurnSpend | None", *, finished: bool = True) -> None:
+        """Take another collector's calls as this turn's own: the vocabulary pre-run's, which ran on a pool thread
+        before this turn's collector existed (``chat_nextseek/vocabulary.take``). Not ``finished``: its calls were
+        not all seen, so this turn's cost becomes partial rather than too low."""
+        if not finished:
+            with self._lock:
+                self.unobserved.append({"agent": "entity", "provider": None, "model": None, "attempt": None,
+                                        "outcome": None,
+                                        "why": "the vocabulary pre-run had not finished: its spend was not seen"})
+            return
+        if other is None or other is self:
+            return
+        with other._lock:
+            calls = [dict(c) for c in other.calls]
+            unobserved = [dict(u) for u in other.unobserved]
+            estimated = [dict(e) for e in other.estimated]
+            fallbacks = [dict(f) for f in other.fallbacks]
+            answered = list(other.answered)
+        with self._lock:
+            self.calls.extend(calls)
+            self.unobserved.extend(unobserved)
+            self.estimated.extend(estimated)
+            self.fallbacks.extend(fallbacks)
+            for model in answered:
+                if model not in self.answered:
+                    self.answered.append(model)
+
     def summary(self) -> dict[str, Any]:
         """The turn record: ``total_cost_usd``, ``cost_partial``, ``models_used``,
         ``model_fallback`` and the ``cost`` breakdown for ``debug``."""
         with self._lock:
             calls = [dict(c) for c in self.calls]
             unobserved = [dict(u) for u in self.unobserved]
+            estimated = [dict(e) for e in self.estimated]
             fallbacks = [dict(f) for f in self.fallbacks]
             answered = list(self.answered)
         priced = [c for c in calls if c.get("cost_usd") is not None]
+        estimated_usd = round(sum(e["cost_usd"] for e in estimated), 6)
         unpriced_models = sorted({str(c.get("model")) for c in calls if c.get("cost_usd") is None})
-        if priced:
-            total: float | None = round(sum(c["cost_usd"] for c in priced), 6)
+        if priced or estimated:
+            total: float | None = round(sum(c["cost_usd"] for c in priced) + estimated_usd, 6)
         elif calls or unobserved:
             total = None
         else:
@@ -150,6 +204,7 @@ class TurnSpend:
         return {
             "total_cost_usd": total,
             "cost_partial": partial,
+            "cost_estimated": bool(estimated),
             "models_used": answered,
             "model_fallback": fallbacks,
             "cost": {
@@ -160,6 +215,8 @@ class TurnSpend:
                 "by_agent": _totals(calls, "agent"),
                 "unpriced_models": unpriced_models,
                 "unobserved_calls": unobserved,
+                "estimated_calls": estimated,
+                "estimated_usd": estimated_usd,
                 "price_table_version": version,
             },
         }
@@ -211,6 +268,18 @@ def collecting() -> Iterator[TurnSpend]:
         _CURRENT.reset(token)
 
 
+@contextlib.contextmanager
+def recording_into(spend: TurnSpend) -> Iterator[TurnSpend]:
+    """Collect this context's calls into ``spend`` even inside another turn's collector (``collecting`` would add to
+    that one): an aggregate op's part or vocabulary step, which the op counts once, whenever it finishes
+    (NessieAI/ns/aggregate._in_own_collector)."""
+    token = _CURRENT.set(spend)
+    try:
+        yield spend
+    finally:
+        _CURRENT.reset(token)
+
+
 def collects_turn(fn: _F) -> _F:
     """Decorate an NS turn entry point so its model calls are collected, and its failed models remembered.
 
@@ -244,7 +313,8 @@ def cost_fields(exc: BaseException | None = None) -> dict[str, Any]:
         record = turn_record()
     if not isinstance(record, dict):
         return {}
-    return {key: record[key] for key in ("total_cost_usd", "cost_partial", "models_used", "model_fallback")
+    return {key: record[key] for key in ("total_cost_usd", "cost_partial", "cost_estimated", "models_used",
+                                         "model_fallback")
             if key in record}
 
 

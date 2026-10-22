@@ -18,7 +18,7 @@ PAIRS = {
     (1, 2): ([10], [10], None),          # one shared assay, mapped
     (3, 4): ([10], [12], None),          # nothing shared: nulls and empty lists
     (5, 6): ([12], [12], SOP),           # a protocol
-    (7, 8): ([11], [11], None),          # the SEEK-assay fallback
+    (7, 8): ([11], [11], None),          # only an unmapped assay shared: no assay label (#124)
     (9, 10): ([10, 13], [10, 13], None),  # two shared assays: the smallest internal id wins
 }
 
@@ -287,17 +287,18 @@ class TestClassCheck:
         cases = {
             (1, 2): (full((1, 2)), labels.EQUAL),
             (3, 4): (stored(assay_id=10, internal_assay_id=56, internal_assay_title="Patient Visit"), labels.CLEARED),
-            (5, 6): (stored(**{k: rule((5, 6))[k] for k in labels.ASSAY_KEYS}), labels.CHANGED),  # protocol absent
-            (7, 8): (singular_of((7, 8)), labels.PLURAL_MISSING),
-            (9, 10): ({}, labels.NEW),
+            (5, 6): (stored(**{k: rule((5, 6))[k] for k in labels.ASSAY_KEYS}), labels.PROTOCOL_FILLED),  # none stored
+            (7, 8): ({}, labels.NEW),
+            (9, 10): (singular_of((9, 10)), labels.PLURAL_MISSING),
         }
         result = self.run(index, [(pair, props) for pair, (props, _cls) in cases.items()])
         for pair, (props, cls) in cases.items():
             assert labels.classify(props, rule(pair)) == cls
-        assert result["classes"] == {cls: 1 for cls in labels.CLASSES}
+        assert result["classes"] == {cls: int(cls not in (labels.RENAMED, labels.CHANGED)) for cls in labels.CLASSES}
         assert result["compared"] == 5 and result["rule_only"] == {"with_assay": 0, "without_assay": 0}
         assert result["by_stored"]["unlabelled"] == {labels.NEW: 1}
-        assert result["per_property"][labels.CHANGED] == {"protocol_id": {"absent": 1}, "protocol_title": {"absent": 1}}
+        assert result["per_property"][labels.PROTOCOL_FILLED] == {"protocol_id": {"absent": 1},
+                                                                  "protocol_title": {"absent": 1}}
         assert result["per_property"][labels.CLEARED]["internal_assay_title"] == {"cleared": 1}
         assert result["per_property"][labels.PLURAL_MISSING] == {"internal_assay_ids": {"absent": 1},
                                                                 "internal_assay_titles": {"absent": 1}}
@@ -321,7 +322,7 @@ class TestClassCheck:
         result = self.run(index, [((1, 2), full((1, 2))), ((40, 41), full((1, 2))), ((42, 43), stored())],
                           in_scope=lambda c, p: c != 5)
         assert result["graph_only"] == {"labelled": 1, "unlabelled": 1}
-        assert result["rule_only"] == {"with_assay": 2, "without_assay": 1}  # (7, 8), (9, 10); (3, 4)
+        assert result["rule_only"] == {"with_assay": 1, "without_assay": 2}  # (9, 10); (3, 4), (7, 8)
         assert result["compared"] == 1
 
     def test_examples_are_capped_per_class(self, index):

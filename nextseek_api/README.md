@@ -38,8 +38,7 @@ themselves rather than recalled.
 
 **The published surface.** `nextseek_api/urls.py:10` builds one `DefaultRouter`, and the
 registration block that follows runs from `nextseek_api/urls.py:14` to
-`nextseek_api/urls.py:42`: 25 active `router.register(...)` calls and 2 more commented out
-(`nextseek_api/urls.py:15-16`), counted 2026-09-03. The router is included last, under a
+`nextseek_api/urls.py:42`: 25 active `router.register(...)` calls, counted 2026-09-03. The router is included last, under a
 bare `^` prefix, at `nextseek_api/urls.py:80`. Ahead of it sit the three drf-spectacular
 serve routes (schema, Swagger UI and ReDoc), each with an explicitly declared permission
 class (`nextseek_api/urls.py:65`, `nextseek_api/urls.py:72-76`, `nextseek_api/urls.py:77`).
@@ -55,15 +54,14 @@ this directory; the behaviour claims are in the prose around it.
 | `nextseek_api/helpers.py` | `SeekAPIClient` (`nextseek_api/helpers.py:123`), the auth resolver `resolve_seek_auth` (`nextseek_api/helpers.py:89`), the UTF-8-safe Basic header builder (`nextseek_api/helpers.py:18-40`), pagination (`nextseek_api/helpers.py:392-395` and `nextseek_api/helpers.py:398`), and a title-to-SEEK-id resolver (`nextseek_api/helpers.py:409`) |
 | `nextseek_api/models.py` | pydantic request/response schemas, plus the ORM re-exports described above |
 | `nextseek_api/endpoint_descriptions.py` | the `*_DESC` prose constants, in the fixed heading order its docstring sets out (`nextseek_api/endpoint_descriptions.py:1-8`) |
-| `nextseek_api/authentication.py` | `CsrfExemptSessionAuthentication`, the session authenticator most ViewSets install, and the `{"errors": [...]}` envelope builder `_error_response`; `nextseek_api/services/assistant.py` re-exports both |
+| `nextseek_api/authentication.py` | `SeekSessionAuthentication`, the session authenticator most ViewSets install, and the `{"errors": [...]}` envelope builder `_error_response`; `nextseek_api/services/assistant.py` re-exports both |
 | `nextseek_api/permissions.py` | `IsSuperUser`, and the docstring explaining why it is not DRF's `IsAdminUser` (`nextseek_api/permissions.py:6-17`) |
 | `nextseek_api/serializers.py` | the few DRF serializers that predate the pydantic convention (`nextseek_api/serializers.py:6` and `nextseek_api/serializers.py:64-74`) |
 | `nextseek_api/views.py` | the re-export block, two project-scope helpers (`nextseek_api/views.py:107` and `nextseek_api/views.py:129`), and four locally defined ViewSets |
 | `nextseek_api/urls.py` | the router and the three documentation routes |
 | `nextseek_api/apps.py`, `nextseek_api/admin.py` | the app config; an admin module that registers nothing (`nextseek_api/admin.py:1-3`) |
 | `nextseek_api/conftest.py` | DRF client and mock-SEEK fixtures shared by every test below this directory |
-| `nextseek_api/seek_api.py`, `nextseek_api/seek_api_helpers.py`, `nextseek_api/example.py` | superseded SEEK-call sketches; see CLAUDE.md for why they are not live |
-| `nextseek_api/tests.py`, `nextseek_api/tests/` | see CLAUDE.md: only one of these two is reachable |
+| `nextseek_api/tests/` | the test package |
 
 Two facts about the description module, both established 2026-09-03: it holds 73
 constants assigned at column zero, running from `nextseek_api/endpoint_descriptions.py:14`
@@ -71,11 +69,9 @@ to `nextseek_api/endpoint_descriptions.py:1190`, and it contains no import state
 all: a grep for a line beginning with `import` or `from` over that one file returns
 nothing, which is why a description edit can never break an import cycle.
 
-**The four ViewSets defined here.** `SampleTreeViewSet` and `AdminSampleViewSet` are routed
+**The two ViewSets defined here.** `SampleTreeViewSet` and `AdminSampleViewSet` are routed
 and live; `AdminSampleViewSet` is only the deprecated `admin/samples/retrieve/` alias of the
-download API, whose handler and data path are in `nextseek_api/services/sample_retrieve.py`. `NHPViewSet`
-(`nextseek_api/views.py:395`) and `SampleQueryViewSet` (`nextseek_api/views.py:549`) are
-not: their registrations are the two commented-out lines at `nextseek_api/urls.py:15-16`.
+download API, whose handler and data path are in `nextseek_api/services/sample_retrieve.py`.
 Both live ViewSets scope data per caller rather than by Django role, and each says so
 where it decides: `nextseek_api/views.py:268-274` for the tree, and `handle_retrieve` in
 `nextseek_api/services/sample_retrieve.py` for the download.
@@ -88,14 +84,14 @@ where it decides: `nextseek_api/views.py:268-274` for the tree, and `handle_retr
 | `assay_registration/` | batch registration of samples as SEEK assay members: three superuser-gated routes, a job row, a drain loop, a Neo4j label recompute | `nextseek_api/assay_registration/README.md` |
 | `assistant/` | the API half of the assistant: ORM models (including the `eval_*` tables), wire models, the progress WebSocket consumer, session and pipeline adapters, OpenAPI descriptions, `excel_export.py`, and the granular-op HTTP contract `CONTRACT.md` | `nextseek_api/assistant/README.md` |
 | `attributes/` | the native attribute API: a catalog plus plan-then-execute mutations | `nextseek_api/attributes/README.md` |
-| `batch_delete/` | pydantic models for delete eligibility; no views, no ORM | this row |
 | `batch_upload/` | bulk sample ingest from a workbook or JSON rows, stages 0 to 7, stage 6 syncing this job's samples through `graph_sync/`; owns the shared Celery app | `nextseek_api/batch_upload/README.md` |
 | `cc_assistant/` | Django shell for Container-CC; engine at `NessieAI/cc/`. Never rename the app label or the Celery tasks `cc_assistant.upload` and `cc_assistant.sweep_cc_summaries` | `NessieAI/cc/README.md` |
 | `graph_search/` | the engine behind `POST /nextseek_api/samples/graph_search/`: scope from MySQL membership, a Cypher query builder, the catalog cache and page hydration | `nextseek_api/graph_search/README.md` |
-| `graph_sync/` | the one writer of the Neo4j sample graph (schema v1.2) and the sync that keeps it equal to MySQL: the outbox every other writer enqueues to, the drain loop, the nightly targeted sync, the weekly full sync, the drift check and the `graph_sync` command | `nextseek_api/graph_sync/README.md` |
-| `management/` | management commands, including the four loops the app entrypoint starts by name (`dispatch_attribute_outbox`, `recover_attribute_sync_jobs`, `run_assay_registration_jobs` and `graph_sync --loop`), the harness entry point `nessie`, the staging-sweep recovery `cc_sweep_staging` and the one-off `scrub_stored_sample_properties`, which removes two derived sample properties from stored graph results (dry run unless `--apply`; its docstring lists the stores); deleting a loop's shim removes a command the entrypoint calls | this row |
+| `graph_sync/` | the one writer of the Neo4j sample graph (schema v1.3) and the sync that keeps it equal to MySQL: the outbox every other writer enqueues to, the drain loop, the nightly targeted sync, the weekly full sync, the drift check and the `graph_sync` command | `nextseek_api/graph_sync/README.md` |
+| `management/` | management commands, including the five loops the app entrypoint starts by name (`dispatch_attribute_outbox`, `recover_attribute_sync_jobs`, `run_assay_registration_jobs`, `run_share_jobs` and `graph_sync --loop`), the studies tool `studies`, the harness entry point `nessie`, the staging-sweep recovery `cc_sweep_staging` and the one-off `scrub_stored_sample_properties`, which removes two derived sample properties from stored graph results (dry run unless `--apply`; its docstring lists the stores); deleting a loop's shim removes a command the entrypoint calls | `nextseek_api/management/README.md` |
 | `migrations/` | the one migration chain for the app and every subpackage; it forks, so check the heads first | `nextseek_api/CLAUDE.md` |
 | `services/` | the ViewSet and service layer; a new ViewSet module goes here | `nextseek_api/services/README.md` |
+| `studies/` | the studies tool (`manage.py studies`): create a SEEK study if it is missing and move a list of samples into it, from a curator sheet, a dev-graph export or the graph-only paper studies; plan, apply, graph step, rollback | `nextseek_api/studies/README.md` |
 | `tests/` | the app's tests, including `repo_guards/` (repo infrastructure guards: compose, the app entrypoint, the settings env, the build context and the issue conventions) | this row |
 <!-- END DOCS-MAP:folders -->
 
@@ -131,15 +127,14 @@ its own current result in CLAUDE.md.
 
 ## Depends on / depended on by
 
-Depends on, outside this directory. Derived by reading every import line in the 15
+Depends on, outside this directory. Derived by reading every import line in the 12
 modules directly under `nextseek_api/`:
 
-- `seek/`, at module scope in six of those modules, so the SEEK app must import cleanly
+- `seek/`, at module scope in four of those modules, so the SEEK app must import cleanly
   before this one loads at all: `nextseek_api/helpers.py:10`, `nextseek_api/models.py:16-17`,
-  `nextseek_api/serializers.py:2-3`, `nextseek_api/seek_api_helpers.py:5-6`,
-  `nextseek_api/example.py:1`, and `nextseek_api/views.py:24-28`.
+  `nextseek_api/serializers.py:2-3`, and `nextseek_api/views.py:24-28`.
 - Django settings read at import time rather than per request: `nextseek_api/views.py:33-34`
-  binds two database aliases, and `nextseek_api/seek_api.py:7` binds the SEEK base URL.
+  binds two database aliases.
 - `MySQLdb` and the `neo4j` driver, both imported unconditionally, at
   `nextseek_api/views.py:6` and `nextseek_api/views.py:19-22`.
 - `drf_spectacular`, which supplies the three documentation views imported at
@@ -157,13 +152,11 @@ this one's:
   scopes the entire CORS configuration to this URL prefix by regular expression, so
   remounting the app elsewhere silently drops CORS for the frontend dev server.
 - `seek/`, in the reverse direction, which is why the `seek` imports above must stay put:
-  `seek/seekapi.py:111` and `seek/seekapi.py:126` import `basic_auth_header` from inside
-  method bodies, and the comment at `seek/seekapi.py:109-110` says a module-scope import
+  `seek/seekapi.py:43`, `seek/seekapi.py:93` and `seek/seekapi.py:115` import `basic_auth_header` from inside
+  method bodies, and the comment at `seek/seekapi.py:70` says a module-scope import
   there would cycle.
 - `scripts/validate_viewset_conventions.py:22-26` reads three description modules by path,
-  one of which is `nextseek_api/endpoint_descriptions.py`, and
-  `scripts/validate_viewset_conventions.py:157-183` pins five function names in
-  `nextseek_api/views.py` as grandfathered.
+  one of which is `nextseek_api/endpoint_descriptions.py`.
 - `ci/routes.py:1-14` is the CI route registry, which declares every path under this
   prefix, and `ci/gate/test_route_registry.py:29-39` blocks CI when Django resolves a
   route the registry does not declare.
@@ -173,8 +166,6 @@ this one's:
   `NessieAI/chat_frontend/src/lib/services/chatApi.ts:78` builds request URLs against the prefix,
   and the CC agent's plugin catalog stores endpoint paths as data at
   `NessieAI/docker/cc-runtime/build_context/plugins/nextseek/context/ops.json:1`.
-- `NessieAI/chat_nextseek/src/chat_nextseek/context/nextseek_api.yaml:1-5` is a captured copy of
-  the document this app's schema route generates, not a live read of it, so it drifts.
 
 What a hit here is NOT. A grep for this package name returns far more than the list
 above, and three groups were excluded deliberately. Everything under `NessieAI/` reaches this
@@ -182,9 +173,8 @@ shell only through the back-edges named in `NessieAI/CLAUDE.md`: `nextseek_api.m
 `NessieAI/schema_rag/`) and `nextseek_api.conftest` (from the harness container tests). All
 other edges go into child packages. `NessieAI/chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py`
 is named after this app but is a chat-side HTTP tool that imports nothing from it.
-`dmac/asgi.py:23` and `dmac/attribute_performance_settings.py:36` reach into
-`nextseek_api.assistant` and `nextseek_api.attributes` respectively, which are their
-edges and not this one's.
+`dmac/asgi.py:23` reaches into `nextseek_api.assistant`, which is its
+edge and not this one's.
 
 See `nextseek_api/CLAUDE.md` for the invariants this structure rests on and the traps it
 sets.

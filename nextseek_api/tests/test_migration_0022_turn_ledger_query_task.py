@@ -1,8 +1,8 @@
-"""Migration 0022 links each TurnLedger row to its QueryTask, and it closes the chain without a fork.
+"""Migration 0022 links each TurnLedger row to its QueryTask, and it sits on the chain without a fork.
 
-The chain has forked before and been stitched by merge migrations (nextseek_api/CLAUDE.md), so the leaf is pinned
-here, and makemigrations must propose nothing further for TurnLedger: a model/migration mismatch would reach a box
-as DDL nobody reviewed.
+The chain has forked before and been stitched by merge migrations (nextseek_api/CLAUDE.md), so the app's single leaf
+is checked here (not its name: a later migration must not break this test), and makemigrations must propose nothing
+further for TurnLedger: a model/migration mismatch would reach a box as DDL nobody reviewed.
 """
 import os
 import subprocess
@@ -15,16 +15,15 @@ from django.db.migrations.loader import MigrationLoader
 from nextseek_api.assistant.models_db import QueryTask, TurnLedger
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-LEAF = ("nextseek_api", "0022_turn_ledger_query_task")
-# The reingest branch's 0021/0022 forked the chain at 0020; this empty merge migration closes it.
-MERGE = ("nextseek_api", "0023_merge_reingest_graph_sync")
+MIGRATION = ("nextseek_api", "0022_turn_ledger_query_task")
 
 
-def test_0022_sits_on_0021_and_the_single_leaf_closes_the_fork_over_it():
+def test_0022_sits_on_0021_on_the_single_chain_of_the_app():
     loader = MigrationLoader(None, ignore_no_migrations=True)
-    assert loader.get_migration(*LEAF).dependencies == [("nextseek_api", "0021_graph_sync_outbox_and_run")]
-    assert loader.graph.leaf_nodes("nextseek_api") == [MERGE]
-    assert LEAF in loader.get_migration(*MERGE).dependencies
+    leaves = loader.graph.leaf_nodes("nextseek_api")
+    assert len(leaves) == 1, leaves
+    assert MIGRATION in loader.graph.forwards_plan(leaves[0])
+    assert loader.get_migration(*MIGRATION).dependencies == [("nextseek_api", "0021_graph_sync_outbox_and_run")]
 
 
 def test_the_link_is_a_nullable_set_null_fk_to_the_task_pk():

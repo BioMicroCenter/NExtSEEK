@@ -121,8 +121,8 @@ the sync one.
   The loader does not require it; `resolve_cc_fallback_model()` checks it, so a bad
   fallback id costs only the fallback. It is hand-maintained: it appears in no target
   tuple in `NessieAI/build_tools/gen_op_surfaces/emit.py:205-218`. Every value is validated
-  against a `us.anthropic.` regex at
-  `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:30` before use, and the
+  against a `(us|global).anthropic.` regex at
+  `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:31` before use, and the
   design note at `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:7-9` makes
   this file the only place a model id may appear.
 

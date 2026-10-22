@@ -5,6 +5,7 @@ import base64
 from typing import Any, Dict, Optional, Tuple, List
 
 import requests
+from requests.cookies import RequestsCookieJar
 from django.conf import settings
 
 from seek.seekdb import SeekDB
@@ -13,6 +14,11 @@ from seek.seekdb import SeekDB
 log = logging.getLogger(__name__)
 
 JSONAPI_ACCEPT = 'application/vnd.api+json'
+
+# SEEK took over 20 s on SOP creates on dev and the TLS proxy in front of prod waits longer than 120 s (#108), so a
+# SOP create waits this long for SEEK's answer; every other SEEK call keeps SeekAPIClient.timeout_s. It is also the
+# limit for the whole create request (services/sops.py), each SEEK call's own limit inside it.
+SOP_CREATE_TIMEOUT_S = 120
 
 
 def basic_auth_header(basic_tuple: Optional[Tuple[str, str]]) -> Dict[str, str]:
@@ -86,6 +92,27 @@ def get_token_auth(request) -> Optional[str]:
     return None
 
 
+def _turn_pass_login(request):
+    """What a Container-CC turn pass acts as downstream, or None when ``request`` carries no pass.
+
+    ``((username, password), {})`` from the login the turn holds, or ``(None, None)`` when that login is gone.
+    A pass never falls through to another credential source and its own value is never forwarded to SEEK.
+    """
+    from nextseek_api.permissions import is_turn_pass
+
+    if not is_turn_pass(request):
+        return None
+    from nextseek_api.assistant import turn_pass
+
+    try:
+        username, password = turn_pass.login_for(request.auth)
+    except turn_pass.TurnPassError:
+        return None, None
+    if not username or not password:
+        return None, None
+    return (username, password), {}
+
+
 def resolve_seek_auth(request, order: Optional[List[str]] = None) -> Tuple[Optional[Tuple[str, str]], Optional[Dict[str, str]]]:
     """
     Determine how to authenticate to SEEK for this incoming request.
@@ -102,6 +129,11 @@ def resolve_seek_auth(request, order: Optional[List[str]] = None) -> Tuple[Optio
     Default order is ["BASIC", "SESSION", "TOKEN"].
     """
     order = order or ["BASIC", "SESSION", "TOKEN"]
+
+    # A Container-CC turn pass resolves to the login its turn holds, whatever order was asked for.
+    via_pass = _turn_pass_login(request)
+    if via_pass is not None:
+        return via_pass
 
     for method in order:
         if method == "BASIC":
@@ -120,17 +152,25 @@ def resolve_seek_auth(request, order: Optional[List[str]] = None) -> Tuple[Optio
     return None, None
 
 
+class _NoCookies(RequestsCookieJar):
+    """Cookie jar that stores nothing: each call authenticates on its own."""
+
+    def set_cookie(self, *args, **kwargs):
+        pass
+
+
 class SeekAPIClient:
     """Minimal SEEK API client using requests.Session and JSON:API headers."""
 
     def __init__(self) -> None:
         self.base_url: str = settings.SEEK_URL.rstrip('/')
         self.session = requests.Session()
+        self.session.cookies = _NoCookies()
         self.session.headers.update({'Accept': JSONAPI_ACCEPT})
         self.timeout_s: int = 20
 
     def _request(self, method: str, path: str, request, params: Optional[Dict[str, Any]] = None,
-                 json: Optional[Dict[str, Any]] = None):
+                 json: Optional[Dict[str, Any]] = None, timeout_s: Optional[int] = None):
         # Try BASIC -> SESSION -> TOKEN by default for proxy endpoints
         basic_tuple, extra_headers = resolve_seek_auth(request)
         if not basic_tuple and not extra_headers:
@@ -152,7 +192,7 @@ class SeekAPIClient:
             headers=headers,
             params=params,
             json=json,
-            timeout=self.timeout_s,
+            timeout=timeout_s or self.timeout_s,
         )
         dt_ms = (time.time() - t0) * 1000.0
 
@@ -174,14 +214,18 @@ class SeekAPIClient:
     def get_sop(self, request, sop_id: str):
         return self._request('GET', f'/sops/{sop_id}', request)
 
-    def create_sop(self, request, payload: Dict[str, Any]):
+    def create_sop(self, request, payload: Dict[str, Any], timeout_s=(10, SOP_CREATE_TIMEOUT_S)):
         # Ensure JSON:API content-type for writes
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
-        return self._request('POST', '/sops', request, json=payload)
+        # (connect, read) as the uploads below: only the wait for SEEK's answer is long.
+        return self._request('POST', '/sops', request, json=payload, timeout_s=timeout_s)
 
     def update_sop(self, request, sop_id: str, payload: Dict[str, Any]):
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
         return self._request('PATCH', f'/sops/{sop_id}', request, json=payload)
+
+    def delete_sop(self, request, sop_id: str):
+        return self._request('DELETE', f'/sops/{sop_id}', request)
 
 
     # ---- DataFiles endpoints ----
@@ -286,8 +330,8 @@ class SeekAPIClient:
 
     # ---- SampleTypes endpoints ----
 
-    def list_sample_types(self, request, params: Optional[Dict[str, Any]] = None):
-        return self._request('GET', '/sample_types', request, params=params)
+    def list_sample_types(self, request, params: Optional[Dict[str, Any]] = None, timeout_s: Optional[int] = None):
+        return self._request('GET', '/sample_types', request, params=params, timeout_s=timeout_s)
 
     def get_sample_type(self, request, sample_type_id: str):
         return self._request('GET', f'/sample_types/{sample_type_id}', request)
@@ -316,6 +360,16 @@ class SeekAPIClient:
     def delete_sample(self, request, sample_id: str):
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
         return self._request('DELETE', f'/samples/{sample_id}', request)
+
+    # ---- Deletes the studies tool's rollback makes (an empty study or assay only) ----
+
+    def delete_study(self, request, study_id: str):
+        self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
+        return self._request('DELETE', f'/studies/{study_id}', request)
+
+    def delete_assay(self, request, assay_id: str):
+        self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
+        return self._request('DELETE', f'/assays/{assay_id}', request)
 
     # ---- Streaming content blob download ----
 
@@ -359,7 +413,7 @@ class SeekAPIClient:
     # ---- Upload content blob ----
 
     def upload_content_blob(self, request, path: str, file_data: bytes,
-                            content_type: str):
+                            content_type: str, timeout_s=(10, 300)):
         """PUT binary content to a SEEK content blob endpoint.
 
         path: e.g. /sops/42/content_blobs/99
@@ -381,7 +435,7 @@ class SeekAPIClient:
             url=url,
             headers=headers,
             data=file_data,
-            timeout=(10, 300),
+            timeout=timeout_s,
         )
         dt_ms = (time.time() - t0) * 1000.0
         log.info("seek_upload path=%s status=%d latency_ms=%.1f bytes=%d",

@@ -96,6 +96,8 @@ export function useMessages(): UseMessagesReturn {
           artifacts: turn.artifacts ?? undefined,
           ccTraces: turn.cc_traces ?? undefined,
           mode: turn.mode ?? undefined,
+          // The reviewer's chips, saved with the turn: a reloaded chat shows them as the live one did.
+          suggestions: turn.suggestions ?? undefined,
         });
       }
       return next;

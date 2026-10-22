@@ -1,6 +1,7 @@
 """Plan 018 V4-3 verifier core — replay without provider spend."""
 from __future__ import annotations
 
+import os
 import hashlib
 import json
 import tempfile
@@ -36,7 +37,7 @@ from NessieAI.hibayes.router_models_proposal import (
 )
 from NessieAI.hibayes.stage_c_runner import StageCRunner
 
-V13A_DIR = Path("/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07")
+V13A_DIR = Path(os.environ.get("NESSIE_TESTQUESTIONS_DIR", "testquestions-2026-08-07"))
 V13A_ZIP = V13A_DIR / "testquestions.zip"
 
 

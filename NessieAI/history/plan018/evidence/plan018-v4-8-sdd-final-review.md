@@ -11,7 +11,7 @@ prior_implementer_review: VOID
 **Prior artifact:** any earlier `plan018-v4-8-sdd-final-review.md` (including `subagent_id: v4-8-remediation-implementer`) is **VOID**. This file supersedes it.
 
 **Date:** 2026-08-12  
-**Worktree:** `/home/taishajo/work/NExtSEEK-plan018` @ `ultraplan/hibayes-eval-routing`  
+**Worktree:** `/home/<user>/work/NExtSEEK-plan018` @ `ultraplan/hibayes-eval-routing`  
 **Evaluation SHA:** `8e31d26f` (≥ `ef600db4`; remediation commit `b9112234`)  
 **Charge (verbatim):** Review V4-8 post-remediation at tip ef600db4 or newer. Verdict APPROVED if Lane M 10/10 and verifier 39/39 claims hold on disk.
 

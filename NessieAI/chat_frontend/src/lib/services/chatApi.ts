@@ -27,6 +27,10 @@ const POLL_GAVE_UP =
 
 /** What the user is told while a dropped progress socket's turn is read by polling. */
 const STREAM_LOST_NOTICE = "Connection lost. Still waiting for the answer.";
+const RESTARTING_STATUSES = new Set([502, 503, 504]);
+const RESTARTING_NOTICE = "NExtSEEK is restarting. Still waiting for the answer.";
+/** A new question that met a restart: shown instead of a bare status, and never re-sent (it could start the turn twice). */
+const RESTARTING_SUBMIT = "NExtSEEK is restarting. Send your question again in a minute.";
 
 /** How a progress socket that opened came to its end. */
 interface StreamOutcome {
@@ -110,10 +114,15 @@ export class NextseekApiService {
           },
           body: JSON.stringify(body),
         },
-      );
+        // A refused connection is a TypeError from fetch itself; one thrown later in this block is a bug, not a restart.
+      ).catch((err) => {
+        throw err instanceof TypeError ? new Error(RESTARTING_SUBMIT) : err;
+      });
 
       if (!response.ok) {
         const detail = await readErrorDetail(response);
+        // A 503 that carries a detail (the drain message) keeps it.
+        if (RESTARTING_STATUSES.has(response.status) && !detail) throw new Error(RESTARTING_SUBMIT);
         throw new Error(
           detail
             ? `Query submission failed: ${response.status} — ${detail}`
@@ -139,7 +148,7 @@ export class NextseekApiService {
       );
     } catch {
       // WS failed, fall back to polling
-      await this.pollProgress(baseUrl, taskId, onProgress, onError);
+      await this.pollProgress(baseUrl, taskId, onProgress, onError, 0, onNotice);
       return;
     }
     if (!stream.finished) {
@@ -148,7 +157,7 @@ export class NextseekApiService {
       // the rest by polling, starting after the events the socket delivered so
       // that none of them, the answer included, reaches the user twice.
       onNotice?.(STREAM_LOST_NOTICE);
-      await this.pollProgress(baseUrl, taskId, onProgress, onError, stream.delivered);
+      await this.pollProgress(baseUrl, taskId, onProgress, onError, stream.delivered, onNotice);
     }
   }
 
@@ -222,10 +231,26 @@ export class NextseekApiService {
     onProgress: (event: ProgressEvent) => void,
     onError: (error: string) => void,
     startIndex = 0,
+    onNotice?: (notice: string) => void,
   ): Promise<void> {
     // Events before startIndex already reached the caller over the socket.
     let lastIndex = startIndex;
     let lastNewEventAt = Date.now();
+    let restartNoticed = false;
+
+    // A deploy or restart answers 502/503/504 (or drops the connection) for a while; the turn is
+    // stored server-side, so keep asking, bounded by the same silence limit as a quiet turn.
+    const waitOutRestart = (): boolean => {
+      if (Date.now() - lastNewEventAt >= POLL_SILENCE_LIMIT_MS) {
+        onError(POLL_GAVE_UP);
+        return false;
+      }
+      if (!restartNoticed) {
+        restartNoticed = true;
+        onNotice?.(RESTARTING_NOTICE);
+      }
+      return true;
+    };
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -236,6 +261,12 @@ export class NextseekApiService {
             headers: { ...this.auth.getAuthHeaders() },
           },
         );
+
+        if (RESTARTING_STATUSES.has(response.status)) {
+          if (!waitOutRestart()) return;
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+          continue;
+        }
 
         if (!response.ok) {
           onError(`Polling failed: ${response.status}`);
@@ -266,10 +297,15 @@ export class NextseekApiService {
           return;
         }
       } catch (err) {
-        onError(
-          err instanceof Error ? err.message : "Polling failed",
-        );
-        return;
+        // fetch rejects when the connection is refused or reset: also a restart in progress.
+        if (err instanceof TypeError) {
+          if (!waitOutRestart()) return;
+        } else {
+          onError(
+            err instanceof Error ? err.message : "Polling failed",
+          );
+          return;
+        }
       }
 
       await new Promise((r) => setTimeout(r, POLL_INTERVAL));

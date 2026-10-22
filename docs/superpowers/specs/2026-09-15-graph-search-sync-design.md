@@ -97,8 +97,8 @@ The rest is decided in section 18.
 | Layer | When | Sees | Cost at 1.08M samples |
 |---|---|---|---|
 | **Hooks** | after every write made by NExtSEEK code (16 writers, companion WR-01 to WR-16) | exactly what that writer changed | per write: an outbox row; the drain applies it within seconds |
-| **Nightly targeted sync** (`graph_sync --reconcile`) | 02:00 UTC | every row whose content differs from what its node was written from, however it changed (section 10) | about 1 to 3 minutes of reading, estimated, plus writes for what changed |
-| **Weekly full sync** (`graph_sync --full`) | Sunday 03:00 UTC | everything, including what only the graph holds and the statistics | about 8.5 minutes measured in the POC's lane |
+| **Nightly targeted sync** (`graph_sync --reconcile`) | 02:00 US Eastern | every row whose content differs from what its node was written from, however it changed (section 10) | about 1 to 3 minutes of reading, estimated, plus writes for what changed |
+| **Weekly full sync** (`graph_sync --full`) | Sunday 03:00 US Eastern | everything, including what only the graph holds and the statistics | about 8.5 minutes measured in the POC's lane |
 
 A hook never calls Neo4j in a request: it writes one row to `graph_sync_outbox` after the writer's own commit and
 returns; the loop drains the row through the same functions the nightly and weekly syncs use (section 7). Batch
@@ -354,7 +354,7 @@ backs off (6 h for a full sync, 1 h otherwise); an expired lease is claimable ag
 **The loop**, `manage.py graph_sync --loop`, leased and never exiting on a failure, in the style of
 `run_assay_registration_jobs`: housekeeping, the schedule (a missed slot runs at the next start), the drain. `full`,
 `reconcile` and `drift` run as child processes, so their memory returns when they end and a crash cannot kill the
-loop. `--once` makes one pass. Schedule: reconcile 02:00 UTC, drift 02:30, full Sunday 03:00. Freshness: a full sync
+loop. `--once` makes one pass. Schedule: reconcile 02:00 US Eastern, drift 02:30, full Sunday 03:00. Freshness: a full sync
 within 8 days, a reconcile within 26 hours, the oldest pending outbox row within 1 hour.
 
 **The launch line**, in `docker/scripts/entrypoint.sh` before `wait -n`, a restart loop in an `if` block so that
@@ -481,7 +481,7 @@ managed `idx_updated_id` and `idx_samples_sample_type_id` (section 10 does not n
 | R6 | A SEEK assay with no internal-assay mapping | keep batch upload's fallback (the SEEK assay id and title) |
 | R7 | The legacy attribute editor | kept, and hooked like every other current function: its two views enqueue after they write |
 | R8 | Dev-box Study nodes keyed by SEEK `id` | the first 1.2 full sync moves them to `seek_study_id` |
-| R9 | Schedule and thresholds | reconcile 02:00, drift 02:30, full Sunday 03:00 (UTC); full within 8 days, reconcile within 26 hours, outbox within 1 hour; the 20% guard |
+| R9 | Schedule and thresholds | reconcile 02:00, drift 02:30, full Sunday 03:00 (US Eastern, changed from UTC 2026-10); full within 8 days, reconcile within 26 hours, outbox within 1 hour; the 20% guard |
 | R10 | Stage 6's lock wait | 60 s, then `graph: pending` |
 | R11 | Pinning other lineage readers to `:Sample` | deferred, out of scope |
 | R12 | Findings made in passing | security findings are kept private and fixed in Run 1; the other defects are listed in section 20 |

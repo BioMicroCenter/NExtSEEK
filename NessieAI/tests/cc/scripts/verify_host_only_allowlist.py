@@ -17,7 +17,7 @@ environment this verifier runs in (see task-9-brief.md). AST scanning needs
 nothing but the Python source tree.
 
 The discovered set is cross-checked against
-`/home/taishajo/work/state/devmerge-evidence/host-only-allowlist.md`
+`<evidence-dir>/host-only-allowlist.md`
 (overridable via argv[1]) for EXACT equality in both directions:
   - every host_only marker found in the tree must appear in the allowlist
     (nothing marked-but-unlisted), and
@@ -50,7 +50,7 @@ from NessieAI import paths  # noqa: E402
 REPO_ROOT = paths.REPO_ROOT
 TESTS_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_ALLOWLIST = Path(
-    "/home/taishajo/work/state/devmerge-evidence/host-only-allowlist.md"
+    "host-only-allowlist.md"
 )
 
 

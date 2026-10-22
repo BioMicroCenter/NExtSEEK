@@ -1,0 +1,233 @@
+[
+ {
+  "TERM": "Lung",
+  "DEF": "The lung.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0002048",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Liver",
+  "DEF": "The liver.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0002107",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Lymph node",
+  "DEF": "A lymph node, site not stated.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0000029",
+  "SYNONYMS": [
+   "LN"
+  ]
+ },
+ {
+  "TERM": "Mediastinal lymph node",
+  "DEF": "A lymph node of the mediastinum.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0002524",
+  "SYNONYMS": [
+   "medistinal lymph node",
+   "Mediastinal LN"
+  ]
+ },
+ {
+  "TERM": "Inguinal lymph node",
+  "DEF": "A lymph node of the groin.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0001542",
+  "SYNONYMS": [
+   "Inguinal LN"
+  ]
+ },
+ {
+  "TERM": "Axillary lymph node",
+  "DEF": "A lymph node of the armpit.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0001097",
+  "SYNONYMS": [
+   "Axillary LN"
+  ]
+ },
+ {
+  "TERM": "Kidney",
+  "DEF": "The kidney.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0002113",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Pancreas",
+  "DEF": "The pancreas.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0001264",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Spleen",
+  "DEF": "The spleen.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0002106",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Thymus",
+  "DEF": "The thymus.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0002370",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Blood",
+  "DEF": "Whole blood.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0000178",
+  "SYNONYMS": [
+   "whole blood"
+  ]
+ },
+ {
+  "TERM": "Blood plasma",
+  "DEF": "The liquid part of blood.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0001969",
+  "SYNONYMS": [
+   "plasma"
+  ]
+ },
+ {
+  "TERM": "Blood serum",
+  "DEF": "Blood plasma without clotting factors.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0001977",
+  "SYNONYMS": [
+   "serum"
+  ]
+ },
+ {
+  "TERM": "Bone marrow",
+  "DEF": "The bone marrow.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0002371",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Bone",
+  "DEF": "A bone (the organ).",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0001474",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Sternum",
+  "DEF": "The breastbone.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0000975",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Brain",
+  "DEF": "The brain.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0000955",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Heart",
+  "DEF": "The heart.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0000948",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Diaphragm",
+  "DEF": "The thoracic diaphragm.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0001103",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Body wall",
+  "DEF": "The body wall.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0000309",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Uterus",
+  "DEF": "The uterus.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0000995",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Ovary",
+  "DEF": "The ovary.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0000992",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Testis",
+  "DEF": "The testis.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0000473",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Skin",
+  "DEF": "The skin.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0002097",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Colon",
+  "DEF": "The colon.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0001155",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Small intestine",
+  "DEF": "The small intestine.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0002108",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Stomach",
+  "DEF": "The stomach.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0000945",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Urinary bladder",
+  "DEF": "The urinary bladder.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0001255",
+  "SYNONYMS": [
+   "bladder"
+  ]
+ },
+ {
+  "TERM": "Peritoneal fluid",
+  "DEF": "Fluid of the peritoneal cavity.",
+  "ONT_SOURCE": "UBERON",
+  "ONT_ID": "UBERON:0001268",
+  "SYNONYMS": []
+ },
+ {
+  "TERM": "Bronchoalveolar lavage fluid",
+  "DEF": "Fluid washed out of the airways.",
+  "ONT_SOURCE": "house",
+  "ONT_ID": null,
+  "SYNONYMS": [
+   "BAL",
+   "BAL fluid",
+   "BALF"
+  ]
+ }
+]

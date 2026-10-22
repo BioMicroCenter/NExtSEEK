@@ -9,6 +9,7 @@ import time
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
+from NessieAI.nessie_harness.corpus import corpus_fingerprint  # noqa: F401 (moved; runner re-exports it)
 from NessieAI.tests.nessie_tests import corpus, evaluate, http_driver, report
 from NessieAI.tests.nessie_tests import route_observer as ro
 # Django-free at import time; re-exported so callers catch one class from here.
@@ -42,7 +43,10 @@ from NessieAI.tests.nessie_tests.manifest import (
 # `reingest` belongs here too: the router decided, the turn announced a finished run
 # ("my run is done"), and the product moved it to Container-CC's reingest.
 # `cc_unavailable` does NOT: the CC runner was down, so no routing decision was tested.
-ROUTE_DECISION_SOURCES = frozenset({"baml", "sticky", "followup", "reingest"})
+# `howto` and `sop_file` (round 4, 2026-10-03) belong for the same reason as `followup`: the router said
+# container_cc and the product's own rule moved the turn to NExtSEEK (a how-to question about the site; the file
+# of one named SOP). Both follow a real BAML call, so they are evidence about routing.
+ROUTE_DECISION_SOURCES = frozenset({"baml", "sticky", "followup", "reingest", "howto", "sop_file"})
 
 
 def default_route_criterion(variant) -> dict | None:
@@ -63,24 +67,6 @@ def default_route_criterion(variant) -> dict | None:
 
 def _iso(clock):  # avoid datetime.now() so tests are deterministic
     return f"t={clock():.3f}"
-
-
-def corpus_fingerprint(corpus_path=None) -> str:
-    """sha256 over the unified corpus bytes.
-
-    This is what makes a two-run diff honest. `--seed` changes sampling, not the
-    database, so the same seed picks the same cases — but only if the corpus is
-    unchanged. If corpus.json was edited between runs the same seed selected a
-    DIFFERENT set, and a diff tool must say so rather than silently mis-pair cases.
-
-    Until 2026-08-04 it hashed the vendored catalog plus the superseded overlay
-    file. Fingerprints do not compare across that boundary, and should not: the
-    corpus file really did change.
-    """
-    try:
-        return corpus.sha256_of(corpus_path or corpus._UNIFIED)
-    except Exception:
-        return "<unreadable>"
 
 
 # The evaluation venue runs a `git archive` snapshot of the branch, which has no

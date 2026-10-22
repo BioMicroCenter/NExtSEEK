@@ -1,5 +1,7 @@
 # `NessieAI/tests/nessie_tests/`
 
+> `corpus`, `export`, `bayes_manifest`, `collect`, `manifest`, `outage`, `sources` and `turn_cost` now live in `NessieAI/nessie_harness/`, so product code never imports the test tree. The files of those names here are aliases of the same module objects (`python -m` works on both paths); line numbers below that cite them refer to the moved files.
+
 ## What this is
 
 The router-aware end-to-end harness for the NExtSEEK assistant. It asks the
@@ -15,8 +17,8 @@ Two things about the directory are easy to misread from outside it.
 **It is not only a test tree.** Code that ships imports it: the paired-evidence
 ingester in the Container-CC op registry, the `manage.py nessie` command, HiBayes
 human-grade fitting and the generator behind `route_capabilities.json`, and the live
-router reads its `corpus.json` for family labels. Three of those imports are frozen
-engine-to-harness edges (`NessieAI/CLAUDE.md` "Boundary"). Deleting or renaming one of
+router reads its `corpus.json` for family labels. The shared ones moved to
+`NessieAI/nessie_harness/` (`NessieAI/CLAUDE.md` "Boundary"). Deleting or renaming one of
 those modules is an application change, not a test change. The importers are listed
 under "Depends on / depended on by" below.
 
@@ -31,13 +33,13 @@ single early return is the `unrelated` route
 else runs to completion and bills for it after the harness has walked away. That
 is why a route-tier run reports its spend as partial (the router's price only) or
 unmeasured, never as a total or a zero
-(`NessieAI/tests/nessie_tests/manifest.py:233-242`). No route is free: the router's own model
+(`NessieAI/nessie_harness/manifest.py:233-242`). No route is free: the router's own model
 call happens on every turn and the routing event is emitted before the
 `unrelated` check, not after (`NessieAI/cc/turn.py:344-350`).
 
 It reuses the `PassCriterion` DSL of the catalog-driven E2E runner in
 `NessieAI/tests/e2e/` with **zero edits** to it, and imports it by package
-(`NessieAI/tests/nessie_tests/corpus.py:7-8`, `NessieAI/tests/nessie_tests/evaluate.py:7`).
+(`NessieAI/nessie_harness/corpus.py:7-8`, `NessieAI/tests/nessie_tests/evaluate.py:7`).
 There is no `sys.path` insertion, and `NessieAI/tests/api/test_nessie_boundaries.py`
 fails on any bare `e2e` or `pathsetup` import.
 
@@ -45,7 +47,7 @@ The question set is forked from the E2E catalog, not shared with it. The
 harness reads its own `corpus.json`, adopted from `NessieAI/tests/e2e/catalog.json`
 on 2026-08-04 and hand-curated since; the upstream catalog is unchanged and
 still serves its own readers, and a drift test fails if that file moves
-(`NessieAI/tests/nessie_tests/corpus.py:11`, `NessieAI/tests/nessie_tests/tests/test_catalog_drift.py:1`), so
+(`NessieAI/nessie_harness/corpus.py:11`, `NessieAI/tests/nessie_tests/tests/test_catalog_drift.py:1`), so
 the divergence is never silent and adopting an upstream change stays a
 deliberate edit.
 
@@ -96,15 +98,15 @@ The surface has three different shapes, so it is described three ways.
 |---|---|
 | `NessieAI/tests/nessie_tests/cli.py:88-137` | flag parsing; `NessieAI/tests/nessie_tests/cli.py:10-26` documents nine exit codes |
 | `NessieAI/tests/nessie_tests/runner.py:409-413` | `run_suite`, one whole run; `NessieAI/tests/nessie_tests/runner.py:142-146` is one case |
-| `NessieAI/tests/nessie_tests/corpus.py:415` | `merged`, the resolved active corpus |
+| `NessieAI/nessie_harness/corpus.py:415` | `merged`, the resolved active corpus |
 | `NessieAI/tests/nessie_tests/evaluate.py:662` | `evaluate_turn`, criterion scoring for one turn |
-| `NessieAI/tests/nessie_tests/manifest.py:233` | `cost_summary`, what a run may claim about money |
-| `NessieAI/tests/nessie_tests/turn_cost.py:112-151` | how one turn's and one case's spend are summed; standard library only, so the output skill's pull loads it by path |
+| `NessieAI/nessie_harness/manifest.py:233` | `cost_summary`, what a run may claim about money |
+| `NessieAI/nessie_harness/turn_cost.py:112-151` | how one turn's and one case's spend are summed; standard library only, so the output skill's pull loads it by path |
 | `NessieAI/tests/nessie_tests/bayesian.py:76` | `run_paired`, the paid dual-route run |
 | `NessieAI/tests/nessie_tests/preflight.py:94-98` | refuses a paid run whose force did not land |
-| `NessieAI/tests/nessie_tests/export.py:961` | paired manifest to the locked HiBayes CSVs |
-| `NessieAI/tests/nessie_tests/collect.py:377` | post-hoc artifact collection for a paired run |
-| `NessieAI/tests/nessie_tests/sources.py:407` | the container-backed reads `collect` needs |
+| `NessieAI/nessie_harness/export.py:961` | paired manifest to the locked HiBayes CSVs |
+| `NessieAI/nessie_harness/collect.py:377` | post-hoc artifact collection for a paired run |
+| `NessieAI/nessie_harness/sources.py:407` | the container-backed reads `collect` needs |
 | `NessieAI/tests/nessie_tests/v4_2_verifier.py:330` | replay verifier over a delivered result set |
 | `NessieAI/tests/nessie_tests/bundle.py:46-107` | full-tier bundle richness; its Django import is lazy, and its `preflight` runs before the first full-tier turn |
 
@@ -113,21 +115,31 @@ in-container as a Django management command
 (`nextseek_api/management/commands/nessie.py:42-43`).
 
 **As committed data.** `NessieAI/tests/nessie_tests/corpus.json` is the only corpus source
-there is, and `NessieAI/tests/nessie_tests/corpus.py:415-425` records that the superseded
+there is, and `NessieAI/nessie_harness/corpus.py:415-425` records that the superseded
 overlay files and their generator were deleted outright. `FAMILIES.json` declares the
 32 task families the corpus is mapped onto (28 code-derived, and 4 added by hand on 2026-09-23
 for the production researcher questions)
 (`NessieAI/tests/nessie_tests/FAMILIES.json:4-5`, `NessieAI/tests/nessie_tests/scripts/remap_families.py:2`). `NessieAI/tests/nessie_tests/probes/` holds three
 hand-authored case files replayed by `NessieAI/tests/nessie_tests/tests/test_probe_files.py:1`.
 `merged` resolves the variants of `NessieAI/tests/nessie_tests/corpus.json`; `curated` drops the
-unreviewed atlas set (`NessieAI/tests/nessie_tests/corpus.py:110-130`); `bayesian_ids` selects the
+unreviewed atlas set (`NessieAI/nessie_harness/corpus.py:110-130`); `bayesian_ids` selects the
 paired-run set; and the `route_gate` tag marks the route-tier gates. The snippet under "Unit tests:
 host lane" prints the first two counts, and `tests/test_corpus.py` and `tests/test_unified_corpus.py` pin
 them and the `route_gate` set.
 
+**Retired questions live in `NessieAI/tests/nessie_tests/retired.json`**, not in `corpus.json`: one record per retired question, each
+with the question's full body, a `retirement` record (`decided_by`, `family`, `reason`, `retired_on`, `source`, and
+`duplicate_of` naming the case that asks the question now) and where it came from (`lived_in`). The 2026-10-07 test-set
+review put 145 removals there (corpus variants, probe cases and cases that lived only in the round 5 sets, the round 4
+smoke files or the Container-CC seed) beside the 106 variants that were retired in `corpus.json` before. It is a record:
+nothing selects cases from it and no code path reads it to decide what is active (`tests/test_retired.py` pins that;
+the lookups `variant_meta`, `hibayes_meta` and `load_all_definitions` read it so an old run report that names a retired
+id still resolves). Reinstating a question is copying its body back into `corpus.json` with `status: "active"` and
+`retirement: null`, and deleting the record.
+
 **As two packaged skills.** Each carries its own SKILL.md and is not restated
-here. See `NessieAI/tests/nessie_tests/output-skill/SKILL.md:2-3` for turning a finished run
-into a triage report, and `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md:2-3` for
+here. See `.claude/skills/nessie-run-review/SKILL.md:2-3` for turning a finished run
+into a triage report, and `.claude/skills/nessie-bayes-report/SKILL.md:2-3` for
 the paired run's blind-grading report. A hyphen is not a Python identifier, so
 the testable logic for each lives in the underscore-named package beside it and the
 skill's scripts are thin entry points
@@ -241,8 +253,9 @@ manifest, all host-safe under the unit lane's `--with` list.
 
 ## The selection
 
-`--bayesian` drives every variant flagged `is_bayesian` + `active`: **153 today**,
-the 149 of the 2026-08-06 question set plus one case from each of the four families added
+`--bayesian` drives every variant flagged `is_bayesian` + `active`: **142 today** (153 before the
+2026-10-07 test-set review retired 11 selected duplicates),
+the 149 of the 2026-08-06 question set, less the retired ones, plus one case from each of the four families added
 2026-09-23 (`pub.pmid_bare`, `person.lau_lab_samples`, `file.flow_file_for_a_patient`,
 `export.session_to_the_developers`), which that document does not list. 25 of the 26 task families, one distinct question per
 variant, and every one asserting a verified value on `last_reply` (the only field
@@ -254,7 +267,7 @@ per-family targets and the reasoning behind them, the three write/launch hazards
 and what was done about each, and the cost. It is meant to be reviewed and argued
 with before any paid turn.
 
-Budget: ~**$36.54** of CC arms (153 x $0.2388 observed) plus ~5.3 hours serial.
+Budget: ~**$33.91** of CC arms (142 x $0.2388 observed) plus ~5.3 hours serial.
 NS arms report $0.00. Suggested `--max-usd 45`.
 
 84 of the 149 keep their id AND their exact text from the 2026-08-06 run, 82 of
@@ -278,7 +291,7 @@ Full grading and merge procedure: `NessieAI/history/docs/nessie-corpus-additive-
 
 ### `--sample` is a per-family fraction, not a count
 
-`corpus.sample` (`corpus.py:514`) keeps `max(1, round(len(family) * ratio))`
+`corpus.sample` (`nessie_harness/corpus.py`) keeps `max(1, round(len(family) * ratio))`
 variants per family, drawn with a seeded RNG, so the same `(ratio, seed)`
 always yields the same subset. Two consequences that surprise people:
 
@@ -416,18 +429,14 @@ All three ways of getting them wrong fail in a way that does not name the cause:
   commits later. The string does not move. Do not chase the silent ones as real
   regressions.
 
-### Known-failing everywhere but one laptop: `test_v4_2_set3_replay.py`
+### Needs the delivery directory: `test_v4_2_set3_replay.py`
 
-Five of the six tests in `NessieAI/tests/nessie_tests/tests/test_v4_2_set3_replay.py` open a
-delivery zip through an absolute path into another developer's home directory:
-`v4_2_verifier.py:20` pins `V13A_DELIVERY` to a `testquestions-2026-08-07` directory
-under that developer's home directory.
-On any machine that is not that one they die
-`FileNotFoundError: ... testquestions.zip`: the same five, on every run, with
-everything else green. That is the machine, not a regression; do not chase it.
-(The sixth test in the file drives a synthetic producer and passes anywhere.)
-The right fix is a `pytest.mark.skipif` on the delivery path's existence:
-noted here, not yet applied.
+Five of the six tests in `NessieAI/tests/nessie_tests/tests/test_v4_2_set3_replay.py` read the
+`testquestions-2026-08-07` delivery zip. Set `NESSIE_TESTQUESTIONS_DIR` to the directory that holds
+it; when the zip is missing those five tests skip with that reason. (The sixth test drives a
+synthetic producer and runs anywhere.) The same variable locates the delivery for the HiBayes and
+paired-evidence tests that read it. The stored seed6b run evidence the other replay tests read is
+located the same way, with `NESSIE_SEED6B_DIR`.
 
 ### DB/contract tests: in-container lane
 
@@ -477,7 +486,7 @@ the router that decided to skip it.
 A case's cost is the sum of its turns, and a turn's is its router part
 (`router_cost_usd` on `route_decided`) plus its engine part (`total_cost_usd` on the
 turn's terminal event), over the parts observed
-(`NessieAI/tests/nessie_tests/turn_cost.py:112-151`). Each turn's record is kept on
+(`NessieAI/nessie_harness/turn_cost.py:112-151`). Each turn's record is kept on
 the manifest entry as `turns_meta`. Route-tier polling reaches `route_decided` and
 never the terminal event, so a route run sees at most the router's price: it
 reports `PARTIAL`, or `unmeasured` where the server does not price the router, and
@@ -533,11 +542,12 @@ NS turn the same four fields are real assertions and still fail.
 case in a floored family goes red, not all of them. Simulate every case in the
 curated corpus (the resolved corpus minus the atlas set: the frame every
 figure in this section uses, because the tests that pin them use it) routing CC
-and **421 of 426 are still red**, with all seven floored families at 100%. Four
+and **370 of 383 are still red**, with all seven floored families at 100%. Four
 criteria account for nearly all of it, and none of them is skipped: `route`
-fails on **333** variants, `parser_plan.mode` on **212**, `api_ok` on **21**
-and `api_plan.endpoint` on **19** (the last two fell from 128 and 104 on
-2026-09-23, when the graph-answerable families stopped requiring the REST path). Those cases stay red until the corpus
+fails on **269** variants, `parser_plan.mode` on **241** (163 before the 2026-10-07 graph-search grading), `api_ok` on **12**
+and `api_plan.endpoint` on **13** (the last two fell from 128 and 104 on
+2026-09-23, when the graph-answerable families stopped requiring the REST path, and again on 2026-10-03 when the
+REST sample-search seed turns and the SOP case moved to the graph). Those cases stay red until the corpus
 itself is settled.
 
 **Name the frame, because the two frames disagree.** Under that all-CC
@@ -561,8 +571,8 @@ scored, not because it started holding.
 
 **Every figure above is RECOMPUTED, not remembered**, in
 `tests/test_write_refusal_coverage.py`: the headline by
-`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (426 total /
-5 green / 421 red), the four per-criterion counts by
+`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (383 total /
+13 green / 370 red), the four per-criterion counts by
 `test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too`, and the
 two-frames claim by `test_the_cc_skip_turns_nothing_green_under_the_all_cc_simulation`.
 All three drive the curated corpus through `evaluate.evaluate_turn` with the real
@@ -737,7 +747,7 @@ operator starts it. The lane row is in `NessieAI/tests/README.md`.
 ## Depends on / depended on by
 
 **Depended on by: application code, which makes this directory load-bearing.**
-- The Container-CC paired-evidence ingester imports four modules of it (`NessieAI/cc/op_registry/paired_evidence.py:37-40`), so removing one breaks the op registry. A frozen engine-to-harness edge.
+- The Container-CC paired-evidence ingester imports four modules of it (`NessieAI/cc/op_registry/paired_evidence.py:37-40`), so removing one breaks the op registry. Now imported from `NessieAI/nessie_harness/` instead.
 - `manage.py nessie` imports the driver and runner at call time (`nextseek_api/management/commands/nessie.py:96`), which is how a run happens inside the trusted Django process.
 - Task-family labels are read straight out of the corpus file, resolved through `NessieAI/paths.py` (`NessieAI/router/family_labels.py:29`), so moving `corpus.json` without `paths.py` empties that catalog, and the router logs the missing file rather than failing.
 - The `route_capabilities` generator imports three modules and resolves the corpus through `NessieAI/paths.py` (`NessieAI/build_tools/gen_op_surfaces/route_capabilities.py:29-31`, `NessieAI/build_tools/gen_op_surfaces/route_capabilities.py:39`). A frozen edge.
@@ -748,12 +758,12 @@ on paths in this directory are archived in `NessieAI/history/plan018/scripts/`; 
 longer govern it.
 
 **Depends on:**
-- The E2E criterion DSL in `NessieAI/tests/e2e/`, imported by package (`NessieAI/tests/nessie_tests/corpus.py:7-8`, `NessieAI/tests/nessie_tests/evaluate.py:7`).
-- `pydantic`, at module scope in the two manifest models and the verifier (`NessieAI/tests/nessie_tests/manifest.py:4`, `NessieAI/tests/nessie_tests/bayes_manifest.py:13`, `NessieAI/tests/nessie_tests/v4_2_verifier.py:15`).
+- The E2E criterion DSL in `NessieAI/tests/e2e/`, imported by package (`NessieAI/nessie_harness/corpus.py:7-8`, `NessieAI/tests/nessie_tests/evaluate.py:7`).
+- `pydantic`, at module scope in the two manifest models and the verifier (`NessieAI/nessie_harness/manifest.py:4`, `NessieAI/nessie_harness/bayes_manifest.py:13`, `NessieAI/tests/nessie_tests/v4_2_verifier.py:15`).
 - `orjson`, at module scope in the verifier only (`NessieAI/tests/nessie_tests/v4_2_verifier.py:14`).
-- Three heavy dependencies are deliberately lazy, imported inside the function that needs them: Django models (`NessieAI/tests/nessie_tests/bundle.py:56`, `NessieAI/tests/nessie_tests/bundle.py:77`), `openpyxl` (`NessieAI/tests/nessie_tests/evaluate.py:148`) and `zstandard` (`NessieAI/tests/nessie_tests/collect.py:177`).
+- Three heavy dependencies are deliberately lazy, imported inside the function that needs them: Django models (`NessieAI/tests/nessie_tests/bundle.py:56`, `NessieAI/tests/nessie_tests/bundle.py:77`), `openpyxl` (`NessieAI/tests/nessie_tests/evaluate.py:148`) and `zstandard` (`NessieAI/nessie_harness/collect.py:177`).
 - The live HTTP endpoint and its progress route, by string rather than by import (`NessieAI/tests/nessie_tests/http_driver.py:7`, `NessieAI/tests/nessie_tests/http_driver.py:41`, `NessieAI/tests/nessie_tests/http_driver.py:49`).
-- The `nextseek` container and the `docker` binary, for the paired run's post-hoc reads only (`NessieAI/tests/nessie_tests/sources.py:104-105`).
+- The `nextseek` container and the `docker` binary, for the paired run's post-hoc reads only (`NessieAI/nessie_harness/sources.py:104-105`).
 
 **What is deliberately not in those lists.** Two kinds of hit were excluded.
 One: matches inside `NessieAI/history/` and `NessieAI/docs/`, which are dated records
@@ -762,8 +772,8 @@ package without depending on it (in `NessieAI/chat_nextseek/src/chat_nextseek/or
 `nextseek_api/assistant/models_db.py:327` and
 `NessieAI/tests/cc/test_cc_session_metas_columns.py:220`). One hit
 looks like an outbound Django dependency and is not: the line importing
-`nextseek_api.assistant.models_db` at `NessieAI/tests/nessie_tests/sources.py:253` sits inside
-the `_CONTAINER_PY` string opened at `NessieAI/tests/nessie_tests/sources.py:245`, which is
+`nextseek_api.assistant.models_db` at `NessieAI/nessie_harness/sources.py:253` sits inside
+the `_CONTAINER_PY` string opened at `NessieAI/nessie_harness/sources.py:245`, which is
 probe source injected into a container, not an import this file performs. Test
 modules that import the package from elsewhere in the tree are omitted from the
 inbound list on the grounds that they are tests of it rather than consumers of

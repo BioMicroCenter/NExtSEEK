@@ -2,7 +2,7 @@
 
 **Reviewer:** independent cold agent (no implementer conversation history)  
 **Date:** 2026-08-12  
-**Worktree:** `/home/taishajo/work/NExtSEEK-plan018` @ `ultraplan/hibayes-eval-routing`  
+**Worktree:** `/home/<user>/work/NExtSEEK-plan018` @ `ultraplan/hibayes-eval-routing`  
 **Base:** `fa48b42b` (V4-7 vault-sync tip)  
 **HEAD:** `5bec28d9` + uncommitted V4-8 implementation (branch ahead 1 = Phase 0 evidence only)  
 **Authority:** SDD plan `plan018_v4-8_sdd_35f67940`; living-plan §V4-8 + binding DONE ~L1390–1406; controlling contract task V4-8  

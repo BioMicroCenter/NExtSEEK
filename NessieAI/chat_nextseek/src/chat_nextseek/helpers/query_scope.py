@@ -63,7 +63,20 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..graph_contract import schema
 from .lab_code import fold
+
+#: Words that name the KIND of record a question lists ("What SOPs are on file?", "Who are the researchers
+#: registered?"). Such a word is never a filter term (fix round 4.1).
+PEOPLE_KIND_WORDS = frozenset({"people", "person", "researcher", "researchers", "user", "users", "account", "accounts",
+                               "scientist", "scientists", "member", "members", "registered"})
+KIND_WORDS = PEOPLE_KIND_WORDS | {"sop", "sops", "protocol", "protocols"}
+
+
+def names_only_the_kind(term: object) -> bool:
+    """True when every word of ``term`` names the kind being listed ("SOPs", "registered users")."""
+    words = re.findall(r"\w+", str(term).lower())
+    return bool(words) and all(w in KIND_WORDS for w in words)
 
 #: One English phrase per endpoint, for the single sentence the reply may say about
 #: how the answer was obtained. Display only: nothing here routes, and the generic
@@ -190,6 +203,9 @@ def _asked_for(
             return
         if user_query is not None and kind in _guessable and not _named_in(user_query, value, name):
             return
+        if (user_query is not None and kind == "project"
+                and re.search(re.escape(value) + r"\s+(?:paper|publication|manuscript|article)s?\b", user_query, re.I)):
+            return  # "the <project> paper" names a document, not a scope
         if (kind == "sample type" and every_sample and not _code_written(user_query, value)
                 and not _type_cued(user_query[every_sample.end():], value, name)):
             return
@@ -231,7 +247,7 @@ def _asked_for(
         _add("assay", code)
 
     for value in _uniq(entity_result.get("keywords")) + _uniq(filters.get("keywords")):
-        if fold(value) in scientist_keys:
+        if fold(value) in scientist_keys or names_only_the_kind(value):  # a kind word is never asked for as a filter
             continue
         _add("keyword", value)
     for name in scientists:
@@ -262,7 +278,8 @@ def _executed_text(api_plan: dict | None, graph_plan: dict | None) -> str | None
             parts.append(cypher)
         parts.append(json.dumps(graph_plan.get("parameters") or {}, default=str))
     if api_plan:
-        for key in ("requestBody", "queryParameters"):
+        # match_terms: the names a people request matches in code, applied though never sent (fix round 4.1).
+        for key in ("requestBody", "queryParameters", "match_terms"):
             parts.append(json.dumps(api_plan.get(key) or {}, default=str))
         parts.append(str(api_plan.get("endpoint") or ""))
     if not parts:
@@ -292,7 +309,7 @@ def _type_label(code: str) -> str:
     alone read ``MATCH (s:T_RNA)`` as not constraining RNA: 19 of the 30 Pilot A v2
     replies (2026-09-18) opened by saying the sample type was not applied.
     """
-    return "T_" + re.sub(r"[^A-Za-z0-9_]", "_", code)
+    return schema.type_label(code)
 
 
 def _type_is_applied(code: str, haystack: str) -> bool:
@@ -301,7 +318,7 @@ def _type_is_applied(code: str, haystack: str) -> bool:
 
 #: A graph label (``:T_D_SEQ``), removed before ``_name_is_applied`` splits on underscores, so
 #: a name never counts as applied because it is one segment of a sample type's label.
-_GRAPH_LABEL = re.compile(r":\s*`?T_[A-Za-z0-9_]+`?")
+_GRAPH_LABEL = re.compile(r":\s*`?" + schema.TYPE_LABEL_PATTERN + "`?")
 
 
 def _name_is_applied(value: str, haystack: str) -> bool:
@@ -329,10 +346,7 @@ def _keyword_is_applied(keyword: str, haystack: str) -> bool:
 
 #: Properties every Sample carries. A keyword said to be realised as one of these was matched as
 #: text (``search_text``) or not at all, so the declaration proves nothing about a field.
-_SYSTEM_PROPERTIES = frozenset({
-    "id", "uuid", "type", "title", "project_ids", "search_text", "synced_at", "source_hash",
-    "parent_titles", "parent_title_hashes",
-})
+_SYSTEM_PROPERTIES = schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12
 
 
 def _declared_fields(keyword: str, graph_plan: dict | None) -> list[str]:
@@ -460,7 +474,7 @@ def _assay_is_applied(code: str, name: str | None, haystack: str,
     for candidate in (code, name):
         if not candidate:
             continue
-        if _is_applied(candidate, haystack) or _fragment_is_applied(candidate, haystack):
+        if _name_is_applied(candidate, haystack) or _fragment_is_applied(candidate, haystack):
             return True
     # The title, which is what `code` also holds when the catalog gives no separate name
     # (`_codes_and_names` drops a name equal to its code, so `name` is often None here).
@@ -603,6 +617,36 @@ def _type_cued(text: str, code: str, name: str | None) -> bool:
         if re.search(cue, text or "", re.IGNORECASE):
             return True
     return False
+
+
+def _parameter_strings(graph_plan):
+    out = []
+    def walk(v):
+        if isinstance(v, str): out.append(v)
+        elif isinstance(v, (list, tuple)):
+            for i in v: walk(i)
+        elif isinstance(v, dict):
+            for i in v.values(): walk(i)
+    walk((graph_plan or {}).get("parameters") or {})
+    return out
+
+
+def _asked_as_samples(question, code, name):
+    """The question asks for the type as samples ("water samples", "from mice", "Water Sample records"): a title or
+    search value that also holds one of its words or tags is not that type's constraint."""
+    if _type_cued(question, code, name):
+        return True
+    return bool(name) and name.split()[-1].lower() in ("sample", "samples") and _phrase_written(question, name)
+
+
+def _written_phrase_searched(question, code, name, tags, literal_text):
+    if not question or not literal_text or _code_written(question, code) or _asked_as_samples(question, code, name):
+        return False
+    names = [c for c, m in _COMMON_TYPE_NAMES.items() if m == code] + list(tags or ())
+    if name:
+        words = name.split()
+        names += [name] + ([" ".join(words[:-1])] if len(words) > 1 and words[-1].lower() in _GENERIC_LAST_WORDS else [])
+    return any(_phrase_written(question, n) and _phrase_written(literal_text, n) for n in names)
 
 
 def _literals(graph_plan: dict | None) -> list[str]:
@@ -804,13 +848,15 @@ def describe_query_scope(
     titles = _container_titles(graph_plan)
     held = _container_titles(graph_plan, _NAME_MAY_HOLD)
     literals = _literals(graph_plan)
+    literal_text = _folded(" ".join(_parameter_strings(graph_plan)))
     # A long keyword (a paper or study title) the query matched as a title covers the keywords whose words run
     # inside it (R7-711). Whole words of three or more characters: "CC" is never covered by "Vaccine".
     title_phrases = [_folded(value) for kind, value, _, _ in asked if kind == "keyword" and len(value.split()) >= 3
                      and _container_title_is_applied(value, titles, held)]
     for kind, value, label, name in asked:
         if kind == "sample type":
-            applied = _type_is_applied(value, haystack)
+            applied = _type_is_applied(value, haystack) or _written_phrase_searched(
+                user_query, value, name, (type_tags or {}).get(value), literal_text)
         elif kind == "assay":
             applied = _assay_is_applied(value, name, haystack, applied_types)
         elif kind == "keyword":

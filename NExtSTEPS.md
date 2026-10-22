@@ -14,7 +14,10 @@ what to run to apply.
 
 ### 1a. Rotate the demo user passwords
 
-`./startup.sh install` seeds two accounts:
+A fresh `./startup.sh install` generates the database passwords and gives the
+two seeded accounts (`demo`, admin; `user`, regular) random passwords, printed
+once at the end of the install. It does not touch an install that already holds
+the seed. With `--keep-demo-passwords` it keeps the seed's published pair, below:
 
 | Username | Password | Role |
 |---|---|---|
@@ -62,8 +65,12 @@ For a real hostname (e.g., `nextseek.example.com`):
 
 ```ini
 DJANGO_ALLOWED_HOSTS="nextseek.example.com"
-DJANGO_CSRF_TRUSTED_ORIGINS="https://nextseek.example.com"
+DJANGO_CSRF_TRUSTED_ORIGINS="https://nextseek.example.com http://127.0.0.1:8000 http://localhost:8000"
 ```
+
+Keep the loopback pair for the box's `NEXTSEEK_PORT`: nginx forwards
+`Host: localhost`, and the box's CI login checks fail with a 403 without it
+(DEPLOYMENT.md §3.1). A re-run of `install` adds the pair back if it is missing.
 
 Apply: `docker compose up -d --force-recreate nextseek`
 
@@ -92,8 +99,13 @@ Notes:
 
 - **Host only, no path** (`https://seek.example.com`, not `.../seek`).
 - **Omit it on a laptop**: it defaults to `http://localhost:<seek port>`.
-- **A hand-edited `SEEK_PUBLIC_URL` in `docker/nextseek.env` is preserved**: a
-  re-run of `install` reads it back rather than resetting it to the default.
+- **A hand-edited `SEEK_PUBLIC_URL`, `DJANGO_ALLOWED_HOSTS` or
+  `DJANGO_CSRF_TRUSTED_ORIGINS` in `docker/nextseek.env` is preserved**: a re-run
+  of `install` keeps every value already in `docker/db.env` and
+  `docker/nextseek.env` (DEPLOYMENT.md §2.4). A kept
+  `DJANGO_CSRF_TRUSTED_ORIGINS` gains the loopback pair for the install's port.
+  `reset` without `--keep-config` carries these three across and starts every
+  other value fresh.
 - **An existing `site_base_host` is never overwritten** by startup. If SEEK
   already has one (e.g. an admin set it in *Server admin → Settings → Site base
   Hostname*), startup reports the mismatch and leaves SEEK's value alone.
@@ -106,9 +118,12 @@ Notes:
 ### 2a. MySQL: `docker/db.env`
 
 ```ini
-MYSQL_ROOT_PASSWORD="<strong-random>"
-MYSQL_PASSWORD="<strong-random>"          # app user (seek_db_user)
+MYSQL_ROOT_PASSWORD='<strong-random>'
+MYSQL_PASSWORD='<strong-random>'          # app user (seek_db_user)
 ```
+
+Single quotes: compose takes the value literally. A password holding `$` in
+double quotes or none is expanded by compose, and `install` refuses to keep it.
 
 `MYSQL_USER` and database names (`dmac`, `seek_production`) are referenced in
 many places; only rotate the **passwords**, leave names alone.
@@ -116,12 +131,11 @@ many places; only rotate the **passwords**, leave names alone.
 **Apply**: rotate **in place**; this is the only route that preserves your
 edited credentials.
 
-> ⚠ **`./startup.sh reset --keep-config` does NOT preserve rotated
-> passwords.** `--keep-config` only skips *deleting* the files; the
-> re-install phase then unconditionally re-renders `docker/db.env` from the
-> template with the well-known defaults (`seek_root` / `seek_db_password`),
-> silently reverting your rotation while everything keeps working. Only
-> `SEEK_PUBLIC_URL` and the Bedrock proxy token have read-back preservation.
+> A re-run of `install`, and `./startup.sh reset --keep-config`, keep rotated
+> passwords: install reads them back from `docker/db.env` and
+> `docker/nextseek.env`, writes them into every file that carries them, and logs
+> into MySQL and Neo4j with them. `reset` without `--keep-config` deletes the
+> files and starts again from the demo values (`seek_root` / `seek_db_password`).
 
 To rotate passwords on the EXISTING populated DB, update the MySQL user
 grants in place:
@@ -131,8 +145,8 @@ docker compose exec db mysql -uroot -p<old-root-pw> \
   -e "ALTER USER 'root'@'%' IDENTIFIED BY '<new-root-pw>'; \
       ALTER USER 'seek_db_user'@'%' IDENTIFIED BY '<new-app-pw>'; \
       FLUSH PRIVILEGES;"
-# then edit docker/db.env to match, then:
-docker compose up -d --force-recreate nextseek
+# then edit docker/db.env to match, then recreate the three services that read it:
+docker compose up -d --no-deps --force-recreate nextseek seek seek_workers
 ```
 
 ### 2b. Neo4j
@@ -150,8 +164,9 @@ recreate `nextseek`.
 
 ## 3. Django secret key
 
-Startup auto-generates a 64-character secret on every install. If the
-current key was ever logged / committed / shared, rotate it:
+Startup generates a 64-character secret on a first install; a re-install keeps
+the one in `docker/nextseek.env`. If the current key was ever logged /
+committed / shared, rotate it:
 
 ```bash
 python -c 'import secrets, string; print("".join(secrets.choice(string.ascii_letters + string.digits + "!@%^&*()-_=+:.<>?") for _ in range(64)))'
@@ -229,7 +244,7 @@ Where `<prefix>` is the value from `startup/.instance.json`'s `prefix`
 field (empty for default install, `dev-` / `test-` / etc. for named
 instances).
 
-To restore: same commands in reverse, or use `./startup.sh reset` with the
+To restore: same commands in reverse, or use `./startup.sh reset --drop-data` with the
 new dumps dropped into `startup/seed/` (you'd be replacing the shipped
 seed snapshots; see [`startup/README.md`](startup/README.md) for the
 maintainer regen workflow).
@@ -261,7 +276,7 @@ migrations, rebuild, and run the §6 checklist.
 | Setting | File | Apply with |
 |---|---|---|
 | Demo user passwords | SEEK admin UI (web) | (immediate) |
-| MySQL passwords | `docker/db.env` | in-place ALTER USER only (§2a; reset re-renders db.env to defaults) |
+| MySQL passwords | `docker/db.env` | in-place ALTER USER only (§2a; `reset` without `--keep-config` renders db.env with the defaults) |
 | Neo4j password | root `.env` (first start) + `docker/nextseek.env` | in-place cypher `ALTER`, then recreate `nextseek` (§2b) |
 | Django secret | `docker/nextseek.env` | `docker compose up -d --force-recreate nextseek` |
 | ALLOWED_HOSTS / CSRF | `docker/nextseek.env` | `docker compose up -d --force-recreate nextseek` |

@@ -4,14 +4,22 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 
 from celery.exceptions import SoftTimeLimitExceeded
 
 from .celery_app import app
 from .config import BatchUploadConfig
+from .job_index import state_dir
 from .orchestrator import run_batch_upload_multi
 
 log = logging.getLogger(__name__)
+
+
+def cancel_marker_path(job_id: str) -> str:
+    """The file whose existence means the job is cancelled. It lives in the durable state dir, so a queued job
+    cancelled before a restart still sees it (the broker drops the revoke)."""
+    return os.path.join(state_dir(), "cancel", str(job_id))
 
 
 @app.task(bind=True, queue="batch_upload", name="batch_upload.run")
@@ -26,6 +34,7 @@ def run_batch_upload_task(
     user_id: int = None,
     config_overrides: dict = None,
     neo4j_only: bool = False,
+    scope_project_ids: list = (),
 ):
     """Celery task entry point for batch upload.
 
@@ -37,23 +46,31 @@ def run_batch_upload_task(
         log.warning("xlsx_path (singular) is deprecated; use xlsx_paths or rows")
     if xlsx_paths is None:
         xlsx_paths = [xlsx_path] if xlsx_path else []
-    config = BatchUploadConfig(**(config_overrides or {}))
-
-    # Checkpoint directory under MEDIA_ROOT
-    from django.conf import settings
-
-    checkpoint_dir = os.path.join(
-        getattr(settings, "MEDIA_ROOT", "/tmp"),
-        "batch_upload_checkpoints",
-        self.request.id or "unknown",
+    log.info(
+        "batch upload started job=%s user=%s project=%s rows=%d files=%d",
+        self.request.id, user_id, project_id, len(rows or ()), len(xlsx_paths),
     )
-    os.makedirs(checkpoint_dir, exist_ok=True)
+    config = BatchUploadConfig(**(config_overrides or {}))
+    # SEC-001: the projects whose existing samples this job may change, from the view's membership read.
+    # None is a superuser (any sample); a message that does not carry it changes no existing sample.
+    config.scope_project_ids = None if scope_project_ids is None else tuple(int(p) for p in scope_project_ids)
 
     # Cancellation flag
     _stop_event = threading.Event()
 
+    marker = cancel_marker_path(self.request.id or "unknown")
+
     def should_stop() -> bool:
-        return _stop_event.is_set()
+        return _stop_event.is_set() or os.path.exists(marker)
+
+    if os.path.exists(marker):
+        _clear_marker(marker)
+        return {
+            "job_id": self.request.id,
+            "summary_path": "",
+            "totals": {"processed": 0, "success": 0, "skipped": 0, "failed": 0, "cancelled": True},
+            "errors": [],
+        }
 
     self.update_state(
         state="STARTED",
@@ -67,7 +84,6 @@ def run_batch_upload_task(
             contributor_id=contributor_id,
             lababbv=lababbv,
             config=config,
-            checkpoint_dir=checkpoint_dir,
             should_stop=should_stop,
             rows=rows,
             neo4j_only=neo4j_only,
@@ -89,7 +105,14 @@ def run_batch_upload_task(
         if identity_map:
             try:
                 resolve_orphans_task.apply_async(
-                    kwargs={"identity_map": identity_map, "parent_info": parent_info_data},
+                    kwargs={
+                        "identity_map": identity_map,
+                        "parent_info": parent_info_data,
+                        "scope_project_ids": (
+                            None if config.scope_project_ids is None else list(config.scope_project_ids)
+                        ),
+                        "person_id": contributor_id,
+                    },
                 )
             except Exception as exc:
                 log.warning("Failed to dispatch orphan resolution task: %s", exc)
@@ -112,10 +135,21 @@ def run_batch_upload_task(
             meta={"stage": "ERROR", "error": str(exc)[:500]},
         )
         raise
+    finally:
+        _clear_marker(marker)
+
+
+def _clear_marker(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 @app.task(bind=True, queue="batch_upload", name="batch_upload.resolve_orphans")
-def resolve_orphans_task(self, identity_map: dict, parent_info: dict):
+def resolve_orphans_task(
+    self, identity_map: dict, parent_info: dict, scope_project_ids: list = (), person_id: int = None,
+):
     """Async task to resolve orphaned parent references after batch upload.
 
     Best-effort: failures are logged but do not affect the upload result.
@@ -123,7 +157,8 @@ def resolve_orphans_task(self, identity_map: dict, parent_info: dict):
     Nothing here writes the graph. Every child the rewrite resolved is enqueued for the graph sync after the
     rewrite's transaction has committed, and the drain writes its lineage and labels from MySQL (the sync design,
     sections 8 and 12). ``parent_info`` is kept for in-flight messages: the rewrite needs only the tokens discovery
-    matched.
+    matched. ``scope_project_ids`` limits the rewrite to the uploader's projects (SEC-001): None is a superuser, and a
+    message without it rewrites nothing.
     """
     if not identity_map:
         return {"resolved": 0}
@@ -132,6 +167,7 @@ def resolve_orphans_task(self, identity_map: dict, parent_info: dict):
         from neo4j import GraphDatabase
 
         from nextseek_api.graph_sync import hooks
+        from nextseek_api.graph_sync.writer import SAMPLE_CHUNK
 
         from .config import Neo4jConfig
         from .db_engine import get_connection
@@ -153,16 +189,25 @@ def resolve_orphans_task(self, identity_map: dict, parent_info: dict):
                 return {"resolved": 0}
 
             with get_connection() as conn:
-                stats = resolve_orphans(orphans=orphans, sql_conn=conn)
+                stats = resolve_orphans(
+                    orphans=orphans,
+                    sql_conn=conn,
+                    project_ids=None if scope_project_ids is None else tuple(int(p) for p in scope_project_ids),
+                    person_id=None if person_id is None else int(person_id),
+                )
         finally:
             driver.close()
 
-        # After the commit, never inside it: the outbox row is the record, and the drain writes the graph.
-        stats["queued"] = sum(
-            1
-            for sample_id in stats.get("sample_ids", ())
-            if hooks.enqueue("samples", f"sample:{sample_id}")
-        )
+        # After the commit, never inside it: the outbox rows are the record, and the drain writes the graph. One
+        # row per SAMPLE_CHUNK ids, so the drain runs one by-id sync per chunk and not one per sample; the time in
+        # the key keeps two uploads before a drain from overwriting each other's ids.
+        ids = sorted({int(sample_id) for sample_id in stats.get("sample_ids", ())})
+        stamp = time.time_ns()
+        stats["queued"] = 0
+        for n, start in enumerate(range(0, len(ids), SAMPLE_CHUNK)):
+            part = ids[start:start + SAMPLE_CHUNK]
+            if hooks.enqueue("samples", f"batch:orphans:{stamp}:{n}", part):
+                stats["queued"] += len(part)
         return stats
 
     except Exception as exc:

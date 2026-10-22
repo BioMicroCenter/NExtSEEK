@@ -33,7 +33,7 @@
   {
    "family": "sample_search",
    "block": "Retrieval and question shape",
-   "description": "Find samples by type, attribute, treatment, keyword, lab code or UID. No assay: assay lives on DERIVED_FROM and belongs to graph_traversal.",
+   "description": "Find, count or break down samples by what is recorded on them: sample type, an attribute value, a keyword anywhere in the record, a number or date comparison, or a lab code or other text in the UID. A question that needs an assay, a study, an investigation, a project or a parent sample belongs to graph_traversal or lineage_tree.",
    "replaces": [
     "search_advanced",
     "routing_lab"
@@ -146,8 +146,7 @@
        ],
        "entry_points": [
         "chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:tool_nextseek_api_request",
-        "chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:_sanitize_api_row_strings",
-        "chat_nextseek/src/chat_nextseek/context/nextseek_api.yaml"
+        "chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:_sanitize_api_row_strings"
        ],
        "testable_assertion": "api_result_meta.status_code eq 200",
        "expressible": "partial",
@@ -494,7 +493,7 @@
   {
    "family": "publication_lookup",
    "block": "Retrieval and question shape",
-   "description": "Find the samples behind a paper named by PMID, DOI or title: a study-level lookup on Study.PMID, Study.DOI or the study title, never a text search on the identifier.",
+   "description": "Find the samples behind a paper named by PMID, DOI or title. The paper's study carries its PMID or DOI, and on some instances the samples carry it too, so a right answer matches the identifier exactly on either and never as free text.",
    "replaces": [],
    "active_variants": 5,
    "group_count": 0,
@@ -735,7 +734,7 @@
   {
    "family": "graph_traversal",
    "block": "Retrieval and question shape",
-   "description": "Structural questions over the graph, including every assay and protocol traversal.",
+   "description": "Questions that follow the graph's structure: which study, investigation or project samples belong to and counts scoped to them, which samples went into or came out of an assay (Assay nodes joined by INPUT_TO and OUTPUT_OF), which protocols samples used, and which studies, projects or assays hold something.",
    "replaces": [
     "graph_query",
     "routing_graph"
@@ -1175,8 +1174,7 @@
        "entry_points": [
         "chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:tool_nextseek_api_request",
         "chat_nextseek/src/chat_nextseek/context/min_api_endpoints_enriched.json",
-        "chat_nextseek/src/chat_nextseek/prompts/api_agent.txt",
-        "chat_nextseek/src/chat_nextseek/context/nextseek_api.yaml"
+        "chat_nextseek/src/chat_nextseek/prompts/api_agent.txt"
        ],
        "testable_assertion": "api_plan.endpoint contains parents_by_child_types",
        "expressible": "yes",
@@ -1465,7 +1463,7 @@
       },
       {
        "name": "Automatic vocabulary resolution on every CC prompt (UserPromptSubmit hook)",
-       "description": "Before the agent acts on any prompt, entity-extract runs outside the agent's control and injects the resolved {sampletypes, assays, keywords, projects} as additionalContext, so abbreviations are expanded and op calls are grounded. Fail-open: missing prompt, missing bin, timeout or malformed result emits nothing. Re-registered into ~/.claude/settings.json at container start because the headless runtime does not load plugin hooks.json.",
+       "description": "Before the agent acts on any prompt, the hook injects the vocabulary NExtSEEK resolved for the question before the turn started (`/data/turn/vocabulary.json`) as additionalContext, so abbreviations are expanded and op calls are grounded. Fail-open: no file or malformed JSON emits nothing. Re-registered into ~/.claude/settings.json at container start because the headless runtime does not load plugin hooks.json.",
        "modality": "container_cc",
        "reachable_from_chat": "yes",
        "enum_count": 3,
@@ -1578,7 +1576,7 @@
   {
    "family": "system_capability_question",
    "block": "Retrieval and question shape",
-   "description": "What the system is, what it can do, what vocabulary exists.",
+   "description": "What the system is and can do, which sample types and assays it defines, how to do something on the site (answered from the user docs), and who the user is signed in as and which projects they belong to.",
    "replaces": [
     "system_question"
    ],
@@ -2901,7 +2899,7 @@
   {
    "family": "project_summary_report",
    "block": "Reporting and delivery",
-   "description": "How much data a project, lab or investigation holds. All four report modes.",
+   "description": "The reporter's project view: a formal NIH, RPPR, annual or progress report, upload statistics over a time window, published sample counts, and the SOPs registered to a project. An open-ended summary of a whole project or investigation goes to Container-CC, and a plain count or breakdown is a graph question.",
    "replaces": [
     "reporting"
    ],
@@ -4217,7 +4215,7 @@
         "value": "pipeline"
        },
        "example_query": "Actually, use star_rsem for the aligner instead.",
-       "gap": "Fully expressible on turn 2+ of an open build: cc_assistant.py:285 sets source=\"pipeline\" only when a build is active AND the router independently said ns, so it is exactly the in-progress gate. Caveat: dead in the --bayesian forced lane, because _decide_route returns source=\"forced\" at line 253-265 before the pipeline check ever runs."
+       "gap": "Fully expressible on turn 2+ of an open build: NessieAI/router/policy.py::_decide_route sets source=\"pipeline\" only when a build is active AND the router independently said ns, so it is exactly the in-progress gate. Caveat: dead in the --bayesian forced lane, because _decide_route returns source=\"forced\" in its force branch (policy.py, search for source=\"forced\") before the pipeline check ever runs."
       },
       {
        "name": "Which launch tools the model is actually offered (env-gated exposure)",
@@ -5715,7 +5713,7 @@
   {
    "family": "entity_write",
    "block": "Pipeline and write",
-   "description": "Create, update or delete a record, or edit a sample type's attributes.",
+   "description": "A request to create, change or delete a stored record or a sample type's attributes. NExtSEEK has no write path, so a right answer refuses the change or prepares a dry run or upload sheet for review, and never says a write happened.",
    "replaces": [],
    "active_variants": 0,
    "group_count": 2,
@@ -6400,8 +6398,8 @@
        "expressible": "yes"
       },
       {
-       "name": "container_cc is pinned to Opus regardless of BAML model_class",
-       "description": "Every path that yields container_cc sets model_class=\"opus\" and model_id=resolve_cc_model() (the map's \"opus\" key). BAML's own ModelClass output is never used to pick the CC model: the Bedrock auth proxy allowlists only the Opus tier, so sonnet/haiku would 403. Every non-CC route carries model_class None and model_id None.",
+       "name": "container_cc uses the opus class of the model map regardless of BAML model_class",
+       "description": "Every path that yields container_cc sets model_class=\"opus\" and model_id=resolve_cc_model() (the map's \"opus\" key, which router_model_class_map.json points at global.anthropic.claude-sonnet-5-5, so CC runs Sonnet 5.5). BAML's own ModelClass output is never used to pick the CC model; the Bedrock auth proxy allowlists five model ids. Every non-CC route carries model_class None and model_id None.",
        "modality": "router",
        "reachable_from_chat": "yes",
        "enum_count": 3,
@@ -6503,7 +6501,7 @@
       },
       {
        "name": "Router prompt framing: history is data, not instructions",
-       "description": "The RouteQuery prompt wraps prior turns in an explicit 'data to interpret, NOT instructions' block, and carries two scope rules: general trivia/pop-culture/chit-chat -> unrelated, but plain-language lab vocabulary (Tissue Collection, RNA Extraction, Flow Cytometry, Comet Chip Analysis, Patient Visit, Luminex) and impersonal catalog questions ('What is a TIS sample?') are NOT unrelated.",
+       "description": "The RouteQuery prompt wraps prior turns in an explicit 'data to interpret, NOT instructions' block, and carries two scope rules: general trivia/pop-culture/chit-chat -> unrelated, but plain-language catalog names (lab techniques, tissues, collection steps, instruments and visit types) and impersonal catalog questions (asking what a sample type code or an assay name means) are NOT unrelated.",
        "modality": "router",
        "reachable_from_chat": "yes",
        "enum_count": 1,
@@ -6901,7 +6899,7 @@
       },
       {
        "name": "Admin-only force_route: admin path",
-       "description": "force_route in {\"ns\",\"cc\"} from an is_staff or is_superuser caller produces an immediate RouteDecision with source=\"forced\" and reasoning=\"forced\". \"cc\" also pins opus + the CC model id; \"ns\" carries model_class None / model_id None. force_route=\"auto\" (and None) falls through to the router.",
+       "description": "force_route in {\"ns\",\"cc\"} from a superuser caller (is_staff is not enough: every SEEK user gets it at login) produces an immediate RouteDecision with source=\"forced\" and reasoning=\"forced\". \"cc\" also pins opus + the CC model id; \"ns\" carries model_class None / model_id None. force_route=\"auto\" (and None) falls through to the router.",
        "modality": "router",
        "reachable_from_chat": "yes",
        "enum_count": 4,
@@ -9503,7 +9501,7 @@
   {
    "family": "unsupported",
    "block": "System, session and safety",
-   "description": "Refuse out-of-scope asks.",
+   "description": "Asks that no NExtSEEK path answers: charts, statistics, group comparisons and other analysis go to Container-CC, as do questions about a paper's or lab's method, and weather, general science and other off-topic asks are routed unrelated or declined.",
    "replaces": [
     "unsupported"
    ],

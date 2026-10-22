@@ -2,7 +2,7 @@
 
 **Recorded:** 2026-08-11  
 **Implementation base:** `origin/dev@6881b6a870d68a6efaeb483b111cb9244488c5f9`  
-**Worktree:** `/home/taishajo/work/NExtSEEK-plan018`  
+**Worktree:** `/home/<user>/work/NExtSEEK-plan018`  
 **Authority:** V4-0 (“Enumerate every selected commit/file and review its diff onto the exact base”)
 
 This records the **exact port set** and provenance review. It does **not** perform the V4-2 port.
@@ -11,7 +11,7 @@ This records the **exact port set** and provenance review. It does **not** perfo
 
 | Role | Identity |
 |---|---|
-| Eval vendor | `/home/taishajo/work/dmac-assistant` @ `dcca50c187890dc93659e5594810179793bb94eb` (`origin/main`) |
+| Eval vendor | `/home/<user>/work/dmac-assistant` @ `dcca50c187890dc93659e5594810179793bb94eb` (`origin/main`) |
 | Nessie paired/ordinary harness tip | `origin/dev-v4-merge@3fe71670b954b78573795ac087caedec5eac2b97` |
 | set3_final producer SHA (run metadata) | `26609bdba100793ee33e1bc6e050a7a373a41419` |
 | Historical plan-cited reviewed ordinary tip | `origin/dev-v3-merge@0aca6fc46aa086210c3ed238dc6b4adb687f8ac0` (superseded as tip; still the “was reviewed” baseline for delta review) |

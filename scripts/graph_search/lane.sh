@@ -18,6 +18,7 @@ NEO4J_MEMORY="${GS_NEO4J_MEMORY:-4g}"
 NEO4J_HEAP="${GS_NEO4J_HEAP:-1500m}"
 NEO4J_PAGECACHE="${GS_NEO4J_PAGECACHE:-1500m}"
 NEO4J_TX_MAX="${GS_NEO4J_TX_MAX:-1g}"
+NEO4J_TX_TIMEOUT="${GS_NEO4J_TX_TIMEOUT:-120s}"   # production's and dev's db.transaction.timeout
 APP_MEMORY="${GS_APP_MEMORY:-4g}"
 APP_IMAGE="${GS_APP_IMAGE:-nextseek-nextseek:latest}"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -55,7 +56,7 @@ case "${1:-}" in
       -e NEO4J_server_memory_heap_max__size="$NEO4J_HEAP" \
       -e NEO4J_server_memory_pagecache_size="$NEO4J_PAGECACHE" \
       -e NEO4J_db_memory_transaction_max="$NEO4J_TX_MAX" \
-      -e NEO4J_db_transaction_timeout=300s \
+      -e NEO4J_db_transaction_timeout="$NEO4J_TX_TIMEOUT" \
       -v "$NEO4J_VOLUME":/data "$NEO4J_IMAGE" >/dev/null
     for _ in $(seq 1 100); do
       if cypher 'RETURN 1' >/dev/null 2>&1; then echo "neo4j up"; exit 0; fi

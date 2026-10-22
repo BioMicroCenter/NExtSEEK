@@ -2,7 +2,7 @@
 
 **Status:** `CLOSED`  
 **Closed at:** 2026-08-11 (UTC)  
-**Base:** `6881b6a870d68a6efaeb483b111cb9244488c5f9` @ `/home/taishajo/work/NExtSEEK-plan018`  
+**Base:** `6881b6a870d68a6efaeb483b111cb9244488c5f9` @ `/home/<user>/work/NExtSEEK-plan018`  
 **Closeout:** `evidence/plan018-v4-0-closeout.json`
 
 ## V4-0 DONE checklist

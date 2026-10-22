@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load json_script_safe %}
 {% block title %}Sample Attributes - NExtSEEK{% endblock %}
 
 {% block extra_head %}
@@ -513,8 +514,8 @@
        `report.attribute_types_options` are already JSON strings built by
        seek.views.samples.sampleAttributes. */
     window.NS_ATTR_BOOT = {
-        sampleTypes: {{ report.type_options|safe }},
-        valueTypes: {{ report.attribute_types_options|safe }},
+        sampleTypes: {{ report.type_options|json_script_safe }},
+        valueTypes: {{ report.attribute_types_options|json_script_safe }},
         canWrite: {% if user.is_superuser %}true{% else %}false{% endif %}
     };
 </script>
@@ -530,8 +531,9 @@
      patch   PATCH /nextseek_api/attributes/batch-patch/
      delete  POST  /nextseek_api/attributes/batch-delete/
 
-   The API uses CsrfExemptSessionAuthentication, so the browser session is
-   the whole credential: no CSRF token and no secrets belong on this page.
+   The API uses SeekSessionAuthentication, so the browser session is
+   the credential, with the CSRF token sent on every write (X-CSRFToken from
+   the csrftoken cookie); no secrets belong on this page.
    Reads are open to any signed-in SEEK user; writes require a Django
    superuser and answer 403.
 
@@ -605,11 +607,16 @@
         return /^\d+$/.test(s) ? parseInt(s, 10) : s;
     }
 
+    function csrfToken() {
+        var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+        return m ? decodeURIComponent(m[1]) : '';
+    }
+
     function api(method, path, payload) {
         return fetch(path, {
             method: method,
             credentials: 'same-origin',
-            headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+            headers: {'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRFToken': csrfToken()},
             body: payload === undefined ? undefined : JSON.stringify(payload)
         }).then(function (response) {
             return response.text().then(function (raw) {

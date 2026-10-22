@@ -2303,7 +2303,7 @@ EXPORTS = {
 }
 
 #: Of those, the ones the cc-agent image bakes (`startup/lib/layout.py`).
-CC_AGENT_EXPORTS = ("min_sampletypes_db.json", "min_assays_db.json", "projects_db.json")
+CC_AGENT_EXPORTS = ("min_sampletypes_db.json", "projects_db.json")
 
 
 def render_export(filename: str, rows: list[dict]) -> str:

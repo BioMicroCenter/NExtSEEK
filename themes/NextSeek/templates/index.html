@@ -7,26 +7,27 @@
 <div class="dashboard">
 
   <header class="dash-hero">
+    {% if request.user.is_authenticated %}
     <p class="dash-eyebrow">{% trans "Welcome back" %}</p>
     <h1 class="dash-h1">
-      {% if request.user.is_authenticated %}
-        {% blocktrans with name=request.user.username %}Welcome, {{ name }}{% endblocktrans %}
-      {% else %}
-        {% trans "Welcome to NExtSEEK" %}
-      {% endif %}
+      {% blocktrans with name=request.user.username %}Welcome, {{ name }}{% endblocktrans %}
     </h1>
     <p class="dash-sub">{% trans "Pick up where you left off, or jump into something new." %}</p>
+    {% else %}
+    <p class="dash-eyebrow">{% trans "MIT BioMicro Center" %}</p>
+    <h1 class="dash-h1">{% trans "Welcome to NExtSEEK" %}</h1>
+    <p class="dash-sub">{% trans "Sign in with your SEEK account to search, upload and ask Nessie." %}</p>
+    <a class="btn btn-signin dash-signin" href="/login/?next=/">
+      <i class="bi bi-box-arrow-in-right"></i> {% trans "Sign in" %}
+    </a>
+    {% endif %}
   </header>
 
   <div class="dash-tiles">
     <a class="dash-tile" href="/seek/search/">
       <div class="t-label">{% trans "Total samples" %}</div>
       <div class="t-num">{{ total_samples_count|default:0 }}</div>
-      {% if samples_delta_week %}
-        <div class="t-delta">+{{ samples_delta_week }} {% trans "this week" %}</div>
-      {% else %}
-        <div class="t-delta">&nbsp;</div>
-      {% endif %}
+      <div class="t-delta">&nbsp;</div>
     </a>
     <a class="dash-tile" href="/seek/projects/">
       <div class="t-label">{% trans "Active projects" %}</div>
@@ -67,7 +68,11 @@
             <span class="proj">{{ s.created_at|date:"M j, Y" }}</span>
           </li>
         {% empty %}
+          {% if request.user.is_authenticated %}
           <li class="dash-empty">{% trans "No recent activity yet." %}</li>
+          {% else %}
+          <li class="dash-empty"><a href="/login/?next=/">{% trans "Sign in to see samples." %}</a></li>
+          {% endif %}
         {% endfor %}
       </ul>
     </section>
@@ -75,7 +80,7 @@
     <aside class="dash-actions">
       <a class="dash-action accent" href="/seek/samples/upload/">
         <h3>+ {% trans "New sample" %}</h3>
-        <p>{% trans "Upload an assay sheet or single sample." %}</p>
+        <p>{% trans "Upload an assay sheet." %} <span class="desktop-only-hint">{% trans "Desktop only." %}</span></p>
       </a>
       {% include "includes/nessie_button.html" %}
       <a class="dash-action" href="/seek/sampletypes/">

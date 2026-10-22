@@ -191,7 +191,7 @@ def test_the_immport_sheets_are_written_beside_their_zip_not_under_media(roots, 
 
     target = tmp_path / "private" / "samples-export.zip"
     target.parent.mkdir()
-    with patch("seek.sample.immport.os.system"), \
+    with patch("seek.sample.immport.shutil.copyfile"), \
             patch("seek.sample.immport.load_excelfile_asdic", return_value=dict(sheets, sheetnames=list(sheets))), \
             patch("seek.sample.immport.DOWNLOAD_DIRECTORY", str(media / "download") + "/", create=True), \
             patch.object(DBtable_sample, "_exportImmportSheetInfoZip", autospec=True, side_effect=_sheet):
@@ -277,3 +277,15 @@ def test_exports_older_than_a_day_are_removed_when_the_next_one_is_made(roots):
     _made_by(OWNER)
 
     assert not os.path.exists(stale)
+
+
+def test_the_export_root_comes_from_the_environment_when_no_setting_names_one(tmp_path, monkeypatch):
+    """Compose gives `web` NEXTSEEK_EXPORT_ROOT on the shared media volume, so an export made on one web container
+    still answers after a swap to the next. A local_settings value still wins."""
+    from seek.views.exports import exportRoot
+
+    monkeypatch.setenv("NEXTSEEK_EXPORT_ROOT", str(tmp_path / "shared"))
+    with override_settings(NEXTSEEK_EXPORT_ROOT=None):
+        assert exportRoot() == str(tmp_path / "shared")
+    with override_settings(NEXTSEEK_EXPORT_ROOT=str(tmp_path / "set")):
+        assert exportRoot() == str(tmp_path / "set")

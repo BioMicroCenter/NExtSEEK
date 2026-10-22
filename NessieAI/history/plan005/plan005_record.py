@@ -501,7 +501,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--evidence-root", type=Path, required=True)
     parser.add_argument("--name", required=True)
     parser.add_argument("--writable-output", type=Path, required=True)
-    parser.add_argument("--repo-root", type=Path, default=Path("/home/taishajo/work/NExtSEEK-plan005"))
+    parser.add_argument("--repo-root", type=Path, default=Path("/home/<user>/work/NExtSEEK-plan005"))
     parser.add_argument("--cwd", type=Path, default=None)
     parser.add_argument("--sequence-budget-seconds", type=int, default=SEQUENCE_BUDGET_SECONDS)
     parser.add_argument("--command-timeout-seconds", type=int, default=COMMAND_TIMEOUT_SECONDS)

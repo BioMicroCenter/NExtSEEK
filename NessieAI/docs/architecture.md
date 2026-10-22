@@ -178,7 +178,7 @@ Step by step:
 8. **Caps**: budget default **$0.50** (`NessieAI/cc/cc_engine.py:73`), turns default **50** (`NessieAI/cc/cc_engine.py:74`), and a wall clock clamped into `[_TIMEOUT_FLOOR, _TIMEOUT_HARD_MAX]` by `clamp_turn_timeout` (`NessieAI/cc/cc_engine.py:103-113`). **The 180 s ceiling is no longer immovable**: `_TIMEOUT_HARD_MAX` itself reads `NEXTSEEK_CC_TIMEOUT_HARD_MAX`, defaulting to 180 (`NessieAI/cc/cc_engine.py:81`), and the per-turn value is `min(NEXTSEEK_CC_TIMEOUT_SECONDS, _TIMEOUT_HARD_MAX)` (`NessieAI/cc/cc_engine.py:84-85`). A watchdog thread force-stops and removes the container on overrun (`NessieAI/cc/cc_engine.py:1172-1182`).
 9. **Spawn & input**: docker-py `containers.run` on `dmac-cc-net`, detached; a stale same-name container from a crashed run is force-removed and the spawn retried (`NessieAI/cc/cc_engine.py:919`). The user query is written to stdin as **one** stream-json envelope, then stdin closes.
 10. **Streaming out**: the container's stdout is demuxed line-by-line (`NessieAI/cc/attach.py:1-9`); `CCStreamTranslator` (`NessieAI/cc/translate.py:62`) maps Claude's stream-json onto the frontend's vocabulary, emitting `agent_started` (`NessieAI/cc/translate.py:132`), `search_started` (`NessieAI/cc/translate.py:165`, `NessieAI/cc/translate.py:174`), `search_complete` (`NessieAI/cc/translate.py:175`, `NessieAI/cc/translate.py:192`), `query_error` (`NessieAI/cc/translate.py:207`) and `query_complete` (`NessieAI/cc/translate.py:215`). There is **no token streaming**: the final answer arrives as one Markdown string in `query_complete.reply` (`NessieAI/cc/translate.py:5-13`).
-11. **Staging sweep**: `sweep_user_staging` (`NessieAI/cc/cc_staging.py:253`) moves this turn's `.complete`-marked artifacts out of `_staging/sha256(api_user)/` into the user's own tree. The destination is derived exclusively from the current request's validated identity and the source only from `sha256(api_user)` (`NessieAI/cc/cc_staging.py:275`, hash at `NessieAI/cc/cc_staging.py:113`). The sidecar's compose mount is locked to the `_staging` subpath (`docker-compose.yml:179-183`), so it cannot write into a user tree by construction (`NessieAI/cc/cc_staging.py:22-23`).
+11. **Staging sweep**: `sweep_user_staging` (`NessieAI/cc/cc_staging.py:253`) moves this turn's `.complete`-marked artifacts out of `_staging/sha256(turn pass)/` into the user's own tree. The destination is derived exclusively from the current request's validated identity and the source only from `sha256(turn pass)` (`NessieAI/cc/cc_staging.py:275`, hash at `NessieAI/cc/cc_staging.py:113`). The sidecar's compose mount is locked to the `_staging` subpath (`docker-compose.yml:179-183`), so it cannot write into a user tree by construction (`NessieAI/cc/cc_staging.py:22-23`).
 12. **Publish**: `_publish_artifacts` (`NessieAI/cc/cc_engine.py:1841`) diffs a before/after snapshot of the scratch mount and copies changed files into the session's output tree.
 13. **Persist**: the newest cc-state `.jsonl` transcript is parsed into a `CCTrace` (`NessieAI/cc/cc_trace.py:32`) and the raw transcript stored zstd-compressed as a `CCSessionTranscript` row (`NessieAI/cc/cc_transcript_store.py:3-4`). `settings.CC_PERSIST_STRICT` controls whether persistence failures raise or log-and-continue (`NessieAI/cc/cc_engine.py:1314`).
 14. **Teardown**: a `finally` block always attempts `container.stop(timeout=5)` then `container.remove(force=True)` (`NessieAI/cc/cc_engine.py:1372`, `NessieAI/cc/cc_engine.py:1376`).
@@ -273,6 +273,8 @@ Both assistant viewsets accept Token, session and Basic auth. `CCAssistantViewSe
 | WS progress poll (daphne only) | 300 ms DB poll | `nextseek_api/assistant/consumers.py:44` |
 | Sidecar WS frame | 16 MiB | `NessieAI/docker/cc-runtime/build_context/plugins/nextseek/bin/_sidecar_client.py:27` |
 | Sidecar → Django HTTP | 60 s | `NessieAI/docker/ns-sidecar/app/ns_client.py:27` |
+| Django op, every inner wait (models, Neo4j, its own REST calls) | the op's limit: 90 s (graph, aggregate, parse), 55 s (entity, api-read), 60 s (graph-schema, run-ls, build-upload-xlsx), 150 s (report, generate-submission); 55 s on the sidecar road | `NessieAI/ns/op_limits.py` |
+| Tool → Django op, direct road | the op's limit + 10 s, never past the turn's deadline less 45 s | `NessieAI/docker/cc-runtime/build_context/plugins/nextseek/bin/_op_road.py` |
 | NS REST tool | 90 s, 120 s for advanced search | `NessieAI/chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:133`, `NessieAI/chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:135` |
 | Proxy request body | 10 MiB | `NessieAI/docker/bedrock-proxy/app/config.py:32` |
 | Upload total size | `BATCH_UPLOAD_MAX_TOTAL_BYTES`, default 200 MiB | `nextseek_api/services/cc_assistant.py:249` |
@@ -292,7 +294,7 @@ Thirteen model classes live in this module across four `assistant_*` tables and 
 
 ### Agent image (`NessieAI/docker/cc-runtime/Dockerfile`)
 
-Pins `@anthropic-ai/claude-code@2.1.282` (≥ 2.1.158 required for auto mode on Bedrock, ≥ 2.1.282 for the `model_fallback` frame the CC 503 fallback records, `NessieAI/docker/cc-runtime/Dockerfile:31-32`), runs as a non-root uid-1001 user (`NessieAI/docker/cc-runtime/Dockerfile:47`, `NessieAI/docker/cc-runtime/Dockerfile:140`), bakes a `CLAUDE.md` at `/app/CLAUDE.md` (`NessieAI/docker/cc-runtime/Dockerfile:72`) symlinked into the agent home (`NessieAI/docker/cc-runtime/Dockerfile:88-89`), and sets `WORKDIR /home/user` (`NessieAI/docker/cc-runtime/Dockerfile:141`) so Claude Code discovers it. `chat_nextseek` is deliberately absent: the image installs only its own dependency manifest (`NessieAI/docker/cc-runtime/pyproject.toml:7-24`) via `uv sync --locked` (`NessieAI/docker/cc-runtime/Dockerfile:105-107`).
+Pins `@anthropic-ai/claude-code@2.1.294` (≥ 2.1.158 required for auto mode on Bedrock, ≥ 2.1.282 for the `model_fallback` frame the CC 503 fallback records, `NessieAI/docker/cc-runtime/Dockerfile:31-32`), runs as a non-root uid-1001 user (`NessieAI/docker/cc-runtime/Dockerfile:47`, `NessieAI/docker/cc-runtime/Dockerfile:140`), bakes a `CLAUDE.md` at `/app/CLAUDE.md` (`NessieAI/docker/cc-runtime/Dockerfile:72`) symlinked into the agent home (`NessieAI/docker/cc-runtime/Dockerfile:88-89`), and sets `WORKDIR /home/user` (`NessieAI/docker/cc-runtime/Dockerfile:141`) so Claude Code discovers it. `chat_nextseek` is deliberately absent: the image installs only its own dependency manifest (`NessieAI/docker/cc-runtime/pyproject.toml:7-24`) via `uv sync --locked` (`NessieAI/docker/cc-runtime/Dockerfile:105-107`).
 
 ---
 
@@ -314,7 +316,6 @@ Each folder below documents itself in a `README.md` (plus a `CLAUDE.md` where it
 | `NessieAI/chat_frontend/README.md` | the React chat UI (embedded entry `src/main.embedded.tsx`) |
 | `NessieAI/docker/README.md` | the four AI image build contexts |
 | `NessieAI/tests/README.md` | every AI test lane; `NessieAI/tests/nessie_tests/README.md` is the router-aware harness |
-| `api_app/README.md` | the original REST API app, kept after the surface moved |
 | `ci/README.md` | the single route declaration and the gates over it |
 | `dmac/README.md` | the Django project package: settings, root URLconf, ASGI, SEEK login |
 | `docker/README.md` | nginx config and the app image's entrypoint |
@@ -327,7 +328,7 @@ Each folder below documents itself in a `README.md` (plus a `CLAUDE.md` where it
 | `scripts/README.md` | validators and one-off operational programs, not a package |
 | `seek/README.md` | the SEEK-schema mirror app and most server-rendered pages |
 | `startup/README.md` | the bring-up CLI and the data bring-up installs |
-| `themes/README.md` | the server-rendered chrome (and the dead repo-root `templates/`) |
+| `themes/README.md` | the server-rendered chrome |
 
 The Django shell of the CC route (the `cc_assistant` app label, its Celery tasks and the
 endpoint ownership guard) stays in `nextseek_api/cc_assistant/`, described in
@@ -356,7 +357,7 @@ Two cross-boundary facts worth carrying here:
 - **dmac-cc-users**: the single external named volume holding all per-user/per-project CC trees (`docker-compose.yml`).
 - **sidecar** (`nextseek-sidecar`): stateless WS-to-REST forwarder for the agent's nine chat_nextseek-backed ops; can write only to `_staging` (`docker-compose.yml:179-183`).
 - **bedrock-proxy**: the only component in the CC subsystem holding an AWS credential; path-allowlisted model relay for the three Container-CC models.
-- **staging sweep**: the trusted Django-side move of agent-produced artifacts out of `_staging/sha256(user)/` (`NessieAI/cc/cc_staging.py:253`).
+- **staging sweep**: the trusted Django-side move of agent-produced artifacts out of `_staging/sha256(turn pass)/` (`NessieAI/cc/cc_staging.py:253`).
 - **cc-state**: the per-session `.claude` directory mounted RW into the agent (`NessieAI/cc/cc_engine.py:975-978`), enabling `--resume` and providing the raw turn transcript.
 - **QueryTask**: the DB row that doubles as the progress event log (`nextseek_api/assistant/models_db.py:64`); both the WS consumer and the HTTP polling endpoint read from it.
 - **cc_session_id**: Claude's own in-container session UUID, distinct from Nessie's `ChatSession` id.

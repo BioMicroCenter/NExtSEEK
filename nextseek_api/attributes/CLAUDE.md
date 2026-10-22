@@ -87,7 +87,7 @@ schema. Breaking one is a defect, not a refactor.
   (`nextseek_api/attributes/faults.py:50-52`). Setting
   `ATTRIBUTE_TEST_FAULT_CONTROL` in a real container arms real mid-mutation aborts.
 - **One test hardcodes an absolute path into another developer's home directory.**
-  `nextseek_api/attributes/tests/test_openapi.py:9` points the machine schema contract
+  `nextseek_api/attributes/tests/test_openapi.py:10` points the machine schema contract
   at a path in that developer's home directory, so that case cannot pass anywhere else, and its
   failure is not a regression in this package.
 - **Six unit cases in `nextseek_api/attributes/tests/test_executor.py` fail on this
@@ -106,11 +106,6 @@ schema. Breaking one is a defect, not a refactor.
   migration node is present in the loader's on-disk graph, which is empty when
   migrations are disabled, so that red is the flag you chose and not a defect you
   introduced; drop the flag if you actually want to exercise the migration.
-- **`dmac/attribute_performance_settings.py:36` imports a module that does not exist.**
-  A find for any file named `performance_worker_telemetry*` anywhere in the worktree
-  returns nothing, and a grep for that name across every `*.py` matches only that one
-  import line. Setting `ATTRIBUTE_WORKER_TELEMETRY_RESULTS` under that settings module
-  therefore fails at settings import, before Django starts.
 - **`IsSeekAdmin` still exists but no longer gates anything.** A grep for the name over
   every `*.py` in the worktree matches four files: its definition at
   `nextseek_api/attributes/auth.py:229`, a comment at

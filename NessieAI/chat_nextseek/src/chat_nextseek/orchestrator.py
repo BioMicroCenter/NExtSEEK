@@ -24,22 +24,25 @@ from .artifacts import (
 )
 from .chat_memory import (
     CHAT_LOG_KEY,
+    CRASH_INTENT_SUMMARY,
     append_turn,
     build_tool_summary_for_mode,
+    bundle_rows,
+    named_bundle,
     next_turn_id,
+    plan_step_extent,
     resolve_bundle_for_recall,
 )
 from .pipeline import agent as pipeline_agent
 from .agents.followup import (
-    _stored_rows,
     describe_stored_result,
-    plan_step_extent,
     preview_rows,
     resolve_followup_outcome,
     run_followup,
     stored_query_rebuildable,
 )
 from .agents.followup_compute import compute_over_rows
+from .agents.graph import refusal_reply
 from .agents import (
     chatter_agent_answer,
     chatter_agent_plan,
@@ -59,7 +62,8 @@ from .agents import (
 from .agents.reporter import report_coder_agent
 from .config import ChatConfig
 from .graph_review import (FOLLOWUP_SEEDED_SKIP, FOLLOWUP_TIER1_SKIP, GraphReview, ReviewInput, as_debug,
-                           check_binding, check_premise, review_compute, review_tier1, with_checks)
+                           check_binding, check_premise, holding_study_note, review_compute, review_tier1,
+                           with_checks)
 from .graph_review_counts import SKIP_AFTER_MS, live_values, rerun_statement, run_tier2
 from .graph_scope import RESERVED_PREFIX, SCOPE_ATTR, GraphScope
 from .prompt_variants import variant_record
@@ -73,23 +77,31 @@ from .helpers import (
     generate_report_outputs,
     log_api_call,
     reporter_reply_footer,
+    lab_names_by_name,
+    scope_kind_word,
     run_reporter_summary,
     shortlist_catalog,
     slim_api_result_for_llm,
     tool_nextseek_api_request,
     matched_nothing,
     tool_neo4j_query,
+    uids_from_last_search,
 )
-from .graph_retry import RETRY_CHANGED_ANSWER_NOTE, zero_row_retry_context
+from .graph_retry import (RETRY_CHANGED_ANSWER_NOTE, normalized_cypher, timed_out, timeout_retry_context,
+                          zero_row_retry_context)
 from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
-from .helpers.suggestions import accept, clean_rerun, pending_for, public_chip, suggestions_from_review
+from .helpers.results import bundle_extent, picked_uids
+from .helpers.suggestions import accept, clean_rerun, peek, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
-from .helpers.uid_check import check_uids, uid_notes, uids_in
+from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
+from .reports.outputs import ReportCodePathError, session_reporter_result
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
+from .schemas.entity import EntityItem
 from .schemas.graph import GraphAgentPlan
 from .session import SessionState
+from .vocabulary import resolve_vocabulary, take as take_vocabulary
 from .tee import Tee
-from . import turn_spend
+from . import call_scope, turn_spend
 from .uid_links import link_sample_uids
 
 SendEvent = Callable[[str, dict[str, Any]], None]
@@ -386,6 +398,28 @@ def _artifacts_for(bundle: dict[str, Any] | None) -> list[dict[str, Any]] | None
         return None
 
 
+def _report_unhandled(session, user_text, send_event, exc, *, agent, mode_label) -> None:
+    """Report a pipeline crash as an error: log it, leave an error turn, send ``query_error``.
+
+    The error turn carries no reply (the chat view hides such turns, PD-6) and no exception
+    text but its type; the traceback goes to the log. The exception is marked
+    ``chat_log_turn_written`` so ``cc/turn.py`` does not write a second entry for it.
+    The caller re-raises, so the task ends as failed, never as a completed answer.
+    """
+    _LOG.exception("unhandled exception in %s", mode_label)
+    cost = turn_spend.cost_fields()
+    try:
+        append_turn(session, user_query=user_text, mode=mode_label,
+                    intent_summary=CRASH_INTENT_SUMMARY,
+                    status="error", error=type(exc).__name__)
+        exc.chat_log_turn_written = True
+    except Exception:
+        _LOG.exception("failed to log the chat_log turn for an unhandled error")
+    if send_event:
+        # The turn's last event: it carries what the turn spent before it failed.
+        send_event("query_error", {"error": str(exc), "agent": agent, **cost})
+
+
 def _emit_query_complete(
     send_event: SendEvent | None,
     reply: str,
@@ -411,7 +445,7 @@ def _emit_query_complete(
     }
     record = turn_spend.turn_record()
     if record is not None:
-        for key in ("total_cost_usd", "cost_partial", "models_used", "model_fallback"):
+        for key in ("total_cost_usd", "cost_partial", "cost_estimated", "models_used", "model_fallback"):
             if key in record:
                 payload[key] = record[key]
         if isinstance(debug, dict):
@@ -425,6 +459,13 @@ def _emit_query_complete(
     return payload
 
 
+def _limit_turn(deadline_epoch: float | None) -> None:
+    """A nested turn started by a Container-CC turn answers inside it: its scope's deadline is ``deadline_epoch``
+    (Unix time, the Container-CC turn's deadline less the answer reserve). A turn of its own has none."""
+    if deadline_epoch is not None:
+        call_scope.limit_current(max(0.0, float(deadline_epoch) - time.time()))
+
+
 @turn_spend.collects_turn
 def run_pipeline_launch(
     session: SessionState | SessionStateProxy,
@@ -434,6 +475,7 @@ def run_pipeline_launch(
     *,
     credentials: dict[str, str] | None = None,
     graph_scope: Any = _UNSET,
+    deadline_epoch: float | None = None,
 ) -> dict[str, Any]:
     """Deterministic CC → pipeline_agent bridge entry (query/async mode='pipeline').
 
@@ -444,12 +486,14 @@ def run_pipeline_launch(
 
     credentials — see _identity_gate. An incomplete per-request identity refuses
     the turn rather than launching a pipeline as the service account.
+    deadline_epoch -- set on a nested turn a Container-CC turn started; see _limit_turn.
     """
     config, identity_refusal = _identity_gate(
         session, config, credentials, send_event, entry_point="run_pipeline_launch", graph_scope=graph_scope,
     )
     if identity_refusal is not None:
         return identity_refusal
+    _limit_turn(deadline_epoch)
 
     log_dir = _ensure_query_log_dir(session, config)
     if send_event:
@@ -569,6 +613,74 @@ def _build_graph_refine_context(last_bundle: dict) -> str:
         f"What it sent: {json.dumps(body, default=str) if body else '[none]'}\n"
         "Keep every constraint above that the user has not changed in this turn."
     )
+
+
+#: Leads the earlier search's context on a graph_query turn that refers back to it (``_followup_graph_context``).
+#: Conditional, because the back-reference test also fires on a few self-contained questions ("in these projects:
+#: IMPACT and TB"), which must not inherit the earlier filters.
+FOLLOWUP_GRAPH_LEAD = ("If this question points at the set the previous answer found (\"those\", \"them\", \"that "
+                       "list\"), that set is the one the earlier search below found: keep that search's filters for "
+                       "it, and change only what this question asks. If the question names its own set, ignore the "
+                       "earlier search.\n")
+#: The same, when the parser named the earlier result itself (``target_result_id``): no conditional about the set.
+FOLLOWUP_GRAPH_LEAD_NAMED = ("This question points at the result of the earlier search below (the parser named it). "
+                             "Where it says \"those\", \"the samples above\", \"you mentioned\" or gives a count, "
+                             "that set is the one the earlier search found: keep that search's filters for it, and "
+                             "change only what this question asks. If the question names its own set, ignore the "
+                             "earlier search.\n")
+#: Follows the earlier Cypher with its values: a filter written as ``$inv`` is no filter without its value.
+FOLLOWUP_GRAPH_PARAMETERS = "\nIts parameters, which the new query needs too: "
+
+
+def _followup_graph_context(session, user_text: str, plan=None) -> tuple[str, dict] | None:
+    """The earlier search, as a graph agent context, when a graph_query turn refers back to it; else None.
+
+    The parser can understand a follow-up ("those 351 nhps") and still call it a graph_query rather than a refine or
+    ask_about_last_results (prod chat d01fdd43). The graph agent sees neither the parser's notes nor the chat, so
+    without this it answers for every matching sample. Which search the question points at is the parser's call:
+    when ``plan.target_result_id`` names a stored result, that result is carried (any wording, any older search),
+    with the parser's one-line reading of the question. Only when the parser names none does the router's phrase
+    list (``NessieAI.router.followup.followup_cue``) decide, and then the earlier search is the newest turn's
+    bundle: a Container-CC turn or an aside writes no bundle, so after one there is no context rather than an
+    older answer than the one the question points at. The search is carried as a refine carries it
+    (``_build_graph_refine_context``) plus its parameters. A statement bound to ``$uids`` is not carried: the
+    session keeps those UIDs only as a placeholder. Returns (context, debug record)."""
+    try:
+        history = session.get("results_history") or []
+        named = named_bundle(history, getattr(plan, "target_result_id", None))
+        if named is not None and named.get("user_query"):
+            last, by, cue = named, "parser", None
+        else:
+            log = [e for e in session.get(CHAT_LOG_KEY) or [] if isinstance(e, dict)]
+            if not log:
+                return None
+            newest = max(log, key=lambda e: e["turn_id"] if isinstance(e.get("turn_id"), int) else -1)
+            bid = newest.get("bundle_id")
+            last = next((b for b in history if isinstance(b, dict) and bid is not None and b.get("id") == bid), None)
+            if last is None or not last.get("user_query"):
+                return None
+            from NessieAI.router.followup import followup_cue
+            cue = followup_cue(user_text)
+            if not cue:
+                return None
+            by = "cue"
+        graph_plan = last.get("graph_plan") or {}
+        cypher = graph_plan.get("cypher") or ""
+        if re.search(r"\$uids\b", cypher):
+            return None
+        context = (FOLLOWUP_GRAPH_LEAD_NAMED if by == "parser" else FOLLOWUP_GRAPH_LEAD) \
+            + _build_graph_refine_context(last)
+        if cypher and graph_plan.get("parameters"):
+            context += FOLLOWUP_GRAPH_PARAMETERS + json.dumps(graph_plan["parameters"], default=str, sort_keys=True)
+        summary = getattr(plan, "intent_summary", None) if by == "parser" else None
+        # R9: a summary that names an endpoint path is REST prose (agents/graph.py keeps intent_summary out of the
+        # graph agent for that reason), so it is left out.
+        if isinstance(summary, str) and summary.strip() and not re.search(r"(?:^|\s)/[\w-]+/", summary):
+            context += "\nThe parser's reading of this question: " + summary.strip()
+    except Exception as exc:  # the earlier search is help, never the reason a turn fails
+        print(f"[DEBUG][FOLLOWUP] could not build the earlier search's context: {exc!r}")
+        return None
+    return context, {"cue": cue, "by": by, "bundle_id": last.get("id")}
 
 
 #: The refine context of a follow-up query rebuilt from the stored query (``seed_mode``
@@ -878,7 +990,7 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             if run.get("scope_note"):
                 payload["scope_note"] = " ".join(n for n in (run["scope_note"], payload.get("scope_note")) if n)
         else:
-            rows = _stored_rows(bundle)
+            rows = bundle_rows(bundle)
             total = described.get("total")
             complete = bool(rows) and not described.get("capped")
             origin = {"kind": "stored", "bundle_id": bundle.get("id"), "rows_in": len(rows), "total": total,
@@ -983,7 +1095,8 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
     prompt still teaches a surname-to-code rule: a scientist, or a lab whose SEEK title did
     not parse, could come back as a guessed code. Everything downstream (the API and graph
     agents, the empty-result retry ladder, the reply's scope note) reads the plan, so the
-    clamp runs once, straight after the parser. Nothing but the codes changes.
+    clamp runs once, straight after the parser. Nothing but the codes changes, apart from the scientists and
+    category types the parser's echo has no slot for, which are restored from the entity result.
     """
     if isinstance(entity_result, dict):
         matched = entity_result.get("lab_codes")
@@ -1000,8 +1113,32 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
     def _clamp_filters(filters):
         return filters.model_copy(update={"lab_codes": _clamp(filters.lab_codes)})
 
+    resolved_update: dict[str, Any] = {"lab_codes": _clamp(plan.resolved.lab_codes)}
+    # Fix 8: the parser's echo of the entity result has no `scientists` slot, so a person the entity step resolved
+    # as a scientist reached the graph agent only as a keyword. The entity result is the source of truth.
+    def _entity(name):
+        return entity_result.get(name) if isinstance(entity_result, dict) else getattr(entity_result, name, None)
+    entity_scientists = _entity("scientists")
+    if entity_scientists and not plan.resolved.scientists:
+        resolved_update["scientists"] = list(entity_scientists)
+    # R2: nor a `category_types` slot, so the graph agent (which reads the parser plan) never saw the category's
+    # types. Restore the map and add any of its codes the echo left out of `sampletypes`.
+    categories = _entity("category_types") or {}
+    if categories:
+        resolved_update["category_types"] = {w: list(codes) for w, codes in categories.items()}
+        names = {}
+        for item in _entity("sampletypes") or []:
+            item = item if isinstance(item, dict) else item.model_dump()
+            names[item.get("code")] = item.get("name")
+        types = list(plan.resolved.sampletypes)
+        have = {t.code for t in types}
+        for code in (c for codes in categories.values() for c in codes):
+            if code not in have:
+                types.append(EntityItem(code=code, name=names.get(code)))
+                have.add(code)
+        resolved_update["sampletypes"] = types
     updates: dict[str, Any] = {
-        "resolved": plan.resolved.model_copy(update={"lab_codes": _clamp(plan.resolved.lab_codes)}),
+        "resolved": plan.resolved.model_copy(update=resolved_update),
     }
     if hasattr(plan, "candidates"):
         updates["candidates"] = [
@@ -1019,6 +1156,8 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
 #: Bounded on purpose: each try is a model call plus a Neo4j round trip on the user's
 #: latency budget, and the measured graph stage already runs at a p90 of 18.9 s.
 GRAPH_MAX_TRIES = 3
+#: The attempt record of a statement not sent because it repeats one that timed out.
+_REPEAT_NOT_RUN = {"ok": False, "count": None, "error": "not run: it repeats a statement that timed out"}
 
 
 def _graph_attempt(cypher: str | None, result: dict, reason: str, *, elapsed_ms: int) -> dict[str, Any]:
@@ -1085,8 +1224,16 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         _graph_attempt(graph_plan.cypher, graph_result, "initial", elapsed_ms=kept_ms)]
     first_ok_empty = matched_nothing(graph_result)
     zero_row_retry_used = False
+    # Statements Neo4j stopped for time this turn. A repeat is never sent, and a second timeout ends the loop.
+    timed_out_statements: set[str] = set()
+    last_timeout = None  # (plan, result, parameters, ms) of the latest statement that timed out
+    if timed_out(graph_result):
+        timed_out_statements.add(normalized_cypher(graph_plan.cypher))
+        last_timeout = (graph_plan, graph_result, parameters, kept_ms)
 
     for _ in range(GRAPH_MAX_TRIES - 1):
+        if len(timed_out_statements) >= 2:
+            break
         if is_scope_refusal(graph_result):
             # Final: another model call can only write another query the prover cannot
             # prove. The graph turn falls back to graph_search.
@@ -1094,11 +1241,14 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         if not graph_result.get("ok"):
             neo4j_error = graph_result.get("error", "Unknown error")
             print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
-            retry_ctx = (
-                f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
-                "Revisit the schema carefully - check property types, relationship directions, "
-                "and graph_topology - then generate a corrected query."
-            )
+            if timed_out(graph_result):
+                retry_ctx = timeout_retry_context(graph_plan.cypher)
+            else:
+                retry_ctx = (
+                    f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
+                    "Revisit the schema carefully - check property types, relationship directions, "
+                    "and graph_topology - then generate a corrected query."
+                )
             reason = "cypher_error"
         elif matched_nothing(graph_result) and not zero_row_retry_used:
             zero_row_retry_used = True
@@ -1116,11 +1266,21 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
         )
         if not graph_plan_retry.cypher:
             break
+        if normalized_cypher(graph_plan_retry.cypher) in timed_out_statements:
+            attempts.append(_graph_attempt(graph_plan_retry.cypher, _REPEAT_NOT_RUN, "repeat_of_timeout", elapsed_ms=0))
+            # A failure kept since (another statement's syntax error) is not why the turn failed: the timeout is.
+            # A second timeout needs no such step: a failed retry already replaces a failed original.
+            if not graph_result.get("ok"):
+                graph_plan, graph_result, parameters, kept_ms = last_timeout
+            break
         retry_parameters = _bind_parameters(graph_plan_retry, parameters_extra)
         t_query = time.perf_counter()
         retry_result = tool_neo4j_query(config, graph_plan_retry.cypher, retry_parameters)
         retry_ms = _ms_since(t_query)
         attempts.append(_graph_attempt(graph_plan_retry.cypher, retry_result, reason, elapsed_ms=retry_ms))
+        if timed_out(retry_result):
+            timed_out_statements.add(normalized_cypher(graph_plan_retry.cypher))
+            last_timeout = (graph_plan_retry, retry_result, retry_parameters, retry_ms)
         # Keep the retry only when it is an improvement. A retry that errors, or that
         # also finds nothing after a zero-row first attempt, leaves the original alone.
         if not retry_result.get("ok"):
@@ -1150,13 +1310,16 @@ BREAKAGE_NOTE = ("What went wrong: {facts} State this plainly in the first sente
 REVIEW_NOTE_MAX = 399
 #: The reviewer's wall clock, both tiers together.
 REVIEW_BUDGET_S = 8.0
-#: A turn this old runs no count variant and reads only cached catalog values.
+#: A turn this old runs no count variant (Tier 2). Tier 1 still gets its full budget: with today's slow APIs most
+#: turns are this old, and the 1.0 s late budget was spent by two attribute probes (1.18 s on dev chat 0a68924d),
+#: so the DataType values read found none and the "Only RNA-Seq" chip never came (2026-10-08).
 REVIEW_LATE_TURN_S = 45
 #: The Tier 1 checks that have a Tier 2 count variant (graph_review_counts._BUILDERS).
 REVIEW_VARIANT_CHECKS = frozenset({"stem_miss", "all_question_narrowed", "zero_unproven_base", "unapplied_value"})
 #: Tier 1's time for uncached catalog reads (value lists, value probes), and the smaller one it gets when the
-#: kept statement took over SKIP_AFTER_MS or the turn is past REVIEW_LATE_TURN_S. Cache only there made the reviewer
-#: silent on the turns it was built for (2026-09-25); a value probe of three types costs about 0.1 s warm on dev.
+#: kept statement took over SKIP_AFTER_MS. Cache only there made the reviewer silent on the turns it was built for
+#: (2026-09-25); a value probe of three types costs about 0.1 s warm on dev. Worst case added to any turn: the budget
+#: plus one statement's overshoot (under 0.5 s), so about 2.5 s, and 1.5 s after a slow statement.
 REVIEW_TIER1_BUDGET_S = 2.0
 REVIEW_TIER1_LATE_BUDGET_S = 1.0
 
@@ -1276,7 +1439,7 @@ def _review_graph_turn(config, user_text: str, graph_plan, graph_result: dict, *
     Tier 1 (``review_tier1``) reads the question, the statement the model wrote with its parameters, and the rows
     and counts, against the stored values the caller can see: one ``live_values`` provider per turn, whose uncached
     reads get ``REVIEW_TIER1_BUDGET_S``, or ``REVIEW_TIER1_LATE_BUDGET_S`` when the statement took over
-    ``SKIP_AFTER_MS`` or the turn has already run ``REVIEW_LATE_TURN_S``. What the provider read, and why it read no
+    ``SKIP_AFTER_MS``; the turn's age does not cut Tier 1. What the provider read, and why it read no
     more, goes to ``review.lookups`` with the turn's age and those two flags. Tier 2 (``run_tier2``, bounded count
     variants) runs only when a check that has a variant fired and the turn is younger than ``REVIEW_LATE_TURN_S``,
     inside what Tier 1 left of ``REVIEW_BUDGET_S``.
@@ -1295,7 +1458,7 @@ def _review_graph_turn(config, user_text: str, graph_plan, graph_result: dict, *
         inp = _review_input(user_text, graph_plan, graph_result, elapsed_ms)
         slow = isinstance(elapsed_ms, int) and elapsed_ms > SKIP_AFTER_MS
         late = t0 - t_turn_start > REVIEW_LATE_TURN_S
-        catalog = live_values(config, budget_s=REVIEW_TIER1_LATE_BUDGET_S if slow or late else REVIEW_TIER1_BUDGET_S)
+        catalog = live_values(config, budget_s=REVIEW_TIER1_LATE_BUDGET_S if slow else REVIEW_TIER1_BUDGET_S)
         review = _with_lookups(review_tier1(inp, catalog), catalog,
                                turn_age_s=round(t0 - t_turn_start, 1), slow=slow, late=late)
         fired = {check.name for check in review.checks if check.fired}
@@ -1390,6 +1553,20 @@ def _chip_rerun(accepted: dict[str, Any] | None) -> dict[str, Any] | None:
     return {**checked, "entity": rerun.get("entity"), "parser_plan": rerun.get("parser_plan")}
 
 
+def vocabulary_not_needed(session, user_text: str) -> bool:
+    """Whether this message's turn will be taken without a vocabulary: an open pipeline wizard, or a click on a chip
+    whose rerun skips the entity agent (``_run_chip_click``). Read-only: the chip offer stays for ``run_query``'s own
+    ``_accepted_suggestion``. A chip that falls through resolves the vocabulary inline, as it always did."""
+    try:
+        if pipeline_agent.is_active(session):
+            return True
+        chip = peek(session, user_text, last_turn_id=_last_turn_id(session))
+        return _chip_rerun(chip) is not None
+    except Exception as exc:  # a check must never cost the user their turn
+        print(f"[DEBUG][VOCAB] could not read the wizard or chip state: {exc!r}")
+        return False
+
+
 def _run_chip_click(*, config, session, user_text: str, accepted: dict[str, Any], rerun: dict[str, Any], log_dir,
                     artifact_store, send_event, t_total_start: float, note_agent):
     """A click on a chip that carries a rerun: the graph turn without the entity agent and the parser, whose outputs
@@ -1438,6 +1615,32 @@ def _run_chip_click(*, config, session, user_text: str, accepted: dict[str, Any]
         print("[DEBUG][SUGGEST] the clicked chip's statement was refused for this scope; running the full pipeline")
         return None
     return outcome
+
+
+#: What a non-admin is told when the scope refused a read of the Attribute catalog (U2.6, ruling 7 of round 4; wording
+#: review W1): never the sample-search fallback, which answers a different question. A refused SampleType read alone
+#: is answered from the caller's own samples (MEMBER_TYPES_CYPHER) instead.
+CATALOG_SCOPE_REPLY = (
+    "I can't read the attribute catalog for your account. Ask about one sample type by name and I can list its "
+    "attributes."
+)
+#: Ruling 7, review F3: a member's "which sample types have samples" is answered from the samples in their own
+#: projects; the member scope wraps this statement like any other.
+MEMBER_TYPES_CYPHER = "MATCH (s:Sample) RETURN s.type AS type, count(*) AS samples ORDER BY samples DESC, type"
+MEMBER_TYPES_NOTE = (
+    "These are the sample types with samples in the caller's own projects, with their sample counts, not the catalog "
+    "of every type NExtSEEK defines. Say so, and say that asking what sample types NExtSEEK has gives the catalog's "
+    "full list."
+)
+_CATALOG_LABEL_REASON = re.compile(r"^the label (SampleType|Attribute)(?::(SampleType|Attribute))* may not be read")
+
+
+def _only_catalog_labels_refused(graph_result: dict) -> bool:
+    """Whether the scope refused nothing but SampleType / Attribute reads (``label_not_allowed`` only)."""
+    scope = graph_result.get("scope") if isinstance(graph_result.get("scope"), dict) else {}
+    reasons = list(scope.get("reasons") or ())
+    return (list(scope.get("codes") or ()) == ["label_not_allowed"] and bool(reasons)
+            and all(_CATALOG_LABEL_REASON.match(str(r).split(": ", 1)[-1]) for r in reasons))
 
 
 def _graph_scope_fallback(graph_plan, graph_result: dict, attempts: list, debug_payload: dict,
@@ -1529,6 +1732,7 @@ def _execute_graph_turn(
     turn_uids = uids_in(user_text, getattr(getattr(plan, "filters", None), "uids", None))
     uid_checks = check_uids(config, turn_uids, run=tool_neo4j_query) if turn_uids else []
     uid_agent_note, uid_reply_notes = uid_notes(uid_checks)
+    plan = plan_with_stored_uids(plan, uid_checks)  # R4: the parser's filters.uids carry the stored spelling
     if uid_agent_note:
         debug_payload["uid_checks"] = [{"asked": c.asked, "stored": c.stored} for c in uid_checks or []]
     agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note) if part) or None
@@ -1552,7 +1756,15 @@ def _execute_graph_turn(
         # Graph agent could not produce valid Cypher; properties ['node.year', ...] are not in the
         # catalog").
         debug_payload["graph_refusal"] = graph_plan.explanation or "no query"
-        reply = GRAPH_REFUSAL_REPLY
+        # U2.2: a reply per refused kind that says what is allowed, and the Cypher the model wrote before and after
+        # its one repair, kept for the debug panel (graph_attempts was null on a refusal).
+        debug_payload["graph_refusal_kinds"] = list(graph_plan.refusal_kinds)
+        debug_payload["graph_attempts"] = [
+            {"cypher": cypher, "ok": False, "count": None, "error": graph_plan.explanation, "reason": reason,
+             "executed_cypher": None, "scope_decision": None, "elapsed_ms": None}
+            for cypher, reason in ((graph_plan.attempted_cypher, "initial"), (graph_plan.repaired_cypher, "repair"))
+            if cypher]
+        reply = refusal_reply(graph_plan.refusal_kinds) or GRAPH_REFUSAL_REPLY
         session["last_debug"] = debug_payload
         send_event("agent_complete", {"agent": "graph",
                                       "summary": {"schema_fallback": schema_fallback} if schema_fallback else None})
@@ -1570,16 +1782,36 @@ def _execute_graph_turn(
     run = _run_graph_with_retries(config, user_text, entity_result, plan, agent_context, None,
                                   graph_plan=graph_plan)
     graph_plan, graph_result, attempts = run.graph_plan, run.graph_result, run.attempts
+    elapsed_ms = run.elapsed_ms
 
     debug_payload["graph_attempts"] = attempts
     debug_payload["graph_scope"] = graph_result.get("scope")
+    catalog_notes: list[str] = []
+    if (is_scope_refusal(graph_result) and _only_catalog_labels_refused(graph_result)
+            and not any("Attribute" in str(r) for r in graph_result["scope"].get("reasons") or ())):
+        debug_payload["graph_refusal"] = "scope refused the SampleType catalog; answered from the caller's own samples"
+        t_query = time.perf_counter()
+        graph_result = tool_neo4j_query(config, MEMBER_TYPES_CYPHER, {})
+        elapsed_ms = _ms_since(t_query)
+        attempts.append(_graph_attempt(MEMBER_TYPES_CYPHER, graph_result, "member_types", elapsed_ms=elapsed_ms))
+        graph_plan = graph_plan.model_copy(update={"cypher": MEMBER_TYPES_CYPHER, "parameters": {}})
+        debug_payload["graph_scope"] = graph_result.get("scope")
+        catalog_notes.append(MEMBER_TYPES_NOTE)
     if is_scope_refusal(graph_result):
+        if catalog_notes or _only_catalog_labels_refused(graph_result):
+            debug_payload["graph_plan"] = graph_plan.model_dump()
+            debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
+            debug_payload["graph_refusal"] = ("scope refused the SampleType catalog and the caller's own samples"
+                                              if catalog_notes else "scope refused a read of the Attribute catalog")
+            session["last_debug"] = debug_payload
+            send_event("search_complete", {"source": "neo4j", "ok": False, "count": None, "scope": "refused"})
+            return _emit_query_complete(send_event, CATALOG_SCOPE_REPLY, debug_payload, None)
         return _graph_scope_fallback(graph_plan, graph_result, attempts, debug_payload, send_event)
     # Nothing used to inspect a graph result that ran, so confidently wrong numbers reached the reply (98
     # "converters" of which 57 were stored as Non-converter, 2026-09-23). The reviewer reads the result the turn
     # keeps; what it found goes to the debug panel, to the session (a later turn offers its suggestion), and on a
     # note or suggest to the chatter as one note.
-    review = _review_graph_turn(config, user_text, graph_plan, graph_result, elapsed_ms=run.elapsed_ms,
+    review = _review_graph_turn(config, user_text, graph_plan, graph_result, elapsed_ms=elapsed_ms,
                                 t_turn_start=t_total_start)
     debug_payload["graph_review"] = as_debug(review)
     session["_graph_review"] = debug_payload["graph_review"]
@@ -1587,7 +1819,7 @@ def _execute_graph_turn(
     # chatter is told the filter changed (a query note; the debug flag alone reached no
     # one). The note asks it to qualify what the result covers when that differs from the
     # question, and never to narrate the retry itself (2026-09-23 ruling, graph_retry.py).
-    query_notes: list[str] = list(uid_reply_notes)
+    query_notes: list[str] = list(uid_reply_notes) + catalog_notes
     if run.changed_answer:
         debug_payload["graph_retry_changed_answer"] = True
         query_notes.append(RETRY_CHANGED_ANSWER_NOTE)
@@ -1603,6 +1835,10 @@ def _execute_graph_turn(
     if review_disclosure:
         broke = any(check.name == "breakage" and check.fired for check in review.checks)
         query_notes.append(_review_note(review_disclosure, BREAKAGE_NOTE if broke else REVIEW_NOTE))
+    holding = holding_study_note(graph_plan.cypher, graph_result.get("parameters") or graph_plan.parameters,
+                                 graph_result.get("data"))
+    if holding:
+        query_notes.append(holding)
 
     send_event(
         "search_complete",
@@ -1672,6 +1908,8 @@ def _execute_graph_turn(
     suggestions = _suggestions_for(debug_payload.get("graph_review"), bundle_id) if offer_suggestions else []
     if suggestions:
         debug_payload["suggestions"] = [public_chip(chip) for chip in suggestions]
+        # Saved with the turn, so a reloaded chat shows the chip again (session_export.turn_rows).
+        bundle["suggestions"] = debug_payload["suggestions"]
 
     _on("chatter")
     send_event("agent_started", {"agent": "chatter", "mode": "graph_query"})
@@ -1788,6 +2026,58 @@ def _followup_result_bundle(session, artifact_store, *, outcome: dict | None, us
 BUNDLE_SEQ_KEY = "bundle_seq"
 
 
+#: The LIMIT the graph agent puts on a list of samples (``prompts/graph_agent.txt``, "LIMIT 5000 as a safety cap").
+# ponytail: mirrors the prompt's number; a LIMIT below it is read as one the user asked for.
+GRAPH_SAFETY_CAP = 5000
+
+
+def _report_generation_uids(session, user_text: str, plan, reporter_plan) -> tuple[list[str], str | None]:
+    """``(the UIDs a report is generated over, a narrowing reply or None)``.
+
+    UIDs the reporter or the user's own text named win, with the parser's added. Else the rows the user picked out of
+    the result the parser named (``picked_uids``: "the first two mice you showed"). Else that result (``target_result_id``) when it holds samples, as the pipeline builds on it (``pipeline.agent.start``): the UIDs
+    the parser carried are the few an earlier turn showed, not the set. A named result with no sample list (a count,
+    a breakdown, a search that found nothing) gets an ask, as the pipeline's does, not a package on those few. With
+    no named result, the carried UIDs. A named result that was cut short (a capped graph result, a total above its
+    rows) gets a narrowing reply rather than a silent partial package.
+    """
+    uids = reporter_plan.uids or []
+    try:
+        parser_uids = plan.filters.uids if hasattr(plan, "filters") else []
+    except Exception:
+        parser_uids = []
+    target_id = getattr(plan, "target_result_id", None)
+    # The reporter copies the parser's carried UIDs into its own plan whenever it names none, so only a UID the
+    # parser did not carry, or one the user typed, says the user named the set here.
+    carried = set(parser_uids or [])
+    named_here = any(u not in carried for u in uids) or bool(uids_in(user_text or ""))
+    target_uids = uids_from_last_search(session, target_id) if target_id is not None and not named_here else []
+    if target_uids:
+        picked = picked_uids(target_uids, parser_uids)
+        if picked:
+            return picked, None
+        target = named_bundle(session.get("results_history") or [], target_id)
+        rows, total, capped = bundle_extent(target)
+        graph = target.get("graph_result") if isinstance(target.get("graph_result"), dict) else {}
+        # A LIMIT under the graph agent's safety cap is one the question set ("show me 10"): those rows are the set.
+        asked = isinstance(graph.get("limit"), int) and graph["limit"] < GRAPH_SAFETY_CAP
+        if asked or not (capped or (total is not None and total > len(rows))):
+            return target_uids, None
+        held = f"{len(rows)} of {total}" if total is not None else f"only the first {len(rows)}"
+        return [], (f"The result you mean ({target.get('user_query') or 'that result'!r}) holds {held} samples: "
+                    "it was cut short, so a package from it would be partial. Narrow the set first: a tighter "
+                    "search, one study or project, or the samples' UIDs.")
+    target = named_bundle(session.get("results_history") or [], target_id) if target_id is not None else None
+    if target is not None and not named_here:
+        what = "is a count or a breakdown" if bundle_rows(target) else "found no samples"
+        return [], (f"The result you mean ({target.get('user_query') or 'that result'!r}) {what}, so it has no list "
+                    "of samples to package. Run a search for the samples first, or give me their UIDs.")
+    if parser_uids:
+        existing = set(uids)
+        uids.extend([u for u in parser_uids if u not in existing])
+    return uids, None
+
+
 def _next_bundle_id(session) -> int:
     """Allocate a monotonic bundle id for this session.
 
@@ -1799,7 +2089,15 @@ def _next_bundle_id(session) -> int:
 
     A counter that only ever moves forward cannot collide, and it survives a lost
     append because it is stored separately from the history it indexes.
+
+    A session with one allocator for its chat (NExtSEEK's DictSessionAdapter, approach 1 piece 2)
+    takes the id from it, under a row lock shared with the Container-CC artifact ops, so the two never hand out one id.
     """
+    allocate = getattr(session, "allocate_bundle_id", None)
+    if callable(allocate):
+        nxt = allocate()
+        if nxt is not None:
+            return nxt
     history = session.get("results_history") or []
     highest_seen = max((b.get("id") or 0) for b in history) if history else 0
     try:
@@ -1905,6 +2203,51 @@ def unsupported_reply(plan) -> str:
     return UNSUPPORTED_REPLY
 
 
+def _turn_vocabulary(config: ChatConfig, user_text: str, send_event: SendEvent, *, mode: str,
+                     note_agent: Callable[[str], None] | None = None,
+                     vocabulary: Any = None) -> tuple[EntityAgentOutput, dict[str, Any], dict[str, Any] | None]:
+    """The turn's vocabulary, its shortlist diagnostics and the plan the pre-run made early (or None).
+
+    ``vocabulary`` is the pre-run started when the question arrived (``NessieAI/cc/prerun.py``), or None. Its result
+    is taken here, in the turn thread (``vocabulary.take``); with none, or one that failed, the vocabulary is resolved
+    here as it always was. The catalog and entity events go out either way, in the same order, so the stepper and the
+    debug panel read the same turn. This module's ``entity_agent`` and ``shortlist_catalog`` are handed in, so the
+    tests that patch them here still reach them.
+    """
+    send_event("agent_started", {"agent": "catalog", "mode": mode})
+    taken = take_vocabulary(vocabulary)
+    if taken is not None:
+        entity_result, diagnostics, early_plan = taken
+        send_event("agent_complete", {"agent": "catalog", "summary": None})
+        if note_agent is not None:
+            note_agent("entity")
+        send_event("agent_started", {"agent": "entity", "mode": mode})
+        send_event("agent_complete", {"agent": "entity", "summary": entity_result.model_dump()})
+        return entity_result, diagnostics, early_plan
+    diagnostics: dict[str, Any] = {}
+
+    def _shortlisted() -> None:
+        send_event("agent_complete", {"agent": "catalog", "summary": None})
+        if note_agent is not None:
+            note_agent("entity")
+        send_event("agent_started", {"agent": "entity", "mode": mode})
+
+    entity_result = resolve_vocabulary(None, config, user_text, diagnostics=diagnostics, on_shortlisted=_shortlisted,
+                                       entity=entity_agent, shortlist=shortlist_catalog)
+    send_event("agent_complete", {"agent": "entity", "summary": entity_result.model_dump()})
+    return entity_result, diagnostics, None
+
+
+def _early_or_parse(early_plan: dict[str, Any] | None, parse: Callable[[], Any]) -> Any:
+    """The plan the pre-run made early (NESSIE_PARSER_START=early), else the parser's."""
+    if isinstance(early_plan, dict):
+        try:
+            return ParserPlan.model_validate(early_plan)
+        except Exception as exc:  # noqa: BLE001 - parse it again
+            print(f"[VOCAB] the early parser plan did not load; parsing again: {exc!r}")
+    return parse()
+
+
 @turn_spend.collects_turn
 def run_query(
     session: SessionState | SessionStateProxy,
@@ -1914,6 +2257,8 @@ def run_query(
     *,
     credentials: dict[str, str] | None = None,
     graph_scope: Any = _UNSET,
+    vocabulary: Any = None,
+    deadline_epoch: float | None = None,
 ) -> dict[str, Any]:
     """
     Shared query orchestrator for Streamlit, CLI, and async/SSE consumers.
@@ -1928,12 +2273,16 @@ def run_query(
     graph_scope — the caller's project scope for graph queries, as plain data
     ({"is_admin", "project_ids"}) or a GraphScope; see _identity_gate. Left out, the
     config's own scope stands (single-operator surfaces).
+
+    vocabulary — the vocabulary pre-run (NessieAI/cc/prerun.py) or None; see _turn_vocabulary.
+    deadline_epoch -- set on a nested turn a Container-CC turn started; see _limit_turn.
     """
     config, identity_refusal = _identity_gate(
         session, config, credentials, send_event, entry_point="run_query", graph_scope=graph_scope,
     )
     if identity_refusal is not None:
         return identity_refusal
+    _limit_turn(deadline_epoch)
 
     log_dir = _ensure_query_log_dir(session, config)
     artifact_store = ArtifactStore(log_dir)
@@ -1961,6 +2310,8 @@ def run_query(
         if _raw_send_event:
             _raw_send_event(event_name, payload)
 
+    # Read by the fatal handler: a crash after the parser keeps the plan (and the result it named) in the debug.
+    plan: ParserPlan | None = None
     try:
         # An in-progress samplesheet build always advances through the
         # pipeline_agent before the normal parser path.
@@ -1984,36 +2335,16 @@ def run_query(
             if clicked is not None:
                 return clicked
 
-        send_event("agent_started", {"agent": "catalog", "mode": ""})
-        sampletypes_short, assays_short, shortlist_diag = shortlist_catalog(
-            user_text,
-            config.MIN_SAMPLETYPES or [],
-            config.MIN_ASSAYS or [],
-            k_st=50,
-            k_a=75,
-            sampletype_index=getattr(config, "SAMPLETYPE_INDEX", None),
-            assay_index=getattr(config, "ASSAY_INDEX", None),
-            ratio=getattr(config, "SEMANTIC_RATIO", 0.7),
-            min_k=getattr(config, "SEMANTIC_MIN_K", 10),
-            max_k=getattr(config, "SEMANTIC_MAX_K", 80),
-        )
-        if not sampletypes_short:
-            sampletypes_short = config.MIN_SAMPLETYPES or []
-        if not assays_short:
-            assays_short = config.MIN_ASSAYS or []
-        send_event("agent_complete", {"agent": "catalog", "summary": None})
-
-        current_agent = "entity"
-        send_event("agent_started", {"agent": "entity", "mode": ""})
-        _t0 = time.perf_counter()
-        entity_result = entity_agent(config, user_text, sampletypes_short, assays_short)
-        print(f"[TIMING][ENTITY] {time.perf_counter() - _t0:.2f}s")
-        send_event("agent_complete", {"agent": "entity", "summary": entity_result.model_dump()})
+        entity_result, shortlist_diag, early_plan = _turn_vocabulary(
+            config, user_text, send_event, mode="", note_agent=_note_agent, vocabulary=vocabulary)
 
         current_agent = "parser"
         send_event("agent_started", {"agent": "parser", "mode": ""})
         _t0 = time.perf_counter()
-        plan = parser_agent(session, config, user_text, entity_result)
+        # Stays empty when the pre-run's early plan is used: no parser call, so no decision to log.
+        parser_decision: dict[str, Any] = {}
+        plan = _early_or_parse(
+            early_plan, lambda: parser_agent(session, config, user_text, entity_result, decision=parser_decision))
         print(f"[TIMING][PARSER] {time.perf_counter() - _t0:.2f}s")
         plan = ParserPlan.model_validate(fix_sample_endpoint(plan.model_dump()))
         plan = _clamp_lab_codes_to_entity(plan, entity_result)
@@ -2026,6 +2357,7 @@ def run_query(
         debug_payload: dict[str, Any] = {
             "entity_result": entity_result.model_dump(),
             "parser_plan": plan.model_dump(),
+            "parser_decision": parser_decision or None,  # raw/final mode, guardrails_changed, llm_ms; no question text
             "shortlist_sampletype_codes": shortlist_diag.get("sampletype_codes", []),
             "shortlist_assay_codes": shortlist_diag.get("assay_codes", []),
             "shortlist_diagnostics": shortlist_diag,
@@ -2096,7 +2428,7 @@ def run_query(
                     f"query={bundle.get('user_query')!r}"
                 )
             else:
-                bundle = next((b for b in history if b.get("id") == target_id), None)
+                bundle = named_bundle(history, target_id)
                 if bundle is None:
                     reply = (
                         f"You referred to previous results with id={target_id}, but I couldn't find that "
@@ -2251,29 +2583,44 @@ def run_query(
                     print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
                     return _emit_query_complete(send_event, reply, debug_payload, None)
 
+                uids, narrow = _report_generation_uids(session, user_text, plan, reporter_plan)
+                if narrow:
+                    session["last_debug"] = debug_payload
+                    append_turn(
+                        session,
+                        user_query=user_text,
+                        mode=mode,
+                        intent_summary=plan.intent_summary,
+                        entity_result=entity_result,
+                        tool_summary=build_tool_summary_for_mode("reporter", reporter_plan=reporter_plan.model_dump()),
+                        assistant_reply=narrow,
+                    )
+                    print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
+                    return _emit_query_complete(send_event, narrow, debug_payload, None)
+                # The bundle remembers the samples this report packaged, so a later "run rnaseq on those" builds on them.
+                reporter_plan = reporter_plan.model_copy(update={"uids": uids})
+
                 current_agent = "report_writer"
                 send_event("agent_started", {"agent": "report_writer", "mode": reporter_mode})
-                uids = reporter_plan.uids or []
+                print("[DEBUG][REPORTER] Report generation UIDs:", len(uids))
                 try:
-                    parser_uids = plan.filters.uids if hasattr(plan, "filters") else []
-                except Exception:
-                    parser_uids = []
-                if parser_uids:
-                    existing = set(uids)
-                    uids.extend([u for u in parser_uids if u not in existing])
-
-                print("[DEBUG][REPORTER] Report generation UIDs:", uids)
-                reporter_result, report_writer_output, saved_files, reply = generate_report_outputs(
-                    config=config,
-                    user_query=user_text,
-                    parser_plan=plan,
-                    reporter_plan=reporter_plan,
-                    uids=uids,
-                    log_dir=log_dir,
-                    report_writer_fn=report_writer_agent,
-                    report_coder_fn=report_coder_agent,
-                    per_sample_reports=per_sample_reports,
-                )
+                    reporter_result, report_writer_output, saved_files, reply = generate_report_outputs(
+                        config=config,
+                        user_query=user_text,
+                        parser_plan=plan,
+                        reporter_plan=reporter_plan,
+                        uids=uids,
+                        log_dir=log_dir,
+                        report_writer_fn=report_writer_agent,
+                        report_coder_fn=report_coder_agent,
+                        per_sample_reports=per_sample_reports,
+                    )
+                except ReportCodePathError as code_path_failed:
+                    # The code path failed twice on a set too large for the report writer: a plain reply, not
+                    # the writer's input overflow (prod 10-14, task 39a967f9).
+                    print(f"[DEBUG][REPORT_CODER] Code path failed twice: {code_path_failed}")
+                    reporter_result = {"ok": False, "error": str(code_path_failed)}
+                    report_writer_output, saved_files, reply = {}, {}, code_path_failed.reply
                 send_event("agent_complete", {"agent": "report_writer", "summary": None})
             else:
                 summary_mode = reporter_plan.summary_mode or "samples"
@@ -2290,8 +2637,13 @@ def run_query(
                 # empty list is the entity agent's answer (no lab record matched), and
                 # run_reporter_summary does not replace it with the plan's codes.
                 _lab_codes = list(getattr(entity_result, "lab_codes", None) or [])
+                # The lab NAMES go too: a name the user wrote that is also a project's name or alias scopes the
+                # report to that project (run_reporter_summary reads the catalog). A lab asked for by its code
+                # passes no name, so it keeps the lab scope.
+                _lab_names = lab_names_by_name(entity_result)
                 reporter_result, saved_files, reporter_summary = run_reporter_summary(
-                    config, reporter_plan, log_dir, lab_codes=_lab_codes)
+                    config, reporter_plan, log_dir, lab_codes=_lab_codes, lab_names=_lab_names,
+                    scope_kind=scope_kind_word(user_text))
                 send_event(
                     "search_complete",
                     {
@@ -2362,7 +2714,10 @@ def run_query(
                 ])
                 reply = "\n".join(reply_lines)
 
-            debug_payload["reporter_result"] = reporter_result
+            # The session keeps a generated report's summary, not the metadata it fetched: prod 10-14, a GEO
+            # package over 1,641 mice was built and then could not be saved (last_debug 112 MB). The files keep it.
+            session_result = session_reporter_result(reporter_result)
+            debug_payload["reporter_result"] = session_result
             debug_payload["report_writer_output"] = (
                 report_writer_output.model_dump()
                 if isinstance(report_writer_output, ReportWriterOutput)
@@ -2372,11 +2727,6 @@ def run_query(
             if isinstance(reporter_result, dict):
                 if "metadata" in reporter_result:
                     debug_payload["reporter_metadata"] = reporter_result.get("metadata")
-                elif isinstance(reporter_result.get("reports"), list) and reporter_result["reports"]:
-                    debug_payload["reporter_metadata"] = {
-                        entry.get("uid") or f"item_{idx}": entry.get("metadata")
-                        for idx, entry in enumerate(reporter_result["reports"])
-                    }
                 if saved_files:
                     debug_payload["report_saved_files"] = saved_files
 
@@ -2394,7 +2744,7 @@ def run_query(
                 user_query=user_text,
                 parser_plan=plan.model_dump(),
                 reporter_plan=reporter_plan.model_dump(),
-                reporter_result=reporter_result,
+                reporter_result=session_result,
                 report_writer_output=report_writer_output_payload,
                 report_saved_files=saved_files,
                 terminal_reply=reply,
@@ -2437,7 +2787,7 @@ def run_query(
             current_agent = "system"
             send_event("agent_started", {"agent": "system", "mode": mode})
             _t0 = time.perf_counter()
-            sys_output = system_agent(config, user_text, entity_result, plan)
+            sys_output = system_agent(config, user_text, entity_result, plan, session=session)
             print(f"[TIMING][SYSTEM] {time.perf_counter() - _t0:.2f}s")
             print(f"[DEBUG][SYSTEM] mode={sys_output.mode}")
             print(f"[DEBUG][SYSTEM] entities_consulted={sys_output.entities_consulted}")
@@ -2479,11 +2829,15 @@ def run_query(
         scope_notes: list[str] = []
         if mode == "graph_query":
             current_agent = "graph"
+            followup = _followup_graph_context(session, user_text, plan)
+            if followup:
+                debug_payload["followup_context"] = followup[1]
             outcome = _execute_graph_turn(
                 config=config, session=session, user_text=user_text,
                 entity_result=entity_result, plan=plan, log_dir=log_dir,
                 artifact_store=artifact_store, send_event=send_event,
                 debug_payload=debug_payload, t_total_start=_t_total_start,
+                refine_context=followup[0] if followup else None,
                 note_agent=_note_agent, offer_suggestions=accepted_suggestion is None,
             )
             if not isinstance(outcome, GraphScopeFallback):
@@ -2801,13 +3155,14 @@ def run_query(
             )
         except Exception as log_err:  # pragma: no cover
             print(f"[FATAL] failed to log chat_log turn: {log_err!r}")
-        return _emit_query_complete(send_event, reply, {"fatal_error": msg, "agent": agent}, None)
+        fatal_debug: dict[str, Any] = {"fatal_error": msg, "agent": agent}
+        if plan is not None:
+            fatal_debug["parser_plan"] = plan.model_dump()
+        return _emit_query_complete(send_event, reply, fatal_debug, None)
 
     except Exception as exc:
-        if send_event:
-            # The turn's last event: it carries what the turn spent before it failed.
-            send_event("query_error", {"error": str(exc), "agent": current_agent,
-                                       **turn_spend.cost_fields()})
+        _report_unhandled(session, user_text, send_event, exc, agent=current_agent,
+                          mode_label=f"error_{current_agent or 'unknown'}")
         raise
 
 
@@ -2861,18 +3216,23 @@ def run_query_plan(
     *,
     credentials: dict[str, str] | None = None,
     graph_scope: Any = _UNSET,
+    vocabulary: Any = None,
+    deadline_epoch: float | None = None,
 ) -> dict[str, Any]:
     """
     Planner-based orchestrator: entity -> parser -> planner -> executor -> chatter -> evaluator.
     Parallel structure to `run_query`, using the same result contract.
 
     credentials, graph_scope — same shallow-copy and identity-gate semantics as run_query.
+    vocabulary — the vocabulary pre-run, or None (see _turn_vocabulary).
+    deadline_epoch -- set on a nested turn a Container-CC turn started; see _limit_turn.
     """
     config, identity_refusal = _identity_gate(
         session, config, credentials, send_event, entry_point="run_query_plan", graph_scope=graph_scope,
     )
     if identity_refusal is not None:
         return identity_refusal
+    _limit_turn(deadline_epoch)
 
     log_dir = _ensure_query_log_dir(session, config)
     artifact_store = ArtifactStore(log_dir)
@@ -2887,28 +3247,8 @@ def run_query_plan(
             _raw_send_event(event_name, payload)
 
     try:
-        send_event("agent_started", {"agent": "catalog", "mode": "plan"})
-        sampletypes_short, assays_short, shortlist_diag = shortlist_catalog(
-            user_text,
-            config.MIN_SAMPLETYPES or [],
-            config.MIN_ASSAYS or [],
-            k_st=50,
-            k_a=75,
-            sampletype_index=getattr(config, "SAMPLETYPE_INDEX", None),
-            assay_index=getattr(config, "ASSAY_INDEX", None),
-            ratio=getattr(config, "SEMANTIC_RATIO", 0.7),
-            min_k=getattr(config, "SEMANTIC_MIN_K", 10),
-            max_k=getattr(config, "SEMANTIC_MAX_K", 80),
-        )
-        sampletypes_short = sampletypes_short or config.MIN_SAMPLETYPES or []
-        assays_short = assays_short or config.MIN_ASSAYS or []
-        send_event("agent_complete", {"agent": "catalog", "summary": None})
-
-        send_event("agent_started", {"agent": "entity", "mode": "plan"})
-        _t0 = time.perf_counter()
-        entity_result = entity_agent(config, user_text, sampletypes_short, assays_short)
-        print(f"[TIMING][ENTITY] {time.perf_counter() - _t0:.2f}s")
-        send_event("agent_complete", {"agent": "entity", "summary": entity_result.model_dump()})
+        entity_result, shortlist_diag, _ = _turn_vocabulary(config, user_text, send_event, mode="plan",
+                                                            vocabulary=vocabulary)
 
         send_event("agent_started", {"agent": "parser", "mode": "plan"})
         _t0 = time.perf_counter()
@@ -3329,17 +3669,9 @@ def run_query_plan(
         return _emit_query_complete(send_event, reply, {"fatal_error": msg, "agent": agent}, None)
 
     except Exception as e:
-        import traceback
-
-        print(f"[ERROR][PLAN] run_query_plan unhandled exception: {e!r}")
-        traceback.print_exc()
-        reply = f"An unexpected error occurred in the planner pipeline: {e}"
-        try:
-            append_turn(session, user_query=user_text, mode="error_plan_pipeline",
-                        assistant_reply=reply, status="error", error=repr(e))
-        except Exception:
-            print("[FATAL] failed to log chat_log turn for plan pipeline error")
-        return _emit_query_complete(send_event, reply, {"error": repr(e)}, None)
+        _report_unhandled(session, user_text, send_event, e, agent="unknown",
+                          mode_label="error_plan_pipeline")
+        raise
 
 
 def handle_query_plan(session: SessionState | SessionStateProxy, config: ChatConfig, user_text: str) -> str:

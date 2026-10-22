@@ -13,16 +13,17 @@ from ..dbtable_sampletype import DBtable_sampletype
 from django.http import Http404
 from django.http import HttpResponse
 from django.http import HttpResponseRedirect
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 from ..seekdb import SeekDB
 from dmac.conversion import convertDicToOptions
 import datetime
 import json
-from ..responses import json_response
+from ..responses import json_response, missing_param
 from ..responses import plain_text
 from django.shortcuts import render
 from ..decorators import requires_seek_login
-from ..decorators import requires_seek_login_redirect
+from ..decorators import login_redirect, requires_seek_login_redirect
 from ..decorators import requires_supervisor
 import simplejson
 from ..decorators import verifySuperUser
@@ -152,28 +153,12 @@ def _enqueueAttributeGraphSync(request):
     for sampletype_id in _sampleTypeIdsInRequest(request):
         hooks.enqueue('samples_of_type', 'type:%d' % sampletype_id)
 
-def seek(request, url):
-    report = {}
-    if request.method == 'POST':
-        bodyhtml = "To be implemented"
-        return render(request,"samples.html", {'bodyhtml' : bodyhtml})
-    else:
-        url = "/" + url.replace("-", "/") + "/"
-        bodyhtml = getPageRequests(url)
-        report = {}
-        report['bodyhtml'] = bodyhtml
-        return render(request,"samples.html", {'bodyhtml' : bodyhtml})
-
 def sample(request, id):
     sample_id = id
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
     if not user_seek['status']:
-        if sample_id==0:
-            url_redirect = '/login/?next=/seek/samples/query/'
-        else:
-            url_redirect = '/login/?next=/seek/sample/id=' + str(sample_id) + '/'
-        return HttpResponseRedirect(url_redirect)
+        return login_redirect(request)
 
     # Project scope: the page prints every metadata value. A sample outside the caller's projects reads exactly as
     # one that does not exist, before anything about it is fetched.
@@ -208,6 +193,10 @@ def sample(request, id):
     return render(request,"samples.html", {'bodyhtml' : bodyhtml, 'report':report})
 
 def sampleTree(request, uid):
+    # Login first: a visitor must come back to this UID, not to a sample id
+    # looked up before anyone signed in.
+    if not request.user.is_authenticated:
+        return login_redirect(request)
     sample_uid = uid
     dbsample = DBtable_sample()
     sample_id = dbsample.getSampleID(sample_uid)
@@ -221,11 +210,7 @@ def sample_type(request, id):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, False)
     if not user_seek['status']:
-        if sampletype_id==0:
-            url_redirect = '/login/?next=/seek/samples/query/'
-        else:
-            url_redirect = '/login/?next=/seek/sample_types/id=' + str(sampletype_id) + '/'
-        return HttpResponseRedirect(url_redirect)
+        return login_redirect(request)
     
     report = {}
     stype = DBtable_sampletype()
@@ -258,6 +243,9 @@ def getAttributes(request, id):
 
 def getOperators(request):
     ret = request.GET
+    bad = missing_param(ret, 'sampletype_id', 'attribute')
+    if bad:
+        return bad
     sampletype_id = ret['sampletype_id']
     attribute = ret['attribute']
     
@@ -266,7 +254,11 @@ def getOperators(request):
     return HttpResponse(simplejson.dumps(data, default=str))
 
 def retrieveSamples(request):
-    """The rows behind the sample-type grid; the view requires a login."""
+    """The rows behind the sample-type grid; the view requires a login.
+
+    For anyone but a superuser the rows are only the samples in the caller's projects (``restrictToProjects``); a
+    caller whose projects cannot be resolved gets no rows.
+    """
     if not request.user.is_authenticated:
         return json_response(LOGIN_REQUIRED, 0)
     seekdb = SeekDB(None, None, None)
@@ -274,6 +266,7 @@ def retrieveSamples(request):
     if not user_seek['status']:
         return json_response(LOGIN_REQUIRED, 0)
     dbsample = DBtable_sample()
+    dbsample.restrictToProjects(_callerProjectIds(request, "sample grid"))
     reportData = dbsample.processRecords(request, user_seek, "retrieve")
     return HttpResponse(reportData) 
 
@@ -291,7 +284,10 @@ def sampleDownload(request):
         ret = request.POST
     else:
         ret = request.GET
-        
+
+    bad = missing_param(ret, 'includeSampleTree', 'allids', 'sampletype_id')
+    if bad:
+        return bad
     includeSampleTree = int(ret['includeSampleTree'])
     if 'attributeFilter' in ret:
         attributeFilter = ret['attributeFilter']
@@ -352,7 +348,10 @@ def sampleExport(request):
         ret = request.POST
     else:
         ret = request.GET
-    
+
+    bad = missing_param(ret, 'allids', 'sampletype_id')
+    if bad:
+        return bad
     allids = ret['allids']
     sampletype_id = ret['sampletype_id']
     sample_ids = json.loads(allids)
@@ -468,7 +467,8 @@ def getAssaysOptions(request, id):
     data = {'msg':'okay', 'status': 1, 'assay_options':assay_options}
     return HttpResponse(simplejson.dumps(data, default=str))
 
-@requires_seek_login_redirect('/seek/samples/attributes/')
+@ensure_csrf_cookie
+@requires_seek_login_redirect()
 def sampleAttributes(request):
     report = {}
     stype = DBtable_sampletype()
@@ -480,10 +480,14 @@ def sampleAttributes(request):
     return render(request,"sampleAttributes.html", {'report':report})
 
 def getSampleType(request):
-    """The samples of one sample type; the view requires a login."""
+    """The samples of one sample type; the view requires a login. For anyone but a superuser only the samples in the
+    caller's projects, as ``retrieveSamples``."""
     if not request.user.is_authenticated:
         return json_response(LOGIN_REQUIRED, 0)
     ret = request.GET
+    bad = missing_param(ret, 'sampletype_id', 'attribute')
+    if bad:
+        return bad
     sampletype_id = ret['sampletype_id']
     attribute = ret['attribute']
     
@@ -493,9 +497,14 @@ def getSampleType(request):
         return json_response(LOGIN_REQUIRED, 0)
     
     dbsample = DBtable_sample()
-    sdata = dbsample.getSampleType(user_seek, sampletype_id, attribute)
+    sdata = dbsample.getSampleType(user_seek, sampletype_id, attribute,
+                                   filter_rule=ret.get('filter_rule', 'No Filter'),
+                                   filter_valueFrom=ret.get('filter_valueFrom', ''),
+                                   filter_valueTo=ret.get('filter_valueTo', ''),
+                                   scoped_project_ids=_callerProjectIds(request, "sample grid"))
     return HttpResponse(sdata)
 
+@require_POST
 @requires_seek_login
 @requires_supervisor('The login user does not have the permission to add the sample attribute.')
 def sampleAttributeSave(request):
@@ -518,6 +527,7 @@ def sampleAttributeSave(request):
 
     return HttpResponse(reportData)
 
+@require_POST
 @requires_seek_login(log_failure=True)
 @requires_supervisor('The login user does not have the permission to delete the sample attribute.')
 def sampleAttributeDelete(request):

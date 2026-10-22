@@ -15,7 +15,7 @@ from unittest import mock
 
 
 DEFAULT_DELIVERY = Path(
-    "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07"
+    "/home/<user>/work/NExtSEEK-dev/testquestions-2026-08-07"
 )
 
 

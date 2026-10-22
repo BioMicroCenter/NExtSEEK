@@ -235,7 +235,7 @@ def test_a_seek_client_read_is_not_a_write():
 
 
 def test_the_rails_runner_is_a_site():
-    src = 'def create(self, request):\n    run_seek_rails_runner(SEEK_CREATE_RUBY)\n'
+    src = 'def create(self, request):\n    run_seek_op("create", payload)\n'
     found = writer_scan.scan_module("nextseek_api/services/users.py", src)
     assert kinds(found) == ["rails_runner"]
     assert tables(found) == []
@@ -296,7 +296,7 @@ def test_tests_migrations_and_history_are_not_scanned():
 
 def test_the_application_and_its_tools_are_scanned():
     for rel in ("nextseek_api/services/samples.py", "seek/views/admin.py", "dmac/dbtable_clades.py",
-                "api_app/views.py", "NessieAI/cc/cc_engine.py", "scripts/graph_search/parity.py",
+                "NessieAI/cc/cc_engine.py", "scripts/graph_search/parity.py",
                 "startup/steps/seed.py", "ci/writers.py"):
         assert writer_scan.is_scanned(rel), rel
 

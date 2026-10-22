@@ -200,7 +200,9 @@ to something populated.
 
 **Two separate defects sit inside that, and only one is fixed by ruling on cause 2:**
 
-- **Empty but correctly named.** `Griffith`, `Impact`, `Shoulders` and `SRP` exist as investigation titles (the
+- **Empty but correctly named.** *(Superseded 2026-10-09: the `TestProject_250820` copies were deleted from SEEK and
+  the graph on production by the twins cleanup, so these names now resolve to the labs' real investigations.)*
+  `Griffith`, `Impact`, `Shoulders` and `SRP` exist as investigation titles (the
   `TestProject_250820` copies, ids 16 to 21) and are empty *because* the paper studies hang off the legacy
   investigations instead. Repairing the linkage populates them and these names start working.
 - **Wrong name, independent of linkage.** `GBM` is not an investigation title in the graph at any population. No

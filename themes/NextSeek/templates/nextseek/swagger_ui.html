@@ -3,7 +3,7 @@
    Replaces Swagger UI's Authorize button with the caller's real identity. See #119.
 
    The Authorize button is inert on this page. DRF stops at the first authenticator
-   that succeeds, and CsrfExemptSessionAuthentication sits above BasicAuthentication
+   that succeeds, and SeekSessionAuthentication sits above BasicAuthentication
    in every viewset here, so the session cookie wins and the Authorization header
    Swagger sends is never read. Whatever you type into Authorize, requests run as
    whoever you are signed in to NExtSEEK as. It is a control that cannot do anything,

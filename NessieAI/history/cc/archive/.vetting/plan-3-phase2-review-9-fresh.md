@@ -4,7 +4,7 @@
 **Reviewer:** Independent adversarial pre-execution (lenses 2A–2D)  
 **Target:** `nextseek_api/cc_assistant/archive/PLAN-3-ui-based-io.md`  
 **Locked spec:** `nextseek_api/cc_assistant/archive/SPEC-3-ui-based-io.md`  
-**Guide:** `/home/taishajo/AGENTS.md`  
+**Guide:** `/home/<user>/AGENTS.md`  
 **Method:** Cold read of PLAN + SPEC only; live-code spot-checks on cited anchors (no prior `.vetting/` reads).
 
 ---

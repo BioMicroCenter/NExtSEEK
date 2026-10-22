@@ -45,9 +45,10 @@ DEFAULT_PROFILE = {
     "pipeline_agent": (OPUS55, 4000, "low"),
     "followup": (OPUS55, 4000, "low"),
     "memory": (SONNET, None, None),
+    "system": (SONNET, None, None),  # its docs and catalog tool loop needs Bedrock (operator ruling 2026-10-02)
     "entity": (FLASH38, 8000, None),  # medium thinking, sent as a level (operator ruling 2026-09-30)
     **{agent: (FLASH38, None, None) for agent in (
-        "api", "reporter", "chatter", "graph", "system", "context_engineer", "memory_coder",
+        "api", "reporter", "chatter", "graph", "context_engineer", "memory_coder",
         "evaluator", "seqera_agent")},
 }
 
@@ -96,13 +97,15 @@ def test_the_gemini_default_model_is_3_8_flash():
     source = (paths.CHAT_NEXTSEEK_DIR / "src" / "chat_nextseek" / "config.py").read_text()
     assert '"gcp:current": "gemini-3.8-flash"' in source
     assert '_gcp_defaults.get(_mode, "gemini-3.8-flash")' in source
-    assert "gemini-3.5-flash" not in source
+    assert '"gcp:lite": "gemini-3.5-flash"' in source  # the only 3.5 Flash left (off 2.5, 2026-10-06)
+    assert source.count("gemini-3.5-flash") == 1
 
 
-def test_container_cc_runs_opus_5_5_and_falls_back_to_opus_4_8():
+def test_container_cc_runs_sonnet_5_5_and_falls_back_to_opus_4_8():
+    """T7 (2026-10-12): the CC agent on Sonnet 5.5 (its global profile), the fallback kept on Opus 4.8."""
     model_map = json.loads((paths.DMAC_BUILD_CONTEXT / "router_model_class_map.json").read_text())
     assert (model_map["opus"], model_map["opus_fallback"], model_map["sonnet"]) == (
-        OPUS55, "us.anthropic.claude-opus-4-8", SONNET_46)
+        SONNET, "us.anthropic.claude-opus-4-8", SONNET_46)
 
 
 def test_the_entity_call_carries_medium_thinking_from_the_catalog_to_the_gemini_request():

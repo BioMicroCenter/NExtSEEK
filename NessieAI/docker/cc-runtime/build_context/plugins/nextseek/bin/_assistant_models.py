@@ -88,6 +88,7 @@ class QueryCompleteEvent(BaseModel):
     # against this model so the next drift fails a lane instead of a paid turn.
     total_cost_usd: float | None = None
     cost_partial: bool | None = None
+    cost_estimated: bool | None = None
     models_used: list[str] | None = None
     model_fallback: list[dict[str, Any]] | None = None
 
@@ -109,6 +110,7 @@ class QueryErrorEvent(BaseModel):
     model_fallback: list[dict[str, Any]] | None = None
     total_cost_usd: float | None = None
     cost_partial: bool | None = None
+    cost_estimated: bool | None = None
     models_used: list[str] | None = None
 
 
@@ -148,6 +150,10 @@ class Turn(BaseModel):
     # {agent, summary} today (assistant/debug_projection.py), and pinning that
     # shape here would just move the drift rather than absorb it.
     debug_entries: list[dict[str, Any]] | None = None
+    # 2026-10-09 (chip_memory): the server Turn carries the reviewer's chips the turn
+    # offered (`suggestions`, the public copy, no rerun), on every turn, None when it
+    # offered none. Same drift as `debug_entries` above: without it every recall fails.
+    suggestions: list[dict[str, Any]] | None = None
 
 
 class SessionDetailResponse(BaseModel):

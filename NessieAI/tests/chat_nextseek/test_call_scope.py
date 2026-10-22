@@ -270,7 +270,8 @@ def test_the_skip_is_named_in_the_ledger_and_the_turn_record(tmp_path):
 def test_the_turn_record_keys_are_unchanged():
     """The CC plugin's event models forbid unknown top-level keys; the skip lives inside model_fallback items."""
     with turn_spend.collecting() as spend:
-        assert set(spend.summary()) == {"total_cost_usd", "cost_partial", "models_used", "model_fallback", "cost"}
+        assert set(spend.summary()) == {"total_cost_usd", "cost_partial", "cost_estimated", "models_used",
+                                        "model_fallback", "cost"}
 
 
 # --------------------------------------------------------------------------

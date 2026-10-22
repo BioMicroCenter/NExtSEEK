@@ -96,7 +96,7 @@
       "route": "ns",
       "route_mismatch": false,
       "session_id": "84169d3c-8998-4943-ab60-4ed9d1f32de6",
-      "trace_path": "/private/tmp/claude-501/-Users-taishajoseph-Documents-Projects-work-BMC/2757c1f9-6ff6-47ae-964f-c8e6888431dd/scratchpad/geo-retry-run/report.geo_submission/trace.zip"
+      "trace_path": "/private/tmp/claude-501/-Users-<user>-Documents-Projects-work-BMC/2757c1f9-6ff6-47ae-964f-c8e6888431dd/scratchpad/geo-retry-run/report.geo_submission/trace.zip"
     },
     {
       "cost_usd": 0.178047,

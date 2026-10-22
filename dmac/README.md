@@ -21,11 +21,6 @@ Measured 2026-09-03 with `find` and `wc -l` over this directory: 24 Python files
 SEEK auth and home view module (333 lines), `dmac/__init__.py` is empty, and the
 remaining twelve are the legacy layer (4,364 lines).
 
-Two files here are compiled Python 2.7 bytecode: `dmac/conversion.pyc` and
-`dmac/__init__.pyc`, whose first four bytes are the 2.7 magic number `03 f3 0d 0a`,
-read with `od`. A `find` for `*.pyc` outside any `__pycache__` across the whole worktree
-returns exactly those two.
-
 ## Surface
 
 The surface here has two shapes, and they need separating.
@@ -98,33 +93,30 @@ own resolver inside the application image. A fourth block at `dmac/urls.py:42-45
 language-switch route only when `USE_MODELTRANSLATION` is on, and it is off here, so it
 contributes none of the eleven. Because
 `USE_I18N` is `False` (`dmac/settings.py:56`), the `i18n_patterns` wrapper at
-`dmac/urls.py:21` adds no language prefix; verified 2026-09-03 by resolving `/logout`
-inside the application image, which reached `dmac.views.logout_seek` with no prefix.
+`dmac/urls.py:21` adds no language prefix (resolving `/login/` reaches `dmac.views.login_seek`
+with no prefix).
 
 | Pattern | Goes to |
 |---|---|
-| `^login`, `^logout$`, `^signup/` | `dmac/views.py:110`, `dmac/views.py:170`, `dmac/views.py:267` |
+| `^login/?$`, `^signup/` | `dmac.views.login_seek`, `dmac.views.signup_seek` |
 | `^admin/` | `dmac/urls.py:26` |
 | `^seek/` | `seek.urls`, at `dmac/urls.py:27` |
 | `^nextseek_api/` | `nextseek_api.urls`, at `dmac/urls.py:29` |
 | `^media/(?P<path>.*)$` | `dmac.media.serve_media`, at `dmac/urls.py:37-40` |
-| `^$` | `dmac/views.py:285` |
-| `^accounts/signup/` | `dmac/views.py:267` again, at `dmac/urls.py:54` |
-| `^` | `mezzanine.urls`, at `dmac/urls.py:55` |
-| `^accounts/login/` | `dmac/views.py:110` again, at `dmac/urls.py:56` |
+| `^$` | `dmac.views.home` |
+| `^accounts/signup/$` | `dmac.views.signup_seek` again |
+| `^accounts/login/$` | `dmac.views.login_seek` again |
+| `^accounts/logout/$` | `mezzanine.accounts.views.logout` (URL name `logout`) |
+| `^(?:blog\|search\|accounts\|password_reset\|reset)(?:/.*)?/$` | `_not_found` in `dmac/urls.py`: Mezzanine's public pages answer 404 |
+| `^` | `mezzanine.urls`, last |
 
 The media route is unusual and its reason is recorded in place: nginx has no `/media`
 location and `DEBUG` is off under Docker, so Django serves it with a view of its own
 (`dmac/urls.py:32-36`). `dmac/media.py` sends an anonymous caller to `/login/` and serves
-a logged-in one only the legacy data-file tree (`SEEK_DATAFILE_ROOT_WEBLINK`); the rest of
+a logged-in one only the legacy data-file tree (`SEEK_DATAFILE_ROOT_WEBLINK`), and in it only
+the folders of the caller's projects unless they are a superuser; the rest of
 `MEDIA_ROOT` is working state no URL serves. Both error handlers are Mezzanine's
-(`dmac/urls.py:60-61`).
-
-There is one legacy include, and it is disabled rather than deleted: `^api/` pointing at
-`api_app.urls` is commented out at `dmac/urls.py:28`, while `dmac/urls.py:13` still
-imports that URLconf at module scope and `dmac/settings.py:173` still installs the app.
-So `api_app`'s models and its URLconf module both load on every boot, and none of its
-routes are reachable.
+(`handler404`, `handler500` in `dmac/urls.py`).
 
 ### Server entry points
 
@@ -153,8 +145,8 @@ layer is internal and is reached through the table layer.
   lines counted the same day, `dmac/conversion.py` alone for 18.
 - **The connection abstraction.** `dmac/dbconnection.py:9` is a facade that picks a
   backend from a string at `dmac/dbconnection.py:13-24`; `dmac/dbconn_django.py:22` is the
-  ORM-and-raw-cursor implementation, and `dmac/dbconn_mysql.py:13` a direct MySQLdb one.
-  Only test modules name any of the three from outside, among them
+  ORM-and-raw-cursor implementation.
+  Only test modules name either from outside, among them
   `nextseek_api/tests/test_search_filters_sql_binding.py:182` and
   `nextseek_api/tests/test_search_filters_sql_binding.py:250`.
 - **The table abstraction.** `dmac/dbtable.py:33` is the base class, wiring a form, a
@@ -243,8 +235,6 @@ Depends on, outside this directory:
   decides which of the two database aliases every ORM query uses.
 - `nextseek_api.assistant.routing`, imported at `dmac/asgi.py:23` for the assistant
   WebSocket patterns, and `nextseek_api.urls`, imported at `dmac/urls.py:14`.
-- `nextseek_api.attributes.tests.performance_worker_telemetry`, imported at
-  `dmac/attribute_performance_settings.py:35-36`. See `dmac/CLAUDE.md` about this one.
 - `mysqlclient`, imported as `MySQLdb` at module scope in seven of this directory's
   files, including `dmac/dbconnection.py:3`. That single import is why the legacy layer
   cannot be exercised on a host without a C toolchain.
@@ -278,16 +268,14 @@ modules.
 - The settings module names are configuration, not imports, and appear in
   `pyproject.toml:147`, `.github/workflows/ci-pytest.yml:50`, `scripts/run_tests.sh:46`,
   `ci/gate/live_routes.py:18`, `scripts/dump_routes.py:20`,
-  `nextseek_api/batch_upload/celery_app.py:12` and `NessieAI/tests/nessie_tests/sources.py:249`.
+  `nextseek_api/batch_upload/celery_app.py:12` and `NessieAI/nessie_harness/sources.py:249`.
 - `dmac/local_settings.py`, which this directory never contains, is bind-mounted by path
   into the `nextseek` service (`docker-compose.yml`), the only service that runs the app
   image. It is written by
   `startup/steps/config.py:167`, inspected by `startup/steps/validate.py:63`, and required
   by `scripts/run_tests.sh:37-41`.
 
-Three kinds of hit are excluded and are worth naming. `api_app/dbconn_mysql.py:13` defines
-its own `DBconn_mysql` class and is a separate copy, not a consumer of
-`dmac/dbconn_mysql.py`. `NessieAI/hibayes/task6_settings.py` is a fifth settings module
+Two kinds of hit are excluded and are worth naming. `NessieAI/hibayes/task6_settings.py` is a fifth settings module
 in this repo and does not live here. And `nextseek_api/permissions.py:10` names
 `dmac.views.userSynchronization` inside a comment explaining a security gate, not in code.
 

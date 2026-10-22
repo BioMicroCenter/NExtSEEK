@@ -187,7 +187,7 @@ class TestResolveSampleTypeId:
         result.fetchone.return_value = (42,)
         conn.execute.return_value = result
 
-        st_id = resolve_sample_type_id("NHP_blood", 10, conn)
+        st_id = resolve_sample_type_id("NHP_blood", conn)
         assert st_id == 42
 
     def test_caches_after_resolve(self):
@@ -196,10 +196,10 @@ class TestResolveSampleTypeId:
         result.fetchone.return_value = (42,)
         conn.execute.return_value = result
 
-        resolve_sample_type_id("NHP_blood", 10, conn)
+        resolve_sample_type_id("NHP_blood", conn)
         conn.execute.reset_mock()
 
-        st_id = resolve_sample_type_id("NHP_blood", 10, conn)
+        st_id = resolve_sample_type_id("NHP_blood", conn)
         assert st_id == 42
         conn.execute.assert_not_called()
 
@@ -210,7 +210,7 @@ class TestResolveSampleTypeId:
         conn.execute.return_value = result
 
         with pytest.raises(ValueError, match="Sample type not found"):
-            resolve_sample_type_id("NONEXISTENT", 10, conn)
+            resolve_sample_type_id("NONEXISTENT", conn)
 
 
 # ── validate_assay_ids ───────────────────────────────────────────────────

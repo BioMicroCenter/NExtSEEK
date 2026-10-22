@@ -44,7 +44,8 @@ _OBS_CC = RouteObservation("container_cc", None, "baml", "", None, "container_cc
 # 2026-09-24 ruling: writes stay refused on NExtSEEK (there is no Container-CC write
 # path), so the create/update/delete cases are scored as the nextseek_query turn they
 # really are. The all-CC simulation and the CC write probe below keep the CC shape.
-_OBS_NS = RouteObservation("nextseek_query", None, "baml", "", "unsupported", "nextseek_query")
+# 2026-10-21: writes go to container_cc (operator 2026-10-14), so the refusal reply is scored on a container_cc turn.
+_OBS_NS = RouteObservation("container_cc", None, "baml", "", None, "container_cc")
 
 CREATE = "write.create_me_investigation_testin"
 UPDATE = "write.update_scientist_must_confirm_first"
@@ -80,7 +81,7 @@ def _ns_payload(reply):
     """A nextseek_query turn that refused: the route event and the reply."""
     return {"status": "completed", "progress": [
         {"event": "route_decided",
-         "data": {"route": "nextseek_query", "model_class": None,
+         "data": {"route": "container_cc", "model_class": None,
                   "source": "baml", "reasoning": ""}},
         {"event": "query_complete", "data": {"reply": reply}},
     ]}
@@ -213,7 +214,7 @@ def test_each_authored_case_asserts_exactly_the_four_kinds(vid):
     shapes = [(c.field, c.op) for c in crits]
 
     assert ("route", "eq") in shapes
-    assert next(c.value for c in crits if c.field == "route") == "nextseek_query"
+    assert next(c.value for c in crits if c.field == "route") == "container_cc"
     assert ("last_reply", "nonempty") in shapes
 
     regexes = [c.value for c in crits if c.field == "last_reply" and c.op == "matches_re"]
@@ -833,7 +834,7 @@ def test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible():
                                       _OBS_CC, last_reply="done")[0] for t in v.turns):
             green.append(v.id)
 
-    assert len(merged) == 426  # 423 -> 426: 2026-10-19: +3 overlay route_gate variants for the reingest hand-off (route.cc_reingest_*), each writing its route inline on its one turn. 418 -> 423: 2026-10-19: comparison offer, +6 overlay variants in pipeline_launch (4 route_gate route.ns_compare_* with route inline, 2 full-tier pipeline.compare_offer_* with route injected) and unsup.compare_gene_expression_betwee retired. 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) == 383  # 2026-10-22 reingest integration merged dev: +9 overlay, 1 retired. 375 -> 383.  2026-10-21 prod_fixes: +6. 369 -> 2026-10-14 ti24: +2 full-tier unsupported siblings (unsup.method_paper_lookup, unsup.method_talk_lookup) that assert the CC title lookup ran. Both red under an all-CC simulation (no trace). 2026-10-14, big-merge dev review siblings (bmr_dev_test_fixes): +11 overlay variants, all red under an all-CC simulation (green stays 6). big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). big merge 2026-10-13: fix 19 (mj-routing) and fix 6 (nessie_fixes, retired green.refine_recall) together. fix 19: 343 -> 350, +7 unsup.* cases. # 418 -> 343: 2026-10-07 test-set review (SPEC-2): 75 curated variants retired into retired.json. 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     # 13 -> 3. 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. The simulation asks how many
     # variants would stay GREEN if every turn ran container_cc, and the answer
     # collapsed because the question set gave 149 variants a substantive
@@ -843,13 +844,13 @@ def test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible():
     # 3 -> 2 on 2026-09-23: refrec.can_you_run_that_again_but_wit now asserts
     # route nextseek_query on its seed (the REST-plumbing retirement), which an
     # all-CC simulation fails.
-    # 2 -> 5 on 2026-10-19: the three reingest hand-off gates assert route container_cc and a
-    # route_source of baml or reingest, both of which an all-CC simulation satisfies.
-    assert len(green) == 5, sorted(green)
+    # 2 -> 6 on 2026-10-13 (fix 19): the four unsup.method_* container_cc route cases pass an all-CC simulation, as they should.
+    # 2026-10-22 reingest integration merged dev: 10 -> 13, the three route.cc_reingest_* gates assert route container_cc, which an all-CC simulation satisfies.
+    assert len(green) == 13, sorted(green)  # 2026-10-21 prod_fixes: +4 route-only container_cc cases are green under the all-CC simulation. 6 -> 10
     # 270 -> 295: all 25 variants added 2026-08-06 are RED under an all-CC
     # simulation replying "done", which is correct — none of them is satisfied
     # by a bare acknowledgement.
-    assert len(merged) - len(green) == 421, (  # 416 -> 421: 2026-10-19: the four comparison route gates fail their inline nextseek_query route and the two full-tier comparison variants fail their parser and pipeline_agent fields; the retired unsup.compare_gene_expression_betwee was already red. # 414 -> 416: 2026-09-30: the two nf-core selection variants are both red under an all-CC simulation (route.ns_pipeline_by_question on its inline route, pipeline.selection_verdict_recorded on api_ok and its pipeline_agent fields). # 413 -> 414: 2026-09-24: fix 9's route.ndma_mice_then_female_two_turns asserts nextseek_query on its seed. # 412 -> 413: 2026-09-23: that same seed. # 362 -> 412: 2026-09-23: +50 production researcher cases, all 50 red under an all-CC simulation (each asserts nextseek_query on its first turn). 295 -> 362: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) - len(green) == 370, (  # 2026-10-22 reingest integration merged dev: 383 - 13 green: the four route.ns_compare_* gates and the two pipeline.compare_offer_* are red. 365 -> 370.  2026-10-21 prod_fixes: 375 - 10 green (the P9 cases are red, the 3 write + 1 container route cases green). 363 -> 2026-10-14 ti24: +2 unsup.*_lookup siblings, both red (no CC trace in the simulation). 2026-10-14, big-merge dev review siblings (bmr_dev_test_fixes): +11 overlay variants, all red under an all-CC simulation (green stays 6). big merge 2026-10-13: + harmo_onto (+5 overlay harmonization variants). big merge 2026-10-13: fix 19 (mj-routing) and fix 6 (nessie_fixes, retired green.refine_recall) together. 341 -> 344: 2026-10-13 fix 19, +7 cases, 4 of them green under the all-CC simulation. 416 -> 341: 2026-10-07 test-set review (SPEC-2): 75 retired variants, all red under the simulation, leave. 414 -> 416: 2026-09-30: the two nf-core selection variants are both red under an all-CC simulation (route.ns_pipeline_by_question on its inline route, pipeline.selection_verdict_recorded on api_ok and its pipeline_agent fields). # 413 -> 414: 2026-09-24: fix 9's route.ndma_mice_then_female_two_turns asserts nextseek_query on its seed. # 412 -> 413: 2026-09-23: that same seed. # 362 -> 412: 2026-09-23: +50 production researcher cases, all 50 red under an all-CC simulation (each asserts nextseek_query on its first turn). 295 -> 362: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
         f"{len(merged) - len(green)} of {len(merged)} red — update the figure in "
         f"NessieAI/tests/nessie_tests/README.md and NessieAI/tests/nessie_tests/tests/test_evaluate.py")
 
@@ -909,8 +910,22 @@ def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
     # -> [328, 212, 20, 19] on 2026-09-24, follow-up split: fix 9's new two-turn case asserts
     # nextseek_query (+1 route). The 28 follow-ups moved to nextseek_query change no count:
     # each of those cases already failed `route` on its seed.
+    # -> [329, 213, 17, 18] on 2026-10-03, round 4: green.mus_ndma and the three pipeline seed turns assert the graph
+    # search, not api_ok (-4 api_ok); the SOP case asserts the graph route, not the sops endpoint (+1 mode, -1
+    # endpoint).
+    # -> [262, 163, 12, 13] on 2026-10-07, test-set review (SPEC-2): 75 curated variants retired into retired.json.
+    # -> [262, 239, 12, 13] on 2026-10-07, graph-search grading (SPEC-2 R5): every sample-metadata question asserts
+    # parser_plan.mode graph_query, which an all-CC simulation fails (+76 mode).
+    # -> [260, 239, 12, 13] on 2026-10-07, R7: the two open-ended summaries (Shoulders, longest-running) expect container_cc,
+    # which an all-CC simulation satisfies (-2 route).
+    # -> [263, 239, 12, 13] on 2026-10-14, the big-merge dev review: cat.people_versus_scientists accepts either
+    # route (operator: the container_cc answer is fine), which an all-CC simulation satisfies (-1 route).
+    # -> [266, 240, 12, 13] on 2026-10-14, big-merge dev review siblings: two route-gate cases assert nextseek_query
+    # inline (+2 route), pipeline.run_on_first_of_two_searches gets pipeline_launch's injected route (+1 route),
+    # fu.self_contained_after_search_no_target asserts parser_plan.mode graph_query (+1 mode) and graph_cypher.
     assert [counts.get(f) for f in ("route", "parser_plan.mode", "api_ok",
-                                    "api_plan.endpoint")] == [333, 212, 21, 19], (
+                                    "api_plan.endpoint")] == [269, 241, 12, 13], (  # 2026-10-22 reingest integration merged dev: +4 route criteria (the route.ns_compare_* gates; the 3 route.cc_reingest_* and 2 pipeline.compare_offer_* are green or carry no route field here). 265 -> 269.  2026-10-21 prod_fixes: writes go to container_cc, three route-only write cases added.
+   
         f"{counts} — update the four counts in nessie_tests/README.md and in "
         f"tests/test_evaluate.py's 'Fix round 1' comment")
 
@@ -1540,5 +1555,5 @@ def test_every_probe_case_still_loads():
     start of a paid run."""
     _include, inline = corpus.load_case_file(PROBE)
 
-    assert len(inline) == 13
+    assert len(inline) == 9    # 13 -> 9: 2026-10-07 test-set review (SPEC-2): four probe-cc-2026-07-31 cases were retired
     assert CREATE_PROBE in {v.id for v in inline}
