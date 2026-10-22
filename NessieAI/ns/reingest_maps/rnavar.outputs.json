@@ -28,7 +28,7 @@
       "id": "vcf",
       "candidates": ["variant_calling/*/*.haplotypecaller.filtered.vcf.gz"],
       "sample_type": "A.VCF",
-      "assay": "Variant Calling Analysis",
+      "assay": "Variant Call Filtering",
       "cardinality": "per_sample",
       "primary_data": true,
       "include_provenance": true,
