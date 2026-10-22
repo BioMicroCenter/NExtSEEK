@@ -58,6 +58,16 @@ MULTIRUN_NOT_ATTRIBUTABLE = "multirun_not_attributable"
 UNAPPROVED_ATTRIBUTE = "unapproved_attribute"
 ATTRIBUTE_NOT_DEFINED = "attribute_not_defined"
 METRIC_UNAVAILABLE = "metric_unavailable"
+# The ASSAY sheet (NessieAI/ns/reingest/assay_plan.py): an analysis row is filed
+# under its study's assay, one is created at upload, or one of these says why not.
+ASSAY_NOT_DECLARED = "assay_not_declared"
+HOUSE_ASSAY_MISSING = "house_assay_missing"
+PARENT_IN_NO_STUDY = "parent_in_no_study"
+ASSAY_AMBIGUOUS = "assay_ambiguous"
+ASSAY_TO_CREATE = "assay_to_create"
+ASSAY_UNRESOLVED_TEST_ONLY = "assay_unresolved_test_only"
+ASSAY_SPLIT_ACROSS_STUDIES = "assay_split_across_studies"
+PARENTS_JOIN_ASSAY = "parents_join_assay"
 # A required attribute the CATALOG wants but SEEK's own sample_attributes
 # table does not (`server_required` is false or unknown for it) -- present
 # in `required_fields` but absent from `server_required_fields`/the
