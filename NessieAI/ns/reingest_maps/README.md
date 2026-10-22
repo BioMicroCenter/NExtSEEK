@@ -44,7 +44,8 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
     type without `Notes` sends the leftovers to the build report instead.
   - `optional` — a flag-dependent output (`--cram`, `--tools salmon`): matching
     nothing is expected, so it is not reported and builds no rows.
-  - `attributes`, `primary_data`, `include_provenance`, `assay` — as in the schema.
+  - `assay` — the house assay the rule's rows are filed under, by its `internal_assays` title (a catalog alternative name also resolves). A name, never an id: the ASSAY sheet needs a study-scoped `assays.id`, resolved per run from the parents' study, and the upload creates the study assay when the study has none. Every rule must name one (`test_map_contract.py`).
+  - `attributes`, `primary_data`, `include_provenance` — as in the schema.
 
   A `per_file` row takes a companion only when the companion's own
   glob-captured stem equals the row's stem (the same logic as `@file_stem`) and the

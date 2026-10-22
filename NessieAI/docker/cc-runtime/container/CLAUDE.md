@@ -46,7 +46,7 @@ nextseek-run-harvest	run-harvest	**Reingest step 1** — parse a finished run's 
 nextseek-run-ls	run-ls	Ad-hoc recursive read-only listing (`ls -laR`) of a finished Luria run directory, for manual orientation — not one of the numbered reingest steps below.
 nextseek-sample-search	sample-search	Retrieve current sample rows by UID.
 nextseek-sampletype-attrs	attrs	Fetch structured sample-type schema.
-nextseek-upload-reingest	upload-reingest	**Reingest step 5** — upload the reviewed workbooks (build ids from build-upload-xlsx's builds). WRITES to NExtSEEK: ask the user once, listing each workbook (sample type, new/update, row count, project) and every open warning from the builds, before calling.
+nextseek-upload-reingest	upload-reingest	**Reingest step 5** — upload the reviewed workbooks (build ids from build-upload-xlsx's builds). WRITES to NExtSEEK: ask the user once, listing each workbook (sample type, new/update, row count, project) and every open warning from the builds, before calling. It first creates any study assay the builds list, and afterwards adds each new sample's parents to its assays.
 nextseek-validate-upload	build-validate	Fused build and validate of an upload workbook.
 <!-- END PLAN005-GEN:operations -->
 

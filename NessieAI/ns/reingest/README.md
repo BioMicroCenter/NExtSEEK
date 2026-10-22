@@ -25,6 +25,7 @@ not values, so no measured number round-trips through a model.
 | `proposals.py` | the approval queue's service: `record` (idempotent per `(pipeline, raw_key)`), `approved_rules`, `attribute_exists` |
 | `answers.py` | the fix loop's curator answers: `parse_answers`, `validate` (an allowlist from the first QA pass's findings), `apply_answers`. Pure, no I/O |
 | `build_records.py` | one JSON record per rendered workbook, keyed by the workbook's sha256 and filed under the building user. `write`, `load`, `sha256_of` |
+| `assay_plan.py` | which study assay each analysis row is filed under: ASSAY ids, assays to create, (parent, assay) pairs, or a finding. Pure, no Django |
 | `workbook_diff.py` | `assay_only_changes`: may a rebuilt workbook replace the reviewed one? Only Assay rows for the assays the upload created may differ. openpyxl only, no Django |
 | `upload.py` | `run`, `verify`: the batch-upload start for reviewed workbooks. `CONFIRMATION_SCOPE` is a module constant |
 | `store.py` | server-side manifest cache, keyed by `run_dir` plus content digest |
@@ -63,6 +64,7 @@ before any job starts. After that each workbook is its own batch-upload job thro
 fails to start never stops the next. Files only, never `rows`. The op then waits for the jobs, and
 its reply lists each new-mode job's created UIDs, read back from the job's summary CSV by the host's
 `job_outcome` (`nextseek_api/batch_upload/views.py`, only inside `MEDIA_ROOT/batch_upload_reports`).
+Before staging, the op creates any study assay its build records list (`create_study_assay`) and rebuilds those records, uploading a rebuild only when `workbook_diff.assay_only_changes` finds nothing beyond Assay rows for the new assays; once a new-mode job succeeds it adds the new samples' parents to their assays (`register_parents`). Both seams are in `nextseek_api/services/reingest_assays.py` and stay inside the caller's projects. A failed create refuses the call before anything starts; every case where parents were not added is said in the reply.
 
 Job progress is read on the batch-upload `status/<job_id>/` endpoint by the job's owner.
 `nextseek-api-read` cannot poll it: the read-safe allowlist matches exact strings, so a
