@@ -403,7 +403,7 @@ def _assay_lines(index, code, bucket, where):
             ids = ", ".join(str(i) for i in entry["ids"])
             text = (f"{n} {_plural(n)} in {where}: study {detail.get('study_id')}"
                     f" ({detail.get('study_title')}) has more than one assay of this"
-                    f" kind ({ids}).")
+                    f" kind (assays {ids}).")
         lines.append(f"  {index}.  {text}" if position == 0 else f"      {text}")
     return lines
 
@@ -430,7 +430,7 @@ def _render_one(index, code, attribute, bucket):
                 " filed under a study. Check the run's sample sheet, then rebuild."]
     if code == qa.ASSAY_AMBIGUOUS:
         return [*_assay_lines(index, code, bucket, where),
-                "      Remove the extra assay in SEEK, then rebuild."]
+                "      An administrator needs to decide which one these rows belong to; then rebuild."]
     if code == qa.HOUSE_ASSAY_MISSING:
         return [f"  {index}.  {where}: there is no house assay '{detail.get('assay')}' on this"
                 " instance, so its rows cannot be filed under one.",

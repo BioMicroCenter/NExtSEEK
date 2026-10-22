@@ -603,10 +603,10 @@ def test_unmapped_metrics_are_one_line():
      "The upload will create 'Genome Alignment - Data Linked' in study 51 (Kamm)"),
     (qa.ASSAY_AMBIGUOUS, qa.HARD,
      {"study_id": 17, "study_title": "S", "assay_ids": [40, 41]},
-     "study 17 (S) has more than one assay of this kind (40, 41)"),
+     "study 17 (S) has more than one assay of this kind (assays 40, 41)"),
     (qa.ASSAY_AMBIGUOUS, qa.HARD,
      {"study_id": 17, "study_title": "S", "assay_ids": [40, 41]},
-     "Remove the extra assay in SEEK, then rebuild."),
+     "An administrator needs to decide which one these rows belong to; then rebuild."),
     (qa.HOUSE_ASSAY_MISSING, qa.HARD, {"assay": "Variant Call Filtering"},
      "there is no house assay 'Variant Call Filtering' on this instance"),
     (qa.HOUSE_ASSAY_MISSING, qa.HARD, {"assay": "Variant Call Filtering"},
@@ -698,9 +698,10 @@ def test_assay_ambiguous_gets_one_line_per_study_with_its_assays_and_rows():
         {"study_id": 17, "study_title": "S", "assay_ids": [40, 41]},
         {"study_id": 18, "study_title": "T", "assay_ids": [50, 51]}])
     text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
-    assert "2 rows in the A.GEX workbook: study 17 (S) has more than one assay of this kind (40, 41)" in text
-    assert "1 row in the A.GEX workbook: study 18 (T) has more than one assay of this kind (50, 51)" in text
-    assert text.count("Remove the extra assay in SEEK, then rebuild.") == 1
+    assert "2 rows in the A.GEX workbook: study 17 (S) has more than one assay of this kind (assays 40, 41)" in text
+    assert "1 row in the A.GEX workbook: study 18 (T) has more than one assay of this kind (assays 50, 51)" in text
+    assert text.count("An administrator needs to decide which one these rows belong to; then rebuild.") == 1
+    assert "Remove" not in text
 
 
 def test_a_real_row_with_no_parents_blocks_and_says_what_to_check():
