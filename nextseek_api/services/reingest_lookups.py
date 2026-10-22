@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
 
 from nextseek_api.services.context_catalog import (
     load_sample_type,
@@ -451,6 +452,109 @@ def assay_ids_for_parents_strict(
             f"assay catalog unreachable while resolving "
             f"{internal_assay_title!r} for {len(uids)} parent UID(s): {exc}"
         ) from exc
+
+
+@dataclass(frozen=True)
+class StudyAssayPlan:
+    """Per study the parents' assays sit in: that study's assays of one house assay.
+
+    ``studies`` maps a study id to its matching SEEK ``assays.id`` values, an
+    empty list when the study has none. ``parents_without_study`` names the
+    parents that are in no study assay at all, a UID with no sample included.
+    """
+    studies: dict
+    parents_by_study: dict
+    parents_without_study: list
+    study_titles: dict
+
+
+def study_assays_for_parents_strict(parent_uids: list[str],
+                                    internal_assay_title: str) -> StudyAssayPlan:
+    """Where the parents sit, and each of those studies' assays of the house assay.
+
+    One query on ``default``, SEEK's tables named by schema as in
+    ``assay_ids_for_parents_strict``. An outage raises ``RuntimeError``.
+    """
+    uids = sorted({str(u).strip() for u in parent_uids or () if str(u or "").strip()})
+    if not uids or not internal_assay_title:
+        return StudyAssayPlan({}, {}, uids, {})
+    from django.db import connections
+
+    seek = _seek_schema()
+    uid_ph = ", ".join(["%s"] * len(uids))
+    sql = f"""
+        SELECT s.uuid, pa.study_id, st.title, t.id
+          FROM {seek}.samples AS s
+          JOIN {seek}.assay_assets AS aa
+            ON aa.asset_id = s.id AND aa.asset_type = 'Sample'
+          JOIN {seek}.assays AS pa
+            ON pa.id = aa.assay_id AND pa.study_id IS NOT NULL
+          JOIN {seek}.studies AS st
+            ON st.id = pa.study_id
+          LEFT JOIN ({seek}.assays AS t
+                     JOIN assays_internal_assays AS j ON j.assay_id = t.id
+                     JOIN internal_assays AS ia ON ia.id = j.internal_assay_id)
+            ON t.study_id = pa.study_id AND ia.internal_assay_title = %s
+         WHERE s.uuid IN ({uid_ph})
+    """
+    try:
+        with connections["default"].cursor() as cur:
+            cur.execute(sql, [internal_assay_title, *uids])
+            rows = cur.fetchall()
+    except Exception as exc:
+        raise RuntimeError(
+            f"assay catalog unreachable while placing {len(uids)} parent UID(s) "
+            f"for {internal_assay_title!r}: {exc}") from exc
+    studies: dict[int, set[int]] = {}
+    parents: dict[int, set[str]] = {}
+    titles: dict[int, str] = {}
+    for uid, study_id, study_title, assay_id in rows:
+        study_id = int(study_id)
+        studies.setdefault(study_id, set())
+        if assay_id is not None:
+            studies[study_id].add(int(assay_id))
+        parents.setdefault(study_id, set()).add(str(uid))
+        titles[study_id] = str(study_title or "")
+    placed = {uid for members in parents.values() for uid in members}
+    return StudyAssayPlan(
+        studies={k: sorted(v) for k, v in sorted(studies.items())},
+        parents_by_study={k: sorted(v) for k, v in sorted(parents.items())},
+        parents_without_study=[uid for uid in uids if uid not in placed],
+        study_titles=dict(sorted(titles.items())))
+
+
+def house_assay_title_strict(name: str) -> str | None:
+    """The ``internal_assays`` title a map's assay name stands for, or None.
+
+    The name matches itself or, through ``assay_context``, any name in its
+    catalog row's ``assay_name`` and ``Alternative_Assay_Names``. Exact,
+    case-sensitive titles only, and never ``assay_context.internal_assay_id``,
+    whose ids are production's. More than one matching title raises
+    ``ValueError``; an outage raises ``RuntimeError``.
+    """
+    wanted = str(name or "").strip()
+    if not wanted:
+        return None
+    from django.db import connections
+
+    try:
+        with connections["default"].cursor() as cur:
+            cur.execute("SELECT assay_name, Alternative_Assay_Names FROM assay_context")
+            catalog = cur.fetchall()
+            cur.execute("SELECT internal_assay_title FROM internal_assays")
+            titles = {str(row[0]) for row in cur.fetchall() if row[0]}
+    except Exception as exc:
+        raise RuntimeError(f"house assays unreachable while resolving {wanted!r}: {exc}") from exc
+    names = {wanted}
+    for assay_name, alternatives in catalog:
+        group = {n.strip() for n in [str(assay_name or ""), *str(alternatives or "").split(",")]
+                 if n.strip()}
+        if wanted in group:
+            names |= group
+    hits = sorted(names & titles)
+    if len(hits) > 1:
+        raise ValueError(f"{wanted!r} names more than one house assay: {hits}")
+    return hits[0] if hits else None
 
 
 def project_ids_for_uids_strict(uids: list[str]) -> list[int]:

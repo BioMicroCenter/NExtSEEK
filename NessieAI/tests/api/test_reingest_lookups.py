@@ -455,3 +455,89 @@ def test_project_ids_are_read_from_the_seek_connection(settings):
     [(alias, _sql, params)] = recorder.calls
     assert alias == "seek"
     assert params == ["D.SEQ-1"]
+
+
+class _Sequence(_Recorder):
+    """A _Recorder that answers each execute with the next rows in turn."""
+
+    def __init__(self, *results):
+        super().__init__(rows=None)
+        self.results = list(results)
+
+    def __getitem__(self, alias):
+        conn = super().__getitem__(alias)
+        recorder = self
+        cursor = conn.cursor.return_value
+
+        def fetchall():
+            return recorder.results.pop(0)
+
+        cursor.fetchall = fetchall
+        return conn
+
+
+def test_study_assays_group_by_study_and_name_parents_in_no_study(settings):
+    _seek_settings(settings)
+    # (parent uid, study id, study title, matching assay id or None)
+    recorder = _Recorder(rows=[
+        ("D.SEQ-1", 51, "Study A", 315), ("D.SEQ-2", 51, "Study A", 315),
+        ("D.SEQ-3", 25, "Study B", None),
+    ])
+    with patch("django.db.connections", recorder):
+        plan = reingest_lookups.study_assays_for_parents_strict(
+            ["D.SEQ-1", "D.SEQ-2", "D.SEQ-3", "D.SEQ-4"], "Gene Expression Analysis")
+    assert plan.studies == {25: [], 51: [315]}
+    assert plan.parents_by_study == {25: ["D.SEQ-3"], 51: ["D.SEQ-1", "D.SEQ-2"]}
+    assert plan.parents_without_study == ["D.SEQ-4"]
+    assert plan.study_titles == {25: "Study B", 51: "Study A"}
+    [(alias, sql, params)] = recorder.calls
+    assert alias == "default"
+    assert "`seek_production`.studies AS st" in sql
+    assert "LEFT JOIN (" in sql
+    assert params == ["Gene Expression Analysis", "D.SEQ-1", "D.SEQ-2", "D.SEQ-3", "D.SEQ-4"]
+
+
+def test_study_assays_keep_two_matches_in_one_study(settings):
+    _seek_settings(settings)
+    recorder = _Recorder(rows=[("D.SEQ-1", 17, "S", 40), ("D.SEQ-1", 17, "S", 41)])
+    with patch("django.db.connections", recorder):
+        plan = reingest_lookups.study_assays_for_parents_strict(["D.SEQ-1"], "Gene Expression Analysis")
+    assert plan.studies == {17: [40, 41]}
+
+
+def test_study_assays_with_no_parents_ask_nothing():
+    plan = reingest_lookups.study_assays_for_parents_strict([], "Genome Alignment")
+    assert plan == reingest_lookups.StudyAssayPlan({}, {}, [], {})
+
+
+def test_study_assays_raise_on_an_outage(settings):
+    _seek_settings(settings)
+    broken = MagicMock()
+    broken.__getitem__.side_effect = OSError("down")
+    with patch("django.db.connections", broken):
+        with pytest.raises(RuntimeError):
+            reingest_lookups.study_assays_for_parents_strict(["D.SEQ-1"], "Genome Alignment")
+
+
+def test_house_assay_title_resolves_an_alternative_name():
+    recorder = _Sequence(
+        [("Variant Call Filtering", "Variant Calling Analysis, Variant Calling")],
+        [("Variant Call Filtering",), ("Genome Alignment",)])
+    with patch("django.db.connections", recorder):
+        assert reingest_lookups.house_assay_title_strict("Variant Calling Analysis") == \
+            "Variant Call Filtering"
+
+
+def test_house_assay_title_is_none_when_no_title_matches():
+    recorder = _Sequence([("Long-Read Sequencing", None)], [("Long Read Sequencing",)])
+    with patch("django.db.connections", recorder):
+        assert reingest_lookups.house_assay_title_strict("Long-Read Sequencing") is None
+
+
+def test_house_assay_title_refuses_two_matching_titles():
+    recorder = _Sequence(
+        [("Single Cell Expression Analysis", "Single Cell Expression Matrix Analysis")],
+        [("Single Cell Expression Analysis",), ("Single Cell Expression Matrix Analysis",)])
+    with patch("django.db.connections", recorder):
+        with pytest.raises(ValueError):
+            reingest_lookups.house_assay_title_strict("Single Cell Expression Analysis")
