@@ -190,3 +190,18 @@ def test_without_rows_the_reply_keeps_just_the_count(env):
     out = _upload(env, lambda job_id: _done(created=2), builds)
     assert "A.ALN (new samples): done, 2 samples created\n" in out["reply"] + "\n"
     assert out["jobs"][0]["outcome"]["created_uids"] is None
+
+
+def test_the_op_hands_its_limit_and_start_to_the_upload(env, monkeypatch):
+    import NessieAI.ns.granular as g
+
+    captured = {}
+    monkeypatch.setattr(upload, "run", lambda **kw: (captured.update(kw), {"jobs": [], "reply": ""})[1])
+    env.clock["now"] = 12.5
+    session = SimpleNamespace(user=USER, upload_context=CTX, dispatch_job=lambda **k: "j",
+                              stage_workbook=_stage)
+    g.run_op("upload-reingest", {"build_ids": "a" * 64, "confirmed_write": True}, config=None,
+             session=session, write_gate=lambda *a: None, neo4j_exec=None, outputs_dir=None,
+             limit_s=30)
+    assert captured["limit_s"] == 30
+    assert captured["started_at"] == 12.5

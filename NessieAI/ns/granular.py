@@ -2364,6 +2364,8 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir,
     write_gate("api-write", None, None, args.get("confirmed_write"))
     from NessieAI.ns.reingest import upload
 
+    # The job wait is cut to what is left of the op's limit (upload._wait_budget_s).
+    started_at = upload._clock()
     upload_context = getattr(session, "upload_context", None)
     if callable(upload_context):
         upload_context = upload_context()
@@ -2378,6 +2380,7 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir,
                             job_state=getattr(session, "job_state", None),
                             create_study_assay=getattr(session, "create_study_assay", None),
                             register_parents=getattr(session, "register_parents", None),
+                            limit_s=limit_s, started_at=started_at,
                             rebuild=lambda record: _rebuild_record(
                                 record, getattr(session, "user", None), outputs_dir))
     except upload.UploadRefused as exc:

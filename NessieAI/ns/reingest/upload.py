@@ -277,9 +277,12 @@ def verify(build_ids: list[str], *, user_id, chat_turn=None,
     return sorted(records, key=lambda r: r["mode"] != "new")
 
 
-# Waiting for the jobs: they are small and finish in seconds, and the sidecar gives
-# one op call 60 s, so the default keeps well inside that. Patched in tests.
+# Waiting for the jobs: they are small and finish in seconds. The wait is also cut to
+# what is left of the op's limit (op_limits.py) less ANSWER_MARGIN_S, after the creates
+# and rebuilds, so the call answers before its client stops waiting. Patched in tests.
 _DEFAULT_WAIT_S = 45.0
+#: Seconds the call keeps back of its limit to answer, as aggregate's ANSWER_MARGIN_S.
+ANSWER_MARGIN_S = 5.0
 _POLL_S = 1.0
 _TERMINAL = ("SUCCESS", "FAILURE", "REVOKED")
 # The reply lists a job's new UIDs up to this many, then says how many more.
@@ -331,11 +334,21 @@ def _uid_list(uids: list[str], total: int) -> str:
     return ", ".join(shown) + (f", and {more} more" if more > 0 else "")
 
 
-def _await_jobs(jobs: list[dict], job_state) -> None:
+def _wait_budget_s(limit_s, started_at) -> float:
+    """How long the call may wait for its jobs: the configured wait, cut to what is
+    left of the op's limit less ANSWER_MARGIN_S, never below zero."""
+    wait = _wait_s()
+    if limit_s is None:
+        return wait
+    elapsed = _clock() - started_at if started_at is not None else 0.0
+    return max(0.0, min(wait, float(limit_s) - elapsed - ANSWER_MARGIN_S))
+
+
+def _await_jobs(jobs: list[dict], job_state, wait_s: float | None = None) -> None:
     """Poll each started job until it finishes or the wait runs out, and put its
     outcome on the entry. A lookup that raises counts as not finished yet."""
     pending = [job for job in jobs if job.get("job_id")]
-    deadline = _clock() + _wait_s()
+    deadline = _clock() + (_wait_s() if wait_s is None else wait_s)
     while pending:
         for job in list(pending):
             try:
@@ -520,7 +533,7 @@ def _parents_line(job: dict) -> str | None:
 
 def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
         turn_delivered, job_state=None, create_study_assay=None, rebuild=None,
-        register_parents=None) -> dict:
+        register_parents=None, limit_s=None, started_at=None) -> dict:
     """``dispatch`` and ``stage`` are the host's batch-upload seams
     (``dispatch_batch_job`` and ``stage_workbook_copy``), and ``chat_turn`` and
     ``turn_delivered`` its chat-turn lookups, all handed in by the REST layer so
@@ -529,7 +542,10 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
     how each ended; without it the reply says only that they started.
     ``create_study_assay``, ``rebuild`` and ``register_parents`` carry out spec
     2026-10-20 3.5; without them a build that needs a new study assay is refused
-    with the manual fix."""
+    with the manual fix. ``limit_s`` is the op's limit and ``started_at`` when the
+    op began (``_clock`` seconds); the job wait ends ANSWER_MARGIN_S before it."""
+    if started_at is None:
+        started_at = _clock()
     if not all(callable(seam) for seam in (dispatch, stage, chat_turn, turn_delivered)):
         raise UploadRefused(["upload is not wired on this server"])
     user_id = getattr(user, "pk", None)
@@ -590,7 +606,7 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
             entry["error"] = f"did not start ({type(exc).__name__}); see the server log"
         jobs.append(entry)
     if callable(job_state):
-        _await_jobs(jobs, job_state)
+        _await_jobs(jobs, job_state, _wait_budget_s(limit_s, started_at))
     for entry in jobs:
         if "job_id" in entry and (parents := _register_parents(
                 entry, by_build[entry["build_id"]], register_parents)):

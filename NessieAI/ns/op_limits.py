@@ -28,8 +28,9 @@ OP_LIMITS_S: dict[str, float] = {
     "graph-schema": 60.0,
     "run-ls": 60.0,
     "build-upload-xlsx": 60.0,
-    # The reingest ops keep the 60 s the sidecar gave them; upload-reingest's job wait (NEXTSEEK_UPLOAD_WAIT_S,
-    # 45 s) fits inside it.
+    # The reingest ops keep the 60 s the sidecar gave them. upload-reingest's job wait (NEXTSEEK_UPLOAD_WAIT_S,
+    # 45 s) is cut to what its study-assay creates and rebuilds leave of this limit, less a 5 s answer margin
+    # (upload._wait_budget_s); a job still running then is reported as running.
     "run-harvest": 60.0,
     "run-checksum": 60.0,
     "upload-reingest": 60.0,
