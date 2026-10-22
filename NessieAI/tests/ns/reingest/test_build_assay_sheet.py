@@ -85,3 +85,38 @@ def test_the_backfill_rows_are_not_planned(rows, tmp_path, monkeypatch):
                     outputs_dir=str(tmp_path))
     assert set(out["saved_files"]) == {"reingest_D_SEQ_update"}
     assert asked == []
+
+
+@patch(CATALOG)
+def test_two_house_assays_for_one_name_block_the_workbook_in_plain_words(rows, tmp_path,
+                                                                         monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    _fake(monkeypatch)
+
+    def two_titles(name):
+        if name == "Genome Alignment":
+            raise ValueError("'Genome Alignment' names more than one house assay: [3, 4]")
+        return name
+    monkeypatch.setattr(f"{LOOKUPS}.house_assay_title_strict", two_titles)
+    out = _new(tmp_path, manifest_id)
+    assert "reingest_A_ALN" not in out["saved_files"]
+    assert out["qa"]["A.ALN"]["disposition"] == "HARD_REJECT"
+    assert out["qa"]["A.GEX"]["disposition"] != "HARD_REJECT"
+    assert ("NExtSEEK has more than one assay type that matches 'Genome Alignment'; an "
+            "administrator needs to resolve that, then rebuild.") in out["reply"]
+    assert "[3, 4]" not in out["reply"]
+    assert "house_assay_ambiguous" not in out["reply"]
+
+
+@patch(CATALOG)
+def test_an_outage_in_the_house_assay_lookup_still_stops_the_build(rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    _fake(monkeypatch)
+
+    def down(name):
+        raise RuntimeError("house assays unreachable")
+    monkeypatch.setattr(f"{LOOKUPS}.house_assay_title_strict", down)
+    with pytest.raises(RuntimeError):
+        _new(tmp_path, manifest_id)

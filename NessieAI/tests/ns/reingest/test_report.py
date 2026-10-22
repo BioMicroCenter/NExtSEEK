@@ -711,3 +711,12 @@ def test_a_real_row_with_no_parents_blocks_and_says_what_to_check():
             "under a study. Check the run's sample sheet, then rebuild.") in text
     assert text.count("these rows have no parent samples") == 1
     assert qa.ASSAY_NO_PARENTS not in text
+
+
+def test_two_house_assays_for_one_name_block_in_plain_words():
+    built = _multi_report(qa.HOUSE_ASSAY_AMBIGUOUS, qa.HARD, [{"assay": "Genome Alignment"}] * 2)
+    text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
+    assert "WHAT IS BLOCKING" in text
+    assert ("the A.GEX workbook: NExtSEEK has more than one assay type that matches "
+            "'Genome Alignment'; an administrator needs to resolve that, then rebuild.") in text
+    assert qa.HOUSE_ASSAY_AMBIGUOUS not in text

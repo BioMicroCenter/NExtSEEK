@@ -435,6 +435,9 @@ def _render_one(index, code, attribute, bucket):
         return [f"  {index}.  {where}: there is no house assay '{detail.get('assay')}' on this"
                 " instance, so its rows cannot be filed under one.",
                 "      An administrator needs to add this assay type to NExtSEEK; then rebuild."]
+    if code == qa.HOUSE_ASSAY_AMBIGUOUS:
+        return [f"  {index}.  {where}: NExtSEEK has more than one assay type that matches"
+                f" '{detail.get('assay')}'; an administrator needs to resolve that, then rebuild."]
     if code == qa.PARENT_IN_NO_STUDY:
         every = sorted({p for _, d in _details_by_row(bucket) for p in d.get("parents") or []})
         shown = every[:_MAX_SAMPLES_LISTED]

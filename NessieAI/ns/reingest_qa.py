@@ -62,6 +62,7 @@ METRIC_UNAVAILABLE = "metric_unavailable"
 # under its study's assay, one is created at upload, or one of these says why not.
 ASSAY_NOT_DECLARED = "assay_not_declared"
 HOUSE_ASSAY_MISSING = "house_assay_missing"
+HOUSE_ASSAY_AMBIGUOUS = "house_assay_ambiguous"
 PARENT_IN_NO_STUDY = "parent_in_no_study"
 ASSAY_AMBIGUOUS = "assay_ambiguous"
 ASSAY_TO_CREATE = "assay_to_create"

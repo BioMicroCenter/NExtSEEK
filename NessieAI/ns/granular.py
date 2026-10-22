@@ -1964,28 +1964,48 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
     }
     plan_cache: dict[tuple[str, str], object] = {}
 
+    class _TwoHouseAssays(Exception):
+        """house_assay_title_strict's ValueError, kept apart from any other ValueError."""
+
     def _assay_plan(row, row_index: int, parent_value):
         """The row's study assay plan (NessieAI/ns/reingest/assay_plan.py).
 
         Only output-rule rows are filed; a QC backfill row (no rule_id) keeps
         its sample's own assays. Keyed on (sample_type, Parent): every row
-        sharing a parent set shares an answer. Lookups are not try/except'd:
-        an outage stops the build rather than reading as "no assay".
+        sharing a parent set shares an answer. An outage (RuntimeError) is not
+        caught: it stops the build rather than reading as "no assay". A name
+        matching two house assays (ValueError) blocks the row with
+        HOUSE_ASSAY_AMBIGUOUS instead of escaping as an opaque error.
         """
         from NessieAI.ns.reingest import assay_plan
+        from NessieAI.ns.reingest_qa import HOUSE_ASSAY_AMBIGUOUS
         from nextseek_api.services.reingest_lookups import (
             house_assay_title_strict, study_assays_for_parents_strict,
         )
+
+        def house_title(name):
+            try:
+                return house_assay_title_strict(name)
+            except ValueError as exc:
+                logger.warning("reingest: %s", exc)
+                raise _TwoHouseAssays from exc
+
         if not row.rule_id:
             return None
         parents = sorted({u.strip() for u in str(parent_value or "").split(";") if u.strip()})
         key = (row.sample_type, ";".join(parents))
         if key not in plan_cache:
-            plan_cache[key] = assay_plan.plan_row(
-                sample_type=row.sample_type, row_index=row_index,
-                house_name=assay_name_by_type.get(row.sample_type), parents=parents,
-                test_only=test_only, house_title=house_assay_title_strict,
-                study_assays=study_assays_for_parents_strict)
+            house_name = assay_name_by_type.get(row.sample_type)
+            try:
+                plan_cache[key] = assay_plan.plan_row(
+                    sample_type=row.sample_type, row_index=row_index,
+                    house_name=house_name, parents=parents,
+                    test_only=test_only, house_title=house_title,
+                    study_assays=study_assays_for_parents_strict)
+            except _TwoHouseAssays:
+                plan_cache[key] = assay_plan.RowAssayPlan(findings=[Finding(
+                    code=HOUSE_ASSAY_AMBIGUOUS, severity=HARD, sample_type=row.sample_type,
+                    row_index=row_index, detail={"assay": house_name})])
         cached = plan_cache[key]
         # Same plan, this row's own index on its findings and creations.
         return assay_plan.RowAssayPlan(
