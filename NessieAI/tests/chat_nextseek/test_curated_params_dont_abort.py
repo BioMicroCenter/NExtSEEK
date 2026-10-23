@@ -16,6 +16,7 @@ from NessieAI.paths import CHAT_NEXTSEEK_DIR
 import pytest
 
 from chat_nextseek.seqera.pipeline_params import build_run_params
+from chat_nextseek.seqera.schema_check import check_params
 
 TEMPLATES = CHAT_NEXTSEEK_DIR / "src/chat_nextseek/reports/templates/nfcore"
 
@@ -398,3 +399,21 @@ def test_an_unresolvable_genome_override_the_schema_rejects_still_hard_fails(mon
         str(tmp_path)))
     assert out["ok"] is False
     assert any("genome" in e for e in out["errors"])
+
+
+FIXTURES = Path(__file__).parent / "fixtures" / "nfcore"
+
+
+def test_sarek_defaults_never_reach_for_an_unstaged_cache():
+    """vep/snpeff/bcfann/snpsift and merge need annotation caches no Luria run has."""
+    p = curated("sarek")
+    tools = {t.strip() for t in str(p.get("tools") or "").split(",") if t.strip()}
+    assert not tools & {"vep", "snpeff", "merge", "bcfann", "snpsift"}, tools
+    assert not p.get("download_cache")
+
+
+def test_sarek_defaults_pass_the_pinned_schema():
+    schema = json.loads((FIXTURES / "sarek.nextflow_schema.json").read_text())
+    errors, skipped = check_params("sarek", "3.10.0", curated("sarek"),
+                                   schema_getter=lambda _p, _r: {"nextflow_schema": schema})
+    assert skipped is None and errors == []

@@ -138,26 +138,31 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
     },
     "sarek": {
         "repo": "https://github.com/nf-core/sarek",
-        "default_revision": "3.4.4",
-        "description": "Germline + somatic variant calling from WES/WGS.",
-        "common_assays": ["WGS", "WES", "DNA-seq", "variant"],
+        "default_revision": "3.10.0",
+        "description": "Germline and somatic variant calling from WGS, WES or targeted DNA sequencing.",
+        "common_assays": ["WGS", "WES", "DNA-seq", "variant", "exome", "targeted capture"],
+        # sarek's own key for the GATK GRCh38 bundle; on Luria the launcher maps the
+        # species-resolved GRCh38 to it (run_script.LURIA_PIPELINE_LAUNCH genome_alias).
         "default_genome": "GATK.GRCh38",
-        "default_profile": "docker",
+        "default_profile": "singularity",
         "reference_cli_flags": ["genome", "fasta"],
-        "required_columns": [
-            "patient", "sample", "lane", "fastq_1", "fastq_2", "sex", "status",
-        ],
+        # schema_input.json requires patient+sample; lane and fastq_1 are required for the
+        # FASTQ input this catalog supports (usage.md, "--step mapping").
+        "required_columns": ["patient", "sample", "lane", "fastq_1"],
         "samplesheet_input_kind": "fastq",
         "accepted_leaf_sample_types": ["D.SEQ"],
         "accepted_assay_patterns": [
             r"^WGS$",
             r"^WES$",
+            r"^WXS$",
             r"^DNA[-_ ]?seq$",
             r"\bvariant",
+            r"\bexome\b",
         ],
         "pipeline_kind_description": (
-            "Germline + somatic variant calling from WES/WGS. Needs "
-            "patient+sample+sex+status metadata."
+            "Germline and somatic short-variant and structural-variant calling from DNA "
+            "(WGS, WES, targeted capture). Somatic tools need a tumour and a matched normal "
+            "per patient; variant annotation is off because its caches are not staged."
         ),
     },
     "methylseq": {

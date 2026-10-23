@@ -1,57 +1,81 @@
 {
   "report_type": "NFCORE_SAREK_SAMPLESHEET",
-  "description": "nf-core/sarek samplesheet context for germline + somatic variant calling.",
+  "description": "nf-core/sarek samplesheet context, aligned to the pinned 3.10.0 schema. Germline and somatic variant calling from WGS, WES or targeted DNA sequencing.",
   "params": {
-    "tools":          {"type": "string", "default": null, "steerable": true, "help": "comma list, e.g. strelka,mutect2"},
-    "wes":            {"type": "bool", "default": false, "steerable": true},
-    "save_reference": {"type": "bool", "default": true, "steerable": true}
+    "tools": {"type": "string", "default": "haplotypecaller,manta", "steerable": true,
+              "help": "comma list of callers. Germline: haplotypecaller, deepvariant, freebayes, strelka, manta, tiddit, cnvkit. Tumour/normal pairs only: mutect2, ascat, controlfreec, msisensorpro, muse. Not available: vep, snpeff, bcfann, snpsift, merge (their caches are not staged on Luria)."},
+    "aligner": {"type": "enum", "allowed": ["bwa-mem", "bwa-mem2"], "default": "bwa-mem", "steerable": true,
+                "help": "bwa-mem2 is faster but its index build needs far more memory"},
+    "wes": {"type": "bool", "default": false, "steerable": true,
+            "help": "true for exome or targeted capture; intervals must then name the kit's BED"},
+    "intervals": {"type": "string", "default": null, "steerable": true,
+                  "help": "the capture kit's target BED as a path on the cluster; whole-genome runs get the staged GATK calling regions"},
+    "skip_tools": {"type": "string", "default": null, "steerable": true,
+                   "help": "comma list from the schema's skip_tools, e.g. baserecalibrator"},
+    "save_reference": {"type": "bool", "default": true, "steerable": true},
+    "save_output_as_bam": {"type": "bool", "default": false, "steerable": true}
   },
-  "reference_resources": ["fasta", "fasta_fai", "dict", "bwa", "dbsnp", "known_indels"],
+  "reference_resources": [],
   "pipeline": {
     "name": "nf-core/sarek",
     "repository": "https://github.com/nf-core/sarek",
-    "documentation_url": "https://nf-co.re/sarek/latest/docs/usage/",
+    "documentation_url": "https://nf-co.re/sarek/3.10.0/docs/usage/",
     "input_file_type": "csv",
-    "core_rule": "Required columns: patient, sample, lane, fastq_1, fastq_2, sex, status. status=0 normal, status=1 tumor; tumor/normal pairs share a patient id.",
-    "required_columns": [
-      "patient",
-      "sample",
-      "lane",
-      "fastq_1",
-      "fastq_2",
-      "sex",
-      "status"
+    "core_rule": "One row per FASTQ pair: patient, sample, lane, fastq_1, fastq_2, with status 0 (normal) or 1 (tumour) and sex XX/XY/NA. The schema also accepts spring, BAM, CRAM and VCF inputs; the supported path here is FASTQ.",
+    "required_columns": ["patient", "sample", "lane", "fastq_1"],
+    "optional_columns": ["fastq_2", "sex", "status"]
+  },
+  "samplesheet_template": [{"patient": null, "sex": null, "status": null, "sample": null, "lane": null, "fastq_1": null, "fastq_2": null}],
+  "examples": {
+    "paired_example": {"patient": "PAT-260711ENG-3-PUB", "sex": "XX", "status": 0, "sample": "D.SEQ-260711ENG-12-PUB", "lane": "L001",
+                       "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/s_L001_R1.fastq.gz", "fastq_2": "/net/bmc-pub10/data1/bmc/fastq/s_L001_R2.fastq.gz"}
+  },
+  "validation_rules": [
+    "The file consumed by the pipeline must be comma-separated (CSV).",
+    "patient, sample, lane and fastq_1 must be populated; fastq_2 blank means single-end.",
+    "patient + sample + lane must be unique: rows of one library differ by lane.",
+    "status is 0 (normal) or 1 (tumour). Leave it to the param atlas and the pairing check: never guess it from a name alone.",
+    "Tumour-pair tools (mutect2, ascat, controlfreec, msisensorpro, muse) need a tumour and a matched normal for every patient; configure_run refuses them otherwise.",
+    "For exome or targeted capture set wes=true and give intervals the kit's BED path on the cluster; never use the whole-genome calling regions for capture data.",
+    "Do not request vep, snpeff, bcfann, snpsift or merge: their caches are not staged on Luria."
+  ],
+  "notes": "DNA variant calling on the GATK GRCh38 bundle staged under refs/GATK.GRCh38 (luria/refs/stage_dna_refs.sh). dbSNP, known indels, gnomAD and the panel of normals are passed from that bundle; the BWA index is built from the FASTA on every run.",
+  "sources": [
+    {"label": "nf-core/sarek usage docs @ 3.10.0", "url": "https://nf-co.re/sarek/3.10.0/docs/usage/", "notes": "Samplesheet columns, lanes, tumour/normal status."},
+    {"label": "nf-core/sarek nextflow_schema.json @ 3.10.0", "url": "https://raw.githubusercontent.com/nf-core/sarek/3.10.0/nextflow_schema.json", "notes": "Authoritative param names, types, patterns and defaults for the pinned revision."},
+    {"label": "nf-core/sarek assets/schema_input.json @ 3.10.0", "url": "https://raw.githubusercontent.com/nf-core/sarek/3.10.0/assets/schema_input.json", "notes": "Authoritative samplesheet columns and allowed values."},
+    {"label": "nf-core/sarek conf/igenomes.config @ 3.10.0", "url": "https://raw.githubusercontent.com/nf-core/sarek/3.10.0/conf/igenomes.config", "notes": "The GATK.GRCh38 files the Luria bundle copies."}
+  ],
+  "schema": {"sections": {"samplesheet_columns": {
+    "description": "Column-level field dictionary for the nf-core/sarek input samplesheet.",
+    "fields": {
+      "patient": {"required": "required", "position_rule": "Column 1", "expected_value": "string", "allowed_values": "", "description": "Patient or subject id; a tumour and its matched normal share it.", "validation_hints": "The UID of the PAT sample in the leaf's lineage; with no PAT, the topmost ancestor's UID. Never invent a shared id to make a pair.", "example": "PAT-260711ENG-3-PUB"},
+      "sex": {"required": "optional", "position_rule": "Column 2", "expected_value": "XX, XY or NA", "allowed_values": "XX, XY, NA", "description": "Genetic sex; used by copy-number tools.", "validation_hints": "From the lineage's Sex field (PAT); NA when absent.", "example": "XX"},
+      "status": {"required": "optional", "position_rule": "Column 3", "expected_value": "integer", "allowed_values": "0, 1", "description": "0 normal, 1 tumour. Defaults to 0.", "validation_hints": "Set from the param atlas verdict; confirmed with the user when the metadata does not decide it.", "example": "0"},
+      "sample": {"required": "required", "position_rule": "Column 4", "expected_value": "string", "allowed_values": "", "description": "Sample id; repeat across lanes of one library.", "validation_hints": "The NExtSEEK D.SEQ UID, so results map back to the sample record.", "example": "D.SEQ-260711ENG-12-PUB"},
+      "lane": {"required": "required", "position_rule": "Column 5", "expected_value": "string", "allowed_values": "", "description": "Lane or read group of this FASTQ pair; must differ between rows of one sample.", "validation_hints": "The L00N token from the file name when present, else 1, 2, 3 in file order.", "example": "L001"},
+      "fastq_1": {"required": "required", "position_rule": "Column 6", "expected_value": "path string", "allowed_values": ".fastq.gz or .fq.gz", "description": "Full path to read 1 FASTQ.", "validation_hints": "Absolute Luria path from the sample's Link_PrimaryData / File_PrimaryData.", "example": "/net/bmc-pub10/data1/bmc/fastq/s_L001_R1.fastq.gz"},
+      "fastq_2": {"required": "optional", "position_rule": "Column 7", "expected_value": "path string", "allowed_values": ".fastq.gz or .fq.gz", "description": "Full path to read 2 FASTQ; blank for single-end.", "validation_hints": "Same source as fastq_1.", "example": "/net/bmc-pub10/data1/bmc/fastq/s_L001_R2.fastq.gz"}
+    }}}},
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/sarek samplesheet from a resolved NExtSEEK D.SEQ cohort of DNA libraries.",
+    "workflow_role": "Selected for variant calling from DNA. For variants from RNA-seq use rnavar; for HLA alleles use hlatyping.",
+    "output_expectation": "CSV with header patient,sex,status,sample,lane,fastq_1,fastq_2.",
+    "population_priority": [
+      "One row per FASTQ pair; sample = the D.SEQ UID; lane distinguishes pairs of one sample.",
+      "patient = the PAT UID in the lineage, so tumour and normal of one person share it.",
+      "status from the param atlas verdict; leave the pairing confirmation to configure_run.",
+      "Say plainly that variant annotation is off and why."
     ],
-    "optional_columns": [
-      "bam",
-      "bai",
-      "cram",
-      "crai",
-      "vcf"
+    "final_checks": [
+      "Header is exactly: patient,sex,status,sample,lane,fastq_1,fastq_2.",
+      "No two rows share patient + sample + lane.",
+      "For capture data, wes=true and intervals names the kit's BED."
     ]
   },
-  "samplesheet_template": [
-    {
-      "patient": null,
-      "sample": null,
-      "lane": null,
-      "fastq_1": null,
-      "fastq_2": null,
-      "sex": null,
-      "status": null
-    }
-  ],
-  "validation_rules": [
-    "status must be 0 (normal) or 1 (tumor).",
-    "sex must be one of: XX, XY, OTHER (or 'NA' if unknown \u2014 sarek tolerates it).",
-    "patient groups tumor/normal pairs; the same patient appears in multiple rows.",
-    "lane is a per-FASTQ identifier (e.g., L001).",
-    "fastq_1/fastq_2 may be HTTPS URLs (ENA mirror) or local paths."
-  ],
-  "report_writer_guidance": {
-    "population_priority": [
-      "Map NExtSEEK donor \u2192 patient; sample \u2192 sample; tissue type informs status (normal vs tumor).",
-      "Use accession_rows for fastq columns. lane defaults to L001 when not present."
-    ]
+  "runtime": {
+    "basis": "First guess for one 16-CPU Luria node (Nessie's default submit); not yet measured on Luria. Refine from real runs.",
+    "setup_minutes": [60, 150], "setup_label": "building the BWA index for GATK.GRCh38 (every run repeats it)",
+    "base_minutes": [10, 30], "per_sample_minutes": [240, 720]
   }
 }
