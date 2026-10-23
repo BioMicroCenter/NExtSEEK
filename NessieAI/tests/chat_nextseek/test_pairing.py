@@ -66,3 +66,44 @@ def test_pairing_question_says_which_kind_it_returned():
     assert pairing_question("mutect2", PAIR, ev, confirmed=True) == (OK, "")
     assert pairing_question("mutect2", [PAIR[0]], ev)[0] == REFUSAL
     assert pairing_question("mutect2", [], {})[0] == REFUSAL
+
+
+# --- a status the metadata reads both ways (conflict) or not at all (absent) is undecided -----------
+
+def _ev_full(verdicts):
+    return {sample: {"status": v} for sample, v in verdicts.items()}
+
+
+NORMALS = [{"patient": "P1", "sample": "N1", "status": "0"},
+           {"patient": "P2", "sample": "N2", "status": "0"}]
+
+
+def test_a_conflict_status_asks_for_the_table_even_in_a_germline_run():
+    ev = _ev_full({"N1": {"verdict": "conflict", "value": None, "evidence": "ambiguous in Type"},
+                   "N2": {"verdict": "corroborated", "value": "0"}})
+    kind, msg = pairing_question("haplotypecaller", NORMALS, ev)
+    assert kind == TABLE
+    assert "| P1 | N1 | normal (metadata unclear: ambiguous in Type) |" in msg
+    assert "| P2 | N2 | normal |" in msg
+
+
+def test_an_absent_status_asks_for_the_table_even_in_a_germline_run():
+    ev = _ev_full({"N1": {"verdict": "absent", "value": None, "evidence": "no 0/1 signal in Type"},
+                   "N2": {"verdict": "corroborated", "value": "0"}})
+    assert pairing_question("haplotypecaller", NORMALS, ev)[0] == TABLE
+
+
+def test_a_confirmed_conflict_goes_ahead():
+    ev = _ev_full({"N1": {"verdict": "conflict", "value": None, "evidence": "Type=0; Name=1"}})
+    assert pairing_question("haplotypecaller", NORMALS, ev, confirmed=True) == (OK, "")
+
+
+def test_a_conflict_without_evidence_text_is_still_marked_unclear():
+    ev = _ev_full({"N1": {"verdict": "conflict", "value": None}})
+    msg = somatic_pairing_check("haplotypecaller", NORMALS[:1], ev)
+    assert "| P1 | N1 | normal (metadata unclear) |" in msg
+
+
+def test_defaulted_normals_in_a_germline_run_still_need_nothing():
+    ev = _ev_full({"N1": {"verdict": "defaulted", "value": "0"}, "N2": {"verdict": "defaulted", "value": "0"}})
+    assert pairing_question("haplotypecaller", NORMALS, ev) == (OK, "")

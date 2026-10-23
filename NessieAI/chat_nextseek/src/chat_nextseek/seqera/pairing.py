@@ -1,8 +1,13 @@
-"""Tumour/normal pairing for nf-core/sarek (spec 2026-10-22-nfcore-dna-pipelines §3).
+"""Tumour/normal pairing for nf-core/sarek.
 
 Tools that need a tumour and its matched normal run only when every patient in the run has
 both. A status is confirmed when the sample's own metadata decided it (a decisive param-atlas
 verdict) or when the user confirmed the pairing table configure_run showed them.
+
+A status the metadata reads both ways (``conflict``) or not at all (``absent``) is unclear:
+the param atlas does not ask about it at write_samplesheet (``confirm_in: pairing_table``),
+so this table asks, in every run, even one with no tumour tools. A ``defaulted`` normal is
+asked about only when the run has a tumour tool or a tumour row.
 """
 from __future__ import annotations
 
@@ -10,6 +15,7 @@ from __future__ import annotations
 TUMOUR_TOOLS = frozenset({"ascat", "controlfreec", "msisensorpro", "muse", "mutect2",
                           "sentieon_tnscope"})
 _DECIDED = frozenset({"corroborated", "derived_uncorroborated"})
+_UNCLEAR = frozenset({"conflict", "absent"})
 _LABEL = {"0": "normal", "1": "tumour"}
 
 
@@ -17,6 +23,14 @@ def requested_tumour_tools(tools) -> list[str]:
     names = tools if isinstance(tools, (list, tuple, set, frozenset)) else str(tools or "").split(",")
     asked = {str(t).strip().lower() for t in names if str(t).strip()}
     return sorted(asked & TUMOUR_TOOLS)
+
+
+def _note(sample: str, verdict: dict, undecided: set[str]) -> str:
+    """What the table says after a sample's status when the metadata did not decide it."""
+    if verdict.get("verdict") == "conflict":
+        evidence = str(verdict.get("evidence") or "").strip()
+        return f" (metadata unclear: {evidence})" if evidence else " (metadata unclear)"
+    return " (not from metadata)" if sample in undecided else ""
 
 
 def _status(row: dict) -> str:
@@ -46,7 +60,9 @@ def pairing_question(tools, rows: list[dict], evidence: dict, *,
     if wanted and not samples:
         return REFUSAL, (f"{', '.join(wanted)} need a tumour and a matched normal for every "
                          "patient, but the samplesheet has no samples. Build the samplesheet first.")
-    if not wanted and all(status == "0" for _, status in samples.values()):
+    verdicts = {s: (((evidence or {}).get(s) or {}).get("status") or {}) for s in samples}
+    unclear = {s for s, v in verdicts.items() if v.get("verdict") in _UNCLEAR}
+    if not wanted and not unclear and all(status == "0" for _, status in samples.values()):
         return OK, ""
     if wanted:
         by_patient: dict[str, set[str]] = {}
@@ -57,16 +73,14 @@ def pairing_question(tools, rows: list[dict], evidence: dict, *,
             return REFUSAL, (f"{', '.join(wanted)} need a tumour and a matched normal for every "
                              f"patient, and these patients do not have both: {', '.join(unpaired)}. "
                              "Remove those tools, or add the missing samples.")
-    undecided = {s for s in samples
-                 if (((evidence or {}).get(s) or {}).get("status") or {}).get("verdict")
-                 not in _DECIDED}
+    undecided = {s for s, v in verdicts.items() if v.get("verdict") not in _DECIDED}
     if undecided and not confirmed:
         lines = ["Please confirm which samples are tumour and which are normal; the metadata "
                  "did not decide every one:", "",
                  "| patient | sample | status |", "|---|---|---|"]
         for sample, (patient, status) in sorted(samples.items()):
-            note = " (not from metadata)" if sample in undecided else ""
-            lines.append(f"| {patient} | {sample} | {_LABEL.get(status, status)}{note} |")
+            lines.append(f"| {patient} | {sample} | {_LABEL.get(status, status)}"
+                         f"{_note(sample, verdicts[sample], undecided)} |")
         lines += ["", "A wrong status makes sarek call germline variants as somatic, or the reverse."]
         return TABLE, "\n".join(lines)
     return OK, ""

@@ -134,7 +134,7 @@
     "sarek": {"params": {
       "status": {
         "target": "row_column", "scope": "sample", "allowed": ["0", "1"],
-        "on_absent": "use_default", "default": "0",
+        "on_absent": "use_default", "default": "0", "confirm_in": "pairing_table",
         "ambiguous_markers": ["non-tumor", "non-tumour", "nontumor", "nontumour", "non-malignant", "nonmalignant", "non-cancer", "noncancer", "abnormal", "adjacent",
           "non-neoplastic", "nonneoplastic", "tumor-free", "tumour-free", "tumor free", "tumour free", "non tumor", "non tumour"],
         "derive_from": {"signal": "Type", "map": {
@@ -144,7 +144,7 @@
           {"signal": "Name", "1_markers": ["tumor", "tumour"], "0_markers": ["normal", "germline", "blood"]}],
         "ask": {
           "definition": "Whether each sample is tumour (1) or normal (0); sarek pairs a patient's tumour with its normal for somatic calling.",
-          "on_conflict": "The sample's tissue type and its own name disagree about tumour vs normal. I won't guess, which is right?",
+          "on_conflict": "The sample's metadata reads both ways about tumour vs normal: a field says something like \"non-tumour\" or \"adjacent\", or its tissue type and its own name disagree. I won't guess, which is right?",
           "on_absent": "Nothing in these samples' metadata says tumour or normal. Which are tumour?"}
       },
       "intervals": {

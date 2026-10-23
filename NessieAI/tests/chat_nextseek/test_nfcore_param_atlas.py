@@ -611,3 +611,50 @@ def test_shipped_sarek_status(signals, verdict, value):
 def test_shipped_sarek_intervals(strategy, verdict):
     out = evaluate_data_driven_param(_sarek("intervals"), {"LibraryStrategy": strategy})
     assert out["verdict"] == verdict
+
+
+# --- confirm_in: a row_column spec whose unclear verdicts the pairing table confirms ---------
+
+def test_confirm_in_pairing_table_loads_on_a_row_column_spec(tmp_path):
+    path = _write(tmp_path, _atlas(params={"seq_type": _spec(confirm_in="pairing_table")}))
+    assert load_param_atlas(path)["pipelines"]["hlatyping"]["params"]["seq_type"]["confirm_in"] == "pairing_table"
+
+
+def test_confirm_in_must_be_on_a_row_column_spec(tmp_path):
+    path = _write(tmp_path, _atlas(params={"seq_type": _spec(target="run_param", confirm_in="pairing_table")}))
+    with pytest.raises(ParamAtlasError, match="confirm_in"):
+        load_param_atlas(path)
+
+
+def test_confirm_in_takes_only_pairing_table(tmp_path):
+    path = _write(tmp_path, _atlas(params={"seq_type": _spec(confirm_in="chat")}))
+    with pytest.raises(ParamAtlasError, match="confirm_in"):
+        load_param_atlas(path)
+
+
+def _confirm_atlas():
+    return _atlas(params={"seq_type": _spec(confirm_in="pairing_table")})
+
+
+def test_a_confirm_in_spec_does_not_block_on_conflict_or_absent():
+    rows = [{"sample": "D.SEQ-1", "seq_type": "rna"}, {"sample": "D.SEQ-2", "seq_type": "rna"}]
+    evidence = {"D.SEQ-1": {"seq_type": {"value": None, "verdict": "conflict", "evidence": "e"}},
+                "D.SEQ-2": {"seq_type": {"value": None, "verdict": "absent", "evidence": "e"}}}
+    out = check_row_column_params("hlatyping", rows, evidence, atlas=_confirm_atlas())
+    assert out["ask_uids"] == [] and out["ask_specs"] == {}
+
+
+def test_a_confirm_in_spec_still_corrects_a_decisive_verdict():
+    rows = [{"sample": "D.SEQ-1", "seq_type": "dna"}]
+    out = check_row_column_params("hlatyping", rows, _evidence("corroborated", "rna"), atlas=_confirm_atlas())
+    assert out["corrections"] == [("D.SEQ-1", "seq_type", "rna")]
+
+
+def test_shipped_sarek_status_is_confirmed_in_the_pairing_table():
+    assert _sarek("status")["confirm_in"] == "pairing_table"
+
+
+def test_a_sarek_conflict_does_not_block_the_samplesheet():
+    rows = [{"patient": "P1", "sample": "N1", "status": "0"}]
+    evidence = {"N1": {"status": {"value": None, "verdict": "conflict", "evidence": "ambiguous in Type"}}}
+    assert check_row_column_params("sarek", rows, evidence)["ask_uids"] == []

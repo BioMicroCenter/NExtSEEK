@@ -60,7 +60,7 @@ from ..seqera.param_atlas import (
     required_signals,
 )
 from ..luria.submitter import submit_luria
-from ..luria.run_script import local_luria_ref_files, luria_run_genome
+from ..luria.run_script import LURIA_GENOME_RESOURCES, local_luria_ref_files, luria_run_genome
 from ..reports.protocols import gather_protocol_text
 from ..helpers.tools.neo4j import tool_neo4j_query
 from ..helpers.uid_check import expand_uid_prefixes, is_uid_prefix
@@ -736,34 +736,6 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         return json.dumps({"ok": False, "errors": [
             f"{param} should be {val!r} from the cohort's metadata" for _, param, val in ddp["corrections"]]})
 
-    # sarek: tumour-pair tools only with a tumour and a matched normal per patient, and a
-    # status the metadata did not decide is confirmed by the user first (spec §3).
-    # The confirmation is enforced here, not trusted from the model: it counts only when
-    # the user has sent a message since the question was asked, and then holds for this
-    # samplesheet (so changing e.g. the aligner does not ask again).
-    if pipeline_key == "sarek":
-        asked_at = state.get("pairing_asked_at_user_msgs")
-        replied = (tool_input.get("pairing_confirmed") is True and asked_at is not None
-                   and _user_msg_count(state) > asked_at)
-        confirmed = replied or state.get("pairing_confirmed_for") == samplesheet
-        kind, question = pairing_question(
-            agent_params.get("tools"), _samplesheet_rows(state),
-            state.get("data_driven_evidence") or {}, confirmed=confirmed)
-        if not question and replied:
-            state["pairing_confirmed_for"] = samplesheet
-        if question:
-            # Only the confirmation table is answered with "yes"; a refusal (unpaired patient,
-            # no samples) asks the user to change the run, so it must not start the clock on
-            # a confirmation the user has not been shown a table for.
-            if kind == TABLE:
-                state["pairing_asked_at_user_msgs"] = _user_msg_count(state)
-            return json.dumps({
-                "ok": False, "needs_user_input": ["status"], "ask_the_user": question,
-                "message": ("Relay `ask_the_user` to the user in plain text and STOP. Call "
-                            "configure_run again with pairing_confirmed=true only after they "
-                            "confirm the table, or rebuild the samplesheet with their corrections."),
-            })
-
     override = agent_params.get("genome")
     bundle_key = state.get("bundle_key")
     if override:
@@ -784,12 +756,51 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     if errors:
         return json.dumps({"ok": False, "errors": errors})
 
+    # sarek runs only on a genome whose GATK resources (dbSNP, known indels, gnomAD, PoN,
+    # calling regions) are staged on Luria: LURIA_GENOME_RESOURCES holds the GRCh38 bundle only.
+    if pipeline_key == "sarek":
+        sarek_genome = luria_run_genome(pipeline_key, merged["genome"]) if merged.get("genome") else None
+        if sarek_genome not in LURIA_GENOME_RESOURCES:
+            return json.dumps({"ok": False, "error": (
+                "sarek on Luria needs the GATK GRCh38 bundle; this cohort's genome "
+                f"{sarek_genome or '(none resolved)'} has no staged DNA resources — "
+                "human samples only for now.")})
+
+    # sarek: tumour-pair tools only with a tumour and a matched normal per patient, and a
+    # status the metadata did not decide is confirmed by the user first (seqera.pairing).
+    # The tools are the run's own (curated defaults included), not only what the model sent.
+    # The confirmation is enforced here, not trusted from the model: it counts only when
+    # the user has sent a message since the question was asked, and then holds for this
+    # samplesheet (so changing e.g. the aligner does not ask again).
+    if pipeline_key == "sarek":
+        asked_at = state.get("pairing_asked_at_user_msgs")
+        replied = (tool_input.get("pairing_confirmed") is True and asked_at is not None
+                   and _user_msg_count(state) > asked_at)
+        confirmed = replied or state.get("pairing_confirmed_for") == samplesheet
+        kind, question = pairing_question(
+            merged.get("tools"), _samplesheet_rows(state),
+            state.get("data_driven_evidence") or {}, confirmed=confirmed)
+        if not question and replied:
+            state["pairing_confirmed_for"] = samplesheet
+        if question:
+            # Only the confirmation table is answered with "yes"; a refusal (unpaired patient,
+            # no samples) asks the user to change the run, so it must not start the clock on
+            # a confirmation the user has not been shown a table for.
+            if kind == TABLE:
+                state["pairing_asked_at_user_msgs"] = _user_msg_count(state)
+            return json.dumps({
+                "ok": False, "needs_user_input": ["status"], "ask_the_user": question,
+                "message": ("Relay `ask_the_user` to the user in plain text and STOP. Call "
+                            "configure_run again with pairing_confirmed=true only after they "
+                            "confirm the table, or rebuild the samplesheet with their corrections."),
+            })
+
     # Cross-check the assembled params against the pipeline's OWN pinned schema.
     # The curated menu above is hand-maintained; four of the six defects found on
-    # 2026-08-05 were curation errors at this step, and nf-schema aborts the run
-    # on any parameter it does not recognise — so drift surfaces on the cluster
-    # rather than here unless we look. Same revision the emitter will use
-    # (emitter.py:669/741), or the check would validate a version nobody runs.
+    # 2026-08-05 were curation errors at this step, and nf-schema rejects or warns on
+    # an unrecognised param, depending on the pipeline's validation settings — so drift
+    # surfaces on the cluster rather than here unless we look. Same revision the emitter
+    # will use (emitter.py:669/741), or the check would validate a version nobody runs.
     #
     # Split by WHO supplied the param, because only one of the two is fixable by
     # the agent. A param it can correct and re-send is a hard error. Everything

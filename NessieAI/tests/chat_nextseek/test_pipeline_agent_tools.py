@@ -745,3 +745,84 @@ def test_a_refusal_does_not_arm_the_confirmation_for_a_later_table(tmp_path):
     assert _is_pairing_refusal(out) and "| N1 |" in out["ask_the_user"]
     assert "pairing_confirmed_for" not in state
     assert state["pairing_asked_at_user_msgs"] == 2
+
+
+# --- a status the metadata reads both ways is confirmed in the pairing table, not asked forever ---------
+
+_PAIR_ROWS = [
+    {"patient": "P1", "sex": "NA", "status": "1", "sample": "T1", "lane": "L1",
+     "fastq_1": "/net/bmc-pub10/x/T1_1.fq.gz", "fastq_2": ""},
+    {"patient": "P1", "sex": "NA", "status": "0", "sample": "N1", "lane": "L1",
+     "fastq_1": "/net/bmc-pub10/x/N1_1.fq.gz", "fastq_2": ""},
+]
+
+
+def _conflict_state(rows):
+    evidence = {r["sample"]: {"status": {"verdict": "corroborated", "value": r["status"],
+                                         "evidence": "Type=x; Name=x"}} for r in rows}
+    evidence["N1"] = {"status": {"verdict": "conflict", "value": None, "evidence": "ambiguous in Type"}}
+    return {"resolved": {"uids": [r["sample"] for r in rows], "accessions": []},
+            "bundle_key": "GRCh38", "messages": [{"role": "user", "content": "run sarek on these"}],
+            "data_driven_evidence": evidence}
+
+
+def _write_sheet(state, rows, tmp_path):
+    return _json.loads(tool_write_samplesheet(
+        _Cfg(), state, {"pipeline_key": "sarek", "cohorts": [{"label": "sarek-all", "rows": rows}]},
+        str(tmp_path)))
+
+
+def test_a_status_conflict_is_resolved_through_the_pairing_table(tmp_path):
+    state = _conflict_state(_PAIR_ROWS)
+    wrote = _write_sheet(state, _PAIR_ROWS, tmp_path)
+    assert wrote["ok"] is True, wrote
+    asked = _configure(state, tmp_path)
+    assert _is_pairing_refusal(asked), asked
+    assert "| P1 | N1 | normal (metadata unclear: ambiguous in Type) |" in asked["ask_the_user"]
+    state["messages"].append({"role": "user", "content": "yes, N1 is the blood normal"})
+    out = _configure(state, tmp_path, pairing_confirmed=True)
+    assert out["ok"] is True, out
+
+
+def test_a_germline_run_with_a_status_conflict_asks_for_the_table(tmp_path):
+    rows = [dict(_PAIR_ROWS[1]), dict(_PAIR_ROWS[1], patient="P2", sample="N2",
+                                      fastq_1="/net/bmc-pub10/x/N2_1.fq.gz")]
+    state = _conflict_state(rows)
+    assert _write_sheet(state, rows, tmp_path)["ok"] is True
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek",
+                                                         "params": {"tools": "haplotypecaller"}}, str(tmp_path)))
+    assert _is_pairing_refusal(out), out
+    assert "| P1 | N1 | normal (metadata unclear: ambiguous in Type) |" in out["ask_the_user"]
+
+
+def test_the_pairing_check_reads_the_tools_the_run_will_use(monkeypatch, tmp_path):
+    # A tumour tool that arrives through the curated defaults, not from the model, is still checked.
+    real = at.build_run_params
+
+    def with_default_mutect2(pipeline_key, agent_params, bundle_key):
+        merged, errors, status = real(pipeline_key, agent_params, bundle_key)
+        if "tools" not in (agent_params or {}):
+            merged["tools"] = "mutect2"
+        return merged, errors, status
+
+    monkeypatch.setattr(at, "build_run_params", with_default_mutect2)
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("patient,sex,status,sample,lane,fastq_1,fastq_2\n"
+                     "P1,NA,0,N1,L1,/net/bmc-pub10/x/N1_1.fq.gz,\n")
+    state = {"artifacts": {"samplesheet": str(sheet)}, "bundle_key": "GRCh38",
+             "data_driven_evidence": {"N1": {"status": {"verdict": "defaulted", "value": "0"}}}}
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek", "params": {}}, str(tmp_path)))
+    assert _is_pairing_refusal(out), out
+    assert "mutect2" in out["ask_the_user"] and "P1" in out["ask_the_user"]
+
+
+def test_configure_run_refuses_sarek_on_a_genome_with_no_staged_dna_resources(tmp_path):
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("patient,sex,status,sample,lane,fastq_1,fastq_2\n"
+                     "P1,NA,0,N1,L1,/net/bmc-pub10/x/N1_1.fq.gz,\n")
+    state = {"artifacts": {"samplesheet": str(sheet)}, "bundle_key": "GRCm39",
+             "data_driven_evidence": {"N1": {"status": {"verdict": "corroborated", "value": "0"}}}}
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek", "params": {}}, str(tmp_path)))
+    assert out["ok"] is False
+    assert "GATK GRCh38 bundle" in out["error"] and "GRCm39" in out["error"]
+    assert "params" not in state["artifacts"]

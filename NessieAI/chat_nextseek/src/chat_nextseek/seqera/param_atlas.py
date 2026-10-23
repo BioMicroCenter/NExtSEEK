@@ -18,6 +18,9 @@ from chat_nextseek.seqera.pipeline_params import _load_pipeline_doc, load_pipeli
 ATLAS_PATH = Path(__file__).resolve().parent / "nfcore_param_atlas.json"
 
 _VALID_TARGETS = {"row_column", "run_param"}
+#: Where a row_column spec's unclear verdicts (conflict, absent) are confirmed instead of being
+#: asked at write_samplesheet: "pairing_table" is sarek's tumour/normal table in configure_run.
+_VALID_CONFIRM_IN = {"pairing_table"}
 
 
 def _check_detect_only(where: str, spec: dict) -> None:
@@ -76,6 +79,13 @@ def load_param_atlas(path: str | Path | None = None) -> dict[str, Any]:
                 raise ParamAtlasError(
                     f"Param spec {where} has target {spec.get('target')!r}; "
                     f"must be one of {sorted(_VALID_TARGETS)}")
+            if "confirm_in" in spec:
+                if spec["confirm_in"] not in _VALID_CONFIRM_IN:
+                    raise ParamAtlasError(
+                        f"Param spec {where} has confirm_in {spec['confirm_in']!r}; "
+                        f"must be one of {sorted(_VALID_CONFIRM_IN)}")
+                if spec.get("target") != "row_column":
+                    raise ParamAtlasError(f"Param spec {where} sets confirm_in, so its target must be row_column")
             if spec.get("detect_only"):
                 _check_detect_only(where, spec)
                 continue
@@ -300,6 +310,10 @@ def check_row_column_params(pipeline_key: str, rows: list[dict], evidence: dict,
     Returns ask_uids (conflict/absent -> must ask), ask_specs (the specs behind
     them), and corrections (uid, param, derived_value) where a decisive verdict
     disagrees with what the row carries.
+
+    A spec with ``confirm_in`` is not asked here: its conflict/absent rows are confirmed
+    later, where it names (``pairing_table``: sarek's tumour/normal table, built by
+    ``seqera.pairing`` in configure_run). Its corrections stand.
     """
     ask_uids: list[str] = []
     ask_specs: dict[str, dict] = {}
@@ -316,6 +330,8 @@ def check_row_column_params(pipeline_key: str, rows: list[dict], evidence: dict,
                 continue
             v = verdict.get("verdict")
             if v in ("conflict", "absent"):
+                if spec.get("confirm_in"):
+                    continue
                 ask_uids.append(uid)
                 ask_specs[name] = spec
             # A defaulted verdict is a fallback, not evidence: a value the user gave stands.
