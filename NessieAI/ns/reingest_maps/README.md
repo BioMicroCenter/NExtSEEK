@@ -244,6 +244,7 @@ What blocks each row:
 | sarek | `variant_calling/haplotypecaller/joint_variant_calling/joint_germline{,_recalibrated}.vcf.gz` (with `--joint_germline`), and the Sentieon `joint_variant_calling/` twins | A.VCF | ready: a per_run rule |
 | sarek | other germline callers' VCFs, by `--tools`: `variant_calling/bcftools/<sample>/<sample>.bcftools.vcf.gz`, and `sentieon_dnascope/`, `sentieon_haplotyper/`, `parabricks_haplotypecaller/`, `tiddit/` (unconfirmed names) | A.VCF | ready: optional rules like the five germline callers' |
 | sarek | `variant_calling/{filtered,normalized,consensus,concat}/<sample>/` post-calling VCFs (with `--filter_vcfs`, `--normalize_vcfs`, `--snv_consensus_calling`, `--concatenate_vcfs`) | A.VCF | choice: whether one replaces the caller's own VCF as a first candidate |
+| sarek | `preprocessing/recalibrated/<sample>/<sample>.recal.bam` and `preprocessing/markduplicates/<sample>/<sample>.md.bam` (+ `.bai`, with `--save_output_as_bam`) | A.ALN | ready: a second rule with `DataType` BAM |
 | sarek | alignments from the other preprocessing paths: `preprocessing/mapped/` (with `--save_mapped`), `preprocessing/sentieon_dedup/`, `preprocessing/parabricks/` | A.ALN | ready: later candidates of the `aln` rule |
 | sarek | CNV, ploidy and MSI results (ASCAT, CNVKit, Control-FREEC, MSIsensor2, MSIsensorPro) and indexcov's coverage tables | none | type, inventory |
 | smrnaseq | `mirna_quant/mirtop/joined_samples_mirtop.tsv` (isomiR counts) | A.GEX | inventory |

@@ -7,7 +7,6 @@
   "qc_row_suffixes": [".recal", ".md"],
   "inventory_globs": [
     "**/preprocessing/*/*/*.cram", "**/preprocessing/*/*/*.cram.crai",
-    "**/preprocessing/*/*/*.bam", "**/preprocessing/*/*/*.bam.bai",
     "**/variant_calling/*/*/*.vcf.gz", "**/variant_calling/*/*/*.vcf.gz.tbi"
   ],
   "harvest_globs": [],
@@ -15,16 +14,13 @@
   "outputs": [
     {
       "id": "aln",
-      "candidates": ["preprocessing/recalibrated/*/*.recal.cram", "preprocessing/markduplicates/*/*.md.cram",
-                     "preprocessing/recalibrated/*/*.recal.bam", "preprocessing/markduplicates/*/*.md.bam"],
+      "candidates": ["preprocessing/recalibrated/*/*.recal.cram", "preprocessing/markduplicates/*/*.md.cram"],
       "sample_type": "A.ALN",
       "assay": "Genome Alignment",
       "cardinality": "per_sample",
       "primary_data": true,
       "companions": [{"glob": "preprocessing/recalibrated/*/*.recal.cram.crai"},
-                     {"glob": "preprocessing/markduplicates/*/*.md.cram.crai"},
-                     {"glob": "preprocessing/recalibrated/*/*.recal.bam.bai"},
-                     {"glob": "preprocessing/markduplicates/*/*.md.bam.bai"}],
+                     {"glob": "preprocessing/markduplicates/*/*.md.cram.crai"}],
       "attributes": {
         "DataType": "CRAM",
         "Name": "@fastq_stem",
@@ -41,17 +37,21 @@
     {
       "id": "vcf_haplotypecaller",
       "optional": true,
-      "candidates": ["variant_calling/haplotypecaller/*/*.haplotypecaller.filtered.vcf.gz"],
+      "candidates": ["variant_calling/haplotypecaller/*/*.haplotypecaller.filtered.vcf.gz",
+                     "variant_calling/haplotypecaller/*/*.haplotypecaller.vcf.gz"],
       "sample_type": "A.VCF",
       "assay": "Variant Call Filtering",
       "cardinality": "per_sample",
       "primary_data": true,
       "include_provenance": true,
-      "companions": [{"glob": "variant_calling/haplotypecaller/*/*.haplotypecaller.filtered.vcf.gz.tbi"}],
+      "companions": [{"glob": "variant_calling/haplotypecaller/*/*.haplotypecaller.filtered.vcf.gz.tbi"},
+                     {"glob": "variant_calling/haplotypecaller/*/*.haplotypecaller.vcf.gz.tbi"},
+                     {"glob": "variant_calling/haplotypecaller/*/*.haplotypecaller.g.vcf.gz"},
+                     {"glob": "variant_calling/haplotypecaller/*/*.haplotypecaller.g.vcf.gz.tbi"}],
       "attributes": {
         "Scientist": "@nextseek_user",
         "Software": "GATK4 HaplotypeCaller",
-        "FilterMethod": "GATK CNNScoreVariants scores each call, then FilterVariantTranches filters on those scores with SNP and INDEL sensitivity tranches (sarek output docs)"
+        "FilterMethod": "On the filtered VCF: GATK CNNScoreVariants scores each call, then FilterVariantTranches filters on those scores with SNP and INDEL sensitivity tranches (sarek output docs). On the unfiltered haplotypecaller.vcf.gz, used only when that filtering did not run: none"
       }
     },
     {
@@ -63,7 +63,9 @@
       "cardinality": "per_sample",
       "primary_data": true,
       "include_provenance": true,
-      "companions": [{"glob": "variant_calling/deepvariant/*/*.deepvariant.vcf.gz.tbi"}],
+      "companions": [{"glob": "variant_calling/deepvariant/*/*.deepvariant.vcf.gz.tbi"},
+                     {"glob": "variant_calling/deepvariant/*/*.deepvariant.g.vcf.gz"},
+                     {"glob": "variant_calling/deepvariant/*/*.deepvariant.g.vcf.gz.tbi"}],
       "attributes": {
         "Scientist": "@nextseek_user",
         "Software": "DeepVariant",
@@ -73,17 +75,19 @@
     {
       "id": "vcf_freebayes",
       "optional": true,
-      "candidates": ["variant_calling/freebayes/*/*.freebayes.filtered.vcf.gz"],
+      "candidates": ["variant_calling/freebayes/*/*.freebayes.filtered.vcf.gz",
+                     "variant_calling/freebayes/*/*.freebayes.vcf.gz"],
       "sample_type": "A.VCF",
       "assay": "Variant Call Filtering",
       "cardinality": "per_sample",
       "primary_data": true,
       "include_provenance": true,
-      "companions": [{"glob": "variant_calling/freebayes/*/*.freebayes.filtered.vcf.gz.tbi"}],
+      "companions": [{"glob": "variant_calling/freebayes/*/*.freebayes.filtered.vcf.gz.tbi"},
+                     {"glob": "variant_calling/freebayes/*/*.freebayes.vcf.gz.tbi"}],
       "attributes": {
         "Scientist": "@nextseek_user",
         "Software": "FreeBayes",
-        "FilterMethod": "sarek's filtered FreeBayes VCF; the sarek output docs do not describe this filter (they list only the unfiltered VCF)"
+        "FilterMethod": "On the filtered VCF: a filter the sarek output docs do not describe (they list only the unfiltered VCF). On the unfiltered freebayes.vcf.gz, used only when no filtered VCF exists: none"
       }
     },
     {
@@ -95,7 +99,9 @@
       "cardinality": "per_sample",
       "primary_data": true,
       "include_provenance": true,
-      "companions": [{"glob": "variant_calling/strelka/*/*.strelka.variants.vcf.gz.tbi"}],
+      "companions": [{"glob": "variant_calling/strelka/*/*.strelka.variants.vcf.gz.tbi"},
+                     {"glob": "variant_calling/strelka/*/*.strelka.genome.vcf.gz"},
+                     {"glob": "variant_calling/strelka/*/*.strelka.genome.vcf.gz.tbi"}],
       "attributes": {
         "Scientist": "@nextseek_user",
         "Software": "Strelka2 (germline)",
@@ -156,12 +162,8 @@
     {"glob": "reference/*", "why": "Indexes, dictionaries and intervals sarek built from the reference (with --save_reference): reference files, not sample data."},
     {"glob": "reports/*/*", "why": "Per-tool QC reports, per sample (FastQC, fastp, mosdepth, samtools, MarkDuplicates, bcftools, VCFtools, snpEff, VEP) or per run (NGSCheckMate); their numbers are read through MultiQC."},
     {"glob": "preprocessing/recal_table/*/*", "why": "GATK BaseRecalibrator tables: the model ApplyBQSR used to make the registered recalibrated CRAM, an intermediate of that file."},
-    {"glob": "variant_calling/*/*/*.g.vcf.gz*", "why": "gVCFs, with reference blocks between the variant sites: the intermediates of joint calling. The sample's VCF is registered."},
-    {"glob": "variant_calling/haplotypecaller/*/*.haplotypecaller.vcf.gz*", "why": "HaplotypeCaller's unfiltered calls; the filtered VCF beside them is registered."},
-    {"glob": "variant_calling/freebayes/*/*.freebayes.vcf.gz*", "why": "FreeBayes' unfiltered calls; the filtered VCF beside them is registered."},
-    {"glob": "variant_calling/strelka/*/*.strelka.genome.vcf.gz*", "why": "Strelka's genome VCF, the genome-wide gVCF form with reference blocks; the variants VCF is registered."},
     {"glob": "variant_calling/manta/*/*.manta.{candidate_sv,candidate_small_indels}.vcf.gz*", "why": "Manta's unscored candidate SVs and small indels, the input to its own scoring and to Strelka; the scored diploid_sv VCF is registered."},
     {"glob": "annotation/*/*/*", "why": "snpEff and VEP annotated copies of the registered caller VCFs; annotation is off in Luria launches, and a copy is not a second call set."},
-    {"glob": "*_vs_*/*", "why": "Somatic tumor/normal pair outputs, anything under a <tumor>_vs_<normal> folder at any depth: a pair's row needs two parents, which no rule can express yet, so they wait for a pair-level rule."}
+    {"glob": "*_vs_*/*", "why": "Somatic tumor/normal pair outputs, anything under a <tumor>_vs_<normal> folder at any depth: a pair's row needs two parents, which no rule can express yet, so they wait for a pair-level rule. A germline sample whose name contains \"_vs_\" is ruled out too, since its folder matches."}
   ]
 }

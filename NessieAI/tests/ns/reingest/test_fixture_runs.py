@@ -91,3 +91,31 @@ def test_every_file_is_claimed_or_ruled_out(folder):
     expanded = [e for p in patterns for e in maps.expand_braces(p)]
     unclaimed = [p for p in paths if not any(fnmatch.fnmatch(p, g) for g in expanded)]
     assert unclaimed == [], f"{folder}: files no rule claims and no ruling explains: {unclaimed}"
+
+
+def _rule_and_ruling_overlaps(paths, pipeline_map) -> list[str]:
+    """Files a rule's candidate or companion matches that an unmapped_files glob
+    also rules out. The mapper drops a ruled-out file before any rule sees it,
+    so an overlap silently disables part of a rule."""
+    rules = list(pipeline_map.outputs) + [r for o in pipeline_map.versions for r in o.outputs]
+    rule_globs = [e for rule in rules for p in [*rule.candidates, *(c.glob for c in rule.companions)]
+                  for e in maps.expand_braces(p)]
+    ruled = [e for u in pipeline_map.unmapped_files for e in maps.expand_braces(u.glob)]
+    return [p for p in paths if any(fnmatch.fnmatch(p, g) for g in rule_globs)
+            and any(fnmatch.fnmatch(p, g) for g in ruled)]
+
+
+@pytest.mark.parametrize("folder", FIXTURES, ids=lambda p: f"{p.parent.name}/{p.name}")
+def test_no_file_is_both_read_by_a_rule_and_ruled_out(folder):
+    """The file-level twin of test_no_key_is_both_ruled_out_and_read_by_a_rule."""
+    paths = [e["path"] for e in json.loads((folder / "inventory.json").read_text())]
+    both = _rule_and_ruling_overlaps(paths, maps.load(folder.parent.name))
+    assert both == [], f"{folder}: read by a rule and ruled out: {both}"
+
+
+def test_the_overlap_check_catches_a_ruled_out_candidate():
+    m = maps.PipelineMap.model_validate({
+        "map_version": 2, "pipeline": "nf-core/x",
+        "outputs": [{"id": "v", "sample_type": "A.VCF", "candidates": ["vc/*/*.vcf.gz"]}],
+        "unmapped_files": [{"glob": "vc/*/*.g.vcf.gz", "why": "a gVCF ruled out for this check"}]})
+    assert _rule_and_ruling_overlaps(["vc/S1/S1.g.vcf.gz", "vc/S1/S1.vcf.gz"], m) == ["vc/S1/S1.g.vcf.gz"]
