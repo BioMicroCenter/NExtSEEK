@@ -513,9 +513,10 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
 
     `reference_cli_flags` is the subset of {genome, fasta, gtf} the pipeline's pinned
     nextflow_schema.json declares (the catalog field of the same name), and only those are
-    emitted: nf-schema fails a run on an unrecognised param, so --gtf aborts sarek and
-    methylseq, and ampliseq declares none of the three. None keeps all three, for callers
-    that predate the field."""
+    emitted: nf-schema rejects or warns on an unrecognised param, depending on the
+    pipeline's validation settings, so --gtf is never passed to sarek or methylseq, and
+    ampliseq declares none of the three. None keeps all three, for callers that predate
+    the field."""
     revision = validate_revision(revision)
     pipeline = validate_pipeline(pipeline)
     genome = validate_genome(genome)

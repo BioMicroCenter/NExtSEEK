@@ -167,7 +167,8 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
     res = validate_resources(resources)
     tmp_files: list[str] = []
     # Which of --genome/--fasta/--gtf this pipeline's schema declares (catalog field);
-    # nf-schema aborts on an unrecognised param, so they cannot all be passed to every run.
+    # nf-schema rejects or warns on an unrecognised param, depending on the pipeline's
+    # validation settings, so they cannot all be passed to every run.
     ref_flags = (NFCORE_PIPELINE_CATALOG.get(pipeline_catalog_key(pipeline)) or {}).get(
         "reference_cli_flags")
     try:

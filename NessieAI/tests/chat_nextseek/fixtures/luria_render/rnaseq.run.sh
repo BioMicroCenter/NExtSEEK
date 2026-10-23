@@ -35,7 +35,8 @@ cd /net/x/runs/run_1
 # from luria.config (-c). The CLI flags below (--input/--outdir + REFS_FLAGS)
 # override params.yml so the run uses the staged samplesheet, this run dir, and
 # the species-resolved genome. REFS_FLAGS carries only the reference flags this
-# pipeline's schema declares: nf-schema aborts a run on an unrecognised param.
+# pipeline's schema declares: nf-schema rejects or warns on an unrecognised param,
+# depending on the pipeline's validation settings.
 nextflow run nf-core/rnaseq -r 3.22.2 -profile singularity \
     -c luria.config \
     -params-file params.yml \
