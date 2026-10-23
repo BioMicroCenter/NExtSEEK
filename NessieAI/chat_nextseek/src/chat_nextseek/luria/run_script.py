@@ -146,7 +146,9 @@ LURIA_GENOMES: dict[str, dict[str, str]] = {
 # Reference files beyond fasta/gtf, by kind, under the same refs root. A pipeline names the
 # kinds it takes, and under which param, in LURIA_PIPELINE_LAUNCH["resource_params"]; a kind
 # a genome has not staged is not passed. known_indels is a '*' glob over a folder because
-# sarek's own brace form ({a,b}.vcf.gz) is refused by refuse_shell_syntax.
+# sarek's own brace form ({a,b}.vcf.gz) is refused by refuse_shell_syntax. A path ending in
+# '/' is a folder: bwa is iGenomes' prebuilt BWA index, which sarek otherwise rebuilds from
+# the FASTA on every run (its schema's bwa is a directory-path).
 LURIA_GENOME_RESOURCES: dict[str, dict[str, str]] = {
     "GATK.GRCh38": {
         "fasta_fai": "GATK.GRCh38/Homo_sapiens_assembly38.fasta.fai",
@@ -160,6 +162,7 @@ LURIA_GENOME_RESOURCES: dict[str, dict[str, str]] = {
         "pon": "GATK.GRCh38/1000g_pon.hg38.vcf.gz",
         "pon_tbi": "GATK.GRCh38/1000g_pon.hg38.vcf.gz.tbi",
         "wgs_intervals": "GATK.GRCh38/wgs_calling_regions_noseconds.hg38.bed",
+        "bwa": "GATK.GRCh38/BWAIndex/",
     },
 }
 
@@ -246,6 +249,7 @@ LURIA_PIPELINE_LAUNCH: dict[str, dict] = {
             "germline_resource_tbi": "germline_resource_tbi",
             "pon": "pon", "pon_tbi": "pon_tbi",
             "wgs_intervals": "intervals",
+            "bwa": "bwa",
         },
     },
 }

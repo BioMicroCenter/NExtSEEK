@@ -5,7 +5,7 @@
     "tools": {"type": "string", "default": "haplotypecaller,manta", "steerable": true,
               "help": "comma list of callers. Germline: haplotypecaller, deepvariant, freebayes, strelka, manta, tiddit, cnvkit. Tumour/normal pairs only: mutect2, msisensorpro, muse. Not available: vep, snpeff, bcfann, snpsift, merge (their caches are not staged on Luria); ascat and controlfreec (their allele, loci, GC and mappability files are not staged on Luria)."},
     "aligner": {"type": "enum", "allowed": ["bwa-mem", "bwa-mem2"], "default": "bwa-mem", "steerable": true,
-                "help": "bwa-mem2 is faster but its index build needs far more memory"},
+                "help": "bwa-mem uses the BWA index staged on Luria; bwa-mem2 is faster to align but builds its own index on every run (about 60-150 extra minutes, far more memory)"},
     "wes": {"type": "bool", "default": false, "steerable": true,
             "help": "true for exome or targeted capture; intervals must then name the kit's BED"},
     "intervals": {"type": "string", "default": null, "steerable": true,
@@ -42,7 +42,7 @@
     "Do not request ascat or controlfreec: their allele, loci, GC and mappability files are not staged on Luria.",
     "Leave save_output_as_bam off: reingest registers sarek's alignments as CRAMs only."
   ],
-  "notes": "DNA variant calling on the GATK GRCh38 bundle staged under refs/GATK.GRCh38 (luria/refs/stage_dna_refs.sh). dbSNP, known indels, gnomAD and the panel of normals are passed from that bundle; the BWA index is built from the FASTA on every run.",
+  "notes": "DNA variant calling on the GATK GRCh38 bundle staged under refs/GATK.GRCh38 (luria/refs/stage_dna_refs.sh). dbSNP, known indels, gnomAD, the panel of normals and the prebuilt BWA index are passed from that bundle, so a bwa-mem run builds no index.",
   "sources": [
     {"label": "nf-core/sarek usage docs @ 3.10.0", "url": "https://nf-co.re/sarek/3.10.0/docs/usage/", "notes": "Samplesheet columns, lanes, tumour/normal status."},
     {"label": "nf-core/sarek nextflow_schema.json @ 3.10.0", "url": "https://raw.githubusercontent.com/nf-core/sarek/3.10.0/nextflow_schema.json", "notes": "Authoritative param names, types, patterns and defaults for the pinned revision."},
@@ -78,7 +78,7 @@
   },
   "runtime": {
     "basis": "First guess for one 16-CPU Luria node (Nessie's default submit); not yet measured on Luria. Refine from real runs.",
-    "setup_minutes": [60, 150], "setup_label": "building the BWA index for GATK.GRCh38 (every run repeats it)",
+    "setup_minutes": [0, 0], "setup_label": "",
     "base_minutes": [10, 30], "per_sample_minutes": [240, 720]
   }
 }

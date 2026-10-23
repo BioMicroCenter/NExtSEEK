@@ -22,16 +22,26 @@ def test_script_parses():
     assert subprocess.run(["bash", "-n", str(SCRIPT)]).returncode == 0
 
 
+def _matches(staged: str, name: str) -> bool:
+    # A name ending in '/' is a folder (sarek's --bwa): it covers the files staged under it.
+    return staged.startswith(name) if name.endswith("/") else fnmatch.fnmatch(staged, name)
+
+
 def test_every_named_file_is_staged():
     staged = _staged()
     for name in _named():
-        assert any(fnmatch.fnmatch(s, name) for s in staged), name
+        assert any(_matches(s, name) for s in staged), name
 
 
 def test_every_staged_file_is_named():
     named = _named()
     for staged in _staged():
-        assert any(fnmatch.fnmatch(staged, n) for n in named), staged
+        assert any(_matches(staged, n) for n in named), staged
+
+
+def test_the_whole_bwa_index_is_staged():
+    exts = {s.rsplit(".", 1)[1] for s in _staged() if s.startswith("BWAIndex/")}
+    assert exts == {"alt", "amb", "ann", "bwt", "pac", "sa"}
 
 
 def test_both_known_indel_sets_are_staged():

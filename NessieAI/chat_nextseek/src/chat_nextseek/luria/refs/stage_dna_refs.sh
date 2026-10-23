@@ -5,7 +5,8 @@
 # Downloads nf-core's public iGenomes copy of the GATK GRCh38 bundle (the files
 # nf-core/sarek 3.10.0's own 'GATK.GRCh38' entry names) into <refs_root>/GATK.GRCh38/,
 # skips files already finished, and prints a sha256 manifest to paste back.
-# About 11 GB. Names must match run_script.LURIA_GENOMES and LURIA_GENOME_RESOURCES.
+# About 17 GB, the prebuilt BWA index included. Names must match run_script.LURIA_GENOMES
+# and LURIA_GENOME_RESOURCES.
 set -euo pipefail
 [ $# -eq 1 ] || { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 root="${1%/}"
@@ -27,8 +28,15 @@ files=(
   "Annotation/GATKBundle/1000g_pon.hg38.vcf.gz 1000g_pon.hg38.vcf.gz"
   "Annotation/GATKBundle/1000g_pon.hg38.vcf.gz.tbi 1000g_pon.hg38.vcf.gz.tbi"
   "Annotation/intervals/wgs_calling_regions_noseconds.hg38.bed wgs_calling_regions_noseconds.hg38.bed"
+  # iGenomes' prebuilt BWA index (about 5.6 GB), passed as sarek's --bwa so no run rebuilds it.
+  "Sequence/BWAIndex/Homo_sapiens_assembly38.fasta.64.alt BWAIndex/Homo_sapiens_assembly38.fasta.64.alt"
+  "Sequence/BWAIndex/Homo_sapiens_assembly38.fasta.64.amb BWAIndex/Homo_sapiens_assembly38.fasta.64.amb"
+  "Sequence/BWAIndex/Homo_sapiens_assembly38.fasta.64.ann BWAIndex/Homo_sapiens_assembly38.fasta.64.ann"
+  "Sequence/BWAIndex/Homo_sapiens_assembly38.fasta.64.bwt BWAIndex/Homo_sapiens_assembly38.fasta.64.bwt"
+  "Sequence/BWAIndex/Homo_sapiens_assembly38.fasta.64.pac BWAIndex/Homo_sapiens_assembly38.fasta.64.pac"
+  "Sequence/BWAIndex/Homo_sapiens_assembly38.fasta.64.sa BWAIndex/Homo_sapiens_assembly38.fasta.64.sa"
 )
-mkdir -p "$dest/known_indels"
+mkdir -p "$dest/known_indels" "$dest/BWAIndex"
 for entry in "${files[@]}"; do
   src="${entry% *}"; name="${entry#* }"
   if [ -f "$dest/$name.done" ] && [ -f "$dest/$name" ]; then echo "[stage] have $name"; continue; fi

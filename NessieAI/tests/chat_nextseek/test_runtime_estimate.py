@@ -255,3 +255,9 @@ def test_lookup_answers_from_its_cache_without_asking_again(monkeypatch):
     first = ena.lookup_run_sizes(["SRR4"])
     assert ena.lookup_run_sizes(["SRR4"], budget_seconds=0) == first
     assert len(calls) == 1
+
+
+def test_sarek_does_not_budget_an_index_build_it_no_longer_does():
+    # The BWA index is staged (luria/refs/stage_dna_refs.sh) and passed as --bwa.
+    est = pp.runtime_estimate("sarek", n_samples=2)
+    assert not any("index" in line for line in est["includes"]), est["includes"]

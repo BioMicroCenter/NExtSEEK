@@ -712,7 +712,13 @@ def test_resource_params_name_sareks_params():
     assert p["intervals"].endswith("/wgs_calling_regions_noseconds.hg38.bed")
     assert set(p) == {"fasta_fai", "dict", "dbsnp", "dbsnp_tbi", "known_indels",
                       "known_indels_tbi", "germline_resource", "germline_resource_tbi",
-                      "pon", "pon_tbi", "intervals"}
+                      "pon", "pon_tbi", "intervals", "bwa"}
+
+
+def test_sarek_is_given_the_staged_bwa_index_folder():
+    # iGenomes' prebuilt index, so a run does not rebuild it from the FASTA.
+    p = luria_resource_params("nf-core/sarek", "GATK.GRCh38", "/net/x/refs")
+    assert p["bwa"] == "/net/x/refs/GATK.GRCh38/BWAIndex/"
 
 
 def test_a_users_intervals_win_over_the_wgs_default():
