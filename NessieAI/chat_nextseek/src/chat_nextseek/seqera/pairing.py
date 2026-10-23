@@ -14,7 +14,8 @@ _LABEL = {"0": "normal", "1": "tumour"}
 
 
 def requested_tumour_tools(tools) -> list[str]:
-    asked = {t.strip().lower() for t in str(tools or "").split(",") if t.strip()}
+    names = tools if isinstance(tools, (list, tuple, set, frozenset)) else str(tools or "").split(",")
+    asked = {str(t).strip().lower() for t in names if str(t).strip()}
     return sorted(asked & TUMOUR_TOOLS)
 
 
@@ -31,6 +32,9 @@ def somatic_pairing_check(tools, rows: list[dict], evidence: dict, *,
     for row in rows:
         samples.setdefault(str(row.get("sample") or "?"),
                            (str(row.get("patient") or "?"), _status(row)))
+    if wanted and not samples:
+        return (f"{', '.join(wanted)} need a tumour and a matched normal for every patient, "
+                "but the samplesheet has no samples. Build the samplesheet first.")
     if not wanted and all(status == "0" for _, status in samples.values()):
         return ""
     if wanted:

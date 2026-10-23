@@ -47,3 +47,13 @@ def test_lanes_of_one_sample_count_once():
 
 def test_requested_tumour_tools_ignores_germline_callers():
     assert requested_tumour_tools("haplotypecaller, Mutect2 ,strelka") == ["mutect2"]
+
+
+def test_requested_tumour_tools_accepts_a_list():
+    assert requested_tumour_tools(["Mutect2", " haplotypecaller", "muse"]) == ["muse", "mutect2"]
+    assert requested_tumour_tools(("ascat",)) == ["ascat"]
+
+
+def test_tumour_tools_with_no_rows_are_refused():
+    msg = somatic_pairing_check("mutect2", [], {})
+    assert msg and "mutect2" in msg

@@ -637,3 +637,89 @@ def test_configure_run_schema_offers_pairing_confirmed():
     from chat_nextseek.pipeline.agent_tools import _SCHEMA_BY_NAME
     props = _SCHEMA_BY_NAME["configure_run"]["input_schema"]["properties"]
     assert props["pairing_confirmed"]["type"] == "boolean"
+
+
+# --- the pairing confirmation is enforced mechanically, not trusted from the model ---------
+
+def _pairing_state(tmp_path, n_user_msgs=1):
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("patient,sex,status,sample,lane,fastq_1,fastq_2\n"
+                     "P1,NA,1,T1,L1,/net/bmc-pub10/x/T1_1.fq.gz,\n"
+                     "P1,NA,0,N1,L1,/net/bmc-pub10/x/N1_1.fq.gz,\n")
+    return {"artifacts": {"samplesheet": str(sheet)}, "bundle_key": "GRCh38",
+            "messages": [{"role": "user", "content": f"m{i}"} for i in range(n_user_msgs)],
+            "data_driven_evidence": {"T1": {"status": {"verdict": "corroborated", "value": "1"}},
+                                     "N1": {"status": {"verdict": "defaulted", "value": "0"}}}}
+
+
+def _configure(state, tmp_path, **kw):
+    tool_input = {"pipeline_key": "sarek", "params": {"tools": "mutect2"}, **kw}
+    return _json.loads(tool_configure_run(_Cfg(), state, tool_input, str(tmp_path)))
+
+
+def _is_pairing_refusal(out):
+    return out.get("ok") is False and out.get("needs_user_input") == ["status"]
+
+
+def test_a_confirmation_with_no_prior_ask_still_asks(tmp_path):
+    state = _pairing_state(tmp_path)
+    out = _configure(state, tmp_path, pairing_confirmed=True)
+    assert _is_pairing_refusal(out) and "N1" in out["ask_the_user"]
+    assert state["pairing_asked_at_user_msgs"] == 1
+
+
+def test_a_confirmation_after_the_user_replied_goes_ahead(tmp_path):
+    state = _pairing_state(tmp_path)
+    assert _is_pairing_refusal(_configure(state, tmp_path))
+    state["messages"].append({"role": "user", "content": "yes, N1 is the normal"})
+    out = _configure(state, tmp_path, pairing_confirmed=True)
+    assert not _is_pairing_refusal(out)
+    assert state["pairing_confirmed_for"] == state["artifacts"]["samplesheet"]
+
+
+def test_a_confirmation_in_the_same_turn_as_the_ask_still_asks(tmp_path):
+    state = _pairing_state(tmp_path)
+    assert _is_pairing_refusal(_configure(state, tmp_path))
+    out = _configure(state, tmp_path, pairing_confirmed=True)   # no new user message
+    assert _is_pairing_refusal(out)
+    assert "pairing_confirmed_for" not in state
+
+
+def test_a_later_configure_on_the_same_sheet_is_not_asked_again(tmp_path):
+    state = _pairing_state(tmp_path)
+    _configure(state, tmp_path)
+    state["messages"].append({"role": "user", "content": "yes"})
+    assert not _is_pairing_refusal(_configure(state, tmp_path, pairing_confirmed=True))
+    assert not _is_pairing_refusal(_configure(state, tmp_path))   # e.g. an aligner tweak
+
+
+def test_rebuilding_the_samplesheet_forgets_the_confirmation(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    def fake_emit(out_dir, **kw):
+        return SimpleNamespace(saved_files={"samplesheet": str(out_dir) + "/samplesheet.csv"},
+                               samplesheet_row_count=len(kw["samplesheet_rows"]),
+                               launch_entry=None, fetchngs_launch_entry=None)
+
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.emit_nfcore_artifacts", fake_emit)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.resolve_accessions", lambda accs: [])
+    state = {"resolved": {"uids": ["D.SEQ-1-PUB"], "accessions": ["SRR111"]}, "log_dir": str(tmp_path),
+             "pairing_asked_at_user_msgs": 1, "pairing_confirmed_for": "/x/samplesheet.csv"}
+    out = _json.loads(tool_write_samplesheet(
+        _Cfg(), state,
+        {"pipeline_key": "rnaseq", "cohorts": [
+            {"label": "rnaseq-all", "rows": [{"sample": "D.SEQ-1-PUB", "accession": "SRR111",
+                                              "strandedness": "auto"}]}]},
+        str(tmp_path)))
+    assert out["ok"] is True
+    assert "pairing_asked_at_user_msgs" not in state and "pairing_confirmed_for" not in state
+
+
+def test_configure_run_refuses_tumour_tools_for_an_unpaired_patient(tmp_path):
+    state = _pairing_state(tmp_path)
+    (tmp_path / "samplesheet.csv").write_text(
+        "patient,sex,status,sample,lane,fastq_1,fastq_2\n"
+        "P1,NA,1,T1,L1,/net/bmc-pub10/x/T1_1.fq.gz,\n")
+    state["messages"].append({"role": "user", "content": "yes"})
+    out = _configure(state, tmp_path, pairing_confirmed=True)
+    assert _is_pairing_refusal(out) and "P1" in out["ask_the_user"]

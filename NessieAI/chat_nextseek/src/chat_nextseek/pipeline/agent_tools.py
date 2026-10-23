@@ -182,7 +182,10 @@ PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "profile": {"type": "string", "description": "docker|singularity|conda (-> launch.yml)."},
                 "pairing_confirmed": {"type": "boolean",
                                       "description": "sarek only: true after the user confirmed the "
-                                                     "tumour/normal table configure_run showed them."},
+                                                     "tumour/normal table configure_run showed them; "
+                                                     "only after the user replied to the pairing "
+                                                     "table (a confirmation sent in the same turn "
+                                                     "as the question is ignored)."},
             },
             "required": ["pipeline_key"],
         },
@@ -658,6 +661,9 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
     state["artifacts"].pop("params", None)
     state["artifacts"].pop("launch", None)
     state.pop("launch_plan", None)
+    # ...and a rebuilt sheet is asked about afresh: the old pairing confirmation was for the old rows.
+    state.pop("pairing_asked_at_user_msgs", None)
+    state.pop("pairing_confirmed_for", None)
 
     return json.dumps({
         "ok": True,
@@ -732,12 +738,21 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
 
     # sarek: tumour-pair tools only with a tumour and a matched normal per patient, and a
     # status the metadata did not decide is confirmed by the user first (spec §3).
+    # The confirmation is enforced here, not trusted from the model: it counts only when
+    # the user has sent a message since the question was asked, and then holds for this
+    # samplesheet (so changing e.g. the aligner does not ask again).
     if pipeline_key == "sarek":
+        asked_at = state.get("pairing_asked_at_user_msgs")
+        replied = (tool_input.get("pairing_confirmed") is True and asked_at is not None
+                   and _user_msg_count(state) > asked_at)
+        confirmed = replied or state.get("pairing_confirmed_for") == samplesheet
         question = somatic_pairing_check(
             agent_params.get("tools"), _samplesheet_rows(state),
-            state.get("data_driven_evidence") or {},
-            confirmed=tool_input.get("pairing_confirmed") is True)
+            state.get("data_driven_evidence") or {}, confirmed=confirmed)
+        if not question and replied:
+            state["pairing_confirmed_for"] = samplesheet
         if question:
+            state["pairing_asked_at_user_msgs"] = _user_msg_count(state)
             return json.dumps({
                 "ok": False, "needs_user_input": ["status"], "ask_the_user": question,
                 "message": ("Relay `ask_the_user` to the user in plain text and STOP. Call "
