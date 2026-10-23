@@ -102,24 +102,44 @@ def trap_report(nextflow_schema: dict, input_schema: dict) -> list[str]:
     return traps
 
 
+def _is_file_path(entry: str) -> bool:
+    """A snapshot entry that names a file a run writes: no whitespace (log lines), no ':'
+    (md5 pairs, 'WARN: ...'), not absolute, and either nested or carrying an extension."""
+    if not entry or any(c.isspace() for c in entry) or ":" in entry or entry.startswith("/"):
+        return False
+    return "/" in entry or "." in entry
+
+
 def snapshot_paths(snapshot: dict, test_name: str | None = None) -> list[str]:
-    """Output files a test run writes, read from an nf-test .snap: the content list whose
-    entries are relative paths (not 'name:md5,...'), without the folder entries."""
+    """Output files a test run writes, read from an nf-test .snap: the content lists whose
+    entries are relative paths (not 'name:md5,...'), without the folder entries.
+
+    Two rules keep the list to what a real run writes. An entry counts only if it looks like
+    a file path (see _is_file_path), so log lines and bare folders such as 'reference' drop
+    out. And with no `test_name`, every test whose name contains '-stub' is skipped, because
+    a stub run writes placeholder names no real run does; an explicit `test_name` selects
+    exactly that test, stub or not."""
     paths: set[str] = set()
     for name, test in snapshot.items():
+        if test_name is None and "-stub" in name:
+            continue
         if test_name is not None and name != test_name:
             continue
         for part in test.get("content") or []:
             if (isinstance(part, list) and part and all(isinstance(p, str) for p in part)
                     and not any(":md5," in p for p in part) and any("/" in p for p in part)):
-                paths.update(part)
+                paths.update(p for p in part if _is_file_path(p))
     return sorted(p for p in paths if not any(q.startswith(p + "/") for q in paths))
 
 
 def draft_map_skeleton(pipeline: str, revision: str, paths: list[str]) -> dict[str, Any]:
     """A v2 map with no rules yet. `_files_by_folder` is reading matter for whoever writes
     the rules; it is not a PipelineMap field, so delete it before committing a map."""
-    major, minor = (revision.split(".") + ["0"])[:2]
+    parts = revision.split(".")
+    if len(parts) < 2 or not (parts[0].isdigit() and parts[1].isdigit()):
+        raise ValueError(f"cannot pin a minor release from revision {revision!r}: "
+                         "its first two dot parts must be numeric (e.g. 3.10.0)")
+    major, minor = parts[0], parts[1]
     by_folder: dict[str, list[str]] = {}
     for path in paths:
         by_folder.setdefault(path.split("/", 1)[0], []).append(path)
