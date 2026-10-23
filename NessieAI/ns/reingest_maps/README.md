@@ -240,13 +240,19 @@ What blocks each row:
 | rnavar | `variant_calling/<sample>/<sample>.haplotypecaller.vcf.gz` (raw calls, when filtering is skipped) | A.VCF | ready: a later candidate, behind the filtered VCF |
 | rnavar | gVCF with `--generate_gvcf` (unconfirmed name) | A.VCF secondary | ready: a companion of the VCF row |
 | rnavar | `seq2hla/<sample>/<sample>-ClassI-class.HLAgenotype4digits`, with the `ClassII` file as its companion (with `--tools seq2hla`) | A.HLA (its class II fields, `HLA_DRB1_1` to `HLA_DPB1_2`) | inventory; one row per locus, so the rule needs a reader for that layout |
+| sarek | somatic pair outputs under `variant_calling/<caller>/<tumor>_vs_<normal>/` and `annotation/<tumor>_vs_<normal>/` (Mutect2, Strelka, Manta, TIDDIT, MuSE and the other somatic callers) | A.VCF | choice: a pair-level rule whose row names both samples as parents. The map's `unmapped_files` rules them out for the fixture test only: at run time a pair's `*.manta.diploid_sv.vcf.gz` still matches `vcf_manta`, and its file name starts with the tumor's name |
+| sarek | `variant_calling/haplotypecaller/joint_variant_calling/joint_germline{,_recalibrated}.vcf.gz` (with `--joint_germline`), and the Sentieon `joint_variant_calling/` twins | A.VCF | ready: a per_run rule |
+| sarek | other germline callers' VCFs, by `--tools`: `variant_calling/bcftools/<sample>/<sample>.bcftools.vcf.gz`, and `sentieon_dnascope/`, `sentieon_haplotyper/`, `parabricks_haplotypecaller/`, `tiddit/` (unconfirmed names) | A.VCF | ready: optional rules like the five germline callers' |
+| sarek | `variant_calling/{filtered,normalized,consensus,concat}/<sample>/` post-calling VCFs (with `--filter_vcfs`, `--normalize_vcfs`, `--snv_consensus_calling`, `--concatenate_vcfs`) | A.VCF | choice: whether one replaces the caller's own VCF as a first candidate |
+| sarek | alignments from the other preprocessing paths: `preprocessing/mapped/` (with `--save_mapped`), `preprocessing/sentieon_dedup/`, `preprocessing/parabricks/` | A.ALN | ready: later candidates of the `aln` rule |
+| sarek | CNV, ploidy and MSI results (ASCAT, CNVKit, Control-FREEC, MSIsensor2, MSIsensorPro) and indexcov's coverage tables | none | type, inventory |
 | smrnaseq | `mirna_quant/mirtop/joined_samples_mirtop.tsv` (isomiR counts) | A.GEX | inventory |
 | smrnaseq | `mirna_quant/edger_qc/{mature,hairpin}_normalized_CPM.txt` | A.GEX | inventory |
 | smrnaseq | `genome_quant/bam/*.bam`, `mirna_quant/bam/{hairpin,mature,seqcluster}/*.bam` (only with `--save_intermediates`; `.csi` index) | A.ALN | choice; the `.csi` is not inventoried |
 | smrnaseq | `mirdeep2/**/result_*.csv` (novel miRNA calls) | none | type, inventory |
 | all | A.VCF rows link no assay where the house assay "Variant Call Filtering" does not exist; it is a pending `create_internal` in `context/assay_mappings.json` | A.VCF | a house assay to create |
 
-Ruled out on purpose, so not on the list above: differentialabundance's `all.vst.tsv` / `all.rlog.tsv` (regenerated from the normalised counts), its plots, Shiny app, `*.sizefactors.tsv` and session logs, and the upstream counts matrix as `Parent` (G-6: the stager reads nothing outside the run folder; rows keep the sequencing samples).
+Ruled out on purpose, so not on the list above: differentialabundance's `all.vst.tsv` / `all.rlog.tsv` (regenerated from the normalised counts), its plots, Shiny app, `*.sizefactors.tsv` and session logs, and the upstream counts matrix as `Parent` (G-6: the stager reads nothing outside the run folder; rows keep the sequencing samples). A map that sets `claims_every_file` (sarek) lists its own ruled-out files in `unmapped_files`, each with its reason.
 
 ## Fixtures
 

@@ -1,0 +1,167 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/sarek",
+  "applies_to_versions": ">=3.10,<3.11",
+  "accepts_parent_types": ["D.SEQ"],
+  "claims_every_file": true,
+  "qc_row_suffixes": [".recal", ".md"],
+  "inventory_globs": [
+    "**/preprocessing/*/*/*.cram", "**/preprocessing/*/*/*.cram.crai",
+    "**/preprocessing/*/*/*.bam", "**/preprocessing/*/*/*.bam.bai",
+    "**/variant_calling/*/*/*.vcf.gz", "**/variant_calling/*/*/*.vcf.gz.tbi"
+  ],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "outputs": [
+    {
+      "id": "aln",
+      "candidates": ["preprocessing/recalibrated/*/*.recal.cram", "preprocessing/markduplicates/*/*.md.cram",
+                     "preprocessing/recalibrated/*/*.recal.bam", "preprocessing/markduplicates/*/*.md.bam"],
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [{"glob": "preprocessing/recalibrated/*/*.recal.cram.crai"},
+                     {"glob": "preprocessing/markduplicates/*/*.md.cram.crai"},
+                     {"glob": "preprocessing/recalibrated/*/*.recal.bam.bai"},
+                     {"glob": "preprocessing/markduplicates/*/*.md.bam.bai"}],
+      "attributes": {
+        "DataType": "CRAM",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "$params.aligner",
+        "Genome": "$params.genome",
+        "Software": "nf-core/sarek",
+        "MedianCoverage": "$metrics.mosdepth-median_coverage",
+        "Coverage10xPercent": "$metrics.mosdepth-10_x_pc",
+        "Coverage30xPercent": "$metrics.mosdepth-30_x_pc"
+      }
+    },
+    {
+      "id": "vcf_haplotypecaller",
+      "optional": true,
+      "candidates": ["variant_calling/haplotypecaller/*/*.haplotypecaller.filtered.vcf.gz"],
+      "sample_type": "A.VCF",
+      "assay": "Variant Call Filtering",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "include_provenance": true,
+      "companions": [{"glob": "variant_calling/haplotypecaller/*/*.haplotypecaller.filtered.vcf.gz.tbi"}],
+      "attributes": {
+        "Scientist": "@nextseek_user",
+        "Software": "GATK4 HaplotypeCaller",
+        "FilterMethod": "GATK CNNScoreVariants scores each call, then FilterVariantTranches filters on those scores with SNP and INDEL sensitivity tranches (sarek output docs)"
+      }
+    },
+    {
+      "id": "vcf_deepvariant",
+      "optional": true,
+      "candidates": ["variant_calling/deepvariant/*/*.deepvariant.vcf.gz"],
+      "sample_type": "A.VCF",
+      "assay": "Variant Call Filtering",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "include_provenance": true,
+      "companions": [{"glob": "variant_calling/deepvariant/*/*.deepvariant.vcf.gz.tbi"}],
+      "attributes": {
+        "Scientist": "@nextseek_user",
+        "Software": "DeepVariant",
+        "FilterMethod": "None named in the sarek output docs: DeepVariant's VCF as the caller wrote it"
+      }
+    },
+    {
+      "id": "vcf_freebayes",
+      "optional": true,
+      "candidates": ["variant_calling/freebayes/*/*.freebayes.filtered.vcf.gz"],
+      "sample_type": "A.VCF",
+      "assay": "Variant Call Filtering",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "include_provenance": true,
+      "companions": [{"glob": "variant_calling/freebayes/*/*.freebayes.filtered.vcf.gz.tbi"}],
+      "attributes": {
+        "Scientist": "@nextseek_user",
+        "Software": "FreeBayes",
+        "FilterMethod": "sarek's filtered FreeBayes VCF; the sarek output docs do not describe this filter (they list only the unfiltered VCF)"
+      }
+    },
+    {
+      "id": "vcf_strelka",
+      "optional": true,
+      "candidates": ["variant_calling/strelka/*/*.strelka.variants.vcf.gz"],
+      "sample_type": "A.VCF",
+      "assay": "Variant Call Filtering",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "include_provenance": true,
+      "companions": [{"glob": "variant_calling/strelka/*/*.strelka.variants.vcf.gz.tbi"}],
+      "attributes": {
+        "Scientist": "@nextseek_user",
+        "Software": "Strelka2 (germline)",
+        "FilterMethod": "None named in the sarek output docs: all potential variant loci, including non-variant loci with a non-trivial level of variant evidence"
+      }
+    },
+    {
+      "id": "vcf_manta",
+      "optional": true,
+      "candidates": ["variant_calling/manta/*/*.manta.diploid_sv.vcf.gz"],
+      "sample_type": "A.VCF",
+      "assay": "Variant Call Filtering",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "include_provenance": true,
+      "companions": [{"glob": "variant_calling/manta/*/*.manta.diploid_sv.vcf.gz.tbi"}],
+      "attributes": {
+        "Scientist": "@nextseek_user",
+        "Software": "Manta (germline structural variants)",
+        "FilterMethod": "None named in the sarek output docs: SVs and indels scored and genotyped under a diploid model for the sample"
+      }
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "PipelineVersion": "$pipeline.version",
+    "ReferenceGenome": "$params.genome",
+    "Link_ReferenceGenome": "@genome_path"
+  },
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html", "target": "D.SEQ",
+      "datatype": "string", "provenance": "seed"
+    },
+    "Genome": {
+      "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
+      "provenance": "seed"
+    },
+    "MappedPercent": {"from": "samtools_flagstat_stats-reads_mapped_percent", "target": "D.SEQ", "datatype": "number",
+                      "note": "samtools flagstat on the recalibrated alignment (sarek's <sample>.recal row)", "provenance": "seed"},
+    "DuplicationPercent": {"from": "gatk4_markduplicates_mark_duplicates-PERCENT_DUPLICATION", "target": "D.SEQ", "datatype": "number",
+                           "note": "GATK MarkDuplicates on sarek's <sample>.md row", "provenance": "seed"}
+  },
+  "deliberately_unmapped": [
+    {"key": "samtools_flagstat_stats-error_rate", "why": "samtools' mismatches per mapped base, as a percentage. Not kept in sarek's first map, which records only the mapped and duplication shares on D.SEQ; rnaseq reads the same number as MismatchPercent."},
+    {"key": "samtools_flagstat_stats-non_primary_alignments", "why": "Secondary and supplementary BAM records, in millions: a record count, not a share, and D.SEQ has no attribute for it."},
+    {"key": "samtools_flagstat_stats-reads_mapped", "why": "In millions, and it counts mapped BAM records (each mate of a pair), not reads. MappedPercent already records the mapped share from the same samtools run."},
+    {"key": "samtools_flagstat_stats-reads_properly_paired_percent", "why": "Sits near 100 on BWA's paired-end alignments and is absent for single-end data, so it tells samples apart by nothing."},
+    {"key": "samtools_flagstat_stats-reads_MQ0_percent", "why": "Reads with mapping quality 0, which BWA gives a read placed equally well elsewhere: as much a property of the reference's repeats as of the library, and not the STAR multimapped share MultimappedPercent holds."},
+    {"key": "samtools_flagstat_stats-raw_total_sequences", "why": "In millions, and it counts BAM records (both mates of a pair), not reads, so it is no stand-in for TotalReads."},
+    {"key": "samtools_flagstat_stats-insert_size_average", "why": "Mean insert size of the aligned pairs. D.SEQ has no insert-size attribute; one would be a schema request, not a mapping."},
+    {"key": "mosdepth-1_x_pc", "why": "Share of bases covered at 1x or more: near 100 on any usable alignment, so it separates nothing. A.ALN keeps the 10x and 30x shares."},
+    {"key": "mosdepth-5_x_pc", "why": "Share of bases covered at 5x or more: between the 1x and 10x marks, it adds little beside them. A.ALN keeps the 10x and 30x shares."},
+    {"key": "mosdepth-50_x_pc", "why": "Share of bases covered at 50x or more. A.ALN keeps the 10x and 30x shares and the median coverage, which already shows a deep run; a 50x field would be a schema request."}
+  ],
+  "unmapped_files": [
+    {"glob": "csv/*", "why": "sarek's restart samplesheets (markduplicates, recalibrated, variantcalled): inputs for a later sarek step, not results."},
+    {"glob": "reference/*", "why": "Indexes, dictionaries and intervals sarek built from the reference (with --save_reference): reference files, not sample data."},
+    {"glob": "reports/*/*", "why": "Per-tool QC reports, per sample (FastQC, fastp, mosdepth, samtools, MarkDuplicates, bcftools, VCFtools, snpEff, VEP) or per run (NGSCheckMate); their numbers are read through MultiQC."},
+    {"glob": "preprocessing/recal_table/*/*", "why": "GATK BaseRecalibrator tables: the model ApplyBQSR used to make the registered recalibrated CRAM, an intermediate of that file."},
+    {"glob": "variant_calling/*/*/*.g.vcf.gz*", "why": "gVCFs, with reference blocks between the variant sites: the intermediates of joint calling. The sample's VCF is registered."},
+    {"glob": "variant_calling/haplotypecaller/*/*.haplotypecaller.vcf.gz*", "why": "HaplotypeCaller's unfiltered calls; the filtered VCF beside them is registered."},
+    {"glob": "variant_calling/freebayes/*/*.freebayes.vcf.gz*", "why": "FreeBayes' unfiltered calls; the filtered VCF beside them is registered."},
+    {"glob": "variant_calling/strelka/*/*.strelka.genome.vcf.gz*", "why": "Strelka's genome VCF, the genome-wide gVCF form with reference blocks; the variants VCF is registered."},
+    {"glob": "variant_calling/manta/*/*.manta.{candidate_sv,candidate_small_indels}.vcf.gz*", "why": "Manta's unscored candidate SVs and small indels, the input to its own scoring and to Strelka; the scored diploid_sv VCF is registered."},
+    {"glob": "annotation/*/*/*", "why": "snpEff and VEP annotated copies of the registered caller VCFs; annotation is off in Luria launches, and a copy is not a second call set."},
+    {"glob": "*/*_vs_*/*", "why": "Somatic tumor/normal pair outputs: a pair's row needs two parents, which no rule can express yet, so they wait for a pair-level rule."}
+  ]
+}

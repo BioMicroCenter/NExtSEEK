@@ -1390,6 +1390,11 @@ _OLD_INVENTORY = {
     "**/tables/differential/*/*.dream.results.tsv",
     # hlatyping's A.HLA rule: OptiType's call and its coverage plot
     "**/optitype/*/*_result.tsv", "**/optitype/*/*_coverage_plot.pdf",
+    # sarek's rules: CRAM/BAM under preprocessing/<step>/<sample>/, and the
+    # per-caller VCFs with their tabix indexes under variant_calling/<caller>/<sample>/
+    "**/preprocessing/*/*/*.cram", "**/preprocessing/*/*/*.cram.crai",
+    "**/preprocessing/*/*/*.bam", "**/preprocessing/*/*/*.bam.bai",
+    "**/variant_calling/*/*/*.vcf.gz", "**/variant_calling/*/*/*.vcf.gz.tbi",
 }
 
 

@@ -1,0 +1,35 @@
+{
+ "rules": {
+  "aln": {
+   "attributes": [
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Genome",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Name",
+    "Software"
+   ],
+   "rows": 1,
+   "sample_type": "A.ALN"
+  },
+  "vcf_strelka": {
+   "attributes": [
+    "File_PrimaryData",
+    "FilterMethod",
+    "Link_PrimaryData",
+    "Notes",
+    "Pipeline",
+    "PipelineVersion",
+    "ReferenceGenome",
+    "Software"
+   ],
+   "rows": 1,
+   "sample_type": "A.VCF"
+  }
+ },
+ "warnings": [
+  "test: no Notes on A.ALN; also in run: preprocessing/markduplicates/test/test.md.cram.crai, preprocessing/markduplicates/test/test.md.cram"
+ ]
+}
