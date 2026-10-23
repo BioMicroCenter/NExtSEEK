@@ -106,13 +106,17 @@ def localise_samplesheet(text: str) -> str:
     return out.getvalue()
 
 
-def versions_yml_from_snapshot(snapshot: dict, pipeline: str) -> str:
+def versions_yml_from_snapshot(snapshot: dict, pipeline: str, tag: str | None = None) -> str:
+    """The pipeline's own version from the snapshot's Workflow entry. Some snapshots (sarek's)
+    list only process tool versions; then the release tag the snapshot was read at stands in."""
     for test in snapshot.values():
         for part in test.get("content") or []:
             if isinstance(part, dict) and isinstance(part.get("Workflow"), dict):
                 version = part["Workflow"].get(f"nf-core/{pipeline}")
                 if version:
                     return f"Workflow:\n  nf-core/{pipeline}: {version}\n"
+    if tag:
+        return f"Workflow:\n  nf-core/{pipeline}: v{tag.removeprefix('v')}\n"
     raise SystemExit(f"no Workflow version for nf-core/{pipeline} in the snapshot")
 
 
@@ -175,7 +179,7 @@ def from_snapshot(pipeline: str, version: str, test_name: str, fetch,
             "inventory": [{"path": p, "bytes": 0} for p in snapshot_paths(snapshot)],
             "samplesheet": _samplesheet(pipeline, version, config, samplesheet_url, fetch),
             "params": evidence_params(params),
-            "versions_yml": versions_yml_from_snapshot(snapshot, pipeline),
+            "versions_yml": versions_yml_from_snapshot(snapshot, pipeline, version),
             "files": {},
             "evidence": (f"Evidence: GitHub nf-core/{pipeline} tag {version}, "
                          f"tests/{test_name}.nf.test.snap and conf/test.config, read "

@@ -61,6 +61,13 @@ def test_versions_yml_from_a_snapshot():
     assert ie.versions_yml_from_snapshot(snap, "sarek") == "Workflow:\n  nf-core/sarek: v3.10.0\n"
 
 
+def test_versions_yml_falls_back_to_the_tag_when_the_snapshot_has_no_workflow_entry():
+    snap = {"-profile test": {"content": [3, {"FASTQC": {"fastqc": "0.12.1"}}, ["a/b.txt"]]}}
+    assert ie.versions_yml_from_snapshot(snap, "sarek", "3.10.0") == "Workflow:\n  nf-core/sarek: v3.10.0\n"
+    with pytest.raises(SystemExit):
+        ie.versions_yml_from_snapshot(snap, "sarek")
+
+
 def test_params_keep_scalars_and_drop_paths():
     params = {"genome": "GATK.GRCh38", "outdir": "s3://bucket/x", "tools": "strelka",
               "input": "/mnt/x.csv", "wes": False, "igenomes_base": "s3://ngi-igenomes/"}
