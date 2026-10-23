@@ -1949,3 +1949,84 @@ def test_a_link_the_map_sets_wins():
     run = _run_with(["optitype/S1/S1_result.tsv"])
     (row,) = _out_rows(mapper.apply(run, _v2map([rule])), "hla")
     assert row.attributes["Link_PrimaryData"].value == "https://example.org/hla"
+
+
+# --- unmapped_files: a file the map rules out is never matched by a rule. ---
+
+_MANTA_RULE = {
+    "id": "vcf_manta", "candidates": ["variant_calling/manta/*/*.manta.diploid_sv.vcf.gz"],
+    "sample_type": "A.VCF", "cardinality": "per_sample", "primary_data": True,
+    "companions": [{"glob": "variant_calling/manta/*/*.manta.diploid_sv.vcf.gz.tbi"}]}
+
+
+def _pair_run():
+    # The harvest attributes a pair file by its basename's prefix, so the
+    # tumor T gets T_vs_N's VCF and the normal N gets N_vs_T's index.
+    outputs = {
+        "variant_calling/manta/T/T.manta.diploid_sv.vcf.gz": "T",
+        "variant_calling/manta/T_vs_N/T_vs_N.manta.diploid_sv.vcf.gz": "T",
+        "variant_calling/manta/N/N.manta.diploid_sv.vcf.gz": "N",
+        "variant_calling/manta/N/N.manta.diploid_sv.vcf.gz.tbi": "N",
+        "variant_calling/manta/N_vs_T/N_vs_T.manta.diploid_sv.vcf.gz.tbi": "N",
+    }
+    run = _run_with([], samples=("T", "N"))
+    run.outputs = [manifest.OutputRecord(path=p, sample=s) for p, s in outputs.items()]
+    return run
+
+
+def _manta_rows(result):
+    return {r.nfcore_sample: r for r in _out_rows(result, "vcf_manta")}
+
+
+def test_without_a_ruling_a_pair_file_is_matched_by_the_rule():
+    rows = _manta_rows(mapper.apply(_pair_run(), _v2map([_MANTA_RULE])))
+    assert "N_vs_T" in rows["N"].attributes["Notes"].value
+
+
+def test_a_file_the_map_rules_out_is_never_a_rows_primary_file_or_companion():
+    ruled = _v2map([_MANTA_RULE], unmapped_files=[
+        {"glob": "variant_calling/*/*_vs_*/*", "why": "somatic pair outputs, pending a pair rule"}])
+    run = _pair_run()
+    run.outputs = [o for o in run.outputs if o.path != "variant_calling/manta/T/T.manta.diploid_sv.vcf.gz"]
+    rows = _manta_rows(mapper.apply(run, ruled))
+    # T's only match is the pair's VCF, which is ruled out, so T's row names no
+    # file. (A per_sample rule still writes a row for a sample with no match.)
+    assert "File_PrimaryData" not in rows["T"].attributes
+    assert "T_vs_N" not in str({k: v.value for k, v in rows["T"].attributes.items()})
+    # N keeps its own VCF and its own index, never the pair's index.
+    assert rows["N"].attributes["File_PrimaryData"].value == "N.manta.diploid_sv.vcf.gz"
+    assert "N_vs_T" not in str({k: v.value for k, v in rows["N"].attributes.items()})
+
+
+def test_a_ruled_out_file_does_not_displace_the_samples_own_file():
+    ruled = _v2map([_MANTA_RULE], unmapped_files=[
+        {"glob": "variant_calling/*/*_vs_*/*", "why": "somatic pair outputs, pending a pair rule"}])
+    rows = _manta_rows(mapper.apply(_pair_run(), ruled))
+    assert rows["T"].attributes["File_PrimaryData"].value == "T.manta.diploid_sv.vcf.gz"
+    assert "T_vs_N" not in str({k: v.value for k, v in rows["T"].attributes.items()})
+
+
+@pytest.mark.parametrize("path", [
+    "variant_calling/strelka/T_vs_N/T_vs_N.strelka.somatic_snvs.vcf.gz",
+    "variant_calling/manta/T_vs_N/T_vs_N.manta.diploid_sv.vcf.gz",
+    "annotation/mutect2/T_vs_N/T_vs_N.mutect2.filtered_VEP.ann.vcf.gz",
+    "reports/SnpEff/T_vs_N/strelka/T_vs_N.strelka_snpEff.csv",
+    "variant_calling/controlfreec/T_vs_N/x/y.txt",
+    "T_vs_N/top_level.vcf.gz",
+])
+def test_sareks_pair_ruling_covers_a_pair_folder_at_any_depth(path):
+    import fnmatch
+    globs = [g for u in maps.load("sarek").unmapped_files for g in maps.expand_braces(u.glob)
+             if "_vs_" in u.glob]
+    assert any(fnmatch.fnmatch(path, g) for g in globs), path
+
+
+@pytest.mark.parametrize("path", [
+    "variant_calling/manta/NA12878/NA12878.manta.diploid_sv.vcf.gz",
+    "preprocessing/recalibrated/S1/S1.recal.cram",
+])
+def test_sareks_pair_ruling_leaves_single_sample_files_alone(path):
+    import fnmatch
+    globs = [g for u in maps.load("sarek").unmapped_files for g in maps.expand_braces(u.glob)
+             if "_vs_" in u.glob]
+    assert not any(fnmatch.fnmatch(path, g) for g in globs), path

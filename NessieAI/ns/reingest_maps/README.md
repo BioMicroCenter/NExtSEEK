@@ -79,7 +79,7 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
   re-proposes the same key on every run and the review queue fills with noise.
 - `qc_row_suffixes` — MultiQC rows named `<sample><suffix>` (sarek: `.recal`, `.md`) whose columns join that sample's metrics, best first; a column already held is kept.
 - `claims_every_file` — when true, the fixture contract test requires every file of a run to be a rule's candidate or companion, or to match `unmapped_files`.
-- `unmapped_files` — globs of run files no rule registers on purpose, each with a `why`; read only when `claims_every_file` is set.
+- `unmapped_files` — globs of run files no rule registers on purpose, each with a `why`. The mapper drops a matching file before any rule sees it, so a ruled-out file is never a rule's candidate or companion, and with `claims_every_file` set the fixture test counts it as claimed. Matching is `fnmatch` over brace-expanded globs, and `*` crosses `/`.
 
 `$`-prefixed values are lookups into a manifest section (`params`, `pipeline`,
 `software_versions`, `outputs`, `metrics`, `derived`). There is no evaluation.
@@ -240,7 +240,7 @@ What blocks each row:
 | rnavar | `variant_calling/<sample>/<sample>.haplotypecaller.vcf.gz` (raw calls, when filtering is skipped) | A.VCF | ready: a later candidate, behind the filtered VCF |
 | rnavar | gVCF with `--generate_gvcf` (unconfirmed name) | A.VCF secondary | ready: a companion of the VCF row |
 | rnavar | `seq2hla/<sample>/<sample>-ClassI-class.HLAgenotype4digits`, with the `ClassII` file as its companion (with `--tools seq2hla`) | A.HLA (its class II fields, `HLA_DRB1_1` to `HLA_DPB1_2`) | inventory; one row per locus, so the rule needs a reader for that layout |
-| sarek | somatic pair outputs under `variant_calling/<caller>/<tumor>_vs_<normal>/` and `annotation/<tumor>_vs_<normal>/` (Mutect2, Strelka, Manta, TIDDIT, MuSE and the other somatic callers) | A.VCF | choice: a pair-level rule whose row names both samples as parents. The map's `unmapped_files` rules them out for the fixture test only: at run time a pair's `*.manta.diploid_sv.vcf.gz` still matches `vcf_manta`, and its file name starts with the tumor's name |
+| sarek | somatic pair outputs under `variant_calling/<caller>/<tumor>_vs_<normal>/` and `annotation/<tumor>_vs_<normal>/` (Mutect2, Strelka, Manta, TIDDIT, MuSE and the other somatic callers) | A.VCF | choice: a pair-level rule whose row names both samples as parents. Until then the map's `unmapped_files` rules out anything under a `*_vs_*` folder, so no germline rule takes a pair's file as the tumor's own |
 | sarek | `variant_calling/haplotypecaller/joint_variant_calling/joint_germline{,_recalibrated}.vcf.gz` (with `--joint_germline`), and the Sentieon `joint_variant_calling/` twins | A.VCF | ready: a per_run rule |
 | sarek | other germline callers' VCFs, by `--tools`: `variant_calling/bcftools/<sample>/<sample>.bcftools.vcf.gz`, and `sentieon_dnascope/`, `sentieon_haplotyper/`, `parabricks_haplotypecaller/`, `tiddit/` (unconfirmed names) | A.VCF | ready: optional rules like the five germline callers' |
 | sarek | `variant_calling/{filtered,normalized,consensus,concat}/<sample>/` post-calling VCFs (with `--filter_vcfs`, `--normalize_vcfs`, `--snv_consensus_calling`, `--concatenate_vcfs`) | A.VCF | choice: whether one replaces the caller's own VCF as a first candidate |

@@ -177,6 +177,7 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
     result = MapResult()
     pipeline_map, version_warnings = maps.effective(pipeline_map, run_manifest.pipeline.version)
     result.warnings.extend(version_warnings)
+    run_manifest = _without_ruled_out_files(run_manifest, pipeline_map)
     ruled_out = pipeline_map.ruled_out()
     metrics_source = run_manifest.sources.get("metrics", "")
 
@@ -310,6 +311,27 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
                 result.rows.append(row)
 
     return result
+
+
+def _without_ruled_out_files(run_manifest: manifest.RunManifest,
+                             pipeline_map: maps.PipelineMap) -> manifest.RunManifest:
+    """``run_manifest`` without the outputs the map's ``unmapped_files`` rule out.
+
+    A ruled-out file is never a rule's candidate or companion. Without this, a
+    ruling would hold only in the fixture claims test: nf-core/sarek writes a
+    tumor/normal pair's VCF as ``<tumor>_vs_<normal>/<tumor>_vs_<normal>.*``, the
+    harvest attributes it to the tumor by its basename's prefix, and a germline
+    rule would register it as the tumor's own call set. Matching is the claims
+    test's: ``fnmatch`` (whose ``*`` crosses ``/``) over brace-expanded globs. A
+    map without ``unmapped_files`` gets its manifest back unchanged."""
+    globs = [g for ruling in pipeline_map.unmapped_files for g in maps.expand_braces(ruling.glob)]
+    if not globs:
+        return run_manifest
+    kept = [o for o in run_manifest.outputs
+            if not any(fnmatch.fnmatch(o.path, g) for g in globs)]
+    if len(kept) == len(run_manifest.outputs):
+        return run_manifest
+    return run_manifest.model_copy(update={"outputs": kept})
 
 
 def _with_build_local_ordinals(context: dict) -> dict:

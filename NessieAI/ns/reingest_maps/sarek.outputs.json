@@ -162,6 +162,6 @@
     {"glob": "variant_calling/strelka/*/*.strelka.genome.vcf.gz*", "why": "Strelka's genome VCF, the genome-wide gVCF form with reference blocks; the variants VCF is registered."},
     {"glob": "variant_calling/manta/*/*.manta.{candidate_sv,candidate_small_indels}.vcf.gz*", "why": "Manta's unscored candidate SVs and small indels, the input to its own scoring and to Strelka; the scored diploid_sv VCF is registered."},
     {"glob": "annotation/*/*/*", "why": "snpEff and VEP annotated copies of the registered caller VCFs; annotation is off in Luria launches, and a copy is not a second call set."},
-    {"glob": "*/*_vs_*/*", "why": "Somatic tumor/normal pair outputs: a pair's row needs two parents, which no rule can express yet, so they wait for a pair-level rule."}
+    {"glob": "*_vs_*/*", "why": "Somatic tumor/normal pair outputs, anything under a <tumor>_vs_<normal> folder at any depth: a pair's row needs two parents, which no rule can express yet, so they wait for a pair-level rule."}
   ]
 }
