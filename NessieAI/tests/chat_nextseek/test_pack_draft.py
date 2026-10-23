@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from chat_nextseek.seqera.nfcore_schema import clear_cache
-from chat_nextseek.seqera.pack_draft import draft, draft_map_skeleton, snapshot_paths
+from chat_nextseek.seqera.pack_draft import draft, draft_map_skeleton, list_snapshots, snapshot_paths
 
 FIX = Path(__file__).parent / "fixtures" / "nfcore"
 
@@ -105,3 +105,12 @@ def test_map_skeleton_pins_the_minor_release(drafted):
     skel = drafted["map_skeleton"]
     assert skel["applies_to_versions"] == ">=3.10,<3.11"
     assert "variant_calling" in skel["_files_by_folder"]
+
+
+def test_a_truncated_tree_is_an_error_not_a_short_snapshot_list():
+    def truncated(url):
+        return json.dumps({"truncated": True, "tree": [{"path": "tests/default.nf.test.snap"}]}).encode()
+
+    with pytest.raises(ValueError, match="truncated"):
+        list_snapshots("sarek", "3.10.0", truncated)
+    assert list_snapshots("sarek", "3.10.0", _fetch) == ["tests/default.nf.test.snap"]

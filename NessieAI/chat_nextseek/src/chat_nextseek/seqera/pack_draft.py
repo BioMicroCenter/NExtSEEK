@@ -151,6 +151,11 @@ def draft_map_skeleton(pipeline: str, revision: str, paths: list[str]) -> dict[s
 
 def list_snapshots(pipeline: str, revision: str, fetch: Fetch) -> list[str]:
     tree = json.loads(fetch(TREE_URL.format(pipeline=pipeline, revision=revision)))
+    if tree.get("truncated"):
+        # GitHub cut the recursive listing short: a snapshot past the cut would be missing,
+        # and the draft would quietly cover fewer test profiles than the release has.
+        raise ValueError(f"GitHub truncated the file tree of nf-core/{pipeline} at {revision}; "
+                         "the snapshot list would be incomplete")
     return sorted(e["path"] for e in tree.get("tree") or [] if _SNAPSHOT.match(e.get("path", "")))
 
 
