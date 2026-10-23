@@ -1,4 +1,4 @@
--- 1007 attribute definitions for dmac.sample_attributes_unique.
+-- 1010 attribute definitions for dmac.sample_attributes_unique.
 -- 979 were judged from up to three real values observed in production
 -- (166,235 samples). Attributes with no data anywhere are deliberately absent.
 -- The five D.SEQ QC attributes created on 2026-10-14 (DuplicationPercent,
@@ -7,6 +7,8 @@
 -- So are the 14 QC attributes from the 2026-10-15 review of the other nf-core
 -- pipelines (GCPercent, Q30Percent, ..., TsTvRatio), and the nine HLA fields of
 -- the A.HLA sample type proposed the same day (HLA_A1 ... HLADatabaseVersion).
+-- So are the three A.ALN coverage attributes for sarek's mosdepth output
+-- (MedianCoverage, Coverage10xPercent, Coverage30xPercent).
 -- sample_type '' is the global definition; a code overrides it for that tab.
 
 INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
@@ -223,6 +225,8 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('Cough','','Whether the patient reported a cough.'),
  ('CoughSputum','','Whether the patient reported coughing up sputum.'),
  ('CountryOfOrigin','','The country the animal was sourced from.'),
+ ('Coverage10xPercent','','Percentage of bases in the alignment covered at least 10-fold, from mosdepth.'),
+ ('Coverage30xPercent','','Percentage of bases in the alignment covered at least 30-fold, from mosdepth.'),
  ('Crystal','','The crystal material used in the spectrometer, e.g. Diamond.'),
  ('Culture','','The culture medium and conditions used to grow this organism.'),
  ('CultureFormat','','The physical format the cells were cultured in, e.g. 2D monolayer in flasks, 3D Matrigel domes.'),
@@ -543,6 +547,7 @@ INSERT INTO sample_attributes_unique (field_name, sample_type, meaning) VALUES
  ('MediaBase','','The base medium used, before supplements are added.'),
  ('MediaSource','','The vendor and catalogue number the medium was purchased from.'),
  ('MediaSupplements','','The supplements added to the base medium, with concentrations.'),
+ ('MedianCoverage','','Median read depth across the alignment, in fold coverage (X), from mosdepth.'),
  ('Medications','','Whether the patient was on medication at this visit.'),
  ('MedicineHistory','','Whether the patient has a relevant medication history.'),
  ('MenstrualStage','','The phase of the menstrual cycle at sampling, e.g. secretory, proliferative.'),

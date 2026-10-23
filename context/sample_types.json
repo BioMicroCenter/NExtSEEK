@@ -110,7 +110,7 @@
     "Tags": "sequence alignment analysis, genome alignment, read mapping, BAM file analysis, SAM analysis, aligned reads, reference mapping, short read alignment, bowtie, BWA, STAR alignment, A.ALN, BAM, CRAM, HISAT2",
     "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Scientist, Parent, Checksum_PrimaryData",
     "standard_metadata": "Protocol, DataType, Type, Aligner, Genome",
-    "possible_metadata_fields": "Name, SampleCreationDate, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Publish_uri, Checksum_PrimaryType, Checksum_SecondaryType, DOI, PMID",
+    "possible_metadata_fields": "Name, SampleCreationDate, File_SecondaryData, Link_SecondaryData, Checksum_SecondaryData, Publish_uri, Checksum_PrimaryType, Checksum_SecondaryType, DOI, PMID, MedianCoverage, Coverage10xPercent, Coverage30xPercent",
     "parent_sampletypes": "D.SEQ",
     "child_sampletypes": "A.SCXP, A.VCF",
     "associated_assay_parents": "Genome Alignment",
