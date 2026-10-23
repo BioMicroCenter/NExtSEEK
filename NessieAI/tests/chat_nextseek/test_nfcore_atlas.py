@@ -144,3 +144,53 @@ def test_pipelines_without_a_species_limit_do_not_claim_one():
             continue
         assert "species_constraint" not in entry or entry["species_constraint"], \
             f"{key} carries an empty species_constraint"
+
+
+import json as _json
+
+import chat_nextseek.seqera.nfcore_atlas as nfcore_atlas
+
+
+def _file(tmp_path, name, pipelines, notes=("x",)):
+    path = tmp_path / name
+    path.write_text(_json.dumps({"guidance": {"notes": list(notes)}, "pipelines": pipelines}))
+    return path
+
+
+def test_the_default_atlas_merges_rna_and_dna():
+    pipelines = load_atlas()["pipelines"]
+    assert "rnaseq" in pipelines and "sarek" in pipelines
+
+
+def test_a_key_in_two_files_is_refused(tmp_path, monkeypatch):
+    a = _file(tmp_path, "rna.json", {"sarek": {"revision": "3.10.0", "versus": {}}})
+    b = _file(tmp_path, "dna.json", {"sarek": {"revision": "3.10.0", "versus": {}}})
+    monkeypatch.setattr(nfcore_atlas, "ATLAS_PATHS", (a, b))
+    with pytest.raises(AtlasError, match="sarek"):
+        load_atlas()
+
+
+def test_versus_may_point_across_files_and_notes_add_up(tmp_path, monkeypatch):
+    a = _file(tmp_path, "rna.json", {"rnavar": {"revision": "1.3.0", "versus": {"sarek": {"differs_by": "d"}}}},
+              notes=("rna note",))
+    b = _file(tmp_path, "dna.json", {"sarek": {"revision": "3.10.0", "versus": {"rnavar": {"differs_by": "d"}}}},
+              notes=("dna note",))
+    monkeypatch.setattr(nfcore_atlas, "ATLAS_PATHS", (a, b))
+    atlas = load_atlas()
+    assert set(atlas["pipelines"]) == {"rnavar", "sarek"}
+    assert atlas["guidance"]["notes"] == ["rna note", "dna note"]
+
+
+def test_a_single_path_still_reads_one_file():
+    assert "sarek" not in load_atlas(ATLAS_PATH)["pipelines"]
+
+
+def test_a_single_file_may_name_a_pipeline_that_lives_in_its_sibling(tmp_path):
+    lone = _file(tmp_path, "lone.json", {"rnavar": {"revision": "1.3.0", "versus": {"sarek": {"differs_by": "d"}}}})
+    assert "rnavar" in load_atlas(lone)["pipelines"]
+
+
+def test_a_single_file_still_refuses_a_versus_key_no_file_has(tmp_path):
+    lone = _file(tmp_path, "lone.json", {"rnavar": {"revision": "1.3.0", "versus": {"nosuch": {"differs_by": "d"}}}})
+    with pytest.raises(AtlasError, match="nosuch"):
+        load_atlas(lone)

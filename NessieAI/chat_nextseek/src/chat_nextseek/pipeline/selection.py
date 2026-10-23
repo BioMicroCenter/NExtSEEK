@@ -59,12 +59,11 @@ different things is true in "basis":
     THIS cohort's data cannot support it (the library, the molecule, the
     species). This is a refusal, and a correct, expected answer, not a hedge.
   - "atlas": the question asks for an analysis no pipeline in the atlas
-    performs. The atlas covers RNA pipelines only, so DNA variant calling,
-    chromatin, methylation, metagenomics and the like are "atlas", even when
+    performs (chromatin, methylation or metagenomics, for now), even when
     an atlas pipeline shares a word with the request (rnavar calls variants
-    from RNA; calling variants on DNA is not what it does). Another part of
-    the system chooses from a wider catalog, so do not refuse on the atlas's
-    behalf.
+    from RNA and sarek from DNA; neither profiles methylation). Another part
+    of the system chooses from a wider catalog, so do not refuse on the
+    atlas's behalf.
 
 Equally, do not refuse merely because the pipeline's output would still need
 downstream analysis; that is true of almost every correct answer.
@@ -161,7 +160,7 @@ def decide(*, client, model: str, budget: int | None, payload: str, question: st
         if not reason:
             return out_of_scope("the selection model refused without giving a reason", raw)
         # Only a refusal about THIS cohort's data may block the build. "Nothing in the
-        # atlas does this" is a statement about an RNA-only atlas, not about the
+        # atlas does this" is a statement about the atlas's coverage, not about the
         # question, so it hands the choice back to the agent's full catalog; so does
         # a missing or unrecognised basis.
         basis = parsed.get("basis")

@@ -189,3 +189,11 @@ def test_out_of_scope_helper_shape():
     assert verdict.kind == "out_of_scope"
     assert verdict.pipelines == []
     assert verdict.reason == "no evidence"
+
+
+from chat_nextseek.pipeline.selection import SYSTEM_PROMPT
+
+
+def test_the_prompt_does_not_call_the_atlas_rna_only():
+    assert "covers RNA pipelines only" not in SYSTEM_PROMPT
+    assert "sarek" in SYSTEM_PROMPT

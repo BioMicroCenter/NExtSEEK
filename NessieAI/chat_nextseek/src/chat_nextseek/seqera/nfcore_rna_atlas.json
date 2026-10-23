@@ -168,6 +168,9 @@
         "rnavar": {
           "differs_by": "rnavar calls variants genome-wide across transcripts. hlatyping resolves HLA alleles specifically, against a specialist reference, and reports allele calls rather than a VCF of general variants.",
           "ask_user": "Do you want HLA allele calls specifically, or variants across all transcripts?"
+        },
+        "sarek": {
+          "differs_by": "hlatyping resolves HLA alleles. sarek reports variants genome-wide and does not type HLA."
         }
       },
       "species_constraint": "HUMAN ONLY. HLA is the human MHC; OptiType maps reads against a reference of known human MHC class I alleles. Macaque (Mamu), mouse (H-2) and other species have no HLA to type. Class I only by default -- class II needs HLA-HD, which requires a separate local install."
@@ -257,6 +260,10 @@
         },
         "hlatyping": {
           "differs_by": "hlatyping resolves HLA alleles against a specialist reference. rnavar reports general variants and is not reliable for HLA calling."
+        },
+        "sarek": {
+          "differs_by": "rnavar calls variants from RNA-seq reads and sees only expressed transcripts. sarek calls them from DNA libraries, genome-wide.",
+          "ask_user": "Are these RNA-seq libraries or DNA libraries (genome, exome, panel)?"
         }
       }
     },

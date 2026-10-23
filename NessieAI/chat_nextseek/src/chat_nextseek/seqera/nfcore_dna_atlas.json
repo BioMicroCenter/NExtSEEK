@@ -1,0 +1,43 @@
+{
+  "guidance": {
+    "notes": [
+      "DNA pipelines need DNA libraries. A cohort whose lineage holds only RNA-seq libraries (LibrarySource TRANSCRIPTOMIC, LibraryStrategy RNA-Seq) cannot run sarek, even when the question asks about variants; rnavar is the RNA route."
+    ]
+  },
+  "pipelines": {
+    "sarek": {
+      "revision": "3.10.0",
+      "answers": "Which germline SNVs, indels and structural variants does each sample carry, and, for a tumour with its matched normal, which somatic mutations and copy-number changes are in the tumour?",
+      "assumes_prep": "Short-read Illumina DNA libraries: whole genome, whole exome or targeted capture.",
+      "input_you_must_have": "FASTQ per sample. For somatic calling, a tumour and a matched normal from the same patient, both linked to that patient in NExtSEEK. For exome or capture, the kit's target-region BED on the cluster.",
+      "data_signals": {
+        "library_strategy": [
+          "WGS",
+          "WXS",
+          "Targeted-Capture",
+          "WCS"
+        ],
+        "library_source": [
+          "GENOMIC"
+        ],
+        "prep_kit_hints": [
+          "exome",
+          "capture",
+          "panel",
+          "PCR-free",
+          "whole genome"
+        ]
+      },
+      "species_constraint": "HUMAN on Luria today: only the GATK GRCh38 bundle is staged. Another species needs its own references staged first.",
+      "versus": {
+        "rnavar": {
+          "differs_by": "sarek calls variants from DNA libraries. rnavar calls them from RNA-seq reads, so it sees only expressed transcripts.",
+          "ask_user": "Are these DNA libraries (genome, exome, panel) or RNA-seq?"
+        },
+        "hlatyping": {
+          "differs_by": "sarek reports variants genome-wide. hlatyping resolves HLA alleles against a specialist reference; sarek does not type HLA."
+        }
+      }
+    }
+  }
+}

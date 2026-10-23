@@ -36,11 +36,11 @@ SECTION_NAMES: tuple[str, ...] = ("atlas", "digest", "docs", "schemas")
 #: entry is a stub — prose only, present so the model has an explicit reason to
 #: rule it out rather than defaulting to whichever entry carries more text.
 RICH_PIPELINES: tuple[str, ...] = (
-    "rnaseq", "scrnaseq", "smrnaseq", "hlatyping", "rnafusion", "rnasplice",
+    "rnaseq", "scrnaseq", "smrnaseq", "hlatyping", "rnafusion", "rnasplice", "sarek",
 )
 
-#: The measured payload baseline (atlas + digest + docs + schemas for all six
-#: RICH_PIPELINES) is ~135k tokens. This ceiling exists so a payload that has
+#: The measured payload baseline (atlas + digest + docs + schemas for the first six
+#: RICH_PIPELINES; sarek, added later, makes it larger) is ~135k tokens. This ceiling exists so a payload that has
 #: grown too large fires our own PayloadTooLargeError, with a size breakdown,
 #: before the API rejects the request with an opaque error.
 #:

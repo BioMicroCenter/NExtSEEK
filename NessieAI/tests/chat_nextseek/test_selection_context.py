@@ -60,9 +60,9 @@ def _build(**kwargs):
     )
 
 
-def test_the_six_rich_pipelines_are_the_ones_that_get_schemas():
+def test_the_rich_pipelines_are_the_ones_that_get_schemas():
     assert RICH_PIPELINES == (
-        "rnaseq", "scrnaseq", "smrnaseq", "hlatyping", "rnafusion", "rnasplice",
+        "rnaseq", "scrnaseq", "smrnaseq", "hlatyping", "rnafusion", "rnasplice", "sarek",
     )
 
 
