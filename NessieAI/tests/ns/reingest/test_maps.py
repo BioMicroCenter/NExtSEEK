@@ -312,3 +312,30 @@ def test_hlatyping_2_2_is_a_checked_release():
     # MultiQC's multiqc_optitype.txt layout); nf-core reports it as v2.2.0-g<commit>.
     _, warnings = maps.effective(maps.load("hlatyping"), "v2.2.0-g3237d20")
     assert warnings == []
+
+
+@pytest.mark.parametrize("rule", [
+    {"id": "a", "candidates": ["x"], "sample_type": "A.VCF", "primary_data": True,
+     "skip_samples_without_file": True},
+    {"id": "a", "candidates": ["x"], "sample_type": "A.VCF", "primary_data": True,
+     "optional": True, "cardinality": "per_run", "skip_samples_without_file": True},
+], ids=["not optional", "per_run"])
+def test_skip_samples_without_file_is_only_for_optional_per_sample_rules(rule):
+    with pytest.raises(ValueError, match="skip_samples_without_file"):
+        maps.OutputRule.model_validate(rule)
+
+
+def test_skip_samples_without_file_loads_on_an_optional_per_sample_rule():
+    rule = maps.OutputRule.model_validate(
+        {"id": "a", "candidates": ["x"], "sample_type": "A.VCF", "primary_data": True,
+         "optional": True, "skip_samples_without_file": True})
+    assert rule.skip_samples_without_file
+    assert maps.OutputRule.model_validate(
+        {"id": "b", "candidates": ["x"], "sample_type": "A.VCF"}).skip_samples_without_file is False
+
+
+def test_sareks_germline_callers_skip_samples_and_hlatyping_does_not():
+    sarek = {r.id: r.skip_samples_without_file for r in maps.load("sarek").outputs}
+    assert sarek == {"aln": False, "vcf_haplotypecaller": True, "vcf_deepvariant": True,
+                     "vcf_freebayes": True, "vcf_strelka": True, "vcf_manta": True}
+    assert not any(r.skip_samples_without_file for r in maps.load("hlatyping").outputs)

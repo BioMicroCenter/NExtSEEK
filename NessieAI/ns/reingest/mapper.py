@@ -765,13 +765,13 @@ def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
     for sample in run_manifest.samples:
         if sample.uid_resolution in _NO_CHILD_ROW:
             continue
-        if (rule.optional and rule.primary_data
+        if (rule.optional and rule.primary_data and rule.skip_samples_without_file
                 and not any(_candidate_tiers(rule, run_manifest, sample.nfcore_sample))):
-            # The output exists for other samples but not this one (a tumour in
-            # a tumour/normal run gets no germline call set). A row without its
-            # data file is a hard reject that blocks the whole upload, so an
-            # optional rule writes none, and says so. A required rule still
-            # writes the fileless row: its missing file is a real gap to show.
+            # The map says some samples never have this output (a tumour in a
+            # tumour/normal run gets no germline call set). A row without its
+            # data file is a hard reject that blocks the whole upload, so none
+            # is written, and the skip is logged. Every other rule still writes
+            # the fileless row: there its missing file is a real gap to show.
             warnings.append(f"{sample.nfcore_sample}: no file for optional rule "
                             f"{rule.id}; no row written")
             continue

@@ -37,6 +37,7 @@
     {
       "id": "vcf_haplotypecaller",
       "optional": true,
+      "skip_samples_without_file": true,
       "candidates": ["variant_calling/haplotypecaller/*/*.haplotypecaller.filtered.vcf.gz",
                      "variant_calling/haplotypecaller/*/*.haplotypecaller.vcf.gz"],
       "sample_type": "A.VCF",
@@ -57,6 +58,7 @@
     {
       "id": "vcf_deepvariant",
       "optional": true,
+      "skip_samples_without_file": true,
       "candidates": ["variant_calling/deepvariant/*/*.deepvariant.vcf.gz"],
       "sample_type": "A.VCF",
       "assay": "Variant Call Filtering",
@@ -75,6 +77,7 @@
     {
       "id": "vcf_freebayes",
       "optional": true,
+      "skip_samples_without_file": true,
       "candidates": ["variant_calling/freebayes/*/*.freebayes.filtered.vcf.gz",
                      "variant_calling/freebayes/*/*.freebayes.vcf.gz"],
       "sample_type": "A.VCF",
@@ -93,6 +96,7 @@
     {
       "id": "vcf_strelka",
       "optional": true,
+      "skip_samples_without_file": true,
       "candidates": ["variant_calling/strelka/*/*.strelka.variants.vcf.gz"],
       "sample_type": "A.VCF",
       "assay": "Variant Call Filtering",
@@ -111,6 +115,7 @@
     {
       "id": "vcf_manta",
       "optional": true,
+      "skip_samples_without_file": true,
       "candidates": ["variant_calling/manta/*/*.manta.diploid_sv.vcf.gz"],
       "sample_type": "A.VCF",
       "assay": "Variant Call Filtering",

@@ -123,6 +123,12 @@ class OutputRule(BaseModel):
     # A flag-dependent output (--cram, --tools salmon). Matching nothing is
     # expected, so it is not reported as a miss (spec G-10).
     optional: bool = False
+    # Optional per_sample rules only: a sample with no file for this rule gets no
+    # row, and the skip is logged. For outputs some samples never have by design,
+    # such as a germline caller's VCF for the tumours of a tumour/normal run.
+    # Unset, such a sample gets a fileless row, whose hard block on the upload is
+    # what makes a genuinely missing file (hlatyping's OptiType call) visible.
+    skip_samples_without_file: bool = False
     attributes: dict[str, str] = Field(default_factory=dict)
     # Whether this rule's rows also receive the map's `provenance_attributes`
     # (mapper.apply merges that one flat dict into every row of every output
@@ -169,6 +175,10 @@ class OutputRule(BaseModel):
         declare primary data. It takes exactly one candidate pattern: per-stem
         candidate fallback is not supported. Companions pair with each row's
         file by its stem (see mapper._pairs_with_row_file)."""
+        if self.skip_samples_without_file and not (
+                self.optional and self.cardinality == "per_sample"):
+            raise ValueError(f"rule {self.id!r}: skip_samples_without_file is for optional "
+                             "per_sample rules only")
         if self.cardinality == "per_file":
             if not self.primary_data:
                 raise ValueError(f"per_file rule {self.candidates[0]!r} must set primary_data")

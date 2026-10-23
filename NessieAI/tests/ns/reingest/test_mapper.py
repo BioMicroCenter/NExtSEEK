@@ -1956,6 +1956,7 @@ def test_a_link_the_map_sets_wins():
 _MANTA_RULE = {
     "id": "vcf_manta", "candidates": ["variant_calling/manta/*/*.manta.diploid_sv.vcf.gz"],
     "sample_type": "A.VCF", "cardinality": "per_sample", "primary_data": True, "optional": True,
+    "skip_samples_without_file": True,
     "companions": [{"glob": "variant_calling/manta/*/*.manta.diploid_sv.vcf.gz.tbi"}]}
 
 
@@ -2051,8 +2052,20 @@ def test_an_optional_per_sample_rule_skips_a_sample_with_no_file_and_says_so():
     assert not any(w.startswith("N:") and "vcf_manta" in w for w in result.warnings)
 
 
+def test_an_optional_per_sample_rule_without_the_flag_still_writes_the_fileless_row():
+    # hlatyping's OptiType runs on every sample: a missing file there is a real
+    # gap, and the fileless row's hard block is what makes it visible.
+    unflagged = {**_MANTA_RULE, "skip_samples_without_file": False}
+    result = mapper.apply(_two_sample_vcf_run(), _v2map([unflagged]))
+    rows = _manta_rows(result)
+    assert sorted(rows) == ["N", "T"]
+    assert "File_PrimaryData" not in rows["T"].attributes
+    assert not any("no row written" in w for w in result.warnings)
+
+
 def test_a_required_per_sample_rule_still_writes_a_row_for_a_sample_with_no_file():
-    required = {**_MANTA_RULE, "optional": False}
+    required = {key: value for key, value in _MANTA_RULE.items()
+                if key not in ("optional", "skip_samples_without_file")}
     result = mapper.apply(_two_sample_vcf_run(), _v2map([required]))
     rows = _manta_rows(result)
     assert sorted(rows) == ["N", "T"]
