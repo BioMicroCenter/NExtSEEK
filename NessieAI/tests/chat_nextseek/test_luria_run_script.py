@@ -678,3 +678,59 @@ def test_the_template_no_longer_hardcodes_genome():
 def test_pipeline_catalog_key_accepts_every_spelling():
     for p in ("nf-core/sarek", "https://github.com/nf-core/sarek.git", "sarek", "nf-core/Sarek"):
         assert pipeline_catalog_key(p) == "sarek"
+
+
+from chat_nextseek.luria.run_script import (  # noqa: E402
+    LURIA_GENOME_RESOURCES, genome_ref_paths, local_luria_ref_files, luria_resource_params,
+    luria_run_genome, render_luria_config,
+)
+
+
+def test_sarek_runs_on_the_gatk_bundle():
+    assert luria_run_genome("nf-core/sarek", "GRCh38") == "GATK.GRCh38"
+    assert luria_run_genome("nf-core/rnaseq", "GRCh38") == "GRCh38"
+
+
+def test_sarek_gets_the_bundle_fasta_and_no_gtf():
+    s = _script(genome="GATK.GRCh38", reference_cli_flags=["genome", "fasta"])
+    assert "--genome GATK.GRCh38" in s
+    assert "--fasta /net/x/refs/GATK.GRCh38/Homo_sapiens_assembly38.fasta" in s
+    assert "--gtf" not in s
+
+
+def test_a_genome_without_a_gtf_gives_none_for_it():
+    assert genome_ref_paths("GATK.GRCh38", "/net/x/refs") == (
+        "/net/x/refs/GATK.GRCh38/Homo_sapiens_assembly38.fasta", None)
+    assert local_luria_ref_files("GATK.GRCh38") == {
+        "fasta": "GATK.GRCh38/Homo_sapiens_assembly38.fasta"}
+
+
+def test_resource_params_name_sareks_params():
+    p = luria_resource_params("nf-core/sarek", "GATK.GRCh38", "/net/x/refs")
+    assert p["dbsnp"] == "/net/x/refs/GATK.GRCh38/dbsnp_146.hg38.vcf.gz"
+    assert p["known_indels"] == "/net/x/refs/GATK.GRCh38/known_indels/*.vcf.gz"
+    assert p["intervals"].endswith("/wgs_calling_regions_noseconds.hg38.bed")
+    assert set(p) == {"fasta_fai", "dict", "dbsnp", "dbsnp_tbi", "known_indels",
+                      "known_indels_tbi", "germline_resource", "germline_resource_tbi",
+                      "pon", "pon_tbi", "intervals"}
+
+
+def test_a_users_intervals_win_over_the_wgs_default():
+    p = luria_resource_params("nf-core/sarek", "GATK.GRCh38", "/net/x/refs",
+                              {"intervals": "/net/lab/kit_targets.bed"})
+    assert "intervals" not in p
+
+
+def test_pipelines_without_resources_get_none():
+    assert luria_resource_params("nf-core/rnaseq", "GRCh38", "/net/x/refs") == {}
+
+
+def test_resource_paths_pass_the_shell_guard():
+    from chat_nextseek.seqera.pipeline_params import refuse_shell_syntax
+    refuse_shell_syntax(luria_resource_params("nf-core/sarek", "GATK.GRCh38", "/net/x/refs"))
+
+
+def test_luria_config_omits_gtf_for_a_genome_without_one():
+    cfg = render_luria_config("/net/x/refs")
+    block = cfg.split("'GATK.GRCh38' {", 1)[1].split("}", 1)[0]
+    assert "fasta" in block and "gtf" not in block

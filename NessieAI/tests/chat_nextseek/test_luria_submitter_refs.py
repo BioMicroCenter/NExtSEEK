@@ -25,3 +25,17 @@ def test_submit_passes_the_catalog_reference_flags(tmp_path, monkeypatch):
     out, seen = _submit(tmp_path, monkeypatch, "nf-core/sarek", "3.10.0")
     assert out["job_id"] == "42"
     assert seen["reference_cli_flags"] == ["genome", "fasta"]
+
+
+def test_submit_runs_sarek_on_the_bundle_with_its_resources(tmp_path, monkeypatch):
+    captured = {}
+    real_yml = submitter._build_params_yml
+
+    def yml_spy(launch_params, overrides=None):
+        captured["overrides"] = overrides
+        return real_yml(launch_params, overrides)
+
+    monkeypatch.setattr(submitter, "_build_params_yml", yml_spy)
+    out, seen = _submit(tmp_path, monkeypatch, "nf-core/sarek", "3.10.0")
+    assert seen["genome"] == "GATK.GRCh38"
+    assert captured["overrides"]["dbsnp"] == "/net/x/refs/GATK.GRCh38/dbsnp_146.hg38.vcf.gz"

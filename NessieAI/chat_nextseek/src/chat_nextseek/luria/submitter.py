@@ -22,9 +22,9 @@ try:
 except Exception:  # pragma: no cover
     _yaml = None
 
-from .run_script import (luria_params_overrides, pipeline_catalog_key, render_run_script,
-                         render_luria_config, render_process_config, sanitize_job_name,
-                         validate_resources)
+from .run_script import (luria_params_overrides, luria_resource_params, luria_run_genome,
+                         pipeline_catalog_key, render_run_script, render_luria_config,
+                         render_process_config, sanitize_job_name, validate_resources)
 from .fetchngs_helpers import needs_fetch_accessions
 from .ssh import prepare_key, ssh_run, scp_file
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
@@ -152,6 +152,7 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
     if not genome:
         print(f"[LURIA][SUBMIT] entry {name!r}: no resolved genome — defaulting to GRCh38 "
               "(VERIFY the cohort is human before trusting results!)")
+    run_genome = luria_run_genome(pipeline, run_genome)
 
     # run.sh drives the run with explicit --fasta/--gtf for the resolved genome (path > iGenomes;
     # the params.genomes map resolution is unreliable), -params-file params.yml (curated params),
@@ -185,7 +186,9 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
                         + render_process_config(process_args))
         cfg_tmp = _write_temp(luria_config, prefix="luriacfg_", suffix=".config")
         tmp_files.append(cfg_tmp)
-        params_yml = _build_params_yml(launch_params, luria_params_overrides(pipeline, run_genome))
+        overrides = {**luria_params_overrides(pipeline, run_genome),
+                     **luria_resource_params(pipeline, run_genome, refs_root, launch_params)}
+        params_yml = _build_params_yml(launch_params, overrides)
         params_tmp = _write_temp(params_yml, prefix="params_", suffix=".yml")
         tmp_files.append(params_tmp)
 
