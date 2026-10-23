@@ -904,3 +904,29 @@ def test_a_pairing_refusal_after_a_good_setup_clears_it_too(tmp_path):
     out = _sarek(state, tmp_path, "mutect2")   # N1's patient has no tumour
     assert _is_pairing_refusal(out) and "P1" in out["ask_the_user"]
     assert "launch" not in state["artifacts"] and "launch_plan" not in state
+
+
+# --- a run param the user set is not overruled by a default ---------
+
+def test_configure_run_keeps_a_users_adapter_when_the_metadata_has_none(monkeypatch, tmp_path):
+    # smrnaseq's adapter defaults to Illumina's when no sample names one; a user who names
+    # theirs is not told it "should be" the default.
+    seen = {}
+    real = at.build_run_params
+
+    def spy(pipeline_key, agent_params, bundle_key):
+        seen.update(agent_params)
+        return real(pipeline_key, agent_params, bundle_key)
+
+    monkeypatch.setattr(at, "build_run_params", spy)
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("sample,fastq_1\nS1,/net/bmc-pub10/x/S1.fq.gz\n")
+    default = {"value": "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA", "verdict": "defaulted", "evidence": "e"}
+    state = {"artifacts": {"samplesheet": str(sheet)}, "bundle_key": "GRCh38",
+             "data_driven_evidence": {"S1": {"three_prime_adapter": default}}}
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "smrnaseq",
+                                                         "params": {"three_prime_adapter": "TGGAATTCTCGGGTGCCAAGG",
+                                                                    "mirtrace_species": "hsa"}},
+                                         str(tmp_path)))
+    assert "should be" not in json.dumps(out.get("errors") or []), out
+    assert seen.get("three_prime_adapter") == "TGGAATTCTCGGGTGCCAAGG", out

@@ -361,10 +361,17 @@ def _defaulted_run_atlas():
             "pipelines": {"hlatyping": {"params": {"seq_type": _spec_default()}}}}
 
 
-def test_check_run_params_corrects_when_supplied_value_disagrees_with_unanimous_defaulted_verdict():
+def test_check_run_params_keeps_a_supplied_value_over_a_unanimous_defaulted_verdict():
+    # A defaulted verdict is a fallback, not evidence (as for row columns): the user's value stands.
     evidence = {"D.SEQ-1": {"seq_type": {"value": "x", "verdict": "defaulted", "evidence": "e"}}}
     out = check_run_params("hlatyping", {"seq_type": "y"}, evidence, atlas=_defaulted_run_atlas())
-    assert out["ask_uids"] == []
+    assert out["ask_uids"] == [] and out["corrections"] == []
+
+
+def test_check_run_params_corrects_when_one_leaf_is_decisive_and_the_rest_defaulted_agree():
+    evidence = {"D.SEQ-1": {"seq_type": {"value": "x", "verdict": "corroborated", "evidence": "e"}},
+                "D.SEQ-2": {"seq_type": {"value": "x", "verdict": "defaulted", "evidence": "e"}}}
+    out = check_run_params("hlatyping", {"seq_type": "y"}, evidence, atlas=_defaulted_run_atlas())
     assert out["corrections"] == [("*", "seq_type", "x")]
 
 

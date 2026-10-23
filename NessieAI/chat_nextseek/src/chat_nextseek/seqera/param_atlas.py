@@ -237,6 +237,12 @@ def _evaluate_detection(spec: dict, signals: dict) -> dict[str, Any]:
             "evidence": f"nothing in {', '.join(s for s, _ in checks)}"}
 
 
+#: Verdicts backed by the metadata: only these may overrule a value the user gave.
+DECISIVE_VERDICTS = frozenset({"corroborated", "derived_uncorroborated"})
+#: Verdicts that may fill a param nobody set; ``defaulted`` is the spec's safe default.
+FILL_VERDICTS = DECISIVE_VERDICTS | {"defaulted"}
+
+
 def evaluate_data_driven_param(spec: dict, signals: dict) -> dict[str, Any]:
     """Derive + corroborate one param from a leaf's signals; return {value, verdict, evidence}.
 
@@ -335,7 +341,7 @@ def check_row_column_params(pipeline_key: str, rows: list[dict], evidence: dict,
                 ask_uids.append(uid)
                 ask_specs[name] = spec
             # A defaulted verdict is a fallback, not evidence: a value the user gave stands.
-            elif v in ("corroborated", "derived_uncorroborated"):
+            elif v in DECISIVE_VERDICTS:
                 if str(row.get(name)) != str(verdict.get("value")):
                     corrections.append((uid, name, verdict.get("value")))
     return {"ask_uids": sorted(set(ask_uids)), "ask_specs": ask_specs, "corrections": corrections}
@@ -344,7 +350,8 @@ def check_row_column_params(pipeline_key: str, rows: list[dict], evidence: dict,
 def check_run_params(pipeline_key: str, params: dict, evidence: dict,
                      atlas: dict | None = None) -> dict[str, Any]:
     """Run-scope analog: a run_param whose leaves conflict/absent must be asked;
-    if the supplied value disagrees with a unanimous decisive verdict, correct it."""
+    if the supplied value disagrees with a unanimous verdict that some leaf's metadata
+    decided, correct it. A value only the default backs never overrules the user's."""
     ask_uids: list[str] = []
     ask_specs: dict[str, dict] = {}
     corrections: list[tuple[str, str, str]] = []
@@ -373,7 +380,8 @@ def check_run_params(pipeline_key: str, params: dict, evidence: dict,
             ask_uids += list(per_leaf)
             ask_specs[name] = spec
             continue
-        if len(values) == 1 and (params or {}).get(name) is not None:
+        decided = any(v.get("verdict") in DECISIVE_VERDICTS for v in per_leaf.values())
+        if len(values) == 1 and decided and (params or {}).get(name) is not None:
             derived = next(iter(values))
             if str(params.get(name)) != str(derived):
                 corrections.append(("*", name, derived))
@@ -404,7 +412,7 @@ def render_param_elicitation(ask_specs: dict[str, dict], ask_uids: list[str], ev
         disagreeing = [u for u in ask_uids
                        if u not in conflict and u not in absent
                        and (_leaf_verdict(evidence, u, name) or {}).get("verdict")
-                       in ("corroborated", "derived_uncorroborated")]
+                       in DECISIVE_VERDICTS]
         if disagreeing:
             lines.append("  - these samples disagree on the value:")
             lines.append(f"    affected: {', '.join(sorted(disagreeing))}")

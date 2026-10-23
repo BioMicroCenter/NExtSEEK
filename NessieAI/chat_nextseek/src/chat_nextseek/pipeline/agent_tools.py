@@ -52,6 +52,7 @@ from ..seqera.user_params import (
 )
 from ..seqera.pairing import TABLE, pairing_question, tool_names
 from ..seqera.param_atlas import (
+    FILL_VERDICTS,
     check_row_column_params,
     check_run_params,
     data_driven_params,
@@ -712,18 +713,19 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
                                        "Do not call conclude, and do not invent values.")})
 
     # Data-driven run_param inference: fill each param whose leaves UNANIMOUSLY derived a
-    # decisive value the agent didn't set, so the inferred value (e.g. scrnaseq protocol,
-    # smrnaseq three_prime_adapter) is actually written to params.yml rather than lost to
-    # the curated menu default. conflict/absent are NOT decisive and are left to
+    # value (FILL_VERDICTS: decisive, or the spec's safe default) the agent didn't set, so the
+    # inferred value (e.g. scrnaseq protocol, smrnaseq three_prime_adapter) is actually written
+    # to params.yml rather than lost to the curated menu default. conflict/absent are left to
     # check_run_params to ask about; an agent-supplied value that disagrees is left for
-    # check_run_params to correct (setdefault does not overwrite it).
+    # check_run_params to correct (setdefault does not overwrite it), which it does only when
+    # some leaf's metadata decided the value, never for a default alone.
     _evidence = state.get("data_driven_evidence") or {}
     for _name, _spec in data_driven_params(pipeline_key).items():
         if _spec.get("target") != "run_param":
             continue
         _vals = {(pv.get(_name) or {}).get("value")
                  for pv in _evidence.values()
-                 if (pv.get(_name) or {}).get("verdict") in ("corroborated", "derived_uncorroborated", "defaulted")}
+                 if (pv.get(_name) or {}).get("verdict") in FILL_VERDICTS}
         _vals.discard(None)
         if len(_vals) == 1:
             agent_params.setdefault(_name, next(iter(_vals)))
