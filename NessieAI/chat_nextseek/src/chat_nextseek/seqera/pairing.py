@@ -19,10 +19,14 @@ _UNCLEAR = frozenset({"conflict", "absent"})
 _LABEL = {"0": "normal", "1": "tumour"}
 
 
-def requested_tumour_tools(tools) -> list[str]:
+def tool_names(tools) -> set[str]:
+    """sarek's `tools` (a comma string or a list) as lower-case names, blanks dropped."""
     names = tools if isinstance(tools, (list, tuple, set, frozenset)) else str(tools or "").split(",")
-    asked = {str(t).strip().lower() for t in names if str(t).strip()}
-    return sorted(asked & TUMOUR_TOOLS)
+    return {str(t).strip().lower() for t in names if str(t).strip()}
+
+
+def requested_tumour_tools(tools) -> list[str]:
+    return sorted(tool_names(tools) & TUMOUR_TOOLS)
 
 
 def _note(sample: str, verdict: dict, undecided: set[str]) -> str:

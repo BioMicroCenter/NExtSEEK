@@ -50,7 +50,7 @@ from ..seqera.user_params import (
     render_elicitation,
     validate_user_params,
 )
-from ..seqera.pairing import TABLE, pairing_question
+from ..seqera.pairing import TABLE, pairing_question, tool_names
 from ..seqera.param_atlas import (
     check_row_column_params,
     check_run_params,
@@ -676,6 +676,11 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
     })
 
 
+#: sarek tools whose reference files (ascat's allele/loci/GC files, controlfreec's mappability
+#: files) are not staged on Luria.
+_SAREK_UNSTAGED_TOOLS = frozenset({"ascat", "controlfreec"})
+
+
 def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_dir: str) -> str:
     """Assemble params.yml + launch.yml from curated params + species references + user steering."""
     pipeline_key = tool_input.get("pipeline_key") or state.get("pipeline_key") or ""
@@ -765,6 +770,17 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
                 "sarek on Luria needs the GATK GRCh38 bundle; this cohort's genome "
                 f"{sarek_genome or '(none resolved)'} has no staged DNA resources — "
                 "human samples only for now.")})
+        # The menu marks these unavailable, but a model can still send them: refuse here.
+        unstaged = sorted(tool_names(merged.get("tools")) & _SAREK_UNSTAGED_TOOLS)
+        if unstaged:
+            return json.dumps({"ok": False, "error": (
+                f"sarek's {', '.join(unstaged)} cannot run here: the allele, loci, GC and "
+                "mappability files they need are not staged on Luria. Remove them from tools.")})
+        if merged.get("save_output_as_bam") is True or \
+                str(merged.get("save_output_as_bam")).strip().lower() == "true":
+            return json.dumps({"ok": False, "error": (
+                "sarek's save_output_as_bam stays off: reingest registers sarek's alignments as "
+                "CRAMs only, until the reingest map has a BAM rule. Leave it unset.")})
 
     # sarek: tumour-pair tools only with a tumour and a matched normal per patient, and a
     # status the metadata did not decide is confirmed by the user first (seqera.pairing).

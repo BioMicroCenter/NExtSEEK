@@ -1,5 +1,5 @@
 from chat_nextseek.seqera.pairing import (OK, REFUSAL, TABLE, pairing_question, requested_tumour_tools,
-                                          somatic_pairing_check)
+                                          somatic_pairing_check, tool_names)
 
 
 def _ev(verdicts):
@@ -107,3 +107,9 @@ def test_a_conflict_without_evidence_text_is_still_marked_unclear():
 def test_defaulted_normals_in_a_germline_run_still_need_nothing():
     ev = _ev_full({"N1": {"verdict": "defaulted", "value": "0"}, "N2": {"verdict": "defaulted", "value": "0"}})
     assert pairing_question("haplotypecaller", NORMALS, ev) == (OK, "")
+
+
+def test_tool_names_reads_a_comma_string_or_a_list():
+    assert tool_names(" Mutect2, ,haplotypecaller") == {"mutect2", "haplotypecaller"}
+    assert tool_names(["ASCAT", " manta"]) == {"ascat", "manta"}
+    assert tool_names(None) == set()

@@ -1,3 +1,4 @@
+import pytest
 from chat_nextseek.pipeline.agent_tools import PIPELINE_TOOL_SCHEMAS
 
 
@@ -826,3 +827,39 @@ def test_configure_run_refuses_sarek_on_a_genome_with_no_staged_dna_resources(tm
     assert out["ok"] is False
     assert "GATK GRCh38 bundle" in out["error"] and "GRCm39" in out["error"]
     assert "params" not in state["artifacts"]
+
+
+# --- sarek tools and outputs Luria cannot serve are refused, whatever the menu says ---------
+
+def _germline_state(tmp_path):
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("patient,sex,status,sample,lane,fastq_1,fastq_2\n"
+                     "P1,NA,0,N1,L1,/net/bmc-pub10/x/N1_1.fq.gz,\n")
+    return {"artifacts": {"samplesheet": str(sheet)}, "bundle_key": "GRCh38",
+            "data_driven_evidence": {"N1": {"status": {"verdict": "corroborated", "value": "0"}}}}
+
+
+@pytest.mark.parametrize("tools", ["haplotypecaller,ascat", "ControlFREEC", "manta, ASCAT "])
+def test_configure_run_refuses_sarek_tools_whose_files_are_not_staged(tmp_path, tools):
+    state = _germline_state(tmp_path)
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek",
+                                                         "params": {"tools": tools}}, str(tmp_path)))
+    assert out["ok"] is False and "not staged on Luria" in out["error"]
+    assert "params" not in state["artifacts"]
+
+
+@pytest.mark.parametrize("value", [True, "true"])
+def test_configure_run_refuses_sarek_bam_output(tmp_path, value):
+    state = _germline_state(tmp_path)
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek",
+                                                         "params": {"save_output_as_bam": value}}, str(tmp_path)))
+    assert out["ok"] is False and "CRAM" in out["error"]
+    assert "params" not in state["artifacts"]
+
+
+def test_a_normal_sarek_germline_run_is_not_refused(tmp_path):
+    state = _germline_state(tmp_path)
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek",
+                                                         "params": {"tools": "haplotypecaller,manta",
+                                                                    "save_output_as_bam": False}}, str(tmp_path)))
+    assert out["ok"] is True, out
