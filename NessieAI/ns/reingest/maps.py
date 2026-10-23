@@ -194,6 +194,14 @@ class UnmappedRuling(BaseModel):
     why: str
 
 
+class UnmappedFiles(BaseModel):
+    """Run files no rule registers, on purpose. Read only for a map that sets
+    claims_every_file (spec 2026-10-22-nfcore-dna-pipelines §7)."""
+    model_config = ConfigDict(extra="forbid")
+    glob: str
+    why: str
+
+
 class VersionOverride(BaseModel):
     """Rules for one release range. An output with an existing id replaces that
     base rule, a new id adds a rule, and `drop` removes base rules by id."""
@@ -242,6 +250,14 @@ class PipelineMap(BaseModel):
     provenance_attributes: dict[str, str] = Field(default_factory=dict)
     qc_attributes: dict[str, AttributeRule] = Field(default_factory=dict)
     deliberately_unmapped: list[UnmappedRuling] = Field(default_factory=list)
+    #: MultiQC general-stats rows that belong to a sample but are named <sample><suffix>
+    #: (sarek: "<sample>.recal", "<sample>.md"), best first. Their columns join the sample's
+    #: metrics; a column the sample's own row or an earlier suffix already holds is kept.
+    qc_row_suffixes: list[str] = Field(default_factory=list)
+    #: When true, the fixture contract test requires every file in a run to be a rule's
+    #: candidate or companion, or to match an `unmapped_files` glob.
+    claims_every_file: bool = False
+    unmapped_files: list[UnmappedFiles] = Field(default_factory=list)
 
     def ruled_out(self) -> set[str]:
         """Keys someone already decided not to map. Never re-proposed."""

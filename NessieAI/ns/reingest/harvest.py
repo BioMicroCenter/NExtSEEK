@@ -572,7 +572,9 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
                     "will be a partial list")
         metrics = {**_module_metrics(name, module_tables),
                    **_sample_metrics(name, stats, sample_names=set(row_counts),
-                                     claimed=mapper.claimed_raw_keys(pipeline_map))}
+                                     claimed=mapper.claimed_raw_keys(pipeline_map),
+                                     row_suffixes=tuple(pipeline_map.qc_row_suffixes)
+                                     if pipeline_map is not None else ())}
         out.samples.append(manifest.SampleRecord(
             nfcore_sample=name,
             fastq_1=str(row.get("fastq_1") or ""),
@@ -1007,9 +1009,10 @@ _MATE_ROWS = (("_1", "R1"), ("_2", "R2"))
 
 
 def _sample_metrics(name: str, stats: dict, *, sample_names: set[str],
-                    claimed: set[str]) -> dict:
-    """`name`'s own general-stats row, plus its per-read rows' columns that a
-    map rule reads, as `<column>@R1` / `<column>@R2`.
+                    claimed: set[str], row_suffixes: tuple[str, ...] = ()) -> dict:
+    """`name`'s own general-stats row, its `<name><suffix>` rows (the map's
+    qc_row_suffixes, best first), and its per-read rows' columns that a map rule reads,
+    as `<column>@R1` / `<column>@R2`.
 
     FastQC and Cutadapt run once per read file, and MultiQC writes those
     values only on `<name>_1` / `<name>_2` rows, never on the sample's own
@@ -1017,8 +1020,16 @@ def _sample_metrics(name: str, stats: dict, *, sample_names: set[str],
     the review queue. A mate row that is itself a sample in this run (a real
     replicate named `<name>_1`) is never folded, and neither is a row with
     any column a per-read row cannot have (see `_is_per_read_column`).
+    nf-core/sarek names no row after the sample at all: its alignment metrics
+    sit on `<name>.recal` and `<name>.md`, which `row_suffixes` folds in whole.
     """
     metrics = dict(stats.get(name, {}))
+    for suffix in row_suffixes:
+        row = f"{name}{suffix}"
+        if row in sample_names:
+            continue
+        for column, value in (stats.get(row) or {}).items():
+            metrics.setdefault(column, value)
     for suffix, tag in _MATE_ROWS:
         mate = f"{name}{suffix}"
         if mate in sample_names or mate not in stats:

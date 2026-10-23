@@ -1,6 +1,7 @@
 """One test per committed run fixture (spec §8.3).
 
-Each fixture is a staged copy of a Nessie-launched -profile test run, reduced to
+Each fixture is a staged copy of a Nessie-launched -profile test run, or nf-core's own published evidence
+imported by scripts/reingest/import_evidence.py (spec 2026-10-22, G-7 amended), reduced to
 text files plus an inventory listing. The test harvests it, maps it, and compares
 the row shape with the committed snapshot. A new release is a new folder; its
 snapshot diff shows what moved.
@@ -67,3 +68,26 @@ def test_fixture(folder):
         if not UPDATE:
             pytest.fail(f"wrote a new snapshot for {folder}; review and commit it")
     assert shape == json.loads(snapshot.read_text())
+
+
+import fnmatch
+
+# Files the harvest reads itself, or fixture bookkeeping: no map has to claim them.
+_HARVEST_OWNED = ("pipeline_info/*", "multiqc/*", "samplesheet.csv", "launch_record.json",
+                  "EVIDENCE.txt", "SYNTHETIC.txt", "inventory.json", "snapshot.json")
+
+
+@pytest.mark.parametrize("folder", FIXTURES, ids=lambda p: f"{p.parent.name}/{p.name}")
+def test_every_file_is_claimed_or_ruled_out(folder):
+    """For a map that claims every file: each file in the run is a rule's candidate or
+    companion, or is named in unmapped_files with a reason (spec 2026-10-22 §7)."""
+    pipeline_map = maps.load(folder.parent.name)
+    if not pipeline_map.claims_every_file:
+        pytest.skip(f"{folder.parent.name} does not claim every file")
+    paths = [e["path"] for e in json.loads((folder / "inventory.json").read_text())]
+    rules = list(pipeline_map.outputs) + [r for o in pipeline_map.versions for r in o.outputs]
+    patterns = [p for rule in rules for p in [*rule.candidates, *(c.glob for c in rule.companions)]]
+    patterns += [u.glob for u in pipeline_map.unmapped_files] + list(_HARVEST_OWNED)
+    expanded = [e for p in patterns for e in maps.expand_braces(p)]
+    unclaimed = [p for p in paths if not any(fnmatch.fnmatch(p, g) for g in expanded)]
+    assert unclaimed == [], f"{folder}: files no rule claims and no ruling explains: {unclaimed}"

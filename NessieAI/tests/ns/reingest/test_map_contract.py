@@ -449,3 +449,10 @@ def test_no_key_is_both_ruled_out_and_read_by_a_rule(name):
     m = maps.load(name)
     both = sorted(m.ruled_out() & mapper.claimed_raw_keys(m))
     assert not both, f"{name}: ruled out and read by a rule: {both}"
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_unmapped_file_ruling_explains_itself_and_is_not_a_catch_all(name):
+    for ruling in maps.load(name).unmapped_files:
+        assert len(ruling.why) > 20, f"{name}: {ruling.glob}"
+        assert ruling.glob.strip("*/") != "", f"{name}: {ruling.glob} rules out everything"

@@ -53,7 +53,7 @@ from NessieAI.ns.reingest import manifest
 # way as the rest (see that function); then "bam", "cram", "vcf" in the
 # order hlatyping (bam), rnafusion/rnavar (bam, cram) and rnavar (vcf) were
 # reviewed.
-_PATH_COLUMNS: tuple[str, ...] = ("fastq_1", "fastq_2", "bam", "cram", "vcf")
+_PATH_COLUMNS: tuple[str, ...] = ("fastq_1", "fastq_2", "spring_1", "spring_2", "bam", "cram", "vcf")
 
 
 def resolve(
