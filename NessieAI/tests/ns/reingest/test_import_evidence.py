@@ -75,6 +75,28 @@ def test_params_keep_scalars_and_drop_paths():
                                           "outdir": "/RUN", "input": "/RUN/samplesheet.csv"}
 
 
+def test_config_params_keep_only_real_scalar_values():
+    config = """params {
+    igenomes_base = 'https://raw.githubusercontent.com/x/'
+    genome = 'testdata.nf-core.sarek'  // a comment
+    memory = { 6.GB }
+    split_fastq = 0
+    wes = true
+    note = 'kept # inside the quotes'
+}
+process {
+    resourceLimits = [
+        cpus: 4,
+        memory: 15.GB
+    ]
+}
+"""
+    kept = ie.evidence_params(ie.config_params(config))
+    assert kept == {"genome": "testdata.nf-core.sarek", "split_fastq": 0, "wes": True,
+                    "note": "kept # inside the quotes",
+                    "outdir": "/RUN", "input": "/RUN/samplesheet.csv"}
+
+
 def test_write_fixture_lays_it_out_like_make_fixture(tmp_path):
     dest = tmp_path / "sarek" / "3.10.0"
     ie.write_fixture(dest, pipeline="sarek", version="3.10.0",

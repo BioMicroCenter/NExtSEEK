@@ -44,7 +44,9 @@ _SKIP_TABLES = {"multiqc_sources.txt", "multiqc_citations.txt", "multiqc_softwar
 _TABLE = re.compile(r"(^|/)multiqc/(.+/)?multiqc_data/(multiqc_[^/]+\.txt)$")
 _RUN_INFO = re.compile(r"^pipeline_info/(params_[^/]+\.json|[^/]*software_mqc_versions\.yml)$")
 _INPUT = re.compile(r"""^\s*input\s*=\s*['"]([^'"]+)['"]""", re.M)
-_SCALAR = re.compile(r"""^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*['"]?([^'"\n]*?)['"]?\s*(//.*)?$""", re.M)
+_ASSIGN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
+_COMMENT = re.compile(r"\s(//|#).*$")
+_QUOTED = re.compile(r"""^(['"])(.*?)\1(?:\s+(?://|#).*)?$""")
 
 
 def _fetch(url: str) -> bytes:
@@ -120,6 +122,31 @@ def versions_yml_from_snapshot(snapshot: dict, pipeline: str, tag: str | None = 
     raise SystemExit(f"no Workflow version for nf-core/{pipeline} in the snapshot")
 
 
+def config_params(text: str) -> dict:
+    """Scalar `name = value` lines of a Nextflow config. A comment starts at whitespace then `//`
+    or `#`, so `https://...` values survive whole. A value is kept only if it is a complete quoted
+    string, true/false or a number; closures `{ ... }`, lists `[ ...` and other expressions yield
+    nothing."""
+    found: dict = {}
+    for line in text.splitlines():
+        m = _ASSIGN.match(line)
+        if not m:
+            continue
+        name, raw = m.group(1), m.group(2).strip()
+        quoted = _QUOTED.match(raw)
+        if not quoted:
+            raw = _COMMENT.sub("", raw).strip()
+        if quoted:
+            found[name] = quoted.group(2)
+        elif raw in ("true", "false"):
+            found[name] = raw == "true"
+        elif re.fullmatch(r"-?\d+", raw):
+            found[name] = int(raw)
+        elif re.fullmatch(r"-?\d+\.\d+", raw):
+            found[name] = float(raw)
+    return found
+
+
 def evidence_params(params: dict) -> dict:
     """Scalar params a map can read; anything that is a path or a URL is dropped."""
     kept = {k: v for k, v in params.items()
@@ -174,17 +201,24 @@ def from_snapshot(pipeline: str, version: str, test_name: str, fetch,
     url = f"{RAW}/{pipeline}/{version}/tests/{test_name}.nf.test.snap"
     snapshot = json.loads(fetch(url))
     config = _test_config(pipeline, version, "test", fetch)
-    params = {m.group(1): m.group(2) for m in _SCALAR.finditer(config)}
+    params = config_params(config)
+    try:
+        versions_yml, has_workflow = versions_yml_from_snapshot(snapshot, pipeline), True
+    except SystemExit:
+        versions_yml, has_workflow = versions_yml_from_snapshot(snapshot, pipeline, version), False
     return {"folder": version,
             "inventory": [{"path": p, "bytes": 0} for p in snapshot_paths(snapshot)],
             "samplesheet": _samplesheet(pipeline, version, config, samplesheet_url, fetch),
             "params": evidence_params(params),
-            "versions_yml": versions_yml_from_snapshot(snapshot, pipeline, version),
+            "versions_yml": versions_yml,
             "files": {},
             "evidence": (f"Evidence: GitHub nf-core/{pipeline} tag {version}, "
                          f"tests/{test_name}.nf.test.snap and conf/test.config, read "
                          f"{date.today().isoformat()}. File sizes are not in a snapshot, so every "
-                         "inventory entry has bytes 0. No MultiQC values: snapshots hold none.")}
+                         "inventory entry has bytes 0. No MultiQC values: snapshots hold none."
+                         + ("" if has_workflow else
+                            f" The workflow version comes from the release tag {version}, "
+                            "because the snapshot lists none."))}
 
 
 def from_aws(pipeline: str, version: str, profile: str, samplesheet_url: str | None, fetch) -> dict:
@@ -215,7 +249,8 @@ def from_aws(pipeline: str, version: str, profile: str, samplesheet_url: str | N
             "params": evidence_params(params), "versions_yml": versions_yml, "files": files,
             "evidence": (f"Evidence: nf-core/{pipeline} {version} AWS results, S3 bucket "
                          f"nf-core-awsmegatests, prefix {prefix}, listed {date.today().isoformat()}. "
-                         f"MultiQC tables downloaded: {len(files)}; other files are inventory only.")}
+                         f"MultiQC tables downloaded: {len(files)}; other files are inventory only, "
+                         "and every inventory size is recorded as 0, as make_fixture.sh does.")}
 
 
 def install_fixture(dest: Path, *, pipeline: str, version: str, built: dict) -> int:

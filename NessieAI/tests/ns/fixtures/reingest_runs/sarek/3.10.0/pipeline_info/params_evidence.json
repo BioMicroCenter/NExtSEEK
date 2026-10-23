@@ -2,13 +2,8 @@
  "config_profile_description": "Minimal test dataset to check pipeline function",
  "config_profile_name": "Test profile",
  "genome": "testdata.nf-core.sarek",
- "igenomes_base": "https:",
  "input": "/RUN/samplesheet.csv",
- "memory": "{ 6.GB }",
- "modules_testdata_base_path": "https:",
  "outdir": "/RUN",
- "resourceLimits": "[",
- "sentieon_dnascope_model": "s3:",
- "split_fastq": "0",
+ "split_fastq": 0,
  "tools": "strelka"
 }
