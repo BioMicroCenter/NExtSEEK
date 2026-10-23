@@ -127,7 +127,7 @@ def conn_factory():
     with engine.begin() as conn:
         conn.execute(text("CREATE TABLE samples (id INTEGER PRIMARY KEY, uuid TEXT, policy_id INTEGER, "
                           "json_metadata TEXT, title TEXT, updated_at TEXT, contributor_id INTEGER)"))
-        conn.execute(text("CREATE TABLE sample_attributes (sample_type_id INTEGER, title TEXT)"))
+        conn.execute(text("CREATE TABLE sample_attributes (sample_type_id INTEGER, title TEXT, is_title INTEGER DEFAULT 0)"))
         conn.execute(text("CREATE TABLE policies (id INTEGER PRIMARY KEY, access_type INTEGER)"))
         conn.execute(text("CREATE TABLE permissions (id INTEGER PRIMARY KEY, policy_id INTEGER, "
                           "contributor_type TEXT, contributor_id INTEGER, access_type INTEGER)"))

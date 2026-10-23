@@ -14,6 +14,7 @@ from nextseek_api.batch_upload.prefetch import (
     prefetch_project_sample_type_links,
     prefetch_sample_type_attributes,
     prefetch_sample_types,
+    prefetch_title_attributes,
     resolve_sample_type_id,
     validate_assay_ids,
 )
@@ -368,3 +369,46 @@ class TestRefreshSampleTypeAttributesCache:
         conn2 = _make_conn(rows=[(1, "UID")])
         assert prefetch_sample_type_attributes([1], conn2) == {1: {"UID"}}
         conn2.execute.assert_not_called()
+
+
+# ── prefetch_title_attributes ────────────────────────────────────────────
+
+
+class TestPrefetchTitleAttributes:
+    def test_empty_id_list_issues_no_sql(self):
+        conn = MagicMock()
+        assert prefetch_title_attributes([], conn) == {}
+        conn.execute.assert_not_called()
+
+    def test_returns_each_types_title_attribute(self):
+        conn = _make_conn(rows=[(1, "UID"), (2, "Name")])
+        assert prefetch_title_attributes([1, 2], conn) == {1: "UID", 2: "Name"}
+        sql = str(conn.execute.call_args[0][0])
+        assert "is_title" in sql
+
+    def test_type_without_title_attribute_is_omitted_and_cached(self):
+        conn = _make_conn(rows=[(1, "UID")])
+        assert prefetch_title_attributes([1, 99], conn) == {1: "UID"}
+        conn.execute.reset_mock()
+        assert prefetch_title_attributes([1, 99], conn) == {1: "UID"}
+        conn.execute.assert_not_called()
+
+    def test_refresh_drops_cached_title_attributes_when_sample_attributes_changed(self):
+        prefetch_module.refresh_sample_type_attributes_cache(
+            _make_conn(rows=[(1, "2026-10-23 11:00:00")])
+        )
+        assert prefetch_title_attributes([1], _make_conn(rows=[(1, "UID")])) == {1: "UID"}
+
+        # is_title moves to another attribute; the edit moves updated_at.
+        prefetch_module.refresh_sample_type_attributes_cache(
+            _make_conn(rows=[(1, "2026-10-23 12:00:00")])
+        )
+        conn2 = _make_conn(rows=[(1, "Name")])
+        assert prefetch_title_attributes([1], conn2) == {1: "Name"}
+        conn2.execute.assert_called_once()
+
+    def test_clear_caches_drops_title_attributes(self):
+        prefetch_title_attributes([1], _make_conn(rows=[(1, "UID")]))
+        assert cache_stats()["sample_type_title_attribute"] == 1
+        clear_caches()
+        assert cache_stats()["sample_type_title_attribute"] == 0

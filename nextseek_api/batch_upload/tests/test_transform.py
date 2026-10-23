@@ -405,3 +405,74 @@ class TestBuildInsertableAttributeCheck:
             build_insertable(row, project_id=10, conn=conn)
         assert set(exc_info.value.bad_keys) == {"Name", "Subject ID"}
         assert exc_info.value.sample_type_id == 99
+
+
+# ── title from the sample type's title attribute ─────────────────────────
+
+
+@patch("nextseek_api.batch_upload.transform.prefetch_title_attributes")
+@patch("nextseek_api.batch_upload.transform.prefetch_sample_type_attributes")
+@patch("nextseek_api.batch_upload.transform.validate_assay_ids")
+@patch("nextseek_api.batch_upload.transform.resolve_sample_type_id")
+class TestTitleFromTitleAttribute:
+    """The title is the value of the type's title attribute, the rule SEEK applies on every save.
+
+    A file-based sample (A./D. UID) used to be titled by File_PrimaryData, so a later SEEK
+    re-save of its type (SampleTypeUpdateJob) silently renamed it to its UID.
+    """
+
+    def _build(self, mock_resolve, mock_validate, mock_attrs, mock_title, meta, title_attr="UID",
+               uid="A.ALN-261021BMC-1"):
+        mock_resolve.return_value = 74
+        mock_validate.return_value = (set(), set())
+        mock_attrs.return_value = {74: set(meta)}
+        mock_title.return_value = {74: title_attr} if title_attr else {}
+        row = InputRowModel(UID=uid, SampleType="A.ALN", json_metadata=json.dumps(meta))
+        sample, _ = build_insertable(row, project_id=10, conn=MagicMock())
+        return sample
+
+    def test_file_based_sample_takes_its_uid(self, mock_resolve, mock_validate, mock_attrs, mock_title):
+        sample = self._build(mock_resolve, mock_validate, mock_attrs, mock_title, {
+            "UID": "A.ALN-261021BMC-1",
+            "File_PrimaryData": "D.SEQ-240709KAM-1-PUB.md.bam",
+            "Name": "SRX25141024_SRR29635281_1",
+        })
+        assert sample.title == "A.ALN-261021BMC-1"
+
+    def test_title_attribute_other_than_uid_is_honoured(self, mock_resolve, mock_validate, mock_attrs,
+                                                        mock_title):
+        sample = self._build(mock_resolve, mock_validate, mock_attrs, mock_title,
+                             {"UID": "A.ALN-261021BMC-1", "Name": "  run  one "}, title_attr="Name")
+        assert sample.title == "run one"
+
+    def test_integer_title_value_becomes_text(self, mock_resolve, mock_validate, mock_attrs, mock_title):
+        sample = self._build(mock_resolve, mock_validate, mock_attrs, mock_title,
+                             {"UID": "A.ALN-261021BMC-1", "Name": 7}, title_attr="Name")
+        assert sample.title == "7"
+
+    def test_uid_title_attribute_uses_the_row_uid_when_metadata_lacks_it(self, mock_resolve, mock_validate,
+                                                                          mock_attrs, mock_title):
+        sample = self._build(mock_resolve, mock_validate, mock_attrs, mock_title,
+                             {"File_PrimaryData": "D.SEQ-240709KAM-1-PUB.md.bam"})
+        assert sample.title == "A.ALN-261021BMC-1"
+
+    def test_missing_title_value_falls_back_to_the_identity_rule(self, mock_resolve, mock_validate,
+                                                                 mock_attrs, mock_title):
+        # An update row may carry only the keys it changes.
+        sample = self._build(mock_resolve, mock_validate, mock_attrs, mock_title,
+                             {"File_PrimaryData": "x.bam"}, title_attr="Name")
+        assert sample.title == "x.bam"
+
+    def test_type_without_title_attribute_falls_back(self, mock_resolve, mock_validate, mock_attrs,
+                                                     mock_title):
+        sample = self._build(mock_resolve, mock_validate, mock_attrs, mock_title,
+                             {"File_PrimaryData": "x.bam", "UID": "A.ALN-261021BMC-1"}, title_attr=None)
+        assert sample.title == "x.bam"
+
+    def test_structured_title_value_falls_back(self, mock_resolve, mock_validate, mock_attrs, mock_title):
+        # A linked-sample attribute holds an object; SEEK titles it by the linked sample, which this
+        # stage cannot see. The object is never stringified into a title: the fallback runs instead,
+        # and with a Name the metadata model rejects, that fallback is the UID.
+        sample = self._build(mock_resolve, mock_validate, mock_attrs, mock_title,
+                             {"File_PrimaryData": "x.bam", "Name": {"id": 3}}, title_attr="Name")
+        assert sample.title == "A.ALN-261021BMC-1"

@@ -15,6 +15,7 @@ from .identity import canonicalize_file_primary_data, extract_identity
 from .models import InputRowModel, InsertableSample, SampleMetadata
 from .prefetch import (
     prefetch_sample_type_attributes,
+    prefetch_title_attributes,
     resolve_sample_type_id,
     validate_assay_ids,
 )
@@ -93,12 +94,18 @@ def build_insertable(
 
     minified = unicodedata.normalize("NFC", _json_dumps_min(canonical_meta))
 
-    # 5. Title from metadata
-    try:
-        meta = SampleMetadata.model_validate(canonical_meta)
-    except Exception:
-        meta = SampleMetadata()
-    title = title_from_metadata(meta, row.UID)
+    # 5. Title: the type's title attribute, as SEEK sets it on every save; the identity
+    #    rule only when the type has none or the row does not carry its value.
+    title_attribute = prefetch_title_attributes([sample_type_id], conn).get(sample_type_id)
+    title = title_attribute_value(canonical_meta, title_attribute)
+    if title is None and title_attribute == "UID" and row.UID and str(row.UID).strip():
+        title = _normalize_text(str(row.UID))  # a row built without the UID mirrored into its metadata
+    if title is None:
+        try:
+            meta = SampleMetadata.model_validate(canonical_meta)
+        except Exception:
+            meta = SampleMetadata()
+        title = title_from_metadata(meta, row.UID)
 
     # 6. Validate assay IDs
     valid_assays, missing_assays = validate_assay_ids(row.assay_ids, conn)
@@ -136,8 +143,22 @@ def parse_and_minify_json(raw: str) -> str:
         raise JsonNormalizationError(f"Cannot parse JSON metadata: {exc}") from exc
 
 
+def title_attribute_value(metadata: Dict, title_attribute: Optional[str]) -> Optional[str]:
+    """The row's value for its type's title attribute, as text, or None when there is none to use.
+
+    A structured value (a linked sample) is None too: SEEK titles it by the linked sample.
+    """
+    if not title_attribute:
+        return None
+    value = metadata.get(title_attribute)
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return None
+    text = _normalize_text(str(value))
+    return text or None
+
+
 def title_from_metadata(metadata: SampleMetadata, uid: Optional[str]) -> Optional[str]:
-    """Determine sample title from canonical identity rules."""
+    """Fallback title from canonical identity rules, for a type or row without a title attribute value."""
     normalized_uid = _normalize_text(uid) if uid and str(uid).strip() else None
     identity = extract_identity(
         metadata.model_dump(exclude_none=True),
