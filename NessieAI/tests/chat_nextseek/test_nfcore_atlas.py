@@ -194,3 +194,12 @@ def test_a_single_file_still_refuses_a_versus_key_no_file_has(tmp_path):
     lone = _file(tmp_path, "lone.json", {"rnavar": {"revision": "1.3.0", "versus": {"nosuch": {"differs_by": "d"}}}})
     with pytest.raises(AtlasError, match="nosuch"):
         load_atlas(lone)
+
+
+def test_a_single_file_load_fails_loudly_on_a_malformed_sibling(tmp_path, monkeypatch):
+    lone = _file(tmp_path, "lone.json", {"rnavar": {"revision": "1.3.0", "versus": {}}})
+    broken = tmp_path / "broken_sibling.json"
+    broken.write_text("{not json")
+    monkeypatch.setattr(nfcore_atlas, "ATLAS_PATHS", (broken,))
+    with pytest.raises(AtlasError, match="broken_sibling.json"):
+        load_atlas(lone)

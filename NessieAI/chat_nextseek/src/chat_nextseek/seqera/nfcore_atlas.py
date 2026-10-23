@@ -98,9 +98,11 @@ def _validate(pipelines: dict[str, Any], known: set[str] | None = None) -> None:
 def load_atlas(path: str | Path | None = None) -> dict[str, Any]:
     """Read the atlas, validate it, and return it.
 
-    With no `path`, every file in ATLAS_PATHS is merged (a key in two files raises); with
-    one, only that file is read (its `versus` keys may name a pipeline in a sibling file). Raises AtlasError when an entry lacks a revision or a
-    `versus` key names a pipeline that has no entry. Warns on one-sided `versus` pairs and
+    With no `path`, every file in ATLAS_PATHS is merged (a key in two files raises). With
+    one, only that file's pipelines are returned; the sibling files in ATLAS_PATHS are still
+    read, for the pipeline names its `versus` keys may use, so a broken sibling raises too.
+    Raises AtlasError when an entry lacks a revision or a `versus` key names a pipeline that
+    has no entry. Warns on one-sided `versus` pairs and
     on a revision that disagrees with seqera/catalog.py.
     """
     if path is None:
@@ -111,9 +113,7 @@ def load_atlas(path: str | Path | None = None) -> dict[str, Any]:
     payload = _read(Path(path))
     siblings: set[str] = set()
     for sibling in ATLAS_PATHS:
-        try:
-            siblings |= set(_read(sibling)["pipelines"])
-        except AtlasError:
-            pass
+        # A broken shipped atlas must fail loudly here too, not leave its names unknown.
+        siblings |= set(_read(sibling)["pipelines"])
     _validate(payload["pipelines"], siblings)
     return payload
