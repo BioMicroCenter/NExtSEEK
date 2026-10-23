@@ -1,0 +1,105 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/riboseq",
+  "applies_to_versions": ">=1.2,<2",
+  "accepts_parent_types": ["D.SEQ"],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "outputs": [
+    {
+      "id": "aln",
+      "candidates": ["alignment/star/sorted/*.genome.sorted.bam"],
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [{"glob": "alignment/star/sorted/*.genome.sorted.bam.bai"}],
+      "attributes": {
+        "DataType": "BAM",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "$params.aligner",
+        "Genome": "$params.genome"
+      }
+    },
+    {
+      "id": "gene_counts",
+      "candidates": ["quantification/salmon/salmon.merged.gene_counts.tsv"],
+      "sample_type": "A.GEX",
+      "assay": "Gene Expression Analysis",
+      "cardinality": "per_run",
+      "primary_data": true,
+      "include_provenance": true,
+      "attributes": {
+        "Matrix": "gene_counts",
+        "Name": "@gex_name",
+        "Scientist": "@nextseek_user",
+        "Lab": "@lab",
+        "SampleCreationDate": "@run_date",
+        "DataType": "TSV",
+        "Notes": "One matrix across every library in the run: the samplesheet type column (riboseq, rnaseq, tiseq) says which columns are ribosome footprints and which are total RNA."
+      }
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "PipelineVersion": "$pipeline.version",
+    "Aligner": "$params.aligner",
+    "ReferenceGenome": "$params.genome",
+    "Link_ReferenceGenome": "@genome_path",
+    "AnnotationGTF": "@gtf_path",
+    "Link_GTF": "@gtf_path",
+    "Link_QualityControl": "$outputs.multiqc_report_html"
+  },
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html", "target": "D.SEQ",
+      "datatype": "string", "provenance": "seed"
+    },
+    "Genome": {
+      "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
+      "provenance": "seed"
+    },
+    "GCPercent": {"from": "fastqc_raw-percent_gc", "target": "D.SEQ", "datatype": "number", "alternates": ["fastqc_raw-percent_gc@R1", "fastp-after_filtering_gc_content"], "note": "FastQC on the raw reads; single-end runs write it on the sample row, paired-end on <sample>_1 (@R1)", "provenance": "seed"},
+    "F_bp": {"from": "fastqc_raw-avg_sequence_length@R1", "target": "D.SEQ", "datatype": "number", "alternates": ["fastqc_raw-avg_sequence_length", "fastp-before_filtering_read1_mean_length"], "note": "mean read-1 length (FastQC per-read row, else the single-end sample row)", "provenance": "seed"},
+    "R_bp": {"from": "fastqc_raw-avg_sequence_length@R2", "target": "D.SEQ", "datatype": "number", "alternates": ["fastp-before_filtering_read2_mean_length"], "note": "mean read-2 length; paired-end only", "provenance": "seed"},
+    "Q30Percent": {"from": "fastp-after_filtering_q30_rate", "target": "D.SEQ", "datatype": "number", "note": "fastp's base-level Q30 rate, written as a percentage by MultiQC", "provenance": "seed"},
+    "PassedFilterPercent": {"from": "fastp-pct_surviving", "target": "D.SEQ", "datatype": "number", "provenance": "seed"},
+    "AdapterPercent": {"from": "fastp-pct_adapter", "target": "D.SEQ", "datatype": "number", "provenance": "seed"},
+    "rRNAPercent": {"from": "sortmerna-rRNA_pct", "target": "D.SEQ", "datatype": "number", "provenance": "seed"},
+    "MappedPercent": {"from": "star-uniquely_mapped_percent", "target": "D.SEQ", "datatype": "number", "provenance": "seed"},
+    "MismatchPercent": {"from": "samtools_stats-error_rate", "target": "D.SEQ", "datatype": "number", "note": "a percentage in MultiQC 1.32's general stats", "provenance": "seed"}
+  },
+  "deliberately_unmapped": [
+    {"key": "fastqc_raw-percent_duplicates", "why": "Sequence-level duplication before alignment; DuplicationPercent is alignment-based (Picard), and mixing the two definitions in one field would mislead."},
+    {"key": "fastqc_raw-median_sequence_length", "why": "Same as the average length; hidden when samples agree within 10 bp."},
+    {"key": "fastqc_raw-percent_fails", "why": "Share of FastQC modules that failed: a report summary, not a measurement."},
+    {"key": "fastqc_raw-total_sequences", "why": "Count in millions; NumReads/TotalReads hold read counts."},
+    {"key": "fastqc_trimmed-percent_duplicates", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_trimmed-percent_gc", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_trimmed-avg_sequence_length", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_trimmed-median_sequence_length", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_trimmed-percent_fails", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_trimmed-total_sequences", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "cutadapt-percent_trimmed", "why": "Percentage of bases (not reads) trimmed by Trim Galore; low signal, and AdapterPercent covers adapter content where fastp runs."},
+    {"key": "fastp-pct_duplication", "why": "fastp's pre-alignment duplication estimate; DuplicationPercent is alignment-based."},
+    {"key": "fastp-after_filtering_q30_bases", "why": "Megabases; Q30Percent carries the quality."},
+    {"key": "fastp-filtering_result_passed_filter_reads", "why": "Count in millions; PassedFilterPercent carries it."},
+    {"key": "star-total_reads", "why": "Count in millions (raw counts in MultiQC <=1.21); exact counts belong to a STAR log harvest, as in rnaseq."},
+    {"key": "star-mapped", "why": "Count in millions (raw counts in MultiQC <=1.21); exact counts belong to a STAR log harvest, as in rnaseq."},
+    {"key": "star-mapped_percent", "why": "Unique plus multimapped; equals MappedPercent + MultimappedPercent (as ruled for rnaseq)."},
+    {"key": "star-uniquely_mapped", "why": "Count in millions (raw counts in MultiQC <=1.21); exact counts belong to a STAR log harvest, as in rnaseq."},
+    {"key": "star-multimapped", "why": "Count in millions. MultimappedPercent needs the STAR log harvested, as rnaseq does."},
+    {"key": "samtools_stats-non_primary_alignments", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "samtools_stats-reads_mapped", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "samtools_stats-reads_mapped_percent", "why": "STAR's uniquely mapped percent fills MappedPercent in this pipeline."},
+    {"key": "samtools_stats-reads_properly_paired_percent", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "samtools_stats-reads_MQ0_percent", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "samtools_stats-raw_total_sequences", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "samtools_stats-insert_size_average", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "samtools_flagstat-flagstat_total", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "samtools_flagstat-mapped_passed", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."},
+    {"key": "samtools_flagstat-mapped_passed_pct", "why": "Same ruling as rnaseq: BAM-record counts in millions, near-constant on these BAMs, or (insert size) inflated by introns."}
+  ]
+}

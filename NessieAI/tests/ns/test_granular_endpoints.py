@@ -304,7 +304,17 @@ class ReingestEndpointTests(GranularEndpointBase):
     the handlers, models, and sidecar forwarders but omitted these two @action
     methods, so the sidecar's POST hit a CSRF-enforcing fallback and 403'd —
     which the agent misread as an auth failure. Handler-only tests (test_run_ls_op)
-    did not catch it because they call run_op directly, never the URL."""
+    did not catch it because they call run_op directly, never the URL.
+
+    ``_granular_chat_config`` is patched for the same reason as GraphSchemaEndpointTests:
+    the hermetic lane's settings carry no ``NEXTSEEK_CHAT_CONFIG``."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch("nextseek_api.services.assistant._granular_chat_config",
+                        return_value=SimpleNamespace())
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_run_ls_endpoint_is_routed_and_csrf_exempt(self):
         # patch run_op so the endpoint returns without SSHing Luria; the point is
@@ -323,6 +333,52 @@ class ReingestEndpointTests(GranularEndpointBase):
         self.assertEqual(resp.status_code, 422)
         self.assertEqual(resp.json()["code"], "VALIDATION")
 
+    def test_run_harvest_endpoint_passes_the_signed_in_user(self):
+        # With no run_dir the op picks the caller's waiting launched run, so it must
+        # know the caller. Without a session it saw nobody and reported no run waiting
+        # (seen live: "my run is done" after a Nessie-launched hlatyping run).
+        captured = {}
+
+        def _run_op(*args, **kwargs):
+            captured["session"] = kwargs.get("session")
+            return {"manifest_id": None, "candidates": []}
+
+        with patch("nextseek_api.services.assistant.run_op", side_effect=_run_op):
+            resp = self.client.post(f"{self.BASE}/run-harvest/", {}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(captured["session"].user.pk, self.user.pk)
+
+    def test_build_upload_xlsx_endpoint_passes_the_signed_in_user(self):
+        captured = {}
+
+        def _run_op(*args, **kwargs):
+            captured["session"] = kwargs.get("session")
+            return {"saved_files": {}, "qa": {}, "reply": "", "proposals": [],
+                    "answers_deferred": [], "builds": []}
+
+        with patch("nextseek_api.services.assistant.run_op", side_effect=_run_op):
+            resp = self.client.post(f"{self.BASE}/build-upload-xlsx/",
+                                    {"manifest_id": "abc123", "mode": "new"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(captured["session"].user.pk, self.user.pk)
+
+    def test_build_upload_xlsx_endpoint_hands_over_the_running_turn_lookup(self):
+        captured = {}
+
+        def _run_op(*args, **kwargs):
+            captured["session"] = kwargs.get("session")
+            return {"saved_files": {}, "qa": {}, "reply": "", "proposals": [],
+                    "answers_deferred": [], "builds": []}
+
+        with patch("nextseek_api.services.assistant.run_op", side_effect=_run_op), \
+                patch("nextseek_api.assistant.chat_turns.running_cc_turn",
+                      return_value={"turn_number": 1}) as running:
+            resp = self.client.post(f"{self.BASE}/build-upload-xlsx/",
+                                    {"manifest_id": "abc123", "mode": "new"}, format="json")
+            self.assertEqual(resp.status_code, 200, resp.content)
+            self.assertEqual(captured["session"].chat_turn(), {"turn_number": 1})
+        self.assertEqual(running.call_args.args[0].pk, self.user.pk)
+
     def test_build_upload_xlsx_endpoint_is_routed_and_returns_bundle(self):
         with patch("nextseek_api.services.assistant.run_op",
                    return_value={"summary": {}, "saved_files": {}, "rows": []}):
@@ -334,6 +390,155 @@ class ReingestEndpointTests(GranularEndpointBase):
         # build-upload-xlsx is an artifact op -> a download bundle is registered
         self.assertIn("download", body)
         self.assertEqual(body["download"]["bundle_id"], 1)
+
+    def test_build_upload_xlsx_manifest_id_is_accepted_by_the_request_model(self):
+        """rows is now optional; a caller sending manifest_id instead must not
+        422 at the pydantic layer (NessieAI.ns.granular does its own
+        manifest_id/rows validation, not tested at this HTTP layer)."""
+        with patch("nextseek_api.services.assistant.run_op",
+                   return_value={"saved_files": {}, "qa": {}, "reply": "", "proposals": []}):
+            resp = self.client.post(f"{self.BASE}/build-upload-xlsx/",
+                                    {"manifest_id": "abc123", "mode": "new"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+
+    def test_build_upload_xlsx_persists_returned_proposals_via_the_service_layer(self):
+        """The op stays pure (never calls proposals.record itself, per its own
+        docstring); the SERVICE layer is the one writer. This proves the Step 4
+        wiring actually persists what the op hands back, using a real
+        ReingestAttributeProposal row rather than a mocked record() call."""
+        from nextseek_api.assistant.models_db import ReingestAttributeProposal as Proposal
+
+        pending = [{
+            "raw_key": "Some_Unmapped_Metric", "example_value": 3.2,
+            "source_file": "multiqc/x.txt", "example_sample": "SAMPLE_1",
+            "proposed_attribute": "", "proposed_target": "",
+            "pipeline": "nf-core/rnaseq", "manifest_digest": "abc123",
+            "run_dir": "/net/cluster/runs/r1",
+        }]
+        with patch("nextseek_api.services.assistant.run_op",
+                   return_value={"saved_files": {}, "qa": {}, "reply": "",
+                                 "proposals": pending}):
+            resp = self.client.post(f"{self.BASE}/build-upload-xlsx/",
+                                    {"manifest_id": "abc123", "mode": "new"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(Proposal.objects.count(), 1)
+        row = Proposal.objects.first()
+        self.assertEqual(row.raw_key, "Some_Unmapped_Metric")
+        self.assertEqual(row.pipeline, "nf-core/rnaseq")
+        self.assertEqual(row.status, Proposal.STATUS_PENDING)
+
+    def test_build_upload_xlsx_with_no_proposals_writes_nothing(self):
+        """An empty/absent proposals list must not call record() at all --
+        record() indexes pending[0], which would IndexError on an empty list
+        if the guard were missing."""
+        from nextseek_api.assistant.models_db import ReingestAttributeProposal as Proposal
+
+        with patch("nextseek_api.services.assistant.run_op",
+                   return_value={"saved_files": {}, "qa": {}, "reply": "", "proposals": []}):
+            resp = self.client.post(f"{self.BASE}/build-upload-xlsx/",
+                                    {"manifest_id": "abc123", "mode": "new"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(Proposal.objects.count(), 0)
+
+    def test_build_upload_xlsx_forwards_answers_to_the_op(self):
+        with patch("nextseek_api.services.assistant.run_op",
+                   return_value={"saved_files": {}, "qa": {}, "reply": "", "proposals": [],
+                                 "answers_deferred": [], "builds": []}) as run_op:
+            resp = self.client.post(f"{self.BASE}/build-upload-xlsx/",
+                                    {"manifest_id": "abc123", "mode": "new",
+                                     "answers": '{"fill": []}'}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(run_op.call_args.args[1]["answers"], '{"fill": []}')
+
+    def test_upload_reingest_rejects_a_string_true_at_validation(self):
+        resp = self.client.post(f"{self.BASE}/upload-reingest/",
+                                {"build_ids": "a" * 64, "confirmed_write": "true"},
+                                format="json")
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(resp.json()["code"], "VALIDATION")
+
+    def test_upload_reingest_unconfirmed_is_write_blocked_before_any_lookup(self):
+        with patch("NessieAI.ns.reingest.upload.run") as run:
+            resp = self.client.post(f"{self.BASE}/upload-reingest/",
+                                    {"build_ids": "a" * 64}, format="json")
+            run.assert_not_called()
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()["code"], "WRITE_BLOCKED")
+
+    def test_upload_reingest_unconfirmed_never_resolves_the_seek_identity(self):
+        with patch("nextseek_api.batch_upload.views._resolve_user_context") as resolve:
+            resp = self.client.post(f"{self.BASE}/upload-reingest/",
+                                    {"build_ids": "a" * 64, "confirmed_write": False},
+                                    format="json")
+        self.assertEqual(resp.status_code, 403)
+        resolve.assert_not_called()
+
+    def test_upload_reingest_hands_the_batch_upload_seams_to_the_engine(self):
+        """The engine never imports the batch-upload views; the REST layer puts
+        the job dispatch and the staging copy on the session."""
+        from nextseek_api.batch_upload import views as batch_views
+        with patch("NessieAI.ns.reingest.upload.run",
+                   return_value={"jobs": [], "reply": ""}) as run, \
+                patch("nextseek_api.batch_upload.views._resolve_user_context",
+                      return_value={"lababbv": "MIT"}):
+            resp = self.client.post(f"{self.BASE}/upload-reingest/",
+                                    {"build_ids": "a" * 64, "confirmed_write": True},
+                                    format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertIs(run.call_args.kwargs["stage"], batch_views.stage_workbook_copy)
+        # ...and the job-state lookup, so the op can wait and report how each job ended.
+        self.assertIs(run.call_args.kwargs["job_state"], batch_views.job_outcome)
+
+    def test_upload_reingest_dispatches_with_the_callers_project_scope(self):
+        """SEC-001: every job the op starts carries the caller's project scope, read
+        when the job starts, so a member uploads only into their own projects."""
+        with patch("NessieAI.ns.reingest.upload.run",
+                   return_value={"jobs": [], "reply": ""}) as run, \
+                patch("nextseek_api.batch_upload.views._resolve_user_context",
+                      return_value={"lababbv": "MIT"}):
+            resp = self.client.post(f"{self.BASE}/upload-reingest/",
+                                    {"build_ids": "a" * 64, "confirmed_write": True},
+                                    format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        dispatch = run.call_args.kwargs["dispatch"]
+        with patch("nextseek_api.batch_upload.views._caller_project_scope",
+                   return_value=(14,)) as scope, \
+                patch("nextseek_api.batch_upload.views.dispatch_batch_job",
+                      return_value="job-1") as batch:
+            self.assertEqual(dispatch(project_id=14, xlsx_paths=["/m/a.xlsx"]), "job-1")
+        self.assertEqual(scope.call_args.args[0].pk, self.user.pk)
+        self.assertEqual(batch.call_args.kwargs,
+                         {"scope_project_ids": (14,), "project_id": 14, "xlsx_paths": ["/m/a.xlsx"]})
+
+    def test_upload_reingest_asks_the_server_which_turn_the_call_runs_in(self):
+        """The agent supplies no chat or turn: the REST layer looks both up for the
+        signed-in user and hands the engine the lookups."""
+        with patch("NessieAI.ns.reingest.upload.run",
+                   return_value={"jobs": [], "reply": ""}) as run, \
+                patch("nextseek_api.batch_upload.views._resolve_user_context",
+                      return_value={"lababbv": "MIT"}), \
+                patch("nextseek_api.assistant.chat_turns.running_cc_turn",
+                      return_value={"turn_number": 2}) as running, \
+                patch("nextseek_api.assistant.chat_turns.turn_delivered",
+                      return_value=True) as delivered:
+            resp = self.client.post(f"{self.BASE}/upload-reingest/",
+                                    {"build_ids": "a" * 64, "confirmed_write": True},
+                                    format="json")
+            self.assertEqual(resp.status_code, 200, resp.content)
+            self.assertEqual(run.call_args.kwargs["chat_turn"](), {"turn_number": 2})
+            self.assertIs(run.call_args.kwargs["turn_delivered"]("task-1"), True)
+        self.assertEqual(running.call_args.args[0].pk, self.user.pk)
+        self.assertEqual(delivered.call_args.args[0].pk, self.user.pk)
+        self.assertEqual(delivered.call_args.args[1], "task-1")
+
+    def test_upload_reingest_refuses_a_caller_supplied_person_id(self):
+        """The batch-upload identity resolver honours a body person_id for
+        admins; this request model must never let one through."""
+        resp = self.client.post(f"{self.BASE}/upload-reingest/",
+                                {"build_ids": "a" * 64, "confirmed_write": True,
+                                 "person_id": 1}, format="json")
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(resp.json()["code"], "VALIDATION")
 
 
 class GraphSchemaEndpointTests(GranularEndpointBase):

@@ -1,0 +1,994 @@
+"""granular._run_harvest: runs-root path guard, registration/write-gate exemption,
+and the SSH staging method (a remote tar built from Python's own pathlib glob,
+not the remote shell's globbing).
+
+The staging tests are the load-bearing ones: GENERIC_GLOBS' MultiQC pattern
+("multiqc*/**/*_data/multiqc_*.txt") is a multi-segment "**" pattern, which
+pathlib.Path.glob treats as zero-or-more intervening directories. A plain
+POSIX shell `ls -1d <pattern>` does NOT match that -- confirmed directly (see
+task-9-report.md): it silently returns nothing for a run whose MultiQC
+directory has zero or two intervening directories (only a coincidental single
+intervening directory, as in the checked-in fixture, happens to match). That
+failure is silent (no error, just an empty listing), which is exactly the
+failure class this staging method exists to eliminate.
+"""
+from __future__ import annotations
+
+import io
+import json
+import os
+import subprocess
+import sys
+import tarfile
+from pathlib import Path
+
+import pytest
+from django.contrib.auth import get_user_model
+
+import chat_nextseek.luria.ssh as ssh
+import NessieAI.ns.granular as g
+from NessieAI.ns.reingest import harvest, manifest as manifest_schema
+from nextseek_api.assistant.models_db import PipelineRun
+
+pytestmark = pytest.mark.django_db
+
+FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "nfcore_rnaseq_run"
+needs_fixture = pytest.mark.skipif(
+    not FIXTURE.is_dir(),
+    reason="nf-core run fixture is local-only; see the fixture README")
+
+
+class _Cfg:
+    LURIA_ENV = {"working_path": "/net/cluster", "key": "/dev/null",
+                 "user": "user", "host": "cluster.example.edu"}
+
+
+def _dispatch(op: str, args: dict, config=None, session=None, write_gate=None,
+              neo4j_exec=None, outputs_dir=None):
+    """The brief's sketch calls a `granular.dispatch(...)` that does not exist
+    (verified: the real entry point is `run_op`, keyword-only past `args`,
+    per `NessieAI.ns.granular.run_op` and every existing caller, e.g.
+    `NessieAI/tests/ns/test_granular_dispatch.py`). This wrapper keeps the
+    brief's positional call shape at the test call sites below while calling
+    the real function correctly."""
+    return g.run_op(op, args, config=config, session=session, write_gate=write_gate,
+                     neo4j_exec=neo4j_exec, outputs_dir=outputs_dir)
+
+
+# ---------------------------------------------------------------------------
+# Step 1 (brief)
+# ---------------------------------------------------------------------------
+
+def test_run_harvest_refuses_a_dir_outside_the_runs_root():
+    with pytest.raises(g.OpValidationError) as err:
+        _dispatch("run-harvest", {"run_dir": "/etc"}, _Cfg(), None, None, None, None)
+    assert "runs" in str(err.value)
+
+
+def test_run_harvest_refuses_traversal_out_of_the_runs_root():
+    with pytest.raises(g.OpValidationError):
+        _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/../../etc"},
+                  _Cfg(), None, None, None, None)
+
+
+def test_run_harvest_is_registered_and_takes_no_write_gate():
+    assert "run-harvest" in g._HANDLERS
+    from NessieAI.ns import write_gate
+    assert "run-harvest" not in write_gate.SIDECAR_OPS
+
+
+# ---------------------------------------------------------------------------
+# Staging: prove the remote-Python-glob + single-tar method actually handles
+# every GENERIC_GLOBS pattern, INCLUDING directory depths a plain shell glob
+# (without globstar, or on a shell that never supports "**") would miss.
+# ---------------------------------------------------------------------------
+
+def _run_stage_script_locally(run_dir: str, patterns, *, runs_root=None, max_file_bytes=None,
+                               max_total_bytes=None, max_files=None, inventory_patterns=(),
+                               max_inventory_files=None, max_checksum_file_bytes=None,
+                               max_checksum_total_bytes=None) -> bytes:
+    """Stand-in for ssh_run_bytes: runs the exact remote script we ship
+    (g._STAGE_SCRIPT) via a local subprocess against `run_dir`, exactly as it
+    would run on the cluster host over SSH. Returns the tar bytes it writes
+    to stdout (including the trailing __nextseek_stage_report__.json entry).
+
+    ``runs_root`` defaults to ``run_dir``'s parent, matching every call site
+    below's ``tmp_path / "runs" / "a_run"`` layout -- i.e. the confinement
+    anchor a real ``_validate_run_dir`` call would have computed. A test
+    exercising the Important-1 run_dir-is-itself-a-symlink guard overrides
+    it explicitly to the real runs root, distinct from run_dir's (symlinked)
+    location.
+
+    The cap kwargs default to the real harvest.MAX_* caps, matching what
+    `_stage_run_dir` passes in production; a test overrides one to exercise
+    the remote-side cap enforcement without needing a multi-MB fixture file.
+
+    ``inventory_patterns`` defaults to empty -- most tests here exercise
+    only the staging half (``patterns``) and don't care about the inventory
+    half at all; a test that does passes its own ``harvest.inventory_globs()``
+    or a narrower synthetic set."""
+    proc = subprocess.run(
+        [sys.executable, "-c", g._STAGE_SCRIPT, run_dir,
+         runs_root if runs_root is not None else str(Path(run_dir).parent),
+         str(max_file_bytes if max_file_bytes is not None else harvest.MAX_FILE_BYTES),
+         str(max_total_bytes if max_total_bytes is not None else harvest.MAX_TOTAL_BYTES),
+         str(max_files if max_files is not None else harvest.MAX_FILES),
+         str(max_inventory_files if max_inventory_files is not None else harvest.MAX_INVENTORY_FILES),
+         str(max_checksum_file_bytes if max_checksum_file_bytes is not None else g._HARVEST_CHECKSUM_MAX_FILE_BYTES),
+         str(max_checksum_total_bytes if max_checksum_total_bytes is not None else g._HARVEST_CHECKSUM_MAX_TOTAL_BYTES),
+         g._STAGE_REPORT_NAME, str(len(patterns)), *patterns, *inventory_patterns],
+        capture_output=True, check=True)
+    return proc.stdout
+
+
+@pytest.mark.parametrize("depth", [0, 1, 2])
+def test_stage_run_dir_matches_pathlib_at_every_multiqc_directory_depth(tmp_path, monkeypatch, depth):
+    """The MultiQC glob's "**" must behave like pathlib's zero-or-more-dirs,
+    at 0, 1 (the fixture's own depth) and 2 intervening directories. A plain
+    `ls -1d` shell glob (no globstar) only "works" at depth 1 by coincidence
+    -- confirmed to return nothing at depths 0 and 2."""
+    run_dir = tmp_path / "runs" / "a_run"
+    middle = "/".join(f"level{i}" for i in range(depth))
+    data_dir = run_dir / "multiqc" / middle / "star_salmon_data" if middle else \
+        run_dir / "multiqc" / "star_salmon_data"
+    data_dir.mkdir(parents=True)
+    target = data_dir / "multiqc_general_stats.txt"
+    target.write_text("Sample\tstar-x\nA\t1\n")
+    (run_dir / "other.txt").write_text("not matched")  # must NOT be staged
+
+    monkeypatch.setattr(ssh, "ssh_run_bytes",
+                         lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(str(run_dir), harvest.GENERIC_GLOBS))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    expected_rel = target.relative_to(run_dir)
+    staged_file = staged / expected_rel
+    assert staged_file.is_file(), (
+        f"depth={depth}: expected {expected_rel} to be staged; got "
+        f"{sorted(p.relative_to(staged) for p in staged.rglob('*') if p.is_file())}")
+    assert staged_file.read_text() == target.read_text()
+    assert not (staged / "other.txt").exists()
+
+
+def test_shell_ls_glob_would_have_silently_missed_depth_zero_and_two():
+    """Documents exactly the failure the tar/pathlib method avoids: a plain
+    `ls -1d` (no globstar) against the MultiQC "**" pattern matches only at
+    one intervening directory, and returns NOTHING (not an error) at zero or
+    two -- the silent-empty-result class this op exists to prevent."""
+    import shutil
+    if shutil.which("sh") is None:
+        pytest.skip("no /bin/sh available")
+    for depth, should_match in ((0, False), (1, True), (2, False)):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            middle = "/".join(f"level{i}" for i in range(depth))
+            data_dir = base / "multiqc_test" / middle / "some_data" if middle else \
+                base / "multiqc_test" / "some_data"
+            data_dir.mkdir(parents=True)
+            (data_dir / "multiqc_x.txt").write_text("x")
+            proc = subprocess.run(
+                "ls -1d multiqc*/**/*_data/multiqc_*.txt 2>/dev/null || true",
+                shell=True, cwd=str(base), capture_output=True, text=True, executable="/bin/sh")
+            matched = bool(proc.stdout.strip())
+            assert matched == should_match, (
+                f"depth={depth}: shell glob match={matched}, expected {should_match}")
+
+
+def test_stage_run_dir_skips_a_symlink_that_escapes_run_dir_and_reports_it(tmp_path, monkeypatch):
+    """Important 1 (2026-09-16 review): a symlink inside an otherwise-valid
+    run_dir, named to match a GENERIC_GLOBS pattern and pointing outside
+    run_dir, must never be dereferenced and shipped -- the run_dir
+    confinement exists because the SSH account is shared, and the read
+    already happens on the cluster side, before any local extract step."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    outside = tmp_path / "outside_secret.csv"
+    outside.write_text("SECRET,DO,NOT,SHIP\n")
+    link = run_dir / "samplesheet.csv"  # matches _SAMPLESHEET_GLOB ("*.csv")
+    link.symlink_to(outside)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(str(run_dir), harvest.GENERIC_GLOBS))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, _inventory = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    assert not (staged / "samplesheet.csv").exists()
+    assert not any("SECRET" in p.read_text() for p in staged.rglob("*") if p.is_file())
+    assert any(item["path"] == "samplesheet.csv" and "symlink" in item["reason"] for item in skipped), skipped
+
+
+def test_stage_run_dir_refuses_a_run_dir_that_is_itself_a_symlink_out_of_the_runs_root(tmp_path, monkeypatch):
+    """The fifth containment escape (Important 1, 2026-09-16 whole-branch
+    review): the escape above is a symlink INSIDE run_dir. This one is
+    run_dir ITSELF: `_validate_run_dir`'s check is purely lexical (see its
+    docstring), so a symlink at `<runs_root>/a_run` pointing at
+    `/elsewhere` still looks like an ordinary subpath of the runs root and
+    passes it. The bug this closes: _STAGE_SCRIPT used to anchor its
+    containment check on `run_dir.resolve()`, which for a symlinked
+    run_dir IS `/elsewhere` -- so every file glob-matched through the
+    symlink trivially "resolved inside run_dir" and shipped. Confining
+    against `runs_root.resolve()` instead means run_dir escaping is
+    detected and refused outright, never silently degraded into an
+    all-skipped-but-successful harvest."""
+    runs_root_dir = tmp_path / "runs"
+    runs_root_dir.mkdir()
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    secret = outside / "params.json"  # matches a GENERIC_GLOBS pattern
+    secret.write_text('{"secret": true}')
+    run_dir = runs_root_dir / "a_run"
+    run_dir.symlink_to(outside)  # run_dir ITSELF escapes the runs root
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), harvest.GENERIC_GLOBS, runs_root=str(runs_root_dir)))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    with pytest.raises(g.OpValidationError) as err:
+        g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(runs_root_dir), str(staged), "/dev/null")
+    assert "runs root" in str(err.value).lower()
+    assert not any(p.is_file() for p in staged.rglob("*")), "nothing must be staged from an escaping run_dir"
+
+
+def test_stage_run_dir_refuses_an_oversized_file_remotely_rather_than_transferring_it(tmp_path, monkeypatch):
+    """Important 2 (2026-09-16 review): the byte ceiling must be enforced on
+    the cluster side, before the tar stream is built, not only after the
+    whole tree is already transferred and extracted (ssh_run_bytes buffers
+    the entire tar in memory; harvest_local's caps apply only after that).
+    Reuses harvest.MAX_FILE_BYTES's mechanism via an override so the test
+    does not need a real ~108 MB RSeQC-sized fixture file."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    big = run_dir / "big.csv"  # matches _SAMPLESHEET_GLOB ("*.csv")
+    big.write_bytes(b"x" * 100)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), harvest.GENERIC_GLOBS, max_file_bytes=50))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, _inventory = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    assert not (staged / "big.csv").exists(), "oversized file must never be transferred, not just discarded locally"
+    assert any(
+        item["path"] == "big.csv" and "exceeds max file bytes" in item["reason"] for item in skipped
+    ), skipped
+
+
+def test_stage_run_dir_skips_a_hardlink_to_a_file_outside_run_dir_and_reports_it(tmp_path, monkeypatch):
+    """Important 1 of the follow-up 2026-09-16 adversarial review: a
+    hardlink inside run_dir has no separate target path to resolve away
+    from -- `is_symlink()` is False and `resolve()` returns itself -- so
+    the symlink checks above (test_stage_run_dir_skips_a_symlink_...) do
+    NOT catch it. Without the st_nlink check this ships the outside file's
+    real content."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    outside = tmp_path / "outside_secret.csv"
+    outside.write_text("SECRET,DO,NOT,SHIP\n")
+    link = run_dir / "samplesheet.csv"  # matches _SAMPLESHEET_GLOB ("*.csv")
+    os.link(str(outside), str(link))
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(str(run_dir), harvest.GENERIC_GLOBS))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, _inventory = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    assert not (staged / "samplesheet.csv").exists()
+    assert not any("SECRET" in p.read_text() for p in staged.rglob("*") if p.is_file())
+    assert any(
+        item["path"] == "samplesheet.csv" and "hardlink" in item["reason"] for item in skipped
+    ), skipped
+
+
+def test_stage_run_dir_skips_a_file_reached_through_a_symlinked_ancestor_dir(tmp_path, monkeypatch):
+    """Minor 3 (2026-09-16 review): the module comment above _STAGE_SCRIPT
+    claims resolve() 'catches a symlinked ancestor directory too', but only
+    the direct leaf-symlink case (test_stage_run_dir_skips_a_symlink_...) was
+    ever tested. Here the MATCHED FILE ITSELF is a real file, not a symlink
+    -- it is reached through a symlinked PARENT directory that points
+    outside run_dir -- so path.is_symlink() is False and only the
+    resolve()/relative_to() ancestor check can catch it."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    outside_dir = tmp_path / "outside_dir"
+    outside_dir.mkdir()
+    outside_file = outside_dir / "params_x.json"
+    outside_file.write_text('{"secret": true}')
+
+    # pipeline_info is a symlink (the ancestor), pointing outside run_dir;
+    # the file matched by the glob underneath it is an ordinary file.
+    (run_dir / "pipeline_info").symlink_to(outside_dir)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(str(run_dir), harvest.GENERIC_GLOBS))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, _inventory = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    assert not (staged / "pipeline_info" / "params_x.json").exists()
+    assert not any("secret" in p.read_text() for p in staged.rglob("*") if p.is_file())
+    assert any(
+        item["path"] == "pipeline_info/params_x.json" and "outside run_dir" in item["reason"]
+        for item in skipped
+    ), skipped
+
+
+def test_stage_run_dir_enforces_the_total_byte_cap_across_multiple_files(tmp_path, monkeypatch):
+    """Minor 2 (2026-09-16 review): MAX_TOTAL_BYTES accumulates across the
+    whole remote loop, but only the single-file MAX_FILE_BYTES case had a
+    test. Two files individually under the per-file cap must still trip the
+    TOTAL cap once their combined size crosses it, and the second one must
+    never be transferred."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    first = run_dir / "a.csv"
+    second = run_dir / "b.csv"
+    first.write_bytes(b"x" * 60)
+    second.write_bytes(b"y" * 60)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), harvest.GENERIC_GLOBS, max_file_bytes=1000, max_total_bytes=100))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, _inventory = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    staged_names = {p.name for p in staged.rglob("*") if p.is_file()}
+    assert "a.csv" in staged_names, staged_names
+    assert "b.csv" not in staged_names, staged_names
+    assert any(
+        item["path"] == "b.csv" and "exceeds total byte cap" in item["reason"] for item in skipped
+    ), skipped
+
+
+def test_stage_run_dir_enforces_the_file_count_cap_across_multiple_files(tmp_path, monkeypatch):
+    """Minor 2 (2026-09-16 review): MAX_FILES accumulates across the whole
+    remote loop too, and was equally untested. Three files under a cap of 2
+    must stage exactly the first two (glob order) and skip the third with a
+    file-count reason."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    for name in ("a.csv", "b.csv", "c.csv"):
+        (run_dir / name).write_text("x")
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), harvest.GENERIC_GLOBS, max_files=2))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, _inventory = g._stage_run_dir(_Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    staged_names = {p.name for p in staged.rglob("*") if p.is_file()}
+    assert staged_names == {"a.csv", "b.csv"}, staged_names
+    assert any(
+        item["path"] == "c.csv" and "exceeds max file count" in item["reason"] for item in skipped
+    ), skipped
+
+
+@needs_fixture
+def test_stage_run_dir_against_the_real_fixture_stages_every_rseqc_and_multiqc_file(tmp_path, monkeypatch):
+    """Regression guard for the exact drift harvest.py's own module docstring
+    warns about: if a GENERIC_GLOBS pattern the harvester reads were ever
+    missing from the allowlist the op stages against, every sample's
+    `derived` would silently come back empty in a real run while local tests
+    (which read the fixture directly, bypassing staging) kept passing."""
+    monkeypatch.setattr(ssh, "ssh_run_bytes",
+                         lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(str(FIXTURE), harvest.GENERIC_GLOBS))
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    g._stage_run_dir(_Cfg.LURIA_ENV, str(FIXTURE), str(FIXTURE.parent), str(staged), "/dev/null")
+
+    run_manifest = harvest.harvest_local(str(staged), lookup_by_fastq=lambda p, types=None: [])
+    assert run_manifest.samples, "expected staged samples"
+    for sample in run_manifest.samples:
+        assert sample.derived, (
+            f"{sample.nfcore_sample}: derived is empty -- an RSeQC or MultiQC "
+            "glob pattern was staged incorrectly")
+
+
+# ---------------------------------------------------------------------------
+# Inventory: the SAME remote script also emits a name+size-only listing for
+# every inventory_globs() match, subject to the SAME containment guards as
+# staging (symlink / escape / hardlink) plus its own count cap. Nothing in
+# this half is ever staged or transferred -- the tar carries only the
+# `patterns` (GENERIC_GLOBS) matches; `inventory` entries are listing-only.
+# ---------------------------------------------------------------------------
+
+def test_stage_run_dir_emits_an_inventory_entry_for_each_output_glob_match(tmp_path, monkeypatch):
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    bam_dir = run_dir / "star_salmon"
+    bam_dir.mkdir()
+    bam = bam_dir / "CONTROL_REP1.markdup.sorted.bam"
+    bam.write_bytes(b"x" * 4096)
+    (run_dir / "not_an_output.txt").write_text("not matched")
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.inventory_globs()))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    # Listing-only: the matched file is never staged, unlike a GENERIC_GLOBS
+    # match -- the inventory names it and its real size. It also carries an
+    # auto-hashed checksum: 4096 bytes is comfortably under the default
+    # auto-hash ceiling (see the checksum-ceiling/budget tests below).
+    import hashlib
+    expected_digest = hashlib.md5(b"x" * 4096).hexdigest()
+    assert not (staged / "star_salmon" / "CONTROL_REP1.markdup.sorted.bam").exists()
+    assert inventory == [{"path": "star_salmon/CONTROL_REP1.markdup.sorted.bam", "bytes": 4096,
+                          "checksum": expected_digest}]
+    assert skipped == []
+
+
+def test_stage_run_dir_skips_a_symlinked_inventory_candidate_and_reports_it(tmp_path, monkeypatch):
+    """The listing gets the SAME containment guard as staging: listing a
+    symlink's target name+size is a smaller disclosure than shipping its
+    content, but this is still a shared cluster account, and the boundary
+    must not have two standards."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    outside = tmp_path / "outside_secret.bam"
+    outside.write_bytes(b"SECRET")
+    link = run_dir / "CONTROL_REP1.markdup.sorted.bam"
+    link.symlink_to(outside)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.inventory_globs()))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    assert inventory == []
+    assert any(
+        item["path"] == "CONTROL_REP1.markdup.sorted.bam" and "symlink" in item["reason"]
+        for item in skipped
+    ), skipped
+
+
+def test_stage_run_dir_skips_an_inventory_candidate_reached_through_an_escaping_path(tmp_path, monkeypatch):
+    """The escape guard (ancestor-symlink / resolves-outside-run_dir) applies
+    to inventory candidates too, not only staged ones. This uses a
+    non-"**" pattern ("aligner_out/*.bam", not one of the real
+    inventory_globs()): on current interpreters, confirmed directly against a
+    symlinked ancestor, pathlib.Path.glob's "**" component does not recurse
+    through it (the exact Python version this became the default is not
+    authoritative here -- see
+    test_stage_run_dir_skips_the_real_multiqc_report_glob_reached_through_a_symlinked_dir
+    below for why the guard does not depend on it either way). A leading
+    literal or wildcard glob SEGMENT (like "aligner_out" here, or "multiqc*"
+    in the one real inventory_globs() entry with a non-"**" leading segment)
+    still follows a symlink there normally, so this pattern -- like that
+    real one -- does reach the symlinked file, exercising the STAT-LEVEL
+    guard inside confined_stat (shared with staging) directly, the same way
+    GENERIC_GLOBS' own ancestor-symlink test relies on _PARAMS_GLOB (also
+    non-"**")."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    outside_dir = tmp_path / "outside_dir"
+    outside_dir.mkdir()
+    outside_file = outside_dir / "leak.bam"
+    outside_file.write_bytes(b"leak")
+    (run_dir / "aligner_out").symlink_to(outside_dir)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=["aligner_out/*.bam"]))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    assert inventory == []
+    assert any(
+        item["path"] == "aligner_out/leak.bam" and "outside run_dir" in item["reason"]
+        for item in skipped
+    ), skipped
+
+
+def test_stage_run_dir_skips_the_real_multiqc_report_glob_reached_through_a_symlinked_dir(tmp_path, monkeypatch):
+    """The ONE production inventory_globs() entry an ancestor-symlink escape
+    can actually reach: "multiqc*/**/*multiqc_report.html" is the only
+    pattern in the tuple whose leading segment is a literal/wildcard
+    ("multiqc*") rather than "**" -- and, per the synthetic-pattern test
+    above, only the "**" component declines to follow a symlink; a leading
+    wildcard segment still follows one normally. Every other inventory_globs()
+    entry starts with "**" and so never reaches a file behind a symlinked
+    ancestor to begin with, which is why the synthetic "aligner_out/*.bam"
+    test above is needed to exercise confined_stat's escape check at all --
+    but that leaves the actually-exposed production path itself unverified.
+    This test drives `harvest.inventory_globs()` directly (no synthetic
+    pattern) against a directory literally named "multiqc" -- the shape
+    nf-core's own MultiQC step writes -- symlinked to outside run_dir, so a
+    regression in either the pattern's leading segment or in confined_stat's
+    escape check would show up here."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    outside_dir = tmp_path / "outside_multiqc"
+    outside_dir.mkdir()
+    outside_report = outside_dir / "multiqc_report.html"
+    outside_report.write_text("<html>leaked</html>")
+    # nf-core/scrnaseq's run-prefixed name, which the pattern now also matches.
+    (outside_dir / "M188_multiqc_report.html").write_text("<html>leaked</html>")
+    (run_dir / "multiqc").symlink_to(outside_dir)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.inventory_globs()))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    assert inventory == []
+    for leaked in ("multiqc/multiqc_report.html", "multiqc/M188_multiqc_report.html"):
+        assert any(
+            item["path"] == leaked and "outside run_dir" in item["reason"]
+            for item in skipped
+        ), skipped
+
+
+@pytest.mark.parametrize("rel_path", [
+    "mirna_quant/mirtop/mirna.tsv",                 # nf-core/smrnaseq merged miRNA counts
+    "salmon/SAMPLE_1/quant.sf",                     # per-sample Salmon quantification
+    "reports/multiqc/multiqc_report.html",          # nf-core/rnavar >=1.3 MultiQC report
+    "tables/processed_abundance/all.normalised_counts.tsv",  # nf-core/differentialabundance 1.x
+    "tables/differential/LPS_vs_Ctrl.deseq2.results.tsv",    # its per-contrast DESeq2 results
+    "tables/differential/KO_vs_WT.limma.results.tsv",        # its per-contrast limma results
+    # differentialabundance 2.0.0 puts each under a <paramset>/ folder, and adds dream
+    "tables/processed_abundance/rnaseq_dream/all.normalised_counts.tsv",
+    "tables/differential/rnaseq_deseq2/treatment_SRP254919.deseq2.results.tsv",
+    "tables/differential/rnaseq_limma/treatment_SRP254919.limma.results.tsv",
+    "tables/differential/rnaseq_dream/treatment_SRP254919.dream.results.tsv",
+    "report/rnaseq_dream/SRP254919_differentialabundance_report.html",
+    "optitype/S1/S1_result.tsv",                    # nf-core/hlatyping OptiType genotype
+    "optitype/S1/S1_coverage_plot.pdf",             # and its coverage plot
+])
+def test_stage_run_dir_inventories_the_outputs_the_stub_maps_name(tmp_path, monkeypatch, rel_path):
+    """Each path is a deliverable a committed map rule (or a named output)
+    points at. A rule's glob only ever matches the inventory, so a path the
+    inventory never lists makes that rule match nothing, silently."""
+    run_dir = tmp_path / "runs" / "a_run"
+    target = run_dir / rel_path
+    target.parent.mkdir(parents=True)
+    target.write_text("x")
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.inventory_globs()))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    assert [entry["path"] for entry in inventory] == [rel_path]
+    assert skipped == []
+
+
+def test_every_inventory_glob_but_the_multiqc_one_starts_with_a_double_star():
+    """Only a leading "**" declines to follow a symlinked ancestor (see the
+    symlink tests above). The MultiQC pattern is the one reviewed exception,
+    with its own escape test; a new pattern must not quietly become a second."""
+    exceptions = {"multiqc*/**/*multiqc_report.html"}
+    assert [p for p in harvest.inventory_globs()
+            if not p.startswith("**/") and p not in exceptions] == []
+
+
+def test_stage_run_dir_enforces_the_inventory_file_count_cap(tmp_path, monkeypatch):
+    """MAX_INVENTORY_FILES bounds the listing the same way MAX_FILES bounds
+    staging -- cap hit reported, never a silent omission."""
+    run_dir = tmp_path / "runs" / "a_run"
+    run_dir.mkdir(parents=True)
+    for i in range(3):
+        (run_dir / f"sample{i}.bam").write_bytes(b"x")
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.inventory_globs(), max_inventory_files=2))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    assert len(inventory) == 2
+    assert any("exceeds max inventory file count" in item["reason"] for item in skipped), skipped
+
+
+# ---------------------------------------------------------------------------
+# Checksum_PrimaryData for free: an automatic hash of the cheap ones,
+# bounded by a per-file ceiling and a running total budget across the run.
+# Happens inside the SAME already-guarded remote inventory walk, never a
+# second SSH round trip.
+# ---------------------------------------------------------------------------
+
+def _bam_with_inventory(run_dir, name="CONTROL_REP1.markdup.sorted.bam", content=b"x" * 100):
+    bam_dir = run_dir / "star_salmon"
+    bam_dir.mkdir(parents=True, exist_ok=True)
+    bam = bam_dir / name
+    bam.write_bytes(content)
+    return bam
+
+
+def test_a_file_under_the_ceiling_is_hashed_with_the_correct_digest(tmp_path, monkeypatch):
+    """The digest must be the file's REAL md5 -- checked against a known md5
+    of known bytes, not merely "a 32-char string is present"."""
+    import hashlib
+    run_dir = tmp_path / "runs" / "a_run"
+    bam = _bam_with_inventory(run_dir, content=b"w" * 50)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.inventory_globs()))
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(tmp_path / "staged"), "/dev/null")
+
+    entry = next(i for i in inventory if i["path"] == "star_salmon/" + bam.name)
+    assert entry["checksum"] == hashlib.md5(b"w" * 50).hexdigest()
+    assert skipped == []
+
+
+def test_a_file_over_the_auto_hash_ceiling_is_not_hashed_and_the_reason_is_visible(tmp_path, monkeypatch):
+    run_dir = tmp_path / "runs" / "a_run"
+    bam = _bam_with_inventory(run_dir, content=b"x" * 1000)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.inventory_globs(),
+            max_checksum_file_bytes=100, max_checksum_total_bytes=1_000_000))
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(tmp_path / "staged"), "/dev/null")
+
+    entry = next(i for i in inventory if i["path"] == "star_salmon/" + bam.name)
+    assert "checksum" not in entry
+    assert any(
+        item["path"] == "star_salmon/" + bam.name and "exceeds max checksum file bytes" in item["reason"]
+        for item in skipped
+    ), skipped
+
+
+def test_the_total_checksum_budget_stops_hashing_but_the_manifest_is_still_usable(tmp_path, monkeypatch):
+    import hashlib
+    run_dir = tmp_path / "runs" / "a_run"
+    first = _bam_with_inventory(run_dir, name="a.bam", content=b"a" * 100)
+    second = _bam_with_inventory(run_dir, name="b.bam", content=b"b" * 100)
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.inventory_globs(),
+            max_checksum_file_bytes=1000, max_checksum_total_bytes=150))
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(tmp_path / "staged"), "/dev/null")
+
+    by_path = {i["path"]: i for i in inventory}
+    # Glob order is alphabetical (sorted(run_dir.glob(pattern))): a.bam (100
+    # bytes) fits under the 150 budget; b.bam would push the running total to
+    # 200 > 150, so it is skipped, unhashed -- but the inventory entry for it
+    # still exists (bytes are still listed), and the run overall is usable.
+    assert by_path["star_salmon/a.bam"]["checksum"] == hashlib.md5(b"a" * 100).hexdigest()
+    assert "checksum" not in by_path["star_salmon/b.bam"]
+    assert any(
+        item["path"] == "star_salmon/b.bam" and "exceeds checksum byte budget" in item["reason"]
+        for item in skipped
+    ), skipped
+
+
+# ---------------------------------------------------------------------------
+# _run_harvest: full handler behavior (staging + harvest_local mocked out at
+# the boundary so this test is about the handler's own logic, not staging).
+# ---------------------------------------------------------------------------
+
+def _patch_harvest(monkeypatch, *, failed=0, tmp_manifest_dir, pipeline=None):
+    import NessieAI.ns.reingest.harvest as harvest_mod
+    from NessieAI.ns.reingest import manifest as manifest_mod
+
+    # Mirrors harvest_local's real keyword signature. `seen` records what the
+    # op actually passed, so the production wiring is pinned by a test rather
+    # than assumed: drop `sample_type_lookup=` from granular._run_harvest and
+    # test_run_harvest_passes_both_lookups_through below goes red.
+    seen: dict = {}
+
+    def fake_harvest_local(root, *, lookup_by_fastq=None, sample_type_lookup=None,
+                           inventory=None, run_dir=None):
+        seen["lookup_by_fastq"] = lookup_by_fastq
+        seen["sample_type_lookup"] = sample_type_lookup
+        return manifest_mod.RunManifest(
+            run_dir=run_dir if run_dir is not None else root,
+            execution=manifest_mod.ExecutionInfo(processes=3, failed=failed, non_terminal=0),
+            pipeline=pipeline or manifest_mod.PipelineInfo(),
+        )
+
+    monkeypatch.setattr(harvest_mod, "harvest_local", fake_harvest_local)
+    monkeypatch.setattr(g, "_stage_run_dir", lambda *a, **k: ([], []))
+    monkeypatch.setattr(ssh, "prepare_key", lambda k: "/tmp/key")
+    # store._ROOT is resolved once at module-import time from an env var; a
+    # module already imported by an earlier test would ignore a later
+    # monkeypatch.setenv, so patch the module attribute directly instead.
+    from NessieAI.ns.reingest import store as store_mod
+    monkeypatch.setattr(store_mod, "_ROOT", str(tmp_manifest_dir))
+    return seen
+
+
+def _launch(run_dir="/net/cluster/runs/a", revision="3.18.0"):
+    return PipelineRun.objects.create(run_dir=run_dir, run_name="a",
+                                      pipeline="nf-core/rnaseq", revision=revision)
+
+
+def test_run_harvest_refuses_a_run_with_no_launch_record(monkeypatch, tmp_path):
+    seen = _patch_harvest(monkeypatch, tmp_manifest_dir=tmp_path)
+
+    def _no_staging(*a, **k):
+        pytest.fail("a run with no launch record must be refused before staging")
+
+    monkeypatch.setattr(g, "_stage_run_dir", _no_staging)
+    with pytest.raises(g.OpValidationError,
+                       match="reingest covers Nessie-launched runs; this run has no launch record"):
+        _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/a"},
+                  _Cfg(), None, None, None, None)
+    assert seen == {}
+
+
+def test_run_harvest_records_the_launch_and_fills_a_missing_version(monkeypatch, tmp_path):
+    _patch_harvest(monkeypatch, tmp_manifest_dir=tmp_path)
+    run = _launch(revision="3.18.0")
+    out = _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/a"},
+                    _Cfg(), None, None, None, None)
+    assert out["manifest"]["launch_record_id"] == run.pk
+    assert out["manifest"]["pipeline"]["version"] == "3.18.0"
+    assert out["manifest"]["pipeline"]["name"] == "nf-core/rnaseq"
+
+
+def test_run_harvest_keeps_a_harvested_name_and_version(monkeypatch, tmp_path):
+    """The launch record fills only what the run's own files left empty."""
+    from NessieAI.ns.reingest import manifest as manifest_mod
+    _patch_harvest(monkeypatch, tmp_manifest_dir=tmp_path,
+                   pipeline=manifest_mod.PipelineInfo(name="nf-core/sarek", version="3.4.0"))
+    _launch(revision="3.18.0")
+    out = _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/a"},
+                    _Cfg(), None, None, None, None)
+    assert out["manifest"]["pipeline"]["name"] == "nf-core/sarek"
+    assert out["manifest"]["pipeline"]["version"] == "3.4.0"
+
+
+def test_harvest_local_alone_makes_a_test_only_manifest(tmp_path):
+    got = harvest.harvest_local(str(tmp_path))
+    assert got.launch_record_id is None
+
+
+def test_run_harvest_passes_both_lookups_through(monkeypatch, tmp_path):
+    """The QC backfill needs the parent's real sample type, and the parent
+    lookup needs to reach the database. Both arrive as callables the op
+    injects; neither has a default that would work in production, so a
+    missing one is silent -- the backfill simply stops being written. Pin
+    both here."""
+    seen = _patch_harvest(monkeypatch, tmp_manifest_dir=tmp_path)
+    _launch()
+    _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/a"},
+              _Cfg(), None, None, None, None)
+    assert seen["lookup_by_fastq"] is g._d_seq_by_fastq
+    assert seen["sample_type_lookup"] is g._sample_types_for_uids
+
+
+def test_run_harvest_refuses_a_failed_run_without_the_override(monkeypatch, tmp_path):
+    _patch_harvest(monkeypatch, failed=1, tmp_manifest_dir=tmp_path)
+    _launch()
+    with pytest.raises(g.OpValidationError) as err:
+        _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/a"},
+                  _Cfg(), None, None, None, None)
+    assert "allow-failed-run" in str(err.value) or "allow_failed_run" in str(err.value)
+
+
+def test_run_harvest_allows_a_failed_run_with_the_override(monkeypatch, tmp_path):
+    _patch_harvest(monkeypatch, failed=1, tmp_manifest_dir=tmp_path)
+    _launch()
+    result = _dispatch(
+        "run-harvest", {"run_dir": "/net/cluster/runs/a", "allow_failed_run": True},
+        _Cfg(), None, None, None, None)
+    assert result["run_dir"] == "/net/cluster/runs/a"
+    assert result["manifest"]["execution"]["failed"] == 1
+    assert result["manifest_id"]
+
+
+def test_run_harvest_succeeds_and_returns_manifest_id(monkeypatch, tmp_path):
+    _patch_harvest(monkeypatch, failed=0, tmp_manifest_dir=tmp_path)
+    _launch()
+    result = _dispatch("run-harvest", {"run_dir": "/net/cluster/runs/a"},
+                       _Cfg(), None, None, None, None)
+    assert result["run_dir"] == "/net/cluster/runs/a"
+    assert result["manifest_id"]
+    from NessieAI.ns.reingest.store import load_manifest
+    loaded = load_manifest(result["manifest_id"])
+    assert loaded.run_dir == "/net/cluster/runs/a"
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: neither Critical from the 2026-09-16 whole-branch review shows
+# up in a per-module test, because both live in the SEAM between modules
+# built and reviewed separately.
+#
+# Critical 1: _run_harvest stages into a tempfile.TemporaryDirectory() and
+# used to call harvest_local(staged, ...) with no run_dir label, so
+# uid_resolve.resolve() looked up PipelineRun by the TEMP path -- which never
+# matches the launch record's real (cluster) run_dir. Every sample fell
+# through to the fastq fallback, and PipelineInfo.run_name became the temp
+# dir's own generated name.
+#
+# Critical 2: harvest_local's samplesheet glob ("*.csv") picked whichever
+# match sorted first. A pipeline run with `--outdir .` writes the fetchngs
+# pre-stage's `ids.csv` directly alongside the real `samplesheet.csv`, and
+# "ids.csv" < "samplesheet.csv" alphabetically -- so the harvester read the
+# wrong file (here, an empty one) and would have returned zero samples with
+# no warning at all.
+#
+# This test drives the full op (ssh_run_bytes stubbed to tar a synthetic run
+# tree containing BOTH files, exactly as production staging would) with a
+# PipelineRun row present for the CLUSTER path, and fails on either bug on
+# its own -- so it is the single test that closes both.
+# ---------------------------------------------------------------------------
+
+def test_run_harvest_end_to_end_resolves_via_launch_record_despite_a_decoy_csv(
+        monkeypatch, tmp_path):
+    run_dir = "/net/cluster/runs/nfcore_end_to_end"
+    source = tmp_path / "cluster_run"
+    source.mkdir(parents=True)
+
+    (source / "pipeline_info").mkdir()
+    (source / "pipeline_info" / "nf_core_rnaseq_software_mqc_versions.yml").write_text(
+        "Workflow:\n  nf-core/rnaseq: v3.22.2\n  Nextflow: 25.10.2\n")
+    (source / "pipeline_info" / "execution_trace.txt").write_text(
+        "task_id\tstatus\n1\tCOMPLETED\n")
+
+    # The fetchngs pre-stage's decoy, written BEFORE the `[ -s ids.csv ]`
+    # guard in the common case: empty, and alphabetically ahead of the real
+    # samplesheet.
+    (source / "ids.csv").write_text("")
+    (source / "samplesheet.csv").write_text(
+        "sample,fastq_1,fastq_2,strandedness\n"
+        "CONTROL_REP1,/net/cluster/fastq/CONTROL_REP1_R1.fastq.gz,,auto\n")
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(str(source), harvest.GENERIC_GLOBS))
+    monkeypatch.setattr(ssh, "prepare_key", lambda k: "/tmp/key")
+    from NessieAI.ns.reingest import store as store_mod
+    monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
+
+    PipelineRun.objects.create(
+        run_dir=run_dir, run_name="r", pipeline="nf-core/rnaseq",
+        launched_by=get_user_model().objects.create(username="t"),
+        cohort=[{"d_seq_uid": "D.SEQ-EXAMPLE-1", "nfcore_sample": "CONTROL_REP1",
+                 "fastq_1": "/net/cluster/fastq/CONTROL_REP1_R1.fastq.gz",
+                 "fastq_2": None}])
+
+    result = _dispatch("run-harvest", {"run_dir": run_dir},
+                        _Cfg(), None, None, None, None)
+
+    got = result["manifest"]
+    assert got["run_dir"] == run_dir, (
+        "run_dir must be the cluster path, not the tempfile.TemporaryDirectory "
+        "harvest_local actually read from")
+    assert got["pipeline"]["run_name"] == "nfcore_end_to_end", (
+        "run_name must derive from the cluster run_dir, not the temp staging "
+        "dir's generated name")
+
+    samples = got["samples"]
+    assert samples, (
+        "manifest.samples came back empty -- the empty ids.csv was read as "
+        "the samplesheet instead of samplesheet.csv")
+    assert {s["nfcore_sample"] for s in samples} == {"CONTROL_REP1"}
+    sample = samples[0]
+    assert sample["uid_resolution"] == manifest_schema.RESOLUTION_LAUNCH_RECORD, (
+        "the PipelineRun launch record for the cluster run_dir must resolve "
+        "this sample; it never will if uid_resolve was looked up by the temp "
+        "staging path")
+    assert sample["d_seq_uid"] == "D.SEQ-EXAMPLE-1"
+
+
+def _stage(tmp_path, monkeypatch, run_dir):
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), list(harvest.GENERIC_GLOBS)))
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, _ = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+    return staged, skipped
+
+
+def test_the_stage_returns_only_the_newest_reports_verdict(tmp_path, monkeypatch):
+    # The report embeds every task's data and can be megabytes, over the
+    # 4 MB staging cap: only Nextflow's one verdict sentence comes back, read
+    # on the cluster, never the file.
+    run_dir = tmp_path / "runs" / "a_run"
+    info = run_dir / "pipeline_info"
+    info.mkdir(parents=True)
+    (info / "execution_report_2025-11-14_05-59-33.html").write_text(
+        "<h4>Workflow execution completed unsuccessfully!</h4>")
+    (info / "execution_report_2025-11-16_05-29-45.html").write_text(
+        "<head><script>" + "x" * 5_000_000 + "</script></head>\n"
+        '<div class="alert alert-success mb-4">\n'
+        "              Workflow execution completed successfully!\n"
+        "          </div>\n<script>window.data = {}</script>\n")
+
+    staged, skipped = _stage(tmp_path, monkeypatch, run_dir)
+
+    assert json.loads((staged / harvest.RUN_VERDICT_NAME).read_text()) == {
+        "path": "pipeline_info/execution_report_2025-11-16_05-29-45.html",
+        "verdict": "Workflow execution completed successfully!",
+    }
+    assert not list(staged.rglob("*.html"))
+    assert skipped == []
+
+
+def test_a_report_with_no_verdict_is_reported_as_such(tmp_path, monkeypatch):
+    run_dir = tmp_path / "runs" / "a_run"
+    (run_dir / "pipeline_info").mkdir(parents=True)
+    (run_dir / "pipeline_info" / "execution_report.html").write_text("<html>no verdict</html>")
+    staged, _ = _stage(tmp_path, monkeypatch, run_dir)
+    assert json.loads((staged / harvest.RUN_VERDICT_NAME).read_text()) == {
+        "path": "pipeline_info/execution_report.html", "verdict": None}
+
+
+def test_no_report_means_no_verdict_file(tmp_path, monkeypatch):
+    run_dir = tmp_path / "runs" / "a_run"
+    (run_dir / "pipeline_info").mkdir(parents=True)
+    staged, _ = _stage(tmp_path, monkeypatch, run_dir)
+    assert not (staged / harvest.RUN_VERDICT_NAME).exists()
+
+
+def test_a_symlinked_report_is_not_read(tmp_path, monkeypatch):
+    # The same containment guard as every staged and inventoried file.
+    run_dir = tmp_path / "runs" / "a_run"
+    (run_dir / "pipeline_info").mkdir(parents=True)
+    outside = tmp_path / "outside.html"
+    outside.write_text("Workflow execution completed successfully!")
+    (run_dir / "pipeline_info" / "execution_report_2025-11-16_05-29-45.html").symlink_to(outside)
+
+    staged, skipped = _stage(tmp_path, monkeypatch, run_dir)
+
+    assert not (staged / harvest.RUN_VERDICT_NAME).exists()
+    assert [s["path"] for s in skipped] == [
+        "pipeline_info/execution_report_2025-11-16_05-29-45.html"]
+
+
+def test_the_stage_script_and_the_harvest_agree_on_the_verdict_file_name():
+    assert f'"{harvest.RUN_VERDICT_NAME}"' in g._STAGE_SCRIPT

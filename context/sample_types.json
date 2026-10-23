@@ -390,7 +390,7 @@
     "Tags": "gene expression analysis, RNA-seq analysis, transcriptomics analysis, differential expression analysis, DESeq2, count matrix, bulk RNA analysis, expression profiling, transcript abundance, A.GEX, RNAseq analysis, RNA seq analysis, bulk RNA-seq analysis, differential gene expression, microarray analysis",
     "required_metadata": "UID, File_PrimaryData, Link_PrimaryData, Scientist, Parent, Checksum_PrimaryData",
     "standard_metadata": "Protocol, Pipeline, PipelineVersion, Link_QualityControl, ReferenceGenome, Link_ReferenceGenome, Aligner, Software, Accession",
-    "possible_metadata_fields": "SampleCreationDate, Checksum_PrimaryType, Name, Notes, AnnotationGTF, Link_GTF, Pseudo_Aligner, Metadata, MetadataDataType, Link_Metadata, Matrix, MatrixDataType, Link_Matrix, Publish_uri, DataType, Lab, DESeqFile, DESeqFile_Link, DemultiplexingTool, Repository, DOI, PMID",
+    "possible_metadata_fields": "SampleCreationDate, Checksum_PrimaryType, Name, Notes, AnnotationGTF, Link_GTF, Pseudo_Aligner, Metadata, MetadataDataType, Link_Metadata, Matrix, Contrast, ContrastVariable, ContrastReference, ContrastTarget, Paramset, MethodSettings, MatrixDataType, Link_Matrix, Publish_uri, DataType, Lab, DESeqFile, DESeqFile_Link, DemultiplexingTool, Repository, DOI, PMID",
     "parent_sampletypes": "D.SEQ",
     "child_sampletypes": null,
     "associated_assay_parents": "Gene Expression Analysis, Genome Alignment",

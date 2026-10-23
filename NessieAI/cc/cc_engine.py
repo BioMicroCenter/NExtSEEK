@@ -58,6 +58,10 @@ DEFAULT_IMAGE = os.environ.get("NEXTSEEK_CC_IMAGE", "dmac-assistant:poc")
 # ``demopassword``). The agent reaches only (a) the Bedrock auth-proxy and (b)
 # the NExtSEEK REST API via nginx — both attached to this net. Override via
 # NEXTSEEK_CC_NETWORK; a missing network is fail-fast (see run_cc_turn).
+# Every agent container is started as this platform. The cc-agent service in
+# docker-compose.yml builds for the same one, or an Apple-silicon host files
+# the image under linux/arm64 and Docker refuses the spawn with NotFound.
+CC_PLATFORM = "linux/amd64"
 DEFAULT_NETWORK = os.environ.get("NEXTSEEK_CC_NETWORK", "dmac-cc-net")
 
 # OI-3 (T4): the agent reaches Bedrock ONLY through the auth-proxy sidecar, which
@@ -1127,7 +1131,7 @@ def _run_kwargs(
             "nextseek.cc.user": user_id,
             "nextseek.cc.run": run_id,
         },
-        "platform": "linux/amd64",
+        "platform": CC_PLATFORM,
         "detach": True,
         "stdin_open": True,
         "tty": False,

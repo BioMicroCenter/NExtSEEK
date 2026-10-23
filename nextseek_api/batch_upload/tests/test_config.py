@@ -77,6 +77,10 @@ class TestBatchUploadConfig:
         cfg = BatchUploadConfig()
         assert cfg.update_existing is True
 
+    def test_keep_assay_links_is_off_unless_asked_for(self):
+        assert BatchUploadConfig().keep_assay_links is False
+        assert BatchUploadConfig(keep_assay_links=True).keep_assay_links is True
+
     def test_to_dict(self):
         cfg = BatchUploadConfig()
         d = cfg.to_dict()

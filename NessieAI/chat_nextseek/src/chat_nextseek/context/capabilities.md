@@ -238,10 +238,10 @@ Use these names exactly when asking graph questions scoped to one investigation.
 The system retrieves, filters, and summarizes data from NExtSEEK. The chat search itself does not perform analysis or answer general science questions, but Nessie can make charts (heatmaps, scatter and bar plots) and run statistics (differential expression, clustering, fold-change, survival analysis) through Container-CC, which runs code on the data it retrieves. Specifically, the chat search cannot:
 
 - **Generate visualizations or charts.** The chat search has no plotting or rendering step; Nessie makes the heatmap, scatter plot or bar chart through Container-CC.
-- **Perform statistical analysis.** Differential expression, clustering, fold-change calculations, dimensionality reduction, survival analysis, and other computational methods are run through Container-CC, not in the chat search. The system can tell you where the data files are stored; it does not host them and cannot run pipelines on them.
+- **Perform statistical analysis.** Differential expression, clustering, fold-change calculations, dimensionality reduction, survival analysis, and other computational methods are run through Container-CC, not in the chat search. The system can tell you where the data files are stored, and it can launch an nf-core pipeline on sequencing samples (rnaseq, for example, produces each sample's gene counts).
 - **Explain external scientific concepts.** It cannot explain what a gene encodes, why a molecule is carcinogenic, how a signaling pathway works, or what a disease mechanism is. These are knowledge questions unrelated to the repository.
 - **Answer questions about data outside NExtSEEK.** It only knows what is registered in the NExtSEEK repository. It cannot query external databases (GEO, SRA, UniProt, etc.) except to generate a submission package from NExtSEEK records.
-- **Compare groups analytically.** Asking "which group had higher expression levels" or "is there a significant difference between condition A and B" requires computation, which Nessie runs through Container-CC rather than the chat search.
+- **Compare groups analytically.** Asking "which group had higher expression levels" or "is there a significant difference between condition A and B" requires computation, which Nessie runs through Container-CC rather than the chat search. For a question about expression, the chat search offers the nf-core run that produces the counts such a comparison starts from, and says what that run does not answer.
 
 ---
 

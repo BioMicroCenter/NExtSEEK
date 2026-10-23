@@ -31,6 +31,7 @@ case "$*" in
   *"MySQLdb.connect"*) exit "${DB_PROBE_EXIT:-0}" ;;
   *"manage.py collectstatic"*) exit "${COLLECTSTATIC_EXIT:-0}" ;;
   *"manage.py migrate"*) exit "${MIGRATE_EXIT:-0}" ;;
+  *"fail_interrupted_turns"*) exit "${INTERRUPTED_TURNS_EXIT:-0}" ;;
   *) exit 0 ;;
 esac
 """
@@ -42,6 +43,7 @@ def _run_entrypoint(
     collectstatic_exit: int = 0,
     db_probe_exit: int = 0,
     db_wait_attempts: int = 2,
+    interrupted_turns_exit: int = 0,
     mode: str = "worker",
 ):
     bindir = tmp_path / "bin"
@@ -58,6 +60,7 @@ def _run_entrypoint(
         "MIGRATE_EXIT": str(migrate_exit),
         "COLLECTSTATIC_EXIT": str(collectstatic_exit),
         "DB_PROBE_EXIT": str(db_probe_exit),
+        "INTERRUPTED_TURNS_EXIT": str(interrupted_turns_exit),
         "DB_WAIT_ATTEMPTS": str(db_wait_attempts),
         "DB_WAIT_INTERVAL": "0",
         "NEXTSEEK_SERVER": "gunicorn",
@@ -143,6 +146,30 @@ class TestDbReadinessProbe:
         assert proc.returncode != 0
         assert "[DB-UNREACHABLE]" in proc.stderr
         assert calls.count("MySQLdb.connect") == 3
+
+
+class TestInterruptedTurnsAtBoot:
+    """Turns a restart killed are marked before any server can start a new one."""
+
+    def test_runs_after_migrate_and_before_the_servers(self, tmp_path):
+        proc, calls = _run_entrypoint(tmp_path, mode="web")
+        assert proc.returncode == 0
+        lines = calls.splitlines()
+        step = next(i for i, line in enumerate(lines) if "fail_interrupted_turns" in line)
+        migrate = next(i for i, line in enumerate(lines) if "manage.py migrate" in line)
+        server = next(i for i, line in enumerate(lines) if "gunicorn" in line)
+        assert migrate < step < server
+
+    def test_the_worker_leaves_the_web_containers_turns_alone(self, tmp_path):
+        proc, calls = _run_entrypoint(tmp_path)
+        assert proc.returncode == 0
+        assert "fail_interrupted_turns" not in calls
+
+    def test_a_failure_does_not_stop_the_boot(self, tmp_path):
+        proc, calls = _run_entrypoint(tmp_path, interrupted_turns_exit=1, mode="web")
+        assert proc.returncode == 0
+        assert "[INTERRUPTED-TURNS]" in proc.stderr
+        assert "gunicorn" in calls
 
 
 # The stub tests above only see the probe's command line. These run its Python

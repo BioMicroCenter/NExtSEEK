@@ -62,6 +62,12 @@ class DictSessionAdapter:
             **(getattr(chat_session, "extra_state", None) or {}),
         }
 
+    @property
+    def owner_user_id(self) -> int | None:
+        """The Django user this chat belongs to. The pipeline agent records it on a
+        run's launch record, so the run can later be found for whoever launched it."""
+        return getattr(self._session, "user_id", None)
+
     def reload(self) -> None:
         """Re-read the row and rebuild the cache: a turn must see the turn before it."""
         self._session.refresh_from_db(fields=["results_history", "last_debug", "extra_state"])

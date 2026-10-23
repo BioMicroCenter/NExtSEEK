@@ -84,8 +84,9 @@ Stated plainly: **the graph-vs-REST split** (the `graph_query` /
 report shows in its engine column) **is a full-tier observation.** Verifying a
 routing change at the ns/cc/unrelated level is route-tier work; verifying WHICH
 NS engine answered needs the paid full tier via `manage.py nessie`. And note
-that today's four `route_gate` variants assert `route` only, so the route gate
-as it stands exercises the top-level split and nothing deeper.
+that the `route_gate` variants assert `route` only (the reingest hand-off gates
+also `route_source`), so the route gate as it stands exercises the top-level split and
+nothing deeper.
 
 ## Surface
 
@@ -120,12 +121,13 @@ overlay files and their generator were deleted outright. `FAMILIES.json` declare
 for the production researcher questions)
 (`NessieAI/tests/nessie_tests/FAMILIES.json:4-5`, `NessieAI/tests/nessie_tests/scripts/remap_families.py:2`). `NessieAI/tests/nessie_tests/probes/` holds three
 hand-authored case files replayed by `NessieAI/tests/nessie_tests/tests/test_probe_files.py:1`.
-Measured 2026-10-13 against `NessieAI/tests/nessie_tests/corpus.json`: `merged` resolves 415
-variants over 491 turns; `curated`, which drops the unreviewed atlas set
-(`NessieAI/nessie_harness/corpus.py:110-130`), leaves 369; `bayesian_ids` selects 142; one
-consistency group is defined; and 2 variants carry the `route_gate` tag.
+`merged` resolves the variants of `NessieAI/tests/nessie_tests/corpus.json`; `curated` drops the
+unreviewed atlas set (`NessieAI/nessie_harness/corpus.py:110-130`); `bayesian_ids` selects the
+paired-run set; and the `route_gate` tag marks the route-tier gates. The snippet under "Unit tests:
+host lane" prints the first two counts, and `tests/test_corpus.py` and `tests/test_unified_corpus.py` pin
+them and the `route_gate` set.
 
-**Retired questions live in `NessieAI/tests/nessie_tests/retired.json`**, not in `corpus.json`: 252 records, each
+**Retired questions live in `NessieAI/tests/nessie_tests/retired.json`**, not in `corpus.json`: one record per retired question, each
 with the question's full body, a `retirement` record (`decided_by`, `family`, `reason`, `retired_on`, `source`, and
 `duplicate_of` naming the case that asks the question now) and where it came from (`lived_in`). The 2026-10-07 test-set
 review put 145 removals there (corpus variants, probe cases and cases that lived only in the round 5 sets, the round 4
@@ -396,8 +398,7 @@ print(len(m), "resolved (what --scope all runs);",
 EOF
 ```
 
-(2026-10-13: 417 resolved / 367 curated; 2026-10-14: 369 curated. If that line and the pinned test ever
-disagree, this line is the stale one.)
+(`tests/test_corpus.py` and `tests/test_unified_corpus.py` pin both numbers.)
 
 `--no-project` and the explicit `--with` list are load-bearing, not decoration.
 All three ways of getting them wrong fail in a way that does not name the cause:
@@ -541,9 +542,9 @@ NS turn the same four fields are real assertions and still fail.
 case in a floored family goes red, not all of them. Simulate every case in the
 curated corpus (the resolved corpus minus the atlas set: the frame every
 figure in this section uses, because the tests that pin them use it) routing CC
-and **363 of 369 are still red**, with all seven floored families at 100%. Four
+and **370 of 383 are still red**, with all seven floored families at 100%. Four
 criteria account for nearly all of it, and none of them is skipped: `route`
-fails on **266** variants, `parser_plan.mode` on **240** (163 before the 2026-10-07 graph-search grading), `api_ok` on **12**
+fails on **269** variants, `parser_plan.mode` on **241** (163 before the 2026-10-07 graph-search grading), `api_ok` on **12**
 and `api_plan.endpoint` on **13** (the last two fell from 128 and 104 on
 2026-09-23, when the graph-answerable families stopped requiring the REST path, and again on 2026-10-03 when the
 REST sample-search seed turns and the SOP case moved to the graph). Those cases stay red until the corpus
@@ -570,8 +571,8 @@ scored, not because it started holding.
 
 **Every figure above is RECOMPUTED, not remembered**, in
 `tests/test_write_refusal_coverage.py`: the headline by
-`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (369 total /
-6 green / 363 red), the four per-criterion counts by
+`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (383 total /
+13 green / 370 red), the four per-criterion counts by
 `test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too`, and the
 two-frames claim by `test_the_cc_skip_turns_nothing_green_under_the_all_cc_simulation`.
 All three drive the curated corpus through `evaluate.evaluate_turn` with the real

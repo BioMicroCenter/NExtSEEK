@@ -1,0 +1,2 @@
+{"genome": "GRCh38", "aligner": "star", "outdir": "/RUN", "input": "/RUN/samplesheet.csv",
+ "trace_report_suffix": "2026-01-01_00-00-00"}

@@ -155,3 +155,12 @@ def test_tower_submit_is_gated_too(monkeypatch):
     cfg.TOWER_ENV = {"access_token": "x", "workspace": "w"}
     assert json.loads(at.tool_submit_to_tower(cfg, _gate_state(1))) == _REFUSAL
     assert json.loads(at.tool_submit_to_tower(cfg, _gate_state(1, [_REPLY])))["ok"] is True
+
+
+def test_tool_submit_to_luria_passes_the_launching_user(monkeypatch):
+    captured = _capture_luria(monkeypatch)
+    state = {"messages": [{"role": "user", "content": "go"}, {"role": "user", "content": "yes"}],
+             "launch_built_at_user_msgs": 1, "artifacts": {"launch": "/tmp/launch.yml"},
+             "launched_by_user_id": 7}
+    at.tool_submit_to_luria(_Cfg(tower=False, luria=True), state, {})
+    assert captured["user_id"] == 7

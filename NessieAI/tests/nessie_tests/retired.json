@@ -12691,6 +12691,50 @@
       "lived_in": [
         "corpus"
       ]
+    },
+    {
+      "id": "unsup.compare_gene_expression_betwee",
+      "family": "unsupported",
+      "name": "Compare gene expression between NDMA-treated and control mice",
+      "tags": [],
+      "requires_env": [],
+      "turns": [
+        {
+          "label": "main",
+          "query": "Compare gene expression between NDMA-treated and control mice",
+          "pass_criteria": [
+            {
+              "field": "parser_plan.mode",
+              "op": "eq",
+              "value": "unsupported"
+            },
+            {
+              "field": "last_reply",
+              "op": "matches_re",
+              "value": "(?is)(no (expression|count|matrix)|don.?t (have|store)|metadata only|can.?t|cannot|references)"
+            }
+          ]
+        }
+      ],
+      "status": "retired",
+      "origin": "base",
+      "is_bayesian": true,
+      "hibayes_subtype": null,
+      "expected_behavior": null,
+      "artifact_expected": null,
+      "artifact_kind": null,
+      "retirement": {
+        "decided_by": "operator, comparison-offer design review",
+        "family": "unsupported",
+        "reason": "Behaviour changed on purpose: an expression comparison between groups of samples now goes to the pipeline agent, which offers the nf-core run that produces the counts (or says there is nothing to run it on), instead of the unsupported reply this case pinned. Its human grade stays valid for the old behaviour. Replaced by pipeline.compare_offer_ndma.",
+        "retired_on": "2026-10-19",
+        "source": "base"
+      },
+      "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. Same limit as above, on a concrete cohort: 195 NDMA mice and 200 saline controls exist as METADATA; no expression values are stored anywhere. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS $.Treatment1 -> NDMA 195, saline 200 (+ 'Saline' 4); content_blobs holds no matrices.",
+      "was_family": "unsupported",
+      "lived_in": [
+        "corpus"
+      ]
     }
   ]
 }

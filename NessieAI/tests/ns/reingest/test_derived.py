@@ -1,0 +1,420 @@
+from pathlib import Path
+
+import pytest
+
+from NessieAI.ns.reingest import derived
+
+FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "nfcore_rnaseq_run"
+
+# Applied per-test (not module-wide) so tests that use only inline text still
+# RUN where the fixture is absent (e.g. CI), instead of being skipped along
+# with the fixture-reading ones. Matches the pattern in test_parsers.py.
+needs_fixture = pytest.mark.skipif(
+    not FIXTURE.is_dir(),
+    reason="nf-core run fixture is local-only; see the fixture README")
+
+
+def test_derived_metric_names_are_a_closed_set():
+    assert derived.DERIVED_METRICS == (
+        "cds_pct", "utr_pct", "intron_pct", "intergenic_pct",
+        "exon_intron_ratio", "exon_intergenic_ratio", "sense_antisense_ratio",
+        "genes_detected", "genes_detected_percent", "top30_count_percent",
+        "unaligned_reads", "total_reads", "uniquely_mapped_reads",
+        "multimapped_pct", "strandedness", "mismatch_pct",
+    )
+
+
+def test_parse_read_distribution_sums_both_utrs():
+    text = (
+        "Total Reads                   1000\n"
+        "Group               Total_bases   Tag_count   Tags/Kb\n"
+        "CDS_Exons           100           600         1.0\n"
+        "5'UTR_Exons         10            100         1.0\n"
+        "3'UTR_Exons         10            100         1.0\n"
+        "Introns             50            150         1.0\n"
+        "TSS_up_10kb         10            25          1.0\n"
+        "TES_down_10kb       10            25          1.0\n"
+    )
+    dist = derived.parse_read_distribution(text)
+    assert dist["cds_pct"] == 60.0
+    assert dist["utr_pct"] == 20.0      # 5' + 3' summed into one slot
+    assert dist["intron_pct"] == 15.0
+    assert dist["intergenic_pct"] == 5.0
+
+
+def test_intergenic_pct_uses_widest_window_only_not_sum_of_nested_windows():
+    # RSeQC's TSS_up_*/TES_down_* windows are NESTED, not disjoint. The real
+    # CONTROL_REP1 fixture
+    # (star_salmon/rseqc/read_distribution/CONTROL_REP1.read_distribution.txt)
+    # reports TSS_up_1kb=39621, TSS_up_5kb=125048, TSS_up_10kb=198592, and
+    # TES_down_1kb=116078, TES_down_5kb=243536, TES_down_10kb=333881 -- each
+    # wider window CONTAINS the narrower one's reads. Summing every group
+    # whose name starts with TSS_up_/TES_down_ (the naive rule) triple-counts
+    # the innermost reads. Only the widest window per side is real.
+    #
+    # No "Total Assigned Tags" header here, so the denominator falls back to
+    # summing the six NON-NESTED groups (CDS_Exons, 5'UTR_Exons, 3'UTR_Exons,
+    # Introns, TSS_up_10kb, TES_down_10kb) -- not every Group row, which
+    # would double/triple-count the narrower nested windows into the
+    # denominator too.
+    text = (
+        "Total Reads                   1000000\n"
+        "Group               Total_bases   Tag_count   Tags/Kb\n"
+        "CDS_Exons           100           600000      1.0\n"
+        "5'UTR_Exons         10            50000       1.0\n"
+        "3'UTR_Exons         10            50000       1.0\n"
+        "Introns             50            100000      1.0\n"
+        "TSS_up_1kb          10            39621       1.0\n"
+        "TSS_up_5kb          10            125048      1.0\n"
+        "TSS_up_10kb         10            198592      1.0\n"
+        "TES_down_1kb        10            116078      1.0\n"
+        "TES_down_5kb        10            243536      1.0\n"
+        "TES_down_10kb       10            333881      1.0\n"
+    )
+    dist = derived.parse_read_distribution(text)
+
+    total = 600000 + 50000 + 50000 + 100000 + 198592 + 333881
+    sum_everything = 39621 + 125048 + 198592 + 116078 + 243536 + 333881
+    widest_only = 198592 + 333881
+
+    buggy_pct = round(sum_everything / total * 100, 4)
+    correct_pct = round(widest_only / total * 100, 4)
+
+    assert dist["intergenic_pct"] == correct_pct
+    assert dist["intergenic_pct"] != buggy_pct
+
+
+def test_total_assigned_tags_header_overrides_naive_group_sum():
+    # No @needs_fixture: this is inline text, so it runs in CI. It pins that
+    # the "Total Assigned Tags" header value is used verbatim as the
+    # denominator, even though it disagrees with both the naive sum of every
+    # Group row (which double/triple-counts the nested TSS_up_*/TES_down_*
+    # windows) and the six-non-nested-groups fallback sum (which the header
+    # normally equals by construction -- deliberately violated here to prove
+    # it is the header that wins, not either sum).
+    text = (
+        "Total Reads                   900000\n"
+        "Total Tags                    900000\n"
+        "Total Assigned Tags           500000\n"
+        "=====================================\n"
+        "Group               Total_bases   Tag_count   Tags/Kb\n"
+        "CDS_Exons           100           300000      1.0\n"
+        "5'UTR_Exons         10            20000       1.0\n"
+        "3'UTR_Exons         10            20000       1.0\n"
+        "Introns             50            40000       1.0\n"
+        "TSS_up_1kb          10            5000        1.0\n"
+        "TSS_up_5kb          10            15000       1.0\n"
+        "TSS_up_10kb         10            20000       1.0\n"
+        "TES_down_1kb        10            8000        1.0\n"
+        "TES_down_5kb        10            18000       1.0\n"
+        "TES_down_10kb       10            20000       1.0\n"
+    )
+    dist = derived.parse_read_distribution(text)
+
+    header_total = 500000
+    six_group_total = 300000 + 20000 + 20000 + 40000 + 20000 + 20000  # 420000
+    all_rows_total = (300000 + 20000 + 20000 + 40000
+                       + 5000 + 15000 + 20000 + 8000 + 18000 + 20000)  # 466000
+    assert header_total != six_group_total
+    assert header_total != all_rows_total
+
+    assert dist["cds_pct"] == round(300000 / header_total * 100, 4)
+    assert dist["cds_pct"] != round(300000 / six_group_total * 100, 4)
+    assert dist["cds_pct"] != round(300000 / all_rows_total * 100, 4)
+
+
+@needs_fixture
+def test_parse_read_distribution_reads_the_real_fixture():
+    text = (FIXTURE / "star_salmon" / "rseqc" / "read_distribution"
+            / "CONTROL_REP1.read_distribution.txt").read_text()
+    dist = derived.parse_read_distribution(text)
+
+    # Hand-tallied straight from the file's own Tag_count column, so this
+    # cross-checks the parser against the real numbers rather than a
+    # separately-guessed expectation. The denominator is the file's own
+    # "Total Assigned Tags" header (47366995), NOT sum(tags.values()) --
+    # see the _TOTAL_ASSIGNED_TAGS_LINE comment in derived.py. The six
+    # non-nested groups below sum to exactly the header value, confirming
+    # the header and the fallback agree on this real fixture.
+    total = (33590473 + 649712 + 9042771 + 3551566 + 198592 + 333881)
+    assert total == 47366995
+    assert dist["cds_pct"] == round(33590473 / total * 100, 4)
+    assert dist["utr_pct"] == round((649712 + 9042771) / total * 100, 4)
+    assert dist["intron_pct"] == round(3551566 / total * 100, 4)
+    assert dist["intergenic_pct"] == round((198592 + 333881) / total * 100, 4)
+
+
+@needs_fixture
+def test_read_distribution_percentages_sum_to_100_on_real_fixture():
+    # Regression test for the denominator bug: the numerator fix (widest
+    # intergenic window only) landed while the denominator still summed
+    # every Group row, including the narrower nested TSS_up_1kb/5kb and
+    # TES_down_1kb/5kb rows that are CONTAINED within the 10kb windows. That
+    # double/triple-counted denominator deflates all four percentages, not
+    # just intergenic_pct -- under it the four sum to roughly 98.9, not 100.
+    # This test pins the correct denominator (the real fixture's own
+    # "Total Assigned Tags" header, 47366995) and must fail before the
+    # fix and pass after it.
+    text = (FIXTURE / "star_salmon" / "rseqc" / "read_distribution"
+            / "CONTROL_REP1.read_distribution.txt").read_text()
+    dist = derived.parse_read_distribution(text)
+
+    denominator = 47366995
+    expected = {
+        "cds_pct": round(33590473 / denominator * 100, 4),
+        "utr_pct": round((649712 + 9042771) / denominator * 100, 4),
+        "intron_pct": round(3551566 / denominator * 100, 4),
+        "intergenic_pct": round((198592 + 333881) / denominator * 100, 4),
+    }
+    for key, value in expected.items():
+        assert dist[key] == value
+
+    total_pct = sum(dist[key] for key in expected)
+    assert abs(total_pct - 100.0) < 0.01
+
+
+def test_parse_infer_experiment_maps_strand_patterns_to_forward_reverse():
+    # The two "explained by" lines carry strand-pattern strings as their
+    # labels, not the words "forward"/"reverse": RSeQC's own convention is
+    # that "1++,1--,2+-,2-+" means forward and "1+-,1-+,2++,2--" means
+    # reverse.
+    text = (
+        "\n\n"
+        "This is PairEnd Data\n"
+        'Fraction of reads failed to determine: 0.1000\n'
+        'Fraction of reads explained by "1++,1--,2+-,2-+": 0.4500\n'
+        'Fraction of reads explained by "1+-,1-+,2++,2--": 0.4500\n'
+    )
+    out = derived.parse_infer_experiment(text)
+    assert out == {"failed": 0.1, "forward": 0.45, "reverse": 0.45}
+
+
+@needs_fixture
+def test_parse_infer_experiment_reads_the_real_fixture():
+    text = (FIXTURE / "star_salmon" / "rseqc" / "infer_experiment"
+            / "CONTROL_REP1.infer_experiment.txt").read_text()
+    out = derived.parse_infer_experiment(text)
+    assert out == {"failed": 0.0954, "forward": 0.4533, "reverse": 0.4513}
+
+
+def test_exon_ratios_use_cds_plus_utr_over_the_other_class():
+    out = derived.compute(
+        read_distribution={"cds_pct": 60.0, "utr_pct": 20.0,
+                           "intron_pct": 16.0, "intergenic_pct": 4.0},
+        infer_experiment=None, star=None, counts=None, n_annotated_genes=None)
+    assert out["exon_intron_ratio"] == 5.0        # (60+20)/16
+    assert out["exon_intergenic_ratio"] == 20.0   # (60+20)/4
+
+
+def test_compute_merges_read_distribution_percentages_into_output():
+    # cds_pct/utr_pct/intron_pct/intergenic_pct are produced by
+    # parse_read_distribution, not by compute()'s own arithmetic -- but
+    # compute() must still carry them into its result so a manifest's
+    # sample.derived (and a map's $derived.cds_pct) can see all eleven
+    # DERIVED_METRICS names, not just the seven compute() calculates.
+    out = derived.compute(
+        read_distribution={"cds_pct": 60.0, "utr_pct": 20.0,
+                           "intron_pct": 16.0, "intergenic_pct": 4.0},
+        infer_experiment=None, star=None, counts=None, n_annotated_genes=None)
+    assert out["cds_pct"] == 60.0
+    assert out["utr_pct"] == 20.0
+    assert out["intron_pct"] == 16.0
+    assert out["intergenic_pct"] == 4.0
+
+
+def test_every_derived_metric_name_can_appear_in_compute_output():
+    counts = {f"g{i}": float(i) for i in range(1, 41)}
+    out = derived.compute(
+        read_distribution={"cds_pct": 60.0, "utr_pct": 20.0,
+                           "intron_pct": 16.0, "intergenic_pct": 4.0},
+        infer_experiment={"forward": 0.04, "reverse": 0.94, "failed": 0.02},
+        star={"total": 1000.0, "unique": 800.0, "multi": 150.0,
+              "too_many_loci": 30.0, "unmapped": 20.0},
+        counts=counts, n_annotated_genes=80)
+    out.update(derived.from_metrics({"Samtools_mqc-generalstats-samtools-error_rate": 0.006}))
+    assert set(derived.DERIVED_METRICS) <= set(out.keys())
+
+
+def test_multimapped_pct_is_stars_multiple_loci_share_of_input_reads():
+    """STAR's own "% of reads mapped to multiple loci": multi / input reads.
+    "Mapped to too many loci" is a separate STAR line and is not counted."""
+    star = {"total": 27091972.0, "unique": 24155641.0, "multi": 2520588.0,
+            "too_many_loci": 85073.0}
+    out = derived.compute(read_distribution=None, infer_experiment=None,
+                          star=star, counts=None, n_annotated_genes=None)
+    assert out["multimapped_pct"] == 9.3038
+
+
+def test_multimapped_pct_needs_both_counts():
+    out = derived.compute(read_distribution=None, infer_experiment=None,
+                          star={"multi": 150.0}, counts=None, n_annotated_genes=None)
+    assert "multimapped_pct" not in out
+
+
+@pytest.mark.parametrize("forward, reverse, expected", [
+    (0.93, 0.05, "forward"),
+    (0.02, 0.96, "reverse"),
+    (0.48, 0.47, "unstranded"),
+    # nf-core's thresholds on the stranded reads' shares: >= 0.8 is stranded,
+    # within 0.1 of each other is unstranded, anything between is undetermined.
+    (0.80, 0.20, "forward"),
+    (0.545, 0.455, "unstranded"),
+])
+def test_strandedness_follows_nf_cores_infer_experiment_rule(forward, reverse, expected):
+    out = derived.compute(read_distribution=None,
+                          infer_experiment={"forward": forward, "reverse": reverse, "failed": 0.0},
+                          star=None, counts=None, n_annotated_genes=None)
+    assert out["strandedness"] == expected
+
+
+@pytest.mark.parametrize("forward, reverse", [(0.6, 0.4), (0.0, 0.0)])
+def test_an_undetermined_strandedness_is_omitted_not_guessed(forward, reverse):
+    out = derived.compute(read_distribution=None,
+                          infer_experiment={"forward": forward, "reverse": reverse, "failed": 1.0},
+                          star=None, counts=None, n_annotated_genes=None)
+    assert "strandedness" not in out
+
+
+def test_gene_metrics_count_nonzero_rows_and_top30_share():
+    counts = {f"g{i}": float(i) for i in range(1, 41)}   # g1..g40, g0 absent
+    counts["zero"] = 0.0
+    out = derived.compute(read_distribution=None, infer_experiment=None,
+                          star=None, counts=counts, n_annotated_genes=80)
+    assert out["genes_detected"] == 40.0
+    assert out["genes_detected_percent"] == 50.0
+    # top 30 of 1..40 are 11..40 = 765; total 1..40 = 820
+    assert round(out["top30_count_percent"], 2) == round(765 / 820 * 100, 2)
+
+
+def test_unaligned_reads_is_stars_own_unmapped_sum():
+    """Not total - unique - multi. STAR files "mapped to too many loci" under
+    MULTI-MAPPING READS:, so subtracting counts reads that DID align."""
+    out = derived.compute(read_distribution=None, infer_experiment=None,
+                          star={"total": 1000.0, "unique": 800.0, "multi": 150.0,
+                                "too_many_loci": 30.0, "unmapped": 20.0},
+                          counts=None, n_annotated_genes=None)
+    assert out["unaligned_reads"] == 20.0
+    subtracted = 1000.0 - 800.0 - 150.0
+    assert out["unaligned_reads"] != subtracted, "the old reading included too_many_loci"
+
+
+def test_read_counts_are_stars_exact_integers_not_multiqc_millions():
+    """MultiQC's general stats print STAR's counts in millions (4.763343 for
+    4763343 reads); the STAR log is the exact count, written as an integer."""
+    out = derived.compute(read_distribution=None, infer_experiment=None,
+                          star={"total": 4763343.0, "unique": 4259026.0},
+                          counts=None, n_annotated_genes=None)
+    assert out["total_reads"] == 4763343
+    assert out["uniquely_mapped_reads"] == 4259026
+    assert isinstance(out["total_reads"], int)
+    assert isinstance(out["uniquely_mapped_reads"], int)
+
+
+def test_a_star_log_without_a_count_line_omits_that_count():
+    out = derived.compute(read_distribution=None, infer_experiment=None,
+                          star={"unique": 800.0}, counts=None, n_annotated_genes=None)
+    assert "total_reads" not in out
+    assert out["uniquely_mapped_reads"] == 800
+
+
+def test_without_the_unmapped_lines_there_is_no_unaligned_count():
+    """A partial parse must not be completed by falling back to subtraction."""
+    out = derived.compute(read_distribution=None, infer_experiment=None,
+                          star={"total": 1000.0, "unique": 800.0, "multi": 150.0},
+                          counts=None, n_annotated_genes=None)
+    assert "unaligned_reads" not in out
+
+
+def test_the_star_log_parser_reads_every_count_it_needs():
+    text = """\
+                          Number of input reads |\t27091972
+                      Uniquely mapped reads number |\t24155641
+                                    MULTI-MAPPING READS:
+           Number of reads mapped to multiple loci |\t2520588
+           Number of reads mapped to too many loci |\t85073
+                                    UNMAPPED READS:
+     Number of reads unmapped: too many mismatches |\t0
+                Number of reads unmapped: too short |\t274137
+                   Number of reads unmapped: other |\t56533
+"""
+    got = derived.parse_star_log(text)
+    assert got["total"] == 27091972
+    assert got["unique"] == 24155641
+    assert got["multi"] == 2520588
+    assert got["too_many_loci"] == 85073
+    assert got["unmapped"] == 330670, "0 + 274137 + 56533"
+    # and the reading this replaced, for contrast
+    assert got["total"] - got["unique"] - got["multi"] == 415743
+
+
+def test_an_incomplete_unmapped_block_yields_no_sum():
+    """Two of three lines would understate it while looking like a measurement."""
+    got = derived.parse_star_log(
+        "Number of reads unmapped: too short |\t100\n"
+        "Number of reads unmapped: other |\t50\n")
+    assert "unmapped" not in got
+
+
+def test_a_missing_input_yields_no_key_rather_than_a_zero():
+    out = derived.compute(None, None, None, None, None)
+    assert out == {}
+
+
+def test_zero_denominator_is_omitted_not_infinite():
+    out = derived.compute(
+        read_distribution={"cds_pct": 60.0, "utr_pct": 20.0,
+                           "intron_pct": 0.0, "intergenic_pct": 0.0},
+        infer_experiment=None, star=None, counts=None, n_annotated_genes=None)
+    assert "exon_intron_ratio" not in out
+    assert "exon_intergenic_ratio" not in out
+
+
+def test_sense_antisense_ratio_zero_denominator_is_omitted():
+    out = derived.compute(
+        read_distribution=None,
+        infer_experiment={"forward": 0.5, "reverse": 0.0}, star=None,
+        counts=None, n_annotated_genes=None)
+    assert "sense_antisense_ratio" not in out
+
+
+def test_an_integer_count_survives_the_manifest_round_trip():
+    """A count stored as 4763343.0 lands in the workbook as a float; the
+    manifest must keep compute()'s int an int, and a ratio a float."""
+    from NessieAI.ns.reingest import manifest
+
+    record = manifest.SampleRecord(nfcore_sample="A",
+                                   derived={"total_reads": 4763343, "cds_pct": 60.5})
+    again = manifest.SampleRecord.model_validate_json(record.model_dump_json())
+    assert again.derived["total_reads"] == 4763343
+    assert isinstance(again.derived["total_reads"], int)
+    assert isinstance(again.derived["cds_pct"], float)
+
+
+@pytest.mark.parametrize("code, expected", [
+    ("ISR", "reverse (ISR)"),
+    ("ISF", "forward (ISF)"),
+    ("IU", "unstranded (IU)"),
+    ("SR", "reverse (SR)"),
+    ("SF", "forward (SF)"),
+    ("U", "unstranded (U)"),
+    ("ISR, ISR", "reverse (ISR)"),
+])
+def test_salmon_library_type_becomes_strandedness(code, expected):
+    assert derived.from_metrics({"salmon-library_types": code})["strandedness"] == expected
+
+
+@pytest.mark.parametrize("code", ["ISR, IU", "", "A", "MSR, ISR"])
+def test_a_mixed_or_unknown_salmon_library_type_gives_no_strandedness(code):
+    assert "strandedness" not in derived.from_metrics({"salmon-library_types": code})
+
+
+def test_multiqc_1_22s_samtools_error_rate_fraction_becomes_a_percentage():
+    """MultiQC <= 1.22 writes the value before its x100 display step, and only
+    those versions spell the column <Namespace>_mqc-generalstats-...; the
+    spelling is what tells the fraction apart from 1.25's percentage."""
+    out = derived.from_metrics({"Samtools_mqc-generalstats-samtools-error_rate": 0.005994653})
+    assert out["mismatch_pct"] == 0.5995
+
+
+def test_a_current_multiqc_error_rate_is_already_a_percentage_and_is_left_alone():
+    assert "mismatch_pct" not in derived.from_metrics({"samtools_stats-error_rate": 0.5994653})

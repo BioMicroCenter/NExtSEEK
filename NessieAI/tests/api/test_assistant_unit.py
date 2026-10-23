@@ -99,6 +99,12 @@ class SessionAdapterTests(TestCase):
             last_debug={"key": "val"},
         )
 
+    def test_owner_user_id_is_the_sessions_user(self):
+        # The pipeline agent records it on the launch record, so a finished run can be
+        # found for the user who launched it.
+        adapter = DictSessionAdapter(self.chat_session)
+        self.assertEqual(adapter.owner_user_id, self.user.pk)
+
     def test_get_returns_correct_values(self):
         adapter = DictSessionAdapter(self.chat_session)
         self.assertEqual(len(adapter.get("results_history")), 1)

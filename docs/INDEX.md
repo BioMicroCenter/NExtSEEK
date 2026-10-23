@@ -15,6 +15,7 @@ The user docs that the site serves at `/docs/` are not here: they live in `theme
 | [`neo4j-programmatic-access.md`](neo4j-programmatic-access.md) | runbook | querying Neo4j over HTTP, Browser or bolt, or rotating its password | |
 | [`neo4j-schema.md`](neo4j-schema.md) | reference | reading or writing the sample graph: what v1.0 holds, what graph_search's v1.1 builds, what the sync adds in v1.2 and the assay nodes of v1.3 (with how to roll them back) | |
 | [`sample-download-workflow.md`](sample-download-workflow.md) | explanation | changing any "Download samples" control or the workbook | |
+| [`contrast-attribute-rollout.md`](contrast-attribute-rollout.md) | runbook | deploying the differentialabundance reingest rules to an instance: the six A.GEX attributes (contrast and its direction, paramset, method settings) and catalog edit they need first, and where each instance stands | |
 | [`sample-sharing.md`](sample-sharing.md) | how-to | sharing samples of one project into another project's study, reading a share's dry run, or undoing a share | |
 | [`graph/README.md`](graph/README.md) | generated | seeing which files and folders depend on which: the file-level code graph, its picture and an interactive view; regenerate with `scripts/graph_files.py` | |
 | [`ui/README.md`](ui/README.md) | guide | changing anything a user sees: the shell, a page, styles, scripts, the project graphs, the Nessie chat page, help pages; every open UI problem is in [`ui/known-issues.md`](ui/known-issues.md) | |

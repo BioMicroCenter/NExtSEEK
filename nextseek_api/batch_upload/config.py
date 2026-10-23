@@ -54,6 +54,9 @@ class BatchUploadConfig:
         )
         # Optional row limit for EXTRACT stage (None = no limit)
         self.limit: Optional[int] = overrides.get("limit", None)
+        # Update path only: add the sheet's assay links but never remove a sample's
+        # existing ones. A reingest backfill sets it, since its ASSAY sheet is empty.
+        self.keep_assay_links: bool = bool(overrides.get("keep_assay_links", False))
         self.update_existing: bool = _env_bool(
             "BATCH_UPLOAD_UPDATE_EXISTING", overrides.get("update_existing", False)
         )

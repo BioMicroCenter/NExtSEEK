@@ -204,6 +204,31 @@ def _make_details(*entries):
 
 
 class TestBulkUpdateSamples:
+    def _update_with_existing_links(self, **kwargs):
+        """U1 (sample 1) holds assays 198 and 199; the update row lists none."""
+        from nextseek_api.batch_upload.update import bulk_update_samples
+
+        conn = MagicMock()
+        details = _make_details(("U1", 1, 5, '{"Name":"Old"}', "Old"))
+        with patch("nextseek_api.batch_upload.update._bulk_prefetch_assay_links",
+                   return_value={1: {198, 199}}), \
+             patch("nextseek_api.batch_upload.update.delete_assay_links") as mock_delete, \
+             patch("nextseek_api.batch_upload.update.batch_insert_assay_assets", return_value=0), \
+             patch("nextseek_api.batch_upload.update.batch_insert_projects_samples", return_value=0):
+            outcomes = bulk_update_samples(
+                rows=[_make_sample("U1", assay_ids=[])], details=details, project_id=99,
+                direction_by_pair={}, conn=conn, **kwargs)
+        assert outcomes["U1"].status == "success"
+        return sorted(mock_delete.call_args[0][0])
+
+    def test_an_unlisted_assay_link_is_removed_by_default(self):
+        assert self._update_with_existing_links() == [(198, 1), (199, 1)]
+
+    def test_keep_assay_links_never_removes_a_link(self):
+        # A reingest backfill carries QC values only; its empty ASSAY sheet must
+        # not strip the sequencing samples out of their studies' assays.
+        assert self._update_with_existing_links(keep_assay_links=True) == []
+
     def test_uses_one_connection_for_all_operations(self):
         """All DB operations go through the single conn passed in."""
         from nextseek_api.batch_upload.update import bulk_update_samples
