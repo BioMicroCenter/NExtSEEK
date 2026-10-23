@@ -11,8 +11,12 @@
 Writes NessieAI/tests/ns/fixtures/reingest_runs/<pipeline>/<folder>/ in the layout
 make_fixture.sh writes, plus EVIDENCE.txt naming the source; <folder> is <version>, or
 <version>-aws-<profile>. Reads public URLs only and touches no cluster. Run it inside the
-stack image with PYTHONPATH=/src/NessieAI/chat_nextseek/src (it imports pack_draft), then
-run sanitize_fixture.py on the folder.
+stack image with PYTHONPATH=/src/NessieAI/chat_nextseek/src (it imports pack_draft).
+
+The fixture is built in a temporary folder, run through sanitize_fixture.py (cluster prefix
+/RUN), and moved into place only if the sanitizer accepts it; otherwise the sanitizer's
+refusal is printed, nothing is written under reingest_runs/ and the exit status is 1.
+EVIDENCE.txt names its sources without a scheme, because the sanitizer refuses any scheme://.
 """
 from __future__ import annotations
 
@@ -21,7 +25,10 @@ import csv
 import io
 import json
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import urllib.parse
 import xml.etree.ElementTree as ET
 from datetime import date
@@ -150,10 +157,14 @@ def _samplesheet(pipeline: str, version: str, config_text: str, url: str | None,
         if not found:
             raise SystemExit("no input = '...' in the test config; pass --samplesheet-url")
         url = found.group(1).replace("${projectDir}", f"{RAW}/{pipeline}/{version}")
+        if "${" in url:
+            raise SystemExit(f"the test config's input is {found.group(1)!r}, which this script "
+                             "cannot resolve; pass --samplesheet-url")
     return localise_samplesheet(fetch(url).decode())
 
 
-def from_snapshot(pipeline: str, version: str, test_name: str, fetch) -> dict:
+def from_snapshot(pipeline: str, version: str, test_name: str, fetch,
+                  samplesheet_url: str | None = None) -> dict:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "NessieAI/chat_nextseek/src"))
     from chat_nextseek.seqera.pack_draft import snapshot_paths
     url = f"{RAW}/{pipeline}/{version}/tests/{test_name}.nf.test.snap"
@@ -162,11 +173,12 @@ def from_snapshot(pipeline: str, version: str, test_name: str, fetch) -> dict:
     params = {m.group(1): m.group(2) for m in _SCALAR.finditer(config)}
     return {"folder": version,
             "inventory": [{"path": p, "bytes": 0} for p in snapshot_paths(snapshot)],
-            "samplesheet": _samplesheet(pipeline, version, config, None, fetch),
+            "samplesheet": _samplesheet(pipeline, version, config, samplesheet_url, fetch),
             "params": evidence_params(params),
             "versions_yml": versions_yml_from_snapshot(snapshot, pipeline),
             "files": {},
-            "evidence": (f"Evidence: nf-core/{pipeline} {version} nf-test snapshot {url}, read "
+            "evidence": (f"Evidence: GitHub nf-core/{pipeline} tag {version}, "
+                         f"tests/{test_name}.nf.test.snap and conf/test.config, read "
                          f"{date.today().isoformat()}. File sizes are not in a snapshot, so every "
                          "inventory entry has bytes 0. No MultiQC values: snapshots hold none.")}
 
@@ -179,20 +191,50 @@ def from_aws(pipeline: str, version: str, profile: str, samplesheet_url: str | N
         raise SystemExit(f"nothing published under s3://nf-core-awsmegatests/{prefix}")
     wanted = wanted_aws_files(inventory)
     files = {p: fetch(f"{BUCKET}/{urllib.parse.quote(prefix + p)}") for p in wanted}
-    params_path = next((p for p in wanted if p.startswith("pipeline_info/params_")), None)
-    versions_path = next((p for p in wanted if p.endswith("software_mqc_versions.yml")), None)
-    if not versions_path:
+    params_paths = sorted(p for p in wanted if p.startswith("pipeline_info/params_"))
+    versions_paths = sorted(p for p in wanted if p.endswith("software_mqc_versions.yml"))
+    if not versions_paths:
         raise SystemExit("no software_mqc_versions.yml in the published run")
-    params = json.loads(files.pop(params_path)) if params_path else {}
-    versions_yml = files.pop(versions_path).decode()
+    # Every run-info file is rewritten under a fixed name, so none stays in files or inventory;
+    # the newest params file (by name, which carries the timestamp) is the one kept.
+    params_blobs = [files.pop(p) for p in params_paths]
+    params = json.loads(params_blobs[-1]) if params_blobs else {}
+    versions_yml = files.pop(versions_paths[0]).decode()
+    for extra in versions_paths[1:]:
+        files.pop(extra)
+    renamed = set(params_paths) | set(versions_paths)
     config = _test_config(pipeline, version, profile.removesuffix("_aws"), fetch) if not samplesheet_url else ""
     return {"folder": f"{version}-aws-{profile}",
-            "inventory": [{"path": e["path"], "bytes": 0} for e in inventory],
+            "inventory": [{"path": e["path"], "bytes": 0} for e in inventory
+                          if e["path"] not in renamed],
             "samplesheet": _samplesheet(pipeline, version, config, samplesheet_url, fetch),
             "params": evidence_params(params), "versions_yml": versions_yml, "files": files,
-            "evidence": (f"Evidence: nf-core/{pipeline} {version} AWS results "
-                         f"s3://nf-core-awsmegatests/{prefix}, listed {date.today().isoformat()}. "
+            "evidence": (f"Evidence: nf-core/{pipeline} {version} AWS results, S3 bucket "
+                         f"nf-core-awsmegatests, prefix {prefix}, listed {date.today().isoformat()}. "
                          f"MultiQC tables downloaded: {len(files)}; other files are inventory only.")}
+
+
+def install_fixture(dest: Path, *, pipeline: str, version: str, built: dict) -> int:
+    """Write the fixture to a temporary folder, sanitize it, and move it to `dest` only if the
+    sanitizer accepts it. A refusal prints the sanitizer's output and leaves `dest` absent."""
+    if dest.exists():
+        raise SystemExit(f"already exists: {dest}")
+    fields = {k: v for k, v in built.items() if k != "folder"}
+    scratch = Path(tempfile.mkdtemp(prefix="import_evidence_"))
+    try:
+        staged = scratch / dest.name
+        write_fixture(staged, pipeline=pipeline, version=version, **fields)
+        done = subprocess.run([sys.executable, str(Path(__file__).resolve().with_name("sanitize_fixture.py")),
+                               str(staged), "/RUN"], capture_output=True, text=True)
+        if done.returncode != 0:
+            print(done.stdout + done.stderr, end="", file=sys.stderr)
+            print(f"not written: the sanitizer refused {dest.name}", file=sys.stderr)
+            return 1
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(staged), str(dest))
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    return 0
 
 
 def main() -> int:
@@ -204,14 +246,16 @@ def main() -> int:
     parser.add_argument("name", help="snapshot test name, or AWS profile folder")
     parser.add_argument("--samplesheet-url", default=None)
     args = parser.parse_args()
-    built = (from_snapshot(args.pipeline, args.version, args.name, _fetch) if args.source == "snapshot"
+    built = (from_snapshot(args.pipeline, args.version, args.name, _fetch, args.samplesheet_url)
+             if args.source == "snapshot"
              else from_aws(args.pipeline, args.version, args.name, args.samplesheet_url, _fetch))
     dest = (Path(__file__).resolve().parents[2] / "NessieAI/tests/ns/fixtures/reingest_runs"
-            / args.pipeline / built.pop("folder"))
-    write_fixture(dest, pipeline=args.pipeline, version=args.version, **built)
-    print(f"fixture written: {dest}")
-    print("next: python3 scripts/reingest/sanitize_fixture.py <folder> /RUN, then the fixture test")
-    return 0
+            / args.pipeline / built["folder"])
+    status = install_fixture(dest, pipeline=args.pipeline, version=args.version, built=built)
+    if status == 0:
+        print(f"fixture written and sanitized: {dest}")
+        print("next: review it per the reingest_runs README, then run the fixture test")
+    return status
 
 
 if __name__ == "__main__":
