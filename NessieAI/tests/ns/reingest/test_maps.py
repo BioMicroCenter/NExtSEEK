@@ -319,8 +319,10 @@ def test_hlatyping_2_2_is_a_checked_release():
      "skip_samples_without_file": True},
     {"id": "a", "candidates": ["x"], "sample_type": "A.VCF", "primary_data": True,
      "optional": True, "cardinality": "per_run", "skip_samples_without_file": True},
-], ids=["not optional", "per_run"])
-def test_skip_samples_without_file_is_only_for_optional_per_sample_rules(rule):
+    {"id": "a", "candidates": ["x"], "sample_type": "A.VCF",
+     "optional": True, "skip_samples_without_file": True},
+], ids=["not optional", "per_run", "no primary_data"])
+def test_skip_samples_without_file_is_only_for_optional_per_sample_primary_rules(rule):
     with pytest.raises(ValueError, match="skip_samples_without_file"):
         maps.OutputRule.model_validate(rule)
 

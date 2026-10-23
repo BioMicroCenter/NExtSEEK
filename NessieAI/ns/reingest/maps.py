@@ -176,9 +176,10 @@ class OutputRule(BaseModel):
         candidate fallback is not supported. Companions pair with each row's
         file by its stem (see mapper._pairs_with_row_file)."""
         if self.skip_samples_without_file and not (
-                self.optional and self.cardinality == "per_sample"):
+                self.optional and self.cardinality == "per_sample" and self.primary_data):
             raise ValueError(f"rule {self.id!r}: skip_samples_without_file is for optional "
-                             "per_sample rules only")
+                             "per_sample rules that set primary_data (the mapper's skip "
+                             "guard reads the primary file)")
         if self.cardinality == "per_file":
             if not self.primary_data:
                 raise ValueError(f"per_file rule {self.candidates[0]!r} must set primary_data")
