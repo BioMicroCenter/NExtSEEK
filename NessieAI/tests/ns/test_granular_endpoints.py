@@ -304,7 +304,17 @@ class ReingestEndpointTests(GranularEndpointBase):
     the handlers, models, and sidecar forwarders but omitted these two @action
     methods, so the sidecar's POST hit a CSRF-enforcing fallback and 403'd —
     which the agent misread as an auth failure. Handler-only tests (test_run_ls_op)
-    did not catch it because they call run_op directly, never the URL."""
+    did not catch it because they call run_op directly, never the URL.
+
+    ``_granular_chat_config`` is patched for the same reason as GraphSchemaEndpointTests:
+    the hermetic lane's settings carry no ``NEXTSEEK_CHAT_CONFIG``."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch("nextseek_api.services.assistant._granular_chat_config",
+                        return_value=SimpleNamespace())
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_run_ls_endpoint_is_routed_and_csrf_exempt(self):
         # patch run_op so the endpoint returns without SSHing Luria; the point is
