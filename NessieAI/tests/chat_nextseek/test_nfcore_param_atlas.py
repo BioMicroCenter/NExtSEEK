@@ -593,6 +593,9 @@ def _sarek(name):
     ({"Type": "Blood"}, "derived_uncorroborated", "0"),
     ({"Type": "Normal-adjacent tissue"}, "conflict", None),
     ({"Type": "Non-tumor tissue"}, "conflict", None),
+    ({"Type": "Non-neoplastic tissue"}, "conflict", None),
+    ({"Type": "tumor-free margin"}, "conflict", None),
+    ({"Type": "non tumor tissue"}, "conflict", None),
     ({}, "defaulted", "0"),
 ])
 def test_shipped_sarek_status(signals, verdict, value):

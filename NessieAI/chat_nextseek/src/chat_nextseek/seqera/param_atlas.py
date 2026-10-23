@@ -236,12 +236,13 @@ def evaluate_data_driven_param(spec: dict, signals: dict) -> dict[str, Any]:
       conflict                two signals vote different values, or one signal is internally ambiguous
       absent                  no signal resolves any value
       defaulted               verdict would be absent, but the spec declares a safe default
+      needs_value             detect_only: a signal detected the case; the user must supply the value
+      not_detected            detect_only: no signal detected it; the param is not needed
+
     Optional spec field ``ambiguous_markers``: a signal (primary or corroborator) whose value
     contains one of these case-insensitive substrings votes ambiguous, as if it hit more than one
     allowed value, so the verdict is ``conflict`` and the user is asked. Use it for phrases that
     contain a marker but flip its meaning ("non-tumor", "abnormal").
-      needs_value             detect_only: a signal detected the case; the user must supply the value
-      not_detected            detect_only: no signal detected it; the param is not needed
     """
     if spec.get("detect_only"):
         return _evaluate_detection(spec, signals)

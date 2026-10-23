@@ -135,7 +135,8 @@
       "status": {
         "target": "row_column", "scope": "sample", "allowed": ["0", "1"],
         "on_absent": "use_default", "default": "0",
-        "ambiguous_markers": ["non-tumor", "non-tumour", "nontumor", "nontumour", "non-malignant", "nonmalignant", "non-cancer", "noncancer", "abnormal", "adjacent"],
+        "ambiguous_markers": ["non-tumor", "non-tumour", "nontumor", "nontumour", "non-malignant", "nonmalignant", "non-cancer", "noncancer", "abnormal", "adjacent",
+          "non-neoplastic", "nonneoplastic", "tumor-free", "tumour-free", "tumor free", "tumour free", "non tumor", "non tumour"],
         "derive_from": {"signal": "Type", "map": {
           "1": ["tumor", "tumour", "cancer", "carcinoma", "malignan", "metasta", "neoplas"],
           "0": ["normal", "healthy", "germline", "blood", "pbmc", "buffy"]}},
