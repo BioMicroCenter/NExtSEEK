@@ -47,19 +47,19 @@ Bulk, no single-cell resolution, no stated two-group D.SEQ contrast: that
 combination of evidence is the whole point of running this cohort alongside
 `granuloma` — same question, same evaluator, different real biology.
 
-## wgs — whole-genome DNA sequencing
+## dna_capture — mouse targeted-capture DNA (duplex sequencing)
 
-`D.SEQ-250722FOR-100-PUB` through `D.SEQ-250722FOR-111-PUB` (12 samples), the
-first twelve whole-genome D.SEQ rows on the local stack. They are the only
-`LibraryStrategy: WGS` rows there (188 in all, `D.SEQ-250722FOR-*`), and the
-lineage behind them is D.SEQ -> DNA -> BAC (bacterial isolate) -> TIS -> PAV ->
-NHP, so this is bacterial isolate WGS from non-human-primate tissue, not human
-DNA. Every D.SEQ carries `LibraryStrategy: WGS`, `LibrarySource: GENOMIC`,
-`LibrarySelection: other`, `SequencingType: Illumina Sequencing`, `Sequencer:
-Illumina NovaSeq 6000`, `Protocol: https://fairdomhub.org/sops/666`. The local
-stack holds no human WGS or exome rows (the only other DNA rows are mouse
-`Targeted Capture` duplex-sequencing libraries), so this cohort stands in as
-the DNA evidence payload that scores `dna_selection_cases.json`.
+`D.SEQ-230303ESS-1-PUB` through `D.SEQ-230303ESS-12-PUB` (12 samples, the first
+twelve of that study's 20 capture rows). Every one carries `LibraryStrategy:
+Targeted Capture`, `LibrarySource: Genomic`, `LibrarySelection: Hybrid
+Selection`, `SequencingType: Duplex Sequencing`, `Sequencer: Illumina NovaSeq
+6000`, `Protocol: P.ESS-230308-V2_Duplex-sequencing.docx`. The lineage behind
+each is D.SEQ -> DNA -> TIS -> PAV -> MUS, so this is MOUSE DNA, not human.
+
+The local stack holds no human WGS or exome rows (its `LibraryStrategy: WGS`
+rows are bacterial isolates). This cohort therefore stands in as the DNA
+evidence payload that scores `dna_selection_cases.json`, and those cases are to
+be re-scored on a human WGS/WES cohort once one exists on the local stack.
 """
 from __future__ import annotations
 
@@ -101,27 +101,27 @@ COHORTS: dict[str, Cohort] = {
         ),
         uids=tuple(f"D.SEQ-241219BRY-{i}-PUB" for i in range(1, 7)),
     ),
-    "wgs": Cohort(
-        key="wgs",
-        display_name="Bacterial isolate DNA — WGS",
+    "dna_capture": Cohort(
+        key="dna_capture",
+        display_name="Mouse DNA — targeted capture",
         description=(
-            "Twelve live whole-genome (WGS) DNA sequencing samples from bacterial "
-            "isolates of non-human-primate tissue, D.SEQ-250722FOR-100-PUB..111-PUB, "
-            "used to score the DNA selection cases."
+            "Twelve live targeted-capture duplex-sequencing DNA samples from mouse "
+            "tissue (not human), D.SEQ-230303ESS-1-PUB..12-PUB, used to score the "
+            "DNA selection cases until a human WGS/WES cohort exists locally."
         ),
         uids=(
-            "D.SEQ-250722FOR-100-PUB",
-            "D.SEQ-250722FOR-101-PUB",
-            "D.SEQ-250722FOR-102-PUB",
-            "D.SEQ-250722FOR-103-PUB",
-            "D.SEQ-250722FOR-104-PUB",
-            "D.SEQ-250722FOR-105-PUB",
-            "D.SEQ-250722FOR-106-PUB",
-            "D.SEQ-250722FOR-107-PUB",
-            "D.SEQ-250722FOR-108-PUB",
-            "D.SEQ-250722FOR-109-PUB",
-            "D.SEQ-250722FOR-110-PUB",
-            "D.SEQ-250722FOR-111-PUB",
+            "D.SEQ-230303ESS-1-PUB",
+            "D.SEQ-230303ESS-2-PUB",
+            "D.SEQ-230303ESS-3-PUB",
+            "D.SEQ-230303ESS-4-PUB",
+            "D.SEQ-230303ESS-5-PUB",
+            "D.SEQ-230303ESS-6-PUB",
+            "D.SEQ-230303ESS-7-PUB",
+            "D.SEQ-230303ESS-8-PUB",
+            "D.SEQ-230303ESS-9-PUB",
+            "D.SEQ-230303ESS-10-PUB",
+            "D.SEQ-230303ESS-11-PUB",
+            "D.SEQ-230303ESS-12-PUB",
         ),
     ),
 }
