@@ -1224,10 +1224,11 @@ REGISTRY: list[Route] = [
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_EXTERNAL",
           note="recursive listing of a finished Luria run directory over SSH"),
     Route(pattern=r"^nextseek_api/^^assistant/upload-reingest/$", path=None,
-          effect="writes", writers=("WR-01", "WR-02", "WR-03", "WR-04"),
+          effect="writes", writers=("WR-01", "WR-02", "WR-03", "WR-04", "WR-11", "WR-35"),
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_UNSAFE_METHOD",
           note="reingest step 5: upload reviewed workbooks by build id; write-class, "
-               "confirmed_write must be literal true; one batch-upload job per workbook"),
+               "confirmed_write must be literal true; one batch-upload job per workbook, a missing "
+               "study assay created first (WR-35), the new samples' parents registered after (WR-11)"),
     Route(pattern=r"^nextseek_api/^^nessie/query/$", path=None,
           effect="writes", writers=("WR-27",),
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST",
