@@ -32,6 +32,12 @@ def _check_detect_only(where: str, spec: dict) -> None:
             f"Param spec {where} is detect_only and needs detect.signal and non-empty detect.markers")
     if not str((spec.get("ask") or {}).get("on_detect") or "").strip():
         raise ParamAtlasError(f"Param spec {where} is detect_only and needs ask.on_detect")
+    for corr in spec.get("corroborate_with") or []:
+        if not (isinstance(corr, dict) and corr.get("signal")
+                and isinstance(corr.get("markers"), list) and corr["markers"]):
+            raise ParamAtlasError(
+                f"Param spec {where} is detect_only; each corroborate_with entry needs "
+                "a signal and non-empty markers")
 
 
 class ParamAtlasError(Exception):
@@ -78,6 +84,11 @@ def load_param_atlas(path: str | Path | None = None) -> dict[str, Any]:
             df = spec.get("derive_from")
             if not (isinstance(df, dict) and df.get("signal") and isinstance(df.get("map"), dict)):
                 raise ParamAtlasError(f"Param spec {where} needs derive_from.signal and derive_from.map")
+            if "ambiguous_markers" in spec:
+                am = spec["ambiguous_markers"]
+                if not (isinstance(am, list) and am and all(isinstance(m, str) and m for m in am)):
+                    raise ParamAtlasError(
+                        f"Param spec {where} ambiguous_markers must be a non-empty list of non-empty strings")
             if spec.get("on_absent") == "use_default" and spec.get("default") is None:
                 raise ParamAtlasError(f"Param spec {where} sets on_absent=use_default but has no 'default'")
 
@@ -192,8 +203,13 @@ def _hits(text: Any, markers: list[str] | None) -> bool:
     return any(str(m).lower() in t for m in (markers or []))
 
 
-def _signal_vote(value: Any, allowed: list[str], marker_map: dict[str, list[str]]) -> str | list:
-    """One signal's vote: an allowed value, "" for silent, or a list for ambiguous (>1)."""
+def _signal_vote(value: Any, allowed: list[str], marker_map: dict[str, list[str]],
+                 ambiguous_markers: list[str] | None = None) -> str | list:
+    """One signal's vote: an allowed value, "" for silent, or a list for ambiguous (>1).
+
+    A value containing an ambiguous marker votes ambiguous whatever else it hits."""
+    if _hits(value, ambiguous_markers):
+        return list(allowed)
     voted = [a for a in allowed if _hits(value, marker_map.get(a))]
     if not voted:
         return ""
@@ -220,6 +236,10 @@ def evaluate_data_driven_param(spec: dict, signals: dict) -> dict[str, Any]:
       conflict                two signals vote different values, or one signal is internally ambiguous
       absent                  no signal resolves any value
       defaulted               verdict would be absent, but the spec declares a safe default
+    Optional spec field ``ambiguous_markers``: a signal (primary or corroborator) whose value
+    contains one of these case-insensitive substrings votes ambiguous, as if it hit more than one
+    allowed value, so the verdict is ``conflict`` and the user is asked. Use it for phrases that
+    contain a marker but flip its meaning ("non-tumor", "abnormal").
       needs_value             detect_only: a signal detected the case; the user must supply the value
       not_detected            detect_only: no signal detected it; the param is not needed
     """
@@ -228,12 +248,13 @@ def evaluate_data_driven_param(spec: dict, signals: dict) -> dict[str, Any]:
     allowed = spec["allowed"]
     df = spec["derive_from"]
     primary_sig = df["signal"]
-    primary_vote = _signal_vote(signals.get(primary_sig), allowed, df["map"])
+    amb = spec.get("ambiguous_markers")
+    primary_vote = _signal_vote(signals.get(primary_sig), allowed, df["map"], amb)
 
     votes: list[tuple[str, Any]] = [(primary_sig, primary_vote)]
     for corr in spec.get("corroborate_with") or []:
         marker_map = {a: corr.get(f"{a}_markers") for a in allowed}
-        votes.append((corr["signal"], _signal_vote(signals.get(corr["signal"]), allowed, marker_map)))
+        votes.append((corr["signal"], _signal_vote(signals.get(corr["signal"]), allowed, marker_map, amb)))
 
     ambiguous = [s for s, v in votes if isinstance(v, list)]
     decided = {v for _, v in votes if isinstance(v, str) and v}

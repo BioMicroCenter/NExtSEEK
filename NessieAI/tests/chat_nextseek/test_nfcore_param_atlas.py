@@ -494,7 +494,9 @@ def test_detect_only_corroborator_alone_still_detects():
 
 def test_detect_only_loads_without_allowed_or_derive_from(tmp_path):
     path = _write(tmp_path, _atlas(params={"intervals": _detect_spec()}))
-    assert load_param_atlas(path)["pipelines"]["hlatyping"]["params"]["intervals"]["detect_only"]
+    with pytest.warns(UserWarning, match="intervals"):  # hlatyping's menu has no `intervals`
+        atlas = load_param_atlas(path)
+    assert atlas["pipelines"]["hlatyping"]["params"]["intervals"]["detect_only"]
 
 
 def test_detect_only_must_target_run_param(tmp_path):
@@ -530,3 +532,79 @@ def test_a_defaulted_row_value_is_never_corrected():
     evidence = {"S1": {"seq_type": {"verdict": "defaulted", "value": "dna"}}}
     out = check_row_column_params("hlatyping", [{"sample": "S1", "seq_type": "rna"}], evidence, atlas)
     assert out["corrections"] == [] and out["ask_uids"] == []
+
+
+# --- review fixes: ambiguous_markers, corroborator validation, shipped sarek entries ---
+
+def _bad_detect_atlas(tmp_path, spec):
+    return _write(tmp_path, _atlas(params={"intervals": spec}))
+
+
+def test_detect_only_needs_on_detect(tmp_path):
+    spec = _detect_spec(ask={"definition": "the kit BED"})
+    with pytest.raises(ParamAtlasError, match="on_detect"):
+        load_param_atlas(_bad_detect_atlas(tmp_path, spec))
+
+
+@pytest.mark.parametrize("corr", [
+    [{"markers": ["capture"]}],
+    [{"signal": "SequencingType"}],
+    [{"signal": "SequencingType", "markers": []}],
+])
+def test_detect_only_corroborators_need_signal_and_markers(tmp_path, corr):
+    with pytest.raises(ParamAtlasError, match="corroborate_with"):
+        load_param_atlas(_bad_detect_atlas(tmp_path, _detect_spec(corroborate_with=corr)))
+
+
+def _ambig_spec(**over):
+    return _spec(ambiguous_markers=["non-tumor", "abnormal"], **over)
+
+
+def test_ambiguous_marker_makes_the_verdict_a_conflict():
+    spec = _ambig_spec()
+    spec["derive_from"]["map"] = {"rna": ["RNA"], "dna": ["WES", "tumor"]}
+    out = evaluate_data_driven_param(spec, {"SequencingType": "Non-tumor WES"})
+    assert out["verdict"] == "conflict"
+
+
+def test_ambiguous_marker_in_a_corroborator_also_conflicts():
+    out = evaluate_data_driven_param(_ambig_spec(), {"SequencingType": "WES", "Name": "abnormal WES"})
+    assert out["verdict"] == "conflict"
+
+
+def test_without_ambiguous_markers_behaviour_is_unchanged():
+    out = evaluate_data_driven_param(_spec(), {"SequencingType": "WES", "Name": "x-WES"})
+    assert out["verdict"] == "corroborated" and out["value"] == "dna"
+
+
+@pytest.mark.parametrize("bad", [[], "abnormal", [""], [1]])
+def test_ambiguous_markers_must_be_a_non_empty_list_of_strings(tmp_path, bad):
+    path = _write(tmp_path, _atlas(params={"seq_type": _spec(ambiguous_markers=bad)}))
+    with pytest.raises(ParamAtlasError, match="ambiguous_markers"):
+        load_param_atlas(path)
+
+
+def _sarek(name):
+    return data_driven_params("sarek")[name]
+
+
+@pytest.mark.parametrize("signals,verdict,value", [
+    ({"Type": "Primary tumor"}, "derived_uncorroborated", "1"),
+    ({"Type": "Blood"}, "derived_uncorroborated", "0"),
+    ({"Type": "Normal-adjacent tissue"}, "conflict", None),
+    ({"Type": "Non-tumor tissue"}, "conflict", None),
+    ({}, "defaulted", "0"),
+])
+def test_shipped_sarek_status(signals, verdict, value):
+    out = evaluate_data_driven_param(_sarek("status"), signals)
+    assert out["verdict"] == verdict
+    if verdict != "conflict":
+        assert out["value"] == value
+
+
+@pytest.mark.parametrize("strategy,verdict", [
+    ("WXS", "needs_value"), ("Targeted Capture", "needs_value"), ("WGS", "not_detected"),
+])
+def test_shipped_sarek_intervals(strategy, verdict):
+    out = evaluate_data_driven_param(_sarek("intervals"), {"LibraryStrategy": strategy})
+    assert out["verdict"] == verdict
