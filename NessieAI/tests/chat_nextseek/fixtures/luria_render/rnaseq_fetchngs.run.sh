@@ -74,16 +74,16 @@ fi
 
 # Per-pipeline scientific params come from params.yml (built from the curated
 # per-pipeline JSON in reports/templates/nfcore/); local reference genomes come
-# from luria.config (-c). The CLI flags below (--input/--outdir/--genome)
+# from luria.config (-c). The CLI flags below (--input/--outdir + REFS_FLAGS)
 # override params.yml so the run uses the staged samplesheet, this run dir, and
-# the species-resolved genome key.
+# the species-resolved genome. REFS_FLAGS carries only the reference flags this
+# pipeline's schema declares: nf-schema aborts a run on an unrecognised param.
 nextflow run nf-core/rnaseq -r 3.22.2 -profile singularity \
     -c luria.config \
     -params-file params.yml \
     --input samplesheet.csv \
     --outdir . \
-    --genome GRCm39 \
-    --fasta /net/x/refs/GRCm39.primary_assembly.genome.fa.gz --gtf /net/x/refs/gencode.vM39.basic.annotation.gtf.gz --igenomes_ignore \
+    --genome GRCm39 --fasta /net/x/refs/GRCm39.primary_assembly.genome.fa.gz --gtf /net/x/refs/gencode.vM39.basic.annotation.gtf.gz --igenomes_ignore \
     -w /net/x/work/run \
     -resume
 # Without this the job ends with `conda deactivate`'s status, so SLURM records a

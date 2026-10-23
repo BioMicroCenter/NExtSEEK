@@ -632,3 +632,49 @@ def test_luria_config_differs_from_before_only_by_the_executor_block(case, proce
     assert cfg.count(block) == 1
     assert cfg.replace(block, "", 1) == \
         (_GOLDEN / f"{case}.luria.config").read_text(encoding="utf-8")
+
+
+# --- reference flags follow each pipeline's schema ------------------------------------------
+
+import chat_nextseek.luria.run_script as run_script_module  # noqa: E402
+from chat_nextseek.luria.run_script import pipeline_catalog_key  # noqa: E402
+
+
+def _script(**over):
+    kw = dict(job_name="j", pipeline="nf-core/sarek", revision="3.10.0",
+              run_dir="/net/x/runs/j", work_dir="/net/x/work/j",
+              singularity_cache="/net/x/singularity_cache", genome="GRCh38",
+              resources={}, refs_root="/net/x/refs")
+    kw.update(over)
+    return render_run_script(**kw)
+
+
+def test_reference_flags_follow_the_pipelines_schema():
+    s = _script(reference_cli_flags=["genome", "fasta"])
+    assert "--genome GRCh38" in s
+    assert "--fasta /net/x/refs/GRCh38.primary_assembly.genome.fa.gz" in s
+    assert "--gtf" not in s
+    assert "--igenomes_ignore" in s
+
+
+def test_no_declared_reference_flags_emits_none():
+    s = _script(pipeline="nf-core/ampliseq", reference_cli_flags=[])
+    assert "--genome" not in s
+    assert "--fasta" not in s
+    assert "--igenomes_ignore" not in s
+
+
+def test_undeclared_flags_keep_the_historical_three():
+    s = _script(pipeline="nf-core/rnaseq", reference_cli_flags=None)
+    for flag in ("--genome GRCh38", "--fasta ", "--gtf ", "--igenomes_ignore"):
+        assert flag in s, flag
+
+
+def test_the_template_no_longer_hardcodes_genome():
+    tmpl = (Path(run_script_module.__file__).parent / "templates" / "run.sh.tmpl").read_text()
+    assert "--genome {{GENOME}}" not in tmpl
+
+
+def test_pipeline_catalog_key_accepts_every_spelling():
+    for p in ("nf-core/sarek", "https://github.com/nf-core/sarek.git", "sarek", "nf-core/Sarek"):
+        assert pipeline_catalog_key(p) == "sarek"

@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Sequence
 
 # Operator-specific slots. Both land inside a shell script executed on Luria, so
 # both are allow-listed fail-closed like every other slot in this module.
@@ -209,6 +210,11 @@ def luria_launch_profile(pipeline: str | None) -> dict:
     if name and "/" not in name:
         name = f"nf-core/{name}"
     return {**_DEFAULT_LAUNCH, **LURIA_PIPELINE_LAUNCH.get(name, {})}
+
+
+def pipeline_catalog_key(pipeline: str | None) -> str:
+    """The NFCORE_PIPELINE_CATALOG key for 'nf-core/sarek', its GitHub URL, or 'sarek'."""
+    return _normalize_pipeline_name(pipeline or "").rsplit("/", 1)[-1].lower()
 
 
 def luria_params_overrides(pipeline: str | None, genome: str | None) -> dict:
@@ -427,13 +433,20 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
                       resources: dict | None, refs_root: str | None = None,
                       aligner: str | None = None, working: str | None = None,
                       needs_fetch: bool = False, fastq_cache: str | None = None,
-                      fetchngs_revision: str = "1.12.0") -> str:
+                      fetchngs_revision: str = "1.12.0",
+                      reference_cli_flags: Sequence[str] | None = None) -> str:
     """Substitute the validated slots into the fixed run.sh template. When `refs_root` is given
     and `genome` has local refs registered (LURIA_GENOMES), explicit --fasta/--gtf flags are
     injected (path > iGenomes globally; the genomes-map resolution is unreliable). When
     (pipeline, aligner) has a vendored clone registered (LURIA_VENDORED_PIPELINES) and `working`
     is given, the run uses that local clone with NO `-r` (else the tag checkout wipes the patches).
-    The Nextflow parser and compressed-or-plain references follow LURIA_PIPELINE_LAUNCH."""
+    The Nextflow parser and compressed-or-plain references follow LURIA_PIPELINE_LAUNCH.
+
+    `reference_cli_flags` is the subset of {genome, fasta, gtf} the pipeline's pinned
+    nextflow_schema.json declares (the catalog field of the same name), and only those are
+    emitted: nf-schema fails a run on an unrecognised param, so --gtf aborts sarek and
+    methylseq, and ampliseq declares none of the three. None keeps all three, for callers
+    that predate the field."""
     revision = validate_revision(revision)
     pipeline = validate_pipeline(pipeline)
     genome = validate_genome(genome)
@@ -442,21 +455,28 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
     source, rev = resolve_pipeline_source(pipeline, aligner, revision, working)
     source = validate_pipeline(source)          # clone path or stock name; both match _PIPELINE_RE
     revision_flag = f" {rev}" if rev else ""     # leading space only when present -> no double space
-    refs_flags = ""
+    accepts = ({"genome", "fasta", "gtf"} if reference_cli_flags is None
+               else set(reference_cli_flags))
+    flags: list[str] = []
+    if "genome" in accepts:
+        flags.append(f"--genome {genome}")
     if refs_root:
         if not _REFS_ROOT_RE.fullmatch(str(refs_root)):
             raise ValueError(f"invalid refs_root {refs_root!r}")
         fasta, gtf = genome_ref_paths(genome, refs_root,
                                       uncompressed=profile["uncompressed_refs"])
-        if fasta and gtf:
+        local = [f"--{name} {path}" for name, path in (("fasta", fasta), ("gtf", gtf))
+                 if path and name in accepts]
+        if local:
             # --igenomes_ignore: --genome otherwise also pulls iGenomes' prebuilt indexes,
             # which --fasta/--gtf do not replace, and rnaseq 3.22 aligned our GENCODE refs
             # with iGenomes' old STARIndex ("Genome version: 20201 is INCOMPATIBLE";
             # VERIFIED on Luria). Ignored, the pipeline builds its indexes from these files.
             # Under v2 it is in params.yml instead (luria_params_overrides).
-            refs_flags = f"--fasta {fasta} --gtf {gtf}"
+            flags += local
             if not luria_params_overrides(pipeline, genome).get("igenomes_ignore"):
-                refs_flags += " --igenomes_ignore"
+                flags.append("--igenomes_ignore")
+    refs_flags = " ".join(flags)
     fetchngs_block = ""
     if needs_fetch:
         if not fastq_cache or not _REFS_ROOT_RE.fullmatch(str(fastq_cache)):
