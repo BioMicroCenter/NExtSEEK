@@ -1955,7 +1955,7 @@ def test_a_link_the_map_sets_wins():
 
 _MANTA_RULE = {
     "id": "vcf_manta", "candidates": ["variant_calling/manta/*/*.manta.diploid_sv.vcf.gz"],
-    "sample_type": "A.VCF", "cardinality": "per_sample", "primary_data": True,
+    "sample_type": "A.VCF", "cardinality": "per_sample", "primary_data": True, "optional": True,
     "companions": [{"glob": "variant_calling/manta/*/*.manta.diploid_sv.vcf.gz.tbi"}]}
 
 
@@ -1988,11 +1988,12 @@ def test_a_file_the_map_rules_out_is_never_a_rows_primary_file_or_companion():
         {"glob": "variant_calling/*/*_vs_*/*", "why": "somatic pair outputs, pending a pair rule"}])
     run = _pair_run()
     run.outputs = [o for o in run.outputs if o.path != "variant_calling/manta/T/T.manta.diploid_sv.vcf.gz"]
-    rows = _manta_rows(mapper.apply(run, ruled))
-    # T's only match is the pair's VCF, which is ruled out, so T's row names no
-    # file. (A per_sample rule still writes a row for a sample with no match.)
-    assert "File_PrimaryData" not in rows["T"].attributes
-    assert "T_vs_N" not in str({k: v.value for k, v in rows["T"].attributes.items()})
+    result = mapper.apply(run, ruled)
+    rows = _manta_rows(result)
+    # T's only match is the pair's VCF, which is ruled out, so the optional rule
+    # has no file for T and writes no row for it.
+    assert "T" not in rows
+    assert "T: no file for optional rule vcf_manta; no row written" in result.warnings
     # N keeps its own VCF and its own index, never the pair's index.
     assert rows["N"].attributes["File_PrimaryData"].value == "N.manta.diploid_sv.vcf.gz"
     assert "N_vs_T" not in str({k: v.value for k, v in rows["N"].attributes.items()})
@@ -2030,3 +2031,38 @@ def test_sareks_pair_ruling_leaves_single_sample_files_alone(path):
     globs = [g for u in maps.load("sarek").unmapped_files for g in maps.expand_braces(u.glob)
              if "_vs_" in u.glob]
     assert not any(fnmatch.fnmatch(path, g) for g in globs), path
+
+
+# --- An optional per_sample rule writes no row for a sample it has no file for. ---
+
+def _two_sample_vcf_run():
+    run = _run_with([], samples=("N", "T"))
+    run.outputs = [manifest.OutputRecord(path="variant_calling/manta/N/N.manta.diploid_sv.vcf.gz",
+                                         sample="N")]
+    return run
+
+
+def test_an_optional_per_sample_rule_skips_a_sample_with_no_file_and_says_so():
+    # A tumour in a tumour/normal run gets no germline call set; a fileless
+    # A.VCF row would be a hard MISSING_REQUIRED that blocks the whole reingest.
+    result = mapper.apply(_two_sample_vcf_run(), _v2map([_MANTA_RULE]))
+    assert sorted(_manta_rows(result)) == ["N"]
+    assert "T: no file for optional rule vcf_manta; no row written" in result.warnings
+    assert not any(w.startswith("N:") and "vcf_manta" in w for w in result.warnings)
+
+
+def test_a_required_per_sample_rule_still_writes_a_row_for_a_sample_with_no_file():
+    required = {**_MANTA_RULE, "optional": False}
+    result = mapper.apply(_two_sample_vcf_run(), _v2map([required]))
+    rows = _manta_rows(result)
+    assert sorted(rows) == ["N", "T"]
+    assert "File_PrimaryData" not in rows["T"].attributes
+    assert not any("no row written" in w for w in result.warnings)
+
+
+def test_an_optional_rule_that_matches_nothing_in_the_run_warns_for_no_sample():
+    run = _two_sample_vcf_run()
+    run.outputs = []
+    result = mapper.apply(run, _v2map([_MANTA_RULE]))
+    assert _manta_rows(result) == {}
+    assert not any("vcf_manta" in w for w in result.warnings)
