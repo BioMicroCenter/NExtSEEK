@@ -184,9 +184,10 @@ def _ref_file(name: str, uncompressed: bool) -> str:
 def local_luria_ref_files(genome_key: str | None,
                           pipeline: str | None = None) -> dict[str, str] | None:
     """The {'fasta','gtf'} FILENAMES of the local Luria reference for genome_key (gtf appears
-    only when the genome has one), or None when there is no local ref. Filenames (not absolute paths) so the host
-    side can name them without knowing the Luria refs_root. With `pipeline`, they are
-    the files that pipeline's run is given (uncompressed for nf-core/rnavar)."""
+    only when the genome has one), or None when there is no local ref. Filenames (not
+    absolute paths) so the host side can name them without knowing the Luria refs_root.
+    With `pipeline`, they are the files that pipeline's run is given (uncompressed for
+    nf-core/rnavar)."""
     ref = LURIA_GENOMES.get(str(genome_key or ""))
     if not ref:
         return None

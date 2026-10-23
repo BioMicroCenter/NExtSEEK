@@ -58,7 +58,7 @@ from ..seqera.param_atlas import (
     required_signals,
 )
 from ..luria.submitter import submit_luria
-from ..luria.run_script import local_luria_ref_files
+from ..luria.run_script import local_luria_ref_files, luria_run_genome
 from ..reports.protocols import gather_protocol_text
 from ..helpers.tools.neo4j import tool_neo4j_query
 from ..helpers.uid_check import expand_uid_prefixes, is_uid_prefix
@@ -813,7 +813,12 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     state["pipeline_key"] = pipeline_key
     state["launch_built_at_user_msgs"] = _user_msg_count(state)
 
-    ref_files = (local_luria_ref_files(merged.get("genome"), pipeline=pipeline_key)
+    # The files the run is given: a pipeline may run on its own key for the species-resolved
+    # genome (sarek: GRCh38 -> GATK.GRCh38), and the confirmation quotes these.
+    run_genome = merged.get("genome")
+    if run_genome:
+        run_genome = luria_run_genome(pipeline_key, run_genome)
+    ref_files = (local_luria_ref_files(run_genome, pipeline=pipeline_key)
                  if reference_status == "local_luria" else None)
     n_samples, fetch_accessions = _samplesheet_counts(samplesheet)
     # ENA's FASTQ sizes for the runs the fetchngs pre-stage will download: the estimate names

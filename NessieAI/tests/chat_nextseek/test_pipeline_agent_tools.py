@@ -475,6 +475,22 @@ def test_configure_run_local_luria_without_tower(tmp_path):
     assert state["artifacts"]["launch"] and state["artifacts"]["params"]
 
 
+def test_configure_run_names_the_files_sarek_is_actually_run_on(tmp_path):
+    # sarek runs GRCh38 on the GATK bundle (luria_run_genome), so the confirmation must name
+    # that fasta and no gtf, not the GENCODE pair the species-resolved key would give.
+    class Cfg:
+        LOG_DIR = str(tmp_path)
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("patient,sample,lane,fastq_1\nP1,S1,L1,/net/bmc/1.fastq.gz\n")
+    state = {"artifacts": {"samplesheet": str(sheet), "base_dir": str(tmp_path)},
+             "bundle_key": "GRCh38", "pipeline_key": "sarek"}
+    out = json.loads(at.tool_configure_run(
+        Cfg(), state, {"pipeline_key": "sarek", "params": {}}, str(tmp_path)))
+    assert out["ok"] is True
+    assert out["reference_status"] == "local_luria"
+    assert out["reference_files"] == {"fasta": "GATK.GRCh38/Homo_sapiens_assembly38.fasta"}
+
+
 # --- a run named by its UID prefix (R3 A3) ---------------------------------------------------------------------
 
 def _prefix_graph(monkeypatch, matches):
