@@ -511,6 +511,14 @@ WRITERS: tuple[Writer, ...] = (
            reconcile="RECONCILE_INSTALL",
            note="the seed refresh kit loads a box's graph copy into a throwaway container and removes nodes there; "
                 "it never touches a stack's graph, and what it leaves is dumped into the seed WR-18 installs"),
+    Writer(id="WR-35",
+           sites=("nextseek_api/services/reingest_assays.py::create_study_assay",),
+           tables=("assays", "assays_internal_assays"),
+           how=("seek_client", "orm"),
+           hook="hooks.enqueue",
+           hook_site=("nextseek_api/services/reingest_assays.py::_sync",),
+           note="upload-reingest's missing study assay: SEEK commits the assay, the row tagging it with its house "
+                "assay follows, and every path (created, adopted, or unconfirmed by SEEK) queues assay_map and isa"),
 )
 
 
