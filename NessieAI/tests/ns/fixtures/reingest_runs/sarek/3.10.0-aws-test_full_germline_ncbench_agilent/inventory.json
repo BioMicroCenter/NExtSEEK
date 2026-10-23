@@ -1,0 +1,2166 @@
+[
+ {
+  "path": "annotation/deepvariant/NA12878_200M/NA12878_200M.deepvariant_VEP.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/deepvariant/NA12878_200M/NA12878_200M.deepvariant_VEP.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/deepvariant/NA12878_200M/NA12878_200M.deepvariant_snpEff.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/deepvariant/NA12878_200M/NA12878_200M.deepvariant_snpEff.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/deepvariant/NA12878_75M/NA12878_75M.deepvariant_VEP.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/deepvariant/NA12878_75M/NA12878_75M.deepvariant_VEP.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/deepvariant/NA12878_75M/NA12878_75M.deepvariant_snpEff.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/deepvariant/NA12878_75M/NA12878_75M.deepvariant_snpEff.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/freebayes/NA12878_200M/NA12878_200M.freebayes.filtered_VEP.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/freebayes/NA12878_200M/NA12878_200M.freebayes.filtered_VEP.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/freebayes/NA12878_200M/NA12878_200M.freebayes.filtered_snpEff.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/freebayes/NA12878_200M/NA12878_200M.freebayes.filtered_snpEff.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/freebayes/NA12878_75M/NA12878_75M.freebayes.filtered_VEP.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/freebayes/NA12878_75M/NA12878_75M.freebayes.filtered_VEP.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/freebayes/NA12878_75M/NA12878_75M.freebayes.filtered_snpEff.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/freebayes/NA12878_75M/NA12878_75M.freebayes.filtered_snpEff.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/haplotypecaller/NA12878_200M/NA12878_200M.haplotypecaller.filtered_VEP.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/haplotypecaller/NA12878_200M/NA12878_200M.haplotypecaller.filtered_VEP.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/haplotypecaller/NA12878_200M/NA12878_200M.haplotypecaller.filtered_snpEff.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/haplotypecaller/NA12878_200M/NA12878_200M.haplotypecaller.filtered_snpEff.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/haplotypecaller/NA12878_75M/NA12878_75M.haplotypecaller.filtered_VEP.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/haplotypecaller/NA12878_75M/NA12878_75M.haplotypecaller.filtered_VEP.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/haplotypecaller/NA12878_75M/NA12878_75M.haplotypecaller.filtered_snpEff.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/haplotypecaller/NA12878_75M/NA12878_75M.haplotypecaller.filtered_snpEff.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/manta/NA12878_200M/NA12878_200M.manta.diploid_sv_VEP.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/manta/NA12878_200M/NA12878_200M.manta.diploid_sv_VEP.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/manta/NA12878_200M/NA12878_200M.manta.diploid_sv_snpEff.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/manta/NA12878_200M/NA12878_200M.manta.diploid_sv_snpEff.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/manta/NA12878_75M/NA12878_75M.manta.diploid_sv_VEP.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/manta/NA12878_75M/NA12878_75M.manta.diploid_sv_VEP.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/manta/NA12878_75M/NA12878_75M.manta.diploid_sv_snpEff.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/manta/NA12878_75M/NA12878_75M.manta.diploid_sv_snpEff.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/strelka/NA12878_200M/NA12878_200M.strelka.variants_VEP.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/strelka/NA12878_200M/NA12878_200M.strelka.variants_VEP.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/strelka/NA12878_200M/NA12878_200M.strelka.variants_snpEff.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/strelka/NA12878_200M/NA12878_200M.strelka.variants_snpEff.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/strelka/NA12878_75M/NA12878_75M.strelka.variants_VEP.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/strelka/NA12878_75M/NA12878_75M.strelka.variants_VEP.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/strelka/NA12878_75M/NA12878_75M.strelka.variants_snpEff.ann.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "annotation/strelka/NA12878_75M/NA12878_75M.strelka.variants_snpEff.ann.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "csv/markduplicates.csv",
+  "bytes": 0
+ },
+ {
+  "path": "csv/markduplicates_no_table.csv",
+  "bytes": 0
+ },
+ {
+  "path": "csv/recalibrated.csv",
+  "bytes": 0
+ },
+ {
+  "path": "csv/variantcalled.csv",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/index.json",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/bcftools-stats-subtypes.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/bcftools_stats_indel-lengths.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/bcftools_stats_variant_depths.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/bcftools_stats_vqc_Count_Indels.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/bcftools_stats_vqc_Count_SNP.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/bcftools_stats_vqc_Count_Transitions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/bcftools_stats_vqc_Count_Transversions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/consequences_all__plot_Coding_consequences.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/consequences_all__plot_Consequences_all_.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/consequences_all__plot_Consequences_most_severe_.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastp-insert-size-plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastp-seq-content-gc-plot_Read_1_After_filtering.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastp-seq-content-gc-plot_Read_1_Before_filtering.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastp-seq-content-gc-plot_Read_2_After_filtering.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastp-seq-content-gc-plot_Read_2_Before_filtering.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastp-seq-content-n-plot_Read_1_After_filtering.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastp-seq-content-n-plot_Read_1_Before_filtering.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastp-seq-content-n-plot_Read_2_After_filtering.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastp-seq-content-n-plot_Read_2_Before_filtering.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastp-seq-quality-plot_Read_1_After_filtering.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastp-seq-quality-plot_Read_1_Before_filtering.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastp-seq-quality-plot_Read_2_After_filtering.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastp-seq-quality-plot_Read_2_Before_filtering.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastp_filtered_reads_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc-status-check-heatmap.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_adapter_content_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_per_base_n_content_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_per_base_sequence_quality_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_per_sequence_gc_content_plot_Counts.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_per_sequence_gc_content_plot_Percentages.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_per_sequence_quality_scores_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_sequence_counts_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_sequence_duplication_levels_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Count.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Percent.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/gatk-base-recalibrator-reported-empirical-plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/gatk_base_recalibrator.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/llms-full.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/mosdepth-coverage-per-contig-multi.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/mosdepth-cumcoverage-dist-id.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/mosdepth-xy-coverage-plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/mosdepth_cov_dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/mosdepth_cumcov_dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/mosdepth_perchrom.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc.log",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_citations.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_data.json",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_software_versions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_sources.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/picard_MarkIlluminaAdapters_histogram.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/picard_MeanQualityByCycle_histogram.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/picard_MeanQualityByCycle_histogram_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/picard_QualityScoreDistribution_histogram.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/picard_deduplication.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/polyphen_summary_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/position_in_protein_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/samtools-stats-dp.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/samtools_alignment_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/samtools_insert_size.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/sift_summary_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/snpeff_effects.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/snpeff_qualities.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/snpeff_variant_effects_class.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/snpeff_variant_effects_impact.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/snpeff_variant_effects_region.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/variant_classes_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/variants_by_chromosome_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/vcftools_tstv_by_count.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/vcftools_tstv_by_qual.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/vep-general-stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/vep.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/bcftools-stats-subtypes-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/bcftools-stats-subtypes-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/bcftools_stats_indel-lengths-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/bcftools_stats_indel-lengths-log.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/bcftools_stats_variant_depths.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_Indels.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_SNP.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_Transitions.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_Transversions.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/consequences_all__plot_Coding_consequences-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/consequences_all__plot_Coding_consequences-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/consequences_all__plot_Consequences_all_-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/consequences_all__plot_Consequences_all_-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/consequences_all__plot_Consequences_most_severe_-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/consequences_all__plot_Consequences_most_severe_-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastp-insert-size-plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastp-seq-content-gc-plot_Read_1_After_filtering.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastp-seq-content-gc-plot_Read_1_Before_filtering.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastp-seq-content-gc-plot_Read_2_After_filtering.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastp-seq-content-gc-plot_Read_2_Before_filtering.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastp-seq-content-n-plot_Read_1_After_filtering.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastp-seq-content-n-plot_Read_1_Before_filtering.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastp-seq-content-n-plot_Read_2_After_filtering.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastp-seq-content-n-plot_Read_2_Before_filtering.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastp-seq-quality-plot_Read_1_After_filtering.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastp-seq-quality-plot_Read_1_Before_filtering.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastp-seq-quality-plot_Read_2_After_filtering.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastp-seq-quality-plot_Read_2_Before_filtering.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastp_filtered_reads_plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastp_filtered_reads_plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc-status-check-heatmap.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_adapter_content_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_per_base_n_content_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_per_base_sequence_quality_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_per_sequence_gc_content_plot_Counts.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_per_sequence_gc_content_plot_Percentages.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_per_sequence_quality_scores_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_sequence_counts_plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_sequence_counts_plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_sequence_duplication_levels_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Count.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Percent.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/gatk-base-recalibrator-reported-empirical-plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/mosdepth-coverage-per-contig-multi-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/mosdepth-coverage-per-contig-multi-log.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/mosdepth-cumcoverage-dist-id.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/mosdepth-xy-coverage-plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/mosdepth-xy-coverage-plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/picard_deduplication-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/picard_deduplication-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/polyphen_summary_plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/polyphen_summary_plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/position_in_protein_plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/position_in_protein_plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/samtools-stats-dp.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/samtools_alignment_plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/samtools_alignment_plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/samtools_insert_size.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/sift_summary_plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/sift_summary_plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/snpeff_effects-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/snpeff_effects-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/snpeff_qualities.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/snpeff_variant_effects_class-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/snpeff_variant_effects_class-log.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/snpeff_variant_effects_class-pct-log.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/snpeff_variant_effects_class-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/snpeff_variant_effects_impact-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/snpeff_variant_effects_impact-log.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/snpeff_variant_effects_impact-pct-log.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/snpeff_variant_effects_impact-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/snpeff_variant_effects_region-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/snpeff_variant_effects_region-log.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/snpeff_variant_effects_region-pct-log.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/snpeff_variant_effects_region-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/variant_classes_plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/variant_classes_plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/variants_by_chromosome_plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/variants_by_chromosome_plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/vcftools_tstv_by_count.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/vcftools_tstv_by_qual.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/vep-general-stats.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/bcftools-stats-subtypes-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/bcftools-stats-subtypes-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/bcftools_stats_indel-lengths-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/bcftools_stats_indel-lengths-log.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/bcftools_stats_variant_depths.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_Indels.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_SNP.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_Transitions.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_Transversions.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/consequences_all__plot_Coding_consequences-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/consequences_all__plot_Coding_consequences-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/consequences_all__plot_Consequences_all_-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/consequences_all__plot_Consequences_all_-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/consequences_all__plot_Consequences_most_severe_-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/consequences_all__plot_Consequences_most_severe_-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastp-insert-size-plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastp-seq-content-gc-plot_Read_1_After_filtering.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastp-seq-content-gc-plot_Read_1_Before_filtering.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastp-seq-content-gc-plot_Read_2_After_filtering.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastp-seq-content-gc-plot_Read_2_Before_filtering.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastp-seq-content-n-plot_Read_1_After_filtering.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastp-seq-content-n-plot_Read_1_Before_filtering.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastp-seq-content-n-plot_Read_2_After_filtering.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastp-seq-content-n-plot_Read_2_Before_filtering.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastp-seq-quality-plot_Read_1_After_filtering.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastp-seq-quality-plot_Read_1_Before_filtering.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastp-seq-quality-plot_Read_2_After_filtering.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastp-seq-quality-plot_Read_2_Before_filtering.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastp_filtered_reads_plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastp_filtered_reads_plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc-status-check-heatmap.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_adapter_content_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_per_base_n_content_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_per_base_sequence_quality_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_per_sequence_gc_content_plot_Counts.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_per_sequence_gc_content_plot_Percentages.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_per_sequence_quality_scores_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_sequence_counts_plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_sequence_counts_plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_sequence_duplication_levels_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Count.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Percent.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/gatk-base-recalibrator-reported-empirical-plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/mosdepth-coverage-per-contig-multi-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/mosdepth-coverage-per-contig-multi-log.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/mosdepth-cumcoverage-dist-id.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/mosdepth-xy-coverage-plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/mosdepth-xy-coverage-plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/picard_deduplication-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/picard_deduplication-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/polyphen_summary_plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/polyphen_summary_plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/position_in_protein_plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/position_in_protein_plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/samtools-stats-dp.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/samtools_alignment_plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/samtools_alignment_plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/samtools_insert_size.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/sift_summary_plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/sift_summary_plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/snpeff_effects-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/snpeff_effects-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/snpeff_qualities.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/snpeff_variant_effects_class-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/snpeff_variant_effects_class-log.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/snpeff_variant_effects_class-pct-log.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/snpeff_variant_effects_class-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/snpeff_variant_effects_impact-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/snpeff_variant_effects_impact-log.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/snpeff_variant_effects_impact-pct-log.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/snpeff_variant_effects_impact-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/snpeff_variant_effects_region-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/snpeff_variant_effects_region-log.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/snpeff_variant_effects_region-pct-log.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/snpeff_variant_effects_region-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/variant_classes_plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/variant_classes_plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/variants_by_chromosome_plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/variants_by_chromosome_plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/vcftools_tstv_by_count.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/vcftools_tstv_by_qual.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/vep-general-stats.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/bcftools-stats-subtypes-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/bcftools-stats-subtypes-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/bcftools_stats_indel-lengths-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/bcftools_stats_indel-lengths-log.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/bcftools_stats_variant_depths.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_Indels.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_SNP.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_Transitions.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_Transversions.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/consequences_all__plot_Coding_consequences-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/consequences_all__plot_Coding_consequences-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/consequences_all__plot_Consequences_all_-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/consequences_all__plot_Consequences_all_-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/consequences_all__plot_Consequences_most_severe_-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/consequences_all__plot_Consequences_most_severe_-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastp-insert-size-plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastp-seq-content-gc-plot_Read_1_After_filtering.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastp-seq-content-gc-plot_Read_1_Before_filtering.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastp-seq-content-gc-plot_Read_2_After_filtering.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastp-seq-content-gc-plot_Read_2_Before_filtering.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastp-seq-content-n-plot_Read_1_After_filtering.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastp-seq-content-n-plot_Read_1_Before_filtering.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastp-seq-content-n-plot_Read_2_After_filtering.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastp-seq-content-n-plot_Read_2_Before_filtering.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastp-seq-quality-plot_Read_1_After_filtering.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastp-seq-quality-plot_Read_1_Before_filtering.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastp-seq-quality-plot_Read_2_After_filtering.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastp-seq-quality-plot_Read_2_Before_filtering.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastp_filtered_reads_plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastp_filtered_reads_plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc-status-check-heatmap.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_adapter_content_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_per_base_n_content_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_per_base_sequence_quality_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_per_sequence_gc_content_plot_Counts.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_per_sequence_gc_content_plot_Percentages.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_per_sequence_quality_scores_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_sequence_counts_plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_sequence_counts_plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_sequence_duplication_levels_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Count.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Percent.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/gatk-base-recalibrator-reported-empirical-plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/mosdepth-coverage-per-contig-multi-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/mosdepth-coverage-per-contig-multi-log.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/mosdepth-cumcoverage-dist-id.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/mosdepth-xy-coverage-plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/mosdepth-xy-coverage-plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/picard_deduplication-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/picard_deduplication-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/polyphen_summary_plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/polyphen_summary_plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/position_in_protein_plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/position_in_protein_plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/samtools-stats-dp.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/samtools_alignment_plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/samtools_alignment_plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/samtools_insert_size.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/sift_summary_plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/sift_summary_plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/snpeff_effects-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/snpeff_effects-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/snpeff_qualities.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/snpeff_variant_effects_class-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/snpeff_variant_effects_class-log.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/snpeff_variant_effects_class-pct-log.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/snpeff_variant_effects_class-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/snpeff_variant_effects_impact-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/snpeff_variant_effects_impact-log.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/snpeff_variant_effects_impact-pct-log.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/snpeff_variant_effects_impact-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/snpeff_variant_effects_region-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/snpeff_variant_effects_region-log.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/snpeff_variant_effects_region-pct-log.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/snpeff_variant_effects_region-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/variant_classes_plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/variant_classes_plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/variants_by_chromosome_plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/variants_by_chromosome_plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/vcftools_tstv_by_count.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/vcftools_tstv_by_qual.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/vep-general-stats.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/execution_report_2026-08-12_18-07-28.html",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/execution_trace_2026-08-12_18-07-28.txt",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/pipeline_dag_2026-08-12_18-07-28.html",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/markduplicates/NA12878_200M/NA12878_200M.md.cram",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/markduplicates/NA12878_200M/NA12878_200M.md.cram.crai",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/markduplicates/NA12878_75M/NA12878_75M.md.cram",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/markduplicates/NA12878_75M/NA12878_75M.md.cram.crai",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recal_table/NA12878_200M/NA12878_200M.recal.table",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recal_table/NA12878_75M/NA12878_75M.recal.table",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recalibrated/NA12878_200M/NA12878_200M.recal.cram",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recalibrated/NA12878_200M/NA12878_200M.recal.cram.crai",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recalibrated/NA12878_75M/NA12878_75M.recal.cram",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recalibrated/NA12878_75M/NA12878_75M.recal.cram.crai",
+  "bytes": 0
+ },
+ {
+  "path": "reports/EnsemblVEP/deepvariant/NA12878_200M/NA12878_200M.deepvariant_VEP.ann.summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/EnsemblVEP/deepvariant/NA12878_75M/NA12878_75M.deepvariant_VEP.ann.summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/EnsemblVEP/freebayes/NA12878_200M/NA12878_200M.freebayes.filtered_VEP.ann.summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/EnsemblVEP/freebayes/NA12878_75M/NA12878_75M.freebayes.filtered_VEP.ann.summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/EnsemblVEP/haplotypecaller/NA12878_200M/NA12878_200M.haplotypecaller.filtered_VEP.ann.summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/EnsemblVEP/haplotypecaller/NA12878_75M/NA12878_75M.haplotypecaller.filtered_VEP.ann.summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/EnsemblVEP/manta/NA12878_200M/NA12878_200M.manta.diploid_sv_VEP.ann.summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/EnsemblVEP/manta/NA12878_75M/NA12878_75M.manta.diploid_sv_VEP.ann.summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/EnsemblVEP/strelka/NA12878_200M/NA12878_200M.strelka.variants_VEP.ann.summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/EnsemblVEP/strelka/NA12878_75M/NA12878_75M.strelka.variants_VEP.ann.summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/bcftools/deepvariant/NA12878_200M/NA12878_200M.deepvariant.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/bcftools/deepvariant/NA12878_75M/NA12878_75M.deepvariant.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/bcftools/freebayes/NA12878_200M/NA12878_200M.freebayes.filtered.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/bcftools/freebayes/NA12878_75M/NA12878_75M.freebayes.filtered.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/bcftools/haplotypecaller/NA12878_200M/NA12878_200M.haplotypecaller.filtered.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/bcftools/haplotypecaller/NA12878_75M/NA12878_75M.haplotypecaller.filtered.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/bcftools/manta/NA12878_200M/NA12878_200M.manta.diploid_sv.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/bcftools/manta/NA12878_75M/NA12878_75M.manta.diploid_sv.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/bcftools/strelka/NA12878_200M/NA12878_200M.strelka.variants.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/bcftools/strelka/NA12878_75M/NA12878_75M.strelka.variants.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastp/NA12878_200M/NA12878_200M-1.fastp.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastp/NA12878_200M/NA12878_200M-1.fastp.json",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastp/NA12878_200M/NA12878_200M-1.fastp.log",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastp/NA12878_75M/NA12878_75M-1.fastp.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastp/NA12878_75M/NA12878_75M-1.fastp.json",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastp/NA12878_75M/NA12878_75M-1.fastp.log",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/NA12878_200M-1/NA12878_200M-1_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/NA12878_200M-1/NA12878_200M-1_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/NA12878_200M-1/NA12878_200M-1_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/NA12878_200M-1/NA12878_200M-1_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/NA12878_75M-1/NA12878_75M-1_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/NA12878_75M-1/NA12878_75M-1_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/NA12878_75M-1/NA12878_75M-1_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/NA12878_75M-1/NA12878_75M-1_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "reports/markduplicates/NA12878_200M/NA12878_200M.md.cram.metrics",
+  "bytes": 0
+ },
+ {
+  "path": "reports/markduplicates/NA12878_75M/NA12878_75M.md.cram.metrics",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_200M/NA12878_200M.md.mosdepth.global.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_200M/NA12878_200M.md.mosdepth.region.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_200M/NA12878_200M.md.mosdepth.summary.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_200M/NA12878_200M.md.per-base.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_200M/NA12878_200M.md.per-base.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_200M/NA12878_200M.md.regions.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_200M/NA12878_200M.md.regions.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_200M/NA12878_200M.recal.mosdepth.global.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_200M/NA12878_200M.recal.mosdepth.region.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_200M/NA12878_200M.recal.mosdepth.summary.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_200M/NA12878_200M.recal.per-base.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_200M/NA12878_200M.recal.per-base.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_200M/NA12878_200M.recal.regions.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_200M/NA12878_200M.recal.regions.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_75M/NA12878_75M.md.mosdepth.global.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_75M/NA12878_75M.md.mosdepth.region.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_75M/NA12878_75M.md.mosdepth.summary.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_75M/NA12878_75M.md.per-base.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_75M/NA12878_75M.md.per-base.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_75M/NA12878_75M.md.regions.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_75M/NA12878_75M.md.regions.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_75M/NA12878_75M.recal.mosdepth.global.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_75M/NA12878_75M.recal.mosdepth.region.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_75M/NA12878_75M.recal.mosdepth.summary.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_75M/NA12878_75M.recal.per-base.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_75M/NA12878_75M.recal.per-base.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_75M/NA12878_75M.recal.regions.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/NA12878_75M/NA12878_75M.recal.regions.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/samtools/NA12878_200M/NA12878_200M.md.cram.stats",
+  "bytes": 0
+ },
+ {
+  "path": "reports/samtools/NA12878_200M/NA12878_200M.recal.cram.stats",
+  "bytes": 0
+ },
+ {
+  "path": "reports/samtools/NA12878_75M/NA12878_75M.md.cram.stats",
+  "bytes": 0
+ },
+ {
+  "path": "reports/samtools/NA12878_75M/NA12878_75M.recal.cram.stats",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/deepvariant/NA12878_200M/NA12878_200M.deepvariant_snpEff.csv",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/deepvariant/NA12878_200M/NA12878_200M.deepvariant_snpEff.genes.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/deepvariant/NA12878_200M/snpEff_summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/deepvariant/NA12878_75M/NA12878_75M.deepvariant_snpEff.csv",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/deepvariant/NA12878_75M/NA12878_75M.deepvariant_snpEff.genes.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/deepvariant/NA12878_75M/snpEff_summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/freebayes/NA12878_200M/NA12878_200M.freebayes.filtered_snpEff.csv",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/freebayes/NA12878_200M/NA12878_200M.freebayes.filtered_snpEff.genes.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/freebayes/NA12878_200M/snpEff_summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/freebayes/NA12878_75M/NA12878_75M.freebayes.filtered_snpEff.csv",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/freebayes/NA12878_75M/NA12878_75M.freebayes.filtered_snpEff.genes.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/freebayes/NA12878_75M/snpEff_summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/haplotypecaller/NA12878_200M/NA12878_200M.haplotypecaller.filtered_snpEff.csv",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/haplotypecaller/NA12878_200M/NA12878_200M.haplotypecaller.filtered_snpEff.genes.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/haplotypecaller/NA12878_200M/snpEff_summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/haplotypecaller/NA12878_75M/NA12878_75M.haplotypecaller.filtered_snpEff.csv",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/haplotypecaller/NA12878_75M/NA12878_75M.haplotypecaller.filtered_snpEff.genes.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/haplotypecaller/NA12878_75M/snpEff_summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/manta/NA12878_200M/NA12878_200M.manta.diploid_sv_snpEff.csv",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/manta/NA12878_200M/NA12878_200M.manta.diploid_sv_snpEff.genes.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/manta/NA12878_200M/snpEff_summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/manta/NA12878_75M/NA12878_75M.manta.diploid_sv_snpEff.csv",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/manta/NA12878_75M/NA12878_75M.manta.diploid_sv_snpEff.genes.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/manta/NA12878_75M/snpEff_summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/strelka/NA12878_200M/NA12878_200M.strelka.variants_snpEff.csv",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/strelka/NA12878_200M/NA12878_200M.strelka.variants_snpEff.genes.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/strelka/NA12878_200M/snpEff_summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/strelka/NA12878_75M/NA12878_75M.strelka.variants_snpEff.csv",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/strelka/NA12878_75M/NA12878_75M.strelka.variants_snpEff.genes.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/snpeff/strelka/NA12878_75M/snpEff_summary.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/deepvariant/NA12878_200M/NA12878_200M.deepvariant.FILTER.summary",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/deepvariant/NA12878_200M/NA12878_200M.deepvariant.TsTv.count",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/deepvariant/NA12878_200M/NA12878_200M.deepvariant.TsTv.qual",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/deepvariant/NA12878_75M/NA12878_75M.deepvariant.FILTER.summary",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/deepvariant/NA12878_75M/NA12878_75M.deepvariant.TsTv.count",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/deepvariant/NA12878_75M/NA12878_75M.deepvariant.TsTv.qual",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/freebayes/NA12878_200M/NA12878_200M.freebayes.filtered.FILTER.summary",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/freebayes/NA12878_200M/NA12878_200M.freebayes.filtered.TsTv.count",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/freebayes/NA12878_200M/NA12878_200M.freebayes.filtered.TsTv.qual",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/freebayes/NA12878_75M/NA12878_75M.freebayes.filtered.FILTER.summary",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/freebayes/NA12878_75M/NA12878_75M.freebayes.filtered.TsTv.count",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/freebayes/NA12878_75M/NA12878_75M.freebayes.filtered.TsTv.qual",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/haplotypecaller/NA12878_200M/NA12878_200M.haplotypecaller.filtered.FILTER.summary",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/haplotypecaller/NA12878_200M/NA12878_200M.haplotypecaller.filtered.TsTv.count",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/haplotypecaller/NA12878_200M/NA12878_200M.haplotypecaller.filtered.TsTv.qual",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/haplotypecaller/NA12878_75M/NA12878_75M.haplotypecaller.filtered.FILTER.summary",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/haplotypecaller/NA12878_75M/NA12878_75M.haplotypecaller.filtered.TsTv.count",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/haplotypecaller/NA12878_75M/NA12878_75M.haplotypecaller.filtered.TsTv.qual",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/manta/NA12878_200M/NA12878_200M.manta.diploid_sv.FILTER.summary",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/manta/NA12878_200M/NA12878_200M.manta.diploid_sv.TsTv.count",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/manta/NA12878_200M/NA12878_200M.manta.diploid_sv.TsTv.qual",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/manta/NA12878_75M/NA12878_75M.manta.diploid_sv.FILTER.summary",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/manta/NA12878_75M/NA12878_75M.manta.diploid_sv.TsTv.count",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/manta/NA12878_75M/NA12878_75M.manta.diploid_sv.TsTv.qual",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/strelka/NA12878_200M/NA12878_200M.strelka.variants.FILTER.summary",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/strelka/NA12878_200M/NA12878_200M.strelka.variants.TsTv.count",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/strelka/NA12878_200M/NA12878_200M.strelka.variants.TsTv.qual",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/strelka/NA12878_75M/NA12878_75M.strelka.variants.FILTER.summary",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/strelka/NA12878_75M/NA12878_75M.strelka.variants.TsTv.count",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/strelka/NA12878_75M/NA12878_75M.strelka.variants.TsTv.qual",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/deepvariant/NA12878_200M/NA12878_200M.deepvariant.g.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/deepvariant/NA12878_200M/NA12878_200M.deepvariant.g.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/deepvariant/NA12878_200M/NA12878_200M.deepvariant.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/deepvariant/NA12878_200M/NA12878_200M.deepvariant.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/deepvariant/NA12878_75M/NA12878_75M.deepvariant.g.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/deepvariant/NA12878_75M/NA12878_75M.deepvariant.g.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/deepvariant/NA12878_75M/NA12878_75M.deepvariant.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/deepvariant/NA12878_75M/NA12878_75M.deepvariant.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/freebayes/NA12878_200M/NA12878_200M.freebayes.filtered.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/freebayes/NA12878_200M/NA12878_200M.freebayes.filtered.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/freebayes/NA12878_200M/NA12878_200M.freebayes.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/freebayes/NA12878_200M/NA12878_200M.freebayes.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/freebayes/NA12878_75M/NA12878_75M.freebayes.filtered.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/freebayes/NA12878_75M/NA12878_75M.freebayes.filtered.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/freebayes/NA12878_75M/NA12878_75M.freebayes.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/freebayes/NA12878_75M/NA12878_75M.freebayes.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/haplotypecaller/NA12878_200M/NA12878_200M.haplotypecaller.filtered.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/haplotypecaller/NA12878_200M/NA12878_200M.haplotypecaller.filtered.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/haplotypecaller/NA12878_200M/NA12878_200M.haplotypecaller.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/haplotypecaller/NA12878_200M/NA12878_200M.haplotypecaller.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/haplotypecaller/NA12878_75M/NA12878_75M.haplotypecaller.filtered.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/haplotypecaller/NA12878_75M/NA12878_75M.haplotypecaller.filtered.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/haplotypecaller/NA12878_75M/NA12878_75M.haplotypecaller.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/haplotypecaller/NA12878_75M/NA12878_75M.haplotypecaller.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/manta/NA12878_200M/NA12878_200M.manta.diploid_sv.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/manta/NA12878_200M/NA12878_200M.manta.diploid_sv.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/manta/NA12878_75M/NA12878_75M.manta.diploid_sv.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/manta/NA12878_75M/NA12878_75M.manta.diploid_sv.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/NA12878_200M/NA12878_200M.strelka.genome.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/NA12878_200M/NA12878_200M.strelka.genome.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/NA12878_200M/NA12878_200M.strelka.variants.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/NA12878_200M/NA12878_200M.strelka.variants.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/NA12878_75M/NA12878_75M.strelka.genome.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/NA12878_75M/NA12878_75M.strelka.genome.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/NA12878_75M/NA12878_75M.strelka.variants.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/NA12878_75M/NA12878_75M.strelka.variants.vcf.gz.tbi",
+  "bytes": 0
+ }
+]

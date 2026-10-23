@@ -1,0 +1,1 @@
+Evidence: GitHub nf-core/sarek tag 3.10.0, tests/default.nf.test.snap and conf/test.config, read 2026-10-23. File sizes are not in a snapshot, so every inventory entry has bytes 0. No MultiQC values: snapshots hold none.

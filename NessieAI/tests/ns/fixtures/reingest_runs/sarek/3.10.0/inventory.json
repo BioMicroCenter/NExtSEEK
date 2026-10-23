@@ -1,0 +1,710 @@
+[
+ {
+  "path": "csv/markduplicates.csv",
+  "bytes": 0
+ },
+ {
+  "path": "csv/markduplicates_no_table.csv",
+  "bytes": 0
+ },
+ {
+  "path": "csv/recalibrated.csv",
+  "bytes": 0
+ },
+ {
+  "path": "csv/variantcalled.csv",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/index.json",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/bcftools_stats_indel-lengths.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/bcftools_stats_vqc_Count_Indels.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/bcftools_stats_vqc_Count_SNP.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/bcftools_stats_vqc_Count_Transitions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/bcftools_stats_vqc_Count_Transversions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc-status-check-heatmap.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_adapter_content_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_per_base_n_content_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_per_base_sequence_quality_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_per_sequence_gc_content_plot_Counts.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_per_sequence_gc_content_plot_Percentages.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_per_sequence_quality_scores_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_sequence_counts_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_sequence_duplication_levels_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/fastqc_sequence_length_distribution_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Count.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Percent.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/gatk-base-recalibrator-reported-empirical-plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/gatk_base_recalibrator.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/llms-full.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/mosdepth-coverage-per-contig-single.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/mosdepth-cumcoverage-dist-id.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/mosdepth_cov_dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/mosdepth_cumcov_dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/mosdepth_perchrom.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc.log",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc.parquet",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_citations.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_data.json",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_fastqc.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_general_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_picard_dups.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_samtools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_software_versions.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/multiqc_sources.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/picard_MarkIlluminaAdapters_histogram.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/picard_MeanQualityByCycle_histogram.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/picard_MeanQualityByCycle_histogram_1.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/picard_QualityScoreDistribution_histogram.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/picard_deduplication.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/samtools-stats-dp.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/samtools_alignment_plot.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/samtools_insert_size.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/vcftools_tstv_by_count.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_data/vcftools_tstv_by_qual.txt",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/bcftools_stats_indel-lengths-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/bcftools_stats_indel-lengths-log.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_Indels.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_SNP.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_Transitions.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/bcftools_stats_vqc_Count_Transversions.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc-status-check-heatmap.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_adapter_content_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_per_base_n_content_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_per_base_sequence_quality_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_per_sequence_gc_content_plot_Counts.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_per_sequence_gc_content_plot_Percentages.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_per_sequence_quality_scores_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_sequence_counts_plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_sequence_counts_plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_sequence_duplication_levels_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/fastqc_sequence_length_distribution_plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Count.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Percent.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/gatk-base-recalibrator-reported-empirical-plot.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/mosdepth-coverage-per-contig-single-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/mosdepth-coverage-per-contig-single-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/mosdepth-cumcoverage-dist-id.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/picard_deduplication-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/picard_deduplication-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/samtools-stats-dp.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/samtools_alignment_plot-cnt.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/samtools_alignment_plot-pct.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/samtools_insert_size.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/pdf/vcftools_tstv_by_count.pdf",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/bcftools_stats_indel-lengths-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/bcftools_stats_indel-lengths-log.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_Indels.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_SNP.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_Transitions.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/bcftools_stats_vqc_Count_Transversions.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc-status-check-heatmap.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_adapter_content_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_per_base_n_content_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_per_base_sequence_quality_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_per_sequence_gc_content_plot_Counts.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_per_sequence_gc_content_plot_Percentages.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_per_sequence_quality_scores_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_sequence_counts_plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_sequence_counts_plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_sequence_duplication_levels_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/fastqc_sequence_length_distribution_plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Count.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Percent.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/gatk-base-recalibrator-reported-empirical-plot.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/mosdepth-coverage-per-contig-single-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/mosdepth-coverage-per-contig-single-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/mosdepth-cumcoverage-dist-id.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/picard_deduplication-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/picard_deduplication-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/samtools-stats-dp.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/samtools_alignment_plot-cnt.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/samtools_alignment_plot-pct.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/samtools_insert_size.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/png/vcftools_tstv_by_count.png",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/bcftools_stats_indel-lengths-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/bcftools_stats_indel-lengths-log.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_Indels.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_SNP.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_Transitions.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/bcftools_stats_vqc_Count_Transversions.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc-status-check-heatmap.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_adapter_content_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_per_base_n_content_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_per_base_sequence_quality_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_per_sequence_gc_content_plot_Counts.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_per_sequence_gc_content_plot_Percentages.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_per_sequence_quality_scores_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_sequence_counts_plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_sequence_counts_plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_sequence_duplication_levels_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/fastqc_sequence_length_distribution_plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Count.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/gatk-base-recalibrator-quality-scores-plot_Pre-recalibration_Percent.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/gatk-base-recalibrator-reported-empirical-plot.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/mosdepth-coverage-per-contig-single-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/mosdepth-coverage-per-contig-single-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/mosdepth-cumcoverage-dist-id.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/picard_deduplication-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/picard_deduplication-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/samtools-stats-dp.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/samtools_alignment_plot-cnt.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/samtools_alignment_plot-pct.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/samtools_insert_size.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_plots/svg/vcftools_tstv_by_count.svg",
+  "bytes": 0
+ },
+ {
+  "path": "multiqc/multiqc_report.html",
+  "bytes": 0
+ },
+ {
+  "path": "pipeline_info/nf_core_sarek_software_mqc_versions.yml",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/markduplicates/test/test.md.cram",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/markduplicates/test/test.md.cram.crai",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recal_table/test/test.recal.table",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recalibrated/test/test.recal.cram",
+  "bytes": 0
+ },
+ {
+  "path": "preprocessing/recalibrated/test/test.recal.cram.crai",
+  "bytes": 0
+ },
+ {
+  "path": "reports/bcftools/strelka/test/test.strelka.variants.bcftools_stats.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/test-test_L1/test-test_L1_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/test-test_L1/test-test_L1_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/test-test_L1/test-test_L1_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/test-test_L1/test-test_L1_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/test-test_L2/test-test_L2_1_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/test-test_L2/test-test_L2_1_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/test-test_L2/test-test_L2_2_fastqc.html",
+  "bytes": 0
+ },
+ {
+  "path": "reports/fastqc/test-test_L2/test-test_L2_2_fastqc.zip",
+  "bytes": 0
+ },
+ {
+  "path": "reports/markduplicates/test/test.md.cram.metrics",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/test/test.md.mosdepth.global.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/test/test.md.mosdepth.region.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/test/test.md.mosdepth.summary.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/test/test.md.regions.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/test/test.md.regions.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/test/test.recal.mosdepth.global.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/test/test.recal.mosdepth.region.dist.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/test/test.recal.mosdepth.summary.txt",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/test/test.recal.regions.bed.gz",
+  "bytes": 0
+ },
+ {
+  "path": "reports/mosdepth/test/test.recal.regions.bed.gz.csi",
+  "bytes": 0
+ },
+ {
+  "path": "reports/samtools/test/test.md.cram.stats",
+  "bytes": 0
+ },
+ {
+  "path": "reports/samtools/test/test.recal.cram.stats",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/strelka/test/test.strelka.variants.FILTER.summary",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/strelka/test/test.strelka.variants.TsTv.count",
+  "bytes": 0
+ },
+ {
+  "path": "reports/vcftools/strelka/test/test.strelka.variants.TsTv.qual",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/test/test.strelka.genome.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/test/test.strelka.genome.vcf.gz.tbi",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/test/test.strelka.variants.vcf.gz",
+  "bytes": 0
+ },
+ {
+  "path": "variant_calling/strelka/test/test.strelka.variants.vcf.gz.tbi",
+  "bytes": 0
+ }
+]
