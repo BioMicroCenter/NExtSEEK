@@ -340,6 +340,8 @@ def _flatten_lineage(uid: str, uid_index: dict) -> dict:
 
 def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input: dict, pipeline_key: str) -> str:
     """Resolve a sample ref into a compact leaf table; cache ground-truth refs in state['resolved']."""
+    # New samples make the last launch stale, even when this call is refused.
+    _clear_launch(state)
     kind = tool_input.get("kind")
 
     if kind == "accessions":
@@ -568,6 +570,9 @@ def _validate_rows_against_resolved(cohorts: list, resolved: dict) -> list[str]:
 
 def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, log_dir: str) -> str:
     """Validate agent-built cohorts against resolved refs, then emit samplesheet(s) + launch.yml."""
+    # A (re)built samplesheet invalidates any prior configure_run output, refused or not, so the
+    # agent must call configure_run again before submit — never submit a stale params/launch.
+    _clear_launch(state)
     pipeline_key = tool_input.get("pipeline_key") or ""
     cohorts = tool_input.get("cohorts") or []
     if pipeline_key not in NFCORE_PIPELINE_CATALOG:
@@ -657,10 +662,7 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
     state["artifacts"]["samplesheet"] = result.saved_files.get("samplesheet")
     state["artifacts"]["base_dir"] = str(base)
     state["artifacts"]["excluded_accessions"] = list(getattr(result, "excluded_accessions", []) or [])
-    # A (re)built samplesheet invalidates any prior configure_run output, so the agent
-    # must call configure_run again before submit — never submit a stale params/launch.
-    _clear_launch(state)
-    # ...and a rebuilt sheet is asked about afresh: the old pairing confirmation was for the old rows.
+    # A rebuilt sheet is asked about afresh: the old pairing confirmation was for the old rows.
     state.pop("pairing_asked_at_user_msgs", None)
     state.pop("pairing_confirmed_for", None)
 

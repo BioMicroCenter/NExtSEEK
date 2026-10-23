@@ -930,3 +930,27 @@ def test_configure_run_keeps_a_users_adapter_when_the_metadata_has_none(monkeypa
                                          str(tmp_path)))
     assert "should be" not in json.dumps(out.get("errors") or []), out
     assert seen.get("three_prime_adapter") == "TGGAATTCTCGGGTGCCAAGG", out
+
+
+@pytest.mark.parametrize("step", ["write_samplesheet", "resolve_samples"])
+def test_a_refused_sample_change_after_a_good_setup_leaves_no_launch(monkeypatch, tmp_path, step):
+    # Changing the samples makes the last launch stale even when the change itself is refused.
+    submitted = []
+    monkeypatch.setattr(at, "submit_luria", lambda *a, **kw: submitted.append(a) or [])
+    state = _germline_state(tmp_path)
+    state["messages"] = [{"role": "user", "content": "call germline variants"}]
+    assert _sarek(state, tmp_path, "haplotypecaller")["ok"] is True
+    state["messages"].append({"role": "user", "content": "use other samples"})
+    if step == "write_samplesheet":
+        refused = _json.loads(tool_write_samplesheet(_Cfg(), state, {"pipeline_key": "sarek", "cohorts": []},
+                                                     str(tmp_path)))
+    else:
+        refused = _json.loads(tool_resolve_samples(_Cfg(), {}, state, {"kind": "explicit_uids", "uids": []},
+                                                   "sarek"))
+    assert refused["ok"] is False
+    state["messages"].append({"role": "user", "content": "yes"})
+
+    out = _json.loads(at.tool_submit_to_luria(_CfgLuria(), state))
+
+    assert out["ok"] is False and submitted == [], out
+    assert "launch_plan" not in state
