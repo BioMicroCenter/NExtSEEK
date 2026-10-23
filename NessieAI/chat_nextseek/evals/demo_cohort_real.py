@@ -46,6 +46,20 @@ this cohort — every D.SEQ-level field is either uniform or sample-unique.
 Bulk, no single-cell resolution, no stated two-group D.SEQ contrast: that
 combination of evidence is the whole point of running this cohort alongside
 `granuloma` — same question, same evaluator, different real biology.
+
+## wgs — whole-genome DNA sequencing
+
+`D.SEQ-250722FOR-100-PUB` through `D.SEQ-250722FOR-111-PUB` (12 samples), the
+first twelve whole-genome D.SEQ rows on the local stack. They are the only
+`LibraryStrategy: WGS` rows there (188 in all, `D.SEQ-250722FOR-*`), and the
+lineage behind them is D.SEQ -> DNA -> BAC (bacterial isolate) -> TIS -> PAV ->
+NHP, so this is bacterial isolate WGS from non-human-primate tissue, not human
+DNA. Every D.SEQ carries `LibraryStrategy: WGS`, `LibrarySource: GENOMIC`,
+`LibrarySelection: other`, `SequencingType: Illumina Sequencing`, `Sequencer:
+Illumina NovaSeq 6000`, `Protocol: https://fairdomhub.org/sops/666`. The local
+stack holds no human WGS or exome rows (the only other DNA rows are mouse
+`Targeted Capture` duplex-sequencing libraries), so this cohort stands in as
+the DNA evidence payload that scores `dna_selection_cases.json`.
 """
 from __future__ import annotations
 
@@ -86,6 +100,29 @@ COHORTS: dict[str, Cohort] = {
             "(deidentified donor buffy coats), D.SEQ-241219BRY-1-PUB..6-PUB."
         ),
         uids=tuple(f"D.SEQ-241219BRY-{i}-PUB" for i in range(1, 7)),
+    ),
+    "wgs": Cohort(
+        key="wgs",
+        display_name="Bacterial isolate DNA — WGS",
+        description=(
+            "Twelve live whole-genome (WGS) DNA sequencing samples from bacterial "
+            "isolates of non-human-primate tissue, D.SEQ-250722FOR-100-PUB..111-PUB, "
+            "used to score the DNA selection cases."
+        ),
+        uids=(
+            "D.SEQ-250722FOR-100-PUB",
+            "D.SEQ-250722FOR-101-PUB",
+            "D.SEQ-250722FOR-102-PUB",
+            "D.SEQ-250722FOR-103-PUB",
+            "D.SEQ-250722FOR-104-PUB",
+            "D.SEQ-250722FOR-105-PUB",
+            "D.SEQ-250722FOR-106-PUB",
+            "D.SEQ-250722FOR-107-PUB",
+            "D.SEQ-250722FOR-108-PUB",
+            "D.SEQ-250722FOR-109-PUB",
+            "D.SEQ-250722FOR-110-PUB",
+            "D.SEQ-250722FOR-111-PUB",
+        ),
     ),
 }
 
