@@ -36,13 +36,14 @@ from typing import Callable
 
 from NessieAI.ns.reingest import manifest
 
-# Every path-bearing INPUT column across the ten committed pipeline maps'
-# pinned samplesheet schemas -- cross-checked two ways: the fixture schemas
+# Every path-bearing INPUT column across the committed pipeline maps' pinned
+# samplesheet schemas -- cross-checked two ways: the fixture schemas
 # NessieAI/tests/chat_nextseek/fixtures/nfcore/*.schema_input.json
 # (hlatyping, rnafusion, rnaseq, rnasplice, scrnaseq, smrnaseq) and, for the
-# four maps with no fixture file (denovotranscript, differentialabundance,
+# maps with no fixture file (denovotranscript, differentialabundance,
 # riboseq, rnavar), their `all_cols` entries in
-# docs/nfcore-schema-census-2026-08-05.json. No pinned schema among the ten
+# docs/nfcore-schema-census-2026-08-05.json. sarek's `spring_1`/`spring_2`
+# (its compressed-FASTQ input) come from its pinned schema. No pinned schema
 # uses any other path-shaped column: rnafusion/rnavar's own "bai"/"crai"/
 # "tbi"/"junctions"/"splice_junctions" columns are companion index or
 # annotation files, never a parent's own primary-data path, so they are
@@ -50,9 +51,10 @@ from NessieAI.ns.reingest import manifest
 #
 # Order matters -- see `_resolve_row_path` for how it is used. "fastq_1"
 # first (the original, most common case); "fastq_2" is NOT tried the same
-# way as the rest (see that function); then "bam", "cram", "vcf" in the
-# order hlatyping (bam), rnafusion/rnavar (bam, cram) and rnavar (vcf) were
-# reviewed.
+# way as the rest (see that function); then "spring_1" and "spring_2" (sarek;
+# `spring_2` is looked up like any other column, only `fastq_2` is gated);
+# then "bam", "cram", "vcf" in the order hlatyping (bam), rnafusion/rnavar
+# (bam, cram) and rnavar (vcf) were reviewed.
 _PATH_COLUMNS: tuple[str, ...] = ("fastq_1", "fastq_2", "spring_1", "spring_2", "bam", "cram", "vcf")
 
 
@@ -252,6 +254,8 @@ def _resolve_row_path(
     row's `fastq_2` almost always names the SAME D.SEQ record as its
     `fastq_1`, so trying it in parallel on every ordinary row would double
     this function's lookup cost for no information gain on the common case.
+    `spring_1`/`spring_2` (sarek's compressed-FASTQ input) are tried like any
+    other column, `spring_2` included: only `fastq_2` is gated.
     `bam`/`cram`/`vcf`, by contrast, are mutually exclusive with `fastq_1` in
     every pinned schema that has them (a row is fastq-input or already-
     analysed-input, never both) -- always trying them costs at most one

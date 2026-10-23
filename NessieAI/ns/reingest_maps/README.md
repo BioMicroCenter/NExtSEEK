@@ -78,7 +78,7 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
   `-g<commit>` suffix dropped (`v4.1.0-gf7bf36d` is 4.1.0).
 - `deliberately_unmapped` — a ruling, with a real reason. Without it the agent
   re-proposes the same key on every run and the review queue fills with noise.
-- `qc_row_suffixes` — MultiQC rows named `<sample><suffix>` (sarek: `.recal`, `.md`) whose columns join that sample's metrics, best first; a column already held is kept.
+- `qc_row_suffixes` — MultiQC rows named `<sample><suffix>` (sarek: `.recal`, `.md`) whose columns join that sample's metrics, best first; a column already held is kept. Folded columns no rule or `qc_attributes` entry claims go to the QC review queue unless a `deliberately_unmapped` ruling rules them out.
 - `claims_every_file` — when true, the fixture contract test requires every file of a run to be a rule's candidate or companion, or to match `unmapped_files`.
 - `unmapped_files` — globs of run files no rule registers on purpose, each with a `why`. The mapper drops a matching file before any rule sees it, so a ruled-out file is never a rule's candidate or companion, and with `claims_every_file` set the fixture test counts it as claimed. Matching is `fnmatch` over brace-expanded globs, and `*` crosses `/`.
 
