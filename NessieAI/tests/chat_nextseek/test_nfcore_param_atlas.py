@@ -459,3 +459,74 @@ def test_rnaseq_length_correction_is_in_the_curated_param_menu():
     menu = load_pipeline_context("rnaseq")["params"]
     assert "extra_salmon_quant_args" in menu
     assert menu["extra_salmon_quant_args"]["default"] == ""
+
+
+# --- detect_only params, and a defaulted verdict is not evidence (Task 8) ---
+
+from chat_nextseek.seqera.param_atlas import (  # noqa: E402
+    check_row_column_params, check_run_params, render_param_elicitation,
+)
+
+
+def _detect_spec(**over):
+    spec = {"target": "run_param", "scope": "run", "detect_only": True,
+            "detect": {"signal": "LibraryStrategy", "markers": ["WXS", "exome"]},
+            "corroborate_with": [{"signal": "SequencingType", "markers": ["capture"]}],
+            "ask": {"definition": "the kit BED", "on_detect": "Which BED file?"}}
+    spec.update(over)
+    return spec
+
+
+def test_detect_only_hit_needs_a_value():
+    v = evaluate_data_driven_param(_detect_spec(), {"LibraryStrategy": "WXS"})
+    assert v["verdict"] == "needs_value" and v["value"] is None
+
+
+def test_detect_only_miss_is_not_detected():
+    v = evaluate_data_driven_param(_detect_spec(), {"LibraryStrategy": "WGS"})
+    assert v["verdict"] == "not_detected"
+
+
+def test_detect_only_corroborator_alone_still_detects():
+    v = evaluate_data_driven_param(_detect_spec(), {"SequencingType": "Hybrid capture"})
+    assert v["verdict"] == "needs_value"
+
+
+def test_detect_only_loads_without_allowed_or_derive_from(tmp_path):
+    path = _write(tmp_path, _atlas(params={"intervals": _detect_spec()}))
+    assert load_param_atlas(path)["pipelines"]["hlatyping"]["params"]["intervals"]["detect_only"]
+
+
+def test_detect_only_must_target_run_param(tmp_path):
+    path = _write(tmp_path, _atlas(params={"intervals": _detect_spec(target="row_column")}))
+    with pytest.raises(ParamAtlasError, match="run_param"):
+        load_param_atlas(path)
+
+
+def test_detect_only_needs_markers(tmp_path):
+    path = _write(tmp_path, _atlas(params={"intervals": _detect_spec(detect={"signal": "X", "markers": []})}))
+    with pytest.raises(ParamAtlasError, match="markers"):
+        load_param_atlas(path)
+
+
+def test_required_signals_include_the_detect_signal():
+    atlas = _atlas(params={"intervals": _detect_spec()})
+    assert {"LibraryStrategy", "SequencingType"} <= required_signals("hlatyping", atlas)
+
+
+def test_run_without_the_value_is_asked_and_with_it_is_not():
+    atlas = _atlas(params={"intervals": _detect_spec()})
+    evidence = {"D.SEQ-1-PUB": {"intervals": {"verdict": "needs_value", "value": None}}}
+    asked = check_run_params("hlatyping", {}, evidence, atlas)
+    assert asked["ask_uids"] == ["D.SEQ-1-PUB"] and "intervals" in asked["ask_specs"]
+    assert "Which BED file?" in render_param_elicitation(asked["ask_specs"], asked["ask_uids"], evidence)
+    given = check_run_params("hlatyping", {"intervals": "/net/lab/kit.bed"}, evidence, atlas)
+    assert given["ask_uids"] == [] and given["corrections"] == []
+
+
+def test_a_defaulted_row_value_is_never_corrected():
+    spec = _spec(on_absent="use_default", default="dna")
+    atlas = _atlas(params={"seq_type": spec})
+    evidence = {"S1": {"seq_type": {"verdict": "defaulted", "value": "dna"}}}
+    out = check_row_column_params("hlatyping", [{"sample": "S1", "seq_type": "rna"}], evidence, atlas)
+    assert out["corrections"] == [] and out["ask_uids"] == []

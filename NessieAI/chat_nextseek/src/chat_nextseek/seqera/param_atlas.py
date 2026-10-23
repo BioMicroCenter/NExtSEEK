@@ -20,6 +20,20 @@ ATLAS_PATH = Path(__file__).resolve().parent / "nfcore_param_atlas.json"
 _VALID_TARGETS = {"row_column", "run_param"}
 
 
+def _check_detect_only(where: str, spec: dict) -> None:
+    """A detect_only spec never derives a value: detecting its signal means "ask the user"
+    (the 2026-08-27 ruling for file-path params such as a capture kit's BED)."""
+    if spec.get("target") != "run_param":
+        raise ParamAtlasError(f"Param spec {where} is detect_only, so its target must be run_param")
+    det = spec.get("detect")
+    if not (isinstance(det, dict) and det.get("signal")
+            and isinstance(det.get("markers"), list) and det["markers"]):
+        raise ParamAtlasError(
+            f"Param spec {where} is detect_only and needs detect.signal and non-empty detect.markers")
+    if not str((spec.get("ask") or {}).get("on_detect") or "").strip():
+        raise ParamAtlasError(f"Param spec {where} is detect_only and needs ask.on_detect")
+
+
 class ParamAtlasError(Exception):
     """The parameter atlas file is structurally invalid."""
 
@@ -56,6 +70,9 @@ def load_param_atlas(path: str | Path | None = None) -> dict[str, Any]:
                 raise ParamAtlasError(
                     f"Param spec {where} has target {spec.get('target')!r}; "
                     f"must be one of {sorted(_VALID_TARGETS)}")
+            if spec.get("detect_only"):
+                _check_detect_only(where, spec)
+                continue
             if not (isinstance(spec.get("allowed"), list) and spec["allowed"]):
                 raise ParamAtlasError(f"Param spec {where} has no non-empty 'allowed' list")
             df = spec.get("derive_from")
@@ -161,7 +178,8 @@ def required_signals(pipeline_key: str, atlas: dict | None = None) -> set[str]:
     """Every metadata field the pipeline's specs reference (derive + corroborators)."""
     out: set[str] = set()
     for spec in _params(pipeline_key, atlas).values():
-        out.add(spec["derive_from"]["signal"])
+        primary = spec["detect"] if spec.get("detect_only") else spec["derive_from"]
+        out.add(primary["signal"])
         for corr in spec.get("corroborate_with") or []:
             if corr.get("signal"):
                 out.add(corr["signal"])
@@ -182,6 +200,17 @@ def _signal_vote(value: Any, allowed: list[str], marker_map: dict[str, list[str]
     return voted[0] if len(voted) == 1 else voted
 
 
+def _evaluate_detection(spec: dict, signals: dict) -> dict[str, Any]:
+    checks = [(spec["detect"]["signal"], spec["detect"]["markers"])]
+    checks += [(c["signal"], c.get("markers")) for c in spec.get("corroborate_with") or []]
+    hits = [signal for signal, markers in checks if _hits(signals.get(signal), markers)]
+    if hits:
+        return {"value": None, "verdict": "needs_value",
+                "evidence": f"detected in {', '.join(hits)}"}
+    return {"value": None, "verdict": "not_detected",
+            "evidence": f"nothing in {', '.join(s for s, _ in checks)}"}
+
+
 def evaluate_data_driven_param(spec: dict, signals: dict) -> dict[str, Any]:
     """Derive + corroborate one param from a leaf's signals; return {value, verdict, evidence}.
 
@@ -191,7 +220,11 @@ def evaluate_data_driven_param(spec: dict, signals: dict) -> dict[str, Any]:
       conflict                two signals vote different values, or one signal is internally ambiguous
       absent                  no signal resolves any value
       defaulted               verdict would be absent, but the spec declares a safe default
+      needs_value             detect_only: a signal detected the case; the user must supply the value
+      not_detected            detect_only: no signal detected it; the param is not needed
     """
+    if spec.get("detect_only"):
+        return _evaluate_detection(spec, signals)
     allowed = spec["allowed"]
     df = spec["derive_from"]
     primary_sig = df["signal"]
@@ -263,7 +296,8 @@ def check_row_column_params(pipeline_key: str, rows: list[dict], evidence: dict,
             if v in ("conflict", "absent"):
                 ask_uids.append(uid)
                 ask_specs[name] = spec
-            elif v in ("corroborated", "derived_uncorroborated", "defaulted"):
+            # A defaulted verdict is a fallback, not evidence: a value the user gave stands.
+            elif v in ("corroborated", "derived_uncorroborated"):
                 if str(row.get(name)) != str(verdict.get("value")):
                     corrections.append((uid, name, verdict.get("value")))
     return {"ask_uids": sorted(set(ask_uids)), "ask_specs": ask_specs, "corrections": corrections}
@@ -282,6 +316,12 @@ def check_run_params(pipeline_key: str, params: dict, evidence: dict,
         per_leaf = {uid: (pv.get(name) or {}) for uid, pv in (evidence or {}).items()
                     if (pv or {}).get(name)}
         if not per_leaf:
+            continue
+        if spec.get("detect_only"):
+            needs = [u for u, v in per_leaf.items() if v.get("verdict") == "needs_value"]
+            if needs and (params or {}).get(name) in (None, ""):
+                ask_uids += needs
+                ask_specs[name] = spec
             continue
         if any(v.get("verdict") in ("conflict", "absent") for v in per_leaf.values()):
             ask_uids += [u for u, v in per_leaf.items() if v.get("verdict") in ("conflict", "absent")]
@@ -318,6 +358,11 @@ def render_param_elicitation(ask_specs: dict[str, dict], ask_uids: list[str], ev
         if absent:
             lines.append(f"  - {str(ask.get('on_absent', 'No evidence.')).strip()}")
             lines.append(f"    affected: {', '.join(sorted(absent))}")
+        detected = [u for u in ask_uids
+                    if (_leaf_verdict(evidence, u, name) or {}).get("verdict") == "needs_value"]
+        if detected:
+            lines.append(f"  - {str(ask.get('on_detect', '')).strip()}")
+            lines.append(f"    affected: {', '.join(sorted(detected))}")
         disagreeing = [u for u in ask_uids
                        if u not in conflict and u not in absent
                        and (_leaf_verdict(evidence, u, name) or {}).get("verdict")

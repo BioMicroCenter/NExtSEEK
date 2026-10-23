@@ -130,6 +130,29 @@
           }
         }
       }
-    }
+    },
+    "sarek": {"params": {
+      "status": {
+        "target": "row_column", "scope": "sample", "allowed": ["0", "1"],
+        "on_absent": "use_default", "default": "0",
+        "derive_from": {"signal": "Type", "map": {
+          "1": ["tumor", "tumour", "cancer", "carcinoma", "malignan", "metasta", "neoplas"],
+          "0": ["normal", "healthy", "germline", "blood", "pbmc", "buffy"]}},
+        "corroborate_with": [
+          {"signal": "Name", "1_markers": ["tumor", "tumour"], "0_markers": ["normal", "germline", "blood"]}],
+        "ask": {
+          "definition": "Whether each sample is tumour (1) or normal (0); sarek pairs a patient's tumour with its normal for somatic calling.",
+          "on_conflict": "The sample's tissue type and its own name disagree about tumour vs normal. I won't guess, which is right?",
+          "on_absent": "Nothing in these samples' metadata says tumour or normal. Which are tumour?"}
+      },
+      "intervals": {
+        "target": "run_param", "scope": "run", "detect_only": true,
+        "detect": {"signal": "LibraryStrategy", "markers": ["WXS", "WES", "exome", "Targeted-Capture", "capture", "panel"]},
+        "corroborate_with": [{"signal": "SequencingType", "markers": ["WES", "exome", "capture", "panel"]}],
+        "ask": {
+          "definition": "The capture kit's target-region BED, as a path on the cluster. sarek calls variants only inside it; set wes=true with it.",
+          "on_detect": "These look like exome or targeted-capture libraries. Which BED file of the kit's target regions should sarek use? Give its path on the cluster."}
+      }
+    }}
   }
 }
