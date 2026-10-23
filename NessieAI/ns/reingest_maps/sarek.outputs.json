@@ -148,10 +148,11 @@
     "MappedPercent": {"from": "samtools_flagstat_stats-reads_mapped_percent", "target": "D.SEQ", "datatype": "number",
                       "note": "samtools flagstat on the recalibrated alignment (sarek's <sample>.recal row)", "provenance": "seed"},
     "DuplicationPercent": {"from": "gatk4_markduplicates_mark_duplicates-PERCENT_DUPLICATION", "target": "D.SEQ", "datatype": "number",
-                           "note": "GATK MarkDuplicates on sarek's <sample>.md row", "provenance": "seed"}
+                           "note": "GATK MarkDuplicates on sarek's <sample>.md row", "provenance": "seed"},
+    "MismatchPercent": {"from": "samtools_flagstat_stats-error_rate", "target": "D.SEQ", "datatype": "number",
+                        "note": "samtools' mismatches per mapped base on the recalibrated alignment (sarek's <sample>.recal row); MultiQC writes it as a percentage, as rnaseq's samtools_stats-error_rate", "provenance": "seed"}
   },
   "deliberately_unmapped": [
-    {"key": "samtools_flagstat_stats-error_rate", "why": "samtools' mismatches per mapped base, as a percentage. Not kept in sarek's first map, which records only the mapped and duplication shares on D.SEQ; rnaseq reads the same number as MismatchPercent."},
     {"key": "samtools_flagstat_stats-non_primary_alignments", "why": "Secondary and supplementary BAM records, in millions: a record count, not a share, and D.SEQ has no attribute for it."},
     {"key": "samtools_flagstat_stats-reads_mapped", "why": "In millions, and it counts mapped BAM records (each mate of a pair), not reads. MappedPercent already records the mapped share from the same samtools run."},
     {"key": "samtools_flagstat_stats-reads_properly_paired_percent", "why": "Sits near 100 on BWA's paired-end alignments and is absent for single-end data, so it tells samples apart by nothing."},

@@ -2,9 +2,9 @@
 
 The committed fixtures have an empty cohort, so their snapshots never show the
 D.SEQ backfill. Here the AWS run is harvested with a fake lookup that resolves
-both samples to a D.SEQ parent, so MappedPercent and DuplicationPercent are
-read from the rows the map means: samtools flagstat from `<sample>.recal`, GATK
-MarkDuplicates from `<sample>.md`.
+both samples to a D.SEQ parent, so MappedPercent, MismatchPercent and
+DuplicationPercent are read from the rows the map means: samtools from
+`<sample>.recal`, GATK MarkDuplicates from `<sample>.md`.
 """
 import json
 from pathlib import Path
@@ -39,7 +39,7 @@ def _resolved_aws_run():
     return _harvest(AWS, lookup=lookup, types=lambda uids: {u: "D.SEQ" for u in uids})
 
 
-def test_the_backfill_reads_mapped_percent_from_recal_and_duplication_from_md():
+def test_the_backfill_reads_samtools_from_recal_and_duplication_from_md():
     result = _apply(_resolved_aws_run())
     backfill = {r.uid: r for r in result.rows if r.sample_type == "D.SEQ"}
     assert sorted(backfill) == sorted(UIDS.values())
@@ -53,6 +53,11 @@ def test_the_backfill_reads_mapped_percent_from_recal_and_duplication_from_md():
     # PERCENT_DUPLICATION exists only on <sample>.md, as a percentage.
     assert big["DuplicationPercent"].value == pytest.approx(15.0851)
     assert small["DuplicationPercent"].value == pytest.approx(6.2656)
+    # samtools' error rate from <sample>.recal (<sample>.md has 0.216...), already
+    # a percentage in general stats: multiqc_samtools_stats.txt has 0.001871683.
+    assert big["MismatchPercent"].value == pytest.approx(0.1871683)
+    assert small["MismatchPercent"].value == pytest.approx(0.1871112)
+    assert big["MismatchPercent"].raw_key == "samtools_flagstat_stats-error_rate"
     assert big["Genome"].value == "GATK.GRCh38"
 
 
