@@ -50,7 +50,7 @@ from ..seqera.user_params import (
     render_elicitation,
     validate_user_params,
 )
-from ..seqera.pairing import somatic_pairing_check
+from ..seqera.pairing import TABLE, pairing_question
 from ..seqera.param_atlas import (
     check_row_column_params,
     check_run_params,
@@ -746,13 +746,17 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         replied = (tool_input.get("pairing_confirmed") is True and asked_at is not None
                    and _user_msg_count(state) > asked_at)
         confirmed = replied or state.get("pairing_confirmed_for") == samplesheet
-        question = somatic_pairing_check(
+        kind, question = pairing_question(
             agent_params.get("tools"), _samplesheet_rows(state),
             state.get("data_driven_evidence") or {}, confirmed=confirmed)
         if not question and replied:
             state["pairing_confirmed_for"] = samplesheet
         if question:
-            state["pairing_asked_at_user_msgs"] = _user_msg_count(state)
+            # Only the confirmation table is answered with "yes"; a refusal (unpaired patient,
+            # no samples) asks the user to change the run, so it must not start the clock on
+            # a confirmation the user has not been shown a table for.
+            if kind == TABLE:
+                state["pairing_asked_at_user_msgs"] = _user_msg_count(state)
             return json.dumps({
                 "ok": False, "needs_user_input": ["status"], "ask_the_user": question,
                 "message": ("Relay `ask_the_user` to the user in plain text and STOP. Call "

@@ -1,4 +1,5 @@
-from chat_nextseek.seqera.pairing import requested_tumour_tools, somatic_pairing_check
+from chat_nextseek.seqera.pairing import (OK, REFUSAL, TABLE, pairing_question, requested_tumour_tools,
+                                          somatic_pairing_check)
 
 
 def _ev(verdicts):
@@ -57,3 +58,11 @@ def test_requested_tumour_tools_accepts_a_list():
 def test_tumour_tools_with_no_rows_are_refused():
     msg = somatic_pairing_check("mutect2", [], {})
     assert msg and "mutect2" in msg
+
+
+def test_pairing_question_says_which_kind_it_returned():
+    ev = _ev({"T1": "corroborated", "N1": "defaulted"})
+    assert pairing_question("mutect2", PAIR, ev)[0] == TABLE
+    assert pairing_question("mutect2", PAIR, ev, confirmed=True) == (OK, "")
+    assert pairing_question("mutect2", [PAIR[0]], ev)[0] == REFUSAL
+    assert pairing_question("mutect2", [], {})[0] == REFUSAL

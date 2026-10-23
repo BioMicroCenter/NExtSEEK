@@ -674,6 +674,7 @@ def test_a_confirmation_after_the_user_replied_goes_ahead(tmp_path):
     state["messages"].append({"role": "user", "content": "yes, N1 is the normal"})
     out = _configure(state, tmp_path, pairing_confirmed=True)
     assert not _is_pairing_refusal(out)
+    assert out["ok"] is True, out
     assert state["pairing_confirmed_for"] == state["artifacts"]["samplesheet"]
 
 
@@ -723,3 +724,24 @@ def test_configure_run_refuses_tumour_tools_for_an_unpaired_patient(tmp_path):
     state["messages"].append({"role": "user", "content": "yes"})
     out = _configure(state, tmp_path, pairing_confirmed=True)
     assert _is_pairing_refusal(out) and "P1" in out["ask_the_user"]
+
+
+def test_a_refusal_does_not_arm_the_confirmation_for_a_later_table(tmp_path):
+    # The unpaired-patient refusal is not a table the user can answer "yes" to: a "yes" after
+    # it must not count as the confirmation of the table that comes once the sheet is fixed.
+    state = _pairing_state(tmp_path)
+    good = (tmp_path / "samplesheet.csv").read_text()
+    (tmp_path / "samplesheet.csv").write_text(
+        "patient,sex,status,sample,lane,fastq_1,fastq_2\n"
+        "P1,NA,1,T1,L1,/net/bmc-pub10/x/T1_1.fq.gz,\n")
+    refusal = _configure(state, tmp_path)
+    assert _is_pairing_refusal(refusal) and "P1" in refusal["ask_the_user"]
+    assert "pairing_asked_at_user_msgs" not in state
+    # The user answers, the sheet is fixed, and the model passes pairing_confirmed=True while
+    # an undecided sample (N1, defaulted) is still there: it must still be asked.
+    state["messages"].append({"role": "user", "content": "I added the normal"})
+    (tmp_path / "samplesheet.csv").write_text(good)
+    out = _configure(state, tmp_path, pairing_confirmed=True)
+    assert _is_pairing_refusal(out) and "| N1 |" in out["ask_the_user"]
+    assert "pairing_confirmed_for" not in state
+    assert state["pairing_asked_at_user_msgs"] == 2

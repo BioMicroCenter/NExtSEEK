@@ -24,28 +24,39 @@ def _status(row: dict) -> str:
     return str(value).strip() if value not in (None, "") else "0"
 
 
+#: What pairing_question returned. Only the confirmation table is something the user can answer
+#: with "yes"; the other two are refusals that ask them to change the run.
+OK, REFUSAL, TABLE = "ok", "refusal", "table"
+
+
 def somatic_pairing_check(tools, rows: list[dict], evidence: dict, *,
                           confirmed: bool = False) -> str:
     """'' when the run may go ahead, else the plain-text question for the user."""
+    return pairing_question(tools, rows, evidence, confirmed=confirmed)[1]
+
+
+def pairing_question(tools, rows: list[dict], evidence: dict, *,
+                     confirmed: bool = False) -> tuple[str, str]:
+    """(kind, text): (OK, "") to go ahead, else (REFUSAL or TABLE, the plain-text question)."""
     wanted = requested_tumour_tools(tools)
     samples: dict[str, tuple[str, str]] = {}
     for row in rows:
         samples.setdefault(str(row.get("sample") or "?"),
                            (str(row.get("patient") or "?"), _status(row)))
     if wanted and not samples:
-        return (f"{', '.join(wanted)} need a tumour and a matched normal for every patient, "
-                "but the samplesheet has no samples. Build the samplesheet first.")
+        return REFUSAL, (f"{', '.join(wanted)} need a tumour and a matched normal for every "
+                         "patient, but the samplesheet has no samples. Build the samplesheet first.")
     if not wanted and all(status == "0" for _, status in samples.values()):
-        return ""
+        return OK, ""
     if wanted:
         by_patient: dict[str, set[str]] = {}
         for patient, status in samples.values():
             by_patient.setdefault(patient, set()).add(status)
         unpaired = sorted(p for p, statuses in by_patient.items() if statuses != {"0", "1"})
         if unpaired:
-            return (f"{', '.join(wanted)} need a tumour and a matched normal for every patient, "
-                    f"and these patients do not have both: {', '.join(unpaired)}. "
-                    "Remove those tools, or add the missing samples.")
+            return REFUSAL, (f"{', '.join(wanted)} need a tumour and a matched normal for every "
+                             f"patient, and these patients do not have both: {', '.join(unpaired)}. "
+                             "Remove those tools, or add the missing samples.")
     undecided = {s for s in samples
                  if (((evidence or {}).get(s) or {}).get("status") or {}).get("verdict")
                  not in _DECIDED}
@@ -57,5 +68,5 @@ def somatic_pairing_check(tools, rows: list[dict], evidence: dict, *,
             note = " (not from metadata)" if sample in undecided else ""
             lines.append(f"| {patient} | {sample} | {_LABEL.get(status, status)}{note} |")
         lines += ["", "A wrong status makes sarek call germline variants as somatic, or the reverse."]
-        return "\n".join(lines)
-    return ""
+        return TABLE, "\n".join(lines)
+    return OK, ""
