@@ -417,3 +417,25 @@ def test_sarek_defaults_pass_the_pinned_schema():
     errors, skipped = check_params("sarek", "3.10.0", curated("sarek"),
                                    schema_getter=lambda _p, _r: {"nextflow_schema": schema})
     assert skipped is None and errors == []
+
+
+def _sarek_template():
+    return json.loads((TEMPLATES / "sarek.json").read_text())
+
+
+@pytest.mark.parametrize("tool", ["ascat", "controlfreec"])
+def test_sarek_offers_no_tool_whose_reference_files_are_not_staged(tool):
+    """ascat's allele/loci/GC files and controlfreec's mappability files are not on Luria."""
+    template = _sarek_template()
+    offered, unavailable = template["params"]["tools"]["help"].split("Not available:")
+    assert tool not in offered and tool in unavailable
+    pair_rule = next(r for r in template["validation_rules"] if r.startswith("Tumour-pair tools"))
+    assert tool not in pair_rule
+    assert any(r.startswith("Do not request") and tool in r for r in template["validation_rules"])
+
+
+def test_sarek_bam_output_is_not_steerable():
+    """reingest registers sarek's alignments as CRAMs only until the map has a BAM rule."""
+    spec = _sarek_template()["params"]["save_output_as_bam"]
+    assert spec["steerable"] is False and spec["default"] is False
+    assert "CRAM" in spec["help"]

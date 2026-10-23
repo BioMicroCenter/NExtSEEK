@@ -3,7 +3,7 @@
   "description": "nf-core/sarek samplesheet context, aligned to the pinned 3.10.0 schema. Germline and somatic variant calling from WGS, WES or targeted DNA sequencing.",
   "params": {
     "tools": {"type": "string", "default": "haplotypecaller,manta", "steerable": true,
-              "help": "comma list of callers. Germline: haplotypecaller, deepvariant, freebayes, strelka, manta, tiddit, cnvkit. Tumour/normal pairs only: mutect2, ascat, controlfreec, msisensorpro, muse. Not available: vep, snpeff, bcfann, snpsift, merge (their caches are not staged on Luria)."},
+              "help": "comma list of callers. Germline: haplotypecaller, deepvariant, freebayes, strelka, manta, tiddit, cnvkit. Tumour/normal pairs only: mutect2, msisensorpro, muse. Not available: vep, snpeff, bcfann, snpsift, merge (their caches are not staged on Luria); ascat and controlfreec (their allele, loci, GC and mappability files are not staged on Luria)."},
     "aligner": {"type": "enum", "allowed": ["bwa-mem", "bwa-mem2"], "default": "bwa-mem", "steerable": true,
                 "help": "bwa-mem2 is faster but its index build needs far more memory"},
     "wes": {"type": "bool", "default": false, "steerable": true,
@@ -13,7 +13,8 @@
     "skip_tools": {"type": "string", "default": null, "steerable": true,
                    "help": "comma list from the schema's skip_tools, e.g. baserecalibrator"},
     "save_reference": {"type": "bool", "default": true, "steerable": true},
-    "save_output_as_bam": {"type": "bool", "default": false, "steerable": true}
+    "save_output_as_bam": {"type": "bool", "default": false, "steerable": false,
+                           "help": "kept off: reingest registers sarek's alignments as CRAMs only, until the map has the BAM rule listed in NessieAI/ns/reingest_maps/README.md"}
   },
   "reference_resources": [],
   "pipeline": {
@@ -35,9 +36,11 @@
     "patient, sample, lane and fastq_1 must be populated; fastq_2 blank means single-end.",
     "patient + sample + lane must be unique: rows of one library differ by lane.",
     "status is 0 (normal) or 1 (tumour). Leave it to the param atlas and the pairing check: never guess it from a name alone.",
-    "Tumour-pair tools (mutect2, ascat, controlfreec, msisensorpro, muse) need a tumour and a matched normal for every patient; configure_run refuses them otherwise.",
+    "Tumour-pair tools (mutect2, msisensorpro, muse) need a tumour and a matched normal for every patient; configure_run refuses them otherwise.",
     "For exome or targeted capture set wes=true and give intervals the kit's BED path on the cluster; never use the whole-genome calling regions for capture data.",
-    "Do not request vep, snpeff, bcfann, snpsift or merge: their caches are not staged on Luria."
+    "Do not request vep, snpeff, bcfann, snpsift or merge: their caches are not staged on Luria.",
+    "Do not request ascat or controlfreec: their allele, loci, GC and mappability files are not staged on Luria.",
+    "Leave save_output_as_bam off: reingest registers sarek's alignments as CRAMs only."
   ],
   "notes": "DNA variant calling on the GATK GRCh38 bundle staged under refs/GATK.GRCh38 (luria/refs/stage_dna_refs.sh). dbSNP, known indels, gnomAD and the panel of normals are passed from that bundle; the BWA index is built from the FASTA on every run.",
   "sources": [
@@ -64,7 +67,7 @@
     "population_priority": [
       "One row per FASTQ pair; sample = the D.SEQ UID; lane distinguishes pairs of one sample.",
       "patient = the PAT UID in the lineage, so tumour and normal of one person share it.",
-      "status from the param atlas verdict; leave the pairing confirmation to configure_run.",
+      "status from the param atlas verdict; where the verdict is conflict or absent, write 0 and leave it to the pairing table configure_run shows the user.",
       "Say plainly that variant annotation is off and why."
     ],
     "final_checks": [
