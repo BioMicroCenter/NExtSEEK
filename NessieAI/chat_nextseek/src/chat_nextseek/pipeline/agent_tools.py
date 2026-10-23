@@ -11,6 +11,7 @@ Anthropic-style tools driven by BedrockClient.chat_with_tools (submit tools expo
 """
 from __future__ import annotations
 
+import csv
 import json
 import re
 from collections import Counter
@@ -49,6 +50,7 @@ from ..seqera.user_params import (
     render_elicitation,
     validate_user_params,
 )
+from ..seqera.pairing import somatic_pairing_check
 from ..seqera.param_atlas import (
     check_row_column_params,
     check_run_params,
@@ -178,6 +180,9 @@ PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
                                           "or explicit reference paths to steer references."},
                 "revision": {"type": "string", "description": "pipeline revision override (-> launch.yml)."},
                 "profile": {"type": "string", "description": "docker|singularity|conda (-> launch.yml)."},
+                "pairing_confirmed": {"type": "boolean",
+                                      "description": "sarek only: true after the user confirmed the "
+                                                     "tumour/normal table configure_run showed them."},
             },
             "required": ["pipeline_key"],
         },
@@ -725,6 +730,21 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         return json.dumps({"ok": False, "errors": [
             f"{param} should be {val!r} from the cohort's metadata" for _, param, val in ddp["corrections"]]})
 
+    # sarek: tumour-pair tools only with a tumour and a matched normal per patient, and a
+    # status the metadata did not decide is confirmed by the user first (spec §3).
+    if pipeline_key == "sarek":
+        question = somatic_pairing_check(
+            agent_params.get("tools"), _samplesheet_rows(state),
+            state.get("data_driven_evidence") or {},
+            confirmed=tool_input.get("pairing_confirmed") is True)
+        if question:
+            return json.dumps({
+                "ok": False, "needs_user_input": ["status"], "ask_the_user": question,
+                "message": ("Relay `ask_the_user` to the user in plain text and STOP. Call "
+                            "configure_run again with pairing_confirmed=true only after they "
+                            "confirm the table, or rebuild the samplesheet with their corrections."),
+            })
+
     override = agent_params.get("genome")
     bundle_key = state.get("bundle_key")
     if override:
@@ -837,6 +857,15 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         "runtime_estimate": runtime_estimate(pipeline_key, n_samples, len(fetch_accessions),
                                              fetch_sizes=fetch_sizes),
     })
+
+
+def _samplesheet_rows(state: dict) -> list[dict]:
+    """The rows of the samplesheet write_samplesheet last wrote ([] when there is none)."""
+    path = (state.get("artifacts") or {}).get("samplesheet")
+    if not path or not Path(path).is_file():
+        return []
+    with open(path, newline="") as fh:
+        return list(csv.DictReader(fh))
 
 
 def _samplesheet_counts(samplesheet: str | None) -> tuple[int, list[str]]:

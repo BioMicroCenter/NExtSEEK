@@ -617,3 +617,23 @@ def test_an_http_failure_from_the_metadata_fetch_reports_status_and_detail(monke
     assert out["ok"] is False
     assert "404" in out["error"] and "No samples found" in out["error"]
     assert "unknown error" not in out["error"]
+
+
+def test_configure_run_asks_for_the_pairing_before_tumour_tools(tmp_path):
+    sheet = tmp_path / "samplesheet.csv"
+    sheet.write_text("patient,sex,status,sample,lane,fastq_1,fastq_2\n"
+                     "P1,NA,1,T1,L1,/net/bmc-pub10/x/T1_1.fq.gz,\n"
+                     "P1,NA,0,N1,L1,/net/bmc-pub10/x/N1_1.fq.gz,\n")
+    state = {"artifacts": {"samplesheet": str(sheet)}, "bundle_key": "GRCh38",
+             "data_driven_evidence": {"T1": {"status": {"verdict": "corroborated", "value": "1"}},
+                                      "N1": {"status": {"verdict": "defaulted", "value": "0"}}}}
+    out = _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek",
+                                                         "params": {"tools": "mutect2"}}, str(tmp_path)))
+    assert out["ok"] is False and out["needs_user_input"] == ["status"]
+    assert "N1" in out["ask_the_user"]
+
+
+def test_configure_run_schema_offers_pairing_confirmed():
+    from chat_nextseek.pipeline.agent_tools import _SCHEMA_BY_NAME
+    props = _SCHEMA_BY_NAME["configure_run"]["input_schema"]["properties"]
+    assert props["pairing_confirmed"]["type"] == "boolean"
