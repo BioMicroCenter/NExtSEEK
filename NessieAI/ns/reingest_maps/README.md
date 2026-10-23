@@ -119,7 +119,7 @@ a quiet departure.
 - **G-4 Variants.** One row per sample per kind of output; `candidates` are listed most-processed first and the first present wins, the rest become companions.
 - **G-5 No fitting type.** Never stretch a type; the output has no rule until a specific sample type is requested and built.
 - **G-6 Outside the run folder.** The stager reads nothing outside `run_dir`; rows keep the sequencing samples as `Parent`.
-- **G-7 Evidence.** A rule merges when a committed fixture from an nf-core `-profile test` run, launched through Nessie, exercises it; flag-dependent outputs get a variant fixture or are `optional`.
+- **G-7 Evidence.** A rule merges when a committed fixture at the pinned release exercises it. The fixture's source, in order of preference: nf-core's nf-test snapshot at the release tag, nf-core's published AWS results for the release, then a `-profile test` run launched through Nessie. QC attribute keys and units come from a real `multiqc_general_stats.txt` (AWS results or a Nessie run; a snapshot holds no MultiQC values). Flag-dependent outputs get a variant fixture or are `optional`.
 - **G-8 Discovery.** There is no approval queue for outputs and no list of unclaimed files; new outputs are noticed by reading the pipeline source and through the snapshot diff when a release's fixture lands.
 - **G-9 Row defaults.** Name, Scientist, Lab and SampleCreationDate come from the map's `row_defaults`, for every rule whose type has the attribute.
 - **G-10 Optional outputs.** Documented flag-dependent outputs (`--cram`, `--tools salmon`) get rules marked `optional: true`.

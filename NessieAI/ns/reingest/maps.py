@@ -206,10 +206,10 @@ class UnmappedRuling(BaseModel):
 
 
 class UnmappedFiles(BaseModel):
-    """Run files no rule registers, on purpose (spec 2026-10-22-nfcore-dna-pipelines
-    §7). The mapper drops a matching file before any rule sees it, so it is never a
-    candidate or companion; with claims_every_file set, the fixture test also counts
-    it as claimed."""
+    """Run files no rule registers, on purpose, each with its reason (`unmapped_files` in
+    NessieAI/ns/reingest_maps/README.md). The mapper drops a matching file before any rule
+    sees it, so it is never a candidate or companion; with claims_every_file set, the
+    fixture test also counts it as claimed."""
     model_config = ConfigDict(extra="forbid")
     glob: str
     why: str

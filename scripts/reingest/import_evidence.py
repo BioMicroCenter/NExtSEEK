@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn nf-core's own published evidence into a reingest fixture (spec G-7, DNA amendment).
+"""Turn nf-core's own published evidence into a reingest fixture (G-7 in NessieAI/ns/reingest_maps/README.md).
 
   import_evidence.py snapshot <pipeline> <version> <test-name>
       Inventory from tests/<test-name>.nf.test.snap at the release tag; the samplesheet and

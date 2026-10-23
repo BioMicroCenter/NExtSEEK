@@ -1,7 +1,7 @@
 """One test per committed run fixture (spec §8.3).
 
 Each fixture is a staged copy of a Nessie-launched -profile test run, or nf-core's own published evidence
-imported by scripts/reingest/import_evidence.py (spec 2026-10-22, G-7 amended), reduced to
+imported by scripts/reingest/import_evidence.py (G-7 in NessieAI/ns/reingest_maps/README.md), reduced to
 text files plus an inventory listing. The test harvests it, maps it, and compares
 the row shape with the committed snapshot. A new release is a new folder; its
 snapshot diff shows what moved.
@@ -80,7 +80,8 @@ _HARVEST_OWNED = ("pipeline_info/*", "multiqc/*", "samplesheet.csv", "launch_rec
 @pytest.mark.parametrize("folder", FIXTURES, ids=lambda p: f"{p.parent.name}/{p.name}")
 def test_every_file_is_claimed_or_ruled_out(folder):
     """For a map that claims every file: each file in the run is a rule's candidate or
-    companion, or is named in unmapped_files with a reason (spec 2026-10-22 §7)."""
+    companion, or is named in unmapped_files with a reason (`claims_every_file` in
+    NessieAI/ns/reingest_maps/README.md)."""
     pipeline_map = maps.load(folder.parent.name)
     if not pipeline_map.claims_every_file:
         pytest.skip(f"{folder.parent.name} does not claim every file")
