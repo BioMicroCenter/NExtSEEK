@@ -2,8 +2,10 @@
 """Is a rebuilt workbook the reviewed one plus Assay rows for new assays? (spec 3.5 step 3)
 
 The upload creates a missing study assay, rebuilds, and uploads the rebuilt
-workbook in place of the reviewed one only when nothing else changed. Pure:
-openpyxl only.
+workbook in place of the reviewed one only when nothing else changed. The
+reviewed Assay sheet shows each assay to create as its planned label
+(assay_plan.planned_assay_label); the rebuild must hold that assay's created id
+in its place. Pure: openpyxl only.
 """
 from __future__ import annotations
 
@@ -31,10 +33,19 @@ def _rows(book, name) -> list[tuple]:
         for row in rows[1:]]
 
 
-def assay_only_changes(reviewed_path: str, rebuilt_path: str, created_ids) -> list[str]:
+def _with_created_ids(row: tuple, created: dict) -> tuple:
+    """A reviewed Assay row with its planned label replaced by the created id."""
+    if len(row) <= ASSAY_ID_COLUMN or row[ASSAY_ID_COLUMN] not in created:
+        return row
+    return row[:ASSAY_ID_COLUMN] + (created[row[ASSAY_ID_COLUMN]],) + row[ASSAY_ID_COLUMN + 1:]
+
+
+def assay_only_changes(reviewed_path: str, rebuilt_path: str, created: dict) -> list[str]:
+    """``created`` maps each planned label the upload acted on to the assay id it created."""
     import openpyxl
 
-    allowed = {int(i) for i in created_ids}
+    created = {str(label): int(i) for label, i in created.items()}
+    allowed = set(created.values())
     reviewed = openpyxl.load_workbook(reviewed_path, read_only=True, data_only=True)
     rebuilt = openpyxl.load_workbook(rebuilt_path, read_only=True, data_only=True)
     try:
@@ -47,6 +58,7 @@ def assay_only_changes(reviewed_path: str, rebuilt_path: str, created_ids) -> li
                 if before != after:
                     reasons.append(f"{name}: differs from the reviewed workbook")
                 continue
+            before = before[:1] + [_with_created_ids(row, created) for row in before[1:]]
             missing = Counter(before) - Counter(after)
             added = Counter(after) - Counter(before)
             if missing:

@@ -19,7 +19,7 @@ import logging
 import os
 import time
 
-from NessieAI.ns.reingest import build_records, workbook_diff
+from NessieAI.ns.reingest import assay_plan, build_records, workbook_diff
 
 logger = logging.getLogger(__name__)
 
@@ -158,10 +158,11 @@ def _rebuild_after_create(records: list[dict], created: dict[tuple, int], rebuil
             raise refuse(f"{key}: the rebuild after creating its assay did not pass QA")
         if stored.get("assays_to_create"):
             raise refuse(f"{key}: its study assay still cannot be found after creating it")
-        ids = [created[(e["study_id"], e["internal_assay_title"])]
-               for e in record["assays_to_create"]]
+        planned = {assay_plan.planned_assay_label(e["study_id"], e["assay_title"]):
+                   created[(e["study_id"], e["internal_assay_title"])]
+                   for e in record["assays_to_create"]}
         try:
-            changes = workbook_diff.assay_only_changes(record["path"], str(safe), ids)
+            changes = workbook_diff.assay_only_changes(record["path"], str(safe), planned)
         except Exception as exc:  # noqa: BLE001 -- the class name only, never raw text
             logger.exception("upload-reingest: could not compare the rebuild of %s", key)
             raise refuse(f"{key}: could not compare the rebuilt workbook with the one you "
