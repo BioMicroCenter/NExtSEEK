@@ -863,3 +863,44 @@ def test_a_normal_sarek_germline_run_is_not_refused(tmp_path):
                                                          "params": {"tools": "haplotypecaller,manta",
                                                                     "save_output_as_bam": False}}, str(tmp_path)))
     assert out["ok"] is True, out
+
+
+# --- a refused configure_run leaves nothing to submit ---------
+
+class _CfgLuria(_Cfg):
+    LURIA_ENV_COMPLETE = True
+    LURIA_ENV = {}
+
+
+def _sarek(state, tmp_path, tools):
+    return _json.loads(tool_configure_run(_Cfg(), state, {"pipeline_key": "sarek",
+                                                          "params": {"tools": tools}}, str(tmp_path)))
+
+
+def test_a_refused_configure_run_leaves_no_launch_to_submit(monkeypatch, tmp_path):
+    # The first setup is good; the user then asks for a tool Luria cannot run, the change is
+    # refused, and their next "yes" must not submit the first setup.
+    submitted = []
+    monkeypatch.setattr(at, "submit_luria", lambda *a, **kw: submitted.append(a) or [])
+    state = _germline_state(tmp_path)
+    state["messages"] = [{"role": "user", "content": "call germline variants"}]
+    assert _sarek(state, tmp_path, "haplotypecaller")["ok"] is True
+    state["messages"].append({"role": "user", "content": "add ascat"})
+    refused = _sarek(state, tmp_path, "haplotypecaller,ascat")
+    assert refused["ok"] is False and "not staged on Luria" in refused["error"]
+    state["messages"].append({"role": "user", "content": "yes"})
+
+    out = _json.loads(at.tool_submit_to_luria(_CfgLuria(), state))
+
+    assert out["ok"] is False and "configure_run" in out["message"], out
+    assert submitted == []
+    assert "launch" not in state["artifacts"] and "params" not in state["artifacts"]
+    assert "launch_plan" not in state and "launch_built_at_user_msgs" not in state
+
+
+def test_a_pairing_refusal_after_a_good_setup_clears_it_too(tmp_path):
+    state = _germline_state(tmp_path)
+    assert _sarek(state, tmp_path, "haplotypecaller")["ok"] is True
+    out = _sarek(state, tmp_path, "mutect2")   # N1's patient has no tumour
+    assert _is_pairing_refusal(out) and "P1" in out["ask_the_user"]
+    assert "launch" not in state["artifacts"] and "launch_plan" not in state

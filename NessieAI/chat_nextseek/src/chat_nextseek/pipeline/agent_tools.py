@@ -658,9 +658,7 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
     state["artifacts"]["excluded_accessions"] = list(getattr(result, "excluded_accessions", []) or [])
     # A (re)built samplesheet invalidates any prior configure_run output, so the agent
     # must call configure_run again before submit — never submit a stale params/launch.
-    state["artifacts"].pop("params", None)
-    state["artifacts"].pop("launch", None)
-    state.pop("launch_plan", None)
+    _clear_launch(state)
     # ...and a rebuilt sheet is asked about afresh: the old pairing confirmation was for the old rows.
     state.pop("pairing_asked_at_user_msgs", None)
     state.pop("pairing_confirmed_for", None)
@@ -683,6 +681,9 @@ _SAREK_UNSTAGED_TOOLS = frozenset({"ascat", "controlfreec"})
 
 def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_dir: str) -> str:
     """Assemble params.yml + launch.yml from curated params + species references + user steering."""
+    # Forget the last launch first: every refusal below returns before a new one is written, and
+    # a stale launch would otherwise stay submittable on the user's next reply.
+    _clear_launch(state)
     pipeline_key = tool_input.get("pipeline_key") or state.get("pipeline_key") or ""
     if pipeline_key not in NFCORE_PIPELINE_CATALOG:
         return json.dumps({"ok": False, "error": f"Unknown pipeline {pipeline_key!r}."})
@@ -905,6 +906,14 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     })
 
 
+def _clear_launch(state: dict) -> None:
+    """Drop configure_run's output, so submit finds no launch until configure_run succeeds again."""
+    (state.get("artifacts") or {}).pop("params", None)
+    (state.get("artifacts") or {}).pop("launch", None)
+    state.pop("launch_plan", None)
+    state.pop("launch_built_at_user_msgs", None)
+
+
 def _samplesheet_rows(state: dict) -> list[dict]:
     """The rows of the samplesheet write_samplesheet last wrote ([] when there is none)."""
     path = (state.get("artifacts") or {}).get("samplesheet")
@@ -949,7 +958,7 @@ def tool_submit_to_tower(config: "ChatConfig", state: dict) -> str:
     artifacts = state.get("artifacts") or {}
     launch = artifacts.get("launch")
     if not launch:
-        return json.dumps({"ok": False, "message": "No launch artifact to submit — build a samplesheet first."})
+        return json.dumps({"ok": False, "message": "No launch artifact to submit — build the samplesheet, then call configure_run until it succeeds."})
     if (refusal := _launch_unconfirmed(state)):
         return refusal
     tower_env = dict(getattr(config, "TOWER_ENV", {}) or {})
@@ -1038,7 +1047,7 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
     artifacts = state.get("artifacts") or {}
     launch = artifacts.get("launch")
     if not launch:
-        return json.dumps({"ok": False, "message": "No launch artifact to submit — build a samplesheet first."})
+        return json.dumps({"ok": False, "message": "No launch artifact to submit — build the samplesheet, then call configure_run until it succeeds."})
     if (refusal := _launch_unconfirmed(state)):
         return refusal
     if not getattr(config, "LURIA_ENV_COMPLETE", False):
