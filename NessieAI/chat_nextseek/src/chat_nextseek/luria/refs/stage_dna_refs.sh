@@ -7,7 +7,7 @@
 # skips files already finished, and prints a sha256 manifest to paste back.
 # About 11 GB. Names must match run_script.LURIA_GENOMES and LURIA_GENOME_RESOURCES.
 set -euo pipefail
-[ $# -eq 1 ] || { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ $# -eq 1 ] || { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 root="${1%/}"
 dest="$root/GATK.GRCh38"
 base="https://ngi-igenomes.s3.amazonaws.com/igenomes/Homo_sapiens/GATK/GRCh38"
@@ -31,9 +31,9 @@ files=(
 mkdir -p "$dest/known_indels"
 for entry in "${files[@]}"; do
   src="${entry% *}"; name="${entry#* }"
-  if [ -f "$dest/$name.done" ]; then echo "[stage] have $name"; continue; fi
+  if [ -f "$dest/$name.done" ] && [ -f "$dest/$name" ]; then echo "[stage] have $name"; continue; fi
   echo "[stage] $name"
-  curl -fL --retry 5 --retry-delay 30 -o "$dest/$name.part" "$base/$src"
+  curl -fL --retry 5 --retry-delay 30 --connect-timeout 60 --speed-limit 10000 --speed-time 300 -o "$dest/$name.part" "$base/$src"
   mv "$dest/$name.part" "$dest/$name"
   touch "$dest/$name.done"
 done
