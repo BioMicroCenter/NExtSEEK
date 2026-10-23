@@ -83,6 +83,8 @@ def test_config_params_keep_only_real_scalar_values():
     split_fastq = 0
     wes = true
     note = 'kept # inside the quotes'
+    joined = 'x' + 'y'
+    mixed = "a" + 'b'
 }
 process {
     resourceLimits = [

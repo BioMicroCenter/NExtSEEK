@@ -46,7 +46,9 @@ _RUN_INFO = re.compile(r"^pipeline_info/(params_[^/]+\.json|[^/]*software_mqc_ve
 _INPUT = re.compile(r"""^\s*input\s*=\s*['"]([^'"]+)['"]""", re.M)
 _ASSIGN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
 _COMMENT = re.compile(r"\s(//|#).*$")
-_QUOTED = re.compile(r"""^(['"])(.*?)\1(?:\s+(?://|#).*)?$""")
+# One complete quoted string: its body holds no quote character of its own kind, so a
+# concatenation such as 'x' + 'y' is an expression and matches nothing.
+_QUOTED = re.compile(r"""^(?:'([^']*)'|"([^"]*)")(?:\s+(?://|#).*)?$""")
 
 
 def _fetch(url: str) -> bytes:
@@ -137,7 +139,7 @@ def config_params(text: str) -> dict:
         if not quoted:
             raw = _COMMENT.sub("", raw).strip()
         if quoted:
-            found[name] = quoted.group(2)
+            found[name] = quoted.group(1) if quoted.group(1) is not None else quoted.group(2)
         elif raw in ("true", "false"):
             found[name] = raw == "true"
         elif re.fullmatch(r"-?\d+", raw):
