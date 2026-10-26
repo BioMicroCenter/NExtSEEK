@@ -112,6 +112,10 @@ def ensure_app_ownership(
     for t in all_targets:
         if skip_cc_users and t.label == ownership.CC_USERS_TARGET:
             continue
+        # Not created yet (prod has no nextseek-media or throttle volume before this deploy): a `docker run -v`
+        # would create it without compose's labels. The image's 10001 mount point owns it on its first mount.
+        if t.kind == "volume" and not volume_exists(t.source):
+            continue
         argv = (ownership.check_argv if check_only else ownership.fix_argv)(t, img)
         t0 = time.monotonic()
         out = _check_out(subprocess.run(argv, capture_output=True, text=True), f"ownership pass on {t.source}")

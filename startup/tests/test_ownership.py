@@ -81,6 +81,8 @@ def test_ensure_app_ownership_runs_check_per_target_and_returns_counts(tmp_path:
     ran: list[list[str]] = []
 
     def fake_run(cmd, **kw):
+        if cmd[:3] == ["docker", "volume", "inspect"]:
+            return MagicMock(returncode=0, stdout="[]", stderr="")
         ran.append(cmd)
         if cmd[:3] == ["docker", "compose", "config"]:
             return MagicMock(returncode=0, stdout=cfg, stderr="")
@@ -99,6 +101,8 @@ def test_ensure_app_ownership_fix_mode_runs_chown(tmp_path: Path) -> None:
     ran: list[list[str]] = []
 
     def fake_run(cmd, **kw):
+        if cmd[:3] == ["docker", "volume", "inspect"]:
+            return MagicMock(returncode=0, stdout="[]", stderr="")
         ran.append(cmd)
         return MagicMock(returncode=0, stdout=cfg if cmd[:3] == ["docker", "compose", "config"] else "", stderr="")
 
@@ -113,6 +117,8 @@ def test_pre_switchover_pass_skips_the_cc_users_volume(tmp_path: Path) -> None:
     ran: list[list[str]] = []
 
     def fake_run(cmd, **kw):
+        if cmd[:3] == ["docker", "volume", "inspect"]:
+            return MagicMock(returncode=0, stdout="[]", stderr="")
         ran.append(cmd)
         return MagicMock(returncode=0, stdout=cfg if cmd[:3] == ["docker", "compose", "config"] else "", stderr="")
 
@@ -235,3 +241,23 @@ def test_peer_images_must_run_as_the_app_uid(tmp_path: Path) -> None:
     assert ["docker", "run", "--rm", "--pull", "never", "--network", "none", "--entrypoint", "id",
             "dmac-assistant:poc", "-u"] in ran
     assert len(bad) == 1 and "nextseek-sidecar" in bad[0] and "1001" in bad[0]
+
+
+def test_a_volume_that_does_not_exist_yet_is_skipped_not_created(tmp_path: Path) -> None:
+    """`docker run -v <name>:/v` would create it without compose's labels (prod has no nextseek-media,
+    nextseek-throttle or batch_upload_state yet); the image's 10001 mount point owns it on its first mount."""
+    cfg = _cfg(tmp_path)
+    ran: list[list[str]] = []
+
+    def fake_run(cmd, **kw):
+        ran.append(cmd)
+        if cmd[:3] == ["docker", "volume", "inspect"]:
+            return MagicMock(returncode=0 if cmd[-1] != "p1-nextseek-media" else 1, stdout="", stderr="")
+        return MagicMock(returncode=0, stdout=cfg if cmd[:3] == ["docker", "compose", "config"] else "0\n", stderr="")
+
+    for check in (False, True):
+        ran.clear()
+        with patch("startup.steps.volumes.subprocess.run", side_effect=fake_run):
+            counts = volumes.ensure_app_ownership(tmp_path, {"NEXTSEEK_HOST_GID": H}, check_only=check)
+        assert "p1-nextseek-media" not in counts and len(counts) == 4
+        assert not any("p1-nextseek-media:/v" in " ".join(c) for c in ran if c[:2] == ["docker", "run"])
