@@ -39,7 +39,7 @@
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
       }
     },
     {
@@ -76,7 +76,7 @@
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
       }
     },
     {
@@ -112,7 +112,7 @@
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
       }
     },
     {
@@ -145,7 +145,7 @@
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
       }
     },
     {
@@ -178,7 +178,7 @@
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
       }
     },
     {
@@ -211,7 +211,7 @@
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
       }
     },
     {
@@ -245,7 +245,7 @@
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
       }
     },
     {
@@ -284,7 +284,7 @@
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
       }
     },
     {
@@ -321,7 +321,7 @@
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
       }
     },
     {
@@ -356,7 +356,7 @@
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from dna_selection_cases.json; answers unchanged."
+        "pipelines": "Migrated from the old DNA selection cases; answers unchanged."
       }
     },
     {
