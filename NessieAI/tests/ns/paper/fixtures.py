@@ -33,3 +33,19 @@ EPMC_HIT = {
 
 def epmc_search(hits: list[dict]) -> dict:
     return {"resultList": {"result": hits}}
+
+
+PDF_TEXT = """J Test 2024 doi:10.1000/xyz123
+Mice and RNA.
+Abstract
+We studied things.
+1. Introduction
+Background here.
+
+More background.
+2 Materials and Methods
+Mice were bred.
+Data Availability
+Reads are at GSE123456.
+References
+1. Smith J. A paper."""
