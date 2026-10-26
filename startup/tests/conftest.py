@@ -63,3 +63,15 @@ def _no_docker_or_host_probes_in_the_rebuild_preflight(request, monkeypatch):
     monkeypatch.setattr(volumes, "app_user_change", lambda root, env: False)
     monkeypatch.setattr(volumes, "ensure_app_ownership",
                         lambda root, env, *, check_only, skip_cc_users=False, say=None: {})
+
+
+@pytest.fixture(autouse=True)
+def _never_write_the_checkouts_env(monkeypatch):
+    """rebuild, fix-ownership and doctor add NEXTSEEK_HOST_GID to <repo>/.env. A test that drives them against the
+    real checkout (REPO_ROOT not redirected to a tmp dir) must not write that file; tmp repos get the real thing."""
+    from pathlib import Path
+    from startup.steps import config
+
+    real, checkout = config.ensure_host_gid, Path(__file__).resolve().parents[2]
+    monkeypatch.setattr(config, "ensure_host_gid", lambda repo_root: Path(repo_root) / ".env"
+                        if Path(repo_root).resolve() == checkout else real(repo_root))
