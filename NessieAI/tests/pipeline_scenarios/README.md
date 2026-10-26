@@ -5,6 +5,8 @@ One list of test stories checks routing and nf-core pipeline choice, as far as a
 A story is a user's question about a cohort. It records the route the router must pick, the pipelines that
 are acceptable, the pipelines that must never be offered, and whether a launch must be built. The owner rules on
 every story. Only `accepted` or `changed` stories run.
+An `off_topic` story with no acceptable pipelines is route-only: it needs no cohort, and it passes when the
+route is right.
 
 | File | What it is |
 |---|---|
@@ -12,6 +14,7 @@ every story. Only `accepted` or `changed` stories run.
 | `stories.py` | loader, cohort resolution, format problems |
 | `test_cohorts.json` | local-only test cohorts (`test::<name>`); real cohorts come from `NessieAI/chat_nextseek/evals/groundtruth_cohorts.json` |
 | `test_story_format.py` | the free format test |
+| `apply_rulings.py` | writes the owner's rulings from the review page into the story files (`python -m NessieAI.tests.pipeline_scenarios.apply_rulings <rulings.json> <yyyy-mm-dd>`); `test_apply_rulings.py` tests it |
 
 The three layers (the paid run, the CI replay, the chat end-to-end check) are added in later commits of the same
 branch, and this README gains a row for each.
