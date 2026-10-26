@@ -216,6 +216,8 @@ What blocks each row:
 | differentialabundance | non-RNA-seq study types (`--study_type affy_array`, `geo_soft_file`, `maxquant`) are named in `Notes`; their `*.matrix.tsv` normalised matrix has no rule, maxquant's results are protein abundance filed as A.GEX, and their samplesheets name no FASTQ, so no parent resolves | A.GEX, other | type, parent |
 | hlatyping | `hlahd/<sample>/<sample>_final.result.txt` (only with `--tools hlahd`) | A.HLA (its class II fields, `HLA_DRB1_1` to `HLA_DPB1_2`) | inventory; one row per locus, so the rule needs a reader for that layout |
 | hlatyping | `yara/<sample>/<sample>.mapped.bam`, or `<sample>_1`/`_2.mapped.bam` when paired | A.ALN? | choice: HLA-only reference, and two BAMs per paired sample |
+| methylseq | Bismark's methylation calls: `<aligner>/methylation_calls/bedGraph/*.bedGraph.gz` (CpG; also `*.targeted.bedGraph` with `--run_targeted_sequencing`), `methylation_coverage/*.bismark.cov.gz` (CpG coverage) and `methylation_calls/{CpG,CHG,CHH}_{OT,OB}_*.txt.gz` (per-context calls), plus `bismark/coverage2cytosine/{coverage,reports}/` (with `--cytosine_report` or `--nomeseq`) | none (methylation calls; a type is proposed to the owner) | type, inventory. The map's `unmapped_files` rules them out until then. The type's mean CpG methylation field would read the general-stats column `bismark-percent_cpg_meth` |
+| methylseq | `methyldackel/*_{CpG,CHG,CHH}.bedGraph` (bwa-meth; CHG and CHH with `--all_contexts`, `*.methylKit` with `--methyl_kit`) and `rastair/{call,methylkit}/` (bwa-mem TAPS) | none (methylation calls) | type, inventory, as the row above |
 | riboseq | `alignment/star/sorted/<sample>.transcriptome.sorted.bam` (+ `.bai`) | A.ALN | ready: a companion of the genome BAM's row |
 | riboseq | `alignment/star/deduplicated/<sample>.umi_dedup.genome.sorted.bam` (with `--with_umi`; unconfirmed name) | A.ALN | ready: a first candidate, ahead of the sorted BAM |
 | riboseq | `quantification/salmon/salmon.merged.{gene_tpm,transcript_counts,transcript_tpm}.tsv` | A.GEX | ready |
@@ -254,7 +256,7 @@ What blocks each row:
 | smrnaseq | `mirdeep2/**/result_*.csv` (novel miRNA calls) | none | type, inventory |
 | all | A.VCF rows link no assay where the house assay "Variant Call Filtering" does not exist; it is a pending `create_internal` in `context/assay_mappings.json` | A.VCF | a house assay to create |
 
-Ruled out on purpose, so not on the list above: differentialabundance's `all.vst.tsv` / `all.rlog.tsv` (regenerated from the normalised counts), its plots, Shiny app, `*.sizefactors.tsv` and session logs, and the upstream counts matrix as `Parent` (G-6: the stager reads nothing outside the run folder; rows keep the sequencing samples). A map that sets `claims_every_file` (sarek) lists its own ruled-out files in `unmapped_files`, each with its reason.
+Ruled out on purpose, so not on the list above: differentialabundance's `all.vst.tsv` / `all.rlog.tsv` (regenerated from the normalised counts), its plots, Shiny app, `*.sizefactors.tsv` and session logs, and the upstream counts matrix as `Parent` (G-6: the stager reads nothing outside the run folder; rows keep the sequencing samples). A map that sets `claims_every_file` (sarek, methylseq) lists its own ruled-out files in `unmapped_files`, each with its reason.
 
 ## Fixtures
 
