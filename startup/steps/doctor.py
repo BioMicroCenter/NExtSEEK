@@ -6,7 +6,8 @@ from pathlib import Path
 
 from startup.lib import web_swap
 from startup.lib.instance import InstanceState, load_instance
-from startup.steps import prereqs, registry_push, validate
+from startup.lib.docker_ops import compose_ps_running
+from startup.steps import prereqs, registry_push, validate, volumes
 
 # Where ci/smoke/conftest.py looks for the smoke credentials, and the override it
 # honours. Restated rather than imported: startup/ never imports ci/.
@@ -73,6 +74,24 @@ def check_ci_credentials() -> tuple[str, bool, str]:
     return ("CI credentials", True, f"{path} names {', '.join(CI_CRED_KEYS)}")
 
 
+def check_app_ownership(repo_root: Path, env: dict[str, str]) -> tuple[str, bool, str] | None:
+    """A row only on a problem: files on the app volumes or binds that are not 1001:1001.
+
+    Silent when the count is 0, when the app is not running, or when docker cannot answer
+    (the pass runs one throwaway container per volume, so it is skipped on a stopped stack)."""
+    try:
+        if "web" not in compose_ps_running(("web",), repo_root, env):
+            return None
+        bad = {k: v for k, v in volumes.ensure_app_ownership(repo_root, env, check_only=True).items() if v}
+    except Exception:
+        return None
+    if not bad:
+        return None
+    return ("app ownership", False,
+            "not owned by 1001:1001: " + ", ".join(f"{k} ({v})" for k, v in bad.items()) +
+            ". Run `./startup.sh fix-ownership`")
+
+
 def diagnose(repo_root: Path, *, scope: str = "full") -> list[tuple[str, bool, str]]:
     """Return a list of (check_name, ok, detail) tuples."""
     if scope not in {"full", "app"}:
@@ -110,6 +129,9 @@ def diagnose(repo_root: Path, *, scope: str = "full") -> list[tuple[str, bool, s
             "`docker compose exec nextseek_nginx nginx -s reload`"))
 
     env = state.compose_env()
+    owner_row = check_app_ownership(repo_root, env)
+    if owner_row is not None:
+        results.append(owner_row)
     health = (
         validate.run_app_health_checks
         if scope == "app"
