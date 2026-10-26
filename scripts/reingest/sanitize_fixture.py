@@ -16,6 +16,7 @@ or a URL (any scheme://, except public nf-core test data) is refused, never rewr
 import pathlib
 import re
 import sys
+import urllib.parse
 
 SEGMENT = r"[\w.@+-]"
 # An absolute path: a slash-led run of path characters, at least two segments.
@@ -30,6 +31,37 @@ ALLOWED_URL_PREFIXES = (
     "https://raw.githubusercontent.com/nf-core/test-datasets/",
     "https://github.com/nf-core/test-datasets/",
 )
+_ALLOWED_HOSTS = ("raw.githubusercontent.com", "github.com")
+# The URL regex runs through commas, semicolons and (in escaped JSON text) backslashes, so one
+# match can hold several URLs; each piece is judged on its own.
+_URL_SEPARATORS = re.compile(r"[,;\\]")
+
+
+def allowed_url(url: str) -> bool:
+    """True only for a plain https URL under /nf-core/test-datasets/ on GitHub's two hosts:
+    no userinfo or port, no dot-dot segment (encoded or not), no query, no fragment."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        return False
+    segments = parsed.path.split("/")
+    return (parsed.scheme == "https"
+            and parsed.netloc in _ALLOWED_HOSTS
+            and parsed.path.startswith("/nf-core/test-datasets/")
+            and not parsed.query and not parsed.fragment
+            and ".." not in segments
+            and not re.search(r"%2e|%2f|%5c", parsed.path, re.IGNORECASE)
+            and url.startswith(ALLOWED_URL_PREFIXES))
+
+
+def disallowed_urls(text: str) -> list[str]:
+    """Every URL-like piece of text that is not public nf-core test data."""
+    out = []
+    for match in URL.findall(text):
+        for piece in _URL_SEPARATORS.split(match):
+            if "://" in piece and not allowed_url(piece):
+                out.append(piece)
+    return out
 
 
 def prefix_pattern(prefixes: list[str]) -> re.Pattern | None:
@@ -64,8 +96,7 @@ def main() -> int:
         if text != original:
             rewritten[path] = text
         leftovers += [f"{rel}: /{m}" for m in ABSOLUTE.findall(text)]
-        contacts += [f"{rel}: {m}" for m in EMAIL.findall(text)
-                     + [u for u in URL.findall(text) if not u.startswith(ALLOWED_URL_PREFIXES)]]
+        contacts += [f"{rel}: {m}" for m in EMAIL.findall(text) + disallowed_urls(text)]
     if undecodable or leftovers or contacts:
         if undecodable:
             print("refusing: not UTF-8 text (a fixture holds text files only):",
