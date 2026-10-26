@@ -122,7 +122,14 @@ if [ "$MODE" = "web" ]; then
   }
   _drain_and_stop() {
     touch "$_turn_dir/.draining"
-    _d_deadline=$((SECONDS + ${NEXTSEEK_DRAIN_SECONDS:-240}))
+    # web's stop_grace_period (300 s) minus 30 s: a longer drain is SIGKILLed before end_cut_turns runs.
+    _drain_max=270
+    _drain="${NEXTSEEK_DRAIN_SECONDS:-240}"
+    if [ "$_drain" -gt "$_drain_max" ]; then
+      echo "[drain] NEXTSEEK_DRAIN_SECONDS=$_drain is above $_drain_max (the stop grace period less 30 s); using $_drain_max" >&2
+      _drain=$_drain_max
+    fi
+    _d_deadline=$((SECONDS + _drain))
     _turns_running
     while [ "${#_remaining[@]}" -gt 0 ] && [ "$SECONDS" -lt "$_d_deadline" ]; do
       echo "[drain] ${#_remaining[@]} turns running" >&2

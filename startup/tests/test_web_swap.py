@@ -261,3 +261,31 @@ def test_warm_script_passes_against_a_live_server_and_fails_without_one() -> Non
     bad = subprocess.run([sys.executable, "-c", web_swap.WARM_SCRIPT,
                           f"http://127.0.0.1:{srv.server_port}/login/"], capture_output=True)
     assert bad.returncode != 0
+
+
+def _grace_repo(repo: Path, drain: str | None, grace: str = "5m") -> None:
+    (repo / "docker-compose.yml").write_text(
+        f"services:\n  web:\n    stop_grace_period: {grace}\n  nextseek:\n    stop_grace_period: 1m\n")
+    if drain is not None:
+        (repo / ".env").write_text(f"NEXTSEEK_DRAIN_SECONDS={drain}\n")
+
+
+def test_a_configured_drain_above_the_grace_limit_is_reported(repo: Path) -> None:
+    _grace_repo(repo, "300")
+    msg = web_swap.drain_problem(repo)
+    assert msg and "300" in msg and "270" in msg
+
+
+def test_a_drain_within_the_grace_limit_or_unset_is_fine(repo: Path) -> None:
+    _grace_repo(repo, "270")
+    assert web_swap.drain_problem(repo) is None
+    _grace_repo(repo, None)
+    (repo / ".env").unlink(missing_ok=True)
+    assert web_swap.drain_problem(repo) is None
+
+
+def test_swap_warns_about_an_oversized_drain(repo: Path) -> None:
+    _grace_repo(repo, "400")
+    warned = []
+    web_swap.swap(FakeDocker(repo), repo, say=lambda m: None, warn=warned.append, sleep=lambda s: None)
+    assert any("400" in w for w in warned)

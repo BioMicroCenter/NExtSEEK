@@ -67,6 +67,14 @@ def test_web_grace_period_covers_the_drain_cap_plus_gunicorn():
     assert grace >= _drain_default() + 30
 
 
+def test_entrypoint_clamps_the_drain_to_the_grace_period_minus_the_margin():
+    text = (REPO_ROOT / "docker" / "scripts" / "entrypoint.sh").read_text()
+    m = re.search(r"_drain_max=(\d+)", text)
+    assert m, "the drain trap must clamp NEXTSEEK_DRAIN_SECONDS"
+    assert int(m.group(1)) == _seconds(SERVICES["web"]["stop_grace_period"]) - 30
+    assert "-gt \"$_drain_max\"" in text
+
+
 def test_only_web_and_the_spawner_mount_the_docker_socket():
     holders = {n for n, s in SERVICES.items() if any(m.startswith(SOCK + ":") for m in _mounts(s))}
     assert holders == {"web", "cc-spawner"}

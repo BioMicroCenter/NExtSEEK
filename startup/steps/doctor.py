@@ -109,6 +109,9 @@ def diagnose(repo_root: Path, *, scope: str = "full") -> list[tuple[str, bool, s
             "Check `docker compose ps web`, delete the file, run "
             "`docker compose exec nextseek_nginx nginx -s reload`"))
 
+    problem = web_swap.drain_problem(repo_root)
+    results.append(("web drain", problem is None, problem or "NEXTSEEK_DRAIN_SECONDS fits web's stop_grace_period"))
+
     env = state.compose_env()
     health = (
         validate.run_app_health_checks

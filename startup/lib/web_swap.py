@@ -17,6 +17,7 @@ removes it, and `doctor` reports one that a killed swap left behind.
 """
 from __future__ import annotations
 
+import re
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -134,12 +135,45 @@ def _pin(run, repo_root: Path, name: str | None) -> None:
     _reload(run)
 
 
+DRAIN_MARGIN_S = 30   # web's stop_grace_period must outlast the drain by this much (gunicorn's own stop)
+
+
+def _seconds(value: str) -> int:
+    total = 0
+    for n, unit in re.findall(r"(\d+)([hms])", str(value)):
+        total += int(n) * {"h": 3600, "m": 60, "s": 1}[unit]
+    return total
+
+
+def drain_problem(repo_root: Path) -> str | None:
+    """A message when the NEXTSEEK_DRAIN_SECONDS set in .env (or docker/nextseek.env) is more than web's
+    stop_grace_period allows: Docker would SIGKILL web before it cuts the turns it could not finish."""
+    import yaml
+    from startup.lib.env import read_env
+
+    repo_root = Path(repo_root)
+    configured = {**read_env(repo_root / "docker" / "nextseek.env"), **read_env(repo_root / ".env")}.get(
+        "NEXTSEEK_DRAIN_SECONDS", "")
+    compose = repo_root / "docker-compose.yml"
+    if not configured.strip().isdigit() or not compose.exists():
+        return None
+    grace = _seconds(((yaml.safe_load(compose.read_text()).get("services") or {}).get("web") or {})
+                     .get("stop_grace_period", ""))
+    limit = grace - DRAIN_MARGIN_S
+    if grace and int(configured) > limit:
+        return (f"NEXTSEEK_DRAIN_SECONDS={configured} is above {limit} (web's stop_grace_period {grace} s "
+                f"minus {DRAIN_MARGIN_S} s): the entrypoint clamps it to {limit}. Lower it or raise the grace period.")
+    return None
+
+
 def swap(run, repo_root: Path, *, say=print, warn=print, sleep=time.sleep,
          clock=time.monotonic, healthy_timeout: float = HEALTHY_TIMEOUT_S,
          utcnow=lambda: datetime.now(timezone.utc)) -> str:
     """Replace the running web container. Returns "swapped" or "started"."""
     repo_root = Path(repo_root)
     refuse_leftover_pin(repo_root)
+    if (problem := drain_problem(repo_root)):
+        warn(problem)
     up_web = ["docker", "compose", "up", "-d", "--no-deps", "web"]
     ids = _ok(run, ["docker", "compose", "ps", "-q", "web"], "listing web containers").split()
     if len(ids) > 1:
