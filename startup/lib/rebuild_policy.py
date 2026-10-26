@@ -7,7 +7,7 @@ from dataclasses import dataclass
 #: Every service that runs the app image, and therefore every service a rebuild
 #: must move to the new one.
 #:
-#: There are two, one image: ``nextseek`` (the worker, the nine background loops)
+#: There are two, one image: ``nextseek`` (the worker, the ten background loops)
 #: and ``web`` (the web server, which a rebuild swaps instead of restarting; see
 #: ``startup/lib/web_swap.py``). Until 2026-09-02 there were five: the attribute-mutation
 #: worker, dispatcher and recovery scheduler behind an ``attributes`` compose

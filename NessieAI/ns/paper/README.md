@@ -41,7 +41,7 @@ stage can cite it and a reviewer can find it.
 | `E:si:<file>!<cell>` or `E:si:<file>!<sheet>!<cell>` | a cell of a supplementary csv, tsv or workbook |
 | `E:si:<file>!p<n>` | paragraph `n` of a supplementary PDF or text file |
 | `E:<repo>:<record_id>:<field>` | one field of a deposit record, such as `E:geo:GSM8007257:title` |
-| `E:file:<repo>:<record_id>:<name>` | one file of a deposit record, with its size and checksum |
+| `E:file:<repo>:<record_id>:<name>` | one file of a deposit record, with its size and checksum. A second file of the same name in the same record gets `#2`, a third `#3`, and so on |
 
 ## The allowlist rule
 

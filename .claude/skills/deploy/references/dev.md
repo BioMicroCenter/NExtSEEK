@@ -7,7 +7,7 @@ Box facts as of 2026-09-25:
 | Repo | `<repo>`, branch `dev`, fast-forwarded to origin/dev |
 | Memory | 46.8 GiB (not 64). OOMs on 09-11, 09-12, 09-14. Caps live in the repo-root `.env` |
 | Disk floor | 20 GB free (`ci_profile: dev`); the rebuild refuses below it |
-| Containers | `nextseek` (the worker: the nine background loops), `nextseek-web-N` (the web server; a rebuild swaps it, so N counts up), `cc-spawner`, `nextseek-nextseek_nginx-1`, `nextseek-sidecar`, `dmac-bedrock-proxy`, `neo4j`, `seek`, `seek-workers`, `seek-mysql`, `seek-solr` |
+| Containers | `nextseek` (the worker: the ten background loops), `nextseek-web-N` (the web server; a rebuild swaps it, so N counts up), `cc-spawner`, `nextseek-nextseek_nginx-1`, `nextseek-sidecar`, `dmac-bedrock-proxy`, `neo4j`, `seek`, `seek-workers`, `seek-mysql`, `seek-solr` |
 | Ports on the box | app nginx `127.0.0.1:8000`, SEEK `127.0.0.1:3000` (`localhost:80` 404s and proves nothing) |
 | Data | TCGA (918,519 of 985,179 samples) plus one project, "Published Data". SEEK holds one institution, so labs are copied in (section 5). Corpus answer keys are PRODUCTION numbers |
 | Windows | 05:45Z-07:45Z the nightly graph sync (02:00 US Eastern). The brief, the runner and `ssh --purpose start` all refuse a heavy step that would touch it. The nightly dumps run under `timeout 1h` with `--single-transaction` (crontab, 2026-10-12), so they no longer lock dmac |

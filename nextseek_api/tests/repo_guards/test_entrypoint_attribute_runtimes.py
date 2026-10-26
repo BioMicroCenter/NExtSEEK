@@ -267,7 +267,7 @@ class TestStopSignal:
         )
         try:
             deadline = time.monotonic() + 30
-            while call_log.read_text().count("start uv") < 9:  # 3 boot steps + 6 runtimes
+            while call_log.read_text().count("start uv") < 12:  # 3 boot steps + 9 runtimes (graph sync off)
                 assert time.monotonic() < deadline, call_log.read_text()
                 assert proc.poll() is None, call_log.read_text()
                 time.sleep(0.05)

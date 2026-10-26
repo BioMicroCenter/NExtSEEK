@@ -53,7 +53,7 @@ def test_web_cannot_swap_past_its_cap():
 
 
 def test_the_worker_has_its_own_cap_and_cannot_swap_past_it():
-    """The nine loops hold about 5.3 GiB at rest, so 8G, separate from the web cap."""
+    """The background loops held about 5.3 GiB at rest when there were nine, so 8G, separate from the web cap."""
     limits = _nextseek().get("deploy", {}).get("resources", {}).get("limits", {})
     assert limits.get("memory") == WORKER_CAP
     assert _nextseek().get("memswap_limit") == WORKER_CAP

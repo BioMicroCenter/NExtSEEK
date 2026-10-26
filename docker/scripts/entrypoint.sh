@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Two modes of one image (compose services `nextseek` and `web`):
-#   worker (default) -- the only migrator: DB probe, migrate, the batch-upload recovery and the nine background
+#   worker (default) -- the only migrator: DB probe, migrate, the batch-upload recovery and the ten background
 #                       loops. It serves nothing, so collectstatic is not its job.
 #   web              -- collectstatic, DB probe, waits for the worker's migrations (it never migrates), then the
 #                       web server. On a stop it drains: no new chat turns, running ones finish (capped), the rest

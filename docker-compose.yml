@@ -1,6 +1,6 @@
 services:
   # The app image runs in two services (SPEC-PLAN section 1). `nextseek` is the
-  # WORKER: the nine background loops (docker/scripts/entrypoint.sh worker), the
+  # WORKER: the ten background loops (docker/scripts/entrypoint.sh worker), the
   # only migrator, no web server. It keeps the name and container_name so every
   # `docker exec nextseek manage.py ...` still works. `web` (below) is the web
   # server, which `./startup.sh rebuild` replaces without a gap.

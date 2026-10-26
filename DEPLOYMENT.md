@@ -33,7 +33,7 @@ No service is profile-gated: `docker compose ps` shows the whole stack, and
 
 | Service | Image | Host port | Network(s) | Role |
 |---|---|---|---|---|
-| `nextseek` (the worker) | built from root `Dockerfile` | none | default | The background runtimes that run app code, no web server: Celery worker for `batch_upload`, Celery worker for `attribute_mutations`, the beat, the outbox dispatcher, the sync-recovery loop, the assay-registration and share drains and the graph sync. It is the only service that runs `migrate`, and it holds no Docker socket. One `wait -n`, so any of them exiting restarts the container. Healthchecked by `docker/scripts/attribute_runtime_healthcheck.py app`. Keeps the name `nextseek`, so every `docker exec nextseek ...` works |
+| `nextseek` (the worker) | built from root `Dockerfile` | none | default | The background runtimes that run app code, no web server: Celery workers for `batch_upload`, `cc_summaries`, `paper_reingest` and `attribute_mutations`, the beat, the outbox dispatcher, the sync-recovery loop, the assay-registration and share drains and the graph sync. It is the only service that runs `migrate`, and it holds no Docker socket. One `wait -n`, so any of them exiting restarts the container. Healthchecked by `docker/scripts/attribute_runtime_healthcheck.py app`. Keeps the name `nextseek`, so every `docker exec nextseek ...` works |
 | `web` | the `nextseek` image (no second build) | none (internal :8000) | default + laya-net + dmac-spawner-net | The web server (daphne, or gunicorn via `NEXTSEEK_SERVER`) and the chat turn. No `container_name`: compose names it `nextseek-web-N`, so a rebuild can run two and swap them (§3.3). Holds the Docker socket for the one dev cycle of the spawner switch, the Luria key and ssh volume, and `dmac-cc-users`. Healthcheck: `GET /login/` answers 200. `stop_grace_period: 5m` |
 | `cc-spawner` | built from `docker/cc-spawner/` | none | dmac-spawner-net (internal) | Starts Container-CC turns and runs the SEEK admin scripts for `web`, behind a token. The only other holder of the Docker socket; read-only, all capabilities dropped. `web` uses it unless `NEXTSEEK_SPAWNER_URL` is set empty in the project-root `.env` |
 | `nextseek_nginx` | `nginx:${NGINX_IMAGE_TAG:-1.31.2}` | `127.0.0.1:${NEXTSEEK_PORT:-8000}` | default **+ dmac-cc-net** | static files + reverse proxy to the `web` service (or, during a swap, to the one container `docker/nginx-upstream/pin.conf` names); the **only dual-homed** service |
@@ -1013,7 +1013,7 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `NEO4J_HTTP_PORT` | root.env | 7474 |  |  | Host port of the Neo4j browser; install writes it. |
 | `NEO4J_BOLT_PORT` | root.env | 7687 |  |  | Host port of Neo4j bolt; install writes it. |
 | `NEXTSEEK_MEMORY` | root.env | 8G |  |  | Memory cap of the web container. |
-| `NEXTSEEK_WORKER_MEMORY` | root.env | 8G |  |  | Memory cap of the worker container (the nine background loops). |
+| `NEXTSEEK_WORKER_MEMORY` | root.env | 8G |  |  | Memory cap of the worker container (the ten background loops). |
 | `NEXTSEEK_DRAIN_SECONDS` | root.env | 240 |  |  | How long a stopping web container lets running chat turns finish before it cuts them. web's stop_grace_period must stay at least this plus 30 s. |
 | `NEXTSEEK_SPAWNER_TOKEN` | nextseek.env | secret |  |  | Token web sends to cc-spawner. Install and rebuild write it, with the same value as SPAWNER_TOKEN in docker/cc-spawner.env. |
 | `NEXTSEEK_SPAWNER_URL` | root.env | http://cc-spawner:8080 |  |  | Where web sends Container-CC turns. Unset: the cc-spawner service. Set empty in .env: today's direct Docker path (the switch lives one dev cycle). |
@@ -1195,7 +1195,7 @@ The sweep runs on its own `cc_summaries` worker, so it never delays an upload. I
 
 ### Paper reingest worker
 
-The app entrypoint starts a third Celery worker beside the `batch_upload` and `cc_summaries` ones: queue
+The app entrypoint starts a fourth Celery worker beside the `batch_upload`, `cc_summaries` and `attribute_mutations` ones: queue
 `paper_reingest`, hostname `paper_reingest@%h`, concurrency 1. It runs stage 1 of a paper reingest (fetching the paper,
 its supplement and its deposits), one run at a time, so a slow repository never holds up an upload or the summary sweep.
 It is always running; the feature itself is off until `NEXTSEEK_PAPER_REINGEST=1` is in `nextseek.env` (the app
