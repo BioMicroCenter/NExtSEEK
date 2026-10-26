@@ -480,3 +480,26 @@ def test_router_baml_keeps_expression_comparisons_on_nextseek_query():
     assert "nothing runs until the user confirms" in baml
     assert baml.index("Open-ended summaries go to `container_cc`") < baml.index(rule) < baml.index(
         "Catalog counts stay `nextseek_query`.")
+
+
+def test_router_baml_sends_analyses_of_the_users_sequencing_data_to_nextseek_query():
+    """2026-10-26 ruling: variants, peaks, accessibility, binding and methylation questions about the
+    user's own sequenced samples go to nextseek_query, where the pipeline agent offers the nf-core
+    run, even when no pipeline is named. Before, only expression comparisons had a rule, and the only
+    variant case that routed right said "nf-core pipeline"."""
+    baml = (paths.DMAC_ASSISTANT_DIR / "baml_src" / "router.baml").read_text(encoding="utf-8")
+    rule = "Analyses of the user's own sequencing data go to `nextseek_query`."
+    assert rule in baml
+    for example in ("call variants on these samples", "where is the chromatin open in the treated cells",
+                    "how methylated are these promoters"):
+        assert example in baml, example
+    assert baml.index("Expression comparisons over the user's samples go to `nextseek_query`.") < baml.index(rule) \
+        < baml.index("Catalog counts stay `nextseek_query`.")
+
+
+def test_router_baml_keeps_choosing_or_launching_a_pipeline_on_nextseek_query():
+    """The older paragraph that sends choosing, building or launching an nf-core pipeline to
+    nextseek_query was never pinned."""
+    baml = (paths.DMAC_ASSISTANT_DIR / "baml_src" / "router.baml").read_text(encoding="utf-8")
+    assert ("Choosing, building or launching an nf-core pipeline over NExtSEEK samples\n"
+            "    is not such an analysis question: select `nextseek_query`") in baml
