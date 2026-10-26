@@ -189,6 +189,21 @@ def test_spawner_subpaths_match_build_user_dirs(tmp_path):
     }
 
 
+@pytest.mark.parametrize("model,fallback,budget,session", [
+    ("m-1", "m-2", 0.5, "r-1"), ("m-1", "m-1", 0.5, None), (None, None, 0, None), ("m-1", None, 2, "r-1"),
+])
+def test_spawner_command_matches_build_command(model, fallback, budget, session):
+    """The spawner starts the container; startup's CC_WIRING_PROBE reads ``cc_engine._build_command`` to say what
+    model a turn gets. The two builders must agree, or the probe reports a command no turn runs."""
+    from NessieAI.tests.cc import fake_spawner
+    svc = fake_spawner._service(object())
+    v = svc._validate_turn({"run_id": RUN, "user_id": "alice", "project_dirname": "proj", "model_id": model,
+                            "fallback_model_id": fallback, "max_budget_usd": budget, "resume_session_id": session,
+                            "environment": {}, "stdin_envelope": "x\n"})
+    source = {"NEXTSEEK_INTERNAL_BASE_URL": svc.config.ns_url, "NEO4J_URI": svc.config.neo4j_uri,
+              "GCP_API_KEY": "k" if svc.config.automode_gcp else ""}
+    assert svc._command(v) == cc_engine._build_command(
+        model_id=model, session_id=session, max_budget_usd=budget, source=source, fallback_model_id=fallback)
 
 
 def test_id_rules_are_one_rule_on_both_sides():
