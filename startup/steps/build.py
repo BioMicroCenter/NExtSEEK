@@ -7,7 +7,7 @@ import urllib.request
 from pathlib import Path
 
 from startup.lib import ui
-from startup.lib.docker_ops import DockerOpsError, compose_build, compose_exec, compose_up
+from startup.lib.docker_ops import DockerOpsError, compose_build, compose_exec, compose_up, MYSQL_ROOT_CMD
 from startup.lib.rebuild_policy import app_runtime_services
 
 
@@ -63,13 +63,11 @@ def _wait_for(
     )
 
 
-def wait_for_mysql(
-    repo_root: Path, env: dict[str, str], root_password: str = "seek_root"
-) -> None:
+def wait_for_mysql(repo_root: Path, env: dict[str, str]) -> None:
     """Block until MySQL accepts connections inside the db container."""
     _wait_for(
         service="db",
-        check_command=["mysql", "-uroot", f"-p{root_password}", "-e", "SELECT 1"],
+        check_command=[*MYSQL_ROOT_CMD, "-e", "SELECT 1"],
         repo_root=repo_root,
         env=env,
         label="MySQL",
@@ -94,12 +92,12 @@ def start_databases(
 ) -> None:
     """Start MySQL and Neo4j, then wait until both accept connections.
 
-    The waits log in with the passwords the box's files hold: MYSQL_ROOT_PASSWORD
-    in ``env`` (as the seed and fixup steps read it) and ``neo4j_password`` (#103).
+    The MySQL wait uses the db container's own root password; the Neo4j wait logs in with
+    ``neo4j_password`` (#103).
     """
     compose_up(services=["db", "neo4j"], project_dir=repo_root, env=env)
     with ui.spinner("waiting for MySQL to accept connections"):
-        wait_for_mysql(repo_root, env, env.get("MYSQL_ROOT_PASSWORD", "seek_root"))
+        wait_for_mysql(repo_root, env)
     with ui.spinner("waiting for Neo4j to accept connections"):
         wait_for_neo4j(repo_root, env, neo4j_password)
 

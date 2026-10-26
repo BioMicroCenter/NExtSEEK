@@ -66,7 +66,7 @@ def test_start_databases_waits_with_the_kept_passwords(
 
     build.start_databases(Path("/repo"), env, neo4j_password="neo-rotated")
 
-    mock_mysql.assert_called_once_with(Path("/repo"), env, "root-rotated")
+    mock_mysql.assert_called_once_with(Path("/repo"), env)
     mock_neo4j.assert_called_once_with(Path("/repo"), env, "neo-rotated")
 
 
@@ -78,5 +78,5 @@ def test_start_databases_defaults_to_the_demo_passwords(
 ) -> None:
     env = {"COMPOSE_PROJECT_NAME": "nextseek-test"}
     build.start_databases(Path("/repo"), env)
-    mock_mysql.assert_called_once_with(Path("/repo"), env, "seek_root")
+    mock_mysql.assert_called_once_with(Path("/repo"), env)
     mock_neo4j.assert_called_once_with(Path("/repo"), env, "demopassword")

@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from startup.steps.config import generate_password
-from startup.lib.docker_ops import compose_exec, DockerOpsError
+from startup.lib.docker_ops import compose_exec, DockerOpsError, MYSQL_ROOT_CMD
+
+
+def _mysql_cmd(*args: str) -> list[str]:
+    return [*MYSQL_ROOT_CMD, *args]
 
 
 @dataclass
@@ -19,12 +23,6 @@ REQUIRED_USERS: list[TestUser] = [
     TestUser(login="demo", password="demopassword", admin=True),
     TestUser(login="user", password="userpassword", admin=False),
 ]
-
-
-def _mysql_root(*args: str) -> list[str]:
-    """A mysql client command run in the db container as root. The password comes from the container's own
-    MYSQL_ROOT_PASSWORD through MYSQL_PWD, so it is never on any argv (SEC-H23)."""
-    return ["sh", "-c", 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot "$@"', "sh", *args]
 
 
 def _is_safe_login(login: str) -> bool:
@@ -42,7 +40,7 @@ def user_exists(login: str, repo_root: Path, env: dict[str, str]) -> bool:
     try:
         out = compose_exec(
             service="db",
-            command=_mysql_root(
+            command=_mysql_cmd(
                 "-N",
                 "seek_production",
                 "-e",
@@ -101,7 +99,7 @@ def set_random_passwords(
     try:
         compose_exec(
             service="db",
-            command=_mysql_root(
+            command=_mysql_cmd(
                 "-e",
                 f"UPDATE dmac.auth_user SET password='!' WHERE username IN ({quoted});",
             ),

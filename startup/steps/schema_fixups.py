@@ -41,7 +41,7 @@ from pathlib import Path
 
 import orjson
 
-from startup.lib.docker_ops import compose_exec, compose_port
+from startup.lib.docker_ops import compose_exec, compose_port, MYSQL_ROOT_CMD
 
 
 def _database_error_type():
@@ -152,15 +152,11 @@ KNOWN_TABLE_FIXUPS: list[MissingTable] = [
 ]
 
 
-def _root_password(env: dict[str, str]) -> str:
-    return env.get("MYSQL_ROOT_PASSWORD", "seek_root")
-
-
 def _table_exists(fix: MissingColumn, repo_root: Path, env: dict[str, str]) -> bool:
     out = compose_exec(
         service="db",
         command=[
-            "mysql", "-uroot", f"-p{_root_password(env)}", "-N",
+            *MYSQL_ROOT_CMD, "-N",
             "-e",
             "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES "
             f"WHERE TABLE_SCHEMA='{fix.database}' AND TABLE_NAME='{fix.table}';",
@@ -181,7 +177,7 @@ def _database_exists(fix: MissingTable, repo_root: Path, env: dict[str, str]) ->
     out = compose_exec(
         service="db",
         command=[
-            "mysql", "-uroot", f"-p{_root_password(env)}", "-N",
+            *MYSQL_ROOT_CMD, "-N",
             "-e",
             "SELECT COUNT(*) FROM INFORMATION_SCHEMA.SCHEMATA "
             f"WHERE SCHEMA_NAME='{fix.database}';",
@@ -202,7 +198,7 @@ def _create_table(fix: MissingTable, repo_root: Path, env: dict[str, str]) -> No
     sql = (repo_root / fix.ddl_path).read_bytes()
     compose_exec(
         service="db",
-        command=["mysql", "-uroot", f"-p{_root_password(env)}", fix.database],
+        command=[*MYSQL_ROOT_CMD, fix.database],
         project_dir=repo_root,
         env=env,
         stdin=sql,
@@ -234,7 +230,7 @@ def _column_exists(fix: MissingColumn, repo_root: Path, env: dict[str, str]) -> 
     out = compose_exec(
         service="db",
         command=[
-            "mysql", "-uroot", f"-p{_root_password(env)}", "-N",
+            *MYSQL_ROOT_CMD, "-N",
             "-e",
             "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
             f"WHERE TABLE_SCHEMA='{fix.database}' "
@@ -257,7 +253,7 @@ def _add_and_backfill(fix: MissingColumn, repo_root: Path, env: dict[str, str]) 
     compose_exec(
         service="db",
         command=[
-            "mysql", "-uroot", f"-p{_root_password(env)}", fix.database,
+            *MYSQL_ROOT_CMD, fix.database,
             "-e", " ".join(statements),
         ],
         project_dir=repo_root,
@@ -273,7 +269,7 @@ def _tighten_constraints(fix: MissingColumn, repo_root: Path, env: dict[str, str
     compose_exec(
         service="db",
         command=[
-            "mysql", "-uroot", f"-p{_root_password(env)}", fix.database,
+            *MYSQL_ROOT_CMD, fix.database,
             "-e",
             f"ALTER TABLE {fix.table} MODIFY COLUMN {fix.column} {fix.final_column_definition};",
         ],
@@ -915,7 +911,7 @@ def _connect_to_managed_database(repo_root: Path, env: dict[str, str], database:
         host="127.0.0.1",
         port=port,
         user="root",
-        password=_root_password(env),
+        password=env["MYSQL_ROOT_PASSWORD"],  # no published default: a missing value is an error
         # Without a bound schema every unqualified table reference below
         # resolves against nothing and MySQL raises 1046 "No database
         # selected". The schema lane never caught this because it drives a

@@ -72,3 +72,11 @@ def test_no_demo_login_in_the_docs(doc: str) -> None:
 
 def test_nessie_command_has_no_literal_default_password() -> None:
     assert "demopassword" not in (_ROOT / "nextseek_api/management/commands/nessie.py").read_text()
+
+
+def test_no_step_builds_a_mysql_password_argv() -> None:
+    """Every startup step goes through MYSQL_ROOT_CMD: no -p<password> and no 'seek_root' fallback in the source."""
+    for f in sorted((_ROOT / "startup" / "steps").glob("*.py")):
+        text = f.read_text()
+        assert "seek_root" not in text, f.name
+        assert not re.search(r'f"-p\{', text), f.name
