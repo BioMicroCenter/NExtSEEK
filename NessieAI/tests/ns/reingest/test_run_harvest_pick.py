@@ -8,6 +8,8 @@ superuser only, and a run whose upload has started is no longer waiting.
 """
 from __future__ import annotations
 
+import os
+import tempfile
 from types import SimpleNamespace
 
 import pytest
@@ -47,7 +49,10 @@ def _harvest(args, user, monkeypatch):
         raise RuntimeError("staged")  # stop before any parsing; the pick is what is tested
 
     monkeypatch.setattr(g, "_stage_run_dir", _fake_stage)
-    monkeypatch.setattr("chat_nextseek.luria.ssh.prepare_key", lambda key: "/dev/null")
+    # A real throwaway file: _run_harvest removes its key copy in a finally (as root, "/dev/null" is deleted).
+    fd, key_copy = tempfile.mkstemp(prefix="luria_key_")
+    os.close(fd)
+    monkeypatch.setattr("chat_nextseek.luria.ssh.prepare_key", lambda key: key_copy)
     session = SimpleNamespace(user=user)
     try:
         result = g.run_op("run-harvest", args, config=_Cfg(), session=session,
@@ -196,3 +201,17 @@ def test_upload_jobs_name_their_manifest():
     finally:
         upload.verify, build_records.sha256_of = orig_verify, orig_sha
     assert out["jobs"][0]["manifest_id"] == "m1"
+
+
+def test_the_key_cleanup_never_removes_a_file_it_did_not_copy(tmp_path):
+    """The source key (or a device) handed back as the 'copy' must survive the finally."""
+    source = tmp_path / "shared_key"
+    source.write_text("k")
+    g._remove_key_copy(str(source), str(source))
+    assert source.exists()
+    g._remove_key_copy("/dev/null", str(source))
+    assert os.path.exists("/dev/null")
+    copy = tmp_path / "luria_key_abc"
+    copy.write_text("k")
+    g._remove_key_copy(str(copy), str(source))
+    assert not copy.exists()

@@ -1313,6 +1313,16 @@ def _pick_waiting_run(user):
         for run in waiting]}
 
 
+def _remove_key_copy(key_path: str, source_key: str) -> None:
+    """Remove the temp key copy ``prepare_key`` made, and nothing else (never the source key or a device)."""
+    if (key_path != source_key and os.path.basename(key_path).startswith("luria_key_")
+            and os.path.isfile(key_path) and not os.path.islink(key_path)):
+        try:
+            os.remove(key_path)
+        except OSError:
+            pass
+
+
 def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     """Reingest step 1 — stage the allowlisted files off the cluster and parse
     them into a RunManifest. Read-only; like run-ls it never calls the write
@@ -1354,10 +1364,7 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, 
                 staged, run_dir=run_dir, lookup_by_fastq=_d_seq_by_fastq,
                 sample_type_lookup=_sample_types_for_uids, inventory=inventory)
     finally:
-        try:
-            os.remove(key_path)
-        except OSError:
-            pass
+        _remove_key_copy(key_path, luria_env["key"])
 
     run_manifest.launch_record_id = launch.pk
     if not run_manifest.pipeline.name and launch.pipeline:
@@ -1620,10 +1627,7 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir, *,
         # filesystem) rather than the oversized request.
         out = ssh_run(luria_env, remote_cmd, key_path=key_path, timeout=_CHECKSUM_SSH_TIMEOUT_S)
     finally:
-        try:
-            os.remove(key_path)
-        except OSError:
-            pass
+        _remove_key_copy(key_path, luria_env["key"])
 
     try:
         payload = json.loads(out)
