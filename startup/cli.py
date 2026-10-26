@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime
 import sys
+import time
 from pathlib import Path
 
 import typer
@@ -116,6 +117,26 @@ def _disk_preflight_or_exit(
             "(the measurement still prints)"
         )
         raise typer.Exit(code=1)
+
+
+def _say_ownership(label: str, count: int | None, seconds: float) -> None:
+    ui.info(f"{label}: {'fixed' if count is None else str(count) + ' not owned by 1001'} ({seconds:.1f} s)")
+
+
+def _check_app_ownership() -> None:
+    """After an app recreate: anything not 1001:1001 (a `docker exec -u 0`, a root rollback) is fixed, loudly."""
+    env = load_instance(REPO_ROOT).compose_env()
+    try:
+        counts = volumes.ensure_app_ownership(REPO_ROOT, env, check_only=True)
+        bad = {k: v for k, v in counts.items() if v}
+        if bad:
+            ui.warn("OWNERSHIP: files not owned by 1001:1001 found after the rebuild (" +
+                    ", ".join(f"{k}: {v}" for k, v in bad.items()) + "). Running the fix now.")
+            volumes.ensure_app_ownership(REPO_ROOT, env, check_only=False, say=_say_ownership)
+        else:
+            ui.ok("ownership: every app volume and bind is 1001:1001")
+    except Exception as exc:  # the rebuild itself succeeded; say the check did not run
+        ui.warn(f"ownership check did not run: {exc}")
 
 
 def _print_health_results(results: list[validate.HealthResult]) -> None:
@@ -580,6 +601,32 @@ def install(
     )
 
 
+@app.command(name="fix-ownership")
+def fix_ownership(
+    instance: str | None = typer.Option(None, "--instance"),
+    check: bool = typer.Option(
+        False, "--check", help="Count what is not 1001:1001 and change nothing (exit 1 if any)."),
+) -> None:
+    """Hand every writable volume and bind of web and nextseek to uid/gid 1001.
+
+    Safe while the old root containers run: run it before the switchover rebuild (the slow full
+    pass) and note the per-target seconds, which time the switchover window."""
+    state = load_instance(REPO_ROOT)
+    if state is None:
+        ui.fail("no instance found — run 'startup install' first")
+        raise typer.Exit(code=1)
+    t0 = time.monotonic()
+    try:
+        counts = volumes.ensure_app_ownership(REPO_ROOT, state.compose_env(), check_only=check,
+                                              say=_say_ownership)
+    except Exception as exc:
+        ui.fail(f"ownership pass failed: {exc}")
+        raise typer.Exit(code=1) from exc
+    ui.info(f"total {time.monotonic() - t0:.1f} s")
+    if check and any(counts.values()):
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def doctor(
     instance: str | None = typer.Option(None, "--instance"),
@@ -912,6 +959,23 @@ def rebuild(
         # stop-first or the new image carries a migration (old code must not run on
         # a new schema). Everything else restarts in place, as it always did.
         swap_web = "web" in policy.restart_services and not stop_first
+        app_services = bool({"web", "nextseek"} & set(policy.restart_services))
+        # Root -> 1001 switchover: an old root web beside a 1001 one leaves root-owned files the
+        # new one cannot touch, so stop both, hand every volume to 1001, then start them.
+        try:
+            user_changed = app_services and volumes.app_user_change(REPO_ROOT, state.compose_env())
+        except Exception as exc:  # unreadable: carry on as before; the CHECK after the recreate still runs
+            user_changed = False
+            ui.warn(f"could not compare the running and new app user ({exc}); not treating this as a switchover")
+        if user_changed:
+            swap_web = False
+            ui.warn("the app containers change user (root to 1001): no swap. Stopping web and nextseek, "
+                    "fixing ownership of every volume and bind, then starting them; users see the "
+                    "restart page meanwhile.")
+            with ui.spinner("stopping web and nextseek"):
+                volumes.stop_app_services(REPO_ROOT, state.compose_env())
+            volumes.ensure_app_ownership(REPO_ROOT, state.compose_env(), check_only=False,
+                                         say=_say_ownership)
         if swap_web:
             run_docker = web_swap.make_runner(REPO_ROOT, state.compose_env())
             with ui.spinner("checking the new image for pending migrations"):
@@ -950,6 +1014,8 @@ def rebuild(
                 ui.fail(f"web swap failed: {exc}")
                 raise typer.Exit(code=1) from exc
         ui.ok(f"{policy.name} rebuilt and restarted")
+        if app_services:
+            _check_app_ownership()
         # Start the front door if it is down, and do nothing else to it. `up`
         # without --force-recreate is a no-op on a running nginx, which needs no
         # restart anyway (docker/nginx.conf re-resolves `web` per request);
