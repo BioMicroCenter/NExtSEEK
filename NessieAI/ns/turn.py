@@ -149,6 +149,8 @@ def _granular_args(op: str, req) -> dict:
         return {"run_dir": req.run_dir, "paths": req.paths, "manifest_id": req.manifest_id}
     if op == "upload-reingest":
         return {"build_ids": req.build_ids, "confirmed_write": req.confirmed_write}
+    if op == "paper-reingest-start":
+        return {"paper": req.paper, "project": req.project}
     return {}
 
 

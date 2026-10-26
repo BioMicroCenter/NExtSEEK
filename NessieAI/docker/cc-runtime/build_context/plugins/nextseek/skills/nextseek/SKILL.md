@@ -521,6 +521,7 @@ entity	nextseek-entity-extract	Resolve NL terms to NExtSEEK vocabulary.	sidecar	
 generate-submission	nextseek-generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.	sidecar	read	true	true
 graph	nextseek-graph	Find and read samples from the graph (filter, lineage, attribute values), held to the user's projects; a query refused for its scope is answered through graph_search under fallback. Counts and breakdowns: nextseek-aggregate.	sidecar	read	true	true
 graph-schema	nextseek-graph-schema	Read the deployed graph's schema live: structure, sample types, vocabulary. Never read a baked schema file instead.	sidecar	read	true	true
+paper-reingest-start	nextseek-paper-reingest-start	**Paper reingest step 1** - for a curator who names a paper (PMID, DOI, article link, or the file name of a PDF they attached): check the paper can be read and start a background run that reads it, its supplement and its deposits. Returns at once; writes nothing to SEEK. If the reply says needs_pdf, ask the curator to attach the PDF and call again with its file name.	sidecar	read	true	true
 parse	nextseek-parse	Turn an NL question into a parser plan.	sidecar	read	true	true
 pipeline	nextseek-pipeline	**Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard.	viewset	unrouted	true	true
 plan	nextseek-plan	Multi-step planner advisor (read-only).	viewset	unrouted	true	true

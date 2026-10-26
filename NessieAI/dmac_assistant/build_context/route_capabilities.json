@@ -180,6 +180,7 @@
         "nextseek-run-harvest",
         "nextseek-run-checksum",
         "nextseek-upload-reingest",
+        "nextseek-paper-reingest-start",
         "nextseek-sampletype-attrs",
         "nextseek-extract-text",
         "nextseek-project-resolve",

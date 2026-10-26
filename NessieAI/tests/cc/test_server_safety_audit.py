@@ -24,7 +24,7 @@ from NessieAI.cc.op_registry.models import GateClass, Transport
 # Transport-truth sidecar ops present in handlers/ws_contract but absent from
 # write_gate.SIDECAR_OPS (documented audit debt; do not enlarge write_gate here).
 KNOWN_TRANSPORT_ONLY_OPS = frozenset({"run-ls", "build-upload-xlsx", "run-harvest",
-                                      "run-checksum", "upload-reingest"})
+                                      "run-checksum", "upload-reingest", "paper-reingest-start"})
 # Transport-only ops that write; they call the gate under the api-write label.
 KNOWN_TRANSPORT_ONLY_WRITE_OPS = frozenset({"upload-reingest"})
 

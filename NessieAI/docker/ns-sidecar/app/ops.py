@@ -248,6 +248,16 @@ def _upload_reingest(args, config, session, write_gate, stage, stage_bytes, comm
     return envelope["result"]
 
 
+def _paper_reingest_start(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
+    # Writes nothing to SEEK, so like run-harvest it never calls the write gate.
+    body = {"paper": args["paper"]}
+    if args.get("project") is not None:
+        body["project"] = args["project"]
+    envelope = ns_client.call_op("paper-reingest-start", body,
+                                 base_url=config.base_url, turn_pass=config.turn_pass)
+    return envelope["result"]
+
+
 _HANDLERS: dict[str, Callable] = {
     "entity": _entity, "parse": _parse, "graph": _graph,
     "graph-schema": _graph_schema, "aggregate": _aggregate,
@@ -257,4 +267,5 @@ _HANDLERS: dict[str, Callable] = {
     "run-harvest": _run_harvest,
     "run-checksum": _run_checksum,
     "upload-reingest": _upload_reingest,
+    "paper-reingest-start": _paper_reingest_start,
 }

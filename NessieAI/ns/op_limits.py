@@ -34,6 +34,7 @@ OP_LIMITS_S: dict[str, float] = {
     "run-harvest": 60.0,
     "run-checksum": 60.0,
     "upload-reingest": 60.0,
+    "paper-reingest-start": 60.0,
 }
 
 #: What an op leaves of the turn for the agent to write its answer.

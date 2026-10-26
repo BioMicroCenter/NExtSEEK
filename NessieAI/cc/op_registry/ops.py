@@ -426,6 +426,23 @@ OPS: list[OpSpec] = [
             "{jobs: [{artifact_key, mode, job_id or error, outcome, parents}], reply}",
         ),
     ),
+    _dispatch(
+        op_id="paper-reingest-start",
+        bin_name="nextseek-paper-reingest-start",
+        transport=Transport.sidecar,
+        assistant_endpoint="/nextseek_api/assistant/paper-reingest-start/",
+        gate_class=GateClass.read,
+        argv=[ArgSpec(flag="--paper", required=True), ArgSpec(flag="--project")],
+        response_envelope_fields=["op", "result"],
+        skill_name="nextseek",
+        skill_row=_row(
+            "**Paper reingest step 1** - for a curator who names a paper (PMID, DOI, article link, or the file "
+            "name of a PDF they attached): check the paper can be read and start a background run that reads "
+            "it, its supplement and its deposits. Returns at once; writes nothing to SEEK. If the reply says "
+            "needs_pdf, ask the curator to attach the PDF and call again with its file name.",
+            '--paper "<pmid|doi|url|attached file name>" [--project <SEEK project id>]',
+            "{run_id, status: ok|needs_pdf|missing_sections|not_found|already_running, mode, paper, reply}"),
+    ),
     _subcmd(
         op_id="attrs",
         bin_name="nextseek-sampletype-attrs",

@@ -95,6 +95,7 @@ from nextseek_api.assistant.models_api import (
     ReportOpResponse,
     RunChecksumRequest,
     UploadReingestRequest,
+    PaperReingestStartRequest,
     RunHarvestRequest,
     RunLsRequest,
     BuildUploadXlsxRequest,
@@ -311,6 +312,7 @@ _GRANULAR_REQUEST_MODELS = {
     "run-harvest": RunHarvestRequest,
     "run-checksum": RunChecksumRequest,
     "upload-reingest": UploadReingestRequest,
+    "paper-reingest-start": PaperReingestStartRequest,
 }
 
 
@@ -1419,6 +1421,10 @@ class AssistantViewSet(viewsets.ViewSet):
                 job_state=batch_views.job_outcome,
                 create_study_assay=lambda **kw: reingest_assays.create_study_assay(request, **kw),
                 register_parents=lambda pairs: reingest_assays.register_parents(request, pairs))
+        if op == "paper-reingest-start":
+            from nextseek_api.paper_reingest import host
+
+            return host.start_session(request)
         return None
 
     def _run_granular_op(self, request, op: str) -> Response:
@@ -1726,3 +1732,15 @@ class AssistantViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="upload-reingest")
     def upload_reingest(self, request):
         return self._run_granular_op(request, "upload-reingest")
+
+    @extend_schema(
+        operation_id="Assistant: Paper Reingest Start",
+        description="Check that a paper's Methods and Data Availability can be read and start a "
+                    "background paper reingest run (stage 1: the paper, its supplement and its deposits). "
+                    "Curators only. Never writes to SEEK.",
+        request=PaperReingestStartRequest,
+        responses={401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="paper-reingest-start")
+    def paper_reingest_start(self, request):
+        return self._run_granular_op(request, "paper-reingest-start")

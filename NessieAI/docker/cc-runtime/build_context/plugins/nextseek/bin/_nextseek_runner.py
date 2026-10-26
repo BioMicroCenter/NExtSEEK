@@ -590,6 +590,22 @@ def _dispatch_upload_reingest(args):
                     {"build_ids": args.build_ids, "confirmed_write": args.confirmed_write})
 
 
+def _dispatch_paper_reingest_start(args):
+    """Paper reingest step 1 -- check a paper can be read and start a background run
+    that reads it, its supplement and its deposits. Writes nothing to SEEK."""
+    if not getattr(args, "paper", None):
+        _err("VALIDATION", "missing --paper", 3)
+    body = {"paper": args.paper}
+    if getattr(args, "project", None):
+        try:
+            body["project"] = int(args.project)
+        except ValueError:
+            _err("VALIDATION", "--project must be a SEEK project id (an integer)", 3)
+    if _dry_run():  # pragma: no cover
+        return {"run_id": None, "status": "dry-run", "reply": "[dry-run]"}  # pragma: no cover
+    return _call_op("paper-reingest-start", body)
+
+
 _DISPATCH = {
     "query": _dispatch_query,
     "recall": _dispatch_recall,
@@ -609,6 +625,7 @@ _DISPATCH = {
     "run-harvest": _dispatch_run_harvest,
     "run-checksum": _dispatch_run_checksum,
     "upload-reingest": _dispatch_upload_reingest,
+    "paper-reingest-start": _dispatch_paper_reingest_start,
 }
 
 
@@ -623,7 +640,8 @@ def main() -> None:
     p.add_argument("--plan")  # for graph and aggregate (JSON {intent_summary, filters, notes})
     p.add_argument("--parts")  # for aggregate (JSON array of 1 to 4 sub-questions)
     p.add_argument("--mode")  # for report
-    p.add_argument("--project")  # for report
+    p.add_argument("--project")  # for report, and paper-reingest-start (optional SEEK project id)
+    p.add_argument("--paper")  # for paper-reingest-start (PMID, DOI, article link or attached file name)
     p.add_argument("--type")  # for generate-submission
     p.add_argument("--uids")  # for generate-submission
     p.add_argument("--pipeline")  # for pipeline (nf-core key)

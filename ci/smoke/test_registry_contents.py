@@ -55,7 +55,8 @@ from ci.smoke.test_reachability import _callable_routes
 # feat/nfcore-reingest-integration merged dev: its seven routes (the four
 # /nextseek_api/reingest-proposals/ routes and /nextseek_api/assistant/ run-harvest,
 # run-checksum and upload-reingest) were absent from dev's 177.
-OWNED_ROUTE_COUNT = 184
+# 184 -> 185 for /nextseek_api/assistant/paper-reingest-start/ (paper reingest, piece 1).
+OWNED_ROUTE_COUNT = 185
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
 # static asset, the Django admin login page and the retired /seek/newsearch/ (404).

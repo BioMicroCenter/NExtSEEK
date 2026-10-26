@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 SIDECAR_OPS = frozenset(
     {"aggregate", "entity", "parse", "api-read", "api-write", "graph", "graph-schema", "report",
      "generate-submission", "run-ls", "run-harvest", "run-checksum", "upload-reingest",
-     "build-upload-xlsx"}
+     "build-upload-xlsx", "paper-reingest-start"}
 )
 
 # §12 — fixed error code → CLI exit code. The thin client maps a sidecar error
@@ -231,6 +231,13 @@ class _UploadReingestArgs(BaseModel):
     confirmed_write: bool = False
 
 
+class _PaperReingestStartArgs(BaseModel):
+    """Paper reingest step 1: a paper the curator named, and an optional SEEK project id hint."""
+    model_config = ConfigDict(extra="forbid")
+    paper: str = Field(min_length=1, max_length=1024)
+    project: int | None = None
+
+
 _OP_ARG_MODELS = {
     "aggregate": _AggregateArgs,
     "entity": _QueryArg,
@@ -246,6 +253,7 @@ _OP_ARG_MODELS = {
     "run-harvest": _RunHarvestArgs,
     "run-checksum": _RunChecksumArgs,
     "upload-reingest": _UploadReingestArgs,
+    "paper-reingest-start": _PaperReingestStartArgs,
 }
 
 

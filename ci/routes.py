@@ -1196,6 +1196,11 @@ REGISTRY: list[Route] = [
           effect="reads",
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST",
           note="granular assistant op: build a parser plan"),
+    Route(pattern=r"^nextseek_api/^^assistant/paper-reingest-start/$", path=None,
+          effect="external",
+          methods=(), profiles="", auth="smoke", exclude="EXCLUDE_EXTERNAL",
+          note="paper reingest step 1: reads Europe PMC (and an attached PDF), records a paper "
+               "reingest run row and queues stage 1; never writes to SEEK"),
     Route(pattern=r"^nextseek_api/^^assistant/query/$", path=None,
           effect="external",
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST",

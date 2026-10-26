@@ -2513,6 +2513,17 @@ def _write_saved_label_now(luria_env, run_dir, launch_record_id) -> None:
         logger.exception("upload-reingest: could not write saved.txt for %s", run_dir or "?")
 
 
+def _paper_reingest_start(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
+    """Paper reingest step 1 (spec §3.1). Writes nothing to SEEK, so like run-harvest it never calls the
+    write gate; it records a run row and queues stage 1 (NessieAI/ns/paper/start.py)."""
+    from NessieAI.ns.paper.start import StartRefused, start
+
+    try:
+        return start(args.get("paper") or "", args.get("project"), session)
+    except StartRefused as exc:
+        raise OpValidationError(str(exc), field="paper", error_type=exc.error_type) from exc
+
+
 _HANDLERS: dict[str, Callable] = {
     "aggregate": _aggregate,
     "entity": _entity,
@@ -2528,4 +2539,5 @@ _HANDLERS: dict[str, Callable] = {
     "run-harvest": _run_harvest,
     "run-checksum": _run_checksum,
     "upload-reingest": _upload_reingest,
+    "paper-reingest-start": _paper_reingest_start,
 }

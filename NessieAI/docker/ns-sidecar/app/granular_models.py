@@ -109,6 +109,15 @@ class RunChecksumRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class PaperReingestStartRequest(BaseModel):
+    """POST /assistant/paper-reingest-start/ body: check a paper and start a paper reingest run."""
+    paper: str = Field(..., min_length=1, max_length=1024,
+                       description="PMID, PMCID, DOI, article link, or the file name of an attached PDF.")
+    project: int | None = Field(None, description="Optional SEEK project id hint; inferred otherwise.")
+    use_prod: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+
 class SubmissionRequest(BaseModel):
     """POST /assistant/generate-submission/ body."""
     type: str = Field(..., description="One of: GEO | SRA | NFCORE_RNASEQ | NFCORE_SCRNASEQ | PRIDE")

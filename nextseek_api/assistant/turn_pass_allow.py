@@ -62,6 +62,7 @@ ALLOW_TABLE: tuple[AllowRow, ...] = (
     AllowRow(_A + "run-harvest", POST, "none"),
     AllowRow(_A + "run-checksum", POST, "none"),
     AllowRow(_A + "upload-reingest", POST, "none"),
+    AllowRow(_A + "paper-reingest-start", POST, "none"),
     AllowRow(_A + "query-async", POST, "body_session_required"),
     AllowRow("nextseek_api:samples-advanced-search-list", POST, "none"),
     AllowRow("nextseek_api:batch-upload-validate", POST, "none"),

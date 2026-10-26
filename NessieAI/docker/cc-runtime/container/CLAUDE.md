@@ -34,6 +34,7 @@ nextseek-extract-text	extract	Extract text from a file.
 nextseek-generate-submission	generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.
 nextseek-graph	graph	Find and read samples from the graph (filter, lineage, attribute values), held to the user's projects; a query refused for its scope is answered through graph_search under fallback. Counts and breakdowns: nextseek-aggregate.
 nextseek-graph-schema	graph-schema	Read the deployed graph's schema live: structure, sample types, vocabulary. Never read a baked schema file instead.
+nextseek-paper-reingest-start	paper-reingest-start	**Paper reingest step 1** - for a curator who names a paper (PMID, DOI, article link, or the file name of a PDF they attached): check the paper can be read and start a background run that reads it, its supplement and its deposits. Returns at once; writes nothing to SEEK. If the reply says needs_pdf, ask the curator to attach the PDF and call again with its file name.
 nextseek-parse	parse	Turn an NL question into a parser plan.
 nextseek-pipeline	pipeline	**Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard.
 nextseek-plan	plan	Multi-step planner advisor (read-only).

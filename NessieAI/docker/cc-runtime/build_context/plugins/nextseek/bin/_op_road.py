@@ -48,6 +48,7 @@ OP_LIMITS_S: dict[str, float] = {
     "run-harvest": 60.0,
     "run-checksum": 60.0,
     "upload-reingest": 60.0,
+    "paper-reingest-start": 60.0,
 }
 #: The tool waits this much past the op's own limit: Django answers by the limit, the rest is the reply's trip.
 TOOL_WAIT_MARGIN_S = 10.0
