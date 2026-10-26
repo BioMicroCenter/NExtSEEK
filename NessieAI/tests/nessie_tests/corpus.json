@@ -15815,12 +15815,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(not upload|won.?t upload|will not upload|without uploading|no upload|didn.?t upload|haven.?t uploaded|for review|before you upload)"
+                  "value": "(?is)(not upload|won.?t upload|will not upload|without uploading|no upload|didn.?t upload|haven.?t uploaded|for review|before you upload|nothing (has been|was|is|will be|can be) uploaded)"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
@@ -16129,7 +16129,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
@@ -16182,7 +16182,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
@@ -16245,7 +16245,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 },
                 {
                   "field": "last_reply",
@@ -16303,7 +16303,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
@@ -16422,7 +16422,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
@@ -17323,7 +17323,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(nothing|fresh (session|start|chat)|first (turn|message)|no (cross.?session )?memory|no history|no record|clean slate|haven.?t (seen|got)|start(ing)? (fresh|clean)|(don.?t|do not) (have|retain|keep|carry) (any )?(memory|history|access)|(don.?t|do not) have anything from|starting from scratch|this chat is new)"
+                  "value": "(?is)(nothing|fresh (session|start|chat)|first (turn|message)|no (cross.?session )?memory|no history|no record|clean slate|haven.?t (seen|got)|start(ing)? (fresh|clean)|(don.?t|do not) (have|retain|keep|carry) (any )?(memory|history|access)|(don.?t|do not) have anything from|starting from scratch|this chat is new|(don.?t|do not) remember|starts? fresh|no saved (notes|memor))"
                 },
                 {
                   "field": "last_reply",
