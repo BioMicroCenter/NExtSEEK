@@ -133,6 +133,18 @@ if untitled), timestamps, the count of completed query bundles, and an 80-char
 preview derived from the first user query in the session's results_history.
 """
 
+ASSISTANT_SESSIONS_SEARCH_DESC = """
+Search the current user's chats by what was asked or answered in them.
+Query parameters: q (2..200 characters; every word must start a word in the
+chat's title, or in one turn's question and answer), sources (comma list;
+only "chats" today), since (7, 30 or 90 days of last activity), all_users=1
+(superusers only: every user's chats, each hit naming its owner), limit
+(1..50, default 20). One hit per chat: title matches first, then question,
+then answer, newest first; each carries the turn to open at and a plain-text
+snippet. A value moved to a spill file is searched as its content.
+422 on a bad parameter, 403 when a non-superuser asks for all_users.
+"""
+
 ASSISTANT_SESSION_DELETE_DESC = """
 Permanently delete a chat session and all associated QueryTask rows.
 Returns 204 on success, 404 if the session is missing, 403 if the

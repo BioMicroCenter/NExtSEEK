@@ -200,9 +200,43 @@ export interface SessionListResponse {
   sessions: SessionListItem[];
 }
 
+// One chat that matched, in GET /assistant/sessions/search/
+export interface SessionSearchHit {
+  /** Where the hit came from; transcripts and records add their own value later. */
+  source: "chat";
+  session_id: string;
+  title: string;
+  updated_at: string;
+  /** The chat's owner, only on an all-users search. */
+  owner: string | null;
+  /** The turn to open the chat at; null opens it at the top. */
+  turn_id: number | null;
+  matched_in: "title" | "question" | "answer";
+  /** Plain text around the first match. */
+  snippet: string;
+  match_count: number;
+}
+
+// GET /assistant/sessions/search/ response
+export interface SessionSearchResponse {
+  query: string;
+  /** The words matched, lowercased: the UI marks them in each snippet. */
+  terms: string[];
+  sources: string[];
+  total: number;
+  results: SessionSearchHit[];
+}
+
+export interface SessionSearchOptions {
+  sinceDays?: 7 | 30 | 90 | null;
+  allUsers?: boolean;
+}
+
 // One turn from a session's results_history projection
 export interface Turn {
   bundle_id: number;
+  /** The chat_log turn number; null for a turn saved before chat_log existed. */
+  turn_id?: number | null;
   user_query: string;
   reply: string;
   mode: string;

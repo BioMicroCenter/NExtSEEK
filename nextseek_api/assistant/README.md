@@ -32,6 +32,7 @@ that every class exists before the app registry is sealed.
 | `session_adapter.py` | `DictSessionAdapter`: a `ChatSession` presented as the dict the engines expect; `save` merges bundle history under a row lock |
 | `excel_export.py` | a stored bundle as inline tables and xlsx bytes (`extract_table_artifacts`, `build_tables_from_bundle`, `generate_table_xlsx`); shared with the admin project export |
 | `session_debug.py` | an engine-agnostic inventory of one chat session for admin debugging: sizes and paths, never payloads |
+| `session_search.py` | `search_sessions`: a user's chats searched by title, question and answer behind `GET /assistant/sessions/search/`; `SOURCES` is where a transcripts or records source would join |
 | `session_export.py` | one chat session as the user sees it: `turn_rows`, the turn list behind `?include=turns`, and the streamed zip of the transcript plus every turn's files behind `GET /assistant/sessions/{sid}/download/` |
 | `turn_pass.py` | the Container-CC turn pass: `issue_pass`, `find_turn`, `revoke`. Only the pass's sha256 is stored; the user's login is held on the `CCTurn` row as AES-GCM ciphertext, under a key derived from the Django secret key |
 | `turn_pass_auth.py` | `TurnPassAuthentication`, the `NextseekTurn` scheme: `_live` refuses a revoked, expired or finished turn, and the allow table is checked inside `authenticate`, before any view runs |

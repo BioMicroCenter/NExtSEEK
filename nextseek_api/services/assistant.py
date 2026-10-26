@@ -57,6 +57,7 @@ from nextseek_api.assistant.descriptions import (
     ASSISTANT_SESSION_DOWNLOAD_DESC,
     ASSISTANT_SESSION_PATCH_DESC,
     ASSISTANT_SESSIONS_LIST_DESC,
+    ASSISTANT_SESSIONS_SEARCH_DESC,
     ASSISTANT_TASK_PROGRESS_DESC,
     ASSISTANT_TEST_CASES_DESC,
 )
@@ -70,6 +71,7 @@ from nextseek_api.assistant.models_api import (
     SessionListItem,
     SessionListResponse,
     SessionPatchRequest,
+    SessionSearchResponse,
     TaskProgressResponse,
     TestCaseItem,
     TestCaseListResponse,
@@ -125,7 +127,7 @@ from NessieAI.ns.artifacts import (
     _resolve_saved_path,
     _safe_artifact_path,
 )
-from nextseek_api.assistant import session_export
+from nextseek_api.assistant import session_export, session_search
 from rest_framework.authentication import (
     BasicAuthentication,
     TokenAuthentication,
@@ -172,8 +174,8 @@ class UserInParticipatingProject(BasePermission):
     _CACHE_TTL_SECONDS = 60
     # A member who has left every pilot project keeps reading their own past chats (these GETs answer the owner or
     # a superuser only); everything else stays gated.
-    _OWN_CHAT_READS = frozenset({"list_sessions", "get_session", "download_bundle", "download_artifact",
-                                 "download_session", "task_progress"})
+    _OWN_CHAT_READS = frozenset({"list_sessions", "search_sessions", "get_session", "download_bundle",
+                                 "download_artifact", "download_session", "task_progress"})
 
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
@@ -554,6 +556,54 @@ class AssistantViewSet(viewsets.ViewSet):
             ).model_dump(mode="json"),
             status=status.HTTP_201_CREATED,
         )
+
+    # ------------------------------------------------------------------
+    # 2b. GET /assistant/sessions/search/
+    # ------------------------------------------------------------------
+    @extend_schema(
+        operation_id="Assistant: Search Sessions",
+        description=ASSISTANT_SESSIONS_SEARCH_DESC,
+        responses={200: SessionSearchResponse},
+        examples=[OpenApiExample(name="Search my chats", response_only=True, value={
+            "query": "ndma liver", "terms": ["ndma", "liver"], "sources": ["chats"], "total": 1,
+            "results": [{"source": "chat", "session_id": "abc12345-def6-7890-abcd-ef1234567890",
+                         "title": "NDMA mice", "updated_at": "2026-10-21T14:02:11Z", "owner": None, "turn_id": 3,
+                         "matched_in": "question", "snippet": "find mice treated with NDMA in the liver",
+                         "match_count": 2}]})],
+    )
+    @action(detail=False, methods=["get"], url_path="sessions/search")
+    def search_sessions(self, request):
+        authed, err = self._check_auth(request)
+        if not authed:
+            return err
+
+        params = request.query_params
+        q = (params.get("q") or "").strip()
+        if not 2 <= len(q) <= 200:
+            return _error_response("Validation error", "Parameter 'q' must be 2 to 200 characters.",
+                                   status.HTTP_422_UNPROCESSABLE_ENTITY)
+        sources = [s.strip() for s in (params.get("sources") or "chats").split(",") if s.strip()]
+        if not sources or any(s not in session_search.SOURCES for s in sources):
+            return _error_response("Validation error",
+                                   f"Parameter 'sources' accepts: {', '.join(sorted(session_search.SOURCES))}.",
+                                   status.HTTP_422_UNPROCESSABLE_ENTITY)
+        since = params.get("since") or None
+        if since not in (None, "7", "30", "90"):
+            return _error_response("Validation error", "Parameter 'since' must be 7, 30 or 90.",
+                                   status.HTTP_422_UNPROCESSABLE_ENTITY)
+        all_users = params.get("all_users") in ("1", "true")
+        if all_users and not may_read_any(request):
+            return _error_response("Forbidden", "Only a superuser may search every user's chats.",
+                                   status.HTTP_403_FORBIDDEN)
+        try:
+            limit = min(max(int(params.get("limit", 20)), 1), 50)
+        except ValueError:
+            limit = 20
+
+        result = session_search.search_sessions(request.user.pk, q, all_users=all_users, sources=sources,
+                                                since_days=int(since) if since else None, limit=limit)
+        return Response(SessionSearchResponse.model_validate(result).model_dump(mode="json"),
+                        status=status.HTTP_200_OK)
 
     # ------------------------------------------------------------------
     # 3. GET /assistant/sessions/{session_id}/

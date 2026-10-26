@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMessages, useProcessingState } from "@/hooks";
 import { useChatRoute } from "@/hooks/useChatRoute";
 import { PHONE_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
+import { useScrollToTurn } from "@/hooks/useScrollToTurn";
 import { useSessions } from "@/hooks/useSessions";
 import { NextseekApiService } from "@/lib/services/chatApi";
 import { SessionAuthService } from "@/lib/services/sessionAuth";
@@ -289,6 +290,15 @@ export function EmbeddedApp() {
       .catch((err: Error) => addSystemMessage(`Download failed: ${err.message}`));
   }, [sessions.activeSessionId, addSystemMessage]);
 
+  const scrollToTurn = useScrollToTurn();
+  // A search hit: (re)load its chat, then scroll to the turn that matched. Reloaded even when it is the open
+  // chat: turns asked in this page view carry no turn id until the chat is read back.
+  const openSearchHit = useCallback((id: string, turnId: number | null) => {
+    sessions.setActive(id)
+      .then(() => scrollToTurn(turnId))
+      .catch(() => addSystemMessage("Couldn't load this conversation."));
+  }, [sessions, scrollToTurn, addSystemMessage]);
+
   const toggleSidebar = useCallback(() => {
     if (isPhone) { setSheetOpen((o) => !o); return; }
     setSidebarCollapsed((prev) => {
@@ -317,6 +327,10 @@ export function EmbeddedApp() {
           onSelect={(id) => sessions.setActive(id).catch(() => addSystemMessage("Couldn't load this conversation."))}
           onRename={(id, t) => sessions.rename(id, t).catch(() => addSystemMessage("Rename failed."))}
           onDelete={(id) => sessions.remove(id).catch(() => addSystemMessage("Delete failed."))}
+          searchService={serviceRef.current}
+          isAdmin={isAdminUser}
+          onOpenHit={openSearchHit}
+          onExpand={toggleSidebar}
         />
         <ChatPanel
           messages={messages}

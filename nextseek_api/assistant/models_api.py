@@ -92,6 +92,32 @@ class SessionListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class SessionSearchHit(BaseModel):
+    """One chat that matched, in GET /assistant/sessions/search/."""
+    source: Literal["chat"] = Field(..., description="Where the hit came from; later sources add their own value")
+    session_id: UUID
+    title: str = Field(..., description="Display title; 'New chat' when no title is set")
+    updated_at: datetime
+    owner: Optional[str] = Field(None, description="The chat's owner, only on an all_users search")
+    turn_id: Optional[int] = Field(None, description="The turn to open the chat at; null opens it at the top")
+    matched_in: Literal["title", "question", "answer"]
+    snippet: str = Field("", description="Plain text around the first match, at most 162 characters")
+    match_count: int = Field(..., description="How many turns of the chat matched")
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SessionSearchResponse(BaseModel):
+    """GET /assistant/sessions/search/ response."""
+    query: str
+    terms: List[str] = Field(..., description="The words matched, lowercased; the UI marks them in the snippet")
+    sources: List[str]
+    total: int = Field(..., description="Every matching chat, before the limit")
+    results: List[SessionSearchHit]
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class SessionPatchRequest(BaseModel):
     """PATCH /assistant/sessions/{id}/ body."""
     title: str = Field(..., min_length=1, max_length=200)

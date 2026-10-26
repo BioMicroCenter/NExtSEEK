@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMessages, useProcessingState, useChatApi } from "@/hooks";
 import { useChatRoute } from "@/hooks/useChatRoute";
+import { useScrollToTurn } from "@/hooks/useScrollToTurn";
 import { useSessions } from "@/hooks/useSessions";
 import { ChatPanel } from "@/components/ChatPanel";
 import { AboutDialog, HeaderBar, RightSidebar } from "@/components/Layout";
@@ -277,6 +278,15 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
       .catch((err: Error) => addSystemMessage(`Download failed: ${err.message}`));
   }, [apiService, sessions.activeSessionId, addSystemMessage]);
 
+  const scrollToTurn = useScrollToTurn();
+  // A search hit: (re)load its chat, then scroll to the turn that matched. Reloaded even when it is the open
+  // chat: turns asked in this page view carry no turn id until the chat is read back.
+  const openSearchHit = useCallback((id: string, turnId: number | null) => {
+    sessions.setActive(id)
+      .then(() => scrollToTurn(turnId))
+      .catch(() => addSystemMessage("Couldn't load this conversation."));
+  }, [sessions, scrollToTurn, addSystemMessage]);
+
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
       const next = !prev;
@@ -304,6 +314,10 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           onSelect={(id) => sessions.setActive(id).catch(() => addSystemMessage("Couldn't load this conversation."))}
           onRename={(id, t) => sessions.rename(id, t).catch(() => addSystemMessage("Rename failed."))}
           onDelete={(id) => sessions.remove(id).catch(() => addSystemMessage("Delete failed."))}
+          searchService={apiService}
+          isAdmin={isAdmin}
+          onOpenHit={openSearchHit}
+          onExpand={toggleSidebar}
         />
         <ChatPanel
           messages={messages}
