@@ -688,5 +688,35 @@
     "Name": "X-ray Photoelectron Spectroscopy",
     "Description": "X-ray Photoelectron Spectroscopy (XPS) is a surface-sensitive analytical technique that measures the elemental composition, chemical state, and electronic structure of materials by irradiating a sample surface with X-rays and detecting the kinetic energy and number of photoelectrons emitted from the top 1\u201310 nm of the material. This assay provides quantitative information on atomic concentrations and chemical bonding environments of elements present at or near the sample surface, enabling characterization of thin films, coatings, nanoparticles, and biomaterial interfaces. Data are typically acquired under ultra-high vacuum conditions using a monochromatic X-ray source, with spectral analysis performed by binding energy peak identification, curve fitting, and comparison to reference databases to determine elemental and chemical speciation.",
     "Tags": "XPS, X-ray photoelectron spectroscopy, surface analysis, elemental composition, binding energy measurement, ESCA, surface chemistry, spectroscopy, photoelectron spectroscopy, chemical state analysis, core-level spectra, depth profiling"
+  },
+  {
+    "Name": "HLA Typing",
+    "Description": "HLA typing determines the human leukocyte antigen (HLA) alleles of one individual from sequencing reads. Raw or already aligned reads from RNA or DNA sequencing are matched against the IPD-IMGT/HLA reference by a dedicated caller, OptiType for class I or HLA-HD and seq2HLA for class I and class II, which reports two alleles per locus at the resolution the caller supports. The genotype is linked to the sequencing sample it was called from.",
+    "Tags": "HLA typing, HLA genotyping, MHC typing, immunogenetics, OptiType, HLA-HD, seq2HLA, nf-core/hlatyping, nf-core/rnavar"
+  },
+  {
+    "Name": "Gene Fusion Detection",
+    "Description": "Gene fusion detection finds chimeric transcripts in which parts of two genes are joined, a hallmark of many cancers. RNA-seq reads are searched for split and discordant alignments by several callers (Arriba, STAR-Fusion, FusionCatcher), whose calls fusion-report merges and scores across callers and fusion databases and FusionInspector checks. One result is produced per sequencing sample.",
+    "Tags": "gene fusion detection, fusion transcripts, chimeric RNA, RNA-seq fusion calling, Arriba, STAR-Fusion, FusionCatcher, FusionInspector, fusion-report, nf-core/rnafusion"
+  },
+  {
+    "Name": "Differential Splicing Analysis",
+    "Description": "Differential splicing analysis compares how genes are spliced between two experimental conditions from RNA-seq data. Reads are aligned or pseudo-aligned and tested for differential exon usage (DEXSeq, edgeR), differential transcript usage (DRIMSeq with stageR), or differential splicing events and isoform inclusion levels (rMATS, SUPPA2). One result is produced per tool for each contrast, linked to the sequencing samples on both sides of it.",
+    "Tags": "alternative splicing, differential splicing, differential exon usage, differential transcript usage, PSI, DEXSeq, edgeR, DRIMSeq, rMATS, SUPPA2, nf-core/rnasplice"
+  },
+  {
+    "Name": "Ribosome Profiling Analysis",
+    "Description": "Ribosome profiling analysis measures translation from ribosome-protected mRNA fragments (Ribo-seq). Footprint reads are aligned to the genome and transcriptome, ribosome P-site positions are inferred from read lengths (riboWaltz), and actively translated open reading frames are called from the three-nucleotide periodicity of the footprints (Ribo-TISH, ribotricer). Results are produced per sequencing sample.",
+    "Tags": "ribosome profiling, Ribo-seq, translation, translated ORFs, ORF prediction, P-site, Ribo-TISH, ribotricer, riboWaltz, nf-core/riboseq"
+  },
+  {
+    "Name": "Transcriptome Assembly",
+    "Description": "Transcriptome assembly reconstructs transcript sequences de novo from RNA-seq reads, without a reference genome. Reads pooled across a run are assembled with Trinity and rnaSPAdes, redundant transcripts are removed by EvidentialGene, and the result is assessed for completeness (BUSCO) and contiguity (rnaQUAST, TransRate). One assembly is produced per run and linked to every sequencing sample that contributed reads.",
+    "Tags": "transcriptome assembly, de novo transcriptome, RNA-seq assembly, Trinity, rnaSPAdes, EvidentialGene, BUSCO, nf-core/denovotranscript"
+  },
+  {
+    "Name": "miRNA Discovery Analysis",
+    "Description": "miRNA discovery identifies known and novel microRNAs from small RNA sequencing. Reads are collapsed, mapped to the genome and scored by miRDeep2, which models the secondary structure and read signature of each candidate precursor and estimates how many novel calls are true at a given score cutoff. Results are produced per sequencing sample.",
+    "Tags": "microRNA, miRNA discovery, novel miRNA, small RNA sequencing, miRDeep2, miRBase, nf-core/smrnaseq"
   }
 ]

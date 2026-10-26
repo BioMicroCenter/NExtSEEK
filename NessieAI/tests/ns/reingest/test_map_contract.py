@@ -1,0 +1,451 @@
+"""Every committed map must be answerable by the schema, at CI time.
+
+A map naming an attribute that does not exist would otherwise surface as a
+failed upload in front of whoever ran the reingest. That is the invariant
+this file enforces: reingest never invents a sample attribute.
+
+The schema check runs against a committed SNAPSHOT
+(fixtures/sampletype_attributes.json), because CI has no populated
+database -- ``attributes_for()`` reads the ``Sample_types_context`` table,
+not a file. A snapshot can drift from the real schema, which would make
+this gate pass while the thing it guards is broken -- worse than no gate,
+because it manufactures confidence. Two mitigations:
+
+1. The fixture carries its own provenance (what generated it, from where,
+   and the exact command to refresh it) -- see its ``_provenance`` block.
+2. The ``test_live_*`` variants below re-run the same checks against the
+   REAL catalog via ``nextseek_api.services.reingest_lookups``, and
+   ``pytest.mark.skipif`` themselves out whenever that catalog is empty
+   (the sqlite-backed CI lane). In the dev container or the full MySQL
+   lane they actually verify the snapshot still matches reality.
+"""
+import json
+from pathlib import Path
+
+import pytest
+
+from NessieAI.ns.reingest import derived, harvest, maps
+
+FIXTURE_PATH = Path(__file__).resolve().parents[1] / "fixtures" / "sampletype_attributes.json"
+_FIXTURE = json.loads(FIXTURE_PATH.read_text())
+ATTRS = _FIXTURE["sample_types"]
+ALL_MAPS = maps.available()
+
+# Every check below is parametrized over ALL_MAPS. pytest collects
+# @parametrize("name", []) as ONE SKIPPED test -- not a failure, not an error --
+# and most CI does not fail a build on skips. So a bad glob, a moved directory
+# or a deleted map would turn this entire file green while checking nothing,
+# which is the precise failure this gate exists to prevent, applied to itself.
+def test_there_are_maps_to_check():
+    assert ALL_MAPS, (
+        f"no committed pipeline maps found in {maps.MAPS_DIR} -- every contract "
+        "check in this file is parametrized over that list, so an empty one "
+        "silently skips the whole suite instead of failing it")
+
+RUN_SECTIONS = ("params", "pipeline", "software_versions", "outputs")
+SAMPLE_SECTIONS = ("metrics", "derived")
+
+# The only names "$outputs.<key>" may resolve at runtime -- anything else
+# resolves to None (see maps.resolve_ref / RunManifest.named_outputs) and the
+# attribute silently never appears. Read from harvest.py's own matcher table
+# rather than retyped here, so the two can never drift apart.
+NAMED_OUTPUT_KEYS = {key for key, _ in harvest._NAMED_OUTPUT_MATCHERS}
+
+# The live variant of the schema check. known_sample_types() and
+# attributes_for() never raise (see reingest_lookups.py's module docstring:
+# "a missing table or row costs the caller an empty catalog, never an
+# exception"), so calling them at import time is safe in every lane -- in
+# the sqlite-backed CI lane the underlying table simply does not exist yet
+# and this comes back empty.
+from nextseek_api.services.reingest_lookups import (  # noqa: E402
+    attributes_for as _live_attributes_for,
+    known_sample_types as _live_known_sample_types,
+)
+
+LIVE_SAMPLE_TYPES = _live_known_sample_types()
+_LIVE_SKIP_REASON = (
+    "no live catalog in this lane (known_sample_types() returned nothing); "
+    "only the committed snapshot in fixtures/sampletype_attributes.json is "
+    "being checked here, not the real schema"
+)
+
+
+def _live_attribute_titles(sample_type: str) -> set[str]:
+    return {a["title"] for a in _live_attributes_for(sample_type)}
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_map_parses(name):
+    assert maps.load(name).pipeline
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_qc_attribute_target_exists_on_its_sample_type(name):
+    for attribute, rule in maps.load(name).qc_attributes.items():
+        assert rule.target in ATTRS, f"{name}: unknown sample type {rule.target}"
+        assert attribute in ATTRS[rule.target], \
+            f"{name}: {rule.target} has no attribute {attribute!r}"
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_accepts_parent_types_is_never_empty(name):
+    """`maps.PipelineMap.accepts_parent_types` already enforces `min_length=1`
+    at load time -- a map JSON that declares `[]` fails `maps.load()` itself
+    with a pydantic ValidationError, before this test body ever runs. This
+    is a second, explicit, friendlier-message layer of the same invariant:
+    an empty list is illegal, not a silent no-op, because
+    `test_every_accepts_parent_type_is_a_known_sample_type` below is
+    parametrized OVER the list's own entries -- exactly like
+    `test_there_are_maps_to_check` above, an empty list would make that
+    check "pass" by iterating zero times, silently checking nothing.
+    """
+    assert maps.load(name).accepts_parent_types, (
+        f"{name}: accepts_parent_types must declare at least one sample "
+        "type -- an empty list would make every check below pass "
+        "vacuously, and would scope the fastq-path parent lookup to search "
+        "nothing")
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_accepts_parent_type_is_a_known_sample_type(name):
+    for sample_type in maps.load(name).accepts_parent_types:
+        assert sample_type in ATTRS, \
+            f"{name}: unknown sample type {sample_type!r} in accepts_parent_types"
+
+
+def test_every_accepts_parent_type_is_a_known_sample_type_catches_a_typo(monkeypatch):
+    """Runs the REAL check above (not a re-implementation of its assertion)
+    against a fabricated map with a typo'd sample type, to prove the gate
+    actually fails CI rather than merely looking like it would. `maps.load`
+    is monkeypatched -- rather than adding a fake file under MAPS_DIR -- to
+    a stand-in that ignores its `name` argument and always returns the bad
+    map, so this stays a unit test of the check, not a fixture the real
+    ALL_MAPS list has to carry around.
+    """
+    bad_map = maps.PipelineMap(
+        pipeline="nf-core/fake-for-test", accepts_parent_types=["D.SEQ", "A.NOPE"])
+    assert "A.NOPE" not in ATTRS, (
+        "the catalog snapshot must not genuinely contain this sentinel "
+        "type, or this test cannot tell a real gap from a coincidence")
+    monkeypatch.setattr(maps, "load", lambda name: bad_map)
+    with pytest.raises(AssertionError, match="A.NOPE"):
+        test_every_accepts_parent_type_is_a_known_sample_type("nf-core/fake-for-test")
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_output_rule_names_a_known_sample_type(name):
+    for rule in maps.load(name).outputs:
+        assert rule.sample_type in ATTRS, \
+            f"{name}: unknown sample type {rule.sample_type}"
+        for attribute in rule.attributes:
+            assert attribute in ATTRS[rule.sample_type], \
+                f"{name}: {rule.sample_type} has no attribute {attribute!r}"
+
+
+# The committed house-assay catalog: {name or alternative name: child sample types}.
+_ASSAY_CATALOG = json.loads((Path(maps.__file__).resolve().parents[2] / "chat_nextseek" / "src"
+                             / "chat_nextseek" / "context" / "assays_db.json").read_text())
+_ASSAY_CHILDREN = {
+    alias.strip(): {t.strip() for t in (entry.get("Children Sample Types") or "").split(" or ")}
+    for entry in _ASSAY_CATALOG
+    for alias in [entry["Name"], *(entry.get("Alternative Assay Names") or "").split(",")]
+    if alias.strip()
+}
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_output_rule_files_its_rows_under_a_catalog_assay(name):
+    """A rule with no assay, or one the catalog does not know, writes an empty
+    ASSAY sheet: its samples join no assay and sit outside their study in the
+    graph. The name may be the catalog's or one of its alternatives."""
+    pipeline_map = maps.load(name)
+    rules = list(pipeline_map.outputs) + [r for o in pipeline_map.versions for r in o.outputs]
+    for rule in rules:
+        assert rule.assay, f"{name}: rule {rule.id!r} ({rule.sample_type}) names no assay"
+        assert rule.assay in _ASSAY_CHILDREN, \
+            f"{name}: rule {rule.id!r} names {rule.assay!r}, which the assay catalog does not list"
+        assert rule.sample_type in _ASSAY_CHILDREN[rule.assay], \
+            f"{name}: {rule.assay!r} does not produce {rule.sample_type}"
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_provenance_attribute_exists_on_every_opted_in_output_sample_type(name):
+    """provenance_attributes has no target of its own: mapper.apply() merges
+    every one of them into every output rule's row THAT OPTS IN
+    (``rule.include_provenance``; see OutputRule.include_provenance in
+    maps.py), per-sample and per-run alike -- a rule that does not opt in
+    gets only its own attributes. So each provenance key must exist as a
+    real attribute on every sample type an OPTED-IN output rule declares. An
+    override in ``rule.attributes`` for the same key still leaves that key
+    in the merged row -- only the source ref changes -- so the check applies
+    regardless of which rule attributes happen to override a provenance one.
+
+    A map whose provenance_attributes is non-empty but where NO rule opts in
+    is itself a bug worth failing loudly on: that block would be merged into
+    nothing, which is either dead configuration or a forgotten
+    ``include_provenance: true`` on the rule it was meant for -- either way
+    a human should see it, not have it silently do nothing.
+    """
+    pipeline_map = maps.load(name)
+    opted_in_types = {rule.sample_type for rule in pipeline_map.outputs
+                       if rule.include_provenance}
+    if not pipeline_map.outputs:
+        # Checked BEFORE skipping: a map with no output rules at all but a
+        # non-empty provenance block is the same dead config as one where
+        # nobody opted in, and must fail rather than escape as a skip.
+        assert not pipeline_map.provenance_attributes, (
+            f"{name}: provenance_attributes is non-empty but the map declares no "
+            "output rules at all, so it is merged into nothing")
+        pytest.skip(f"{name}: no output rules, so provenance_attributes targets nothing")
+    if pipeline_map.provenance_attributes:
+        assert opted_in_types, (
+            f"{name}: provenance_attributes is non-empty but no output rule "
+            "sets include_provenance=true, so it is merged into nothing -- "
+            "opt the intended rule in or delete the block")
+    for attribute in pipeline_map.provenance_attributes:
+        for target in opted_in_types:
+            assert target in ATTRS, f"{name}: unknown sample type {target}"
+            assert attribute in ATTRS[target], \
+                f"{name}: provenance attribute {attribute!r} is merged into " \
+                f"every opted-in {target} output row but {target} has no " \
+                f"such attribute"
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_dollar_ref_names_a_real_manifest_section(name):
+    pipeline_map = maps.load(name)
+    refs = list(pipeline_map.provenance_attributes.values())
+    refs += [v for rule in pipeline_map.outputs for v in rule.attributes.values()]
+    refs += [rule.from_key for rule in pipeline_map.qc_attributes.values()
+             if rule.from_key.startswith("$")]
+    for ref in refs:
+        if not isinstance(ref, str) or not ref.startswith("$"):
+            continue
+        section = ref[1:].split(".")[0]
+        assert section in RUN_SECTIONS + SAMPLE_SECTIONS, \
+            f"{name}: {ref} names no manifest section"
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_outputs_dollar_ref_names_a_real_named_output(name):
+    """A "$outputs.<key>" ref is only checked above for naming a real
+    section ("outputs" is one of RUN_SECTIONS). That is not enough: the key
+    itself must be one harvest.py's _NAMED_OUTPUT_MATCHERS actually
+    populates in RunManifest.named_outputs, or resolve_ref() returns None at
+    runtime and the attribute silently never appears on any row.
+    """
+    pipeline_map = maps.load(name)
+    refs = list(pipeline_map.provenance_attributes.values())
+    refs += [v for rule in pipeline_map.outputs for v in rule.attributes.values()]
+    refs += [rule.from_key for rule in pipeline_map.qc_attributes.values()
+             if rule.from_key.startswith("$outputs.")]
+    for ref in refs:
+        if not isinstance(ref, str) or not ref.startswith("$outputs."):
+            continue
+        key = ref[len("$outputs."):]
+        assert key in NAMED_OUTPUT_KEYS, \
+            f"{name}: {ref} names no known named output " \
+            f"(see harvest._NAMED_OUTPUT_MATCHERS); it would resolve to None " \
+            f"at runtime and the attribute would silently never appear"
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_derived_ref_names_a_real_derived_metric(name):
+    for rule in maps.load(name).qc_attributes.values():
+        if rule.from_key.startswith("$derived."):
+            metric = rule.from_key.split(".", 1)[1]
+            assert metric in derived.DERIVED_METRICS, \
+                f"{name}: unknown derived metric {metric!r}"
+
+
+# MultiQC's general-stats table prints read counts in MILLIONS (STAR's
+# 4763343 input reads appear as star-total_reads 4.763343), so a map that
+# reads one of these columns writes a count a million times too small. Exact
+# counts come from the tool's own log, as $derived.* metrics. Every count
+# column seen in a real nf-core/rnaseq multiqc_general_stats.txt is listed.
+_MULTIQC_MILLION_SCALED_COUNTS = frozenset({
+    "star-total_reads", "star-mapped", "star-uniquely_mapped", "star-multimapped",
+    "salmon-num_mapped",
+    "samtools_stats-raw_total_sequences", "samtools_stats-reads_mapped",
+    "samtools_flagstat-flagstat_total", "samtools_flagstat-mapped_passed",
+    "qualimap_rnaseq-reads_aligned", "qualimap_rnaseq-reads_aligned_exonic",
+    "qualimap_rnaseq-reads_aligned_intronic", "qualimap_rnaseq-reads_aligned_intergenic",
+    "qualimap_rnaseq-reads_aligned_overlapping_exon",
+    "fastqc_raw-total_sequences", "fastqc_trimmed-total_sequences",
+})
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_no_qc_attribute_reads_a_million_scaled_multiqc_count(name):
+    for attribute, rule in maps.load(name).qc_attributes.items():
+        scaled = {rule.from_key, *rule.alternates} & _MULTIQC_MILLION_SCALED_COUNTS
+        assert not scaled, f"{name}: {attribute} reads {sorted(scaled)}, which MultiQC prints in millions"
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_ruling_explains_itself(name):
+    for ruling in maps.load(name).deliberately_unmapped:
+        assert len(ruling.why) > 20, \
+            f"{name}: ruling for {ruling.key!r} needs a real reason"
+
+
+# --- Live variants: the same shape of check, against the real catalog. ---
+# These skip themselves out whenever there is no populated database to ask
+# (the sqlite-backed CI lane), and actually run in the dev container or the
+# full MySQL lane -- the only environments where the snapshot's staleness
+# could otherwise go unnoticed.
+
+@pytest.mark.skipif(not LIVE_SAMPLE_TYPES, reason=_LIVE_SKIP_REASON)
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_live_every_qc_attribute_target_exists_on_its_sample_type(name):
+    for attribute, rule in maps.load(name).qc_attributes.items():
+        assert rule.target in LIVE_SAMPLE_TYPES, \
+            f"{name}: unknown sample type {rule.target} (live catalog)"
+        assert attribute in _live_attribute_titles(rule.target), \
+            f"{name}: {rule.target} has no attribute {attribute!r} (live catalog)"
+
+
+@pytest.mark.skipif(not LIVE_SAMPLE_TYPES, reason=_LIVE_SKIP_REASON)
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_live_every_accepts_parent_type_is_a_known_sample_type(name):
+    for sample_type in maps.load(name).accepts_parent_types:
+        assert sample_type in LIVE_SAMPLE_TYPES, \
+            f"{name}: unknown sample type {sample_type!r} in " \
+            f"accepts_parent_types (live catalog)"
+
+
+@pytest.mark.skipif(not LIVE_SAMPLE_TYPES, reason=_LIVE_SKIP_REASON)
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_live_every_output_rule_names_a_known_sample_type(name):
+    for rule in maps.load(name).outputs:
+        assert rule.sample_type in LIVE_SAMPLE_TYPES, \
+            f"{name}: unknown sample type {rule.sample_type} (live catalog)"
+        titles = _live_attribute_titles(rule.sample_type)
+        for attribute in rule.attributes:
+            assert attribute in titles, \
+                f"{name}: {rule.sample_type} has no attribute {attribute!r} (live catalog)"
+
+
+@pytest.mark.skipif(not LIVE_SAMPLE_TYPES, reason=_LIVE_SKIP_REASON)
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_live_every_provenance_attribute_exists_on_every_opted_in_output_sample_type(name):
+    pipeline_map = maps.load(name)
+    opted_in_types = {rule.sample_type for rule in pipeline_map.outputs
+                       if rule.include_provenance}
+    if not pipeline_map.outputs:
+        # Checked BEFORE skipping: a map with no output rules at all but a
+        # non-empty provenance block is the same dead config as one where
+        # nobody opted in, and must fail rather than escape as a skip.
+        assert not pipeline_map.provenance_attributes, (
+            f"{name}: provenance_attributes is non-empty but the map declares no "
+            "output rules at all, so it is merged into nothing")
+        pytest.skip(f"{name}: no output rules, so provenance_attributes targets nothing")
+    if pipeline_map.provenance_attributes:
+        assert opted_in_types, (
+            f"{name}: provenance_attributes is non-empty but no output rule "
+            "sets include_provenance=true, so it is merged into nothing "
+            "(live catalog) -- opt the intended rule in or delete the block")
+    for attribute in pipeline_map.provenance_attributes:
+        for target in opted_in_types:
+            assert target in LIVE_SAMPLE_TYPES, \
+                f"{name}: unknown sample type {target} (live catalog)"
+            assert attribute in _live_attribute_titles(target), \
+                f"{name}: provenance attribute {attribute!r} is merged into " \
+                f"every opted-in {target} output row but {target} has no " \
+                f"such attribute (live catalog)"
+
+
+def _v1_spellings(raw: dict) -> list[str]:
+    """Rule ids (or positions) still spelling v1's `glob`/`secondary_data_glob`."""
+    rules = list(raw.get("outputs", []))
+    rules += [r for o in raw.get("versions", []) for r in o.get("outputs", [])]
+    return [r.get("id") or str(i) for i, r in enumerate(rules)
+            if "glob" in r or "secondary_data_glob" in r]
+
+
+def _row_default_misses(m: maps.PipelineMap) -> list[str]:
+    """Row defaults that exist on none of the map's output types, base or override."""
+    types = {r.sample_type for r in m.outputs + [r for o in m.versions for r in o.outputs]}
+    return [a for a in m.row_defaults if not any(a in ATTRS[t] for t in types)]
+
+
+def test_the_v1_check_reads_version_overrides_too():
+    raw = {"map_version": 2, "outputs": [{"id": "a", "candidates": ["x"]}],
+           "versions": [{"range": ">=2", "outputs": [{"id": "b", "glob": "y"}]}]}
+    assert _v1_spellings(raw) == ["b"]
+
+
+def test_the_row_default_check_counts_override_only_types():
+    m = maps.PipelineMap.model_validate({
+        "map_version": 2, "pipeline": "nf-core/rnaseq", "row_defaults": {"Matrix": "x"},
+        "outputs": [{"id": "a", "sample_type": "A.ALN", "candidates": ["x"]}],
+        "versions": [{"range": ">=2", "outputs": [
+            {"id": "b", "sample_type": "A.GEX", "candidates": ["y"]}]}]})
+    assert _row_default_misses(m) == []
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_map_is_v2(name):
+    raw = json.loads((maps.MAPS_DIR / f"{name}.outputs.json").read_text())
+    assert raw["map_version"] == 2
+    assert _v1_spellings(raw) == []
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_companion_slot_exists_on_its_rules_type(name):
+    m = maps.load(name)
+    for rule in m.outputs + [r for o in m.versions for r in o.outputs]:
+        for companion in rule.companions:
+            if companion.slot:
+                assert companion.slot in ATTRS[rule.sample_type], \
+                    f"{name}:{rule.id}: slot {companion.slot} not on {rule.sample_type}"
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_row_default_exists_on_at_least_one_output_type(name):
+    m = maps.load(name)
+    assert _row_default_misses(m) == [], f"{name}: row defaults on none of its output types"
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_inventory_glob_starts_with_a_double_star(name):
+    bad = [p for p in maps.load(name).inventory_globs if not p.startswith("**/")]
+    assert bad == [], f"{name}: inventory patterns must start with **/ (symlink safety): {bad}"
+
+
+def _inventoried(pattern: str, root: Path) -> bool:
+    """Whether a file shaped like `pattern` would reach the inventory: build one
+    under `root` and glob for it the way the stager does, with every pattern
+    `harvest.inventory_globs()` lists."""
+    rel = pattern.replace("**/", "").replace("*", "S1")
+    target = root / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.touch()
+    return any(target in set(root.glob(g)) for g in harvest.inventory_globs())
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_every_rule_pattern_is_inventoried(name, tmp_path):
+    """A rule's candidates and companions are matched only against the
+    inventory, so a pattern nothing inventories matches nothing, silently, and
+    an optional rule does not even warn. hlatyping's A.HLA rule shipped that
+    way: OptiType's files were in no map's inventory_globs."""
+    m = maps.load(name)
+    missing = []
+    for rule in list(m.outputs) + [r for o in m.versions for r in o.outputs]:
+        patterns = list(rule.candidates) + [c.glob for c in rule.companions]
+        for i, pattern in enumerate(patterns):
+            for j, expanded in enumerate(maps.expand_braces(pattern)):
+                if not _inventoried(expanded, tmp_path / rule.id / f"{i}_{j}"):
+                    missing.append(f"{rule.id}: {expanded}")
+    assert missing == [], f"{name}: patterns no inventory glob lists: {missing}"
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_no_key_is_both_ruled_out_and_read_by_a_rule(name):
+    """A ruling says "never record this"; a rule reading the same key says the
+    opposite, and whichever wins, one of the two is wrong."""
+    from NessieAI.ns.reingest import mapper
+    m = maps.load(name)
+    both = sorted(m.ruled_out() & mapper.claimed_raw_keys(m))
+    assert not both, f"{name}: ruled out and read by a rule: {both}"

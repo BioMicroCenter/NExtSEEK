@@ -3,7 +3,7 @@
 Call shapes mirror the pre-sidecar runner dispatchers so behavior is preserved.
 write_gate(op, api_plan_endpoint, api_plan_method, confirmed_write) -> None|raises.
 stage(op, result) -> result' (T7 path-copy stage; used when no download block).
-stage_bytes(op, key, data) -> staged_path (bytes writer for download block; writes NO marker).
+stage_bytes(op, key, data, filename=None) -> staged_path (bytes writer for download block; writes NO marker).
 commit_bytes() -> None (writes the atomic .complete marker once after all artifacts staged).
 """
 from __future__ import annotations
@@ -152,7 +152,7 @@ def _report(args, config, session, write_gate, stage, stage_bytes, commit_bytes)
         for art in download["artifacts"]:
             data = ns_client.fetch_artifact(art["url"],
                                             base_url=config.base_url, turn_pass=config.turn_pass)
-            staged_path = stage_bytes("report", art["key"], data)
+            staged_path = stage_bytes("report", art["key"], data, art.get("filename"))
             result["saved_files"][art["key"]] = staged_path
         commit_bytes()  # exactly once after ALL artifacts are staged
         return result
@@ -173,7 +173,7 @@ def _generate_submission(args, config, session, write_gate, stage, stage_bytes, 
         for art in download["artifacts"]:
             data = ns_client.fetch_artifact(art["url"],
                                             base_url=config.base_url, turn_pass=config.turn_pass)
-            staged_path = stage_bytes("generate-submission", art["key"], data)
+            staged_path = stage_bytes("generate-submission", art["key"], data, art.get("filename"))
             staged_files[art["key"]] = staged_path
         commit_bytes()  # exactly once after ALL artifacts are staged
         result["staged_files"] = staged_files
@@ -188,9 +188,22 @@ def _run_ls(args, config, session, write_gate, stage, stage_bytes, commit_bytes)
 
 
 def _build_upload_xlsx(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
-    body = {"rows": args["rows"]}
-    if args.get("existing_parent_uids"):
-        body["existing_parent_uids"] = args["existing_parent_uids"]
+    if args.get("manifest_id"):
+        body = {"manifest_id": args["manifest_id"]}
+        if args.get("mode"):
+            body["mode"] = args["mode"]
+        if args.get("answers"):
+            body["answers"] = args["answers"]
+    else:
+        # .get(..., "") rather than args["rows"]: server.py dispatches req.args,
+        # the RAW pre-validation dict, not the validated model (validate_op_args
+        # only validates -- its defaults are discarded), so this forwarder must
+        # not assume the key is present even though _BuildUploadXlsxArgs'
+        # model_validator now requires exactly one of manifest_id/rows to be
+        # non-empty before dispatch ever reaches here.
+        body = {"rows": args.get("rows", "")}
+        if args.get("existing_parent_uids"):
+            body["existing_parent_uids"] = args["existing_parent_uids"]
     envelope = ns_client.call_op("build-upload-xlsx", body,
                                  base_url=config.base_url, turn_pass=config.turn_pass)
     result = envelope["result"]
@@ -200,11 +213,39 @@ def _build_upload_xlsx(args, config, session, write_gate, stage, stage_bytes, co
         for art in download["artifacts"]:
             data = ns_client.fetch_artifact(art["url"],
                                             base_url=config.base_url, turn_pass=config.turn_pass)
-            staged_files[art["key"]] = stage_bytes("build-upload-xlsx", art["key"], data)
+            staged_files[art["key"]] = stage_bytes("build-upload-xlsx", art["key"], data, art.get("filename"))
         commit_bytes()  # exactly once after ALL artifacts are staged
         result["staged_files"] = staged_files
         return result
     return stage("build-upload-xlsx", result)
+
+
+def _run_harvest(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
+    body = {"run_dir": args["run_dir"]} if args.get("run_dir") else {}
+    if args.get("allow_failed_run"):
+        body["allow_failed_run"] = args["allow_failed_run"]
+    envelope = ns_client.call_op("run-harvest", body,
+                                 base_url=config.base_url, turn_pass=config.turn_pass)
+    return envelope["result"]
+
+
+def _run_checksum(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
+    body = {"run_dir": args["run_dir"], "paths": args["paths"]}
+    if args.get("manifest_id"):
+        body["manifest_id"] = args["manifest_id"]
+    envelope = ns_client.call_op("run-checksum", body,
+                                 base_url=config.base_url, turn_pass=config.turn_pass)
+    return envelope["result"]
+
+
+def _upload_reingest(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
+    confirmed = args.get("confirmed_write", False)
+    # Local pre-check (defense-in-depth); NExtSEEK gates again server-side.
+    write_gate("api-write", None, None, confirmed)
+    envelope = ns_client.call_op("upload-reingest",
+                                 {"build_ids": args["build_ids"], "confirmed_write": confirmed},
+                                 base_url=config.base_url, turn_pass=config.turn_pass)
+    return envelope["result"]
 
 
 _HANDLERS: dict[str, Callable] = {
@@ -213,4 +254,7 @@ _HANDLERS: dict[str, Callable] = {
     "api-read": _api_read, "api-write": _api_write,
     "report": _report, "generate-submission": _generate_submission,
     "run-ls": _run_ls, "build-upload-xlsx": _build_upload_xlsx,
+    "run-harvest": _run_harvest,
+    "run-checksum": _run_checksum,
+    "upload-reingest": _upload_reingest,
 }

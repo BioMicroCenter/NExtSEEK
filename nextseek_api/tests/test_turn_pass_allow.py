@@ -33,6 +33,8 @@ def test_the_table_lists_exactly_the_approved_routes():
         OPS + "report", OPS + "generate-submission", OPS + "build-upload-xlsx",
         OPS + "entity", OPS + "parse", OPS + "graph", OPS + "aggregate",
         OPS + "graph-schema", OPS + "api-read", OPS + "run-ls",
+        # The reingest ops; upload-reingest is the one write the pass allows (its own write gate decides).
+        OPS + "run-harvest", OPS + "run-checksum", OPS + "upload-reingest",
         OPS + "query-async",
         "nextseek_api:samples-advanced-search-list", "nextseek_api:batch-upload-validate",
     }
@@ -50,7 +52,7 @@ def test_each_route_carries_its_ruled_chat_check_and_methods():
         assert rows[OPS + op].chat_check == "body_session_optional"
     for op in ("entity", "parse", "graph", "aggregate"):
         assert rows[OPS + op].chat_check == "body_session_forbidden"
-    for op in ("graph-schema", "api-read", "run-ls"):
+    for op in ("graph-schema", "api-read", "run-ls", "run-harvest", "run-checksum", "upload-reingest"):
         assert rows[OPS + op].chat_check == "none"
     assert rows[OPS + "query-async"].chat_check == "body_session_required"
     assert rows[OPS + "task-progress"].chat_check == "task_or_child"
@@ -144,7 +146,7 @@ def test_a_body_that_sets_an_admin_setting_is_refused_on_every_body_route(settin
     turn, _ = make_turn()
     body_routes = [row.route_name for row in allow.ALLOW_TABLE
                    if row.route_name.startswith(OPS) and "POST" in row.methods]
-    assert len(body_routes) == 11
+    assert len(body_routes) == 14
     for route in body_routes:
         body = {"query": "q", "mode": "standard", "session_id": str(turn.chat_id), setting: value}
         assert allow.allowed(_req(route, data=body), turn) == (False, allow.REASON_SETTING), route

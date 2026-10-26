@@ -389,12 +389,79 @@ class RunLsRequest(BaseModel):
 
 
 class BuildUploadXlsxRequest(BaseModel):
-    """POST /assistant/build-upload-xlsx/ body — render 4-sheet upload workbook(s)."""
-    rows: str = Field(..., description="JSON array of {SampleType, json_metadata, assay_ids} rows.")
+    """POST /assistant/build-upload-xlsx/ body — render 4-sheet upload workbook(s).
+
+    Two calling conventions: ``manifest_id`` (current — the server loads its own
+    copy of the harvested manifest and derives every row itself, so no measured
+    value round-trips through the model) or ``rows`` (legacy — CC-composed rows,
+    kept working for any caller that still builds its own). Exactly one of the
+    two must be supplied; enforced by the op (``NessieAI.ns.granular``), not
+    here, since a pydantic field can't see its sibling's value from a plain
+    ``Field(...)`` default.
+    """
+    rows: Optional[str] = Field(
+        None, description="Legacy: JSON array of {SampleType, json_metadata, assay_ids} rows.")
     existing_parent_uids: str = Field("", description="Comma-separated existing parent UIDs (for Parent QA).")
+    manifest_id: Optional[str] = Field(
+        None, description="Current: id of a manifest saved by run-harvest.")
+    mode: str = Field("new", description="'new' (create analysis children) or "
+                                          "'update' (backfill existing D.SEQ samples).")
+    answers: Optional[str] = Field(
+        None, description="Optional JSON: the curator's answers to this run's flags "
+                          "({fill, choose, place}); see NessieAI/ns/reingest/answers.py. "
+                          "Requires manifest_id.")
     use_prod: bool = False
     session_id: Optional[UUID] = Field(
         None, description="Optional chat session to attach the workbook bundle to.")
+    model_config = ConfigDict(extra="forbid")
+
+
+class RunHarvestRequest(BaseModel):
+    """POST /assistant/run-harvest/ body — stage a finished Luria run's allowlisted
+    outputs off the cluster and parse them into a manifest."""
+    run_dir: str | None = Field(
+        None, description="Absolute path under <LURIA working_path>/runs. Omitted: the "
+                          "caller's one launched run not yet reingested, else the candidates.")
+    allow_failed_run: bool = Field(
+        False, description="Reingest a run even though a process failed (default: refuse).")
+    use_prod: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+
+class RunChecksumRequest(BaseModel):
+    """POST /assistant/run-checksum/ body — md5 a caller-named set of settled
+    primary-data files under a finished Luria run. Separate from run-harvest:
+    which files become File_PrimaryData is only known after sample types are
+    assigned, and hashing multi-GB BAMs during harvest would blow the harvest
+    step's wall clock.
+
+    ``manifest_id`` is optional: when supplied, the server folds these
+    checksums into that run-harvest manifest and returns a NEW manifest_id
+    (manifests are content-addressed; see NessieAI/ns/reingest/store.py), to
+    be threaded into build-upload-xlsx in place of the original. Omitting it
+    keeps this op exactly as it was -- checksums returned, nothing persisted.
+    """
+    run_dir: str = Field(..., description="Absolute path under <LURIA working_path>/runs.")
+    paths: str = Field(..., description="Comma-separated relative paths under run_dir.")
+    manifest_id: Optional[str] = Field(
+        None, description="Optional: id of a manifest saved by run-harvest to fold these "
+                          "checksums into. The response then carries a NEW manifest_id.")
+    use_prod: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+
+class UploadReingestRequest(BaseModel):
+    """POST /assistant/upload-reingest/ body -- upload reviewed reingest workbooks.
+
+    ``build_ids`` are the sha256 ids from build-upload-xlsx's ``builds``.
+    ``confirmed_write`` is strict bool, as on api-write: "true" and 1 are
+    rejected here, and the gate re-checks ``is True``.
+    """
+    build_ids: str = Field(..., description="Comma-separated build ids from build-upload-xlsx.")
+    confirmed_write: bool = Field(False, strict=True)
+    use_prod: bool = Field(
+        False,
+        description="Ignored by this op: it always uploads to the instance that receives the request.")
     model_config = ConfigDict(extra="forbid")
 
 

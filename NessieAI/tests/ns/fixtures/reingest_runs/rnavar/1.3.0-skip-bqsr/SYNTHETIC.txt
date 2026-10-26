@@ -1,0 +1,6 @@
+Synthetic stand-in, written by hand. The 1.3.0 fixture with --skip_baserecalibration:
+rnavar then publishes no <sample>.recal.bam, only the duplicate-marked
+<sample>.md.bam and its <sample>.md.bam.bai (PICARD_MARKDUPLICATES and
+BAM_MARKDUPLICATES_PICARD:SAMTOOLS_INDEX in rnavar 1.3.0's conf/modules.config).
+The sample name is nf-core's public test sample (GM12878). Replace it with a real
+test-profile fixture in spec 3.

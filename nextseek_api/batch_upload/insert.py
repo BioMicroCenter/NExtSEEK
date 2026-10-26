@@ -588,6 +588,7 @@ def process_batches(
                     direction_by_pair=direction_computation.direction_by_pair,
                     conn=conn,
                     permissions_inserter=permissions_inserter,
+                    keep_assay_links=config.keep_assay_links,
                 )
 
                 outcomes.update(update_outcomes)

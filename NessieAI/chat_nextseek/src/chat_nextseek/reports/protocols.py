@@ -347,6 +347,7 @@ def download_and_extract_protocol_blobs(
             fname = blob.get("original_filename") or f"{pid}_{idx}"
             entry: dict = {"filename": fname, "content_type": blob.get("content_type"), "link": link}
             if not link:
+                print("[DEBUG][REPORTER_PROTOCOL] Blob download failed:", pid, fname, "has no link")
                 files_out.append({"filename": fname, "ok": False, "error": "No link in content_blob"})
                 continue
             try:
@@ -378,6 +379,11 @@ def download_and_extract_protocol_blobs(
 
                 if content_resp is None:
                     entry.update({"ok": False, "error": f"Unable to download blob; tried {attempted}"})
+                    print(
+                        "[DEBUG][REPORTER_PROTOCOL] Blob download failed:", pid, fname,
+                        "tried:", attempted, "last status:", entry.get("last_status"),
+                        "content-type:", entry.get("last_response_content_type"),
+                    )
                     files_out.append(entry)
                     continue
 
@@ -430,6 +436,7 @@ def download_and_extract_protocol_blobs(
                 files_out.append(entry)
             except Exception as e:
                 entry.update({"ok": False, "error": repr(e)})
+                print("[DEBUG][REPORTER_PROTOCOL] Blob download failed:", pid, fname, "link:", link, "err:", repr(e))
                 files_out.append(entry)
         if files_out:
             results[str(pid)] = files_out

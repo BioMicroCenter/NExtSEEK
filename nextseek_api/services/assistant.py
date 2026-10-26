@@ -23,6 +23,7 @@ import queue
 import threading  # noqa: F401  (tests patch threading.Thread through this module)
 import time
 import uuid
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import orjson
@@ -92,6 +93,9 @@ from nextseek_api.assistant.models_api import (
     ParseOpResponse,
     ReportOpRequest,
     ReportOpResponse,
+    RunChecksumRequest,
+    UploadReingestRequest,
+    RunHarvestRequest,
     RunLsRequest,
     BuildUploadXlsxRequest,
     SubmissionRequest,
@@ -304,6 +308,9 @@ _GRANULAR_REQUEST_MODELS = {
     "generate-submission": SubmissionRequest,
     "run-ls": RunLsRequest,
     "build-upload-xlsx": BuildUploadXlsxRequest,
+    "run-harvest": RunHarvestRequest,
+    "run-checksum": RunChecksumRequest,
+    "upload-reingest": UploadReingestRequest,
 }
 
 
@@ -360,6 +367,25 @@ _ARTIFACT_CONTENT_TYPES = {
     ".png": "image/png",
     ".xml": "application/xml",
 }
+
+
+def artifact_download_entries(saved_files, base: str) -> list[dict]:
+    """The ``download.artifacts`` list for an op's saved files.
+
+    Each entry is ``{key, url, filename}``. The key is the URL segment, word
+    characters only, so it cannot carry the extension (``reingest_A.ALN.xlsx``
+    is keyed ``reingest_A_ALN``); ``filename`` is the file's real basename, which
+    the sidecar stages it under so it still opens as what it is. A key holding
+    several paths is served as its first one, so that one names it.
+    """
+    entries = []
+    for key, value in (saved_files or {}).items():
+        first = value[0] if isinstance(value, (list, tuple)) and value else value
+        entry = {"key": key, "url": f"{base}/{key}/"}
+        if isinstance(first, str) and first:
+            entry["filename"] = os.path.basename(first)
+        entries.append(entry)
+    return entries
 
 
 #: The ops that answer on a throwaway parser session. Under a turn pass they take no session id: the chat's history
@@ -1340,6 +1366,61 @@ class AssistantViewSet(viewsets.ViewSet):
             chat_session = ChatSession(user=request.user)  # transient; not persisted
         return DictSessionAdapter(chat_session)
 
+    def _granular_op_session(self, request, req, op: str):
+        """The session ``run_op`` hands the op, or None for the ops that never touch one."""
+        # parse, graph and aggregate all run parser_agent, which reads results_history
+        # off the session: build a (transient) session for them, else parser_agent
+        # crashes on None. build-upload-xlsx, run-harvest and upload-reingest need
+        # only the user and the seams below.
+        if op in ("parse", "graph", "aggregate"):
+            return self._granular_session(request, req)
+        if op == "build-upload-xlsx":
+            # The build record is filed under this user, and Scientist is
+            # this user (mapper's @nextseek_user); without a session both are blank.
+            # The record also names the chat turn the build ran in, looked up from
+            # this server's own records, so upload-reingest can require a later turn.
+            from nextseek_api.assistant import chat_turns
+
+            return SimpleNamespace(
+                user=request.user,
+                chat_turn=lambda: chat_turns.running_cc_turn(request.user))
+        if op == "run-harvest":
+            # With no run_dir the op picks the caller's waiting launched run;
+            # without a session it sees nobody and reports that no run is waiting.
+            return SimpleNamespace(user=request.user)
+        if op == "upload-reingest":
+            # The identity lookup is handed over uncalled: the op resolves it
+            # only after the write gate passes, so an unconfirmed call never
+            # reaches SEEK. The request model forbids extra keys, so the
+            # resolver's admin person_id override can never arrive here. The
+            # import is deferred too: batch_upload.views pulls in Celery. The
+            # job dispatch and workbook staging seams travel on the session as
+            # well, so the engine never imports the batch-upload views. So do the
+            # chat-turn lookups: a build is uploaded only from a later turn of the
+            # chat it was shown in, and the agent never names the chat or the turn.
+            # The dispatch carries the caller's project scope (SEC-001), read
+            # when a job starts, so a member uploads only into their own projects.
+            from nextseek_api.assistant import chat_turns
+            from nextseek_api.batch_upload import views as batch_views
+            from nextseek_api.services import reingest_assays
+
+            def _upload_context():
+                return batch_views._resolve_user_context(request)
+
+            def _dispatch_job(**kwargs):
+                return batch_views.dispatch_batch_job(
+                    scope_project_ids=batch_views._caller_project_scope(request.user), **kwargs)
+
+            return SimpleNamespace(
+                user=request.user, upload_context=_upload_context,
+                dispatch_job=_dispatch_job, stage_workbook=batch_views.stage_workbook_copy,
+                chat_turn=lambda: chat_turns.running_cc_turn(request.user),
+                turn_delivered=lambda task_id: chat_turns.turn_delivered(request.user, task_id),
+                job_state=batch_views.job_outcome,
+                create_study_assay=lambda **kw: reingest_assays.create_study_assay(request, **kw),
+                register_parents=lambda pairs: reingest_assays.register_parents(request, pairs))
+        return None
+
     def _run_granular_op(self, request, op: str) -> Response:
         timing = [("view", time.monotonic())]
         authed, err = self._check_auth(request)
@@ -1389,10 +1470,7 @@ class AssistantViewSet(viewsets.ViewSet):
         outputs_dir = None
         # Every failure from here on maps to a closed code (Task 4 Step 6), the bundle registration included.
         try:
-            # parse, graph and aggregate all run parser_agent, which reads results_history
-            # off the session: build a (transient) session for them, else parser_agent
-            # crashes on None. Other ops don't touch the session.
-            session = self._granular_session(request, req) if op in ("parse", "graph", "aggregate") else None
+            session = self._granular_op_session(request, req, op)
             gate = build_gate(load_allowlist())
             args = _granular_args(op, req)
             timing.append(("session", time.monotonic()))
@@ -1451,6 +1529,17 @@ class AssistantViewSet(viewsets.ViewSet):
             chat_pk = ChatSession.objects.create(user=request.user).pk
 
         saved_files = result.get("saved_files") if isinstance(result, dict) else None
+        if op == "build-upload-xlsx":
+            # The op returns proposals; persisting them is a service-layer
+            # concern, so build-upload-xlsx keeps its "writes nothing" invariant.
+            pending = (result or {}).get("proposals") or []
+            if pending:
+                from NessieAI.ns.reingest.proposals import record
+                record(pending, pipeline=pending[0].get("pipeline", ""),
+                       run_dir=pending[0].get("run_dir", ""),
+                       manifest_digest=pending[0].get("manifest_digest", ""),
+                       user_id=getattr(request.user, "id", None))
+
         with transaction.atomic():
             locked = ChatSession.objects.select_for_update().get(pk=chat_pk)
             bundle_id = next_bundle_id_locked(locked)
@@ -1466,10 +1555,11 @@ class AssistantViewSet(viewsets.ViewSet):
             locked.save(update_fields=["results_history", "extra_state", "updated_at"])
 
         base = f"/nextseek_api/assistant/sessions/{chat_pk}/bundles/{bundle_id}/artifacts"
-        artifacts = [{"key": k, "url": f"{base}/{k}/"} for k in (saved_files or {})]
+        artifacts = artifact_download_entries(saved_files, base)
         if op == "generate-submission":
             # The submission output has no on-disk file; expose it as a combined xlsx.
-            artifacts.append({"key": "all_tables", "url": f"{base}/all_tables/"})
+            artifacts.append({"key": "all_tables", "url": f"{base}/all_tables/",
+                              "filename": "all_tables.xlsx"})
         return {"session_id": str(chat_pk), "bundle_id": bundle_id, "artifacts": artifacts}
 
     @extend_schema(
@@ -1601,3 +1691,38 @@ class AssistantViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="build-upload-xlsx")
     def build_upload_xlsx(self, request):
         return self._run_granular_op(request, "build-upload-xlsx")
+
+    @extend_schema(
+        operation_id="Assistant: Run Harvest",
+        description="Stage a finished Luria run's allowlisted outputs off the cluster and "
+                    "parse them into a manifest (reingest step 1). Never writes to Luria "
+                    "or to NExtSEEK.",
+        request=RunHarvestRequest,
+        responses={401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="run-harvest")
+    def run_harvest(self, request):
+        return self._run_granular_op(request, "run-harvest")
+
+    @extend_schema(
+        operation_id="Assistant: Run Checksum",
+        description="md5 a caller-named set of settled primary-data files under a finished "
+                    "Luria run (reingest step 2). Never writes to Luria or to NExtSEEK.",
+        request=RunChecksumRequest,
+        responses={401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="run-checksum")
+    def run_checksum(self, request):
+        return self._run_granular_op(request, "run-checksum")
+
+    @extend_schema(
+        operation_id="Assistant: Upload Reingest",
+        description="Upload reviewed reingest workbooks (by build id) to NExtSEEK. "
+                    "Write-class: requires confirmed_write=true. One batch-upload job "
+                    "per workbook, new samples first.",
+        request=UploadReingestRequest,
+        responses={401: OpErrorResponse, 403: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="upload-reingest")
+    def upload_reingest(self, request):
+        return self._run_granular_op(request, "upload-reingest")

@@ -323,6 +323,36 @@ def test_local_subcommand_transport_matches_batch_runner():
     assert local_ops == _parse_dict_keys(BATCH_RUNNER, "_CMDS")
 
 
+def _handlers_gated_as_api_write(path: Path) -> frozenset[str]:
+    """Handler keys whose function calls ``write_gate("api-write", ...)``.
+
+    A transport-only op that writes (upload-reingest) is unknown to
+    write_gate.SIDECAR_OPS but borrows the api-write confirmation label, so
+    its write-confirm class is derived from that call, not from a list.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    functions = {
+        node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)
+    }
+    gated: set[str] = set()
+    for key, fn_name in _parse_dict_key_to_handler(path, "_HANDLERS").items():
+        fn = functions.get(fn_name)
+        if fn is None:
+            continue
+        for node in ast.walk(fn):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "write_gate"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and node.args[0].value == "api-write"
+            ):
+                gated.add(key)
+                break
+    return frozenset(gated)
+
+
 def _expected_gate_class(op: OpSpec) -> GateClass:
     if op.transport is Transport.viewset:
         return GateClass.unrouted
@@ -336,6 +366,8 @@ def _expected_gate_class(op: OpSpec) -> GateClass:
     handler_ops = _parse_dict_keys(GRANULAR, "_HANDLERS")
 
     if op.runner_key == "api-write":
+        return GateClass.write_confirm
+    if op.runner_key in _handlers_gated_as_api_write(GRANULAR):
         return GateClass.write_confirm
     if op.runner_key == "api-read":
         return GateClass.read

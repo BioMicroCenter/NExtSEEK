@@ -4811,7 +4811,7 @@
         "chat_nextseek/src/chat_nextseek/luria/run_script.py:_FETCHNGS_BLOCK_TMPL",
         "chat_nextseek/src/chat_nextseek/luria/fetchngs_helpers.py:needs_fetch_accessions",
         "chat_nextseek/src/chat_nextseek/luria/fetchngs_helpers.py:fill_rows",
-        "chat_nextseek/src/chat_nextseek/luria/submitter.py:_sheet_needs_fetch"
+        "chat_nextseek/src/chat_nextseek/luria/submitter.py:_sheet_fetch_accessions"
        ],
        "testable_assertion": "last_reply matches_re \"(?i)(fetchngs|download.{0,40}(SRA|ENA)|fetch.{0,40}accession)\"",
        "expressible": "partial",
@@ -4821,7 +4821,7 @@
         "value": "(?i)(fetchngs|download.{0,40}(SRA|ENA)|fetch.{0,40}accession)"
        },
        "example_query": "Run rnaseq on these samples \u2014 their reads are only in SRA, they aren't staged on Luria.",
-       "gap": "Whether the wizard TELLS the user it will pre-stage is a reply-level proxy for _sheet_needs_fetch; whether the FETCHNGS_BLOCK was actually rendered into run.sh, whether the cache was hit, and whether fill_rows rewrote the samplesheet are all cluster-side and unobservable. The whole fetch mechanism is exercised only by a real Luria run whose success shows up as the job id (see submit_to_luria)."
+       "gap": "Whether the wizard TELLS the user it will pre-stage is a reply-level proxy for _sheet_fetch_accessions; whether the FETCHNGS_BLOCK was actually rendered into run.sh, whether the cache was hit, and whether fill_rows rewrote the samplesheet are all cluster-side and unobservable. The whole fetch mechanism is exercised only by a real Luria run whose success shows up as the job id (see submit_to_luria)."
       },
       {
        "name": "Write params.yml + launch.yml for a Luria run (no Tower)",

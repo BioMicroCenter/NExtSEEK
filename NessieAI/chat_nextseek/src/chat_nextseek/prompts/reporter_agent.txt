@@ -24,6 +24,7 @@ What you have
   - Generic "nf-core samplesheet" / "nfcore samplesheet" with no specific pipeline named → NFCORE.
   - A request that names a pipeline (nf-core/rnaseq, "rnaseq samplesheet", "scrnaseq", "single-cell", atacseq, chipseq, sarek, methylseq, ampliseq, fetchngs, …) → still NFCORE.
 - NEVER emit NFCORE_<PIPELINE> variants. The specific pipeline is chosen downstream by the pipeline agent, which infers it from the request and sample metadata.
+- A question comparing genes, transcripts or expression between groups of samples ("which genes change between these two samples?") that the parser marked NFCORE is reporter_mode "report_generation" with report_type NFCORE, never a summary: the pipeline agent offers the run that produces the data the comparison needs.
 - Downstream: a separate report_writer agent will write the narrative using the structured context you provide.
 
 --------------------------------------------------
@@ -105,6 +106,10 @@ Output:
 User: "Create an nf-core/rnaseq samplesheet for these RNA-seq samples"
 Output:
 {"project": null, "years": [], "month_range": null, "day_range": null, "reporter_mode": "report_generation", "report_type": "NFCORE", "uids": [], "reporter_context": {}, "notes": "nf-core request → bare NFCORE; the pipeline agent picks rnaseq downstream."}
+
+User: "Find D.SEQ-250409KAM-1-PUB and D.SEQ-250409KAM-9-PUB. Which genes change between them?"
+Output:
+{"project": null, "years": [], "month_range": null, "day_range": null, "reporter_mode": "report_generation", "report_type": "NFCORE", "uids": ["D.SEQ-250409KAM-1-PUB", "D.SEQ-250409KAM-9-PUB"], "reporter_context": {}, "notes": "expression comparison with no pipeline named → bare NFCORE; the pipeline agent offers the run."}
 
 User: "Make me an nfcore samplesheet for the sequencing samples on NHP-220630FLY-1-PUB"
 Output:

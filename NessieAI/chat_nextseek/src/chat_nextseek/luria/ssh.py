@@ -62,10 +62,41 @@ def ssh_run(luria_env: dict, remote_cmd: str, *, key_path: str, timeout: float |
     return proc.stdout
 
 
-def scp_file(luria_env: dict, local_path, remote_path: str, *, key_path: str) -> None:
-    """Copy one local file to an explicit remote path (renaming as needed)."""
+def ssh_run_bytes(luria_env: dict, remote_cmd: str, *, key_path: str, timeout: float | None = None) -> bytes:
+    """Like :func:`ssh_run`, but returns raw stdout bytes instead of decoded text.
+
+    Needed whenever the remote command's stdout is itself binary (e.g. a tar
+    stream) rather than a line-oriented text payload: capturing through
+    ``text=True`` decodes/re-encodes stdout through this process's own codec,
+    which can alter a byte before the caller ever sees it.
+
+    ``timeout`` (seconds) bounds the whole subprocess call's wall clock, same
+    contract as :func:`ssh_run`'s; on expiry ``subprocess.TimeoutExpired``
+    propagates to the caller. Defaults to ``None`` (wait indefinitely, the
+    historical behaviour) so existing callers that never pass it see no
+    change. Added in the 2026-09-16 whole-branch review (Important 2):
+    run-harvest's staging call had no ceiling at all, unlike run-checksum's
+    ``ssh_run`` call, which already had one -- a stalled shared filesystem
+    hung the whole CC turn indefinitely.
+    """
+    cmd = ["ssh", "-i", key_path, *_SSH_OPTS, _target(luria_env), remote_cmd]
+    proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    if proc.returncode != 0:
+        raise RuntimeError(f"ssh failed ({proc.returncode}): {proc.stderr.decode(errors='replace').strip()}")
+    return proc.stdout
+
+
+def scp_file(luria_env: dict, local_path, remote_path: str, *, key_path: str,
+             timeout: float | None = None) -> None:
+    """Copy one local file to an explicit remote path (renaming as needed).
+
+    ``timeout`` (seconds) bounds the subprocess call's wall clock; on expiry
+    ``subprocess.TimeoutExpired`` propagates (unlike :func:`ssh_run`, which raises
+    ``SshTimeout``). Defaults to ``None`` (wait indefinitely) so existing callers see no
+    change.
+    """
     dest = f'{_target(luria_env)}:{remote_path}'
     cmd = ["scp", "-i", key_path, *_SSH_OPTS, str(local_path), dest]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if proc.returncode != 0:
         raise RuntimeError(f"scp failed ({proc.returncode}): {proc.stderr.strip()}")

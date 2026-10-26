@@ -1092,6 +1092,31 @@ REGISTRY: list[Route] = [
           effect="reads",
           methods=("POST",), profiles="local,dev", auth="smoke", expect=200,
           note="a graph read expressed as a POST, so the prod guard refuses it"),
+    Route(pattern=r"^nextseek_api/^^reingest-proposals/$",
+          path="/nextseek_api/reingest-proposals/",
+          effect="reads",
+          methods=("GET",), profiles="local,dev", auth="write", expect=200,
+          note="superuser only, so the expectation is by inspection. Also accepts "
+               "?status= and ?pipeline= filters"),
+    Route(pattern=r"^nextseek_api/^^reingest-proposals/(?P<pk>[^/.]+)/$",
+          path="/nextseek_api/reingest-proposals/" + _NO_SUCH_ID + "/",
+          effect="reads",
+          methods=("GET",), profiles="local,dev", auth="write", expect=404,
+          note="unknown id: proves the route resolves and denies. Superuser only, "
+               "so the expectation is by inspection"),
+    Route(pattern=r"^nextseek_api/^^reingest-proposals/(?P<pk>[^/.]+)/approve/$",
+          path="/nextseek_api/reingest-proposals/" + _NO_SUCH_ID + "/approve/",
+          effect="external",
+          methods=("POST",), profiles="local,dev", auth="write", expect=404,
+          note="unknown id: proves the route resolves and denies before reaching "
+               "the attribute-exists guard (nextseek_api/services/reingest_proposals.py). "
+               "Superuser only, so the expectation is by inspection"),
+    Route(pattern=r"^nextseek_api/^^reingest-proposals/(?P<pk>[^/.]+)/reject/$",
+          path="/nextseek_api/reingest-proposals/" + _NO_SUCH_ID + "/reject/",
+          effect="external",
+          methods=("POST",), profiles="local,dev", auth="write", expect=404,
+          note="unknown id: proves the route resolves and denies. Superuser only, "
+               "so the expectation is by inspection"),
     Route(pattern=r"^nextseek_api/^^sample_types/get_parents/parents_by_child_types/$",
           path="/nextseek_api/sample_types/get_parents/parents_by_child_types/",
           effect="reads",
@@ -1183,10 +1208,27 @@ REGISTRY: list[Route] = [
           effect="external",
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST",
           note="granular assistant op: reporter summary"),
+    Route(pattern=r"^nextseek_api/^^assistant/run-checksum/$", path=None,
+          effect="external",
+          methods=(), profiles="", auth="smoke", exclude="EXCLUDE_EXTERNAL",
+          note="reingest step 2: md5 a caller-named set of files under a finished "
+               "Luria run directory over SSH; an escaped path (traversal, symlink, "
+               "hardlink) is a hard refusal, never folded silently into skipped"),
+    Route(pattern=r"^nextseek_api/^^assistant/run-harvest/$", path=None,
+          effect="external",
+          methods=(), profiles="", auth="smoke", exclude="EXCLUDE_EXTERNAL",
+          note="reingest step 1: stage a finished Luria run's allowlisted outputs "
+               "off the cluster over SSH and parse them into a RunManifest"),
     Route(pattern=r"^nextseek_api/^^assistant/run-ls/$", path=None,
           effect="external",
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_EXTERNAL",
           note="recursive listing of a finished Luria run directory over SSH"),
+    Route(pattern=r"^nextseek_api/^^assistant/upload-reingest/$", path=None,
+          effect="writes", writers=("WR-01", "WR-02", "WR-03", "WR-04", "WR-11", "WR-35"),
+          methods=(), profiles="", auth="smoke", exclude="EXCLUDE_UNSAFE_METHOD",
+          note="reingest step 5: upload reviewed workbooks by build id; write-class, "
+               "confirmed_write must be literal true; one batch-upload job per workbook, a missing "
+               "study assay created first (WR-35), the new samples' parents registered after (WR-11)"),
     Route(pattern=r"^nextseek_api/^^nessie/query/$", path=None,
           effect="writes", writers=("WR-27",),
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST",

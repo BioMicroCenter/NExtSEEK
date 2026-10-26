@@ -29,6 +29,7 @@ that every class exists before the app registry is sealed.
 | `consumers.py` | `TaskProgressConsumer`, the WebSocket behind `ws/assistant/progress/{task_id}/`; it polls the task row rather than a channel-layer group, so the in-memory channel layer does not constrain it |
 | `routing.py` | the one WebSocket URL pattern, mounted by `dmac/asgi.py` |
 | `pipeline_adapter.py` | `make_db_event_callback`: appends each progress event to `QueryTask.progress` and sets the terminal status |
+| `chat_turns.py` | which chat turn a reingest op call runs in, from the server's own records: `running_cc_turn` (the caller's one running Container-CC turn, by its `TurnLedger` row) and `turn_delivered` (did an earlier turn's task complete); the REST layer hands both to `build-upload-xlsx` and `upload-reingest` |
 | `session_adapter.py` | `DictSessionAdapter`: a `ChatSession` presented as the dict the engines expect; `save` merges bundle history under a row lock |
 | `excel_export.py` | a stored bundle as inline tables and xlsx bytes (`extract_table_artifacts`, `build_tables_from_bundle`, `generate_table_xlsx`); shared with the admin project export |
 | `session_debug.py` | an engine-agnostic inventory of one chat session for admin debugging: sizes and paths, never payloads |

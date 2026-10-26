@@ -1,0 +1,35 @@
+{
+ "rules": {
+  "aln": {
+   "attributes": [
+    "Aligner",
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Genome",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Name",
+    "SampleCreationDate"
+   ],
+   "rows": 1,
+   "sample_type": "A.ALN"
+  },
+  "vcf": {
+   "attributes": [
+    "File_PrimaryData",
+    "FilterMethod",
+    "Link_PrimaryData",
+    "Pipeline",
+    "PipelineVersion",
+    "ReferenceGenome",
+    "Software"
+   ],
+   "rows": 1,
+   "sample_type": "A.VCF"
+  }
+ },
+ "warnings": [
+  "GM12878: no Notes on A.ALN; also in run: preprocessing/GM12878/GM12878.md.bam.bai, preprocessing/GM12878/GM12878.md.bam"
+ ]
+}

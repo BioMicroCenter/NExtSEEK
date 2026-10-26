@@ -12,11 +12,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SIDECAR_OPS = frozenset(
     {"aggregate", "entity", "parse", "api-read", "api-write", "graph", "graph-schema", "report",
-     "generate-submission", "run-ls", "build-upload-xlsx"}
+     "generate-submission", "run-ls", "run-harvest", "run-checksum", "upload-reingest",
+     "build-upload-xlsx"}
 )
 
 # §12 — fixed error code → CLI exit code. The thin client maps a sidecar error
@@ -188,9 +189,46 @@ class _RunLsArgs(BaseModel):
 
 
 class _BuildUploadXlsxArgs(BaseModel):
+    """Two calling conventions: manifest_id (current) or rows (legacy). Exactly
+    one of the two is required, enforced right here by the validator below --
+    ops.py's forwarder dispatches on ``req.args``, the raw pre-validation dict
+    (server.py never re-validates against this model's own defaults), so an
+    args dict this model accepts but that names neither field would otherwise
+    reach the handler and KeyError there instead of failing VALIDATION here."""
     model_config = ConfigDict(extra="forbid")
-    rows: str
+    rows: str = ""
     existing_parent_uids: str = ""
+    manifest_id: str = ""
+    mode: str = "new"
+    answers: str = ""
+
+    @model_validator(mode="after")
+    def _exactly_one_of_manifest_id_or_rows(self) -> "_BuildUploadXlsxArgs":
+        if bool(self.manifest_id) == bool(self.rows):
+            raise ValueError("exactly one of manifest_id or rows is required")
+        if self.answers and not self.manifest_id:
+            raise ValueError("answers need manifest_id")
+        return self
+
+
+class _RunHarvestArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    run_dir: str | None = None  # absent: the server picks the caller's waiting launched run
+    allow_failed_run: bool = False
+
+
+class _RunChecksumArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    run_dir: str
+    paths: str
+    manifest_id: str | None = None
+
+
+class _UploadReingestArgs(BaseModel):
+    """Write-class: strict, like ApiWriteArgs, so no str->bool coercion here."""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    build_ids: str
+    confirmed_write: bool = False
 
 
 _OP_ARG_MODELS = {
@@ -205,6 +243,9 @@ _OP_ARG_MODELS = {
     "generate-submission": _SubmissionArgs,
     "run-ls": _RunLsArgs,
     "build-upload-xlsx": _BuildUploadXlsxArgs,
+    "run-harvest": _RunHarvestArgs,
+    "run-checksum": _RunChecksumArgs,
+    "upload-reingest": _UploadReingestArgs,
 }
 
 

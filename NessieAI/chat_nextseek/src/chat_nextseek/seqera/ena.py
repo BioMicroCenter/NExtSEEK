@@ -186,6 +186,57 @@ def resolve_accession_to_fastqs(accession: str) -> ENAResolution:
     return ENAResolution(accession=acc, runs=runs)
 
 
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+# Successful size lookups, by accession: ENA's sizes for a public run do not change.
+_RUN_SIZE_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def lookup_run_sizes(accessions: Iterable[str], *, timeout: float = 5.0,
+                     budget_seconds: float = 15.0) -> dict[str, dict[str, Any]]:
+    """{accession: {"fastq_bytes", "read_count", "paired"}} from ENA filereport, for the
+    accessions it answered for. An accession (run or experiment) may cover several runs; its
+    FASTQ bytes and reads are summed over them. One GET per accession, no retry, and none
+    started once `budget_seconds` have passed, so a box without egress loses at most about
+    budget + timeout seconds. Never raises: an accession left out has an unknown size."""
+    out: dict[str, dict[str, Any]] = {}
+    deadline = time.monotonic() + budget_seconds
+    for acc in dict.fromkeys((a or "").strip() for a in accessions or []):
+        if not acc:
+            continue
+        if acc in _RUN_SIZE_CACHE:
+            out[acc] = _RUN_SIZE_CACHE[acc]
+            continue
+        if time.monotonic() >= deadline:
+            continue
+        params = urllib.parse.urlencode({
+            "accession": acc, "result": "read_run",
+            "fields": "run_accession,fastq_bytes,read_count,library_layout", "format": "json"})
+        try:
+            rows = _http_get_json(f"{_ENA_BASE}?{params}", timeout_connect=timeout,
+                                  timeout_read=timeout, retries=0)
+        except Exception:
+            continue
+        sizes = [(sum(_int_or_none(b) or 0 for b in str(row.get("fastq_bytes") or "").split(";")),
+                  _int_or_none(row.get("read_count")),
+                  str(row.get("library_layout") or "").strip().upper() == "PAIRED")
+                 for row in (rows if isinstance(rows, list) else []) if isinstance(row, dict)]
+        if not sizes or not all(size for size, _, _ in sizes):
+            continue
+        reads = [count for _, count, _ in sizes]
+        out[acc] = _RUN_SIZE_CACHE[acc] = {
+            "fastq_bytes": sum(size for size, _, _ in sizes),
+            "read_count": sum(reads) if None not in reads else None,
+            "paired": all(paired for _, _, paired in sizes),
+        }
+    return out
+
+
 def resolve_accessions(accessions: Iterable[str]) -> list[ENAResolution]:
     """Resolve a list of accessions, preserving order, deduplicating."""
     seen: set[str] = set()

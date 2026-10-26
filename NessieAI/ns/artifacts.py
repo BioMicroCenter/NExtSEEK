@@ -3,7 +3,8 @@
 ``_granular_outputs_dir`` makes a fresh run-root for an op that writes files;
 ``_safe_artifact_path`` resolves a stored path and serves it only when it is really
 inside ``<BASE_DIR>/outputs`` or ``NEXTSEEK_OUTPUTS_DIR`` (``_artifact_roots``);
-``_resolve_saved_path`` picks the one path to serve from a ``saved_files`` value.
+``_resolve_saved_path`` picks the one path to serve from a ``saved_files`` value;
+``default_outputs_dir`` is the absolute folder an op with no run-root writes under.
 The granular-op and artifact-download endpoints in
 ``nextseek_api/services/assistant.py`` call them.
 
@@ -18,6 +19,18 @@ import uuid
 from pathlib import Path
 
 from django.conf import settings
+
+# The checkout root: settings.BASE_DIR is the parent of dmac/, the same folder.
+_CHECKOUT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def default_outputs_dir() -> str:
+    """Where an op with no run-root of its own writes, as an absolute path:
+    ``NEXTSEEK_OUTPUTS_DIR``, else ``<checkout>/outputs``. Both are artifact roots
+    (``_artifact_roots``), so ``_safe_artifact_path`` accepts what is written there
+    whatever the working directory is. Reads no Django settings."""
+    nod = os.environ.get("NEXTSEEK_OUTPUTS_DIR")
+    return str(Path(nod).resolve() if nod else (_CHECKOUT_ROOT / "outputs").resolve())
 
 
 def _granular_outputs_dir() -> str:

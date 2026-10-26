@@ -1,0 +1,6 @@
+[
+ {"path": "preprocessing/GM12878/GM12878.md.bam", "bytes": 1000},
+ {"path": "preprocessing/GM12878/GM12878.md.bam.bai", "bytes": 100},
+ {"path": "variant_calling/GM12878/GM12878.haplotypecaller.filtered.vcf.gz", "bytes": 500},
+ {"path": "variant_calling/GM12878/GM12878.haplotypecaller.vcf.gz", "bytes": 500}
+]

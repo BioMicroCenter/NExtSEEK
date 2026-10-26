@@ -96,6 +96,17 @@ else
   }
 fi
 
+# Chat turns run on the web container's threads, so its restart (an OOM kill, a
+# rebuild) leaves the turns it cut off "running" forever: the chat panel waits on
+# them and the reingest upload check counts them as live. No server has started
+# yet, so nothing can be in flight: mark them interrupted. Never fatal. Web only:
+# the worker restarting says nothing about the turns the web container is running.
+if [ "$MODE" = "web" ]; then
+  uv run --no-sync python manage.py fail_interrupted_turns || \
+    echo "[INTERRUPTED-TURNS] WARNING: could not mark interrupted chat turns;" \
+         "a turn the restart cut off may still show as running." >&2
+fi
+
 # Web server, selectable via NEXTSEEK_SERVER (default: daphne).
 #   daphne   — ASGI (dmac.asgi); serves the assistant WebSocket
 #              (ws/assistant/progress/{task_id}/) live. The integration default.

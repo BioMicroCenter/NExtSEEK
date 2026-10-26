@@ -56,6 +56,8 @@ authenticated callers only (`nextseek_api/batch_upload/views.py:102`).
 | `summary/{job_id}` | `nextseek_api/batch_upload/views.py:586` | the summary CSV as a download |
 | `list` | `nextseek_api/batch_upload/views.py:617` | the caller's own jobs, paged |
 
+`dispatch_batch_job` in `nextseek_api/batch_upload/views.py` is the one place a job starts: `start` and the assistant's `upload-reingest` op both call it, so ownership registration (`register_job`) and the contributor identity cannot drift. It takes exactly one of `rows` or `xlsx_paths`, and the caller's project scope (`scope_project_ids`, from `_caller_project_scope`; `None` for a superuser) with no default: a project outside it raises `PermissionError` before anything is queued, and the job carries the scope to its SEC-001 checks. `stage_workbook_copy` copies a server-side workbook under a uuid name into the upload directory for the worker.
+
 `start` takes two input modes and rows win when both arrive
 (`nextseek_api/batch_upload/views.py:177-178`); uploads must end in `.xlsx`
 (`nextseek_api/batch_upload/views.py:202`) and are capped by a settings value defaulting to
@@ -84,7 +86,7 @@ both the upload and the validate entry points; the stage order is spelled out at
 | 2 DAG | `nextseek_api/batch_upload/dag.py:78` | assay direction per parent/child pair |
 | 2.5 LEVELS | `nextseek_api/batch_upload/levels.py:27` | topological insert order |
 | 3 PREFETCH | `nextseek_api/batch_upload/prefetch.py:263` | cached sample-type and assay lookups |
-| 4 TRANSFORM | `nextseek_api/batch_upload/transform.py:43` | builds the insertable row |
+| 4 TRANSFORM | `nextseek_api/batch_upload/transform.py:43` | builds the insertable row, titled by its type's title attribute |
 | 5 INSERT | `nextseek_api/batch_upload/insert.py:171` | the batch loop, per topological level |
 | 6 GRAPH SYNC | `nextseek_api/batch_upload/orchestrator.py:637` | hands this job's committed ids to `graph_sync` |
 | 7 REPORT | `nextseek_api/batch_upload/report.py:108` | the per-row summary CSV |
@@ -93,7 +95,9 @@ Around them: `nextseek_api/batch_upload/ontology.py:15` reads the workbook's con
 vocabularies and `nextseek_api/batch_upload/ontology.py:154` validates every row against
 them in bulk; `nextseek_api/batch_upload/update.py:338`
 is the upsert path that deep-merges metadata (`nextseek_api/batch_upload/update.py:37`)
-instead of inserting; `nextseek_api/batch_upload/parallel.py:107` runs a level through a
+instead of inserting, and replaces each sample's assay links with the sheet's (it removes
+any link the ASSAY sheet does not list) unless the job's `keep_assay_links` option is set,
+which only adds; `nextseek_api/batch_upload/parallel.py:107` runs a level through a
 thread pool once it is large enough (`nextseek_api/batch_upload/parallel.py:26`);
 `nextseek_api/batch_upload/orphan_resolution.py:50` finds children whose parent arrived in a
 later upload and `nextseek_api/batch_upload/orphan_resolution.py:125` repairs their metadata
