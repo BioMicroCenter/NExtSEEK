@@ -15,8 +15,8 @@ import pytest
 
 import NessieAI.ns.granular as g
 from NessieAI.ns.artifacts import _safe_artifact_path
-from NessieAI.ns.reingest import build_records, workbook_diff
-from NessieAI.tests.ns.reingest.test_build_assay_sheet import _fake
+from NessieAI.ns.reingest import assay_plan, build_records, workbook_diff
+from NessieAI.tests.ns.reingest.test_build_assay_sheet import _assay_column, _fake
 from NessieAI.tests.ns.reingest.test_build_upload_answers import CATALOG
 from NessieAI.tests.ns.reingest.test_build_upload_manifest import (
     _A_ALN_ROW, _A_GEX_ROW, _save_manifest,
@@ -66,7 +66,11 @@ def test_the_real_rebuild_differs_only_by_the_new_assay(rows, tmp_path, monkeypa
     assert stored["project_id"] == reviewed["project_id"] == 14
     assert _safe_artifact_path(stored["path"]) is not None
     assert stored["path"] != reviewed["path"]
-    assert workbook_diff.assay_only_changes(reviewed["path"], stored["path"], [CREATED]) == []
+    planned = assay_plan.planned_assay_label(25, "Genome Alignment - Data Linked")
+    assert planned in _assay_column(reviewed["path"])
+    assert _assay_column(stored["path"]) == [CREATED]
+    assert workbook_diff.assay_only_changes(
+        reviewed["path"], stored["path"], {planned: CREATED}) == []
 
 
 # --- With no run-root of its own, the rebuild writes under an absolute artifact root.

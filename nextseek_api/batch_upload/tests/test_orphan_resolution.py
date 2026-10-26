@@ -497,7 +497,7 @@ def real_sql_conn():
     with engine.begin() as c:
         c.execute(text("CREATE TABLE samples (id INTEGER PRIMARY KEY, uuid TEXT, policy_id INTEGER, sample_type_id INTEGER, "
                        "json_metadata TEXT, contributor_id INTEGER, updated_at TEXT)"))
-        c.execute(text("CREATE TABLE sample_attributes (sample_type_id INTEGER, title TEXT)"))
+        c.execute(text("CREATE TABLE sample_attributes (sample_type_id INTEGER, title TEXT, is_title INTEGER DEFAULT 0)"))
         c.execute(text("CREATE TABLE policies (id INTEGER PRIMARY KEY, access_type INTEGER)"))
         c.execute(text("CREATE TABLE permissions (id INTEGER PRIMARY KEY, policy_id INTEGER, contributor_type TEXT, "
                        "contributor_id INTEGER, access_type INTEGER)"))
@@ -507,7 +507,7 @@ def real_sql_conn():
             (2, 'EDIT-1', 12, 1, '{"Parent":"P1"}', 99, NULL),
             (3, 'NOATTR-1', 13, 2, '{"AntibodyParent":"P1"}', 99, NULL),
             (4, 'ATTR-1', 14, 1, '{"AntibodyParent":"P1"}', 99, NULL)"""))
-        c.execute(text("INSERT INTO sample_attributes VALUES (1, 'Parent'), (2, 'Name')"))
+        c.execute(text("INSERT INTO sample_attributes (sample_type_id, title) VALUES (1, 'Parent'), (2, 'Name')"))
         c.execute(text("INSERT INTO policies VALUES (11, 0), (12, 0), (13, 0), (14, 0)"))
         c.execute(text("INSERT INTO permissions (policy_id, contributor_type, contributor_id, access_type) VALUES "
                        "(11, 'Project', 7, 1), (12, 'Project', 7, 4), (13, 'Project', 7, 4), (14, 'Project', 7, 4)"))

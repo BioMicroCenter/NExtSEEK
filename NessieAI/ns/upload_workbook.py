@@ -9,6 +9,10 @@ tests/test_upload_workbook_modes.py).
 Row shape (one per output sample):
     {"json_metadata": {<attr>: <value>, ...}, "assay_ids": [int, ...]}
 
+An ``assay_ids`` entry may instead be a string: the planned label of a study
+assay the upload will create (``reingest.assay_plan.planned_assay_label``), or
+a test-only build's unresolved assay. Neither parses, by design.
+
 Two modes:
 - ``mode="new"`` (default) — every sample is [NEW]; no UID column, the server
   mints the UID on upload. ``json_metadata`` carries Parent / Scientist /
@@ -126,6 +130,7 @@ def render_upload_workbook(
         ws.append(prefix + [_cell(meta.get(field)) for field in fields])
 
     # ASSAY: one row per distinct assay_id, applied to this sample type (Direction 1).
+    # An assay the upload will create shows as its planned label until then.
     wa = wb.create_sheet("Assay")
     wa.append(["SampleType", "AssayType", "Assay", "Direction"])
     seen: set[int] = set()

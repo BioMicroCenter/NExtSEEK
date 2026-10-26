@@ -73,6 +73,15 @@ def test_the_assay_is_created_then_the_rebuilt_workbook_is_uploaded(env, monkeyp
     assert "reingest_A_ALN_rebuilt" in dispatch.call_args.kwargs["xlsx_paths"][0]
 
 
+def test_the_comparison_is_told_which_planned_row_became_which_assay(env, monkeypatch):
+    reviewed = _record(env, assays_to_create=TO_CREATE, parent_assays=PAIRS)
+    seen = []
+    monkeypatch.setattr(upload.workbook_diff, "assay_only_changes",
+                        lambda a, b, created: seen.append(created) or [])
+    _run(reviewed, create=MagicMock(return_value=900), rebuild=_rebuilt(env, reviewed))
+    assert seen == [{"to be created at upload: Genome Alignment - Data Linked (study 51)": 900}]
+
+
 def test_a_failed_create_refuses_the_call_before_anything_starts(env):
     reviewed = _record(env, assays_to_create=TO_CREATE)
     dispatch = MagicMock()

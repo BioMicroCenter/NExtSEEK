@@ -18,6 +18,16 @@ from NessieAI.ns.reingest_qa import (
 DATA_LINKED = " - Data Linked"
 
 
+def planned_assay_label(study_id, assay_title: str) -> str:
+    """The Assay-sheet cell for a study assay the upload will create.
+
+    The reviewed workbook shows it where the id will go, so the reader sees
+    which assay the rows join; the upload swaps it for the created id
+    (workbook_diff). Not an int, so the parser refuses the workbook if it is
+    ever uploaded as it stands."""
+    return f"to be created at upload: {assay_title} (study {study_id})"
+
+
 @dataclass
 class RowAssayPlan:
     assay_ids: list = field(default_factory=list)
@@ -72,6 +82,7 @@ def plan_row(*, sample_type: str, row_index: int, house_name, parents: list[str]
                 "sample_type": sample_type, "rows": [row_index]})
             _finding(ASSAY_TO_CREATE, SOFT, study_id=study_id, study_title=study_title,
                      assay_title=f"{title}{DATA_LINKED}")
+            plan.assay_ids.append(planned_assay_label(study_id, f"{title}{DATA_LINKED}"))
         else:
             plan.assay_ids.append(assay_id)
         plan.parent_assays += [

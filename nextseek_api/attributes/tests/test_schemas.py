@@ -511,7 +511,7 @@ def test_json_value_contract(case):
     pytest.param("reject-scheme-relative", id="reject-scheme-relative"),
 ])
 def test_relative_status_url_grammar(case):
-    counts = schemas.MutationCounts(requested=1, resolved=1, created=1)
+    counts = schemas.MutationCounts(requested=1, resolved=1, affected_samples=1)
     urls = {
         "accepted-relative": "/nextseek_api/attributes/jobs/123/",
         "reject-absolute-http": "http://example.com/nextseek_api/attributes/jobs/123/",
@@ -984,6 +984,21 @@ def test_accepted_response_rejects_nonzero_updated_samples_with_valid_job_id():
             mode="asynchronous", job_id=JOB_UUID,
             status_url="/nextseek_api/attributes/jobs/1/", counts=invalid_counts,
         )
+
+
+# #140: a 202 that said created: 46 read as done, and a client that checked at once concluded the write had failed.
+@pytest.mark.parametrize("outcome", ["created", "patched", "deleted", "unchanged", "reordered"])
+def test_accepted_response_claims_no_outcome_before_the_job_runs(outcome):
+    with pytest.raises(ValidationError):
+        schemas.MutationAcceptedResponse(
+            mode="asynchronous", job_id=JOB_UUID, status_url="/nextseek_api/attributes/jobs/1/",
+            counts=schemas.MutationCounts(requested=1, resolved=1, affected_samples=1, **{outcome: 1}),
+        )
+    accepted = schemas.MutationAcceptedResponse(
+        mode="asynchronous", job_id=JOB_UUID, status_url="/nextseek_api/attributes/jobs/1/",
+        counts=schemas.MutationCounts(requested=1, resolved=1, affected_samples=1),
+    )
+    assert accepted.counts.resolved == 1 and accepted.counts.affected_samples == 1
 
 
 def test_job_status_rejects_queued_with_nonzero_progress():

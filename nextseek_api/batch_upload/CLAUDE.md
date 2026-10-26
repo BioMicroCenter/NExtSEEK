@@ -13,6 +13,13 @@ lineage, and none of them fails loudly.
   UID_GEN both finish before either commits therefore read the same maximum
   (`nextseek_api/batch_upload/uid_gen.py:168`) and mint the same identifiers. Widening or
   removing that lock turns a rare collision into the normal case.
+- **A sample's title is the value of its type's title attribute (`is_title`), the rule SEEK
+  applies on every save.** `build_insertable` in `transform.py` reads it through
+  `prefetch_title_attributes` and falls back to the Name/File_PrimaryData identity rule only
+  when the type has no title attribute or the row carries no value for it. A title written any
+  other way is silently replaced the next time SEEK re-saves the type's samples
+  (`SampleTypeUpdateJob`), so the same sample changes name between two reads. Duplicate
+  detection does not read the title: it uses `samples.name_identity`.
 - **Every key in `json_metadata` must already exist as an attribute of the row's
   SampleType.** There is no skip list, not even for the SEEK-conventional UID, Parent and
   Protocol keys: `nextseek_api/batch_upload/transform.py:75-88` rejects the row on the

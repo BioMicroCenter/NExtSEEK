@@ -135,6 +135,37 @@ def _rows(count: int) -> str:
     return f"{count} {_plural(count)}"
 
 
+_LISTED_PRESENT = 10
+
+
+def _already_present_line(sample_type: str, present: dict) -> str:
+    """One status line for the rows left out because they are already samples."""
+    uids = list(present.get("uids") or [])
+    shown = ", ".join(uids[:_LISTED_PRESENT])
+    if len(uids) > _LISTED_PRESENT:
+        shown += f", and {len(uids) - _LISTED_PRESENT} more"
+    left_out, total = len(uids), int(present.get("total") or len(uids))
+    if left_out >= total:
+        return (f"{sample_type} — {'the sample is' if total == 1 else f'all {total} samples are'}"
+                f" already in NExtSEEK ({shown}), so no workbook was built for "
+                f"{'it' if total == 1 else 'them'}")
+    return (f"{sample_type} — {left_out} of {total} samples "
+            f"{'is' if left_out == 1 else 'are'} already in NExtSEEK ({shown}) and "
+            f"{'was' if left_out == 1 else 'were'} left out of the workbook")
+
+
+def _path_changed_line(sample_type: str, uids: list[str]) -> str:
+    """One status line for rows built at an uploaded path whose file has changed."""
+    shown = ", ".join(uids[:_LISTED_PRESENT])
+    if len(uids) > _LISTED_PRESENT:
+        shown += f", and {len(uids) - _LISTED_PRESENT} more"
+    return (f"{sample_type} — the file at the path of {shown} has changed since "
+            f"{'it was' if len(uids) == 1 else 'they were'} uploaded (a new checksum), so "
+            "these rows are built as new samples beside "
+            f"{'it' if len(uids) == 1 else 'them'}; decide whether the old "
+            f"{'one is' if len(uids) == 1 else 'ones are'} still wanted")
+
+
 def _compact_item(index, code, attribute, where):
     """Two lines for a finding shared across workbooks: the headline naming
     each workbook and its row count, then the choice."""
@@ -153,7 +184,9 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
                         run_name: str, ambiguous_primary: list[dict] | None = None,
                         row_counts: dict[str, int] | None = None,
                         unmapped_count: int = 0,
-                        missed_rules: list[dict] | None = None) -> str:
+                        missed_rules: list[dict] | None = None,
+                        already_present: dict[str, dict] | None = None,
+                        path_changed: dict[str, list] | None = None) -> str:
     """Render the whole run's QA outcome as plain-language text.
 
     ``reports`` -- ``{sample_type: QaReport}``, one entry per sample type QA'd
@@ -195,6 +228,16 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
     on one of those sample types is explained as the map's miss rather than
     asked for, since a data file is never set from chat.
 
+    ``already_present`` -- ``{sample_type: {"uids": [...], "total": n}}``, the
+    new-mode rows left out because their data file is already a sample of that
+    type (``reingest_lookups.existing_uids_for_primary_files_strict``): ``uids``
+    are those samples, ``total`` the rows the run mapped for the type.
+
+    ``path_changed`` -- ``{sample_type: [UID, ...]}``, samples whose data file
+    sits at the path of a row being built but whose checksum differs: the run
+    was redone in the same folder, so the rows are built as new samples and the
+    reader decides whether the old ones are replaced.
+
     Returns the full report as one string. This is the module's only public
     function, and its output is relayed to the user VERBATIM by the calling
     agent -- see the module docstring's three rules -- so nothing here should
@@ -204,8 +247,11 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
     blocked = any(built.disposition == qa.HARD_REJECT for built in reports.values())
     lines: list[str] = []
 
+    already_present = already_present or {}
     if blocked:
         lines.append(f"Reingest blocked — run {run_name}")
+    elif not reports and already_present:
+        lines.append(f"Nothing new to upload — run {run_name}")
     else:
         lines.append(f"Reingest ready — run {run_name}")
     lines.append("")
@@ -223,6 +269,10 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
         if built.disposition == qa.HARD_REJECT:
             parts.append("blocked")
         lines.append("  " + " — ".join(parts))
+    for sample_type, present in sorted(already_present.items()):
+        lines.append("  " + _already_present_line(sample_type, present))
+    for sample_type, uids in sorted((path_changed or {}).items()):
+        lines.append("  " + _path_changed_line(sample_type, uids))
     lines.append("")
 
     hard_checks: list[tuple] = []
@@ -360,6 +410,8 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
             lines.append(f"  {order}.  {path.rsplit('/', 1)[-1]}{suffix}")
     elif blocked:
         lines.append("  Nothing to upload yet — fix the blockers above first.")
+    elif already_present and not reports:
+        lines.append("  Nothing to upload — every sample from this run is already in NExtSEEK.")
     else:
         lines.append("  Nothing to upload — no workbook was produced for this run.")
 

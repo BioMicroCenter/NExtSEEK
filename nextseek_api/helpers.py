@@ -337,9 +337,9 @@ class SeekAPIClient:
     def get_sample_type(self, request, sample_type_id: str):
         return self._request('GET', f'/sample_types/{sample_type_id}', request)
 
-    def create_sample_type(self, request, payload: Dict[str, Any]):
+    def create_sample_type(self, request, payload: Dict[str, Any], timeout_s=None):
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
-        return self._request('POST', '/sample_types', request, json=payload)
+        return self._request('POST', '/sample_types', request, json=payload, timeout_s=timeout_s)
 
     def update_sample_type(self, request, sample_type_id: str, payload: Dict[str, Any]):
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
