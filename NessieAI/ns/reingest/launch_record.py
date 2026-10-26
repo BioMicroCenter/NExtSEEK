@@ -33,8 +33,8 @@ def launch_record_for(run_dir):
     from nextseek_api.assistant.models_db import PipelineRun
 
     return PipelineRun.objects.filter(run_dir=run_dir).first()
-
-
+# Set when an upload of a run's workbooks finishes with at least one job done (succeeded, or skipped with no
+# failed row). Any other status (``submitted``, the default) means the run still waits to be reingested.
 # Set when an upload of a run's workbooks starts at least one job. Any other
 # status (``submitted``, the default) means the run still waits to be reingested.
 STATUS_REINGESTED = "reingested"

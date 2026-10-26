@@ -4,7 +4,7 @@
 user. One waiting run is harvested; several come back as candidates for the
 agent to ask about; none is a refusal that asks for the folder. A run with no
 recorded launcher (every launch before launches recorded one) is visible to a
-superuser only, and a run whose upload has started is no longer waiting.
+superuser only, and a run whose upload finished (a job done) is no longer waiting.
 """
 from __future__ import annotations
 
