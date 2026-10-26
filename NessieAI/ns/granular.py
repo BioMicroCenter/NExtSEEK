@@ -564,7 +564,9 @@ def _run_plan(plan, exec_fn, config, prepare_cypher) -> tuple[Any, str | None, s
         plan_dump.get("parameters") if isinstance(plan_dump, dict) else getattr(plan, "parameters", {})
     ) or {}
     if not cypher:
-        return plan_dump, cypher, cypher, {"ok": False, "error": "graph agent produced no cypher", "data": []}
+        from chat_nextseek.schemas.graph import no_cypher_error
+
+        return plan_dump, cypher, cypher, {"ok": False, "error": no_cypher_error(plan_dump), "data": []}
     submitted = prepare_cypher(cypher, params) if prepare_cypher is not None else cypher
     return plan_dump, cypher, submitted, exec_fn(config, submitted, params)
 

@@ -43,3 +43,15 @@ class GraphAgentPlan(BaseModel):
     refusal_kinds: SkipJsonSchema[list[str]] = Field(default_factory=list)
     attempted_cypher: SkipJsonSchema[str | None] = None
     repaired_cypher: SkipJsonSchema[str | None] = None
+
+
+def no_cypher_error(plan) -> str:
+    """``graph agent produced no cypher`` plus the agent's own explanation (500 chars) and refusal kinds, when it gave any.
+
+    ``plan`` is a GraphAgentPlan or its dict dump. The prefix is matched by tests and the CC skill: keep it exact.
+    """
+    get = plan.get if isinstance(plan, dict) else lambda k, d=None: getattr(plan, k, d)
+    why = str(get("explanation", "") or "").strip()[:500]
+    kinds = ", ".join(str(k) for k in get("refusal_kinds", None) or [])
+    detail = why + (f" (refused: {kinds})" if kinds else "")
+    return "graph agent produced no cypher" + (f": {detail.strip()}" if detail.strip() else "")
