@@ -25,6 +25,7 @@ from pathlib import Path
 import docker as docker_mod
 from django.test import override_settings
 
+from NessieAI.tests.cc import fake_spawner
 from NessieAI.cc import cc_engine
 from NessieAI.cc.cc_config import CCPaths
 
@@ -119,7 +120,7 @@ def _run(tmp_path, monkeypatch, work, reply_parts=(), **kwargs):
 
     monkeypatch.setattr(docker_mod, "from_env", lambda: _Client())
     monkeypatch.setattr(
-        cc_engine, "BridgeAttachSocket",
+        fake_spawner, "BridgeAttachSocket",
         lambda raw, stdout_stream=None: _OverrunningAgent(container, work, reply_parts),
     )
     events: list[tuple[str, dict]] = []

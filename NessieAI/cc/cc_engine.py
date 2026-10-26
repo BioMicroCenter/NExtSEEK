@@ -34,9 +34,6 @@ from pathlib import Path
 from typing import Any, Callable, NamedTuple
 from urllib.parse import quote, quote_plus
 
-import docker
-
-from .attach import BridgeAttachSocket
 from .translate import MODEL_UNAVAILABLE_REASON, CCStreamTranslator
 from .cc_config import CCPaths
 from . import cc_transcript_store, spawner_client
@@ -105,9 +102,6 @@ _MIN_CC_API_TIMEOUT_MS = 1000
 # for response headers) plus this much slack. Later, the request must be streaming an
 # answer, and Claude Code prints nothing while it streams: the turn just ran out of time.
 _RETRY_WINDOW_SLACK_S = 5.0
-# Step 1: after a FAILED stop and a force-remove, how long to wait for Docker to confirm the agent has exited
-# (an exited container answers at once); nothing reads or writes its scratch until that is confirmed.
-_CONFIRM_EXIT_WAIT_S = 5.0
 # The engine's monotonic clock, one name so tests can stand in for it.
 _monotonic = time.monotonic
 # Claude Code 2.1.282's auto-mode classifier asks a Sonnet model about each tool call,
@@ -308,34 +302,7 @@ VOCABULARY_FILE = "vocabulary.json"
 
 def cc_runner_available() -> tuple[bool, str]:
     """Return (ok, detail). ok=False means the CC route cannot run right now."""
-    if spawner_client.enabled():
-        return spawner_client.health()
-    try:
-        import docker
-        client = docker.from_env()
-        client.ping()
-    except Exception as exc:  # noqa: BLE001
-        return False, f"docker daemon unreachable: {type(exc).__name__}"
-    try:
-        client.images.get(DEFAULT_IMAGE)
-    except Exception:
-        return False, (
-            f"CC image '{DEFAULT_IMAGE}' not found "
-            "(run `docker compose build cc-agent` to build/tag it compose-natively "
-            "from NessieAI/docker/cc-runtime/, or set NEXTSEEK_CC_IMAGE to an existing image)"
-        )
-    # I-17 / audit A1: the bridge NEVER creates the network — a missing one is a
-    # deployment error. Gating here keeps the de-credentialed agent off the shared
-    # net (the segmented net + bedrock-proxy must be up first).
-    try:
-        client.networks.get(DEFAULT_NETWORK)
-    except Exception:
-        return False, (
-            f"CC network '{DEFAULT_NETWORK}' not found — run `docker compose up -d` "
-            "(dmac-cc-net and bedrock-proxy are compose-managed; see docker-compose.yml) "
-            "or override via NEXTSEEK_CC_NETWORK."
-        )
-    return True, "ok"
+    return spawner_client.health()
 
 
 def _validate_user_id(user_id: str) -> None:
@@ -1092,134 +1059,14 @@ def _container_name_for_run(run_id: str) -> str:
     return f"dmac-cc-agent-{run_id}"
 
 
-def _run_kwargs(
-    *,
-    image: str,
-    command: list[str],
-    environment: dict[str, str],
-    mounts: list[dict] | None,
-    run_id: str,
-    user_id: str,
-    network: str = DEFAULT_NETWORK,
-    workdir: str = _CONTAINER_WORKDIR,
-) -> dict[str, Any]:
-    """Build the docker-py ``containers.run`` kwargs for one CC turn.
-
-    The container joins ``network`` — which DEFAULTS to the segmented
-    ``dmac-cc-net`` (``DEFAULT_NETWORK``), NOT the shared nextseek compose
-    network — so the de-credentialed agent reaches only the bedrock-proxy and
-    the nginx entrypoint; it runs in ``workdir`` (the image WORKDIR) so the
-    baked CLAUDE.md + nextseek plugin guidance are discovered. CC user trees are
-    passed as ``mounts`` (Engine-API volume-subpath ``Mount`` dicts), never as a
-    host-path ``volumes`` dict (G7-10 named-volume cutover). ``name`` is the
-    Step 2b deterministic ``dmac-cc-agent-<run_id>`` name.
-    """
-    return {
-        "image": image,
-        "command": command,
-        "environment": environment,
-        "mounts": mounts or None,
-        "working_dir": workdir,
-        "network": network,
-        "name": _container_name_for_run(run_id),
-        "labels": {
-            "nextseek.cc": "1",
-            "nextseek.cc.user": user_id,
-            "nextseek.cc.run": run_id,
-        },
-        "platform": "linux/amd64",
-        "detach": True,
-        "stdin_open": True,
-        "tty": False,
-        "stdout": True,
-        "stderr": True,
-        # #73: hard resource ceilings so one turn cannot DoS the co-tenant
-        # mysql/neo4j/seek. memswap_limit == mem_limit, or the cap escapes into
-        # swap. fsize ulimit is the portable disk brake (see _DEFAULT_FSIZE_BYTES).
-        "mem_limit": _DEFAULT_MEM_LIMIT,
-        "memswap_limit": _DEFAULT_MEM_LIMIT,
-        "nano_cpus": _DEFAULT_NANO_CPUS,
-        "pids_limit": _DEFAULT_PIDS_LIMIT,
-        "ulimits": [docker.types.Ulimit(
-            name="fsize", soft=_DEFAULT_FSIZE_BYTES, hard=_DEFAULT_FSIZE_BYTES)],
-        # F15: reap the sibling even when the parent Django worker dies mid-turn
-        # (a SIGKILL/worker-recycle skips the finally-block remove, orphaning the
-        # container on dmac-cc-net with an rw mount and live spend). Safe here:
-        # _stop_and_confirm_exit treats a NotFound on an already
-        # removed container (404) as gone, and the now-redundant finally
-        # remove(force=True) is already guarded by except pass.
-        "auto_remove": True,
-        # The agent runs as an unprivileged user (uid 1001) and needs no capability;
-        # drop them all and refuse setuid/file-capability privilege gain.
-        "cap_drop": ["ALL"],
-        "security_opt": ["no-new-privileges=true"],
-    }
-
-
-def _spawn_with_stale_name_retry(client: Any, run_kwargs: dict[str, Any]) -> Any:
-    """Spawn the CC sibling container, handling a stale same-name collision.
-
-    Step 2b: Celery retries reuse the same ``task_id`` (== ``run_id``), so a
-    crashed prior attempt can still hold the deterministic ``name=`` (Step 2b
-    above). On the Docker SDK this surfaces as ``docker.errors.APIError``
-    with ``status_code == 409`` (Engine's "Conflict. The container name … is
-    already in use" response) — force-remove the EXACT stale name and retry
-    the spawn ONCE. Any other error (including a repeat 409 on the retry)
-    propagates unchanged.
-    """
-    from docker.errors import APIError, NotFound
-
-    try:
-        return client.containers.run(**run_kwargs)
-    except APIError as exc:
-        if exc.status_code != 409:
-            raise
-        stale_name = run_kwargs.get("name")
-        if not stale_name:
-            raise
-        logger.warning(
-            "cc: stale container %s held the deterministic name (409 Conflict) "
-            "— removing and retrying once", stale_name,
-        )
-        try:
-            client.containers.get(stale_name).remove(force=True)
-        except NotFound:
-            pass
-        return client.containers.run(**run_kwargs)
-
-
-def _stop_and_confirm_exit(container: Any, *, confirm_wait_s: float = _CONFIRM_EXIT_WAIT_S) -> bool:
+def _stop_and_confirm_exit(container: Any) -> bool:
     """Stop the agent, and say whether it is gone, before Django touches its folders.
 
-    Claude Code keeps reading stdin, so waiting for a self-exit would cost the wait on every turn: the
-    container is stopped first. Docker's stop returns success only once the container has stopped (an
-    already-stopped one answers 304, which docker-py does not raise), so a successful ``stop`` returns True
-    at once, with no wait. If the stop fails, the container is force-removed and then
-    ``wait(timeout=confirm_wait_s)`` confirms it. ``NotFound`` from the stop, the remove or the wait means Docker no
-    longer knows it (``auto_remove``), which is gone too; from the stop or the remove it returns before any
-    wait. False only when neither the stop nor the remove plus wait confirms, and the caller then publishes
-    nothing: an agent that may still be running could change a file between Django's check and its copy.
-    Never raises.
+    The spawner stops, removes and confirms the container in one call and answers only once it is gone, so a
+    clean return means gone. False (nothing published) when the spawner could not confirm. Never raises.
     """
-    from docker.errors import NotFound
-
     try:
-        container.stop(timeout=2)
-        return True
-    except NotFound:
-        return True
-    except Exception:  # noqa: BLE001 - a failed stop is followed by a force-remove and a confirm
-        pass
-    try:
-        container.remove(force=True)
-    except NotFound:
-        return True
-    except Exception:  # noqa: BLE001 - the confirm below decides
-        pass
-    try:
-        container.wait(timeout=confirm_wait_s)
-        return True
-    except NotFound:
+        container.stop()
         return True
     except Exception:  # noqa: BLE001
         return False
@@ -1270,10 +1117,10 @@ def _spawner_turn_body(
 
 
 def _mount_volume_subpath(source: str, target: str, subpath: str, *, read_only: bool = False) -> dict:
-    """docker-py 7.1.0: Mount() has no subpath kwarg — patch VolumeOptions onto Mount dict subclass."""
-    m = docker.types.Mount(target=target, source=source, type="volume", read_only=read_only)
-    m["VolumeOptions"] = {"Subpath": subpath}  # PascalCase key required by Engine API
-    return m
+    """One Engine-API volume-subpath mount, the shape cc-spawner builds too (a parity test holds them equal)."""
+    # PascalCase keys: the Engine API's Mount shape (the spawner passes it to Docker as it is).
+    return {"Target": target, "Source": source, "Type": "volume", "ReadOnly": read_only,
+            "VolumeOptions": {"Subpath": subpath}}
 
 
 def _build_volumes(
@@ -1479,7 +1326,6 @@ def run_cc_turn(
     memory_claude_md: str | None = None,
     transcripts_subpath: str | None = None,
     previous_turns: bool = False,
-    image: str | None = None,
     api_user: str | None = None,
     api_pass: str | None = None,
     turn_pass: str | None = None,
@@ -1508,11 +1354,6 @@ def run_cc_turn(
     ``vocabulary_slot``: where the turn's vocabulary (plan 04) is written, read-only for the container, at
     /data/turn/vocabulary.json, whenever the pre-run offers it (before the start, or while the container runs).
     """
-    import docker
-    from docker.errors import APIError, NotFound
-
-    image = image or DEFAULT_IMAGE
-
     # I-4 (audit B2): validate BEFORE any path interpolation / mkdir / mount.
     _validate_user_id(user_id)
     _validate_user_id(run_id)
@@ -1628,11 +1469,6 @@ def run_cc_turn(
     # never from the container env, which holds no password.
     scrub_env = scrub_secrets(api_user=api_user, api_pass=api_pass, turn_pass=turn_pass)
 
-    command = _build_command(
-        model_id=model_id, session_id=effective_session_id, max_budget_usd=max_budget_usd,
-        source=os.environ,
-    )
-
     before = snapshot_before(scratch_mount, user_id)
     # G7-11 (Task 14): timestamp captured BEFORE the agent runs, so the in-turn
     # staging sweep can distinguish THIS turn's ``.complete`` markers (mtime >=
@@ -1678,33 +1514,22 @@ def run_cc_turn(
     translator = CCStreamTranslator(model_id=model_id, clock=lambda: _monotonic())
     translator._turn_start_ts = time.time()
     terminal: tuple[str, dict[str, Any]] | None = None
-    # W9 switch: with NEXTSEEK_SPAWNER_URL set the spawner runs the container; otherwise the app does, as before.
-    use_spawner = spawner_client.enabled()
-    client = None if use_spawner else docker.from_env()
     container = None
     try:
         # Inside the try: its finally removes the file, whatever fails before the container starts.
         if vocabulary_slot is not None and dirs.turn_subpath:
             vocabulary_slot.open(mount_root, dirs.turn_subpath)
-        sock = None
-        if use_spawner:
-            # Set before the request, so the finally can stop a turn whose start failed half way.
-            container = _SpawnerContainer(run_id)
-            sock = spawner_client.start_turn(
-                _spawner_turn_body(
-                    run_id=run_id, user_id=user_id, project_dirname=project_dirname, cc_state_key=cc_state_key,
-                    transcripts_subpath=transcripts_subpath, previous_turns=previous_turns,
-                    turn_files=vocabulary_slot is not None, model_id=model_id, session_id=effective_session_id,
-                    max_budget_usd=max_budget_usd, environment=environment, query=query,
-                ),
-                read_timeout=turn_timeout + 60,
-            )
-        else:
-            spawn_kwargs = _run_kwargs(
-                image=image, command=command, environment=environment,
-                mounts=mounts, run_id=run_id, user_id=user_id,
-            )
-            container = _spawn_with_stale_name_retry(client, spawn_kwargs)
+        # Set before the request, so the finally can stop a turn whose start failed half way.
+        container = _SpawnerContainer(run_id)
+        sock = spawner_client.start_turn(
+            _spawner_turn_body(
+                run_id=run_id, user_id=user_id, project_dirname=project_dirname, cc_state_key=cc_state_key,
+                transcripts_subpath=transcripts_subpath, previous_turns=previous_turns,
+                turn_files=vocabulary_slot is not None, model_id=model_id, session_id=effective_session_id,
+                max_budget_usd=max_budget_usd, environment=environment, query=query,
+            ),
+            read_timeout=turn_timeout + 60,
+        )
 
         # Hard wall-clock bound on the turn (belt-and-suspenders to --max-budget-usd):
         # if it overruns, stop + force-remove the container, which ends the stdout
@@ -1725,18 +1550,6 @@ def run_cc_turn(
                         pass
 
         threading.Thread(target=_watchdog, daemon=True).start()
-
-        if not use_spawner:
-            raw = container.attach_socket(params={"stdin": 1, "stdout": 1, "stderr": 1, "stream": 1})
-            stdout_stream = container.logs(stream=True, follow=True, stdout=True, stderr=False)
-            sock = BridgeAttachSocket(raw, stdout_stream=stdout_stream)
-
-            envelope = json.dumps(
-                {"type": "user", "message": {"role": "user", "content": query}},
-                separators=(",", ":"),
-            )
-            sock.send_stdin((envelope + "\n").encode("utf-8"))
-            sock.close_stdin()
 
         while True:
             line = sock.read_event_line()
@@ -1961,10 +1774,6 @@ def run_cc_turn(
                     raise RuntimeError("cc persist: missing transcript jsonl after successful turn")
         send_event(event, data)
 
-    except (APIError, NotFound) as exc:
-        logger.exception("CC docker error")
-        send_event("query_error", {"error": f"Container error: {type(exc).__name__}",
-                                   "agent": "container_cc", "cc_session_id": translator.session_id})
     except Exception as exc:  # noqa: BLE001
         logger.exception("CC turn failed")
         send_event("query_error", {"error": f"Container-CC turn failed: {type(exc).__name__}",

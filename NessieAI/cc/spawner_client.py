@@ -1,8 +1,9 @@
 """The app's client for cc-spawner, the one service that holds the Docker socket (W9).
 
-``NEXTSEEK_SPAWNER_URL`` set and non-empty sends Container-CC turns through the spawner; unset or empty keeps the
-direct Docker path in ``cc_engine`` for one cycle. SEEK ops (``seek_rails_runner``) always use the spawner. The token
-goes in ``X-Spawner-Token`` from ``NEXTSEEK_SPAWNER_TOKEN``. Everything is read from the environment at call time.
+Container-CC turns and SEEK ops (``seek_rails_runner``) both go through the spawner; the app has no other road to
+Docker. ``NEXTSEEK_SPAWNER_URL`` unset or empty means no spawner: every call here fails closed (``health`` says
+CC is unavailable, the others raise ``SpawnerUnavailable``). The token goes in ``X-Spawner-Token`` from
+``NEXTSEEK_SPAWNER_TOKEN``. Everything is read from the environment at call time.
 """
 from __future__ import annotations
 
@@ -68,6 +69,8 @@ def _post(path: str, body: dict | None, *, timeout: float, stream: bool = False)
 
 def health() -> tuple[bool, str]:
     """(ok, detail) from ``GET /health`` with the token: the spawner's Docker, image and network checks."""
+    if not enabled():
+        return False, "CC unavailable: NEXTSEEK_SPAWNER_URL is not set"
     try:
         resp = requests.get(base_url() + "/health", headers=_headers(), timeout=_HEALTH_TIMEOUT_S)
         data = resp.json()
