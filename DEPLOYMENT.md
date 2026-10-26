@@ -497,24 +497,37 @@ from that checkout.
 
 ---
 
-### 3.5 Migration rehearsal (launch runner, before the app restarts)
+### 3.5 Migration rehearsal (launch runner, before anything restarts)
 
 When a launch's range has a migration (the brief's `migrations_expected`, or the commits step's migration flag) and
-the app is rebuilt, the runner builds the new app image with `--no-restart`, then rehearses `manage.py migrate
---noinput` with that image on a throwaway copy of the box's own schema, then restarts (a cached build). The SQLite
-lanes and GitHub's pytest cannot see charsets or collations; this can (launch 20261026-1846: an FK from a utf8mb4 table
-to the latin1 `assistant_chat_session`, MySQL error 3780, a crash loop behind `[MIGRATE-FAILED]`).
+the app is rebuilt, the runner first builds the new app image with `--no-restart`, then rehearses `manage.py migrate
+--noinput` with that image on a throwaway copy of the box's own schema, and only then rebuilds and restarts the
+components in their usual order (the app's turn is a cached build). The SQLite lanes and GitHub's pytest cannot see
+charsets or collations; this can (launch 20261026-1846: an FK from a utf8mb4 table to the latin1
+`assistant_chat_session`, MySQL error 3780, a crash loop behind `[MIGRATE-FAILED]`).
 
+- The build is judged by its success line (`app image rebuilt; runtime restart deferred by request`), not its exit
+  code: a `--no-restart` rebuild still runs stack health, and `app image code` is STALE until the restart.
 - It only reads the live database: `mysqldump --single-transaction --no-data` plus the rows of `django_migrations` and
-  `django_content_type`, run inside the db container (its password never leaves the container; nothing secret is on
-  an argv). No user or auth rows.
-- The copy loads into a throwaway MySQL (the db service's own image and command, the live database's default
-  charset and collation, `--rm`, an `--internal` network, 2 GB, `timeout -k`). A trap removes the dump, the
-  containers and the network on every exit.
+  `django_content_type`, run inside the db container under `sh -e` (its password never leaves the container; nothing
+  secret is on an argv). No user or auth rows.
+- The copy loads into a throwaway MySQL: the running db container's own image and command (no db container, no
+  rehearsal), the live database's default charset and collation, an `--internal` network, 2 GB, and `timeout -k 10 900`
+  as its entrypoint, so the limit holds even if the runner dies. The migrate container gets its settings on stdin (no
+  host mount) and a 600 s limit. A trap removes the dump, the containers and the network on every exit; on a failure it
+  first appends the throwaway db's last 20 lines to `rehearsal.log`. A rehearsal also removes any `rehearse-*`
+  container, network or dump a killed runner left behind before it starts.
+- It cannot catch a failure that needs rows: the copy has the schema only, so a unique index over duplicate values, a
+  NOT NULL over existing nulls, an FK over orphan rows, or a RunPython data step all pass here and can still fail at
+  boot. The mysqldump gate (§5.3) stays the way back from those.
 - Green: the status file gets `REHEARSAL-OK applied=<migrations> seconds=<n>` and the launch goes on.
-- A STOP (`STOPPED: the migration rehearsal failed ...`) means the old containers are still serving and nothing was
-  restarted. The error tail is on the status line and in `launch-<tag>/rehearsal.log`; the new image is built but
-  unused. Fix the migration, push, and relaunch. Never `migrate --fake`.
+- A STOP (`STOPPED: the migration rehearsal failed ...` or `STOPPED: app build failed before the migration
+  rehearsal ...`) means the old containers are still serving and nothing was restarted. The error tail is on the
+  status line and in `launch-<tag>/rehearsal.log`; the new image is built but unused. Fix the migration, push, and
+  relaunch. Never `migrate --fake`. With the app in `continue_on_failure`, a failed build says `FAILED app,
+  continuing` and the app is skipped: it is never restarted without a rehearsal.
+- The app's rollback point is the build-only step's `ROLLBACK` line (the old image); the restart's own tag is the new
+  image, so `launch.py` keeps a component's first `ROLLBACK` line.
 
 ## 4. Config-only changes
 

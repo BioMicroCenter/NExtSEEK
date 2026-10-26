@@ -111,50 +111,79 @@ rehearse(){ # the migration rehearsal, run AFTER the new app image is built and 
   # runs `migrate` against it. Reads the live DB only (mysqldump --single-transaction --no-data, two tables' rows).
   # Returns 1 on any failure; the error tail is in $L/rehearsal.log. Its own subshell, so the EXIT trap always cleans.
   ( set +x; umask 077
-    net=rehearse-net-$TAG; ctr=rehearse-db-$TAG; mig=rehearse-mig-$TAG; dump=$H/backups/rehearse-$TAG.sql.gz
-    cleanup(){ docker rm -f "$ctr" "$mig" >/dev/null 2>&1; docker network rm "$net" >/dev/null 2>&1; rm -f "$dump" "$dump.body"; }
+    net=rehearse-net-$TAG; ctr=rehearse-db-$TAG; mig=rehearse-mig-$TAG; dump=$H/backups/rehearse-$TAG.sql.gz; log=$L/rehearsal.log
+    : > "$log"; t0=$(date +%s)
+    # a runner killed mid-rehearsal (SIGKILL skips the trap) leaves its 2 GB db and its network: remove every leftover first
+    for o in $(docker ps -a --format '{{.Names}}' --filter name=rehearse- </dev/null 2>/dev/null | grep -E '^rehearse-(db|mig)-'); do docker rm -f "$o" >/dev/null 2>&1; done
+    for o in $(docker network ls --format '{{.Name}}' --filter name=rehearse-net- </dev/null 2>/dev/null | grep '^rehearse-net-'); do docker network rm "$o" >/dev/null 2>&1; done
+    rm -f "$H"/backups/rehearse-*.sql.gz*
+    cleanup(){ rc=$?   # on a failure the throwaway db's own last lines go under a marker, after the error
+      [ $rc = 0 ] || { echo "--- the throwaway db, last 20 lines"; docker logs --tail 20 "$ctr" </dev/null 2>&1; } >> "$log"
+      docker rm -f "$ctr" "$mig" >/dev/null 2>&1; docker network rm "$net" >/dev/null 2>&1; rm -f "$dump" "$dump.body"; }
     trap cleanup EXIT
-    : > "$L/rehearsal.log"; t0=$(date +%s)
-    img=$(docker compose config </dev/null 2>/dev/null | awk '/^  db:/{f=1;next} f&&/^  [a-z]/{exit} f&&/^    image:/{print $2; exit}')
-    [ -n "$img" ] || { echo "no db image in the rendered compose" >> "$L/rehearsal.log"; exit 1; }
+    # the throwaway runs the live db container's own image and command (its flags: charset, collation); never without them
+    dbc=$(docker compose ps -q db </dev/null 2>/dev/null | head -1)
+    [ -n "$dbc" ] || { echo "no running db container: the throwaway db never starts without the live one's flags" >> "$log"; exit 1; }
+    img=$(docker inspect -f '{{.Image}}' "$dbc" </dev/null 2>/dev/null)
+    mapfile -t margs < <(docker inspect -f '{{range .Config.Cmd}}{{println .}}{{end}}' "$dbc" </dev/null 2>/dev/null | sed '/^$/d')
+    { [ -n "$img" ] && [ ${#margs[@]} -gt 0 ]; } || { echo "could not read the db container's image and command" >> "$log"; exit 1; }
     dbn=$(docker exec nextseek printenv NEXTSEEK_MYSQL_DATABASE </dev/null 2>/dev/null); dbn=${dbn:-dmac}
-    mapfile -t margs < <(docker inspect -f '{{range .Config.Cmd}}{{println .}}{{end}}' "$(docker compose ps -q db </dev/null | head -1)" 2>/dev/null)
     # the live db's password stays inside its own container (MYSQL_PWD from its env); nothing secret is on an argv.
     # Line 1 out = the live database's default charset and collation (the throwaway's CREATE DATABASE reuses them),
-    # then ---, then the schema without rows, then the rows of the two tables migrate reads
-    docker compose exec -T -e DBN="$dbn" db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
+    # then ---, then the schema without rows, then the rows of the two tables migrate reads. sh -e: a failed step stops
+    docker compose exec -T -e DBN="$dbn" db sh -ec 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
       mysql -h127.0.0.1 -uroot -N -e "select concat(default_character_set_name, \" \", default_collation_name) from information_schema.schemata where schema_name=\"$DBN\""
       echo ---
       mysqldump -h127.0.0.1 -uroot --single-transaction --no-data --skip-triggers "$DBN"
       mysqldump -h127.0.0.1 -uroot --single-transaction --no-create-info --skip-triggers "$DBN" django_migrations django_content_type' \
-      </dev/null 2>>"$L/rehearsal.log" | gzip -c > "$dump"
-    [ "${PIPESTATUS[0]}" = 0 ] || { echo "schema dump failed" >> "$L/rehearsal.log"; exit 1; }
+      </dev/null 2>>"$log" | gzip -c > "$dump"
+    [ "${PIPESTATUS[0]}" = 0 ] || { echo "schema dump failed" >> "$log"; exit 1; }
     cs=$(zcat "$dump" | sed -n '1p'); zcat "$dump" | sed '1,/^---$/d' | gzip -c > "$dump.body" && mv -f "$dump.body" "$dump"
     export REHEARSE_PW=$(head -c 18 /dev/urandom | base64 | tr -d '/+=\n')   # a throwaway password for a throwaway container
-    docker network create --internal "$net" >/dev/null 2>&1 || { echo "network create failed" >> "$L/rehearsal.log"; exit 1; }
-    timeout -k 10 900 docker run -d --rm --name "$ctr" --network "$net" --memory 2g \
-      -e MYSQL_ROOT_PASSWORD="$REHEARSE_PW" "$img" "${margs[@]}" >/dev/null 2>>"$L/rehearsal.log" \
-      || { echo "throwaway db did not start" >> "$L/rehearsal.log"; exit 1; }
+    docker network create --internal "$net" >/dev/null 2>&1 || { echo "network create failed" >> "$log"; exit 1; }
+    # timeout (coreutils, in the mysql image) as the container's entrypoint is the real limit: it holds with no runner left
+    docker run -d --name "$ctr" --network "$net" --memory 2g -e MYSQL_ROOT_PASSWORD="$REHEARSE_PW" \
+      --entrypoint timeout "$img" -k 10 900 docker-entrypoint.sh "${margs[@]}" >/dev/null 2>>"$log" \
+      || { echo "throwaway db did not start" >> "$log"; exit 1; }
     ok=0; for i in $(seq 60); do
       docker exec -e MYSQL_PWD="$REHEARSE_PW" "$ctr" mysqladmin ping -h127.0.0.1 -uroot --silent </dev/null >/dev/null 2>&1 && { ok=1; break; }; sleep 2; done
-    [ $ok = 1 ] || { echo "throwaway db never answered" >> "$L/rehearsal.log"; exit 1; }
+    [ $ok = 1 ] || { echo "throwaway db never answered" >> "$log"; exit 1; }
     set -- $cs; cset=${1:-utf8mb4}; coll=${2:-utf8mb4_unicode_ci}
     { echo "create database \`$dbn\` default character set $cset collate $coll;"; echo "use \`$dbn\`;"; zcat "$dump"; } \
-      | docker exec -i -e MYSQL_PWD="$REHEARSE_PW" "$ctr" mysql -h127.0.0.1 -uroot >> "$L/rehearsal.log" 2>&1 \
-      || { echo "schema load failed" >> "$L/rehearsal.log"; exit 1; }
-    mkdir -p "$L/rehearsal" && cat > "$L/rehearsal/rehearsal_settings.py" <<'PYEOF'
+      | docker exec -i -e MYSQL_PWD="$REHEARSE_PW" "$ctr" mysql -h127.0.0.1 -uroot >> "$log" 2>&1 \
+      || { echo "schema load failed" >> "$log"; exit 1; }
+    # the settings go in on stdin and are written inside the container: no host mount, so no file mode, owner or SELinux
+    # label matters (the app image may run as 10001)
+    timeout -k 10 600 docker run -i --rm --name "$mig" --network "$net" --memory 2g -e REHEARSE_PW -e REHEARSE_DB="$dbn" \
+      -e REHEARSE_HOST="$ctr" -e DJANGO_SETTINGS_MODULE=rehearsal_settings -e PYTHONPATH=/tmp/rehearsal -e LOG_DIR=/tmp/l \
+      -e DJANGO_CSRF_TRUSTED_ORIGINS=https://rehearsal.invalid -w /app nextseek-nextseek:latest \
+      sh -ec 'mkdir -p /tmp/rehearsal; cat > /tmp/rehearsal/rehearsal_settings.py; exec /app/.venv/bin/python manage.py migrate --noinput' \
+      >> "$log" 2>&1 <<'PYEOF' || exit 1
 import os
 from dmac.test_settings import *  # noqa
 DATABASES["default"] = {"ENGINE": "django.db.backends.mysql", "NAME": os.environ["REHEARSE_DB"], "USER": "root",
                         "PASSWORD": os.environ["REHEARSE_PW"], "HOST": os.environ["REHEARSE_HOST"], "PORT": "3306",
                         "OPTIONS": {"charset": "utf8mb4"}}
 PYEOF
-    timeout -k 10 600 docker run --rm --name "$mig" --network "$net" --memory 2g -e REHEARSE_PW -e REHEARSE_DB="$dbn" \
-      -e REHEARSE_HOST="$ctr" -e DJANGO_SETTINGS_MODULE=rehearsal_settings -e PYTHONPATH=/rehearsal -e LOG_DIR=/tmp/l \
-      -e DJANGO_CSRF_TRUSTED_ORIGINS=https://rehearsal.invalid -v "$L/rehearsal:/rehearsal:ro" -w /app nextseek-nextseek:latest \
-      /app/.venv/bin/python manage.py migrate --noinput </dev/null >> "$L/rehearsal.log" 2>&1 || exit 1
-    names=$(grep -oE 'Applying [A-Za-z0-9_.]*[A-Za-z0-9_]' "$L/rehearsal.log" | sed 's/^Applying //' | tr '\n' ' ')
-    echo "REHEARSAL-OK applied=${names:-none} seconds=$(( $(date +%s) - t0 ))" >> "$L/rehearsal.log" )
+    names=$(grep -oE 'Applying [A-Za-z0-9_]+\.[A-Za-z0-9_]+' "$log" | sed 's/^Applying //' | paste -sd' ' -)   # app.migration only: DEBUG lines follow on the same line
+    echo "REHEARSAL-OK applied=${names:-none} seconds=$(( $(date +%s) - t0 ))" >> "$log" )
+}
+build_and_rehearse(){ # REHEARSE=1, before ANY component is rebuilt: build the new app image WITHOUT restarting, then
+  # rehearse its migrations. Judged by the success line, not the exit code: a --no-restart rebuild still runs stack
+  # health and exits 1 on any red, and `app image code` is STALE until the restart. Returns 1 only for a failed build
+  # of an app in continue_on_failure (the caller then skips the app: its restart would migrate the live database)
+  ./startup.sh rebuild --component app --no-ci --no-restart > "$L/app-build.log" 2>&1 </dev/null
+  say "APP_BUILD exit=$? (no restart)"
+  t=$(rollback_tag "$L/app-build.log"); [ -n "$t" ] && say "ROLLBACK app ${t#rollback tag verified: } (the old image, tagged before the build; a component's first ROLLBACK line is its rollback point)"
+  if ! grep -qF 'app image rebuilt; runtime restart deferred by request' "$L/app-build.log"; then
+    case "$CONTINUE_ON_FAILURE" in
+      *" app "*) say "FAILED app, continuing (continue_on_failure): the build failed before the migration rehearsal, the app is skipped, nothing was restarted, see $L/app-build.log"; return 1;;
+      *) stop "app build failed before the migration rehearsal, nothing was restarted, see $L/app-build.log";;
+    esac
+  fi
+  if rehearse; then say "$(grep -m1 '^REHEARSAL-OK' "$L/rehearsal.log")"; return 0; fi
+  say "REHEARSAL FAILED: $(sed '/^--- the throwaway db/,$d' "$L/rehearsal.log" | grep -vE '^[[:space:]]*$' | tail -4 | tr '\n' ' ' | cut -c1-400)"
+  stop "the migration rehearsal failed on this box's schema; the old containers are still serving, nothing was restarted, see $L/rehearsal.log"
 }
 # <<< functions
 
@@ -192,21 +221,13 @@ post_app(){
   docker compose exec -T web mkdir -p /app/runs </dev/null
 }
 
+# the range has a migration: build the app image and rehearse migrate on a copy of this box's schema before ANY
+# component restarts; the app's turn in the loop below is then the restart (a cached build)
+if [ $REHEARSE = 1 ] && ! build_and_rehearse; then   # its build failed and app is in continue_on_failure: skip the app
+  COMPONENTS=$(echo " $COMPONENTS " | sed 's/ app / /; s/^ *//; s/ *$//')
+fi
 PENDING="$COMPONENTS"
 for c in $COMPONENTS; do
-  if [ "$c" = app ] && [ $REHEARSE = 1 ]; then   # build the new image WITHOUT restarting, rehearse, then restart (a cached build)
-    ./startup.sh rebuild --component app --no-ci --no-restart > "$L/app-build.log" 2>&1 </dev/null; rc=$?
-    say "APP_BUILD exit=$rc (no restart)"
-    t=$(rollback_tag "$L/app-build.log"); [ -n "$t" ] && say "ROLLBACK app ${t#rollback tag verified: } (taken before the build; the restart's own tag below points at the new image)"
-    if [ $rc != 0 ]; then
-      case "$CONTINUE_ON_FAILURE" in *" app "*) ;; *) stop "app build failed before the migration rehearsal, nothing was restarted, see $L/app-build.log";; esac
-    elif rehearse; then
-      say "$(grep -m1 '^REHEARSAL-OK' "$L/rehearsal.log")"
-    else
-      say "REHEARSAL FAILED: $(grep -vE '^[[:space:]]*$' "$L/rehearsal.log" | tail -4 | tr '\n' ' ' | cut -c1-400)"
-      stop "the migration rehearsal failed on this box's schema; the old containers are still serving, nothing was restarted, see $L/rehearsal.log"
-    fi
-  fi
   if rebuild "$c"; then
     say "REBUILT $c"
   else

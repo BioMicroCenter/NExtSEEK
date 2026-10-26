@@ -36,6 +36,7 @@ estimate from `brief.json` against the budget), expected minutes (`derived.estim
 | window | checks the UTC clock against the stop windows | inside one |
 | busy | `pgrep` inside `nextseek` for a graph sync, drift or harness run | anything found |
 | pull | `git fetch`; discards only the app's context refresh; `git merge --ff-only <expected>` | origin/dev is not the sha, or the fast-forward is refused |
+| rehearsal | only when the range has a migration and the app is rebuilt, before any rebuild: the app image built with `--no-restart`, then `migrate` on a throwaway copy of the box schema (DEPLOYMENT.md section 3.5) | the build's success line is missing (with the app in `continue_on_failure`: `FAILED app, continuing` and the app is skipped), or the rehearsal fails |
 | rebuilds | each component in the order bedrock-proxy, cc-spawner, app, cc-agent, nextseek-sidecar, `--no-ci` | the success line is missing (unless the component is in `continue_on_failure`: then it says `FAILED ..., continuing`) |
 | after app | collectstatic in `web`; on dev the labs copy onto the volume `web` and `nextseek` share (no restart); `mkdir -p /app/runs` in both | never |
 | judge | every red stack-health line of each rebuild log, classified | an unexplained or stale red while components are still pending; after the last rebuild it becomes a `FINDING` line and the run goes on to CI |
@@ -61,9 +62,9 @@ Every line ends in a UTC `HH:MM:SS`; the last is `ALL_DONE`. `launch.py judge` p
 START tag=... instance=dev components=app cc-agent
 HEAD 1c070c08 Merge ...
 REBUILD app exit=1               # exit 1 is often drift or GHCR; the success line decides
-ROLLBACK app nextseek-nextseek:pre-<utc>-<sha>   # the NEW image was built from <sha>
-APP_BUILD exit=0 (no restart)       # only when the range has a migration: build first, no restart
-REHEARSAL-OK applied=<names> seconds=<n>   # the migration rehearsal on a copy of the box schema; a failure is STOPPED, old containers still serving
+ROLLBACK app nextseek-nextseek:pre-<utc>-<sha>   # the NEW image was built from <sha>; a component's first ROLLBACK line wins
+APP_BUILD exit=1 (no restart)       # only when the range has a migration, before any rebuild: build first, no restart; the success line decides
+REHEARSAL-OK applied=<names> seconds=<n>   # the migration rehearsal on a copy of the box schema; a failure is STOPPED, nothing restarted
 REBUILT app | FAILED cc-agent, continuing (...)
 STATIC exit=0 ...
 LABS copied | LABS source missing: /tmp/labs_db.json

@@ -1414,7 +1414,8 @@ def parse_status(text: str) -> dict:
             st["rebuilds"].setdefault(mm.group(1), {})["success"] = False
             st["failed"].append(mm.group(1))
         elif mm := re.match(r"^ROLLBACK (\S+) (\S+)", body):
-            st["rollback"][mm.group(1)] = mm.group(2)
+            # the first wins: after a build-only step (the migration rehearsal) the restart's rebuild tags the new image
+            st["rollback"].setdefault(mm.group(1), mm.group(2))
         elif mm := re.match(r"^RED (\S+) \[([^\]]+)\] (.*)$", body):
             st["reds"].append({"after": mm.group(1), "class": mm.group(2), "text": mm.group(3)})
         elif body.startswith("FINDING "):

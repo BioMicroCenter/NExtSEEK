@@ -1488,14 +1488,16 @@ def test_no_rehearsal_without_an_app_rebuild(tmp_path, capsys):
     assert "REHEARSE=0" in t
 
 
-def test_the_rehearsal_sits_after_the_build_and_before_any_restart(tmp_path, capsys):
-    _, t = _app_runner(tmp_path, capsys, migrations_expected=True)
-    loop = t.split('PENDING="$COMPONENTS"', 1)[1]
-    build = loop.index("rebuild --component app --no-ci --no-restart")
-    reh = loop.index("elif rehearse")
-    stop_ = loop.index("stop \"the migration rehearsal failed")
-    restart = loop.index('if rebuild "$c"')
-    assert build < reh < stop_ < restart
+def test_the_build_and_the_rehearsal_come_before_any_component_restarts(tmp_path, capsys):
+    """The components go bedrock-proxy, cc-spawner, app, ...: a rehearsal inside the loop's app turn ran after the
+    proxy and the spawner had restarted, and its STOP said nothing was restarted."""
+    _, t = rendered_runner(tmp_path, capsys, images=["bedrock-proxy", "cc-spawner", "app"], migrations_expected=True,
+                           allowed_extras=["bedrock-proxy rebuild ok"])
+    body = t.split("# <<< functions", 1)[1]
+    assert body.index("build_and_rehearse") < body.index("for c in $COMPONENTS; do")
+    fn = t.split("build_and_rehearse(){", 1)[1].split("\n}\n", 1)[0]
+    assert fn.index("rebuild --component app --no-ci --no-restart") < fn.index("if rehearse; then") < fn.index(
+        'stop "the migration rehearsal failed')
 
 
 def test_the_rehearsal_reads_only_and_keeps_secrets_off_argv(tmp_path, capsys):
@@ -1511,47 +1513,181 @@ def test_the_rehearsal_reads_only_and_keeps_secrets_off_argv(tmp_path, capsys):
     live = fn.split("docker compose exec", 1)[1].split("gzip", 1)[0]
     sql = " ".join(re.findall(r'-e "([^"]*)"', live))
     assert sql.lower().startswith("select") and not re.search(r"\b(insert|update|delete|drop|alter|truncate|create)\b", sql, re.I)
+    # sh -e: a failed first mysqldump stops the dump instead of loading a cut schema
+    assert " db sh -ec '" in live
+    # the image comes from the running db container, never from `compose config` (it renders the root password)
+    assert "compose config" not in fn
 
 
-def _stub_docker(tmp_path, fail_migrate):
-    b = tmp_path / "bin"
-    b.mkdir()
-    (b / "docker").write_text(f'''#!/bin/bash
-echo "$*" >> {tmp_path}/calls
+_DOCKER_STUB = r'''#!/bin/bash
+echo "$*" >> @T@/calls
+case "$1 $2" in "run -d"|"run -i") printf '<%s>' "$@" >> @T@/argv; echo >> @T@/argv;; esac
 case "$*" in
-  "compose config") printf 'services:\\n  db:\\n    image: mysql:8.0\\n    ports: []\\n  web:\\n    image: x\\n';;
-  "compose exec"*) printf 'utf8mb4 utf8mb4_unicode_ci\\n---\\nCREATE TABLE t (a int);\\n';;
-  "run --rm --name"*) {"echo 'django.db.utils.OperationalError: (3780, bad fk)'; exit 1" if fail_migrate else "echo '  Applying nextseek_api.0032_x... OK'; echo '  Applying seek.0004_y... OK'"};;
+  "compose ps -q db") @DBPS@;;
+  "inspect -f {{.Image}} dbc1") echo sha256:dbimg;;
+  "inspect -f {{range .Config.Cmd}}{{println .}}{{end}} dbc1")   # what docker prints: one per line, then its own newline
+    printf -- '--character-set-server=utf8mb4\n--collation-server=utf8mb4_unicode_ci\n--log-error-verbosity=1\n\n';;
+  "ps -a --format {{.Names}} --filter name=rehearse-") @LEFT_C@;;
+  "network ls --format {{.Name}} --filter name=rehearse-net-") @LEFT_N@;;
+  "compose exec"*) printf 'utf8mb4 utf8mb4_unicode_ci\n---\nCREATE TABLE t (a int);\n';;
+  "logs --tail 20 rehearse-db-t1") echo "mysqld: the throwaway db said this";;
+  "run -i --rm --name rehearse-mig-t1"*) cat > @T@/settings_stdin; @MIGRATE@;;
   "exec nextseek printenv"*) echo dmac;;
   "exec -e MYSQL_PWD"*mysqladmin*) exit 0;;
+  "exec -i -e MYSQL_PWD"*) cat > /dev/null;;
 esac
 exit 0
-''')
+'''
+
+
+def _stub_docker(tmp_path, fail_migrate, db_running=True, leftovers=False):
+    b = tmp_path / "bin"
+    b.mkdir()
+    migrate = ("echo 'django.db.utils.OperationalError: (3780, bad fk)'; exit 1" if fail_migrate
+               # what migrate prints under the test settings: the schema editor's DEBUG line follows on the same line
+               else "echo '  Applying nextseek_api.0032_x...DEBUG:django.db.backends.schema:ALTER TABLE t'; echo ' OK';"
+                    " echo '  Applying seek.0004_y... OK'")
+    (b / "docker").write_text(
+        _DOCKER_STUB.replace("@T@", str(tmp_path)).replace("@MIGRATE@", migrate)
+        .replace("@DBPS@", "echo dbc1" if db_running else "true")
+        .replace("@LEFT_C@", "printf 'rehearse-db-old\\nrehearse-mig-old\\nmy-rehearse-db-x\\n'" if leftovers else "true")
+        .replace("@LEFT_N@", "printf 'rehearse-net-old\\n'" if leftovers else "true"))
     (b / "docker").chmod(0o755)
     return b
 
 
-def _run_rehearse(tmp_path, capsys, fail):
+def _run_rehearse(tmp_path, capsys, fail=False, **stub):
     _, text = _app_runner(tmp_path, capsys, migrations_expected=True)
-    b = _stub_docker(tmp_path, fail)
+    b = _stub_docker(tmp_path, fail, **stub)
     L = tmp_path / "L"; L.mkdir(); H = tmp_path / "H"; (H / "backups").mkdir(parents=True)
+    (H / "backups" / "rehearse-old.sql.gz").write_text("a leftover dump")
     script = tmp_path / "r.sh"
     script.write_text(f'TAG=t1; L={L}; H={H}\n{_functions(text)}\nrehearse; echo "rc=$?"\n')
     r = subprocess.run(["bash", str(script)], capture_output=True, text=True, env={**os.environ, "PATH": f"{b}:{os.environ['PATH']}"})
-    return r, L, H, (tmp_path / "calls").read_text()
+    argv = (tmp_path / "argv").read_text().splitlines() if (tmp_path / "argv").exists() else []
+    return r, L, H, (tmp_path / "calls").read_text(), argv
 
 
 def test_a_green_rehearsal_names_the_applied_migrations_and_cleans_up(tmp_path, capsys):
-    r, L, H, calls = _run_rehearse(tmp_path, capsys, fail=False)
+    r, L, H, calls, _ = _run_rehearse(tmp_path, capsys)
     assert "rc=0" in r.stdout, r.stderr
-    assert "REHEARSAL-OK applied=nextseek_api.0032_x seek.0004_y" in (L / "rehearsal.log").read_text()
+    log = (L / "rehearsal.log").read_text()
+    assert "REHEARSAL-OK applied=nextseek_api.0032_x seek.0004_y" in log and "--- the throwaway db" not in log
     assert "rm -f rehearse-db-t1 rehearse-mig-t1" in calls and "network rm rehearse-net-t1" in calls
-    assert not list((H / "backups").iterdir())          # the dump is gone
+    assert not list((H / "backups").iterdir())          # the dump is gone, and the leftover one
 
 
-def test_a_failed_migrate_fails_the_step_keeps_the_error_and_cleans_up(tmp_path, capsys):
-    r, L, H, calls = _run_rehearse(tmp_path, capsys, fail=True)
+def test_the_throwaway_db_runs_the_live_db_image_and_flags_under_a_real_time_limit(tmp_path, capsys):
+    r, L, H, calls, argv = _run_rehearse(tmp_path, capsys)
+    assert "rc=0" in r.stdout, r.stderr
+    db = next(a for a in argv if a.startswith("<run><-d>"))
+    assert "<>" not in db                                # no empty argument: mysqld 'Too many arguments'
+    # timeout is the container's own entrypoint, so the limit holds with no runner left to enforce it
+    assert db.endswith("<--entrypoint><timeout><sha256:dbimg><-k><10><900><docker-entrypoint.sh>"
+                       "<--character-set-server=utf8mb4><--collation-server=utf8mb4_unicode_ci><--log-error-verbosity=1>"), db
+    assert "<--rm>" not in db                            # the cleanup removes it, after reading its log on a failure
+    assert "compose config" not in calls
+
+
+def test_no_running_live_db_means_no_throwaway_db(tmp_path, capsys):
+    r, L, H, calls, argv = _run_rehearse(tmp_path, capsys, db_running=False)
     assert "rc=1" in r.stdout
-    assert "3780" in (L / "rehearsal.log").read_text()
+    assert "no running db container" in (L / "rehearsal.log").read_text()
+    assert not argv and "network create" not in calls
+
+
+def test_a_failed_migrate_fails_the_step_keeps_the_error_and_the_db_log_and_cleans_up(tmp_path, capsys):
+    r, L, H, calls, _ = _run_rehearse(tmp_path, capsys, fail=True)
+    assert "rc=1" in r.stdout
+    log = (L / "rehearsal.log").read_text()
+    assert "3780" in log
+    assert log.index("3780") < log.index("--- the throwaway db") < log.index("mysqld: the throwaway db said this")
     assert "network rm rehearse-net-t1" in calls and not list((H / "backups").iterdir())
     assert "stop " not in calls and "restart" not in calls   # nothing the live stack runs
+
+
+def test_the_leftovers_of_a_killed_runner_are_removed_first(tmp_path, capsys):
+    r, L, H, calls, _ = _run_rehearse(tmp_path, capsys, leftovers=True)
+    assert "rc=0" in r.stdout, r.stderr
+    first = calls.index("network create")
+    assert calls.index("rm -f rehearse-db-old") < first and calls.index("rm -f rehearse-mig-old") < first
+    assert calls.index("network rm rehearse-net-old") < first
+    assert "my-rehearse-db-x" not in calls
+
+
+def test_the_settings_go_in_on_stdin_with_no_host_mount(tmp_path, capsys):
+    r, L, H, calls, argv = _run_rehearse(tmp_path, capsys)
+    assert "rc=0" in r.stdout, r.stderr
+    settings = (tmp_path / "settings_stdin").read_text()
+    assert 'DATABASES["default"]' in settings and 'os.environ["REHEARSE_PW"]' in settings
+    mig = next(a for a in argv if a.startswith("<run><-i>"))
+    assert "<-v>" not in mig and "<--volume>" not in mig and "<nextseek-nextseek:latest>" in mig
+    assert "<PYTHONPATH=/tmp/rehearsal>" in mig and "/app/.venv/bin/python manage.py migrate --noinput" in mig
+    assert not (L / "rehearsal").exists()
+
+
+def _run_build(tmp_path, capsys, *, success, exit_code, rehearsal_ok=True, cont=" "):
+    _, text = _app_runner(tmp_path, capsys, migrations_expected=True)
+    box = tmp_path / "box"; (box / "l").mkdir(parents=True)
+    (box / "startup.sh").write_text(
+        '#!/bin/bash\necho "$*" >> calls\n'
+        'echo "  ✓ rollback tag verified: nextseek-nextseek:pre-20261026T190000-1c070c08 (sha256:old)"\n'
+        + ('echo "  ✓ app image rebuilt; runtime restart deferred by request"\n' if success else 'echo "  ✗ build failed"\n')
+        + 'echo "       ✗ app image code: STALE: of 2153 tracked app files, 109 differ in the running nextseek"\n'
+        f'exit {exit_code}\n')
+    (box / "startup.sh").chmod(0o755)
+    fake = ('echo "REHEARSAL-OK applied=a.0001_x seconds=3" > "$L/rehearsal.log"' if rehearsal_ok else
+            'printf "  Applying a.0001_x...\\nOperationalError: (3780, bad fk)\\n--- the throwaway db, last 20 lines\\nmysqld noise\\n"'
+            ' > "$L/rehearsal.log"; return 1')
+    script = (f'ST={box}/st L={box}/l CONTINUE_ON_FAILURE="{cont}"\n{_functions(text)}\n'
+              f'rehearse(){{ echo called >> {box}/rehearsed; {fake}; }}\n'
+              f'cd {box} && build_and_rehearse; echo "rc=$?"')
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    return r, (box / "st").read_text(), (box / "rehearsed").exists(), (box / "calls").read_text()
+
+
+def test_the_app_build_is_judged_by_its_success_line_not_its_exit_code(tmp_path, capsys):
+    """A --no-restart rebuild still runs stack health and exits 1 on any red, and `app image code` is always
+    STALE before the restart (dev-launch-20260928-1708): the exit code would stop every migration launch."""
+    r, st, rehearsed, calls = _run_build(tmp_path, capsys, success=True, exit_code=1)
+    assert "rc=0" in r.stdout, (r.stderr, st)
+    assert calls.strip() == "rebuild --component app --no-ci --no-restart"
+    assert "APP_BUILD exit=1" in st and rehearsed and "REHEARSAL-OK applied=a.0001_x" in st and "STOPPED" not in st
+    assert "ROLLBACK app nextseek-nextseek:pre-20261026T190000-1c070c08" in st
+
+
+def test_a_failed_app_build_stops_before_the_rehearsal(tmp_path, capsys):
+    r, st, rehearsed, _ = _run_build(tmp_path, capsys, success=False, exit_code=1)
+    assert "rc=" not in r.stdout and not rehearsed
+    assert "STOPPED: app build failed before the migration rehearsal, nothing was restarted" in st
+
+
+def test_a_failed_app_build_in_continue_on_failure_never_falls_through_to_a_live_migrate(tmp_path, capsys):
+    r, st, rehearsed, _ = _run_build(tmp_path, capsys, success=False, exit_code=1, cont=" app ")
+    assert "rc=1" in r.stdout and not rehearsed and "STOPPED" not in st
+    assert "FAILED app, continuing" in st
+    assert L.parse_status(st)["failed"] == ["app"]
+    # and the loop then never rebuilds the app (a rebuild that restarts runs migrate on the live database)
+    _, text = rendered_runner(tmp_path / "r", capsys, images=["bedrock-proxy", "app", "cc-agent"],
+                              migrations_expected=True, allowed_extras=["bedrock-proxy rebuild ok"])
+    block = "if [ $REHEARSE = 1 ] && ! build_and_rehearse" + text.split(
+        "if [ $REHEARSE = 1 ] && ! build_and_rehearse", 1)[1].split("\nfi\n", 1)[0] + "\nfi\n"
+    out = subprocess.run(["bash", "-c", f'REHEARSE=1 COMPONENTS="bedrock-proxy app cc-agent"\n'
+                                        f'build_and_rehearse(){{ return 1; }}\n{block}echo "[$COMPONENTS]"'],
+                         capture_output=True, text=True)
+    assert out.stdout.strip() == "[bedrock-proxy cc-agent]", out.stderr
+
+
+def test_a_failed_rehearsal_stops_and_its_status_line_is_the_error_not_the_db_log(tmp_path, capsys):
+    r, st, rehearsed, _ = _run_build(tmp_path, capsys, success=True, exit_code=1, rehearsal_ok=False)
+    assert "rc=" not in r.stdout and rehearsed
+    failed = next(ln for ln in st.splitlines() if ln.startswith("REHEARSAL FAILED"))
+    assert "3780" in failed and "mysqld noise" not in failed
+    assert "STOPPED: the migration rehearsal failed" in st
+
+
+def test_the_first_rollback_line_of_a_component_is_its_rollback_point(tmp_path):
+    """After the build-only step, the restart's own rebuild tags the image that step made: the new one."""
+    st = L.parse_status("ROLLBACK app nextseek-nextseek:pre-20261026T190000-1c070c08 (the old image) 19:10:00\n"
+                        "ROLLBACK app nextseek-nextseek:pre-20261026T191500-1c070c08 19:16:00\n")
+    assert st["rollback"]["app"] == "nextseek-nextseek:pre-20261026T190000-1c070c08"
