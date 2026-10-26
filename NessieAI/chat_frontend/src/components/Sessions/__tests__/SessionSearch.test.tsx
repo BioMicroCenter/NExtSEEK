@@ -16,7 +16,8 @@ const resp = (results: SessionSearchHit[], facets = { record_type: { TIS: 3 }, p
   SessionSearchResponse => ({
   query: "ndma liver", terms: ["ndma", "liver"], sources: ["chats", "records"], total: results.length, results, facets,
 });
-const NONE = { steps: false, recordType: null, project: null, where: null };
+const NONE = { steps: false, recordType: null, project: null, where: null, facets: false };
+const OPEN = { ...NONE, facets: true }; // the options panel is open: the counts are asked for
 
 function setup(over: Record<string, unknown> = {}) {
   const searchService = { searchSessions: vi.fn().mockResolvedValue(resp([hit()])) };
@@ -46,6 +47,13 @@ describe("SessionSidebar search", () => {
     const result = screen.getByTestId("session-search-result");
     expect(result).toHaveTextContent("NDMA mice");
     expect([...result.querySelectorAll("mark")].map((m) => m.textContent)).toEqual(["NDMA", "NDMA", "liver"]); // title, then snippet
+  });
+
+  it("with the options panel closed, a search asks for no counts", async () => {
+    const { searchService } = setup();
+    await type("ndma");
+    expect(searchService.searchSessions).toHaveBeenLastCalledWith(
+      "ndma", { sinceDays: null, allUsers: false, ...NONE }, expect.any(AbortSignal));
   });
 
   it("says when nothing matches", async () => {
@@ -88,7 +96,7 @@ describe("SessionSidebar search", () => {
     fireEvent.change(screen.getByLabelText(/when/i), { target: { value: "30" } });
     await act(async () => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS); });
     expect(searchService.searchSessions).toHaveBeenLastCalledWith(
-      "ndma", { sinceDays: 30, allUsers: false, ...NONE }, expect.any(AbortSignal));
+      "ndma", { sinceDays: 30, allUsers: false, ...OPEN }, expect.any(AbortSignal));
     expect(options.querySelector("[data-filter-dot]")).not.toBeNull();
   });
 
@@ -99,7 +107,7 @@ describe("SessionSidebar search", () => {
     fireEvent.click(screen.getByLabelText(/all users/i));
     await type("ndma");
     expect(searchService.searchSessions).toHaveBeenLastCalledWith(
-      "ndma", { sinceDays: null, allUsers: true, ...NONE }, expect.any(AbortSignal));
+      "ndma", { sinceDays: null, allUsers: true, ...OPEN }, expect.any(AbortSignal));
     expect(screen.getByTestId("session-search-result")).toHaveTextContent("jdoe");
   });
 
@@ -159,7 +167,7 @@ describe("SessionSidebar search", () => {
     fireEvent.click(steps);
     await type("ndma");
     expect(searchService.searchSessions).toHaveBeenLastCalledWith(
-      "ndma", { sinceDays: null, allUsers: false, ...NONE, steps: true }, expect.any(AbortSignal));
+      "ndma", { sinceDays: null, allUsers: false, ...OPEN, steps: true }, expect.any(AbortSignal));
   });
 
   it("opening the panel loads the counts, and a record filter searches with an empty box", async () => {
@@ -174,7 +182,7 @@ describe("SessionSidebar search", () => {
     fireEvent.change(type_, { target: { value: "TIS" } });
     await act(async () => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS); });
     expect(searchService.searchSessions).toHaveBeenLastCalledWith(
-      "", { sinceDays: null, allUsers: false, ...NONE, recordType: "TIS" }, expect.any(AbortSignal));
+      "", { sinceDays: null, allUsers: false, ...OPEN, recordType: "TIS" }, expect.any(AbortSignal));
     expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
     expect(screen.getByTestId("session-search-result")).toBeInTheDocument();
   });

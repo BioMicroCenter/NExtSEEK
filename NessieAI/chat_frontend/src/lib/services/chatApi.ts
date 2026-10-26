@@ -441,6 +441,7 @@ export class NextseekApiService {
     if (opts.project) params.set("project", opts.project);
     if (opts.where) params.set("where", opts.where);
     if (opts.facetsOnly) params.set("facets_only", "1");
+    if (opts.facets) params.set("facets", "1");
     const response = await fetch(
       `${baseUrl}/nextseek_api/assistant/sessions/search/?${params}`,
       { headers: { ...this.auth.getAuthHeaders() }, signal },

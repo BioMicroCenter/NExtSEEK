@@ -45,6 +45,9 @@ export interface UseSessionSearchReturn {
   /** The counts beside each filter value: from the last search, or from `loadFacets`. */
   facets: SessionSearchFacets;
   loadFacets: () => void;
+  /** The sidebar wants the counts (its options panel is open): only then does a search ask for them, the largest
+   *  part of a search on dev. Turning it on re-runs the current search. */
+  setCountsWanted: (wanted: boolean) => void;
   loading: boolean;
   error: string | null;
   clear: () => void;
@@ -59,6 +62,7 @@ export function useSessionSearch(service: SessionSearchServiceLike): UseSessionS
   const [facets, setFacets] = useState<SessionSearchFacets>(NO_FACETS);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [countsWanted, setCountsWanted] = useState(false);
   const inFlight = useRef<AbortController | null>(null);
   // Bumped by every search and every counts-only call: only the newest may set the counts.
   const countsSeq = useRef(0);
@@ -83,7 +87,7 @@ export function useSessionSearch(service: SessionSearchServiceLike): UseSessionS
       const controller = new AbortController();
       inFlight.current = controller;
       service
-        .searchSessions(q, filters, controller.signal)
+        .searchSessions(q, { ...filters, facets: countsWanted }, controller.signal)
         .then((res) => {
           if (controller.signal.aborted) return;
           setResults(res.results);
@@ -100,7 +104,7 @@ export function useSessionSearch(service: SessionSearchServiceLike): UseSessionS
         });
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [q, active, filters, service]);
+  }, [q, active, filters, countsWanted, service]);
 
   useEffect(() => () => inFlight.current?.abort(), []);
 
@@ -115,5 +119,8 @@ export function useSessionSearch(service: SessionSearchServiceLike): UseSessionS
 
   const clear = useCallback(() => setQuery(""), []);
 
-  return { query, setQuery, filters, setFilters, active, results, terms, facets, loadFacets, loading, error, clear };
+  return {
+    query, setQuery, filters, setFilters, active, results, terms, facets, loadFacets, setCountsWanted, loading, error,
+    clear,
+  };
 }

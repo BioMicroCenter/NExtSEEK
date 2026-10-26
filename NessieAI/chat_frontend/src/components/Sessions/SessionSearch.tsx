@@ -20,7 +20,7 @@ interface SessionSearchBoxProps {
 export function SessionSearchBox({ search, isAdmin, focusRequest, onFocused }: SessionSearchBoxProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [optionsOpen, setOptionsOpen] = useState(false);
-  const { filters, setFilters, active, loadFacets } = search;
+  const { filters, setFilters, active, loadFacets, setCountsWanted } = search;
   const filtered = (Object.keys(DEFAULT_FILTERS) as (keyof SearchFilters)[])
     .some((k) => filters[k] !== DEFAULT_FILTERS[k]);
 
@@ -28,6 +28,8 @@ export function SessionSearchBox({ search, isAdmin, focusRequest, onFocused }: S
   useEffect(() => {
     if (optionsOpen && !active) loadFacets();
   }, [optionsOpen, active, loadFacets]);
+  // The counts are asked for only while the panel shows them.
+  useEffect(() => setCountsWanted(optionsOpen), [optionsOpen, setCountsWanted]);
 
   useEffect(() => {
     if (!focusRequest) return;
