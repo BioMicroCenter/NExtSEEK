@@ -1082,6 +1082,14 @@ def windows_hhmm(inst: rules.Instance) -> str:
                     for w in inst.windows if w.blocks == "stop")
 
 
+def migration_in_range(brief: BriefForm, d: Path) -> bool:
+    """The two signals: the brief's migrations_expected, or the commits step's migration flag."""
+    if brief.migrations_expected:
+        return True
+    rv = d / "commit-review-form.json"
+    return rv.is_file() and "migration" in load_json(rv, "commit-review-form.json")["derived"].get("flags", {})
+
+
 def runner_values(data: dict, brief: BriefForm, d: Path, exp_full: str, cases: list[str]) -> dict:
     inst = rules.INSTANCES[brief.instance]
     images = images_for(brief, d)
@@ -1115,6 +1123,7 @@ def runner_values(data: dict, brief: BriefForm, d: Path, exp_full: str, cases: l
         "WINDOWS": windows_hhmm(inst),
         "DISCARD": " ".join(inst.discard_before_pull),
         "SET_ASIDE": " ".join(inst.set_aside_before_pull),
+        "REHEARSE": "1" if "app" in images and migration_in_range(brief, d) else "0",
         "REFRESH_MARKER": "NessieAI/chat_nextseek/src/chat_nextseek/context/.context_db_refresh",
         "LOGNAME_CASES": "\n".join(f"  {c}) echo {rules.LOG_NAME[c]};;" for c in rules.COMPONENTS),
         "SUCCESS_CASES": "\n".join(f"  {c}) echo {shlex.quote(rules.SUCCESS_LINE[c])};;" for c in rules.COMPONENTS),
@@ -1405,7 +1414,8 @@ def parse_status(text: str) -> dict:
             st["rebuilds"].setdefault(mm.group(1), {})["success"] = False
             st["failed"].append(mm.group(1))
         elif mm := re.match(r"^ROLLBACK (\S+) (\S+)", body):
-            st["rollback"][mm.group(1)] = mm.group(2)
+            # the first wins: after a build-only step (the migration rehearsal) the restart's rebuild tags the new image
+            st["rollback"].setdefault(mm.group(1), mm.group(2))
         elif mm := re.match(r"^RED (\S+) \[([^\]]+)\] (.*)$", body):
             st["reds"].append({"after": mm.group(1), "class": mm.group(2), "text": mm.group(3)})
         elif body.startswith("FINDING "):

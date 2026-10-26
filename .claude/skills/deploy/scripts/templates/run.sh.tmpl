@@ -23,6 +23,7 @@ SUMMARY_RED='@@SUMMARY_RED@@'
 WINDOWS="@@WINDOWS@@"
 DISCARD="@@DISCARD@@"
 SET_ASIDE="@@SET_ASIDE@@"
+REHEARSE=@@REHEARSE@@   # 1 when the range has a migration (the brief's migrations_expected or the commits step's migration flag)
 
 ST=$H/launch-$TAG.status; L=$H/launch-$TAG
 # >>> functions (tests/test_launch.py sources this block)
@@ -123,6 +124,74 @@ switch_order(){ # $1 the components: the phase 4 switchover order. app-build fir
   # web, nextseek and the sidecar, fixes ownership and starts them: the mixed-uid window no longer spans the app build
   for c in app-build cc-agent nextseek-sidecar bedrock-proxy cc-spawner app; do case " $1 " in *" ${c%-build} "*) echo "$c";; esac; done
 }
+rehearse(){ # the migration rehearsal, run AFTER the new app image is built and BEFORE anything restarts: this box's
+  # schema (no rows, plus django_migrations and django_content_type) is loaded into a throwaway MySQL and the NEW image
+  # runs `migrate` against it. Reads the live DB only (mysqldump --single-transaction --no-data, two tables' rows).
+  # Returns 1 on any failure; the error tail is in $L/rehearsal.log. Its own subshell, so the EXIT trap always cleans.
+  ( set +x; umask 077
+    net=rehearse-net-$TAG; ctr=rehearse-db-$TAG; mig=rehearse-mig-$TAG; dump=$H/backups/rehearse-$TAG.sql.gz; log=$L/rehearsal.log
+    : > "$log"; t0=$(date +%s)
+    # a runner killed mid-rehearsal (SIGKILL skips the trap) leaves its 2 GB db and its network: remove every leftover first
+    for o in $(docker ps -a --format '{{.Names}}' --filter name=rehearse- </dev/null 2>/dev/null | grep -E '^rehearse-(db|mig)-'); do docker rm -f "$o" >/dev/null 2>&1; done
+    for o in $(docker network ls --format '{{.Name}}' --filter name=rehearse-net- </dev/null 2>/dev/null | grep '^rehearse-net-'); do docker network rm "$o" >/dev/null 2>&1; done
+    rm -f "$H"/backups/rehearse-*.sql.gz*
+    cleanup(){ rc=$?   # on a failure the throwaway db's own last lines go under a marker, after the error
+      [ $rc = 0 ] || { echo "--- the throwaway db, last 20 lines"; docker logs --tail 20 "$ctr" </dev/null 2>&1; } >> "$log"
+      docker rm -f "$ctr" "$mig" >/dev/null 2>&1; docker network rm "$net" >/dev/null 2>&1; rm -f "$dump" "$dump.body"; }
+    trap cleanup EXIT
+    # the throwaway runs the live db container's own image and command (its flags: charset, collation); never without them
+    dbc=$(docker compose ps -q db </dev/null 2>/dev/null | head -1)
+    [ -n "$dbc" ] || { echo "no running db container: the throwaway db never starts without the live one's flags" >> "$log"; exit 1; }
+    img=$(docker inspect -f '{{.Image}}' "$dbc" </dev/null 2>/dev/null)
+    mapfile -t margs < <(docker inspect -f '{{range .Config.Cmd}}{{println .}}{{end}}' "$dbc" </dev/null 2>/dev/null | sed '/^$/d')
+    { [ -n "$img" ] && [ ${#margs[@]} -gt 0 ]; } || { echo "could not read the db container's image and command" >> "$log"; exit 1; }
+    dbn=$(docker exec nextseek printenv NEXTSEEK_MYSQL_DATABASE </dev/null 2>/dev/null); dbn=${dbn:-dmac}
+    # the live db's password stays inside its own container (MYSQL_PWD from its env); nothing secret is on an argv.
+    # Line 1 out = the live database's default charset and collation (the throwaway's CREATE DATABASE reuses them),
+    # then ---, then the schema without rows, then the rows of the two tables migrate reads. sh -e: a failed step stops
+    docker compose exec -T -e DBN="$dbn" db sh -ec 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
+      mysql -h127.0.0.1 -uroot -N -e "select concat(default_character_set_name, \" \", default_collation_name) from information_schema.schemata where schema_name=\"$DBN\""
+      echo ---
+      mysqldump -h127.0.0.1 -uroot --single-transaction --no-data --skip-triggers "$DBN"
+      mysqldump -h127.0.0.1 -uroot --single-transaction --no-create-info --skip-triggers "$DBN" django_migrations django_content_type' \
+      </dev/null 2>>"$log" | gzip -c > "$dump"
+    [ "${PIPESTATUS[0]}" = 0 ] || { echo "schema dump failed" >> "$log"; exit 1; }
+    cs=$(zcat "$dump" | sed -n '1p'); zcat "$dump" | sed '1,/^---$/d' | gzip -c > "$dump.body" && mv -f "$dump.body" "$dump"
+    export REHEARSE_PW=$(head -c 18 /dev/urandom | base64 | tr -d '/+=\n')   # a throwaway password for a throwaway container
+    docker network create --internal "$net" >/dev/null 2>&1 || { echo "network create failed" >> "$log"; exit 1; }
+    # timeout (coreutils, in the mysql image) as the container's entrypoint is the real limit: it holds with no runner left
+    docker run -d --name "$ctr" --network "$net" --memory 2g -e MYSQL_ROOT_PASSWORD="$REHEARSE_PW" \
+      --entrypoint timeout "$img" -k 10 900 docker-entrypoint.sh "${margs[@]}" >/dev/null 2>>"$log" \
+      || { echo "throwaway db did not start" >> "$log"; exit 1; }
+    ok=0; for i in $(seq 60); do
+      docker exec -e MYSQL_PWD="$REHEARSE_PW" "$ctr" mysqladmin ping -h127.0.0.1 -uroot --silent </dev/null >/dev/null 2>&1 && { ok=1; break; }; sleep 2; done
+    [ $ok = 1 ] || { echo "throwaway db never answered" >> "$log"; exit 1; }
+    set -- $cs; cset=${1:-utf8mb4}; coll=${2:-utf8mb4_unicode_ci}
+    { echo "create database \`$dbn\` default character set $cset collate $coll;"; echo "use \`$dbn\`;"; zcat "$dump"; } \
+      | docker exec -i -e MYSQL_PWD="$REHEARSE_PW" "$ctr" mysql -h127.0.0.1 -uroot >> "$log" 2>&1 \
+      || { echo "schema load failed" >> "$log"; exit 1; }
+    # the settings go in on stdin and are written inside the container: no host mount, so no file mode, owner or SELinux
+    # label matters (the app image may run as 10001)
+    timeout -k 10 600 docker run -i --rm --name "$mig" --network "$net" --memory 2g -e REHEARSE_PW -e REHEARSE_DB="$dbn" \
+      -e REHEARSE_HOST="$ctr" -e DJANGO_SETTINGS_MODULE=rehearsal_settings -e PYTHONPATH=/tmp/rehearsal -e LOG_DIR=/tmp/l \
+      -e DJANGO_CSRF_TRUSTED_ORIGINS=https://rehearsal.invalid -w /app nextseek-nextseek:latest \
+      sh -ec 'mkdir -p /tmp/rehearsal; cat > /tmp/rehearsal/rehearsal_settings.py; exec /app/.venv/bin/python manage.py migrate --noinput' \
+      >> "$log" 2>&1 <<'PYEOF' || exit 1
+import os
+from dmac.test_settings import *  # noqa
+DATABASES["default"] = {"ENGINE": "django.db.backends.mysql", "NAME": os.environ["REHEARSE_DB"], "USER": "root",
+                        "PASSWORD": os.environ["REHEARSE_PW"], "HOST": os.environ["REHEARSE_HOST"], "PORT": "3306",
+                        "OPTIONS": {"charset": "utf8mb4"}}
+PYEOF
+    names=$(grep -oE 'Applying [A-Za-z0-9_]+\.[A-Za-z0-9_]+' "$log" | sed 's/^Applying //' | paste -sd' ' -)   # app.migration only: DEBUG lines follow on the same line
+    echo "REHEARSAL-OK applied=${names:-none} seconds=$(( $(date +%s) - t0 ))" >> "$log" )
+}
+rehearse_or_stop(){ # right after app-build (the new app image built, nothing restarted): the migration rehearsal; a
+  # failure stops the launch there, before ANY component is rebuilt and restarted
+  if rehearse; then say "$(grep -m1 '^REHEARSAL-OK' "$L/rehearsal.log")"; return 0; fi
+  say "REHEARSAL FAILED: $(sed '/^--- the throwaway db/,$d' "$L/rehearsal.log" | grep -vE '^[[:space:]]*$' | tail -4 | tr '\n' ' ' | cut -c1-400)"
+  stop "the migration rehearsal failed on this box's schema; the old containers are still serving, nothing was restarted, see $L/rehearsal.log"
+}
 # <<< functions
 
 mkdir -p "$L" "$H/backups"
@@ -157,7 +226,14 @@ fi
 if [ $SWITCH = 1 ]; then
   m=$(switch_missing "$COMPONENTS")
   [ -n "$m" ] && stop "the switchover to 10001 needs these images in the brief too: $(echo $m); nothing was rebuilt"
-  COMPONENTS=$(switch_order "$COMPONENTS"); say "SWITCHOVER the app containers change user (root to 10001); order: $COMPONENTS"
+  COMPONENTS=$(echo $(switch_order "$COMPONENTS")); say "SWITCHOVER the app containers change user (root to 10001); order: $COMPONENTS"
+fi
+# A migration in the range (REHEARSE=1 only with the app in the brief): app-build goes first (the switchover order already
+# has it), and the rehearsal runs right after it, so a failed migration stops the launch before anything restarts. A
+# failed app-build stops too (continue_on_failure cannot name it): the app's restart would migrate the live database.
+if [ $REHEARSE = 1 ]; then
+  case " $COMPONENTS " in *" app-build "*) ;; *) COMPONENTS="app-build $COMPONENTS";; esac
+  say "MIGRATION in the range: app-build first, the rehearsal right after it; order: $COMPONENTS"
 fi
 
 pre_app(){ # the labs file goes onto the shared volume BEFORE the app rebuild starts the new web, which reads it once at load
@@ -196,6 +272,7 @@ for c in $COMPONENTS; do
       *) stop "$c: no '$(success_line "$c")' line, see $L/$(logname "$c").log";;
     esac
   fi
+  [ "$c" = app-build ] && [ $REHEARSE = 1 ] && rehearse_or_stop
   [ "$c" = app ] && post_app
   bad=$(judge "$L/$(logname "$c").log" "$c")
   if [ -n "$bad" ]; then

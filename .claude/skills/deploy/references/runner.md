@@ -36,6 +36,7 @@ estimate from `brief.json` against the budget), expected minutes (`derived.estim
 | window | checks the UTC clock against the stop windows | inside one |
 | busy | `pgrep` inside `nextseek` for a graph sync, drift or harness run | anything found |
 | pull | `git fetch`; discards only the app's context refresh; `git merge --ff-only <expected>` | origin/dev is not the sha, or the fast-forward is refused |
+| rehearsal | only when the range has a migration and the app is rebuilt: `app-build` goes first (the switchover order already has it) and, right after it, `migrate` runs on a throwaway copy of the box schema (DEPLOYMENT.md section 3.6) | the rehearsal fails, or `app-build` has no success line (even with the app in `continue_on_failure`): nothing has restarted yet |
 | rebuilds | each component in the order bedrock-proxy, cc-spawner, app, cc-agent, nextseek-sidecar (on the phase 4 switchover: `app-build` (the app image built and preflighted with `--no-restart`, log `app-build.log`; its ROLLBACK line is the app's, later app tags are not reported), cc-agent, nextseek-sidecar, bedrock-proxy, cc-spawner, app (a cached build, then the restart), then `./startup.sh fix-ownership --check`, which stops the launch on any count above 0; a switchover brief without cc-agent and nextseek-sidecar stops before any rebuild), `--no-ci` | the success line is missing (unless the component is in `continue_on_failure`: then it says `FAILED ..., continuing`) |
 | after app | collectstatic in `web`; on dev the labs copy (`compose cp -a`, so the file is owned by the app user) onto the volume `web` and `nextseek` share (no restart); `mkdir -p /app/runs` in both | never |
 | judge | every red stack-health line of each rebuild log, classified | an unexplained or stale red while components are still pending; after the last rebuild it becomes a `FINDING` line and the run goes on to CI |
@@ -61,7 +62,10 @@ Every line ends in a UTC `HH:MM:SS`; the last is `ALL_DONE`. `launch.py judge` p
 START tag=... instance=dev components=app cc-agent
 HEAD 1c070c08 Merge ...
 REBUILD app exit=1               # exit 1 is often drift or GHCR; the success line decides
-ROLLBACK app nextseek-nextseek:pre-<utc>-<sha>   # the NEW image was built from <sha>
+ROLLBACK app nextseek-nextseek:pre-<utc>-<sha>   # the NEW image was built from <sha>; a component's first ROLLBACK line wins
+MIGRATION in the range: app-build first, ...; order: app-build ...   # only when the range has a migration
+REBUILD app-build exit=1         # the app image built with --no-restart (switchover or migration); the success line decides
+REHEARSAL-OK applied=<names> seconds=<n>   # right after app-build: migrate on a copy of the box schema; a failure is STOPPED, nothing restarted
 REBUILT app | FAILED cc-agent, continuing (...)
 STATIC exit=0 ...
 LABS pre-copied | LABS pre-copy failed; ...   # before the app rebuild; the last LABS line decides

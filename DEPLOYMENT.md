@@ -405,7 +405,7 @@ exits non-zero rather than blocking on a question nobody can answer.
 | `NessieAI/docker/bedrock-proxy/**` or its secret env | `./startup.sh rebuild --component bedrock-proxy` |
 | `NessieAI/docker/ns-sidecar/**` | `./startup.sh rebuild --component nextseek-sidecar` |
 | More than one first-party image family | run each affected component, or `--component custom-stack` |
-| A Django migration (in the range) | mysqldump gate (§5.3) → rebuild + recreate (migrate runs at boot) → verify with `showmigrations` |
+| A Django migration (in the range) | mysqldump gate (§5.3), migration rehearsal (§3.6) → rebuild + recreate (migrate runs at boot) → verify with `showmigrations` |
 
 ### 3.3 Swapping the web server (no gap)
 
@@ -574,6 +574,39 @@ Whatever it leaves root-owned the next CHECK reports and `./startup.sh fix-owner
 ownership pass) fixes. The runner's own execs (collectstatic, `mkdir -p /app/runs`, the Nessie run) run as the app user on purpose, and its
 copies into the containers use `docker compose cp -a` / `docker cp -a`, which gives the file the container user
 (verified on docker here: without `-a` the host uid is kept).
+
+### 3.6 Migration rehearsal (launch runner, before anything restarts)
+
+When a launch's range has a migration (the brief's `migrations_expected`, or the commits step's migration flag) and
+the app is rebuilt, the runner's first step is `app-build` (the new app image built with `--no-restart`, as on the
+phase 4 switchover, §3.5), then it rehearses `manage.py migrate --noinput` with that image on a throwaway copy of the
+box's own schema, and only then rebuilds and restarts the other components in their order (the app's turn is a cached
+build). The SQLite lanes and GitHub's pytest cannot see
+charsets or collations; this can (launch 20261026-1846: an FK from a utf8mb4 table to the latin1
+`assistant_chat_session`, MySQL error 3780, a crash loop behind `[MIGRATE-FAILED]`).
+
+- `app-build` is judged by its success line (`app image rebuilt; runtime restart deferred by request`), not its exit
+  code: a `--no-restart` rebuild still runs stack health, and `app image code` is STALE until the restart.
+- It only reads the live database: `mysqldump --single-transaction --no-data` plus the rows of `django_migrations` and
+  `django_content_type`, run inside the db container under `sh -e` (its password never leaves the container; nothing
+  secret is on an argv). No user or auth rows.
+- The copy loads into a throwaway MySQL: the running db container's own image and command (no db container, no
+  rehearsal), the live database's default charset and collation, an `--internal` network, 2 GB, and `timeout -k 10 900`
+  as its entrypoint, so the limit holds even if the runner dies. The migrate container gets its settings on stdin (no
+  host mount) and a 600 s limit. A trap removes the dump, the containers and the network on every exit; on a failure it
+  first appends the throwaway db's last 20 lines to `rehearsal.log`. A rehearsal also removes any `rehearse-*`
+  container, network or dump a killed runner left behind before it starts.
+- It cannot catch a failure that needs rows: the copy has the schema only, so a unique index over duplicate values, a
+  NOT NULL over existing nulls, an FK over orphan rows, or a RunPython data step all pass here and can still fail at
+  boot. The mysqldump gate (§5.3) stays the way back from those.
+- Green: the status file gets `REHEARSAL-OK applied=<migrations> seconds=<n>` and the launch goes on.
+- A STOP (`STOPPED: the migration rehearsal failed ...`, or `STOPPED: app-build: no '...' line`, which stops even
+  with the app in `continue_on_failure`: the app's restart would migrate the live database unrehearsed) means the old
+  containers are still serving and nothing was restarted. The error tail is on the status line and in
+  `launch-<tag>/rehearsal.log`; the new image is built but unused. Fix the migration, push, and relaunch. Never
+  `migrate --fake`.
+- The app's rollback point is `app-build`'s `ROLLBACK` line (the old image); the restart's own tag would be the new
+  image, so the runner reports only an image's first tag and `launch.py` keeps a component's first `ROLLBACK` line.
 
 ## 4. Config-only changes
 
