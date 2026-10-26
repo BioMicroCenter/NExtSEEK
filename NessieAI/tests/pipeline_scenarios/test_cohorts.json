@@ -1,14 +1,14 @@
 {
-  "_note": "Local-only test cohorts (project 'Nessie test cohorts'). uids stay empty until scripts/pipeline_scenarios/make_test_cohorts.py has been uploaded; a story whose cohort has no uids is skipped by the runner.",
+  "_note": "Local-only test cohorts, uploaded on the local stack in project 'Nessie test cohorts'; the uids are that stack's (a fresh stack re-uploads scripts/pipeline_scenarios/make_test_cohorts.py's workbooks and re-records them). A story whose cohort has no uids is skipped by the runner.",
   "cohorts": {
-    "human_wgs_germline": {"description": "Human whole-genome germline, two samples", "uids": []},
-    "human_exome": {"description": "Human whole-exome with a named capture kit", "uids": []},
-    "tumour_normal": {"description": "One patient: tumour and matched normal DNA", "uids": []},
-    "methylation": {"description": "Human RRBS or WGBS", "uids": []},
-    "atac": {"description": "ATAC-seq, two conditions", "uids": []},
-    "chip": {"description": "ChIP-seq with an antibody and an input control", "uids": []},
-    "smallrna": {"description": "Small-RNA libraries", "uids": []},
-    "riboseq": {"description": "Ribosome profiling", "uids": []},
-    "nonmodel_rnaseq": {"description": "RNA-seq of a species with no reference bundle", "uids": []}
+    "human_wgs_germline": {"description": "Human whole-genome germline, two samples", "uids": ["D.SEQ-261026NA-1", "D.SEQ-261026NA-2"]},
+    "human_exome": {"description": "Human whole-exome with a named capture kit", "uids": ["D.SEQ-261026NA-11", "D.SEQ-261026NA-12"]},
+    "tumour_normal": {"description": "One patient: tumour and matched normal DNA", "uids": ["D.SEQ-261026NA-21", "D.SEQ-261026NA-22"]},
+    "methylation": {"description": "Human RRBS or WGBS", "uids": ["D.SEQ-261026NA-13", "D.SEQ-261026NA-14"]},
+    "atac": {"description": "ATAC-seq, two conditions", "uids": ["D.SEQ-261026NA-3", "D.SEQ-261026NA-4", "D.SEQ-261026NA-5", "D.SEQ-261026NA-6"]},
+    "chip": {"description": "ChIP-seq with an antibody and an input control", "uids": ["D.SEQ-261026NA-7", "D.SEQ-261026NA-8", "D.SEQ-261026NA-9", "D.SEQ-261026NA-10"]},
+    "smallrna": {"description": "Small-RNA libraries", "uids": ["D.SEQ-261026NA-19", "D.SEQ-261026NA-20"]},
+    "riboseq": {"description": "Ribosome profiling", "uids": ["D.SEQ-261026NA-17", "D.SEQ-261026NA-18"]},
+    "nonmodel_rnaseq": {"description": "RNA-seq of a species with no reference bundle", "uids": ["D.SEQ-261026NA-15", "D.SEQ-261026NA-16"]}
   }
 }
