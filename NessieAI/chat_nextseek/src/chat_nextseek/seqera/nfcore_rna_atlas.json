@@ -66,6 +66,9 @@
         },
         "hlatyping": {
           "differs_by": "hlatyping answers a genotyping question \u2014 which HLA alleles the donor carries \u2014 and ignores expression entirely. It accepts RNA reads, so an RNA cohort alone does not rule it in or out; the question does."
+        },
+        "atacseq": {
+          "differs_by": "atacseq measures accessible DNA, rnaseq measures transcripts; ATAC libraries are genomic."
         }
       }
     },
@@ -293,6 +296,7 @@
     },
     "differentialabundance": {
       "revision": "2.0.0",
+      "launchable": false,
       "answers": "Which features differ significantly between two groups, starting from a count matrix that already exists?",
       "assumes_prep": "No sequencing prep. The input is a matrix produced by an earlier run.",
       "versus": {

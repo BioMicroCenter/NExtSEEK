@@ -59,7 +59,7 @@ different things is true in "basis":
     THIS cohort's data cannot support it (the library, the molecule, the
     species). This is a refusal, and a correct, expected answer, not a hedge.
   - "atlas": the question asks for an analysis no pipeline in the atlas
-    performs (chromatin, methylation or metagenomics, for now), even when
+    performs (metagenomics, Hi-C or CUT&RUN, for now), even when
     an atlas pipeline shares a word with the request (rnavar calls variants
     from RNA and sarek from DNA; neither profiles methylation). Another part
     of the system chooses from a wider catalog, so do not refuse on the

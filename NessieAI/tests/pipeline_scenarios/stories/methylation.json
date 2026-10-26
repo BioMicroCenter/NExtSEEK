@@ -14,21 +14,24 @@
       "ruling": {
         "state": "proposed",
         "date": "2026-10-26",
-        "note": "flip to methylseq in Task 4"
+        "note": ""
       },
       "id": "dna-methylation-not-yet",
       "question": "Which CpG sites are differentially methylated between the two groups of bisulfite libraries?",
       "cohort": "test::methylation",
-      "acceptable": [],
+      "acceptable": [
+        [
+          "methylseq"
+        ]
+      ],
       "launch": {
-        "built": false,
+        "built": true,
         "must_match": {}
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "methylseq becomes choosable in this piece (was: no pipeline yet)."
-      },
-      "expect": "not_yet"
+        "pipelines": "Bisulfite libraries are a methylation question: methylseq. sarek would call the C-to-T conversions as mutations, and rnaseq and rnavar read transcripts."
+      }
     }
   ]
 }

@@ -36,6 +36,102 @@
         },
         "hlatyping": {
           "differs_by": "sarek reports variants genome-wide. hlatyping resolves HLA alleles against a specialist reference; sarek does not type HLA."
+        },
+        "methylseq": {
+          "differs_by": "methylseq reads bisulfite or enzymatically converted libraries for methylation; sarek on those reads would call conversions as mutations.",
+          "ask_user": "Were these libraries bisulfite or EM-seq converted?"
+        }
+      }
+    },
+    "atacseq": {
+      "revision": "2.1.2",
+      "answers": "Where is chromatin open in each sample, how consistent are the open regions between replicates, and which regions open or close between conditions?",
+      "assumes_prep": "ATAC-seq: Tn5 transposase tagmentation of native chromatin, short-read Illumina, single- or paired-end.",
+      "input_you_must_have": "Gzipped FASTQ per sample with a replicate number. Two or more conditions for differential accessibility. A reference genome with an annotation.",
+      "data_signals": {
+        "library_strategy": [
+          "ATAC-seq"
+        ],
+        "library_source": [
+          "GENOMIC"
+        ],
+        "prep_kit_hints": [
+          "ATAC",
+          "Tn5",
+          "tagmentation",
+          "Omni-ATAC",
+          "chromatin accessibility"
+        ]
+      },
+      "species_constraint": "No ATAC references are staged on Luria yet: the launch is built with the iGenomes reference for the species and the reply must say references need staging before it can run.",
+      "versus": {
+        "chipseq": {
+          "differs_by": "chipseq maps where one protein or histone mark binds, using an antibody and usually an input control; atacseq maps open chromatin with no antibody.",
+          "ask_user": "Was an antibody used (ChIP), or is this transposase accessibility (ATAC)?"
+        },
+        "rnaseq": {
+          "differs_by": "rnaseq measures transcripts; atacseq measures which DNA is accessible. ATAC libraries are genomic DNA."
+        }
+      }
+    },
+    "chipseq": {
+      "revision": "2.1.0",
+      "answers": "Where does a protein or histone mark bind across the genome in each sample, compared with its input control where one exists, and how consistent are the peaks between replicates?",
+      "assumes_prep": "ChIP-seq: chromatin immunoprecipitation with an antibody, short-read Illumina, single- or paired-end. An input (or IgG) control library for each IP is usual but optional. CUT&RUN and CUT&Tag are different assays that NExtSEEK cannot launch yet.",
+      "input_you_must_have": "Gzipped FASTQ per sample, with replicates numbered from 1 within each experimental group. The antibody name for each IP sample (required for any sample that has a control) and, where a control exists, which sample is its control and which replicate of it. A reference genome with an annotation.",
+      "data_signals": {
+        "library_strategy": [
+          "ChIP-Seq"
+        ],
+        "library_source": [
+          "GENOMIC"
+        ],
+        "prep_kit_hints": [
+          "ChIP",
+          "antibody",
+          "input control",
+          "IgG",
+          "H3K27ac",
+          "H3K4me3",
+          "immunoprecipitation"
+        ]
+      },
+      "species_constraint": "No ChIP references are staged on Luria yet: the launch is built with the iGenomes reference for the species and the reply must say references need staging before it can run.",
+      "versus": {
+        "atacseq": {
+          "differs_by": "atacseq maps open chromatin by transposase; chipseq maps antibody-bound sites, against an input control where one exists.",
+          "ask_user": "Was an antibody used (ChIP), or is this transposase accessibility (ATAC)?"
+        }
+      }
+    },
+    "methylseq": {
+      "revision": "4.2.0",
+      "answers": "How methylated is each cytosine (CpG and, where covered, non-CpG) in each sample, from bisulfite or enzymatic conversion sequencing?",
+      "assumes_prep": "Whole-genome bisulfite (WGBS), reduced-representation bisulfite (RRBS), enzymatic methyl conversion (EM-seq), PBAT or TAPS libraries, short-read Illumina, single- or paired-end.",
+      "input_you_must_have": "Gzipped FASTQ per sample, and which conversion and library type was used (WGBS, RRBS, EM-seq, PBAT, TAPS), because the trimming and the aligner settings depend on it.",
+      "data_signals": {
+        "library_strategy": [
+          "Bisulfite-Seq"
+        ],
+        "library_source": [
+          "GENOMIC"
+        ],
+        "prep_kit_hints": [
+          "bisulfite",
+          "WGBS",
+          "RRBS",
+          "EM-seq",
+          "Enzymatic Methyl",
+          "PBAT",
+          "TAPS",
+          "methylation"
+        ]
+      },
+      "species_constraint": "No methylation references (a bisulfite-converted index) are staged on Luria yet: the launch is built with the iGenomes reference for the species and the reply must say references need staging before it can run.",
+      "versus": {
+        "sarek": {
+          "differs_by": "sarek calls variants from ordinary DNA reads. Bisulfite or enzymatically converted reads turn unmethylated C into T, so sarek would call those as mutations; they go to methylseq only.",
+          "ask_user": "Were these libraries bisulfite or EM-seq converted?"
         }
       }
     }
