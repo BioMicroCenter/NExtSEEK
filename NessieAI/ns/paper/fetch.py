@@ -15,7 +15,6 @@ from urllib.parse import urljoin, urlsplit
 ALLOWED_HOSTS = frozenset({
     "www.ebi.ac.uk",          # Europe PMC, the ENA portal API, the PRIDE archive API
     "www.ncbi.nlm.nih.gov",   # GEO
-    "api.crossref.org",
     "zenodo.org",
     "api.figshare.com",
     "purl.stanford.edu",      # Stanford Digital Repository metadata

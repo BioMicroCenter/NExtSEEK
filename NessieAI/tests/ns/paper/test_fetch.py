@@ -143,3 +143,10 @@ def test_a_body_that_crosses_the_deadline_is_out_of_time_and_not_retried():
     with pytest.raises(OutOfTime):
         f.get(URL)
     assert len(session.timeouts) == 1
+
+
+def test_the_allowlist_holds_only_hosts_an_adapter_reads():
+    from NessieAI.ns.paper.fetch import ALLOWED_HOSTS
+
+    assert ALLOWED_HOSTS == {"www.ebi.ac.uk", "www.ncbi.nlm.nih.gov", "zenodo.org", "api.figshare.com",
+                             "purl.stanford.edu"}
