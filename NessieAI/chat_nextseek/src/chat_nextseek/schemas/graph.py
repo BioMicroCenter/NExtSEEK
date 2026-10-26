@@ -52,6 +52,8 @@ def no_cypher_error(plan) -> str:
     """
     get = plan.get if isinstance(plan, dict) else lambda k, d=None: getattr(plan, k, d)
     why = str(get("explanation", "") or "").strip()[:500]
+    if why.startswith("Graph agent error:"):  # graph_agent's except branch: exception text never goes on to CC
+        why = ""
     kinds = ", ".join(str(k) for k in get("refusal_kinds", None) or [])
     detail = why + (f" (refused: {kinds})" if kinds else "")
     return "graph agent produced no cypher" + (f": {detail.strip()}" if detail.strip() else "")
