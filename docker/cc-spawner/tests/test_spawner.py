@@ -333,6 +333,13 @@ def test_health_with_token_names_the_missing_network(svc, client):
     assert svc.health(with_detail=False) == {"ok": False}
 
 
+def test_health_with_token_says_how_to_build_a_missing_image(svc, client):
+    client.images.ok = False
+    out = svc.health(with_detail=True)
+    assert out["ok"] is False and "cc-img:test" in out["detail"]
+    assert "docker compose build cc-agent" in out["detail"]
+
+
 # ---- HTTP layer -------------------------------------------------------------------------------------------
 
 @pytest.fixture
