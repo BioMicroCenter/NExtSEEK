@@ -75,7 +75,7 @@ services:
       # see the same export files. A named volume, so a rebuild no longer wipes it.
       - nextseek-media:/media
     # Non-root (uid/gid 10001, the user the image creates; host uid 1001 is a person), no capabilities, no setuid
-    # escalation. group_add is the deploy account's gid, so the app can read local_settings.py and the Luria key (mode 0640).
+    # escalation. group_add is the deploy account's gid, so the app can read local_settings.py and docker/luria-key (0640).
     user: "10001:10001"
     group_add:
       - "${NEXTSEEK_HOST_GID:?is missing from .env: add it with echo NEXTSEEK_HOST_GID=`id -g` >> .env}"

@@ -1,6 +1,7 @@
 """Create the named volumes required by the compose stack."""
 from __future__ import annotations
 
+import json
 import os
 import stat
 import subprocess
@@ -170,7 +171,6 @@ def peers_not_on_app_uid(repo_root: Path, env: dict[str, str]) -> list[str]:
     """The cc-agent and sidecar images (by their compose tags) that do not run as APP_UID, one line each.
     `id -u` in a throwaway container: no network, never pulled. The switchover must not start while either
     is still on the old uid: the app's FIX would hand their files to a uid they do not run as."""
-    import json
     cfg = json.loads(_check_out(_run(["docker", "compose", "config", "--format", "json"], repo_root, env),
                                 "docker compose config"))
     bad: list[str] = []
