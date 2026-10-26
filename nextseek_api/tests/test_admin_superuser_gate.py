@@ -39,6 +39,23 @@ class AdminSuperuserGateTests(TestCase):
             with self.subTest(url=url):
                 self.assertFalse(_reached_page(client, url))
 
+    def test_staff_with_a_site_permission_does_not_reach_admin_pages(self):
+        """The real exposure: Mezzanine admits staff who hold a SitePermission for the site."""
+        from mezzanine.core.models import SitePermission
+        from mezzanine.utils.sites import current_site_id
+
+        client = self._client(is_staff=True)
+        perm = SitePermission.objects.create(user=User.objects.get(is_staff=True))
+        perm.sites.add(current_site_id())
+        for url in ADMIN_URLS + ("/admin/media-library/browse/",):
+            with self.subTest(url=url):
+                self.assertFalse(_reached_page(client, url))
+
+    def test_anonymous_gets_404_from_admin(self):
+        for url in ("/admin/", "/admin/login/"):
+            with self.subTest(url=url):
+                self.assertEqual(Client().get(url).status_code, 404)
+
     def test_superuser_still_reaches_admin_index(self):
         client = self._client(is_staff=True, is_superuser=True)
         self.assertTrue(_reached_page(client, "/admin/"))
@@ -81,6 +98,16 @@ class UsersApiDoesNotGrantStaffTests(TestCase):
         _sync_django_user(login="newbie", email="n@x.org", password="pw", first_name="N", last_name="B",
                           is_active=True, is_superuser=False)
         self.assertFalse(User.objects.get(username="newbie").is_staff)
+
+
+    def test_is_staff_follows_is_superuser_on_create_and_update(self):
+        from nextseek_api.services.users import _sync_django_user
+
+        for flag in (True, False):
+            _sync_django_user(login="flip", email="f@x.org", password="pw", first_name="F", last_name="L",
+                              is_active=True, is_superuser=flag)
+            user = User.objects.get(username="flip")
+            self.assertEqual((user.is_superuser, user.is_staff), (flag, flag))
 
 
 class ClearStaffMigrationTests(TestCase):

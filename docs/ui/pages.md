@@ -46,7 +46,7 @@ The string passed to `requires_seek_login_redirect` is the `next` target after l
 | `/login` | `login_seek` | `dmac/views.py:login_seek` | `login.html` (extends `base_auth.html`, styles inline in the file) | anonymous | "Sign in" in `accounts/includes/user_panel.html`, every login redirect | [shell.md](shell.md) |
 | `/signup/` and `/accounts/signup/` | `signup_seek` (both; reverse resolves to the `accounts/` one) | `dmac/views.py:signup_seek` | none: 302 to `SEEK_PUBLIC_URL + /signup` | anonymous | "Sign up" on the login page | [shell.md](shell.md) |
 | `/media/<path>` | none | `dmac/media.py:serve_media` | file response | logged-in only; anonymous gets 302 to `/login/` | download links produced by exports | [search-and-downloads.md](search-and-downloads.md) |
-| `/admin/` | Django admin | `django.contrib.admin` | Django admin templates | Django staff login | sidebar "Admin Panel" (superusers only) | [legacy.md](legacy.md) |
+| `/admin/` | Django admin | `django.contrib.admin` | Django admin templates | superusers only (anyone else gets 404) | sidebar "Admin Panel" (superusers only) | [legacy.md](legacy.md) |
 
 The login route is registered twice: `^login/?$` and `^accounts/login/$` (both above the Mezzanine include; see the Mezzanine table). The login view follows `next` only to a path on this site. The home page for logged-out visitors: SEC-0930-C.
 
@@ -107,7 +107,7 @@ The sidebar Admin block is rendered only for superusers (`{% if request.user.is_
 | `/seek/admin/clades/` | `adminClades` | `seek/views/admin.py:adminClades` | `clades.html` | SEEK login plus `@requires_supervisor` | sidebar (superusers) | [projects-catalogs-graphs.md](projects-catalogs-graphs.md) |
 | `/seek/admin/internal_assays/` | `internalAssays` | `admin.py:internalAssays` | `internal_assays.html` | SEEK login plus `@requires_supervisor` | sidebar (superusers) | [projects-catalogs-graphs.md](projects-catalogs-graphs.md) |
 | `/seek/admin/retrieve/` (no `$`) | `adminRetrieveSamples` | `admin.py:adminRetrieveSamples` | `admin_retrieval.html` (GET) or an xlsx (POST) | security item SEC-0930-B, tracked privately | nothing links to it; the Sample Retrieval tab on `/seek/search/` (through `ns_sample_download.js`) replaced its form | [search-and-downloads.md](search-and-downloads.md) |
-| `/admin/` | Django admin | `django.contrib.admin` | Django templates | Django staff | sidebar "Admin Panel" | [legacy.md](legacy.md) |
+| `/admin/` | Django admin | `django.contrib.admin` | Django templates | superusers only (anyone else gets 404) | sidebar "Admin Panel" | [legacy.md](legacy.md) |
 
 The two `admin/` pages with a decorator pass `next='/seek/samples/attributes/'`, so after login the user lands on Sample Attributes, not the page requested.
 

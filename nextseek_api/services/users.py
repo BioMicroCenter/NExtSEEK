@@ -228,6 +228,7 @@ def _sync_django_user(
         dj.last_name = last_name
         dj.is_active = is_active
         dj.is_superuser = is_superuser
+        dj.is_staff = is_superuser  # staff only with superuser (SEC-H19); the media library needs it
         dj.set_password(password)
         dj.save()
         if person_id is not None:
@@ -595,6 +596,7 @@ class UsersViewSet(viewsets.ViewSet):
             django_user.is_active = body.active
         if body.is_superuser is not None:
             django_user.is_superuser = body.is_superuser
+            django_user.is_staff = body.is_superuser
 
         if django_user.pk is None:
             try:
