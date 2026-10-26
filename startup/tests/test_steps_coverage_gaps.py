@@ -620,3 +620,26 @@ def test_doctor_reports_a_pin_left_by_a_killed_swap(
 
     assert row[1] is False
     assert "nextseek-web-1" in row[2] and "pin.conf" in row[2]
+
+
+@patch("startup.steps.doctor.validate")
+@patch("startup.steps.doctor.load_instance")
+@patch("startup.steps.doctor.prereqs")
+def test_doctor_reports_a_drain_longer_than_web_can_wait(
+    mock_prereqs: MagicMock, mock_load: MagicMock, mock_validate: MagicMock, tmp_path: Path
+) -> None:
+    from startup.steps.doctor import diagnose
+
+    (tmp_path / "docker-compose.yml").write_text("services:\n  web:\n    stop_grace_period: 5m\n")
+    (tmp_path / ".env").write_text("NEXTSEEK_DRAIN_SECONDS=400\n")
+    mock_prereqs.run_all.return_value = []
+    state = MagicMock()
+    state.name, state.prefix, state.ports = "nextseek", "", {"nextseek": 8000}
+    state.compose_env.return_value = {}
+    mock_load.return_value = state
+    mock_validate.run_all_health_checks.return_value = []
+
+    row = next(r for r in diagnose(tmp_path) if r[0] == "web drain")
+
+    assert row[1] is False
+    assert "400" in row[2] and "270" in row[2]
