@@ -124,8 +124,12 @@ def _code_path_lead(canonical: str, metadata: dict | None, target_type: str, res
     try:
         for group in ((metadata or {}).get("data") or {}).get("data") or []:
             if group.get("sample_type") == target_type:
-                uids = [str((s.get("metadata") or {}).get("UID")) for s in group.get("samples") or []
-                        if (s.get("metadata") or {}).get("UID")]
+                uids = []
+                for s in group.get("samples") or []:
+                    meta = s.get("metadata")  # the UID as reports/metadata.py reads it
+                    uid = (isinstance(meta, dict) and meta.get("UID")) or s.get("uuid") or s.get("uid")
+                    if uid:
+                        uids.append(str(uid))
     except Exception:
         pass
     found: dict[str, list[str]] = {}
@@ -138,7 +142,7 @@ def _code_path_lead(canonical: str, metadata: dict | None, target_type: str, res
         lead += f": {_first(uids)}"
     lead += "."
     if found:
-        lead += " Accessions in the package: " + "; ".join(f"{p} {_first(v)}" for p, v in found.items()) + "."
+        lead += " Accessions in the package: " + "; ".join(_first(v) for v in found.values()) + "."
     return lead
 
 

@@ -382,9 +382,21 @@ def test_code_path_sra_reply_lead_comes_from_the_payload_not_the_coders_narrativ
     assert "SRA" in lead and "12 samples" in lead
     assert "D.SEQ-0" in lead and "D.SEQ-4" in lead and "D.SEQ-5" not in lead and "7 more" in lead
     assert "PRJNA123456" in lead and "SRR0" in lead and "SRR4" in lead and "SRR5" not in lead
+    assert "PRJNA PRJNA" not in lead and "SRR SRR" not in lead  # an accession is written once, not after its prefix
 
 
 def test_code_path_geo_reply_lead_names_uids_and_accessions():
     out = _code_path_lead_for("GEO", _GEO_CODE, 11, "GEO body built by looping over groups")
     assert "looping over groups" not in out.narrative
     assert "D.SEQ-0" in out.narrative and "GSE99999" in out.narrative and "11 samples" in out.narrative
+    assert "GSE GSE" not in out.narrative
+
+
+def test_code_path_lead_reads_a_uid_the_way_the_report_metadata_does():
+    # reports/metadata.py: the metadata's UID, else the sample's uuid, else its uid.
+    samples = [{"uid": "D.SEQ-U"}, {"uuid": "D.SEQ-V", "metadata": {"Notes": "x"}},
+               {"metadata": {"UID": "D.SEQ-W"}, "uuid": "not-this-one"}]
+    md = {"data": {"data": [{"sample_type": "D.SEQ", "samples": samples}]}}
+    lead = outmod._code_path_lead("SRA", md, "D.SEQ", {})
+    assert "3 samples" in lead and all(u in lead for u in ("D.SEQ-U", "D.SEQ-V", "D.SEQ-W"))
+    assert "not-this-one" not in lead
