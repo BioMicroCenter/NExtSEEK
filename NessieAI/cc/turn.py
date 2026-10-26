@@ -51,6 +51,7 @@ from NessieAI.ns.turn import (
     _auto_title_if_unset, _error_tracking_send_event, _select_chat_config, apply_prod_credentials,
 )
 from NessieAI.cc import cc_engine
+from NessieAI.ns import chat_search_index
 from NessieAI.cc import prerun as prerun_mod
 from NessieAI.cc import cc_config
 from NessieAI.cc import cc_session
@@ -935,5 +936,8 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
             # CC / out-of-scope turns don't populate results_history, so pass
             # this turn's query as the fallback title source.
             _auto_title_if_unset(chat_session, fallback_query=req.query)
+            # The session search's index; an NS turn hands in its in-memory chat so no spilled bundle is re-read.
+            chat_search_index.index_chat_quietly(chat_session, **(
+                {"chat_log": adapter.get("chat_log"), "bundles": adapter.get("results_history")} if ran_ns else {}))
 
     start_turn_thread(query_task.task_id, _run, thread_cls=threading.Thread)

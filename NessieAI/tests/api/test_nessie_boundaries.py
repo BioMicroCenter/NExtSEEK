@@ -131,6 +131,8 @@ BACK_EDGE_ALLOWLIST: dict[str, frozenset[str]] = {
     # the error a failed ChatSession save raises, to tell the user the turn was
     # not saved. The adapter itself is built by the ViewSet and handed in.
     "NessieAI/ns/turn.py": frozenset({"nextseek_api.assistant.session_adapter"}),
+    # The session search index: writes ChatSearchEntry rows and reads CCSessionTranscript blobs at a turn's end.
+    "NessieAI/ns/chat_search_index.py": frozenset({"nextseek_api.assistant.models_db"}),
     # The Container-CC turn's shared state (approach 1): the op slots (plan 03) and the turn's memory (plan 04),
     # read and written as atomic updates on the CCTurn row.
     "NessieAI/ns/turn_memory.py": frozenset({"nextseek_api.assistant.models_db"}),

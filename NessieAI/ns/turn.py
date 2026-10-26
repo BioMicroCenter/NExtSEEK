@@ -39,6 +39,7 @@ from chat_nextseek.failure_replies import fatal_query_error
 from chat_nextseek.llm_clients import LLMFatalError
 from chat_nextseek.orchestrator import run_query, run_query_plan, run_pipeline_launch
 from chat_nextseek import turn_spend
+from NessieAI.ns import chat_search_index
 from NessieAI.ns.turn_memory import release_op_slot
 
 logger = logging.getLogger(__name__)
@@ -180,6 +181,8 @@ def _save_session_or_report(adapter, chat_session, send_event, session_id) -> No
         logger.exception("session %s: unexpected failure saving the turn", session_id)
         return
     _auto_title_if_unset(chat_session)
+    chat_search_index.index_chat_quietly(
+        chat_session, chat_log=adapter.get("chat_log"), bundles=adapter.get("results_history"))
 
 
 def make_sse_send_event(event_queue, resolved_session_id):
