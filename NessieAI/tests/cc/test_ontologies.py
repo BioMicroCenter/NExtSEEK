@@ -243,3 +243,10 @@ def test_attribute_patterns_are_well_formed(oid):
         assert stype and attr, pattern
         assert TYPE_RE.match(stype), pattern
         assert ATTR_RE.match(attr), pattern
+
+
+def test_every_entry_has_a_finished_url():
+    """The agent quotes entry["url"] verbatim; it must be source_url + file under this repo."""
+    for e in INDEX["ontologies"]:
+        assert e["url"] == INDEX["source_url"] + e["file"], e["id"]
+        assert e["url"].startswith("https://github.com/BioMicroCenter/NExtSEEK/"), e["id"]
