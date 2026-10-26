@@ -105,6 +105,10 @@ set_aside(){ # local edits to files the range CHANGES: copy them to $H/backups/s
     say "SET_ASIDE $p -> $d"
   done
 }
+switch_order(){ # $1 the components: the phase 4 switchover order. The agent, sidecar and proxy images go first so the
+  # app rebuild (which stops web and nextseek, fixes ownership, starts them) is the last step and closes the gaps
+  for c in cc-agent nextseek-sidecar bedrock-proxy cc-spawner app; do case " $1 " in *" $c "*) echo "$c";; esac; done
+}
 # <<< functions
 
 mkdir -p "$L" "$H/backups"
@@ -124,6 +128,21 @@ git merge --ff-only "$EXP" >> "$L/pull.log" 2>&1 || stop "fast-forward refused, 
 [ "$(git rev-parse HEAD)" = "$EXP" ] || stop "HEAD $(git rev-parse --short HEAD) is not the expected sha"
 say "HEAD $(git log --oneline -1 | cut -c1-70)"
 
+# Phase 4: the app containers run as 10001. NONROOT = the checked-out Dockerfile names a USER; the switchover = the app
+# is being rebuilt and the running nextseek still has no USER (what startup/ compares: .Config.User empty vs the new
+# image's). Read from git and docker, not a brief flag: nothing to forget, and the same test the app rebuild applies.
+NONROOT=0; SWITCH=0
+git show HEAD:Dockerfile 2>/dev/null | grep -qE '^USER +[1-9]' && NONROOT=1
+if [ $NONROOT = 1 ]; then
+  case " $COMPONENTS " in *" app "*)
+    u=$(docker inspect -f '{{.Config.User}}' nextseek 2>/dev/null </dev/null)
+    { [ -z "$u" ] || [ "$u" = 0 ] || [ "$u" = root ]; } && SWITCH=1;;
+  esac
+fi
+if [ $SWITCH = 1 ]; then
+  COMPONENTS=$(switch_order "$COMPONENTS"); say "SWITCHOVER the app containers change user (root to 10001); order: $COMPONENTS"
+fi
+
 pre_app(){ # the labs file goes onto the shared volume BEFORE the app rebuild starts the new web, which reads it once at load
   [ $DO_LABS = 1 ] && [ -f /tmp/labs_db.json ] || return 0
   # piped in, not bind-mounted: a bind source is resolved by the daemon and would need :z on an SELinux host
@@ -140,7 +159,7 @@ post_app(){
   if [ $DO_LABS = 1 ]; then   # dev only; the file lives on the volume web and nextseek share (NEXTSEEK_LABS_FILE), so one write, no restart
     if [ -f /tmp/labs_db.json ]; then
       docker compose exec -T nextseek mkdir -p /media/context </dev/null
-      docker compose cp /tmp/labs_db.json nextseek:/media/context/labs_db.json && say "LABS copied"
+      docker compose cp -a /tmp/labs_db.json nextseek:/media/context/labs_db.json && say "LABS copied"
     else
       say "LABS source missing: /tmp/labs_db.json"
     fi
@@ -167,6 +186,12 @@ for c in $COMPONENTS; do
     else say "FINDING red after the last rebuild ($c): $(echo $bad | cut -c1-300)"; fi
   fi
 done
+
+if [ $SWITCH = 1 ]; then   # every count above 0 is a file the new user cannot write: the launch stops here
+  ./startup.sh fix-ownership --check > "$L/ownership.log" 2>&1 </dev/null; rc=$?
+  say "OWNERSHIP check exit=$rc $(tail -1 "$L/ownership.log" | cut -c1-100)"
+  [ $rc = 0 ] || stop "fix-ownership --check found files not owned by the app user, see $L/ownership.log"
+fi
 
 C=/app/NessieAI/chat_nextseek/src/chat_nextseek/context
 {
@@ -203,10 +228,28 @@ C=/app/NessieAI/chat_nextseek/src/chat_nextseek/context
     echo "CHECK cc_agent_versions $(timeout 90 docker run --rm --network none --entrypoint sh dmac-assistant:poc -c 'echo node $(node --version) claude $(claude --version 2>&1)' 2>&1 | tail -1)";;
   esac
 @@MARKERS@@
+  if [ $NONROOT = 1 ]; then   # the outside check that the app really runs unprivileged (what a code review cannot see)
+    echo "CHECK web_uid $(docker compose exec -T web id -u </dev/null 2>&1 | tail -1)"
+    echo "CHECK web_no_docker_sock $(docker compose exec -T web sh -c 'test -e /var/run/docker.sock && echo present || echo absent' </dev/null 2>&1 | tail -1)"
+    # no token: the spawner must answer 401 or 403 (POST /turns needs X-Spawner-Token; only GET /health is open)
+    echo "CHECK spawner_untokened $(docker compose exec -T web uv run --no-sync python -c 'import os,urllib.request as u,urllib.error as e
+try: u.urlopen(u.Request(os.environ["NEXTSEEK_SPAWNER_URL"]+"/turns", data=b"{}", method="POST"), timeout=10); print(200)
+except e.HTTPError as x: print(x.code)
+except Exception as x: print("error", type(x).__name__)' </dev/null 2>&1 | tail -1)"
+    for s in web nextseek; do
+      echo "CHECK app_inspect $s $(docker inspect -f '{{.Config.User}} capdrop={{.HostConfig.CapDrop}} secopt={{.HostConfig.SecurityOpt}}' $(docker compose ps -q $s </dev/null | head -1) 2>&1)"
+    done
+  fi
   echo "CHECK memory $(free -g | awk '/^Mem:/{print "available_gib=" $7}')"
   docker stats --no-stream --format 'MEM {{.Name}} {{.MemUsage}}'
 } > "$L/checks.log" 2>&1
 say "CHECKS $(grep -m1 '^CHECK http' "$L/checks.log")"
+if [ $NONROOT = 1 ]; then
+  grep -qx 'CHECK web_uid 10001' "$L/checks.log" && grep -qx 'CHECK web_no_docker_sock absent' "$L/checks.log" \
+    && grep -qE '^CHECK spawner_untokened (401|403)$' "$L/checks.log" \
+    && [ "$(grep -cE '^CHECK app_inspect (web|nextseek) 10001:10001 capdrop=\[ALL\] secopt=\[.*no-new-privileges' "$L/checks.log")" = 2 ] \
+    || say "FINDING non-root check failed, see CHECK web_uid .. app_inspect in $L/checks.log"
+fi
 
 CI_OK=1
 if [ $DO_CI = 1 ]; then
@@ -240,7 +283,7 @@ if [ $DO_NESSIE = 1 ]; then
   for f in $CASES; do
     RUN=$INSTANCE-${f%.json}
     cp "$IN/$f" "$L/$f" || { say "CASES missing $f"; continue; }
-    docker cp "$L/$f" nextseek:/app/runs/$f
+    docker cp -a "$L/$f" nextseek:/app/runs/$f
     case "$f" in   # a *-member.json file runs as the non-admin smoke login, every other as the admin (2026-10-05)
       *-member.json) LOGIN=member U=${CI_SMOKE_USER:-} PW=CI_SMOKE_PASS;;
       *) LOGIN=admin U=${CI_WRITE_USER:-} PW=CI_WRITE_PASS;;
