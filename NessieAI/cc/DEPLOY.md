@@ -273,8 +273,11 @@ docker exec -e RUN_REALSTACK=1 -e SEEK_TEST_USER=.. -e SEEK_TEST_PASS=.. nextsee
   'cd /app && uv run python manage.py test NessieAI.tests.ns.test_granular_realstack \
    --settings=dmac.test_settings_realstack --noinput --keepdb -v2'
 
-# the Container-CC route, end-to-end (router=baml -> real Opus via proxy -> publish)
-docker exec -e RUN_REALSTACK=1 -e SEEK_TEST_USER=.. -e SEEK_TEST_PASS=.. nextseek sh -lc \
+# the Container-CC route, end-to-end (router=baml -> real Opus via proxy -> publish).
+# web is the only service with the spawner URL. Its classes also inspect the agent,
+# the proxy and the network, which needs a docker CLI and socket that no app container
+# has since W9 part 2: there they skip and print why.
+docker compose exec -e RUN_REALSTACK=1 -e SEEK_TEST_USER=.. -e SEEK_TEST_PASS=.. web sh -lc \
   'cd /app && uv run python manage.py test NessieAI.tests.cc.test_cc_realstack \
    --settings=dmac.test_settings_realstack --noinput -v2'
 
