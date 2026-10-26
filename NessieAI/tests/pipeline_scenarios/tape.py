@@ -72,7 +72,7 @@ def _args_key(args, kwargs) -> str:
         if v is None or isinstance(v, (str, int, float, bool)):
             return v
         if isinstance(v, (list, tuple, set)):
-            return [plain(x) for x in (sorted(v) if isinstance(v, set) else v)]
+            return [plain(x) for x in (sorted(v, key=repr) if isinstance(v, set) else v)]
         if isinstance(v, dict):
             return {str(k): plain(x) for k, x in v.items()}
         return "<object>"
@@ -85,6 +85,11 @@ class Tape:
         self.entries: dict[str, list[dict]] = entries or {}
         self.mode = mode
         self._cursor: dict[str, int] = {}
+        #: Every refused replay call, kept even when the caller swallows the TapeMismatch (the
+        #: agent loop, selection.decide and tool_select_pipeline all catch exceptions).
+        self.mismatches: list[str] = []
+        #: Every refusal a recording scrubber raised, kept for the same reason.
+        self.refused: list[str] = []
 
     def record(self, source: str, args, kwargs, value) -> None:
         self.entries.setdefault(source, []).append({"args": _args_key(args, kwargs), "value": encode(value)})
@@ -93,11 +98,20 @@ class Tape:
         i = self._cursor.get(source, 0)
         queue = self.entries.get(source) or []
         if i >= len(queue):
-            raise TapeMismatch(f"{source} was called more often than recorded ({len(queue)} times)")
+            return self._mismatch(f"{source} was called more often than recorded ({len(queue)} times)")
         self._cursor[source] = i + 1
         if queue[i]["args"] != _args_key(args, kwargs):
-            raise TapeMismatch(f"{source} call {i + 1} came with other arguments than recorded")
+            return self._mismatch(f"{source} call {i + 1} came with other arguments than recorded")
         return decode(queue[i]["value"])
+
+    def _mismatch(self, message: str):
+        self.mismatches.append(message)
+        raise TapeMismatch(message)
+
+    def unplayed(self) -> dict[str, int]:
+        """Source -> how many recorded entries were never played."""
+        left = {source: len(queue) - self._cursor.get(source, 0) for source, queue in self.entries.items()}
+        return {source: n for source, n in left.items() if n > 0}
 
     def to_json(self) -> dict:
         return {"entries": self.entries}
@@ -146,6 +160,24 @@ class _PayloadStub:
         return {}
 
 
+class _HashingContext:
+    """Wraps the real selection context while recording: the sha256 of the text the tool itself
+    asks for (its own to_prompt_text call, whatever sections it passes) is kept on the tape."""
+    def __init__(self, ctx, tape: Tape):
+        self._ctx = ctx
+        self._tape = tape
+        tape.record("payload", (), {}, "")
+        self._entry = tape.entries["payload"][-1]
+
+    def to_prompt_text(self, *args, **kwargs):
+        text = self._ctx.to_prompt_text(*args, **kwargs)
+        self._entry["value"] = hashlib.sha256(text.encode()).hexdigest()
+        return text
+
+    def __getattr__(self, name):
+        return getattr(self._ctx, name)
+
+
 def _resolve(target: str):
     module, _, attr = target.rpartition(".")
     return importlib.import_module(module), attr
@@ -155,7 +187,13 @@ def _resolve(target: str):
 def taped(tape: Tape, scrubber=None):
     """Record (tape.mode == "record") or replay every outside answer the pipeline tools get.
 
-    ``scrubber(source, value) -> value`` runs on each recorded value before it is kept.
+    ``scrubber(source, value) -> value`` runs on each recorded value before it is kept, and the
+    scrubbed value is what the live run gets back, so recording and replay see the same data.
+
+    The tools' callers catch exceptions, so a TapeMismatch or a scrubber's refusal never stops
+    a run by itself. They are collected on the tape and raised here, at exit: a replay that
+    asked for something unrecorded, or left a recorded entry unplayed, raises TapeMismatch; a
+    recording whose scrubber refused raises ValueError.
     """
     from chat_nextseek.pipeline import agent, agent_tools
 
@@ -167,8 +205,13 @@ def taped(tape: Tape, scrubber=None):
 
         def recording(*args, **kwargs):
             value = original(*args, **kwargs)
-            tape.record(source, *key(args, kwargs), scrubber(source, value) if scrubber else value)
-            return value
+            try:
+                kept = scrubber(source, value) if scrubber else value
+                tape.record(source, *key(args, kwargs), kept)
+            except Exception as exc:
+                tape.refused.append(f"{source}: {type(exc).__name__}: {exc}")
+                raise
+            return decode(encode(kept))
 
         def replaying(*args, **kwargs):
             return tape.play(source, *key(args, kwargs))
@@ -181,19 +224,30 @@ def taped(tape: Tape, scrubber=None):
 
     if tape.mode == "record":
         real_ctx = agent_tools.build_selection_context
-
-        def recording_ctx(*args, **kwargs):
-            ctx = real_ctx(*args, **kwargs)
-            text = ctx.to_prompt_text(*(a for a in [kwargs.get("sections")] if a))
-            tape.record("payload", (), {}, hashlib.sha256(text.encode()).hexdigest())
-            return ctx
-        patches.append(mock.patch.object(agent_tools, "build_selection_context", recording_ctx))
+        patches.append(mock.patch.object(
+            agent_tools, "build_selection_context",
+            lambda *args, **kwargs: _HashingContext(real_ctx(*args, **kwargs), tape)))
     else:
         patches.append(mock.patch.object(agent_tools, "build_sample_digest", lambda *a, **k: {}))
         patches.append(mock.patch.object(
             agent_tools, "build_selection_context",
             lambda *a, **k: _PayloadStub(tape.play("payload", (), {}))))
-    with contextlib.ExitStack() as stack:
-        for p in patches:
-            stack.enter_context(p)
-        yield tape
+    try:
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            yield tape
+    except BaseException as exc:
+        _raise_collected(tape, exc)
+        raise
+    _raise_collected(tape, None)
+    if tape.mode != "record" and tape.unplayed():
+        raise TapeMismatch(f"recorded entries were never played (re-record): {tape.unplayed()}")
+
+
+def _raise_collected(tape: Tape, cause) -> None:
+    if tape.mode == "record":
+        if tape.refused:
+            raise ValueError("the tape was refused: " + "; ".join(tape.refused)) from cause
+    elif tape.mismatches:
+        raise TapeMismatch("the replay did not match the tape: " + "; ".join(tape.mismatches)) from cause

@@ -17,8 +17,17 @@ _spec = importlib.util.spec_from_file_location("sanitize_fixture", _REPO / "scri
 _sanitize = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_sanitize)
 
-PERSON_KEYS = re.compile(r"(?i)^(scientist|submitter|owner|creator|pi|principal[_ ]?investigator|"
-                         r"contact.*|.*e-?mail.*|author.*|person.*|contributor.*)$")
+#: NExtSEEK's person and group fields by exact name (context/ and the sample-type attributes
+#: hold Scientist, CoScientist, Coscientist, InstrumentUser, PrepUser, QCUser, Lab, TeamLab,
+#: Contact and Funder), then the families of names a new sample type could add.
+PERSON_NAMES = ("Scientist", "CoScientist", "Coscientist", "InstrumentUser", "PrepUser", "QCUser",
+                "Lab", "TeamLab", "Contact", "Funder", "Submitter", "Owner", "Creator", "PI",
+                "PrincipalInvestigator")
+PERSON_KEYS = re.compile(
+    r"(?i)^(" + "|".join(re.escape(n) for n in PERSON_NAMES) + r"|principal[_ ]?investigator|"
+    r"co[_ ]?scientist|team[_ ]?lab|contact.*|author.*|person.*|contributor.*|.*e-?mail.*|"
+    r".*_by|(?:submitted|created|collected|prepared|processed|performed|requested|owned)[_ ]?by|"
+    r".*user)$")
 PARAM_ATLAS = (_REPO / "NessieAI" / "chat_nextseek" / "src" / "chat_nextseek" / "seqera"
                / "nfcore_param_atlas.json")
 
@@ -51,14 +60,35 @@ def atlas_markers() -> set[str]:
     return {m for m in found if len(m) >= 2}
 
 
-def protocol_marker_lines(text: str, markers: set[str] | None = None) -> str:
+def protocol_markers_found(text: str, markers: set[str] | None = None) -> str:
+    """The markers (lower case, one per line, sorted) that occur in the text, and nothing else.
+
+    param_atlas tests each marker as a case-insensitive substring of the whole text, so this
+    reproduces every match it can make without keeping a word of the prose around it.
+    """
     markers = atlas_markers() if markers is None else {m.lower() for m in markers}
-    return "\n".join(line for line in (text or "").splitlines()
-                     if any(m in line.lower() for m in markers))
+    low = (text or "").lower()
+    return "\n".join(sorted(m for m in markers if m in low))
 
 
 def refusals(text: str) -> list[str]:
     out = [f"email {m}" for m in _sanitize.EMAIL.findall(text)]
     out += [f"path /{m}" for m in _sanitize.ABSOLUTE.findall(text)]
-    out += [f"url {u}" for u in _sanitize.URL.findall(text) if not u.startswith(_sanitize.ALLOWED_URL_PREFIXES)]
+    out += [f"url {u}" for u in _sanitize.disallowed_urls(text)]
     return out
+
+
+def allowed_url(url: str) -> bool:
+    return _sanitize.allowed_url(url)
+
+
+def refusals_in(value) -> list[str]:
+    """`refusals` over every string leaf (and key) of a value, so an escaped newline in JSON text
+    can never hide an absolute path from the path pattern."""
+    if isinstance(value, str):
+        return refusals(value)
+    if isinstance(value, dict):
+        return [r for k, v in value.items() for r in refusals_in(str(k)) + refusals_in(v)]
+    if isinstance(value, (list, tuple, set)):
+        return [r for v in value for r in refusals_in(v)]
+    return []
