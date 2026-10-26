@@ -23,6 +23,7 @@ callback, credentials and the 202 response.
 from __future__ import annotations
 
 import os
+import tempfile
 import time
 from pathlib import Path
 
@@ -292,8 +293,8 @@ class CCAssistantViewSet(viewsets.ViewSet):
             if safe in seen_names:
                 return Response({"error": f"duplicate filename in batch: {safe}"}, status=400)
             seen_names.add(safe)
-            tmp = os.path.join(stage_root, f"{int(time.time() * 1000)}_{safe}")
-            with open(tmp, "wb") as out:
+            fd, tmp = tempfile.mkstemp(prefix=f"{int(time.time() * 1000)}_", suffix=f"_{safe}", dir=stage_root)
+            with os.fdopen(fd, "wb") as out:
                 for chunk in f.chunks():
                     out.write(chunk)
             staged.append({"name": safe, "tmp_path": tmp})
