@@ -2,12 +2,10 @@
 
 import logging
 
-from ..dbtable_sample import DBtable_sample
 from django.http import HttpResponse
 import MySQLdb
+from nextseek_api.batch_upload.xlsx_guard import XlsxExpansionError, check_xlsx_expansion
 from ..seekdb import SeekDB
-import datetime
-from dmac.conversion import handle_uploaded_file
 import json
 from ..responses import json_response
 import pandas as pd
@@ -18,9 +16,8 @@ from django.conf import settings
 import simplejson
 from ..decorators import verifySuperUser
 
-from .exports import newExport
 from .samples import LOGIN_REQUIRED
-from .shared import SEEK_DATABASE, UPLOAD_DIRECTORY, report
+from .shared import SEEK_DATABASE, report
 
 logger = logging.getLogger(__name__)
 
@@ -68,91 +65,6 @@ def _uploadable_project_ids(user):
         return []
     return None if scope.is_admin else list(scope.project_ids)
 
-def sampleUploadAjax(request):
-    """Upload a sample sheet; the view requires a login."""
-    logger.debug('sampleUploadAjax')
-    username = str(request.user)  # noqa: F841 (kept: resolves the lazy request.user)
-    if not request.user.is_authenticated:
-        return json_response(LOGIN_REQUIRED, 0, message=LOGIN_REQUIRED)
-    seekdb = SeekDB(None, None, None)
-    if not seekdb.getSeekLogin(request)['status']:
-        return json_response(LOGIN_REQUIRED, 0, message=LOGIN_REQUIRED)
-    msg = "Error: File not valid"
-    message = ''
-    status = 0
-    data = {'msg':msg, 'status': status, 'link':''}
-    if request.method == "POST":
-        if request.FILES and request.FILES.get('excelfile_upload'):
-            excelfile = request.FILES['excelfile_upload']
-            if excelfile:
-                inputfile = excelfile.name
-                #logger.debug(inputfile)
-                instituion_id = request.POST.get('instituion_id')
-                creator_id = request.POST.get('people_id')
-                if verifySuperUser(request)==1:
-                    #logger.debug(creator_id)
-                    try:
-                        creator_id = int(creator_id)
-                    except:
-                        msg = 'Error: You login as admin and must choose the creator.'
-                        status = 0
-                        logger.error(msg)
-                        return json_response(msg, status, message='')
-                        
-                    if int(creator_id)>0:
-                        status, msg = seekdb.updateCreator(instituion_id, creator_id)
-                        logger.debug(msg)
-                        if not status:
-                            logger.error(msg)
-                            return json_response(msg, status, message='')
-                    else:
-                        msg = 'Error: You login as admin and must choose the creator.'
-                        status = 0
-                        logger.error(msg)
-                        return json_response(msg, status, message='')
-                
-                names = inputfile.split(".")
-                n = len(names)
-                
-                datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-                feedbackfile, link = newExport(request, '.'.join(names[:(n-1)]) + '_feedback-' + datenow + '.xls')
-                filename = link.rsplit('/', 1)[-1]  # private to the uploader (and a superuser), never under /media/
-                logger.debug(feedbackfile)
-                
-                backupfile = '.'.join(names[:(n-1)]) + '_v' + datenow + '.' + names[-1]
-                backupfile = UPLOAD_DIRECTORY + backupfile
-                logger.debug(backupfile)
-                handle_uploaded_file(excelfile, backupfile)
-                
-                sample = DBtable_sample()
-                msgi, status = sample.batchUpload(excelfile, feedbackfile, seekdb)
-                if status:
-                    msg = 'Batch sample uploading successful. To find the UIDs for samples uploaded, refer to the feedback excel file: ' + filename
-                    message = msg + '\n\n' + msgi
-                else:
-                    message = msgi
-                    terms = msgi.split("<")
-                    msg = terms[0] + "<br/><br/>"
-                    msg += "Refer to the log and the excel file: " + filename + '.<br/>'
-                data = {'msg':msg, 'status': status, 'link':link}
-                #logger.debug(message)
-            else:
-                message = 'Error: Not a valid file from client side'
-                data = {'msg':message, 'status': 0, 'link':''}
-                logger.error(message)
-        else:
-            message = 'Error: Not a valid file from client side'
-            data = {'msg':message, 'status': 0, 'link':''}
-            logger.error(message)
-    else:
-        message = 'Error: Not a valid http POST request'
-        data = {'msg':message, 'status': 0, 'link':''}
-        logger.error(message)
-                
-    data['message'] = plain_text(message)
-                
-    return HttpResponse(simplejson.dumps(data, default=str))       
-
 def samplesValidate(request):
     logger.debug('samplesValidate')
     username = str(request.user)  # noqa: F841 (kept: resolves the lazy request.user)
@@ -171,6 +83,10 @@ def samplesValidate(request):
         if request.FILES and request.FILES.get('excelfile_upload'):
             excelfile = request.FILES['excelfile_upload']
             if excelfile:
+                try:
+                    check_xlsx_expansion(excelfile)  # before the database connection and any parse (SEC-H12)
+                except XlsxExpansionError as exc:
+                    return json_response(str(exc), 0, message=str(exc))
                 # validate
 
                 db = settings.DATABASES[SEEK_DATABASE]

@@ -12,7 +12,8 @@ from ..seekdb import SeekDB
 from ..responses import missing_param
 from django.shortcuts import render
 from ..decorators import login_redirect, requires_seek_login_redirect
-from ..decorators import verifySuperUser
+from ..responses import json_response
+from .samples import LOGIN_REQUIRED, _callerProjectIds
 
 @requires_seek_login_redirect()
 def sampleSearch(request):
@@ -23,46 +24,6 @@ def sampleSearch(request):
     report['showSearch'] = True
     #return render(request,"sampleSearch.html", {'report':report})
     return HttpResponseRedirect('/seek/search/')
-
-def _callerProjectIds(user_seek):
-    '''Every project id the caller belongs to, as strings, order preserved.
-
-    user_seek['projectid'] is only the FIRST project SEEK lists, because
-    SeekDB.__getFeatureInfo returns featureData[defaultIndex] with defaultIndex=0
-    (seek/seekdb.py:56). Scoping the UI search by it meant a caller in two projects
-    saw only one of them, and if that first project happened to be empty they saw
-    nothing at all -- observed on production 2026-08-21, where SEEK returned
-    ['13', '2'] for charlie-test-3 and project 13 holds zero samples.
-
-    The full list was already being fetched into 'projectOptions' (seek/seekdb.py:64-77);
-    it just was not used here.
-
-    Returns [] when the caller has no resolvable project. That is the fail-closed
-    signal searchAdvanced expects, and it deliberately replaces the previous
-    fail-OPEN behaviour: projectid was 0 for such a caller (seek/seekdb.py:106) and
-    the builder applies the legacy project predicate only `if int(project_id) > 0`,
-    so the search ran completely unscoped and that caller read every project.
-    '''
-    ids = []
-    for option in (user_seek.get('projectOptions') or []):
-        pid = option.get('id') if isinstance(option, dict) else option
-        if pid is None:
-            continue
-        pid = str(pid).strip()
-        if pid and pid not in ids:
-            ids.append(pid)
-    if ids:
-        return ids
-
-    # No options resolved. Fall back to the single project when we have one: a
-    # transient SEEK hiccup should not black out a caller we can still scope.
-    single = user_seek.get('projectid')
-    if single is not None:
-        single = str(single).strip()
-        if single and single != '0':
-            return [single]
-    return []
-
 
 # The query-string parameters each search type reads without a default (seek/sample/search.py).
 _SEARCH_PARAMS = {
@@ -80,9 +41,10 @@ def runSampleSearch(request, searchType):
     bad = missing_param(request.GET, *_SEARCH_PARAMS[searchType])
     if bad:
         return bad
+    if not request.user.is_authenticated:
+        return json_response(LOGIN_REQUIRED, 0)
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, True)
-    isSupervisor = verifySuperUser(request)
 
     # None means unrestricted, [] means match nothing. Scope travels as a LIST
     # applied as EXISTS, never as the legacy single project_id, which is left at 0
@@ -90,7 +52,10 @@ def runSampleSearch(request, searchType):
     # honest: projects_samples is many-to-many, so scoping by that join could report
     # MORE rows than not scoping at all (measured 2026-08-20 on prod data,
     # project_id=3 gave 5134 against 5122 unscoped).
-    scoped_project_ids = None if isSupervisor != 0 else _callerProjectIds(user_seek)
+    # The caller's CURRENT projects (resolve_scope), not SEEK's option list, which keeps
+    # projects they have left; a scope that cannot be resolved matches nothing (SEC-H05).
+    project_ids = _callerProjectIds(request, "sample search")
+    scoped_project_ids = None if project_ids is None else [str(pid) for pid in project_ids]
 
     filters = request.GET
     dbsample = DBtable_sample()

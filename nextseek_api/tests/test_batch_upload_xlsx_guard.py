@@ -41,9 +41,8 @@ def test_high_ratio_inflation_is_refused():
         check_xlsx_expansion(_zip(40 * 1024 * 1024))
 
 
-def test_non_zip_is_refused():
-    with pytest.raises(XlsxExpansionError):
-        check_xlsx_expansion(io.BytesIO(b"not a zip"))
+def test_non_zip_passes_to_the_parser_to_refuse():
+    check_xlsx_expansion(io.BytesIO(b"not a zip"))
 
 
 def _user():

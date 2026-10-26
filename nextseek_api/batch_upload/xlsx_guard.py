@@ -15,12 +15,12 @@ class XlsxExpansionError(ValueError):
 
 
 def check_xlsx_expansion(fileobj) -> None:
-    """Read the zip directory only (nothing is inflated) and raise XlsxExpansionError past the caps."""
+    """Read the zip directory only (nothing is inflated) and raise XlsxExpansionError past the caps. A non-zip passes."""
     pos = fileobj.tell() if hasattr(fileobj, "tell") else 0
     try:
         infos = zipfile.ZipFile(fileobj).infolist()
-    except zipfile.BadZipFile as exc:
-        raise XlsxExpansionError("The file is not a valid .xlsx workbook.") from exc
+    except (zipfile.BadZipFile, OSError):
+        return  # not a readable zip: nothing can inflate, and the parser refuses it with its own message
     finally:
         fileobj.seek(pos)
     total = sum(i.file_size for i in infos)

@@ -207,63 +207,6 @@ def test_delete_samples_forwards_the_superuser_flag(_save):
 
 
 # --------------------------------------------------------------------------- #
-# Sheet upload
-# --------------------------------------------------------------------------- #
-
-UPLOAD = "/seek/sampleupload/"
-
-
-def _sheet():
-    """A POST body that, logged in, would reach ``DBtable_sample.batchUpload``."""
-    return {"excelfile_upload": SimpleUploadedFile("sheet.xlsx", b"PK\x03\x04"),
-            "instituion_id": "1", "people_id": "0"}
-
-
-@patch("seek.views.upload.handle_uploaded_file")
-@patch("seek.views.upload.DBtable_sample")
-@patch("seek.views.upload.SeekDB")
-def test_the_upload_view_requires_a_login(mock_db, mock_table, _save):
-    mock_db.return_value.getSeekLogin.return_value = _seek_login()
-    mock_table.return_value.batchUpload.return_value = ("ok", 1)
-    resp = seek.views.upload.sampleUploadAjax(_post(UPLOAD, _sheet(), _logged_out()))
-    assert resp.status_code == 200
-    assert _envelope(resp)["status"] == 0
-    mock_table.return_value.batchUpload.assert_not_called()
-
-
-@patch("seek.views.upload.handle_uploaded_file")
-@patch("seek.views.upload.DBtable_sample")
-@patch("seek.views.upload.SeekDB")
-def test_the_upload_view_requires_a_seek_login(mock_db, mock_table, _save):
-    mock_db.return_value.getSeekLogin.return_value = _seek_login(status=False)
-    mock_table.return_value.batchUpload.return_value = ("ok", 1)
-    resp = seek.views.upload.sampleUploadAjax(_post(UPLOAD, _sheet(), _user()))
-    assert _envelope(resp)["status"] == 0
-    mock_table.return_value.batchUpload.assert_not_called()
-
-
-@patch("seek.views.upload.handle_uploaded_file")
-@patch("seek.views.upload.DBtable_sample")
-@patch("seek.views.upload.SeekDB")
-def test_the_upload_view_uploads_for_a_logged_in_account(mock_db, mock_table, _save):
-    mock_db.return_value.getSeekLogin.return_value = _seek_login()
-    mock_table.return_value.batchUpload.return_value = ("ok", 1)
-    resp = seek.views.upload.sampleUploadAjax(_post(UPLOAD, _sheet(), _user()))
-    assert _envelope(resp)["status"] == 1
-    mock_table.return_value.batchUpload.assert_called_once()
-
-
-@patch("seek.views.upload.DBtable_sample")
-@patch("seek.views.upload.SeekDB")
-def test_the_upload_view_still_answers_a_logged_in_get(mock_db, mock_table):
-    mock_db.return_value.getSeekLogin.return_value = _seek_login()
-    resp = seek.views.upload.sampleUploadAjax(_get(UPLOAD, {}, _user()))
-    body = _envelope(resp)
-    assert body["status"] == 0
-    assert body["msg"] == "Error: Not a valid http POST request"
-
-
-# --------------------------------------------------------------------------- #
 # Sample retrieval behind the sample-type grid
 # --------------------------------------------------------------------------- #
 

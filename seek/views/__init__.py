@@ -9,7 +9,7 @@ the owning module instead, e.g. `seek.views.admin.write_samples_workbook`.
 """
 
 from .samples import (editSample, getAssaysOptions, getAttributes, getInstituionUsers, getOperators, getSampleType, getStudiesOptions, manageSample, retrieveSamples, sample, sampleAttributeDelete, sampleAttributeSave, sampleAttributes, sampleDelete, sampleDownload, sampleExport, sampleFindAjax, sampleQuery, sampleTree, sample_type)
-from .upload import (batchUpload, datafileUpload, sampleUploadAjax, samplesValidate)
+from .upload import (batchUpload, datafileUpload, samplesValidate)
 from .assets import (datafileQuery, document, sopQuery, templatesDownload, templatesList)
 from .catalog import (assayDetail, assaysList, sampleTypeDetail, sampleTypesList)
 from .search import (runSampleSearch, sampleSearch, sampleSearching, searchAdvanced, searchingAdvanced, searchingUIDs, smartSearch)
@@ -78,7 +78,6 @@ __all__ = [
     'sampleSearch',
     'sampleSearching',
     'sampleTree',
-    'sampleUploadAjax',
     'sample_retrieval_data',
     'sample_type',
     'samplesValidate',
