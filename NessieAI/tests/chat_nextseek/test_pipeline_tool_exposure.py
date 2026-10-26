@@ -155,3 +155,25 @@ def test_tower_submit_is_gated_too(monkeypatch):
     cfg.TOWER_ENV = {"access_token": "x", "workspace": "w"}
     assert json.loads(at.tool_submit_to_tower(cfg, _gate_state(1))) == _REFUSAL
     assert json.loads(at.tool_submit_to_tower(cfg, _gate_state(1, [_REPLY])))["ok"] is True
+
+
+def test_submit_to_luria_message_carries_skip_reasons(monkeypatch):
+    import json
+    from chat_nextseek.pipeline import agent_tools as at
+
+    class Cfg:
+        LURIA_ENV_COMPLETE = True
+        LURIA_ENV = {"user": "u"}
+
+    def fake(launch, *, reasons=None, **kw):
+        reasons.append("launch.yml not found: /x")
+        return []
+
+    monkeypatch.setattr(at, "submit_luria", fake)
+    monkeypatch.setattr(at, "_launch_unconfirmed", lambda s: None)
+    out = json.loads(at.tool_submit_to_luria(Cfg(), {"artifacts": {"launch": "/x"}}))
+    assert out["ok"] is False and out["message"].startswith("No runs submitted: launch.yml not found")
+
+    monkeypatch.setattr(at, "submit_luria", lambda launch, **kw: [])
+    out = json.loads(at.tool_submit_to_luria(Cfg(), {"artifacts": {"launch": "/x"}}))
+    assert "check Luria logs" in out["message"]
