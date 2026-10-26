@@ -74,6 +74,12 @@ services:
       # web serves and reads them, and two web containers during a swap must
       # see the same export files. A named volume, so a rebuild no longer wipes it.
       - nextseek-media:/media
+    # Non-root (uid/gid 1001, the user the image creates), no capabilities, no setuid escalation.
+    user: "1001:1001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     # One probe for the four background runtimes this container carries
     # (docker/scripts/attribute_runtime_healthcheck.py app). Nothing gates on this
     # container's health (`nextseek_nginx` depends on it by start-order only, and
@@ -147,8 +153,9 @@ services:
       # of LURIA_KEY needs no translation. Defaults to /dev/null so the stack
       # still comes up when the Luria backend is unused.
       - ${LURIAKEY:-/dev/null}:${LURIAKEY:-/dev/null}:ro
-      # Writable ssh dir: ssh.py copies the key here for one call, chmods 0600 (which it
-      # cannot do on the read-only bind above) and removes the copy after use.
+      # Writable ssh dir (1001-owned, 0700 in the image): holds known_hosts. ssh.py copies
+      # the key to a 0600 mkstemp file in /tmp for one call (it cannot chmod the read-only
+      # bind above) and removes the copy after use. The key file must be readable by uid 1001.
       - nextseek-luria-ssh:/app/.ssh
       # Container-CC user trees (see `nextseek`). A turn mkdirs scratch, cc-state,
       # memory and output dirs here; the sibling containers mount per-user
@@ -162,6 +169,12 @@ services:
       # Sign-in lockout and request-rate counters (CACHES["throttle"], a file cache):
       # on a volume they survive a swap and both web containers share them.
       - nextseek-throttle:/var/tmp/nextseek-throttle
+    # Non-root, as `nextseek`.
+    user: "1001:1001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     # GET /login/ answering 200 is the same first probe CI's readiness gate uses.
     # start_interval makes a new container visible as healthy within seconds of
     # being ready, which is what the swap waits on (Engine 25+). start_period stays
@@ -716,8 +729,9 @@ networks:
   dmac-cc-net:
     name: dmac-cc-net
     # F1: no NAT/gateway. The per-turn agent (spawned onto this net via docker-py)
-    # runs `claude --permission-mode auto` with the requesting user's plaintext
-    # NExtSEEK password in its env — an internal net removes the L3 path a
+    # runs `claude --permission-mode auto` with the one-turn pass Django issues
+    # (NEXTSEEK_TURN_PASS), never the user's password (NessieAI/cc/cc_engine.py
+    # build_agent_environment) — an internal net removes the L3 path a
     # prompt-injected or jailbroken turn would use to exfiltrate it. bedrock-proxy
     # keeps AWS egress via dmac-cc-egress below; the agent is not on that net.
     internal: true
@@ -761,7 +775,7 @@ volumes:
   nextseek-media:
     name: ${INSTANCE_PREFIX:-}nextseek-media
   # Throttle counters for `web` only (the worker serves no requests). Compose-managed
-  # like nextseek-media; the image runs as root, so a fresh volume is writable.
+  # like nextseek-media; the image creates the mount point owned by 1001, so a fresh volume copies that owner.
   nextseek-throttle:
     name: ${INSTANCE_PREFIX:-}nextseek-throttle
 
