@@ -74,10 +74,33 @@ class HarvestChecksumOwnerTests(TestCase):
         for op in BODIES:
             self._assert_refused(self._post(self.other, op), "not_your_run")
 
-    def test_the_owner_and_a_superuser_are_not_refused(self):
-        for op in BODIES:
-            for user in (self.owner, self.admin):
-                self.assertNotIn(b"not_your_run", self._post(user, op).content)
+    def test_the_owner_and_a_superuser_reach_staging_and_another_member_does_not(self):
+        PipelineRun.objects.create(run_dir=RUN, run_name="r", pipeline="nf-core/rnaseq",
+                                   launched_by=self.owner, cohort=[])
+        staged = []
+
+        def fake_stage(*a, **k):
+            staged.append(1)
+            raise RuntimeError("stop after staging")
+
+        with patch("NessieAI.ns.granular._stage_run_dir", side_effect=fake_stage):
+            seen = {}
+            for user in (self.owner, self.admin, self.other):
+                staged.clear()
+                resp = self._post(user, "run-harvest")
+                seen[user.username] = (bool(staged), resp.status_code)
+        self.assertTrue(seen["run-owner"][0] and seen["site-admin"][0])
+        self.assertEqual(seen["other-member"], (False, 422))
+
+    def test_the_owner_may_checksum_a_run_no_chat_state_lists_any_more(self):
+        # N1: a later wizard in the chat wipes the luria_runs list; the launch record still names the owner.
+        ChatSession.objects.filter(user=self.owner).update(extra_state=_wizard_state())
+        PipelineRun.objects.create(run_dir=RUN, run_name="r", pipeline="nf-core/rnaseq",
+                                   launched_by=self.owner, cohort=[])
+        self.assertNotIn(b"not_your_run", self._post(self.owner, "run-checksum").content)
+        self.assertNotIn(b"not_your_run", self._post(self.owner, "run-harvest").content)
+        self.cmds.clear()
+        self._assert_refused(self._post(self.other, "run-checksum"), "not_your_run")
 
     def test_nobody_checksums_the_runs_root(self):
         for user in (self.owner, self.admin):

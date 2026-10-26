@@ -448,6 +448,11 @@ def _refuse_run_ls(request, req, chat_config) -> Response | None:
               .values_list("extra_state", flat=True))
     if any(run in _launched_runs(state) for state in states):
         return None
+    # A later wizard in the chat wipes that list; the launch record still names who launched the run.
+    from nextseek_api.assistant.models_db import PipelineRun
+
+    if PipelineRun.objects.filter(run_dir=run, launched_by=request.user).exists():
+        return None
     return op_error("VALIDATION", fields=[{"field": "run_dir", "type": "not_your_run"}],
                     status=HTTP_STATUS["VALIDATION"])
 
