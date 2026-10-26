@@ -50,8 +50,8 @@ services:
     volumes:
       # :z relabels the host path for SELinux-enforcing hosts (Fedora/RHEL).
       # No-op on macOS/Ubuntu/non-SELinux systems, so safe everywhere.
-      - ./themes/NextSeek:/app/themes/NextSeek:z
-      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./themes/NextSeek:/app/themes/NextSeek:ro,z
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:ro,z
       - ./outputs:/app/outputs:z
       - ./logs:/app/logs:z
       # Container-CC user trees (G7-10). Persisted in the external named volume
@@ -147,8 +147,8 @@ services:
         condition: service_healthy
     volumes:
       - nextseek-static-files:/static
-      - ./themes/NextSeek:/app/themes/NextSeek:z
-      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./themes/NextSeek:/app/themes/NextSeek:ro,z
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:ro,z
       - ./outputs:/app/outputs:z
       - ./logs:/app/logs:z
       # Luria SLURM launch backend. LURIAKEY is the host path to the operator's

@@ -15,7 +15,7 @@ SERVICES = ("nextseek", "web")
 STOP_SERVICES = ("web", "nextseek", "nextseek-sidecar")   # the switchover stops all three
 PEER_SERVICES = ("cc-agent", "nextseek-sidecar")   # share dmac-cc-users with the app: on APP_UID before it switches
 CC_USERS_TARGET = "/dmac/users"
-# Writable by compose, read-only in practice (theme templates from the checkout): never chowned.
+# Theme templates from the checkout, bound read-only (targets() skips read-only mounts too): never chowned.
 SKIP_TARGET_PREFIXES = ("/app/themes",)
 
 _VOL_NOT_OWNED = rf"\( ! -user {APP_UID} -o ! -group {APP_GID} \)"

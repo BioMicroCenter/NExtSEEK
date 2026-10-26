@@ -52,3 +52,11 @@ def test_the_luria_key_bind_is_the_repo_local_copy():
     for name, svc in SERVICES.items():
         for v in svc.get("volumes", []):
             assert not (isinstance(v, str) and v.startswith("${LURIAKEY")), (name, v)
+
+
+@pytest.mark.parametrize("name", APP)
+def test_the_checkout_binds_the_app_only_reads_are_read_only(name):
+    # nothing in the app writes the theme or its settings: a read-only bind keeps a compromised app from editing them
+    vols = SERVICES[name]["volumes"]
+    assert "./themes/NextSeek:/app/themes/NextSeek:ro,z" in vols
+    assert "./dmac/local_settings.py:/app/dmac/local_settings.py:ro,z" in vols
