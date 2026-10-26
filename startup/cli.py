@@ -402,6 +402,9 @@ def _install_impl(
     proxy_env_path = config.render_proxy_secret_env(REPO_ROOT)
     _warn_if_proxy_token_empty(proxy_env_path)
     config.render_root_env(REPO_ROOT, compose_env, neo4j_password=values.neo4j_password)
+    # The .env now holds NEXTSEEK_HOST_GID: the app uid/gid must be free and the secret files group-readable
+    # (a re-install keeps an existing 0600 local_settings.py; this makes it 0640) before anything is built.
+    _app_preflight_or_exit(state)
     ui.ok(
         "docker/db.env, docker/nextseek.env, docker/cc-spawner.env, "
         f"{layout.PROXY_SECRET_ENV.as_posix()}, docker/seek-nginx.conf, dmac/local_settings.py, .env"

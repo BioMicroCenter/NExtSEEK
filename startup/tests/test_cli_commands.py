@@ -98,6 +98,7 @@ def steps(repo: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     volumes = MagicMock()
     volumes.ensure_volumes.return_value = ["v1"]
     volumes.REQUIRED_VOLUMES = ["v1", "v2"]
+    volumes.ensure_secret_group_read.return_value = []
 
     disk_preflight = MagicMock()
     disk_preflight.run_preflight.return_value = SimpleNamespace(
@@ -2873,3 +2874,21 @@ def test_a_docker_error_inside_the_switchover_prints_the_recovery_and_exits_1(
     assert f"{failing} broke" in flat
     assert "./startup.sh fix-ownership" in flat and "docker compose up -d nextseek-sidecar web nextseek" in flat
     assert not any(o.startswith("up ") for o in order)
+
+
+def test_install_runs_the_app_preflight_after_the_root_env_and_before_the_volumes(repo: Path, steps) -> None:
+    """The root .env (with NEXTSEEK_HOST_GID) first, then the uid/gid check and the group-read step (a
+    re-install keeps an existing 0600 local_settings.py; this makes it 0640), then anything else."""
+    order: list[str] = []
+    steps.config.render_root_env.side_effect = lambda *a, **k: order.append("root_env")
+    steps.validate.check_app_ids.side_effect = lambda gid: order.append("ids") or SimpleNamespace(ok=True)
+    steps.volumes.ensure_secret_group_read.side_effect = lambda root, env: order.append("group_read") or []
+    steps.volumes.ensure_volumes.side_effect = lambda prefix: order.append("volumes") or []
+
+    result = runner.invoke(cli.app, ["install", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert order[:4] == ["root_env", "ids", "group_read", "volumes"]
+    steps.volumes.ensure_secret_group_read.side_effect = lambda root, env: ["dmac/local_settings.py is not owned"]
+    bad = runner.invoke(cli.app, ["install", "--yes"])
+    assert bad.exit_code == 1 and "not owned" in bad.output
