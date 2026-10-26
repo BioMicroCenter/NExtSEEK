@@ -1,6 +1,8 @@
 from typing import Optional
 
 import json
+import math
+from time import monotonic
 
 import requests
 from django.conf import settings
@@ -12,8 +14,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 
-from nextseek_api.helpers import SeekAPIClient
-from nextseek_api.services.sops import _unconfirmed
+from nextseek_api.helpers import SOP_CREATE_TIMEOUT_S, SeekAPIClient
+from nextseek_api.services.sops import _unconfirmed, _within
 from nextseek_api.endpoint_descriptions import (
     DATAFILE_LIST_DESC,
     DATAFILE_FETCH_DESC,
@@ -229,10 +231,11 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             except Exception:
                 return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
 
+            wait = _within(monotonic() + SOP_CREATE_TIMEOUT_S, SOP_CREATE_TIMEOUT_S)
             try:
-                body, code, headers, resp = self.client.create_data_file(request, payload)
+                body, code, headers, resp = self.client.create_data_file(request, payload, timeout_s=wait)
             except requests.RequestException as exc:
-                return _unconfirmed(payload["data"]["attributes"].get("title"), exc, self.client.timeout_s,
+                return _unconfirmed(payload["data"]["attributes"].get("title"), exc, math.ceil(wait[1]),
                                     kind="data file", path="data_files")
             if code == 401:
                 return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
@@ -261,6 +264,7 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             
             data_file_results = []
             blob_results = []
+            deadline = monotonic() + SOP_CREATE_TIMEOUT_S  # the creates share one request limit, as SOP creates do
             for file in files:
                 # Each file starts from the request's own metadata, so it carries only its own placeholder.
                 meta = auto_populate_content_blobs(metadata, [file])
@@ -272,10 +276,18 @@ class DataFileProxyViewSet(viewsets.ViewSet):
                 except Exception:
                     return HttpResponse(b'{"errors":[{"title":"Invalid metadata"}]}', status=422, content_type='application/json')
 
+                wait = _within(deadline, SOP_CREATE_TIMEOUT_S)
+                if wait is None:
+                    not_sent = [f.name for f in files[len(data_file_results):]]
+                    return HttpResponse(json.dumps({"errors": [{"title": "Time limit reached", "detail":
+                        f"The request reached its {SOP_CREATE_TIMEOUT_S} s limit, so the files in not_sent were not "
+                        "sent to SEEK. Send them again in a new request."}],
+                        "created": [{"id": r["data"]["id"]} for r in data_file_results], "not_sent": not_sent}).encode(),
+                        status=207 if data_file_results else 504, content_type='application/json')
                 try:
-                    body, code, headers, resp = self.client.create_data_file(request, payload)
+                    body, code, headers, resp = self.client.create_data_file(request, payload, timeout_s=wait)
                 except requests.RequestException as exc:
-                    return _unconfirmed(payload["data"]["attributes"].get("title"), exc, self.client.timeout_s,
+                    return _unconfirmed(payload["data"]["attributes"].get("title"), exc, math.ceil(wait[1]),
                                         created=[{"id": r["data"]["id"]} for r in data_file_results],
                                         not_sent=[f.name for f in files[len(data_file_results):]],
                                         kind="data file", path="data_files")

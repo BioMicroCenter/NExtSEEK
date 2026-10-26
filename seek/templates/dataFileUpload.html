@@ -186,18 +186,33 @@
 							headers: {"X-CSRFTOKEN": getCookie("csrftoken")},
 							body: formData
 							});
-							if (response.ok) {
-								$.messager.progress('close')
-								const response_json = await response.json()
+							$.messager.progress('close')
+							const response_json = await response.json().catch(() => null)
+							const note = (text) => {
+								const p = document.createElement("p")
+								p.textContent = text
+								statusBox.appendChild(p)
+							}
+							if (response.ok && response_json && Array.isArray(response_json.data)) {
 								for (i=0; i<response_json["data"].length; i++) {
 									const link = seek_url + response_json["data"][i].data.links.self
 									const name = response_json["data"][i].data.attributes.title
-									statusBox.innerHTML += `<p>${name} was successfully uploaded: <a href="${link}">${link}</a></p>`
+									const p = document.createElement("p")
+									p.append(`${name} was successfully uploaded: `)
+									const a = document.createElement("a")
+									a.href = link
+									a.textContent = link
+									p.appendChild(a)
+									statusBox.appendChild(p)
 								}
-								} else {
-									$.messager.progress('close')
-									statusBox.innerHTML += "Could not parse response from server. Please verify whether the file was uploaded and try again."
-								}
+							} else if (response_json && response_json.status === "unconfirmed") {
+								// 202: SEEK did not answer in time and may still create the file.
+								note(response_json.detail || "SEEK did not answer in time.")
+								note("Check the data files list before uploading again, so the file is not created twice.")
+							} else {
+								const err = response_json && (response_json.detail || (response_json.errors || []).map(e => e.detail || e.title).join("; "))
+								note(err || "Could not parse response from server. Please verify whether the file was uploaded and try again.")
+							}
 								} catch (e) {
 									$.messager.progress('close')
 									console.error(e);
