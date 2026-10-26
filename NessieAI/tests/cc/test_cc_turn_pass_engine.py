@@ -12,6 +12,7 @@ import pytest
 from docker.errors import APIError
 
 from NessieAI import paths
+from NessieAI.tests.cc import fake_spawner
 from NessieAI.cc import cc_engine, safe_fs
 from NessieAI.tests.cc.test_cc_engine_turn_loop import _FakeContainer, _FakeSock, _install_client, _paths, _run_id
 
@@ -125,7 +126,7 @@ def test_the_pass_is_revoked_once_right_after_the_container_stops(tmp_path, monk
     take their secrets from the login already in memory), and only once although the finally asks again."""
     order, scrubbed = [], {}
     _install_client(monkeypatch, _ExitingContainer(order))
-    monkeypatch.setattr(cc_engine, "BridgeAttachSocket", lambda raw, stdout_stream=None: _FakeSock(["not-json", None]))
+    monkeypatch.setattr(fake_spawner, "BridgeAttachSocket", lambda raw, stdout_stream=None: _FakeSock(["not-json", None]))
     real_publish = cc_engine._publish_artifacts
 
     def publish(*args, **kwargs):
@@ -144,7 +145,7 @@ def test_the_pass_is_revoked_once_right_after_the_container_stops(tmp_path, monk
 def test_a_failed_revocation_does_not_skip_the_scrub(tmp_path, monkeypatch):
     order, scrubbed = [], {}
     _install_client(monkeypatch, _FakeContainer())
-    monkeypatch.setattr(cc_engine, "BridgeAttachSocket", lambda raw, stdout_stream=None: _FakeSock(["not-json", None]))
+    monkeypatch.setattr(fake_spawner, "BridgeAttachSocket", lambda raw, stdout_stream=None: _FakeSock(["not-json", None]))
     _recording_scrub(monkeypatch, order, scrubbed)
 
     def revoke():
@@ -169,7 +170,7 @@ def test_a_timed_out_turn_revokes_its_pass(tmp_path, monkeypatch):
             time.sleep(0.02)
             return None if container.stopped else ""
 
-    monkeypatch.setattr(cc_engine, "BridgeAttachSocket", lambda raw, stdout_stream=None: _Stuck())
+    monkeypatch.setattr(fake_spawner, "BridgeAttachSocket", lambda raw, stdout_stream=None: _Stuck())
     revoked, events = [], []
     _run(tmp_path, turn_timeout=0.05, on_turn_end=lambda: revoked.append(True),
          send_event=lambda event, data: events.append((event, data)))

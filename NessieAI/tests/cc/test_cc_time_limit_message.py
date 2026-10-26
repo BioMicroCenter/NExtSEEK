@@ -21,6 +21,7 @@ import time
 import docker as docker_mod
 import pytest
 
+from NessieAI.tests.cc import fake_spawner
 from NessieAI.cc import cc_engine
 from NessieAI.cc.cc_config import CCPaths
 from NessieAI.cc.translate import MODEL_UNAVAILABLE, MODEL_UNAVAILABLE_TRIED
@@ -107,7 +108,7 @@ def _stopped_turn(tmp_path, monkeypatch, frames, *, write=None, clock=None):
                 return _Container()
 
     monkeypatch.setattr(docker_mod, "from_env", lambda: _Client())
-    monkeypatch.setattr(cc_engine, "BridgeAttachSocket", lambda raw, stdout_stream=None: _Sock())
+    monkeypatch.setattr(fake_spawner, "BridgeAttachSocket", lambda raw, stdout_stream=None: _Sock())
     events = []
     cc_engine.run_cc_turn(
         query="q", model_id="us.anthropic.a", api_user=None, api_pass=None,

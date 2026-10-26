@@ -169,10 +169,12 @@ def test_container_claude_md_describes_one_container_per_turn():
     """A turn is a fresh container fed one message on stdin and removed after,
     never a docker exec into an idle, long-lived container."""
     cc_engine = _engine()
-    kwargs = cc_engine._run_kwargs(
-        image="img", command=["claude"], environment={}, mounts=None,
-        run_id="0123abcd", user_id="alice",
-    )
+    from NessieAI.tests.cc import fake_spawner
+
+    svc = fake_spawner._service(object())
+    kwargs = svc._run_kwargs(svc._validate_turn({
+        "run_id": "0123abcd", "user_id": "alice", "project_dirname": "proj", "cc_state_key": None,
+        "model_id": "m", "environment": {}, "stdin_envelope": "x\n"}))
     assert kwargs["stdin_open"] is True
     assert kwargs["auto_remove"] is True
     text = CLAUDE_MD.read_text()

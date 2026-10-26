@@ -1,4 +1,4 @@
-"""run_cc_turn and cc_runner_available behind NEXTSEEK_SPAWNER_URL: the spawner client is faked, Docker is never touched."""
+"""run_cc_turn and cc_runner_available go through the spawner client (faked here); Docker is never touched."""
 from __future__ import annotations
 
 import importlib.util
@@ -43,7 +43,7 @@ class _Stream:
 @pytest.fixture
 def spawner_on(monkeypatch):
     monkeypatch.setenv("NEXTSEEK_SPAWNER_URL", "http://cc-spawner:8080")
-    monkeypatch.setattr(docker_mod, "from_env", lambda: (_ for _ in ()).throw(AssertionError("direct Docker used")))
+    monkeypatch.setattr(docker_mod, "from_env", lambda: (_ for _ in ()).throw(AssertionError("Docker used")))
 
 
 def _run(tmp_path, events, **over):
@@ -55,29 +55,34 @@ def _run(tmp_path, events, **over):
         cc_state_key="abc-123", session_id="resume-me", **over)
 
 
-def test_runner_available_follows_the_spawner_when_the_switch_is_on(spawner_on, monkeypatch):
+def test_runner_available_follows_the_spawner(spawner_on, monkeypatch):
     monkeypatch.setattr(spawner_client, "health", lambda: (False, "network missing"))
     assert cc_engine.cc_runner_available() == (False, "network missing")
     monkeypatch.setattr(spawner_client, "health", lambda: (True, "ok"))
     assert cc_engine.cc_runner_available() == (True, "ok")
 
 
-def test_runner_available_uses_docker_when_the_switch_is_off(monkeypatch):
-    monkeypatch.setenv("NEXTSEEK_SPAWNER_URL", "")
-    monkeypatch.setattr(spawner_client, "health", lambda: (_ for _ in ()).throw(AssertionError("spawner used")))
 
-    class _Ok:
-        def get(self, _n):
-            return object()
 
-    class _Client:
-        images = networks = _Ok()
+@pytest.mark.parametrize("value", [None, "", "  "])
+def test_without_a_spawner_url_cc_is_unavailable_and_docker_is_never_tried(monkeypatch, value):
+    """The switch is gone: no URL fails closed, it does not fall back to a Docker path."""
+    if value is None:
+        monkeypatch.delenv("NEXTSEEK_SPAWNER_URL", raising=False)
+    else:
+        monkeypatch.setenv("NEXTSEEK_SPAWNER_URL", value)
+    monkeypatch.setattr(docker_mod, "from_env", lambda: (_ for _ in ()).throw(AssertionError("Docker used")))
+    ok, detail = cc_engine.cc_runner_available()
+    assert ok is False and "NEXTSEEK_SPAWNER_URL" in detail
 
-        def ping(self):
-            return True
 
-    monkeypatch.setattr(docker_mod, "from_env", lambda: _Client())
-    assert cc_engine.cc_runner_available() == (True, "ok")
+def test_a_turn_without_a_spawner_url_is_a_query_error_not_a_docker_start(tmp_path, monkeypatch):
+    monkeypatch.undo()   # drop the autouse stand-in: the real client, no URL
+    monkeypatch.delenv("NEXTSEEK_SPAWNER_URL", raising=False)
+    monkeypatch.setattr(docker_mod, "from_env", lambda: (_ for _ in ()).throw(AssertionError("Docker used")))
+    events: list = []
+    _run(tmp_path, events)
+    assert [e for e, _ in events if e == "query_error"]
 
 
 def test_a_turn_goes_through_the_spawner_and_is_stopped(spawner_on, tmp_path, monkeypatch):
@@ -184,43 +189,35 @@ def test_spawner_subpaths_match_build_user_dirs(tmp_path):
     }
 
 
-def test_spawner_run_kwargs_match_the_direct_path(monkeypatch):
-    sp = _load_spawner()
-    cfg = sp.Config(token="t", ns_url="http://127.0.0.1:8000", neo4j_uri="bolt://neo4j:7687", automode_gcp=True,
-                    image=cc_engine.DEFAULT_IMAGE, network=cc_engine.DEFAULT_NETWORK,
-                    max_turns=cc_engine._DEFAULT_MAX_TURNS, mem_limit=cc_engine._DEFAULT_MEM_LIMIT,
-                    nano_cpus=cc_engine._DEFAULT_NANO_CPUS, pids_limit=cc_engine._DEFAULT_PIDS_LIMIT,
-                    fsize_bytes=cc_engine._DEFAULT_FSIZE_BYTES)
-    svc = sp.Spawner(object(), cfg)
-    body = {"run_id": RUN, "user_id": "alice", "project_dirname": "proj", "cc_state_key": "abc-123",
-            "model_id": "m-1", "fallback_model_id": "m-2", "max_budget_usd": 0.5, "resume_session_id": "r-1",
-            "environment": {"API_USER": "alice"}, "stdin_envelope": "x\n",
-            }
-    theirs = svc._run_kwargs(svc._validate_turn(body))
-    command = cc_engine._build_command(
-        model_id="m-1", session_id="r-1", max_budget_usd=0.5, fallback_model_id="m-2",
-        source={"NEXTSEEK_INTERNAL_BASE_URL": "http://127.0.0.1:8000", "NEO4J_URI": "bolt://neo4j:7687",
-                "GCP_API_KEY": "x"})
-    ours = cc_engine._run_kwargs(image=cfg.image, command=command, environment={"API_USER": "alice"},
-                                 mounts=theirs["mounts"], run_id=RUN, user_id="alice")
-    assert {k: v for k, v in theirs.items() if k != "ulimits"} == {k: v for k, v in ours.items() if k != "ulimits"}
-    assert [dict(u) for u in theirs["ulimits"]] == [dict(u) for u in ours["ulimits"]]
+@pytest.mark.parametrize("model,fallback,budget,session", [
+    ("m-1", "m-2", 0.5, "r-1"), ("m-1", "m-1", 0.5, None), (None, None, 0, None), ("m-1", None, 2, "r-1"),
+])
+def test_spawner_command_matches_build_command(model, fallback, budget, session):
+    """The spawner starts the container; startup's CC_WIRING_PROBE reads ``cc_engine._build_command`` to say what
+    model a turn gets. The two builders must agree, or the probe reports a command no turn runs."""
+    from NessieAI.tests.cc import fake_spawner
+    svc = fake_spawner._service(object())
+    v = svc._validate_turn({"run_id": RUN, "user_id": "alice", "project_dirname": "proj", "model_id": model,
+                            "fallback_model_id": fallback, "max_budget_usd": budget, "resume_session_id": session,
+                            "environment": {}, "stdin_envelope": "x\n"})
+    source = {"NEXTSEEK_INTERNAL_BASE_URL": svc.config.ns_url, "NEO4J_URI": svc.config.neo4j_uri,
+              "GCP_API_KEY": "k" if svc.config.automode_gcp else ""}
+    assert svc._command(v) == cc_engine._build_command(
+        model_id=model, session_id=session, max_budget_usd=budget, source=source, fallback_model_id=fallback)
 
 
 def test_id_rules_are_one_rule_on_both_sides():
     sp = _load_spawner()
     assert sp._SESSION_RE.pattern == cc_engine._SESSION_RE.pattern
     assert sp._MODEL_RE.pattern == cc_engine._MODEL_RE.pattern
-    assert sp._RUN_ID_RE.pattern == cc_engine._CONTAINER_NAME_SAFE_RE.pattern
     for rx in (sp._SESSION_RE, sp._MODEL_RE, sp._RUN_ID_RE):
         assert not rx.fullmatch("-abc") and not rx.fullmatch("--x")
 
 
 @pytest.mark.parametrize("over", [{"session_id": "--dangerously-skip-permissions"}, {"session_id": "-r"},
                                   {"model_id": "--help"}])
-def test_the_direct_path_refuses_a_dash_led_session_or_model_id(tmp_path, monkeypatch, over):
-    monkeypatch.setenv("NEXTSEEK_SPAWNER_URL", "")
-    monkeypatch.setattr(docker_mod, "from_env", lambda: (_ for _ in ()).throw(AssertionError("Docker reached")))
+def test_the_engine_refuses_a_dash_led_session_or_model_id_before_any_request(tmp_path, monkeypatch, over):
+    monkeypatch.setattr(spawner_client, "start_turn", lambda *a, **k: (_ for _ in ()).throw(AssertionError("asked")))
     kwargs = dict(query="q", model_id="m-1", api_user="alice", api_pass="pw", turn_pass="tp-1",
                   send_event=lambda e, d: None, user_id="alice", project_dirname="proj", run_id=RUN,
                   paths=CCPaths(users_volume="dmac-cc-users", user_root_mount=str(tmp_path)),

@@ -591,16 +591,17 @@ def check_cc_agent_context(
 def check_cc_runner(repo_root: Path, env: dict[str, str]) -> HealthResult:
     """DEPLOYMENT.md section 6 step 6, run for the operator rather than by them.
 
-    Host-side image presence is not the same claim. This one runs inside the app
-    container, over the docker socket it actually spawns CC turns through, and so
-    covers all three legs of ``cc_engine.cc_runner_available()``: the daemon is
-    reachable from in there, the image is visible to it, and ``dmac-cc-net``
-    exists. It is the exact command the runbook asks for by hand.
+    Host-side image presence is not the same claim. This one runs inside the web
+    container, which reaches Docker only through cc-spawner (the worker has no
+    spawner address), and so covers ``cc_engine.cc_runner_available()``: the
+    spawner accepts the token (no token, or an answer without the authenticated
+    detail, is not green), sees the image and finds ``dmac-cc-net``.
+    It is the exact command the runbook asks for by hand.
     """
     name = "CC runner"
     try:
         out = compose_exec(
-            service="nextseek",
+            service="web",
             # The app image carries no bare `python` on PATH; `uv run --no-sync`
             # executes in /app/.venv without modifying it (DEPLOYMENT.md 6.6).
             command=[
@@ -618,8 +619,8 @@ def check_cc_runner(repo_root: Path, env: dict[str, str]) -> HealthResult:
         return HealthResult(
             name=name,
             ok=True,
-            detail=f"{reported} -- image, docker socket and dmac-cc-net all "
-                   "reachable from the app container",
+            detail=f"{reported} -- cc-spawner, the image and dmac-cc-net all "
+                   "reachable from the web container",
         )
     return HealthResult(
         name=name,

@@ -223,12 +223,14 @@ class Spawner:
             try:
                 self.client.images.get(self.config.image)
             except Exception:  # noqa: BLE001
-                ok, detail = False, f"CC image '{self.config.image}' not found"
+                ok, detail = False, (f"CC image '{self.config.image}' not found (run `docker compose build cc-agent`, "
+                                     "or set NEXTSEEK_CC_IMAGE to an existing image)")
         if ok:
             try:
                 self.client.networks.get(self.config.network)
             except Exception:  # noqa: BLE001
-                ok, detail = False, f"CC network '{self.config.network}' not found"
+                ok, detail = False, (f"CC network '{self.config.network}' not found (run `docker compose up -d`; "
+                                     "it is compose-managed)")
         return {"ok": ok, "detail": detail} if with_detail else {"ok": ok}
 
     # ---- turns ----

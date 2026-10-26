@@ -886,8 +886,8 @@ def test_stack_health_compares_the_cc_agent_context_with_the_tree_it_is_given(mo
 
 
 def test_check_cc_runner_runs_deployment_step_6_in_the_app_container(monkeypatch):
-    """Host-side image presence does not prove the APP CONTAINER's docker socket
-    can see the image, which is the thing that actually failed. This runs the
+    """Host-side image presence does not prove the web container's spawner can
+    see the image, which is the thing that actually failed. This runs the
     command DEPLOYMENT.md asks the operator to run by hand, in the same place."""
     seen = {}
 
@@ -901,7 +901,7 @@ def test_check_cc_runner_runs_deployment_step_6_in_the_app_container(monkeypatch
     result = validate.check_cc_runner(Path("/repo"), env={})
 
     assert result.ok is True
-    assert seen["service"] == "nextseek"
+    assert seen["service"] == "web"   # the worker holds no spawner address
     joined = " ".join(seen["command"])
     assert "cc_runner_available" in joined
     # The app image has no bare `python` on PATH (DEPLOYMENT.md 6.6).

@@ -16,9 +16,12 @@ reproducible and verifiable.
 
 GATED: only runs when ``RUN_REALSTACK=1``. Needs the deployed stack
 (``dmac-assistant:poc`` image, ``dmac-cc-net`` + ``dmac-bedrock-proxy`` up,
-``/var/run/docker.sock``). Run inside the nextseek container:
+cc-spawner) and, to inspect the agent, the proxy and the network, a docker CLI
+and daemon. Since W9 part 2 no app container has the socket, so in ``web`` (the
+only service with the spawner URL) the classes skip and say so
+(``_docker_unreachable``). Run inside web:
 
-  docker exec -e RUN_REALSTACK=1 -e SEEK_TEST_USER=.. -e SEEK_TEST_PASS=.. nextseek \\
+  docker compose exec -e RUN_REALSTACK=1 -e SEEK_TEST_USER=.. -e SEEK_TEST_PASS=.. web \\
     sh -lc 'cd /app && uv run python manage.py test \\
     NessieAI.tests.cc.test_cc_realstack \\
     --settings=dmac.test_settings_realstack --noinput'
@@ -78,6 +81,23 @@ def _docker(*args, timeout=30):
     return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
 
 
+def _docker_unreachable() -> str | None:
+    """Why this process cannot drive Docker, or None. The classes here inspect the agent, the proxy and the network
+    (and the gate matrix runs its own executor), so they need the docker CLI and a daemon. Since W9 part 2 only
+    cc-spawner holds the socket: in `web` they skip with this reason."""
+    import shutil
+    why = "only cc-spawner holds the Docker socket (W9 part 2), so no app container can inspect or run containers"
+    if shutil.which("docker") is None:
+        return f"no docker CLI on PATH: {why}"
+    try:
+        r = _docker("version", "--format", "{{.Server.Version}}", timeout=10)
+    except subprocess.TimeoutExpired:
+        return f"the Docker daemon did not answer: {why}"
+    if r.returncode != 0:
+        return f"no Docker daemon reachable ({(r.stderr or '').strip()[:120]}): {why}"
+    return None
+
+
 def _seek_creds():
     u, p = os.environ.get("SEEK_TEST_USER"), os.environ.get("SEEK_TEST_PASS")
     if u and p:
@@ -104,20 +124,12 @@ class CCRealStackAcceptance(TransactionTestCase):
         ok, detail = cc_engine.cc_runner_available()
         if not ok:
             raise unittest.SkipTest(f"CC runner not available: {detail}")
-        # Prefer docker CLI; fall back to docker-py (nextseek image has the
-        # socket + SDK but typically no `docker` binary on PATH).
-        try:
-            r = _docker("inspect", "-f", "{{.State.Running}}", PROXY_CONTAINER)
-            running = r.returncode == 0 and "true" in (r.stdout or "")
-            detail = r.stdout or r.stderr
-        except FileNotFoundError:
-            import docker as docker_sdk
-            try:
-                c = docker_sdk.from_env().containers.get(PROXY_CONTAINER)
-                running = c.status == "running"
-                detail = c.status
-            except Exception as exc:  # noqa: BLE001 — surface any SDK failure as skip
-                raise unittest.SkipTest(f"{PROXY_CONTAINER} is not running: {exc}") from exc
+        no_docker = _docker_unreachable()
+        if no_docker:
+            raise unittest.SkipTest(no_docker)
+        r = _docker("inspect", "-f", "{{.State.Running}}", PROXY_CONTAINER)
+        running = r.returncode == 0 and "true" in (r.stdout or "")
+        detail = r.stdout or r.stderr
         if not running:
             raise unittest.SkipTest(f"{PROXY_CONTAINER} is not running: {detail}")
         cls.run_id = "cc-" + uuid.uuid4().hex[:12]
@@ -477,7 +489,8 @@ class CCCapabilityGateMatrix(TestCase):
     with the user's sign-off -- never in this session. GATED identically to
     ``CCRealStackAcceptance`` above (``RUN_REALSTACK=1``); needs the
     deployed stack (``nextseek-sidecar``/``dmac-bedrock-proxy``/nginx up,
-    ``/var/run/docker.sock``, the gate user's own SEEK login bound to an
+    a docker CLI and daemon (it runs its own executor; without them it skips,
+    see ``_docker_unreachable``), the gate user's own SEEK login bound to an
     **existing** project via ``instance_binding.json`` — no greenfield
     ``create_seeded_fixture``).
 
@@ -495,6 +508,9 @@ class CCCapabilityGateMatrix(TestCase):
         ok, detail = cc_engine.cc_runner_available()
         if not ok:
             raise unittest.SkipTest(f"CC runner not available: {detail}")
+        no_docker = _docker_unreachable()
+        if no_docker:
+            raise unittest.SkipTest(no_docker)
         cls.run_id = os.environ.get("STEP7_GATE3D_RUN_ID") or ("matrix-" + uuid.uuid4().hex[:12])
         cls.gate_user_id = os.environ.get("NEXTSEEK_CC_GATE_USER_ID", "demo")
         bundle_override = os.environ.get("STEP7_GATE3D_BUNDLE_DIR")
@@ -689,3 +705,12 @@ class CCCapabilityGateMatrix(TestCase):
         # Task 15 matrix + its companions, so it does not itself assert
         # `all_ok`. Task 9/10 assembles the full bundle from both harnesses
         # before treating the validator's verdict as authoritative.
+
+
+def test_no_docker_cli_is_a_clear_skip_reason(monkeypatch):
+    """Since W9 part 2 no app container holds the Docker socket, so the classes above that inspect or run containers
+    skip with this reason instead of failing on a missing binary or a misleading proxy message."""
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    reason = _docker_unreachable()
+    assert reason and "cc-spawner" in reason

@@ -32,7 +32,8 @@ largest module here and holds several concerns; read the part you need.
 | Module | What it does |
 |---|---|
 | `turn.py` | `start_task`, one routed chat turn on a daemon thread: the route decision, then the NS orchestrator, a CC turn or the out-of-scope reply; plus the helpers that persist the CC session id, the chat_log entry and transcript row, and the memory summaries (`cc_sweep` reuses two of them) |
-| `attach.py` | demultiplexes Docker's attach-socket framing (copied from upstream with attribution, because the upstream module pulls in FastAPI) |
+| `spawner_client.py` | the app's only road to Docker: asks cc-spawner (`docker/cc-spawner/`) to check health, run a turn, stop one, or run a SEEK user script, with the spawner token |
+| `attach.py` | demultiplexes Docker's attach-socket framing (copied from upstream with attribution, because the upstream module pulls in FastAPI); the app no longer attaches to containers, so only the turn tests' fake spawner uses it |
 | `translate.py` | maps Claude Code `stream-json` onto the progress events the chat panel already renders |
 | `cc_artifacts.py` | decides which outputs become a downloadable bundle |
 | `cc_transcript_store.py` | zstd-compresses the session `.jsonl` into a `CCSessionTranscript` row |
