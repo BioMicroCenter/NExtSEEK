@@ -27,8 +27,26 @@ else:
 
 logger = logging.getLogger(__name__)
 
-PAUSE_COUNTDOWN_S = int(os.environ.get("PAPER_REINGEST_PAUSE_S", "600"))
-PAUSE_RETRIES = int(os.environ.get("PAPER_REINGEST_PAUSE_RETRIES", "12"))
+
+
+def _env_int(name: str, default: int) -> int:
+    """A non-negative int from the environment; a bad value logs and falls back, since importing this
+    module (celery_app does) must never fail on it."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+        if value < 0:
+            raise ValueError(raw)
+    except ValueError:
+        logger.warning("%s=%r is not a non-negative integer; using %d", name, raw, default)
+        return default
+    return value
+
+
+PAUSE_COUNTDOWN_S = _env_int("PAPER_REINGEST_PAUSE_S", 600)
+PAUSE_RETRIES = _env_int("PAPER_REINGEST_PAUSE_RETRIES", 12)
 
 
 def run_acquire(run_id: str, *, retries_done: int, max_retries: int, fetcher_factory=Fetcher) -> str:
@@ -41,6 +59,9 @@ def run_acquire(run_id: str, *, retries_done: int, max_retries: int, fetcher_fac
     try:
         paper = load_artifact(run_id, run.artifacts["paper"], PaperArtifact)
         evidence = acquire(paper, fetcher_factory())
+        run.artifacts = {**run.artifacts, "evidence": save_artifact(run_id, "evidence", evidence)}
+        run.save(update_fields=["artifacts", "updated_at"])
+        set_state(run, "context")
     except SourceUnavailable as exc:
         if retries_done >= max_retries:
             set_state(run, "failed", failed_stage="acquire", reason=f"source unavailable: {exc}")
@@ -51,9 +72,6 @@ def run_acquire(run_id: str, *, retries_done: int, max_retries: int, fetcher_fac
         logger.exception("paper reingest %s: acquire failed", run_id)
         set_state(run, "failed", failed_stage="acquire", reason=f"{type(exc).__name__}: {exc}")
         return "failed"
-    run.artifacts = {**run.artifacts, "evidence": save_artifact(run_id, "evidence", evidence)}
-    run.save(update_fields=["artifacts", "updated_at"])
-    set_state(run, "context")
     return "context"
 
 
