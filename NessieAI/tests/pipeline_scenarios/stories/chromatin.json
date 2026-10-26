@@ -221,7 +221,7 @@
         "atacseq"
       ],
       "launch": {
-        "built": true,
+        "built": false,
         "must_match": {}
       },
       "history": [],
@@ -229,13 +229,14 @@
       "phrasing": "lookalike",
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "\"Open\" sounds like ATAC-seq, but these are H3K27ac ChIP libraries with inputs; chipseq processes them, and H3K27ac peaks mark active promoters and enhancers, a fair stand-in for \"open and active\" (the reply should say it is not a direct accessibility measure). atacseq is the lookalike: it assumes Tn5 libraries and would ignore the input controls."
+        "pipelines": "\"Open\" sounds like ATAC-seq, but these are H3K27ac ChIP libraries with inputs; chipseq processes them, and H3K27ac peaks mark active promoters and enhancers, a stand-in for \"open and active\" but not a direct accessibility measure. Proposed as ask, like methyl-lookalike: a careful analyst asks the atlas's question \"Was an antibody used (ChIP), or is this transposase accessibility (ATAC)?\" before choosing, with chipseq acceptable. atacseq is the lookalike: it assumes Tn5 libraries and would ignore the input controls."
       },
       "ruling": {
         "state": "proposed",
         "date": "2026-10-26",
         "note": ""
-      }
+      },
+      "expect": "ask"
     },
     {
       "id": "chromatin-ambiguous",

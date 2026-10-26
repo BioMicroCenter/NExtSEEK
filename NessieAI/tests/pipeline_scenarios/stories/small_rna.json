@@ -111,7 +111,7 @@
         "riboseq"
       ],
       "launch": {
-        "built": true,
+        "built": false,
         "must_match": {}
       },
       "history": [],
@@ -119,13 +119,14 @@
       "phrasing": "lookalike",
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "The words describe ordinary RNA-seq, but the libraries are QIAseq miRNA, size-selected to about 22 nt; smrnaseq is the pipeline that reads them, and the reply should say it gives small-RNA rather than gene-level counts. rnaseq is the lookalike: on these reads it would quantify almost nothing useful."
+        "pipelines": "The words describe ordinary RNA-seq, but the libraries are QIAseq miRNA, size-selected to about 22 nt; smrnaseq is the pipeline that reads them. Proposed as ask, like methyl-lookalike: smrnaseq gives small-RNA (miRNA) counts, not gene-level expression, so a careful analyst asks whether miRNA counts are what the user wants, with smrnaseq acceptable. rnaseq is the lookalike: on these reads it would quantify almost nothing useful."
       },
       "ruling": {
         "state": "proposed",
         "date": "2026-10-26",
         "note": ""
-      }
+      },
+      "expect": "ask"
     }
   ]
 }

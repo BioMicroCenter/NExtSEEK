@@ -28,7 +28,7 @@
     },
     {
       "id": "raredisease-not-yet",
-      "question": "Find the variant causing the rare disease in these two patients.",
+      "question": "Rank the variants in these two genomes by how likely they are to cause a rare disease.",
       "cohort": "test::human_wgs_germline",
       "route": "nextseek_query",
       "acceptable": [],
@@ -43,7 +43,7 @@
       "phrasing": "plain",
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "Finding a rare-disease variant needs nf-core/raredisease (calling plus annotation, inheritance filtering and ranking), which NExtSEEK cannot launch yet, so the reply should say not yet and build nothing. sarek can call germline variants but does not rank them for a disease; the cohort is two unrelated donors, not a family trio."
+        "pipelines": "Ranking variants by how likely they are to cause a rare disease needs nf-core/raredisease (calling, then annotation and pathogenicity scoring), which NExtSEEK cannot launch yet, so the reply should say not yet and build nothing. sarek can call the germline variants but does not score or rank them for disease. The cohort is two unrelated blood donors with no disease or family metadata, so the reply may also say there is no phenotype or inheritance to rank against."
       },
       "ruling": {
         "state": "proposed",
