@@ -458,7 +458,12 @@ spawner reads its Container-CC limits (`NEXTSEEK_CC_MAX_TURNS`, `_MEM_LIMIT`, `_
 There is no direct Docker path any more (W9 part 2): Container-CC turns and SEEK user create and
 patch need the spawner and answer 503 or "CC unavailable" while it is down. An empty
 `NEXTSEEK_SPAWNER_URL=` line in `.env` is read as the default (`:-`), so a stale line does no harm.
-Rollback of the spawner means a rollback of the app image to a commit before part 2.
+What a rollback past part 2 gets depends on the compose file it runs with. The image-only
+rollback (§5.1) keeps this compose file, so `web` still has no socket: a part-1 image still
+sends Container-CC turns through the spawner, and an image from before the spawner existed
+has no route to Docker at all (Container-CC and SEEK user create and patch fail). The direct
+Docker path comes back only with a part-1 checkout (its compose file puts the socket back in
+`web`) plus `NEXTSEEK_SPAWNER_URL=` (empty) in `.env`, then `./startup.sh rebuild` there.
 
 ### 3.4 If the deploy clone is owned by a different account
 
