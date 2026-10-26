@@ -22,8 +22,10 @@ SERVICES = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())["servi
 SOCK = "/var/run/docker.sock"
 # Every module in the repo is scanned but these folders. cc-spawner keeps the SDK; startup/ and scripts/ run on the
 # host, as do the hidden folders (.claude/skills); history and archive are frozen. Test folders and files may fake or
-# drive the SDK. Any folder of these names is skipped wherever it sits.
-EXEMPT_PATHS = ("docker/cc-spawner", "startup", "scripts", "NessieAI/history", "docs/archive")
+# drive the SDK. Any folder of these names is skipped wherever it sits. The untracked runtime data folders are skipped
+# so a scan of a live checkout stays fast.
+EXEMPT_PATHS = ("docker/cc-spawner", "startup", "scripts", "NessieAI/history", "docs/archive",
+                "filestore", "outputs", "logs", "schema_rag")
 EXEMPT_DIR_NAMES = frozenset({"tests", "OLD", "node_modules", "__pycache__"})
 
 
