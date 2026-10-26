@@ -30,3 +30,9 @@ def test_a_renamed_file_changes_the_fingerprint(tmp_path, monkeypatch):
     before = fp.current()
     (tmp_path / "a.json").rename(tmp_path / "b.json")
     assert fp.current() != before
+
+
+def test_the_inputs_cover_what_the_model_sees():
+    """The agent's tool schemas and next-step messages, its loop, and the catalog in its system prompt."""
+    for name in ("pipeline/agent_tools.py", "pipeline/agent.py", "seqera/catalog.py"):
+        assert f"NessieAI/chat_nextseek/src/chat_nextseek/{name}" in fp.INPUTS, name
