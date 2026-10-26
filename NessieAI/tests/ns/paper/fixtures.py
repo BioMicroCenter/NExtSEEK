@@ -49,3 +49,26 @@ Data Availability
 Reads are at GSE123456.
 References
 1. Smith J. A paper."""
+
+GEO_SERIES_SOFT = """^SERIES = GSE123456
+!Series_title = Mouse tumour RNA-seq
+!Series_submission_date = Jan 05 2024
+!Series_relation = BioProject: https://www.ncbi.nlm.nih.gov/bioproject/PRJNA100001
+!Series_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRP400001
+"""
+
+GEO_SAMPLES_SOFT = """^SAMPLE = GSM7000001
+!Sample_title = tumour_rep1
+!Sample_submission_date = Jan 05 2024
+!Sample_source_name_ch1 = tumour
+!Sample_characteristics_ch1 = strain: C57BL/6
+!Sample_characteristics_ch1 = age: 8 weeks
+!Sample_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRX2000001
+!Sample_supplementary_file_1 = ftp://ftp.ncbi.nlm.nih.gov/geo/samples/GSM7000nnn/GSM7000001/suppl/GSM7000001_counts.txt.gz
+!Sample_supplementary_file_2 = NONE
+^SAMPLE = GSM7000002
+!Sample_title = tumour_rep2
+!Sample_submission_date = Jan 05 2024
+!Sample_characteristics_ch1 = strain: C57BL/6
+!Sample_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRX2000002
+"""
