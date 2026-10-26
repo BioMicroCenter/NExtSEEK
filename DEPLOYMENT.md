@@ -536,21 +536,32 @@ window: between the sidecar rebuild and the app step, the 10001 sidecar cannot w
 
 Phase 4 rides the same dev rollout as phase 3.
 
-**Rollback** to the previous commit's compose and images (root app, 1001 agent and sidecar). Do this first, with
-the stack's app and agents still on the new images or stopped:
+Expected once, on dev: the runner's `LABS pre-copy failed` line at the switchover (its `compose run` is already
+10001 and `/media` is still root-owned until the app step's FIX); the copy after the app step puts the file in.
+
+**Rollback** to the previous commit's compose and images (root app, 1001 agent and sidecar). First stop the app
+and the sidecar, so no 10001 process writes while the volume changes hands (a CC turn in flight is cut), then
+hand `dmac-cc-users` back to 1001:
 
 ```bash
+docker compose stop web nextseek nextseek-sidecar
 docker run --rm --network none --user 0:0 --entrypoint sh -v dmac-cc-users:/v <app-or-cc-image> \
   -c 'find /v -xdev ! -user 1001 -exec chown -h 1001:1001 {} +'
 ```
 
 The old 1001 agent cannot write 10001's files; the old root app does not care who owns them, so no other volume
 or bind needs anything. Then roll back as in section 5 (compose files from the previous commit AND the
-rollback-tagged images). Rolling forward again repeats the switchover.
+rollback-tagged images), which starts them again. The Luria key itself was never changed: the old compose binds
+`LURIAKEY` directly again and the root app reads it. `docker/luria-key` and `NEXTSEEK_LURIA_KEY_COPY` in `.env`
+are ignored by the old compose (delete the copy if the rollback is for good); `local_settings.py` stays 0640 in
+the deploy group, which the root app reads. Rolling forward again repeats the switchover.
 
-**`docker compose exec` is 10001 now.** Work that must write as root needs `-u 0` (`docker compose exec -u 0 ...`).
-Its files stay root-owned, so the next CHECK reports them and the next rebuild's ownership pass fixes them. The
-runner's own execs (collectstatic, `mkdir -p /app/runs`, the Nessie run) run as the app user on purpose, and its
+**`docker compose exec` is 10001 now.** `docker compose exec -u 0` does not help: the container drops every
+capability, so uid 0 there cannot write 10001's 0755 and 0600 files either. For root work on a volume use a
+throwaway container, which keeps docker's default capabilities:
+`docker run --rm --network none --user 0:0 --entrypoint sh -v <volume>:/v nextseek-nextseek:latest -c '...'`.
+Whatever it leaves root-owned the next CHECK reports and `./startup.sh fix-ownership` (or the next rebuild's
+ownership pass) fixes. The runner's own execs (collectstatic, `mkdir -p /app/runs`, the Nessie run) run as the app user on purpose, and its
 copies into the containers use `docker compose cp -a` / `docker cp -a`, which gives the file the container user
 (verified on docker here: without `-a` the host uid is kept).
 
@@ -681,6 +692,10 @@ docker image inspect nextseek-nextseek:pre-<name> --format '{{.Id}}'   # MUST su
 docker tag nextseek-nextseek:pre-<name> nextseek-nextseek:latest
 docker compose -p nextseek up -d --no-build --no-deps --force-recreate nextseek web
 ```
+
+**Not across the phase 4 switchover.** This keeps the current compose file, and from phase 4 on it runs `nextseek`
+and `web` as 10001 with every capability dropped: an image from before the switchover (built to run as root)
+crash-loops under it. Roll back the compose files and the agent's volume too, as in §3.5 "Rollback".
 
 This recreates `web` in place (about a minute of the restart page). For a gap-free
 rollback check out the previous good commit and run `./startup.sh rebuild` there: it
