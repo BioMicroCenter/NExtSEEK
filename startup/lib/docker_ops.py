@@ -299,7 +299,7 @@ def bootstrap_staging_dir(volume_name: str, *, uid: int = 1001) -> None:
     result = subprocess.run(
         [
             "docker", "run", "--rm", "-v", f"{volume_name}:/v", "alpine",
-            "sh", "-c", f"mkdir -p /v/_staging && chown {uid} /v/_staging",
+            "sh", "-c", f"mkdir -p /v/_staging && chown {uid}:{uid} /v /v/_staging",
         ],
         capture_output=True,
         text=True,

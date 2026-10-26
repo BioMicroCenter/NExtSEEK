@@ -161,7 +161,7 @@ def test_bootstrap_staging_dir_invokes_docker_run_alpine_mkdir_chown(mock_run: M
     assert args[-2] == "-c"
     shell_cmd = args[-1]
     assert "mkdir -p /v/_staging" in shell_cmd
-    assert "chown 1001 /v/_staging" in shell_cmd
+    assert "chown 1001:1001 /v /v/_staging" in shell_cmd
 
 
 @patch("startup.lib.docker_ops.subprocess.run")
@@ -169,7 +169,7 @@ def test_bootstrap_staging_dir_uid_overridable(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
     bootstrap_staging_dir("dmac-cc-users", uid=2000)
     shell_cmd = mock_run.call_args.args[0][-1]
-    assert "chown 2000 /v/_staging" in shell_cmd
+    assert "chown 2000:2000 /v /v/_staging" in shell_cmd
 
 
 @patch("startup.lib.docker_ops.subprocess.run")
