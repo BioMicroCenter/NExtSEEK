@@ -208,10 +208,18 @@
 							} else if (response_json && response_json.status === "unconfirmed") {
 								// 202: SEEK did not answer in time and may still create the file.
 								note(response_json.detail || "SEEK did not answer in time.")
-								note("Check the data files list before uploading again, so the file is not created twice.")
-							} else {
-								const err = response_json && (response_json.detail || (response_json.errors || []).map(e => e.detail || e.title).join("; "))
-								note(err || "Could not parse response from server. Please verify whether the file was uploaded and try again.")
+								note(`Check the ${upload_type === "sops" ? "SOPs" : "data files"} list before uploading again, so the file is not created twice.`)
+							} else if (response_json && response_json.detail) {
+								note(response_json.detail)
+							} else if (!(response_json && Array.isArray(response_json.errors))) {
+								note("Could not parse response from server. Please verify whether the file was uploaded and try again.")
+							}
+							// After any branch: why the request stopped, and which files never reached SEEK.
+							for (const e of (response_json && Array.isArray(response_json.errors)) ? response_json.errors : []) {
+								note(e.detail || e.title)
+							}
+							if (response_json && Array.isArray(response_json.not_sent) && response_json.not_sent.length) {
+								note(`Not sent: ${response_json.not_sent.join(", ")}`)
 							}
 								} catch (e) {
 									$.messager.progress('close')

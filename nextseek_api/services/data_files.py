@@ -2,7 +2,9 @@ from typing import Optional
 
 import json
 import math
+from functools import partial
 from time import monotonic
+from types import SimpleNamespace
 
 import requests
 from django.conf import settings
@@ -15,7 +17,7 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from drf_spectacular.types import OpenApiTypes
 
 from nextseek_api.helpers import SOP_CREATE_TIMEOUT_S, SeekAPIClient
-from nextseek_api.services.sops import _unconfirmed, _within
+from nextseek_api.services.sops import _time_up, _unconfirmed, _within
 from nextseek_api.endpoint_descriptions import (
     DATAFILE_LIST_DESC,
     DATAFILE_FETCH_DESC,
@@ -263,9 +265,11 @@ class DataFileProxyViewSet(viewsets.ViewSet):
                     status=413, content_type='application/json')
             
             data_file_results = []
+            created = []
             blob_results = []
             deadline = monotonic() + SOP_CREATE_TIMEOUT_S  # the creates share one request limit, as SOP creates do
-            for file in files:
+            for idx, file in enumerate(files):
+                not_sent = [f.name for f in files[idx:]]
                 # Each file starts from the request's own metadata, so it carries only its own placeholder.
                 meta = auto_populate_content_blobs(metadata, [file])
                 if len(files) > 1:
@@ -278,19 +282,12 @@ class DataFileProxyViewSet(viewsets.ViewSet):
 
                 wait = _within(deadline, SOP_CREATE_TIMEOUT_S)
                 if wait is None:
-                    not_sent = [f.name for f in files[len(data_file_results):]]
-                    return HttpResponse(json.dumps({"errors": [{"title": "Time limit reached", "detail":
-                        f"The request reached its {SOP_CREATE_TIMEOUT_S} s limit, so the files in not_sent were not "
-                        "sent to SEEK. Send them again in a new request."}],
-                        "created": [{"id": r["data"]["id"]} for r in data_file_results], "not_sent": not_sent}).encode(),
-                        status=207 if data_file_results else 504, content_type='application/json')
+                    return _time_up(data_file_results, created, not_sent, kind="data file", path="data_files")
                 try:
                     body, code, headers, resp = self.client.create_data_file(request, payload, timeout_s=wait)
                 except requests.RequestException as exc:
                     return _unconfirmed(payload["data"]["attributes"].get("title"), exc, math.ceil(wait[1]),
-                                        created=[{"id": r["data"]["id"]} for r in data_file_results],
-                                        not_sent=[f.name for f in files[len(data_file_results):]],
-                                        kind="data file", path="data_files")
+                                        created=created, not_sent=not_sent, kind="data file", path="data_files")
                 if code == 401:
                     return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
@@ -308,8 +305,14 @@ class DataFileProxyViewSet(viewsets.ViewSet):
                 
                 asset_id = data.get("data", {}).get("id")
                 content_blobs_meta = data.get("data", {}).get("attributes", {}).get("content_blobs", [])
+                created.append({"id": asset_id, "file": file.name})  # pairs a data file with its file in not_sent
 
-                blob_result = upload_content_blobs(self.client, request, "data_files", asset_id, content_blobs_meta, [file])
+                wait = _within(deadline, 300)  # the upload's own (10, 300), inside the request limit
+                if wait is None:
+                    return _time_up(data_file_results, created, not_sent, kind="data file", path="data_files")
+                # upload_content_blobs calls only client.upload_content_blob: this gives that call the limit.
+                capped = SimpleNamespace(upload_content_blob=partial(self.client.upload_content_blob, timeout_s=wait))
+                blob_result = upload_content_blobs(capped, request, "data_files", asset_id, content_blobs_meta, [file])
                 blob_results.append(blob_result)
 
             # Flatten blob_results

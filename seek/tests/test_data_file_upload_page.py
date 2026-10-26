@@ -14,3 +14,8 @@ class DataFileUploadPageTest(SimpleTestCase):
         self.assertIn("errors", html)
         self.assertIn("textContent", html)  # server text goes in as text, not HTML
         self.assertIn("Array.isArray(response_json.data)", html)
+
+    def test_page_names_what_was_not_sent_and_the_list_to_check(self):
+        html = _PAGE.read_text()
+        self.assertIn("response_json.not_sent", html)  # a time-up names the files it did not send
+        self.assertNotIn("Check the data files list", html)  # a SOP upload checks the SOPs list
