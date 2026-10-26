@@ -1,0 +1,91 @@
+{
+  "name": "smallrna",
+  "description": "Small-RNA (miRNA) libraries, two samples (nf-core smrnaseq test data)",
+  "levels": [
+    {
+      "sample_type": "CEL",
+      "rows": [
+        {
+          "Name": "NTC-SMRNA-cells1",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "CellLine": "HeLa",
+          "Type": "Cervical carcinoma cell line",
+          "Tissue": "Cervix"
+        },
+        {
+          "Name": "NTC-SMRNA-cells2",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "CellLine": "HeLa",
+          "Type": "cervical carcinoma cell line",
+          "Tissue": "cervix",
+          "Treatment1": "Dicer inhibitor",
+          "TreatmentType": "Chemical"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-SMRNA-lib1",
+          "Parent": "NTC-SMRNA-cells1",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "LibraryType": "small RNA",
+          "Protocol": "QIAseq miRNA Library Kit (Qiagen), 100 ng total RNA, 3' adapter with UMI",
+          "Lab": "Test Lab",
+          "Barcode": "AACGTGAT"
+        },
+        {
+          "Name": "NTC-SMRNA-lib2",
+          "Parent": "NTC-SMRNA-cells2",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "LibraryType": "small RNA",
+          "Protocol": "QIAseq miRNA Library Kit (Qiagen), 100 ng total RNA, 3' adapter with UMI",
+          "Lab": "Test Lab",
+          "Barcode": "AAACATCG"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-SMRNA-1",
+          "Parent": "NTC-SMRNA-lib1",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "sample_1.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/smrnaseq/testdata/",
+          "SequencingType": "small RNA-seq",
+          "LibraryStrategy": "miRNA-Seq",
+          "LibrarySource": "TRANSCRIPTOMIC",
+          "LibrarySelection": "size fractionation",
+          "LibraryDesign": "Single",
+          "ExtractedMolecule": "total RNA",
+          "Sequencer": "Illumina NextSeq 500",
+          "F_bp": 75
+        },
+        {
+          "Name": "NTC-SMRNA-2",
+          "Parent": "NTC-SMRNA-lib2",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "sample_2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/smrnaseq/testdata/",
+          "SequencingType": "smallRNA-seq",
+          "LibraryStrategy": "miRNA-Seq",
+          "LibrarySource": "Transcriptomic",
+          "LibrarySelection": "size fractionation",
+          "LibraryDesign": "SINGLE",
+          "ExtractedMolecule": "total RNA",
+          "Sequencer": "NextSeq 500",
+          "F_bp": 75
+        }
+      ]
+    }
+  ]
+}

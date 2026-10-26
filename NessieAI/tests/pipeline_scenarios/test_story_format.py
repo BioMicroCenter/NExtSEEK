@@ -54,3 +54,24 @@ def test_a_real_cohort_resolves_to_uids():
 def test_an_unknown_cohort_raises():
     with pytest.raises(KeyError):
         st.cohort_uids("nosuchstudy::A.GEX")
+
+
+from pathlib import Path
+
+COHORT_DEFS = Path(__file__).resolve().parents[3] / "scripts" / "pipeline_scenarios" / "cohorts"
+
+
+def test_every_test_cohort_has_a_definition_with_a_parent_chain():
+    names = set(json.loads(st.TEST_COHORTS.read_text())["cohorts"])
+    defined = {p.stem for p in COHORT_DEFS.glob("*.json")}
+    assert names == defined, names ^ defined
+    for path in COHORT_DEFS.glob("*.json"):
+        d = json.loads(path.read_text())
+        known = set()
+        for level in d["levels"]:
+            for row in level["rows"]:
+                if "Parent" in row:
+                    assert row["Parent"] in known, (path.name, row["Name"])
+                assert row.get("Scientist") == "Nessie Test", (path.name, row["Name"])
+            known |= {row["Name"] for row in level["rows"]}
+        assert d["levels"][-1]["sample_type"] == "D.SEQ", path.name

@@ -1,0 +1,91 @@
+{
+  "name": "human_wgs_germline",
+  "description": "Human whole-genome germline, two samples (nf-core sarek test data)",
+  "levels": [
+    {
+      "sample_type": "CEL",
+      "rows": [
+        {
+          "Name": "NTC-WGS-donor1",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "Type": "Peripheral blood mononuclear cells",
+          "Tissue": "Blood",
+          "Source": "Donor blood draw"
+        },
+        {
+          "Name": "NTC-WGS-donor2",
+          "Scientist": "Nessie Test",
+          "Species": "human",
+          "Type": "PBMC",
+          "Tissue": "blood",
+          "Source": "Donor blood draw"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-WGS-lib1",
+          "Parent": "NTC-WGS-donor1",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "Protocol": "Illumina DNA PCR-Free Prep, 350 bp insert",
+          "Lab": "Test Lab",
+          "Barcode": "ACGTTGCA",
+          "BarcodeType": "IDT for Illumina UD"
+        },
+        {
+          "Name": "NTC-WGS-lib2",
+          "Parent": "NTC-WGS-donor2",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "Protocol": "Illumina DNA PCR-Free Prep",
+          "Lab": "Test Lab",
+          "Barcode": "TTGCAACG",
+          "BarcodeType": "IDT for Illumina UD"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-WGS-1",
+          "Parent": "NTC-WGS-lib1",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "test_1.fastq.gz, test_2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
+          "SequencingType": "WGS",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NovaSeq 6000",
+          "F_bp": 150,
+          "R_bp": 150
+        },
+        {
+          "Name": "NTC-WGS-2",
+          "Parent": "NTC-WGS-lib2",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "test2_1.fastq.gz, test2_2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
+          "SequencingType": "Whole Genome Sequencing",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "PAIRED",
+          "ExtractedMolecule": "DNA",
+          "Sequencer": "NovaSeq 6000",
+          "F_bp": 150,
+          "R_bp": 150
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "name": "human_exome",
+  "description": "Human whole-exome with a named capture kit, two samples (nf-core sarek test data)",
+  "levels": [
+    {
+      "sample_type": "CEL",
+      "rows": [
+        {
+          "Name": "NTC-WES-donor1",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "Type": "Lymphoblastoid cell line",
+          "Tissue": "Blood",
+          "Source": "Coriell"
+        },
+        {
+          "Name": "NTC-WES-donor2",
+          "Scientist": "Nessie Test",
+          "Species": "homo sapiens",
+          "Type": "lymphoblastoid cell line",
+          "Tissue": "blood",
+          "Source": "Coriell"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-WES-lib1",
+          "Parent": "NTC-WES-donor1",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "Protocol": "Agilent SureSelect Human All Exon V7 hybrid capture, Illumina DNA Prep with Exome",
+          "Lab": "Test Lab",
+          "Barcode": "CAGTCGAT"
+        },
+        {
+          "Name": "NTC-WES-lib2",
+          "Parent": "NTC-WES-donor2",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "Protocol": "Agilent SureSelect Human All Exon V7 hybrid capture, Illumina DNA Prep with Exome",
+          "Lab": "Test Lab",
+          "Barcode": "GATCCTGA"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-WES-1",
+          "Parent": "NTC-WES-lib1",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "test_1.fastq.gz, test_2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
+          "SequencingType": "WES",
+          "LibraryStrategy": "WXS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "Hybrid Selection",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NovaSeq 6000",
+          "F_bp": 100,
+          "R_bp": 100
+        },
+        {
+          "Name": "NTC-WES-2",
+          "Parent": "NTC-WES-lib2",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "test2_1.fastq.gz, test2_2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
+          "SequencingType": "Exome sequencing",
+          "LibraryStrategy": "Targeted Capture",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "Hybrid Selection",
+          "LibraryDesign": "paired",
+          "ExtractedMolecule": "DNA",
+          "Sequencer": "NovaSeq 6000",
+          "F_bp": 100,
+          "R_bp": 100
+        }
+      ]
+    }
+  ]
+}

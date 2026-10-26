@@ -1,0 +1,107 @@
+{
+  "name": "tumour_normal",
+  "description": "One patient: tumour and matched normal DNA (nf-core sarek test data); the patient is the shared ancestor",
+  "levels": [
+    {
+      "sample_type": "PAT",
+      "rows": [
+        {
+          "Name": "NTC-TN-patient1",
+          "Scientist": "Nessie Test",
+          "ID": "NTC-TN-P1",
+          "Sex": "F",
+          "Age": "58",
+          "Age_Units": "years",
+          "Disease": "Colorectal adenocarcinoma",
+          "DiseaseStage": "Stage II"
+        }
+      ]
+    },
+    {
+      "sample_type": "CEL",
+      "rows": [
+        {
+          "Name": "NTC-TN-p1-tumour",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "Parent": "NTC-TN-patient1",
+          "Type": "Primary tumour tissue",
+          "Tissue": "Colon",
+          "Disease": "colorectal adenocarcinoma",
+          "Source": "Surgical resection"
+        },
+        {
+          "Name": "NTC-TN-p1-normal",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "Parent": "NTC-TN-patient1",
+          "Type": "Blood (matched normal)",
+          "Tissue": "Blood",
+          "Source": "Pre-operative blood draw"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-TN-p1-tumour-lib",
+          "Parent": "NTC-TN-p1-tumour",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "Protocol": "Illumina DNA Prep, 100 ng input",
+          "Lab": "Test Lab",
+          "Barcode": "AGCTTAGC"
+        },
+        {
+          "Name": "NTC-TN-p1-normal-lib",
+          "Parent": "NTC-TN-p1-normal",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "Protocol": "Illumina DNA Prep, 100 ng input",
+          "Lab": "Test Lab",
+          "Barcode": "TCGAACGT"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-TN-p1-tumour-WGS",
+          "Parent": "NTC-TN-p1-tumour-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "test_1.fastq.gz, test_2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
+          "SequencingType": "WGS",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NovaSeq 6000",
+          "F_bp": 150,
+          "R_bp": 150
+        },
+        {
+          "Name": "NTC-TN-p1-normal-WGS",
+          "Parent": "NTC-TN-p1-normal-lib",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "test2_1.fastq.gz, test2_2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/sarek/data/genomics/homo_sapiens/illumina/fastq/",
+          "SequencingType": "whole-genome",
+          "LibraryStrategy": "WGS",
+          "LibrarySource": "GENOMIC",
+          "LibrarySelection": "RANDOM",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "genomic DNA",
+          "Sequencer": "Illumina NovaSeq 6000",
+          "F_bp": 150,
+          "R_bp": 150
+        }
+      ]
+    }
+  ]
+}

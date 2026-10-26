@@ -1,0 +1,95 @@
+{
+  "name": "nonmodel_rnaseq",
+  "description": "RNA-seq of a beetle (Tenebrio molitor), a species with no reference bundle, two samples (nf-core rnaseq test data)",
+  "levels": [
+    {
+      "sample_type": "CEL",
+      "rows": [
+        {
+          "Name": "NTC-NMRNA-larvae1",
+          "Scientist": "Nessie Test",
+          "Species": "Tenebrio molitor",
+          "Strain": "lab colony",
+          "Type": "Whole larva homogenate",
+          "Tissue": "Whole body",
+          "Phenotype": "control diet",
+          "Source": "Colony reared at 28C"
+        },
+        {
+          "Name": "NTC-NMRNA-larvae2",
+          "Scientist": "Nessie Test",
+          "Species": "tenebrio molitor",
+          "Strain": "lab colony",
+          "Type": "whole larva homogenate",
+          "Tissue": "whole body",
+          "Phenotype": "polystyrene diet",
+          "Source": "Colony reared at 28C"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-NMRNA-lib1",
+          "Parent": "NTC-NMRNA-larvae1",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "LibraryType": "mRNA",
+          "Protocol": "TruSeq Stranded mRNA (poly-A selected), 500 ng total RNA",
+          "Lab": "Test Lab",
+          "Barcode": "GCCAAT"
+        },
+        {
+          "Name": "NTC-NMRNA-lib2",
+          "Parent": "NTC-NMRNA-larvae2",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "LibraryType": "mRNA",
+          "Protocol": "TruSeq Stranded mRNA (poly-A selected), 500 ng total RNA",
+          "Lab": "Test Lab",
+          "Barcode": "CAGATC"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-NMRNA-1",
+          "Parent": "NTC-NMRNA-lib1",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "SRR6357070_1.fastq.gz, SRR6357070_2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/rnaseq/testdata/GSE110004/",
+          "SequencingType": "RNA-seq",
+          "LibraryStrategy": "RNA-Seq",
+          "LibrarySource": "TRANSCRIPTOMIC",
+          "LibrarySelection": "PolyA",
+          "LibraryDesign": "Paired",
+          "ExtractedMolecule": "polyA RNA",
+          "Sequencer": "Illumina NovaSeq 6000",
+          "F_bp": 100,
+          "R_bp": 100
+        },
+        {
+          "Name": "NTC-NMRNA-2",
+          "Parent": "NTC-NMRNA-lib2",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "SRR6357071_1.fastq.gz, SRR6357071_2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/rnaseq/testdata/GSE110004/",
+          "SequencingType": "RNAseq",
+          "LibraryStrategy": "RNA-seq",
+          "LibrarySource": "Transcriptomic",
+          "LibrarySelection": "cDNA",
+          "LibraryDesign": "PAIRED",
+          "ExtractedMolecule": "total RNA",
+          "Sequencer": "NovaSeq 6000",
+          "F_bp": 100,
+          "R_bp": 100
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "name": "riboseq",
+  "description": "Ribosome profiling (Ribo-seq), two samples (nf-core riboseq test data)",
+  "levels": [
+    {
+      "sample_type": "CEL",
+      "rows": [
+        {
+          "Name": "NTC-RIBO-cells1",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "CellLine": "HEK293T",
+          "Type": "Embryonic kidney cell line",
+          "Tissue": "Kidney",
+          "Treatment1": "DMSO",
+          "TreatmentType": "Chemical"
+        },
+        {
+          "Name": "NTC-RIBO-cells2",
+          "Scientist": "Nessie Test",
+          "Species": "Homo sapiens",
+          "CellLine": "HEK293T",
+          "Type": "embryonic kidney cell line",
+          "Tissue": "kidney",
+          "Treatment1": "Torin 1",
+          "TreatmentType": "Chemical",
+          "Treatment1Dose": 250,
+          "Treatment1DoseUnits": "nM"
+        }
+      ]
+    },
+    {
+      "sample_type": "DNA",
+      "rows": [
+        {
+          "Name": "NTC-RIBO-lib1",
+          "Parent": "NTC-RIBO-cells1",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "LibraryType": "Ribo-seq",
+          "Protocol": "Cycloheximide-arrested polysomes, RNase I footprinting, 28-30 nt size selection, rRNA depletion, ligation-based small RNA library prep",
+          "Lab": "Test Lab",
+          "Barcode": "TGACCA"
+        },
+        {
+          "Name": "NTC-RIBO-lib2",
+          "Parent": "NTC-RIBO-cells2",
+          "Scientist": "Nessie Test",
+          "Type": "Illumina Library",
+          "LibraryType": "Ribo-seq",
+          "Protocol": "Cycloheximide-arrested polysomes, RNase I footprinting, 28-30 nt size selection, rRNA depletion, ligation-based small RNA library prep",
+          "Lab": "Test Lab",
+          "Barcode": "ACAGTG"
+        }
+      ]
+    },
+    {
+      "sample_type": "D.SEQ",
+      "rows": [
+        {
+          "Name": "NTC-RIBO-1",
+          "Parent": "NTC-RIBO-lib1",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "SRR_ribo_1.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/riboseq/testdata/",
+          "SequencingType": "Ribo-seq",
+          "LibraryStrategy": "OTHER",
+          "LibrarySource": "TRANSCRIPTOMIC",
+          "LibrarySelection": "size fractionation",
+          "LibraryDesign": "Single",
+          "ExtractedMolecule": "total RNA",
+          "Sequencer": "Illumina HiSeq 4000",
+          "F_bp": 50
+        },
+        {
+          "Name": "NTC-RIBO-2",
+          "Parent": "NTC-RIBO-lib2",
+          "Scientist": "Nessie Test",
+          "DataType": "FASTQ",
+          "File_PrimaryData": "SRR_ribo_2.fastq.gz",
+          "Link_PrimaryData": "https://raw.githubusercontent.com/nf-core/test-datasets/riboseq/testdata/",
+          "SequencingType": "ribosome profiling",
+          "LibraryStrategy": "RNA-Seq",
+          "LibrarySource": "Transcriptomic",
+          "LibrarySelection": "other",
+          "LibraryDesign": "SINGLE",
+          "ExtractedMolecule": "total RNA",
+          "Sequencer": "HiSeq 4000",
+          "F_bp": 50
+        }
+      ]
+    }
+  ]
+}
