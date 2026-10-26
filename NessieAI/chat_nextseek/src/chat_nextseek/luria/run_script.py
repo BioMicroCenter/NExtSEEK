@@ -430,7 +430,7 @@ def render_fetchngs_config(resources: dict | None = None) -> str:
 def sanitize_job_name(name: str, fallback: str = "nfcore_run") -> str:
     """Reduce an arbitrary name to a SLURM-safe token."""
     # No leading "." or "-": a name shaped like the cleanup's tombstone (".nessie-deleting-...") would lose its live work folder.
-    cleaned = _JOB_NAME_STRIP.sub("_", (name or "").strip())[:64].strip("_").lstrip(".-").strip("_")
+    cleaned = re.sub(r"^[._-]+", "", _JOB_NAME_STRIP.sub("_", (name or "").strip())[:64]).strip("_")
     return cleaned or fallback
 
 

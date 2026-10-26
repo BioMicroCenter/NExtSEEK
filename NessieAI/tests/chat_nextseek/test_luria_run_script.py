@@ -45,7 +45,8 @@ def test_sanitize_job_name_never_yields_a_cleanup_tombstone_name():
     # The weekly cleanup deletes any work/.nessie-deleting-*-<14 digits> without checking the queue (PR 135 SF-12).
     from chat_nextseek.luria.cleanup import is_leftover
 
-    for name in (".nessie-deleting-x-20261001120000", "-.nessie-deleting-x-20261001120000"):
+    for name in (".nessie-deleting-x-20261001120000", "-.nessie-deleting-x-20261001120000",
+                 "._.nessie-deleting-x-20261001120000", "-_.nessie-deleting-x-20261001120000"):
         got = sanitize_job_name(name)
         assert not got.startswith((".", "-")) and not is_leftover(got)
 
