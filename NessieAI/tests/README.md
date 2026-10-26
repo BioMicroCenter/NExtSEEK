@@ -19,6 +19,7 @@ There is no `conftest.py` at `NessieAI/tests/` itself; that keeps the harness ho
 | `api/` | the AI HTTP and websocket surface, and `test_nessie_boundaries.py` |
 | `schema_rag/` | schema retrieval |
 | [`chat_nextseek/`](chat_nextseek/README.md) | the NS engine, including `evaluator/` |
+| [`pipeline_scenarios/`](pipeline_scenarios/README.md) | the question → route → pipeline stories, the paid runner, the CI replay of its recorded answers |
 | `build_tools/` | the surface generators |
 | [`e2e/`](e2e/README.md) | the catalog-driven end-to-end DSL (`python -m NessieAI.tests.e2e`) |
 | `nessie_tests/` | the router-aware harness, its corpus and the two review playbooks |

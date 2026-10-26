@@ -50,7 +50,25 @@ from chat_nextseek.pipeline.selection_context import SECTION_NAMES, build_select
 EVALS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(EVALS_DIR))
 from demo_cohort_real import build_real_digest  # noqa: E402
-from run_question_cases import SYSTEM_PROMPT, USER_TEMPLATE, _ask  # noqa: E402
+from chat_nextseek.pipeline.selection import SYSTEM_PROMPT, USER_TEMPLATE, _extract_json_object  # noqa: E402
+
+
+def _ask(client, model, budget, payload: str, question: str) -> dict[str, Any]:
+    """One selection call with the live prompt; the contract the old question-case runner had."""
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": USER_TEMPLATE.format(payload=payload, question=question)},
+    ]
+    resp = client.chat(model=model, temperature=0, messages=messages, thinking_budget=budget)
+    raw = resp.content or ""
+    try:
+        parsed = _extract_json_object(raw)
+        chosen = parsed.get("pipelines")
+        if not isinstance(chosen, list) or not all(isinstance(x, str) for x in chosen):
+            raise ValueError(f"'pipelines' is not a list of strings: {chosen!r}")
+        return {"chosen": chosen, "reason": parsed.get("reason", ""), "raw_content": raw, "parse_error": None}
+    except (ValueError, json.JSONDecodeError) as exc:
+        return {"chosen": [], "reason": "", "raw_content": raw, "parse_error": str(exc)}
 
 GROUNDTRUTH = EVALS_DIR / "groundtruth_cohorts.json"
 #: The team's five questions are about production samples that resolve on no

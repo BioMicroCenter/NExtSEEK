@@ -1,0 +1,30 @@
+{
+  "family": "chromatin",
+  "stories": [
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "bac-hic-expression",
+      "question": "Which genes are differentially expressed between these samples?",
+      "cohort": "250422BAC::A.CHRM",
+      "acceptable": [],
+      "expect": "refuse",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Hi-C. Not RNA at all \u2014 the plainest refusal in the set."
+      }
+    }
+  ]
+}

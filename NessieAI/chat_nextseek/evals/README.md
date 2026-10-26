@@ -12,8 +12,8 @@ Their outputs are built from production metadata and protocol text. They stay ou
 
 | Group | Files |
 |---|---|
-| Selection evals | `run_rna_selection.py` (cases in `rna_selection_cases.json`), `run_question_cases.py` (cases in `rna_question_cases.json`), `run_datafit_eval.py`, `run_payload_ablation.py`, `run_team_questions.py` |
-| Cohort and digest builders | `build_prod_digests.py`, `fdh_digest.py`, `cohort_comparison.py`, `groundtruth_cohorts.json`, `measure_digest_cost.py`, `build_seqtype_counterfactual.py` |
+| Selection evals | the pipeline-scenario stories (`NessieAI/tests/pipeline_scenarios/README.md`), `run_datafit_eval.py`, `run_payload_ablation.py`, `run_team_questions.py` |
+| Cohort and digest builders | `build_prod_digests.py`, `fdh_digest.py`, `groundtruth_cohorts.json`, `measure_digest_cost.py`, `build_seqtype_counterfactual.py` |
 | Surveys of production data | `survey_primary_data.py`, `survey_prod_protocols.py`, `survey_seqtype_labels.py`, `protocol_prose.py` |
 | Demos and the report page | `demo_cohort_real.py`, `demo_dump_context.py`, `ask_pipeline.py`, `update_report_page.py`, `check_report_page.js` |
 
@@ -23,7 +23,7 @@ Each script's module docstring says what it measures and gives its command. They
 container and call a model, so they cost money. For example:
 
 ```bash
-docker compose exec -T nextseek uv run python /app/chat_nextseek/evals/run_rna_selection.py --cohort granuloma
+docker compose exec -T nextseek uv run python /app/chat_nextseek/evals/ask_pipeline.py --cohort 240910LAU::A.GEX -q "Run a splicing analysis on these mice"
 ```
 
 Read the docstring first: several scripts need a production digest that you build with `build_prod_digests.py`.
@@ -31,5 +31,5 @@ Read the docstring first: several scripts need a production digest that you buil
 ## Depends on / depended on by
 
 Uses the engine in `NessieAI/chat_nextseek/` (`NessieAI/chat_nextseek/README.md`). The tests that
-guard the case files are `NessieAI/tests/chat_nextseek/test_rna_selection_cases.py` and
-`test_nfcore_atlas.py`.
+guard the story files are `NessieAI/tests/pipeline_scenarios/test_story_format.py` and
+`NessieAI/tests/chat_nextseek/test_nfcore_atlas.py`.

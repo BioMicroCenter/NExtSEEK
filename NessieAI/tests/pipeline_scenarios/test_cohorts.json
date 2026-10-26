@@ -1,0 +1,14 @@
+{
+  "_note": "Local-only test cohorts (project 'Nessie test cohorts'). uids stay empty until scripts/pipeline_scenarios/make_test_cohorts.py has been uploaded; a story whose cohort has no uids is skipped by the runner.",
+  "cohorts": {
+    "human_wgs_germline": {"description": "Human whole-genome germline, two samples", "uids": []},
+    "human_exome": {"description": "Human whole-exome with a named capture kit", "uids": []},
+    "tumour_normal": {"description": "One patient: tumour and matched normal DNA", "uids": []},
+    "methylation": {"description": "Human RRBS or WGBS", "uids": []},
+    "atac": {"description": "ATAC-seq, two conditions", "uids": []},
+    "chip": {"description": "ChIP-seq with an antibody and an input control", "uids": []},
+    "smallrna": {"description": "Small-RNA libraries", "uids": []},
+    "riboseq": {"description": "Ribosome profiling", "uids": []},
+    "nonmodel_rnaseq": {"description": "RNA-seq of a species with no reference bundle", "uids": []}
+  }
+}

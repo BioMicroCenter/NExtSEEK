@@ -1,0 +1,217 @@
+{
+  "family": "dna_variants",
+  "stories": [
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnavar",
+        "rnaseq",
+        "hlatyping"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "dna-germline-wgs",
+      "question": "Which inherited SNVs and small indels does each of these whole-genome samples carry?",
+      "cohort": "test::human_wgs_germline",
+      "acceptable": [
+        [
+          "sarek"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from dna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnavar",
+        "rnaseq"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "dna-germline-exome",
+      "question": "Call SNPs and small insertions or deletions across these exome capture libraries.",
+      "cohort": "test::human_exome",
+      "acceptable": [
+        [
+          "sarek"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from dna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnavar",
+        "rnaseq",
+        "hlatyping"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "dna-tumour-vs-blood",
+      "question": "What mutations are in each patient's tumour that are not in the same patient's blood sample?",
+      "cohort": "test::tumour_normal",
+      "acceptable": [
+        [
+          "sarek"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from dna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnafusion",
+        "rnaseq"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "dna-structural-variants",
+      "question": "Are there large deletions, duplications or rearrangements in these genomes?",
+      "cohort": "test::human_wgs_germline",
+      "acceptable": [
+        [
+          "sarek"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from dna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnaseq",
+        "scrnaseq"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "dna-copy-number-tumour",
+      "question": "Which chromosome arms are gained or lost in the tumour samples compared with their matched normals?",
+      "cohort": "test::tumour_normal",
+      "acceptable": [
+        [
+          "sarek"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from dna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "sarek"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "dna-variants-in-transcripts",
+      "question": "Which SNVs show up in the expressed transcripts of these bulk RNA-seq libraries?",
+      "cohort": "231101GRI::A.GEX",
+      "acceptable": [
+        [
+          "rnavar"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from dna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "ess-duplex-expression",
+      "question": "Any expression changes in these duplex-capture samples?",
+      "cohort": "230306ESS::A.ALN",
+      "acceptable": [],
+      "expect": "refuse",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Targeted duplex DNA capture. The question presumes RNA that was never sequenced."
+      }
+    }
+  ]
+}

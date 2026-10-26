@@ -1,0 +1,38 @@
+{
+  "family": "small_rna",
+  "stories": [
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnaseq",
+        "scrnaseq",
+        "riboseq",
+        "rnafusion"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "small-rna",
+      "question": "We sequenced the small RNA fraction \u2014 quantify the miRNAs.",
+      "cohort": "test::smallrna",
+      "acceptable": [
+        [
+          "smrnaseq"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+      }
+    }
+  ]
+}

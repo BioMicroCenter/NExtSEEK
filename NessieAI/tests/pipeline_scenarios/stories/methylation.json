@@ -1,0 +1,34 @@
+{
+  "family": "methylation",
+  "stories": [
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "sarek",
+        "rnaseq",
+        "rnavar"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": "flip to methylseq in Task 4"
+      },
+      "id": "dna-methylation-not-yet",
+      "question": "Which CpG sites are differentially methylated between the two groups of bisulfite libraries?",
+      "cohort": "test::methylation",
+      "acceptable": [],
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "methylseq becomes choosable in this piece (was: no pipeline yet)."
+      },
+      "expect": "not_yet"
+    }
+  ]
+}

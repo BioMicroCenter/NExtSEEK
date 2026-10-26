@@ -1,0 +1,262 @@
+{
+  "family": "single_cell",
+  "stories": [
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnaseq",
+        "smrnaseq",
+        "rnavar",
+        "riboseq"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "per-cell-expression",
+      "question": "Profile expression cell by cell across this tissue.",
+      "cohort": "221031SHA::A.SCXP",
+      "acceptable": [
+        [
+          "scrnaseq"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "sha-granuloma-4v10wk",
+      "question": "How do the cell populations in these granulomas differ between the 4 week and 10 week animals?",
+      "cohort": "220823SHA::A.SCXP",
+      "acceptable": [
+        [
+          "scrnaseq"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Seq-Well single-cell macaque granulomas; NHP.Cohort carries the 4wk/10wk split."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "sha-bcg-route-bal",
+      "question": "What immune cell types show up in the lavage after IV BCG versus aerosol BCG?",
+      "cohort": "220917SHA::A.SCXP",
+      "acceptable": [
+        [
+          "scrnaseq"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Single-cell BAL, NHP.Cohort has the three BCG routes."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "sas-cc-strain-lung",
+      "question": "Which lung cell types respond to infection differently across the CC mouse strains?",
+      "cohort": "230328SAS::A.SCXP",
+      "acceptable": [
+        [
+          "scrnaseq"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "CITE-seq mouse lung, MUS.Genotype = PWK / CC011 / CC024."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "sha-cfu-cellstate",
+      "question": "How many distinct cell states are in these granulomas, and does that track with bacterial burden?",
+      "cohort": "221031SHA::A.SCXP",
+      "acceptable": [
+        [
+          "scrnaseq"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Single-cell with TIS.CFU recorded. The correlation is downstream work; the pipeline is still scrnaseq."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "bry-antibody-lung",
+      "question": "What changes in the lung cells when the mice get the N297A antibody before Mtb infection?",
+      "cohort": "220720BRY::A.SCXP",
+      "acceptable": [
+        [
+          "scrnaseq"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Mouse lung CD45+ single-cell, MUS.Treatment1 = PBS / N297A / mIgG2a."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "sha-sc-splicing",
+      "question": "Run a splicing analysis on these granuloma single-cell samples.",
+      "cohort": "240422SHA::A.SCXP",
+      "acceptable": [],
+      "expect": "refuse",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "3'-biased single-cell libraries carry no isoform-level information. Pairs with lau-mouse-splicing: same question, different data, opposite correct answer."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "sha-macaque-hla",
+      "question": "What HLA alleles are these macaques carrying?",
+      "cohort": "220917SHA::A.SCXP",
+      "acceptable": [],
+      "expect": "refuse",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Macaques have Mamu MHC, not HLA, and these are 3' single-cell libraries. Two independent reasons to decline."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "qout-percell-matrix",
+      "question": "I need a filtered feature-barcode matrix I can load straight into Seurat. Which one gives me that?",
+      "cohort": "221031SHA::A.SCXP",
+      "acceptable": [
+        [
+          "scrnaseq"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Names a scrnaseq output artifact explicitly rather than the analysis."
+      }
+    }
+  ]
+}

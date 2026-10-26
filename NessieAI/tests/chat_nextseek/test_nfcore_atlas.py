@@ -102,7 +102,7 @@ def test_shipped_atlas_has_ask_user_on_the_ties_that_matter():
 # ---------------------------------------------------------------------------
 # Species constraints
 #
-# Two questions in rna_question_cases.json expect a refusal purely on species —
+# Two migrated stories (sha-macaque-hla, sas-mouse-fusion) expect a refusal purely on species —
 # HLA typing on macaques, fusion calling on mouse. Neither is answerable unless
 # the atlas says so, because nothing else in the payload carries the limit: the
 # sample metadata gives the organism, but only the atlas can say which

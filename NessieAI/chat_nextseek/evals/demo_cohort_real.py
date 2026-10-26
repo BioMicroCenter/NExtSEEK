@@ -58,7 +58,7 @@ each is D.SEQ -> DNA -> TIS -> PAV -> MUS, so this is MOUSE DNA, not human.
 
 The local stack holds no human WGS or exome rows (its `LibraryStrategy: WGS`
 rows are bacterial isolates). This cohort therefore stands in as the DNA
-evidence payload that scores `dna_selection_cases.json`, and those cases are to
+evidence payload that scores the dna_variants stories in `NessieAI/tests/pipeline_scenarios/stories/`, and those cases are to
 be re-scored on a human WGS/WES cohort once one exists on the local stack.
 """
 from __future__ import annotations

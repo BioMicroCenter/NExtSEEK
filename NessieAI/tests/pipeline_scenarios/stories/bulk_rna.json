@@ -1,0 +1,929 @@
+{
+  "family": "bulk_rna",
+  "stories": [
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "smrnaseq",
+        "scrnaseq",
+        "hlatyping",
+        "riboseq"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "expression-two-groups",
+      "question": "Which genes changed between the treated and untreated mice?",
+      "cohort": "241219BRY::A.GEX",
+      "acceptable": [
+        [
+          "rnaseq"
+        ],
+        [
+          "rnaseq",
+          "rnasplice"
+        ],
+        [
+          "rnaseq",
+          "differentialabundance"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "smrnaseq",
+        "hlatyping",
+        "scrnaseq",
+        "denovotranscript"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "isoform-shift",
+      "question": "Did the treatment change which isoforms of these genes get made?",
+      "cohort": "240910LAU::A.GEX",
+      "acceptable": [
+        [
+          "rnasplice"
+        ],
+        [
+          "rnasplice",
+          "rnaseq"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "smrnaseq",
+        "hlatyping",
+        "riboseq"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "splicing-plain-language",
+      "question": "Run a splicing analysis on the samples isolated from these mice.",
+      "cohort": "240910LAU::A.GEX",
+      "acceptable": [
+        [
+          "rnasplice"
+        ],
+        [
+          "rnasplice",
+          "rnaseq"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnaseq",
+        "smrnaseq",
+        "scrnaseq",
+        "hlatyping"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "gene-fusion",
+      "question": "Is there a translocation joining two genes in these tumour samples?",
+      "cohort": "250409KAM::A.GEX",
+      "acceptable": [
+        [
+          "rnafusion"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "smrnaseq",
+        "scrnaseq",
+        "riboseq",
+        "hlatyping"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "variants-in-transcripts",
+      "question": "Are there any point mutations in the expressed transcripts?",
+      "cohort": "231101GRI::A.GEX",
+      "acceptable": [
+        [
+          "rnavar"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "rnaseq",
+        "scrnaseq",
+        "rnafusion",
+        "rnavar"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "translation-footprints",
+      "question": "We digested the polysomes and sequenced the protected fragments \u2014 what is being translated?",
+      "cohort": "test::riboseq",
+      "acceptable": [
+        [
+          "riboseq"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "scrnaseq",
+        "smrnaseq",
+        "hlatyping",
+        "riboseq",
+        "rnaseq"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "no-reference-genome",
+      "question": "This beetle has no reference genome. Can we still get transcript abundances?",
+      "cohort": "test::nonmodel_rnaseq",
+      "acceptable": [
+        [
+          "denovotranscript"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "hlatyping",
+        "riboseq"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "ambiguous-expression-question",
+      "question": "I want to understand what is going on transcriptionally in these samples.",
+      "cohort": "241219BRY::A.GEX",
+      "acceptable": [
+        [
+          "rnaseq"
+        ],
+        [
+          "rnaseq",
+          "rnasplice"
+        ],
+        [
+          "rnaseq",
+          "scrnaseq"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "scrnaseq",
+        "smrnaseq",
+        "hlatyping",
+        "riboseq"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "already-have-counts",
+      "question": "We already have a count matrix from an earlier run \u2014 just compare the two groups.",
+      "cohort": "241219BRY::A.GEX",
+      "acceptable": [
+        [
+          "differentialabundance"
+        ],
+        [
+          "differentialabundance",
+          "rnaseq"
+        ]
+      ],
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from rna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [
+        "sarek",
+        "rnavar"
+      ],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "dna-expression-control",
+      "question": "Which genes are up in the treated cultures compared with the untreated ones?",
+      "cohort": "241219BRY::A.GEX",
+      "acceptable": [
+        [
+          "rnaseq"
+        ],
+        [
+          "rnaseq",
+          "differentialabundance"
+        ]
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Migrated from dna_selection_cases.json; answers unchanged."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "gri-organoid-il1b",
+      "question": "Which genes change in the endometrial organoids when we add IL-1B on top of estradiol?",
+      "cohort": "231101GRI::A.GEX",
+      "acceptable": [
+        [
+          "rnaseq"
+        ],
+        [
+          "rnaseq",
+          "differentialabundance"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Bulk human organoid RNA-seq with a real treatment contrast in CEL.Treatment. The atlas's own rnaseq-vs-differentialabundance entry says \"If you have no counts yet, both are needed in sequence\", so naming both is following the payload, not hedging: acceptable_sets allows either answer."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "kam-tnbc-subtype",
+      "question": "Which genes are turned up or down in the mesenchymal MDA-MB-231 cells compared with the epithelial-like ones?",
+      "cohort": "240709KAM::A.GEX",
+      "acceptable": [
+        [
+          "rnaseq"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Bulk human cell-line RNA-seq, two subtypes in CEL.Type. Reworded after the first run: the original asked what differs \"at the transcript level\", which is standard wording for isoform-level analysis, and the model answered rnasplice 3/3. That reading was defensible, so the question was at fault, not the answer. It now names gene-level up/down explicitly."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "lau-mouse-splicing",
+      "question": "Run a splicing analysis on the samples isolated from these mice.",
+      "cohort": "240910LAU::A.GEX",
+      "acceptable": [
+        [
+          "rnasplice"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "The lab ran expression (A.GEX), but these are bulk total-RNA mouse libraries with an Uninfected/infected contrast, so the same FASTQs answer a splicing question."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "kam-tnbc-fusion",
+      "question": "Are there any fusion transcripts in this breast cancer line?",
+      "cohort": "240709KAM::A.GEX",
+      "acceptable": [
+        [
+          "rnafusion"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Bulk paired-end human tumour-line RNA \u2014 exactly what fusion calling needs."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "bry-macrophage-hla",
+      "question": "Can you get HLA types out of these macrophage RNA-seq samples?",
+      "cohort": "241219BRY::A.GEX",
+      "acceptable": [
+        [
+          "hlatyping"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Human primary macrophages, bulk RNA. hlatyping accepts RNA with seq_type=rna."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "gri-organoid-variants",
+      "question": "Can we call variants straight from the organoid RNA-seq rather than sequencing DNA?",
+      "cohort": "231101GRI::A.GEX",
+      "acceptable": [
+        [
+          "rnavar"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Same bulk library rnaseq uses; the question is variants, not expression."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "kam-chip-matrix",
+      "question": "We already have the count matrix from the chip experiment \u2014 just run the group comparison for me.",
+      "cohort": "250409KAM::A.GEX",
+      "acceptable": [
+        [
+          "differentialabundance"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "A.GEX holds a counts CSV. The scientist explicitly does not want realignment."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "sho-3prime-isoforms",
+      "question": "Do the COL2A1-edited chondronoids use different isoforms from the wild type ones?",
+      "cohort": "250605SHO::A.GEX",
+      "acceptable": [],
+      "expect": "refuse",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "THE library-prep test. DNA.LibraryPrepProtocol says oligo(dT)-primed UMI-based 3' RNA-Seq: only the 3' end is sequenced, so isoform usage is not recoverable. Nothing in the sample-type fields says this \u2014 it is only in the prep text."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "sas-mouse-fusion",
+      "question": "Can we call gene fusions in these mouse macrophages?",
+      "cohort": "241112SAS::A.GEX",
+      "acceptable": [],
+      "expect": "refuse",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "nf-core/rnafusion's callers and reference bundles are human. Mouse is not supported."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "bry-mirna",
+      "question": "Can we look at miRNA levels in these macrophages?",
+      "cohort": "241219BRY::A.GEX",
+      "acceptable": [],
+      "expect": "refuse",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "smrnaseq needs a size-selected 18-30nt library. These are polyA/total RNA \u2014 the small RNAs were never captured."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "sho-riboseq",
+      "question": "Where are the ribosomes sitting on these transcripts?",
+      "cohort": "250605SHO::A.GEX",
+      "acceptable": [],
+      "expect": "refuse",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Ribosome profiling needs footprint libraries. None exist here."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "sas-transcriptome-vague",
+      "question": "I'd like to look at the transcriptome of these samples.",
+      "cohort": "241112SAS::A.GEX",
+      "acceptable": [
+        [
+          "rnaseq",
+          "scrnaseq"
+        ]
+      ],
+      "expect": "ask",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "The cohort whose label and data disagree: A.GEX label, single-cell SequencingType. Underspecified question on contradictory metadata \u2014 naming both, or asking, is the honest answer."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "lau-compare-vague",
+      "question": "Compare the infected and the uninfected animals for me.",
+      "cohort": "240910LAU::A.GEX",
+      "acceptable": [
+        [
+          "rnaseq",
+          "rnasplice"
+        ]
+      ],
+      "expect": "ask",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Deliberately vague -- \"compare the infected and the uninfected animals\" names no measurement. On bulk mouse RNA both a gene-level and an isoform-level reading are legitimate, which is what the ambiguous class is for; the earlier singleton expectation contradicted its own class."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "qout-pca-heatmap",
+      "question": "Do any of these produce a PCA and a sample-distance heatmap as part of the standard output, or would I have to make those myself?",
+      "cohort": "231101GRI::A.GEX",
+      "acceptable": [
+        [
+          "rnaseq"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "rnaseq emits both from its DESeq2 QC step. That fact lives in the output guide and in no metadata field -- and it is the one the model missed when the docs were withheld earlier."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "qout-vcf",
+      "question": "I want a VCF at the end of this. Can I get one without sequencing DNA?",
+      "cohort": "240709KAM::A.GEX",
+      "acceptable": [
+        [
+          "rnavar"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "rnavar is the only atlas entry that emits variant calls. It is NOT one of the pipelines whose docs are fetched, so this is answerable from atlas prose alone -- a useful contrast with the cases that need the docs."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "qout-allele-calls",
+      "question": "I need four-digit allele calls out of this, the A*02:01 kind of output.",
+      "cohort": "241219BRY::A.GEX",
+      "acceptable": [
+        [
+          "hlatyping"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Names hlatyping's deliverable in the form it actually appears. Human macrophages, so the species constraint is satisfied."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "qout-fusion-breakpoints",
+      "question": "Give me a list of chimeric transcripts with their breakpoint coordinates.",
+      "cohort": "240709KAM::A.GEX",
+      "acceptable": [
+        [
+          "rnafusion"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "rnafusion's output. Human tumour line, so the GRCh38-only constraint is satisfied."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "qout-psi-events",
+      "question": "I want per-event inclusion levels -- PSI values for exon skipping -- across these mice.",
+      "cohort": "240910LAU::A.GEX",
+      "acceptable": [
+        [
+          "rnasplice"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "Names rnasplice's output rather than asking for 'a splicing analysis'. Bulk mouse libraries support it."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "qout-normalised-from-matrix",
+      "question": "I already have the counts. I want normalised values and a differential table with p-values, nothing realigned.",
+      "cohort": "250409KAM::A.GEX",
+      "acceptable": [
+        [
+          "differentialabundance"
+        ]
+      ],
+      "expect": null,
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "differentialabundance's whole purpose, and the cohort's A.GEX record is a counts CSV. Also not a docs-fetched pipeline."
+      }
+    },
+    {
+      "route": "nextseek_query",
+      "must_not": [],
+      "phrasing": "migrated",
+      "history": [],
+      "replies": [],
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      },
+      "id": "qout-psi-on-3prime",
+      "question": "Can I get PSI values for exon skipping out of these chondronoids?",
+      "cohort": "250605SHO::A.GEX",
+      "acceptable": [],
+      "expect": "refuse",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples.",
+        "pipelines": "The output framing of sho-3prime-isoforms. A 3'DGE library sequences only the 3' end, so no PSI is recoverable however the request is phrased. Pairs with qout-psi-events: same deliverable, different library, opposite answer."
+      }
+    }
+  ]
+}

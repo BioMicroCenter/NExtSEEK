@@ -5,7 +5,7 @@ conversation. The evidence payload runs to roughly 84k tokens; putting it in
 the agent's message history would carry that cost on every later turn of the
 build. So this module makes one stateless call and returns a small verdict.
 
-This module owns the prompt. It used to live in evals/run_question_cases.py,
+This module owns the prompt. It used to live in an eval script,
 which meant the measured accuracy described a copy of the code rather than the
 code that runs. The evals now import from here.
 
