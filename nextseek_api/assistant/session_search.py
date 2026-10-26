@@ -40,6 +40,7 @@ TITLE, QUESTION, ANSWER, RECORD, STEPS = 5, 4, 3, 2, 1
 _MATCHED_IN = {TITLE: "title", QUESTION: "question", ANSWER: "answer", RECORD: "record", STEPS: "steps"}
 WHERE = ("question", "answer", "result")
 _SHOWN_IDS = 3  # a record hit's snippet names this many IDs, then "and N more"
+_FACETS_IN_LIST = 200  # facets name at most this many matching chats in SQL (see _facets)
 
 
 def parse_terms(query: str) -> list[str]:
@@ -247,12 +248,14 @@ def _facets(scope, since, session_ids=None, record_type=None, where=None) -> dic
 
     A type is counted only on rows that also match the chosen ``where``, and a where only on rows of the chosen
     type: both name the same row, so the count is what choosing that value returns. Read as distinct
-    (chat, type, where) and (chat, project) tuples in two queries and counted here: an ``IN`` list of the matching
-    chats cost MySQL 200-400 ms at dev's size.
+    (chat, type, where) and (chat, project) tuples in two queries and counted here. A few matching chats are
+    named in the query (``IN``); many are filtered here, because an ``IN`` list of over a thousand chats cost
+    MySQL 200-400 ms at dev's size, against ~140 ms for reading every tuple.
     """
     keep = None if session_ids is None else set(session_ids)
+    narrow = {"session_id__in": list(keep)} if keep is not None and len(keep) <= _FACETS_IN_LIST else {}
     types, wheres, projects = defaultdict(set), defaultdict(set), defaultdict(set)
-    uid_rows = _entries(scope, since, source="record", kind="uid").order_by()
+    uid_rows = _entries(scope, since, source="record", kind="uid", **narrow).order_by()
     for session_id, rtype, place in uid_rows.values_list("session_id", "record_type", "text").distinct():
         if keep is not None and session_id not in keep:
             continue
@@ -260,7 +263,7 @@ def _facets(scope, since, session_ids=None, record_type=None, where=None) -> dic
             types[rtype].add(session_id)
         if not record_type or rtype == record_type:
             wheres[place].add(session_id)
-    project_rows = _entries(scope, since, source="record", kind="project").order_by()
+    project_rows = _entries(scope, since, source="record", kind="project", **narrow).order_by()
     for session_id, project in project_rows.values_list("session_id", "key").distinct():
         if keep is None or session_id in keep:
             projects[project].add(session_id)
