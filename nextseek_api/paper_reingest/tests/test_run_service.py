@@ -40,15 +40,32 @@ def test_unfinished_run_for_ignores_finished_and_superseded(django_user_model, t
 def test_unfinished_run_for_skips_superseded_runs(django_user_model, tmp_path, monkeypatch):
     monkeypatch.setenv("NEXTSEEK_PAPER_REINGEST_DIR", str(tmp_path))
     user = django_user_model.objects.create(username="curator")
+    # The live run is the OLDEST row; the excluded rows are newer, so ordering cannot hide a missing filter.
+    live = service.create_run(user=user, paper_input="38000001", paper=_paper())
     by_state = service.create_run(user=user, paper_input="38000001", paper=_paper())
     service.set_state(by_state, "superseded", reason="replaced")
     by_link = service.create_run(user=user, paper_input="38000001", paper=_paper())
-    newer = service.create_run(user=user, paper_input="38000001", paper=_paper())
-    by_link.superseded_by = newer
+    by_link.superseded_by = live
     by_link.save(update_fields=["superseded_by"])
     assert by_link.state == "queued"
-    assert service.unfinished_run_for(user, "10.1000/xyz123", "38000001") == newer
-    assert service.unfinished_run_for(user, None, "38000001") == newer
+    assert service.unfinished_run_for(user, "10.1000/xyz123", "38000001") == live
+    assert service.unfinished_run_for(user, None, "38000001") == live
+
+
+@pytest.mark.django_db
+def test_unfinished_run_for_is_none_when_only_superseded_runs_exist(django_user_model, tmp_path, monkeypatch):
+    monkeypatch.setenv("NEXTSEEK_PAPER_REINGEST_DIR", str(tmp_path))
+    user = django_user_model.objects.create(username="other-curator")
+    doi = "10.2000/only-superseded"
+    target = service.create_run(user=user, paper_input="38000002", paper=_paper(doi=doi))
+    service.set_state(target, "failed", failed_stage="acquire", reason="boom")
+    by_state = service.create_run(user=user, paper_input="38000002", paper=_paper(doi=doi))
+    service.set_state(by_state, "superseded", reason="replaced")
+    by_link = service.create_run(user=user, paper_input="38000002", paper=_paper(doi=doi))
+    by_link.superseded_by = target
+    by_link.save(update_fields=["superseded_by"])
+    assert service.unfinished_run_for(user, doi, "38000002") is None
+    assert service.unfinished_run_for(user, None, "38000002") is None
 
 
 @pytest.mark.django_db
