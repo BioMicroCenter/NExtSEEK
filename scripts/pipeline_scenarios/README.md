@@ -36,6 +36,7 @@ docker cp nextseek:/tmp/ps-out ./ps-out   # an untracked folder; remove it after
   "Blood (matched normal)" survives, and the D.SEQ `Name` agrees. The patient is the shared
   `PAT` ancestor. The small-RNA D.SEQ rows carry `ExpressionKit` and `ReagentManufacturer`,
   which the smrnaseq `three_prime_adapter` entry derives the adapter from.
+- **D.SEQ file names are unique across cohorts** (`NTC-<cohort>-<n>...`), because the upload matches existing sequencing samples by `File_PrimaryData`: a reused name is taken as an existing sample and the upload fails with no valid rows.
 - **Metadata is untidied on purpose** (mixed case in `SequencingType` and `Species`; the kit
   named in the library's `Protocol` free text, and for small RNA also in the kit fields). `Scientist` is `Nessie Test`; the links
   point at public nf-core test-datasets folders and are not checked to exist.
