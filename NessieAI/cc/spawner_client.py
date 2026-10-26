@@ -68,9 +68,15 @@ def _post(path: str, body: dict | None, *, timeout: float, stream: bool = False)
 
 
 def health() -> tuple[bool, str]:
-    """(ok, detail) from ``GET /health`` with the token: the spawner's Docker, image and network checks."""
+    """(ok, detail) from ``GET /health`` with the token: the spawner's Docker, image and network checks.
+
+    The spawner answers a call without a token with a bare ``{ok}`` (no ``detail``), while every real call would get
+    401; so no token, or a 200 without ``detail``, is not green.
+    """
     if not enabled():
         return False, "CC unavailable: NEXTSEEK_SPAWNER_URL is not set"
+    if not os.environ.get("NEXTSEEK_SPAWNER_TOKEN", "").strip():
+        return False, "NEXTSEEK_SPAWNER_TOKEN is not set"
     try:
         resp = requests.get(base_url() + "/health", headers=_headers(), timeout=_HEALTH_TIMEOUT_S)
         data = resp.json()
@@ -78,6 +84,8 @@ def health() -> tuple[bool, str]:
         return False, f"cc-spawner unreachable: {type(exc).__name__}"
     if resp.status_code != 200:
         return False, f"cc-spawner answered {resp.status_code}"
+    if "detail" not in data:
+        return False, "cc-spawner did not accept the token (unauthenticated /health answer)"
     return bool(data.get("ok")), str(data.get("detail") or ("ok" if data.get("ok") else "not ready"))
 
 

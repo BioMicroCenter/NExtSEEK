@@ -594,7 +594,8 @@ def check_cc_runner(repo_root: Path, env: dict[str, str]) -> HealthResult:
     Host-side image presence is not the same claim. This one runs inside the web
     container, which reaches Docker only through cc-spawner (the worker has no
     spawner address), and so covers ``cc_engine.cc_runner_available()``: the
-    spawner answers with its token, sees the image and finds ``dmac-cc-net``.
+    spawner accepts the token (no token, or an answer without the authenticated
+    detail, is not green), sees the image and finds ``dmac-cc-net``.
     It is the exact command the runbook asks for by hand.
     """
     name = "CC runner"

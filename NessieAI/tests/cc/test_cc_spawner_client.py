@@ -129,8 +129,28 @@ def test_health_over_the_wire(served):
     assert spawner_client.health() == (True, "ok")
 
 
+def test_health_without_a_token_is_not_green(served, monkeypatch):
+    # The spawner answers a no-token /health with a plain {ok}; every real call would then get 401.
+    monkeypatch.delenv("NEXTSEEK_SPAWNER_TOKEN", raising=False)
+    assert spawner_client.health() == (False, "NEXTSEEK_SPAWNER_TOKEN is not set")
+
+
+def test_health_with_a_wrong_token_is_not_green(served, monkeypatch):
+    monkeypatch.setenv("NEXTSEEK_SPAWNER_TOKEN", "wrong")
+    ok, detail = spawner_client.health()
+    assert ok is False and "403" in detail
+
+
+def test_health_without_the_authenticated_detail_is_not_green(served, monkeypatch):
+    # A 200 that carries no detail is the unauthenticated answer (say a proxy dropped the header).
+    monkeypatch.setattr(spawner_client, "_headers", lambda: {})
+    ok, detail = spawner_client.health()
+    assert ok is False and "token" in detail
+
+
 def test_health_unreachable(monkeypatch):
     monkeypatch.setenv("NEXTSEEK_SPAWNER_URL", "http://127.0.0.1:9")
+    monkeypatch.setenv("NEXTSEEK_SPAWNER_TOKEN", TOKEN)
     ok, detail = spawner_client.health()
     assert ok is False and "spawner" in detail
 
