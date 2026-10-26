@@ -531,6 +531,11 @@ def _attach_checksum(row: MappedRow, rule: maps.OutputRule,
         raw_key=f"$checksums.{primary.path}", source_file=primary.path)
 
 
+def _in_run_folder(run_manifest: manifest.RunManifest, name: str) -> str:
+    run = os.path.basename(run_manifest.run_dir.rstrip("/"))
+    return f"{run}/{name}" if run else name
+
+
 def _file_primary_data_value(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
                              primary: manifest.OutputRecord,
                              sample_name: str | None) -> str:
@@ -547,7 +552,9 @@ def _file_primary_data_value(rule: maps.OutputRule, run_manifest: manifest.RunMa
     """
     name = os.path.basename(primary.path)
     if sample_name is None:
-        return name
+        # The upload skips a new row whose File_PrimaryData already exists under any sample type, so a
+        # run-wide file (the same matrix name in every run) carries its run folder.
+        return _in_run_folder(run_manifest, name)
     collides = any(
         o.sample != sample_name and os.path.basename(o.path) == name
         for o in _primary_candidates(rule, run_manifest, None))
@@ -870,9 +877,9 @@ def _per_file_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
             continue
         primary = row.attributes.get("File_PrimaryData")
         base = os.path.basename(output.path)
-        if (primary is not None and primary.origin == ORIGIN_MAP and primary.value == base
-                and name_counts[base] > 1):
-            primary.value = "/".join(output.path.split("/")[-2:])
+        if (primary is not None and primary.origin == ORIGIN_MAP
+                and primary.value == _in_run_folder(run_manifest, base) and name_counts[base] > 1):
+            primary.value = _in_run_folder(run_manifest, "/".join(output.path.split("/")[-2:]))
         rows.append(row)
     return rows
 

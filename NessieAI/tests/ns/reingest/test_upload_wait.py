@@ -205,3 +205,41 @@ def test_the_op_hands_its_limit_and_start_to_the_upload(env, monkeypatch):
              limit_s=30)
     assert captured["limit_s"] == 30
     assert captured["started_at"] == 12.5
+
+
+def _skipped(processed, skipped, created=0):
+    return {"state": "SUCCESS", "totals": {"processed": processed, "uids_generated": created,
+                                           "updated": 0, "failed": 0, "skipped": skipped,
+                                           "graph": None},
+            "errors": []}
+
+
+def test_an_all_skipped_job_never_says_everything_was_written(env):
+    builds = [_build(env, "reingest_A_GEX", "new", "A.GEX")]
+    out = _upload(env, lambda job_id: _skipped(12, 12), builds)
+    assert "everything was written" not in out["reply"]
+    assert "12 rows skipped" in out["reply"]
+    assert "0 samples created" in out["reply"]
+    assert out["jobs"][0]["outcome"]["status"] == "skipped"
+
+
+def test_a_partly_skipped_job_names_the_skipped_rows(env):
+    builds = [_build(env, "reingest_A_GEX", "new", "A.GEX")]
+    out = _upload(env, lambda job_id: _skipped(5, 2, created=3), builds)
+    assert "everything was written" not in out["reply"]
+    assert "3 samples created" in out["reply"]
+    assert "2 rows skipped" in out["reply"]
+
+
+def test_a_job_that_wrote_nothing_is_not_reported_as_written(env):
+    builds = [_build(env, "reingest_A_GEX", "new", "A.GEX")]
+    out = _upload(env, lambda job_id: _done(), builds)
+    assert "everything was written" not in out["reply"]
+
+
+def test_the_same_builds_cannot_be_uploaded_twice(env):
+    builds = [_build(env, "reingest_A_GEX", "new", "A.GEX")]
+    _upload(env, lambda job_id: _done(created=2), builds)
+    with pytest.raises(upload.UploadRefused) as err:
+        _upload(env, lambda job_id: _done(created=2), builds)
+    assert "already uploaded" in str(err.value.reasons)

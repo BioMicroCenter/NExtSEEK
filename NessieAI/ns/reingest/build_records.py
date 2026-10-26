@@ -104,3 +104,18 @@ def load(build_id: str, user_id) -> dict:
         raise BuildRecordError(f"no build {build_id[:12]} for this user") from None
     except (OSError, ValueError) as exc:
         raise BuildRecordError(f"build {build_id[:12]} record is unreadable") from exc
+
+
+def mark_uploaded(build_id: str, user_id) -> None:
+    """Stamp the record once its upload job has started, so the same build is never uploaded twice.
+    Best-effort: the upload already started."""
+    try:
+        record = load(build_id, user_id)
+        record["uploaded_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        path = os.path.join(_owner_dir(user_id), f"{build_id}.json")
+        with tempfile.NamedTemporaryFile("w", dir=_owner_dir(user_id), delete=False, suffix=".tmp",
+                                         encoding="utf-8") as fh:
+            json.dump(record, fh, indent=2)
+        os.replace(fh.name, path)
+    except Exception:  # noqa: BLE001 -- bookkeeping must not fail an upload that started
+        pass

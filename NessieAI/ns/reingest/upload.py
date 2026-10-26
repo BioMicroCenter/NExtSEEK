@@ -250,6 +250,9 @@ def verify(build_ids: list[str], *, user_id, chat_turn=None,
             reasons.append(f"{build_id[:12]}: record is incomplete")
             continue
         key = record["artifact_key"]
+        if record.get("uploaded_at"):
+            reasons.append(f"{key}: already uploaded; build it again to upload it once more")
+            continue
         if record.get("built_by_user_id") != user_id:
             reasons.append(f"{key}: built by another user")
             continue
@@ -338,9 +341,13 @@ def _summarise(job_id: str, raw: dict | None) -> dict:
     totals = raw.get("totals") or {}
     errors = list(raw.get("errors") or [])
     failed = int(totals.get("failed") or 0)
-    return {"status": "failed" if (failed or errors) else "succeeded",
-            "created": int(totals.get("uids_generated") or 0),
-            "updated": int(totals.get("updated") or 0),
+    skipped = int(totals.get("skipped") or 0)
+    created, updated = int(totals.get("uids_generated") or 0), int(totals.get("updated") or 0)
+    # Rows the batch upload skipped (a name that already exists) or a job that wrote nothing are not "written".
+    status = ("failed" if (failed or errors)
+              else "skipped" if (skipped or not (created or updated)) else "succeeded")
+    return {"status": status, "created": created, "updated": updated,
+            "skipped_rows": skipped,
             "failed_rows": failed, "processed": int(totals.get("processed") or 0),
             "errors": errors[:3], "graph": totals.get("graph"),
             "created_uids": _created_uids(raw.get("rows"))}
@@ -419,6 +426,11 @@ def _outcome_line(job: dict) -> str:
         done += ": " + _uid_list(outcome["created_uids"], outcome["created"])
     if outcome["status"] == "succeeded":
         return f"- {what}: done, {done}"
+    if outcome["status"] == "skipped":
+        skipped = outcome.get("skipped_rows") or 0
+        note = (f"{_plural(skipped, 'row')} skipped (a sample with the same name or file is already in "
+                "NExtSEEK)" if skipped else "nothing was written")
+        return f"- {what}: {done}; {note}"
     errors = "; ".join(_error_text(e) for e in outcome["errors"])
     return (f"- {what}: {outcome['failed_rows']} of {outcome['processed']} rows failed"
             f" ({done}){': ' + errors if errors else ''}")
@@ -449,6 +461,8 @@ def _reply(jobs: list[dict], created_assays: list[dict] | None = None) -> str:
         else:
             head = ("Upload finished: the samples were written to NExtSEEK, but not every "
                     "parent sample was added to its assay:")
+    elif all(o["status"] in ("succeeded", "skipped") for o in outcomes):
+        head = "Upload finished, but not every row was written:"
     else:
         head = "Upload finished with problems:"
     tail = ""
@@ -641,6 +655,13 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
             logger.exception("upload-reingest: job for %s did not start", record["artifact_key"])
             entry["error"] = f"did not start ({type(exc).__name__}); see the server log"
         jobs.append(entry)
+    started = {entry["artifact_key"] for entry in jobs if "job_id" in entry}
+    for record in verified:
+        if record["artifact_key"] in started:
+            build_records.mark_uploaded(record["build_id"], user_id)
+    for entry in jobs:
+        if "job_id" in entry:
+            build_records.mark_uploaded(entry["build_id"], user_id)
     if callable(job_state):
         _await_jobs(jobs, job_state, _wait_budget_s(limit_s, started_at))
     for entry in jobs:
