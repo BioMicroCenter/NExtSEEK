@@ -153,7 +153,7 @@ def _granular_args(op: str, req) -> dict:
     return {}
 
 
-def _save_session_or_report(adapter, chat_session, send_event, session_id) -> None:
+def _save_session_or_report(adapter, chat_session, send_event, session_id) -> bool:
     """Persist the turn, and TELL THE USER if it could not be persisted.
 
     This used to be a bare ``adapter.save()`` in a ``finally:`` outside the
@@ -176,11 +176,17 @@ def _save_session_or_report(adapter, chat_session, send_event, session_id) -> No
                 "agent": "session",
                 "session_id": session_id,
             })
-        return
+        return False
     except Exception:
         logger.exception("session %s: unexpected failure saving the turn", session_id)
-        return
+        return False
     _auto_title_if_unset(chat_session)
+    return True
+
+
+def _index_saved_turn(adapter, chat_session) -> None:
+    """The session search's index for a saved turn, from the adapter's memory (no spilled bundle re-read).
+    Called after the turn's end is sent and its slot given back: the user never waits on it."""
     chat_search_index.index_chat_quietly(
         chat_session, chat_log=adapter.get("chat_log"), bundles=adapter.get("results_history"))
 
@@ -281,9 +287,11 @@ def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pas
                 "session_id": resolved_session_id,
             })
     finally:
-        _save_session_or_report(
+        saved = _save_session_or_report(
             adapter, chat_session, send_event, resolved_session_id)
         event_queue.put(None)  # sentinel
+        if saved:
+            _index_saved_turn(adapter, chat_session)
 
 
 def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pass,
@@ -324,11 +332,14 @@ def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_p
                 "session_id": resolved_session_id,
             })
     finally:
+        saved = False
         try:
-            _save_session_or_report(
+            saved = _save_session_or_report(
                 adapter, chat_session, send_event, resolved_session_id)
         finally:
             if parent_cc_turn is not None:
                 # A child turn a Container-CC pass started holds one of that turn's two slots (operator ruling
                 # 2026-09-30); it gives it back here, done, failed or interrupted. Never raises.
                 release_op_slot(parent_cc_turn)
+        if saved:
+            _index_saved_turn(adapter, chat_session)

@@ -51,9 +51,10 @@ class TestTranscriptSteps:
         assert calls == "Bash: nextseek-graph --q 'NDMA'\nRead: /work/out.csv"
         assert uids == ["MUS-220101ABC-1", "MUS-220101ABC-2", "MUS-220101ABC-3"]
 
-    def test_other_tools_keep_their_input_as_json(self):
-        raw = jsonl(assistant({"type": "tool_use", "name": "Skill", "input": {"skill": "geo"}}))
-        assert transcript_steps(raw)[1] == 'Skill: {"skill": "geo"}'
+    def test_a_tool_with_no_known_field_keeps_its_name(self):
+        raw = jsonl(assistant({"type": "tool_use", "name": "Skill", "input": {"skill": "geo"}},
+                              {"type": "tool_use", "name": "TodoWrite", "input": {"todos": ["secret plan"]}}))
+        assert transcript_steps(raw)[1] == "Skill: geo\nTodoWrite"
 
     def test_secret_lines_dropped(self):
         raw = jsonl(
@@ -71,6 +72,25 @@ class TestTranscriptSteps:
         assert calls == "Bash: nextseek-graph --q x"
         for secret in ("abc", "xyz", "hunter2", "zzz", "client_secret"):
             assert secret not in text + calls
+
+    def test_wider_secret_forms_dropped(self):
+        # review 10-26: each of these reached the stored text
+        leaks = ['{"password": "pw1"}', '{"token": "tk1"}', "login --password pw2", "curl -u alice:pw3 http://h",
+                 "get https://alice:pw4@host/x", "Bearer eyJabc.def", "DJANGO_SECRET_KEY=sk1",
+                 "AWS_SECRET_ACCESS_KEY=sk2", "secret: sk3", "--passwd=pw5"]
+        raw = jsonl(assistant(*[{"type": "tool_use", "name": "Bash", "input": {"command": c}} for c in leaks],
+                              {"type": "text", "text": "\n".join(leaks + ["kept line"])}))
+        text, calls, _ = transcript_steps(raw)
+        assert text == "kept line" and calls == ""
+
+    def test_other_tools_keep_only_paths_and_patterns(self):
+        raw = jsonl(assistant(
+            {"type": "tool_use", "name": "Edit", "input": {"file_path": "/w/a.py", "old_string": "x", "new_string": "BODY"}},
+            {"type": "tool_use", "name": "Grep", "input": {"pattern": "NDMA", "path": "/w"}},
+            {"type": "tool_use", "name": "Write", "input": {"file_path": "/w/b.csv", "content": "BODY"}}))
+        calls = transcript_steps(raw)[1]
+        assert calls == "Edit: /w/a.py\nGrep: NDMA /w\nWrite: /w/b.csv"
+        assert "BODY" not in calls
 
     def test_malformed_lines_and_shapes_are_skipped(self):
         raw = b"not json\n" + jsonl({"type": "assistant"}, {"message": {"content": "plain"}},
@@ -91,6 +111,11 @@ class TestBundleResultUids:
             "user_query": "about NHP-220630FLY-8",
         }
         assert bundle_result_uids(bundle) == ["TIS-220831FLY-26", "TIS-220831FLY-27", "MUS-220101ABC-1"]
+
+    def test_ids_at_a_line_start_inside_a_string(self):
+        # review 10-26: json.dumps turned the newline into "\\n", hiding the ID behind an "n"
+        assert bundle_result_uids({"report_writer_output": "uid\nTIS-220831FLY-26\tMUS-220101ABC-1"}) == [
+            "TIS-220831FLY-26", "MUS-220101ABC-1"]
 
     def test_not_a_dict(self):
         assert bundle_result_uids(None) == [] and bundle_result_uids([1]) == []

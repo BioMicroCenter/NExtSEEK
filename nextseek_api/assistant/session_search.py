@@ -22,7 +22,8 @@ from typing import Callable
 
 from django.utils import timezone
 
-from django.db.models import Count
+from collections import defaultdict
+
 
 from NessieAI.ns.chat_search_index import RESULT_CAP
 
@@ -174,35 +175,47 @@ def search_steps(scope: int | None, terms: list[str], since: datetime | None) ->
 
 
 def _record_hits(qs, scope: int | None) -> list[dict]:
-    """One record hit per chat from index rows (uid or project), naming the first IDs and how many more."""
-    hits: dict = {}
-    for row in qs.order_by("turn_id", "id").values_list(*_HIT_FIELDS, "key"):
-        hit = hits.setdefault(row[0], _hit("record", RECORD, row, scope, ""))
-        hit["_turns"].add(row[1])
-        if row[5] not in hit["_keys"]:
-            hit["_keys"].append(row[5])
-    if hits:  # say when a matched turn's results went past what was indexed
-        capped: dict = {}
-        turns = _entries(scope, None, source="record", kind="turn", session_id__in=list(hits))
-        for session_id, turn_id, total in turns.values_list("session_id", "turn_id", "text"):
-            if turn_id in hits[session_id]["_turns"] and total.isdigit() and int(total) > RESULT_CAP:
-                capped[session_id] = max(capped.get(session_id, 0), int(total))
-        for session_id, hit in hits.items():
-            keys = hit["_keys"]
-            more = f" and {len(keys) - _SHOWN_IDS} more" if len(keys) > _SHOWN_IDS else ""
-            note = f" (first {RESULT_CAP} of {capped[session_id]} results searched)" if session_id in capped else ""
-            hit["snippet"] = ", ".join(keys[:_SHOWN_IDS]) + more + note
-    return list(hits.values())
+    """One record hit per chat from index rows (uid or project), naming the first IDs and how many more.
+
+    Reads only (chat, turn, key) per row; the chats' titles and owners come in one query for the hit chats.
+    """
+    found: dict = {}
+    for session_id, turn_id, key in qs.order_by("session_id", "turn_id", "id").values_list("session_id", "turn_id", "key"):
+        turns, keys, first_turn = found.setdefault(session_id, (set(), {}, turn_id))
+        turns.add(turn_id)
+        keys[key] = None  # an ordered set
+    if not found:
+        return []
+    capped: dict = {}
+    turns_rows = ChatSearchEntry.objects.filter(source="record", kind="turn", session_id__in=list(found))
+    for session_id, turn_id, total in turns_rows.values_list("session_id", "turn_id", "text"):
+        if turn_id in found[session_id][0] and total.isdigit() and int(total) > RESULT_CAP:
+            capped[session_id] = max(capped.get(session_id, 0), int(total))
+    hits = []
+    meta = ChatSession.objects.order_by().filter(pk__in=list(found))
+    for session_id, title, updated_at, username in meta.values_list("session_id", "title", "updated_at", "user__username"):
+        turns, keys, first_turn = found[session_id]
+        shown = list(keys)[:_SHOWN_IDS]
+        more = f" and {len(keys) - _SHOWN_IDS} more" if len(keys) > _SHOWN_IDS else ""
+        note = f" (first {RESULT_CAP} of {capped[session_id]} results searched)" if session_id in capped else ""
+        hit = _hit("record", RECORD, (session_id, first_turn, title, updated_at, username), scope,
+                   ", ".join(shown) + more + note)
+        hit["_turns"] = turns
+        hits.append(hit)
+    return hits
+
+
+def _starts_word(term: str) -> str:
+    """The SQL regex for "``term`` where a word starts" (MySQL 8 and SQLite alike; keys are IDs and codes, ASCII)."""
+    return r"(^|[^A-Za-z0-9])" + re.escape(term)
 
 
 def search_records(scope: int | None, terms: list[str], since: datetime | None) -> list[dict]:
     """One hit per chat that showed a record (an ID, or a project the question named) matching every term."""
-    patterns = _patterns(terms)
     qs = _entries(scope, since, source="record", kind__in=("uid", "project"))
     for t in terms:
-        qs = qs.filter(key__icontains=t)
-    ids = [pk for pk, key in qs.values_list("id", "key") if _all(patterns, key)]
-    return _record_hits(ChatSearchEntry.objects.filter(id__in=ids), scope)
+        qs = qs.filter(key__iregex=_starts_word(t))  # in SQL: no row ids travel back and forth
+    return _record_hits(qs, scope)
 
 
 Source = Callable[[int | None, list[str], datetime | None], list[dict]]
@@ -210,32 +223,52 @@ SOURCES: dict[str, Source] = {"chats": search_chats, "records": search_records, 
 
 
 def _filtered(scope, since, record_type, project, where):
-    """(the chats the record filters allow or None when there is no filter, the rows that made them match)."""
-    sets, rows = [], None
+    """(the chats the record filters allow, or None when there is no filter; the rows that made them match).
+
+    Each filter's chats are read as a distinct set (at most one per chat); two filters meet in Python. Not a SQL
+    subquery: MySQL 8 ran ``session_id IN (SELECT ...)`` over the index table in 6 s at dev's size.
+    """
+    parts = []
     if record_type or where:
-        rows = _entries(scope, since, source="record", kind="uid",
-                        **({"record_type": record_type} if record_type else {}), **({"text": where} if where else {}))
-        sets.append(set(rows.values_list("session_id", flat=True)))
+        parts.append(_entries(scope, since, source="record", kind="uid",
+                              **({"record_type": record_type} if record_type else {}),
+                              **({"text": where} if where else {})))
     if project:
-        project_rows = _entries(scope, since, source="record", kind="project", key=project)
-        sets.append(set(project_rows.values_list("session_id", flat=True)))
-        rows = rows if rows is not None else project_rows
-    return (set.intersection(*sets) if sets else None), rows
+        parts.append(_entries(scope, since, source="record", kind="project", key=project))
+    if not parts:
+        return None, None
+    allowed = set.intersection(*(set(q.order_by().values_list("session_id", flat=True).distinct()) for q in parts))
+    rows = parts[0] if len(parts) == 1 else parts[0].filter(session_id__in=list(allowed))
+    return allowed, rows
 
 
-def _facets(scope, since, session_ids=None) -> dict:
-    """For each record filter, how many of the chats (all in scope, or ``session_ids``) each value would keep."""
-    qs = _entries(scope, since, source="record")
-    if session_ids is not None:
-        qs = qs.filter(session_id__in=session_ids)
+def _facets(scope, since, session_ids=None, record_type=None, where=None) -> dict:
+    """For each record filter value, how many of the chats (all in scope, or ``session_ids``) it would keep.
 
-    def count(kind, field):
-        rows = (qs.filter(kind=kind).order_by().values(field).annotate(n=Count("session_id", distinct=True))
-                .values_list(field, "n"))
-        return dict(sorted(rows, key=lambda r: (-r[1], r[0])))
+    A type is counted only on rows that also match the chosen ``where``, and a where only on rows of the chosen
+    type: both name the same row, so the count is what choosing that value returns. Read as distinct
+    (chat, type, where) and (chat, project) tuples in two queries and counted here: an ``IN`` list of the matching
+    chats cost MySQL 200-400 ms at dev's size.
+    """
+    keep = None if session_ids is None else set(session_ids)
+    types, wheres, projects = defaultdict(set), defaultdict(set), defaultdict(set)
+    uid_rows = _entries(scope, since, source="record", kind="uid").order_by()
+    for session_id, rtype, place in uid_rows.values_list("session_id", "record_type", "text").distinct():
+        if keep is not None and session_id not in keep:
+            continue
+        if not where or place == where:
+            types[rtype].add(session_id)
+        if not record_type or rtype == record_type:
+            wheres[place].add(session_id)
+    project_rows = _entries(scope, since, source="record", kind="project").order_by()
+    for session_id, project in project_rows.values_list("session_id", "key").distinct():
+        if keep is None or session_id in keep:
+            projects[project].add(session_id)
 
-    return {"record_type": count("uid", "record_type"), "project": count("project", "key"),
-            "where": count("uid", "text")}
+    def counts(found):
+        return dict(sorted(((k, len(v)) for k, v in found.items()), key=lambda r: (-r[1], r[0])))
+
+    return {"record_type": counts(types), "project": counts(projects), "where": counts(wheres)}
 
 
 def _merge(hits: list[dict]) -> list[dict]:
@@ -274,7 +307,7 @@ def search_sessions(user_id: int, query: str, *, all_users: bool = False,
     since = timezone.now() - timedelta(days=since_days) if since_days else None
     scope = None if all_users else user_id
     if facets_only:
-        out["facets"] = _facets(scope, since)
+        out["facets"] = _facets(scope, since, record_type=record_type, where=where)
         return out
     allowed, filter_rows = _filtered(scope, since, record_type, project, where)
     if terms:
@@ -282,12 +315,12 @@ def search_sessions(user_id: int, query: str, *, all_users: bool = False,
         if allowed is not None:
             hits = [h for h in hits if h["session_id"] in allowed]
     elif allowed is not None:
-        hits = _record_hits(filter_rows.filter(session_id__in=allowed), scope)
+        hits = _record_hits(filter_rows, scope)
     else:
         return out
     hits = _merge(hits)
     hits.sort(key=lambda h: (h["_tier"], h["updated_at"]), reverse=True)
-    out["facets"] = _facets(scope, since, [h["session_id"] for h in hits])
+    out["facets"] = _facets(scope, since, [h["session_id"] for h in hits], record_type=record_type, where=where)
     for h in hits:
         for private in ("_tier", "_turns", "_keys"):
             h.pop(private, None)

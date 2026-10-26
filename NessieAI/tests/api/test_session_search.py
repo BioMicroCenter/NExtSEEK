@@ -325,3 +325,12 @@ class Part2SearchTests(SearchBase):
         self.indexed(log=[turn(1, "brain", "MUS-220101ABC-1")])
         self.assertEqual(search_sessions(self.a.pk, "liver", sources=["chats", "records"])["facets"]["record_type"],
                          {"TIS": 1})
+
+    def test_facets_count_what_the_combined_filter_returns(self):
+        # review 10-26: the question names a MUS, the answer a TIS; with where=answer, MUS must not be offered
+        self.indexed(log=[turn(1, "q", "TIS-220831FLY-26") | {"key_entities": {"uids": ["MUS-220101ABC-1"]}}])
+        res = search_sessions(self.a.pk, "", sources=["records"], where="answer")
+        self.assertEqual(res["facets"]["record_type"], {"TIS": 1})
+        self.assertEqual(search_sessions(self.a.pk, "", sources=["records"], where="answer", record_type="MUS")["results"], [])
+        only = search_sessions(self.a.pk, "", sources=["records"], record_type="MUS", facets_only=True)
+        self.assertEqual(only["facets"]["where"], {"question": 1})

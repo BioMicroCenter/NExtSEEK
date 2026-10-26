@@ -35,7 +35,14 @@ _UID = re.compile(
     r"(P\.[A-Z]{2,5}-\d{6}-V\d+_[\w.+\-]+?(?:\.\w{2,5})?|(?:[A-Z]\.)?[A-Z]{2,}-\d{6}[A-Z]{2,5}-\d+(?:-PUB\d*)?)"
     r"(?![A-Za-z0-9])"
 )
-_SECRET = re.compile(r"authorization|nextseekturn|password\s*[=:]|token\s*=|api[_-]?key|secret\s*=", re.IGNORECASE)
+# A line that names a credential, or carries one in a URL or a curl -u, is dropped whole.
+_SECRET = re.compile(
+    r"authorization|bearer\s|nextseekturn|passw(?:or)?d|\bpass\b|token[\"']?\s*[=:]|api[_-]?key|secret"
+    r"|://[^/\s:@]+:[^/\s@]+@|\s-u\s*\S+:\S+",
+    re.IGNORECASE,
+)
+#: For a tool other than Bash, Read and Write only these input fields are kept (never file bodies or edits).
+_TOOL_FIELDS = ("file_path", "pattern", "path", "skill", "url")
 
 
 def find_uids(text: Any) -> list[str]:
@@ -55,12 +62,15 @@ def _clean(text: str) -> str:
 
 
 def _tool_call(block: dict) -> str:
+    """``Name: what it ran or touched``: Bash's command; for every other tool its paths and patterns only."""
     name, args = block.get("name") or "tool", block.get("input")
-    if isinstance(args, dict):
-        value = args.get("command") if name == "Bash" else args.get("file_path") if name in ("Read", "Write") else None
-        if isinstance(value, str):
-            return f"{name}: {value}"
-    return f"{name}: {json.dumps(args, sort_keys=True, default=str)}"
+    if not isinstance(args, dict):
+        return name
+    if name == "Bash":
+        value = args.get("command")
+        return f"{name}: {value}" if isinstance(value, str) else name
+    kept = [args[k] for k in _TOOL_FIELDS if isinstance(args.get(k), str)]
+    return f"{name}: {' '.join(kept)}" if kept else name
 
 
 def _result_text(content: Any) -> str:
@@ -95,14 +105,24 @@ def transcript_steps(jsonl: bytes) -> tuple[str, str, list[str]]:
     return _clean("\n".join(texts)), _clean("\n".join(calls)), list(dict.fromkeys(uids))
 
 
+def _texts(value: Any):
+    """Every string inside ``value`` (dict values, list items), walked in order."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from _texts(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from _texts(v)
+
+
 def bundle_result_uids(bundle: Any) -> list[str]:
-    """The IDs an NS answer showed: those in its result keys, in order, each once."""
+    """The IDs an NS answer showed: those in its result keys, in order, each once. Strings are searched one by
+    one: an ID that starts a line inside one is found (``json.dumps`` would hide it behind ``\\n``)."""
     if not isinstance(bundle, dict):
         return []
-    out: list[str] = []
-    for key in RESULT_KEYS:
-        if bundle.get(key) is not None:
-            out.extend(find_uids(json.dumps(bundle[key], default=str)))
+    out = [u for key in RESULT_KEYS for text in _texts(bundle.get(key)) for u in find_uids(text)]
     return list(dict.fromkeys(out))
 
 
@@ -124,11 +144,10 @@ def turn_rows(entry: dict, bundle: Any, steps: Iterable[tuple[str, str, list[str
     reply = entry.get("assistant_reply") or entry.get("assistant_reply_preview")
     named = {"question": [u for s in _strings(entities.get("uids")) for u in find_uids(s)], "answer": find_uids(reply)}
     results = list(dict.fromkeys(bundle_result_uids(bundle) + [u for s in steps for u in s[2]]))
-    rows, seen = [], set()
+    rows = []
     for where, uids in (*named.items(), ("result", results[:RESULT_CAP])):
-        for uid in uids:
-            if uid not in seen and len(uid) <= 64:
-                seen.add(uid)
+        for uid in uids:  # each list is already distinct: an ID in the answer and the results counts as both
+            if len(uid) <= 64:
                 rows.append({"source": "record", "kind": "uid", "key": uid, "record_type": uid_type(uid)[:16],
                              "text": where})
     for project in dict.fromkeys(_strings(entities.get("projects"))):
@@ -143,16 +162,42 @@ def turn_rows(entry: dict, bundle: Any, steps: Iterable[tuple[str, str, list[str
     return rows
 
 
+def _stored_bundles(chat_session, ids: set) -> dict:
+    """{bundle id: the bundle with only its result keys read back} for ``ids``, from the stored column.
+
+    Read as text (the column's spill links left as they are), then only the result keys of the wanted bundles go
+    through the size guard's hydrate: the full payload of a big GEO answer is never loaded to index it.
+    """
+    from django.db.models import TextField
+    from django.db.models.functions import Cast
+
+    from nextseek_api.assistant.models_db import ChatSession
+    from nextseek_api.assistant.spill import hydrate
+
+    raw = (ChatSession.objects.order_by().filter(pk=chat_session.pk)
+           .annotate(raw=Cast("results_history", TextField())).values_list("raw", flat=True).first())
+    stored = json.loads(raw) if raw else []
+    if isinstance(stored, dict):  # the whole column is one spill link: it comes back whole
+        stored = hydrate(stored)
+    out = {}
+    for b in stored if isinstance(stored, list) else []:
+        if isinstance(b, dict) and b.get("id") in ids:
+            out[b["id"]] = {k: hydrate(b[k]) for k in RESULT_KEYS if b.get(k) is not None}
+    return out
+
+
 def index_chat(chat_session, *, chat_log: list | None = None, bundles: list | None = None) -> int:
     """Index the chat's turns that have no rows yet, and drop the rows of turns no longer in its chat_log.
 
     ``chat_log`` and ``bundles`` may be handed in from memory (the NS turn's session adapter); otherwise they are
-    read from the row, the bundles only when a turn to index has one. Returns the number of rows written.
+    read from the row, the bundles' result keys only and only when a turn to index has one. The rows are built
+    first and written under the chat row's lock, which skips any turn another run indexed meanwhile (two runs at
+    once wrote every row twice on MySQL, review 10-26). Returns the number of rows written.
     """
     from django.db import transaction
 
     from NessieAI.cc.cc_transcript_store import decompress
-    from nextseek_api.assistant.models_db import CCSessionTranscript, ChatSearchEntry
+    from nextseek_api.assistant.models_db import CCSessionTranscript, ChatSearchEntry, ChatSession
 
     if chat_log is None:
         chat_session.refresh_from_db(fields=["extra_state"])
@@ -160,37 +205,43 @@ def index_chat(chat_session, *, chat_log: list | None = None, bundles: list | No
     entries = {e["turn_id"]: e for e in chat_log if isinstance(e, dict) and isinstance(e.get("turn_id"), int)
                and _shown(e)} if isinstance(chat_log, list) else {}
 
-    existing = ChatSearchEntry.objects.filter(session=chat_session)
-    existing.exclude(turn_id__in=list(entries)).delete()
-    done = set(existing.filter(source="record", kind="turn").values_list("turn_id", flat=True))
-    todo = [e for t, e in entries.items() if t not in done]
-    if not todo:
-        return 0
+    def indexed_turns():
+        return set(ChatSearchEntry.objects.filter(session=chat_session, source="record", kind="turn")
+                   .values_list("turn_id", flat=True))
 
-    if bundles is None and any(e.get("bundle_id") is not None for e in todo):
-        chat_session.refresh_from_db(fields=["results_history"])
-        bundles = chat_session.results_history
-    by_id = {b.get("id"): b for b in bundles or [] if isinstance(b, dict)}
+    todo = [e for t, e in entries.items() if t not in indexed_turns()]
+    new: list = []
+    if todo:
+        wanted = {e.get("bundle_id") for e in todo if e.get("bundle_id") is not None}
+        if bundles is not None:
+            by_id = {b.get("id"): b for b in bundles if isinstance(b, dict)}
+        else:
+            by_id = _stored_bundles(chat_session, wanted) if wanted else {}
 
-    steps: dict[str, list] = {}
-    run_ids = [e["cc_run_id"] for e in todo if isinstance(e.get("cc_run_id"), str)]
-    if run_ids:
-        for run_id, blob in (CCSessionTranscript.objects.order_by()
-                             .filter(chat_session=chat_session, turn_id__in=run_ids)
-                             .values_list("turn_id", "blob")):
-            try:
-                steps.setdefault(run_id, []).append(transcript_steps(decompress(bytes(blob))))
-            except Exception:  # noqa: BLE001 - one unreadable transcript must not cost the chat its index
-                logger.warning("chat %s: transcript %s could not be read for the search index",
-                               chat_session.pk, run_id, exc_info=True)
+        steps: dict[str, list] = {}
+        run_ids = [e["cc_run_id"] for e in todo if isinstance(e.get("cc_run_id"), str)]
+        if run_ids:
+            for run_id, blob in (CCSessionTranscript.objects.order_by()
+                                 .filter(chat_session=chat_session, turn_id__in=run_ids)
+                                 .values_list("turn_id", "blob")):
+                try:
+                    steps.setdefault(run_id, []).append(transcript_steps(decompress(bytes(blob))))
+                except Exception:  # noqa: BLE001 - one unreadable transcript must not cost the chat its index
+                    logger.warning("chat %s: transcript %s could not be read for the search index",
+                                   chat_session.pk, run_id, exc_info=True)
+        new = [
+            ChatSearchEntry(session=chat_session, user_id=chat_session.user_id, turn_id=e["turn_id"], **row)
+            for e in todo
+            for row in turn_rows(e, by_id.get(e.get("bundle_id")), steps.get(e.get("cc_run_id"), []))
+        ]
 
-    new = [
-        ChatSearchEntry(session=chat_session, user_id=chat_session.user_id, turn_id=e["turn_id"], **row)
-        for e in todo
-        for row in turn_rows(e, by_id.get(e.get("bundle_id")), steps.get(e.get("cc_run_id"), []))
-    ]
     with transaction.atomic():
-        ChatSearchEntry.objects.filter(session=chat_session, turn_id__in=[e["turn_id"] for e in todo]).delete()
+        ChatSession.objects.select_for_update().filter(pk=chat_session.pk).values_list("pk").first()
+        rows = ChatSearchEntry.objects.filter(session=chat_session)
+        rows.exclude(turn_id__in=list(entries)).delete()
+        done = indexed_turns()
+        new = [r for r in new if r.turn_id not in done]
+        rows.filter(turn_id__in={r.turn_id for r in new}).delete()  # a half-written turn (no turn row) starts over
         ChatSearchEntry.objects.bulk_create(new, batch_size=1000)
     return len(new)
 

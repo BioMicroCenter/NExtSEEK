@@ -47,6 +47,7 @@ class IndexChatTests(IndexBase):
         self.assertEqual(self.rows(cs), [
             (1, "record", "uid", "NHP-220630FLY-9", "NHP", "question"),
             (1, "record", "uid", "TIS-220831FLY-26", "TIS", "answer"),
+            (1, "record", "uid", "TIS-220831FLY-26", "TIS", "result"),  # in both places, so counted in both
             (1, "record", "uid", "MUS-220101ABC-1", "MUS", "result"),
             (1, "record", "project", "GBM", "", ""),
             (1, "record", "turn", "", "", "2"),
@@ -118,6 +119,39 @@ class IndexChatTests(IndexBase):
         index_chat(cs, chat_log=cs.extra_state["chat_log"], bundles=[{"id": 4, "graph_result": "MUS-220101ABC-8"}])
         self.assertIn((1, "record", "uid", "MUS-220101ABC-8", "MUS", "result"), self.rows(cs))
 
+    def test_an_id_in_the_answer_and_the_results_counts_as_both(self):
+        cs = self.chat([ns_turn(1, reply="TIS-220831FLY-26", bundle_id=1)], [{"id": 1, "graph_result": "TIS-220831FLY-26"}])
+        index_chat(cs)
+        self.assertEqual(sorted(r[5] for r in self.rows(cs, kind="uid")), ["answer", "result"])
+
+    def test_stored_bundle_read_without_the_full_payload(self):
+        from nextseek_api.assistant import spill
+        cs = self.chat([ns_turn(1, reply="ok", bundle_id=1)],
+                       [{"id": 1, "graph_result": "MUS-220101ABC-1", "api_result_full": {"rows": ["NHP-220630FLY-9"]}}])
+        seen = []
+        real = spill.hydrate
+        with mock.patch.object(spill, "hydrate", side_effect=lambda v: seen.append(v) or real(v)):
+            index_chat(cs)
+        self.assertIn((1, "record", "uid", "MUS-220101ABC-1", "MUS", "result"), self.rows(cs))
+        self.assertFalse(any("NHP-220630FLY-9" in json.dumps(v) for v in seen))
+
+    def test_a_turn_indexed_meanwhile_is_not_written_twice(self):
+        # review 10-26: two runs on one chat doubled every row on MySQL. Simulate the other run finishing between
+        # this run's reading and its writing: the write must see the turn done and add nothing for it.
+        cs = self.chat([ns_turn(1)])
+        real = chat_search_index.turn_rows
+        calls = []
+
+        def racing(*a, **kw):
+            if not calls:
+                calls.append(1)
+                index_chat(ChatSession.objects.get(pk=cs.pk))  # the other run
+            return real(*a, **kw)
+
+        with mock.patch.object(chat_search_index, "turn_rows", side_effect=racing):
+            index_chat(cs)
+        self.assertEqual(len(self.rows(cs, kind="turn")), 1)
+
     def test_deleting_the_chat_deletes_its_rows(self):
         cs = self.chat([ns_turn(1)])
         index_chat(cs)
@@ -164,3 +198,11 @@ class BackfillCommandTests(IndexBase):
         ChatSession.objects.create(user=other, extra_state={"chat_log": [ns_turn(1)]})
         self.run_cmd("--user", str(other.pk))
         self.assertEqual(set(ChatSearchEntry.objects.values_list("user_id", flat=True)), {other.pk})
+
+    def test_memory_guard_stops_cleanly_and_a_rerun_resumes(self):
+        self.chat([ns_turn(1)])
+        with mock.patch("nextseek_api.management.commands.chat_search_index._peak_rss_mb", return_value=99999):
+            out = self.run_cmd("--max-rss-mb", "100")
+        self.assertIn("stopped at", out)
+        self.assertEqual(ChatSearchEntry.objects.count(), 0)
+        self.assertIn("1 indexed", self.run_cmd())

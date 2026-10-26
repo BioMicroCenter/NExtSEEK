@@ -433,7 +433,8 @@ deploy to stop-first. Plan its minute of the restart page.
 
 So is the deploy that brings `0031_chat_search_entry` (the session search index). After it,
 index the chats already stored once; every turn that ends after the deploy indexes itself.
-The command skips turns already indexed, so a second run is harmless:
+The command skips turns already indexed, so a second run is harmless, and it stops cleanly
+(rerun to resume) once its peak memory passes `--max-rss-mb` (default 2048):
 
 ```bash
 docker compose -p nextseek exec -T nextseek timeout -k 10 1800 /app/.venv/bin/python manage.py chat_search_index --dry-run
