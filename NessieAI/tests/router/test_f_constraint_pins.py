@@ -96,6 +96,7 @@ def test_no_new_migrations():                        # Global Constraint
         "nextseek_api/migrations/0029_uidsequence.py",
         "nextseek_api/migrations/0030_spill_json_fields.py",
         "nextseek_api/migrations/0031_merge_reingest_spill.py",
+        "nextseek_api/migrations/0032_chat_search_entry.py",
         "nextseek_api/migrations/__init__.py",
         "nextseek_api/migrations/_cc_transcript_heal.py",
         "nextseek_api/migrations/_cc_turn_heal.py",
