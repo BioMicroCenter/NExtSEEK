@@ -511,8 +511,11 @@ ${NEXTSEEK_HOST_GID}`, files 0640, that group). No file in a volume or bind the 
 **Switchover sitting** (the first deploy whose app image has a USER; runner-driven or by hand). Pick a quiet
 window: between the sidecar rebuild and the app step, the 10001 sidecar cannot write a `_staging` still owned by
 1001, and a CC turn on the new agent image cannot write its old 1001 files; the app step's FIX closes both.
-1. `./startup.sh rebuild --component cc-agent`, then `--component nextseek-sidecar`, then `--component bedrock-proxy`,
-   then the app (`./startup.sh rebuild`), back to back. The app rebuild notices the user change, does not swap,
+1. `./startup.sh rebuild --no-restart` first (the slow app build and the preflight, nothing restarted, so the
+   old containers keep serving), then `--component cc-agent`, `--component nextseek-sidecar`, `--component
+   bedrock-proxy`, then the app again (`./startup.sh rebuild`, a cached build), back to back: the mixed-uid window
+   is the three small rebuilds, not the app build. Roll back to the FIRST app rollback tag (the second one tags
+   the image the first step built). The app rebuild notices the user change, does not swap,
    stops `web`, `nextseek` and `nextseek-sidecar`, runs FIX on every volume and bind, then starts them. Users
    see the restart page meanwhile. Before it stops anything it runs `id -u` in the cc-agent and sidecar images
    and refuses (nothing stopped, the old containers keep running) unless both say 10001: rebuild them first.

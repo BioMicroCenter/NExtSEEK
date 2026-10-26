@@ -29,9 +29,11 @@ ST=$H/launch-$TAG.status; L=$H/launch-$TAG
 say(){ echo "$* $(date -u +%H:%M:%S)" >> "$ST"; }
 stop(){ say "STOPPED: $*"; say ALL_DONE; exit 1; }
 logname(){ case "$1" in
+  app-build) echo app-build;;
 @@LOGNAME_CASES@@
 esac; }
 success_line(){ case "$1" in
+  app-build) echo 'app image rebuilt; runtime restart deferred by request';;
 @@SUCCESS_CASES@@
 esac; }
 need_of(){ case "$1" in
@@ -82,12 +84,15 @@ judge(){ # $1 log $2 label: records every red with its class; prints the reds no
 rollback_tag(){ # $1 log: the verified tag, even when the rebuild's output wrapped it onto the next line
   tr -s ' \n' ' ' < "$1" | grep -m1 -o "rollback tag verified: [^ ]*"
 }
-rebuild(){ # $1 component; returns 1 when its success line is missing
+rebuild(){ # $1 component, or app-build (the switchover's first step: the app image built and preflighted, nothing
+  # restarted); returns 1 when its success line is missing
+  comp=$1; flags=""; [ "$1" = app-build ] && { comp=app; flags=--no-restart; }
   extra=""; [ "$1" = "$RECREATE_NGINX_ON" ] && { extra="--recreate-nginx"; say "NGINX_RECREATE with the $1 rebuild (docker/nginx.conf changed, 'nginx recreate ok')"; }
-  ./startup.sh rebuild --component "$1" --no-ci $extra > "$L/$(logname "$1").log" 2>&1 </dev/null
+  ./startup.sh rebuild --component "$comp" --no-ci $flags $extra > "$L/$(logname "$1").log" 2>&1 </dev/null
   say "REBUILD $1 exit=$?"
   t=$(rollback_tag "$L/$(logname "$1").log")
-  [ -n "$t" ] && say "ROLLBACK $1 ${t#rollback tag verified: }"
+  # one ROLLBACK line per image, the first: after app-build the app step's tag points at the image app-build made
+  case " ${ROLLED:-} " in *" $comp "*) ;; *) [ -n "$t" ] && { say "ROLLBACK $comp ${t#rollback tag verified: }"; ROLLED="${ROLLED:-} $comp"; };; esac
   PENDING=$(echo " $PENDING " | sed "s/ $1 / /; s/^ *//; s/ *\$//")
   grep -qF "$(success_line "$1")" "$L/$(logname "$1").log"
 }
@@ -113,9 +118,10 @@ switch_missing(){ # $1 the components: what the switchover needs that the brief 
   # dmac-cc-users with the app, so their images must be on 10001 before the app switches (startup refuses otherwise)
   for c in cc-agent nextseek-sidecar; do case " $1 " in *" $c "*) ;; *) echo "$c";; esac; done
 }
-switch_order(){ # $1 the components: the phase 4 switchover order. The agent, sidecar and proxy images go first so the
-  # app rebuild (which stops web and nextseek, fixes ownership, starts them) is the last step and closes the gaps
-  for c in cc-agent nextseek-sidecar bedrock-proxy cc-spawner app; do case " $1 " in *" $c "*) echo "$c";; esac; done
+switch_order(){ # $1 the components: the phase 4 switchover order. app-build first (the slow app build and its preflight,
+  # nothing restarted), then the agent, sidecar and proxy images, then the app restart (a cached build), which stops
+  # web, nextseek and the sidecar, fixes ownership and starts them: the mixed-uid window no longer spans the app build
+  for c in app-build cc-agent nextseek-sidecar bedrock-proxy cc-spawner app; do case " $1 " in *" ${c%-build} "*) echo "$c";; esac; done
 }
 # <<< functions
 

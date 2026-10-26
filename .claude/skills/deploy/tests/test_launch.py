@@ -523,9 +523,10 @@ def test_a_switchover_rebuilds_agent_sidecar_proxy_then_app_and_checks_ownership
     # the order is a pure function of the rendered component list, sourced from the functions block
     r = subprocess.run(["bash", "-c", f'{fn}\nswitch_order "app cc-agent bedrock-proxy nextseek-sidecar"'],
                        capture_output=True, text=True)
-    assert r.stdout.split() == ["cc-agent", "nextseek-sidecar", "bedrock-proxy", "app"], r.stderr
+    # the app image is built (and preflighted) first with no restart; the restart is last and its build cached
+    assert r.stdout.split() == ["app-build", "cc-agent", "nextseek-sidecar", "bedrock-proxy", "app"], r.stderr
     r = subprocess.run(["bash", "-c", f'{fn}\nswitch_order "app cc-agent"'], capture_output=True, text=True)
-    assert r.stdout.split() == ["cc-agent", "app"]
+    assert r.stdout.split() == ["app-build", "cc-agent", "app"]
     # detection: the running app has no USER while the checked-out Dockerfile names one
     assert "SWITCH=1" in text and ".Config.User" in text and "git show HEAD:Dockerfile" in text
     assert "COMPONENTS=$(switch_order" in text
@@ -561,6 +562,27 @@ def test_a_switchover_without_the_agent_and_sidecar_images_stops_before_any_rebu
     block = text.split("if [ $SWITCH = 1 ]; then", 1)[1].split("\nfi\n", 1)[0]
     assert "switch_missing" in block and "stop" in block
     assert block.index("switch_missing") < block.index("COMPONENTS=$(switch_order")
+
+
+def test_the_switchover_app_build_step_builds_without_restart_and_keeps_the_first_rollback_line(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"], allowed_extras=["bedrock-proxy rebuild ok"])
+    box = tmp_path / "box"; box.mkdir()
+    (box / "startup.sh").write_text(
+        '#!/bin/bash\necho "$*" >> calls\nn=$(wc -l < calls)\n'
+        'echo "  ✓ rollback tag verified: nextseek-nextseek:pre-2026102${n}-1c070c08 (sha256:x)"\n'
+        'case "$*" in *--no-restart*) echo "  ✓ app image rebuilt; runtime restart deferred by request";;\n'
+        '  *) echo "  ✓ app rebuilt and restarted";; esac\n')
+    (box / "startup.sh").chmod(0o755)
+    script = (f'ST={box}/st L={box}/l RECREATE_NGINX_ON=app PENDING="app-build app"\n{_functions(text)}\n'
+              f'mkdir -p {box}/l && cd {box} && rebuild app-build && rebuild app')
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    calls = (box / "calls").read_text().splitlines()
+    assert calls == ["rebuild --component app --no-ci --no-restart", "rebuild --component app --no-ci --recreate-nginx"]
+    st = (box / "st").read_text()
+    assert [ln.split()[:3] for ln in st.splitlines() if ln.startswith("ROLLBACK")] == [
+        ["ROLLBACK", "app", "nextseek-nextseek:pre-20261021-1c070c08"]]   # the old image, from the build-only step
+    assert (box / "l" / "app-build.log").is_file() and (box / "l" / f"{rules.LOG_NAME['app']}.log").is_file()
 
 
 def test_the_post_deploy_checks_prove_web_is_non_root_and_the_spawner_refuses_without_a_token(tmp_path, capsys):
