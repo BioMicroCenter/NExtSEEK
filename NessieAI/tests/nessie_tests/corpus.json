@@ -15820,7 +15820,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
@@ -16129,7 +16129,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
@@ -16182,7 +16182,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
@@ -16245,7 +16245,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 },
                 {
                   "field": "last_reply",
@@ -16303,7 +16303,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
@@ -16422,7 +16422,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
