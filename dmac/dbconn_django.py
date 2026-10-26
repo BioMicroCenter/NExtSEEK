@@ -388,6 +388,8 @@ class DBconn_django(object):
         keyword = ' '
         if len(strs3)>2:
             keyword = strs3[2]
+        if keyword not in self.__fieldNames(tablemodel):
+            keyword = ' '           # the sort key comes from the client: only real fields of the model
         
         order = 'ASC'                          
         if len(strs3)>3:
@@ -561,9 +563,20 @@ class DBconn_django(object):
         return dlist
             
             
-    def generateQuerySet(self, filterRules):
+    @staticmethod
+    def __fieldNames(tablemodel):
+        """The model's own concrete column names: the only keys a client may filter or sort by (no ``__`` lookups)."""
+        names = set()
+        for f in tablemodel._meta.concrete_fields:
+            names.update((f.name, f.attname))
+        return names
+
+    def generateQuerySet(self, filterRules, tablemodel=None):
         qset = Q()
         n = 0
+        if tablemodel is not None:
+            allowed = self.__fieldNames(tablemodel)
+            filterRules = [r for r in filterRules if r.get("field") in allowed]
         for rule in filterRules:
             field = rule["field"]
             keyword = rule["value"]
@@ -746,15 +759,14 @@ class DBconn_django(object):
         filterRules = filtersdic['filterRules']
         # A caller's row scope (a Q), applied to the page and to the total alike.
         scope = filtersdic.get('scope', Q())
-        qset = self.generateQuerySet(filterRules) & scope
+        if filtersdic.get('error'):
+            return [], [], 0
+        qset = self.generateQuerySet(filterRules, tablename) & scope
         
         joint_tablemodels_string = ''
         dicList = self.retrieveJoint(tablename, joint_tablemodels_string, qset, orderby, limit)
         
-        qset = scope
-        limit = ' '
-        dicList_total = self.retrieveJoint(tablename, joint_tablemodels_string, qset, orderby, limit)
-        total = len(dicList_total)
+        total = self.retrieveTotalRecords(tablename, scope)
         
         footer = []
         return dicList, footer, total
