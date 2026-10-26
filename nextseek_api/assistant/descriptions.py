@@ -142,11 +142,12 @@ turn's agent steps; may be empty with a record filter), sources (comma list of
 chats, records, steps; default chats,records), record_type (a type code such
 as TIS or D.SEQ), project, where (question, answer or result), since (7, 30
 or 90 days of last activity), all_users=1 (superusers only: every user's
-chats, each hit naming its owner), facets_only=1 (only the filter counts),
+chats, each hit naming its owner), facets=1 (also the filter counts; empty
+otherwise), facets_only=1 (only the filter counts),
 limit (1..50, default 20). One hit per chat: title, then question, answer,
 record, agent steps, newest first; each carries the turn to open at and a
-plain-text snippet. facets counts, per filter value, the matching chats it
-keeps. A value moved to a spill file is searched as its content.
+plain-text snippet. With facets=1, facets counts, per filter value, the
+matching chats it keeps. A value moved to a spill file is searched as its content.
 422 on a bad parameter, 403 when a non-superuser asks for all_users.
 """
 
