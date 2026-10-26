@@ -470,18 +470,6 @@ export class NextseekApiService {
     return response.json();
   }
 
-  downloadSearchAsExcel(
-    data: Record<string, unknown>[],
-    filename: string,
-  ): void {
-    import("xlsx").then((XLSX) => {
-      const ws = XLSX.utils.json_to_sheet(data);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Search Results");
-      XLSX.writeFile(wb, filename);
-    });
-  }
-
   async uploadFiles(files: File[]): Promise<{ job_id: string }> {
     const baseUrl = this.auth.getApiBaseUrl();
     const fd = new FormData();
