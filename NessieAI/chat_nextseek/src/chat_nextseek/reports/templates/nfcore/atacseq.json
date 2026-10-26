@@ -2,6 +2,9 @@
   "report_type": "NFCORE_ATACSEQ_SAMPLESHEET",
   "description": "nf-core/atacseq samplesheet context. Designed for direct creation of the pipeline CSV from study metadata + ENA-resolved FASTQ URLs.",
   "params": {
+    "read_length":    {"type": "enum", "allowed": [50, 75, 100, 150, 200], "default": null, "steerable": true, "help": "Read length used to calculate or retrieve pre-computed MACS2 genome size for peak calling if `--macs_gsize` isn't provided. The schema accepts only 50, 75, 100, 150 or 200."},
+    "narrow_peak":    {"type": "bool", "default": false, "steerable": true, "help": "Run MACS2 in narrowPeak mode. MACS2 is run by default with the --broad flag."},
+    "aligner":        {"type": "enum", "allowed": ["bwa", "bowtie2", "chromap", "star"], "default": "bwa", "steerable": true, "help": "Specifies the alignment algorithm to use - available options are 'bwa', 'bowtie2', 'chromap' and 'star'."},
     "save_reference": {"type": "bool", "default": true, "steerable": true},
     "multiqc_title":  {"type": "string", "default": null, "steerable": true}
   },
@@ -11,15 +14,16 @@
     "repository": "https://github.com/nf-core/atacseq",
     "documentation_url": "https://nf-co.re/atacseq/latest/docs/usage/",
     "input_file_type": "csv",
-    "core_rule": "Required header columns are: sample, fastq_1, fastq_2, replicate. Additional metadata columns may follow.",
+    "core_rule": "Required columns are: sample, fastq_1, replicate. fastq_2 is blank for single-end libraries; control and control_replicate are used only when the run is launched with --with_control.",
     "required_columns": [
       "sample",
       "fastq_1",
-      "fastq_2",
       "replicate"
     ],
     "optional_columns": [
-      "read_count"
+      "fastq_2",
+      "control",
+      "control_replicate"
     ]
   },
   "samplesheet_template": [
@@ -31,16 +35,16 @@
     }
   ],
   "validation_rules": [
-    "Column 1 must be `sample`; the sample value should be a stable biological identifier shared across replicates.",
-    "fastq_1/fastq_2 may be HTTPS URLs (ENA mirror) or local paths.",
-    "replicate is a 1-indexed integer; multiple rows per sample with different replicate values describe biological replicates.",
-    "Single-end libraries leave fastq_2 blank but retain the column header."
+    "sample must be a stable biological identifier with no spaces, identical across the replicates of one experimental group.",
+    "replicate is an integer that starts at 1 for each experimental group and counts up (1..<number of replicates>); a re-sequenced library keeps the same sample and replicate values, and the pipeline merges its runs.",
+    "fastq_1/fastq_2 must be gzipped FASTQ files ending in .fastq.gz or .fq.gz; the pipeline detects single-end from a blank fastq_2.",
+    "control and control_replicate (the sample name and replicate number of the control) are used only when the run is launched with --with_control; the pipeline has no antibody column."
   ],
   "report_writer_guidance": {
     "population_priority": [
       "One row per (biological sample, replicate, run).",
       "Use accession_rows from the resolver context to populate fastq_1/fastq_2.",
-      "Carry NExtSEEK metadata into treatment/tissue/donor/condition/antibody columns when present."
+      "Carry NExtSEEK metadata into treatment/tissue/donor/condition columns when present."
     ]
   }
 }
