@@ -11,7 +11,7 @@ Every file under the folder is read, whatever its name. A file that is not
 strict UTF-8 text is refused, never skipped or rewritten. A prefix matches whole
 path segments only (/a/b does not match /a/bc/x). Nothing is written unless
 every file passes, so a refusal leaves the folder as it was. An email address
-or a URL (any scheme://) is refused, never rewritten: blank that param by hand.
+or a URL (any scheme://, except public nf-core test data) is refused, never rewritten: blank that param by hand.
 """
 import pathlib
 import re
@@ -24,6 +24,12 @@ ABSOLUTE = re.compile(rf"(?<![\w.:/])/(?!RUN(?!{SEGMENT}))({SEGMENT}+(?:/{SEGMEN
 EMAIL = re.compile(r"[\w.%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
 # Any scheme: http, https, s3, gs, ftp, file, ...
 URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s\"'<>]*")
+# Public nf-core test data is what a fixture's samplesheet legitimately points at (the spec of
+# 2026-10-26 §2); anything else with a scheme is still refused.
+ALLOWED_URL_PREFIXES = (
+    "https://raw.githubusercontent.com/nf-core/test-datasets/",
+    "https://github.com/nf-core/test-datasets/",
+)
 
 
 def prefix_pattern(prefixes: list[str]) -> re.Pattern | None:
@@ -58,7 +64,8 @@ def main() -> int:
         if text != original:
             rewritten[path] = text
         leftovers += [f"{rel}: /{m}" for m in ABSOLUTE.findall(text)]
-        contacts += [f"{rel}: {m}" for m in EMAIL.findall(text) + URL.findall(text)]
+        contacts += [f"{rel}: {m}" for m in EMAIL.findall(text)
+                     + [u for u in URL.findall(text) if not u.startswith(ALLOWED_URL_PREFIXES)]]
     if undecodable or leftovers or contacts:
         if undecodable:
             print("refusing: not UTF-8 text (a fixture holds text files only):",

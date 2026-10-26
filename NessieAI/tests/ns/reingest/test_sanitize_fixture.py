@@ -110,3 +110,17 @@ def test_missing_arguments_print_usage_and_exit_2():
     assert result.returncode == 2
     assert "Usage: sanitize_fixture.py" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+def test_a_public_nf_core_test_data_url_is_allowed(tmp_path):
+    f = tmp_path / "samplesheet.csv"
+    f.write_text("sample,fastq_1\nS1,https://raw.githubusercontent.com/nf-core/test-datasets/sarek/x/test_1.fastq.gz\n")
+    result = run(tmp_path, "/RUN")
+    assert result.returncode == 0, result.stderr
+
+
+def test_a_lookalike_of_the_test_data_url_is_still_refused(tmp_path):
+    f = tmp_path / "p.json"
+    f.write_text('{"x": "https://raw.githubusercontent.com/nf-core-evil/test-datasets/x"}')
+    result = run(tmp_path, "/RUN")
+    assert result.returncode == 1 and "nf-core-evil" in result.stderr
