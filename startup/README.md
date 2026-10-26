@@ -75,8 +75,8 @@ no install step reads them until their content is signed off (`scripts/README.md
 `startup/tests/test_env_registry_drift.py`; `DEPLOYMENT.md` section 8 is generated from it).
 
 **Two managed indexes** on Rails-owned SEEK tables are declared at
-`startup/steps/schema_fixups.py:373-389`, and applying them is opt-in behind an
-environment flag, default off (`startup/steps/schema_fixups.py:973-992`).
+`startup/steps/schema_fixups.py:369-385`, and applying them is opt-in behind an
+environment flag, default off (`startup/steps/schema_fixups.py:969-988`).
 
 **`startup/dev/`** is a separate, hand-run lane, not part of any subcommand:
 `startup/dev/run_full_test_lane.sh:6-14` runs `nextseek_api/tests startup/tests` in one
@@ -97,7 +97,7 @@ stored instance value, then `http://localhost:<seek port>`
 (`resolve_seek_public_url` in `startup/steps/config.py`). One resolved value feeds both the app's link
 building and SEEK's own DB-backed identity (`startup/cli.py:145-156`). That second layer
 is set only when the row is absent; an existing row is reported as an admin decision and
-left alone (`startup/steps/seek_settings.py:171-198`). An unknown `--ci-profile` exits 2
+left alone (`startup/steps/seek_settings.py:167-194`). An unknown `--ci-profile` exits 2
 before anything is written (`startup/cli.py:104-109`).
 
 A re-run keeps every value already in `docker/db.env` and `docker/nextseek.env`,
@@ -226,7 +226,7 @@ in any `.py` file under `startup/cli.py`, `startup/lib/`, `startup/steps/` or
   (`startup/lib/rebuild_policy.py`).
 - Compose service names as `exec` targets: `db` takes the SQL seeds
   (`startup/steps/seed.py:85`) and the schema-fixup table probe
-  (`startup/steps/schema_fixups.py:160-161`), `neo4j` takes the graph seed
+  (`startup/steps/schema_fixups.py:156-157`), `neo4j` takes the graph seed
   (`startup/steps/seed.py:56`) and `seek` takes the filestore archive on stdin
   (`startup/steps/seed_filestore.py:94-103`).
 - Seven external named volumes it creates by name (`startup/steps/volumes.py:6-16`);
@@ -238,7 +238,7 @@ in any `.py` file under `startup/cli.py`, `startup/lib/`, `startup/steps/` or
   requests and playwright stay out of this project (`startup/ci/runner.py:1-5` and
   `startup/ci/runner.py:38`).
 - A MySQL driver chosen at runtime, preferring host mysqlclient and falling back to the
-  declared PyMySQL (`startup/steps/schema_fixups.py:895-909`).
+  declared PyMySQL (`startup/steps/schema_fixups.py:891-905`).
 - `~/.config/nextseek/ci.env` for smoke credentials, read only for the key names
   (`startup/steps/doctor.py:13` and `startup/steps/doctor.py:59-63`), and
   `~/.config/nextseek/ghcr.env` for the registry push

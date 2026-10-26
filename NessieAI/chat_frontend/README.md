@@ -213,7 +213,7 @@ Playwright and vitest output, so it has the same browser-binary requirement.
   `seek/templates/smartSearch.html:1-9`.
 - The Django view and URL that serve that template: `seek/urls.py:13` under the
   prefix mounted at `dmac/urls.py:27`, gated on authentication at
-  `seek/views/search.py:110-114`.
+  `seek/views/search.py:102-105`.
 
 ### Depended on by
 

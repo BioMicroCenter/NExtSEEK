@@ -96,7 +96,7 @@ Area labels are written without their `area:` prefix (`docs/ISSUE-CONVENTIONS.md
 
 ## Build and test
 
-`./startup.sh` verbs: `install`, `doctor`, `rebuild` (`--component app|cc-agent|bedrock-proxy|nextseek-sidecar|custom-stack`; app is the default), `reset` (deletes config and the queue volumes, keeps the data volumes; `reset --drop-data` also deletes the data volumes and asks you to type the instance name), `ci`, `seed-filestore`, `dump-db`. Details: `startup/README.md`.
+`./startup.sh` verbs: `install`, `doctor`, `rebuild` (`--component app|cc-agent|bedrock-proxy|nextseek-sidecar|custom-stack`; app is the default), `reset` (deletes config and the queue volumes, keeps the data volumes; `reset --drop-data` also deletes the data volumes and asks you to type the instance name), `ci`, `seed-filestore`, `dump-db`, `fix-ownership` (hands the app's writable volumes and binds to uid 10001; `--check` only counts). Details: `startup/README.md`.
 
 | Lane | Where | Read |
 |---|---|---|
