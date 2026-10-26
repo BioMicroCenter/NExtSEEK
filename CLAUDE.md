@@ -120,7 +120,7 @@ Live state comes from GitHub and git, never from spec headers or plan checkboxes
 
 ## Gotchas
 
-- Admin gates read `is_superuser`, never `is_staff`: the SEEK login sets `is_staff` on everyone (`dmac/CLAUDE.md`).
+- Admin gates read `is_superuser`, never `is_staff`: older accounts carried `is_staff` from a former SEEK login rule, and only superusers keep it now (`dmac/CLAUDE.md`).
 - A new `router.register` goes into `ci/routes.py` in the same change, or the blocking gate fails (`nextseek_api/CLAUDE.md`).
 - Nothing may be registered after the Mezzanine catch-all (`dmac/CLAUDE.md`).
 - A `static/` change needs `collectstatic` after the rebuild (`DEPLOYMENT.md` §3.2). Schema fixups run only on `install`, never on `rebuild` (`startup/CLAUDE.md`).

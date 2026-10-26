@@ -31,7 +31,7 @@ assay registrations, batch upload, the API root and the three API description pa
   the routes in its allow table (`nextseek_api/assistant/turn_pass_allow.py`), checked before any view runs, and a
   caller on a pass acts as the turn's user with no superuser read-any (`may_read_any` in
   `nextseek_api/permissions.py`).
-- **Admin means `is_superuser`.** The SEEK login sets `is_staff` on every account, so no route treats `is_staff` as
+- **Admin means `is_superuser`.** Older accounts carried `is_staff` from a former SEEK login rule (cleared by migration 0033), so no route treats `is_staff` as
   admin (`IsSuperUser` in `nextseek_api/permissions.py`, `IsDjangoSuperuser` in `nextseek_api/services/users.py`).
 - **Project scope.** The caller's projects are read per request from SEEK's MySQL tables
   (`nextseek_api/graph_search/scope.py`: `resolve_scope`, `plain_scope`, `caller_block`, `current_project_ids`). A
