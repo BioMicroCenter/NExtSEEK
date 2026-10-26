@@ -703,14 +703,14 @@
     "SampleType": "PAT",
     "ID": 25,
     "Name": "Patient",
-    "Description": "A patient sample represents a human participant enrolled in a study. It serves as the source for clinical information and biological material collected to investigate health, disease, or treatment effects.",
+    "Description": "A patient sample represents a human participant enrolled in a study, whose dated clinical events (follow-ups, treatments with their drugs and outcomes, diagnoses, test results) are Patient Visit (PAV) samples derived from the patient. It serves as the source for clinical information and biological material collected to investigate health, disease, or treatment effects.",
     "Tags": "patient, human subject, study participant, clinical participant, donor, volunteer, human donor, study cohort member, enrolled subject, clinical trial participant, PAT, Homo sapiens, human participant, clinical subject"
   },
   {
     "SampleType": "PAV",
     "ID": 24,
     "Name": "Patient Visit",
-    "Description": "A patient visit record represents a specific encounter or collection event for a study participant. It provides temporal and contextual information linking biological samples or data files to a particular time point, condition, or intervention.",
+    "Description": "A patient visit record represents one dated encounter or clinical event for a patient (PAT): a collection, follow-up, treatment, diagnosis or test, with fields such as DaysToFollowUp, TreatmentOutcome and TestResult. It provides temporal and contextual information linking biological samples or data files to a particular time point, condition, or intervention.",
     "Tags": "patient visit, clinical visit, study visit, visit record, collection event, clinical encounter, study timepoint, blood draw, sample collection visit, longitudinal visit, PAV, visit, baseline visit, follow-up visit"
   },
   {
