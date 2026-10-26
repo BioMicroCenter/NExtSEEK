@@ -24,6 +24,7 @@ else
   echo "KV expected=$E"
   echo "KV origin=$(git rev-parse origin/dev)"
   [ "$(git rev-parse origin/dev)" = "$E" ] && echo "KV origin_match=yes" || echo "KV origin_match=no"
+  git merge-base --is-ancestor "$E" origin/dev && echo "KV origin_ancestor=yes" || echo "KV origin_ancestor=no"
   git merge-base --is-ancestor HEAD "$E" && echo "KV ff=yes" || echo "KV ff=no"
   echo "KV range_count=$(git rev-list --count HEAD.."$E")"
   git diff --name-only HEAD.."$E" | grep -Fx -f <(git status --short | awk '{print $2}') | sed 's/^/DIRTY_TOUCHED /'

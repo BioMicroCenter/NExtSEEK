@@ -207,8 +207,18 @@ class BriefForm(Strict):
     laya_live_revision: Optional[str] = Field(
         default=None, description="the laya revision the operator approved for live routing; null: live must be off")
     acknowledged_flags: list[Ack] = Field(default_factory=list)
+    ship_behind_origin: Optional[str] = Field(
+        default=None, description="the operator's words letting the expected sha be an ancestor of origin/dev "
+                                  "(a sha that tested green while origin/dev moved on), not origin/dev itself")
     tag: Optional[str] = None
     start_utc: Optional[str] = None
+
+    @field_validator("ship_behind_origin")
+    @classmethod
+    def _behind_words(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v.strip()) < 10:
+            raise ValueError("ship_behind_origin holds the operator's words, quoted")
+        return v
 
     @field_validator("expected_sha")
     @classmethod
@@ -635,8 +645,12 @@ def judge_preflight(p: dict, brief: BriefForm, tag: str) -> list[dict]:
     exp = kv.get("expected", "NOT_FOUND")
     row("expected", exp, exp != "NOT_FOUND" and exp.startswith(brief.expected_sha),
         "the expected sha exists on the box after a fetch")
-    row("origin_match", kv.get("origin_match", "unknown"), kv.get("origin_match") == "yes",
-        "origin/dev IS the expected sha (the supervisor decides what ships)")
+    behind = (kv.get("origin_match") != "yes" and bool(brief.ship_behind_origin)
+              and kv.get("origin_ancestor") == "yes")
+    row("origin_match", "behind origin/dev (ship_behind_origin)" if behind else kv.get("origin_match", "unknown"),
+        kv.get("origin_match") == "yes" or behind,
+        "origin/dev IS the expected sha, or an ancestor of it with the operator's ship_behind_origin words "
+        "(the supervisor decides what ships)")
     row("ff", kv.get("ff", "unknown"), kv.get("ff") == "yes", "the box's HEAD is an ancestor of it")
     unknown_dirty = [d for d in p["dirty"] if d not in inst.known_dirty]
     row("dirty", "; ".join(unknown_dirty) or "only the known list", not unknown_dirty,
@@ -1102,7 +1116,7 @@ def runner_values(data: dict, brief: BriefForm, d: Path, exp_full: str, cases: l
     markers = "\n".join(
         f"  marker {m.container} {shlex.quote(m.file)} '{m.pattern}'" for m in brief.live_markers) or "  :"
     return {
-        "TAG": tag, "EXP": exp_full, "INSTANCE": inst.name, "REPO": inst.repo, "IN": inst.in_dir,
+        "TAG": tag, "EXP": exp_full, "BEHIND_OK": "1" if brief.ship_behind_origin else "0", "INSTANCE": inst.name, "REPO": inst.repo, "IN": inst.in_dir,
         "HOME": inst.home,
         "COMPONENTS": " ".join(images),
         # The one rebuild that carries --recreate-nginx, only when the range changes docker/nginx.conf AND the
