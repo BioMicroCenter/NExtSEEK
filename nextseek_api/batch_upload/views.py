@@ -1,10 +1,12 @@
 """DRF ViewSet for batch upload endpoints."""
 from __future__ import annotations
 
+import csv
 import logging
 import os
 import json
 import time
+import uuid
 
 from celery.result import AsyncResult
 from django.conf import settings
@@ -310,35 +312,23 @@ class BatchUploadViewSet(viewsets.ViewSet):
         else:
             effective_lababbv = user_ctx["lababbv"]
 
-        # Dispatch to Celery
-        task_kwargs = dict(
-            project_id=project_id,
-            contributor_id=user_ctx["contributor_id"],
-            lababbv=effective_lababbv,
-            user_id=request.user.pk,
-            config_overrides=config_overrides,
-            neo4j_only=neo4j_only,
-            scope_project_ids=None if scope_project_ids is None else list(scope_project_ids),
-        )
-        if validated_rows is not None:
-            task_kwargs["rows"] = [r.model_dump() for r in validated_rows]
-        else:
-            # Saved last, after every check that can refuse the request, so a refusal leaves no file behind.
-            task_kwargs["xlsx_paths"] = [_save_uploaded_file(uf) for uf in uploaded_files]
-
         if input_warnings:
-            task_kwargs.setdefault("config_overrides", {})["_input_warnings"] = input_warnings
-
-        task = run_batch_upload_task.delay(**task_kwargs)
-        register_job(user_id=request.user.pk, job_id=task.id, project_id=project_id)
+            config_overrides["_input_warnings"] = input_warnings
+        rows = [r.model_dump() for r in validated_rows] if validated_rows is not None else None
+        # Saved last, after every check that can refuse the request, so a refusal leaves no file behind.
+        xlsx_paths = None if rows is not None else [_save_uploaded_file(uf) for uf in uploaded_files]
+        job_id = dispatch_batch_job(
+            user_pk=request.user.pk, user_ctx=user_ctx, lababbv=effective_lababbv,
+            project_id=project_id, config_overrides=config_overrides,
+            neo4j_only=neo4j_only, scope_project_ids=scope_project_ids,
+            rows=rows, xlsx_paths=xlsx_paths)
         log.info(
             "batch upload queued job=%s user=%s project=%s rows=%d files=%d",
-            task.id, request.user.pk, project_id,
-            len(task_kwargs.get("rows") or ()), len(task_kwargs.get("xlsx_paths") or ()),
+            job_id, request.user.pk, project_id, len(rows or ()), len(xlsx_paths or ()),
         )
 
         return Response(
-            {"job_id": task.id, "status": "queued"},
+            {"job_id": job_id, "status": "queued"},
             status=status.HTTP_202_ACCEPTED,
         )
 
@@ -701,6 +691,102 @@ def _save_uploaded_file(uploaded_file) -> str:
         for chunk in uploaded_file.chunks():
             f.write(chunk)
     return dest_path
+
+
+def dispatch_batch_job(*, user_pk: int, user_ctx: dict, lababbv: str, project_id: int,
+                       config_overrides: dict, scope_project_ids, neo4j_only: bool = False,
+                       rows: list[dict] | None = None,
+                       xlsx_paths: list[str] | None = None) -> str:
+    """Queue one batch-upload job and register it to its owner. Returns the job id.
+
+    The one place a job starts: BatchUploadViewSet.start and the assistant's
+    upload-reingest op both call it, so ownership registration and the
+    contributor identity cannot drift between them. Exactly one of rows or
+    xlsx_paths: the endpoint lets rows silently win over files, and a caller
+    here must never be able to send both. ``scope_project_ids`` is the
+    caller's project scope from ``_caller_project_scope`` (SEC-001): None for
+    a superuser, else the ids; it has no default, so no caller can forget it,
+    and a project outside it is refused here, before anything is queued.
+    """
+    if (rows is None) == (xlsx_paths is None):
+        raise ValueError("exactly one of rows or xlsx_paths")
+    if scope_project_ids is not None and project_id not in scope_project_ids:
+        raise PermissionError(f"not a member of project {project_id}")
+    task_kwargs = dict(
+        project_id=project_id, contributor_id=user_ctx["contributor_id"],
+        lababbv=lababbv, user_id=user_pk, config_overrides=config_overrides,
+        neo4j_only=neo4j_only,
+        scope_project_ids=None if scope_project_ids is None else list(scope_project_ids))
+    if rows is not None:
+        task_kwargs["rows"] = rows
+    else:
+        task_kwargs["xlsx_paths"] = xlsx_paths
+    task = run_batch_upload_task.delay(**task_kwargs)
+    register_job(user_id=user_pk, job_id=task.id, project_id=project_id)
+    return task.id
+
+
+#: Rows job_outcome reads back from one summary CSV: far more than a reingest upload has.
+_OUTCOME_ROW_CAP = 2000
+_OUTCOME_ROW_KEYS = ("uid", "status", "reason", "sample_type")
+
+
+def _summary_rows(summary_path) -> list[dict] | None:
+    """Each row's uid, status, reason and sample type from a job's summary CSV, or None
+    when there is no readable summary. The path comes from the Celery result, so it is read
+    only when it resolves (symlinks followed) inside MEDIA_ROOT/batch_upload_reports, where
+    the orchestrator writes it. The per-row part ends at the blank separator row, before
+    the TOTALS and GRAPH lines."""
+    if not summary_path:
+        return None
+    reports = os.path.realpath(os.path.join(getattr(settings, "MEDIA_ROOT", "/tmp"),
+                                            "batch_upload_reports"))
+    path = os.path.realpath(str(summary_path))
+    if not path.startswith(reports + os.sep) or not os.path.isfile(path):
+        return None
+    rows: list[dict] = []
+    try:
+        with open(path, newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                if not str(row.get("row_index") or "").strip().isdigit():
+                    break
+                rows.append({key: row.get(key) or "" for key in _OUTCOME_ROW_KEYS})
+                if len(rows) >= _OUTCOME_ROW_CAP:
+                    break
+    except (OSError, UnicodeDecodeError, csv.Error):
+        log.warning("job_outcome: summary %s unreadable", path, exc_info=True)
+        return None
+    return rows
+
+
+def job_outcome(job_id: str) -> dict:
+    """One job's state for upload-reingest's wait: the Celery state, plus the totals,
+    errors and per-row outcomes (``rows``, when its summary CSV can be read) once it
+    succeeded, or the error once it failed. Read the same way as the status action;
+    ownership is the caller's (upload-reingest started the job)."""
+    result = AsyncResult(job_id, app=celery_app)
+    if result.state == "SUCCESS":
+        payload = result.result if isinstance(result.result, dict) else {}
+        out = {"state": "SUCCESS", "totals": payload.get("totals") or {},
+               "errors": payload.get("errors") or []}
+        rows = _summary_rows(payload.get("summary_path"))
+        if rows is not None:
+            out["rows"] = rows
+        return out
+    if result.state in ("FAILURE", "REVOKED"):
+        return {"state": result.state, "error": str(result.result)}
+    return {"state": result.state}
+
+
+def stage_workbook_copy(path: str) -> str:
+    """Copy a server-side workbook to where uploaded files live, for the worker."""
+    import shutil
+
+    upload_dir = os.path.join(getattr(settings, "MEDIA_ROOT", "/tmp"), _UPLOAD_DIR)
+    os.makedirs(upload_dir, exist_ok=True)
+    dest = os.path.join(upload_dir, f"{uuid.uuid4().hex}_{os.path.basename(path)}")
+    shutil.copyfile(path, dest)
+    return dest
 
 
 # The only config_overrides key anyone may send; every other tunable (the access grant among them) is a

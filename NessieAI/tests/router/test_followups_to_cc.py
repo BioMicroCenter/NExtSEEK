@@ -467,3 +467,16 @@ def test_router_baml_keeps_catalog_counts_on_nextseek_query():
     # the paragraph sits after the summaries paragraph and before the output format
     assert baml.index("Open-ended summaries go to `container_cc`") < baml.index(
         "Catalog counts stay `nextseek_query`.") < baml.index("{{ ctx.output_format }}")
+
+
+def test_router_baml_keeps_expression_comparisons_on_nextseek_query():
+    """2026-10-19 ruling: a question comparing expression between groups of the user's sequenced
+    samples goes to nextseek_query, where the pipeline agent offers the nf-core run. Measured on
+    the local stack before the rule: all four such phrasings went to container_cc, whose search
+    rounds then ran past its turn deadline before handing off."""
+    baml = (paths.DMAC_ASSISTANT_DIR / "baml_src" / "router.baml").read_text(encoding="utf-8")
+    rule = "Expression comparisons over the user's samples go to `nextseek_query`."
+    assert rule in baml
+    assert "nothing runs until the user confirms" in baml
+    assert baml.index("Open-ended summaries go to `container_cc`") < baml.index(rule) < baml.index(
+        "Catalog counts stay `nextseek_query`.")

@@ -177,3 +177,12 @@ def test_submit_to_luria_message_carries_skip_reasons(monkeypatch):
     monkeypatch.setattr(at, "submit_luria", lambda launch, **kw: [])
     out = json.loads(at.tool_submit_to_luria(Cfg(), {"artifacts": {"launch": "/x"}}))
     assert "check Luria logs" in out["message"]
+
+
+def test_tool_submit_to_luria_passes_the_launching_user(monkeypatch):
+    captured = _capture_luria(monkeypatch)
+    state = {"messages": [{"role": "user", "content": "go"}, {"role": "user", "content": "yes"}],
+             "launch_built_at_user_msgs": 1, "artifacts": {"launch": "/tmp/launch.yml"},
+             "launched_by_user_id": 7}
+    at.tool_submit_to_luria(_Cfg(tower=False, luria=True), state, {})
+    assert captured["user_id"] == 7

@@ -16,11 +16,11 @@ When you add or change a route, add or change its row here in the same change.
 | Bucket | Meaning | Routes |
 |---|---|---|
 | 1. Project-scoped | Reads project-owned rows and returns only those in the caller's projects. Superusers are not limited. | 13 |
-| 2. Restricted another way | Superuser only, or only the owner of the chat, task, job or upload, or works on the caller's own folder or SEEK person. | 60 |
+| 2. Restricted another way | Superuser only, or only the owner of the chat, task, job or upload, or works on the caller's own folder or SEEK person. | 67 |
 | 3. Correct as it is | Needs no project filter of its own: SEEK decides with the caller's own SEEK login, or it returns definitions only, or it reads no project rows. | 59 |
-| **Total** | | **132** |
+| **Total** | | **139** |
 
-Of these, 109 routes are served from `nextseek_api/services/` (11, 47 and 51 by bucket)
+Of these, 116 routes are served from `nextseek_api/services/` (11, 54 and 51 by bucket)
 and 23 from elsewhere in `nextseek_api/` (the sample tree, the older retrieve path, attributes,
 assay registrations, batch upload, the API root and the three API description pages).
 
@@ -74,7 +74,7 @@ assay registrations, batch upload, the API root and the three API description pa
 | GET | `sample-tree/{uid}/tree/` | Limited to the caller's projects, read with the caller's own SEEK login: the root sample must be in them and the tree is cut at their edge. Superusers are not limited. | `SampleTreeViewSet.get_tree` | IsAuthenticated | changed |
 | POST | `admin/samples/retrieve/` | The older path of samples/retrieve/: the same handler and the same limits. | `AdminSampleViewSet.admin_retrieve_samples` | IsAuthenticated | changed |
 
-## 2. Restricted another way (60)
+## 2. Restricted another way (67)
 
 | Method | Path | Guard | Handler | Permission classes | #64 |
 |---|---|---|---|---|---|
@@ -87,6 +87,10 @@ assay registrations, batch upload, the API root and the three API description pa
 | POST | `users/` | Superuser only. It creates a user account. | `UsersViewSet.create` | IsAuthenticated, IsDjangoSuperuser |  |
 | GET | `users/{uid}/` | Superuser only. It reads one user account. | `UsersViewSet.retrieve` | IsAuthenticated, IsDjangoSuperuser |  |
 | PATCH | `users/{uid}/` | Superuser only. It changes one user account. | `UsersViewSet.partial_update` | IsAuthenticated, IsDjangoSuperuser |  |
+| GET | `reingest-proposals/` | Superuser only. It lists the reingest attribute proposal queue, a global operator worklist, not project data. | `ReingestProposalViewSet.list` | IsAuthenticated, IsSuperUser |  |
+| GET | `reingest-proposals/{pk}/` | Superuser only. It reads one reingest attribute proposal. | `ReingestProposalViewSet.retrieve` | IsAuthenticated, IsSuperUser |  |
+| POST | `reingest-proposals/{pk}/approve/` | Superuser only. It approves one proposal, which the reingest mapper then reads as a rule; it refuses (409) while the proposed attribute is not defined on its sample type. | `ReingestProposalViewSet.approve` | IsAuthenticated, IsSuperUser |  |
+| POST | `reingest-proposals/{pk}/reject/` | Superuser only. It rejects one proposal for good. | `ReingestProposalViewSet.reject` | IsAuthenticated, IsSuperUser |  |
 | POST | `schema_rag/ingest/` | Superuser only. It loads an API description from a web address into a temporary search index. | `SchemaRAGViewSet.ingest` | IsAuthenticated, IsSuperUser | changed |
 | GET | `admin/project-export/{pk}/` | Superuser only. It exports every sample of any project you name, as a file, by design. | `ProjectExportViewSet.retrieve` | IsAuthenticated, IsSuperUser |  |
 | POST | `admin/project-export/run/` | Superuser only. It starts a bulk export of every sample in a project. | `ProjectExportViewSet.run` | IsAuthenticated, IsSuperUser |  |
@@ -105,6 +109,9 @@ assay registrations, batch upload, the API root and the three API description pa
 | GET | `assistant/sessions/{sid}/download/` | Members of a pilot project they have not left, or one who has left, reading their own past chats. Only the chat's owner or a superuser may download it. | `AssistantViewSet.download_session` | IsAuthenticated, UserInParticipatingProject |  |
 | GET | `assistant/test-cases/` | Superuser only, and the caller must also be in a pilot project. It returns the fixed list of test cases from the site settings. | `AssistantViewSet.test_cases` | IsAuthenticated, UserInParticipatingProject | changed |
 | POST | `assistant/run-ls/` | Members of the pilot projects only. It lists the files of one Luria run folder over the cluster connection, for the run's owner or a superuser only. | `AssistantViewSet.run_ls` | IsAuthenticated, UserInParticipatingProject | changed |
+| POST | `assistant/run-harvest/` | Members of the pilot projects only. It copies the allowlisted outputs of one finished Luria run folder off the cluster and parses them into a manifest, for the run's owner or a superuser only; without a folder named, it picks the caller's own waiting launched run. It writes nothing to Luria or NExtSEEK. | `AssistantViewSet.run_harvest` | IsAuthenticated, UserInParticipatingProject | changed |
+| POST | `assistant/run-checksum/` | Members of the pilot projects only. It checksums files the caller names inside one Luria run folder (never the runs root), for the run's owner or a superuser only, over the cluster connection, and can fold the sums into a run-harvest manifest named by its content id (a manifest records no harvester; only the run's owner can reach the run). It writes nothing to Luria or NExtSEEK. | `AssistantViewSet.run_checksum` | IsAuthenticated, UserInParticipatingProject | changed |
+| POST | `assistant/upload-reingest/` | Members of the pilot projects only, with `confirmed_write` true. It uploads only build records the caller made, shown in an earlier turn of the caller's own running Container-CC chat, and starts each batch-upload job with the caller's project scope, so a project outside the caller's projects is refused before any job starts. | `AssistantViewSet.upload_reingest` | IsAuthenticated, UserInParticipatingProject |  |
 | POST | `cc-assistant/query/async/` | Any signed-in user. The chat must be the caller's, and the caller's login and project scope are handed down; only a superuser can use the production model setup or `mode` `plan` (403 otherwise). | `CCAssistantViewSet.query_async` | IsAuthenticated | changed |
 | POST | `cc-assistant/cc/query/async/` | A superuser (403 otherwise), the same rule as `force_route`. The same as the query route above, forced to a Container-CC run. | `CCAssistantViewSet.cc_query_async` | IsAuthenticated + superuser check in the method | changed |
 | GET | `cc-assistant/tasks/{id}/progress/` | Any signed-in user, but only the task's owner or a superuser may read its progress. | `CCAssistantViewSet.task_progress` | IsAuthenticated |  |
@@ -194,7 +201,7 @@ assay registrations, batch upload, the API root and the three API description pa
 | POST | `assistant/api-read/` | Members of the pilot projects only. It makes one read call from a fixed list of allowed routes, with the caller's own login, so that route's own rules apply. | `AssistantViewSet.api_read` | IsAuthenticated, UserInParticipatingProject | changed |
 | POST | `assistant/api-write/` | Members of the pilot projects only. It cannot write by itself: it needs a confirmed-write flag, the REST tool refuses every write anyway, and the caller's own login is used. | `AssistantViewSet.api_write` | IsAuthenticated, UserInParticipatingProject | changed |
 | POST | `assistant/generate-submission/` | Members of the pilot projects only. It builds a repository submission file from sample metadata fetched through the retrieve route as the caller, so the caller's project limits apply. | `AssistantViewSet.generate_submission` | IsAuthenticated, UserInParticipatingProject | changed |
-| POST | `assistant/build-upload-xlsx/` | Members of the pilot projects only. It builds an upload spreadsheet from rows the caller supplies; it reads nothing. | `AssistantViewSet.build_upload_xlsx` | IsAuthenticated, UserInParticipatingProject | changed |
+| POST | `assistant/build-upload-xlsx/` | Members of the pilot projects only. It builds upload spreadsheets from rows the caller supplies or from a run-harvest manifest named by its content id (the run's owner harvested it; a manifest records no harvester, so the id is the only guard), and files a build record under the caller; it writes nothing to SEEK. | `AssistantViewSet.build_upload_xlsx` | IsAuthenticated, UserInParticipatingProject | changed |
 | GET | `/` | Any signed-in user. The API root: it lists the routes, no records. | `APIRootView` | IsAuthenticated |  |
 | GET | `schema/` | Any signed-in user. The OpenAPI description of the API, no records. | `SpectacularAPIView` | IsAuthenticated |  |
 | GET | `swagger/` | Any signed-in user. The Swagger page over the API description, no records. | `SpectacularSwaggerView` | IsAuthenticated |  |
@@ -217,7 +224,7 @@ assay registrations, batch upload, the API root and the three API description pa
   that hold a sample in the caller's projects.
 - `schema_rag/ingest/` is superuser only; references inside a loaded API description are followed over http and https
   only; `schema_rag/retrieve/` names another API description by web address for a superuser only.
-- `assistant/run-ls/` lists a run folder for the superuser, or for the user one of whose chats launched that run, and
+- `assistant/run-ls/`, `assistant/run-harvest/` and `assistant/run-checksum/` take a run folder for the superuser, or for the user whose launch record or one of whose chats names that run, and
   never the runs folder itself.
 - The assistant ops need the caller's own login.
 - `assistant/test-cases/` is superuser only.
@@ -239,6 +246,11 @@ assay registrations, batch upload, the API root and the three API description pa
   `sample-shares/` links samples from one project into another; `sample_types/connections/` counts across projects;
   `users/` reads and writes accounts; `evaluator/` reads every user's tasks; `nessie/sessions/{id}/debug/` reads any
   chat's debug record. The superuser gate is the whole control on each.
+- **Reingest.** `reingest-proposals/` is a superuser worklist over every pipeline, like `users/`. Its `approve`
+  re-checks that the proposed attribute is defined on its sample type before writing, and answers 503, never 409, when
+  the sample type catalog cannot be read: reingest never writes an attribute that does not exist.
+  `assistant/upload-reingest/` is the one Container-CC op that writes to NExtSEEK; the turn pass allows it
+  (`turn_pass_allow.py`).
 - **Container-CC folders.** Uploads go to, and are listed from, the caller's own folder under the caller's current SEEK
   project. Files a Container-CC turn wrote are read from the folder saved with the chat.
 

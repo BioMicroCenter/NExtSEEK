@@ -521,16 +521,73 @@ def _dispatch_run_ls(args):
     return _call_op("run-ls", {"run_dir": args.run_dir})
 
 
+def _dispatch_run_harvest(args):
+    """Reingest step 1 — stage a finished run's allowlisted outputs off the
+    cluster and parse them into a manifest. Never writes to Luria or NExtSEEK."""
+    if _dry_run():  # pragma: no branch
+        return {"run_dir": args.run_dir, "manifest_id": "dryrun", "manifest": {}}  # pragma: no cover
+    # No --run-dir: the server picks the caller's one waiting launched run, or
+    # returns the candidates for the agent to ask about.
+    body = {"run_dir": args.run_dir} if args.run_dir else {}  # pragma: no cover
+    if getattr(args, "allow_failed_run", False):  # pragma: no cover
+        body["allow_failed_run"] = True  # pragma: no cover
+    return _call_op("run-harvest", body)  # pragma: no cover
+
+
+def _dispatch_run_checksum(args):
+    """Reingest step 2 — md5 a caller-named set of settled primary-data files
+    on the cluster. Never writes to Luria or NExtSEEK. With --manifest-id,
+    folds the checksums into that manifest server-side and the result
+    carries a NEW manifest_id (manifests are content-addressed) to thread
+    into build-upload-xlsx in place of the original."""
+    if _dry_run():  # pragma: no branch
+        return {"run_dir": args.run_dir, "checksums": {}, "skipped": []}  # pragma: no cover
+    if not args.run_dir:  # pragma: no cover
+        _err("VALIDATION", "missing --run-dir", 3)  # pragma: no cover
+    if not args.paths:  # pragma: no cover
+        _err("VALIDATION", "missing --paths", 3)  # pragma: no cover
+    body = {"run_dir": args.run_dir, "paths": args.paths}  # pragma: no cover
+    if getattr(args, "manifest_id", None):  # pragma: no cover
+        body["manifest_id"] = args.manifest_id  # pragma: no cover
+    return _call_op("run-checksum", body)  # pragma: no cover
+
+
 def _dispatch_build_upload_xlsx(args):
-    """Render NExtSEEK 4-sheet upload workbook(s) from CC-composed reingest rows."""
+    """Render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest
+    (current) or CC-composed reingest rows (legacy)."""
     if _dry_run():  # pragma: no branch
         return {"saved_files": {}, "qa": {}}  # pragma: no cover
-    if not args.rows:  # pragma: no cover
-        _err("VALIDATION", "missing --rows", 3)  # pragma: no cover
-    body = {"rows": args.rows}  # pragma: no cover
-    if getattr(args, "existing_parent_uids", None):  # pragma: no cover
-        body["existing_parent_uids"] = args.existing_parent_uids  # pragma: no cover
+    manifest_id = getattr(args, "manifest_id", None)  # pragma: no cover
+    if not manifest_id and not args.rows:  # pragma: no cover
+        _err("VALIDATION", "missing --manifest-id or --rows", 3)  # pragma: no cover
+    if manifest_id:  # pragma: no cover
+        body = {"manifest_id": manifest_id}  # pragma: no cover
+        if getattr(args, "mode", None):  # pragma: no cover
+            body["mode"] = args.mode  # pragma: no cover
+        if getattr(args, "answers", None):  # pragma: no cover
+            body["answers"] = args.answers  # pragma: no cover
+    else:  # pragma: no cover
+        body = {"rows": args.rows}  # pragma: no cover
+        if getattr(args, "existing_parent_uids", None):  # pragma: no cover
+            body["existing_parent_uids"] = args.existing_parent_uids  # pragma: no cover
     return _call_op("build-upload-xlsx", body)
+
+
+def _dispatch_upload_reingest(args):
+    """Reingest step 5 — upload the reviewed workbooks named by build id
+    (from build-upload-xlsx's builds), one batch-upload job each. WRITES to
+    NExtSEEK. Layer 2: refuses without --confirmed-write; the sidecar and the
+    server gate again, and only the boolean True confirms."""
+    if not getattr(args, "build_ids", None):
+        _err("VALIDATION", "missing --build-ids", 3)
+    if not args.confirmed_write:
+        _err("WRITE_BLOCKED",
+             "nextseek-upload-reingest requires --confirmed-write (Layer 2; advisory; server is the hard floor)", 5)
+
+    if _dry_run():  # pragma: no cover
+        return {"jobs": [], "reply": "[dry-run]"}  # pragma: no cover
+    return _call_op("upload-reingest",
+                    {"build_ids": args.build_ids, "confirmed_write": args.confirmed_write})
 
 
 _DISPATCH = {
@@ -549,6 +606,9 @@ _DISPATCH = {
     "pipeline": _dispatch_pipeline,
     "run-ls": _dispatch_run_ls,
     "build-upload-xlsx": _dispatch_build_upload_xlsx,
+    "run-harvest": _dispatch_run_harvest,
+    "run-checksum": _dispatch_run_checksum,
+    "upload-reingest": _dispatch_upload_reingest,
 }
 
 
@@ -557,7 +617,8 @@ def main() -> None:
     p.add_argument("--agent", required=True, choices=sorted(_DISPATCH))
     p.add_argument("--query")
     p.add_argument("--parser-plan")  # for api-read / api-write
-    p.add_argument("--confirmed-write", action="store_true")
+    p.add_argument("--confirmed-write", action="store_true")  # api-write / upload-reingest
+    p.add_argument("--build-ids")  # for upload-reingest (comma-separated build ids)
     p.add_argument("--types")  # for graph-schema (comma-separated sample type codes)
     p.add_argument("--plan")  # for graph and aggregate (JSON {intent_summary, filters, notes})
     p.add_argument("--parts")  # for aggregate (JSON array of 1 to 4 sub-questions)
@@ -567,9 +628,14 @@ def main() -> None:
     p.add_argument("--uids")  # for generate-submission
     p.add_argument("--pipeline")  # for pipeline (nf-core key)
     p.add_argument("--message")  # for pipeline (CC-composed summary)
-    p.add_argument("--run-dir")  # for run-ls (finished Luria run dir)
-    p.add_argument("--rows")  # for build-upload-xlsx (JSON rows)
-    p.add_argument("--existing-parent-uids")  # for build-upload-xlsx (Parent QA)
+    p.add_argument("--run-dir")  # for run-ls / run-harvest / run-checksum (finished Luria run dir)
+    p.add_argument("--allow-failed-run", action="store_true")  # for run-harvest
+    p.add_argument("--paths")  # for run-checksum (comma-separated relative paths)
+    p.add_argument("--rows")  # for build-upload-xlsx (legacy: JSON rows)
+    p.add_argument("--answers")  # for build-upload-xlsx (curator answers JSON; needs --manifest-id)
+    p.add_argument("--existing-parent-uids")  # for build-upload-xlsx (legacy: Parent QA)
+    p.add_argument("--manifest-id")  # for build-upload-xlsx (id of a manifest) and, optionally,
+                                      # run-checksum (id of the manifest to fold checksums into)
     p.add_argument("--planner", action="store_true",  # for query
                    help="Use run_query_plan instead of run_query (multi-step capable)")
     p.add_argument("--turn", type=int)  # for recall

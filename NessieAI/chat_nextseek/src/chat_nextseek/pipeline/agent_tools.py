@@ -32,7 +32,7 @@ from pathlib import Path
 from ..schemas import SeqeraLaunchPlan
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
 from ..seqera.emitter import emit_launch_artifacts, emit_luria_launch_artifacts, emit_nfcore_artifacts
-from ..seqera.ena import extract_accessions_from_metadata, resolve_accessions
+from ..seqera.ena import extract_accessions_from_metadata, lookup_run_sizes, resolve_accessions
 from ..seqera.pipeline_params import (
     build_run_params,
     gencode_for_genome_key,
@@ -40,17 +40,29 @@ from ..seqera.pipeline_params import (
     load_reference_bundles,
     process_args_for,
     resolve_bundle_for_species,
+    runtime_estimate,
 )
 from ..seqera.schema_check import check_params, check_reference_flags
 from ..seqera.submitter import submit_launch
 from ..seqera.user_params import (
     missing_user_params,
     render_elicitation,
+    required_user_params,
     validate_user_params,
+)
+from ..seqera.contrasts import (
+    CONTRASTS_FILENAME,
+    CONTRASTS_PARAM,
+    condition_problems,
+    is_user_path,
+    parse_contrasts,
+    samplesheet_conditions,
+    write_contrasts_csv,
 )
 from ..seqera.param_atlas import (
     check_row_column_params,
     check_run_params,
+    confirm_user_answer,
     data_driven_params,
     evaluate_leaf,
     render_param_elicitation,
@@ -252,7 +264,8 @@ SUBMIT_TO_LURIA_SCHEMA: dict[str, Any] = {
                     "partition": {"type": "string"},
                     "time": {"type": "string", "description": "HH:MM:SS"},
                     "cpus": {"type": "integer"},
-                    "mem": {"type": "string", "description": "e.g. 8G"},
+                    "mem": {"type": "string",
+                            "description": "whole-job memory, e.g. 64G; default 8G per CPU"},
                 },
             },
         },
@@ -592,15 +605,21 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
     # absent verdict must stop the build and ask; a decisive verdict the row
     # disagrees with is returned as a fixable error. No-op when the pipeline has
     # no atlas entry (check returns empty).
+    # After the user answers an ask, the agent carries the answer in the rows: it is
+    # taken only under _take_user_answers' guard, then recorded as user_confirmed.
     ddp = check_row_column_params(pipeline_key, merged_rows, state.get("data_driven_evidence") or {})
+    rejected: dict[str, str] = {}
     if ddp["ask_uids"]:
-        return json.dumps({
-            "ok": False,
-            "needs_user_input": list(ddp["ask_specs"]),
-            "ask_the_user": render_param_elicitation(
-                ddp["ask_specs"], ddp["ask_uids"], state.get("data_driven_evidence") or {}),
-            "message": "Relay `ask_the_user` to the user in plain text and STOP. Do not conclude.",
-        })
+        # A blank cell is no answer; a run param's "" can be one, so only rows skip it.
+        row_values = {name: {uid: r.get(name) for r in merged_rows for uid in uids
+                             if str(r.get("sample") or r.get("Sample") or "") == uid
+                             and r.get(name) not in (None, "")}
+                      for name, uids in ddp["ask_by_param"].items()}
+        rejected = _take_user_answers(state, ddp, row_values)
+        ddp = check_row_column_params(pipeline_key, merged_rows, state.get("data_driven_evidence") or {})
+    if ddp["ask_uids"]:
+        return _param_ask(state, ddp, rejected,
+                          "Relay `ask_the_user` to the user in plain text and STOP. Do not conclude.")
     if ddp["corrections"]:
         errors = [f"row {uid}: {param} should be {val!r} from the sample's metadata — fix the row"
                   for uid, param, val in ddp["corrections"]]
@@ -646,10 +665,12 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
     state["artifacts"]["samplesheet"] = result.saved_files.get("samplesheet")
     state["artifacts"]["base_dir"] = str(base)
     state["artifacts"]["excluded_accessions"] = list(getattr(result, "excluded_accessions", []) or [])
+    _note_user_confirmed(state, base)
     # A (re)built samplesheet invalidates any prior configure_run output, so the agent
     # must call configure_run again before submit — never submit a stale params/launch.
     state["artifacts"].pop("params", None)
     state["artifacts"].pop("launch", None)
+    state["artifacts"].pop("contrasts", None)
     state.pop("launch_plan", None)
 
     return json.dumps({
@@ -660,6 +681,8 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
         "grouped_by_cohort": grouped,
         "cohorts": cohort_summaries,
         "excluded_accessions": list(getattr(result, "excluded_accessions", []) or []),
+        **({"user_confirmed": confirmed_rows} if (confirmed_rows := _user_confirmed(
+            state, pipeline_key, "row_column", merged_rows)) else {}),
     })
 
 
@@ -686,11 +709,37 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
                            "message": "Ask the user to correct these; do not guess."})
     missing = missing_user_params(pipeline_key, agent_params)
     if missing:
+        ask = render_elicitation(missing)
+        conditions = samplesheet_conditions(samplesheet)
+        if conditions and any(s["name"] == CONTRASTS_PARAM for s in missing):
+            ask += f"\n\nThe conditions in the samplesheet are: {', '.join(conditions)}."
         return json.dumps({"ok": False,
                            "needs_user_input": [s["name"] for s in missing],
-                           "ask_the_user": render_elicitation(missing),
+                           "ask_the_user": ask,
                            "message": ("Relay `ask_the_user` to the user in plain text and STOP. "
                                        "Do not call conclude, and do not invent values.")})
+
+    # The comparison the user stated becomes a contrasts CSV in the run folder, which
+    # submit_to_luria stages beside the samplesheet; an absolute path is the user's
+    # own file on Luria and is passed through.
+    contrasts_rows = None
+    state.setdefault("artifacts", {}).pop("contrasts", None)
+    contrasts_value = agent_params.get(CONTRASTS_PARAM)
+    declares_contrasts = any(s["name"] == CONTRASTS_PARAM for s in required_user_params(pipeline_key))
+    if declares_contrasts and contrasts_value is not None and not is_user_path(contrasts_value):
+        contrasts_rows, bad = parse_contrasts(contrasts_value)
+        if not bad:
+            bad = condition_problems(contrasts_rows, samplesheet_conditions(samplesheet))
+        if bad:
+            return json.dumps({"ok": False, "invalid_user_params": bad,
+                               "message": "Ask the user to correct these; do not guess."})
+        base_dir = artifacts.get("base_dir") or str(Path(samplesheet).parent)
+        state["artifacts"]["contrasts"] = str(write_contrasts_csv(contrasts_rows, base_dir))
+        agent_params[CONTRASTS_PARAM] = CONTRASTS_FILENAME
+        # The file on disk changed under any earlier launch, so that launch is stale
+        # until this call succeeds and writes a new one.
+        state["artifacts"].pop("params", None)
+        state["artifacts"].pop("launch", None)
 
     # Data-driven run_param inference: fill each param whose leaves UNANIMOUSLY derived a
     # decisive value the agent didn't set, so the inferred value (e.g. scrnaseq protocol,
@@ -704,21 +753,25 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
             continue
         _vals = {(pv.get(_name) or {}).get("value")
                  for pv in _evidence.values()
-                 if (pv.get(_name) or {}).get("verdict") in ("corroborated", "derived_uncorroborated", "defaulted")}
+                 if (pv.get(_name) or {}).get("verdict") in ("corroborated", "derived_uncorroborated",
+                                                             "defaulted", "user_confirmed")}
         _vals.discard(None)
         if len(_vals) == 1:
             agent_params.setdefault(_name, next(iter(_vals)))
 
-    # Run-scope data-driven params (general case; no hlatyping instance in v1).
+    # Run-scope data-driven params (scrnaseq protocol). The user's answer to an ask
+    # arrives as the value the model sends in params; one this tool filled in itself
+    # above is never an answer.
     ddp = check_run_params(pipeline_key, agent_params, state.get("data_driven_evidence") or {})
+    rejected: dict[str, str] = {}
     if ddp["ask_uids"]:
-        return json.dumps({
-            "ok": False,
-            "needs_user_input": list(ddp["ask_specs"]),
-            "ask_the_user": render_param_elicitation(
-                ddp["ask_specs"], ddp["ask_uids"], state.get("data_driven_evidence") or {}),
-            "message": "Relay `ask_the_user` to the user in plain text and STOP.",
-        })
+        sent = tool_input.get("params") or {}
+        rejected = _take_user_answers(state, ddp, {
+            name: {uid: sent[name] for uid in uids}
+            for name, uids in ddp["ask_by_param"].items() if name in sent})
+        ddp = check_run_params(pipeline_key, agent_params, state.get("data_driven_evidence") or {})
+    if ddp["ask_uids"]:
+        return _param_ask(state, ddp, rejected, "Relay `ask_the_user` to the user in plain text and STOP.")
     if ddp["corrections"]:
         return json.dumps({"ok": False, "errors": [
             f"{param} should be {val!r} from the cohort's metadata" for _, param, val in ddp["corrections"]]})
@@ -810,9 +863,14 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     state["launch_plan"] = plan.model_dump()
     state["pipeline_key"] = pipeline_key
     state["launch_built_at_user_msgs"] = _user_msg_count(state)
+    _note_user_confirmed(state, base)
 
-    ref_files = (local_luria_ref_files(merged.get("genome"))
+    ref_files = (local_luria_ref_files(merged.get("genome"), pipeline=pipeline_key)
                  if reference_status == "local_luria" else None)
+    n_samples, fetch_accessions = _samplesheet_counts(samplesheet)
+    # ENA's FASTQ sizes for the runs the fetchngs pre-stage will download: the estimate names
+    # the download's size and, for a large run, leaves it out of the range and says why.
+    fetch_sizes = lookup_run_sizes(fetch_accessions) if fetch_accessions else {}
     return json.dumps({
         "ok": True,
         "pipeline_key": pipeline_key,
@@ -823,7 +881,108 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         "schema_check": schema_check,
         "params_yml": result.saved_files.get("params"),
         "launch_yml": result.saved_files.get("launch"),
+        # Echo it back to the user before submit: which way round is their call.
+        **({"contrasts_written": contrasts_rows} if contrasts_rows else {}),
+        **({"user_confirmed": confirmed} if (confirmed := {
+            name: next(iter(by_uid.values()))
+            for name, by_uid in _user_confirmed(state, pipeline_key, "run_param").items()}) else {}),
+        "runtime_estimate": runtime_estimate(pipeline_key, n_samples, len(fetch_accessions),
+                                             fetch_sizes=fetch_sizes),
     })
+
+
+def _samplesheet_counts(samplesheet: str | None) -> tuple[int, list[str]]:
+    """(rows, accessions still to fetch from SRA) in the built samplesheet; (0, []) when
+    unreadable."""
+    import csv
+
+    from ..luria.fetchngs_helpers import needs_fetch_accessions
+    try:
+        with open(samplesheet or "", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+    except OSError:
+        return 0, []
+    return len(rows), needs_fetch_accessions(rows)
+
+
+def _take_user_answers(state: dict, ddp: dict, answers: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """Record the user's answers to earlier asks as user_confirmed verdicts.
+
+    `answers` is {param: {uid: value the agent now sends}}. A value is taken as the
+    user's answer only when this tool asked about that param and a user message has
+    arrived since (state["asked_params"], written by _param_ask): otherwise it is the
+    agent's guess, and the ask stands. A taken value outside the spec's allowed list
+    is refused, and the reasons are returned by param.
+    """
+    asked = state.get("asked_params") or {}
+    evidence = state.setdefault("data_driven_evidence", {})
+    rejected: dict[str, str] = {}
+    for name, by_uid in answers.items():
+        mark = asked.get(name)
+        if mark is None or _user_msg_count(state) <= mark:
+            continue
+        spec = ddp["ask_specs"][name]
+        for uid, value in by_uid.items():
+            problem = confirm_user_answer(evidence, name, [uid], value, spec)
+            if problem:
+                rejected[name] = problem
+        if name not in rejected:
+            asked.pop(name, None)
+    return rejected
+
+
+def _param_ask(state: dict, ddp: dict, rejected: dict[str, str], message: str) -> str:
+    """The needs_user_input reply for data-driven params, marking each as asked now."""
+    asked = state.setdefault("asked_params", {})
+    for name in ddp["ask_specs"]:
+        asked[name] = _user_msg_count(state)
+    evidence = state.get("data_driven_evidence") or {}
+    return json.dumps({
+        "ok": False,
+        "needs_user_input": list(ddp["ask_specs"]),
+        "ask_the_user": render_param_elicitation(ddp["ask_specs"], ddp["ask_uids"], evidence),
+        **({"rejected_answers": rejected} if rejected else {}),
+        "message": message,
+    })
+
+
+def _user_confirmed(state: dict, pipeline_key: str, target: str,
+                    rows: list[dict] | None = None) -> dict[str, dict[str, Any]]:
+    """{param: {uid: value}} for every user_confirmed verdict of this target (rows: only theirs)."""
+    keep = None if rows is None else {str(r.get("sample") or r.get("Sample") or "") for r in rows}
+    out: dict[str, dict[str, Any]] = {}
+    for name, spec in data_driven_params(pipeline_key).items():
+        if spec.get("target") != target:
+            continue
+        for uid, pv in (state.get("data_driven_evidence") or {}).items():
+            verdict = (pv or {}).get(name) or {}
+            if verdict.get("verdict") == "user_confirmed" and (keep is None or uid in keep):
+                out.setdefault(name, {})[uid] = verdict.get("value")
+    return out
+
+
+_CONFIRMED_HEADING = "## Values the user confirmed"
+
+
+def _note_user_confirmed(state: dict, base_dir: str | Path) -> None:
+    """Rewrite the run notes' user-confirmed section from the evidence (no-op without notes.md)."""
+    notes = Path(base_dir) / "notes.md"
+    if not notes.is_file():
+        return
+    text = notes.read_text(encoding="utf-8")
+    text = text.split(f"\n{_CONFIRMED_HEADING}\n", 1)[0].rstrip("\n") + "\n"
+    groups: dict[tuple[str, str, str], list[str]] = {}
+    for uid, pv in (state.get("data_driven_evidence") or {}).items():
+        for name, verdict in (pv or {}).items():
+            if (verdict or {}).get("verdict") == "user_confirmed":
+                key = (name, repr(verdict.get("value")), str(verdict.get("evidence") or ""))
+                groups.setdefault(key, []).append(uid)
+    if groups:
+        lines = ["", _CONFIRMED_HEADING, ""]
+        lines += [f"- {name} = {value} for {', '.join(sorted(uids))}: {why}"
+                  for (name, value, why), uids in sorted(groups.items())]
+        text += "\n".join(lines) + "\n"
+    notes.write_text(text, encoding="utf-8")
 
 
 def _user_msg_count(state: dict) -> int:
@@ -924,7 +1083,19 @@ def format_luria_followup(runs: list[dict] | None, ssh_target: str | None = None
     out.append("")
     out.append("Nothing reports back to this chat — the run keeps going after the "
                "conversation ends, so the commands above are the way to check on it.")
+    # The hand-off to reingest. The router sends this phrase to Container-CC, whose
+    # run-harvest finds the user's launched run without being given its folder.
+    out.append("")
+    out.append(f"When {'a' if multi else 'the'} run finishes, just say \"my run is done\" "
+               "and Nessie will register its outputs in NExtSEEK.")
     return "\n".join(out)
+
+
+def _staged_extra_files(artifacts: dict) -> dict[str, str]:
+    """Files configure_run wrote that the run reads by bare name from its folder:
+    {remote name: local path}. Today only the contrasts CSV."""
+    contrasts = artifacts.get("contrasts")
+    return {CONTRASTS_FILENAME: contrasts} if contrasts else {}
 
 
 def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | None = None) -> str:
@@ -961,9 +1132,11 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
                             resources=tool_input.get("resources"),
                             job_name=tool_input.get("job_name"),
                             samplesheet_local=samplesheet,
+                            extra_files=_staged_extra_files(artifacts),
                             genome=genome,
                             launch_params=launch_params,
-                            process_args=process_args)
+                            process_args=process_args,
+                            user_id=state.get("launched_by_user_id"))
     except Exception as exc:
         return json.dumps({"ok": False, "message": f"Luria submit failed: {exc!r}"})
     if not runs:
@@ -1022,6 +1195,25 @@ _SELECTION_NEXT_STEP = {
                      "exist. Do not mention the selection tool to the user."),
 }
 
+# Added to the message when the verdict names a pipeline the build path cannot launch
+# (differentialabundance today). A run you can build may answer only part of the
+# question, and the user must hear which part before they confirm it.
+_DROPPED_NEXT_STEP = (
+    " Also: {names} would answer part of this question but cannot be launched from here "
+    "(see dropped: what each answers and the input it needs). When you show the user the "
+    "run, say plainly what it will give them and that this other step is not something "
+    "NExtSEEK can run yet.")
+
+# Replaces the out_of_scope message when the only answer was unlaunchable: picking
+# another catalog pipeline "as if this tool did not exist" would be a forced pick.
+_ONLY_DROPPED_NEXT_STEP = (
+    "The pipeline that answers this question, {names}, cannot be launched from here "
+    "(see dropped: what it answers and the input it needs). Tell the user so plainly. If "
+    "a pipeline in the catalog makes that input from these samples, you may offer it as "
+    "the first step only, saying plainly that it does not answer the question by itself. "
+    "Otherwise call conclude(outcome='rejected') with that explanation. Do not mention "
+    "the selection tool to the user.")
+
 
 def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input: dict,
                          *, send_event=None) -> str:
@@ -1044,20 +1236,32 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
             except Exception as exc:  # noqa: BLE001 - progress events are advisory, never fatal
                 print(f"[DEBUG][PIPELINE_AGENT] send_event({name!r}) failed: {exc!r}")
 
-    def _verdict_json(verdict, n_uids: int) -> str:
+    def _verdict_json(verdict, n_uids: int, atlas: dict | None = None) -> str:
         state["selection"] = {"verdict": verdict.kind, "pipelines": verdict.pipelines,
                               "reason": verdict.reason}
-        if verdict.dropped:
-            state["selection"]["dropped"] = verdict.dropped
-        _emit("selection_done", {"verdict": verdict.kind, "pipelines": verdict.pipelines})
-        return json.dumps({
+        message = _SELECTION_NEXT_STEP[verdict.kind]
+        result = {
             "ok": True,
             "verdict": verdict.kind,
             "pipelines": verdict.pipelines,
             "reason": verdict.reason,
             "n_uids": n_uids,
-            "message": _SELECTION_NEXT_STEP[verdict.kind],
-        })
+        }
+        if verdict.dropped:
+            state["selection"]["dropped"] = verdict.dropped
+            entries = (atlas or {}).get("pipelines") or {}
+            result["dropped"] = [{"pipeline": key,
+                                  "answers": (entries.get(key) or {}).get("answers", ""),
+                                  "input": (entries.get(key) or {}).get("assumes_prep", "")}
+                                 for key in verdict.dropped]
+            names = ", ".join(verdict.dropped)
+            if verdict.pipelines:
+                message += _DROPPED_NEXT_STEP.format(names=names)
+            else:
+                message = _ONLY_DROPPED_NEXT_STEP.format(names=names)
+        result["message"] = message
+        _emit("selection_done", {"verdict": verdict.kind, "pipelines": verdict.pipelines})
+        return json.dumps(result)
 
     question = (tool_input.get("question") or "").strip()
     if not question:
@@ -1199,7 +1403,7 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
     except Exception as exc:  # noqa: BLE001 - the governing rule: degrade, never block
         return _verdict_json(selection.out_of_scope(
             f"the selection model could not be run: {type(exc).__name__}: {exc}"), len(uids))
-    return _verdict_json(verdict, len(uids))
+    return _verdict_json(verdict, len(uids), atlas)
 
 
 def dispatch_pipeline_tool_call(*, config, session, state: dict, name: str, tool_input: dict,

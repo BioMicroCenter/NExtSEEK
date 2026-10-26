@@ -34,7 +34,7 @@ directory. That is why the container lanes can run these files at all.
 
 ## Surface
 
-The surface is not a set of entry points behind a package boundary. It is twelve purpose
+The surface is not a set of entry points behind a package boundary. It is thirteen purpose
 groups, each defined by what it reads and what it writes.
 
 | Group | Files | Reads | Writes |
@@ -51,6 +51,7 @@ groups, each defined by what it reads and what it writes.
 | J. File-level code graph | `graph_files.py` | `graphify-out/graph.json` (local, from graphify) | `docs/graph/graph-files.json`, `graph.html`, `architecture.svg` ([docs/graph/README.md](../docs/graph/README.md)) |
 | K. Citation converter | `line_cites.py` | a markdown doc, its git blame and the cited `.py` files at those commits | nothing by default (`--report`); the doc in place with `--apply` |
 | L. laya router tools | `laya/` (see [its README](laya/README.md)) | run `turns.json` files, the corpus, the router prompt files, scored rows | option texts and the calibration file in `NessieAI/router/`; the training view, held-out files and reports outside every git repo |
+| M. Reingest testing | `reingest/` (see [its README](reingest/README.md)): admin-only reingest testing from local copies (`fetch_run.sh`, `folder_to_manifest.sh`; the manifests are test-only) and the fixture maker (`make_fixture.sh`, `sanitize_fixture.py`) | a local copy of a run folder; `fetch_run.sh` copies one from the cluster, and you run it yourself | a manifest in the running stack, a local test folder, a fixture folder under `NessieAI/tests/ns/fixtures/reingest_runs/` |
 
 **K. `line_cites.py`.** Use it once, when the operator says the graph program's branch has landed, to turn `path.py:N` citations in a doc into `path.py` plus the enclosing symbol, so edits stop breaking them. `python3 scripts/line_cites.py --report DOC.md` counts what would change; `--apply` rewrites; `--self-check` runs its built-in check. It leaves unresolvable citations as they are and lists them.
 

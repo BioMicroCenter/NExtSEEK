@@ -170,5 +170,21 @@
       "Header is exactly: sample,fastq_1,fastq_2.",
       "The BQSR / annotation limitation has been surfaced to the user."
     ]
+  },
+  "runtime": {
+    "basis": "First guess from typical nf-core runtimes on one 16-CPU Luria node (Nessie's default submit); not yet measured on Luria. Refine from real runs.",
+    "setup_minutes": [
+      60,
+      120
+    ],
+    "setup_label": "building the STAR index and GATK reference files (every run repeats it)",
+    "base_minutes": [
+      10,
+      20
+    ],
+    "per_sample_minutes": [
+      30,
+      90
+    ]
   }
 }

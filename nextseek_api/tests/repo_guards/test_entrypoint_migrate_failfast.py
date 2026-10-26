@@ -145,6 +145,21 @@ class TestDbReadinessProbe:
         assert calls.count("MySQLdb.connect") == 3
 
 
+class TestBootNeverFailsLiveTurns:
+    """The gap-free swap boots a second web while the old one still runs turns."""
+
+    def test_a_web_boot_never_marks_turns_failed(self, tmp_path):
+        proc, calls = _run_entrypoint(tmp_path, mode="web")
+        assert proc.returncode == 0
+        assert "fail_interrupted_turns" not in calls
+        assert "gunicorn" in calls
+
+    def test_the_worker_boot_never_marks_turns_failed(self, tmp_path):
+        proc, calls = _run_entrypoint(tmp_path)
+        assert proc.returncode == 0
+        assert "fail_interrupted_turns" not in calls
+
+
 # The stub tests above only see the probe's command line. These run its Python
 # against a fake MySQLdb: a misspelt key would otherwise pass every test and
 # crash-loop a box with [DB-UNREACHABLE].

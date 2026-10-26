@@ -73,12 +73,10 @@ workbook, a DuckDB store, a session or a job row; `n/a` is not this application'
 surface at all. The vocabulary and the reasoning behind the default are at
 `ci/routes.py:37-57`, and the rules are enforced at `ci/routes.py:126-152`.
 
-The `REGISTRY` list begins at `ci/routes.py:271`. What it holds today -- how many
-entries, how many excluded, how many pinned `xfail`, how many per profile -- is an
-import away rather than a number worth keeping here; the one entry that sets
-`prod_allows_non_get` is the `^login/?$` route in `ci/routes.py`, and the
-placeholder vocabulary its paths draw on is `PLACEHOLDERS` at
-`ci/routes.py:229-247`.
+Count the entries, their `resolver`, `exclude` and `xfail` settings, and the
+environments they name by importing `ci.routes` and iterating `REGISTRY`; the
+one route that sets `prod_allows_non_get` is the `^login/?$` route. The placeholder
+vocabulary those paths draw on is declared in `ci/routes.py`.
 
 `match()` resolves a URL to the most specific declaration (the pattern that
 pins the whole path first, then the one spelling out the most literal characters),

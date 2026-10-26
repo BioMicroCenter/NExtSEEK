@@ -6,6 +6,7 @@ description: >
   "show the sample tree / lineage", "run a graph query", "refine that search", "what sampletypes/assays exist", "build a project report
   (samples/protocols/published/rppr)", "generate a GEO/SRA/nf-core/PRIDE submission workbook",
   "launch/run/submit an nf-core pipeline (rnaseq/scrnaseq) on the cluster for these samples",
+  "which genes change between these samples / compare expression between groups" (offers a pipeline run),
   "plan a multi-step lookup", "how would I run the method of this paper / lab" (a named paper, method or
   lab is looked up in NExtSEEK first), or "create/update/delete NExtSEEK data". Do NOT trigger on general
   bioinformatics questions that name no paper, method or lab, code/file edits, non-NExtSEEK data sources,
@@ -57,8 +58,11 @@ is the complete contract; there are no hidden flags.
 | `nextseek-plan` | Multi-step planner advisor (read-only). | `--query "<text>"` | `{plan, recommended_next_actions, ...}` |
 | `nextseek-query` | Single-shot deterministic NS run in the live chat session; materializes scratch manifest when a bundle is present. | `--query "<text>"` | `{reply, debug, bundle_id}` (+ scratch manifest path when applicable) |
 | `nextseek-recall` | Fetch a prior NExtSEEK turn's rows (graph or REST) by `--turn N`. The same rows are already staged in /data/previous_turns/turn-NN/rows.csv: read those first, and never re-query for data a prior turn already returned. | `--turn <N>` | `{turn_id, bundle_id, total, row_count, columns, path}` |
-| `nextseek-run-ls` | **Reingest step 1** — recursive read-only listing (`ls -laR`) of a finished Luria run directory. | `--run-dir <abs path under the Luria runs root>` | `{tree, truncated, run_dir}` |
-| `nextseek-build-upload-xlsx` | **Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from composed rows (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK. | `--rows '<json array>' [--existing-parent-uids <csv>]` | `{saved_files, qa}` |
+| `nextseek-run-ls` | Ad-hoc recursive read-only listing (`ls -laR`) of a finished Luria run directory, for manual orientation — not one of the numbered reingest steps below. | `--run-dir <abs path under the Luria runs root>` | `{tree, truncated, run_dir}` |
+| `nextseek-run-harvest` | **Reingest step 1** — parse a finished run's machine-readable outputs into a manifest. | `--run-dir <abs path under the cluster runs root> [--allow-failed-run]` | `{run_dir, manifest_id, manifest, skipped}` |
+| `nextseek-run-checksum` | **Reingest step 3** — md5 a caller-named set of settled primary-data files on the cluster. With `--manifest-id`, folds the checksums into that manifest and returns a NEW manifest_id (manifests are content-addressed) — pass that new id, not the original, to `nextseek-build-upload-xlsx`. Without it, checksums are returned but not persisted. | `--run-dir <abs path under the cluster runs root> --paths <comma-separated relative paths> [--manifest-id <id>]` | `{run_dir, checksums, skipped}` (+ `manifest_id` when `--manifest-id` was passed) |
+| `nextseek-build-upload-xlsx` | **Reingest step 4** — render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK; returns proposals for the service layer to record. Re-run with `--answers` to apply the curator's rulings on the flags. | `--manifest-id <id> [--mode {new,update}] [--answers '<json>']` (legacy: `--rows '<json array>' [--existing-parent-uids <csv>]`) | `{saved_files, qa, reply, proposals, answers_deferred, builds}` (legacy: `{saved_files, qa}`) |
+| `nextseek-upload-reingest` | **Reingest step 5** — upload the reviewed workbooks (build ids from build-upload-xlsx's `builds`). **WRITES to NExtSEEK**: ask the user once, listing each workbook (sample type, new/update, row count, project) and every open warning from the builds, before calling. | `--build-ids <id,id> --confirmed-write` | `{jobs: [{artifact_key, mode, job_id or error}], reply}` |
 
 ## Choosing the op for a task
 
@@ -262,30 +266,107 @@ NExtSEEK side, not here.** **Decision rule:** intent is to *run/launch/submit/ex
 `nextseek-generate-submission`. **On a `nextseek-pipeline` error, do NOT fall back to
 `nextseek-generate-submission`** — report the error and let the user retry.
 
-**Reingest pipeline outputs — `nextseek-run-ls` + `nextseek-build-upload-xlsx`.** After an nf-core
-run finishes on Luria, register its outputs as new NExtSEEK analysis samples. This produces an
-upload sheet for the user to REVIEW and upload — it does **not** write to NExtSEEK. Workflow:
+**A comparison question is a pipeline offer — hand it over first.** When the user asks how
+expression differs between groups of their sequenced samples ("how does expression
+differ between D.SEQ-…-1-PUB and D.SEQ-…-9-PUB?", "compare gene expression between two groups of samples")
+and names no pipeline, make `nextseek-pipeline` your FIRST call: no searches, graph queries or
+aggregates before it, because the pipeline agent resolves the samples itself and needs the
+turn's time to do it. Put the user's question in the message VERBATIM, then the sample UIDs or
+the cohort exactly as the user gave them, and do NOT name a pipeline: the pipeline agent picks it
+from the question.
 
-1. `nextseek-run-ls --run-dir <finished run dir>` → the recursive `ls -laR` tree of the outputs.
-2. Reason over the tree + the sample-type catalog. Decide, per output, which `A.*` analysis type it
-   is (BAM → `A.ALN`; count/expression matrix → `A.SCXP`/`A.GEX`; VCF → `A.VCF`). Get the input
-   cohort's `Scientist`, project, and how existing `A.*` rows cite `Parent` with **one
-   `nextseek-graph` call over the input `D.SEQ` UIDs** (e.g. "Scientist, project and Parent of
-   D.SEQ-240101ABC-1 to -4, and the Parent of any A.* sample derived from them"): every sample
-   attribute is a property in the graph. Only if a value genuinely can't be fetched, mark it
-   `*** PLACEHOLDER ***` — do not block on it.
-3. Compose one row per output sample: `{"SampleType": "A.SCXP", "json_metadata": {"Parent": "<input
-   D.SEQ UID>", "Scientist": "<carried from the input D.SEQ>", "Pipeline": "...", "ReferenceGenome":
-   "...", "Aligner": "...", "File_PrimaryData": "...", ...}, "assay_ids": [<int>...]}`. `Parent` is the
-   input `D.SEQ` UID(s) the output derives from (`;`-delimited for a merged/aggregate output). Use
-   `*** PLACEHOLDER: <what> ***` for any required value you cannot derive — never leave it blank.
-4. `nextseek-build-upload-xlsx --rows '<json array>' --existing-parent-uids "<input D.SEQ UIDs, csv>"`
-   → renders one 4-sheet workbook per sample type as a downloadable artifact, with a per-type QA
-   verdict `{disposition, hard, soft}`. Relay the workbook(s) + QA to the user. If QA HARD_REJECTs a
-   type, fix the flagged rows and re-run.
+```bash
+nextseek-pipeline --message "Question (verbatim): <the user's question, word for word>"
+```
 
-The user reviews the workbook(s) and uploads them via the normal batch-upload UI — **you do not
-upload**; producing the reviewable sheet is the final step.
+Relay its reply as it stands. It is an offer, not a launch: it says what the run will give the
+user and what it will not answer, and nothing is submitted until the user replies. Never compute
+or claim the changed genes yourself.
+
+**Reingest pipeline outputs — `nextseek-run-harvest` + `nextseek-run-checksum` +
+`nextseek-build-upload-xlsx` + `nextseek-upload-reingest`.** After an nf-core run finishes, register
+its outputs as NExtSEEK samples and backfill QC onto the sequencing samples it consumed. Steps 1-4
+produce workbooks for the user to REVIEW and never write to NExtSEEK. Only step 5,
+`nextseek-upload-reingest`, writes, and only after the user's explicit yes. Workflow:
+
+1. `nextseek-run-harvest --run-dir <finished run dir>` → `{manifest_id, manifest, skipped}`. **When
+   the user says their run finished ("my run is done", "it finished") without giving a folder, call
+   `nextseek-run-harvest` with no `--run-dir`; never ask for the path first.** The server takes the
+   user's one launched run not yet reingested and harvests it. If several are waiting it returns
+   `{manifest_id: null, candidates: [...]}` instead: list each candidate's `run_name`, `pipeline`,
+   `samples` and `launched_at`, ask which one, then call again with that candidate's `run_dir`. If
+   none is waiting it refuses, and only then ask the user for the run folder. The
+   manifest already carries every parsed value and each sample's `d_seq_uid`. **Do not re-type any
+   number from it into a later call.** The server keeps its own copy, keyed by `manifest_id`, and
+   `build-upload-xlsx` reads that copy — it does not take values from you.
+2. Read `manifest.warnings`. Any raw key the server's map can't place is queued automatically —
+   you never decide which sample attribute an unmapped key belongs to, and reingest never invents
+   one. Only a *parked* D.SEQ attribute (mapped, but not yet defined on that sample type) surfaces
+   in `build-upload-xlsx`'s (step 4) `reply`, flagged `ATTRIBUTE_NOT_DEFINED`; a genuinely unmapped
+   key never appears in the `reply` — it reaches the user only through the `map_proposals_*`
+   artifact and the `proposals` return field, for a superuser to rule on later. Relay what's there;
+   do not resolve it yourself.
+3. **`nextseek-run-checksum --run-dir <same run dir as step 1> --manifest-id <id from step 1>
+   --paths <comma-separated paths>` — usually unnecessary now.** Step 1 already fills in
+   `Checksum_PrimaryData` for free wherever it can: run-harvest auto-hashes any inventoried output
+   under a small per-file/total-byte ceiling (cheap files only — a MultiQC report, a small matrix),
+   inside its existing staging call — no second SSH round trip. Check `manifest.warnings` and the
+   harvest result's `skipped` list: an auto-hash that got skipped for exceeding the ceiling or the
+   run's byte budget says so there, by name. **Only call this op when a specific file you actually
+   need checksummed — almost always a multi-GB primary alignment BAM — did not fit under
+   run-harvest's auto-hash ceiling.** A genuine SSH hash of a large file can by itself consume most
+   of the CC turn's 180s hard cap (`NEXTSEEK_CC_TIMEOUT_HARD_MAX`), leaving no budget for the harvest
+   and `build-upload-xlsx` calls that actually produce a workbook — so do not call it speculatively
+   "just in case", and do not call it for a file the manifest already carries a checksum for (check
+   `manifest.checksums` first). If you do call it: pass `--run-dir` as the EXACT SAME run dir you
+   passed to `run-harvest` in step 1 — the op refuses when the manifest's own run_dir does not match
+   the run_dir you are hashing, so a stale manifest_id from a different, earlier run is caught
+   rather than silently attaching this run's digest to that other run's row. Pass `--paths` as the
+   comma-separated `path` values from `manifest.outputs` (relative to `--run-dir`) — there is no
+   other source for them; `run-ls` is not part of this workflow. **Always pass `--manifest-id`**
+   (step 1's id, or a later one if you've already run this step once): without it the checksums are
+   computed and returned but never persisted anywhere step 4 can see, which is a wasted SSH call.
+   **The result's `manifest_id` is a NEW id — manifests are content-addressed, so folding in
+   checksums produces a different one.** Use THAT new id, not step 1's, in step 4. A checksum only
+   reaches a row when it is the file that sample type's committed map rule already names as primary
+   data (e.g. A.ALN's aligned BAM, A.GEX's merged gene-counts matrix) — a path you hashed that no
+   rule points at contributes nothing.
+4. `nextseek-build-upload-xlsx --manifest-id <id — step 3's id if you ran it, else step 1's>
+   --mode new` for the analysis children, then `--mode update` for the D.SEQ backfill. **Relay the
+   `reply` field of each result VERBATIM**, flags included. It is already written for the user;
+   re-summarising it loses the wording and the calibration. The `reply` IS your answer: do not
+   introduce it ("here is the report"), quote it, or summarise it again after it, and do not
+   restate its unmapped-metric count. If the update build produced no workbook, say so in one
+   line instead of relaying an empty report. End with one question: upload, or fix a flag first.
+   The workbooks reach the user without you: each one the op builds is attached to your reply as
+   a download when your turn ends. The server stages it after you finish writing, so it is not in
+   your scratch yet and you cannot see it. So never say you cannot attach or send them, never offer
+   to fetch them, and do not paste their contents. If the user asks where they are, they are the
+   downloads under that reply.
+
+   **4b. The fix loop.** Collect the user's answers to the flags in chat. Three kinds, each only for
+   what this run flagged: `fill` (a value for a flagged, empty cell), `choose` (one of the listed
+   candidates for an ambiguous data file), `place` (an uncovered raw key into an existing attribute,
+   this run only). Write down only what the user said: never invent a value, and never put a
+   measured number into a `fill`. Shape: `{"fill": [{"sample_type", "attribute", "value",
+   "rows"?}], "choose": [{"sample_type", "attribute", "path"}], "place": [{"raw_key",
+   "sample_type", "attribute"}]}`. Then re-run step 4 with `--answers '<json>'`: same
+   `--manifest-id`, once with `--mode new` and once with `--mode update`, every answer on both calls
+   (the server defers the ones for the other call to `answers_deferred`). A refused answer refuses
+   the whole call: relay the reason and ask again. Relay each new `reply` verbatim, and repeat until
+   the user has no more answers.
+5. **Upload — `nextseek-upload-reingest`, the only step that writes.** First show ONE confirmation
+   built from the latest `builds` of both calls, in plain text (never `AskUserQuestion`): for each
+   workbook its `sample_type`, new or update (`mode`), `row_count` and project (`project_id`, or
+   `project_note` when there is none), then every entry of its `open_warnings`, then "**Upload
+   these N workbooks to NExtSEEK?**". Wait for the user's next message. **Only after an explicit
+   yes**, call `nextseek-upload-reingest --build-ids <every build_id you listed, comma-separated>
+   --confirmed-write`. Anything other than a clear yes: do not call it, acknowledge, and stop.
+   Never reuse a yes given to an earlier confirmation, and confirm again if the builds changed.
+   Relay the result's `reply` verbatim: each workbook is its own job. The op waits for the jobs
+   (up to about 45 s) and the reply says how each ended: samples created or updated, rows that
+   failed with their errors, a job that did not start, or one still running after the wait. Do
+   not tell the user to check the batch-upload page for a job the reply reports as done.
 
 **Multi-step "do X, then Y" — `nextseek-plan`.** See the planner section below.
 
@@ -350,9 +431,11 @@ Compose the user-facing answer from each op's JSON output.
 
 ## Write safety — 3 layers
 
-For non-GET operations (`nextseek-api-write`, write-class endpoints), three layers apply. Today no
-write reaches NExtSEEK from this chat: the server refuses every create, update and delete, so these
-layers guard a path that ends in a refusal.
+For non-GET operations (`nextseek-api-write`, `nextseek-upload-reingest`, write-class endpoints),
+three layers apply. `nextseek-api-write` reaches no write today: the server refuses every create,
+update and delete it sends, so for it these layers guard a path that ends in a refusal.
+`nextseek-upload-reingest` is the one op that does write to NExtSEEK (it queues batch-upload jobs
+for reviewed reingest workbooks), and only after the user's explicit yes:
 
 - **Layer 1 (mechanical, deployment-dependent)**: a Claude Code permission allowlist / deny rule that gates `nextseek-api-write`. **In the dmac-assistant bridge POC, the `container_cc` route runs under `--permission-mode auto` (per the host bridge's launch command), NOT `--dangerously-skip-permissions`.** Under auto mode, blanket `Bash(*)` allow rules are dropped and every tool call — including `nextseek-api-write` — is screened by the auto-mode classifier, which blocks escalation/exfiltration. That classifier is a behavioral gate, not a hard guarantee, and no explicit `Bash(nextseek-api-write:*)` deny rule is shipped here. Treat L1 as defense-in-depth, not as a guarantee — the load-bearing layers are L2 and L3.
 - **Layer 2 (mechanical, always on — enforced server-side)**: an `api-write` op is refused unless write confirmation is explicit. The `nextseek-api-write` shim requires `--confirmed-write`, and the authoritative gate runs **outside** the agent container: NExtSEEK's write gate (`NessieAI/ns/write_gate.py`) refuses the op unless `confirmed_write` is exactly `True`, and a turn pass is refused for `api-write` before that. Because neither check runs in a process the in-container agent controls, the agent cannot bypass L2.
@@ -361,6 +444,8 @@ layers guard a path that ends in a refusal.
 > "About to execute a WRITE-classified operation. Method: POST. Endpoint: /samples/<...>/. Body: {...}. **Confirm?**"
 
 Then wait for the user's next message. Even if the user responds "yes" / "go ahead" / similar, the turn pass is refused by `nextseek-api-write` (see the table and the start of this section): tell the user the change is made in NExtSEEK itself. If anything else, abort and acknowledge.
+
+`nextseek-upload-reingest` follows the same three layers: its shim requires `--confirmed-write`, the sidecar and NExtSEEK both refuse it unless `confirmed_write` is exactly `True`, and its Layer-3 confirmation is the one-message workbook list of reingest step 5 above.
 
 ## Stop-after-2 rule (load-bearing)
 
@@ -431,7 +516,7 @@ another tool to reach the same result. Every other failure gets one retry (the s
 aggregate	nextseek-aggregate	Count samples or break them down (by type, attribute value, project, person), held to the user's projects: one call, the question alone or 1 to 4 parts run in parallel, each returned as a small table with the sum of its group counts (not a sample total when groups may overlap) and its missing-value bucket, never sample records.	sidecar	read	true	true
 api-read	nextseek-api-read	Execute a read-safe REST call from a parser plan.	sidecar	read	true	true
 api-write	nextseek-api-write	Refused: the server refuses every create, update and delete this op sends, so no write reaches NExtSEEK from this chat. Do not call it; tell the user the change is made in NExtSEEK itself.	sidecar	write_confirm	true	true
-build-upload-xlsx	nextseek-build-upload-xlsx	**Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from composed rows (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK.	sidecar	read	true	true
+build-upload-xlsx	nextseek-build-upload-xlsx	**Reingest step 4** — render NExtSEEK 4-sheet upload workbook(s) from a harvested manifest (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK; returns proposals for the service layer to record. Re-run with --answers to apply the curator's rulings on flagged cells (fill), ambiguous files (choose) and uncovered keys (place); measured cells are refused.	sidecar	read	true	true
 entity	nextseek-entity-extract	Resolve NL terms to NExtSEEK vocabulary.	sidecar	read	true	true
 generate-submission	nextseek-generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.	sidecar	read	true	true
 graph	nextseek-graph	Find and read samples from the graph (filter, lineage, attribute values), held to the user's projects; a query refused for its scope is answered through graph_search under fallback. Counts and breakdowns: nextseek-aggregate.	sidecar	read	true	true
@@ -442,5 +527,8 @@ plan	nextseek-plan	Multi-step planner advisor (read-only).	viewset	unrouted	true
 query	nextseek-query	Single-shot deterministic NS run in the live chat session; materializes scratch manifest when a bundle is present.	viewset	unrouted	true	false
 recall	nextseek-recall	Fetch a prior NExtSEEK turn's rows (graph or REST) by `--turn N`. The same rows are already staged in /data/previous_turns/turn-NN/rows.csv: read those first, and never re-query for data a prior turn already returned.	viewset	unrouted	true	false
 report	nextseek-report	Project summary report.	sidecar	read	true	true
-run-ls	nextseek-run-ls	**Reingest step 1** — recursive read-only listing (`ls -laR`) of a finished Luria run directory.	sidecar	read	true	true
+run-checksum	nextseek-run-checksum	**Reingest step 3** — md5 a caller-named set of settled primary-data files on the cluster. With `--manifest-id`, folds the checksums into that manifest and returns a NEW manifest_id (manifests are content-addressed) — pass that new id, not the original, to build-upload-xlsx. Without it, checksums are returned but not persisted.	sidecar	read	true	true
+run-harvest	nextseek-run-harvest	**Reingest step 1** — parse a finished run's machine-readable outputs into a manifest. With no --run-dir it takes the caller's one launched run not yet reingested, or returns `candidates` to ask which.	sidecar	read	true	true
+run-ls	nextseek-run-ls	Ad-hoc recursive read-only listing (`ls -laR`) of a finished Luria run directory, for manual orientation — not one of the numbered reingest steps below.	sidecar	read	true	true
+upload-reingest	nextseek-upload-reingest	**Reingest step 5** — upload the reviewed workbooks (build ids from build-upload-xlsx's builds). WRITES to NExtSEEK: ask the user once, listing each workbook (sample type, new/update, row count, project) and every open warning from the builds, before calling. It first creates any study assay the builds list, and afterwards adds each new sample's parents to its assays.	sidecar	write_confirm	true	true
 <!-- END PLAN005-GEN:skill-ops -->

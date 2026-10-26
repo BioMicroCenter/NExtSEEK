@@ -43,6 +43,11 @@ OP_LIMITS_S: dict[str, float] = {
     "graph-schema": 60.0,
     "run-ls": 60.0,
     "build-upload-xlsx": 60.0,
+    # The reingest ops keep the 60 s the sidecar gave them; upload-reingest's job wait (NEXTSEEK_UPLOAD_WAIT_S,
+    # 45 s) fits inside it.
+    "run-harvest": 60.0,
+    "run-checksum": 60.0,
+    "upload-reingest": 60.0,
 }
 #: The tool waits this much past the op's own limit: Django answers by the limit, the rest is the reply's trip.
 TOOL_WAIT_MARGIN_S = 10.0

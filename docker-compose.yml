@@ -347,6 +347,8 @@ services:
         dmac_assistant_baml: ./NessieAI/dmac_assistant/baml_src
 # END PLAN005-GEN:additional-contexts
     image: dmac-assistant:poc
+    # cc_engine.CC_PLATFORM: build for the platform every agent is started as.
+    platform: linux/amd64
     network_mode: none
     command: ["true"]
 

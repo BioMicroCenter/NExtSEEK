@@ -28,9 +28,12 @@ nextseek-project-resolve	project-resolve	local_subcommand
 nextseek-query	query	viewset
 nextseek-recall	recall	viewset
 nextseek-report	report	sidecar
+nextseek-run-checksum	run-checksum	sidecar
+nextseek-run-harvest	run-harvest	sidecar
 nextseek-run-ls	run-ls	sidecar
 nextseek-sample-search	sample-search	local_subcommand
 nextseek-sampletype-attrs	attrs	local_subcommand
+nextseek-upload-reingest	upload-reingest	sidecar
 nextseek-validate-upload	build-validate	local_subcommand
 <!-- END PLAN005-GEN:command-ops -->
 

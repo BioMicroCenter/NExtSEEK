@@ -1,0 +1,132 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/differentialabundance",
+  "applies_to_versions": ">=1.4,<3",
+  "accepts_parent_types": [
+    "D.SEQ"
+  ],
+  "harvest_globs": [],
+  "inventory_globs": ["**/report/*.html", "**/report/*/*_differentialabundance_report.html", "**/processed_abundance/all.normalised_counts.tsv", "**/processed_abundance/*/all.normalised_counts.tsv", "**/tables/differential/*.deseq2.results.tsv", "**/tables/differential/*.limma.results.tsv", "**/tables/differential/*/*.deseq2.results.tsv", "**/tables/differential/*/*.limma.results.tsv", "**/tables/differential/*/*.dream.results.tsv"],
+  "derived_metrics": [],
+  "outputs": [
+    {
+      "id": "normalised_counts",
+      "candidates": ["tables/processed_abundance/{,*/}all.normalised_counts.tsv"],
+      "sample_type": "A.GEX",
+      "assay": "Gene Expression Analysis",
+      "cardinality": "per_file",
+      "primary_data": true,
+      "include_provenance": true,
+      "attributes": {
+        "Matrix": "normalised_counts",
+        "Name": "@gex_name",
+        "Scientist": "@nextseek_user",
+        "Lab": "@lab",
+        "SampleCreationDate": "@run_date",
+        "DataType": "TSV",
+        "Link_QualityControl": "@report_link",
+        "Notes": "@study_type_note",
+        "Paramset": "@paramset"
+      }
+    },
+    {
+      "id": "deseq2_results",
+      "candidates": ["tables/differential/{,*/}*.deseq2.results.tsv"],
+      "sample_type": "A.GEX",
+      "assay": "Gene Expression Analysis",
+      "cardinality": "per_file",
+      "primary_data": true,
+      "optional": true,
+      "include_provenance": true,
+      "attributes": {
+        "Matrix": "deseq2_results",
+        "Contrast": "@contrast",
+        "Name": "@gex_name",
+        "Scientist": "@nextseek_user",
+        "Lab": "@lab",
+        "SampleCreationDate": "@run_date",
+        "DataType": "TSV",
+        "Link_QualityControl": "@report_link",
+        "Notes": "@study_type_note",
+        "Paramset": "@paramset",
+        "ContrastVariable": "@contrast_variable",
+        "ContrastReference": "@contrast_reference",
+        "ContrastTarget": "@contrast_target",
+        "MethodSettings": "@method_settings",
+        "DESeqFile": "@model_object"
+      }
+    },
+    {
+      "id": "limma_results",
+      "candidates": ["tables/differential/{,*/}*.limma.results.tsv"],
+      "sample_type": "A.GEX",
+      "assay": "Gene Expression Analysis",
+      "cardinality": "per_file",
+      "primary_data": true,
+      "optional": true,
+      "include_provenance": true,
+      "attributes": {
+        "Matrix": "limma_results",
+        "Contrast": "@contrast",
+        "Name": "@gex_name",
+        "Scientist": "@nextseek_user",
+        "Lab": "@lab",
+        "SampleCreationDate": "@run_date",
+        "DataType": "TSV",
+        "Link_QualityControl": "@report_link",
+        "Notes": "@study_type_note",
+        "Paramset": "@paramset",
+        "ContrastVariable": "@contrast_variable",
+        "ContrastReference": "@contrast_reference",
+        "ContrastTarget": "@contrast_target",
+        "MethodSettings": "@method_settings",
+        "DESeqFile": "@model_object"
+      }
+    },
+    {
+      "id": "dream_results",
+      "candidates": ["tables/differential/*/*.dream.results.tsv"],
+      "sample_type": "A.GEX",
+      "assay": "Gene Expression Analysis",
+      "cardinality": "per_file",
+      "primary_data": true,
+      "optional": true,
+      "include_provenance": true,
+      "attributes": {
+        "Matrix": "dream_results",
+        "Contrast": "@contrast",
+        "Name": "@gex_name",
+        "Scientist": "@nextseek_user",
+        "Lab": "@lab",
+        "SampleCreationDate": "@run_date",
+        "DataType": "TSV",
+        "Link_QualityControl": "@report_link",
+        "Notes": "@study_type_note",
+        "Paramset": "@paramset",
+        "ContrastVariable": "@contrast_variable",
+        "ContrastReference": "@contrast_reference",
+        "ContrastTarget": "@contrast_target",
+        "MethodSettings": "@method_settings"
+      }
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "PipelineVersion": "$pipeline.version"
+  },
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html",
+      "target": "D.SEQ",
+      "datatype": "string",
+      "provenance": "seed"
+    },
+    "Genome": {
+      "from": "$params.genome",
+      "target": "D.SEQ",
+      "datatype": "string",
+      "provenance": "seed"
+    }
+  },
+  "deliberately_unmapped": []
+}

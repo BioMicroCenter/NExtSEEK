@@ -1,0 +1,339 @@
+"""Metrics computed from parsed inputs, because no nf-core file states them.
+
+This is the ONLY place reingest does arithmetic on a measurement. Map files
+reference these by name (`$derived.<name>`) and cannot compute anything
+themselves, which is what keeps a map file incapable of surprising behaviour.
+
+A metric whose inputs are missing is OMITTED. Returning 0.0 would be a claim
+that the measurement was made and came out zero. A zero denominator omits
+the ratio for the same reason, rather than producing infinity or crashing.
+"""
+from __future__ import annotations
+
+import re
+
+DERIVED_METRICS: tuple[str, ...] = (
+    # The four read-distribution percentages are produced by
+    # parse_read_distribution (MultiQC/RSeQC report tag COUNTS per group,
+    # and D.SEQ has one UTR slot where RSeQC reports two), not by compute()'s
+    # own arithmetic. compute() still merges them into its result so that
+    # sample.derived (and a map's $derived.cds_pct) carries every name below.
+    "cds_pct",
+    "utr_pct",
+    "intron_pct",
+    "intergenic_pct",
+    "exon_intron_ratio",
+    "exon_intergenic_ratio",
+    "sense_antisense_ratio",
+    "genes_detected",
+    "genes_detected_percent",
+    "top30_count_percent",
+    "unaligned_reads",
+    # STAR's exact counts, passed through: MultiQC's general stats print the
+    # same numbers in millions, so a map must never read those columns.
+    "total_reads",
+    "uniquely_mapped_reads",
+    # STAR's "% of reads mapped to multiple loci", from the log's counts.
+    "multimapped_pct",
+    # "forward", "reverse" or "unstranded", by nf-core/rnaseq's own rule on
+    # RSeQC, or from Salmon's library type code (see from_metrics).
+    "strandedness",
+    # samtools' error rate as a percentage, from MultiQC <= 1.22's fraction.
+    "mismatch_pct",
+)
+
+# nf-core/rnaseq's defaults (params.stranded_threshold, unstranded_threshold),
+# applied the way its calculateStrandedness does: to the forward and reverse
+# shares of the reads RSeQC could assign a strand to, ignoring "failed".
+STRANDED_THRESHOLD = 0.8
+UNSTRANDED_THRESHOLD = 0.1
+
+_GROUP_ROW = re.compile(r"^(\S+)\s+\d+\s+(\d+)\s")
+
+# RSeQC's TSS_up_*/TES_down_* windows are NESTED, not disjoint: the real
+# CONTROL_REP1 fixture (star_salmon/rseqc/read_distribution/
+# CONTROL_REP1.read_distribution.txt) reports TSS_up_1kb=39621,
+# TSS_up_5kb=125048, TSS_up_10kb=198592 -- each wider window CONTAINS the
+# narrower one's reads (same shape on the TES_down_ side). Summing every
+# group whose name starts with TSS_up_/TES_down_ therefore triple-counts the
+# innermost reads. The widest window already includes every narrower one,
+# so it alone is "intergenic" on that side.
+# Do NOT "fix" this back to summing every TSS_up_*/TES_down_* group -- that
+# reintroduces the triple-count. See test_derived.py
+# test_intergenic_pct_uses_widest_window_only_not_sum_of_nested_windows.
+_INTERGENIC_GROUPS = ("TSS_up_10kb", "TES_down_10kb")
+
+# The denominator must NOT be sum(tags.values()): that sums every Group row,
+# including the narrower TSS_up_1kb/TSS_up_5kb/TES_down_1kb/TES_down_5kb rows
+# that are nested INSIDE TSS_up_10kb/TES_down_10kb (see _INTERGENIC_GROUPS
+# above). Those narrower windows' reads are already counted once inside the
+# 10kb window, so summing every row double- and triple-counts them and
+# deflates all four percentages, not just intergenic_pct. RSeQC's own header
+# line "Total Assigned Tags" is the authoritative total (confirmed against
+# the real CONTROL_REP1 fixture: the six NON-NESTED groups -- CDS_Exons,
+# 5'UTR_Exons, 3'UTR_Exons, Introns, TSS_up_10kb, TES_down_10kb -- sum to
+# exactly that header value). Fall back to summing those six groups only
+# when the header line is missing; they equal "Total Assigned Tags" by
+# construction, so the fallback is not a separate policy, just the same
+# number computed a different way.
+# Do NOT "simplify" this back to sum(tags.values()) -- see
+# test_total_assigned_tags_header_overrides_naive_group_sum in
+# test_derived.py.
+_TOTAL_ASSIGNED_TAGS_LINE = re.compile(r"^Total Assigned Tags\s+(\d+)")
+_NON_NESTED_GROUPS = ("CDS_Exons", "5'UTR_Exons", "3'UTR_Exons", "Introns",
+                      "TSS_up_10kb", "TES_down_10kb")
+
+# infer_experiment.txt's two "explained by" lines are labelled with RSeQC's
+# strand-pattern strings, not the words "forward"/"reverse".
+_FORWARD_PATTERN = "1++,1--,2+-,2-+"
+_REVERSE_PATTERN = "1+-,1-+,2++,2--"
+_FRACTION_LINE = re.compile(r'^(.*?):\s*([0-9.]+)\s*$')
+
+
+def parse_read_distribution(text: str) -> dict[str, float]:
+    """RSeQC read_distribution.txt -> the four percentages D.SEQ has slots for.
+
+    RSeQC reports 5'UTR and 3'UTR separately and D.SEQ has one UTR attribute,
+    so the two are summed here; the sum is what UTRPercent means.
+    Intergenic is TSS_up_10kb + TES_down_10kb, the widest window on each
+    side -- see the _INTERGENIC_GROUPS comment above for why the narrower
+    nested windows are excluded.
+    The denominator is the "Total Assigned Tags" header value, not a sum of
+    every Group row -- see the _TOTAL_ASSIGNED_TAGS_LINE comment above.
+    """
+    tags: dict[str, int] = {}
+    total_assigned_tags: int | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        header_match = _TOTAL_ASSIGNED_TAGS_LINE.match(stripped)
+        if header_match:
+            total_assigned_tags = int(header_match.group(1))
+            continue
+        match = _GROUP_ROW.match(stripped)
+        if match:
+            tags[match.group(1)] = int(match.group(2))
+
+    if total_assigned_tags is None:
+        total_assigned_tags = sum(tags.get(group, 0) for group in _NON_NESTED_GROUPS)
+    total = total_assigned_tags
+    if not total:
+        return {}
+
+    def pct(count: int) -> float:
+        return round(count / total * 100, 4)
+
+    utr = tags.get("5'UTR_Exons", 0) + tags.get("3'UTR_Exons", 0)
+    intergenic = sum(tags.get(group, 0) for group in _INTERGENIC_GROUPS)
+    return {
+        "cds_pct": pct(tags.get("CDS_Exons", 0)),
+        "utr_pct": pct(utr),
+        "intron_pct": pct(tags.get("Introns", 0)),
+        "intergenic_pct": pct(intergenic),
+    }
+
+
+def parse_infer_experiment(text: str) -> dict[str, float]:
+    """RSeQC infer_experiment.txt -> {"failed", "forward", "reverse"}.
+
+    The two "explained by" lines carry strand-pattern strings as their
+    labels: "1++,1--,2+-,2-+" is forward, "1+-,1-+,2++,2--" is reverse (see
+    the real CONTROL_REP1 fixture at
+    star_salmon/rseqc/infer_experiment/CONTROL_REP1.infer_experiment.txt).
+    A key is present only if its line was found.
+    """
+    out: dict[str, float] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        match = _FRACTION_LINE.match(line)
+        if not match:
+            continue
+        label, value = match.group(1), float(match.group(2))
+        if "failed to determine" in label:
+            out["failed"] = value
+        elif _FORWARD_PATTERN in label:
+            out["forward"] = value
+        elif _REVERSE_PATTERN in label:
+            out["reverse"] = value
+    return out
+
+
+#: The three lines STAR files under its own "UNMAPPED READS:" heading. STAR
+#: reports a fourth non-aligning category, "mapped to too many loci", under
+#: "MULTI-MAPPING READS:" instead -- those reads DID align, to more places than
+#: the threshold allows -- so it is deliberately not summed here. See
+#: `parse_star_log`.
+_STAR_UNMAPPED_LABELS = (
+    "Number of reads unmapped: too many mismatches",
+    "Number of reads unmapped: too short",
+    "Number of reads unmapped: other",
+)
+
+_STAR_COUNT_LABELS = {
+    "Number of input reads": "total",
+    "Uniquely mapped reads number": "unique",
+    "Number of reads mapped to multiple loci": "multi",
+    "Number of reads mapped to too many loci": "too_many_loci",
+}
+
+
+def parse_star_log(text: str) -> dict[str, float]:
+    """`<sample>.Log.final.out` -> the read counts, as integers, unscaled.
+
+    Returns `total`, `unique`, `multi`, `too_many_loci` and `unmapped` (the sum
+    of the three "UNMAPPED READS:" lines). MultiQC reports the first three in
+    MILLIONS; these come straight from STAR and do not need unscaling.
+
+    A label STAR did not print is simply absent, and `unmapped` is present only
+    when all three of its lines were found -- a partial sum would understate it
+    while looking like a real measurement.
+    """
+    values: dict[str, float] = {}
+    unmapped_seen: dict[str, float] = {}
+    for line in text.splitlines():
+        label, sep, raw = line.partition("|")
+        if not sep:
+            continue
+        label = label.strip()
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            number = float(raw)
+        except ValueError:
+            continue
+        if label in _STAR_COUNT_LABELS:
+            values[_STAR_COUNT_LABELS[label]] = number
+        elif label in _STAR_UNMAPPED_LABELS:
+            unmapped_seen[label] = number
+    if len(unmapped_seen) == len(_STAR_UNMAPPED_LABELS):
+        values["unmapped"] = sum(unmapped_seen.values())
+    return values
+
+
+def _strandedness(forward: float, reverse: float) -> str | None:
+    """nf-core/rnaseq's calculateStrandedness verdict, or None when it would
+    say "undetermined": that is no answer, so the attribute stays blank."""
+    stranded = forward + reverse
+    if stranded <= 0:
+        return None
+    forward_share, reverse_share = forward / stranded, reverse / stranded
+    if forward_share >= STRANDED_THRESHOLD:
+        return "forward"
+    if reverse_share >= STRANDED_THRESHOLD:
+        return "reverse"
+    if abs(forward_share - reverse_share) <= UNSTRANDED_THRESHOLD:
+        return "unstranded"
+    return None
+
+
+def compute(
+    read_distribution: dict[str, float] | None,
+    infer_experiment: dict[str, float] | None,
+    star: dict[str, float] | None,
+    counts: dict[str, float] | None,
+    n_annotated_genes: int | None,
+) -> dict[str, int | float | str]:
+    """Every derived metric whose inputs are present. Missing inputs -> missing keys."""
+    out: dict[str, int | float | str] = {}
+
+    if read_distribution:
+        # Pass the four percentages straight through so they end up in
+        # sample.derived alongside the ratios computed from them -- see the
+        # DERIVED_METRICS comment above.
+        for key in ("cds_pct", "utr_pct", "intron_pct", "intergenic_pct"):
+            if key in read_distribution:
+                out[key] = read_distribution[key]
+
+        exonic = read_distribution.get("cds_pct", 0.0) + read_distribution.get("utr_pct", 0.0)
+        intron = read_distribution.get("intron_pct", 0.0)
+        intergenic = read_distribution.get("intergenic_pct", 0.0)
+        if intron:
+            out["exon_intron_ratio"] = round(exonic / intron, 4)
+        if intergenic:
+            out["exon_intergenic_ratio"] = round(exonic / intergenic, 4)
+
+    if infer_experiment:
+        forward = infer_experiment.get("forward", 0.0)
+        reverse = infer_experiment.get("reverse", 0.0)
+        if reverse:
+            out["sense_antisense_ratio"] = round(forward / reverse, 4)
+        strandedness = _strandedness(forward, reverse)
+        if strandedness:
+            out["strandedness"] = strandedness
+
+    if star and "unmapped" in star:
+        # STAR's own three "UNMAPPED READS:" lines, summed -- NOT
+        # `total - unique - multi`, which also swallows "mapped to too many
+        # loci". STAR files that category under "MULTI-MAPPING READS:" because
+        # those reads did align, just to more places than the threshold allows,
+        # and the two readings differ by ~26% on a real sample. `parse_star_log`
+        # only sets "unmapped" when all three lines were found, so a partial sum
+        # can never arrive here looking like a whole one.
+        out["unaligned_reads"] = round(float(star["unmapped"]), 4)
+    if star:
+        # Integers straight from STAR's log, never MultiQC's general-stats
+        # columns: those are in millions (4.763343 for 4763343 reads).
+        if "total" in star:
+            out["total_reads"] = int(star["total"])
+        if "unique" in star:
+            out["uniquely_mapped_reads"] = int(star["unique"])
+        if star.get("total") and "multi" in star:
+            # STAR prints this percentage itself, from these two counts; its
+            # "mapped to too many loci" line is a separate category.
+            out["multimapped_pct"] = round(star["multi"] / star["total"] * 100, 4)
+
+    if counts:
+        values = sorted(v for v in counts.values() if v > 0)
+        detected = len(values)
+        out["genes_detected"] = float(detected)
+        if n_annotated_genes:
+            out["genes_detected_percent"] = round(detected / n_annotated_genes * 100, 4)
+        total_counts = sum(values)
+        if total_counts:
+            out["top30_count_percent"] = round(sum(values[-30:]) / total_counts * 100, 4)
+
+    return out
+
+
+# Salmon's library type: an optional I/O/M read orientation, then S (stranded)
+# with F or R for read 1's strand, or U (unstranded). SR/ISR is what RSeQC
+# calls reverse, SF/ISF forward.
+_SALMON_LIBRARY_TYPE = re.compile(r"^[IOM]?(?:S([FR])|U)$")
+
+
+def _salmon_strandedness(value) -> str | None:
+    codes = {code.strip() for code in str(value or "").split(",") if code.strip()}
+    if len(codes) != 1:
+        return None  # nothing, or a run that saw more than one library type
+    code = codes.pop()
+    match = _SALMON_LIBRARY_TYPE.match(code)
+    if not match:
+        return None
+    verdict = {"F": "forward", "R": "reverse"}.get(match.group(1), "unstranded")
+    return f"{verdict} ({code})"
+
+
+def from_metrics(metrics: dict) -> dict[str, float | str]:
+    """Derived values computed from a sample's MultiQC general-stats columns,
+    for pipelines that leave no per-sample tool file to read instead.
+
+    `strandedness` comes from Salmon's library type. RSeQC's infer_experiment,
+    where a run has it, is computed by `compute` and takes precedence.
+
+    `mismatch_pct` is samtools' error rate from MultiQC 1.22 or earlier, which
+    writes the value before its x100 display step. Only those versions spell
+    the column `<Namespace>_mqc-generalstats-...`, so the spelling tells the
+    0-1 fraction apart from the percentage later versions write.
+    """
+    out: dict[str, float | str] = {}
+    strandedness = _salmon_strandedness(metrics.get("salmon-library_types"))
+    if strandedness:
+        out["strandedness"] = strandedness
+    for key, value in metrics.items():
+        if "_mqc-generalstats-" in key and key.endswith("-error_rate"):
+            try:
+                out["mismatch_pct"] = round(float(value) * 100, 4)
+            except (TypeError, ValueError):
+                pass
+            break
+    return out

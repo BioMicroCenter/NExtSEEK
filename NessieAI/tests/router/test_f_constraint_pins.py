@@ -74,9 +74,14 @@ def test_no_new_migrations():                        # Global Constraint
         # Pin updated for graph_sync: 0021 creates the outbox and run tables, 0023 adds the outbox's failing_since
         # column; neither touches the router's tables.
         "nextseek_api/migrations/0021_graph_sync_outbox_and_run.py",
+        # Pin updated for reingest: 0021 creates the PipelineRun table, 0022 the ReingestAttributeProposal table,
+        # 0023 and 0031 are empty merges closing the forks beside graph_sync and dev; none touches a router table.
+        "nextseek_api/migrations/0021_pipeline_run.py",
+        "nextseek_api/migrations/0022_reingest_attribute_proposal.py",
         # Pin updated for the ledger's task link: 0022 adds one nullable TurnLedger -> QueryTask FK, nothing else.
         "nextseek_api/migrations/0022_turn_ledger_query_task.py",
         "nextseek_api/migrations/0023_graph_sync_outbox_failing_since.py",
+        "nextseek_api/migrations/0023_merge_reingest_graph_sync.py",
         "nextseek_api/migrations/0024_sampleshare.py",
         # Pin updated for the Container-CC turn pass: 0025 creates the CCTurn table and its index and adds the
         # nullable QueryTask.parent_cc_turn FK; it touches no router table. _cc_turn_heal.py is its heal helper.
@@ -90,6 +95,7 @@ def test_no_new_migrations():                        # Global Constraint
         "nextseek_api/migrations/0028_seekpersonlink.py",
         "nextseek_api/migrations/0029_uidsequence.py",
         "nextseek_api/migrations/0030_spill_json_fields.py",
+        "nextseek_api/migrations/0031_merge_reingest_spill.py",
         "nextseek_api/migrations/__init__.py",
         "nextseek_api/migrations/_cc_transcript_heal.py",
         "nextseek_api/migrations/_cc_turn_heal.py",
