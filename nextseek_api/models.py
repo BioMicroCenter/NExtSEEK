@@ -3263,3 +3263,6 @@ from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun  # n
 
 # The studies tool's share jobs (nextseek_api/studies/models_db.py); imported here so Django discovers them.
 from nextseek_api.studies.models_db import SampleShare  # noqa: E402,F401
+
+# The paper reingest run (nextseek_api/paper_reingest/models_db.py); imported here so Django discovers it.
+from nextseek_api.paper_reingest.models_db import PaperReingestRun  # noqa: E402,F401
