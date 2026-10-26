@@ -1,0 +1,35 @@
+"""Small, hand-made stand-ins for repository responses, shaped like the real APIs."""
+
+JATS_XML = b"""<?xml version="1.0"?>
+<article xmlns:xlink="http://www.w3.org/1999/xlink">
+<front><article-meta><title-group><article-title>Mice and RNA.</article-title></title-group></article-meta></front>
+<body>
+<sec><title>Introduction</title><p>Intro text.</p></sec>
+<sec sec-type="methods"><title>Materials and Methods</title>
+  <sec><title>Mice</title><p>All mice were   female.</p>
+    <fig id="f1"><label>Figure 1</label><caption><p>Tumour growth.</p></caption></fig>
+  </sec>
+  <p>RNA was sequenced.</p>
+</sec>
+</body>
+<back>
+<sec sec-type="data-availability"><title>Data availability</title><p>Reads are in GEO under GSE123456.</p></sec>
+<sec><title>Supplementary Material</title>
+  <supplementary-material><media xlink:href="NIHMS1_TableS1.xlsx"/><caption><p>Table S1. Samples.</p></caption></supplementary-material>
+</sec>
+</back>
+</article>"""
+
+EPMC_HIT = {
+    "pmid": "38000001", "pmcid": "PMC10000001", "doi": "10.1000/xyz123", "title": "Mice and RNA.",
+    "isOpenAccess": "Y", "inEPMC": "Y", "firstPublicationDate": "2024-02-03",
+    "journalInfo": {"journal": {"title": "J Test"}},
+    "authorList": {"author": [
+        {"fullName": "Doe J", "authorAffiliationDetailsList": {"authorAffiliation": [{"affiliation": "Some Institute"}]}},
+        {"fullName": "Roe K", "affiliation": "Other Institute"},
+    ]},
+}
+
+
+def epmc_search(hits: list[dict]) -> dict:
+    return {"resultList": {"result": hits}}
