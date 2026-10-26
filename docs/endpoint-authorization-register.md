@@ -16,11 +16,11 @@ When you add or change a route, add or change its row here in the same change.
 | Bucket | Meaning | Routes |
 |---|---|---|
 | 1. Project-scoped | Reads project-owned rows and returns only those in the caller's projects. Superusers are not limited. | 13 |
-| 2. Restricted another way | Superuser only, or only the owner of the chat, task, job or upload, or works on the caller's own folder or SEEK person. | 67 |
+| 2. Restricted another way | Superuser only, or only the owner of the chat, task, job or upload, or works on the caller's own folder or SEEK person. | 68 |
 | 3. Correct as it is | Needs no project filter of its own: SEEK decides with the caller's own SEEK login, or it returns definitions only, or it reads no project rows. | 59 |
-| **Total** | | **139** |
+| **Total** | | **140** |
 
-Of these, 116 routes are served from `nextseek_api/services/` (11, 54 and 51 by bucket)
+Of these, 117 routes are served from `nextseek_api/services/` (11, 55 and 51 by bucket)
 and 23 from elsewhere in `nextseek_api/` (the sample tree, the older retrieve path, attributes,
 assay registrations, batch upload, the API root and the three API description pages).
 
@@ -74,7 +74,7 @@ assay registrations, batch upload, the API root and the three API description pa
 | GET | `sample-tree/{uid}/tree/` | Limited to the caller's projects, read with the caller's own SEEK login: the root sample must be in them and the tree is cut at their edge. Superusers are not limited. | `SampleTreeViewSet.get_tree` | IsAuthenticated | changed |
 | POST | `admin/samples/retrieve/` | The older path of samples/retrieve/: the same handler and the same limits. | `AdminSampleViewSet.admin_retrieve_samples` | IsAuthenticated | changed |
 
-## 2. Restricted another way (67)
+## 2. Restricted another way (68)
 
 | Method | Path | Guard | Handler | Permission classes | #64 |
 |---|---|---|---|---|---|
@@ -111,6 +111,7 @@ assay registrations, batch upload, the API root and the three API description pa
 | POST | `assistant/run-harvest/` | Members of the pilot projects only. It copies the allowlisted outputs of one finished Luria run folder off the cluster and parses them into a manifest; without a folder named, it picks the caller's own waiting launched run. It writes nothing to Luria or NExtSEEK. | `AssistantViewSet.run_harvest` | IsAuthenticated, UserInParticipatingProject |  |
 | POST | `assistant/run-checksum/` | Members of the pilot projects only. It checksums files the caller names inside one Luria run folder over the cluster connection, and can fold the sums into a manifest the caller made. It writes nothing to Luria or NExtSEEK. | `AssistantViewSet.run_checksum` | IsAuthenticated, UserInParticipatingProject |  |
 | POST | `assistant/upload-reingest/` | Members of the pilot projects only, with `confirmed_write` true. It uploads only build records the caller made, shown in an earlier turn of the caller's own running Container-CC chat, and starts each batch-upload job with the caller's project scope, so a project outside the caller's projects is refused before any job starts. | `AssistantViewSet.upload_reingest` | IsAuthenticated, UserInParticipatingProject |  |
+| POST | `assistant/paper-reingest-start/` | Superusers only (`is_superuser`, never `is_staff`; a refusal is a 422 `superusers_only`), and the caller must also be in a pilot project. It answers `feature_off` unless `NEXTSEEK_PAPER_REINGEST` is on. It reads a paper from allowlisted public sources, or from a PDF in the caller's own upload folder, and queues a background run owned by the caller; it writes nothing to SEEK, and the only rows it creates are the run's own. The turn pass allows it (`turn_pass_allow.py`). | `AssistantViewSet.paper_reingest_start` | IsAuthenticated, UserInParticipatingProject |  |
 | POST | `cc-assistant/query/async/` | Any signed-in user. The chat must be the caller's, and the caller's login and project scope are handed down; only a superuser can use the production model setup or `mode` `plan` (403 otherwise). | `CCAssistantViewSet.query_async` | IsAuthenticated | changed |
 | POST | `cc-assistant/cc/query/async/` | A superuser (403 otherwise), the same rule as `force_route`. The same as the query route above, forced to a Container-CC run. | `CCAssistantViewSet.cc_query_async` | IsAuthenticated + superuser check in the method | changed |
 | GET | `cc-assistant/tasks/{id}/progress/` | Any signed-in user, but only the task's owner or a superuser may read its progress. | `CCAssistantViewSet.task_progress` | IsAuthenticated |  |
@@ -250,6 +251,9 @@ assay registrations, batch upload, the API root and the three API description pa
   the sample type catalog cannot be read: reingest never writes an attribute that does not exist.
   `assistant/upload-reingest/` is the one Container-CC op that writes to NExtSEEK; the turn pass allows it
   (`turn_pass_allow.py`).
+  `assistant/paper-reingest-start/` starts a paper reingest run (`nextseek_api/paper_reingest/README.md`). Two things
+  open it, and both must hold: the caller is a superuser, and `NEXTSEEK_PAPER_REINGEST` is on. It never writes to SEEK or
+  the graph; the turn pass allows it (`turn_pass_allow.py`) so the Container-CC agent can start a run for a curator.
 - **Container-CC folders.** Uploads go to, and are listed from, the caller's own folder under the caller's current SEEK
   project. Files a Container-CC turn wrote are read from the folder saved with the chat.
 
