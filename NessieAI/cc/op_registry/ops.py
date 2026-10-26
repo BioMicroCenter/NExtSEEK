@@ -439,7 +439,10 @@ OPS: list[OpSpec] = [
             "**Paper reingest step 1** - for a curator who names a paper (PMID, DOI, article link, or the file "
             "name of a PDF they attached): check the paper can be read and start a background run that reads "
             "it, its supplement and its deposits. Returns at once; writes nothing to SEEK. If the reply says "
-            "needs_pdf, ask the curator to attach the PDF and call again with its file name.",
+            "needs_pdf, ask the curator to attach the PDF and call again with its file name. A refusal comes back "
+            "as an error whose error_type is superusers_only, feature_off, unrecognised_paper, source_unavailable, "
+            "source_not_allowed, source_bad_answer, pdf_too_large, pdf_unreadable, catalog_unavailable, "
+            "out_of_time or queue_unavailable; tell the curator its message plainly.",
             '--paper "<pmid|doi|url|attached file name>" [--project <SEEK project id>]',
             "{run_id, status: ok|needs_pdf|missing_sections|not_found|already_running, mode, paper, reply}"),
     ),
