@@ -1,7 +1,9 @@
 """PRIDE archive (ProteomeXchange PXD): the project and every file, paginated.
 
 The files endpoint answers either a plain list or a HAL page (`_embedded.files`); both
-are read. PRIDE checksums are SHA-1.
+are read. Paging ends only on an empty page, never on a short one, so a server that
+clamps pageSize cannot truncate the list. More than MAX_PAGES pages raises. PRIDE
+checksums are SHA-1.
 """
 from __future__ import annotations
 
@@ -11,11 +13,10 @@ from NessieAI.ns.paper.models import DepositRecord, FileRef
 
 BASE = "https://www.ebi.ac.uk/pride/ws/archive/v2"
 PAGE = 100
-MAX_PAGES = 100
+MAX_PAGES = 1000
 _TEXT_FIELDS = ("title", "projectDescription", "sampleProcessingProtocol", "dataProcessingProtocol",
                 "submissionDate", "publicationDate", "submissionType")
 _LIST_FIELDS = ("organisms", "organismParts", "diseases", "instruments", "keywords", "quantificationMethods")
-_CATEGORIES = frozenset({"RAW", "SEARCH", "RESULT", "PEAK", "FASTA"})
 
 
 def fetch(pxd: str, fetcher: Fetcher) -> list[DepositRecord]:
@@ -30,11 +31,11 @@ def fetch(pxd: str, fetcher: Fetcher) -> list[DepositRecord]:
                              fields=fields, submitted=submitted)]
     for page in range(MAX_PAGES):
         data = fetcher.get_json(f"{BASE}/projects/{pxd}/files", params={"pageSize": PAGE, "page": page})
-        batch = data if isinstance(data, list) else ((data or {}).get("_embedded") or {}).get("files", [])
-        records += [_file(pxd, f, submitted) for f in batch]
-        if len(batch) < PAGE:
-            break
-    return records
+        batch = data if isinstance(data, list) else ((data or {}).get("_embedded") or {}).get("files") or []
+        if not batch:
+            return records
+        records += [_file(pxd, f, submitted) for f in batch if f.get("fileName")]
+    raise RuntimeError(f"PRIDE {pxd}: more than {MAX_PAGES} pages of files")
 
 
 def _name(value) -> str:
@@ -44,16 +45,15 @@ def _name(value) -> str:
 
 
 def _file(pxd: str, f: dict, submitted) -> DepositRecord:
-    name = f.get("fileName", "")
+    name = f["fileName"]
     category = ((f.get("fileCategory") or {}).get("value") or "").upper()
-    category = category if category in _CATEGORIES else "OTHER"
     locations = f.get("publicFileLocations") or []
     url = next((l.get("value") for l in locations if "FTP" in (l.get("name") or "").upper()), None) \
         or next((l.get("value") for l in locations), "")
     checksum = f.get("checksum") or None
     return DepositRecord(
         repo="pride", record_id=f"{pxd}/{name}", kind="file", title=name,
-        fields={"fileCategory": category},
+        fields={"fileCategory": category} if category else {},
         files=[FileRef(name=name, url=url or "", size=f.get("fileSizeBytes"),
                        checksum=checksum, checksum_type="sha1" if checksum else None)],
         links=[pxd], submitted=submitted)
