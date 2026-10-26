@@ -15,6 +15,11 @@ from NessieAI.ns.paper.identify import IdentifyError, identify
     ("https://doi.org/10.1038/S41467-024-00001-X", "doi", "10.1038/s41467-024-00001-x"),
     ("doi:10.1016/j.cell.2024.01.001.", "doi", "10.1016/j.cell.2024.01.001"),
     ("https://www.biorxiv.org/content/10.1101/2024.01.01.123456v1.full", "doi", "10.1101/2024.01.01.123456v1"),
+    ("https://doi.org/10.1038/s41467-024-00001-x?utm_source=x", "doi", "10.1038/s41467-024-00001-x"),
+    ("https://doi.org/10.1038/s41467-024-00001-x#sec2", "doi", "10.1038/s41467-024-00001-x"),
+    ("https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0001234&type=printable", "doi", "10.1371/journal.pone.0001234"),
+    ("https://www.biorxiv.org/content/10.1101/2024.01.01.123456v1.full.pdf", "doi", "10.1101/2024.01.01.123456v1"),
+    ("https://www.biorxiv.org/content/10.1101/2024.01.01.123456v1.full.pdf+html", "doi", "10.1101/2024.01.01.123456v1"),
     ("paper.pdf", "file", "paper.pdf"),
 ])
 def test_identify(raw, kind, value):
@@ -22,7 +27,7 @@ def test_identify(raw, kind, value):
     assert (got.kind, got.value) == (kind, value)
 
 
-@pytest.mark.parametrize("raw", ["", "missing.pdf", "https://www.nature.com/articles/s41467-024-00001-x", "a nice paper"])
+@pytest.mark.parametrize("raw", ["", "missing.pdf", "https://www.nature.com/articles/s41467-024-00001-x", "a nice paper", "https://notncbi.nlm.nih.gov/x/PMC1"])
 def test_identify_refuses(raw):
     with pytest.raises(IdentifyError):
         identify(raw, input_files={"paper.pdf"})
