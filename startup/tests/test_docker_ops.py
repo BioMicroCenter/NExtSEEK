@@ -161,7 +161,7 @@ def test_bootstrap_staging_dir_invokes_docker_run_alpine_mkdir_chown(mock_run: M
     assert args[-2] == "-c"
     shell_cmd = args[-1]
     assert "mkdir -p /v/_staging" in shell_cmd
-    assert "chown 1001:1001 /v /v/_staging" in shell_cmd
+    assert "chown 10001:10001 /v /v/_staging" in shell_cmd
 
 
 @patch("startup.lib.docker_ops.subprocess.run")

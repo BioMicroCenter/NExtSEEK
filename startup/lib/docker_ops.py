@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Sequence
 
+from startup.lib.ownership import APP_UID
+
 
 class DockerOpsError(RuntimeError):
     """A docker / docker compose invocation failed."""
@@ -286,14 +288,14 @@ def volume_remove(name: str) -> None:
     _check(result, f"docker volume rm {name}")
 
 
-def bootstrap_staging_dir(volume_name: str, *, uid: int = 1001) -> None:
+def bootstrap_staging_dir(volume_name: str, *, uid: int = APP_UID) -> None:
     """One-shot helper container: mkdir -p + chown the `_staging` subdir
     inside `volume_name` so a later VolumeOptions.Subpath mount (the NS
     sidecar's `_staging` mount, Task 14) finds a pre-existing backing
     directory. Docker's Engine refuses to start a container whose
     VolumeOptions.Subpath backing dir is absent, and compose `restart:` does
     NOT retry container-create failures -- this must run at install time.
-    Idempotent (mkdir -p / chown are safe to re-run). `uid` defaults to 1001,
+    Idempotent (mkdir -p / chown are safe to re-run). `uid` defaults to the app uid (ownership.APP_UID),
     the NS sidecar image's non-root user (docker/ns-sidecar/Dockerfile).
     """
     result = subprocess.run(

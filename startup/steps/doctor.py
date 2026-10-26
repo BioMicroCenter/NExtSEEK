@@ -75,7 +75,7 @@ def check_ci_credentials() -> tuple[str, bool, str]:
 
 
 def check_app_ownership(repo_root: Path, env: dict[str, str]) -> tuple[str, bool, str] | None:
-    """A row only on a problem: files on the app volumes or binds that are not 1001:1001.
+    """A row only on a problem: files on the app volumes or binds that are not the app uid:gid.
 
     Silent when the count is 0, when the app is not running, or when docker cannot answer
     (the pass runs one throwaway container per volume, so it is skipped on a stopped stack)."""
@@ -88,7 +88,7 @@ def check_app_ownership(repo_root: Path, env: dict[str, str]) -> tuple[str, bool
     if not bad:
         return None
     return ("app ownership", False,
-            "not owned by 1001:1001: " + ", ".join(f"{k} ({v})" for k, v in bad.items()) +
+            "not owned by the app uid (10001) / host gid: " + ", ".join(f"{k} ({v})" for k, v in bad.items()) +
             ". Run `./startup.sh fix-ownership`")
 
 

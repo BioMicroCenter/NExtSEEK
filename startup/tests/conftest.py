@@ -48,3 +48,18 @@ def _no_docker_in_the_web_swap(request, monkeypatch):
     from startup.lib import web_swap
 
     monkeypatch.setattr(web_swap, "migrations_pending", lambda run: (True, "(test)"))
+
+
+@pytest.fixture(autouse=True)
+def _no_docker_or_host_probes_in_the_rebuild_preflight(request, monkeypatch):
+    """The rebuild preflight and the ownership passes shell out to docker and read host accounts. Tests that
+    drive them set their own stubs; every other rebuild test gets these quiet defaults."""
+    if request.module.__name__.endswith(("test_ownership", "test_validate_app_ids", "test_docker_ops")):
+        return
+    from startup.steps import validate, volumes
+
+    monkeypatch.setattr(validate, "check_app_ids", lambda gid: validate.HealthResult("app uid/gid", True, "ok"))
+    monkeypatch.setattr(volumes, "ensure_secret_group_read", lambda root, env: [])
+    monkeypatch.setattr(volumes, "app_user_change", lambda root, env: False)
+    monkeypatch.setattr(volumes, "ensure_app_ownership",
+                        lambda root, env, *, check_only, skip_cc_users=False, say=None: {})

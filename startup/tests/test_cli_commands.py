@@ -926,10 +926,13 @@ def _stub_ownership(monkeypatch: pytest.MonkeyPatch, *, user_changed: bool = Fal
     from startup.steps import volumes
 
     seen: list[str] = []
+    from startup.steps import validate
     monkeypatch.setattr(volumes, "app_user_change", lambda root, env: user_changed)
     monkeypatch.setattr(volumes, "stop_app_services", lambda root, env: seen.append("stop"))
+    monkeypatch.setattr(volumes, "ensure_secret_group_read", lambda root, env: [])
+    monkeypatch.setattr(validate, "check_app_ids", lambda gid: validate.HealthResult("app uid/gid", True, "ok"))
 
-    def passes(root, env, *, check_only, say=None):
+    def passes(root, env, *, check_only, skip_cc_users=False, say=None):
         seen.append("CHECK" if check_only else "FIX")
         return (check_counts or {"vol": 0}) if check_only else {"vol": None}
 
@@ -2638,7 +2641,7 @@ def test_rebuild_with_a_user_change_stops_fixes_then_ups_and_never_swaps(
     result = runner.invoke(cli.app, ["rebuild"])
 
     assert result.exit_code == 0, result.output
-    assert order[:5] == ["stop", "FIX", "up web", "up nextseek", "CHECK"]
+    assert order[:6] == ["stop", "FIX", "up nextseek-sidecar", "up web", "up nextseek", "CHECK"]
     assert "swap" not in order and "migcheck" not in order
 
 
@@ -2683,16 +2686,56 @@ def test_fix_ownership_command_prints_counts_and_seconds(
     _saved_state(repo, ci_profile="dev")
     seen: list[bool] = []
 
-    def passes(root, env, *, check_only, say=None):
-        seen.append(check_only)
+    def passes(root, env, *, check_only, skip_cc_users=False, say=None):
+        seen.append((check_only, skip_cc_users))
         say("p-media", 12 if check_only else None, 3.4)
         return {"p-media": 12 if check_only else None}
 
     monkeypatch.setattr(volumes, "ensure_app_ownership", passes)
+    monkeypatch.setattr(volumes, "app_user_change", lambda root, env: changed)
 
+    changed = False
     r1 = runner.invoke(cli.app, ["fix-ownership", "--check"])
     r2 = runner.invoke(cli.app, ["fix-ownership"])
 
     assert r1.exit_code == 1 and r2.exit_code == 0, (r1.output, r2.output)
-    assert seen == [True, False]
+    assert seen == [(True, False), (False, False)]
+    changed = True   # the app still runs as the old user: dmac-cc-users is left alone
+    r3 = runner.invoke(cli.app, ["fix-ownership"])
+    assert r3.exit_code == 0 and seen[-1] == (False, True) and "dmac-cc-users" in r3.output
     assert "p-media" in r1.output and "12" in r1.output and "3.4" in r1.output
+
+
+def test_rebuild_refuses_before_building_when_the_app_ids_are_bad(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import validate
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    order = _stub_ownership(monkeypatch)
+    monkeypatch.setattr(validate, "check_app_ids",
+                        lambda gid: validate.HealthResult("app uid/gid", False, "uid 10001 is the host account x"))
+    built: list[int] = []
+    from startup.lib import docker_ops
+    monkeypatch.setattr(docker_ops, "compose_build", lambda **kw: built.append(1))
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-ci"])
+
+    assert result.exit_code == 1 and built == [] and order == []
+    assert "10001" in result.output
+
+
+def test_rebuild_refuses_when_a_secret_file_cannot_be_made_group_readable(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import volumes
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    _stub_ownership(monkeypatch)
+    monkeypatch.setattr(volumes, "ensure_secret_group_read", lambda root, env: ["/k is not owned by this user"])
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-ci"])
+
+    assert result.exit_code == 1 and "not owned by this user" in result.output
