@@ -1,5 +1,5 @@
 {
- "_about": "House ontologies for harmonizing sample attribute values. Each entry names one ontology file in this folder: a JSON list of records with the keys TERM, DEF, ONT_SOURCE, ONT_ID and SYNONYMS. The files are the source of truth; nextseek_api/services/controlled_vocabularies.json (the upload-sheet dropdowns) is generated from the entries that name an upload_vocabulary. source_url plus an entry's file is that ontology's public link, for replies.",
+ "_about": "House ontologies for harmonizing sample attribute values. Each entry names one ontology file in this folder: a JSON list of records with the keys TERM, DEF, ONT_SOURCE, ONT_ID and SYNONYMS. The files are the source of truth; nextseek_api/services/controlled_vocabularies.json (the upload-sheet dropdowns) is generated from the entries that name an upload_vocabulary. For replies, each entry's url is that ontology's public link.",
  "source_url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/",
  "record_keys": {
   "TERM": "The house spelling. A harmonized value equals it exactly.",

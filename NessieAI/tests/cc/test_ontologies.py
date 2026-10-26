@@ -250,3 +250,6 @@ def test_every_entry_has_a_finished_url():
     for e in INDEX["ontologies"]:
         assert e["url"] == INDEX["source_url"] + e["file"], e["id"]
         assert e["url"].startswith("https://github.com/BioMicroCenter/NExtSEEK/"), e["id"]
+    # The index's own description sends a reader to that url, not to joining the two by hand.
+    assert "each entry's url is that ontology's public link" in INDEX["_about"]
+    assert "source_url plus" not in INDEX["_about"]
