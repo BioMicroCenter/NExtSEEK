@@ -61,6 +61,38 @@ def expand_category_types(query: str, result: EntityAgentOutput, catalog: list[d
         result.category_types[word] = codes
 
 
+#: The house conventions of entity_agent.txt ("DOMAIN CONVENTIONS"), applied in code: (words a question uses, code).
+#: The prompt block lists the same words; test_entity_house_types.py keeps the two in step.
+HOUSE_SAMPLE_TYPES: list[tuple[tuple[str, ...], str]] = [
+    (("PBMC", "peripheral blood mononuclear cell"), "TIS"),
+    (("BAL", "bronchoalveolar lavage"), "TIS"),
+    (("T cell", "NK cell", "natural killer cell", "macrophage", "monocyte", "dendritic cell", "neutrophil",
+      "B cell"), "CEL"),
+]
+
+
+def apply_house_sample_types(query: str, result: EntityAgentOutput, catalog: list[dict] | None) -> None:
+    """Add the house sample type of a word the question uses when the entity agent left it out.
+
+    The word is also kept as a keyword. A code the catalog does not hold is never added; with no catalog the
+    code is added with no name. Words match whole, any letter case, with an optional plural s.
+    """
+    names = {r.get("SampleType"): r.get("Name") for r in catalog or [] if isinstance(r, dict)}
+    chosen = {i.code for i in result.sampletypes}
+    have = {k.lower() for k in result.keywords}
+    for words, code in HOUSE_SAMPLE_TYPES:
+        for word in words:
+            m = re.search(rf"(?<![\w-]){re.escape(word)}s?(?![\w-])", query or "", re.IGNORECASE)
+            if not m:
+                continue
+            if code not in chosen and (code in names or not names):
+                result.sampletypes.append(EntityItem(code=code, name=names.get(code)))
+                chosen.add(code)
+            if m.group(0).lower() not in have:
+                result.keywords.append(m.group(0))
+                have.add(m.group(0).lower())
+
+
 def _as_list(value: Any) -> list:
     return value if isinstance(value, list) else []
 
@@ -212,6 +244,7 @@ def entity_agent(
                 result = EntityAgentOutput()
 
     _resolve_lab_names(config, user_query, result, sampletypes, assays, projects)
+    apply_house_sample_types(user_query, result, getattr(config, "MIN_SAMPLETYPES", None))
     expand_category_types(user_query, result, getattr(config, "MIN_SAMPLETYPES", None))
 
     print("[DEBUG][ENTITY] Parsed entity result:", json.dumps(result.model_dump(), indent=2))
