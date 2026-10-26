@@ -8,7 +8,7 @@ manifest; an `@` value is resolved by a function here.
 |---|---|
 | `__init__.py` | `COMMON_TOKENS` and `PIPELINE_TOKENS`, the declared names; `token_names_for` and `tokens_for` |
 | `common.py` | the resolvers of the common tokens, in `COMPUTED` |
-| `methylseq.py` | nf-core/methylseq's own tokens (conversion method and methylation protocol, from its boolean library presets), in `COMPUTED` |
+| `methylseq.py` | nf-core/methylseq's own tokens (conversion method and methylation protocol, from its boolean params: `taps`, `em_seq`, `rrbs`, `pbat`, `single_cell` in `special_library_types`, `nomeseq` in `bismark_options`; blank when no params were read), in `COMPUTED` |
 | `differentialabundance.py` | nf-core/differentialabundance's own tokens (contrast, paramset, method settings, report link, model object), in `COMPUTED` |
 
 ## Rules

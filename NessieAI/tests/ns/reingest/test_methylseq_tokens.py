@@ -17,8 +17,9 @@ def _resolve(token: str, params: dict):
 
 
 @pytest.mark.parametrize("params, label", [
-    ({}, "Bisulfite"),
+    ({}, None),
     ({"taps": False, "em_seq": False}, "Bisulfite"),
+    ({"aligner": "bismark"}, "Bisulfite"),
     ({"taps": True}, "TAPS"),
     ({"em_seq": True}, "EM-seq"),
     ({"taps": True, "em_seq": True}, "TAPS"),
@@ -29,8 +30,9 @@ def test_conversion_method(params, label):
 
 
 @pytest.mark.parametrize("params, label", [
-    ({}, "WGBS"),
+    ({}, None),
     ({"rrbs": False, "pbat": False, "single_cell": False, "nomeseq": False}, "WGBS"),
+    ({"aligner": "bwameth"}, "WGBS"),
     ({"rrbs": True}, "RRBS"),
     ({"pbat": True}, "PBAT"),
     ({"single_cell": True}, "single-cell"),
@@ -41,6 +43,15 @@ def test_conversion_method(params, label):
 ])
 def test_methylation_protocol(params, label):
     assert _resolve("methylation_protocol", params) == label
+
+
+def test_no_params_read_leaves_both_cells_blank():
+    """A run whose params file was never read says nothing about its chemistry or protocol;
+    a default would look measured (pipelines/README.md: never a placeholder)."""
+    run = manifest.RunManifest(run_dir="/RUN")
+    tokens = pipelines.tokens_for("nf-core/methylseq")
+    assert tokens["conversion_method"](run, None, {}) is None
+    assert tokens["methylation_protocol"](run, None, {}) is None
 
 
 def test_the_params_read_are_the_pinned_schemas():
