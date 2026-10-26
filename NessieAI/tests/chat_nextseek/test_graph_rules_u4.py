@@ -205,3 +205,62 @@ def test_the_total_beside_groups_example_has_no_call_subquery_and_is_a_proven_sh
     assert "CALL {" not in rule
     case = next(c for c in TAUGHT if c.id == "default.total_beside_groups")
     assert case.cypher in rule
+
+
+# --- dev_test_deep P1: method word upstream, total without collect, no pattern comprehension, both directions ---
+
+def test_a_method_word_on_a_sample_upstream_of_the_data_is_tested_on_the_descendant():
+    rule = _line("- **A method word on a sample upstream of the data.**")
+    assert "descendant" in rule and "EXISTS" in rule and "search_text" in rule
+    assert "floor" in rule  # an edge-only test is a floor: lineage edges often carry no assay title
+    assert "every spelling" in rule
+
+
+def test_a_total_beside_groups_never_collects_nodes_to_size_them():
+    rule = _line("- **A total across groups counts each item once.**")
+    assert "never `collect(DISTINCT s)` then `size()`" in rule
+    assert "WITH count(DISTINCT s) AS total" in rule
+
+
+def test_the_whole_node_repair_names_the_count_alternative():
+    from chat_nextseek.agents import graph as graph_mod
+
+    q = ("MATCH (s:T_X) WITH collect(DISTINCT s) AS xs UNWIND xs AS s "
+         "RETURN s.type AS type, count(*) AS n, size(xs) AS total")
+    assert graph_mod.whole_node_returns(q)
+    assert "count(DISTINCT" in graph_mod._WHOLE_NODE_ALTERNATIVE
+
+
+def test_the_rules_for_every_query_ban_a_pattern_comprehension():
+    assert "Never a pattern comprehension" in GRAPH
+    assert "OPTIONAL MATCH" in _line("- Never a pattern comprehension")
+
+
+def test_two_named_types_are_tested_in_both_directions():
+    rule = _line("- **Two named sample types: either may be the child.**")
+    assert "both directions" in rule and "which direction held" in rule
+
+
+@pytest.mark.parametrize("q", [
+    "MATCH (s:T_X) RETURN s.uuid AS u, [(s)-[:INPUT_TO]->(a:Assay) | a.title] AS assays",
+    "MATCH (s:T_X) RETURN [p = (s)<-[:DERIVED_FROM]-(c) | c.uuid] AS kids",
+    "MATCH (s:T_X) RETURN size([(s)-[:INPUT_TO|OUTPUT_OF]->(a) | a]) AS n",
+])
+def test_a_pattern_comprehension_is_a_problem_for_a_scoped_request_only(q):
+    from chat_nextseek.agents import graph as graph_mod
+
+    assert [p.kind for p in graph_mod.query_shape_problems(q, scoped=True)] == ["pattern_comprehension"]
+    assert graph_mod.query_shape_problems(q) == []
+
+
+@pytest.mark.parametrize("q", [
+    "MATCH (s:T_X) RETURN [x IN [1, 2] | x * 2] AS a",
+    "MATCH p = (s:T_X)<-[:DERIVED_FROM*1..3]-(c) RETURN [n IN nodes(p) | n.uuid] AS ids",
+    "MATCH (s:T_X) WHERE s.type IN ['A', 'B'] RETURN [s.uuid, s.type] AS row",
+    "MATCH (s:T_X) RETURN count { (s)<-[:DERIVED_FROM]-(:Sample) } AS k, COUNT { (s)-[:INPUT_TO]->() } AS j",
+    "MATCH (s:T_X) WHERE EXISTS { (s)-[:INPUT_TO|OUTPUT_OF]->(:Assay) } RETURN s.uuid",
+])
+def test_list_comprehensions_literals_and_subqueries_are_not_flagged(q):
+    from chat_nextseek.agents import graph as graph_mod
+
+    assert graph_mod.query_shape_problems(q, scoped=True) == []
