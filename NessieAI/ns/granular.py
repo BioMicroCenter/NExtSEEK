@@ -1850,8 +1850,9 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
         PARENTS_JOIN_ASSAY, SOFT, Finding, qa_rows)
     from NessieAI.ns.upload_workbook import MODE_NEW, MODE_UPDATE, render_upload_workbook
     from nextseek_api.services.reingest_lookups import (
-        attributes_for, known_sample_types, lab_code_from_uid,
-        lab_for_code_strict, next_name_ordinal_strict, project_ids_for_uids_strict)
+        attributes_for, existing_uids_for_primary_files_strict, known_sample_types,
+        lab_code_from_uid, lab_for_code_strict, next_name_ordinal_strict,
+        project_ids_for_uids_strict)
 
     def _slug(name: str) -> str:
         # Artifact keys are word characters only; the download route accepts
@@ -1949,6 +1950,34 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
     # needs this cohort or every new-mode row's Parent would fail resolution
     # against an empty set and hard-reject the whole batch.
     existing_parent_uids = {s.d_seq_uid for s in run_manifest.samples if s.d_seq_uid}
+
+    # A new row whose data file is already a sample of its type, under the same
+    # parent, is left out: reingesting a run that was uploaded must never make a
+    # second copy. A partly uploaded run still builds the rows it lacks. An outage
+    # raises, as every strict lookup here does; it never reads as "nothing there".
+    already_present: dict[str, dict] = {}
+    if mode == MODE_NEW:
+        def _cell(row, name):
+            attr = row.attributes.get(name)
+            return attr.value if attr is not None else ""
+
+        checked: dict[str, list] = {}
+        for row in result.rows:
+            if row.rule_id and row.sample_type != "D.SEQ":
+                checked.setdefault(row.sample_type, []).append(row)
+        dropped: set[int] = set()
+        for sample_type, type_rows in checked.items():
+            found = existing_uids_for_primary_files_strict(sample_type, [
+                {"link": _cell(row, "Link_PrimaryData"),
+                 "checksum": _cell(row, "Checksum_PrimaryData"),
+                 "parent": _cell(row, "Parent")} for row in type_rows])
+            uids = sorted({uid for matches in found for uid in matches})
+            if uids:
+                dropped |= {id(row) for row, matches in zip(type_rows, found) if matches}
+                already_present[sample_type] = {"uids": uids, "total": len(type_rows)}
+        if dropped:
+            result = result.model_copy(
+                update={"rows": [row for row in result.rows if id(row) not in dropped]})
 
     out_root = outputs_dir or os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs"
 
@@ -2330,7 +2359,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
     reply = user_report.render_qa_for_user(
         reports_by_type, saved_files, run_name, ambiguous_primary=ambiguous_primary,
         row_counts={st: len(rows) for st, rows in final.rows_by_type.items()},
-        unmapped_count=len(result.unmapped or []), missed_rules=result.missed_rules)
+        unmapped_count=len(result.unmapped or []), missed_rules=result.missed_rules,
+        already_present=already_present)
     # Map notes (an unchecked release, a companion with nowhere to go, values
     # with no home on the parent's type) are for whoever maintains the map; the
     # user can act on none of them, so they go to the server log, not the reply.

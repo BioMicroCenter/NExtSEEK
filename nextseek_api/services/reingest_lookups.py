@@ -240,6 +240,70 @@ def uids_by_primary_data(path: str, types=("D.SEQ",)) -> list[str]:
         return []
 
 
+def _parent_set(value) -> frozenset[str]:
+    return frozenset(p.strip() for p in str(value or "").split(";") if p.strip())
+
+
+def existing_uids_for_primary_files_strict(sample_type: str,
+                                           files: list[dict]) -> list[list[str]]:
+    """For each ``{"link", "checksum", "parent"}``, the UIDs of ``sample_type``
+    samples that already hold that file under that parent.
+
+    A sample holds the file when its ``Link_PrimaryData`` equals ``link`` or its
+    ``Checksum_PrimaryData`` equals a non-empty ``checksum``, and its ``Parent``
+    names the same set of UIDs. The parent is part of the match because a
+    per-run output (one gene-count matrix for every sample) is the same file on
+    every row. The answer is aligned with ``files``.
+
+    Reingest leaves out a new row that is already a sample, so an uploaded run
+    is never uploaded twice. Strict: a failed fetch or metadata that cannot be
+    parsed RAISES ``RuntimeError``, since "could not read" must never come back
+    as "nothing there yet". A type this instance lacks holds no samples.
+    """
+    if not files:
+        return []
+    wanted = [(str(f.get("link") or "").strip(), str(f.get("checksum") or "").strip(),
+               _parent_set(f.get("parent"))) for f in files]
+    needles = sorted({v for link, checksum, _ in wanted for v in (link, checksum) if v})
+    if not needles:
+        return [[] for _ in files]
+    try:
+        from django.db.models import Q
+
+        from seek.models import Sample_types, Samples
+
+        type_ids = list(Sample_types.objects.filter(title=sample_type)
+                        .values_list("id", flat=True))
+        if not type_ids:
+            return [[] for _ in files]
+        match_any = Q()
+        for needle in needles:
+            match_any |= Q(json_metadata__icontains=needle)
+        rows = list(Samples.objects.filter(sample_type_id__in=type_ids).filter(match_any)
+                    .values_list("uuid", "json_metadata"))
+    except Exception as exc:
+        raise RuntimeError(
+            f"samples unreachable checking {len(files)} {sample_type} file(s): {exc}") from exc
+
+    held: list[tuple[str, str, str, frozenset]] = []
+    for uid, raw in rows:
+        if not uid:
+            continue
+        try:
+            meta = json.loads(raw) if raw else {}
+        except ValueError as exc:
+            raise RuntimeError(f"unreadable metadata on sample {uid}") from exc
+        if not isinstance(meta, dict):
+            raise RuntimeError(f"unreadable metadata on sample {uid}")
+        held.append((str(uid), str(meta.get("Link_PrimaryData") or "").strip(),
+                     str(meta.get("Checksum_PrimaryData") or "").strip(),
+                     _parent_set(meta.get("Parent"))))
+    return [sorted({uid for uid, h_link, h_sum, h_parents in held
+                    if h_parents == parents
+                    and ((link and h_link == link) or (checksum and h_sum == checksum))})
+            for link, checksum, parents in wanted]
+
+
 def sample_types_for_uids(uids: list[str]) -> dict[str, str]:
     """The SampleType title per UID. A UID whose type cannot be determined is
     OMITTED.
