@@ -1,0 +1,12 @@
+{
+  "_purpose": "Test-only overlay of house assays that exist on the local stack but not yet in the committed assay catalog (NessieAI/chat_nextseek/src/chat_nextseek/context/assays_db.json, which is prod-true). test_map_contract.py merges these entries into the catalog it checks rules against, the way sampletype_attributes.json carries hand_edits for sample types. Never read at runtime. Delete an entry once its assay is in context/assays.json and the exports.",
+  "assays": [
+    {
+      "Name": "Methylation Calling",
+      "Alternative Assay Names": "Methylation Extraction, Bisulfite Sequencing Analysis",
+      "Required Parent Sample Types": "D.SEQ or A.ALN",
+      "Children Sample Types": "A.MSEQ",
+      "why": "Created on the local stack only on 2026-10-26 (internal_assays 85, assay_context 234), as the producing assay for A.MSEQ; move into context/assays.json once dev and prod have it."
+    }
+  ]
+}

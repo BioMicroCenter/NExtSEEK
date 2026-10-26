@@ -143,14 +143,33 @@ def test_every_output_rule_names_a_known_sample_type(name):
 
 
 # The committed house-assay catalog: {name or alternative name: child sample types}.
+# The export stays prod-true; assays made on the local stack only come from a test-only
+# overlay (fixtures/local_only_assays.json), each entry with its reason, as the
+# sample-type snapshot's hand_edits do.
+_LOCAL_ONLY_ASSAYS = json.loads((FIXTURE_PATH.parent / "local_only_assays.json").read_text())["assays"]
 _ASSAY_CATALOG = json.loads((Path(maps.__file__).resolve().parents[2] / "chat_nextseek" / "src"
                              / "chat_nextseek" / "context" / "assays_db.json").read_text())
+_ASSAY_CATALOG += [a for a in _LOCAL_ONLY_ASSAYS
+                   if not any(e["Name"] == a["Name"] for e in _ASSAY_CATALOG)]
 _ASSAY_CHILDREN = {
     alias.strip(): {t.strip() for t in (entry.get("Children Sample Types") or "").split(" or ")}
     for entry in _ASSAY_CATALOG
     for alias in [entry["Name"], *(entry.get("Alternative Assay Names") or "").split(",")]
     if alias.strip()
 }
+
+
+def test_every_local_only_assay_says_why_and_is_not_yet_in_the_export():
+    """An overlay entry is a stand-in for an assay the committed export lacks. Once the
+    export has it, the entry must go, or the overlay would hide a drift between the two."""
+    exported = {e["Name"] for e in json.loads(
+        (Path(maps.__file__).resolve().parents[2] / "chat_nextseek" / "src" / "chat_nextseek"
+         / "context" / "assays_db.json").read_text())}
+    for entry in _LOCAL_ONLY_ASSAYS:
+        assert len(entry.get("why", "")) > 20, entry["Name"]
+        assert entry["Children Sample Types"], entry["Name"]
+        assert entry["Name"] not in exported, \
+            f"{entry['Name']} is in assays_db.json now; delete it from local_only_assays.json"
 
 
 @pytest.mark.parametrize("name", ALL_MAPS)
