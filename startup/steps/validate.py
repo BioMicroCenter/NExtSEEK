@@ -345,7 +345,31 @@ def check_nginx_config(repo_root: Path, env: dict[str, str]) -> HealthResult:
         return HealthResult(
             name=name, ok=False,
             detail="nginx serves an old config; run ./startup.sh rebuild --recreate-nginx")
+    if nginx_definition_changed(repo_root, env):
+        # The rebuild's front-door start passes --no-recreate (a plain `up` recreated a running
+        # nginx onto `web` before `web` existed: prod 502, 2026-10-26), so nothing else applies it.
+        return HealthResult(
+            name=name, ok=True, warn=True,
+            detail="nginx service definition changed: run ./startup.sh rebuild --recreate-nginx")
     return HealthResult(name=name, ok=True, detail="matches the checkout")
+
+
+def nginx_definition_changed(repo_root: Path, env: dict[str, str]) -> bool:
+    """Whether the running nginx was made from another service definition than the checkout's
+    (an image tag, a mount): compose's config hash against the container's
+    com.docker.compose.config-hash label, the test a plain `up` recreates on. False when either
+    cannot be read."""
+    def out(cmd: list[str]) -> str:
+        return subprocess.run(cmd, cwd=str(repo_root), env={**os.environ, **env}, capture_output=True,
+                              text=True, timeout=30).stdout.strip()
+    try:
+        want = out(["docker", "compose", "config", "--hash", FRONT_DOOR_SERVICE]).split()[1:2]
+        cid = out(["docker", "compose", "ps", "-q", FRONT_DOOR_SERVICE]).split()[:1]
+        have = out(["docker", "inspect", "-f",
+                    '{{index .Config.Labels "com.docker.compose.config-hash"}}', *cid]) if cid else ""
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return bool(want and have) and want[0] != have
 
 
 def seek_started_at(repo_root: Path, env: dict[str, str]) -> str | None:

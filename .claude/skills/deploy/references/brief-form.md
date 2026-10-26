@@ -32,6 +32,7 @@ the script decides the default, not you.
 | `local_ruling` | no | `null` | on `local` only: the operator's words that allow a rebuild or CI here, quoted |
 | `acknowledged_flags` | no | `[]` | `{path, reason}`: a path the `commits` step flags (for example a seed dump under `startup/seed/`) that the operator accepts, in their words. `path` is exact, as `commits` lists it. The step still reports the flag as a warning; an acknowledged path no longer stops the launch. A path in the range that is not listed still stops it |
 | `waivers` | no | `[]` | `{check, reason}`: a preflight check the operator explicitly accepted (for example `oom` for an old SEEK OOM), in their words |
+| `ship_behind_origin` | no | `null` | the operator's words, quoted, letting `expected_sha` be an **ancestor** of origin/dev instead of origin/dev itself (a sha that tested green while dev moved on). The preflight's `origin_match` row and the runner then accept it only when it is on origin/dev's history; never a sha off it |
 | `tag` | no | UTC now | `YYYYMMDD-HHMM`; names the launch folder, the tmux session and the files on the box |
 | `start_utc` | no | now | a planned start, for the window check (`2026-09-26T13:00:00Z`) |
 

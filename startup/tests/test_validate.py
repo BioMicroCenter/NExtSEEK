@@ -1085,6 +1085,7 @@ def _nginx_repo(tmp_path: Path, text: str = "events {}\n") -> Path:
 def test_nginx_config_ok_when_the_served_file_equals_the_checkout(monkeypatch, tmp_path):
     repo = _nginx_repo(tmp_path)
     monkeypatch.setattr(validate, "compose_exec", lambda **k: "events {}\n")
+    monkeypatch.setattr(validate, "nginx_definition_changed", lambda repo, env: False)
     r = validate.check_nginx_config(repo, {})
     assert r.ok is True and r.warn is False
 
@@ -1095,6 +1096,46 @@ def test_nginx_config_red_and_names_the_fix_when_the_served_file_differs(monkeyp
     r = validate.check_nginx_config(repo, {})
     assert r.ok is False
     assert r.detail == "nginx serves an old config; run ./startup.sh rebuild --recreate-nginx"
+
+
+def test_nginx_config_warns_when_the_nginx_service_definition_changed(monkeypatch, tmp_path):
+    """The rebuild's front-door start passes --no-recreate (prod 502, 2026-10-26), so a changed
+    nginx service (an image tag, a new mount) is applied only by --recreate-nginx: say so."""
+    repo = _nginx_repo(tmp_path)
+    monkeypatch.setattr(validate, "compose_exec", lambda **k: "events {}\n")
+    monkeypatch.setattr(validate, "nginx_definition_changed", lambda repo, env: True)
+    r = validate.check_nginx_config(repo, {})
+    assert r.ok is True and r.warn is True
+    assert r.detail == "nginx service definition changed: run ./startup.sh rebuild --recreate-nginx"
+
+
+def test_nginx_definition_changed_compares_compose_config_hash_with_the_running_label(monkeypatch, tmp_path):
+    """`docker compose config --hash` prints `<service> <hash>`; the container compose made carries
+    the same hash in com.docker.compose.config-hash (checked with Compose v5.4.0, 2026-10-26)."""
+    answers = {"config": "nextseek_nginx abc\n", "ps": "cid1\n", "inspect": "abc\n"}
+    seen: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append(cmd)
+        key = "config" if "config" in cmd else "inspect" if cmd[1] == "inspect" else "ps"
+        return SimpleNamespace(returncode=0, stdout=answers[key], stderr="")
+
+    monkeypatch.setattr(validate.subprocess, "run", fake_run)
+    assert validate.nginx_definition_changed(tmp_path, {}) is False
+    assert ["docker", "compose", "config", "--hash", "nextseek_nginx"] in seen
+    assert any(c[:2] == ["docker", "inspect"] and c[-1] == "cid1" for c in seen)
+    answers["inspect"] = "old\n"
+    assert validate.nginx_definition_changed(tmp_path, {}) is True
+    # no label, no container, or no hash: unknown, so no warning
+    for key in ("inspect", "ps", "config"):
+        answers.update({"inspect": "old\n", "ps": "cid1\n", "config": "nextseek_nginx abc\n", key: ""})
+        assert validate.nginx_definition_changed(tmp_path, {}) is False, key
+
+    def boom(cmd, **kwargs):
+        raise OSError("no docker")
+
+    monkeypatch.setattr(validate.subprocess, "run", boom)
+    assert validate.nginx_definition_changed(tmp_path, {}) is False
 
 
 def test_nginx_config_says_it_could_not_check_when_exec_fails(monkeypatch, tmp_path):

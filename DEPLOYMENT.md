@@ -458,6 +458,17 @@ does not start, so build the spawner first, once per box:
 ./startup.sh rebuild --recreate-nginx      # about a minute of the restart page
 ```
 
+Until the app step recreates it, nginx must keep its old config: the new `nginx.conf`
+proxies to `web` and answers 502 until `web` exists (prod, 2026-10-26: 19 minutes). The
+rebuild's front-door start never recreates a running nginx (`up --no-recreate`) on a checkout
+that contains 607031e7; on an older checkout the first rebuild that restarts a container
+recreates it whenever its service definition changed. So the skill's runner, on a box that has
+never had a `web` container, keeps the usual image order and stops before any rebuild unless
+the shipped sha contains that fix and the brief lets the app step recreate nginx
+(`nginx recreate ok`). The same `--no-recreate` leaves any other change to the nginx service
+(an image tag, a mount) unapplied until `--recreate-nginx`; the rebuild's `nginx config` check
+warns when the running nginx's definition differs from the checkout's.
+
 Every rebuild after it swaps. `rebuild` also writes the spawner token pair
 (`NEXTSEEK_SPAWNER_TOKEN` in `docker/nextseek.env`, `SPAWNER_TOKEN` in
 `docker/cc-spawner.env`) on a box that lacks it; both files stay out of git. The
