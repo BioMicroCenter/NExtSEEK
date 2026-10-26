@@ -30,7 +30,9 @@ total affected sample rows exceed the configured threshold the mode is
 `asynchronous`, otherwise `synchronous` (`nextseek_api/attributes/planner.py:697`),
 with the threshold defaulting to 5000 (`dmac/settings.py:445-447`). The caller never
 chooses; it only learns which happened, from a `202` carrying a `job_id`
-(`nextseek_api/attributes/service.py:200-207`) or a completed body.
+(`nextseek_api/attributes/service.py:207-213`) or a completed body. A `202`'s counts
+say what was resolved, never what was written: its outcome counts are zero
+(`MutationAcceptedResponse`), and the job's terminal result at `status_url` carries them.
 
 Both modes create the same durable rows through `MutationJobService.create`
 (`nextseek_api/attributes/jobs.py:537`), in one transaction. The difference is one
