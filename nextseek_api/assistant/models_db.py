@@ -579,7 +579,11 @@ class ChatSearchEntry(models.Model):
     result IDs it had, of which at most 500 have rows). Only turns still in the chat's ``chat_log`` keep rows.
     """
 
-    session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name="search_entries")
+    # No database-level FK: assistant_chat_session predates utf8mb4 and is latin1 on dev and prod, so
+    # MySQL refuses a constraint from this utf8mb4 table's char(32) session_id (error 3780). The ORM
+    # still cascades the delete; the column stays indexed.
+    session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name="search_entries",
+                                db_constraint=False)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     turn_id = models.IntegerField()
     source = models.CharField(max_length=16)

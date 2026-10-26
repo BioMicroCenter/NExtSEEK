@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
                 ('key', models.CharField(blank=True, default='', max_length=64)),
                 ('record_type', models.CharField(blank=True, default='', max_length=16)),
                 ('text', models.TextField(blank=True, default='')),
-                ('session', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='search_entries', to='nextseek_api.chatsession')),
+                ('session', models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.CASCADE, related_name='search_entries', to='nextseek_api.chatsession')),
                 ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
             ],
             options={
