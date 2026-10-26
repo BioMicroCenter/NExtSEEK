@@ -226,7 +226,6 @@ def _sync_django_user(
         dj.email = email
         dj.first_name = first_name
         dj.last_name = last_name
-        dj.is_staff = True
         dj.is_active = is_active
         dj.is_superuser = is_superuser
         dj.set_password(password)
@@ -583,7 +582,6 @@ class UsersViewSet(viewsets.ViewSet):
 
         if django_user is None:
             django_user = DjangoUser(username=seek_user.login, email=person.email or "")
-            django_user.is_staff = True
 
         if body.email:
             django_user.email = body.email
