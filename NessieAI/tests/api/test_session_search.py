@@ -323,13 +323,33 @@ class Part2SearchTests(SearchBase):
     def test_facets_follow_the_matches(self):
         self.indexed(log=[turn(1, "liver", "TIS-220831FLY-26")])
         self.indexed(log=[turn(1, "brain", "MUS-220101ABC-1")])
-        self.assertEqual(search_sessions(self.a.pk, "liver", sources=["chats", "records"])["facets"]["record_type"],
+        self.assertEqual(search_sessions(self.a.pk, "liver", sources=["chats", "records"], facets=True)["facets"]["record_type"],
                          {"TIS": 1})
+
+    def test_counts_only_when_asked(self):
+        self.indexed(log=[turn(1, "liver", "TIS-220831FLY-26")])
+        res = search_sessions(self.a.pk, "liver", sources=["chats", "records"])
+        self.assertEqual(res["facets"], {"record_type": {}, "project": {}, "where": {}})
+
+    def test_no_query_joins_the_chat_table_to_the_index(self):
+        # dev 10-26: a join from the index to assistant_chat_session (legacy latin1, ~1 GB) table-scanned the chats
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        cs = self.indexed(log=[{"turn_id": 1, "user_query": "q", "assistant_reply": "TIS-220831FLY-26", "cc_run_id": "r1"}],
+                          transcripts=[("r1", self.steps("graph schema read", "nextseek-graph-schema"))])
+        with CaptureQueriesContext(connection) as ctx:
+            for kw in ({"sources": ["steps"]}, {"sources": ["steps"], "since_days": 30},
+                       {"sources": ["records"], "record_type": "TIS", "since_days": 30, "facets": True}):
+                q = "graph" if kw["sources"] == ["steps"] else ""
+                self.assertEqual(self.ids(search_sessions(self.a.pk, q, **kw)), [str(cs.session_id)], kw)
+        joined = [q["sql"] for q in ctx.captured_queries
+                  if "assistant_chat_search_entry" in q["sql"] and "assistant_chat_session" in q["sql"]]
+        self.assertEqual(joined, [])
 
     def test_facets_count_what_the_combined_filter_returns(self):
         # review 10-26: the question names a MUS, the answer a TIS; with where=answer, MUS must not be offered
         self.indexed(log=[turn(1, "q", "TIS-220831FLY-26") | {"key_entities": {"uids": ["MUS-220101ABC-1"]}}])
-        res = search_sessions(self.a.pk, "", sources=["records"], where="answer")
+        res = search_sessions(self.a.pk, "", sources=["records"], where="answer", facets=True)
         self.assertEqual(res["facets"]["record_type"], {"TIS": 1})
         self.assertEqual(search_sessions(self.a.pk, "", sources=["records"], where="answer", record_type="MUS")["results"], [])
         only = search_sessions(self.a.pk, "", sources=["records"], record_type="MUS", facets_only=True)

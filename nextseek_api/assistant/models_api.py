@@ -117,7 +117,8 @@ class SessionSearchResponse(BaseModel):
     total: int = Field(..., description="Every matching chat, before the limit")
     results: List[SessionSearchHit]
     facets: Dict[str, Dict[str, int]] = Field(..., description=(
-        "For record_type, project and where: each value and how many of the matching chats it would keep"))
+        "For record_type, project and where: each value and how many of the matching chats it would keep "
+        "(empty unless facets=1 or facets_only=1)"))
 
     model_config = ConfigDict(extra="forbid")
 
