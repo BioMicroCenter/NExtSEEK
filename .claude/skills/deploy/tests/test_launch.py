@@ -535,6 +535,22 @@ def test_a_switchover_rebuilds_agent_sidecar_proxy_then_app_and_checks_ownership
     assert text.index("fix-ownership --check") > text.index('for c in $COMPONENTS; do')
 
 
+def test_the_host_gid_reaches_env_before_the_pull(tmp_path, capsys):
+    """Phase 4 compose interpolates ${NEXTSEEK_HOST_GID:?...}: every compose verb after the pull fails without it.
+    The old compose ignores the key, so writing it before the fast-forward leaves no window."""
+    d, text = rendered_runner(tmp_path, capsys, images=["app"], allowed_extras=[])
+    body = text.split("# <<< functions", 1)[1]
+    assert body.index("\nhost_gid_env") < body.index("git merge --ff-only")
+    box = tmp_path / "box"; box.mkdir()
+    (box / ".env").write_text("COMPOSE_PROJECT_NAME=nextseek")          # no final newline
+    r = subprocess.run(["bash", "-c", f'ST={box}/st\n{_functions(text)}\ncd {box} && host_gid_env && host_gid_env'],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    lines = (box / ".env").read_text().splitlines()
+    assert "COMPOSE_PROJECT_NAME=nextseek" in lines and lines.count(f"NEXTSEEK_HOST_GID={os.getgid()}") == 1
+    assert "NEXTSEEK_HOST_GID" in (box / "st").read_text()   # said once, in the status file
+
+
 def test_the_post_deploy_checks_prove_web_is_non_root_and_the_spawner_refuses_without_a_token(tmp_path, capsys):
     d, text = rendered_runner(tmp_path, capsys, images=["app"], allowed_extras=[])
     assert "CHECK web_uid $(docker compose exec -T web id -u" in text

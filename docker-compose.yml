@@ -78,7 +78,7 @@ services:
     # escalation. group_add is the deploy account's gid, so the app can read local_settings.py and the Luria key (mode 0640).
     user: "10001:10001"
     group_add:
-      - "${NEXTSEEK_HOST_GID:?run ./startup.sh rebuild to write NEXTSEEK_HOST_GID into .env}"
+      - "${NEXTSEEK_HOST_GID:?is missing from .env: add it with echo NEXTSEEK_HOST_GID=`id -g` >> .env}"
     cap_drop:
       - ALL
     security_opt:
@@ -175,7 +175,7 @@ services:
     # Non-root, as `nextseek`.
     user: "10001:10001"
     group_add:
-      - "${NEXTSEEK_HOST_GID:?run ./startup.sh rebuild to write NEXTSEEK_HOST_GID into .env}"
+      - "${NEXTSEEK_HOST_GID:?is missing from .env: add it with echo NEXTSEEK_HOST_GID=`id -g` >> .env}"
     cap_drop:
       - ALL
     security_opt:

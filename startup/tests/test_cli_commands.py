@@ -2760,3 +2760,42 @@ def test_rebuild_refuses_when_a_secret_file_cannot_be_made_group_readable(
     result = runner.invoke(cli.app, ["rebuild", "--no-ci"])
 
     assert result.exit_code == 1 and "not owned by this user" in result.output
+
+
+# phase 4 fix round: NEXTSEEK_HOST_GID reaches .env before any compose call
+
+def test_rebuild_writes_the_host_gid_into_an_old_env_before_the_preflight(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import validate
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    _stub_ownership(monkeypatch)
+    (repo / ".env").write_text("COMPOSE_PROJECT_NAME=nextseek")   # an existing box: no key, no final newline
+    seen: list[str] = []
+    monkeypatch.setattr(validate, "check_app_ids", lambda gid: seen.append(
+        read_env(repo / ".env").get("NEXTSEEK_HOST_GID", "")) or validate.HealthResult("app uid/gid", True, "ok"))
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-ci"])
+
+    assert result.exit_code == 0, result.output
+    assert seen == [str(os.getgid())]
+    assert read_env(repo / ".env")["COMPOSE_PROJECT_NAME"] == "nextseek"
+
+
+def test_fix_ownership_writes_the_host_gid_before_asking_compose(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import volumes
+
+    _saved_state(repo, ci_profile="dev")
+    (repo / ".env").write_text("COMPOSE_PROJECT_NAME=nextseek\n")
+    seen: list[str] = []
+    monkeypatch.setattr(volumes, "ensure_app_ownership", lambda root, env, *, check_only, skip_cc_users=False,
+                        say=None: seen.append(read_env(repo / ".env").get("NEXTSEEK_HOST_GID", "")) or {})
+
+    result = runner.invoke(cli.app, ["fix-ownership", "--check"])
+
+    assert result.exit_code == 0, result.output
+    assert seen == [str(os.getgid())]

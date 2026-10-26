@@ -23,7 +23,8 @@ def test_app_service_is_non_root_without_capabilities(name):
     assert "cap_add" not in svc
     assert not svc.get("privileged")
     # (i) the deploy account's gid, by env reference only (mandatory form: no guessed fallback)
-    assert svc.get("group_add") == ["${NEXTSEEK_HOST_GID:?run ./startup.sh rebuild to write NEXTSEEK_HOST_GID into .env}"]
+    assert svc.get("group_add") == [
+        "${NEXTSEEK_HOST_GID:?is missing from .env: add it with echo NEXTSEEK_HOST_GID=`id -g` >> .env}"]
 
 
 def test_no_service_adds_the_docker_or_root_group():

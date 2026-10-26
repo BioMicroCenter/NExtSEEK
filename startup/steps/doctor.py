@@ -7,7 +7,7 @@ from pathlib import Path
 from startup.lib import web_swap
 from startup.lib.instance import InstanceState, load_instance
 from startup.lib.docker_ops import compose_ps_running
-from startup.steps import prereqs, registry_push, validate, volumes
+from startup.steps import config, prereqs, registry_push, validate, volumes
 
 # Where ci/smoke/conftest.py looks for the smoke credentials, and the override it
 # honours. Restated rather than imported: startup/ never imports ci/.
@@ -117,6 +117,8 @@ def diagnose(repo_root: Path, *, scope: str = "full") -> list[tuple[str, bool, s
     if state is None:
         results.append(("instance state", False, "startup/.instance.json missing (was install ever run?)"))
         return results
+    # The one write: compose needs NEXTSEEK_HOST_GID for every verb (the ownership row below asks it).
+    config.ensure_host_gid(repo_root)
     results.append(("instance state", True, f"name={state.name} prefix={state.prefix or '(none)'} ports={state.ports}"))
     results.append(check_ci_profile(state))
     results.append(check_ci_credentials())

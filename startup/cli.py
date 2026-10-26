@@ -648,6 +648,7 @@ def fix_ownership(
     if state is None:
         ui.fail("no instance found — run 'startup install' first")
         raise typer.Exit(code=1)
+    config.ensure_host_gid(REPO_ROOT)   # compose needs it for every verb
     t0 = time.monotonic()
     try:
         # Before the switchover the running agents still own their files in dmac-cc-users under the old
@@ -918,6 +919,8 @@ def rebuild(
         ui.fail("no instance found — run 'startup install' first")
         raise typer.Exit(code=1)
 
+    # Phase 4 compose interpolates ${NEXTSEEK_HOST_GID:?...}, so every compose verb fails until .env has it.
+    config.ensure_host_gid(REPO_ROOT)
     try:
         policy = resolve_component(component, state.compose_project_name)
     except ValueError as exc:

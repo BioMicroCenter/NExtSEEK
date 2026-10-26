@@ -559,6 +559,28 @@ def test_doctor_ownership_row_only_on_a_problem(monkeypatch: pytest.MonkeyPatch,
 @patch("startup.steps.doctor.validate")
 @patch("startup.steps.doctor.load_instance")
 @patch("startup.steps.doctor.prereqs")
+def test_doctor_writes_the_host_gid_into_an_old_env(
+    mock_prereqs: MagicMock, mock_load: MagicMock, mock_validate: MagicMock, tmp_path: Path
+) -> None:
+    import os
+    from startup.lib.env import read_env
+    from startup.steps.doctor import diagnose
+
+    (tmp_path / "startup").mkdir()
+    (tmp_path / ".env").write_text("COMPOSE_PROJECT_NAME=nextseek\n")
+    mock_prereqs.run_all.return_value = []
+    state = MagicMock()
+    state.name, state.prefix, state.ports = "nextseek", "", {"nextseek": 8000}
+    state.compose_env.return_value = {}
+    mock_load.return_value = state
+    mock_validate.run_all_health_checks.return_value = []
+    diagnose(tmp_path)
+    assert read_env(tmp_path / ".env")["NEXTSEEK_HOST_GID"] == str(os.getgid())
+
+
+@patch("startup.steps.doctor.validate")
+@patch("startup.steps.doctor.load_instance")
+@patch("startup.steps.doctor.prereqs")
 def test_doctor_full_path_includes_health_checks(
     mock_prereqs: MagicMock, mock_load: MagicMock, mock_validate: MagicMock, tmp_path: Path
 ) -> None:

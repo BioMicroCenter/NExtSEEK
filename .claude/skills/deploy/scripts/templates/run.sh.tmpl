@@ -105,6 +105,10 @@ set_aside(){ # local edits to files the range CHANGES: copy them to $H/backups/s
     say "SET_ASIDE $p -> $d"
   done
 }
+host_gid_env(){ # phase 4 compose needs NEXTSEEK_HOST_GID in .env for EVERY verb; the old compose ignores it, so add it before the pull
+  grep -q '^NEXTSEEK_HOST_GID=' .env 2>/dev/null && return 0
+  printf '\nNEXTSEEK_HOST_GID=%s\n' "$(id -g)" >> .env && say "ENV NEXTSEEK_HOST_GID=$(id -g) added to .env"
+}
 switch_order(){ # $1 the components: the phase 4 switchover order. The agent, sidecar and proxy images go first so the
   # app rebuild (which stops web and nextseek, fixes ownership, starts them) is the last step and closes the gaps
   for c in cc-agent nextseek-sidecar bedrock-proxy cc-spawner app; do case " $1 " in *" $c "*) echo "$c";; esac; done
@@ -124,6 +128,7 @@ git fetch -q origin || stop "git fetch failed"
 for p in $DISCARD; do git checkout -- "$p" 2>/dev/null; done   # the app's daily context refresh only
 set_aside || stop "could not set the dirty $SET_ASIDE aside; nothing was reset past the failed file"
 rm -f @@REFRESH_MARKER@@
+host_gid_env || stop "could not add NEXTSEEK_HOST_GID to .env"
 git merge --ff-only "$EXP" >> "$L/pull.log" 2>&1 || stop "fast-forward refused, see $L/pull.log"
 [ "$(git rev-parse HEAD)" = "$EXP" ] || stop "HEAD $(git rev-parse --short HEAD) is not the expected sha"
 say "HEAD $(git log --oneline -1 | cut -c1-70)"

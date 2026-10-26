@@ -355,7 +355,8 @@ def ensure_host_gid(repo_root: Path) -> Path:
     """Add NEXTSEEK_HOST_GID=<the installing user's gid> to .env once; an existing value is kept.
 
     Compose reads it with the mandatory ``${NEXTSEEK_HOST_GID:?...}`` form, so a box whose .env lacks it
-    would fail every compose verb until this runs (rebuild calls it).
+    fails every compose verb until this runs. rebuild, fix-ownership and doctor call it first; the deploy
+    runner appends the key before its pull.
     """
     output = repo_root / ".env"
     if not read_env(output).get(HOST_GID_KEY):
