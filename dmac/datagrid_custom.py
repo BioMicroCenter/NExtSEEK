@@ -187,7 +187,7 @@ class DataGrid(object):
     def __retrieve(self):
         filterRules = self.dbtable.formatRule(self.filterRules)
         
-        qset = self.db.generateQuerySet(filterRules)
+        qset = self.db.generateQuerySet(filterRules, self.dbtable.tablemodel)
         jdata = self.db.retrieveJoint(self.dbtable.tablemodel, '', qset, self.orderby, self.limit)
         jdata_new = self.dbtable.reformatData(jdata)
         

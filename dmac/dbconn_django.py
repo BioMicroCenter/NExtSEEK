@@ -19,6 +19,10 @@ logging.basicConfig(level=logging.DEBUG)
 from dmac.iocsv import saveCsvfile, getString, getFloat
 from dmac.conversion import convertSQLString, is_numeric
 
+# Grid column names that are not model fields but have one behind them. The others (sample_type, assays, first_name)
+# need a join this ORM grid does not make, so they are dropped.
+GRID_KEY_MAP = {'uid': 'uuid'}
+
 class DBconn_django(object):
     def __init__(self):
         self.conn = connection
@@ -388,14 +392,16 @@ class DBconn_django(object):
         keyword = ' '
         if len(strs3)>2:
             keyword = strs3[2]
-        if keyword not in self.__fieldNames(tablemodel):
-            keyword = ' '           # the sort key comes from the client: only real fields of the model
+        keyword = GRID_KEY_MAP.get(keyword, keyword)
+        rejected = keyword not in self.__fieldNames(tablemodel)   # the sort key comes from the client
         
         order = 'ASC'                          
         if len(strs3)>3:
             order = strs3[3]                    
             
-        if order.upper()=='ASC':
+        if rejected:
+            orderby_keyword = ' '       # no ordering at all, whatever the order
+        elif order.upper()=='ASC':
             orderby_keyword = keyword
         elif order.upper()=='DESC':
             orderby_keyword = "-" + keyword
@@ -576,7 +582,8 @@ class DBconn_django(object):
         n = 0
         if tablemodel is not None:
             allowed = self.__fieldNames(tablemodel)
-            filterRules = [r for r in filterRules if r.get("field") in allowed]
+            filterRules = [dict(r, field=GRID_KEY_MAP.get(r.get("field"), r.get("field"))) for r in filterRules]
+            filterRules = [r for r in filterRules if r["field"] in allowed]
         for rule in filterRules:
             field = rule["field"]
             keyword = rule["value"]

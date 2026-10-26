@@ -100,3 +100,15 @@ def test_clade_stats_bind_project_id():
     assert "5 OR 1=1" not in captured["q"]
     assert "p.id = %s" in captured["q"]
     assert list(captured["p"]) == ["5 OR 1=1"]
+
+
+def test_an_unknown_sort_with_the_default_order_applies_no_ordering():
+    _, log = _run({"page": "1", "rows": "10", "sort": "sample_type"})
+    assert log["order_by"] == []
+
+
+def test_the_uid_column_filters_and_sorts_on_uuid():
+    rules = json.dumps([{"field": "uid", "op": "contains", "value": "NHP"}])
+    _, log = _run({"page": "1", "rows": "10", "sort": "uid", "order": "asc", "filterRules": rules})
+    assert str(log["filters"][0]) == str(Q(uuid__icontains="NHP"))
+    assert log["order_by"] == ["uuid"]
