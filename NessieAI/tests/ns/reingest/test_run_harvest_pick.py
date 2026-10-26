@@ -217,8 +217,26 @@ def test_the_key_cleanup_never_removes_a_file_it_did_not_copy(tmp_path):
     assert not copy.exists()
 
 
+def test_an_all_skipped_upload_still_takes_the_run_off_the_pick(monkeypatch):
+    # N2: the second upload of a run is all skipped; the run must still leave the waiting pick.
+    from NessieAI.ns.reingest import upload
+
+    me = _user("me")
+    run = _run("mine", me)
+    job = {"build_id": "b1", "manifest_id": "m1", "job_id": "j1",
+           "outcome": {"status": "skipped", "failed_rows": 0}}
+    monkeypatch.setattr(upload, "run", lambda **_k: {"jobs": [job], "reply": "ok"})
+    monkeypatch.setattr("NessieAI.ns.reingest.store.load_manifest",
+                        lambda mid: SimpleNamespace(launch_record_id=run.pk))
+    g.run_op("upload-reingest", {"build_ids": "b1", "confirmed_write": True},
+             config=_Cfg(), session=SimpleNamespace(user=me), write_gate=lambda *a: None,
+             neo4j_exec=None, outputs_dir=None)
+    run.refresh_from_db()
+    assert run.status == launch_record.STATUS_REINGESTED
+
+
 @pytest.mark.parametrize("outcome", [{"status": "failed", "error": "worker lost"}, {"status": "running"},
-                                     {"status": "skipped"}, None])
+                                     {"status": "skipped", "failed_rows": 2}, None])
 def test_a_job_that_started_but_did_not_succeed_leaves_the_run_waiting(monkeypatch, outcome):
     """A run is marked reingested on success only (PR 135 SF-3): a started job that failed, is still
     running, or wrote nothing must not take the run off the pick or start the cleanup clock."""

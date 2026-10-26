@@ -243,3 +243,23 @@ def test_the_same_builds_cannot_be_uploaded_twice(env):
     with pytest.raises(upload.UploadRefused) as err:
         _upload(env, lambda job_id: _done(created=2), builds)
     assert "already uploaded" in str(err.value.reasons)
+
+
+def test_a_partly_skipped_job_still_registers_its_parents():
+    # N2: a skipped row has its sample already; the 11 created samples' parents must be added.
+    outcome = upload._summarise("j1", _skipped(12, 1, created=11))
+    entry = {"job_id": "j1", "outcome": outcome, "sample_type": "A.ALN", "mode": "new"}
+    record = {"mode": "new", "parent_assays": [{"parent_uid": "D.SEQ-1", "assay_id": 7}]}
+    calls = []
+    parents = upload._register_parents(entry, record,
+                                       lambda pairs: calls.append(pairs) or {"counts": {"written": 1}})
+    assert calls and parents["status"] == "registered"
+    entry["parents"] = parents
+    assert "not every new sample was created" not in upload._reply([entry])
+
+
+def test_a_failed_row_job_still_does_not_register_parents():
+    outcome = upload._summarise("j1", _done(created=1, failed=1, errors=[{"row": 2, "error": "bad"}]))
+    entry = {"job_id": "j1", "outcome": outcome}
+    record = {"mode": "new", "parent_assays": [{"parent_uid": "D.SEQ-1", "assay_id": 7}]}
+    assert upload._register_parents(entry, record, lambda pairs: {})["status"] == "not_added"

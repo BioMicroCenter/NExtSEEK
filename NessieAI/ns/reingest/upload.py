@@ -353,6 +353,13 @@ def _summarise(job_id: str, raw: dict | None) -> dict:
             "created_uids": _created_uids(raw.get("rows"))}
 
 
+def job_is_done(outcome: dict | None) -> bool:
+    """A job that ran to its end with no failed row: its rows were written or already existed (skipped)."""
+    outcome = outcome or {}
+    return (outcome.get("status") == "succeeded"
+            or (outcome.get("status") == "skipped" and not outcome.get("failed_rows")))
+
+
 def _created_uids(rows) -> list[str] | None:
     """The UIDs of the rows the job inserted, in sheet order, or None when the host gave
     no rows. An inserted row is a success with no reason; an update's reason is "updated"."""
@@ -499,7 +506,7 @@ def _register_parents(entry: dict, record: dict, register_parents) -> dict | Non
         return {**base, "status": "skipped"}
     if outcome.get("status") == "running":
         return {**base, "status": "waiting"}
-    if outcome.get("status") != "succeeded":
+    if not job_is_done(outcome):
         return {**base, "status": "not_added"}
     if not callable(register_parents):
         return {**base, "status": "unavailable"}

@@ -2446,11 +2446,11 @@ def _mark_runs_reingested(jobs: list[dict], config=None) -> None:
     no-folder pick, and its Luria folder gets nessie_status/saved.txt, which starts the
     weekly cleanup's 7-day clock for its work folder. Best-effort: the upload has already
     started."""
-    from NessieAI.ns.reingest import launch_record
+    from NessieAI.ns.reingest import launch_record, upload
     from NessieAI.ns.reingest.store import load_manifest
 
     succeeded = {job.get("manifest_id") for job in jobs
-                 if job.get("job_id") and (job.get("outcome") or {}).get("status") == "succeeded"}
+                 if job.get("job_id") and upload.job_is_done(job.get("outcome"))}
     for manifest_id in succeeded:
         try:
             manifest = load_manifest(manifest_id)
