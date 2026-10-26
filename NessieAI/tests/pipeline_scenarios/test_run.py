@@ -56,14 +56,6 @@ def test_the_session_holds_the_cohort_as_the_pinned_search():
     assert [r["uuid"] for r in bundle["graph_result"]["data"]] == ["D.SEQ-1-PUB", "D.SEQ-2-PUB"]
 
 
-def test_the_router_history_is_the_cohort_search_then_the_story_turns():
-    story = _story(history=[{"user": "and the controls?", "assistant": "Yes."}])
-    turns = rn.router_history(story, ["D.SEQ-1-PUB"])
-    assert [t.position for t in turns] == [1, 2]
-    assert turns[0].sample_uids == ["D.SEQ-1-PUB"] and turns[1].user_message == "and the controls?"
-    assert rn.router_history(_story(), []) == []
-
-
 def test_the_runner_answers_the_agent_until_it_concludes(tmp_path, monkeypatch):
     seen = []
     _scripted_agent(monkeypatch, seen)
@@ -101,6 +93,8 @@ def test_the_run_config_tapes_the_agent_models_answers():
     client, model, budget = rn.RunConfig(real, Tape(mode="record")).get_agent_model("selection")
     assert isinstance(client, RecordingClient) and (model, budget) == ("m", 1)
     assert rn.RunConfig(real, None).get_agent_model("selection")[0] is inner
+    replaying = rn.RunConfig(real, Tape(mode="replay"))
+    assert replaying.get_agent_model("selection")[0] is inner
     assert rn.RunConfig(real, None).LOG_DIR == "/l"
 
 
@@ -136,10 +130,29 @@ def test_a_recording_the_scrubber_refused_is_not_swallowed(tmp_path, monkeypatch
         rn.run_story(_story(), _Cfg(), tape, tmp_path, decide=_decide())
 
 
+def _must_not_be_called(*a, **k):
+    raise AssertionError("called without --yes")
+
+
 def test_main_without_yes_runs_nothing(capsys, monkeypatch):
+    import chat_nextseek.config as cc
+    story = _story(ruling={"state": "accepted", "date": "d", "note": ""})
+    monkeypatch.setattr(rn, "load_stories", lambda: [story])
     monkeypatch.setattr(rn, "cohort_uids", lambda c: ["U"])
-    assert rn.main(["--ids", "no-such-story"]) == 0
+    monkeypatch.setattr(cc, "ChatConfig", _must_not_be_called)
+    monkeypatch.setattr(rn, "run_story", _must_not_be_called)
+    assert rn.main(["--ids", "s1"]) == 0
     assert "Not run" in capsys.readouterr().out
+
+
+def test_main_says_which_ids_are_unknown_or_unruled(capsys, monkeypatch):
+    ruled = _story(id="ok", ruling={"state": "accepted", "date": "d", "note": ""})
+    unruled = _story(id="draft")
+    monkeypatch.setattr(rn, "load_stories", lambda: [ruled, unruled])
+    monkeypatch.setattr(rn, "cohort_uids", lambda c: ["U"])
+    assert rn.main(["--ids", "ok,draft,nope"]) == 0
+    out = capsys.readouterr().out
+    assert "draft: not ruled" in out and "nope: no such story" in out
 
 
 def test_main_writes_the_run_folder_even_when_a_story_crashes(tmp_path, monkeypatch):
@@ -188,3 +201,72 @@ def test_a_story_uses_at_most_the_first_60_uids_of_its_cohort(tmp_path, monkeypa
     outcome, _ = rn.run_story(_story(expect="ask"), _Cfg(), None, tmp_path, decide=_decide())
     assert rn.MAX_STORY_UIDS == 60 and outcome.uids == every[:60]
     assert [r["uuid"] for r in sessions[0]["results_history"][0]["graph_result"]["data"]] == every[:60]
+
+
+def _built_state():
+    return {"artifacts": {"launch": "launch.yml", "samplesheet": "s.csv"}, "launch_built_at_user_msgs": 1,
+            "messages": [{"role": "user", "content": "start"}, {"role": "user", "content": "yes, submit it"}]}
+
+
+@pytest.mark.parametrize("name", ["submit_to_luria", "submit_to_tower"])
+def test_submit_is_refused_by_name_even_over_a_complete_config(name, monkeypatch):
+    from chat_nextseek.pipeline import agent_tools as at
+    monkeypatch.setattr(at, "submit_luria", _must_not_be_called)
+    monkeypatch.setattr(at, "submit_launch", _must_not_be_called)
+    real = SimpleNamespace(LURIA_ENV_COMPLETE=True, LURIA_ENV={"user": "u"}, TOWER_ENV_COMPLETE=True,
+                           TOWER_ENV={"access_token": "t", "workspace": "w"}, SEQERA_AUTO_LAUNCH=True)
+    out = json.loads(at.dispatch_pipeline_tool_call(config=rn.RunConfig(real, None), session={}, state=_built_state(),
+                                                    name=name, tool_input={}, log_dir="/tmp"))
+    assert out["ok"] is False and "called without" not in out["message"] and "not configured" in out["message"]
+    # the control: the same built, confirmed state over the real, complete config does reach the submitter
+    # (the tool turns the submitter's exception into a failed reply)
+    reached = json.loads(at.dispatch_pipeline_tool_call(config=real, session={}, state=_built_state(), name=name,
+                                                        tool_input={}, log_dir="/tmp"))
+    assert "called without" in reached["message"]
+    cfg = rn.RunConfig(real, None)
+    assert (cfg.TOWER_ENV, cfg.TOWER_ENV_COMPLETE, cfg.LURIA_ENV, cfg.SEQERA_AUTO_LAUNCH) == ({}, False, {}, False)
+
+
+def test_the_router_gets_the_history_production_builds():
+    from NessieAI.router.router_context import SAMPLE_UIDS_MAX
+    uids = [f"D.SEQ-{n}-PUB" for n in range(100)]
+    story = _story(history=[{"user": "and the controls?", "assistant": "Yes."}])
+    turns = rn.router_history(story, uids)
+    assert [t.position for t in turns] == [1, 2]
+    assert turns[0].router_choice == "nextseek_query" and turns[0].status == "completed"
+    assert turns[0].sample_uids == uids[:SAMPLE_UIDS_MAX] and turns[0].result_count == 100
+    assert turns[1].user_message == "and the controls?" and turns[1].router_choice == "nextseek_query"
+    log = rn.make_session(story, uids)["chat_log"]
+    assert log[0]["result_summary"]["count"] == 100 and log[0]["router_choice"] == "nextseek_query"
+
+
+def test_the_seed_question_is_how_a_user_would_ask_not_the_cohort_code():
+    s = rn.make_session(_story(), ["D.SEQ-1-PUB", "D.SEQ-2-PUB", "D.SEQ-3-PUB", "D.SEQ-4-PUB"])
+    asked = s["results_history"][0]["user_query"]
+    assert asked == s["chat_log"][0]["user_query"]
+    assert asked.startswith("Find these samples: D.SEQ-1-PUB, D.SEQ-2-PUB, D.SEQ-3-PUB") and "::" not in asked
+
+
+def test_a_scrubber_refusal_keeps_the_decision_and_replies_on_the_row(tmp_path, monkeypatch):
+    story = _story(ruling={"state": "accepted", "date": "d", "note": ""})
+    _scripted_agent(monkeypatch)
+    monkeypatch.setattr(rn, "load_stories", lambda: [story])
+    monkeypatch.setattr(rn, "cohort_uids", lambda c: ["D.SEQ-1-PUB"])
+    import NessieAI.router.router as router
+    monkeypatch.setattr(router, "decide", _decide())
+    import chat_nextseek.config as cc
+    monkeypatch.setattr(cc, "ChatConfig", lambda: _Cfg())
+    real_tape = rn.Tape
+    def refusing(mode="record"):
+        t = real_tape(mode=mode)
+        t.refused.append("fetch_reporter_metadata: email a@b.org")
+        return t
+    monkeypatch.setattr(rn, "Tape", refusing)
+    assert rn.main(["--yes", "--out", str(tmp_path)]) == 0
+    row = json.loads((tmp_path / "stories" / "s1.json").read_text())
+    assert row["outcome"]["error"].startswith("ValueError") and row["tape"] is None
+    assert row["decision"]["route"] == "nextseek_query"
+    assert row["outcome"]["replies"] == ["Group by Treatment?", "Ready. Submit?"]
+    assert row["outcome"]["pipeline_key"] == "rnaseq" and row["outcome"]["uids"] == ["D.SEQ-1-PUB"]
+    assert row["outcome"]["selection"]["pipelines"] == ["rnaseq"]
+    assert row["score"]["grade"] == "FAIL"

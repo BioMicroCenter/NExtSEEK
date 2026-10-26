@@ -34,37 +34,52 @@ _METADATA_SOURCES = ("fetch_reporter_metadata", "annotate_metadata_with_samplety
 class RunConfig:
     """The real config, minus every submit tool, with the selection model's answers taped."""
     LURIA_ENV_COMPLETE = False
+    # The loop dispatches any tool name the model emits, and the submit tools read these, so a
+    # model that names submit_to_luria or submit_to_tower still finds nothing configured. The
+    # empty TOWER_ENV also stops the emitter uploading a Tower dataset during a build.
+    LURIA_ENV: dict = {}
+    TOWER_ENV: dict = {}
+    TOWER_ENV_COMPLETE = False
+    SEQERA_AUTO_LAUNCH = False
 
     def __init__(self, config, tape: Tape | None):
         self._config, self._tape = config, tape
 
     def get_agent_model(self, label):
         client, model, budget = self._config.get_agent_model(label)
-        return (RecordingClient(client, self._tape) if self._tape else client), model, budget
+        return (RecordingClient(client, self._tape) if self._tape and self._tape.mode == "record" else client), model, budget
 
     def __getattr__(self, name):
         return getattr(self._config, name)
 
 
+def seed_query(uids: list[str]) -> str:
+    """The question a user would have typed to get this cohort: its first three UIDs."""
+    more = len(uids) - 3
+    return "Find these samples: " + ", ".join(uids[:3]) + (f" and {more} more" if more > 0 else "")
+
+
 def make_session(story: Story, uids: list[str]) -> dict:
-    bundle = {"id": 1, "user_query": f"the samples of {story.cohort}",
-              "graph_result": {"ok": True, "data": [{"uuid": u} for u in uids]}}
-    log = [{"turn_id": 1, "ts": "t", "mode": "graph_query", "user_query": bundle["user_query"],
-            "assistant_reply": f"Found {len(uids)} samples.", "bundle_id": 1, "status": "ok"}]
-    for n, turn in enumerate(story.history, 2):
-        log.append({"turn_id": n, "ts": "t", "mode": "graph_query", "user_query": turn["user"],
-                    "assistant_reply": turn.get("assistant", ""), "status": "ok"})
-    return {"results_history": [bundle], "chat_log": log}
+    """The chat as production keeps it: the cohort's search turn, then the story's earlier turns,
+    each written by chat_memory.append_turn so the log has the shape the router reads."""
+    from chat_nextseek.chat_memory import append_turn
+    session: dict = {"results_history": [], "chat_log": []}
+    if uids:
+        query = seed_query(uids)
+        result = {"ok": True, "data": [{"uuid": u} for u in uids]}
+        session["results_history"].append({"id": 1, "user_query": query, "graph_result": result})
+        append_turn(session, user_query=query, mode="graph_query", result_payload=result,
+                    assistant_reply=f"Found {len(uids)} samples.", bundle_id=1)
+    for turn in story.history:
+        append_turn(session, user_query=turn["user"], mode="graph_query",
+                    assistant_reply=turn.get("assistant") or None)
+    return session
 
 
 def router_history(story: Story, uids: list[str]):
-    from NessieAI.router.router_context import HistoryTurn
-    turns = [HistoryTurn(position=1, user_message=f"Find the samples of {story.cohort}",
-                         assistant_reply=f"Found {len(uids)} samples.", result_count=len(uids),
-                         sample_uids=uids[:20])] if uids else []
-    for n, turn in enumerate(story.history, len(turns) + 1):
-        turns.append(HistoryTurn(position=n, user_message=turn["user"], assistant_reply=turn.get("assistant") or None))
-    return turns
+    """What the router would be handed for this chat: build_history over the session's chat_log."""
+    from NessieAI.router.router_context import build_history
+    return build_history(make_session(story, uids)["chat_log"])
 
 
 def scrubber(source: str, value):
@@ -83,9 +98,20 @@ def _decision_record(d) -> dict:
     return {k: getattr(d, k, None) for k in ("route", "source", "reasoning", "router_model", "router_cost_usd")}
 
 
+def _finish(outcome: Outcome, record: dict, session: dict, pa) -> None:
+    state = session.get(pa.PIPELINE_AGENT_KEY) or {}
+    built = bool((state.get("artifacts") or {}).get("launch"))
+    outcome.selection = state.get("selection")
+    outcome.pipeline_key = state.get("pipeline_key")
+    outcome.launch_params = ((state.get("launch_plan") or {}).get("params") or {}) if built else None
+    outcome.replies = record["replies"]
+
+
 def run_story(story: Story, config, tape: Tape | None, log_dir: Path, decide=None) -> tuple[Outcome, dict]:
     """Run one story. A tape that refused or did not match raises from taped()'s exit: the
-    caller (main) turns that into the story's FAIL, so it must never be caught here."""
+    caller (main) records that as the story's runner error, so it must never be caught here.
+    The exception carries what the paid run produced (`exc.outcome`, `exc.record`) so main
+    keeps the router's decision and the agent's replies."""
     from chat_nextseek.pipeline import agent as pa
     if decide is None:
         from NessieAI.router.router import decide
@@ -96,24 +122,24 @@ def run_story(story: Story, config, tape: Tape | None, log_dir: Path, decide=Non
     if decision.route != "nextseek_query" or (story.family == "off_topic" and not story.acceptable):
         return outcome, record
     session = make_session(story, uids)
-    cfg = config if isinstance(config, RunConfig) else RunConfig(config, tape)
-    log_dir.mkdir(parents=True, exist_ok=True)
-    with (taped(tape, scrubber) if tape else contextlib.nullcontext()):
-        res = pa.start(session, cfg, user_query=story.question, log_dir=str(log_dir))
-        record["replies"].append(res.get("reply") or "")
-        answers = list(story.replies)
-        for _ in range(MAX_REPLIES):
-            state = session.get(pa.PIPELINE_AGENT_KEY) or {}
-            if (state.get("artifacts") or {}).get("launch") or not state.get("active") or story.expect == "ask":
-                break
-            res = pa.handle_turn(session, cfg, answers.pop(0) if answers else DEFAULT_REPLY, log_dir=str(log_dir))
+    try:
+        cfg = config if isinstance(config, RunConfig) else RunConfig(config, tape)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with (taped(tape, scrubber) if tape else contextlib.nullcontext()):
+            res = pa.start(session, cfg, user_query=story.question, log_dir=str(log_dir))
             record["replies"].append(res.get("reply") or "")
-    state = session.get(pa.PIPELINE_AGENT_KEY) or {}
-    built = bool((state.get("artifacts") or {}).get("launch"))
-    outcome.selection = state.get("selection")
-    outcome.pipeline_key = state.get("pipeline_key")
-    outcome.launch_params = ((state.get("launch_plan") or {}).get("params") or {}) if built else None
-    outcome.replies = record["replies"]
+            answers = list(story.replies)
+            for _ in range(MAX_REPLIES):
+                state = session.get(pa.PIPELINE_AGENT_KEY) or {}
+                if (state.get("artifacts") or {}).get("launch") or not state.get("active") or story.expect == "ask":
+                    break
+                res = pa.handle_turn(session, cfg, answers.pop(0) if answers else DEFAULT_REPLY, log_dir=str(log_dir))
+                record["replies"].append(res.get("reply") or "")
+    except Exception as exc:
+        _finish(outcome, record, session, pa)
+        exc.outcome, exc.record = outcome, record
+        raise
+    _finish(outcome, record, session, pa)
     return outcome, record
 
 
@@ -126,7 +152,15 @@ def main(argv: list[str]) -> int:
     p.add_argument("--yes", action="store_true")
     p.add_argument("--out", type=Path, default=None)
     a = p.parse_args(argv)
-    chosen = [s for s in load_stories() if s.ruled
+    every = load_stories()
+    if a.ids:
+        by_id = {s.id: s for s in every}
+        for wanted in a.ids.split(","):
+            if wanted not in by_id:
+                print(f"skipped {wanted}: no such story")
+            elif not by_id[wanted].ruled:
+                print(f"skipped {wanted}: not ruled ({by_id[wanted].ruling.get('state')}); only accepted or changed stories run")
+    chosen = [s for s in every if s.ruled
               and (not a.ids or s.id in a.ids.split(","))
               and (not a.family or s.family == a.family)]
     runnable = [s for s in chosen if not s.cohort or cohort_uids(s.cohort)]
@@ -146,10 +180,13 @@ def main(argv: list[str]) -> int:
         try:
             outcome, record = run_story(story, RunConfig(real, tape), tape, out / "logs" / story.id)
         except Exception as exc:  # noqa: BLE001 - one story's crash is that story's FAIL
-            outcome, record = Outcome(route="?", error=f"{type(exc).__name__}: {exc}"), {"decision": {}, "replies": []}
+            # Keep what the paid run produced; only a crash before the router answered has nothing.
+            outcome = getattr(exc, "outcome", None) or Outcome(route="?")
+            record = getattr(exc, "record", None) or {"decision": {}, "replies": []}
+            outcome.error = f"{type(exc).__name__}: {exc}"
         s = score(story, outcome)
         row = {"story": asdict(story), "decision": record["decision"], "outcome": asdict(outcome),
-               "score": asdict(s), "tape": None if tape.refused else tape.to_json(), "fingerprint": None}
+               "score": asdict(s), "tape": None if outcome.error else tape.to_json(), "fingerprint": None}
         (out / "stories" / f"{story.id}.json").write_text(json.dumps(row, indent=2, default=str))
         results.append(row)
         print(f"[{s.grade:<7}] {story.id}: {'; '.join(s.reasons)}")
