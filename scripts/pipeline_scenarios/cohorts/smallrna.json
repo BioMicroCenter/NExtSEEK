@@ -67,7 +67,9 @@
           "LibraryDesign": "Single",
           "ExtractedMolecule": "total RNA",
           "Sequencer": "Illumina NextSeq 500",
-          "F_bp": 75
+          "F_bp": 75,
+          "ExpressionKit": "QIAseq miRNA Library Kit",
+          "ReagentManufacturer": "QIAGEN"
         },
         {
           "Name": "NTC-SMRNA-2",
@@ -83,7 +85,9 @@
           "LibraryDesign": "SINGLE",
           "ExtractedMolecule": "total RNA",
           "Sequencer": "NextSeq 500",
-          "F_bp": 75
+          "F_bp": 75,
+          "ExpressionKit": "QIAseq miRNA Library Kit",
+          "ReagentManufacturer": "QIAGEN"
         }
       ]
     }

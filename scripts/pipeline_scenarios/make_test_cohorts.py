@@ -7,7 +7,11 @@ One folder per cohort, one workbook per level, numbered in upload order. Upload 
 that order on the LOCAL site's upload page, into the local project "Nessie test cohorts"
 (a child names its parent by Name, which the upload resolves against the earlier
 workbook's samples). Never upload these to dev or prod. Run inside the nextseek
-container (it imports NessieAI.ns.upload_workbook, which needs openpyxl).
+container (it imports NessieAI.ns.upload_workbook, which needs openpyxl), with /app on the
+path because the script's own folder, not /app, is on sys.path:
+
+  docker exec -w /app -e PYTHONPATH=/app nextseek uv run --no-sync python \
+      /tmp/ps/make_test_cohorts.py /tmp/ps-out
 """
 from __future__ import annotations
 

@@ -48,7 +48,6 @@
           "Name": "NTC-TN-p1-tumour-lib",
           "Parent": "NTC-TN-p1-tumour",
           "Scientist": "Nessie Test",
-          "Type": "Illumina Library",
           "Protocol": "Illumina DNA Prep, 100 ng input",
           "Lab": "Test Lab",
           "Barcode": "AGCTTAGC"
@@ -57,7 +56,6 @@
           "Name": "NTC-TN-p1-normal-lib",
           "Parent": "NTC-TN-p1-normal",
           "Scientist": "Nessie Test",
-          "Type": "Illumina Library",
           "Protocol": "Illumina DNA Prep, 100 ng input",
           "Lab": "Test Lab",
           "Barcode": "TCGAACGT"
