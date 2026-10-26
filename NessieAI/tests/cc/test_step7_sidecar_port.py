@@ -90,7 +90,7 @@ PINNED_SOURCE_SHA256 = {
     "app/config.py": "2e79ac3f162df3fb1782be583db775da2faa3890378ecd582922603766ffc9df",
     "app/contract.py": "9a25c8e1bb612f23c05ddf84b8401c417f2b79c255e8cf69eec090ce192f9313",
     "app/exceptions.py": "ecd217b0a353c1ce400b8bfcad5c76c28485e354f14b05012ec991c6e21c6068",
-    "app/granular_models.py": "972d25209cb50b2d24c45229a7585f0e1c6c1304a1a3d7b58e902aee3a91aa7e",
+    "app/granular_models.py": "0347f75edf4d596829855b2a2a9cebfefa56e3fb991a3a2f3f10954a12a1c8ad",
     "app/healthcheck.py": "bb0bb5db69201a895ea6c55bad3f74142971a550c167e9e0b8b99c2b1dfb8ba3",
     "app/ns_client.py": "649c36f54f47918fbdd11eb887d9d9919f013d74cb99d4fd7e394ca8a94f3803",
     "app/ops.py": "83fce48d97a404bbac721715e1b94eaa073e2613fd7d33df44aa9c583ad441c7",

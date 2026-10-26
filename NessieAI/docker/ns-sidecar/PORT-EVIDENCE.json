@@ -55,8 +55,8 @@
   },
   {
    "path": "app/granular_models.py",
-   "size_bytes": 10929,
-   "sha256": "972d25209cb50b2d24c45229a7585f0e1c6c1304a1a3d7b58e902aee3a91aa7e"
+   "size_bytes": 10971,
+   "sha256": "0347f75edf4d596829855b2a2a9cebfefa56e3fb991a3a2f3f10954a12a1c8ad"
   },
   {
    "path": "app/healthcheck.py",

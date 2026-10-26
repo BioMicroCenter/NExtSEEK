@@ -114,7 +114,7 @@ class PaperReingestStartRequest(BaseModel):
     paper: str = Field(..., min_length=1, max_length=1024,
                        description="PMID, PMCID, DOI, article link, or the file name of an attached PDF.")
     project: int | None = Field(None, description="Optional SEEK project id hint; inferred otherwise.")
-    use_prod: bool = False
+    use_prod: bool = Field(False, description="Ignored by this op.")
     model_config = ConfigDict(extra="forbid")
 
 

@@ -5,8 +5,9 @@ launch check runs here, in the turn; nothing is queued unless it passes.
 """
 from __future__ import annotations
 
+from NessieAI.ns.paper.fetch import HostNotAllowed, SourceUnavailable
 from NessieAI.ns.paper.identify import IdentifyError
-from NessieAI.ns.paper.launch import launch_check
+from NessieAI.ns.paper.launch import AttachmentTooLarge, AttachmentUnreadable, CatalogUnavailable, launch_check
 
 
 class StartRefused(ValueError):
@@ -20,10 +21,23 @@ def start(paper: str, project: int | None, session) -> dict:
         raise StartRefused("paper reingest is open to curators (superusers) only", "superusers_only")
     if not session.enabled():
         raise StartRefused("paper reingest is switched off on this instance", "feature_off")
+    seams = session.launch_seams(paper)
+    # Every expected launch failure is a refusal the curator can act on. The messages carry no path, URL or
+    # server detail; the cause stays chained for the server log.
     try:
-        outcome = launch_check(paper, session.launch_seams())
+        outcome = launch_check(paper, seams)
     except IdentifyError as exc:
         raise StartRefused(str(exc), "unrecognised_paper") from exc
+    except SourceUnavailable as exc:
+        raise StartRefused(f"{exc.host} is not answering; try again later", "source_unavailable") from exc
+    except HostNotAllowed as exc:
+        raise StartRefused("a source sent me to a site paper reingest does not read", "source_not_allowed") from exc
+    except AttachmentTooLarge as exc:
+        raise StartRefused(str(exc), "pdf_too_large") from exc
+    except AttachmentUnreadable as exc:
+        raise StartRefused(str(exc), "pdf_unreadable") from exc
+    except CatalogUnavailable as exc:
+        raise StartRefused(f"{exc}; try again later", "catalog_unavailable") from exc
     if outcome.status != "ok":
         return {"run_id": None, "status": outcome.status, "missing": outcome.missing, "reply": outcome.reply}
     ref = outcome.paper.ref

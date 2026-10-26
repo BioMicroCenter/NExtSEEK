@@ -9,6 +9,8 @@ import os
 from types import SimpleNamespace
 
 MAX_PDF_BYTES = 100 * 1024 * 1024
+#: What the launch check leaves of the op's limit for the reply's trip back.
+ANSWER_MARGIN_S = 5.0
 
 
 def enabled() -> bool:
@@ -17,14 +19,48 @@ def enabled() -> bool:
 
 def read_input(input_dir: str, name: str) -> bytes:
     from NessieAI.cc.cc_upload_validate import validate_upload_filename
+    from NessieAI.ns.paper.launch import AttachmentTooLarge
 
     safe = validate_upload_filename(name)
     fd = os.open(os.path.join(input_dir, safe), os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(fd, "rb") as handle:
         data = handle.read(MAX_PDF_BYTES + 1)
     if len(data) > MAX_PDF_BYTES:
-        raise ValueError(f"{safe} is larger than {MAX_PDF_BYTES // 2**20} MB")
+        raise AttachmentTooLarge(f"{safe} is larger than {MAX_PDF_BYTES // 2**20} MB")
     return data
+
+
+def could_name_a_file(paper: str) -> bool:
+    """Could ``paper`` be the name of an attached file? A PMID, PMCID, DOI or article link cannot, so its call
+    never looks up the caller's input folder (a SEEK round trip)."""
+    from NessieAI.ns.paper.identify import IdentifyError, identify
+
+    text = (paper or "").strip()
+    if not text or "/" in text or "\\" in text:
+        return False
+    if text.lower().endswith(".pdf"):
+        return True
+    try:
+        identify(text, set())
+    except IdentifyError:
+        return True
+    return False
+
+
+def budget_fetcher():
+    """A Fetcher that keeps to what is left of the op's limit: no retries, and no wait longer than that budget
+    less ANSWER_MARGIN_S. Raises OpDeadlineError when nothing usable is left."""
+    from chat_nextseek import call_scope
+
+    from NessieAI.ns.granular import OpDeadlineError
+    from NessieAI.ns.op_limits import OP_LIMITS_S
+    from NessieAI.ns.paper.fetch import Fetcher
+
+    left = call_scope.time_left_for(OP_LIMITS_S["paper-reingest-start"])
+    budget = None if left is None else left - ANSWER_MARGIN_S
+    if budget is None or budget < 1.0:
+        raise OpDeadlineError("the op ran out of time before the paper could be checked")
+    return Fetcher(retries=0, timeout=(min(5.0, budget), budget))
 
 
 def _input_dir(request) -> str | None:
@@ -44,7 +80,6 @@ def start_session(request) -> SimpleNamespace:
     from django.db import transaction
 
     from NessieAI.cc.cc_upload_list import list_input_files
-    from NessieAI.ns.paper.fetch import Fetcher
     from NessieAI.ns.paper.launch import LaunchSeams
     from nextseek_api.assistant import chat_turns
     from nextseek_api.paper_reingest import service
@@ -52,10 +87,11 @@ def start_session(request) -> SimpleNamespace:
 
     user = request.user
 
-    def launch_seams() -> LaunchSeams:
-        input_dir = _input_dir(request)
+    def launch_seams(paper: str) -> LaunchSeams:
+        input_dir = _input_dir(request) if could_name_a_file(paper) else None
         files = set(list_input_files(input_dir)) if input_dir else set()
-        return LaunchSeams(fetcher=Fetcher(), input_files=files,
+        # Built after the folder lookup, so its budget is what that lookup left.
+        return LaunchSeams(fetcher=budget_fetcher(), input_files=files,
                            read_input_file=lambda name: read_input(input_dir, name),
                            doi_project_ids=doi_project_ids_strict)
 

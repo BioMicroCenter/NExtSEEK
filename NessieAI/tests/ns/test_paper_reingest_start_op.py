@@ -4,6 +4,7 @@ Reached the way test_granular_endpoints.py reaches every granular op (its client
 allowlist patch), as a superuser. The op body (NessieAI/ns/paper/start.py) is patched; its own tests
 are NessieAI/tests/ns/paper/test_start.py.
 """
+import os
 from unittest.mock import patch
 
 from NessieAI.ns.paper.start import StartRefused
@@ -41,3 +42,29 @@ class PaperReingestStartEndpointTests(GranularEndpointBase):
                                     {"paper": "1", "confirmed_write": True}, format="json")
         self.assertEqual(resp.status_code, 422, resp.content)
         start.assert_not_called()
+
+
+class PaperReingestStartRealGateTests(GranularEndpointBase):
+    """The real start body, unpatched: its two gates answer before any lookup."""
+
+    def _refusal_type(self, resp):
+        self.assertEqual(resp.status_code, 422, resp.content)
+        self.assertEqual(resp.json()["code"], "VALIDATION")
+        return resp.json()["errors"][0]
+
+    def test_staff_who_is_not_a_superuser_is_refused(self):
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        self.client.force_authenticate(user=self.user)
+        with patch.dict(os.environ, {"NEXTSEEK_PAPER_REINGEST": "1"}):
+            resp = self.client.post(f"{self.BASE}/paper-reingest-start/", {"paper": "38000001"}, format="json")
+        self.assertEqual(self._refusal_type(resp), {"field": "paper", "type": "superusers_only"})
+
+    def test_superuser_without_the_feature_flag_is_refused(self):
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_superuser"])
+        self.client.force_authenticate(user=self.user)
+        env = {k: v for k, v in os.environ.items() if k != "NEXTSEEK_PAPER_REINGEST"}
+        with patch.dict(os.environ, env, clear=True):
+            resp = self.client.post(f"{self.BASE}/paper-reingest-start/", {"paper": "38000001"}, format="json")
+        self.assertEqual(self._refusal_type(resp), {"field": "paper", "type": "feature_off"})

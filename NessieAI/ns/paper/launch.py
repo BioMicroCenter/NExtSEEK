@@ -18,6 +18,18 @@ from NessieAI.ns.paper.models import PaperArtifact, PaperInput, PaperRef, PaperT
 from NessieAI.ns.paper.pdftext import pdf_to_text, split_sections
 
 
+class AttachmentTooLarge(ValueError):
+    """The attached PDF is over the host's size cap (raised by the host's read_input_file seam)."""
+
+
+class AttachmentUnreadable(ValueError):
+    """The attached file could not be read, or is not a PDF pypdf can read."""
+
+
+class CatalogUnavailable(RuntimeError):
+    """The DOI lookup against NExtSEEK's samples failed; never read as "not in NExtSEEK"."""
+
+
 @dataclass
 class LaunchSeams:
     fetcher: Fetcher
@@ -55,7 +67,10 @@ def launch_check(raw: str, seams: LaunchSeams) -> LaunchOutcome:
                 f"I can't find the {named} section in that PDF. Check it is the full article, not the SI."))
         return LaunchOutcome(status="needs_pdf", missing=missing, reply=(
             f"The open-access text has no {named} section I can read. Attach the PDF and ask again."))
-    projects = seams.doi_project_ids(ref.doi) if ref.doi else []
+    try:
+        projects = seams.doi_project_ids(ref.doi) if ref.doi else []
+    except RuntimeError as exc:
+        raise CatalogUnavailable("NExtSEEK's sample catalog could not be checked for this paper") from exc
     return LaunchOutcome(status="ok", paper=PaperArtifact(
         ref=ref, text=text, text_source=source,
         mode="update" if projects else "new", existing_project_ids=projects))
@@ -76,7 +91,17 @@ def _open_text(ref: PaperRef, fetcher: Fetcher) -> PaperText | None:
 
 
 def _from_pdf(name: str, seams: LaunchSeams) -> tuple[PaperRef, PaperText, str]:
-    text = split_sections(pdf_to_text(seams.read_input_file(name)))
+    try:
+        data = seams.read_input_file(name)
+    except AttachmentTooLarge:
+        raise
+    except (OSError, ValueError) as exc:
+        raise AttachmentUnreadable(f"the attached file {name} could not be read") from exc
+    try:
+        raw_text = pdf_to_text(data)
+    except Exception as exc:  # pypdf raises its own errors, and others, on a damaged or non-PDF file
+        raise AttachmentUnreadable(f"{name} is not a PDF I can read") from exc
+    text = split_sections(raw_text)
     head = " ".join(text.all_text()[:5])
     ref, doi = None, None
     if match := DOI_RE.search(head):

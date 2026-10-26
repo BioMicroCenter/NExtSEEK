@@ -2,7 +2,7 @@ import pytest
 
 from NessieAI.ns.paper import europepmc
 from NessieAI.ns.paper.identify import IdentifyError
-from NessieAI.ns.paper.launch import LaunchSeams, launch_check
+from NessieAI.ns.paper.launch import CatalogUnavailable, LaunchSeams, launch_check
 from NessieAI.tests.ns.paper.fakes import FakeResponse, fetcher, js, key
 from NessieAI.tests.ns.paper.fixtures import EPMC_HIT, JATS_XML, PDF_TEXT, epmc_search
 
@@ -77,14 +77,15 @@ def _no_methods(xml):
     return xml.replace(b'sec-type="methods"><title>Materials and Methods', b'><title>Results')
 
 
-def test_doi_lookup_failure_propagates():
+def test_doi_lookup_failure_raises_catalog_unavailable():
     def down(doi):
         raise RuntimeError("down")
 
     seams = _seams({**PMID_ROUTES, FULLTEXT: FakeResponse(200, JATS_XML)})
     seams.doi_project_ids = down
-    with pytest.raises(RuntimeError, match="down"):
+    with pytest.raises(CatalogUnavailable) as err:
         launch_check("38000001", seams)
+    assert isinstance(err.value.__cause__, RuntimeError) and "down" not in str(err.value)
 
 
 def test_paper_without_doi_skips_the_doi_lookup():
