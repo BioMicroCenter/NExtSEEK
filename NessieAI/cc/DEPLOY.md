@@ -21,7 +21,7 @@ Topology (preserves the OI-3 agent isolation):
         ┌───────────────┬─────────────────┬──────────────────┐
         │               │                 │                  │
   dmac-bedrock-proxy   nextseek_nginx   nextseek-sidecar   <per-turn CC agent>
-  (holds AWS bearer    (dual-homed,     (no credentials;   (uid 1001, ZERO aws
+  (holds AWS bearer    (dual-homed,     (no credentials;   (uid 10001, ZERO aws
    token; allowlist     also on the      _staging-subpath    creds; Bedrock only
    3 CC models)         default stack    writes only)        via the proxy,
                         network)                             NExtSEEK only via

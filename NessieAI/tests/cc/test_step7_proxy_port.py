@@ -211,7 +211,7 @@ def test_dockerfile_preserves_hardening_invariants():
     """Everything except the COPY source path must be preserved verbatim:
     non-root user, healthcheck hitting /healthz, uvicorn CMD, pinned deps."""
     text = _read(PROXY_DIR / "Dockerfile")
-    assert "useradd -m -u 1001" in text
+    assert "useradd -m -u 10002" in text
     assert "USER proxyapp" in text
     assert "HEALTHCHECK" in text
     assert "/healthz" in text

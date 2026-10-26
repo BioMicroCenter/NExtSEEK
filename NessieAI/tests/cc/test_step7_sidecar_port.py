@@ -292,10 +292,10 @@ def test_dockerfile_copy_source_matches_this_ports_build_context():
 
 def test_dockerfile_preserves_import_layout_and_run_invariants():
     """Everything except the COPY source paths must be preserved verbatim:
-    non-root user (uid 1001), WORKDIR/PYTHONPATH=/app, and the
+    non-root user (uid 10001), WORKDIR/PYTHONPATH=/app, and the
     `python -m sidecar.app.server` CMD that requires the package shape."""
     text = _read(SIDECAR_DIR / "Dockerfile")
-    assert "useradd -m -u 1001" in text
+    assert "useradd -m -u 10001" in text
     assert "USER sidecar" in text
     assert "WORKDIR /app" in text
     assert "ENV PYTHONPATH=/app" in text
