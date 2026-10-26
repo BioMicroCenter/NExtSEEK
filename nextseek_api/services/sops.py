@@ -165,15 +165,17 @@ def _within(deadline: float, cap: float):
     return (min(10, left), min(cap, left)) if left > 0 else None
 
 
-def _time_up(sop_results: list, created: list, not_sent: list) -> HttpResponse:
+def _time_up(results: list, created: list, not_sent: list, *, kind="SOP", path="sops") -> HttpResponse:
     """The create stopped at its request limit: what was created, and the files never sent to SEEK."""
+    finish = (f"A file in not_sent that a {kind} in created names as its file is finished by sending it with PATCH "
+              f"/nextseek_api/{path}/<id>/; " if kind == "SOP" else
+              f"A {kind} in created that names a file in not_sent was created without that file; ")
     detail = (f"The request reached its {SOP_CREATE_TIMEOUT_S} s limit, so the files in not_sent were not sent to "
-              "SEEK. A file in not_sent that a SOP in created names as its file is finished by sending it with PATCH "
-              "/nextseek_api/sops/<id>/; send the others again in a new request.")
+              f"SEEK. {finish}send the others again in a new request.")
     body: Dict[str, Any] = {"errors": [{"title": "Time limit reached", "detail": detail}],
                             "created": created, "not_sent": not_sent}
-    if sop_results:
-        body["data"] = sop_results
+    if results:
+        body["data"] = results
     return _json(body, 207 if created else 504)
 
 

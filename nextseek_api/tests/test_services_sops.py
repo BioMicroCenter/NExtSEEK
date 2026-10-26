@@ -1169,7 +1169,7 @@ def _client_with_recorded_calls():
 
 
 class TestSopCreateWait:
-    def test_only_the_sop_create_waits_120_s(self):
+    def test_the_sop_and_data_file_creates_wait_120_s(self):
         client = _client_with_recorded_calls()
         req = _make_drf_request(factory.post("/nextseek_api/sops/"), SopProxyViewSet())
         client.create_sop(req, {"data": {}})
@@ -1179,9 +1179,9 @@ class TestSopCreateWait:
         client.create_data_file(req, {"data": {}})
         waits = [(c.kwargs["method"], c.kwargs["url"].rsplit("/", 1)[-1], c.kwargs["timeout"])
                  for c in client.session.request.call_args_list]
-        # The create's 120 s is the wait for SEEK's answer; reaching SEEK keeps the uploads' 10 s connect limit.
+        # Both creates wait 120 s for SEEK's answer; reaching SEEK keeps the uploads' 10 s connect limit.
         assert waits == [("POST", "sops", (10, 120)), ("GET", "1", 20), ("PATCH", "1", 20), ("GET", "sops", 20),
-                         ("POST", "data_files", 20)]
+                         ("POST", "data_files", (10, 120))]
 
     def test_an_unanswered_create_says_it_waited_120_s(self):
         vs, client = _make_viewset_and_client()
