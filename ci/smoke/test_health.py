@@ -40,7 +40,7 @@ def test_api_root_advertises_exactly_the_expected_viewsets(api, base_url):
     assert r.status_code == 200
     expected = {
         "assay-registrations", "assays", "attributes", "batch-upload",
-        "data_files", "investigations", "people", "projects", "sample_types",
+        "data_files", "investigations", "people", "projects", "reingest-proposals", "sample_types",
         "sample_types/connections", "samples", "samples/advanced_search",
         "samples/graph_search", "samples/retrieve", "sample-shares", "sops", "studies", "users",
     }
