@@ -1459,3 +1459,99 @@ def test_cc_spawner_is_a_component_rebuilt_before_the_app(tmp_path, capsys):
     assert "nextseek-cc-spawner:latest" in text
     note = (Path(__file__).resolve().parents[1] / "references" / "dev.md").read_text()
     assert "cuts a CC turn" in note
+
+
+# ---- the migration rehearsal (before the app restart) ----
+def _app_runner(tmp_path, capsys, **over):
+    return rendered_runner(tmp_path, capsys, images=["app"], **over)
+
+
+def test_the_rehearsal_is_rendered_only_when_the_range_has_a_migration(tmp_path, capsys):
+    _, off = _app_runner(tmp_path / "a", capsys)
+    assert "REHEARSE=0" in off
+    _, on = _app_runner(tmp_path / "b", capsys, migrations_expected=True)
+    assert "REHEARSE=1" in on
+
+
+def test_the_commits_step_migration_flag_is_the_second_signal(tmp_path, capsys):
+    code, out, d = preflight(tmp_path, capsys, good_preflight(), images=["app"])
+    assert code == 0
+    (d / "commit-review-form.json").write_text(json.dumps({"derived": {"flags": {"migration": ["x/migrations/0001_a.py"]}}}))
+    code, _ = run(["runner", "--brief", str(d / "brief.json")], capsys)
+    assert code == 0
+    tag = json.loads((d / "brief.json").read_text())["derived"]["tag"]
+    assert "REHEARSE=1" in (d / "runner" / f"launch-{tag}-run.sh").read_text()
+
+
+def test_no_rehearsal_without_an_app_rebuild(tmp_path, capsys):
+    _, t = rendered_runner(tmp_path, capsys, images=["cc-agent"], migrations_expected=True)
+    assert "REHEARSE=0" in t
+
+
+def test_the_rehearsal_sits_after_the_build_and_before_any_restart(tmp_path, capsys):
+    _, t = _app_runner(tmp_path, capsys, migrations_expected=True)
+    loop = t.split('PENDING="$COMPONENTS"', 1)[1]
+    build = loop.index("rebuild --component app --no-ci --no-restart")
+    reh = loop.index("elif rehearse")
+    stop_ = loop.index("stop \"the migration rehearsal failed")
+    restart = loop.index('if rebuild "$c"')
+    assert build < reh < stop_ < restart
+
+
+def test_the_rehearsal_reads_only_and_keeps_secrets_off_argv(tmp_path, capsys):
+    _, t = _app_runner(tmp_path, capsys, migrations_expected=True)
+    fn = t.split("rehearse(){", 1)[1].split("# <<< functions", 1)[0]
+    assert "--single-transaction --no-data" in fn and "--no-create-info" in fn
+    assert "django_migrations django_content_type" in fn
+    assert "trap cleanup EXIT" in fn and "rm -f \"$dump\"" in fn and "network rm" in fn
+    assert "timeout -k" in fn and "--memory 2g" in fn and "--internal" in fn
+    assert "MYSQL_PWD" in fn and "-p\"" not in fn and "-p$" not in fn and "--password" not in fn
+    assert "set -x" not in fn.replace("set +x", "")
+    # a read of the live db: no write verb is ever sent to it
+    live = fn.split("docker compose exec", 1)[1].split("gzip", 1)[0]
+    sql = " ".join(re.findall(r'-e "([^"]*)"', live))
+    assert sql.lower().startswith("select") and not re.search(r"\b(insert|update|delete|drop|alter|truncate|create)\b", sql, re.I)
+
+
+def _stub_docker(tmp_path, fail_migrate):
+    b = tmp_path / "bin"
+    b.mkdir()
+    (b / "docker").write_text(f'''#!/bin/bash
+echo "$*" >> {tmp_path}/calls
+case "$*" in
+  "compose config") printf 'services:\\n  db:\\n    image: mysql:8.0\\n    ports: []\\n  web:\\n    image: x\\n';;
+  "compose exec"*) printf 'utf8mb4 utf8mb4_unicode_ci\\n---\\nCREATE TABLE t (a int);\\n';;
+  "run --rm --name"*) {"echo 'django.db.utils.OperationalError: (3780, bad fk)'; exit 1" if fail_migrate else "echo '  Applying nextseek_api.0032_x... OK'; echo '  Applying seek.0004_y... OK'"};;
+  "exec nextseek printenv"*) echo dmac;;
+  "exec -e MYSQL_PWD"*mysqladmin*) exit 0;;
+esac
+exit 0
+''')
+    (b / "docker").chmod(0o755)
+    return b
+
+
+def _run_rehearse(tmp_path, capsys, fail):
+    _, text = _app_runner(tmp_path, capsys, migrations_expected=True)
+    b = _stub_docker(tmp_path, fail)
+    L = tmp_path / "L"; L.mkdir(); H = tmp_path / "H"; (H / "backups").mkdir(parents=True)
+    script = tmp_path / "r.sh"
+    script.write_text(f'TAG=t1; L={L}; H={H}\n{_functions(text)}\nrehearse; echo "rc=$?"\n')
+    r = subprocess.run(["bash", str(script)], capture_output=True, text=True, env={**os.environ, "PATH": f"{b}:{os.environ['PATH']}"})
+    return r, L, H, (tmp_path / "calls").read_text()
+
+
+def test_a_green_rehearsal_names_the_applied_migrations_and_cleans_up(tmp_path, capsys):
+    r, L, H, calls = _run_rehearse(tmp_path, capsys, fail=False)
+    assert "rc=0" in r.stdout, r.stderr
+    assert "REHEARSAL-OK applied=nextseek_api.0032_x seek.0004_y" in (L / "rehearsal.log").read_text()
+    assert "rm -f rehearse-db-t1 rehearse-mig-t1" in calls and "network rm rehearse-net-t1" in calls
+    assert not list((H / "backups").iterdir())          # the dump is gone
+
+
+def test_a_failed_migrate_fails_the_step_keeps_the_error_and_cleans_up(tmp_path, capsys):
+    r, L, H, calls = _run_rehearse(tmp_path, capsys, fail=True)
+    assert "rc=1" in r.stdout
+    assert "3780" in (L / "rehearsal.log").read_text()
+    assert "network rm rehearse-net-t1" in calls and not list((H / "backups").iterdir())
+    assert "stop " not in calls and "restart" not in calls   # nothing the live stack runs

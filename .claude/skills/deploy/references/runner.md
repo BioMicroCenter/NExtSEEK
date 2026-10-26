@@ -62,6 +62,8 @@ START tag=... instance=dev components=app cc-agent
 HEAD 1c070c08 Merge ...
 REBUILD app exit=1               # exit 1 is often drift or GHCR; the success line decides
 ROLLBACK app nextseek-nextseek:pre-<utc>-<sha>   # the NEW image was built from <sha>
+APP_BUILD exit=0 (no restart)       # only when the range has a migration: build first, no restart
+REHEARSAL-OK applied=<names> seconds=<n>   # the migration rehearsal on a copy of the box schema; a failure is STOPPED, old containers still serving
 REBUILT app | FAILED cc-agent, continuing (...)
 STATIC exit=0 ...
 LABS copied | LABS source missing: /tmp/labs_db.json

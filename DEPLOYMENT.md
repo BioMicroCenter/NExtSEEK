@@ -405,7 +405,7 @@ exits non-zero rather than blocking on a question nobody can answer.
 | `NessieAI/docker/bedrock-proxy/**` or its secret env | `./startup.sh rebuild --component bedrock-proxy` |
 | `NessieAI/docker/ns-sidecar/**` | `./startup.sh rebuild --component nextseek-sidecar` |
 | More than one first-party image family | run each affected component, or `--component custom-stack` |
-| A Django migration (in the range) | mysqldump gate (§5.3) → rebuild + recreate (migrate runs at boot) → verify with `showmigrations` |
+| A Django migration (in the range) | mysqldump gate (§5.3), migration rehearsal (§3.5) → rebuild + recreate (migrate runs at boot) → verify with `showmigrations` |
 
 ### 3.3 Swapping the web server (no gap)
 
@@ -496,6 +496,25 @@ to fast-forward or invoke the service-account checkout; never edit or commit
 from that checkout.
 
 ---
+
+### 3.5 Migration rehearsal (launch runner, before the app restarts)
+
+When a launch's range has a migration (the brief's `migrations_expected`, or the commits step's migration flag) and
+the app is rebuilt, the runner builds the new app image with `--no-restart`, then rehearses `manage.py migrate
+--noinput` with that image on a throwaway copy of the box's own schema, then restarts (a cached build). The SQLite
+lanes and GitHub's pytest cannot see charsets or collations; this can (launch 20261026-1846: an FK from a utf8mb4 table
+to the latin1 `assistant_chat_session`, MySQL error 3780, a crash loop behind `[MIGRATE-FAILED]`).
+
+- It only reads the live database: `mysqldump --single-transaction --no-data` plus the rows of `django_migrations` and
+  `django_content_type`, run inside the db container (its password never leaves the container; nothing secret is on
+  an argv). No user or auth rows.
+- The copy loads into a throwaway MySQL (the db service's own image and command, the live database's default
+  charset and collation, `--rm`, an `--internal` network, 2 GB, `timeout -k`). A trap removes the dump, the
+  containers and the network on every exit.
+- Green: the status file gets `REHEARSAL-OK applied=<migrations> seconds=<n>` and the launch goes on.
+- A STOP (`STOPPED: the migration rehearsal failed ...`) means the old containers are still serving and nothing was
+  restarted. The error tail is on the status line and in `launch-<tag>/rehearsal.log`; the new image is built but
+  unused. Fix the migration, push, and relaunch. Never `migrate --fake`.
 
 ## 4. Config-only changes
 
