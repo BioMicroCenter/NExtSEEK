@@ -112,7 +112,7 @@ def _body(**over):
 
 
 @pytest.mark.parametrize("value", [None, "", "   "])
-def test_switch_is_off_when_the_url_is_unset_or_empty(monkeypatch, value):
+def test_no_spawner_when_the_url_is_unset_or_empty(monkeypatch, value):
     if value is None:
         monkeypatch.delenv("NEXTSEEK_SPAWNER_URL", raising=False)
     else:
@@ -120,7 +120,7 @@ def test_switch_is_off_when_the_url_is_unset_or_empty(monkeypatch, value):
     assert spawner_client.enabled() is False
 
 
-def test_switch_is_on_when_the_url_is_set(monkeypatch):
+def test_the_spawner_is_on_when_the_url_is_set(monkeypatch):
     monkeypatch.setenv("NEXTSEEK_SPAWNER_URL", "http://cc-spawner:8080")
     assert spawner_client.enabled() is True
 

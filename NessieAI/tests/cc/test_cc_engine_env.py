@@ -29,30 +29,8 @@ def test_default_network_is_dedicated_segmented_net():
     assert cc_engine.DEFAULT_NETWORK == "dmac-cc-net"
 
 
-
-
-# --- #73 / F15: per-turn resource ceilings + self-reaping -----------------------
-
-
-
-
-
-
-
-# --- Step 2b (iter-1 H-2): deterministic agent container naming --------------
-
-
-
-
-
-
-
-# --- Step 2b: stale-name retry on a 409 Conflict ------------------------------
-
-
-
-
-
+# The resource ceilings, container naming and stale-name retry are cc-spawner's now
+# (docker/cc-spawner/tests/test_spawner.py).
 
 
 # --- OI-3 zero-credential agent env (THE security contract) -------------------
@@ -629,48 +607,6 @@ def test_bumped_host_port_loopback_still_rewritten():
         api_user="d", turn_pass="p", path_mappings={},
     )
     assert env["NEXTSEEK_BASE_URL"] == "http://nextseek_nginx"
-
-
-
-
-
-
-def _fake_docker_module(*, ping_exc=None, image_exc=None, network_exc=None):
-    import types
-
-    mod = types.ModuleType("docker")
-
-    class _Images:
-        def get(self, name):
-            if image_exc is not None:
-                raise image_exc
-            return object()
-
-    class _Networks:
-        def get(self, name):
-            if network_exc is not None:
-                raise network_exc
-            return object()
-
-    class _Client:
-        def __init__(self):
-            self.images = _Images()
-            self.networks = _Networks()
-
-        def ping(self):
-            if ping_exc is not None:
-                raise ping_exc
-
-    mod.from_env = lambda: _Client()
-    return mod
-
-
-
-
-
-
-
-
 
 
 # --- approach 1, piece 2: the ops road -----------------------------------------------------------------------
