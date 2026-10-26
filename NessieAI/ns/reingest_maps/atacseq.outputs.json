@@ -1,0 +1,133 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/atacseq",
+  "applies_to_versions": ">=2.1,<2.2",
+  "accepts_parent_types": ["D.SEQ"],
+  "inventory_globs": [
+    "**/*.mRp.clN_peaks.narrowPeak",
+    "**/*.mLb.clN_peaks.narrowPeak",
+    "**/*.mRp.clN_peaks.broadPeak",
+    "**/*.mLb.clN_peaks.broadPeak",
+    "**/*.mRp.clN.bigWig",
+    "**/*.mLb.clN.bigWig",
+    "**/consensus_peaks.mLb.clN.bed",
+    "**/consensus_peaks.mLb.clN.featureCounts.txt"
+  ],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "outputs": [
+    {
+      "id": "aln",
+      "candidates": ["*/merged_replicate/*.mRp.clN.sorted.bam",
+                     "*/merged_library/*.mLb.clN.sorted.bam"],
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [{"glob": "*/merged_replicate/*.mRp.clN.sorted.bam.bai"},
+                     {"glob": "*/merged_library/*.mLb.clN.sorted.bam.bai"}],
+      "attributes": {
+        "DataType": "BAM",
+        "Name": "@row_name",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "$params.aligner",
+        "Genome": "$params.genome",
+        "Software": "nf-core/atacseq"
+      }
+    },
+    {
+      "id": "peaks_narrow",
+      "candidates": ["*/merged_replicate/macs2/narrow_peak/*.mRp.clN_peaks.narrowPeak",
+                     "*/merged_library/macs2/narrow_peak/*.mLb.clN_peaks.narrowPeak"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "attributes": {
+        "DataType": "narrowPeak",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/atacseq"
+      }
+    },
+    {
+      "id": "peaks_broad",
+      "candidates": ["*/merged_replicate/macs2/broad_peak/*.mRp.clN_peaks.broadPeak",
+                     "*/merged_library/macs2/broad_peak/*.mLb.clN_peaks.broadPeak"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "attributes": {
+        "DataType": "broadPeak",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/atacseq"
+      }
+    },
+    {
+      "id": "bigwig",
+      "candidates": ["*/merged_replicate/bigwig/*.mRp.clN.bigWig",
+                     "*/merged_library/bigwig/*.mLb.clN.bigWig"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "attributes": {
+        "DataType": "bigWig",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/atacseq"
+      }
+    },
+    {
+      "id": "consensus",
+      "candidates": ["*/merged_library/macs2/{narrow_peak,broad_peak}/consensus/consensus_peaks.mLb.clN.bed"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_run",
+      "primary_data": true,
+      "optional": true,
+      "companions": [{"glob": "*/merged_library/macs2/{narrow_peak,broad_peak}/consensus/consensus_peaks.mLb.clN.featureCounts.txt"}],
+      "attributes": {
+        "DataType": "BED",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/atacseq"
+      }
+    }
+  ],
+  "provenance_attributes": {},
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html", "target": "D.SEQ",
+      "datatype": "string", "provenance": "seed"
+    },
+    "Genome": {
+      "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
+      "provenance": "seed"
+    }
+  },
+  "deliberately_unmapped": [],
+  "unmapped_files": [
+    {"glob": "fastqc/*", "why": "FastQC reports on the raw reads; QC, not a result of the analysis."},
+    {"glob": "trimgalore/*", "why": "Trim Galore logs, FastQC of the trimmed reads, and the trimmed reads themselves (with --save_trimmed): an intermediate of the registered alignment."},
+    {"glob": "*/library/*", "why": "Library-level alignments (with --save_align_intermeds), their samtools stats, STAR logs and unmapped reads (with --save_unaligned): intermediates of the merged-library BAM the aln rule registers."},
+    {"glob": "*/merged_{library,replicate}/*.{mLb,mRp}.{sorted,mkD.sorted,flT.sorted,flT.name_sorted}.bam*", "why": "Merged, duplicate-marked and pre-orphan-removal BAMs (with --save_align_intermeds): earlier states of the filtered clN BAM the aln rule registers."},
+    {"glob": "*/merged_library/*.mLb.clN.bam", "why": "The orphan-removed alignment before sorting (with --save_align_intermeds): the same reads as the sorted clN BAM the aln rule registers."},
+    {"glob": "*/merged_{library,replicate}/{samtools_stats,picard_metrics,preseq}/*", "why": "samtools, Picard and Preseq QC of the merged alignments; summarised in the MultiQC report."},
+    {"glob": "*/merged_library/deeptools/*", "why": "deepTools plotFingerprint and plotProfile QC (enrichment and TSS profiles): plotted in the MultiQC report, not a sample result."},
+    {"glob": "*/merged_library/ataqv/*", "why": "ataqv's per-sample ATAC-seq QC JSON and its HTML viewer: QC; its TSS enrichment has no attribute yet and is listed for the owner."},
+    {"glob": "*/merged_{library,replicate}/macs2/*/*_peaks.{xls,gappedPeak}", "why": "MACS2's peak table and gapped peaks: the same calls as the narrowPeak or broadPeak file the peaks rules register."},
+    {"glob": "*/merged_{library,replicate}/macs2/*/*_summits.bed", "why": "MACS2 summits (narrow mode): one point per registered peak, derived from the same call."},
+    {"glob": "*/merged_{library,replicate}/macs2/*/*.annotatePeaks.txt", "why": "HOMER peak-to-gene annotation of the registered peaks (and of the consensus set): an annotation, and A.CHRM has no secondary-file slot to hold it."},
+    {"glob": "*/merged_{library,replicate}/macs2/*/qc/*", "why": "MACS2 and HOMER QC plots and the FRiP, peak-count and annotation MultiQC custom-content files: QC read through MultiQC."},
+    {"glob": "*/merged_library/macs2/*/consensus/*.{saf,boolean.txt,boolean.annotatePeaks.txt,boolean.intersect.txt,boolean.intersect.plot.pdf}", "why": "The consensus peak set again as SAF and as presence/absence spreadsheets, and its UpSetR intersection files: reformats of the consensus BED the consensus rule registers."},
+    {"glob": "*/merged_{library,replicate}/macs2/*/consensus/{deseq2,sizeFactors}/*", "why": "atacseq's DESeq2 step is QC only: PCA, sample distances and the vst DESeqDataSet over the consensus counts, with no contrast. No differential result exists to register."},
+    {"glob": "igv/*", "why": "IGV session file and its file list: points at the registered files, holds no data of its own."},
+    {"glob": "genome/*", "why": "Reference FASTA, blacklist, gene BED and aligner indexes (with --save_reference): reference files, not sample data."}
+  ]
+}

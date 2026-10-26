@@ -1394,6 +1394,12 @@ _OLD_INVENTORY = {
     # per-caller VCFs with their tabix indexes under variant_calling/<caller>/<sample>/
     "**/preprocessing/*/*/*.cram", "**/preprocessing/*/*/*.cram.crai",
     "**/variant_calling/*/*/*.vcf.gz", "**/variant_calling/*/*/*.vcf.gz.tbi",
+    # atacseq's A.CHRM rules: MACS2 peaks, bigWig tracks, and the
+    # merged-library consensus peaks with their read counts
+    "**/*.mRp.clN_peaks.narrowPeak", "**/*.mLb.clN_peaks.narrowPeak",
+    "**/*.mRp.clN_peaks.broadPeak", "**/*.mLb.clN_peaks.broadPeak",
+    "**/*.mRp.clN.bigWig", "**/*.mLb.clN.bigWig",
+    "**/consensus_peaks.mLb.clN.bed", "**/consensus_peaks.mLb.clN.featureCounts.txt",
 }
 
 
