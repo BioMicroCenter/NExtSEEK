@@ -16,6 +16,7 @@ spelled exactly as documented, so a wildcard where the docs name a folder fails
 too. Candidates and companions must name a documented folder exactly; an
 `unmapped_files` glob may stop above one (its `*` crosses `/`).
 """
+import fnmatch
 import re
 from pathlib import Path
 
@@ -30,14 +31,19 @@ README = maps.MAPS_DIR / "README.md"
 DOC_ONLY = {"atacseq": "atacseq.output.md", "chipseq": "chipseq.output.md"}
 
 #: Folders an output.md documents only by saying they mirror another, as {pipeline:
-#: {folder: (its documented twin, the sentence of the docs that says so)}}. A pattern's
-#: segment naming the folder is checked as its twin. atacseq's "Merged replicate-level
-#: analysis" section lists no files of its own; conf/modules.config publishes the same
-#: bigwig/, macs2/<PEAK_TYPE>/ and consensus/ layout under merged_replicate/.
+#: {folder: (its documented twin, the sentence of the docs that says so, the subfolders
+#: conf/modules.config publishes under it)}}. A pattern's folder under one of those
+#: subfolders is checked as the twin's; any other subfolder stays undocumented, so a
+#: rule cannot name a merged_replicate/ folder the release never writes. atacseq's
+#: "Merged replicate-level analysis" section lists no files of its own; its
+#: modules.config publishes these under merged_replicate/ (no preseq/, deeptools/,
+#: ataqv/ or sizeFactors/ there).
 TWINS = {"atacseq": {"merged_replicate": (
     "merged_library",
     "The analysis steps and directory structure for `<ALIGNER>/merged_library/` and "
-    "`<ALIGNER>/merged_replicate/` are almost identical.")}}
+    "`<ALIGNER>/merged_replicate/` are almost identical.",
+    ("", "bigwig", "bigwig/scale", "picard_metrics", "samtools_stats", "macs2/*",
+     "macs2/*/qc", "macs2/*/consensus", "macs2/*/consensus/deseq2"))}}
 
 _PLACEHOLDER = re.compile(r"<[A-Z_]+>")
 
@@ -48,9 +54,16 @@ def documented_folders(text: str) -> list[list[str]]:
 
 
 def _as_twins(pattern: str, pipeline: str) -> str:
-    """`pattern` (brace-expanded already) with each twin folder read as the folder it mirrors."""
-    for folder, (twin, _) in TWINS.get(pipeline, {}).items():
-        pattern = re.sub(rf"(^|/){folder}(?=/)", rf"\g<1>{twin}", pattern)
+    """`pattern` (brace-expanded already) with a twin folder read as the folder it
+    mirrors, when the pattern's folder below it is one the release publishes there."""
+    for folder, (twin, _, published) in TWINS.get(pipeline, {}).items():
+        match = re.search(rf"(^|/){folder}/", pattern)
+        if not match:
+            continue
+        below = pattern[match.end():].rsplit("/", 1)[0] if "/" in pattern[match.end():] else ""
+        if any(fnmatch.fnmatchcase(below, p) and below.count("/") == p.count("/")
+               for p in published):
+            pattern = pattern[:match.start()] + match.group(1) + twin + "/" + pattern[match.end():]
     return pattern
 
 
@@ -110,7 +123,7 @@ def test_every_unmapped_files_folder_is_documented(pipeline):
 @pytest.mark.parametrize("pipeline", sorted(TWINS))
 def test_every_twin_folder_is_one_the_docs_say_mirrors_another(pipeline):
     text = " ".join((DOCS / DOC_ONLY[pipeline]).read_text().split())
-    for folder, (twin, sentence) in TWINS[pipeline].items():
+    for folder, (twin, sentence, _) in TWINS[pipeline].items():
         assert sentence in text, f"{pipeline}: the docs no longer say {folder}/ mirrors {twin}/"
 
 
@@ -135,3 +148,5 @@ def test_the_check_catches_a_typo_and_a_wildcard_where_a_folder_is_named():
     assert undocumented(_as_twins("*/merged_replicate/macs2/broad_peak/*.broadPeak", "atacseq"),
                         folders) == []
     assert _as_twins("*/merged_replicate/x", "chipseq") == "*/merged_replicate/x"
+    assert _as_twins("*/merged_replicate/preseq/*", "atacseq") == "*/merged_replicate/preseq/*"
+    assert _as_twins("*/merged_replicate/*.bam", "atacseq") == "*/merged_library/*.bam"
