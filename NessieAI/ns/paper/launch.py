@@ -78,11 +78,12 @@ def _open_text(ref: PaperRef, fetcher: Fetcher) -> PaperText | None:
 def _from_pdf(name: str, seams: LaunchSeams) -> tuple[PaperRef, PaperText, str]:
     text = split_sections(pdf_to_text(seams.read_input_file(name)))
     head = " ".join(text.all_text()[:5])
-    ref = None
+    ref, doi = None, None
     if match := DOI_RE.search(head):
-        ref = europepmc.resolve(PaperInput(kind="doi", value=clean_doi(match.group(0))), seams.fetcher)
+        doi = clean_doi(match.group(0))
+        ref = europepmc.resolve(PaperInput(kind="doi", value=doi), seams.fetcher)
     if ref is None:
         first = text.all_text()[0][:300] if text.all_text() else name
-        ref = PaperRef(title=first)
+        ref = PaperRef(title=first, doi=doi)
     ref.source_file = name
     return ref, text, "pdf"
