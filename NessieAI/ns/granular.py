@@ -1333,6 +1333,10 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, 
     if launch is None:
         raise OpValidationError(
             "reingest covers Nessie-launched runs; this run has no launch record", field="run_dir", error_type="no_launch_record_for_this_run")
+    user = getattr(session, "user", None)
+    if not getattr(user, "is_superuser", False) and (
+            launch.launched_by_id is None or launch.launched_by_id != getattr(user, "pk", None)):
+        raise OpValidationError("this run was launched by someone else", field="run_dir", error_type="not_your_run")
     from chat_nextseek.luria.ssh import prepare_key
     key_path = prepare_key(luria_env["key"])
     try:
@@ -1552,6 +1556,8 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir, *,
     import shlex
 
     run_dir, luria_env, runs_root = _validate_run_dir(args, config)
+    if run_dir == runs_root:
+        raise OpValidationError("run_dir is the runs root", field="run_dir", error_type="the_runs_root")
     rels = [p.strip() for p in str(args.get("paths") or "").split(",") if p.strip()]
     if not rels:
         raise OpValidationError("paths must name at least one file", field="paths", error_type="names_no_file")

@@ -422,7 +422,7 @@ def _launched_runs(state) -> list:
 
 
 def _refuse_run_ls(request, req, chat_config) -> Response | None:
-    """run-ls lists one run the caller launched (any run for a superuser off a turn pass), never the runs root.
+    """run-ls, run-harvest and run-checksum take one run the caller launched (any run for a superuser off a turn pass), never the runs root.
 
     A run is the caller's when one of the caller's own chats records it as launched (``_launched_runs``); its
     folders are the caller's too. None when the op may go on; without a configured Luria the op answers itself,
@@ -432,6 +432,8 @@ def _refuse_run_ls(request, req, chat_config) -> Response | None:
     if not working:
         return None
     runs_root = working + "/runs"
+    if not getattr(req, "run_dir", None):
+        return None  # run-harvest with no folder: the op picks the caller's own waiting run
     run_dir = os.path.normpath(str(req.run_dir))
     if run_dir == runs_root:
         return op_error("VALIDATION", fields=[{"field": "run_dir", "type": "the_runs_root"}],
@@ -1458,7 +1460,7 @@ class AssistantViewSet(viewsets.ViewSet):
             # the same rule.
             return op_error("AUTH_FAILED", status=HTTP_STATUS["AUTH_FAILED"])
         chat_config = _granular_chat_config(request, req)
-        if op == "run-ls":
+        if op in ("run-ls", "run-harvest", "run-checksum"):
             refused = _refuse_run_ls(request, req, chat_config)
             if refused is not None:
                 return refused
