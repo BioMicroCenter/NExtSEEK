@@ -506,6 +506,18 @@ def test_the_labs_copy_writes_once_to_the_shared_path_and_restarts_nothing(tmp_p
     assert "stat -c %y /media/context/labs_db.json" in text
 
 
+def test_the_labs_file_is_on_the_volume_before_the_app_rebuild_starts_web(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    loop = text.split('for c in $COMPONENTS; do', 1)[1]
+    assert loop.index('[ "$c" = app ] && pre_app') < loop.index('if rebuild "$c"')
+    pre = text.split("pre_app(){", 1)[1].split("\n}\n", 1)[0]
+    # piped in, not bind-mounted: a bind source is resolved by the daemon and needs :z on an SELinux host
+    assert "docker compose run --rm -T --no-deps --entrypoint sh nextseek" in pre
+    assert "cat > /media/context/.labs.tmp && mv -f /media/context/.labs.tmp /media/context/labs_db.json" in pre
+    assert "< /tmp/labs_db.json" in pre and " -v " not in pre and "-u 0" not in pre
+
+
 def test_the_paid_step_needs_every_model_id_proven(tmp_path, capsys):
     # 2026-09-28: a refused id silently moves to the fallback (F1), so a paid run needs the green line itself
     from rules import HEALTH_NEEDS
@@ -774,11 +786,11 @@ FAILED ci/smoke/test_reachability.py::test_route_is_reachable[/nextseek_api/samp
 """
 
 
-def judged(tmp_path, capsys, ci_log=CI_LOG):
+def judged(tmp_path, capsys, ci_log=CI_LOG, status=STATUS):
     d, _ = rendered_runner(tmp_path, capsys)
     ev = d / "launch-20260926-1300"
     ev.mkdir()
-    (d / "launch-20260926-1300.status").write_text(STATUS)
+    (d / "launch-20260926-1300.status").write_text(status)
     (ev / "app.log").write_text((FIX / "real-app-p3.log").read_text())
     (ev / "cc.log").write_text("       ✓ cc-agent image rebuilt; no persistent container to restart\n"
                                "       ✓ cc-agent runtime: node v22.11.0, Claude Code 2.1.282\n")
@@ -801,6 +813,12 @@ def test_judge_writes_facts_and_a_prefilled_form(tmp_path, capsys):
     form = json.loads((d / "report-form.json").read_text())
     assert form["headline"]["verdict"] is None
     assert [f["known"] for f in form["ci"]["failures"]] == [True, True]
+
+
+def test_a_labs_pre_copy_alone_counts_as_copied(tmp_path, capsys):
+    d = judged(tmp_path, capsys, status=STATUS.replace("LABS copied 13:12:15", "LABS pre-copied 13:01:00"))
+    labs = next(s for s in json.loads((d / "report-form.json").read_text())["steps"] if s["step"] == "labs")
+    assert labs["status"] == "ok"
 
 
 def fill(d, **over):

@@ -124,6 +124,14 @@ git merge --ff-only "$EXP" >> "$L/pull.log" 2>&1 || stop "fast-forward refused, 
 [ "$(git rev-parse HEAD)" = "$EXP" ] || stop "HEAD $(git rev-parse --short HEAD) is not the expected sha"
 say "HEAD $(git log --oneline -1 | cut -c1-70)"
 
+pre_app(){ # the labs file goes onto the shared volume BEFORE the app rebuild starts the new web, which reads it once at load
+  [ $DO_LABS = 1 ] && [ -f /tmp/labs_db.json ] || return 0
+  # piped in, not bind-mounted: a bind source is resolved by the daemon and would need :z on an SELinux host
+  docker compose run --rm -T --no-deps --entrypoint sh nextseek \
+    -c 'mkdir -p /media/context && cat > /media/context/.labs.tmp && mv -f /media/context/.labs.tmp /media/context/labs_db.json' \
+    < /tmp/labs_db.json && say "LABS pre-copied" || say "LABS pre-copy failed; post_app copies it after the rebuild"
+}
+
 post_app(){
   if [ $DO_STATIC = 1 ]; then
     docker compose exec -T web uv run manage.py collectstatic --noinput > "$L/static.log" 2>&1 </dev/null   # the static volume is web's
@@ -143,6 +151,7 @@ post_app(){
 
 PENDING="$COMPONENTS"
 for c in $COMPONENTS; do
+  [ "$c" = app ] && pre_app
   if rebuild "$c"; then
     say "REBUILT $c"
   else

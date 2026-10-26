@@ -17,8 +17,10 @@ removes it, and `doctor` reports one that a killed swap left behind.
 """
 from __future__ import annotations
 
+import re
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -133,11 +135,50 @@ def _pin(run, repo_root: Path, name: str | None) -> None:
     _reload(run)
 
 
+DRAIN_MARGIN_S = 30   # web's stop_grace_period must outlast the drain by this much: one late poll + end_cut_turns
+
+
+def _seconds(value: str) -> int:
+    total = 0
+    for n, unit in re.findall(r"(\d+)([hms])", str(value)):
+        total += int(n) * {"h": 3600, "m": 60, "s": 1}[unit]
+    return total
+
+
+def drain_problem(repo_root: Path) -> str | None:
+    """A message when the NEXTSEEK_DRAIN_SECONDS set in .env is not a whole number of seconds, or is more than web's
+    stop_grace_period allows: Docker would SIGKILL web before it cuts the turns it could not finish. Only .env
+    counts: compose's environment: line for the key wins over docker/nextseek.env."""
+    import yaml
+    from startup.lib.env import read_env
+
+    repo_root = Path(repo_root)
+    configured = read_env(repo_root / ".env").get("NEXTSEEK_DRAIN_SECONDS", "").strip()
+    if not configured:   # compose's ${NEXTSEEK_DRAIN_SECONDS:-240} reads empty as unset
+        return None
+    if not re.fullmatch(r"[0-9]+", configured):
+        return (f"NEXTSEEK_DRAIN_SECONDS={configured} is not a whole number of seconds: the entrypoint uses 240 "
+                "instead. Set a number of seconds in .env.")
+    compose = repo_root / "docker-compose.yml"
+    if not compose.exists():
+        return None
+    grace = _seconds(((yaml.safe_load(compose.read_text()).get("services") or {}).get("web") or {})
+                     .get("stop_grace_period", ""))
+    limit = grace - DRAIN_MARGIN_S
+    if grace and int(configured) > limit:
+        return (f"NEXTSEEK_DRAIN_SECONDS={configured} is above {limit} (web's stop_grace_period {grace} s "
+                f"minus {DRAIN_MARGIN_S} s): the entrypoint clamps it to {limit}. Lower it or raise the grace period.")
+    return None
+
+
 def swap(run, repo_root: Path, *, say=print, warn=print, sleep=time.sleep,
-         clock=time.monotonic, healthy_timeout: float = HEALTHY_TIMEOUT_S) -> str:
+         clock=time.monotonic, healthy_timeout: float = HEALTHY_TIMEOUT_S,
+         utcnow=lambda: datetime.now(timezone.utc)) -> str:
     """Replace the running web container. Returns "swapped" or "started"."""
     repo_root = Path(repo_root)
     refuse_leftover_pin(repo_root)
+    if (problem := drain_problem(repo_root)):
+        warn(problem)
     up_web = ["docker", "compose", "up", "-d", "--no-deps", "web"]
     ids = _ok(run, ["docker", "compose", "ps", "-q", "web"], "listing web containers").split()
     if len(ids) > 1:
@@ -183,6 +224,7 @@ def swap(run, repo_root: Path, *, say=print, warn=print, sleep=time.sleep,
             committed = False
             _pin(run, repo_root, old_name)   # back to the container we know is serving
             raise
+        say(f"nginx switched to {new_name} at {utcnow().isoformat(timespec='milliseconds').replace('+00:00', 'Z')}")
         say(f"front door switched to {new_name}; stopping {old_name} (running chat turns finish first)")
         r = run(["docker", "stop", old])
         if r.returncode != 0:

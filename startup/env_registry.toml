@@ -872,7 +872,7 @@ doc = "Memory cap of the worker container (the nine background loops)."
 [NEXTSEEK_DRAIN_SECONDS]
 files = ["root.env"]
 default = "240"
-doc = "How long a stopping web container lets running chat turns finish before it cuts them. web's stop_grace_period must stay at least this plus 30 s."
+doc = "How long a stopping web container lets running chat turns finish before it cuts them. The entrypoint clamps it to web's stop_grace_period less 30 s (270) and uses 240 for a value that is not a whole number of seconds; doctor reports either."
 
 [NEXTSEEK_SPAWNER_TOKEN]
 files = ["nextseek.env"]

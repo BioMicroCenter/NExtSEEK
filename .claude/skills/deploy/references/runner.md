@@ -64,6 +64,7 @@ REBUILD app exit=1               # exit 1 is often drift or GHCR; the success li
 ROLLBACK app nextseek-nextseek:pre-<utc>-<sha>   # the NEW image was built from <sha>
 REBUILT app | FAILED cc-agent, continuing (...)
 STATIC exit=0 ...
+LABS pre-copied | LABS pre-copy failed; ...   # before the app rebuild; the last LABS line decides
 LABS copied | LABS source missing: /tmp/labs_db.json
 RED app [pending cc-agent] cc-agent runtime: STALE: ...
 FINDING red after the last rebuild (...)
