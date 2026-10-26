@@ -59,9 +59,9 @@ def test_targets_writable_only_prefixed_names_and_binds_under_repo_root(tmp_path
 
 def test_fix_argv_volume_and_bind_exact() -> None:
     sh = f"find /v -xdev {NOT_OWNED} -exec chown -h 10001:10001 {{}} +"
+    # no file chmod: a 0600 log stays 0600 (setgid folders + the app's umask 002 make new files group-readable)
     bind_sh = (f"find /v -xdev {NOT_OWNED_BIND} -exec chown -h 10001:1000 {{}} +; "
-               "find /v -xdev -type d ! -perm -2070 -exec chmod g+rwxs {} +; "
-               "find /v -xdev -type f ! -perm -040 -exec chmod g+r {} +")
+               "find /v -xdev -type d ! -perm -2070 -exec chmod g+rwxs {} +")
     head = ["docker", "run", "--rm", "--network", "none", "--user", "0:0", "--entrypoint", "sh"]
     assert ownership.fix_argv(Target("volume", "p1-nextseek-media", "/media", "10001"), IMG) == [*head, "-v", "p1-nextseek-media:/v", IMG, "-c", sh]
     assert ownership.fix_argv(Target("bind", "/srv/logs", "/app/logs", "1000"), IMG) == [*head, "-v", "/srv/logs:/v:z", IMG, "-c", bind_sh]
@@ -261,3 +261,17 @@ def test_a_volume_that_does_not_exist_yet_is_skipped_not_created(tmp_path: Path)
             counts = volumes.ensure_app_ownership(tmp_path, {"NEXTSEEK_HOST_GID": H}, check_only=check)
         assert "p1-nextseek-media" not in counts and len(counts) == 4
         assert not any("p1-nextseek-media:/v" in " ".join(c) for c in ran if c[:2] == ["docker", "run"])
+
+
+def test_the_group_read_step_sets_only_group_bits() -> None:
+    """g+r,g-wx,o-rwx: never widens the owner's bits (0400 stays owner read-only) and never adds group write."""
+    import os
+    import tempfile
+    gid = os.getgid()
+    for before, after in ((0o644, 0o640), (0o600, 0o640), (0o400, 0o440), (0o664, 0o640), (0o640, 0o640)):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "dmac").mkdir()
+            ls = Path(d) / "dmac" / "local_settings.py"
+            ls.write_text("x"); ls.chmod(before)
+            assert volumes.ensure_secret_group_read(Path(d), {"NEXTSEEK_HOST_GID": str(gid)}) == []
+            assert ls.stat().st_mode & 0o777 == after, (oct(before), oct(ls.stat().st_mode & 0o777))

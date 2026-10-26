@@ -505,8 +505,9 @@ ${NEXTSEEK_HOST_GID}`, files 0640, that group). No file in a volume or bind the 
 - `check_app_ids` (`startup/steps/validate.py`): uid and gid 10001 are free on the box (NSS, so directory
   accounts count) and `NEXTSEEK_HOST_GID` is a number that is not 0 and not the docker group's gid.
 - the group-read step (`ensure_secret_group_read`, in `startup/steps/volumes.py`): `local_settings.py` gets
-  group `NEXTSEEK_HOST_GID` and mode 0640. The file named by `LURIAKEY` is never touched (on dev it is
-  `~/.ssh/luria`, and OpenSSH refuses a group-readable key for its owner): it is copied to `docker/luria-key`
+  group `NEXTSEEK_HOST_GID` and group read only (`chmod g+r,g-wx,o-rwx`: today's 0644 becomes 0640). The file
+  named by `LURIAKEY` is never touched (on dev it is `~/.ssh/luria`, and OpenSSH refuses a group-readable key
+  for its owner): it is copied to `docker/luria-key`
   (gitignored and dockerignored, 0640, that group, refreshed on every rebuild) and compose binds the copy at the
   `LURIAKEY` path (`NEXTSEEK_LURIA_KEY_COPY` in `.env`). Run as the installing user; if `local_settings.py`
   belongs to someone else it prints the `chgrp` and `chmod` for that owner.

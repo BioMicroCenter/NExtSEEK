@@ -228,8 +228,9 @@ def _sync_luria_key(repo_root: Path, env: dict[str, str], gid: int) -> list[str]
 
 
 def ensure_secret_group_read(repo_root: Path, env: dict[str, str]) -> list[str]:
-    """Give dmac/local_settings.py mode 0640 and group NEXTSEEK_HOST_GID, so the app (which has that gid as an
-    extra group) can read it, and keep the group-readable copy of the Luria key current (_sync_luria_key).
+    """Give dmac/local_settings.py group NEXTSEEK_HOST_GID and group read only (g+r,g-wx,o-rwx: 0644 -> 0640; the
+    owner's bits are never widened, so 0400 -> 0440), so the app (which has that gid as an extra group) can read
+    it, and keep the group-readable copy of the Luria key current (_sync_luria_key).
 
     Runs on the host as the installing user, no container, and changes no file outside the repo. Returns one
     message per problem (empty = done): a file we do not own gets the command for its owner to run; a file
@@ -243,7 +244,8 @@ def ensure_secret_group_read(repo_root: Path, env: dict[str, str]) -> list[str]:
         if not p.is_file():
             continue
         st = p.stat()
-        if st.st_gid == int(gid) and stat.S_IMODE(st.st_mode) == 0o640:
+        mode = stat.S_IMODE(st.st_mode)
+        if st.st_gid == int(gid) and mode & 0o077 == 0o040:
             continue
         try:
             os.getxattr(p, "system.posix_acl_access")
@@ -251,13 +253,13 @@ def ensure_secret_group_read(repo_root: Path, env: dict[str, str]) -> list[str]:
             continue
         except OSError:
             pass
-        fix = f"sudo chgrp {gid} {p} && sudo chmod 640 {p}"
+        fix = f"sudo chgrp {gid} {p} && sudo chmod g+r,g-wx,o-rwx {p}"
         if st.st_uid != os.getuid():
             problems.append(f"{p} is not owned by this user: its owner runs `{fix}`")
             continue
         try:
             os.chown(p, -1, int(gid))
-            os.chmod(p, 0o640)
+            os.chmod(p, (mode & 0o700) | 0o040)
         except PermissionError:
             problems.append(f"could not set group {gid} on {p} (this user is not in that group): run `{fix}`")
     return problems

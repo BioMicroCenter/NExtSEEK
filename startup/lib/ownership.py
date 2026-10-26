@@ -66,8 +66,9 @@ def _fix_sh(target: Target) -> str:
     chown = f"find /v -xdev {_where(target)} -exec chown -h {APP_UID}:{target.gid} {{}} +"
     if target.kind == "volume":
         return chown
-    return (f"{chown}; find /v -xdev -type d ! -perm -2070 -exec chmod g+rwxs {{}} +; "
-            "find /v -xdev -type f ! -perm -040 -exec chmod g+r {} +")
+    # Folders only: setgid + group rwx, so new files land in group H and the app's umask 002 makes them 0664.
+    # Files keep their mode (a 0600 log stays private; the root 0644 ones are group-readable already).
+    return f"{chown}; find /v -xdev -type d ! -perm -2070 -exec chmod g+rwxs {{}} +"
 
 
 def _argv(target: Target, image: str, sh: str, check: bool) -> list[str]:
