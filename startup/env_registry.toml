@@ -838,7 +838,7 @@ doc = "Prefix for container and volume names of a second instance; install write
 files = ["root.env"]
 default = ""
 dynamic = true
-doc = "Gid of the deploy account (id -g of the user running startup); compose gives it to the nextseek and web services in group_add so the non-root app can read local_settings.py and the Luria key (mode 0640). Install writes it (render_root_env); rebuild, fix-ownership and doctor add it to an older .env (ensure_host_gid), and the deploy runner appends it before its pull. Compose reads it in the mandatory form, so every compose verb fails without it; by hand: echo NEXTSEEK_HOST_GID=`id -g` >> .env. Never the docker group."
+doc = "Gid of the deploy account (id -g of the user running startup); compose gives it to the nextseek and web services in group_add so the non-root app can read local_settings.py and docker/luria-key (startup's 0640 copy of the Luria key). Install writes it (render_root_env); rebuild, fix-ownership and doctor add it to an older .env (ensure_host_gid), and the deploy runner appends it before its first compose verb and its pull. Compose reads it in the mandatory form, so every compose verb fails without it; by hand: echo NEXTSEEK_HOST_GID=`id -g` >> .env. Never the docker group."
 
 [NEXTSEEK_LURIA_KEY_COPY]
 files = ["root.env"]
