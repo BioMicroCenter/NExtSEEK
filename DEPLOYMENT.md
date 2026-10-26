@@ -431,6 +431,15 @@ The deploy that brings `0030_spill_json_fields` (the chat size guard) is such a 
 the migration changes no column, but it is unapplied, so `migrate --check` sends that one
 deploy to stop-first. Plan its minute of the restart page.
 
+So is the deploy that brings `0031_chat_search_entry` (the session search index). After it,
+index the chats already stored once; every turn that ends after the deploy indexes itself.
+The command skips turns already indexed, so a second run is harmless:
+
+```bash
+docker compose -p nextseek exec -T nextseek timeout -k 10 1800 /app/.venv/bin/python manage.py chat_search_index --dry-run
+docker compose -p nextseek exec -T nextseek timeout -k 10 1800 /app/.venv/bin/python manage.py chat_search_index
+```
+
 Any failure before the switch removes the new container and the pin; the old one never
 stopped serving. A pin left by a killed swap may name a container that is gone: `doctor`
 reports it, and `rebuild` refuses to build or replace `web` until it is deleted and nginx
@@ -647,6 +656,10 @@ links: the old code reads each as `{"$spill": ..., "bytes": ...}` where the valu
 so that chat opens without its big parts, and a `results_history` or `progress` that is
 one link as a whole is not a list to it (delete that chat first). Leave
 `/media/chat_spill` in place either way: a later roll-forward reads the links again.
+
+A deploy that applied `0031_chat_search_entry` needs nothing before you repoint: the code
+before it never reads `assistant_chat_search_entry`. A later roll-forward finds the rows of
+turns that ended before the rollback, and `chat_search_index` adds the rest.
 
 ### 5.2 Tag conventions and their care
 
