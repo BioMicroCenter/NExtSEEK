@@ -217,8 +217,8 @@ class DBconnection(object):
     def getDistinctList(self, tablemodel, fieldname):
         return self.__dbconn.getDistinctList(tablemodel, fieldname)
 
-    def generateQuerySet(self, filterRules):
-        return self.__dbconn.generateQuerySet(filterRules)
+    def generateQuerySet(self, filterRules, tablemodel=None):
+        return self.__dbconn.generateQuerySet(filterRules, tablemodel)
         
         
     def getUniueID(self, datadic, tablemodel, unqiuefield):
