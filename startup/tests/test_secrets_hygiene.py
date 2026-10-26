@@ -27,8 +27,10 @@ def test_rendered_env_files_and_local_settings_are_private(tmp_path: Path) -> No
         ]
     finally:
         os.umask(old)
-    for p in paths:
+    for p in paths[:2]:
         assert stat.S_IMODE(p.stat().st_mode) == 0o600, p
+    # the app runs as another uid and reads this one through the deploy account's group
+    assert stat.S_IMODE(paths[2].stat().st_mode) == 0o640
 
 
 def test_a_password_is_never_defaulted_for_an_existing_volume() -> None:
@@ -96,3 +98,24 @@ def test_the_refresh_dump_passes_mysql_pwd_through_docker_exec() -> None:
 def test_verify_reads_the_token_columns_through_its_own_container() -> None:
     verify = (_ROOT / "startup/seed/regenerate/refresh/verify.py").read_text()
     assert 's.scalar("SELECT COUNT(*) FROM users' not in verify and 'fake_exec("db"' in verify
+
+
+def test_root_env_gets_the_host_gid_once_and_keeps_an_existing_value(tmp_path: Path) -> None:
+    from startup.lib.env import read_env
+    config.render_root_env(tmp_path, {"COMPOSE_PROJECT_NAME": "x"})
+    assert read_env(tmp_path / ".env")["NEXTSEEK_HOST_GID"] == str(os.getgid())
+    (tmp_path / ".env").write_text("COMPOSE_PROJECT_NAME=x\nNEXTSEEK_HOST_GID=4242\n")
+    config.render_root_env(tmp_path, {"COMPOSE_PROJECT_NAME": "x"})
+    config.ensure_host_gid(tmp_path)
+    assert read_env(tmp_path / ".env")["NEXTSEEK_HOST_GID"] == "4242"
+    assert (tmp_path / ".env").read_text().count("NEXTSEEK_HOST_GID") == 1
+
+
+def test_ensure_host_gid_adds_the_key_to_an_old_env(tmp_path: Path) -> None:
+    (tmp_path / ".env").write_text("COMPOSE_PROJECT_NAME=x\n")
+    config.ensure_host_gid(tmp_path)
+    config.ensure_host_gid(tmp_path)
+    from startup.lib.env import read_env
+    text = (tmp_path / ".env").read_text()
+    assert text.count("NEXTSEEK_HOST_GID") == 1 and "COMPOSE_PROJECT_NAME=x" in text
+    assert read_env(tmp_path / ".env")["NEXTSEEK_HOST_GID"] == str(os.getgid())
