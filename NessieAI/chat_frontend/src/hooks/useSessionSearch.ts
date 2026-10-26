@@ -60,6 +60,8 @@ export function useSessionSearch(service: SessionSearchServiceLike): UseSessionS
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef<AbortController | null>(null);
+  // Bumped by every search and every counts-only call: only the newest may set the counts.
+  const countsSeq = useRef(0);
 
   const trimmed = query.trim();
   const q = trimmed.length >= SEARCH_MIN_CHARS ? trimmed : "";
@@ -76,6 +78,7 @@ export function useSessionSearch(service: SessionSearchServiceLike): UseSessionS
     }
     setLoading(true); // "Searching…", not "No chats match", while the typing settles
     const timer = setTimeout(() => {
+      const seq = ++countsSeq.current;
       inFlight.current?.abort();
       const controller = new AbortController();
       inFlight.current = controller;
@@ -85,7 +88,7 @@ export function useSessionSearch(service: SessionSearchServiceLike): UseSessionS
           if (controller.signal.aborted) return;
           setResults(res.results);
           setTerms(res.terms);
-          setFacets(res.facets ?? NO_FACETS);
+          if (seq === countsSeq.current) setFacets(res.facets ?? NO_FACETS);
           setError(null);
         })
         .catch(() => {
@@ -103,9 +106,10 @@ export function useSessionSearch(service: SessionSearchServiceLike): UseSessionS
 
   const { sinceDays, allUsers } = filters;
   const loadFacets = useCallback(() => {
+    const seq = ++countsSeq.current;
     service
       .searchSessions("", { sinceDays, allUsers, facetsOnly: true })
-      .then((res) => setFacets(res.facets ?? NO_FACETS))
+      .then((res) => { if (seq === countsSeq.current) setFacets(res.facets ?? NO_FACETS); })
       .catch(() => { /* the filters still work; only their counts are missing */ });
   }, [service, sinceDays, allUsers]);
 

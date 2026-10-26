@@ -108,6 +108,22 @@ describe("useSessionSearch", () => {
     expect(result.current.facets.record_type).toEqual({ MUS: 4 });
   });
 
+  it("a late counts-only reply never overwrites a newer search's counts", async () => {
+    let resolveCounts!: (r: SessionSearchResponse) => void;
+    const service = {
+      searchSessions: vi.fn((q: string, o: { facetsOnly?: boolean }) => o.facetsOnly
+        ? new Promise<SessionSearchResponse>((r) => { resolveCounts = r; })
+        : Promise.resolve(resp(["a"]))),
+    };
+    const { result } = renderHook(() => useSessionSearch(service));
+    act(() => result.current.loadFacets());
+    act(() => result.current.setQuery("ndma"));
+    await act(async () => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS); });
+    expect(result.current.facets.record_type).toEqual({ TIS: 1 });
+    await act(async () => { resolveCounts({ ...resp([]), facets: { record_type: { OLD: 9 }, project: {}, where: {} } }); });
+    expect(result.current.facets.record_type).toEqual({ TIS: 1 });
+  });
+
   it("clear empties the query and the results", async () => {
     const service = { searchSessions: vi.fn().mockResolvedValue(resp(["a"])) };
     const { result } = renderHook(() => useSessionSearch(service));
