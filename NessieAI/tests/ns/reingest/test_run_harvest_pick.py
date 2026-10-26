@@ -150,7 +150,7 @@ def test_a_started_upload_marks_its_run_reingested(monkeypatch):
     me = _user("me")
     run = _run("mine", me)
     monkeypatch.setattr(upload, "run", lambda **_k: {
-        "jobs": [{"build_id": "b1", "manifest_id": "m1", "job_id": "j1"},
+        "jobs": [{"build_id": "b1", "manifest_id": "m1", "job_id": "j1", "outcome": {"status": "succeeded"}},
                  {"build_id": "b2", "manifest_id": "m2", "error": "did not start"}],
         "reply": "ok"})
     monkeypatch.setattr("NessieAI.ns.reingest.store.load_manifest",
@@ -215,3 +215,25 @@ def test_the_key_cleanup_never_removes_a_file_it_did_not_copy(tmp_path):
     copy.write_text("k")
     g._remove_key_copy(str(copy), str(source))
     assert not copy.exists()
+
+
+@pytest.mark.parametrize("outcome", [{"status": "failed", "error": "worker lost"}, {"status": "running"},
+                                     {"status": "skipped"}, None])
+def test_a_job_that_started_but_did_not_succeed_leaves_the_run_waiting(monkeypatch, outcome):
+    """A run is marked reingested on success only (PR 135 SF-3): a started job that failed, is still
+    running, or wrote nothing must not take the run off the pick or start the cleanup clock."""
+    from NessieAI.ns.reingest import upload
+
+    me = _user("me")
+    run = _run("mine", me)
+    job = {"build_id": "b1", "manifest_id": "m1", "job_id": "j1"}
+    if outcome is not None:
+        job["outcome"] = outcome
+    monkeypatch.setattr(upload, "run", lambda **_k: {"jobs": [job], "reply": "ok"})
+    monkeypatch.setattr("NessieAI.ns.reingest.store.load_manifest",
+                        lambda mid: SimpleNamespace(launch_record_id=run.pk))
+    g.run_op("upload-reingest", {"build_ids": "b1", "confirmed_write": True},
+             config=_Cfg(), session=SimpleNamespace(user=me), write_gate=lambda *a: None,
+             neo4j_exec=None, outputs_dir=None)
+    run.refresh_from_db()
+    assert run.status == "submitted"

@@ -2442,14 +2442,16 @@ def _rebuild_record(record: dict, user, outputs_dir) -> list[dict]:
 
 
 def _mark_runs_reingested(jobs: list[dict], config=None) -> None:
-    """A run whose upload started at least one job stops waiting for run-harvest's
+    """A run whose upload had at least one job succeed stops waiting for run-harvest's
     no-folder pick, and its Luria folder gets nessie_status/saved.txt, which starts the
     weekly cleanup's 7-day clock for its work folder. Best-effort: the upload has already
     started."""
     from NessieAI.ns.reingest import launch_record
     from NessieAI.ns.reingest.store import load_manifest
 
-    for manifest_id in {job.get("manifest_id") for job in jobs if job.get("job_id")}:
+    succeeded = {job.get("manifest_id") for job in jobs
+                 if job.get("job_id") and (job.get("outcome") or {}).get("status") == "succeeded"}
+    for manifest_id in succeeded:
         try:
             manifest = load_manifest(manifest_id)
             launch_record.mark_reingested(manifest.launch_record_id)
