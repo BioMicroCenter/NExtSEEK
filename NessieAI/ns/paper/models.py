@@ -1,0 +1,137 @@
+"""Typed artifacts of a paper reingest run (spec §4.1): paper.json and evidence.json.
+
+Pure: pydantic only. Every model forbids unknown keys, so an artifact written by one
+version and read by another fails loudly instead of dropping a field.
+"""
+from __future__ import annotations
+
+from datetime import date
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict
+
+Repo = Literal["geo", "ena", "pride", "zenodo", "figshare", "sdr"]
+
+
+class _Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class PaperInput(_Strict):
+    kind: Literal["pmid", "pmcid", "doi", "file"]
+    value: str
+
+
+class Accession(_Strict):
+    repo: Repo
+    id: str
+
+
+class Author(_Strict):
+    name: str
+    affiliation: str = ""
+
+
+class PaperRef(_Strict):
+    pmid: str | None = None
+    pmcid: str | None = None
+    doi: str | None = None
+    title: str = ""
+    journal: str = ""
+    published: date | None = None
+    authors: list[Author] = []
+    open_access: bool = False
+    source_file: str | None = None
+
+
+class Paragraph(_Strict):
+    id: str
+    text: str
+
+
+class Section(_Strict):
+    slug: str
+    title: str
+    paragraphs: list[Paragraph]
+
+
+class SupplementRef(_Strict):
+    name: str
+    caption: str = ""
+
+
+class PaperText(_Strict):
+    sections: list[Section] = []
+    captions: list[Paragraph] = []
+    supplements: list[SupplementRef] = []
+
+    def has(self, slug: str) -> bool:
+        return any(s.slug == slug and s.paragraphs for s in self.sections)
+
+    def all_text(self) -> list[str]:
+        return [p.text for s in self.sections for p in s.paragraphs] + [c.text for c in self.captions]
+
+
+class PaperArtifact(_Strict):
+    """paper.json: what the launch check found."""
+    ref: PaperRef
+    text: PaperText
+    text_source: Literal["europepmc", "pdf"]
+    mode: Literal["new", "update"]
+    existing_project_ids: list[int] = []
+
+
+class FileRef(_Strict):
+    name: str
+    url: str
+    size: int | None = None
+    checksum: str | None = None
+    checksum_type: Literal["md5", "sha1"] | None = None
+
+
+class DepositRecord(_Strict):
+    """One record a repository returned, its fields kept verbatim."""
+    repo: Repo
+    record_id: str
+    kind: Literal["project", "sample", "run", "file"]
+    title: str = ""
+    fields: dict[str, str] = {}
+    files: list[FileRef] = []
+    links: list[str] = []
+    submitted: date | None = None
+
+
+class EvidenceItem(_Strict):
+    id: str
+    text: str
+    source: str
+
+
+class SkeletonRow(_Strict):
+    """One data row the deposits prove exists (spec §4.1); the agent may map or exclude it, never invent one."""
+    row_key: str
+    repo: Repo
+    record_id: str
+    kind: Literal["raw", "analysis", "file"]
+    title: str = ""
+    files: list[FileRef] = []
+    evidence_ids: list[str] = []
+    submitted: date | None = None
+
+
+GapKind = Literal["supplement_unavailable", "supplement_unparsed", "deposit_unsupported",
+                  "deposit_unavailable", "deposit_empty"]
+
+
+class Gap(_Strict):
+    kind: GapKind
+    detail: str
+
+
+class EvidenceArtifact(_Strict):
+    """evidence.json: everything quotable, the deposits, the skeleton rows and the gaps."""
+    paper: PaperRef
+    items: list[EvidenceItem]
+    deposits: list[DepositRecord]
+    skeleton: list[SkeletonRow]
+    gaps: list[Gap]
