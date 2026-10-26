@@ -109,6 +109,14 @@ def test_swap_happy_path_orders_the_steps_and_ends_unpinned(repo: Path) -> None:
     assert not web_swap.pin_path(repo).exists()
 
 
+def test_the_nginx_switch_is_stamped_in_utc(repo: Path) -> None:
+    import datetime as dt
+    said = []
+    web_swap.swap(FakeDocker(repo), repo, say=said.append, warn=lambda m: None, sleep=lambda s: None,
+                  utcnow=lambda: dt.datetime(2026, 10, 26, 12, 0, 1, 250000, tzinfo=dt.timezone.utc))
+    assert "nginx switched to nextseek-web-2 at 2026-10-26T12:00:01.250Z" in said
+
+
 def test_scale_uses_no_recreate_so_the_old_container_stays(repo: Path) -> None:
     fake = FakeDocker(repo)
     run_swap(fake, repo)

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -134,7 +135,8 @@ def _pin(run, repo_root: Path, name: str | None) -> None:
 
 
 def swap(run, repo_root: Path, *, say=print, warn=print, sleep=time.sleep,
-         clock=time.monotonic, healthy_timeout: float = HEALTHY_TIMEOUT_S) -> str:
+         clock=time.monotonic, healthy_timeout: float = HEALTHY_TIMEOUT_S,
+         utcnow=lambda: datetime.now(timezone.utc)) -> str:
     """Replace the running web container. Returns "swapped" or "started"."""
     repo_root = Path(repo_root)
     refuse_leftover_pin(repo_root)
@@ -183,6 +185,7 @@ def swap(run, repo_root: Path, *, say=print, warn=print, sleep=time.sleep,
             committed = False
             _pin(run, repo_root, old_name)   # back to the container we know is serving
             raise
+        say(f"nginx switched to {new_name} at {utcnow().isoformat(timespec='milliseconds').replace('+00:00', 'Z')}")
         say(f"front door switched to {new_name}; stopping {old_name} (running chat turns finish first)")
         r = run(["docker", "stop", old])
         if r.returncode != 0:
