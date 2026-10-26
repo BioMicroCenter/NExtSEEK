@@ -15,6 +15,9 @@ route is right.
 | `test_cohorts.json` | local-only test cohorts (`test::<name>`); real cohorts come from `NessieAI/chat_nextseek/evals/groundtruth_cohorts.json` |
 | `test_story_format.py` | the free format test |
 | `apply_rulings.py` | writes the owner's rulings from the review page into the story files (`python -m NessieAI.tests.pipeline_scenarios.apply_rulings <rulings.json> <yyyy-mm-dd>`); `test_apply_rulings.py` tests it |
+| `run.py` | the paid in-process runner: the real router and pipeline agent on each ruled story, no submit tool, every outside answer recorded on a tape and scrubbed for a public repo. Without `--yes` it only prints what it would run and the estimate; a paid run needs the owner's go (usage in its docstring) |
+| `report.py` | `write_report`: the HTML page of a run, totals and then every story by family |
+| `test_run.py` | the free test of the runner and report, with a stubbed router and agent (no model, no stack) |
 
 The three layers (the paid run, the CI replay, the chat end-to-end check) are added in later commits of the same
 branch, and this README gains a row for each.
