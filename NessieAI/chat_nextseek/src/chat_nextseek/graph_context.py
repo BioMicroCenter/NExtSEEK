@@ -693,10 +693,14 @@ def fit_vocabulary(blocks, question: str, *, budget: int = VOCAB_BUDGET_BYTES) -
 
 
 def _title_block(heading: str, titles) -> VocabularyBlock | None:
+    """``heading`` over the quoted titles, one per line, each but the last ending in a comma. One line per title
+    keeps a title findable by a reader that cuts each line (a Container-CC agent printed ``line[:3000]``), where
+    one long line hid every title past its first few thousand characters. ``",\\n"`` is two bytes, as ``", "``
+    was, so the trim budget is unchanged."""
     titles = [t for t in titles or () if t not in (None, "")]
     if not titles:
         return None
-    return VocabularyBlock(f"{heading}:\n", tuple(_quote(t) for t in titles), ", ", "", tuple(map(str, titles)))
+    return VocabularyBlock(f"{heading}:\n", tuple(_quote(t) for t in titles), ",\n", "", tuple(map(str, titles)))
 
 
 def _field_ci(record: Any, name: str) -> Any:
