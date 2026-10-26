@@ -115,7 +115,7 @@ no file copy is needed), then run it with `launch.py ssh --purpose read`:
 
 ```bash
 { echo 'cd <repo>'
-  echo "docker compose exec -T neo4j sh -c 'cypher-shell --access-mode read -u neo4j -p \"\${NEO4J_AUTH#neo4j/}\" --format plain' <<'CYPHER'"
+  echo "docker compose exec -T neo4j sh -c 'NEO4J_PASSWORD=\"\${NEO4J_AUTH#neo4j/}\" cypher-shell --access-mode read -u neo4j --format plain' <<'CYPHER'"
   cat $S/launch-$TAG-pin.cypher; echo CYPHER; } > $S/pin.sh
 uv run $K/launch.py ssh --brief $D/brief.json --purpose read --script $S/pin.sh --out $S/pin.out
 ```
@@ -131,11 +131,13 @@ python3 $S/pin_probe_truths.py --pin $S/probe.json --from $S/measured.json --out
 ```
 
 `$NEO4J_PASSWORD` is unset on the host shell: always read the password inside the neo4j
-container, as above. A case with no `_measure` entry keeps its old numbers: check those by hand.
+container and hand it to cypher-shell as `NEO4J_PASSWORD`, as above, never as `-p` (that puts it on
+the process's argv). A case with no `_measure` entry keeps its old numbers: check those by hand.
 
-The runner repeats these steps itself for any cases file with a `_measure` block, on the box, before that
-file's NESSIE_START (status lines `PINNED` with the measured values, or `PIN_FAILED` and the file is skipped;
-logs `pin-<file>.*` in the launch folder). Pinning by hand is for the review before the launch.
+The runner repeats these steps itself for any cases file with a non-empty `_measure` block, on the box,
+before that file's NESSIE_START (status lines `PINNED` with the measured values, or `FINDING PIN_FAILED` and
+the file is skipped, so the launch reports a finding and cannot say shipped; logs `pin-<file>.*` in the launch
+folder). Pinning by hand is for the review before the launch.
 
 ## 4. Running
 

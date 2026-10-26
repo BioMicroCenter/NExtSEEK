@@ -502,11 +502,32 @@ def test_the_runner_pins_a_measure_file_on_the_box_before_its_nessie_start(tmp_p
     i_pin, i_cp, i_start = (text.index(k) for k in ("--emit-cypher", "docker cp -a \"$L/$f\"", "NESSIE_START"))
     assert i_pin < i_cp < i_start                     # pinned file is the one copied and run
     assert "grep -q '\"_measure\"' \"$L/$f\"" in text
-    assert "cypher-shell --access-mode read" in text and "${NEO4J_AUTH#neo4j/}" in text
+    assert "! grep -q '\"_measure\": *{}' \"$L/$f\"" in text   # an empty block has nothing to pin: the file runs
+    assert 'NEO4J_PASSWORD="${NEO4J_AUTH#neo4j/}" cypher-shell --access-mode read' in text
+    assert ' -p "${NEO4J_AUTH' not in text                     # the password is never on cypher-shell's argv
     assert "--parse-output" in text and "--measured-out" in text and "--pin " in text
-    assert 'say "PINNED $f' in text and 'say "PIN_FAILED $f' in text
+    assert 'say "PINNED $f' in text and 'say "FINDING PIN_FAILED $f' in text
     assert "continue" in text[text.index("PIN_FAILED"):i_start]   # a failed pin skips the file
     assert "CI_WRITE_PASS\"" not in text[i_pin:i_cp]            # the pin step never touches the login
+
+
+def test_a_failed_pin_is_a_finding_so_the_launch_cannot_say_shipped(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    line = re.search(r'say "(FINDING PIN_FAILED [^"]*)"', text).group(1).replace("$f", "x.json")
+    assert L.parse_status(line + " 19:10:00\n")["findings"] == [line[len("FINDING "):]]
+
+
+@pytest.mark.parametrize("measure,warned", [({"c": {"cypher": "RETURN 1"}}, True), ({}, False)])
+def test_the_brief_says_a_measure_file_is_re_pinned_and_a_failed_pin_is_a_finding(tmp_path, capsys, measure,
+                                                                                    warned):
+    p = Path(_cases_file(tmp_path))
+    p.write_text(json.dumps({**json.loads(p.read_text()), "_measure": measure}))
+    code, out, d = make_brief(tmp_path, capsys, nessie={"cases": [{"file": str(p), "cc_turns_estimate": 1}]},
+                              paid={"approved": True, "budget_usd": 5, "approved_by": "operator"})
+    assert code == 0, out.err
+    warns = " ".join(json.loads((d / "brief.json").read_text())["warnings"])
+    assert ("re-pins it" in warns and "FINDING PIN_FAILED" in warns) is warned
 
 
 def test_the_labs_copy_writes_once_to_the_shared_path_and_restarts_nothing(tmp_path, capsys):

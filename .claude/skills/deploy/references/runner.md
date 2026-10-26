@@ -42,7 +42,7 @@ estimate from `brief.json` against the budget), expected minutes (`derived.estim
 | judge | every red stack-health line of each rebuild log, classified | an unexplained or stale red while components are still pending; after the last rebuild it becomes a `FINDING` line and the run goes on to CI |
 | checks | http, containers, (non-root builds) web uid 10001, no docker.sock in web, an untokened spawner call refused, User/CapDrop/no-new-privileges of web and nextseek, boot markers, CC runner, labs, refresh marker, the ops road and, on the sidecar road only, sidecar ops against the repo, image ages, cc-agent node and Claude Code versions (when rebuilt), every live marker, memory | never (it is evidence) |
 | CI | `./startup.sh ci [--wait-ready] --no-nessie` | never; it records the result line, new reds and red health lines |
-| Nessie | only when CI printed a result and every failed id is a known red; restarts SEEK over 12 GiB when allowed; one run dir per cases file (a `*-member.json` file as the non-admin `CI_SMOKE_USER`, every other as `CI_WRITE_USER`), copied out to `~/launch-<TAG>/` and `~/backups/` | CI not green apart from the known reds |
+| Nessie | only when CI printed a result and every failed id is a known red; restarts SEEK over 12 GiB when allowed; one run dir per cases file (a `*-member.json` file as the non-admin `CI_SMOKE_USER`, every other as `CI_WRITE_USER`; a file with a non-empty `_measure` block is re-pinned on the box first, `PINNED`, and a failed pin skips it with `FINDING PIN_FAILED`), copied out to `~/launch-<TAG>/` and `~/backups/` | CI not green apart from the known reds |
 
 The red classes come from `.claude/skills/deploy/scripts/rules.py`: `known` (the table of known reds), `pending <c>` (a
 check that names a component still to be rebuilt: expected mid-launch, since stack health runs after
@@ -76,13 +76,17 @@ CHECKS CHECK http 200
 CI exit=1
 CI_RESULT CI failed: 2 failed, 304 passed, ...
 CI_NEW_REDS <ids>
+PINNED <file> measured={...} dropped=<ids>   # a cases file's non-empty _measure block re-pinned on this box
+FINDING PIN_FAILED <file> see <launch>/pin-<file>.log; this file's run was skipped
 NESSIE_START run=... utc=... login=admin|member  /  NESSIE_EXIT run=... exit=1 utc=...
 STOPPED: <why>
 ALL_DONE
 ```
 
 `NESSIE_EXIT exit=1` means at least one non-known_fail case failed; it is not an infrastructure
-failure. The `utc=` stamps are the `--since/--until` for `fetch_run.py` (the app clock is UTC).
+failure. A cases file whose pin failed has no NESSIE_START, so the Nessie section can hold fewer runs
+than the brief has cases files: count them against the `FINDING PIN_FAILED` lines.
+The `utc=` stamps are the `--since/--until` for `fetch_run.py` (the app clock is UTC).
 
 ## Watch
 
