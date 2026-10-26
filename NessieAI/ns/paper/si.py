@@ -2,7 +2,9 @@
 
 Workbooks and csv/tsv give one item per non-empty cell; PDF and txt give paragraphs.
 Anything else, anything over the size cap, and anything the paper lists but the zip
-lacks becomes a gap (spec §10: a missing supplement never stops a run).
+lacks becomes a gap (spec §10: a missing supplement never stops a run). An unreadable
+archive, or a readable file with no text, is a gap too. Evidence IDs stay unique: a
+repeated basename is keyed by its folder-qualified path instead.
 """
 from __future__ import annotations
 
@@ -20,19 +22,28 @@ _DELIMITED = {".csv": ",", ".tsv": "\t"}
 
 
 def supplement_items(zip_bytes: bytes, expected: list[SupplementRef]) -> tuple[list[EvidenceItem], list[Gap]]:
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
+    except (zipfile.BadZipFile, zipfile.LargeZipFile, OSError) as exc:
+        return [], [Gap(kind="supplement_unparsed", detail=f"supplementary archive: {type(exc).__name__}")] + [
+            Gap(kind="supplement_unavailable", detail=s.name) for s in expected]
     items: list[EvidenceItem] = []
     gaps: list[Gap] = []
     found: set[str] = set()
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+    seen: set[str] = set()
+    with zf:
         for info in zf.infolist():
-            name = info.filename.rsplit("/", 1)[-1]
-            if info.is_dir() or not name or name.startswith("."):
+            base = info.filename.rsplit("/", 1)[-1]
+            if info.is_dir() or not base or base.startswith("."):
                 continue
-            found.add(name)
+            found.add(base)
+            # The first member with a basename keeps it; a repeat is keyed by its path in the zip.
+            name = info.filename if base in seen else base
+            seen.add(base)
             if info.file_size > MAX_MEMBER_BYTES:
                 gaps.append(Gap(kind="supplement_unparsed", detail=f"{name}: over {MAX_MEMBER_BYTES // 2**20} MB"))
                 continue
-            ext = os.path.splitext(name)[1].lower()
+            ext = os.path.splitext(base)[1].lower()
             try:
                 data = zf.read(info)
                 if ext in (".xlsx", ".xlsm"):
@@ -48,6 +59,9 @@ def supplement_items(zip_bytes: bytes, expected: list[SupplementRef]) -> tuple[l
                     continue
             except Exception as exc:  # a corrupt member is a gap, never a failed run
                 gaps.append(Gap(kind="supplement_unparsed", detail=f"{name}: {type(exc).__name__}"))
+                continue
+            if not new:
+                gaps.append(Gap(kind="supplement_unparsed", detail=f"{name}: no readable text"))
                 continue
             if len(new) > MAX_ITEMS_PER_FILE:
                 gaps.append(Gap(kind="supplement_unparsed", detail=f"{name}: only the first {MAX_ITEMS_PER_FILE} cells read"))

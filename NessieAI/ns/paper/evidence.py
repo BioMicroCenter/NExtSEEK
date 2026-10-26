@@ -23,13 +23,16 @@ def deposit_items(rec: DepositRecord) -> list[EvidenceItem]:
     items = [EvidenceItem(id=field_id(rec, k), text=v, source=f"{where}, field {k}") for k, v in rec.fields.items()]
     if rec.title and "title" not in rec.fields:
         items.append(EvidenceItem(id=field_id(rec, "title"), text=rec.title, source=f"{where}, title"))
+    counts: dict[str, int] = {}
     for ref in rec.files:
+        counts[ref.name] = counts.get(ref.name, 0) + 1
+        suffix = "" if counts[ref.name] == 1 else f"#{counts[ref.name]}"
         bits = [ref.name, ref.url]
         if ref.size is not None:
             bits.append(f"size={ref.size}")
         if ref.checksum:
             bits.append(f"{ref.checksum_type}={ref.checksum}")
-        items.append(EvidenceItem(id=file_id(rec, ref), text=" ".join(bits), source=f"{where}, file"))
+        items.append(EvidenceItem(id=file_id(rec, ref) + suffix, text=" ".join(bits), source=f"{where}, file"))
     return items
 
 
