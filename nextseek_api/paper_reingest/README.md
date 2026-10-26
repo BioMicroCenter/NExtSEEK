@@ -31,6 +31,8 @@ queued -> acquiring -> context          (stage 1 done; evidence.json is saved)
               |
               +-> paused -> acquiring   (a source did not answer; the task retries later)
               +-> failed                (anything else, or the retries ran out)
+queued -> failed                        (stage 1 could not be queued: failed_stage queue)
+any live state -> failed                (the operator cancelled it: failed_stage cancelled)
 ```
 
 `LIVE_STATES` are the states a second start of the same paper is refused in (`already_running`). A run
@@ -53,7 +55,9 @@ as the reason.
 `host.start_session` builds it from the request: the user, the flag check, the launch seams (the fetcher with
 one deadline for the whole check, the names of the PDFs in the caller's input folder, the PDF reader and the
 DOI lookup), the unfinished-run lookup, `create_run` (which records the caller's running Container-CC chat),
-`enqueue_acquire` (queued only after the run row is committed) and `time_left`. The op's contract is in
+`enqueue_acquire` (queued only after the run row is committed) and `time_left`. If the queue cannot take
+stage 1, `host.queue_or_fail` fails the run at stage `queue` and the op refuses with `queue_unavailable`; when the
+enqueue waits for a commit, the run is still failed but the op has already answered. The op's contract is in
 `nextseek_api/assistant/CONTRACT.md`; its route is in `docs/endpoint-authorization-register.md`.
 
 ## The command
@@ -62,6 +66,8 @@ DOI lookup), the unfinished-run lookup, `create_run` (which records the caller's
 manage.py paper_reingest start --user <username> --paper <pmid|pmcid|doi|link> [--project N] [--inline]
 manage.py paper_reingest status <run_id>
 manage.py paper_reingest export <run_id> paper|evidence --out <path>
+manage.py paper_reingest cancel <run_id>
+manage.py paper_reingest requeue <run_id>
 ```
 
 - `start` needs an existing superuser and runs the launch check first. `--paper` takes a PMID, PMCID, DOI or
@@ -71,6 +77,11 @@ manage.py paper_reingest export <run_id> paper|evidence --out <path>
 - `status` prints one line (`<run_id>  <state>  <mode>  attempts=<n>  <title>`), the failure reason if any, and the
   evidence counts once stage 1 is done.
 - `export` writes `paper.json` or `evidence.json` to a file you name.
+- `cancel` sets a run in any live state (`LIVE_STATES`) to `failed`, with `failed_stage` `cancelled` and the reason
+  `cancelled by operator`. It refuses a run that is already finished or failed.
+- `requeue` puts a `queued`, `paused` or `acquiring` run back to `queued` and queues stage 1 again. Use it for a run
+  the worker lost (a restart mid-acquire leaves it `acquiring`; a lost message leaves it `queued`). Check first that
+  no worker is still running it. Any other state is refused. If the queue is down the run is left `queued`.
 
 These commands print counts and ids, never the paper's text or a deposit's content.
 

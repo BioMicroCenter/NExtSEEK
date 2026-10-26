@@ -13,7 +13,9 @@
   exception fails the run at once. Every path out of `run_acquire` must leave the run in a state other than
   `acquiring`.
 - **A run row exists only with its `paper.json`.** `create_run` writes the artifact before it saves the row, and
-  the op queues stage 1 only after the row is committed (`host.start_session`, `transaction.on_commit`).
+  the op queues stage 1 only after the row is committed (`host.start_session`, `transaction.on_commit`). A
+  queue that refuses the task fails the run at stage `queue` (`host.queue_or_fail`) instead of leaving it
+  `queued` with no task behind it.
 - **Nothing here writes to SEEK or the graph.** The run row and the files under `NEXTSEEK_PAPER_REINGEST_DIR` are
   the only writes. The engine package never imports Django or `nextseek_api` (`NessieAI/CLAUDE.md`).
 
@@ -25,6 +27,10 @@
   where the network is open and expect a failure, not a pause, on an outage.
 - The status and export commands print counts and write files; do not make them print the paper or a deposit
   to the terminal.
+- **A run can get stuck, and nothing sweeps it yet.** A worker killed mid-acquire leaves the run `acquiring`, and a
+  lost queue message leaves it `queued`; either blocks a new start of the same paper (`already_running`). The
+  operator recovers it with `manage.py paper_reingest cancel <run_id>` or `requeue <run_id>` (README "The
+  command"). A boot-time sweep of stale runs is a follow-up, not built.
 - The PDF cap in `host.py` and the launch deadline (the op's 60 s in `NessieAI/ns/op_limits.py` less
   `ANSWER_MARGIN_S`) are tied to the op's limit; change them together.
 
