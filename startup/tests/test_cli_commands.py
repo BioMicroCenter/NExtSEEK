@@ -2844,3 +2844,32 @@ def test_the_switchover_refuses_before_stopping_anything_when_a_peer_image_is_no
     assert order == []    # nothing stopped, fixed or started
     flat = " ".join(result.output.split())
     assert "nextseek-ns-sidecar:latest" in flat and "rebuild --component nextseek-sidecar" in flat
+
+
+@pytest.mark.parametrize("failing", ["stop", "FIX"])
+def test_a_docker_error_inside_the_switchover_prints_the_recovery_and_exits_1(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, failing: str,
+) -> None:
+    from startup.lib.docker_ops import DockerOpsError
+    from startup.steps import volumes
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    order = _stub_ownership(monkeypatch, user_changed=True)
+    _record_all(monkeypatch, order)
+
+    def boom(*a, **k):
+        raise DockerOpsError(f"{failing} broke")
+
+    if failing == "stop":
+        monkeypatch.setattr(volumes, "stop_app_services", boom)
+    else:
+        monkeypatch.setattr(volumes, "ensure_app_ownership", boom)
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-ci"])
+
+    assert result.exit_code == 1 and not isinstance(result.exception, DockerOpsError)
+    flat = " ".join(result.output.split())
+    assert f"{failing} broke" in flat
+    assert "./startup.sh fix-ownership" in flat and "docker compose up -d nextseek-sidecar web nextseek" in flat
+    assert not any(o.startswith("up ") for o in order)

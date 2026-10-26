@@ -1033,12 +1033,21 @@ def rebuild(
             ui.warn("the app containers change user (to 10001): no swap. Stopping web, nextseek and the "
                     "sidecar, fixing ownership of every volume and bind, then starting the sidecar and "
                     "the app; users see the restart page meanwhile.")
-            with ui.spinner("stopping web, nextseek and the sidecar"):
-                volumes.stop_app_services(REPO_ROOT, state.compose_env())
-            volumes.ensure_app_ownership(REPO_ROOT, state.compose_env(), check_only=False,
-                                         say=_say_ownership)
-            compose_up(services=("nextseek-sidecar",), project_dir=REPO_ROOT, env=state.compose_env(),
-                       force_recreate=True, no_deps=True)
+            try:
+                with ui.spinner("stopping web, nextseek and the sidecar"):
+                    volumes.stop_app_services(REPO_ROOT, state.compose_env())
+                volumes.ensure_app_ownership(REPO_ROOT, state.compose_env(), check_only=False,
+                                             say=_say_ownership)
+                compose_up(services=("nextseek-sidecar",), project_dir=REPO_ROOT, env=state.compose_env(),
+                           force_recreate=True, no_deps=True)
+            except Exception as exc:
+                # web, nextseek and the sidecar may all be stopped now: say exactly how to bring them back.
+                ui.fail(f"switchover failed part-way: {exc}")
+                ui.remediation("web, nextseek and the sidecar may be stopped. From the repo: "
+                               "`docker compose stop web nextseek nextseek-sidecar`, then "
+                               "`./startup.sh fix-ownership`, then "
+                               "`docker compose up -d nextseek-sidecar web nextseek`")
+                raise typer.Exit(code=1) from exc
             switchover_sidecar = True
         if swap_web:
             run_docker = web_swap.make_runner(REPO_ROOT, state.compose_env())
