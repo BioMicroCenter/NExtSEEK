@@ -832,7 +832,7 @@ class TestDownloadBatch:
         }
         client = _mock_client()
         upstream_resp = MagicMock()
-        upstream_resp.content = b"pdf content"
+        upstream_resp.iter_content.side_effect = lambda chunk_size=8192: iter([b"pdf content"])
         client.stream_content_blob.return_value = (200, {"Content-Type": "application/pdf"}, upstream_resp)
 
         mock_request = MagicMock()
@@ -955,7 +955,7 @@ class TestDownloadBatch:
         }
         client = _mock_client()
         upstream_resp = MagicMock()
-        upstream_resp.content = b"data"
+        upstream_resp.iter_content.side_effect = lambda chunk_size=8192: iter([b"data"])
         client.stream_content_blob.return_value = (200, {"Content-Type": "application/octet-stream"}, upstream_resp)
 
         mock_request = MagicMock()
@@ -990,9 +990,9 @@ class TestDownloadBatch:
         ]
         client = _mock_client()
         upstream_resp1 = MagicMock()
-        upstream_resp1.content = b"pdf1"
+        upstream_resp1.iter_content.side_effect = lambda chunk_size=8192: iter([b"pdf1"])
         upstream_resp2 = MagicMock()
-        upstream_resp2.content = b"pdf2"
+        upstream_resp2.iter_content.side_effect = lambda chunk_size=8192: iter([b"pdf2"])
         client.stream_content_blob.side_effect = [
             (200, {"Content-Type": "application/pdf"}, upstream_resp1),
             (200, {"Content-Type": "application/pdf"}, upstream_resp2),
@@ -1084,7 +1084,7 @@ class TestDownloadBatch:
                 "seek_id": "560",
             }
             upstream_resp = MagicMock()
-            upstream_resp.content = b"csv data"
+            upstream_resp.iter_content.side_effect = lambda chunk_size=8192: iter([b"csv data"])
             client.stream_content_blob.return_value = (200, {"Content-Type": "text/csv"}, upstream_resp)
 
             resp = download_batch(client, mock_request, "data_files", [{"uid_or_id": "560"}])
@@ -1268,3 +1268,104 @@ def test_a_write_resolves_only_the_title_as_written_but_a_read_tries_every_spell
     monkeypatch.setattr(cb, "_lookup_one_spelling", lambda uid, asset_type: "7" if uid == stored else None)
     assert cb._resolve_uid_to_seek_id(asked, "sops") == "7"
     assert cb._resolve_uid_to_seek_id(asked, "sops", as_written_only=True) is None
+
+
+# ===========================================================================
+# download_batch hardening (SEC-H14, SEC-H36)
+# ===========================================================================
+
+
+def _batch_resolve(seek_id="42", name="a.pdf", blob="99"):
+    return {
+        "success": True,
+        "blob_meta": {"original_filename": name},
+        "upstream_path": f"/sops/{seek_id}/content_blobs/{blob}/download",
+        "accept": "*/*",
+        "seek_id": seek_id,
+    }
+
+
+def _streaming_upstream(chunks=(b"data",)):
+    # .content raises: the batch must stream, never read the body whole
+    resp = MagicMock()
+    type(resp).content = PropertyMock(side_effect=AssertionError("read .content"))
+    resp.iter_content.side_effect = lambda chunk_size=8192: iter(list(chunks))
+    return resp
+
+
+def _req():
+    r = MagicMock()
+    r.query_params = {}
+    return r
+
+
+class TestDownloadBatchHardening:
+
+    def test_101_items_rejected(self):
+        client = _mock_client()
+        resp = download_batch(client, _req(), "sops", [{"uid_or_id": str(i)} for i in range(101)])
+        assert resp.status_code == 422
+        client.stream_content_blob.assert_not_called()
+
+    @patch("nextseek_api.services.content_blobs.resolve_asset_and_blobs")
+    def test_duplicate_blob_fetched_once(self, mock_resolve):
+        mock_resolve.return_value = _batch_resolve()
+        client = _mock_client()
+        client.stream_content_blob.return_value = (200, {"Content-Type": "application/pdf"}, _streaming_upstream())
+        resp = download_batch(client, _req(), "sops", [{"uid_or_id": "42"}] * 3)
+        assert client.stream_content_blob.call_count == 1
+        zf = zipfile.ZipFile(BytesIO(b"".join(resp.streaming_content)))
+        assert zf.namelist().count("a.pdf") == 1
+        assert json.loads(zf.read("manifest.json"))["total_success"] == 3
+
+    @patch("nextseek_api.services.content_blobs.resolve_asset_and_blobs")
+    def test_streams_without_reading_content(self, mock_resolve):
+        mock_resolve.return_value = _batch_resolve()
+        client = _mock_client()
+        up = _streaming_upstream((b"ab", b"cd"))
+        client.stream_content_blob.return_value = (200, {"Content-Type": "application/pdf"}, up)
+        resp = download_batch(client, _req(), "sops", [{"uid_or_id": "42"}])
+        zf = zipfile.ZipFile(BytesIO(b"".join(resp.streaming_content)))
+        assert zf.read("a.pdf") == b"abcd"
+        up.iter_content.assert_called()
+
+    @patch("nextseek_api.services.content_blobs.resolve_asset_and_blobs")
+    def test_total_bytes_over_cap_rejected(self, mock_resolve, monkeypatch):
+        from nextseek_api.services import content_blobs as cb
+        monkeypatch.setattr(cb, "MAX_BATCH_BYTES", 5)
+        mock_resolve.return_value = _batch_resolve()
+        client = _mock_client()
+        client.stream_content_blob.return_value = (200, {}, _streaming_upstream((b"1234", b"5678")))
+        resp = download_batch(client, _req(), "sops", [{"uid_or_id": "42"}])
+        assert resp.status_code == 422
+
+    @patch("nextseek_api.services.content_blobs.resolve_asset_and_blobs")
+    def test_path_name_reduced_to_basename(self, mock_resolve):
+        mock_resolve.return_value = _batch_resolve(name="../../x")
+        client = _mock_client()
+        client.stream_content_blob.return_value = (200, {}, _streaming_upstream())
+        resp = download_batch(client, _req(), "sops", [{"uid_or_id": "42"}])
+        zf = zipfile.ZipFile(BytesIO(b"".join(resp.streaming_content)))
+        assert "x" in zf.namelist()
+
+    @patch("nextseek_api.services.content_blobs.resolve_asset_and_blobs")
+    def test_empty_sanitized_name_falls_back(self, mock_resolve):
+        mock_resolve.return_value = _batch_resolve(name='"\n')
+        client = _mock_client()
+        client.stream_content_blob.return_value = (200, {}, _streaming_upstream())
+        resp = download_batch(client, _req(), "sops", [{"uid_or_id": "42"}])
+        zf = zipfile.ZipFile(BytesIO(b"".join(resp.streaming_content)))
+        assert "sop_42" in zf.namelist()
+
+    @patch("nextseek_api.services.content_blobs.resolve_asset_and_blobs")
+    def test_single_header_valid_for_quote_and_newline_name(self, mock_resolve):
+        mock_resolve.return_value = {
+            "success": True, "blob_meta": {"original_filename": 'a"b\nc.pdf'},
+            "upstream_path": "/sops/42/content_blobs/99/download", "accept": "*/*",
+        }
+        client = _mock_client()
+        client.stream_content_blob.return_value = (200, {"Content-Type": "application/pdf"}, _streaming_upstream())
+        resp = download_single(client, _req(), "sops", {"uid_or_id": "42"})
+        cd = resp["Content-Disposition"]
+        assert "\n" not in cd and "\r" not in cd
+        assert 'a"b' not in cd
