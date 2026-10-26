@@ -44,18 +44,18 @@ as the project's only router at `dmac/settings.py:299`.
 
 | SEEK table | Model | Declared at |
 |---|---|---|
-| `users`, `people` | `Users`, `People` | `seek/models/seek_mirror.py:43`, `seek/models/seek_mirror.py:68` |
-| `samples`, `sample_types`, `sample_attributes`, `sample_attribute_types` | `Samples`, `Sample_types`, `Sample_attributes`, `Sample_attribute_types` | `seek/models/seek_mirror.py:187`, `seek/models/seek_mirror.py:117`, `seek/models/seek_mirror.py:145`, `seek/models/seek_mirror.py:165` |
-| `assays`, `assay_assets`, `assets_creators` | `Assays`, `Assay_assets`, `Assets_creators` | `seek/models/seek_mirror.py:94`, `seek/models/seek_mirror.py:343`, `seek/models/seek_mirror.py:414` |
-| `data_files`, `documents`, `sops`, `content_blobs` | `Data_files`, `Documents`, `Sops`, `Content_blobs` | `seek/models/seek_mirror.py:301`, `seek/models/seek_mirror.py:276`, `seek/models/seek_mirror.py:399`, `seek/models/seek_mirror.py:325` |
-| `projects`, `projects_samples`, `projects_sops`, `data_files_projects` | `Projects`, `Projects_samples`, `Projects_sops`, `Data_files_projects` | `seek/models/seek_mirror.py:449`, `seek/models/seek_mirror.py:208`, `seek/models/seek_mirror.py:230`, `seek/models/seek_mirror.py:252` |
-| `policies`, `permissions` | `Policies`, `Permissions` | `seek/models/seek_mirror.py:360`, `seek/models/seek_mirror.py:376` |
+| `users`, `people` | `Users`, `People` | `seek/models/seek_mirror.py:43`, `seek/models/seek_mirror.py:67` |
+| `samples`, `sample_types`, `sample_attributes`, `sample_attribute_types` | `Samples`, `Sample_types`, `Sample_attributes`, `Sample_attribute_types` | `seek/models/seek_mirror.py:186`, `seek/models/seek_mirror.py:116`, `seek/models/seek_mirror.py:144`, `seek/models/seek_mirror.py:164` |
+| `assays`, `assay_assets`, `assets_creators` | `Assays`, `Assay_assets`, `Assets_creators` | `seek/models/seek_mirror.py:93`, `seek/models/seek_mirror.py:342`, `seek/models/seek_mirror.py:413` |
+| `data_files`, `documents`, `sops`, `content_blobs` | `Data_files`, `Documents`, `Sops`, `Content_blobs` | `seek/models/seek_mirror.py:300`, `seek/models/seek_mirror.py:275`, `seek/models/seek_mirror.py:398`, `seek/models/seek_mirror.py:324` |
+| `projects`, `projects_samples`, `projects_sops`, `data_files_projects` | `Projects`, `Projects_samples`, `Projects_sops`, `Data_files_projects` | `seek/models/seek_mirror.py:448`, `seek/models/seek_mirror.py:207`, `seek/models/seek_mirror.py:229`, `seek/models/seek_mirror.py:251` |
+| `policies`, `permissions` | `Policies`, `Permissions` | `seek/models/seek_mirror.py:359`, `seek/models/seek_mirror.py:375` |
 
 The three project join tables are read-only by construction: `save()` and
 `delete()` are each overridden to return without doing anything, in
-`Projects_samples` (`seek/models/seek_mirror.py:200-205`), `Projects_sops`
-(`seek/models/seek_mirror.py:222-227`) and `Data_files_projects`
-(`seek/models/seek_mirror.py:244-249`).
+`Projects_samples` (`seek/models/seek_mirror.py:199-204`), `Projects_sops`
+(`seek/models/seek_mirror.py:221-226`) and `Data_files_projects`
+(`seek/models/seek_mirror.py:243-248`).
 
 `seek/models/nextseek.py` holds the other half: 11 classes for tables NExtSEEK
 defines. Three of them are `managed = False` because their DDL is applied out of
