@@ -121,3 +121,24 @@ def test_a_uid_only_in_the_agents_plan_is_checked_and_written_as_stored():
                               exec_fn, None, limit_s=90.0)
     assert seen["uids"] == ["TIS-220101ABC-7-PUB"]
     assert out["parser_plan"]["filters"]["uids"] == ["TIS-220101ABC-7-PUB"]
+
+
+def test_no_cypher_error_carries_the_agents_own_reason():
+    plan = GraphAgentPlan(cypher="", explanation="x" * 600, refusal_kinds=["whole_node", "catalog"])
+    out = granular._run_plan(plan, lambda *a, **k: {}, None, None)[3]
+    assert out["ok"] is False
+    assert out["error"].startswith("graph agent produced no cypher: ")
+    assert "x" * 500 in out["error"] and "x" * 501 not in out["error"]
+    assert "whole_node, catalog" in out["error"]
+
+
+def test_no_cypher_error_without_a_reason_keeps_the_bare_prefix():
+    out = granular._run_plan(GraphAgentPlan(cypher=""), lambda *a, **k: {}, None, None)[3]
+    assert out["error"] == "graph agent produced no cypher"
+
+
+def test_no_cypher_error_never_carries_the_graph_agents_exception_text():
+    # graph_agent's except branch writes "Graph agent error: <exception>"; that text must not reach Container-CC.
+    plan = GraphAgentPlan(cypher="", explanation="Graph agent error: Connection refused to bolt://internal-host:7687")
+    out = granular._run_plan(plan, lambda *a, **k: {}, None, None)[3]
+    assert out["error"] == "graph agent produced no cypher"

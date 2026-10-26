@@ -237,9 +237,10 @@ class SeekAPIClient:
         params = {'version': int(version)}
         return self._request('GET', f'/data_files/{data_file_id}', request, params=params)
 
-    def create_data_file(self, request, payload: Dict[str, Any]):
+    def create_data_file(self, request, payload: Dict[str, Any], timeout_s=(10, SOP_CREATE_TIMEOUT_S)):
+        # The same wait as a SOP create: SEEK can be slow to answer a create (see SOP_CREATE_TIMEOUT_S).
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
-        return self._request('POST', '/data_files', request, json=payload)
+        return self._request('POST', '/data_files', request, json=payload, timeout_s=timeout_s)
 
     def update_data_file(self, request, data_file_id: str, payload: Dict[str, Any]):
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
