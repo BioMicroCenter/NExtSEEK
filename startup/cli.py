@@ -642,8 +642,10 @@ def fix_ownership(
 ) -> None:
     """Hand every writable volume and bind of web and nextseek to the dedicated app uid (10001).
 
-    Safe while the old root containers run: run it before the switchover rebuild (the slow full
-    pass) and note the per-target seconds, which time the switchover window."""
+    Before the switchover (a running web or nextseek, or the app image, not on 10001:10001) it skips
+    dmac-cc-users and says so: the old-uid agents still own their 0600 files there, and the switchover
+    rebuild fixes that volume with the app stopped. Everything else is safe to pre-chown while the old
+    root containers run; the per-target seconds time the switchover window."""
     state = load_instance(REPO_ROOT)
     if state is None:
         ui.fail("no instance found — run 'startup install' first")
@@ -653,10 +655,11 @@ def fix_ownership(
     try:
         # Before the switchover the running agents still own their files in dmac-cc-users under the old
         # uid; a chown there would lock them out. Everything else is safe to pre-chown (root ignores owners).
-        before = not check and volumes.app_user_change(REPO_ROOT, state.compose_env())
+        before = not check and volumes.before_switchover(REPO_ROOT, state.compose_env())
         if before:
-            ui.warn("the app has not switched to 10001 yet: leaving dmac-cc-users alone (the switchover "
-                    "rebuild fixes it); pre-chowning the other volumes and binds")
+            ui.warn("SKIPPING dmac-cc-users: a running web or nextseek, or the app image, is not on 10001:10001 "
+                    "yet (the switchover rebuild fixes that volume with the app stopped); pre-chowning the "
+                    "other volumes and binds")
         counts = volumes.ensure_app_ownership(REPO_ROOT, state.compose_env(), check_only=check,
                                               skip_cc_users=before, say=_say_ownership)
     except Exception as exc:

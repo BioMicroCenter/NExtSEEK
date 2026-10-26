@@ -2713,7 +2713,7 @@ def test_fix_ownership_command_prints_counts_and_seconds(
         return {"p-media": 12 if check_only else None}
 
     monkeypatch.setattr(volumes, "ensure_app_ownership", passes)
-    monkeypatch.setattr(volumes, "app_user_change", lambda root, env: changed)
+    monkeypatch.setattr(volumes, "before_switchover", lambda root, env: changed)
 
     changed = False
     r1 = runner.invoke(cli.app, ["fix-ownership", "--check"])
@@ -2799,3 +2799,27 @@ def test_fix_ownership_writes_the_host_gid_before_asking_compose(
 
     assert result.exit_code == 0, result.output
     assert seen == [str(os.getgid())]
+
+
+def test_fix_ownership_before_the_app_build_leaves_cc_users_alone(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Old root image still at the tag, old root containers running: the pass must skip dmac-cc-users."""
+    import json
+    from startup.steps import volumes
+
+    _saved_state(repo, ci_profile="dev")
+    cfg = json.dumps({"services": {"nextseek": {"image": "nextseek-nextseek:latest"}}})
+
+    def fake_run(cmd, **kw):
+        out = {("docker", "compose", "config"): cfg, ("docker", "compose", "ps"): "c1"}.get(tuple(cmd[:3]), "")
+        return MagicMock(returncode=0, stdout=out, stderr="")
+
+    seen: list[bool] = []
+    monkeypatch.setattr(volumes, "ensure_app_ownership", lambda root, env, *, check_only, skip_cc_users=False,
+                        say=None: seen.append(skip_cc_users) or {})
+    with patch("startup.steps.volumes.subprocess.run", side_effect=fake_run):
+        result = runner.invoke(cli.app, ["fix-ownership"])
+
+    assert result.exit_code == 0, result.output
+    assert seen == [True] and "dmac-cc-users" in result.output

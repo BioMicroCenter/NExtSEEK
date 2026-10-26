@@ -159,3 +159,40 @@ def test_ensure_secret_group_read_leaves_a_file_with_an_acl_alone(tmp_path: Path
     with patch("startup.steps.volumes.os.getxattr", return_value=b"acl"):
         p = volumes.ensure_secret_group_read(tmp_path, {"NEXTSEEK_HOST_GID": "1000"})
     assert len(p) == 1 and "ACL" in p[0] and oct(ls.stat().st_mode & 0o777) == "0o644"
+
+
+def _answers(image_user: str, running: dict[str, list[str]]):
+    """A fake docker: compose config, the app image's user, and per service the running containers' users."""
+    cfg = json.dumps({"services": {"nextseek": {"image": IMG}}})
+
+    def fake_run(cmd, **kw):
+        out = ""
+        if cmd[:3] == ["docker", "compose", "config"]:
+            out = cfg
+        elif cmd[:3] == ["docker", "image", "inspect"]:
+            out = image_user + "\n"
+        elif cmd[:3] == ["docker", "compose", "ps"]:
+            out = "\n".join(f"{cmd[-1]}-{i}" for i in range(len(running.get(cmd[-1], []))))
+        elif cmd[:2] == ["docker", "inspect"]:
+            svc, i = cmd[-1].rsplit("-", 1)
+            out = running[svc][int(i)] + "\n"
+        return MagicMock(returncode=0, stdout=out, stderr="")
+    return fake_run
+
+
+def test_before_the_switchover_is_any_app_user_but_10001(tmp_path: Path) -> None:
+    cases = [
+        # old root image at the tag, old root containers running: the review's ""/"" case
+        ("", {"web": [""], "nextseek": [""]}, True),
+        ("0", {"nextseek": ["root"]}, True),
+        ("10001:10001", {"web": [""], "nextseek": ["10001:10001"]}, True),   # one old web still up
+        ("", {}, True),                                                    # stopped, old (or rolled-back) image
+        ("10001:10001", {"web": ["10001:10001"], "nextseek": ["10001:10001"]}, False),
+        ("10001:10001", {}, False),                                        # stopped mid-switchover: safe to fix
+    ]
+    for image_user, running, want in cases:
+        with patch("startup.steps.volumes.subprocess.run", side_effect=_answers(image_user, running)):
+            assert volumes.before_switchover(tmp_path, {}) is want, (image_user, running)
+    # the old comparison read the old image at the tag before the app build and called ""/"" no change
+    with patch("startup.steps.volumes.subprocess.run", side_effect=_answers("", {"web": [""], "nextseek": [""]})):
+        assert volumes.app_user_change(tmp_path, {}) is False

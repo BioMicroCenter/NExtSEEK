@@ -146,6 +146,22 @@ def app_user_change(repo_root: Path, env: dict[str, str]) -> bool:
     return False
 
 
+def before_switchover(repo_root: Path, env: dict[str, str]) -> bool:
+    """True until the app runs as APP_UID:APP_GID: a running `web` or `nextseek`, or the app image at the compose
+    tag, whose user is anything else (empty, root, 0, an old uid). Until then the agents on the old uid own 0600
+    files in dmac-cc-users, so fix-ownership must leave that volume to the switchover rebuild. Fails closed: a
+    docker answer it cannot read raises."""
+    run = lambda cmd: _run(cmd, repo_root, env)  # noqa: E731
+    want = f"{ownership.APP_UID}:{ownership.APP_GID}"
+    cfg = _check_out(run(["docker", "compose", "config", "--format", "json"]), "docker compose config")
+    img = ownership.image(cfg)
+    users = [_check_out(run(["docker", "image", "inspect", "-f", "{{.Config.User}}", img]), f"docker image inspect {img}")]
+    for svc in ownership.SERVICES:
+        for cid in _check_out(run(["docker", "compose", "ps", "-q", svc]), f"docker compose ps {svc}").split():
+            users.append(_check_out(run(["docker", "inspect", "-f", "{{.Config.User}}", cid]), f"docker inspect {cid}"))
+    return any(u.strip() != want for u in users)
+
+
 def stop_app_services(repo_root: Path, env: dict[str, str]) -> None:
     """Stop `web`, `nextseek` and `nextseek-sidecar` (each drains first) so the FIX pass sees no writers."""
     _check(_run(["docker", "compose", "stop", *ownership.STOP_SERVICES], repo_root, env),

@@ -520,8 +520,10 @@ window: between the sidecar rebuild and the app step, the 10001 sidecar cannot w
    itself after the rebuilds and stops the launch otherwise, and its post-deploy checks add: `id -u` in `web` is
    10001, no `/var/run/docker.sock` in `web`, a spawner call without the token answers 401 or 403, and
    `docker inspect` of `web` and `nextseek` shows User 10001:10001, CapDrop [ALL] and no-new-privileges.
-3. `fix-ownership` (without `--check`) refuses while the running app user is not 10001; after the switchover it
-   is safe at any time.
+3. `fix-ownership` (without `--check`) skips `dmac-cc-users`, and says so, while a running `web` or `nextseek`,
+   or the app image at the compose tag, is not on 10001:10001 (the old-uid agents still own their 0600 files
+   there; the switchover rebuild fixes that volume with the app stopped). After the switchover it is safe at
+   any time.
 
 Phase 4 rides the same dev rollout as phase 3.
 
