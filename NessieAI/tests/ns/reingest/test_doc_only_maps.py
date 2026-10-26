@@ -1,7 +1,7 @@
 """Maps written from a release's pinned docs/output.md alone, with no run fixture.
 
-nf-core/atacseq 2.1.2 has no nf-test snapshot and no usable published results,
-so the owner waived G-7's fixture for it: its file
+nf-core/atacseq 2.1.2 and nf-core/chipseq 2.1.0 have no nf-test snapshot and no
+usable published results, so the owner waived G-7's fixture for them: their file
 rules come from the pinned output docs (committed beside the other nf-core docs
 under NessieAI/tests/chat_nextseek/fixtures/nfcore/), and stay unverified until a
 real run. test_fixture_runs.py cannot catch a typo'd folder in such a map, and a
@@ -27,7 +27,7 @@ DOCS = Path(__file__).resolve().parents[2] / "chat_nextseek" / "fixtures" / "nfc
 README = maps.MAPS_DIR / "README.md"
 
 #: pipeline -> its pinned output docs. Remove an entry when the pipeline's run fixture lands.
-DOC_ONLY = {"atacseq": "atacseq.output.md"}
+DOC_ONLY = {"atacseq": "atacseq.output.md", "chipseq": "chipseq.output.md"}
 
 #: Folders an output.md documents only by saying they mirror another, as {pipeline:
 #: {folder: (its documented twin, the sentence of the docs that says so)}}. A pattern's

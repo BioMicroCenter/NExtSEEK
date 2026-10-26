@@ -207,6 +207,9 @@ What blocks each row:
 |---|---|---|---|
 | atacseq | the per-replicate files of a sample with several replicates: `<ALIGNER>/merged_library/<sample>_REP<n>.mLb.clN.sorted.bam`, its peaks and its bigWig | A.ALN, A.CHRM | choice: harvest makes one sample per samplesheet `sample`, so a sample's replicates share one row. The map registers the merged-replicate file, parented by every replicate; the per-replicate files lose to it and reach only the build report. With `--skip_merge_replicates` the first replicate's file wins, and its row is still parented by every replicate |
 | atacseq | `<ALIGNER>/merged_replicate/macs2/<PEAK_TYPE>/consensus/consensus_peaks.mRp.clN.bed` and its `featureCounts.txt` (the consensus over the merged-replicate peaks) | A.CHRM | inventory, choice: a second consensus set beside the merged-library one, which the map registers |
+| chipseq | the per-replicate files of an antibody or control sample with several replicates (`<sample>_REP<n>`: BAM, peaks, bigWig) | A.ALN, A.CHRM | choice: as for atacseq, but chipseq has no merged-replicate step, so the first replicate's file is the row's file and the row is parented by every replicate's D.SEQ, a wrong lineage, until harvest names samples per replicate |
+| chipseq | `<ALIGNER>/merged_library/macs3/<PEAK_TYPE>/consensus/<ANTIBODY>/<ANTIBODY>.consensus_peaks.bed` and its `featureCounts.txt`, one per antibody | A.CHRM | inventory, parent: a `per_file` row is parented by every sample of the run, controls and other antibodies' samples included |
+| chipseq | the antibody each peak row was called for | A.CHRM | type: A.CHRM has no Name or antibody field, and harvest reads no `antibody` column |
 | denovotranscript | `evigene/okayset/all_assembled.okay.mrna` (the final assembly, FASTA) | none | type, inventory |
 | denovotranscript | `evigene/okayset/all_assembled.okay.aa` (its proteins) | none | type, inventory |
 | denovotranscript | `trinity/pooled_reads.fa.gz`, `rnaspades/pooled_reads.transcripts.fa.gz` (assemblies before redundancy reduction) | none | type, inventory, choice: whether to register pre-reduction assemblies at all |
@@ -258,7 +261,7 @@ What blocks each row:
 | smrnaseq | `mirdeep2/**/result_*.csv` (novel miRNA calls) | none | type, inventory |
 | all | A.VCF rows link no assay where the house assay "Variant Call Filtering" does not exist; it is a pending `create_internal` in `context/assay_mappings.json` | A.VCF | a house assay to create |
 
-Ruled out on purpose, so not on the list above: differentialabundance's `all.vst.tsv` / `all.rlog.tsv` (regenerated from the normalised counts), its plots, Shiny app, `*.sizefactors.tsv` and session logs, and the upstream counts matrix as `Parent` (G-6: the stager reads nothing outside the run folder; rows keep the sequencing samples). A map that sets `claims_every_file` (sarek, methylseq) lists its own ruled-out files in `unmapped_files`, each with its reason. atacseq lists its own too, without `claims_every_file`: no fixture lists its files.
+Ruled out on purpose, so not on the list above: differentialabundance's `all.vst.tsv` / `all.rlog.tsv` (regenerated from the normalised counts), its plots, Shiny app, `*.sizefactors.tsv` and session logs, and the upstream counts matrix as `Parent` (G-6: the stager reads nothing outside the run folder; rows keep the sequencing samples). A map that sets `claims_every_file` (sarek, methylseq) lists its own ruled-out files in `unmapped_files`, each with its reason. atacseq and chipseq list theirs too, without `claims_every_file`: no fixture lists their files.
 
 ## Fixtures
 
@@ -280,6 +283,7 @@ release's run fixture lands, with its entry in `DOC_ONLY`.
 | Pipeline | Release | Evidence | QC |
 |---|---|---|---|
 | atacseq | 2.1.2 | pinned docs/output.md only; unverified until a real run | none from general stats: the release's `assets/multiqc_config.yml` sets `exclude_modules: general_stats`, which MultiQC 1.13 reads as `skip_generalstats`, so no `multiqc_general_stats.txt` is written. D.SEQ gets only `Link_QC` and `Genome` |
+| chipseq | 2.1.0 | pinned docs/output.md only; unverified until a real run | none from general stats, as for atacseq (MultiQC 1.23 reads the same setting the same way) |
 
 A.CHRM has no `File_SecondaryData` or `Notes`, so a companion of an A.CHRM row
 (atacseq's consensus `featureCounts.txt`, a losing peak or bigWig candidate) reaches
