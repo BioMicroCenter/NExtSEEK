@@ -30,8 +30,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.http import Http404
 from django.test import RequestFactory, override_settings
 
-import seek.views.upload  # noqa: F401  -- so @patch can resolve the target
-from seek.views.exports import exportFile
+from seek.views.exports import exportFile, newExport
 
 OWNER = SimpleNamespace(is_authenticated=True, is_superuser=False, username="member", pk=7)
 OTHER = SimpleNamespace(is_authenticated=True, is_superuser=False, username="other", pk=8)
@@ -184,29 +183,12 @@ def test_nothing_is_served_when_the_data_file_links_are_not_under_media(media):
 
 @pytest.fixture
 def upload(media):
-    """POST /seek/sampleupload/ as OWNER; the sheet upload writes the feedback workbook it is handed."""
-    seekdb = MagicMock()
-    seekdb.getSeekLogin.return_value = {"status": True, "username": "member", "password": "x", "server": "s"}
-    written = []
-
-    def _batch_upload(_excel, feedbackfile, _seekdb):
-        written.append(feedbackfile)
-        with open(feedbackfile, "wb") as fh:
-            fh.write(b"feedback workbook")
-        return "uploaded", 1
-
-    dbsample = MagicMock()
-    dbsample.batchUpload.side_effect = _batch_upload
-    sheet = SimpleUploadedFile("my samples (v2).xlsx", b"PK\x03\x04sheet")
-    request = _request(OWNER, "/seek/sampleupload/", method="post",
-                       data={"excelfile_upload": sheet, "instituion_id": "1", "people_id": "7"})
-    with patch("seek.views.upload.SeekDB", return_value=seekdb), \
-            patch("seek.views.upload.DBtable_sample", return_value=dbsample), \
-            patch("seek.views.upload.verifySuperUser", return_value=0), \
-            patch("seek.views.upload.DOWNLOAD_DIRECTORY", str(media.root / "download") + "/", create=True), \
-            patch("seek.views.upload.UPLOAD_DIRECTORY", str(media.root / "uploads") + "/"):
-        response = seek.views.upload.sampleUploadAjax(request)
-    return SimpleNamespace(body=json.loads(response.content), written=written, media=media)
+    """A feedback workbook written to the private export store as OWNER (what ``newExport`` hands a writer)."""
+    request = _request(OWNER, "/seek/samples/export/", method="post", data={})
+    feedbackfile, link = newExport(request, "my samples (v2)_feedback-2026-01-01_00-00.xls")
+    with open(feedbackfile, "wb") as fh:
+        fh.write(b"feedback workbook")
+    return SimpleNamespace(body={"link": link, "msg": link}, written=[feedbackfile], media=media)
 
 
 def test_the_feedback_workbook_is_written_where_media_does_not_reach(upload):

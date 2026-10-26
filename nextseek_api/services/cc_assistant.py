@@ -23,6 +23,7 @@ callback, credentials and the 202 response.
 from __future__ import annotations
 
 import os
+import tempfile
 import time
 from pathlib import Path
 
@@ -268,6 +269,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
             resolve_user_project, ProjectResolutionError, build_user_dirs)
         from nextseek_api.cc_assistant.cc_upload_tasks import run_cc_upload_task
         from NessieAI.cc.cc_upload_validate import validate_upload_filename
+        from nextseek_api.batch_upload.xlsx_guard import XlsxExpansionError, check_xlsx_expansion
 
         uploaded = request.FILES.getlist("file")
         if not uploaded:
@@ -292,8 +294,14 @@ class CCAssistantViewSet(viewsets.ViewSet):
             if safe in seen_names:
                 return Response({"error": f"duplicate filename in batch: {safe}"}, status=400)
             seen_names.add(safe)
-            tmp = os.path.join(stage_root, f"{int(time.time() * 1000)}_{safe}")
-            with open(tmp, "wb") as out:
+            if safe.lower().endswith(".xlsx"):
+                try:
+                    check_xlsx_expansion(f)  # the sandbox parses it; refuse a bomb before it is staged (SEC-H12)
+                except XlsxExpansionError as exc:
+                    return Response({"error": str(exc)}, status=413)
+            fd, tmp = tempfile.mkstemp(prefix=f"{int(time.time() * 1000)}_", suffix=f"_{safe}", dir=stage_root)
+            os.fchmod(fd, 0o644)  # mkstemp makes 0600; the CC agent runs as another uid and must read it
+            with os.fdopen(fd, "wb") as out:
                 for chunk in f.chunks():
                     out.write(chunk)
             staged.append({"name": safe, "tmp_path": tmp})
