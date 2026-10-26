@@ -330,7 +330,7 @@ login, and only the legacy data-file tree). The two retrieve endpoints
 (`handle_retrieve` behind `samples/retrieve/` and `adminRetrieveSamples`) write a private
 temporary file, answer with its bytes and remove it. The legacy views that answer with a
 `link` (`sampleDownload`, `sampleExport`, `sampleFindAjax`, `sampleDelete`), and the sample
-upload page for its feedback workbook (`sampleUploadAjax`), write into the private store in
+upload page for its feedback workbook (`sampleUploadAjax`, retired in SEC-H04; the export store stays), write into the private store in
 `seek/views/exports.py` and link to `/seek/exports/<token>/<file>`, which streams the file
 only to the caller who made it or to a superuser. Those legacy exports also need a login
 and, for anyone but a superuser, read only the caller's samples, lineage included.
