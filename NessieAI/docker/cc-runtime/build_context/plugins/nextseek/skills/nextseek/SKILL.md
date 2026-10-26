@@ -276,7 +276,7 @@ the cohort exactly as the user gave them, and do NOT name a pipeline: the pipeli
 from the question.
 
 ```bash
-nextseek-pipeline --message "Question (verbatim): Find D.SEQ-250409KAM-1-PUB and D.SEQ-250409KAM-9-PUB. Which genes change between them?"
+nextseek-pipeline --message "Question (verbatim): <the user's question, word for word>"
 ```
 
 Relay its reply as it stands. It is an offer, not a launch: it says what the run will give the
