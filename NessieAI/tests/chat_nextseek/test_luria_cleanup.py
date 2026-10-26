@@ -1021,3 +1021,32 @@ def test_a_claim_keeps_a_download_and_its_release_starts_the_clock(root):
     items, _ = cl.build_report(str(root), set(), NOW)
     (item,) = [i for i in items if i.path == str(fq)]
     assert item.decision == "delete" and "last used 40 days ago" in item.reason
+
+
+# --- a read pair goes together or not at all (PR 135 SF-11) -------------------------------
+
+def test_a_read_pair_is_one_item_and_read_1_is_removed_first(root):
+    r1 = add_fastq(root, "SRX1_SRR1_1.fastq.gz", last_used_days=31, accs=["SRR1"])
+    r2 = add_fastq(root, "SRX1_SRR1_2.fastq.gz", last_used_days=31, accs=["SRR1"])
+    items = plan(root)
+    (item,) = [i for i in items if i.kind == "fastq"]
+    assert item.path == str(r1) and [p for p, _ in item.companions] == [str(r2)]
+    log, freed, failures, _ = cl.delete_pass(str(root), items, lambda: (set(), "q"), clock=lambda: NOW)
+    assert not r1.exists() and not r2.exists() and failures == 0
+
+
+def test_a_read_1_that_will_not_delete_leaves_its_mate_alone(root, monkeypatch):
+    # Read 2 deleted while read 1 stays would make a paired-end sample look complete as single-end.
+    r1 = add_fastq(root, "SRX1_SRR1_1.fastq.gz", last_used_days=31, accs=["SRR1"])
+    r2 = add_fastq(root, "SRX1_SRR1_2.fastq.gz", last_used_days=31, accs=["SRR1"])
+    real = cl.remove_path
+
+    def flaky(path, parent):
+        if path.endswith("_1.fastq.gz"):
+            raise OSError("stuck")
+        return real(path, parent)
+
+    monkeypatch.setattr(cl, "remove_path", flaky)
+    items = plan(root)
+    cl.delete_pass(str(root), items, lambda: (set(), "q"), clock=lambda: NOW)
+    assert r1.exists() and r2.exists()

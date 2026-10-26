@@ -343,15 +343,30 @@ def fastq_item(cache, name, claims, queued, now, problems):
         item = Item("fastq", path, fastq, "keep", "in use by " + ", ".join(holders))
     else:
         item = _fastq_by_last_use(cache, path, fastq, accs, now, problems)
-    md5 = os.path.join(fastq, "md5", name + ".md5")
-    if os.path.lexists(md5):
-        item.companions.append((md5, os.path.join(fastq, "md5")))
+    # A read pair goes together: read 2 is a companion of read 1, removed after it, so a read 1 that
+    # will not delete never leaves its mate gone (fill would then take the sample as single-end).
+    mate = _mate_name(name)
+    if mate is not None and os.path.lexists(os.path.join(fastq, mate)):
+        item.companions.append((os.path.join(fastq, mate), fastq))
+    for member in (name, mate):
+        md5 = os.path.join(fastq, "md5", str(member) + ".md5")
+        if member is not None and os.path.lexists(md5):
+            item.companions.append((md5, os.path.join(fastq, "md5")))
     return item
+
+
+def _mate_name(name):
+    """Read 2's file name for a read 1 file name, else None."""
+    suffix = "_1.fastq.gz"
+    return name[:-len(suffix)] + "_2.fastq.gz" if name.endswith(suffix) else None
 
 
 def fastq_items(cache, claims, queued, now, problems):
     items = []
-    for name in list_children(os.path.join(cache, "fastq")):
+    names = list_children(os.path.join(cache, "fastq"))
+    for name in names:
+        if name.endswith("_2.fastq.gz") and name[:-len("_2.fastq.gz")] + "_1.fastq.gz" in names:
+            continue    # read 2 of a pair goes with read 1's item
         item = fastq_item(cache, name, claims, queued, now, problems)
         if item is not None:
             items.append(item)
