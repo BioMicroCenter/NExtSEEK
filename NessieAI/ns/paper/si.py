@@ -4,7 +4,7 @@ Workbooks and csv/tsv give one item per non-empty cell; PDF and txt give paragra
 Anything else, anything over the size cap, and anything the paper lists but the zip
 lacks becomes a gap (spec §10: a missing supplement never stops a run). An unreadable
 archive, or a readable file with no text, is a gap too. Evidence IDs stay unique: a
-repeated basename is keyed by its folder-qualified path instead.
+stem already used in the archive is replaced by the member's path, then by the path with #n.
 """
 from __future__ import annotations
 
@@ -30,16 +30,14 @@ def supplement_items(zip_bytes: bytes, expected: list[SupplementRef]) -> tuple[l
     items: list[EvidenceItem] = []
     gaps: list[Gap] = []
     found: set[str] = set()
-    seen: set[str] = set()
+    used: set[str] = set()
     with zf:
         for info in zf.infolist():
             base = info.filename.rsplit("/", 1)[-1]
             if info.is_dir() or not base or base.startswith("."):
                 continue
             found.add(base)
-            # The first member with a basename keeps it; a repeat is keyed by its path in the zip.
-            name = info.filename if base in seen else base
-            seen.add(base)
+            name = _claim_stem(info.filename, base, used)
             if info.file_size > MAX_MEMBER_BYTES:
                 gaps.append(Gap(kind="supplement_unparsed", detail=f"{name}: over {MAX_MEMBER_BYTES // 2**20} MB"))
                 continue
@@ -69,6 +67,21 @@ def supplement_items(zip_bytes: bytes, expected: list[SupplementRef]) -> tuple[l
             items += new
     gaps += [Gap(kind="supplement_unavailable", detail=s.name) for s in expected if s.name not in found]
     return items, gaps
+
+
+def _claim_stem(path: str, base: str, used: set[str]) -> str:
+    """The ID stem for one member: its basename, else its zip path, else the path with #n. Recorded in used."""
+    if base not in used:
+        stem = base
+    elif path not in used:
+        stem = path
+    else:
+        n = 2
+        while f"{path}#{n}" in used:
+            n += 1
+        stem = f"{path}#{n}"
+    used.add(stem)
+    return stem
 
 
 def _workbook(name: str, data: bytes) -> list[EvidenceItem]:

@@ -1,4 +1,5 @@
 import io
+import warnings
 import zipfile
 
 from openpyxl import Workbook
@@ -96,3 +97,19 @@ def test_tsv_cells_get_cell_ids():
     items, gaps = supplement_items(_zip({"TableS3.tsv": b"id\tdose\nM2\t7 mg\n"}), [])
     assert gaps == []
     assert {i.id: i.text for i in items}["E:si:TableS3.tsv!B2"] == "7 mg"
+
+
+def test_member_order_never_duplicates_a_stem():
+    items, _ = supplement_items(_zip({"a/T.csv": b"first\n", "T.csv": b"second\n"}), [])
+    assert sorted((i.id, i.text) for i in items) == [("E:si:T.csv!A1", "first"), ("E:si:T.csv#2!A1", "second")]
+
+
+def test_exact_duplicate_path_stays_unique():
+    buf = io.BytesIO()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)  # zipfile warns on a repeated name; the archive is the test input
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("a/T.csv", b"one\n")
+            zf.writestr("a/T.csv", b"two\n")
+    items, _ = supplement_items(buf.getvalue(), [])
+    assert sorted(i.id for i in items) == ["E:si:T.csv!A1", "E:si:a/T.csv!A1"]
