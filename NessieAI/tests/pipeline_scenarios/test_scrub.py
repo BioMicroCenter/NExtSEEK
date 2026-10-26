@@ -53,3 +53,11 @@ def test_refusals_judge_each_url_piece():
     assert scrub.refusals(ok + "?token=1")
     assert scrub.refusals_in({"a": f"{ok},{ok}"}) == []
     assert scrub.allowed_url(ok) and not scrub.allowed_url("https://github.com.evil/nf-core/test-datasets/")
+
+
+def test_glued_urls_are_refused_in_a_tape():
+    ok = "https://raw.githubusercontent.com/nf-core/test-datasets/a.fq.gz"
+    assert scrub.refusals(ok + "|https://private.example.org/b")
+    assert scrub.refusals("[a](" + ok + ")[b](https://private.example.org/y)")
+    assert scrub.refusals(ok + "https://private.example.org/b")
+    assert not scrub.allowed_url(ok + "|x") and scrub.allowed_url(ok)

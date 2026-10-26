@@ -32,6 +32,7 @@ ALLOWED_URL_PREFIXES = (
     "https://github.com/nf-core/test-datasets/",
 )
 _ALLOWED_HOSTS = ("raw.githubusercontent.com", "github.com")
+_TEST_DATA_PATH = re.compile(r"^/nf-core/test-datasets/[A-Za-z0-9._/+-]*$")
 # The URL regex runs through commas, semicolons and (in escaped JSON text) backslashes, so one
 # match can hold several URLs; each piece is judged on its own.
 _URL_SEPARATORS = re.compile(r"[,;\\]")
@@ -39,13 +40,18 @@ _URL_SEPARATORS = re.compile(r"[,;\\]")
 
 def allowed_url(url: str) -> bool:
     """True only for a plain https URL under /nf-core/test-datasets/ on GitHub's two hosts:
-    no userinfo or port, no dot-dot segment (encoded or not), no query, no fragment."""
+    one URL only, no userinfo or port, a path of plain file-name characters, no dot-dot
+    segment, no query, no fragment."""
     try:
         parsed = urllib.parse.urlsplit(url)
     except ValueError:
         return False
     segments = parsed.path.split("/")
-    return (parsed.scheme == "https"
+    # A second "://" means another URL is glued on (by |, ), }, or nothing at all); the path
+    # character class refuses the glue characters themselves and any percent-encoding.
+    return (url.count("://") == 1
+            and _TEST_DATA_PATH.match(parsed.path) is not None
+            and parsed.scheme == "https"
             and parsed.netloc in _ALLOWED_HOSTS
             and parsed.path.startswith("/nf-core/test-datasets/")
             and not parsed.query and not parsed.fragment

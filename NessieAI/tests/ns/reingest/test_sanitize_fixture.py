@@ -170,3 +170,26 @@ def test_a_query_or_fragment_on_an_allowed_url_is_refused(tmp_path):
 def test_a_userinfo_or_port_host_lookalike_is_refused(tmp_path):
     (tmp_path / "p.json").write_text('{"x": "https://github.com@evil.example/nf-core/test-datasets/x"}')
     assert run(tmp_path, "/RUN").returncode == 1
+
+
+def test_glue_characters_do_not_hide_a_second_url_behind_an_allowed_one(tmp_path):
+    ok = "https://raw.githubusercontent.com/nf-core/test-datasets/a.fq.gz"
+    for i, glued in enumerate((ok + "|https://private.example.org/b", ok + ")https://private.example.org/b",
+                               ok + "}https://private.example.org/b", ok + "https://private.example.org/b")):
+        folder = tmp_path / str(i)
+        folder.mkdir()
+        (folder / "s.csv").write_text(f"S1,{glued}\n")
+        result = run(folder, "/RUN")
+        assert result.returncode == 1 and "private.example.org" in result.stderr, glued
+
+
+def test_a_markdown_link_pair_does_not_hide_a_private_url(tmp_path):
+    (tmp_path / "n.md").write_text(
+        "[a](https://github.com/nf-core/test-datasets/x)[b](https://private.example.org/y)\n")
+    result = run(tmp_path, "/RUN")
+    assert result.returncode == 1 and "private.example.org" in result.stderr
+
+
+def test_an_allowed_host_path_with_odd_characters_is_refused(tmp_path):
+    (tmp_path / "p.json").write_text('{"x": "https://github.com/nf-core/test-datasets/a%20b|c"}')
+    assert run(tmp_path, "/RUN").returncode == 1
