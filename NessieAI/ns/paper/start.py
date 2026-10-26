@@ -5,9 +5,12 @@ launch check runs here, in the turn; nothing is queued unless it passes.
 """
 from __future__ import annotations
 
-from NessieAI.ns.paper.fetch import HostNotAllowed, SourceUnavailable
+from NessieAI.ns.paper.fetch import MIN_LEFT_S, HostNotAllowed, OutOfTime, SourceUnavailable
 from NessieAI.ns.paper.identify import IdentifyError
 from NessieAI.ns.paper.launch import AttachmentTooLarge, AttachmentUnreadable, CatalogUnavailable, launch_check
+
+
+OUT_OF_TIME = "Reading the paper took longer than this step allows; try again."
 
 
 class StartRefused(ValueError):
@@ -26,6 +29,8 @@ def start(paper: str, project: int | None, session) -> dict:
     # server detail; the cause stays chained for the server log.
     try:
         outcome = launch_check(paper, seams)
+    except OutOfTime as exc:
+        raise StartRefused(OUT_OF_TIME, "out_of_time") from exc
     except IdentifyError as exc:
         raise StartRefused(str(exc), "unrecognised_paper") from exc
     except SourceUnavailable as exc:
@@ -45,6 +50,10 @@ def start(paper: str, project: int | None, session) -> dict:
     if existing is not None:
         return {"run_id": existing.run_id, "status": "already_running", "state": existing.state,
                 "reply": f"A run for this paper is already {existing.state}: {existing.run_id}."}
+    # The op answers by its deadline; a check that ran past it must not leave a run the turn reported as failed.
+    left = session.time_left()
+    if left is None or left < MIN_LEFT_S:
+        raise StartRefused(OUT_OF_TIME, "out_of_time")
     run = session.create_run(paper_input=paper, paper=outcome.paper, project_hint=project)
     session.enqueue_acquire(run)
     note = ""

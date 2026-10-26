@@ -32,7 +32,8 @@ def read_input(input_dir: str, name: str) -> bytes:
 
 def could_name_a_file(paper: str) -> bool:
     """Could ``paper`` be the name of an attached file? A PMID, PMCID, DOI or article link cannot, so its call
-    never looks up the caller's input folder (a SEEK round trip)."""
+    never looks up the caller's input folder (a SEEK round trip). An attachment named only by a number (``12345``)
+    is read as a PMID, so it is never matched as a file; ``12345.pdf`` is."""
     from NessieAI.ns.paper.identify import IdentifyError, identify
 
     text = (paper or "").strip()
@@ -47,20 +48,22 @@ def could_name_a_file(paper: str) -> bool:
     return False
 
 
-def budget_fetcher():
-    """A Fetcher that keeps to what is left of the op's limit: no retries, and no wait longer than that budget
-    less ANSWER_MARGIN_S. Raises OpDeadlineError when nothing usable is left."""
+def time_left() -> float | None:
+    """Seconds the launch check has left: the op's limit as the active call_scope has it now, less
+    ANSWER_MARGIN_S. None when the scope says nothing more should start."""
     from chat_nextseek import call_scope
 
-    from NessieAI.ns.granular import OpDeadlineError
     from NessieAI.ns.op_limits import OP_LIMITS_S
-    from NessieAI.ns.paper.fetch import Fetcher
 
     left = call_scope.time_left_for(OP_LIMITS_S["paper-reingest-start"])
-    budget = None if left is None else left - ANSWER_MARGIN_S
-    if budget is None or budget < 1.0:
-        raise OpDeadlineError("the op ran out of time before the paper could be checked")
-    return Fetcher(retries=0, timeout=(min(5.0, budget), budget))
+    return None if left is None else left - ANSWER_MARGIN_S
+
+
+def launch_fetcher():
+    """The launch check's Fetcher: no retries, and one deadline (time_left) for every request it makes."""
+    from NessieAI.ns.paper.fetch import Fetcher
+
+    return Fetcher(retries=0, time_left=time_left)
 
 
 def _input_dir(request) -> str | None:
@@ -90,8 +93,7 @@ def start_session(request) -> SimpleNamespace:
     def launch_seams(paper: str) -> LaunchSeams:
         input_dir = _input_dir(request) if could_name_a_file(paper) else None
         files = set(list_input_files(input_dir)) if input_dir else set()
-        # Built after the folder lookup, so its budget is what that lookup left.
-        return LaunchSeams(fetcher=budget_fetcher(), input_files=files,
+        return LaunchSeams(fetcher=launch_fetcher(), input_files=files,
                            read_input_file=lambda name: read_input(input_dir, name),
                            doi_project_ids=doi_project_ids_strict)
 
@@ -107,4 +109,4 @@ def start_session(request) -> SimpleNamespace:
     return SimpleNamespace(
         user=user, enabled=enabled, launch_seams=launch_seams,
         unfinished_run=lambda doi, raw: service.unfinished_run_for(user, doi, raw),
-        create_run=create_run, enqueue_acquire=enqueue_acquire)
+        create_run=create_run, enqueue_acquire=enqueue_acquire, time_left=time_left)

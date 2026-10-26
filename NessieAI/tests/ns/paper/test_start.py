@@ -13,7 +13,8 @@ def _session(outcome=None, superuser=True, enabled=True, existing=None, seams="s
     session = SimpleNamespace(
         user=SimpleNamespace(is_superuser=superuser), enabled=lambda: enabled,
         launch_seams=lambda paper: seams, unfinished_run=lambda doi, raw: existing,
-        create_run=lambda **kw: made.append(kw) or run, enqueue_acquire=queued.append)
+        create_run=lambda **kw: made.append(kw) or run, enqueue_acquire=queued.append,
+        time_left=lambda: 60.0)
     return session, made, queued
 
 
@@ -154,3 +155,24 @@ def test_catalog_outage_is_catalog_unavailable():
               key(f"{europepmc.BASE}/PMC10000001/fullTextXML"): FakeResponse(200, JATS_XML)}
     err = _refusal("38000001", _seams(routes, projects=down))
     assert err.error_type == "catalog_unavailable" and "try again later" in str(err)
+
+
+def test_out_of_time_is_refused_and_creates_nothing(monkeypatch):
+    from NessieAI.ns.paper.fetch import OutOfTime
+
+    def slow(raw, seams):
+        raise OutOfTime("no time left")
+    monkeypatch.setattr("NessieAI.ns.paper.start.launch_check", slow)
+    session, made, queued = _session()
+    with pytest.raises(StartRefused) as err:
+        start("38000001", None, session)
+    assert err.value.error_type == "out_of_time" and made == [] and queued == []
+
+
+def test_a_check_that_used_up_the_time_creates_no_run(monkeypatch):
+    monkeypatch.setattr("NessieAI.ns.paper.start.launch_check", lambda raw, seams: _ok())
+    session, made, queued = _session()
+    session.time_left = lambda: 0.5
+    with pytest.raises(StartRefused) as err:
+        start("38000001", None, session)
+    assert err.value.error_type == "out_of_time" and made == [] and queued == []

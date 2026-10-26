@@ -53,27 +53,35 @@ def _no_folder_lookup(request):
     raise AssertionError("a PMID must not look up the input folder")
 
 
-def test_launch_seams_keep_to_the_op_budget(monkeypatch):
+def test_the_launch_fetcher_and_the_session_share_the_op_deadline(monkeypatch):
     from chat_nextseek import call_scope
 
     monkeypatch.setattr(host, "_input_dir", _no_folder_lookup)
+    session = host.start_session(_REQ)
     with call_scope.scope(deadline_s=12.0):
-        fetcher = host.start_session(_REQ).launch_seams("38000001").fetcher
-    connect, read = fetcher._timeout
-    assert read <= 12.0 - host.ANSWER_MARGIN_S and connect <= read
+        fetcher = session.launch_seams("38000001").fetcher
+        connect, read = fetcher._request_timeout()
+        assert read <= 12.0 - host.ANSWER_MARGIN_S and connect <= read
+        assert session.time_left() <= 12.0 - host.ANSWER_MARGIN_S
     assert fetcher._retries == 0
     # Outside any scope the op's own limit is the budget.
-    assert host.start_session(_REQ).launch_seams("38000001").fetcher._timeout[1] <= 60.0 - host.ANSWER_MARGIN_S
+    assert session.time_left() == 60.0 - host.ANSWER_MARGIN_S
 
 
-def test_launch_seams_with_no_time_left_is_a_deadline(monkeypatch):
+def test_with_no_time_left_no_request_starts(monkeypatch):
     from chat_nextseek import call_scope
 
-    from NessieAI.ns.granular import OpDeadlineError
+    from NessieAI.ns.paper.fetch import OutOfTime
 
     monkeypatch.setattr(host, "_input_dir", _no_folder_lookup)
-    with call_scope.scope(deadline_s=4.0), pytest.raises(OpDeadlineError):
-        host.start_session(_REQ).launch_seams("38000001")
+    session = host.start_session(_REQ)
+    with call_scope.scope(deadline_s=4.0):
+        fetcher = session.launch_seams("38000001").fetcher
+        fetcher._session = None  # any request would fail on this, not with OutOfTime
+        with pytest.raises(OutOfTime):
+            fetcher.get("https://www.ebi.ac.uk/europepmc/webservices/rest/search")
+        left = session.time_left()
+        assert left is None or left < 1.0
 
 
 def test_only_a_possible_file_name_looks_up_the_input_folder(monkeypatch, tmp_path):

@@ -42,6 +42,14 @@ class SourceUnavailable(Exception):
         self.host, self.reason = host, reason
 
 
+class OutOfTime(Exception):
+    """The caller's deadline (``time_left``) ran out. Never retried, never read as SourceUnavailable."""
+
+
+#: Below this many seconds left no request starts and no body read goes on.
+MIN_LEFT_S = 1.0
+
+
 class _Transient(Exception):
     pass
 
@@ -49,14 +57,35 @@ class _Transient(Exception):
 class Fetcher:
     def __init__(self, session=None, *, allowed=ALLOWED_HOSTS, retries: int = 3, backoff_s: float = 2.0,
                  timeout=(5.0, 60.0), max_bytes: int = 200 * 1024 * 1024,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep,
+                 time_left: Callable[[], float | None] | None = None):
+        """``time_left``, when given, is one deadline for every request this Fetcher makes: it returns the
+        seconds left (None meaning none), each request and redirect hop waits at most that long, a body read
+        stops when it runs out, and OutOfTime is raised below MIN_LEFT_S. Without it, ``timeout`` applies to
+        each request on its own."""
         if session is None:
             import requests
 
             session = requests.Session()
         self._session, self._allowed = session, allowed
         self._retries, self._backoff, self._timeout = retries, backoff_s, timeout
-        self._max_bytes, self._sleep = max_bytes, sleep
+        self._max_bytes, self._sleep, self._time_left = max_bytes, sleep, time_left
+
+    def _check_time(self) -> float | None:
+        """Seconds left under the deadline, or None when there is no deadline. Raises OutOfTime."""
+        if self._time_left is None:
+            return None
+        left = self._time_left()
+        if left is None or left < MIN_LEFT_S:
+            raise OutOfTime("the time for this step ran out")
+        return left
+
+    def _request_timeout(self):
+        left = self._check_time()
+        if left is None:
+            return self._timeout
+        connect = self._timeout[0] if isinstance(self._timeout, tuple) else self._timeout
+        return (min(connect, left), left)
 
     def _host(self, url: str) -> str:
         parts = urlsplit(url)
@@ -85,8 +114,9 @@ class Fetcher:
     def _follow(self, url: str, params: dict | None) -> bytes:
         for _ in range(_MAX_HOPS + 1):
             self._host(url)
+            timeout = self._request_timeout()
             try:
-                resp = self._session.get(url, params=params, timeout=self._timeout,
+                resp = self._session.get(url, params=params, timeout=timeout,
                                          stream=True, allow_redirects=False)
             except Exception as exc:  # requests' ConnectionError, Timeout and kin
                 raise _Transient(type(exc).__name__) from exc
@@ -107,11 +137,12 @@ class Fetcher:
         chunks, total = [], 0
         try:
             for chunk in resp.iter_content(64 * 1024):
+                self._check_time()
                 total += len(chunk)
                 if total > self._max_bytes:
                     raise SourceNotFound(url, 413)
                 chunks.append(chunk)
-        except SourceNotFound:
+        except (SourceNotFound, OutOfTime):
             raise
         except Exception as exc:  # a body cut off mid-stream
             raise _Transient(type(exc).__name__) from exc

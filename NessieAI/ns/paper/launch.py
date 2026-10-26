@@ -99,6 +99,8 @@ def _from_pdf(name: str, seams: LaunchSeams) -> tuple[PaperRef, PaperText, str]:
         raise AttachmentUnreadable(f"the attached file {name} could not be read") from exc
     try:
         raw_text = pdf_to_text(data)
+    except MemoryError:
+        raise
     except Exception as exc:  # pypdf raises its own errors, and others, on a damaged or non-PDF file
         raise AttachmentUnreadable(f"{name} is not a PDF I can read") from exc
     text = split_sections(raw_text)
