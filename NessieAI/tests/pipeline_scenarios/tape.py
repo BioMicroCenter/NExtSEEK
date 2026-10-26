@@ -119,6 +119,7 @@ class Tape:
         #: Every refusal a recording scrubber raised, kept for the same reason.
         self.refused: list[str] = []
         self._final: set[int] = set()
+        self._source_of: dict[int, str] = {}
 
     def record(self, source: str, args, kwargs, value) -> None:
         self.entries.setdefault(source, []).append({"args": _args_key(args, kwargs), "value": encode(value)})
@@ -144,12 +145,19 @@ class Tape:
         call order even when a call runs on a worker thread the tool may give up waiting for."""
         entry = {"args": _args_key(args, kwargs or {}), "value": None}
         self.entries.setdefault(source, []).append(entry)
+        self._source_of[id(entry)] = source
         return entry
 
     def fill(self, entry: dict, value, final: bool = False) -> None:
         if id(entry) in self._final:
             return          # the tool already gave up on this call and its timeout was taped
         entry["value"] = encode(value)
+        # These entries skip the run-time scrubber, so an exception message that carries a path,
+        # an email or a private URL is caught here and makes taped() raise at exit.
+        from . import scrub
+        hits = scrub.refusals_in(entry["value"])
+        if hits:
+            self.refused.append(f"{self._source_of.get(id(entry), '?')}: {'; '.join(hits)}")
         if final:
             self._final.add(id(entry))
 
@@ -371,6 +379,8 @@ def taped(tape: Tape, scrubber=None):
     patches.append(mock.patch.object(agent_tools.selection, "decide", decide_stub))
     patches.append(mock.patch.object(agent_tools, "build_selection_context", ctx_stub))
     if tape.mode == "record":
+        # A stand-in for the concurrent module: `with ThreadPoolExecutor() as pool:` would not
+        # work through it (no __enter__), and the tools deliberately never use that form.
         observed = SimpleNamespace(futures=SimpleNamespace(
             ThreadPoolExecutor=lambda *a, **k: _ObservedPool(tape, *a, **k),
             TimeoutError=concurrent.futures.TimeoutError))

@@ -396,3 +396,18 @@ def test_a_selection_that_outlasts_the_tools_wait_replays_as_a_timeout(fakes, mo
             future.result(timeout=1)
         pool.shutdown(wait=False)
     assert r.unplayed() == {}
+
+
+def test_an_exception_message_with_a_path_or_email_makes_taped_raise_at_exit(fakes, monkeypatch):
+    from chat_nextseek.pipeline.sample_digest import DigestError
+    for message, needle in (("could not read /Users/alice/data/x.bam", "path"),
+                            ("ask bob@example.org", "email"),
+                            ("fetch https://private.example.org/y", "url")):
+        def failing(*a, _m=message, **k):
+            raise DigestError(_m)
+        monkeypatch.setattr(fakes.tools, "build_sample_digest", failing)
+        t = tp.Tape(mode="record")
+        with pytest.raises(ValueError, match=f"digest.*{needle}"):
+            with tp.taped(t):
+                with pytest.raises(DigestError):
+                    fakes.tools.build_sample_digest(object(), ["U1"])
