@@ -51,17 +51,20 @@ def acquire(paper: PaperArtifact, fetcher: Fetcher, adapters: dict | None = None
         except SourceNotFound as exc:
             gaps.append(Gap(kind="deposit_unavailable", detail=f"{acc.repo} {acc.id}: HTTP {exc.status}"))
             continue
-        if not records:
+        if not any(rec.kind != "project" for rec in records):
             gaps.append(Gap(kind="deposit_empty", detail=f"{acc.repo} {acc.id}"))
-            continue
+        # Only a project-level fetch may cover project-level accessions: a cited run must not hide its study.
+        project_fetch = bool(_ENA_PROJECT.match(acc.id))
         for rec in records:
             if rec.record_id in covered:
                 continue
             covered.add(rec.record_id)
-            covered.update(rec.links if rec.repo == "ena" else [])
+            if rec.repo == "ena":
+                covered.update(rec.links if project_fetch else [l for l in rec.links if not _ENA_PROJECT.match(l)])
             deposits.append(rec)
             if rec.repo == "geo" and rec.kind == "project":
                 queue += [Accession(repo="ena", id=link) for link in rec.links if _ENA_PROJECT.match(link)]
+        queue.sort(key=_priority)
     for rec in deposits:
         items += deposit_items(rec)
     unique = list({item.id: item for item in items}.values())

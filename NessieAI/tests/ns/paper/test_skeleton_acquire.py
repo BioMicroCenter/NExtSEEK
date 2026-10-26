@@ -66,6 +66,7 @@ def test_acquire_follows_geo_to_ena_and_skips_covered_accessions():
     ids = {i.id for i in evidence.items}
     assert "E:methods:p1" in ids and "E:geo:GSM7000001:characteristics.strain" in ids
     assert evidence.gaps[0].kind == "supplement_unavailable"
+    assert all(set(row.evidence_ids) <= ids for row in evidence.skeleton)
 
 
 def test_acquire_reads_the_europepmc_supplement_zip():
@@ -84,3 +85,36 @@ def test_not_found_is_a_gap_and_unavailable_propagates():
     assert ("deposit_unavailable", "pride PXD012345: HTTP 404") in {(g.kind, g.detail) for g in evidence.gaps}
     with pytest.raises(SourceUnavailable):
         acquire(_paper(), f, adapters=_adapters([], fail=(("geo", "GSE123456"), SourceUnavailable("h", "503"))))
+
+
+def test_a_cited_run_never_hides_the_series_sra_project():
+    text = parse_jats(JATS_XML.replace(b"GSE123456.", b"GSE123456 (run SRR3000001)."))
+    paper = PaperArtifact(ref=PaperRef(pmid="1", pmcid="PMC1"), text=text, text_source="pdf", mode="new")
+    calls = []
+
+    def ena_adapter(acc, f):
+        calls.append(acc)
+        assert acc != "SRP400001"
+        return [ena._record(ENA_RUNS[0])] if acc == "SRR3000001" else _ena_records()
+
+    adapters = _adapters([])
+    adapters["ena"] = ena_adapter
+    f, _ = fetcher({})
+    evidence = acquire(paper, f, adapters=adapters)
+    assert "PRJNA100001" in calls
+    rows = {r.row_key: r for r in evidence.skeleton if r.repo in ("geo", "ena")}
+    assert sorted(rows) == ["ena:SRX2000009", "geo:GSM7000001", "geo:GSM7000002"]
+    assert rows["geo:GSM7000002"].files and any(f.name.endswith(".fastq.gz") for f in rows["geo:GSM7000002"].files)
+
+
+def test_a_deposit_with_only_a_project_record_is_an_empty_gap():
+    text = parse_jats(JATS_XML.replace(b"GSE123456.", b"GSE123456 and 10.5281/zenodo.123456."))
+    paper = PaperArtifact(ref=PaperRef(pmid="1", pmcid="PMC1"), text=text, text_source="pdf", mode="new")
+    adapters = _adapters([])
+    adapters["geo"] = lambda acc, f: []
+    adapters["zenodo"] = lambda acc, f: [DepositRecord(repo="zenodo", record_id="123456", kind="project", title="t")]
+    f, _ = fetcher({})
+    evidence = acquire(paper, f, adapters=adapters)
+    assert ("deposit_empty", "zenodo 123456") in {(g.kind, g.detail) for g in evidence.gaps}
+    assert [r for r in evidence.skeleton if r.repo == "zenodo"] == []
+    assert [d.record_id for d in evidence.deposits if d.repo == "zenodo"] == ["123456"]
