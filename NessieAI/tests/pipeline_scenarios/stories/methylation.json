@@ -31,7 +31,8 @@
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
         "pipelines": "Bisulfite libraries are a methylation question: methylseq. sarek would call the C-to-T conversions as mutations, and rnaseq and rnavar read transcripts."
-      }
+      },
+      "expect": null
     }
   ]
 }

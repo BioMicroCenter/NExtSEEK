@@ -77,7 +77,7 @@
     "chipseq": {
       "revision": "2.1.0",
       "answers": "Where does a protein or histone mark bind across the genome in each sample, compared with its input control where one exists, and how consistent are the peaks between replicates?",
-      "assumes_prep": "ChIP-seq: chromatin immunoprecipitation with an antibody, short-read Illumina, single- or paired-end. An input (or IgG) control library for each IP is usual but optional. CUT&RUN and CUT&Tag are different assays that NExtSEEK cannot launch yet.",
+      "assumes_prep": "ChIP-seq: chromatin immunoprecipitation with an antibody, short-read Illumina, single- or paired-end. An input (or IgG) control library for each IP is usual but optional. CUT&RUN and CUT&Tag tether an enzyme to the antibody, start from far fewer cells and usually have no input control; they are not ChIP-seq and NExtSEEK cannot launch them yet. When the metadata does not say which assay it is, ask the user: ChIP-seq with an input control, or CUT&RUN / CUT&Tag?",
       "input_you_must_have": "Gzipped FASTQ per sample, with replicates numbered from 1 within each experimental group. The antibody name for each IP sample (required for any sample that has a control) and, where a control exists, which sample is its control and which replicate of it. A reference genome with an annotation.",
       "data_signals": {
         "library_strategy": [
