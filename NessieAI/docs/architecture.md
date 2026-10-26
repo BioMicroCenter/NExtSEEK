@@ -39,7 +39,7 @@ flowchart LR
     B -->|"HTTP"| NG
     NG --> DJ
     DJ --> DS
-    DJ -->|"docker.sock - spawn per turn"| AG
+    DJ -->|"cc-spawner - spawn per turn"| AG
     AG -->|"WS 8765 - ops"| SC
     AG -->|"model calls"| BP
     AG -->|"REST"| NG
@@ -168,7 +168,7 @@ sequenceDiagram
 
 Step by step:
 
-1. **Gate**: `cc_runner_available()` (`NessieAI/cc/cc_engine.py:179`) requires a live Docker daemon, the agent image (`NessieAI/cc/cc_engine.py:188-191`), *and* the `dmac-cc-net` network (`NessieAI/cc/cc_engine.py:199-202`) to already exist; the bridge never creates the network, so a missing piece fails closed.
+1. **Gate**: `cc_runner_available()` (`NessieAI/cc/cc_engine.py:179`) asks cc-spawner, which needs a live Docker daemon, the agent image (`NessieAI/cc/cc_engine.py:188-191`), *and* the `dmac-cc-net` network (`NessieAI/cc/cc_engine.py:199-202`) to already exist; the bridge never creates the network, so a missing piece fails closed.
 2. **Project resolution**: `resolve_user_project` (`NessieAI/cc/cc_provision.py:156`) uses the *user's own* SEEK credentials, via a lazily-imported `SeekDB` (`NessieAI/cc/cc_provision.py:150-151`); any failure rejects the turn rather than guessing.
 3. **Cross-session memory**: the most-recently-changed sibling session's transcript is re-summarized (`NessieAI/cc/cc_summary.py:278` → BAML `Summarize` at `NessieAI/cc/cc_summary.py:275`, on client `GCPFlash`, `gemini-3.5-flash` via `GCP_API_KEY`, `NessieAI/dmac_assistant/baml_src/clients.baml:26-32`), then `render_memory` (`NessieAI/cc/cc_memory.py:49`) renders a merged `CLAUDE.md` + transcript-pointer block into the memory mount.
 4. **Validation first**: `user_id`, `run_id`, `project_dirname` and the cc-state key are charset/traversal-validated *before* any path interpolation, mkdir or mount; the precondition is stated at `NessieAI/cc/cc_engine.py:951-953`.
@@ -238,7 +238,7 @@ The file declares **10 services**, 2 networks and 9 volumes (`docker-compose.yml
 
 | Service | Network(s) | Host port | Role & notes |
 |---|---|---|---|
-| `nextseek` (`docker-compose.yml:2`) | default only | none | Django + worker threads + Celery. Env from `docker/db.env` + `docker/nextseek.env` (`docker-compose.yml:17-19`). Bind-mounts `/var/run/docker.sock` (`docker-compose.yml:44`) and the volume `dmac-cc-users` at `/dmac/users` (`docker-compose.yml:53`). |
+| `nextseek` (`docker-compose.yml:2`) | default only | none | Django + worker threads + Celery. Env from `docker/db.env` + `docker/nextseek.env` (`docker-compose.yml:17-19`). Holds no Docker socket (only cc-spawner does); bind-mounts the volume `dmac-cc-users` at `/dmac/users` (`docker-compose.yml:53`). |
 | `nextseek_nginx` (`docker-compose.yml:55`) | default **+** `dmac-cc-net` (`docker-compose.yml:75-77`) | `127.0.0.1:${NEXTSEEK_PORT:-8000}` (`docker-compose.yml:57-58`) | The only dual-homed service; the agent's only route back into NExtSEEK. |
 | `bedrock-proxy` (`docker-compose.yml:88`) | `dmac-cc-net` **+** `dmac-cc-egress` (`docker-compose.yml:102-103`) | none (`docker-compose.yml:104-105`) | Credential-holding model relay (container `dmac-bedrock-proxy`, `docker-compose.yml:92`). |
 | `nextseek-sidecar` (`docker-compose.yml:164`) | `dmac-cc-net` only (`docker-compose.yml:184-185`) | none | Stateless op forwarder; mounts only the reserved `_staging` subpath (`docker-compose.yml:179-183`). |

@@ -35,5 +35,6 @@ limits the app used to read: `NEXTSEEK_CC_MAX_TURNS`, `NEXTSEEK_CC_MEM_LIMIT`, `
   derived from `project_dirname`, `user_id`, `cc_state_key` and `run_id`.
 - `environment` keys are an allowlist that matches `cc_engine.build_agent_environment`; a test holds the two together.
 - The spawner never stops a turn on its own: only `POST /turns/{run_id}/stop` or the container's own end does.
-- The app side is `NessieAI/cc/spawner_client.py`. With `NEXTSEEK_SPAWNER_URL` unset or empty, Container-CC turns
-  take the direct Docker path in `cc_engine.py` (one cycle); SEEK ops always use the spawner.
+- The app side is `NessieAI/cc/spawner_client.py`. It is the app's only road to Docker (the direct path in
+  `cc_engine.py` is gone, and a repo guard keeps the socket and the SDK out of `web`); with `NEXTSEEK_SPAWNER_URL`
+  unset or empty, CC is unavailable and SEEK ops answer 503.

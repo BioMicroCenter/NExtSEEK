@@ -882,7 +882,7 @@ doc = "Token web sends to cc-spawner. Install and rebuild write it, with the sam
 [NEXTSEEK_SPAWNER_URL]
 files = ["root.env"]
 default = "http://cc-spawner:8080"
-doc = "Where web sends Container-CC turns. Unset: the cc-spawner service. Set empty in .env: today's direct Docker path (the switch lives one dev cycle)."
+doc = "Where web sends Container-CC turns and SEEK user ops: the cc-spawner service. Unset or empty in .env: this default. There is no direct Docker path."
 
 [NEXTSEEK_CC_AUTOMODE_GCP]
 files = ["root.env"]

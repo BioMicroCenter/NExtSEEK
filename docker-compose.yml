@@ -101,9 +101,9 @@ services:
   # image as `nextseek` (no second build) and NO container_name: compose names
   # it nextseek-web-N, which is what lets a rebuild run two at once and swap them
   # (startup/lib/web_swap.py). The chat turn runs here, so this service carries
-  # everything a turn touches: the Docker socket (CC containers and the SEEK admin
-  # scripts; one dev cycle of the spawner switch, then it goes), laya-net, the
-  # luria key and ssh dir, and the CC user trees.
+  # everything a turn touches: dmac-spawner-net (CC containers and the SEEK admin
+  # scripts run in cc-spawner, the only service with the Docker socket), laya-net,
+  # the luria key and ssh dir, and the CC user trees.
   web:
     image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
     # Built by `nextseek` above; never looked up in a registry under that name.
@@ -123,12 +123,11 @@ services:
       # link made on the old web container still answers after a swap. Outside
       # uploads/production/, the one tree /media/ serves (dmac/media.py).
       NEXTSEEK_EXPORT_ROOT: /media/private-exports
-      # The CC spawner switch. Unset: CC turns go through the spawner. Set it EMPTY
-      # in the project-root .env (NEXTSEEK_SPAWNER_URL=) to take today's direct
-      # Docker path for the one dev cycle this switch lives. The token is
-      # NEXTSEEK_SPAWNER_TOKEN in docker/nextseek.env (install writes it, with the
+      # Where CC turns and SEEK user ops go: the cc-spawner service, the only holder
+      # of the Docker socket. There is no direct Docker path; an empty value in the
+      # project-root .env falls back to this default. The token is NEXTSEEK_SPAWNER_TOKEN in docker/nextseek.env (install writes it, with the
       # same value in docker/cc-spawner.env).
-      NEXTSEEK_SPAWNER_URL: ${NEXTSEEK_SPAWNER_URL-http://cc-spawner:8080}
+      NEXTSEEK_SPAWNER_URL: ${NEXTSEEK_SPAWNER_URL:-http://cc-spawner:8080}
     env_file:
       - ./docker/db.env
       - ./docker/nextseek.env
@@ -151,9 +150,6 @@ services:
       # Writable ssh dir: ssh.py copies the key here for one call, chmods 0600 (which it
       # cannot do on the read-only bind above) and removes the copy after use.
       - nextseek-luria-ssh:/app/.ssh
-      # Container-CC route: lets the assistant spawn sibling `claude` containers on
-      # the host Docker daemon. Goes away with the spawner switch (W9 part 2).
-      - /var/run/docker.sock:/var/run/docker.sock
       # Container-CC user trees (see `nextseek`). A turn mkdirs scratch, cc-state,
       # memory and output dirs here; the sibling containers mount per-user
       # *subpaths* of this SAME volume.
@@ -326,8 +322,8 @@ services:
     # `ports:` publish here, ever.
 
   # Container-CC agent image build target ONLY. The nextseek Django worker
-  # spawns one ephemeral, per-turn sibling container from this image directly
-  # via the host docker socket (docker-py `containers.run`, see cc_engine.py)
+  # spawns one ephemeral, per-turn sibling container from this image through
+  # cc-spawner, which holds the host docker socket (see spawner_client.py)
   # — it is NOT a persistent compose-managed service. This stanza exists so
   # `docker compose build` (part of the canonical `docker compose build &&
   # docker compose up -d` deploy flow) produces/tags the image compose-

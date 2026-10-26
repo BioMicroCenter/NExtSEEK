@@ -30,7 +30,7 @@ Topology (preserves the OI-3 agent isolation):
 
 The `nextseek` service itself is **never** on `dmac-cc-net`; nginx is the only
 dual-homed service. Per-turn agent containers are spawned from the
-`dmac-assistant:poc` image by the app via the docker socket — the compose
+`dmac-assistant:poc` image by cc-spawner (the only service with the docker socket) — the compose
 `cc-agent` stanza is a build target only, never a running service.
 
 ## Procedure
@@ -226,12 +226,12 @@ the delete (error 1451 on `assistant_cc_turn_task_id_fk`).
 
 ## Verification
 
-CC route wired end-to-end (checks daemon, agent image, network — in order;
+CC route wired end-to-end (checks the spawner, agent image, network — in order;
 the image has no bare `python` on PATH, so use `uv run --no-sync`, which
 executes in the app env `/app/.venv` without modifying it):
 
 ```bash
-docker exec nextseek uv run --no-sync python -c "from NessieAI.cc import cc_engine; print(cc_engine.cc_runner_available())"
+docker compose exec web uv run --no-sync python -c "from NessieAI.cc import cc_engine; print(cc_engine.cc_runner_available())"
 # -> (True, 'ok')
 ```
 
@@ -280,7 +280,7 @@ docker exec -e RUN_REALSTACK=1 -e SEEK_TEST_USER=.. -e SEEK_TEST_PASS=.. nextsee
 
 # reproducible re-check of a committed evidence bundle (zero spend; use
 # `uv run --no-sync` — the image has no bare `python` on PATH)
-docker exec nextseek uv run --no-sync python -m NessieAI.tests.cc.validate_cc_acceptance \
+docker compose exec web uv run --no-sync python -m NessieAI.tests.cc.validate_cc_acceptance \
   outputs/cc_acceptance/<run_id>
 
 # full Step-7 compose-deploy evidence bundle re-validation (zero spend, 61

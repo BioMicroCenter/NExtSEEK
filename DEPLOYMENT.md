@@ -34,8 +34,8 @@ No service is profile-gated: `docker compose ps` shows the whole stack, and
 | Service | Image | Host port | Network(s) | Role |
 |---|---|---|---|---|
 | `nextseek` (the worker) | built from root `Dockerfile` | none | default | The background runtimes that run app code, no web server: Celery worker for `batch_upload`, Celery worker for `attribute_mutations`, the beat, the outbox dispatcher, the sync-recovery loop, the assay-registration and share drains and the graph sync. It is the only service that runs `migrate`, and it holds no Docker socket. One `wait -n`, so any of them exiting restarts the container. Healthchecked by `docker/scripts/attribute_runtime_healthcheck.py app`. Keeps the name `nextseek`, so every `docker exec nextseek ...` works |
-| `web` | the `nextseek` image (no second build) | none (internal :8000) | default + laya-net + dmac-spawner-net | The web server (daphne, or gunicorn via `NEXTSEEK_SERVER`) and the chat turn. No `container_name`: compose names it `nextseek-web-N`, so a rebuild can run two and swap them (§3.3). Holds the Docker socket for the one dev cycle of the spawner switch, the Luria key and ssh volume, and `dmac-cc-users`. Healthcheck: `GET /login/` answers 200. `stop_grace_period: 5m` |
-| `cc-spawner` | built from `docker/cc-spawner/` | none | dmac-spawner-net (internal) | Starts Container-CC turns and runs the SEEK admin scripts for `web`, behind a token. The only other holder of the Docker socket; read-only, all capabilities dropped. `web` uses it unless `NEXTSEEK_SPAWNER_URL` is set empty in the project-root `.env` |
+| `web` | the `nextseek` image (no second build) | none (internal :8000) | default + laya-net + dmac-spawner-net | The web server (daphne, or gunicorn via `NEXTSEEK_SERVER`) and the chat turn. No `container_name`: compose names it `nextseek-web-N`, so a rebuild can run two and swap them (§3.3). Holds no Docker socket (it reaches Docker only through `cc-spawner`), the Luria key and ssh volume, and `dmac-cc-users`. Healthcheck: `GET /login/` answers 200. `stop_grace_period: 5m` |
+| `cc-spawner` | built from `docker/cc-spawner/` | none | dmac-spawner-net (internal) | Starts Container-CC turns and runs the SEEK admin scripts for `web`, behind a token. The only holder of the Docker socket (a repo guard keeps it so); read-only, all capabilities dropped. `web` reaches it at `NEXTSEEK_SPAWNER_URL`, which has no off switch |
 | `nextseek_nginx` | `nginx:${NGINX_IMAGE_TAG:-1.31.2}` | `127.0.0.1:${NEXTSEEK_PORT:-8000}` | default **+ dmac-cc-net** | static files + reverse proxy to the `web` service (or, during a swap, to the one container `docker/nginx-upstream/pin.conf` names); the **only dual-homed** service |
 | `db` | `mysql:8.0` | `127.0.0.1:3306` | default | two schemas: `dmac` (NExtSEEK) + `seek_production` (SEEK) |
 | `neo4j` | `neo4j:${NEO4J_IMAGE_TAG:-2026.05.0}` | `127.0.0.1:7474` / `:7687` | default | sample/assay graph |
@@ -43,7 +43,7 @@ No service is profile-gated: `docker compose ps` shows the whole stack, and
 | `solr` | `fairdom/seek-solr:8.11` | none | default | SEEK search index |
 | `bedrock-proxy` | built from `NessieAI/docker/bedrock-proxy/` | none | dmac-cc-net | holds the Bedrock token; model-allowlist auth proxy (container name `dmac-bedrock-proxy`) |
 | `nextseek-sidecar` | built from `NessieAI/docker/ns-sidecar/` | none | dmac-cc-net | NS sidecar for the CC agent (healthchecked) |
-| `cc-agent` | built from `NessieAI/docker/cc-runtime/` → `dmac-assistant:poc` | none | none | **build-target only**: never runs as a service; per-turn agent containers are spawned from this image by the app via the docker socket |
+| `cc-agent` | built from `NessieAI/docker/cc-runtime/` → `dmac-assistant:poc` | none | none | **build-target only**: never runs as a service; per-turn agent containers are spawned from this image by `cc-spawner` |
 
 Key facts every operator must internalize:
 
@@ -51,7 +51,7 @@ Key facts every operator must internalize:
   `nextseek_api/`, `NessieAI/`, `seek/`, `dmac/`, templates, etc.
   **requires an image rebuild**. Only these are bind-mounted at runtime and
   changeable without a rebuild: `themes/NextSeek/`, `dmac/local_settings.py`,
-  `./outputs/`, `./logs/` (plus the docker socket and the `dmac-cc-users`
+  `./outputs/`, `./logs/` (plus the `dmac-cc-users`
   volume).
 - Secrets **never** enter images: `.dockerignore` excludes `docker/db.env`,
   `docker/nextseek.env`, `NessieAI/docker/bedrock-proxy/proxy-secret.env`,
@@ -455,9 +455,10 @@ spawner reads its Container-CC limits (`NEXTSEEK_CC_MAX_TURNS`, `_MEM_LIMIT`, `_
 `_PIDS_LIMIT`, `_FSIZE_BYTES`, `_AUTOMODE_GCP`) from the project-root `.env`, not from
 `docker/nextseek.env`: a box that overrides one in `nextseek.env` must copy it to `.env`.
 
-Rollback of the spawner: `NEXTSEEK_SPAWNER_URL=` (empty) in `.env`, then recreate `web`, puts
-Container-CC turns back on the direct Docker path. SEEK user create and patch always need the
-spawner and answer 503 while it is down or the switch is empty.
+There is no direct Docker path any more (W9 part 2): Container-CC turns and SEEK user create and
+patch need the spawner and answer 503 or "CC unavailable" while it is down. An empty
+`NEXTSEEK_SPAWNER_URL=` line in `.env` is read as the default (`:-`), so a stale line does no harm.
+Rollback of the spawner means a rollback of the app image to a commit before part 2.
 
 ### 3.4 If the deploy clone is owned by a different account
 
@@ -1012,7 +1013,7 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `NEXTSEEK_WORKER_MEMORY` | root.env | 8G |  |  | Memory cap of the worker container (the nine background loops). |
 | `NEXTSEEK_DRAIN_SECONDS` | root.env | 240 |  |  | How long a stopping web container lets running chat turns finish before it cuts them. web's stop_grace_period must stay at least this plus 30 s. |
 | `NEXTSEEK_SPAWNER_TOKEN` | nextseek.env | secret |  |  | Token web sends to cc-spawner. Install and rebuild write it, with the same value as SPAWNER_TOKEN in docker/cc-spawner.env. |
-| `NEXTSEEK_SPAWNER_URL` | root.env | http://cc-spawner:8080 |  |  | Where web sends Container-CC turns. Unset: the cc-spawner service. Set empty in .env: today's direct Docker path (the switch lives one dev cycle). |
+| `NEXTSEEK_SPAWNER_URL` | root.env | http://cc-spawner:8080 |  |  | Where web sends Container-CC turns and SEEK user ops: the cc-spawner service. Unset or empty in .env: this default. There is no direct Docker path. |
 | `NEXTSEEK_CC_AUTOMODE_GCP` | root.env | 1 |  |  | 1 when the auto-mode classifier may use GCP (the app has GCP_API_KEY set); the spawner reads this flag, never the key. |
 | `CC_SPAWNER_NEO4J_URI` | root.env | neo4j://neo4j:7687 |  |  | Neo4j URI the cc-spawner names in the Container-CC auto-mode trust text. |
 | `SPAWNER_MEMORY` | root.env | 512M |  |  | Memory cap of the cc-spawner container. |

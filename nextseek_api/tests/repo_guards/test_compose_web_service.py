@@ -7,7 +7,7 @@ gap-free swap or the spawner boundary breaks silently:
 * `web` without a healthcheck gives the swap nothing to wait on.
 * A grace period shorter than the drain cap makes Docker kill the container while
   it is still finishing chat turns.
-* The worker holding the Docker socket, or sitting on the spawner network, undoes
+* The worker or `web` holding the Docker socket, or the worker sitting on the spawner network, undoes
   the point of splitting the chat turn out of it.
 """
 from __future__ import annotations
@@ -67,9 +67,9 @@ def test_web_grace_period_covers_the_drain_cap_plus_gunicorn():
     assert grace >= _drain_default() + 30
 
 
-def test_only_web_and_the_spawner_mount_the_docker_socket():
+def test_only_the_spawner_mounts_the_docker_socket():
     holders = {n for n, s in SERVICES.items() if any(m.startswith(SOCK + ":") for m in _mounts(s))}
-    assert holders == {"web", "cc-spawner"}
+    assert holders == {"cc-spawner"}
 
 
 def test_the_worker_has_no_socket_no_laya_and_no_spawner_network():
@@ -108,9 +108,10 @@ def test_web_keeps_private_exports_on_the_shared_volume_outside_the_served_tree(
     assert "NEXTSEEK_EXPORT_ROOT" not in SERVICES["nextseek"]["environment"]
 
 
-def test_web_reaches_the_spawner_by_default_and_the_switch_is_unset_vs_empty():
+def test_web_reaches_the_spawner_and_an_empty_env_value_cannot_switch_it_off():
     web = SERVICES["web"]
-    assert web["environment"]["NEXTSEEK_SPAWNER_URL"] == "${NEXTSEEK_SPAWNER_URL-http://cc-spawner:8080}"
+    # `:-` (not `-`): an empty NEXTSEEK_SPAWNER_URL= line in .env gets the default, there is no off switch.
+    assert web["environment"]["NEXTSEEK_SPAWNER_URL"] == "${NEXTSEEK_SPAWNER_URL:-http://cc-spawner:8080}"
     assert set(web["networks"]) == {"default", "laya-net", "dmac-spawner-net"}
     assert web["restart"] == "always"
     assert {"db", "seek"} <= set(web["depends_on"])
