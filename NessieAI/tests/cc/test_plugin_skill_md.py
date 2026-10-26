@@ -222,3 +222,15 @@ def test_batch_upload_harmonize_step_names_its_base_and_the_no_value_count():
     step4 = step4[:step4.index("\n5. ")]
     assert "out of the samples that have a value" in step4
     assert "Give the samples with no value as their own number" in step4
+
+
+def test_batch_upload_harmonize_first_reply_carries_the_ontology_line_even_with_a_question():
+    path = paths.CC_PLUGIN_DIR / "skills" / "nextseek-batch-upload" / "SKILL.md"
+    text = path.read_text(encoding="utf-8")
+    step4 = text[text.index("4. Open the reply with one line naming the ontology"):]
+    step4 = step4[:step4.index("\n5. ")]
+    assert "first reply of a harmonization always carries this line and the table" in step4
+    assert "also when it must ask a question first" in step4
+    assert "put the question after the table" in step4
+    # it closes step 4, after the table is introduced, so "the table" names one the step already described
+    assert step4.rstrip().endswith("put the question after the table.")
