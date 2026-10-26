@@ -267,8 +267,8 @@ NExtSEEK side, not here.** **Decision rule:** intent is to *run/launch/submit/ex
 `nextseek-generate-submission`** — report the error and let the user retry.
 
 **A comparison question is a pipeline offer — hand it over first.** When the user asks how
-expression differs between groups of their sequenced samples ("which genes change between
-D.SEQ-…-1-PUB and D.SEQ-…-9-PUB?", "compare gene expression between treated and control mice")
+expression differs between groups of their sequenced samples ("how does expression
+differ between D.SEQ-…-1-PUB and D.SEQ-…-9-PUB?", "compare gene expression between two groups of samples")
 and names no pipeline, make `nextseek-pipeline` your FIRST call: no searches, graph queries or
 aggregates before it, because the pipeline agent resolves the samples itself and needs the
 turn's time to do it. Put the user's question in the message VERBATIM, then the sample UIDs or

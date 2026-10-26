@@ -180,7 +180,7 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     question about which genes, transcripts or isoforms change, or how expression
     differs, between groups of the user's sequenced samples, named by UID or
     described ("which genes change between these two samples?", "compare gene
-    expression between treated and control mice"), is `nextseek_query` even though it names no pipeline: the NExtSEEK
+    expression between two groups of samples"), is `nextseek_query` even though it names no pipeline: the NExtSEEK
     pipeline agent answers it by offering the nf-core run that produces that data,
     and nothing runs until the user confirms. A significance test on stored
     metadata values, or an analysis of files the user supplies, is not this.

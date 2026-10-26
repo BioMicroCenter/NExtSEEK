@@ -107,7 +107,7 @@ User: "Create an nf-core/rnaseq samplesheet for these RNA-seq samples"
 Output:
 {"project": null, "years": [], "month_range": null, "day_range": null, "reporter_mode": "report_generation", "report_type": "NFCORE", "uids": [], "reporter_context": {}, "notes": "nf-core request → bare NFCORE; the pipeline agent picks rnaseq downstream."}
 
-User: "Find D.SEQ-AAA111-1-PUB and D.SEQ-AAA111-2-PUB. Which genes change between them?"
+User: "How does expression differ between D.SEQ-AAA111-1-PUB and D.SEQ-AAA111-2-PUB?"
 Output:
 {"project": null, "years": [], "month_range": null, "day_range": null, "reporter_mode": "report_generation", "report_type": "NFCORE", "uids": ["D.SEQ-AAA111-1-PUB", "D.SEQ-AAA111-2-PUB"], "reporter_context": {}, "notes": "expression comparison with no pipeline named → bare NFCORE; the pipeline agent offers the run."}
 
