@@ -8,6 +8,7 @@ from pydantic import ValidationError
 import logging
 
 from django.conf import settings
+from nextseek_api.services.excel_safe import protect_sheet
 
 SEEK_DATABASE = settings.SEEK_DATABASE
 
@@ -326,6 +327,7 @@ def save_nhp_data(all_data: List[dict]) -> bytes:
     with pd.ExcelWriter(output) as writer:
         for sheet_name, df in nhp_data.items():
             df.to_excel(writer, sheet_name=sheet_name, index=False)
+            protect_sheet(writer.sheets[sheet_name])
     
     # Get the Excel file data
     excel_data = output.getvalue()
