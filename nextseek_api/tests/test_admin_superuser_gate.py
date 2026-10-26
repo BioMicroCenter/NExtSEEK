@@ -23,7 +23,7 @@ def _reached_page(client, url):
 def _run_clear_staff():
     from django.apps import apps
 
-    importlib.import_module("nextseek_api.migrations.0031_clear_staff_non_superusers").clear_staff(apps, None)
+    importlib.import_module("nextseek_api.migrations.0033_clear_staff_non_superusers").clear_staff(apps, None)
 
 
 class AdminSuperuserGateTests(TestCase):

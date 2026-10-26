@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("auth", "0012_alter_user_first_name_max_length"),
-        ("nextseek_api", "0030_spill_json_fields"),
+        ("nextseek_api", "0032_chat_search_entry"),
     ]
 
     operations = [migrations.RunPython(clear_staff, migrations.RunPython.noop)]
