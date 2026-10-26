@@ -25,8 +25,8 @@ from startup.steps.config import (
 
 
 # The published defaults, read from the module rather than restated here.
-_o = default_values(8000, 3000, generate_passwords=False)
-_OLD = (_o.mysql_root_password, _o.mysql_password, _o.neo4j_password)
+# The short historical defaults install no longer falls back to.
+_OLD = ("seek_root", "seek_db_password", "demopassword")
 
 
 def test_default_values_generates_database_passwords() -> None:
@@ -45,10 +45,10 @@ def test_kept_passwords_win_over_generation() -> None:
     assert v.mysql_root_password == "x" * 30
 
 
-def test_existing_volumes_keep_the_old_default() -> None:
-    v = default_values(8000, 3000, generate_passwords=False)
-    assert (v.mysql_root_password, v.mysql_password, v.neo4j_password) == _OLD
-    assert all(len(x) < 24 for x in _OLD)  # the short historical defaults, not generated
+def test_existing_volumes_keep_the_kept_passwords() -> None:
+    kept = {"MYSQL_ROOT_PASSWORD": "r" * 8, "MYSQL_PASSWORD": "m" * 8, "NEXTSEEK_NEO4J_PASSWORD": "n" * 8}
+    v = default_values(8000, 3000, kept=kept, generate_passwords=False)
+    assert (v.mysql_root_password, v.mysql_password, v.neo4j_password) == ("r" * 8, "m" * 8, "n" * 8)
 
 
 def test_preview_does_not_flag_generated_passwords(tmp_path: Path) -> None:

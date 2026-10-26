@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import os
 from pathlib import Path
 
 import pytest
@@ -46,7 +47,8 @@ def arms(monkeypatch):
 
 def _call(*args):
     out = io.StringIO()
-    call_command("nessie", *args, stdout=out, stderr=io.StringIO())
+    os.environ["NESSIE_TEST_PW"] = "x"  # the command has no default password
+    call_command("nessie", *args, "--password-env", "NESSIE_TEST_PW", stdout=out, stderr=io.StringIO())
     return out.getvalue()
 
 

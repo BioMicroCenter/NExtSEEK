@@ -39,9 +39,11 @@ dmac_utf8mb4() {
     -e '/^  `/ s/ CHARACTER SET latin1 COLLATE latin1_[a-z0-9_]+/ CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci/g'
 }
 
+# The password goes in the environment, never on a command line another account can read (SEC-H23).
+export MYSQL_PWD="$MYSQL_DEV_PASSWORD"
 BASE_ARGS=(
   -h "$MYSQL_HOST_DEV" -P "$MYSQL_PORT"
-  -u "$MYSQL_USER" -p"$MYSQL_DEV_PASSWORD"
+  -u "$MYSQL_USER"
   --single-transaction --quick
   --default-character-set=utf8mb4
 )

@@ -25,7 +25,7 @@ cd NExtSEEK
 
 `install` shows a summary and asks you to confirm. Add `--yes` to skip the question.
 
-Then open <http://localhost:8000> and sign in with `demo` / `demopassword` (administrator) or `user` / `userpassword` (regular user).
+Then open <http://localhost:8000> and sign in as `demo` (administrator) or `user` (regular user). The installer gives both a random password and prints it once at the end.
 
 If port 8000 is busy, the installer picks the next free port and tells you which.
 

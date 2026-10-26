@@ -1,4 +1,6 @@
 """In-container wiring test for `manage.py nessie` (no live turns)."""
+import os
+os.environ.setdefault("NESSIE_TEST_PW", "x")  # the command has no default password
 import pytest
 from django.core.management import call_command
 
@@ -14,7 +16,7 @@ def test_nessie_command_wires_run_suite(monkeypatch):
         return NessieManifest(started_at="a", ended_at="b", tier=kw["tier"], scope=kw["scope"], entries=[])
 
     monkeypatch.setattr(runner, "run_suite", fake_run_suite)
-    call_command("nessie", "--tier", "full", "--scope", "all", "--out", "/tmp/nessie_out_test")
+    call_command("nessie", "--tier", "full", "--scope", "all", "--out", "/tmp/nessie_out_test", "--password-env", "NESSIE_TEST_PW")
 
     assert captured["tier"] == "full"
     assert captured["scope"] == "all"
@@ -29,7 +31,7 @@ def test_nessie_command_route_tier_no_consistency_no_bundle(monkeypatch):
                         lambda **kw: (captured.update(kw)
                                       or NessieManifest(started_at="a", ended_at="b",
                                                         tier=kw["tier"], scope=kw["scope"], entries=[])))
-    call_command("nessie", "--tier", "route", "--out", "/tmp/nessie_out_test")
+    call_command("nessie", "--tier", "route", "--out", "/tmp/nessie_out_test", "--password-env", "NESSIE_TEST_PW")
     assert captured["run_consistency"] is False
     assert captured["bundle_reader"] is None
 
@@ -43,7 +45,7 @@ def test_nessie_command_exits_nonzero_on_real_failure(monkeypatch):
 
     monkeypatch.setattr(runner, "run_suite", fake_run_suite)
     with pytest.raises(SystemExit) as ei:
-        call_command("nessie", "--tier", "route", "--out", "/tmp/nessie_out_test")
+        call_command("nessie", "--tier", "route", "--out", "/tmp/nessie_out_test", "--password-env", "NESSIE_TEST_PW")
     assert ei.value.code == 1
 
 
@@ -57,5 +59,5 @@ def test_nessie_command_reports_an_unreadable_bundle_as_a_free_refusal(monkeypat
 
     monkeypatch.setattr(runner, "run_suite", refusing_run_suite)
     with pytest.raises(CommandError) as e:
-        call_command("nessie", "--tier", "full", "--out", "/tmp/nessie_out_test")
+        call_command("nessie", "--tier", "full", "--out", "/tmp/nessie_out_test", "--password-env", "NESSIE_TEST_PW")
     assert "nothing was billed" in str(e.value)

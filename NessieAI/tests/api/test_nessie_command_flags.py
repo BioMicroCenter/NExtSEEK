@@ -66,7 +66,14 @@ def no_suite(monkeypatch):
     monkeypatch.setattr(runner, "run_suite", boom)
 
 
+@pytest.fixture(autouse=True)
+def _default_password_env(monkeypatch):
+    monkeypatch.setenv(PW_ENV, SECRET)
+
+
 def _call(*args):
+    if "--password-env" not in args and "--password" not in args:
+        args = (*args, "--password-env", PW_ENV)  # the command has no default password
     out, err = io.StringIO(), io.StringIO()
     call_command("nessie", *args, stdout=out, stderr=err)
     return out.getvalue(), err.getvalue()
@@ -88,7 +95,7 @@ def test_arms_reach_run_arms(arms, no_suite, tmp_path):
     assert arms["corpus_path"] == paths.NESSIE_CORPUS
     assert arms["resume"] is False and arms["max_turns"] is None
     assert arms["base_url"] == "http://localhost:8000"
-    assert arms["auth_header"] == http_driver.basic_auth("demo", "demopassword")
+    assert arms["auth_header"] == http_driver.basic_auth("demo", SECRET)
     assert arms["bundle_reader"] is not None, "a full turn reads the bundle as run_suite does"
 
 
@@ -225,9 +232,10 @@ def test_password_and_password_env_are_exclusive(suite, monkeypatch, tmp_path):
     assert suite == {}
 
 
-def test_the_default_password_is_unchanged(suite, tmp_path):
-    _call("--tier", "route", "--out", str(tmp_path))
-    assert suite["auth_header"] == http_driver.basic_auth("demo", "demopassword")
+def test_a_password_env_is_required(suite, tmp_path):
+    with pytest.raises(CommandError, match="--password-env"):
+        call_command("nessie", "--tier", "route", "--out", str(tmp_path))
+    assert suite == {}
 
 
 # ── forcing a normal run ─────────────────────────────────────────────────────
