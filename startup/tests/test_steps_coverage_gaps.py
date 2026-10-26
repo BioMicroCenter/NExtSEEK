@@ -534,6 +534,28 @@ def test_load_filestore_streams_archive_and_chowns(mock_exec: MagicMock, tmp_pat
 # steps/doctor — instance-present path
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _doctor_never_asks_docker_about_ownership(monkeypatch: pytest.MonkeyPatch) -> None:
+    import startup.steps.doctor as doctor_mod
+    monkeypatch.setattr(doctor_mod, "check_app_ownership", lambda root, env: None)
+
+
+def test_doctor_ownership_row_only_on_a_problem(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from startup.steps import doctor as doctor_mod, volumes
+
+    monkeypatch.undo()   # the autouse stub off: this test drives the real function
+    monkeypatch.setattr(doctor_mod, "compose_ps_running", lambda services, root, env: ["web"])
+    monkeypatch.setattr(volumes, "ensure_app_ownership",
+                        lambda root, env, *, check_only, say=None: {"p-media": 3, "p-throttle": 0})
+    name, ok, detail = doctor_mod.check_app_ownership(tmp_path, {})
+    assert (name, ok) == ("app ownership", False)
+    assert "p-media (3)" in detail and "p-throttle" not in detail and "fix-ownership" in detail
+    monkeypatch.setattr(volumes, "ensure_app_ownership", lambda root, env, *, check_only, say=None: {"p-media": 0})
+    assert doctor_mod.check_app_ownership(tmp_path, {}) is None
+    monkeypatch.setattr(doctor_mod, "compose_ps_running", lambda services, root, env: [])
+    assert doctor_mod.check_app_ownership(tmp_path, {}) is None
+
+
 @patch("startup.steps.doctor.validate")
 @patch("startup.steps.doctor.load_instance")
 @patch("startup.steps.doctor.prereqs")

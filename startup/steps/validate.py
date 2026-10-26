@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import grp
 import os
+import pwd
 import re
 import subprocess
 import tempfile
@@ -42,6 +44,33 @@ class HealthResult:
     ok: bool
     detail: str
     warn: bool = False
+
+
+def check_app_ids(host_gid: str) -> HealthResult:
+    """The dedicated app uid/gid must not exist on the host (NSS, so directory accounts count), and
+    NEXTSEEK_HOST_GID must be a real, non-root, non-docker group id."""
+    from startup.lib.ownership import APP_GID, APP_UID
+
+    bad: list[str] = []
+    try:
+        bad.append(f"uid {APP_UID} is the host account {pwd.getpwuid(APP_UID).pw_name}")
+    except KeyError:
+        pass
+    try:
+        bad.append(f"gid {APP_GID} is the host group {grp.getgrgid(APP_GID).gr_name}")
+    except KeyError:
+        pass
+    if not host_gid.isdigit() or int(host_gid) == 0:
+        bad.append(f"NEXTSEEK_HOST_GID is {host_gid!r}: it must be the deploy account's gid, not empty or 0")
+    else:
+        try:
+            if int(host_gid) == grp.getgrnam("docker").gr_gid:
+                bad.append(f"NEXTSEEK_HOST_GID {host_gid} is the docker group's gid: never hand that to the app")
+        except KeyError:
+            pass
+    if bad:
+        return HealthResult("app uid/gid", False, "; ".join(bad))
+    return HealthResult("app uid/gid", True, f"{APP_UID}:{APP_GID} free on this host; host gid {host_gid}")
 
 
 def check_http(name: str, url: str, timeout: float = 5.0) -> HealthResult:

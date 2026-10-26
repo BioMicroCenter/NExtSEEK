@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime
 import sys
+import time
 from pathlib import Path
 
 import typer
@@ -116,6 +117,41 @@ def _disk_preflight_or_exit(
             "(the measurement still prints)"
         )
         raise typer.Exit(code=1)
+
+
+def _app_preflight_or_exit(state: InstanceState) -> None:
+    """Before any build: the dedicated app uid/gid is free on this host, NEXTSEEK_HOST_GID is sane, and
+    local_settings.py plus the Luria key are group-readable (0640) by that gid."""
+    env = state.compose_env()
+    res = validate.check_app_ids(volumes.host_gid(REPO_ROOT, env))
+    if not res.ok:
+        ui.fail(f"{res.name}: {res.detail}")
+        raise typer.Exit(code=1)
+    problems = volumes.ensure_secret_group_read(REPO_ROOT, env)
+    for p in problems:
+        ui.fail(p)
+    if problems:
+        raise typer.Exit(code=1)
+
+
+def _say_ownership(label: str, count: int | None, seconds: float) -> None:
+    ui.info(f"{label}: {'fixed' if count is None else str(count) + ' not owned by the app uid'} ({seconds:.1f} s)")
+
+
+def _check_app_ownership() -> None:
+    """After an app recreate: anything not owned by the app uid (a `docker exec -u 0`, a root rollback) is fixed, loudly."""
+    env = load_instance(REPO_ROOT).compose_env()
+    try:
+        counts = volumes.ensure_app_ownership(REPO_ROOT, env, check_only=True)
+        bad = {k: v for k, v in counts.items() if v}
+        if bad:
+            ui.warn("OWNERSHIP: files not owned by the app uid found after the rebuild (" +
+                    ", ".join(f"{k}: {v}" for k, v in bad.items()) + "). Running the fix now.")
+            volumes.ensure_app_ownership(REPO_ROOT, env, check_only=False, say=_say_ownership)
+        else:
+            ui.ok("ownership: every app volume and bind is owned by the app uid")
+    except Exception as exc:  # the rebuild itself succeeded; say the check did not run
+        ui.warn(f"ownership check did not run: {exc}")
 
 
 def _print_health_results(results: list[validate.HealthResult]) -> None:
@@ -598,6 +634,38 @@ def install(
     )
 
 
+@app.command(name="fix-ownership")
+def fix_ownership(
+    instance: str | None = typer.Option(None, "--instance"),
+    check: bool = typer.Option(
+        False, "--check", help="Count what is not owned by the app uid and change nothing (exit 1 if any)."),
+) -> None:
+    """Hand every writable volume and bind of web and nextseek to the dedicated app uid (10001).
+
+    Safe while the old root containers run: run it before the switchover rebuild (the slow full
+    pass) and note the per-target seconds, which time the switchover window."""
+    state = load_instance(REPO_ROOT)
+    if state is None:
+        ui.fail("no instance found — run 'startup install' first")
+        raise typer.Exit(code=1)
+    t0 = time.monotonic()
+    try:
+        # Before the switchover the running agents still own their files in dmac-cc-users under the old
+        # uid; a chown there would lock them out. Everything else is safe to pre-chown (root ignores owners).
+        before = not check and volumes.app_user_change(REPO_ROOT, state.compose_env())
+        if before:
+            ui.warn("the app has not switched to 10001 yet: leaving dmac-cc-users alone (the switchover "
+                    "rebuild fixes it); pre-chowning the other volumes and binds")
+        counts = volumes.ensure_app_ownership(REPO_ROOT, state.compose_env(), check_only=check,
+                                              skip_cc_users=before, say=_say_ownership)
+    except Exception as exc:
+        ui.fail(f"ownership pass failed: {exc}")
+        raise typer.Exit(code=1) from exc
+    ui.info(f"total {time.monotonic() - t0:.1f} s")
+    if check and any(counts.values()):
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def doctor(
     instance: str | None = typer.Option(None, "--instance"),
@@ -872,6 +940,8 @@ def rebuild(
     # here (it only adds a key to docker/nextseek.env, never re-renders the file).
     if (REPO_ROOT / "docker" / "nextseek.env").exists():
         config.render_spawner_env(REPO_ROOT)
+    if {"web", "nextseek"} & set(policy.restart_services):
+        _app_preflight_or_exit(state)
 
     _disk_preflight_or_exit(
         ci_profile=state.ci_profile,
@@ -931,6 +1001,28 @@ def rebuild(
         # stop-first or the new image carries a migration (old code must not run on
         # a new schema). Everything else restarts in place, as it always did.
         swap_web = "web" in policy.restart_services and not stop_first
+        app_services = bool({"web", "nextseek"} & set(policy.restart_services))
+        # Switchover to the dedicated app uid: an old root web beside a new one leaves files the new one
+        # cannot touch, and dmac-cc-users changes owner too, so stop web, nextseek AND the sidecar, fix
+        # every volume and bind, start the sidecar, then the app.
+        try:
+            user_changed = app_services and volumes.app_user_change(REPO_ROOT, state.compose_env())
+        except Exception as exc:  # unreadable: carry on as before; the CHECK after the recreate still runs
+            user_changed = False
+            ui.warn(f"could not compare the running and new app user ({exc}); not treating this as a switchover")
+        switchover_sidecar = False
+        if user_changed:
+            swap_web = False
+            ui.warn("the app containers change user (to 10001): no swap. Stopping web, nextseek and the "
+                    "sidecar, fixing ownership of every volume and bind, then starting the sidecar and "
+                    "the app; users see the restart page meanwhile.")
+            with ui.spinner("stopping web, nextseek and the sidecar"):
+                volumes.stop_app_services(REPO_ROOT, state.compose_env())
+            volumes.ensure_app_ownership(REPO_ROOT, state.compose_env(), check_only=False,
+                                         say=_say_ownership)
+            compose_up(services=("nextseek-sidecar",), project_dir=REPO_ROOT, env=state.compose_env(),
+                       force_recreate=True, no_deps=True)
+            switchover_sidecar = True
         if swap_web:
             run_docker = web_swap.make_runner(REPO_ROOT, state.compose_env())
             with ui.spinner("checking the new image for pending migrations"):
@@ -940,7 +1032,8 @@ def rebuild(
                 ui.warn("this image has pending migrations (or the check could not run), so web is "
                         "stopped and recreated instead of swapped: users see the restart page for "
                         f"about a minute. {why}")
-        in_place = tuple(s for s in policy.restart_services if s != "web")
+        in_place = tuple(s for s in policy.restart_services
+                         if s != "web" and not (switchover_sidecar and s == "nextseek-sidecar"))
         with ui.spinner(f"recreating {policy.name} runtimes"):
             if "web" in policy.restart_services and not swap_web:
                 # Stop-first: web alone, before the worker. The old web drains and
@@ -969,6 +1062,8 @@ def rebuild(
                 ui.fail(f"web swap failed: {exc}")
                 raise typer.Exit(code=1) from exc
         ui.ok(f"{policy.name} rebuilt and restarted")
+        if app_services:
+            _check_app_ownership()
         # Start the front door if it is down, and do nothing else to it. `up`
         # without --force-recreate is a no-op on a running nginx, which needs no
         # restart anyway (docker/nginx.conf re-resolves `web` per request);
