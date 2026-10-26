@@ -7,6 +7,7 @@ cd @@REPO@@ || exit 1
 H=@@HOME@@
 TAG=@@TAG@@
 EXP=@@EXP@@
+BEHIND_OK=@@BEHIND_OK@@   # 1: the brief quotes the operator letting EXP be an ancestor of origin/dev
 INSTANCE=@@INSTANCE@@
 IN=@@IN@@
 COMPONENTS="@@COMPONENTS@@"
@@ -116,7 +117,8 @@ busy=$(docker compose exec -T nextseek sh -c 'pgrep -af "manage.py (graph_sync -
 [ -n "$busy" ] && stop "busy inside nextseek: $busy"
 
 git fetch -q origin || stop "git fetch failed"
-[ "$(git rev-parse origin/dev)" = "$EXP" ] || stop "origin/dev is $(git rev-parse --short origin/dev), not the expected sha"
+{ [ "$(git rev-parse origin/dev)" = "$EXP" ] || { [ "$BEHIND_OK" = 1 ] && git merge-base --is-ancestor "$EXP" origin/dev; }; } \
+  || stop "origin/dev is $(git rev-parse --short origin/dev), not the expected sha (or, with ship_behind_origin, not after it)"
 for p in $DISCARD; do git checkout -- "$p" 2>/dev/null; done   # the app's daily context refresh only
 set_aside || stop "could not set the dirty $SET_ASIDE aside; nothing was reset past the failed file"
 rm -f @@REFRESH_MARKER@@

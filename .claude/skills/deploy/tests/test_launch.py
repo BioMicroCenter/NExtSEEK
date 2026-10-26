@@ -1459,3 +1459,47 @@ def test_cc_spawner_is_a_component_rebuilt_before_the_app(tmp_path, capsys):
     assert "nextseek-cc-spawner:latest" in text
     note = (Path(__file__).resolve().parents[1] / "references" / "dev.md").read_text()
     assert "cuts a CC turn" in note
+
+
+# --------------------------------------------------------------------------- ship behind origin/dev
+SHIP_BEHIND = "The operator, 10-26: 'Skill exception for an older sha' (prod takes the dev-green sha)"
+
+
+def test_behind_origin_stops_without_the_operators_words(tmp_path, capsys):
+    text = good_preflight(origin="c" * 40, origin_match="no", origin_ancestor="yes")
+    code, out, d = preflight(tmp_path, capsys, text)
+    assert code == 5 and "origin_match" in out.out
+
+
+def test_behind_origin_passes_with_the_operators_words_when_an_ancestor(tmp_path, capsys):
+    text = good_preflight(origin="c" * 40, origin_match="no", origin_ancestor="yes")
+    code, out, d = preflight(tmp_path, capsys, text, ship_behind_origin=SHIP_BEHIND)
+    assert code == 0, out.out + out.err
+    assert "behind origin/dev" in out.out
+
+
+def test_behind_origin_still_stops_when_not_an_ancestor(tmp_path, capsys):
+    text = good_preflight(origin="c" * 40, origin_match="no", origin_ancestor="no")
+    code, out, d = preflight(tmp_path, capsys, text, ship_behind_origin=SHIP_BEHIND)
+    assert code == 5 and "origin_match" in out.out
+
+
+def test_ship_behind_origin_must_hold_words(tmp_path, capsys):
+    code, out, d = make_brief(tmp_path, capsys, ship_behind_origin="  ")
+    assert code == 2
+
+
+def test_preflight_script_reports_whether_expected_is_an_ancestor(tmp_path, capsys):
+    code, out, d = make_brief(tmp_path, capsys)
+    code, out = run(["preflight-script", "--brief", str(d / "brief.json")], capsys)
+    assert "origin_ancestor" in out.out
+
+
+def test_runner_allows_behind_only_with_the_words(tmp_path, capsys):
+    for words, flag in ((None, "BEHIND_OK=0"), (SHIP_BEHIND, "BEHIND_OK=1")):
+        sub = tmp_path / ("w" if words else "n")
+        over = {"ship_behind_origin": words} if words else {}
+        code, out, d = make_brief(sub, capsys, **over)
+        assert code == 0, out.err
+        d2, runner_text = rendered_runner(sub / "r", capsys, **over)
+        assert flag in runner_text and "merge-base --is-ancestor \"$EXP\" origin/dev" in runner_text
