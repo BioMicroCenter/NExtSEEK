@@ -90,3 +90,21 @@ ENA_RUNS = [
      "study_accession": "PRJNA100001", "secondary_study_accession": "SRP400001", "experiment_title": "input RNA-seq",
      "first_public": "2024-03-01", "fastq_ftp": "", "fastq_bytes": "", "fastq_md5": ""},
 ]
+
+PRIDE_PROJECT = {
+    "accession": "PXD012345", "title": "Tyrosine phosphoproteomics", "submissionDate": "2024-04-02",
+    "publicationDate": "2024-06-01", "sampleProcessingProtocol": "Cells were lysed.",
+    "dataProcessingProtocol": "MaxQuant 2.4.", "organisms": [{"name": "Homo sapiens (human)"}],
+    "instruments": [{"name": "Orbitrap Exploris 480"}], "keywords": ["phospho"],
+}
+
+
+def _pride_file(name, category):
+    return {"fileName": name, "fileSizeBytes": 1000, "checksum": "f" * 40,
+            "fileCategory": {"value": category},
+            "publicFileLocations": [{"name": "Aspera Protocol", "value": "prd_ascp@x:" + name},
+                                    {"name": "FTP Protocol", "value": "ftp://ftp.pride.ebi.ac.uk/pride/data/archive/2024/06/PXD012345/" + name}]}
+
+
+PRIDE_FILES = [_pride_file("A1.raw", "RAW"), _pride_file("A2.raw", "RAW"),
+               _pride_file("search.mzid.gz", "SEARCH"), _pride_file("human.fasta", "FASTA")]
