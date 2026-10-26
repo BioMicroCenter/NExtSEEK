@@ -327,7 +327,8 @@ def _render_keeping(repo_root: Path, name: str, values: ConfigValues) -> str:
 # The modes of what install renders. One constant per kind of file, so a box whose
 # app runs as another uid can change a mode in one place (SEC-H08).
 ENV_FILE_MODE = 0o600
-LOCAL_SETTINGS_MODE = 0o600
+# 0640: the app runs as another uid and reads it through the deploy account's group (NEXTSEEK_HOST_GID).
+LOCAL_SETTINGS_MODE = 0o640
 
 
 def _write_keeping(repo_root: Path, name: str, values: ConfigValues) -> Path:
@@ -345,6 +346,21 @@ def render_db_env(repo_root: Path, values: ConfigValues) -> Path:
 
 def render_nextseek_env(repo_root: Path, values: ConfigValues) -> Path:
     return _write_keeping(repo_root, "nextseek.env", values)
+
+
+HOST_GID_KEY = "NEXTSEEK_HOST_GID"
+
+
+def ensure_host_gid(repo_root: Path) -> Path:
+    """Add NEXTSEEK_HOST_GID=<the installing user's gid> to .env once; an existing value is kept.
+
+    Compose reads it with the mandatory ``${NEXTSEEK_HOST_GID:?...}`` form, so a box whose .env lacks it
+    would fail every compose verb until this runs (rebuild calls it).
+    """
+    output = repo_root / ".env"
+    if not read_env(output).get(HOST_GID_KEY):
+        update_env(output, {HOST_GID_KEY: str(os.getgid())})
+    return output
 
 
 def render_spawner_env(repo_root: Path) -> Path:
@@ -521,7 +537,11 @@ def render_root_env(
     ]
     values = {key: compose_env[key] for key in ordered_keys if key in compose_env}
     output = repo_root / ".env"
-    owned = {*ordered_keys, "NEO4J_PASSWORD"}
+    # The deploy account's gid: compose gives it to the app as an extra group (group_add) so the app can read
+    # local_settings.py. A value already in the file is kept; a new one is the installing user's gid.
+    gid = compose_env.get(HOST_GID_KEY) or read_env(output).get(HOST_GID_KEY) or str(os.getgid())
+    values[HOST_GID_KEY] = gid
+    owned = {*ordered_keys, "NEO4J_PASSWORD", HOST_GID_KEY}
     kept = [line for key, (line, _v, _q) in _env_lines(output).items() if key not in owned]
     if neo4j_password is not None:
         # Compose interpolates $ in .env even inside double quotes; $$ is a literal $.

@@ -834,6 +834,12 @@ files = ["root.env"]
 default = ""
 doc = "Prefix for container and volume names of a second instance; install writes it."
 
+[NEXTSEEK_HOST_GID]
+files = ["root.env"]
+default = ""
+dynamic = true
+doc = "Gid of the deploy account (id -g of the user running startup); compose gives it to the nextseek and web services in group_add so the non-root app can read local_settings.py and the Luria key (mode 0640). startup/steps/config.py writes it (install and rebuild); docker-compose.yml reads it. Never the docker group."
+
 [NEXTSEEK_PORT]
 files = ["root.env"]
 default = "8000"

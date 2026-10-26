@@ -1003,6 +1003,7 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `DMAC_ROUTER_MODEL_CLASS_MAP_FILE` | internal |  |  |  | Override of the router model class map. On a box every CC turn loses its model id. Must not be set. |
 | `COMPOSE_PROJECT_NAME` | root.env | nextseek |  |  | Compose project name; install writes it per instance. |
 | `INSTANCE_PREFIX` | root.env | "" |  |  | Prefix for container and volume names of a second instance; install writes it. |
+| `NEXTSEEK_HOST_GID` | root.env | "" |  |  | Gid of the deploy account (id -g of the user running startup); compose gives it to the nextseek and web services in group_add so the non-root app can read local_settings.py and the Luria key (mode 0640). startup/steps/config.py writes it (install and rebuild); docker-compose.yml reads it. Never the docker group. |
 | `NEXTSEEK_PORT` | root.env | 8000 |  |  | Host port of the published nginx; install writes it. |
 | `SEEK_PORT` | root.env | 3000 |  |  | Host port of SEEK; install writes it. |
 | `DB_PORT` | root.env | 3306 |  |  | Host port of MySQL; install writes it. |

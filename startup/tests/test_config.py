@@ -1,6 +1,7 @@
 """Tests for startup.steps.config."""
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -723,7 +724,7 @@ def test_reinstall_keeps_hand_set_lines_in_the_root_env(tmp_path: Path) -> None:
 
     assert read_env(root) == {
         "COMPOSE_PROJECT_NAME": "nextseek", "NEXTSEEK_PORT": "8000", "NEO4J_PASSWORD": "neo",
-        "SEEK_MEMORY": "20G", "SEEK_PUMA_WORKERS": "8",
+        "NEXTSEEK_HOST_GID": str(os.getgid()), "SEEK_MEMORY": "20G", "SEEK_PUMA_WORKERS": "8",
     }
     assert "SEEK_PUMA_WORKERS=8  # this box" in first
     assert root.read_text() == first
