@@ -263,3 +263,47 @@ def test_a_failed_row_job_still_does_not_register_parents():
     entry = {"job_id": "j1", "outcome": outcome}
     record = {"mode": "new", "parent_assays": [{"parent_uid": "D.SEQ-1", "assay_id": 7}]}
     assert upload._register_parents(entry, record, lambda pairs: {})["status"] == "not_added"
+
+
+def test_a_build_whose_job_failed_can_be_uploaded_again(env):
+    # S4: "already uploaded" only once a job succeeded; a failed job leaves the build free.
+    builds = [_build(env, "reingest_A_GEX", "new", "A.GEX")]
+    out = _upload(env, lambda job_id: {"state": "FAILURE", "error": "worker lost"}, builds)
+    assert out["jobs"][0]["outcome"]["status"] == "failed"
+    out = _upload(env, lambda job_id: _done(created=2), builds)
+    assert out["jobs"][0]["outcome"]["status"] == "succeeded"
+
+
+def test_a_build_whose_job_did_not_start_can_be_uploaded_again(env):
+    builds = [_build(env, "reingest_A_GEX", "new", "A.GEX")]
+    ids = ",".join(b["build_id"] for b in builds)
+
+    def boom(**kw):
+        raise RuntimeError("queue down")
+
+    out = upload.run(build_ids_raw=ids, user=USER, upload_context=CTX, dispatch=boom, stage=_stage,
+                     job_state=None, chat_turn=lambda: {"session_id": "chat-1", "turn_number": 2, "task_id": "n"},
+                     turn_delivered=lambda t: True)
+    assert "did not start" in out["reply"]
+    assert _upload(env, lambda job_id: _done(created=2), builds)["jobs"][0]["outcome"]["status"] == "succeeded"
+
+
+def test_an_overlapping_call_cannot_start_a_second_job(env):
+    # S4: the second call arrives while the first is still dispatching (same build id, both passed verify).
+    builds = [_build(env, "reingest_A_GEX", "new", "A.GEX")]
+    ids = ",".join(b["build_id"] for b in builds)
+    second = {}
+
+    def dispatch_first(**kw):
+        try:
+            _upload(env, lambda job_id: _done(created=2), builds)
+        except upload.UploadRefused as exc:
+            second["refused"] = str(exc)
+        return "job-first"
+
+    out = upload.run(build_ids_raw=ids, user=USER, upload_context=CTX, dispatch=dispatch_first,
+                     stage=_stage, job_state=lambda j: _done(created=2),
+                     chat_turn=lambda: {"session_id": "chat-1", "turn_number": 2, "task_id": "n"},
+                     turn_delivered=lambda t: True)
+    assert "already started" in second["refused"]
+    assert [j["job_id"] for j in out["jobs"]] == ["job-first"]

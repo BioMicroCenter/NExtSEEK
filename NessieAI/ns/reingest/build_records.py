@@ -73,6 +73,7 @@ def write(*, path, artifact_key, sample_type, mode, manifest_id, disposition,
     owner = _owner_dir(user_id)
     os.makedirs(owner, exist_ok=True)
     final = os.path.join(owner, f"{record['build_id']}.json")
+    release(record["build_id"], user_id)    # a fresh build starts with no upload claim
     fh = tempfile.NamedTemporaryFile("w", dir=owner, delete=False, suffix=".tmp",
                                      encoding="utf-8")
     tmp = fh.name
@@ -118,4 +119,27 @@ def mark_uploaded(build_id: str, user_id) -> None:
             json.dump(record, fh, indent=2)
         os.replace(fh.name, path)
     except Exception:  # noqa: BLE001 -- bookkeeping must not fail an upload that started
+        pass
+
+
+def _claim_path(build_id: str, user_id) -> str:
+    return os.path.join(_owner_dir(user_id), f"{build_id}.claim")
+
+
+def claim(build_id: str, user_id) -> bool:
+    """Take the one upload claim on a build; False when another call already holds it. Atomic
+    (exclusive create), so two overlapping calls cannot both start a job."""
+    os.makedirs(_owner_dir(user_id), exist_ok=True)
+    try:
+        os.close(os.open(_claim_path(build_id, user_id), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+        return True
+    except FileExistsError:
+        return False
+
+
+def release(build_id: str, user_id) -> None:
+    """Give the claim back (the job did not start or did not succeed)."""
+    try:
+        os.unlink(_claim_path(build_id, user_id))
+    except OSError:
         pass

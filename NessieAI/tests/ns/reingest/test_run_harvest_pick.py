@@ -180,7 +180,7 @@ def test_an_upload_whose_jobs_all_failed_leaves_the_run_waiting(monkeypatch):
     assert run.status == "submitted"
 
 
-def test_upload_jobs_name_their_manifest():
+def test_upload_jobs_name_their_manifest(tmp_path, monkeypatch):
     """upload.run carries each record's manifest_id onto its job entry, so the
     caller can mark the run without re-reading build records."""
     from NessieAI.ns.reingest import upload
@@ -189,6 +189,7 @@ def test_upload_jobs_name_their_manifest():
                 "mode": "new", "project_id": 1, "path": "/x", "manifest_id": "m1"}]
     import NessieAI.ns.reingest.build_records as build_records
 
+    monkeypatch.setattr(build_records, "_ROOT", str(tmp_path / "builds"))
     orig_verify, orig_sha = upload.verify, build_records.sha256_of
     upload.verify = lambda ids, user_id, **_turn: records
     build_records.sha256_of = lambda path: "b1"

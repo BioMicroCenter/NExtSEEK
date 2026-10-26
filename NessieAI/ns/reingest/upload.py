@@ -253,6 +253,10 @@ def verify(build_ids: list[str], *, user_id, chat_turn=None,
         if record.get("uploaded_at"):
             reasons.append(f"{key}: already uploaded; build it again to upload it once more")
             continue
+        if os.path.exists(build_records._claim_path(build_id, user_id)):
+            reasons.append(f"{key}: an upload of it already started; check the batch-upload page, "
+                           "or build it again if it did not finish")
+            continue
         if record.get("built_by_user_id") != user_id:
             reasons.append(f"{key}: built by another user")
             continue
@@ -582,6 +586,20 @@ def _parents_line(job: dict) -> str | None:
     return "\n".join(lines) or None
 
 
+def _settle_claims(verified: list[dict], jobs: list[dict], user_id) -> None:
+    """After the wait: a build whose job succeeded stays claimed and is stamped uploaded; one whose job did
+    not start or failed is given back; one still running keeps its claim (a repeat would double-write)."""
+    by_key = {entry["artifact_key"]: entry for entry in jobs}
+    for record in verified:
+        entry = by_key.get(record["artifact_key"])
+        status = ((entry or {}).get("outcome") or {}).get("status")
+        if entry is None or "job_id" not in entry or status == "failed":
+            build_records.release(record["build_id"], user_id)
+        elif job_is_done(entry.get("outcome")):
+            build_records.mark_uploaded(record["build_id"], user_id)
+            build_records.mark_uploaded(entry["build_id"], user_id)
+
+
 def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
         turn_delivered, job_state=None, create_study_assay=None, rebuild=None,
         register_parents=None, limit_s=None, started_at=None) -> dict:
@@ -609,71 +627,82 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
     records = verify(ids, user_id=user_id, chat_turn=chat_turn(),
                      turn_delivered=turn_delivered)
     verified = records
-    created = _create_assays(records, create_study_assay, rebuild)
-    records = _rebuild_after_create(records, created, rebuild, user_id)
-    created_assays = _created_assays(verified, created)
-    # What a refusal from here on says about the assays already made.
-    already = [_created_line(created)] if created else []
-
-    # Phase A: stage every copy and prove it is the reviewed file, before any job starts.
-    staged_paths: list[tuple[dict, str]] = []
-
-    def _discard() -> None:
-        for _, staged in staged_paths:
-            try:
-                os.remove(staged)
-            except OSError:
-                logger.warning("upload-reingest: could not remove staged copy %s", staged)
-
-    for record in records:
-        try:
-            staged = stage(record["path"])
-            staged_paths.append((record, staged))
-            matches = build_records.sha256_of(staged) == record["build_id"]
-        except Exception:  # noqa: BLE001 -- the caller sees no raw text
-            logger.exception("upload-reingest: could not stage %s", record["artifact_key"])
-            _discard()
-            raise UploadRefused([f"{record['artifact_key']}: could not stage the workbook",
-                                 *already])
-        if not matches:
-            _discard()
-            raise UploadRefused(
-                [f"{record['artifact_key']}: the staged copy does not match the reviewed workbook",
-                 *already])
-
-    by_build = {r["build_id"]: r for r in records}
-
-    # Phase B: new mode first; a failed start is recorded and never stops the next.
-    jobs: list[dict] = []
-    for record, staged in staged_paths:
-        entry = {"build_id": record["build_id"], "artifact_key": record["artifact_key"],
-                 "sample_type": record["sample_type"], "mode": record["mode"],
-                 "manifest_id": record.get("manifest_id")}
-        try:
-            entry["job_id"] = dispatch(
-                user_pk=user_id, user_ctx=upload_context,
-                lababbv=upload_context["lababbv"], project_id=record["project_id"],
-                # keep_assay_links: a backfill's ASSAY sheet is empty, and the update
-                # path otherwise removes every assay link the sheet does not list.
-                config_overrides={"update_existing": record["mode"] == "update",
-                                  "keep_assay_links": True},
-                xlsx_paths=[staged])
-        except Exception as exc:  # noqa: BLE001 -- one failed start never stops the next
-            logger.exception("upload-reingest: job for %s did not start", record["artifact_key"])
-            entry["error"] = f"did not start ({type(exc).__name__}); see the server log"
-        jobs.append(entry)
-    started = {entry["artifact_key"] for entry in jobs if "job_id" in entry}
+    # One call at a time per build: taken before anything is created or started, given back unless a job
+    # started and has not failed.
+    claimed: list[str] = []
     for record in verified:
-        if record["artifact_key"] in started:
-            build_records.mark_uploaded(record["build_id"], user_id)
-    for entry in jobs:
-        if "job_id" in entry:
-            build_records.mark_uploaded(entry["build_id"], user_id)
-    if callable(job_state):
-        _await_jobs(jobs, job_state, _wait_budget_s(limit_s, started_at))
-    for entry in jobs:
-        if "job_id" in entry and (parents := _register_parents(
-                entry, by_build[entry["build_id"]], register_parents)):
-            entry["parents"] = parents
-    return {"jobs": jobs, "reply": _reply(jobs, created_assays),
-            "created_assays": created_assays}
+        if not build_records.claim(record["build_id"], user_id):
+            for build_id in claimed:
+                build_records.release(build_id, user_id)
+            raise UploadRefused([f"{record['artifact_key']}: an upload of it already started"])
+        claimed.append(record["build_id"])
+    kept = False
+    try:
+        created = _create_assays(records, create_study_assay, rebuild)
+        records = _rebuild_after_create(records, created, rebuild, user_id)
+        created_assays = _created_assays(verified, created)
+        # What a refusal from here on says about the assays already made.
+        already = [_created_line(created)] if created else []
+
+        # Phase A: stage every copy and prove it is the reviewed file, before any job starts.
+        staged_paths: list[tuple[dict, str]] = []
+
+        def _discard() -> None:
+            for _, staged in staged_paths:
+                try:
+                    os.remove(staged)
+                except OSError:
+                    logger.warning("upload-reingest: could not remove staged copy %s", staged)
+
+        for record in records:
+            try:
+                staged = stage(record["path"])
+                staged_paths.append((record, staged))
+                matches = build_records.sha256_of(staged) == record["build_id"]
+            except Exception:  # noqa: BLE001 -- the caller sees no raw text
+                logger.exception("upload-reingest: could not stage %s", record["artifact_key"])
+                _discard()
+                raise UploadRefused([f"{record['artifact_key']}: could not stage the workbook",
+                                     *already])
+            if not matches:
+                _discard()
+                raise UploadRefused(
+                    [f"{record['artifact_key']}: the staged copy does not match the reviewed workbook",
+                     *already])
+
+        by_build = {r["build_id"]: r for r in records}
+
+        # Phase B: new mode first; a failed start is recorded and never stops the next.
+        jobs: list[dict] = []
+        for record, staged in staged_paths:
+            entry = {"build_id": record["build_id"], "artifact_key": record["artifact_key"],
+                     "sample_type": record["sample_type"], "mode": record["mode"],
+                     "manifest_id": record.get("manifest_id")}
+            try:
+                entry["job_id"] = dispatch(
+                    user_pk=user_id, user_ctx=upload_context,
+                    lababbv=upload_context["lababbv"], project_id=record["project_id"],
+                    # keep_assay_links: a backfill's ASSAY sheet is empty, and the update
+                    # path otherwise removes every assay link the sheet does not list.
+                    config_overrides={"update_existing": record["mode"] == "update",
+                                      "keep_assay_links": True},
+                    xlsx_paths=[staged])
+            except Exception as exc:  # noqa: BLE001 -- one failed start never stops the next
+                logger.exception("upload-reingest: job for %s did not start", record["artifact_key"])
+                entry["error"] = f"did not start ({type(exc).__name__}); see the server log"
+            jobs.append(entry)
+        if callable(job_state):
+            _await_jobs(jobs, job_state, _wait_budget_s(limit_s, started_at))
+        _settle_claims(verified, jobs, user_id)
+        kept = True
+        for entry in jobs:
+            if "job_id" in entry and (parents := _register_parents(
+                    entry, by_build[entry["build_id"]], register_parents)):
+                entry["parents"] = parents
+        return {"jobs": jobs, "reply": _reply(jobs, created_assays),
+                "created_assays": created_assays}
+    finally:
+        if not kept:
+            for build_id in claimed:
+                build_records.release(build_id, user_id)
+
