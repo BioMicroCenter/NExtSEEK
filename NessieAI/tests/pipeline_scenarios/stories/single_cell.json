@@ -13,9 +13,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "per-cell-expression",
       "question": "Profile expression cell by cell across this tissue.",
@@ -41,9 +41,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "sha-granuloma-4v10wk",
       "question": "How do the cell populations in these granulomas differ between the 4 week and 10 week animals?",
@@ -70,9 +70,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "sha-bcg-route-bal",
       "question": "What immune cell types show up in the lavage after IV BCG versus aerosol BCG?",
@@ -99,9 +99,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "sas-cc-strain-lung",
       "question": "Which lung cell types respond to infection differently across the CC mouse strains?",
@@ -128,9 +128,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "sha-cfu-cellstate",
       "question": "How many distinct cell states are in these granulomas, and does that track with bacterial burden?",
@@ -157,9 +157,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). The ExpressionKit field names the 10x Chromium 3' v3.1 kit, which determines scrnaseq's protocol (10XV3); the template default 'auto' only works with the cellranger aligner, so a launch left on auto is wrong."
       },
       "id": "bry-antibody-lung",
       "question": "What changes in the lung cells when the mice get the N297A antibody before Mtb infection?",
@@ -172,11 +172,13 @@
       "expect": null,
       "launch": {
         "built": true,
-        "must_match": {}
+        "must_match": {
+          "protocol": "10XV3"
+        }
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Mouse lung CD45+ single-cell, MUS.Treatment1 = PBS / N297A / mIgG2a."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Mouse lung CD45+ single-cell, MUS.Treatment1 = PBS / N297A / mIgG2a: scrnaseq. The kit is Chromium Single Cell 3' v3.1, so the launch's protocol must be 10XV3."
       }
     },
     {
@@ -186,9 +188,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "sha-sc-splicing",
       "question": "Run a splicing analysis on these granuloma single-cell samples.",
@@ -211,9 +213,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "sha-macaque-hla",
       "question": "What HLA alleles are these macaques carrying?",
@@ -236,9 +238,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "qout-percell-matrix",
       "question": "I need a filtered feature-barcode matrix I can load straight into Seurat. Which one gives me that?",

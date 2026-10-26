@@ -12,9 +12,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Whole-genome libraries determine sarek's exome flag: wes must stay false."
       },
       "id": "dna-germline-wgs",
       "question": "Which inherited SNVs and small indels does each of these whole-genome samples carry?",
@@ -26,11 +26,13 @@
       ],
       "launch": {
         "built": true,
-        "must_match": {}
+        "must_match": {
+          "wes": false
+        }
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from the old DNA selection cases; answers unchanged."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Migrated from the old DNA selection cases; answers unchanged. Two human PCR-free WGS libraries: sarek germline calling with wes false (the libraries are whole genome)."
       }
     },
     {
@@ -41,11 +43,14 @@
       ],
       "phrasing": "migrated",
       "history": [],
-      "replies": [],
+      "replies": [
+        "Yes, build it. The capture kit's target BED is on the cluster at /RUN/refs/SureSelect_Human_All_Exon_V7_Regions.hg38.bed.",
+        "Yes, build it. The capture kit's target BED is on the cluster at /RUN/refs/SureSelect_Human_All_Exon_V7_Regions.hg38.bed."
+      ],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Exome capture libraries determine sarek's wes flag (true); the kit's target BED is asked of the user, so a scripted reply supplies its path and a built launch is reachable."
       },
       "id": "dna-germline-exome",
       "question": "Call SNPs and small insertions or deletions across these exome capture libraries.",
@@ -57,11 +62,13 @@
       ],
       "launch": {
         "built": true,
-        "must_match": {}
+        "must_match": {
+          "wes": true
+        }
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from the old DNA selection cases; answers unchanged."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Migrated from the old DNA selection cases; answers unchanged. Agilent SureSelect V7 exome libraries: sarek with wes true. The capture kit's target BED is a path only the user can give, so the story scripts that answer."
       }
     },
     {
@@ -75,9 +82,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). A tumour-minus-blood question is somatic calling; sarek's default tools (haplotypecaller, manta) hold no somatic caller, so the launch must include mutect2, the pipeline's tumour/normal SNV and indel caller."
       },
       "id": "dna-tumour-vs-blood",
       "question": "What mutations are in each patient's tumour that are not in the same patient's blood sample?",
@@ -89,11 +96,18 @@
       ],
       "launch": {
         "built": true,
-        "must_match": {}
+        "must_match": {
+          "wes": false,
+          "tools": {
+            "includes": [
+              "mutect2"
+            ]
+          }
+        }
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from the old DNA selection cases; answers unchanged."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Migrated from the old DNA selection cases; answers unchanged. One patient's colon tumour and matched blood, both WGS and linked to the patient: sarek somatic calling, which needs a tumour/normal caller (mutect2) in tools; the default germline set would not answer it."
       }
     },
     {
@@ -106,9 +120,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Whole-genome libraries determine sarek's exome flag: wes must stay false."
       },
       "id": "dna-structural-variants",
       "question": "Are there large deletions, duplications or rearrangements in these genomes?",
@@ -120,11 +134,13 @@
       ],
       "launch": {
         "built": true,
-        "must_match": {}
+        "must_match": {
+          "wes": false
+        }
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from the old DNA selection cases; answers unchanged."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Migrated from the old DNA selection cases; answers unchanged. Human WGS: sarek with an SV caller (manta is in the default tools; tiddit is the alternative) and wes false."
       }
     },
     {
@@ -137,9 +153,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Arm-level gains and losses need a copy-number caller; of sarek's CNV tools only cnvkit is staged (ascat and controlfreec are not), so the launch must include it, and the WGS libraries keep wes false."
       },
       "id": "dna-copy-number-tumour",
       "question": "Which chromosome arms are gained or lost in the tumour samples compared with their matched normals?",
@@ -151,11 +167,18 @@
       ],
       "launch": {
         "built": true,
-        "must_match": {}
+        "must_match": {
+          "wes": false,
+          "tools": {
+            "includes": [
+              "cnvkit"
+            ]
+          }
+        }
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from the old DNA selection cases; answers unchanged."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Migrated from the old DNA selection cases; answers unchanged. Tumour and matched normal WGS: sarek, with cnvkit in tools because it is the only copy-number caller available on the cluster (ascat and controlfreec lack their reference files)."
       }
     },
     {
@@ -167,9 +190,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "dna-variants-in-transcripts",
       "question": "Which SNVs show up in the expressed transcripts of these bulk RNA-seq libraries?",
@@ -195,9 +218,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "ess-duplex-expression",
       "question": "Any expression changes in these duplex-capture samples?",
@@ -229,19 +252,21 @@
       ],
       "launch": {
         "built": true,
-        "must_match": {}
+        "must_match": {
+          "wes": false
+        }
       },
       "history": [],
       "replies": [],
       "phrasing": "plain",
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "Two human PCR-free whole-genome DNA libraries, so germline SNV, indel and structural-variant calling is sarek. rnavar is wrong because these are DNA, not RNA-seq; methylseq is wrong because nothing was bisulfite converted."
+        "pipelines": "Two human PCR-free whole-genome DNA libraries, so germline SNV, indel and structural-variant calling is sarek with wes false. rnavar is wrong because these are DNA, not RNA-seq; methylseq is wrong because nothing was bisulfite converted."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Whole-genome libraries determine sarek's exome flag: wes must stay false. methylseq in must_not is an unlikely lookalike but harmless."
       }
     },
     {
@@ -260,19 +285,24 @@
       ],
       "launch": {
         "built": true,
-        "must_match": {}
+        "must_match": {
+          "wes": true
+        }
       },
       "history": [],
-      "replies": [],
+      "replies": [
+        "Yes, build it. The capture kit's target BED is on the cluster at /RUN/refs/SureSelect_Human_All_Exon_V7_Regions.hg38.bed.",
+        "Yes, build it. The capture kit's target BED is on the cluster at /RUN/refs/SureSelect_Human_All_Exon_V7_Regions.hg38.bed."
+      ],
       "phrasing": "outcome",
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "Human exomes captured with Agilent SureSelect Human All Exon V7: a per-sample germline VCF is sarek's output (with its exome setting and the kit's target BED). rnavar calls variants from RNA-seq only; hlatyping types HLA alleles and does not produce a genome-wide VCF."
+        "pipelines": "Human exomes captured with Agilent SureSelect Human All Exon V7: a per-sample germline VCF is sarek's output with wes true and the kit's target BED, whose path only the user can give, so the story scripts that answer. rnavar calls variants from RNA-seq only; hlatyping types HLA alleles and does not produce a genome-wide VCF."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Exome libraries determine wes true, and the kit's target BED is asked of the user; a scripted reply gives it."
       }
     },
     {
@@ -290,19 +320,26 @@
       ],
       "launch": {
         "built": true,
-        "must_match": {}
+        "must_match": {
+          "wes": false,
+          "tools": {
+            "includes": [
+              "mutect2"
+            ]
+          }
+        }
       },
       "history": [],
       "replies": [],
       "phrasing": "named",
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "One patient with a colon tumour and a matched blood normal, both WGS and both linked to the patient, which is what sarek's somatic tumour-normal calling needs. rnavar would be wrong: these are DNA libraries. must_match is left empty because the template's default tools (haplotypecaller, manta) hold no somatic caller; a good launch adds one (strelka or mutect2), so rule whether to require it."
+        "pipelines": "One patient with a colon tumour and a matched blood normal, both WGS and linked to the patient: sarek's somatic tumour-normal calling, which requires a tumour/normal caller (mutect2) in tools because the default haplotypecaller,manta is germline only. rnavar would be wrong: these are DNA libraries."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). The user asks for tumour-normal mode, and sarek's default tools hold no somatic caller; the launch must include mutect2, and the WGS libraries keep wes false."
       }
     }
   ]

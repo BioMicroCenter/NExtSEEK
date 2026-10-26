@@ -11,11 +11,14 @@
       ],
       "phrasing": "migrated",
       "history": [],
-      "replies": [],
+      "replies": [
+        "Yes, build it. The cells are human, so the miRTrace species code is hsa.",
+        "Yes, build it. The cells are human, so the miRTrace species code is hsa."
+      ],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). smrnaseq's mirtrace_species is a required user param, so the runner's default reply never reaches a build; scripted replies supply hsa, and the launch must carry hsa and the QIAseq adapter the kit field determines."
       },
       "id": "small-rna",
       "question": "We sequenced the small RNA fraction \u2014 quantify the miRNAs.",
@@ -27,11 +30,14 @@
       ],
       "launch": {
         "built": true,
-        "must_match": {}
+        "must_match": {
+          "mirtrace_species": "hsa",
+          "three_prime_adapter": "AACTGTAGGCACCATCAAT"
+        }
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Migrated from the old RNA selection cases; answers unchanged. QIAseq miRNA libraries from human HeLa cells: smrnaseq. rnasplice/smrnaseq-style required values: smrnaseq's mirtrace_species is a required user param that configure_run refuses without, so the story scripts the user's answer (hsa); the launch must carry hsa and the QIAseq 3' adapter AACTGTAGGCACCATCAAT, which the ExpressionKit field determines (the Illumina default would trim nothing)."
       }
     },
     {
@@ -50,19 +56,25 @@
       ],
       "launch": {
         "built": true,
-        "must_match": {}
+        "must_match": {
+          "mirtrace_species": "hsa",
+          "three_prime_adapter": "AACTGTAGGCACCATCAAT"
+        }
       },
       "history": [],
-      "replies": [],
+      "replies": [
+        "Yes, build it. The cells are human, so the miRTrace species code is hsa.",
+        "Yes, build it. The cells are human, so the miRTrace species code is hsa."
+      ],
       "phrasing": "plain",
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "QIAseq miRNA libraries (size-selected, UMI adapter) from untreated and Dicer-inhibited HeLa cells: smrnaseq quantifies the mature miRNAs in each. There is one library per condition, so the reply should say counts can be compared but not tested for significance. rnaseq would discard the short RNAs; riboseq is for ribosome footprints."
+        "pipelines": "QIAseq miRNA libraries (size-selected, UMI adapter) from untreated and Dicer-inhibited HeLa cells: smrnaseq quantifies the mature miRNAs in each. One library per condition, so the reply should say counts can be compared but not tested. rnaseq would discard the short RNAs; riboseq is for ribosome footprints. rnasplice/smrnaseq-style required values: smrnaseq's mirtrace_species is a required user param that configure_run refuses without, so the story scripts the user's answer (hsa); the launch must carry hsa and the QIAseq 3' adapter AACTGTAGGCACCATCAAT, which the ExpressionKit field determines (the Illumina default would trim nothing)."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Same launch requirements as small-rna: scripted hsa reply, and the launch must carry mirtrace_species hsa and the QIAseq 3' adapter."
       }
     },
     {
@@ -81,19 +93,25 @@
       ],
       "launch": {
         "built": true,
-        "must_match": {}
+        "must_match": {
+          "mirtrace_species": "hsa",
+          "three_prime_adapter": "AACTGTAGGCACCATCAAT"
+        }
       },
       "history": [],
-      "replies": [],
+      "replies": [
+        "Yes, build it. The cells are human, so the miRTrace species code is hsa.",
+        "Yes, build it. The cells are human, so the miRTrace species code is hsa."
+      ],
       "phrasing": "outcome",
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "A per-sample table of mature miRNA counts (against miRBase for human) is smrnaseq's output. rnaseq counts genes from long-RNA libraries; riboseq counts ribosome footprints."
+        "pipelines": "A per-sample table of mature miRNA counts (against miRBase for human) is smrnaseq's output. rnaseq counts genes from long-RNA libraries; riboseq counts ribosome footprints. rnasplice/smrnaseq-style required values: smrnaseq's mirtrace_species is a required user param that configure_run refuses without, so the story scripts the user's answer (hsa); the launch must carry hsa and the QIAseq 3' adapter AACTGTAGGCACCATCAAT, which the ExpressionKit field determines (the Illumina default would trim nothing)."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Same launch requirements as small-rna: scripted hsa reply, and the launch must carry mirtrace_species hsa and the QIAseq 3' adapter."
       }
     },
     {
@@ -111,22 +129,28 @@
         "riboseq"
       ],
       "launch": {
-        "built": false,
-        "must_match": {}
+        "built": true,
+        "must_match": {
+          "mirtrace_species": "hsa",
+          "three_prime_adapter": "AACTGTAGGCACCATCAAT"
+        }
       },
       "history": [],
-      "replies": [],
+      "replies": [
+        "Yes, build it. The cells are human, so the miRTrace species code is hsa.",
+        "Yes, build it. The cells are human, so the miRTrace species code is hsa."
+      ],
       "phrasing": "lookalike",
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "The words describe ordinary RNA-seq, but the libraries are QIAseq miRNA, size-selected to about 22 nt; smrnaseq is the pipeline that reads them. Proposed as ask, like methyl-lookalike: smrnaseq gives small-RNA (miRNA) counts, not gene-level expression, so a careful analyst asks whether miRNA counts are what the user wants, with smrnaseq acceptable. rnaseq is the lookalike: on these reads it would quantify almost nothing useful."
+        "pipelines": "The words describe ordinary RNA-seq, but the libraries are QIAseq miRNA, size-selected to about 22 nt, and every metadata field says so; smrnaseq is the pipeline that reads them and gives mature-miRNA counts, which the reply should say is the only expression these reads hold. rnaseq is the lookalike and must not be offered: on these reads it would quantify almost nothing. riboseq is for footprints. rnasplice/smrnaseq-style required values: smrnaseq's mirtrace_species is a required user param that configure_run refuses without, so the story scripts the user's answer (hsa); the launch must carry hsa and the QIAseq 3' adapter AACTGTAGGCACCATCAAT, which the ExpressionKit field determines (the Illumina default would trim nothing)."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). The metadata is unambiguous (miRNA-Seq, QIAseq kit, size fractionation), and smrnaseq gives the expression these reads hold, so a careful analyst says the libraries are small RNA and offers smrnaseq rather than asking; asking first is still allowed. Same launch requirements as the other smrnaseq stories."
       },
-      "expect": "ask"
+      "expect": null
     }
   ]
 }

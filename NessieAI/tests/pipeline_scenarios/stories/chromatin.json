@@ -8,9 +8,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "bac-hic-expression",
       "question": "Which genes are differentially expressed between these samples?",
@@ -52,9 +52,9 @@
         "pipelines": "The libraries are Omni-ATAC (Tn5 tagmentation of nuclei, no antibody), two DMSO and two JQ1 replicates, so atacseq answers open chromatin per condition. chipseq is wrong because it expects an antibody pull-down and its input; rnaseq is wrong because these are genomic DNA, not transcripts."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       }
     },
     {
@@ -82,9 +82,9 @@
         "pipelines": "The user names the pipeline and the libraries really are ATAC-seq (Tn5, genomic DNA), so atacseq is the only answer. chipseq would be wrong for transposase libraries with no antibody or input."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       }
     },
     {
@@ -112,9 +112,9 @@
         "pipelines": "Per-sample accessibility peaks and a consensus set across DMSO and JQ1 are exactly atacseq's outputs. chipseq also calls peaks, but it would treat Tn5 libraries as an IP with no control and skip the transposase-specific steps."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       }
     },
     {
@@ -142,9 +142,9 @@
         "pipelines": "\"Call peaks\" is ChIP-seq language, but the protocol says Omni-ATAC with Tn5 and no antibody, so the peaks are accessibility peaks and atacseq is right. chipseq is the lookalike: it assumes an antibody and an input control that these libraries do not have."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       }
     },
     {
@@ -172,9 +172,9 @@
         "pipelines": "The libraries are anti-H3K27ac pull-downs, each with a sonicated-chromatin input from the same cells, which is what chipseq is built for. atacseq is wrong: it would ignore the input controls and treat the reads as transposase cuts."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       }
     },
     {
@@ -202,9 +202,9 @@
         "pipelines": "Peaks for a histone mark (H3K27ac here, per the protocol) against the input controls are chipseq's output. atacseq also produces peaks, but from Tn5 accessibility data, not from an antibody with an input."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       }
     },
     {
@@ -221,7 +221,7 @@
         "atacseq"
       ],
       "launch": {
-        "built": false,
+        "built": true,
         "must_match": {}
       },
       "history": [],
@@ -229,14 +229,14 @@
       "phrasing": "lookalike",
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "\"Open\" sounds like ATAC-seq, but these are H3K27ac ChIP libraries with inputs; chipseq processes them, and H3K27ac peaks mark active promoters and enhancers, a stand-in for \"open and active\" but not a direct accessibility measure. Proposed as ask, like methyl-lookalike: a careful analyst asks the atlas's question \"Was an antibody used (ChIP), or is this transposase accessibility (ATAC)?\" before choosing, with chipseq acceptable. atacseq is the lookalike: it assumes Tn5 libraries and would ignore the input controls."
+        "pipelines": "'Open' sounds like ATAC-seq, but these are H3K27ac ChIP libraries with inputs, and the metadata says so; chipseq processes them and H3K27ac peaks mark active promoters and enhancers, which the reply should say is a stand-in for 'open and active', not an accessibility measure. atacseq is the lookalike and must not be offered: it assumes Tn5 libraries and would ignore the input controls."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). The metadata settles the assay (anti-H3K27ac libraries with sonicated-chromatin inputs), so a careful analyst offers chipseq and says H3K27ac peaks mark active regions rather than accessibility; no question is needed. Asking is still allowed, but a straight chipseq launch is a full pass."
       },
-      "expect": "ask"
+      "expect": null
     },
     {
       "id": "chromatin-ambiguous",
@@ -249,11 +249,12 @@
         ]
       ],
       "must_not": [
-        "rnaseq"
+        "rnaseq",
+        "atacseq"
       ],
-      "expect": "ask",
+      "expect": null,
       "launch": {
-        "built": false,
+        "built": true,
         "must_match": {}
       },
       "history": [],
@@ -261,12 +262,12 @@
       "phrasing": "ambiguous",
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "\"Peaks\" fits ChIP-seq, ATAC-seq and CUT&RUN alike, so the question alone does not say which; the metadata here names an H3K27ac antibody and input controls, which points to chipseq. Proposed as ask because the word is assay-neutral; if you rule the metadata settles it, change expect to none and keep chipseq. rnaseq would be wrong whatever the assay: these are DNA libraries."
+        "pipelines": "'Peaks' fits ChIP-seq, ATAC-seq and CUT&RUN alike, but the metadata names an H3K27ac antibody and input controls, which settles it: chipseq. atacseq would ignore the inputs and treat the reads as transposase cuts; rnaseq is wrong whatever the assay, these are DNA libraries."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). The word 'peaks' is assay-neutral, but the metadata names the antibody and the input controls, so the assay is settled and chipseq is a choice, not a question. atacseq added to must_not as in chip-outcome."
       }
     }
   ]

@@ -3,7 +3,7 @@
   "stories": [
     {
       "id": "cutandrun-not-yet",
-      "question": "Run CUT&Tag peak calling on these samples.",
+      "question": "These libraries are CUT&Tag, not ChIP; the metadata is wrong. Run CUT&Tag peak calling on them.",
       "cohort": "test::chip",
       "route": "nextseek_query",
       "acceptable": [],
@@ -18,17 +18,17 @@
       "phrasing": "plain",
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "CUT&Tag and CUT&RUN need nf-core/cutandrun, which NExtSEEK cannot launch yet, so the reply should say not yet and build nothing. Note the test cohort is ChIP-seq (there is no CUT&Tag test cohort): if Nessie instead points out the libraries are ChIP and offers chipseq, that is defensible and you may rule to change this story."
+        "pipelines": "CUT&Tag and CUT&RUN need nf-core/cutandrun, which NExtSEEK cannot launch yet, so the reply should say not yet and build nothing. The user overrides the ChIP metadata of the test cohort (there is no CUT&Tag cohort), so offering chipseq against the user's statement is wrong: the atlas's own chipseq entry says CUT&Tag is not ChIP-seq and cannot be launched."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). On a ChIP cohort an accurate reply could point out the libraries are ChIP and offer chipseq, which this story would fail. The user now states the libraries are CUT&Tag and the metadata is wrong, so chipseq is no longer a defensible offer and 'not yet' is the only right answer."
       }
     },
     {
       "id": "raredisease-not-yet",
-      "question": "Rank the variants in these two genomes by how likely they are to cause a rare disease.",
+      "question": "We already have the germline VCFs for these two genomes. Rank their variants by how likely each is to cause a rare disease.",
       "cohort": "test::human_wgs_germline",
       "route": "nextseek_query",
       "acceptable": [],
@@ -43,12 +43,12 @@
       "phrasing": "plain",
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "Ranking variants by how likely they are to cause a rare disease needs nf-core/raredisease (calling, then annotation and pathogenicity scoring), which NExtSEEK cannot launch yet, so the reply should say not yet and build nothing. sarek can call the germline variants but does not score or rank them for disease. The cohort is two unrelated blood donors with no disease or family metadata, so the reply may also say there is no phenotype or inheritance to rank against."
+        "pipelines": "Ranking variants by how likely they are to cause a rare disease needs nf-core/raredisease (annotation and pathogenicity scoring), which NExtSEEK cannot launch yet, so the reply should say not yet and build nothing. The user already has the VCFs, so sarek (calling only, and with vep/snpeff unavailable) adds nothing and is not a right offer. The cohort is two unrelated blood donors with no phenotype, which the reply may also say."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). A careful agent could offer sarek as a first step (calling before ranking), which the not_yet rule fails. The user now says the VCFs already exist, so calling is not wanted and only the ranking, which needs raredisease, remains."
       }
     }
   ]

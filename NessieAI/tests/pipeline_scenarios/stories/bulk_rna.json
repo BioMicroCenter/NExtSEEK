@@ -13,12 +13,12 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). The question said 'mice' but 241219BRY is primary human monocyte-derived macrophages; the species in the question must match the cohort or a careful answer would stop to query it."
       },
       "id": "expression-two-groups",
-      "question": "Which genes changed between the treated and untreated mice?",
+      "question": "Which genes changed between the treated and untreated macrophages?",
       "cohort": "241219BRY::A.GEX",
       "acceptable": [
         [
@@ -38,8 +38,8 @@
         "must_match": {}
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Bulk human macrophage RNA-seq (241219BRY), two groups: rnaseq gives the counts; a pair with rnasplice or differentialabundance follows the atlas's own versus entries. Reworded from 'mice' to 'macrophages' to match the cohort's species."
       }
     },
     {
@@ -52,11 +52,14 @@
       ],
       "phrasing": "migrated",
       "history": [],
-      "replies": [],
+      "replies": [
+        "Yes, build it. The contrasts file is on the cluster at /RUN/refs/contrasts.csv; it compares infected against Uninfected.",
+        "Yes, build it. The contrasts file is on the cluster at /RUN/refs/contrasts.csv; it compares infected against Uninfected."
+      ],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). rnasplice cannot be configured without a user-supplied contrasts path, and the runner's default reply does not give one; scripted replies supply it so a built launch is reachable."
       },
       "id": "isoform-shift",
       "question": "Did the treatment change which isoforms of these genes get made?",
@@ -75,8 +78,8 @@
         "must_match": {}
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Migrated from the old RNA selection cases; answers unchanged. Bulk mouse total-RNA libraries with an infected/Uninfected contrast, so isoform usage is answerable. rnasplice's contrasts path is a required user param that configure_run refuses without, so the story scripts the user's answer; the runner's default reply cannot supply it."
       }
     },
     {
@@ -88,14 +91,17 @@
       ],
       "phrasing": "migrated",
       "history": [],
-      "replies": [],
+      "replies": [
+        "Yes, build it. The contrasts file is on the cluster at /RUN/refs/contrasts.csv; it compares infected against Uninfected.",
+        "Yes, build it. The contrasts file is on the cluster at /RUN/refs/contrasts.csv; it compares infected against Uninfected."
+      ],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Identical question and cohort to lau-mouse-splicing, so the paid run would ask the same thing twice; reworded to a plain splicing question. Also needs the scripted contrasts reply."
       },
       "id": "splicing-plain-language",
-      "question": "Run a splicing analysis on the samples isolated from these mice.",
+      "question": "Which genes are spliced differently in the infected mice compared with the uninfected ones?",
       "cohort": "240910LAU::A.GEX",
       "acceptable": [
         [
@@ -111,8 +117,8 @@
         "must_match": {}
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Bulk mouse total-RNA libraries with an infected/Uninfected contrast; 'spliced differently' is rnasplice's question, and a pair with rnaseq follows the atlas versus entry. Reworded because it duplicated lau-mouse-splicing. rnasplice's contrasts path is a required user param that configure_run refuses without, so the story scripts the user's answer; the runner's default reply cannot supply it."
       }
     },
     {
@@ -127,12 +133,12 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). 250409KAM holds HUVEC and lung-fibroblast libraries, not tumour samples; the question's 'tumour' would make a careful agent query the cohort. Fusion calling on human bulk RNA stands either way."
       },
       "id": "gene-fusion",
-      "question": "Is there a translocation joining two genes in these tumour samples?",
+      "question": "Is there a translocation joining two genes in these samples?",
       "cohort": "250409KAM::A.GEX",
       "acceptable": [
         [
@@ -144,8 +150,8 @@
         "must_match": {}
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Migrated from the old RNA selection cases; answers unchanged. Human bulk paired RNA-seq, so rnafusion runs; reworded to drop 'tumour', which the cohort does not support."
       }
     },
     {
@@ -160,9 +166,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "variants-in-transcripts",
       "question": "Are there any point mutations in the expressed transcripts?",
@@ -193,9 +199,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "translation-footprints",
       "question": "We digested the polysomes and sequenced the protected fragments \u2014 what is being translated?",
@@ -227,9 +233,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Ruling for all beetle stories: rnaseq is the lookalike and stays in must_not; no reference bundle exists and the user says there is no genome."
       },
       "id": "no-reference-genome",
       "question": "This beetle has no reference genome. Can we still get transcript abundances?",
@@ -258,9 +264,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). 241219BRY is a bulk library (RNA-Seq, cDNA, one library per sample); scrnaseq cannot consume it, so a fork naming scrnaseq is not a right answer."
       },
       "id": "ambiguous-expression-question",
       "question": "I want to understand what is going on transcriptionally in these samples.",
@@ -272,10 +278,6 @@
         [
           "rnaseq",
           "rnasplice"
-        ],
-        [
-          "rnaseq",
-          "scrnaseq"
         ]
       ],
       "launch": {
@@ -283,8 +285,8 @@
         "must_match": {}
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "A vague transcriptome question on bulk human RNA: rnaseq is the default, and a fork with rnasplice follows the atlas. scrnaseq removed: the library is bulk, so it is not a tie."
       }
     },
     {
@@ -299,9 +301,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Ruled with kam-chip-matrix and qout-normalised-from-matrix: the user already has counts, so offering rnaseq to realign ignores the stated input; only differentialabundance answers, and it cannot be launched."
       },
       "id": "already-have-counts",
       "question": "We already have a count matrix from an earlier run \u2014 just compare the two groups.",
@@ -309,10 +311,6 @@
       "acceptable": [
         [
           "differentialabundance"
-        ],
-        [
-          "differentialabundance",
-          "rnaseq"
         ]
       ],
       "launch": {
@@ -320,8 +318,8 @@
         "must_match": {}
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The user has a count matrix and asks only for the comparison: differentialabundance is the answer and cannot be launched here, so the right reply says so and builds nothing. Re-running rnaseq is not what was asked; a reply that offers it is partial at best."
       }
     },
     {
@@ -334,9 +332,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "dna-expression-control",
       "question": "Which genes are up in the treated cultures compared with the untreated ones?",
@@ -366,9 +364,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "gri-organoid-il1b",
       "question": "Which genes change in the endometrial organoids when we add IL-1B on top of estradiol?",
@@ -399,9 +397,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Same shape as gri-organoid-il1b (a bulk two-group gene-level contrast), where the rnaseq+differentialabundance pair is accepted because the atlas says both are needed in sequence; ruled the same here."
       },
       "id": "kam-tnbc-subtype",
       "question": "Which genes are turned up or down in the mesenchymal MDA-MB-231 cells compared with the epithelial-like ones?",
@@ -409,6 +407,10 @@
       "acceptable": [
         [
           "rnaseq"
+        ],
+        [
+          "rnaseq",
+          "differentialabundance"
         ]
       ],
       "expect": null,
@@ -417,8 +419,8 @@
         "must_match": {}
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Bulk human cell-line RNA-seq, two subtypes in CEL.Type. Reworded after the first run: the original asked what differs \"at the transcript level\", which is standard wording for isoform-level analysis, and the model answered rnasplice 3/3. That reading was defensible, so the question was at fault, not the answer. It now names gene-level up/down explicitly."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Bulk human cell-line RNA-seq, two subtypes in CEL.Type, gene-level up/down named explicitly. rnaseq makes the counts; naming differentialabundance beside it follows the atlas's rnaseq-vs-differentialabundance entry, as in gri-organoid-il1b."
       }
     },
     {
@@ -426,11 +428,14 @@
       "must_not": [],
       "phrasing": "migrated",
       "history": [],
-      "replies": [],
+      "replies": [
+        "Yes, build it. The contrasts file is on the cluster at /RUN/refs/contrasts.csv; it compares infected against Uninfected.",
+        "Yes, build it. The contrasts file is on the cluster at /RUN/refs/contrasts.csv; it compares infected against Uninfected."
+      ],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). rnasplice cannot be configured without a user-supplied contrasts path; scripted replies supply it."
       },
       "id": "lau-mouse-splicing",
       "question": "Run a splicing analysis on the samples isolated from these mice.",
@@ -446,8 +451,8 @@
         "must_match": {}
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "The lab ran expression (A.GEX), but these are bulk total-RNA mouse libraries with an Uninfected/infected contrast, so the same FASTQs answer a splicing question."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The lab ran expression (A.GEX), but these are bulk total-RNA mouse libraries with an Uninfected/infected contrast, so the same FASTQs answer a splicing question. rnasplice's contrasts path is a required user param that configure_run refuses without, so the story scripts the user's answer; the runner's default reply cannot supply it."
       }
     },
     {
@@ -457,9 +462,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "kam-tnbc-fusion",
       "question": "Are there any fusion transcripts in this breast cancer line?",
@@ -486,9 +491,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "bry-macrophage-hla",
       "question": "Can you get HLA types out of these macrophage RNA-seq samples?",
@@ -515,9 +520,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "gri-organoid-variants",
       "question": "Can we call variants straight from the organoid RNA-seq rather than sequencing DNA?",
@@ -544,9 +549,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Consistent with already-have-counts as changed: differentialabundance only."
       },
       "id": "kam-chip-matrix",
       "question": "We already have the count matrix from the chip experiment \u2014 just run the group comparison for me.",
@@ -573,9 +578,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "sho-3prime-isoforms",
       "question": "Do the COL2A1-edited chondronoids use different isoforms from the wild type ones?",
@@ -598,9 +603,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "sas-mouse-fusion",
       "question": "Can we call gene fusions in these mouse macrophages?",
@@ -623,9 +628,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "bry-mirna",
       "question": "Can we look at miRNA levels in these macrophages?",
@@ -648,9 +653,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "sho-riboseq",
       "question": "Where are the ribosomes sitting on these transcripts?",
@@ -673,9 +678,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Label says bulk, SequencingType says single-cell: a real contradiction, so asking is right."
       },
       "id": "sas-transcriptome-vague",
       "question": "I'd like to look at the transcriptome of these samples.",
@@ -703,9 +708,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Names no measurement at all; a question is reasonable, and a straight rnaseq choice is only partial."
       },
       "id": "lau-compare-vague",
       "question": "Compare the infected and the uninfected animals for me.",
@@ -733,9 +738,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "qout-pca-heatmap",
       "question": "Do any of these produce a PCA and a sample-distance heatmap as part of the standard output, or would I have to make those myself?",
@@ -762,9 +767,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "qout-vcf",
       "question": "I want a VCF at the end of this. Can I get one without sequencing DNA?",
@@ -791,9 +796,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "qout-allele-calls",
       "question": "I need four-digit allele calls out of this, the A*02:01 kind of output.",
@@ -820,9 +825,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "qout-fusion-breakpoints",
       "question": "Give me a list of chimeric transcripts with their breakpoint coordinates.",
@@ -847,11 +852,14 @@
       "must_not": [],
       "phrasing": "migrated",
       "history": [],
-      "replies": [],
+      "replies": [
+        "Yes, build it. The contrasts file is on the cluster at /RUN/refs/contrasts.csv; it compares infected against Uninfected.",
+        "Yes, build it. The contrasts file is on the cluster at /RUN/refs/contrasts.csv; it compares infected against Uninfected."
+      ],
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). rnasplice cannot be configured without a user-supplied contrasts path; scripted replies supply it."
       },
       "id": "qout-psi-events",
       "question": "I want per-event inclusion levels -- PSI values for exon skipping -- across these mice.",
@@ -867,8 +875,8 @@
         "must_match": {}
       },
       "why": {
-        "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Names rnasplice's output rather than asking for 'a splicing analysis'. Bulk mouse libraries support it."
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Names rnasplice's output (PSI per event) rather than asking for 'a splicing analysis'. Bulk mouse libraries with an infected/Uninfected contrast support it. rnasplice's contrasts path is a required user param that configure_run refuses without, so the story scripts the user's answer; the runner's default reply cannot supply it."
       }
     },
     {
@@ -878,9 +886,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Consistent with already-have-counts as changed: differentialabundance only."
       },
       "id": "qout-normalised-from-matrix",
       "question": "I already have the counts. I want normalised values and a differential table with p-values, nothing realigned.",
@@ -907,9 +915,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "qout-psi-on-3prime",
       "question": "Can I get PSI values for exon skipping out of these chondronoids?",
@@ -951,9 +959,9 @@
         "pipelines": "The libraries are ribosome footprints (cycloheximide-arrested polysomes, RNase I digest, 28-30 nt), DMSO versus Torin 1, so riboseq measures what is being translated. There is no matched total RNA-seq, so the reply can give footprint changes but not translational efficiency. rnaseq and smrnaseq misread footprints as transcripts or small RNAs."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       }
     },
     {
@@ -982,9 +990,9 @@
         "pipelines": "Per-gene footprint counts and P-site offsets are riboseq's outputs. rnaseq does not compute P-sites, and smrnaseq would map the footprints to miRNA databases."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       }
     },
     {
@@ -1013,9 +1021,9 @@
         "pipelines": "Short reads alone suggest small RNA, but the protocol is RNase I footprinting of cycloheximide-arrested polysomes, so riboseq is right. smrnaseq is the lookalike: it would look for miRNAs and discard the footprints."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       }
     },
     {
@@ -1030,7 +1038,8 @@
       ],
       "must_not": [
         "scrnaseq",
-        "smrnaseq"
+        "smrnaseq",
+        "rnaseq"
       ],
       "launch": {
         "built": true,
@@ -1041,12 +1050,12 @@
       "phrasing": "plain",
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "Tenebrio molitor (mealworm) has no reference bundle on the cluster, so the transcriptome is assembled from the reads and quantified, which is denovotranscript. scrnaseq and smrnaseq do not fit bulk poly-A libraries. rnaseq is not listed as wrong here because a public assembly of this species may exist; rule whether rnaseq with a user-supplied genome is also acceptable."
+        "pipelines": "Tenebrio molitor (mealworm) has no reference bundle on the cluster, so the transcriptome is assembled from the reads and quantified: denovotranscript. rnaseq is the lookalike and must not be offered: it needs a staged genome and annotation that do not exist here, and the atlas reserves it for organisms with a usable reference. scrnaseq and smrnaseq do not fit bulk poly-A libraries."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "changed",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Ruled once for the three beetle stories: rnaseq with a user-supplied genome is not acceptable here. No Tenebrio reference is staged, the atlas sends an organism without a usable reference to denovotranscript, and the other two stories already treat rnaseq as the lookalike."
       }
     },
     {
@@ -1075,9 +1084,9 @@
         "pipelines": "An assembled transcriptome and per-sample abundances are exactly denovotranscript's outputs. rnaseq aligns to an existing genome and never assembles one; scrnaseq is for barcoded single cells."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). rnaseq stays in must_not, as ruled for denovo-plain."
       }
     },
     {
@@ -1105,9 +1114,9 @@
         "pipelines": "This reads like an ordinary expression comparison, but the beetle has no reference on the cluster, so the reads must be assembled first with denovotranscript. There is one larva per diet, so the reply should say the levels can be compared but not tested. rnaseq is the lookalike: it needs a reference genome and annotation that are not there."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). rnaseq stays in must_not, as ruled for denovo-plain."
       }
     },
     {
@@ -1135,9 +1144,9 @@
         "pipelines": "A junction joining exons of two different genes is a gene fusion, and the cohort is human bulk RNA-seq of MDA-MB-231 cells, so rnafusion is right. rnasplice is the lookalike: it compares isoforms of one gene between groups of samples and does not report two-gene chimeras."
       },
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       }
     }
   ]

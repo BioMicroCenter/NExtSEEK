@@ -13,9 +13,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "hla-alleles",
       "question": "Which HLA alleles does this donor carry?",
@@ -44,9 +44,9 @@
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "proposed",
+        "state": "accepted",
         "date": "2026-10-26",
-        "note": ""
+        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
       },
       "id": "dna-hla-from-wgs",
       "question": "Which HLA class I alleles does each donor have, from their whole-genome sequencing?",
