@@ -12,7 +12,8 @@ import xml.etree.ElementTree as ET
 from NessieAI.ns.paper.models import Paragraph, PaperText, Section, SupplementRef
 
 _XLINK = "{http://www.w3.org/1999/xlink}href"
-_FLOATS = frozenset({"fig", "fig-group", "table-wrap", "table-wrap-group", "supplementary-material", "boxed-text"})
+_FLOATS = frozenset({"fig", "fig-group", "table-wrap", "table-wrap-group", "supplementary-material"})
+_SKIP = _FLOATS | {"title", "label"}
 _ROLES = [
     ("data_availability", re.compile(
         r"data[- ](?:and (?:code|materials|software) )?availab|availability of (?:data|materials)"
@@ -33,14 +34,17 @@ def _text(el) -> str:
     return re.sub(r"\s+", " ", "".join(el.itertext())).strip() if el is not None else ""
 
 
-def _paragraphs(el):
+def _plain_text(el) -> str:
+    """Text and tails of el, leaving out float subtrees (their tails are kept)."""
+    parts = [el.text or ""]
     for child in el:
-        if child.tag in _FLOATS:
-            continue
-        if child.tag == "p":
-            yield child
-        else:
-            yield from _paragraphs(child)
+        if child.tag not in _FLOATS:
+            parts.append(_plain_text(child))
+        parts.append(child.tail or "")
+    return re.sub(r"\s+", " ", "".join(parts)).strip()
+
+
+_ROLE_SLUGS = frozenset(slug for slug, _ in _ROLES)
 
 
 def parse_jats(xml: bytes) -> PaperText:
@@ -48,15 +52,27 @@ def parse_jats(xml: bytes) -> PaperText:
     sections: dict[str, Section] = {}
     counters: dict[str, int] = {}
 
-    def add(el, kind_attr: str) -> None:
+    def add(el, kind_attr: str, inherited: str | None = None) -> None:
         title = _text(el.find("title"))
-        slug = classify(title, el.get(kind_attr, ""))
+        own = classify(title, el.get(kind_attr, ""))
+        slug = own if inherited is None or own in _ROLE_SLUGS else inherited
         section = sections.setdefault(slug, Section(slug=slug, title=title, paragraphs=[]))
-        for p in _paragraphs(el):
-            text = _text(p)
-            if text:
-                counters[slug] = counters.get(slug, 0) + 1
-                section.paragraphs.append(Paragraph(id=f"E:{slug}:p{counters[slug]}", text=text))
+
+        def walk(parent) -> None:
+            for child in parent:
+                if child.tag in _SKIP:
+                    continue
+                if child.tag == "p":
+                    text = _plain_text(child)
+                    if text:
+                        counters[slug] = counters.get(slug, 0) + 1
+                        section.paragraphs.append(Paragraph(id=f"E:{slug}:p{counters[slug]}", text=text))
+                elif child.tag == "sec":
+                    add(child, "sec-type", slug)
+                else:
+                    walk(child)
+
+        walk(el)
 
     body = root.find("body")
     if body is not None:
@@ -74,9 +90,6 @@ def parse_jats(xml: bytes) -> PaperText:
                 add(child, "sec-type")
             elif child.tag == "notes":
                 add(child, "notes-type")
-                for sub in child:
-                    if sub.tag == "sec":
-                        add(sub, "sec-type")
 
     captions = []
     for el in root.iter():

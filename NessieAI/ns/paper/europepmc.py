@@ -17,7 +17,9 @@ def _query(inp: PaperInput) -> str:
         return f"EXT_ID:{inp.value} AND SRC:MED"
     if inp.kind == "pmcid":
         return f"PMCID:{inp.value}"
-    return f'DOI:"{inp.value}"'
+    if inp.kind == "doi":
+        return f'DOI:"{inp.value}"'
+    raise ValueError(f"Europe PMC cannot look up a {inp.kind!r} input")
 
 
 def _affiliation(author: dict) -> str:

@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 from NessieAI.ns.paper import europepmc
 from NessieAI.ns.paper.dates import parse_date
 from NessieAI.ns.paper.jats import classify, parse_jats
@@ -72,3 +74,47 @@ def test_parse_jats():
     assert text.has("methods") and text.has("data_availability")
     assert [(c.id, c.text) for c in text.captions] == [("E:cap:1", "Figure 1 Tumour growth.")]
     assert [(s.name, s.caption) for s in text.supplements] == [("NIHMS1_TableS1.xlsx", "Table S1. Samples.")]
+
+
+def _jats(inner: str) -> bytes:
+    return f"<article>{inner}</article>".encode()
+
+
+def _items(text, slug):
+    return [(p.id, p.text) for s in text.sections if s.slug == slug for p in s.paragraphs]
+
+
+def test_notes_with_nested_sec_are_not_duplicated():
+    text = parse_jats(_jats(
+        '<back><notes notes-type="data-availability"><title>Data availability</title>'
+        "<sec><title>Data</title><p>GEO GSE9.</p></sec></notes></back>"))
+    assert [(s.slug, [(p.id, p.text) for p in s.paragraphs]) for s in text.sections] == [
+        ("data_availability", [("E:data_availability:p1", "GEO GSE9.")])]
+
+
+def test_data_availability_nested_in_methods_is_found():
+    text = parse_jats(_jats(
+        "<body><sec><title>Methods</title><p>Mice.</p>"
+        "<sec><title>Data availability</title><p>GSE1.</p></sec></sec></body>"))
+    assert [t for _, t in _items(text, "methods")] == ["Mice."]
+    assert [t for _, t in _items(text, "data_availability")] == ["GSE1."]
+    assert text.has("data_availability")
+
+
+def test_float_inside_paragraph_stays_out_of_paragraph_text():
+    text = parse_jats(_jats(
+        "<body><sec><title>Results</title><p>See Figure 1 <fig><label>Figure 1</label>"
+        "<caption><p>Cap text.</p></caption></fig>for detail.</p></sec></body>"))
+    assert [t for _, t in _items(text, "results")] == ["See Figure 1 for detail."]
+    assert [(c.id, c.text) for c in text.captions] == [("E:cap:1", "Figure 1 Cap text.")]
+
+
+def test_boxed_text_paragraphs_are_kept():
+    text = parse_jats(_jats(
+        "<body><sec><title>Methods</title><boxed-text><p>Boxed method detail.</p></boxed-text></sec></body>"))
+    assert [t for _, t in _items(text, "methods")] == ["Boxed method detail."]
+
+
+def test_file_input_is_not_a_query():
+    with pytest.raises(ValueError):
+        europepmc._query(PaperInput(kind="file", value="x.pdf"))
