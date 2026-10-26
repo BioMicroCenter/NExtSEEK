@@ -12,12 +12,13 @@ LIVE_STATES = ("queued", "acquiring", "context", "curating", "verifying", "build
 def create_run(*, user, paper_input: str, paper: PaperArtifact, project_hint: int | None = None,
                chat_session_id: str = "") -> PaperReingestRun:
     ref = paper.ref
-    run = PaperReingestRun.objects.create(
+    run = PaperReingestRun(
         user=user, chat_session_id=chat_session_id, paper_input=paper_input[:1024],
         pmid=ref.pmid or "", pmcid=ref.pmcid or "", doi=ref.doi or "", title=(ref.title or "")[:1024],
         mode=paper.mode, project_hint=project_hint)
+    # Write the artifact before the row exists: a failed write must not leave a live run with no paper.
     run.artifacts = {"paper": save_artifact(run.run_id, "paper", paper)}
-    run.save(update_fields=["artifacts", "updated_at"])
+    run.save()
     return run
 
 
@@ -27,6 +28,8 @@ def unfinished_run_for(user, doi: str | None, paper_input: str) -> PaperReingest
 
 
 def set_state(run: PaperReingestRun, state: str, *, failed_stage: str = "", reason: str = "") -> None:
+    if state not in {s for s, _ in PaperReingestRun.STATES}:
+        raise ValueError(f"unknown paper reingest state: {state!r}")
     run.state, run.failed_stage, run.reason = state, failed_stage, reason[:4000]
     run.save(update_fields=["state", "failed_stage", "reason", "updated_at"])
 

@@ -37,11 +37,51 @@ def test_unfinished_run_for_ignores_finished_and_superseded(django_user_model, t
 
 
 @pytest.mark.django_db
+def test_unfinished_run_for_skips_superseded_runs(django_user_model, tmp_path, monkeypatch):
+    monkeypatch.setenv("NEXTSEEK_PAPER_REINGEST_DIR", str(tmp_path))
+    user = django_user_model.objects.create(username="curator")
+    by_state = service.create_run(user=user, paper_input="38000001", paper=_paper())
+    service.set_state(by_state, "superseded", reason="replaced")
+    by_link = service.create_run(user=user, paper_input="38000001", paper=_paper())
+    newer = service.create_run(user=user, paper_input="38000001", paper=_paper())
+    by_link.superseded_by = newer
+    by_link.save(update_fields=["superseded_by"])
+    assert by_link.state == "queued"
+    assert service.unfinished_run_for(user, "10.1000/xyz123", "38000001") == newer
+    assert service.unfinished_run_for(user, None, "38000001") == newer
+
+
+@pytest.mark.django_db
+def test_create_run_leaves_no_row_when_artifact_write_fails(django_user_model, tmp_path, monkeypatch):
+    monkeypatch.setenv("NEXTSEEK_PAPER_REINGEST_DIR", str(tmp_path))
+    user = django_user_model.objects.create(username="curator")
+
+    def boom(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("nextseek_api.paper_reingest.service.save_artifact", boom)
+    before = PaperReingestRun.objects.count()
+    with pytest.raises(OSError):
+        service.create_run(user=user, paper_input="38000001", paper=_paper())
+    assert PaperReingestRun.objects.count() == before
+    assert service.unfinished_run_for(user, "10.1000/xyz123", "38000001") is None
+
+
+@pytest.mark.django_db
 def test_set_state_records_reason(django_user_model, tmp_path, monkeypatch):
     monkeypatch.setenv("NEXTSEEK_PAPER_REINGEST_DIR", str(tmp_path))
     run = service.create_run(user=django_user_model.objects.create(username="c"), paper_input="x", paper=_paper())
     service.set_state(run, "paused", reason="waiting for www.ebi.ac.uk: HTTP 503")
     assert PaperReingestRun.objects.get(pk=run.pk).reason.startswith("waiting for")
+
+
+@pytest.mark.django_db
+def test_set_state_rejects_unknown_state(django_user_model, tmp_path, monkeypatch):
+    monkeypatch.setenv("NEXTSEEK_PAPER_REINGEST_DIR", str(tmp_path))
+    run = service.create_run(user=django_user_model.objects.create(username="c"), paper_input="x", paper=_paper())
+    with pytest.raises(ValueError):
+        service.set_state(run, "aquiring")
+    assert PaperReingestRun.objects.get(pk=run.pk).state == "queued"
 
 
 class _Cursor:
