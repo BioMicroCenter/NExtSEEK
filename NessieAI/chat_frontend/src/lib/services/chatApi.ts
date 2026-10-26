@@ -3,6 +3,8 @@ import type {
   ProgressEvent,
   SessionListItem,
   SessionListResponse,
+  SessionSearchOptions,
+  SessionSearchResponse,
   SessionDetailWithTurns,
   TestCase,
   TestCasesResponse,
@@ -421,6 +423,25 @@ export class NextseekApiService {
     );
     if (!response.ok) {
       throw new Error(`Failed to list sessions: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  async searchSessions(
+    q: string,
+    opts: SessionSearchOptions = {},
+    signal?: AbortSignal,
+  ): Promise<SessionSearchResponse> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const params = new URLSearchParams({ q });
+    if (opts.sinceDays) params.set("since", String(opts.sinceDays));
+    if (opts.allUsers) params.set("all_users", "1");
+    const response = await fetch(
+      `${baseUrl}/nextseek_api/assistant/sessions/search/?${params}`,
+      { headers: { ...this.auth.getAuthHeaders() }, signal },
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to search sessions: ${response.status}`);
     }
     return response.json();
   }
