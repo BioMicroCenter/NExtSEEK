@@ -178,6 +178,8 @@ def test_a_pass_with_another_credential_is_refused(extra):
     ("post", "/query/", {"query": "q", "mode": "standard"}),
     ("get", "/me/", None),
     ("get", "/sessions/", None),
+    ("get", "/sessions/search/?q=ndma", None),
+    ("get", "/sessions/search/?q=ndma&all_users=1", None),
     ("post", "/sessions/", {}),
     ("get", "/test-cases/", None),
 ])
