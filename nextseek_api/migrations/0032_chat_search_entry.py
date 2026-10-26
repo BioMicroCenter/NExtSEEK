@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('nextseek_api', '0030_spill_json_fields'),
+        ('nextseek_api', '0031_merge_reingest_spill'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

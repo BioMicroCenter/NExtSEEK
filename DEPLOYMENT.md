@@ -431,7 +431,7 @@ The deploy that brings `0030_spill_json_fields` (the chat size guard) is such a 
 the migration changes no column, but it is unapplied, so `migrate --check` sends that one
 deploy to stop-first. Plan its minute of the restart page.
 
-So is the deploy that brings `0031_chat_search_entry` (the session search index). After it,
+So is the deploy that brings `0032_chat_search_entry` (the session search index). After it,
 index the chats already stored once; every turn that ends after the deploy indexes itself.
 The command skips turns already indexed, so a second run is harmless, and it stops cleanly
 (rerun to resume) once its peak memory passes `--max-rss-mb` (default 2048):
@@ -658,7 +658,7 @@ so that chat opens without its big parts, and a `results_history` or `progress` 
 one link as a whole is not a list to it (delete that chat first). Leave
 `/media/chat_spill` in place either way: a later roll-forward reads the links again.
 
-A deploy that applied `0031_chat_search_entry` needs nothing before you repoint: the code
+A deploy that applied `0032_chat_search_entry` needs nothing before you repoint: the code
 before it never reads `assistant_chat_search_entry`. A later roll-forward finds the rows of
 turns that ended before the rollback, and `chat_search_index` adds the rest.
 
