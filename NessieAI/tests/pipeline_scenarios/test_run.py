@@ -176,3 +176,15 @@ def test_the_real_agent_start_accepts_the_session_without_a_parser_plan(tmp_path
     real = SimpleNamespace(get_agent_model=lambda label: (object(), "m", None), LOG_DIR="/tmp")
     outcome, record = rn.run_story(_story(), real, None, tmp_path, decide=_decide())
     assert "tool-capable" in record["replies"][0] and outcome.pipeline_key is None
+
+
+def test_a_story_uses_at_most_the_first_60_uids_of_its_cohort(tmp_path, monkeypatch):
+    from chat_nextseek.pipeline import agent as pa
+    every = [f"D.SEQ-{n}-PUB" for n in range(100)]
+    monkeypatch.setattr(rn, "cohort_uids", lambda c: every)
+    sessions = []
+    monkeypatch.setattr(pa, "start", lambda session, config, **k: (
+        sessions.append(session), {"action": "ask", "reply": "?", "params": None})[1])
+    outcome, _ = rn.run_story(_story(expect="ask"), _Cfg(), None, tmp_path, decide=_decide())
+    assert rn.MAX_STORY_UIDS == 60 and outcome.uids == every[:60]
+    assert [r["uuid"] for r in sessions[0]["results_history"][0]["graph_result"]["data"]] == every[:60]

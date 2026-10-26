@@ -25,6 +25,8 @@ from NessieAI.tests.pipeline_scenarios.tape import RecordingClient, Tape, taped
 
 DEFAULT_REPLY = "Yes, use what you recommend and build the run."
 MAX_REPLIES = 3
+#: Below the agent's 75-leaf resolve cap (agent_tools MAX_RESOLVE_LEAVES), so a cohort is never refused for size.
+MAX_STORY_UIDS = 60
 OUTPUTS = Path(__file__).resolve().parents[3] / "outputs"
 _METADATA_SOURCES = ("fetch_reporter_metadata", "annotate_metadata_with_sampletypes")
 
@@ -87,7 +89,7 @@ def run_story(story: Story, config, tape: Tape | None, log_dir: Path, decide=Non
     from chat_nextseek.pipeline import agent as pa
     if decide is None:
         from NessieAI.router.router import decide
-    uids = cohort_uids(story.cohort) if story.cohort else []
+    uids = cohort_uids(story.cohort)[:MAX_STORY_UIDS] if story.cohort else []
     decision = decide(story.question, router_history(story, uids))
     record = {"decision": _decision_record(decision), "replies": []}
     outcome = Outcome(route=decision.route, uids=list(uids))
