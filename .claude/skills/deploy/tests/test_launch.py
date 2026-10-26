@@ -1835,3 +1835,11 @@ def test_the_first_rollback_line_of_a_component_is_its_rollback_point(tmp_path):
     st = L.parse_status("ROLLBACK app nextseek-nextseek:pre-20261026T190000-1c070c08 (the old image) 19:10:00\n"
                         "ROLLBACK app nextseek-nextseek:pre-20261026T191500-1c070c08 19:16:00\n")
     assert st["rollback"]["app"] == "nextseek-nextseek:pre-20261026T190000-1c070c08"
+
+
+def test_the_runner_drops_unmeasured_cases_and_names_them_in_the_pinned_line(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    assert "--drop-unmeasured" in text
+    assert 'say "PINNED $f measured=' in text and 'dropped=$(sed -n' in text
+    assert "DROPPED:" in text
