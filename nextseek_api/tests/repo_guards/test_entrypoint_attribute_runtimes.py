@@ -97,6 +97,7 @@ class TestEveryRuntimeStarts:
         assert "gunicorn" not in calls
         assert "-Q batch_upload" in calls
         assert "-Q attribute_mutations" in calls
+        assert "-Q paper_reingest" in calls
         assert "manage.py dispatch_attribute_outbox" in calls
         assert "manage.py recover_attribute_sync_jobs" in calls
         assert "manage.py run_assay_registration_jobs" in calls
@@ -277,7 +278,7 @@ class TestStopSignal:
             if proc.poll() is None:
                 proc.kill()
         calls = call_log.read_text()
-        for runtime in ("-Q batch_upload", "-Q attribute_mutations",
+        for runtime in ("-Q batch_upload", "-Q attribute_mutations", "-Q paper_reingest",
                         "dispatch_attribute_outbox", "recover_attribute_sync_jobs",
                         "run_assay_registration_jobs", "run_share_jobs"):
             assert any(l.startswith("TERM ") and runtime in l for l in calls.splitlines()), runtime

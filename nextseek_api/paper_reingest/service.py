@@ -35,4 +35,6 @@ def set_state(run: PaperReingestRun, state: str, *, failed_stage: str = "", reas
 
 
 def enqueue_acquire(run: PaperReingestRun) -> None:
-    raise NotImplementedError("wired in the next task")
+    from nextseek_api.paper_reingest.tasks import acquire_task
+
+    acquire_task.delay(run_id=run.run_id)

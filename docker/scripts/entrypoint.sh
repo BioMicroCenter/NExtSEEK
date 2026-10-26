@@ -177,6 +177,14 @@ uv run --no-sync celery -A nextseek_api.batch_upload.celery_app worker \
               --hostname=cc_summaries@%h \
               --concurrency=1 &
 
+# Paper reingest stages (fetching the paper and its deposits, later the curation agent) get their own worker,
+# one run at a time, so they never hold up an upload or each other.
+uv run --no-sync celery -A nextseek_api.batch_upload.celery_app worker \
+              --loglevel=info \
+              -Q paper_reingest \
+              --hostname=paper_reingest@%h \
+              --concurrency=1 &
+
 # The beat that queues the periodic jobs in celery_app.py (summary sweep, stuck-turn reaper, session clean-up).
 # Its schedule file sits on /var/celery; every entry expires, so a busy worker drops missed runs.
 uv run --no-sync celery -A nextseek_api.batch_upload.celery_app beat \

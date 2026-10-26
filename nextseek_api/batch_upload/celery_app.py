@@ -45,6 +45,8 @@ app.config_from_object(
             "celery.*": {"queue": "batch_upload"},
             # The paid summary sweep runs ~200 s on a backlog: its own queue and worker, so an upload never waits on it.
             "cc_assistant.sweep_cc_summaries": {"queue": "cc_summaries"},
+            # Paper reingest stages run minutes against outside services: their own worker, so an upload never waits.
+            "paper_reingest.*": {"queue": "paper_reingest"},
             "cc_assistant.*": {"queue": "batch_upload"},
             "attribute_mutations.*": {"queue": "attribute_mutations"},
         },
@@ -99,4 +101,5 @@ app.autodiscover_tasks(["nextseek_api.batch_upload", "nextseek_api.attributes"])
 # Step 1c Celery sweep (registers cc_assistant.sweep_cc_summaries)
 import nextseek_api.cc_assistant.cc_sweep  # noqa: F401, E402
 import nextseek_api.cc_assistant.cc_upload_tasks  # noqa: F401, E402
+import nextseek_api.paper_reingest.tasks  # noqa: F401, E402
 import nextseek_api.periodic_tasks  # noqa: F401, E402
