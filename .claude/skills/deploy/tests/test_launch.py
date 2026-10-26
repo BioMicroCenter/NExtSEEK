@@ -506,6 +506,14 @@ def test_the_labs_copy_writes_once_to_the_shared_path_and_restarts_nothing(tmp_p
     assert "stat -c %y /media/context/labs_db.json" in text
 
 
+def test_the_labs_file_is_on_the_volume_before_the_app_rebuild_starts_web(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    loop = text.split('for c in $COMPONENTS; do', 1)[1]
+    assert loop.index('[ "$c" = app ] && pre_app') < loop.index('if rebuild "$c"')
+    assert "docker compose run --rm --no-deps" in text and "/labs_src.json:ro" in text
+
+
 def test_the_paid_step_needs_every_model_id_proven(tmp_path, capsys):
     # 2026-09-28: a refused id silently moves to the fallback (F1), so a paid run needs the green line itself
     from rules import HEALTH_NEEDS
