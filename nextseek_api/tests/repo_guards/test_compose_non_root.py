@@ -42,3 +42,13 @@ def test_no_other_service_changed_its_user_by_accident():
     for name, svc in SERVICES.items():
         if name not in APP:
             assert svc.get("user") != "10001:10001", name
+
+
+def test_the_luria_key_bind_is_the_repo_local_copy():
+    """Never `${LURIAKEY}` itself as the source: startup copies the key (0640, group NEXTSEEK_HOST_GID) because
+    OpenSSH refuses a group-readable key for its owner. The container path stays ${LURIAKEY}, which the code reads."""
+    vols = SERVICES["web"]["volumes"]
+    assert "${NEXTSEEK_LURIA_KEY_COPY:-/dev/null}:${LURIAKEY:-/dev/null}:ro" in vols
+    for name, svc in SERVICES.items():
+        for v in svc.get("volumes", []):
+            assert not (isinstance(v, str) and v.startswith("${LURIAKEY")), (name, v)

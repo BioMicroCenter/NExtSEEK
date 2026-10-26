@@ -137,19 +137,40 @@ def test_ensure_secret_group_read(tmp_path: Path) -> None:
     (tmp_path / "dmac").mkdir()
     ls = tmp_path / "dmac" / "local_settings.py"
     ls.write_text("x"); ls.chmod(0o644)
-    key = tmp_path / "key"; key.write_text("k"); key.chmod(0o600)
     gid = os.getgid()
-    problems = volumes.ensure_secret_group_read(tmp_path, {"NEXTSEEK_HOST_GID": str(gid), "LURIAKEY": str(key)})
+    problems = volumes.ensure_secret_group_read(tmp_path, {"NEXTSEEK_HOST_GID": str(gid)})
     assert problems == []
-    assert oct(ls.stat().st_mode & 0o777) == "0o640" and oct(key.stat().st_mode & 0o777) == "0o640"
-    assert ls.stat().st_gid == gid
-    # /dev/null and unset are skipped; a file owned by someone else is reported with the command to run
-    assert volumes.ensure_secret_group_read(tmp_path, {"NEXTSEEK_HOST_GID": str(gid), "LURIAKEY": "/dev/null"}) == []
-    other = tmp_path / "other"; other.write_text("k"); other.chmod(0o600)
+    assert oct(ls.stat().st_mode & 0o777) == "0o640" and ls.stat().st_gid == gid
+    # a file owned by someone else is reported with the command for its owner, and left as it is
+    ls.chmod(0o600)
     with patch("startup.steps.volumes.os.getuid", return_value=os.getuid() + 1):
-        p = volumes.ensure_secret_group_read(tmp_path, {"NEXTSEEK_HOST_GID": str(gid), "LURIAKEY": str(other)})
-    assert len(p) == 1 and "chgrp" in p[0] and "chmod 640" in p[0] and str(other) in p[0]
-    assert oct(other.stat().st_mode & 0o777) == "0o600"
+        p = volumes.ensure_secret_group_read(tmp_path, {"NEXTSEEK_HOST_GID": str(gid)})
+    assert len(p) == 1 and "chgrp" in p[0] and str(ls) in p[0]
+    assert oct(ls.stat().st_mode & 0o777) == "0o600"
+
+
+def test_the_luria_key_is_copied_never_chmodded(tmp_path: Path) -> None:
+    """OpenSSH refuses a 0640 key for its owner, so the source (~/.ssh/luria on dev) is never touched: the app reads
+    a repo-local copy (0640, group H) that compose binds at the same container path."""
+    import os
+    from startup.lib.env import read_env
+    gid = os.getgid()
+    ssh = tmp_path / "home" / ".ssh"; ssh.mkdir(parents=True)
+    key = ssh / "luria"; key.write_text("k1"); key.chmod(0o600)
+    repo = tmp_path / "repo"; repo.mkdir()
+    env = {"NEXTSEEK_HOST_GID": str(gid), "LURIAKEY": str(key)}
+    assert volumes.ensure_secret_group_read(repo, env) == []
+    copy = repo / "docker" / "luria-key"
+    assert oct(key.stat().st_mode & 0o777) == "0o600"                      # the source is untouched
+    assert copy.read_text() == "k1" and oct(copy.stat().st_mode & 0o777) == "0o640" and copy.stat().st_gid == gid
+    assert read_env(repo / ".env")["NEXTSEEK_LURIA_KEY_COPY"] == "./docker/luria-key"
+    inode = copy.stat().st_ino
+    key.write_text("k2")                                                   # a rotated key is picked up, in place
+    assert volumes.ensure_secret_group_read(repo, env) == []
+    assert copy.read_text() == "k2" and copy.stat().st_ino == inode
+    # no key: the copy goes and compose binds /dev/null as before
+    assert volumes.ensure_secret_group_read(repo, {"NEXTSEEK_HOST_GID": str(gid), "LURIAKEY": "/dev/null"}) == []
+    assert not copy.exists() and read_env(repo / ".env")["NEXTSEEK_LURIA_KEY_COPY"] == "/dev/null"
 
 
 def test_ensure_secret_group_read_leaves_a_file_with_an_acl_alone(tmp_path: Path) -> None:

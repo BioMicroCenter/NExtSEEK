@@ -10,7 +10,7 @@ from typing import Callable
 
 from startup.lib import ownership
 from startup.lib.docker_ops import DockerOpsError, _build_env, _check
-from startup.lib.env import read_env
+from startup.lib.env import read_env, update_env
 
 from startup.lib.docker_ops import (
     DockerOpsError, volume_exists, volume_create, volume_remove, volume_users,
@@ -186,21 +186,55 @@ def stop_app_services(repo_root: Path, env: dict[str, str]) -> None:
            "docker compose stop " + " ".join(ownership.STOP_SERVICES))
 
 
-def ensure_secret_group_read(repo_root: Path, env: dict[str, str]) -> list[str]:
-    """Give dmac/local_settings.py and the Luria key (LURIAKEY, skipped when unset or /dev/null) mode 0640
-    and group NEXTSEEK_HOST_GID, so the app (which has that gid as an extra group) can read them.
+LURIA_KEY_COPY = "docker/luria-key"     # gitignored and dockerignored; compose binds it at the LURIAKEY path
+LURIA_KEY_COPY_VAR = "NEXTSEEK_LURIA_KEY_COPY"
 
-    Runs on the host as the installing user, no container. Returns one message per problem (empty = done):
-    a file we do not own gets the command for its owner to run; a file with a POSIX ACL is left untouched
-    (a chmod would rewrite the ACL mask). No box has ACLs on these files today."""
+
+def _sync_luria_key(repo_root: Path, env: dict[str, str], gid: int) -> list[str]:
+    """Copy the Luria key (LURIAKEY) to docker/luria-key, mode 0640, group `gid`, and point compose at it
+    (NEXTSEEK_LURIA_KEY_COPY in .env). The source is never touched: OpenSSH refuses a group-readable key for its
+    owner, and on dev it is ~/.ssh/luria. The copy is rewritten in place (a running bind keeps its inode) when
+    the source changes. No key (unset, /dev/null, not a file): the copy goes and compose binds /dev/null."""
+    root_env = Path(repo_root) / ".env"
+    key = env.get("LURIAKEY") or read_env(root_env).get("LURIAKEY", "")
+    copy = Path(repo_root) / LURIA_KEY_COPY
+    want = "/dev/null"
+    if key and key != "/dev/null" and Path(key).is_file():
+        try:
+            data = Path(key).read_bytes()
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            if not copy.is_file() or copy.is_symlink() or copy.read_bytes() != data:
+                fd = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+                with os.fdopen(fd, "wb") as f:
+                    f.write(data)
+            os.chown(copy, -1, gid)
+            os.chmod(copy, 0o640)
+        except OSError as exc:
+            return [f"could not copy the Luria key {key} to {copy} ({exc}): make {key} readable by this user "
+                    f"and remove {copy} if it is a directory or someone else's file"]
+        want = f"./{LURIA_KEY_COPY}"
+    else:
+        try:
+            copy.unlink(missing_ok=True)
+        except IsADirectoryError:   # docker made it when the bind ran before startup: compose binds /dev/null now
+            pass
+    if read_env(root_env).get(LURIA_KEY_COPY_VAR, "/dev/null") != want:
+        update_env(root_env, {LURIA_KEY_COPY_VAR: want})
+    return []
+
+
+def ensure_secret_group_read(repo_root: Path, env: dict[str, str]) -> list[str]:
+    """Give dmac/local_settings.py mode 0640 and group NEXTSEEK_HOST_GID, so the app (which has that gid as an
+    extra group) can read it, and keep the group-readable copy of the Luria key current (_sync_luria_key).
+
+    Runs on the host as the installing user, no container, and changes no file outside the repo. Returns one
+    message per problem (empty = done): a file we do not own gets the command for its owner to run; a file
+    with a POSIX ACL is left untouched (a chmod would rewrite the ACL mask). No box has ACLs on these files today."""
     gid = host_gid(repo_root, env)
     if not gid.isdigit():
         return ["NEXTSEEK_HOST_GID is not set (.env), so the secret files cannot be given a group"]
     paths = [Path(repo_root) / "dmac" / "local_settings.py"]
-    key = env.get("LURIAKEY") or read_env(Path(repo_root) / ".env").get("LURIAKEY", "")
-    if key and key != "/dev/null":
-        paths.append(Path(key))
-    problems: list[str] = []
+    problems: list[str] = _sync_luria_key(repo_root, env, int(gid))
     for p in paths:
         if not p.is_file():
             continue

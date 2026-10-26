@@ -504,8 +504,11 @@ ${NEXTSEEK_HOST_GID}`, files 0640, that group). No file in a volume or bind the 
 **Preflight** (rebuild runs both before any build; run them by hand first on a box you have not touched):
 - `check_app_ids` (`startup/steps/validate.py`): uid and gid 10001 are free on the box (NSS, so directory
   accounts count) and `NEXTSEEK_HOST_GID` is a number that is not 0 and not the docker group's gid.
-- the group-read step (`ensure_secret_group_read`, in `startup/steps/volumes.py`): `local_settings.py` and the
-  file named by `LURIAKEY` get group `NEXTSEEK_HOST_GID` and mode 0640. Run as the installing user; if the file
+- the group-read step (`ensure_secret_group_read`, in `startup/steps/volumes.py`): `local_settings.py` gets
+  group `NEXTSEEK_HOST_GID` and mode 0640. The file named by `LURIAKEY` is never touched (on dev it is
+  `~/.ssh/luria`, and OpenSSH refuses a group-readable key for its owner): it is copied to `docker/luria-key`
+  (gitignored and dockerignored, 0640, that group, refreshed on every rebuild) and compose binds the copy at the
+  `LURIAKEY` path (`NEXTSEEK_LURIA_KEY_COPY` in `.env`). Run as the installing user; if `local_settings.py`
   belongs to someone else it prints the `chgrp` and `chmod` for that owner.
 
 **Switchover sitting** (the first deploy whose app image has a USER; runner-driven or by hand). Pick a quiet
@@ -1067,6 +1070,7 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `COMPOSE_PROJECT_NAME` | root.env | nextseek |  |  | Compose project name; install writes it per instance. |
 | `INSTANCE_PREFIX` | root.env | "" |  |  | Prefix for container and volume names of a second instance; install writes it. |
 | `NEXTSEEK_HOST_GID` | root.env | "" |  |  | Gid of the deploy account (id -g of the user running startup); compose gives it to the nextseek and web services in group_add so the non-root app can read local_settings.py and the Luria key (mode 0640). Install writes it (render_root_env); rebuild, fix-ownership and doctor add it to an older .env (ensure_host_gid), and the deploy runner appends it before its pull. Compose reads it in the mandatory form, so every compose verb fails without it; by hand: echo NEXTSEEK_HOST_GID=`id -g` >> .env. Never the docker group. |
+| `NEXTSEEK_LURIA_KEY_COPY` | root.env | /dev/null |  |  | Host path compose binds at the LURIAKEY path: ./docker/luria-key, startup's copy of the Luria key (0640, group NEXTSEEK_HOST_GID; the key itself is never chmodded, as OpenSSH refuses a group-readable key), or /dev/null with no key. rebuild and install write it (startup/steps/volumes.py ensure_secret_group_read); never set it by hand. |
 | `NEXTSEEK_PORT` | root.env | 8000 |  |  | Host port of the published nginx; install writes it. |
 | `SEEK_PORT` | root.env | 3000 |  |  | Host port of SEEK; install writes it. |
 | `DB_PORT` | root.env | 3306 |  |  | Host port of MySQL; install writes it. |

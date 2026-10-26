@@ -152,13 +152,15 @@ services:
       - ./outputs:/app/outputs:z
       - ./logs:/app/logs:z
       # Luria SLURM launch backend. LURIAKEY is the host path to the operator's
-      # private key, bind-mounted read-only at the SAME path inside so the value
-      # of LURIA_KEY needs no translation. Defaults to /dev/null so the stack
-      # still comes up when the Luria backend is unused.
-      - ${LURIAKEY:-/dev/null}:${LURIAKEY:-/dev/null}:ro
+      # private key; the app reads it at the SAME path inside, so its value needs no
+      # translation. The source is startup's copy, docker/luria-key (0640, group
+      # NEXTSEEK_HOST_GID, refreshed on every rebuild; NEXTSEEK_LURIA_KEY_COPY in .env),
+      # never the key itself: OpenSSH refuses a group-readable key for its owner.
+      # Both default to /dev/null so the stack still comes up when Luria is unused.
+      - ${NEXTSEEK_LURIA_KEY_COPY:-/dev/null}:${LURIAKEY:-/dev/null}:ro
       # Writable ssh dir (10001-owned, 0700 in the image): holds known_hosts. ssh.py copies
       # the key to a 0600 mkstemp file in /tmp for one call (it cannot chmod the read-only
-      # bind above) and removes the copy after use. The key file must be readable by group NEXTSEEK_HOST_GID (0640).
+      # bind above) and removes the copy after use. The bound copy is readable by group NEXTSEEK_HOST_GID (0640).
       - nextseek-luria-ssh:/app/.ssh
       # Container-CC user trees (see `nextseek`). A turn mkdirs scratch, cc-state,
       # memory and output dirs here; the sibling containers mount per-user

@@ -75,6 +75,8 @@ def _excluded(path: str) -> bool:
 
 
 MUST_BE_EXCLUDED = [
+    # startup's group-readable copy of the Luria ssh key (LURIAKEY)
+    "docker/luria-key",
     # the three canonical rendered secret files
     "docker/db.env",
     "docker/nextseek.env",
@@ -168,6 +170,8 @@ def test_gitignore_covers_env_bak_copies():
         "docker/db.env",
         # any depth: the proxy secret moved to NessieAI/docker/bedrock-proxy/
         "**/proxy-secret.env",
+        # startup's copy of the Luria ssh key
+        "docker/luria-key",
     ):
         assert required in lines, f".gitignore lost the `{required}` rule"
 
