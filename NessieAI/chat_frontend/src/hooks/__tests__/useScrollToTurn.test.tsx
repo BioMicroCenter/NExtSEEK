@@ -44,6 +44,27 @@ describe("useScrollToTurn", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it("openDetails opens the answer's Search Details after the question", () => {
+    const onToggle = vi.fn();
+    function WithAnswer() {
+      scrollTo2 = useScrollToTurn();
+      return (
+        <div>
+          <div data-testid="message-bubble" data-role="user" data-turn-id={4}>q</div>
+          <div data-testid="message-bubble" data-role="assistant">
+            <button data-testid="search-details-toggle" aria-expanded="false" onClick={onToggle}>details</button>
+          </div>
+        </div>
+      );
+    }
+    let scrollTo2: (t: number | null, o?: { openDetails?: boolean }) => void = () => {};
+    render(<WithAnswer />);
+    act(() => scrollTo2(4));
+    expect(onToggle).not.toHaveBeenCalled();
+    act(() => scrollTo2(4, { openDetails: true }));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
   it("null leaves the chat where it opened", () => {
     render(<Chat turns={[1]} />);
     act(() => scrollTo(null));

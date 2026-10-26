@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { PHONE_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 import { useSessionSearch, type SessionSearchServiceLike } from "@/hooks/useSessionSearch";
-import type { SessionListItem as SessionListItemModel } from "@/lib/types/api";
+import type { SessionListItem as SessionListItemModel, SessionSearchHit } from "@/lib/types/api";
 
 interface SessionSidebarProps {
   sessions: SessionListItemModel[];
@@ -26,7 +26,7 @@ interface SessionSidebarProps {
   /** Superusers get the all-users search filter (the server enforces it). */
   isAdmin?: boolean;
   /** Open a search hit: the chat, scrolled to the turn that matched (null: the top). */
-  onOpenHit?: (sessionId: string, turnId: number | null) => void;
+  onOpenHit?: (sessionId: string, turnId: number | null, source: SessionSearchHit["source"]) => void;
   /** Expand a collapsed sidebar, for Ctrl/Cmd+K and the collapsed search icon. */
   onExpand?: () => void;
 }
@@ -101,7 +101,7 @@ export function SessionSidebar({
           <SessionSearchResults
             search={search}
             disabled={inFlight}
-            onOpen={(id, turn) => { onOpenHit?.(id, turn); if (isPhone) close(); }}
+            onOpen={(id, turn, source) => { onOpenHit?.(id, turn, source); if (isPhone) close(); }}
           />
         ) : sessions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">

@@ -24,6 +24,7 @@ import type {
   RouteDecidedData,
   PreludeStepData,
   CcTurnMetaData,
+  SessionSearchHit,
   Turn,
 } from "@/lib/types/api";
 import type { DebugData, DebugEntry } from "@/lib/types/chat";
@@ -293,9 +294,9 @@ export function EmbeddedApp() {
   const scrollToTurn = useScrollToTurn();
   // A search hit: (re)load its chat, then scroll to the turn that matched. Reloaded even when it is the open
   // chat: turns asked in this page view carry no turn id until the chat is read back.
-  const openSearchHit = useCallback((id: string, turnId: number | null) => {
+  const openSearchHit = useCallback((id: string, turnId: number | null, source: SessionSearchHit["source"]) => {
     sessions.setActive(id)
-      .then(() => scrollToTurn(turnId))
+      .then(() => scrollToTurn(turnId, { openDetails: source === "steps" }))
       .catch(() => addSystemMessage("Couldn't load this conversation."));
   }, [sessions, scrollToTurn, addSystemMessage]);
 

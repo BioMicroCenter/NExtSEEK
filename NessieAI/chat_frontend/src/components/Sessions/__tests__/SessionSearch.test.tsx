@@ -12,9 +12,11 @@ const hit = (over: Partial<SessionSearchHit> = {}): SessionSearchHit => ({
   source: "chat", session_id: "h1", title: "NDMA mice", updated_at: "2026-10-21T14:00:00Z", owner: null,
   turn_id: 3, matched_in: "question", snippet: "find mice treated with NDMA in the liver", match_count: 1, ...over,
 });
-const resp = (results: SessionSearchHit[]): SessionSearchResponse => ({
-  query: "ndma liver", terms: ["ndma", "liver"], sources: ["chats"], total: results.length, results,
+const resp = (results: SessionSearchHit[], facets = { record_type: { TIS: 3 }, project: { GBM: 2 }, where: { result: 3 } }):
+  SessionSearchResponse => ({
+  query: "ndma liver", terms: ["ndma", "liver"], sources: ["chats", "records"], total: results.length, results, facets,
 });
+const NONE = { steps: false, recordType: null, project: null, where: null };
 
 function setup(over: Record<string, unknown> = {}) {
   const searchService = { searchSessions: vi.fn().mockResolvedValue(resp([hit()])) };
@@ -65,7 +67,7 @@ describe("SessionSidebar search", () => {
     const { props } = setup();
     await type("ndma");
     fireEvent.click(screen.getByTestId("session-search-result"));
-    expect(props.onOpenHit).toHaveBeenCalledWith("h1", 3);
+    expect(props.onOpenHit).toHaveBeenCalledWith("h1", 3, "chat");
   });
 
   it("results do nothing while a turn is running", async () => {
@@ -81,12 +83,12 @@ describe("SessionSidebar search", () => {
     const options = screen.getByRole("button", { name: /search options/i });
     expect(options.querySelector("[data-filter-dot]")).toBeNull();
     fireEvent.click(options);
-    expect(screen.getByText("Chats")).toBeInTheDocument();
+    expect(screen.getByText("Chats, Records")).toBeInTheDocument();
     expect(screen.queryByLabelText(/all users/i)).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/when/i), { target: { value: "30" } });
     await act(async () => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS); });
     expect(searchService.searchSessions).toHaveBeenLastCalledWith(
-      "ndma", { sinceDays: 30, allUsers: false }, expect.any(AbortSignal));
+      "ndma", { sinceDays: 30, allUsers: false, ...NONE }, expect.any(AbortSignal));
     expect(options.querySelector("[data-filter-dot]")).not.toBeNull();
   });
 
@@ -97,7 +99,7 @@ describe("SessionSidebar search", () => {
     fireEvent.click(screen.getByLabelText(/all users/i));
     await type("ndma");
     expect(searchService.searchSessions).toHaveBeenLastCalledWith(
-      "ndma", { sinceDays: null, allUsers: true }, expect.any(AbortSignal));
+      "ndma", { sinceDays: null, allUsers: true, ...NONE }, expect.any(AbortSignal));
     expect(screen.getByTestId("session-search-result")).toHaveTextContent("jdoe");
   });
 
@@ -147,6 +149,53 @@ describe("SessionSidebar search", () => {
   it("the box stops at 200 characters, the server's limit", () => {
     setup();
     expect(screen.getByRole("searchbox", { name: /search chats/i })).toHaveAttribute("maxLength", "200");
+  });
+
+  it("Agent steps is off until ticked, then searched", async () => {
+    const { searchService } = setup();
+    fireEvent.click(screen.getByRole("button", { name: /search options/i }));
+    const steps = screen.getByLabelText(/agent steps/i);
+    expect(steps).not.toBeChecked();
+    fireEvent.click(steps);
+    await type("ndma");
+    expect(searchService.searchSessions).toHaveBeenLastCalledWith(
+      "ndma", { sinceDays: null, allUsers: false, ...NONE, steps: true }, expect.any(AbortSignal));
+  });
+
+  it("opening the panel loads the counts, and a record filter searches with an empty box", async () => {
+    const { searchService } = setup();
+    fireEvent.click(screen.getByRole("button", { name: /search options/i }));
+    await act(async () => {});
+    expect(searchService.searchSessions).toHaveBeenCalledWith("", { sinceDays: null, allUsers: false, facetsOnly: true });
+    const type_ = screen.getByLabelText(/record type/i);
+    expect([...type_.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Any", "TIS (3)"]);
+    expect([...screen.getByLabelText(/project/i).querySelectorAll("option")].map((o) => o.textContent))
+      .toEqual(["Any", "GBM (2)"]);
+    fireEvent.change(type_, { target: { value: "TIS" } });
+    await act(async () => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS); });
+    expect(searchService.searchSessions).toHaveBeenLastCalledWith(
+      "", { sinceDays: null, allUsers: false, ...NONE, recordType: "TIS" }, expect.any(AbortSignal));
+    expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-search-result")).toBeInTheDocument();
+  });
+
+  it("a record hit says so and links its sample IDs, not protocol IDs", async () => {
+    const { searchService } = setup();
+    searchService.searchSessions.mockResolvedValue(resp([hit({
+      source: "record", matched_in: "record",
+      snippet: "TIS-220831FLY-26, P.FLY-220630-V1_x.docx and 4 more",
+    })]));
+    await type("tis");
+    expect(screen.getByText("in the records")).toBeInTheDocument();
+    const links = screen.getAllByRole("link");
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["/seek/sampletree/uid=TIS-220831FLY-26/"]);
+  });
+
+  it("an agent-steps hit says so", async () => {
+    const { searchService } = setup();
+    searchService.searchSessions.mockResolvedValue(resp([hit({ source: "steps", matched_in: "steps" })]));
+    await type("schema");
+    expect(screen.getByText("in the agent's steps")).toBeInTheDocument();
   });
 
   it("without a search service the sidebar has no search box", () => {

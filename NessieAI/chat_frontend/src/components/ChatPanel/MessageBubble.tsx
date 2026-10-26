@@ -202,6 +202,7 @@ export function MessageBubble({
             <button
               type="button"
               onClick={() => setDebugOpen((v) => !v)}
+              data-testid="search-details-toggle"
               aria-expanded={debugOpen}
               aria-controls={detailsId}
               className="flex items-center gap-1 rounded-md px-2 py-1 text-xs [@media(pointer:coarse)]:min-h-11 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"

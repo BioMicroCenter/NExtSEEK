@@ -8,8 +8,10 @@ const hit = (id: string): SessionSearchHit => ({
   turn_id: 1, matched_in: "question", snippet: "ndma", match_count: 1,
 });
 const resp = (ids: string[], terms = ["ndma"]): SessionSearchResponse => ({
-  query: terms.join(" "), terms, sources: ["chats"], total: ids.length, results: ids.map(hit),
+  query: terms.join(" "), terms, sources: ["chats", "records"], total: ids.length, results: ids.map(hit),
+  facets: { record_type: { TIS: ids.length }, project: {}, where: {} },
 });
+const NONE = { steps: false, recordType: null, project: null, where: null };
 
 describe("useSessionSearch", () => {
   beforeEach(() => vi.useFakeTimers());
@@ -64,10 +66,10 @@ describe("useSessionSearch", () => {
     const { result } = renderHook(() => useSessionSearch(service));
     act(() => result.current.setQuery("ndma"));
     await act(async () => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS); });
-    act(() => result.current.setFilters({ sinceDays: 30, allUsers: true }));
+    act(() => result.current.setFilters({ ...result.current.filters, sinceDays: 30, allUsers: true }));
     await act(async () => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS); });
     expect(service.searchSessions).toHaveBeenLastCalledWith(
-      "ndma", { sinceDays: 30, allUsers: true }, expect.any(AbortSignal));
+      "ndma", { sinceDays: 30, allUsers: true, ...NONE }, expect.any(AbortSignal));
   });
 
   it("shows loading, not an empty result, from the first keystroke", () => {
@@ -75,6 +77,35 @@ describe("useSessionSearch", () => {
     const { result } = renderHook(() => useSessionSearch(service));
     act(() => result.current.setQuery("ndma"));
     expect(result.current.loading).toBe(true);
+  });
+
+  it("a record filter alone searches, with no words", async () => {
+    const service = { searchSessions: vi.fn().mockResolvedValue(resp(["a"])) };
+    const { result } = renderHook(() => useSessionSearch(service));
+    act(() => result.current.setFilters({ ...result.current.filters, recordType: "TIS" }));
+    await act(async () => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS); });
+    expect(result.current.active).toBe(true);
+    expect(service.searchSessions).toHaveBeenLastCalledWith(
+      "", { sinceDays: null, allUsers: false, ...NONE, recordType: "TIS" }, expect.any(AbortSignal));
+    expect(result.current.facets.record_type).toEqual({ TIS: 1 });
+  });
+
+  it("one letter with a filter searches by the filter only", async () => {
+    const service = { searchSessions: vi.fn().mockResolvedValue(resp(["a"])) };
+    const { result } = renderHook(() => useSessionSearch(service));
+    act(() => result.current.setFilters({ ...result.current.filters, project: "GBM" }));
+    act(() => result.current.setQuery("n"));
+    await act(async () => { vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS); });
+    expect(service.searchSessions.mock.calls.at(-1)?.[0]).toBe("");
+  });
+
+  it("loadFacets asks for the counts only, over the date and user scope", async () => {
+    const service = { searchSessions: vi.fn().mockResolvedValue({ ...resp([]), facets: { record_type: { MUS: 4 }, project: {}, where: {} } }) };
+    const { result } = renderHook(() => useSessionSearch(service));
+    await act(async () => { result.current.loadFacets(); });
+    expect(service.searchSessions).toHaveBeenLastCalledWith(
+      "", { sinceDays: null, allUsers: false, facetsOnly: true });
+    expect(result.current.facets.record_type).toEqual({ MUS: 4 });
   });
 
   it("clear empties the query and the results", async () => {

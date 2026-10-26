@@ -434,8 +434,13 @@ export class NextseekApiService {
   ): Promise<SessionSearchResponse> {
     const baseUrl = this.auth.getApiBaseUrl();
     const params = new URLSearchParams({ q });
+    params.set("sources", opts.steps ? "chats,records,steps" : "chats,records");
     if (opts.sinceDays) params.set("since", String(opts.sinceDays));
     if (opts.allUsers) params.set("all_users", "1");
+    if (opts.recordType) params.set("record_type", opts.recordType);
+    if (opts.project) params.set("project", opts.project);
+    if (opts.where) params.set("where", opts.where);
+    if (opts.facetsOnly) params.set("facets_only", "1");
     const response = await fetch(
       `${baseUrl}/nextseek_api/assistant/sessions/search/?${params}`,
       { headers: { ...this.auth.getAuthHeaders() }, signal },
