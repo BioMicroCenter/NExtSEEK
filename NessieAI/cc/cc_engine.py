@@ -848,8 +848,8 @@ def scrub_transcript_store(
             verified[key] = _transcript_digest(raw)
             continue
         try:
-            # 0o666: the rename leaves a new inode owned by Django's root, and the agent
-            # (uid 1001) must still read and append it on the next turn.
+            # 0o666: the rename leaves a new inode owned by the app (10001), and the agent
+            # (also 10001) must still read and append it on the next turn.
             safe_fs.write_file_atomic(cc_state_dir, rel, clean, mode=0o666)
         except OSError as exc:
             skipped += 1
@@ -1383,8 +1383,8 @@ def run_cc_turn(
                 os.close(_fd)
             continue
         # The Django container runs as root; the agent runs as the unprivileged
-        # image user (uid 1001). Make each backing dir writable (best-effort;
-        # dev-instance). Task 10 sentinel scratch write proves uid-1001 writes.
+        # image user (uid 10001, the same as the app). Make each backing dir writable (best-effort;
+        # dev-instance). Task 10 sentinel scratch write proves uid-10001 writes.
         try:
             os.chmod(_backing, 0o777)
         except OSError:
