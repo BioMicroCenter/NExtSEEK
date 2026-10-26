@@ -321,9 +321,9 @@ services:
     # :8080 must be reachable ONLY on dmac-cc-net (R-8/gate G5) — no host
     # `ports:` publish here, ever.
 
-  # Container-CC agent image build target ONLY. The nextseek Django worker
-  # spawns one ephemeral, per-turn sibling container from this image through
-  # cc-spawner, which holds the host docker socket (see spawner_client.py)
+  # Container-CC agent image build target ONLY. cc-spawner, which holds the
+  # host docker socket, starts one ephemeral, per-turn sibling container from
+  # this image when `web` asks it to (see NessieAI/cc/spawner_client.py)
   # — it is NOT a persistent compose-managed service. This stanza exists so
   # `docker compose build` (part of the canonical `docker compose build &&
   # docker compose up -d` deploy flow) produces/tags the image compose-

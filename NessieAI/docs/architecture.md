@@ -50,7 +50,7 @@ flowchart LR
     SC -.->|"_staging subpath only"| VOL
 ```
 
-**Legend.** Solid arrows are request flows; dotted lines are volume mounts. `nextseek_nginx` is the **only service on both the default network and `dmac-cc-net`** (`docker-compose.yml:75-77`) and is the sandboxed agent's only route back into NExtSEEK. `dmac-cc-net` is declared `internal: true` (`docker-compose.yml`), so it has no NAT/gateway at all; `bedrock-proxy` is the only service that also joins the egress-capable `dmac-cc-egress` (`docker-compose.yml:102-103`, `docker-compose.yml`), which is how AWS stays reachable while the agent inherits no internet path. The Django container sits on the default network only, so the agent has no L3 reach to Django, MySQL, SEEK, Solr, or Neo4j. `bedrock-proxy` and `nextseek-sidecar` publish no host port. The per-turn agent container is spawned by Django via the bind-mounted Docker socket (`docker-compose.yml:44`, docker-py), not by compose.
+**Legend.** Solid arrows are request flows; dotted lines are volume mounts. `nextseek_nginx` is the **only service on both the default network and `dmac-cc-net`** (`docker-compose.yml:75-77`) and is the sandboxed agent's only route back into NExtSEEK. `dmac-cc-net` is declared `internal: true` (`docker-compose.yml`), so it has no NAT/gateway at all; `bedrock-proxy` is the only service that also joins the egress-capable `dmac-cc-egress` (`docker-compose.yml:102-103`, `docker-compose.yml`), which is how AWS stays reachable while the agent inherits no internet path. The Django container sits on the default network only, so the agent has no L3 reach to Django, MySQL, SEEK, Solr, or Neo4j. `bedrock-proxy` and `nextseek-sidecar` publish no host port. The per-turn agent container is started by `cc-spawner`, the only service that holds the Docker socket, at Django's request over HTTP (`NessieAI/cc/spawner_client.py`), not by compose.
 
 ---
 
@@ -146,14 +146,14 @@ On `ROUTE_CC`, the same worker thread hands off to `NessieAI/cc/cc_engine.py`; `
 ```mermaid
 sequenceDiagram
     participant T as Django worker thread
-    participant D as Docker Engine
+    participant D as cc-spawner (Docker)
     participant A as CC agent container
     participant P as bedrock-proxy
     participant S as nextseek-sidecar
     participant N as nginx to Django
-    T->>T: gate - docker + image + network must exist (fail closed)
+    T->>D: gate - GET /health: docker + image + network must exist (fail closed)
     T->>T: resolve SEEK project, build memory CLAUDE.md
-    T->>D: containers.run dmac-assistant:poc on dmac-cc-net
+    T->>D: POST /turns - it runs dmac-assistant:poc on dmac-cc-net
     T->>A: stdin - one stream-json user envelope, then close
     A->>P: Bedrock invoke (allow-listed models)
     P-->>A: model response stream
@@ -163,12 +163,12 @@ sequenceDiagram
     S-->>A: op result
     A-->>T: stdout stream-json frames, translated to UI events
     T->>T: sweep staging, publish artifacts, persist transcript
-    T->>D: stop + remove container (always, in finally)
+    T->>D: POST /turns/{run_id}/stop (always, in finally)
 ```
 
 Step by step:
 
-1. **Gate**: `cc_runner_available()` (`NessieAI/cc/cc_engine.py:179`) asks cc-spawner, which needs a live Docker daemon, the agent image (`NessieAI/cc/cc_engine.py:188-191`), *and* the `dmac-cc-net` network (`NessieAI/cc/cc_engine.py:199-202`) to already exist; the bridge never creates the network, so a missing piece fails closed.
+1. **Gate**: `cc_runner_available()` in `NessieAI/cc/cc_engine.py` asks cc-spawner's `/health` with the spawner token (`spawner_client.health`), which needs a live Docker daemon, the agent image *and* the `dmac-cc-net` network to already exist (`Spawner.health` in `docker/cc-spawner/spawner.py`); nothing creates the network, so a missing piece, or a missing or refused token, fails closed.
 2. **Project resolution**: `resolve_user_project` (`NessieAI/cc/cc_provision.py:156`) uses the *user's own* SEEK credentials, via a lazily-imported `SeekDB` (`NessieAI/cc/cc_provision.py:150-151`); any failure rejects the turn rather than guessing.
 3. **Cross-session memory**: the most-recently-changed sibling session's transcript is re-summarized (`NessieAI/cc/cc_summary.py:278` → BAML `Summarize` at `NessieAI/cc/cc_summary.py:275`, on client `GCPFlash`, `gemini-3.5-flash` via `GCP_API_KEY`, `NessieAI/dmac_assistant/baml_src/clients.baml:26-32`), then `render_memory` (`NessieAI/cc/cc_memory.py:49`) renders a merged `CLAUDE.md` + transcript-pointer block into the memory mount.
 4. **Validation first**: `user_id`, `run_id`, `project_dirname` and the cc-state key are charset/traversal-validated *before* any path interpolation, mkdir or mount; the precondition is stated at `NessieAI/cc/cc_engine.py:951-953`.
@@ -176,7 +176,7 @@ Step by step:
 6. **Environment**: `build_agent_environment` (`NessieAI/cc/cc_engine.py:282`) is the single source of the agent env and injects **zero AWS or backend credentials**: Bedrock is pointed at `http://bedrock-proxy:8080` (`NessieAI/cc/cc_engine.py:66`) with the proxy holding the token, and the only secrets are the *requesting user's own* NExtSEEK login. The NExtSEEK base URL is rewritten to the `nextseek_nginx` service host (`NessieAI/cc/cc_engine.py:249`, rationale at `NessieAI/cc/cc_engine.py:247` and `NessieAI/cc/cc_engine.py:268`) because the sibling container cannot reach Django's loopback.
 7. **Command**: `claude --print --input-format stream-json --output-format stream-json --verbose --permission-mode auto` (`NessieAI/cc/cc_engine.py:140-145`; a classifier gates each tool call, explicitly *not* `--dangerously-skip-permissions`, `NessieAI/cc/cc_engine.py:136-137`), plus `--model <opus id>`, `--fallback-model <opus_fallback id>` (when it resolves), `--max-turns` and `--max-budget-usd` (`NessieAI/cc/cc_engine.py:759-762`; a budget of 0 omits the flag), a settings-file allowlist of trusted-infra *descriptors*, never secret values (`NessieAI/cc/cc_engine.py:766-772`), and `--resume` when continuing a prior CC session.
 8. **Caps**: budget default **$0.50** (`NessieAI/cc/cc_engine.py:73`), turns default **50** (`NessieAI/cc/cc_engine.py:74`), and a wall clock clamped into `[_TIMEOUT_FLOOR, _TIMEOUT_HARD_MAX]` by `clamp_turn_timeout` (`NessieAI/cc/cc_engine.py:103-113`). **The 180 s ceiling is no longer immovable**: `_TIMEOUT_HARD_MAX` itself reads `NEXTSEEK_CC_TIMEOUT_HARD_MAX`, defaulting to 180 (`NessieAI/cc/cc_engine.py:81`), and the per-turn value is `min(NEXTSEEK_CC_TIMEOUT_SECONDS, _TIMEOUT_HARD_MAX)` (`NessieAI/cc/cc_engine.py:84-85`). A watchdog thread force-stops and removes the container on overrun (`NessieAI/cc/cc_engine.py:1172-1182`).
-9. **Spawn & input**: docker-py `containers.run` on `dmac-cc-net`, detached; a stale same-name container from a crashed run is force-removed and the spawn retried (`NessieAI/cc/cc_engine.py:919`). The user query is written to stdin as **one** stream-json envelope, then stdin closes.
+9. **Spawn & input**: `POST /turns` to cc-spawner, which validates the body, runs the container on `dmac-cc-net` detached (a stale same-name container from a crashed run is force-removed and the run retried, `Spawner._run_with_stale_name_retry`), writes the user query to stdin as **one** stream-json envelope, closes stdin and streams stdout back.
 10. **Streaming out**: the container's stdout is demuxed line-by-line (`NessieAI/cc/attach.py:1-9`); `CCStreamTranslator` (`NessieAI/cc/translate.py:62`) maps Claude's stream-json onto the frontend's vocabulary, emitting `agent_started` (`NessieAI/cc/translate.py:132`), `search_started` (`NessieAI/cc/translate.py:165`, `NessieAI/cc/translate.py:174`), `search_complete` (`NessieAI/cc/translate.py:175`, `NessieAI/cc/translate.py:192`), `query_error` (`NessieAI/cc/translate.py:207`) and `query_complete` (`NessieAI/cc/translate.py:215`). There is **no token streaming**: the final answer arrives as one Markdown string in `query_complete.reply` (`NessieAI/cc/translate.py:5-13`).
 11. **Staging sweep**: `sweep_user_staging` (`NessieAI/cc/cc_staging.py:253`) moves this turn's `.complete`-marked artifacts out of `_staging/sha256(turn pass)/` into the user's own tree. The destination is derived exclusively from the current request's validated identity and the source only from `sha256(turn pass)` (`NessieAI/cc/cc_staging.py:275`, hash at `NessieAI/cc/cc_staging.py:113`). The sidecar's compose mount is locked to the `_staging` subpath (`docker-compose.yml:179-183`), so it cannot write into a user tree by construction (`NessieAI/cc/cc_staging.py:22-23`).
 12. **Publish**: `_publish_artifacts` (`NessieAI/cc/cc_engine.py:1841`) diffs a before/after snapshot of the scratch mount and copies changed files into the session's output tree.
@@ -242,7 +242,7 @@ The file declares **10 services**, 2 networks and 9 volumes (`docker-compose.yml
 | `nextseek_nginx` (`docker-compose.yml:55`) | default **+** `dmac-cc-net` (`docker-compose.yml:75-77`) | `127.0.0.1:${NEXTSEEK_PORT:-8000}` (`docker-compose.yml:57-58`) | The only dual-homed service; the agent's only route back into NExtSEEK. |
 | `bedrock-proxy` (`docker-compose.yml:88`) | `dmac-cc-net` **+** `dmac-cc-egress` (`docker-compose.yml:102-103`) | none (`docker-compose.yml:104-105`) | Credential-holding model relay (container `dmac-bedrock-proxy`, `docker-compose.yml:92`). |
 | `nextseek-sidecar` (`docker-compose.yml:164`) | `dmac-cc-net` only (`docker-compose.yml:184-185`) | none | Stateless op forwarder; mounts only the reserved `_staging` subpath (`docker-compose.yml:179-183`). |
-| `cc-agent` (`docker-compose.yml:120`) | `network_mode: none` (`docker-compose.yml:128`) | none | **Build-target only** (`image: dmac-assistant:poc` `docker-compose.yml:127`, `command: ["true"]` `docker-compose.yml:129`): real agents are spawned per turn by `cc_engine.py` via docker-py. |
+| `cc-agent` (`docker-compose.yml:120`) | `network_mode: none` (`docker-compose.yml:128`) | none | **Build-target only** (`image: dmac-assistant:poc` `docker-compose.yml:127`, `command: ["true"]` `docker-compose.yml:129`): real agents are started per turn by `cc-spawner` at `cc_engine.py`'s request. |
 
 The remaining five: `db` (MySQL 8.0, `127.0.0.1:3306`, `docker-compose.yml:202`/`docker-compose.yml:214-215`), `neo4j` (`127.0.0.1:7474` and `127.0.0.1:7687`, `docker-compose.yml:222`/`docker-compose.yml:260-262`), `seek` (`fairdom/seek:1.15.1`, `127.0.0.1:3000`, `docker-compose.yml:264`/`docker-compose.yml:282-283`), `seek_workers` (`docker-compose.yml:291`), `solr` (`docker-compose.yml:316`). The four background workers that were profile-gated services until 2026-09-02 (the attribute worker, dispatcher and recovery scheduler, and the assay-registration drain) are processes of `nextseek` (`docker/scripts/entrypoint.sh`). All five sit on the default network only. The network `dmac-cc-net` is pinned to that literal name (`docker-compose.yml`) and is `internal: true` (`docker-compose.yml`); `dmac-cc-egress` carries only the proxy (`docker-compose.yml`); the volume `dmac-cc-users` is `external: true` (`docker-compose.yml`) with an instance-prefixed name (`docker-compose.yml`).
 
