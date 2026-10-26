@@ -377,6 +377,20 @@ if [ $DO_NESSIE = 1 ]; then
   for f in $CASES; do
     RUN=$INSTANCE-${f%.json}
     cp "$IN/$f" "$L/$f" || { say "CASES missing $f"; continue; }
+    if grep -q '"_measure"' "$L/$f" && ! grep -q '"_measure": *{}' "$L/$f"; then   # every number in it was measured on another graph: re-pin on this box, never run placeholders (an empty block has nothing to pin)
+      PS=NessieAI/tests/nessie_tests/scripts/pin_probe_truths.py; P="$L/pin-${f%.json}"
+      if python3 $PS --emit-cypher "$L/$f" > "$P.cypher" 2> "$P.log" \
+         && docker compose exec -T neo4j sh -c 'NEO4J_PASSWORD="${NEO4J_AUTH#neo4j/}" cypher-shell --access-mode read -u neo4j --format plain' \
+              < "$P.cypher" > "$P.out" 2>> "$P.log" \
+         && python3 $PS --parse-output "$P.out" --probe "$L/$f" --measured-out "$P.measured.json" >> "$P.log" 2>&1 \
+         && python3 $PS --pin "$L/$f" --from "$P.measured.json" --drop-unmeasured --out "$P.pinned.json" >> "$P.log" 2>&1 \
+         && cp "$P.pinned.json" "$L/$f"; then
+        say "PINNED $f measured=$(tr -d ' \n' < "$P.measured.json" | cut -c1-300) dropped=$(sed -n 's/^DROPPED: //p' "$P.log" | tail -1)"
+      else
+        say "FINDING PIN_FAILED $f see $P.log; this file's run was skipped"
+        continue
+      fi
+    fi
     docker cp -a "$L/$f" nextseek:/app/runs/$f
     case "$f" in   # a *-member.json file runs as the non-admin smoke login, every other as the admin (2026-10-05)
       *-member.json) LOGIN=member U=${CI_SMOKE_USER:-} PW=CI_SMOKE_PASS;;

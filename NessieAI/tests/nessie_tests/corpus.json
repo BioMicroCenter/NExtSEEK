@@ -12792,7 +12792,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(?=.*SRR24445250)(?=.*PRJNA967652)"
+                  "value": "(?is)(?=.*D\\.SEQ-230512FOR-288-PUB)(?=.*D\\.SEQ-230512FOR-289-PUB)(?=.*PRJNA967652)"
                 }
               ]
             }

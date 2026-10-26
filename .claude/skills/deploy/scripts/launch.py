@@ -372,8 +372,9 @@ def brief_rules(brief: BriefForm, now: dt.datetime) -> tuple[list[str], list[str
                     stops.append(f"{c.file}: include_ids {i} may write or launch: check it by hand, "
                                  "then name it in a waiver")
         if spec.get("_measure") and brief.instance in ("dev", "prod"):
-            warns.append(f"{c.file} carries a _measure block: re-pin it on {inst.box} before the run "
-                         "(references/nessie-questions.md section 3)")
+            warns.append(f"{c.file} carries a _measure block: the runner re-pins it on {inst.box} before its "
+                         "run; if the pin fails it skips the file and says FINDING PIN_FAILED, so the launch "
+                         "cannot report shipped (references/nessie-questions.md section 3)")
 
     if not brief.live_markers and ("app" in images or brief.images is None):
         warns.append("no live marker: pick a string the change added from the diff, add it to "
