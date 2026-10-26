@@ -91,8 +91,8 @@ rebuild(){ # $1 component, or app-build (the switchover's first step: the app im
   ./startup.sh rebuild --component "$comp" --no-ci $flags $extra > "$L/$(logname "$1").log" 2>&1 </dev/null
   say "REBUILD $1 exit=$?"
   t=$(rollback_tag "$L/$(logname "$1").log")
-  # one ROLLBACK line per image, the first: after app-build the app step's tag points at the image app-build made
-  case " ${ROLLED:-} " in *" $comp "*) ;; *) [ -n "$t" ] && { say "ROLLBACK $comp ${t#rollback tag verified: }"; ROLLED="${ROLLED:-} $comp"; };; esac
+  # only an image's first rebuild reports ROLLBACK: after app-build the app step's tag points at the image app-build made
+  case " ${ROLLED:-} " in *" $comp "*) ;; *) [ -n "$t" ] && say "ROLLBACK $comp ${t#rollback tag verified: }"; ROLLED="${ROLLED:-} $comp";; esac
   PENDING=$(echo " $PENDING " | sed "s/ $1 / /; s/^ *//; s/ *\$//")
   grep -qF "$(success_line "$1")" "$L/$(logname "$1").log"
 }
@@ -130,6 +130,7 @@ mkdir -p "$L" "$H/backups"
 say "START tag=$TAG instance=$INSTANCE components=${COMPONENTS:-none}"
 
 w=$(in_window); [ -n "$w" ] && stop "inside the $w UTC stop window; start after it"
+host_gid_env || stop "could not add NEXTSEEK_HOST_GID to .env"   # before any compose verb, so before the pull too
 busy=$(docker compose exec -T nextseek sh -c 'pgrep -af "manage.py (graph_sync --full|graph_sync --drift|nessie)" || true' </dev/null 2>/dev/null)
 [ -n "$busy" ] && stop "busy inside nextseek: $busy"
 
@@ -138,7 +139,6 @@ git fetch -q origin || stop "git fetch failed"
 for p in $DISCARD; do git checkout -- "$p" 2>/dev/null; done   # the app's daily context refresh only
 set_aside || stop "could not set the dirty $SET_ASIDE aside; nothing was reset past the failed file"
 rm -f @@REFRESH_MARKER@@
-host_gid_env || stop "could not add NEXTSEEK_HOST_GID to .env"
 git merge --ff-only "$EXP" >> "$L/pull.log" 2>&1 || stop "fast-forward refused, see $L/pull.log"
 [ "$(git rev-parse HEAD)" = "$EXP" ] || stop "HEAD $(git rev-parse --short HEAD) is not the expected sha"
 say "HEAD $(git log --oneline -1 | cut -c1-70)"
