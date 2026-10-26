@@ -1,0 +1,97 @@
+{
+  "family": "off_topic",
+  "stories": [
+    {
+      "id": "ot-howto-upload",
+      "question": "How do I upload samples?",
+      "cohort": "",
+      "route": "nextseek_query",
+      "acceptable": [],
+      "must_not": [],
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "off_topic",
+      "why": {
+        "route": "A how-to question about using the site; the router sends those to nextseek_query, where the user docs answer it. Route-only: the story passes if the route is right and no pipeline opens."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "ot-weather",
+      "question": "What's the weather in Boston?",
+      "cohort": "",
+      "route": "unrelated",
+      "acceptable": [],
+      "must_not": [],
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "off_topic",
+      "why": {
+        "route": "Small talk with no connection to NExtSEEK, the lab or the user's data, so the router picks unrelated."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "ot-method-howto",
+      "question": "How was RNA velocity computed in the paper behind the granuloma single-cell study?",
+      "cohort": "",
+      "route": "container_cc",
+      "acceptable": [],
+      "must_not": [],
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "off_topic",
+      "why": {
+        "route": "Explaining how a published paper's analysis was done is a method question, which the router sends to container_cc, not a request to run a pipeline on the user's samples."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "ot-count",
+      "question": "How many sample types does NExtSEEK define?",
+      "cohort": "",
+      "route": "nextseek_query",
+      "acceptable": [],
+      "must_not": [],
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "off_topic",
+      "why": {
+        "route": "A catalog count NExtSEEK answers itself, so the router sends it to nextseek_query. Route-only: the story passes if the route is right and no pipeline opens."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    }
+  ]
+}

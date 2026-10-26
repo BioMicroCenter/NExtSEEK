@@ -75,3 +75,30 @@ def test_every_test_cohort_has_a_definition_with_a_parent_chain():
                 assert row.get("Scientist") == "Nessie Test", (path.name, row["Name"])
             known |= {row["Name"] for row in level["rows"]}
         assert d["levels"][-1]["sample_type"] == "D.SEQ", path.name
+
+
+def _choosable():
+    atlas = load_atlas()["pipelines"]
+    return sorted(k for k, e in atlas.items() if e.get("launchable", True) and k in CATALOG_KEYS)
+
+
+@pytest.mark.parametrize("key", _choosable())
+def test_every_choosable_pipeline_has_at_least_four_stories(key):
+    n = sum(1 for s in st.load_stories() if any(key in a for a in s.acceptable))
+    assert n >= 4, f"{key} has {n} stories"
+
+
+def test_every_not_yet_pipeline_has_a_story():
+    for key in st.NOT_YET_PIPELINES:
+        assert any(s.expect == "not_yet" and key in s.why.get("pipelines", "") for s in st.load_stories()), key
+
+
+def test_there_are_off_topic_stories():
+    assert sum(1 for s in st.load_stories() if s.family == "off_topic") >= 4
+
+
+def test_a_route_only_off_topic_story_needs_no_acceptable():
+    story = st.Story(id="ot", family="off_topic", question="How do I upload samples?", cohort="",
+                     route="nextseek_query", phrasing="off_topic", why={"route": "site how-to"},
+                     ruling={"state": "proposed", "date": "2026-10-26", "note": ""})
+    assert st.problems([story], ATLAS_KEYS, CATALOG_KEYS) == []

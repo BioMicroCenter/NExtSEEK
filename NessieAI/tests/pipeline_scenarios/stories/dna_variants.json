@@ -212,6 +212,98 @@
         "route": "The question asks for an analysis of the user's own sequenced samples.",
         "pipelines": "Targeted duplex DNA capture. The question presumes RNA that was never sequenced."
       }
+    },
+    {
+      "id": "sarek-plain",
+      "question": "Which variants do these two blood donors carry?",
+      "cohort": "test::human_wgs_germline",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "sarek"
+        ]
+      ],
+      "must_not": [
+        "rnavar",
+        "methylseq"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Two human PCR-free whole-genome DNA libraries, so germline SNV, indel and structural-variant calling is sarek. rnavar is wrong because these are DNA, not RNA-seq; methylseq is wrong because nothing was bisulfite converted."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "sarek-outcome",
+      "question": "I want a VCF of the germline SNVs and indels for each exome.",
+      "cohort": "test::human_exome",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "sarek"
+        ]
+      ],
+      "must_not": [
+        "rnavar",
+        "hlatyping"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "outcome",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Human exomes captured with Agilent SureSelect Human All Exon V7: a per-sample germline VCF is sarek's output (with its exome setting and the kit's target BED). rnavar calls variants from RNA-seq only; hlatyping types HLA alleles and does not produce a genome-wide VCF."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "sarek-tumour-normal",
+      "question": "Run nf-core sarek in tumour-normal mode on this patient's samples.",
+      "cohort": "test::tumour_normal",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "sarek"
+        ]
+      ],
+      "must_not": [
+        "rnavar"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "named",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "One patient with a colon tumour and a matched blood normal, both WGS and both linked to the patient, which is what sarek's somatic tumour-normal calling needs. rnavar would be wrong: these are DNA libraries. must_match is left empty because the template's default tools (haplotypecaller, manta) hold no somatic caller; a good launch adds one (strelka or mutect2), so rule whether to require it."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
     }
   ]
 }

@@ -119,7 +119,8 @@ def problems(stories: list[Story], atlas_keys: set[str], catalog_keys: set[str])
             found.append(f"{p} why needs a 'route' reason")
         if not s.question.strip():
             found.append(f"{p} has no question")
-        if s.route == "nextseek_query" and s.cohort not in cohorts:
+        route_only = s.family == "off_topic" and not s.acceptable
+        if s.route == "nextseek_query" and not route_only and s.cohort not in cohorts:
             found.append(f"{p} unknown cohort {s.cohort!r}")
         named = {k for answer in s.acceptable for k in answer} | set(s.must_not)
         for key in sorted(named - pipelines):
@@ -129,7 +130,7 @@ def problems(stories: list[Story], atlas_keys: set[str], catalog_keys: set[str])
         both = {k for answer in s.acceptable for k in answer} & set(s.must_not)
         if both:
             found.append(f"{p} {sorted(both)} in both acceptable and must_not")
-        if s.route == "nextseek_query":
+        if s.route == "nextseek_query" and not route_only:
             if s.expect in ("not_yet", "refuse"):
                 if s.acceptable:
                     found.append(f"{p} an expect={s.expect!r} story must have no acceptable")

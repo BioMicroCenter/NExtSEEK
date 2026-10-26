@@ -33,6 +33,127 @@
         "pipelines": "Bisulfite libraries are a methylation question: methylseq. sarek would call the C-to-T conversions as mutations, and rnaseq and rnavar read transcripts."
       },
       "expect": null
+    },
+    {
+      "id": "methyl-plain",
+      "question": "How methylated are the promoters in these samples?",
+      "cohort": "test::methylation",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "methylseq"
+        ]
+      ],
+      "must_not": [
+        "sarek"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The libraries are RRBS (MspI digest, bisulfite conversion), which covers CpG-rich promoters well, and methylseq turns them into per-CpG methylation levels. sarek is wrong: it would read the bisulfite C-to-T conversions as mutations."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "methyl-named",
+      "question": "Run nf-core methylseq on these RRBS libraries.",
+      "cohort": "test::methylation",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "methylseq"
+        ]
+      ],
+      "must_not": [
+        "sarek"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "named",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The user names the pipeline and the libraries are RRBS bisulfite libraries, which methylseq takes (with its RRBS setting on). sarek would treat converted reads as ordinary DNA and report conversions as variants."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "methyl-outcome",
+      "question": "Give me CpG methylation calls.",
+      "cohort": "test::methylation",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "methylseq"
+        ]
+      ],
+      "must_not": [
+        "sarek"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "outcome",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Per-CpG methylation calls from bisulfite (RRBS) reads are methylseq's output. sarek's calls are sequence variants, and on bisulfite reads they would be the conversions themselves."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "methyl-lookalike",
+      "question": "Call variants on these bisulfite libraries.",
+      "cohort": "test::methylation",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "methylseq"
+        ]
+      ],
+      "must_not": [
+        "sarek"
+      ],
+      "expect": "ask",
+      "launch": {
+        "built": false,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "lookalike",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Converted reads read C->T as mutations; sarek would report conversions as variants. methylseq is the only pipeline that reads bisulfite libraries correctly, but it reports methylation, not SNVs, so a careful analyst would say so and ask whether methylation is what the user wants; proposed as ask with methylseq acceptable. If you rule that methylseq should be offered straight away, change expect to none and launch to built."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
     }
   ]
 }

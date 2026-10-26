@@ -33,6 +33,99 @@
         "route": "The question asks for an analysis of the user's own sequenced samples.",
         "pipelines": "Migrated from the old RNA selection cases; answers unchanged."
       }
+    },
+    {
+      "id": "smrna-plain",
+      "question": "Which microRNAs change when Dicer is inhibited?",
+      "cohort": "test::smallrna",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "smrnaseq"
+        ]
+      ],
+      "must_not": [
+        "rnaseq",
+        "riboseq"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "QIAseq miRNA libraries (size-selected, UMI adapter) from untreated and Dicer-inhibited HeLa cells: smrnaseq quantifies the mature miRNAs in each. There is one library per condition, so the reply should say counts can be compared but not tested for significance. rnaseq would discard the short RNAs; riboseq is for ribosome footprints."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "smrna-outcome",
+      "question": "I want a table of mature miRNA counts per sample.",
+      "cohort": "test::smallrna",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "smrnaseq"
+        ]
+      ],
+      "must_not": [
+        "rnaseq",
+        "riboseq"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "outcome",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "A per-sample table of mature miRNA counts (against miRBase for human) is smrnaseq's output. rnaseq counts genes from long-RNA libraries; riboseq counts ribosome footprints."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "smrna-lookalike",
+      "question": "Quantify gene expression in these RNA-seq libraries.",
+      "cohort": "test::smallrna",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "smrnaseq"
+        ]
+      ],
+      "must_not": [
+        "rnaseq",
+        "riboseq"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "lookalike",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The words describe ordinary RNA-seq, but the libraries are QIAseq miRNA, size-selected to about 22 nt; smrnaseq is the pipeline that reads them, and the reply should say it gives small-RNA rather than gene-level counts. rnaseq is the lookalike: on these reads it would quantify almost nothing useful."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
     }
   ]
 }

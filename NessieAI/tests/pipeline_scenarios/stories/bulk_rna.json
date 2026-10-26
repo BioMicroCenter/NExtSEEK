@@ -924,6 +924,221 @@
         "route": "The question asks for an analysis of the user's own sequenced samples.",
         "pipelines": "The output framing of sho-3prime-isoforms. A 3'DGE library sequences only the 3' end, so no PSI is recoverable however the request is phrased. Pairs with qout-psi-events: same deliverable, different library, opposite answer."
       }
+    },
+    {
+      "id": "ribo-plain",
+      "question": "Which mRNAs are translated less after Torin 1?",
+      "cohort": "test::riboseq",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "riboseq"
+        ]
+      ],
+      "must_not": [
+        "rnaseq",
+        "smrnaseq"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "The libraries are ribosome footprints (cycloheximide-arrested polysomes, RNase I digest, 28-30 nt), DMSO versus Torin 1, so riboseq measures what is being translated. There is no matched total RNA-seq, so the reply can give footprint changes but not translational efficiency. rnaseq and smrnaseq misread footprints as transcripts or small RNAs."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "ribo-outcome",
+      "question": "Give me footprint counts per gene and the ribosome P-site offsets.",
+      "cohort": "test::riboseq",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "riboseq"
+        ]
+      ],
+      "must_not": [
+        "rnaseq",
+        "smrnaseq"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "outcome",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Per-gene footprint counts and P-site offsets are riboseq's outputs. rnaseq does not compute P-sites, and smrnaseq would map the footprints to miRNA databases."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "ribo-lookalike",
+      "question": "These libraries are all short reads of about 30 nt. Quantify them.",
+      "cohort": "test::riboseq",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "riboseq"
+        ]
+      ],
+      "must_not": [
+        "smrnaseq",
+        "rnaseq"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "lookalike",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Short reads alone suggest small RNA, but the protocol is RNase I footprinting of cycloheximide-arrested polysomes, so riboseq is right. smrnaseq is the lookalike: it would look for miRNAs and discard the footprints."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "denovo-plain",
+      "question": "What genes are expressed in these mealworm larvae, and how much?",
+      "cohort": "test::nonmodel_rnaseq",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "denovotranscript"
+        ]
+      ],
+      "must_not": [
+        "scrnaseq",
+        "smrnaseq"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "plain",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "Tenebrio molitor (mealworm) has no reference bundle on the cluster, so the transcriptome is assembled from the reads and quantified, which is denovotranscript. scrnaseq and smrnaseq do not fit bulk poly-A libraries. rnaseq is not listed as wrong here because a public assembly of this species may exist; rule whether rnaseq with a user-supplied genome is also acceptable."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "denovo-outcome",
+      "question": "I want an assembled transcriptome FASTA with abundance estimates for each sample.",
+      "cohort": "test::nonmodel_rnaseq",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "denovotranscript"
+        ]
+      ],
+      "must_not": [
+        "rnaseq",
+        "scrnaseq"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "outcome",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "An assembled transcriptome and per-sample abundances are exactly denovotranscript's outputs. rnaseq aligns to an existing genome and never assembles one; scrnaseq is for barcoded single cells."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "denovo-lookalike",
+      "question": "Which genes differ between the control-diet and polystyrene-diet larvae?",
+      "cohort": "test::nonmodel_rnaseq",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "denovotranscript"
+        ]
+      ],
+      "must_not": [
+        "rnaseq"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "lookalike",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "This reads like an ordinary expression comparison, but the beetle has no reference on the cluster, so the reads must be assembled first with denovotranscript. There is one larva per diet, so the reply should say the levels can be compared but not tested. rnaseq is the lookalike: it needs a reference genome and annotation that are not there."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
+    },
+    {
+      "id": "fusion-lookalike",
+      "question": "Find the abnormal splice junctions that join exons of two different genes in this breast cancer line.",
+      "cohort": "240709KAM::A.GEX",
+      "route": "nextseek_query",
+      "acceptable": [
+        [
+          "rnafusion"
+        ]
+      ],
+      "must_not": [
+        "rnasplice"
+      ],
+      "launch": {
+        "built": true,
+        "must_match": {}
+      },
+      "history": [],
+      "replies": [],
+      "phrasing": "lookalike",
+      "why": {
+        "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
+        "pipelines": "A junction joining exons of two different genes is a gene fusion, and the cohort is human bulk RNA-seq of MDA-MB-231 cells, so rnafusion is right. rnasplice is the lookalike: it compares isoforms of one gene between groups of samples and does not report two-gene chimeras."
+      },
+      "ruling": {
+        "state": "proposed",
+        "date": "2026-10-26",
+        "note": ""
+      }
     }
   ]
 }
