@@ -63,9 +63,12 @@ def score(story: Story, o: Outcome) -> Score:
             return Score("FAIL", [f"built on {o.pipeline_key} for a {story.expect} story"])
         return Score("PASS", [story.expect])
     if story.expect == "ask":
-        if not built and o.replies and "?" in o.replies[0]:
+        asked = bool(o.replies and "?" in o.replies[0]) or (o.selection or {}).get("verdict") == "fork"
+        if asked and not built:
             return Score("PASS", ["asked"])
         return Score("PARTIAL", [f"chose {o.pipeline_key or sorted(offered(o))} without asking"])
+    if (o.selection or {}).get("verdict") == "refused" and not built:
+        return Score("FAIL", [f"refused: {o.selection.get('reason') or ''}"[:200]])
     if story.launch.get("built") and not built:
         last = (o.replies[-1] if o.replies else "")[:160]
         return Score("FAIL", [f"launch expected but not built; last reply: {last!r}"])

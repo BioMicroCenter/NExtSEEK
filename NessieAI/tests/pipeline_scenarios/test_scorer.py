@@ -87,3 +87,33 @@ def test_a_route_only_story_passes_on_the_route():
 
 def test_a_runner_error_fails():
     assert score(_story(), Outcome(route="nextseek_query", error="boom")).grade == "FAIL"
+
+
+def test_ask_passes_on_a_fork_even_when_the_reply_is_a_statement():
+    st = _story(expect="ask", acceptable=[], launch={"built": False, "must_match": {}})
+    o = Outcome(route="nextseek_query", replies=["Tell me whether these are ATAC or ChIP."],
+                selection={"verdict": "fork", "pipelines": ["atac", "chip"]})
+    assert score(st, o).grade == "PASS"
+
+
+def test_ask_is_partial_with_no_question_and_no_fork():
+    st = _story(expect="ask", acceptable=[], launch={"built": False, "must_match": {}})
+    o = Outcome(route="nextseek_query", replies=["Tell me whether these are ATAC or ChIP."])
+    assert score(st, o).grade == "PARTIAL"
+
+
+def test_a_refusal_of_an_offer_only_answerable_story_fails():
+    st = _story(acceptable=[["differentialabundance"]], must_not=[],
+                launch={"built": False, "must_match": {}})
+    o = Outcome(route="nextseek_query",
+                selection={"verdict": "refused", "pipelines": [], "reason": "no matching data"})
+    s = score(st, o)
+    assert s.grade == "FAIL" and "refused" in s.reasons[0]
+
+
+def test_a_refusal_of_a_launch_story_fails_with_the_refusal_reason():
+    o = Outcome(route="nextseek_query",
+                selection={"verdict": "refused", "pipelines": [], "reason": "no matching data"},
+                replies=["Sorry, I cannot run that."])
+    s = score(_story(), o)
+    assert s.grade == "FAIL" and "refused" in s.reasons[0] and "no matching data" in s.reasons[0]
