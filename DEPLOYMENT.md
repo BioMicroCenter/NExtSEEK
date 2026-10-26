@@ -514,7 +514,9 @@ window: between the sidecar rebuild and the app step, the 10001 sidecar cannot w
 1. `./startup.sh rebuild --component cc-agent`, then `--component nextseek-sidecar`, then `--component bedrock-proxy`,
    then the app (`./startup.sh rebuild`), back to back. The app rebuild notices the user change, does not swap,
    stops `web`, `nextseek` and `nextseek-sidecar`, runs FIX on every volume and bind, then starts them. Users
-   see the restart page meanwhile. Measured sizes: dev about 16k files, prod about 14k, the scans take 0 to 1 s,
+   see the restart page meanwhile. Before it stops anything it runs `id -u` in the cc-agent and sidecar images
+   and refuses (nothing stopped, the old containers keep running) unless both say 10001: rebuild them first.
+   The runner stops before any rebuild when the brief leaves either out. Measured sizes: dev about 16k files, prod about 14k, the scans take 0 to 1 s,
    so the FIX is seconds, not minutes.
 2. CHECK: `./startup.sh fix-ownership --check` must print 0 on every target (exit 0). The runner does this
    itself after the rebuilds and stops the launch otherwise, and its post-deploy checks add: `id -u` in `web` is

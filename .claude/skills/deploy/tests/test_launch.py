@@ -551,6 +551,18 @@ def test_the_host_gid_reaches_env_before_the_pull(tmp_path, capsys):
     assert "NEXTSEEK_HOST_GID" in (box / "st").read_text()   # said once, in the status file
 
 
+def test_a_switchover_without_the_agent_and_sidecar_images_stops_before_any_rebuild(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["app"], allowed_extras=[])
+    fn = _functions(text)
+    for comps, missing in (("app", ["cc-agent", "nextseek-sidecar"]), ("app cc-agent", ["nextseek-sidecar"]),
+                           ("app cc-agent nextseek-sidecar", [])):
+        r = subprocess.run(["bash", "-c", f'{fn}\nswitch_missing "{comps}"'], capture_output=True, text=True)
+        assert r.stdout.split() == missing, (comps, r.stderr)
+    block = text.split("if [ $SWITCH = 1 ]; then", 1)[1].split("\nfi\n", 1)[0]
+    assert "switch_missing" in block and "stop" in block
+    assert block.index("switch_missing") < block.index("COMPONENTS=$(switch_order")
+
+
 def test_the_post_deploy_checks_prove_web_is_non_root_and_the_spawner_refuses_without_a_token(tmp_path, capsys):
     d, text = rendered_runner(tmp_path, capsys, images=["app"], allowed_extras=[])
     assert "CHECK web_uid $(docker compose exec -T web id -u" in text

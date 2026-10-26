@@ -196,3 +196,21 @@ def test_before_the_switchover_is_any_app_user_but_10001(tmp_path: Path) -> None
     # the old comparison read the old image at the tag before the app build and called ""/"" no change
     with patch("startup.steps.volumes.subprocess.run", side_effect=_answers("", {"web": [""], "nextseek": [""]})):
         assert volumes.app_user_change(tmp_path, {}) is False
+
+
+def test_peer_images_must_run_as_the_app_uid(tmp_path: Path) -> None:
+    cfg = json.dumps({"services": {"nextseek": {"image": IMG}, "cc-agent": {"image": "dmac-assistant:poc"},
+                                   "nextseek-sidecar": {"image": "nextseek-ns-sidecar:latest"}}})
+    ran: list[list[str]] = []
+
+    def fake_run(cmd, **kw):
+        ran.append(cmd)
+        if cmd[:3] == ["docker", "compose", "config"]:
+            return MagicMock(returncode=0, stdout=cfg, stderr="")
+        return MagicMock(returncode=0, stdout="10001\n" if "dmac-assistant:poc" in cmd else "1001\n", stderr="")
+
+    with patch("startup.steps.volumes.subprocess.run", side_effect=fake_run):
+        bad = volumes.peers_not_on_app_uid(tmp_path, {})
+    assert ["docker", "run", "--rm", "--pull", "never", "--network", "none", "--entrypoint", "id",
+            "dmac-assistant:poc", "-u"] in ran
+    assert len(bad) == 1 and "nextseek-sidecar" in bad[0] and "1001" in bad[0]

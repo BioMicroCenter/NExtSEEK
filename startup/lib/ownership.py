@@ -13,6 +13,7 @@ from pathlib import Path
 APP_UID = APP_GID = 10001   # dedicated: the app, cc-agent and ns-sidecar images all use it
 SERVICES = ("nextseek", "web")
 STOP_SERVICES = ("web", "nextseek", "nextseek-sidecar")   # the switchover stops all three
+PEER_SERVICES = ("cc-agent", "nextseek-sidecar")   # share dmac-cc-users with the app: on APP_UID before it switches
 CC_USERS_TARGET = "/dmac/users"
 # Writable by compose, read-only in practice (theme templates from the checkout): never chowned.
 SKIP_TARGET_PREFIXES = ("/app/themes",)

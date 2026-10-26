@@ -937,6 +937,7 @@ def _stub_ownership(monkeypatch: pytest.MonkeyPatch, *, user_changed: bool = Fal
     seen: list[str] = []
     from startup.steps import validate
     monkeypatch.setattr(volumes, "app_user_change", lambda root, env: user_changed)
+    monkeypatch.setattr(volumes, "peers_not_on_app_uid", lambda root, env: [])
     monkeypatch.setattr(volumes, "stop_app_services", lambda root, env: seen.append("stop"))
     monkeypatch.setattr(volumes, "ensure_secret_group_read", lambda root, env: [])
     monkeypatch.setattr(validate, "check_app_ids", lambda gid: validate.HealthResult("app uid/gid", True, "ok"))
@@ -2823,3 +2824,23 @@ def test_fix_ownership_before_the_app_build_leaves_cc_users_alone(
 
     assert result.exit_code == 0, result.output
     assert seen == [True] and "dmac-cc-users" in result.output
+
+
+def test_the_switchover_refuses_before_stopping_anything_when_a_peer_image_is_not_on_10001(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import volumes
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    order = _stub_ownership(monkeypatch, user_changed=True)
+    _record_all(monkeypatch, order)
+    monkeypatch.setattr(volumes, "peers_not_on_app_uid",
+                        lambda root, env: ["nextseek-sidecar (nextseek-ns-sidecar:latest) runs as 1001"])
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-ci"])
+
+    assert result.exit_code == 1
+    assert order == []    # nothing stopped, fixed or started
+    flat = " ".join(result.output.split())
+    assert "nextseek-ns-sidecar:latest" in flat and "rebuild --component nextseek-sidecar" in flat

@@ -9,7 +9,7 @@ from pathlib import Path
 import typer
 from rich.markup import escape
 
-from startup.lib import layout, ui
+from startup.lib import layout, ownership, ui
 from startup.lib.docker_ops import volume_exists
 from startup.lib.env import read_env, write_env
 from startup.lib.instance import (
@@ -1018,6 +1018,17 @@ def rebuild(
             ui.warn(f"could not compare the running and new app user ({exc}); not treating this as a switchover")
         switchover_sidecar = False
         if user_changed:
+            # The agent and the sidecar share dmac-cc-users with the app: both must already be on the app uid.
+            try:
+                peers = volumes.peers_not_on_app_uid(REPO_ROOT, state.compose_env())
+            except Exception as exc:
+                peers = [f"could not check the cc-agent and sidecar images ({exc})"]
+            if peers:
+                ui.fail(f"switchover refused, nothing stopped: not on {ownership.APP_UID}: " + "; ".join(peers))
+                ui.remediation("./startup.sh rebuild --component cc-agent, then ./startup.sh rebuild --component "
+                               "nextseek-sidecar, then this rebuild again (the new app image is built; the old "
+                               "containers keep running)")
+                raise typer.Exit(code=1)
             swap_web = False
             ui.warn("the app containers change user (to 10001): no swap. Stopping web, nextseek and the "
                     "sidecar, fixing ownership of every volume and bind, then starting the sidecar and "

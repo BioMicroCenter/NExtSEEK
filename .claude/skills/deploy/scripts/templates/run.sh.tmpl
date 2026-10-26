@@ -109,6 +109,10 @@ host_gid_env(){ # phase 4 compose needs NEXTSEEK_HOST_GID in .env for EVERY verb
   grep -q '^NEXTSEEK_HOST_GID=' .env 2>/dev/null && return 0
   printf '\nNEXTSEEK_HOST_GID=%s\n' "$(id -g)" >> .env && say "ENV NEXTSEEK_HOST_GID=$(id -g) added to .env"
 }
+switch_missing(){ # $1 the components: what the switchover needs that the brief left out. The agent and sidecar share
+  # dmac-cc-users with the app, so their images must be on 10001 before the app switches (startup refuses otherwise)
+  for c in cc-agent nextseek-sidecar; do case " $1 " in *" $c "*) ;; *) echo "$c";; esac; done
+}
 switch_order(){ # $1 the components: the phase 4 switchover order. The agent, sidecar and proxy images go first so the
   # app rebuild (which stops web and nextseek, fixes ownership, starts them) is the last step and closes the gaps
   for c in cc-agent nextseek-sidecar bedrock-proxy cc-spawner app; do case " $1 " in *" $c "*) echo "$c";; esac; done
@@ -145,6 +149,8 @@ if [ $NONROOT = 1 ]; then
   esac
 fi
 if [ $SWITCH = 1 ]; then
+  m=$(switch_missing "$COMPONENTS")
+  [ -n "$m" ] && stop "the switchover to 10001 needs these images in the brief too: $(echo $m); nothing was rebuilt"
   COMPONENTS=$(switch_order "$COMPONENTS"); say "SWITCHOVER the app containers change user (root to 10001); order: $COMPONENTS"
 fi
 

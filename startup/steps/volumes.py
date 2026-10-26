@@ -162,6 +162,24 @@ def before_switchover(repo_root: Path, env: dict[str, str]) -> bool:
     return any(u.strip() != want for u in users)
 
 
+def peers_not_on_app_uid(repo_root: Path, env: dict[str, str]) -> list[str]:
+    """The cc-agent and sidecar images (by their compose tags) that do not run as APP_UID, one line each.
+    `id -u` in a throwaway container: no network, never pulled. The switchover must not start while either
+    is still on the old uid: the app's FIX would hand their files to a uid they do not run as."""
+    import json
+    cfg = json.loads(_check_out(_run(["docker", "compose", "config", "--format", "json"], repo_root, env),
+                                "docker compose config"))
+    bad: list[str] = []
+    for svc in ownership.PEER_SERVICES:
+        img = cfg["services"][svc]["image"]
+        r = _run(["docker", "run", "--rm", "--pull", "never", "--network", "none", "--entrypoint", "id", img, "-u"],
+                 repo_root, env)
+        uid = (r.stdout or "").strip()
+        if r.returncode != 0 or uid != str(ownership.APP_UID):
+            bad.append(f"{svc} ({img}) runs as {uid or 'unknown: ' + (r.stderr or '').strip()[:160]}")
+    return bad
+
+
 def stop_app_services(repo_root: Path, env: dict[str, str]) -> None:
     """Stop `web`, `nextseek` and `nextseek-sidecar` (each drains first) so the FIX pass sees no writers."""
     _check(_run(["docker", "compose", "stop", *ownership.STOP_SERVICES], repo_root, env),
