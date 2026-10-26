@@ -125,6 +125,13 @@ switch_order(){ # $1 the components: the phase 4 switchover order. app-build fir
   # web, nextseek and the sidecar, fixes ownership and starts them: the mixed-uid window no longer spans the app build
   for c in app-build cc-agent nextseek-sidecar bedrock-proxy cc-spawner app; do case " $1 " in *" ${c%-build} "*) echo "$c";; esac; done
 }
+has_web(){ # a running `web` container: false on a box from before the split (the check is on the box, not the brief)
+  [ -n "$(docker compose ps -q --status running web </dev/null 2>/dev/null | head -1)" ]
+}
+split_order(){ # $1 the components: cc-spawner, then app (it creates `web` and takes the nginx recreate), then the rest
+  for c in cc-spawner app; do case " $1 " in *" $c "*) echo "$c";; esac; done
+  for c in $1; do case "$c" in cc-spawner|app) ;; *) echo "$c";; esac; done
+}
 rehearse(){ # the migration rehearsal, run AFTER the new app image is built and BEFORE anything restarts: this box's
   # schema (no rows, plus django_migrations and django_content_type) is loaded into a throwaway MySQL and the NEW image
   # runs `migrate` against it. Reads the live DB only (mysqldump --single-transaction --no-data, two tables' rows).
@@ -230,6 +237,12 @@ if [ $SWITCH = 1 ]; then
   [ -n "$m" ] && stop "the switchover to 10001 needs these images in the brief too: $(echo $m); nothing was rebuilt"
   COMPONENTS=$(echo $(switch_order "$COMPONENTS")); say "SWITCHOVER the app containers change user (root to 10001); order: $COMPONENTS"
 fi
+# First split (prod-launch-20261026-2116): no `web` yet, so the new nginx conf (which proxies to `web`) must wait for the
+# app step. Spawner and app go first, then the rest. Not with the switchover: its order already ends spawner, app, with
+# the agent and sidecar ahead of them because those images must be on 10001 before the app restarts.
+if [ $SWITCH = 0 ]; then case " $COMPONENTS " in *" app "*)
+  has_web || { COMPONENTS=$(echo $(split_order "$COMPONENTS")); say "FIRST_SPLIT no web service running: cc-spawner then app first; order: $COMPONENTS"; };;
+esac; fi
 # A migration in the range (REHEARSE=1 only with the app in the brief): app-build goes first (the switchover order already
 # has it), and the rehearsal runs right after it, so a failed migration stops the launch before anything restarts. A
 # failed app-build stops too (continue_on_failure cannot name it): the app's restart would migrate the live database.

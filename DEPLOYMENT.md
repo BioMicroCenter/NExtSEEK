@@ -458,6 +458,11 @@ does not start, so build the spawner first, once per box:
 ./startup.sh rebuild --recreate-nginx      # about a minute of the restart page
 ```
 
+The skill's runner does this order by itself: on a box with no running `web` it rebuilds
+`cc-spawner`, then `app` (the only step that carries `--recreate-nginx`), before the other
+images, because the new `nginx.conf` proxies to `web` and answers 502 until `web` exists
+(prod, 2026-10-26: 19 minutes). The rebuild's front-door start never recreates a running nginx.
+
 Every rebuild after it swaps. `rebuild` also writes the spawner token pair
 (`NEXTSEEK_SPAWNER_TOKEN` in `docker/nextseek.env`, `SPAWNER_TOKEN` in
 `docker/cc-spawner.env`) on a box that lacks it; both files stay out of git. The

@@ -40,6 +40,11 @@ HEALTH_NEEDS = (
     ("cc-agent runtime", "cc-agent"),
     ("cc-agent context", "cc-agent"),
     ("bedrock-proxy allow list", "bedrock-proxy"),
+    # A pre-split box (no `web`, no cc-spawner) read from the new checkout (prod-launch-20261026-2116): these stay
+    # red until the step that creates them. The prefix carries the detail so another missing service still stops.
+    ("app + front door: not running: web", "app"),
+    ("cc services: not running: cc-spawner", "cc-spawner"),
+    ("first-party images: ABSENT: nextseek-cc-spawner", "cc-spawner"),
     ("model ids reachable", "app"),   # test/model-reachability (2026-09-28): the app probes, then the proxy
 )
 

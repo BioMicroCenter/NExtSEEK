@@ -1724,7 +1724,7 @@ def test_the_settings_go_in_on_stdin_with_no_host_mount(tmp_path, capsys):
     assert not (L / "rehearsal").exists()
 
 
-def _run_loop(tmp_path, capsys, *, comps, switch, rehearse_flag, build_ok=True, rehearsal_ok=True, cont=" "):
+def _run_loop(tmp_path, capsys, *, comps, switch, rehearse_flag, build_ok=True, rehearsal_ok=True, cont=" ", split=True):
     """The runner's body from the switchover block to the end of the rebuild loop, with the rebuilds, the rehearsal
     and docker stubbed: the order the steps run in, and where a failure stops."""
     _, text = rendered_runner(tmp_path / "r", capsys, images=["app"], migrations_expected=True)
@@ -1738,7 +1738,7 @@ def _run_loop(tmp_path, capsys, *, comps, switch, rehearse_flag, build_ok=True, 
             ' > "$L/rehearsal.log"; return 1')
     script = (f'ST={box}/st L={box}/l TAG=t1 H={box} CONTINUE_ON_FAILURE="{cont}" DO_LABS=0 DO_STATIC=0 '
               f'REHEARSE={rehearse_flag} SWITCH={switch} COMPONENTS="{comps}"\n{_functions(text)}\n'
-              f'docker(){{ :; }}\njudge(){{ :; }}\n'
+              f'docker(){{ :; }}\njudge(){{ :; }}\nhas_web(){{ {"true" if split else "false"}; }}\n'
               f'rebuild(){{ echo "rebuild $1" >> {box}/order; [ "$1" != app-build ] || {"true" if build_ok else "false"}; }}\n'
               f'rehearse(){{ echo rehearse >> {box}/order; {fake}; }}\n'
               f'{seg}echo end >> {box}/order\n')
@@ -1866,3 +1866,67 @@ def test_runner_allows_behind_only_with_the_words(tmp_path, capsys):
         assert code == 0, out.err
         d2, runner_text = rendered_runner(sub / "r", capsys, **over)
         assert flag in runner_text and "merge-base --is-ancestor \"$EXP\" origin/dev" in runner_text
+
+
+# ---- the first split (prod-launch-20261026-2116): a box with no `web` yet ----
+PRE = "bedrock-proxy cc-spawner app cc-agent nextseek-sidecar"
+
+
+def test_first_split_with_a_migration_builds_app_rehearses_then_spawner_app_first(tmp_path, capsys):
+    r, order, st = _run_loop(tmp_path, capsys, comps=PRE, switch=0, rehearse_flag=1, split=False)
+    assert order == ["rebuild app-build", "rehearse", "rebuild cc-spawner", "rebuild app", "rebuild bedrock-proxy",
+                     "rebuild cc-agent", "rebuild nextseek-sidecar", "end"], (order, r.stderr)
+    assert "FIRST_SPLIT" in st
+
+
+def test_first_split_without_a_migration_puts_spawner_then_app_before_the_proxy(tmp_path, capsys):
+    r, order, _ = _run_loop(tmp_path, capsys, comps=PRE, switch=0, rehearse_flag=0, split=False)
+    assert order == ["rebuild cc-spawner", "rebuild app", "rebuild bedrock-proxy", "rebuild cc-agent",
+                     "rebuild nextseek-sidecar", "end"], (order, r.stderr)
+
+
+def test_a_box_that_already_has_web_keeps_the_rules_order(tmp_path, capsys):
+    r, order, st = _run_loop(tmp_path, capsys, comps=PRE, switch=0, rehearse_flag=0, split=True)
+    assert order == ["rebuild bedrock-proxy", "rebuild cc-spawner", "rebuild app", "rebuild cc-agent",
+                     "rebuild nextseek-sidecar", "end"], (order, r.stderr)
+    assert "FIRST_SPLIT" not in st
+
+
+def test_first_split_without_app_in_the_brief_changes_nothing(tmp_path, capsys):
+    r, order, _ = _run_loop(tmp_path, capsys, comps="bedrock-proxy cc-agent", switch=0, rehearse_flag=0, split=False)
+    assert order == ["rebuild bedrock-proxy", "rebuild cc-agent", "end"], order
+
+
+def test_pre_split_and_pre_non_root_uses_the_switchover_order_which_ends_spawner_then_app(tmp_path, capsys):
+    # the agent and sidecar must be on 10001 before the app restarts, so they stay ahead of the spawner and app;
+    # the proxy stays ahead too (a new app must not meet an old proxy) and no longer touches nginx
+    r, order, st = _run_loop(tmp_path, capsys, comps=PRE, switch=1, rehearse_flag=1, split=False)
+    assert order == ["rebuild app-build", "rehearse", "rebuild cc-agent", "rebuild nextseek-sidecar",
+                     "rebuild bedrock-proxy", "rebuild cc-spawner", "rebuild app", "end"], (order, r.stderr)
+
+
+def test_the_nginx_recreate_rides_only_the_app_step_and_nothing_else_touches_nginx(tmp_path, capsys):
+    _, text = rendered_runner(tmp_path, capsys, images=["bedrock-proxy", "cc-spawner", "app"],
+                              nginx_change_expected=True, allowed_extras=["nginx recreate ok", "bedrock-proxy rebuild ok"])
+    assert re.search(r'^RECREATE_NGINX_ON="app"$', text, re.M)
+    body = text.split("# >>> functions", 1)[1]
+    # the only compose verb naming nginx is the rebuild() flag; the runner never runs `up`/`restart` on it itself
+    assert not re.search(r"compose (up|restart|stop|rm)[^\n]*nginx", body)
+    assert "has_web()" in body and "FIRST_SPLIT" in body
+
+
+def test_new_layout_reds_are_pending_until_the_step_that_creates_them_then_real(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys)
+    log = tmp_path / "x.log"
+    log.write_text("       ✗ app + front door: not running: web -- start it with: docker compose up \n"
+                   "-d --no-deps web\n"
+                   "       ✗ first-party images: ABSENT: nextseek-cc-spawner:latest -- build with: \n"
+                   "./startup.sh rebuild --component cc-spawner\n"
+                   "       ✗ cc services: not running: cc-spawner\n")
+    got = bash_judge(tmp_path, text, log, "app cc-spawner")
+    assert [c for c, _ in got] == ["pending app", "pending cc-spawner", "pending cc-spawner"]
+    known = json.loads((d / "brief.json").read_text())["derived"]["known_health_reds"]
+    assert [L.classify_red(r, {"app", "cc-spawner"}, known) for r in L.health_reds(log.read_text())] == [
+        "pending app", "pending cc-spawner", "pending cc-spawner"]
+    after = bash_judge(tmp_path, text, log, "")
+    assert [c for c, _ in after] == ["stale app", "stale cc-spawner", "stale cc-spawner"]
