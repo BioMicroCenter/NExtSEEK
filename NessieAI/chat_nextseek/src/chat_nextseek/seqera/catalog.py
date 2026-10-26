@@ -101,7 +101,7 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
         "default_genome": "GRCh38",
         "default_profile": "docker",
         "reference_cli_flags": ["genome", "fasta", "gtf"],
-        "required_columns": ["sample", "fastq_1", "fastq_2", "replicate"],
+        "required_columns": ["sample", "fastq_1", "replicate"],
         "samplesheet_input_kind": "fastq",
         "accepted_leaf_sample_types": ["D.SEQ"],
         "accepted_assay_patterns": [
@@ -116,15 +116,13 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
     },
     "chipseq": {
         "repo": "https://github.com/nf-core/chipseq",
-        "default_revision": "2.0.0",
+        "default_revision": "2.1.0",
         "description": "ChIP-seq peak calling against an input/control.",
         "common_assays": ["ChIP-seq", "ChIP"],
         "default_genome": "GRCh38",
         "default_profile": "docker",
         "reference_cli_flags": ["genome", "fasta", "gtf"],
-        "required_columns": [
-            "sample", "fastq_1", "fastq_2", "antibody", "control", "control_replicate",
-        ],
+        "required_columns": ["sample", "fastq_1"],
         "samplesheet_input_kind": "fastq",
         "accepted_leaf_sample_types": ["D.SEQ"],
         "accepted_assay_patterns": [
@@ -167,13 +165,13 @@ NFCORE_PIPELINE_CATALOG: dict[str, dict[str, Any]] = {
     },
     "methylseq": {
         "repo": "https://github.com/nf-core/methylseq",
-        "default_revision": "2.7.1",
+        "default_revision": "4.2.0",
         "description": "Bisulfite / methylation sequencing analysis.",
         "common_assays": ["WGBS", "RRBS", "EM-seq", "methylation"],
         "default_genome": "GRCh38",
         "default_profile": "docker",
         "reference_cli_flags": ["genome", "fasta"],
-        "required_columns": ["sample", "fastq_1", "fastq_2"],
+        "required_columns": ["sample", "fastq_1"],
         "samplesheet_input_kind": "fastq",
         "accepted_leaf_sample_types": ["D.SEQ"],
         "accepted_assay_patterns": [

@@ -2,6 +2,9 @@
   "report_type": "NFCORE_CHIPSEQ_SAMPLESHEET",
   "description": "nf-core/chipseq samplesheet context. Each ChIP row references a control row; samplesheet must include both.",
   "params": {
+    "read_length":    {"type": "enum", "allowed": [50, 75, 100, 150, 200], "default": null, "steerable": true, "help": "Read length used to calculate MACS3 genome size for peak calling if `--macs_gsize` isn't provided. The schema accepts only 50, 75, 100, 150 or 200."},
+    "narrow_peak":    {"type": "bool", "default": false, "steerable": true, "help": "Run MACS3 in narrowPeak mode. MACS3 is run by default with the --broad flag."},
+    "aligner":        {"type": "enum", "allowed": ["bwa", "bowtie2", "chromap", "star"], "default": "bwa", "steerable": true, "help": "Specifies the alignment algorithm to use - available options are 'bwa', 'bowtie2' and 'star' (the schema's enum also lists 'chromap')."},
     "save_reference": {"type": "bool", "default": true, "steerable": true},
     "multiqc_title":  {"type": "string", "default": null, "steerable": true}
   },
@@ -11,31 +14,35 @@
     "repository": "https://github.com/nf-core/chipseq",
     "documentation_url": "https://nf-co.re/chipseq/latest/docs/usage/",
     "input_file_type": "csv",
-    "core_rule": "Required columns: sample, fastq_1, fastq_2, antibody, control, control_replicate. Inputs/IgG controls must also appear as rows with empty antibody/control fields.",
+    "core_rule": "Required columns are: sample, fastq_1. The design columns fastq_2, replicate, antibody, control and control_replicate follow. Inputs/IgG controls must also appear as rows with empty antibody, control and control_replicate.",
     "required_columns": [
       "sample",
-      "fastq_1",
+      "fastq_1"
+    ],
+    "optional_columns": [
       "fastq_2",
+      "replicate",
       "antibody",
       "control",
       "control_replicate"
-    ],
-    "optional_columns": []
+    ]
   },
   "samplesheet_template": [
     {
       "sample": null,
       "fastq_1": null,
       "fastq_2": null,
+      "replicate": null,
       "antibody": null,
       "control": null,
       "control_replicate": null
     }
   ],
   "validation_rules": [
-    "Each ChIP row's control value must match a sample row whose antibody field is empty (the input/IgG control).",
-    "control_replicate is the replicate number of that control sample.",
-    "fastq_1/fastq_2 may be HTTPS URLs (ENA mirror) or local paths."
+    "sample is identical for the replicates of one experimental group; replicate is an integer that starts at 1 for each group. A re-sequenced library keeps the same sample and replicate values, and the pipeline merges its runs.",
+    "Each ChIP row carries antibody, control and control_replicate together: control is the sample name of the input/IgG control, control_replicate is that control's replicate number, and antibody is required whenever control is given (no spaces in any of them).",
+    "A control row (the input/IgG sample) has an empty antibody, control and control_replicate.",
+    "fastq_1/fastq_2 must be gzipped FASTQ files ending in .fastq.gz or .fq.gz; the pipeline detects single-end from a blank fastq_2."
   ],
   "report_writer_guidance": {
     "population_priority": [

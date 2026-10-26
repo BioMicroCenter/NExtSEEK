@@ -439,3 +439,32 @@ def test_sarek_bam_output_is_not_steerable():
     spec = _sarek_template()["params"]["save_output_as_bam"]
     assert spec["steerable"] is False and spec["default"] is False
     assert "CRAM" in spec["help"]
+
+
+PINS = {"atacseq": "2.1.2", "chipseq": "2.1.0", "methylseq": "4.2.0"}  # Task 3 Step 2, owner-approved
+
+
+@pytest.mark.parametrize("key", sorted(PINS))
+def test_new_choosable_pipelines_pin_the_approved_release(key):
+    from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
+    assert NFCORE_PIPELINE_CATALOG[key]["default_revision"] == PINS[key]
+
+
+@pytest.mark.parametrize("key", sorted(PINS))
+def test_new_choosable_pipelines_defaults_pass_the_pinned_schema(key):
+    schema = json.loads((FIXTURES / f"{key}.nextflow_schema.json").read_text())
+    errors, skipped = check_params(key, PINS[key], curated(key),
+                                   schema_getter=lambda _p, _r: {"nextflow_schema": schema})
+    assert skipped is None and errors == []
+
+
+@pytest.mark.parametrize("key", sorted(PINS))
+def test_new_choosable_pipelines_templates_name_every_required_input_column(key):
+    """The samplesheet columns the template asks for are the pinned input schema's required ones."""
+    path = FIXTURES / f"{key}.schema_input.json"
+    if not path.exists():
+        pytest.skip(f"{key} {PINS[key]} ships no assets/schema_input.json")
+    items = json.loads(path.read_text())["items"]
+    required = set(items.get("required") or [])
+    template = json.loads((TEMPLATES / f"{key}.json").read_text())
+    assert required <= set(template["pipeline"]["required_columns"]), required - set(template["pipeline"]["required_columns"])
