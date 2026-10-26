@@ -37,3 +37,33 @@ def test_single_sample_skips_series_call():
                           FakeResponse(200, GEO_SAMPLES_SOFT.split("^SAMPLE = GSM7000002")[0])})
     assert [r.record_id for r in geo.fetch("GSM7000001", f)] == ["GSM7000001"]
     assert len(session.calls) == 1
+
+
+def test_many_repeated_keys_number_in_linear_time():
+    lines = "".join("!Sample_relation = x\n" for _ in range(20000))
+    fields = geo.parse_soft("^SAMPLE = GSM1\n" + lines)[0].fields
+    assert len(fields) == 20000
+    assert fields["relation"] == "x"
+    assert fields["relation.20000"] == "x"
+
+
+def test_literal_key_that_collides_with_a_numbered_one_is_kept():
+    text = ("^SAMPLE = GSM1\n!Sample_relation = a\n!Sample_relation = b\n"
+            "!Sample_relation.2 = c\n")
+    assert geo.parse_soft(text)[0].fields == {"relation": "a", "relation.2": "b", "relation.2.2": "c"}
+
+
+def test_blank_and_directory_supplements_are_skipped():
+    text = ("^SAMPLE = GSM1\n"
+            "!Sample_supplementary_file_1 =\n"
+            "!Sample_supplementary_file_2 = https://example.org/dir/\n"
+            "!Sample_supplementary_file_3 = https://example.org/dir/data.txt.gz\n")
+    assert [f.name for f in geo.parse_soft(text)[0].files] == ["data.txt.gz"]
+
+
+def test_links_are_unique_in_first_seen_order():
+    text = ("^SAMPLE = GSM1\n"
+            "!Sample_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRX2\n"
+            "!Sample_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRX1\n"
+            "!Sample_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRX2\n")
+    assert geo.parse_soft(text)[0].links == ["SRX2", "SRX1"]

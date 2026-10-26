@@ -45,6 +45,7 @@ def parse_soft(text: str) -> list[DepositRecord]:
 
 def _record(raw: dict) -> DepositRecord:
     fields: dict[str, str] = {}
+    counts: dict[str, int] = {}
     files: list[FileRef] = []
     links: list[str] = []
     title, submitted = "", None
@@ -57,18 +58,22 @@ def _record(raw: dict) -> DepositRecord:
             title = value
         elif name == "submission_date":
             submitted = parse_date(value)
-        elif name.startswith("supplementary_file") and value.upper() != "NONE":
-            files.append(FileRef(name=value.rsplit("/", 1)[-1], url=value))
+        elif name.startswith("supplementary_file"):
+            file_name = value.rsplit("/", 1)[-1]
+            if file_name and value.upper() != "NONE":
+                files.append(FileRef(name=file_name, url=value))
         elif name == "relation":
             links += _BIOPROJECT.findall(value) + _SRA.findall(value)
-        _put(fields, name, value)
+        _put(fields, counts, name, value)
     return DepositRecord(repo="geo", record_id=raw["id"], kind=raw["kind"], title=title,
-                         fields=fields, files=files, links=links, submitted=submitted)
+                         fields=fields, files=files, links=list(dict.fromkeys(links)), submitted=submitted)
 
 
-def _put(fields: dict[str, str], name: str, value: str) -> None:
-    key, n = name, 1
-    while key in fields:
-        n += 1
-        key = f"{name}.{n}"
+def _put(fields: dict[str, str], counts: dict[str, int], name: str, value: str) -> None:
+    """Store a repeated key as name, name.2, name.3 ... with one counter per name (linear)."""
+    counts[name] = counts.get(name, 0) + 1
+    key = name if counts[name] == 1 else f"{name}.{counts[name]}"
+    while key in fields:  # a literal key such as relation.2 already holds this name
+        counts[name] += 1
+        key = f"{name}.{counts[name]}"
     fields[key] = value
