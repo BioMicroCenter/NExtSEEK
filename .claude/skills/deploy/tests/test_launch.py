@@ -496,6 +496,19 @@ def test_the_runner_reads_the_web_process_from_the_web_service(tmp_path, capsys)
     assert "for s in web cc-spawner;" in text and "CHECK container $s " in text and "compose ps -q $s" in text
 
 
+def test_the_runner_pins_a_measure_file_on_the_box_before_its_nessie_start(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    i_pin, i_cp, i_start = (text.index(k) for k in ("--emit-cypher", "docker cp -a \"$L/$f\"", "NESSIE_START"))
+    assert i_pin < i_cp < i_start                     # pinned file is the one copied and run
+    assert "grep -q '\"_measure\"' \"$L/$f\"" in text
+    assert "cypher-shell --access-mode read" in text and "${NEO4J_AUTH#neo4j/}" in text
+    assert "--parse-output" in text and "--measured-out" in text and "--pin " in text
+    assert 'say "PINNED $f' in text and 'say "PIN_FAILED $f' in text
+    assert "continue" in text[text.index("PIN_FAILED"):i_start]   # a failed pin skips the file
+    assert "CI_WRITE_PASS\"" not in text[i_pin:i_cp]            # the pin step never touches the login
+
+
 def test_the_labs_copy_writes_once_to_the_shared_path_and_restarts_nothing(tmp_path, capsys):
     d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
                               allowed_extras=["bedrock-proxy rebuild ok"])

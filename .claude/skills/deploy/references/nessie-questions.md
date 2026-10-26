@@ -133,6 +133,10 @@ python3 $S/pin_probe_truths.py --pin $S/probe.json --from $S/measured.json --out
 `$NEO4J_PASSWORD` is unset on the host shell: always read the password inside the neo4j
 container, as above. A case with no `_measure` entry keeps its old numbers: check those by hand.
 
+The runner repeats these steps itself for any cases file with a `_measure` block, on the box, before that
+file's NESSIE_START (status lines `PINNED` with the measured values, or `PIN_FAILED` and the file is skipped;
+logs `pin-<file>.*` in the launch folder). Pinning by hand is for the review before the launch.
+
 ## 4. Running
 
 The rendered runner's Nessie block does this once per cases file in the brief, with a login from
