@@ -91,3 +91,61 @@ def test_only_a_possible_file_name_looks_up_the_input_folder(monkeypatch, tmp_pa
     (tmp_path / "paper.pdf").write_bytes(b"%PDF-1.4")
     monkeypatch.setattr(host, "_input_dir", lambda request: str(tmp_path))
     assert host.start_session(_REQ).launch_seams("paper.pdf").input_files == {"paper.pdf"}
+
+
+def _run(user, tmp_path, monkeypatch):
+    from NessieAI.ns.paper.models import PaperArtifact, PaperRef, PaperText
+    from nextseek_api.paper_reingest import service
+
+    monkeypatch.setenv("NEXTSEEK_PAPER_REINGEST_DIR", str(tmp_path))
+    paper = PaperArtifact(ref=PaperRef(pmid="1", doi="10.1/x", title="T"), text=PaperText(),
+                          text_source="europepmc", mode="new")
+    return service.create_run(user=user, paper_input="1", paper=paper), paper
+
+
+def _broker_down(monkeypatch):
+    from nextseek_api.paper_reingest import service
+
+    def down(run):
+        raise ConnectionError("broker refused the connection")
+    monkeypatch.setattr(service, "enqueue_acquire", down)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_queue_that_is_down_fails_the_run_and_refuses_the_start(django_user_model, tmp_path, monkeypatch):
+    """Autocommit, as in the op view: on_commit runs at once, so the caller hears queue_unavailable."""
+    from NessieAI.ns.paper.launch import LaunchOutcome
+    from NessieAI.ns.paper.start import StartRefused, start
+    from nextseek_api.assistant import chat_turns
+
+    user = django_user_model.objects.create(username="curator", is_superuser=True)
+    run, paper = _run(user, tmp_path, monkeypatch)
+    run.delete()
+    _broker_down(monkeypatch)
+    monkeypatch.setenv("NEXTSEEK_PAPER_REINGEST", "1")
+    monkeypatch.setattr(host, "_input_dir", _no_folder_lookup)
+    monkeypatch.setattr(chat_turns, "running_cc_turn", lambda user: None)
+    monkeypatch.setattr("NessieAI.ns.paper.start.launch_check", lambda raw, seams: LaunchOutcome(status="ok", paper=paper))
+    with pytest.raises(StartRefused) as err:
+        start("1", None, host.start_session(SimpleNamespace(user=user)))
+    assert err.value.error_type == "queue_unavailable"
+    assert str(err.value) == "The run could not be queued; try again shortly."
+    from nextseek_api.paper_reingest.models_db import PaperReingestRun
+
+    row = PaperReingestRun.objects.get(user=user)
+    assert (row.state, row.failed_stage, row.reason) == ("failed", "queue", "could not queue: ConnectionError")
+
+
+@pytest.mark.django_db
+def test_a_queue_that_is_down_after_the_commit_still_fails_the_run(django_user_model, tmp_path, monkeypatch,
+                                                                  django_capture_on_commit_callbacks):
+    """Inside a transaction the enqueue waits for the commit; nobody is left to hear a refusal, so the
+    callback raises nothing into the committer, and the row still ends failed."""
+    user = django_user_model.objects.create(username="curator", is_superuser=True)
+    run, _ = _run(user, tmp_path, monkeypatch)
+    _broker_down(monkeypatch)
+    with django_capture_on_commit_callbacks(execute=True) as callbacks:
+        host.start_session(SimpleNamespace(user=user)).enqueue_acquire(run)
+    assert len(callbacks) == 1
+    run.refresh_from_db()
+    assert (run.state, run.failed_stage, run.reason) == ("failed", "queue", "could not queue: ConnectionError")

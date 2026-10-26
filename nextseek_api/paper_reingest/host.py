@@ -5,12 +5,16 @@ upload task writes, by a single validated name and never through a link.
 """
 from __future__ import annotations
 
+import logging
 import os
 from types import SimpleNamespace
+
+logger = logging.getLogger(__name__)
 
 MAX_PDF_BYTES = 100 * 1024 * 1024
 #: What the launch check leaves of the op's limit for the reply's trip back.
 ANSWER_MARGIN_S = 5.0
+QUEUE_UNAVAILABLE = "The run could not be queued; try again shortly."
 
 
 def enabled() -> bool:
@@ -79,6 +83,31 @@ def _input_dir(request) -> str | None:
     return build_user_dirs(CCPaths.from_env(), project.dirname, request.user.username).input_mnt
 
 
+def queue_or_fail(run) -> None:
+    """Queue stage 1, or fail the run at ``queue`` and refuse the start: a run the queue never heard of
+    must not sit in ``queued`` for ever."""
+    from NessieAI.ns.paper.start import StartRefused
+    from nextseek_api.paper_reingest import service
+
+    try:
+        service.enqueue_acquire(run)
+    except Exception as exc:
+        logger.exception("paper reingest %s: could not queue stage 1", run.run_id)
+        service.set_state(run, "failed", failed_stage="queue", reason=f"could not queue: {type(exc).__name__}")
+        raise StartRefused(QUEUE_UNAVAILABLE, "queue_unavailable") from exc
+
+
+def _queue_after_commit(run) -> None:
+    # The op has answered by the time a deferred commit runs, so the refusal has no one to reach; the run is
+    # failed already, and an exception here would only break the code that committed.
+    from NessieAI.ns.paper.start import StartRefused
+
+    try:
+        queue_or_fail(run)
+    except StartRefused:
+        pass
+
+
 def start_session(request) -> SimpleNamespace:
     from django.db import transaction
 
@@ -103,8 +132,12 @@ def start_session(request) -> SimpleNamespace:
 
     def enqueue_acquire(run) -> None:
         # Stage 1 must never see a run row that is not committed yet. The op view runs in autocommit
-        # (no ATOMIC_REQUESTS), where on_commit runs at once; inside a transaction it waits for the commit.
-        transaction.on_commit(lambda: service.enqueue_acquire(run))
+        # (no ATOMIC_REQUESTS): the row is committed, so queue now and let a queue_unavailable refusal reach
+        # the reply. Inside a transaction, wait for the commit; a failure then only fails the run.
+        if transaction.get_connection().in_atomic_block:
+            transaction.on_commit(lambda: _queue_after_commit(run))
+        else:
+            queue_or_fail(run)
 
     return SimpleNamespace(
         user=user, enabled=enabled, launch_seams=launch_seams,
