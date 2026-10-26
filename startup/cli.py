@@ -1093,21 +1093,22 @@ def rebuild(
         ui.ok(f"{policy.name} rebuilt and restarted")
         if app_services:
             _check_app_ownership()
-        # Start the front door if it is down, and do nothing else to it. `up`
-        # without --force-recreate is a no-op on a running nginx, which needs no
-        # restart anyway (docker/nginx.conf re-resolves `web` per request);
-        # --no-deps keeps it from touching any other service. A stopped nginx
-        # used to survive every rebuild, and the CI hook then spent its whole
-        # readiness floor on a refused port.
+        # Start the front door if it is down, and do nothing else to it. A plain
+        # `up` also recreates a RUNNING nginx whose service definition differs in
+        # the checkout's compose file; on a pre-split box that served a conf naming
+        # `web` before `web` existed (prod 502, 2026-10-26). `--no-recreate` makes
+        # it a no-op on a running nginx (docker/nginx.conf re-resolves `web` per
+        # request, so a web swap needs no restart); a changed definition waits for
+        # --recreate-nginx, and the nginx config check below says so. --no-deps
+        # keeps it from touching any other service. A stopped nginx used to
+        # survive every rebuild, and the CI hook then spent its whole readiness
+        # floor on a refused port.
         if not recreate_nginx:  # the recreate below starts it too
             compose_up(
                 services=("nextseek_nginx",),
                 project_dir=REPO_ROOT,
                 env=state.compose_env(),
                 no_deps=True,
-                # a plain `up` also recreates a RUNNING nginx whose service definition differs in
-                # the new checkout's compose file; on a pre-split box that serves a conf naming
-                # `web` before `web` exists (prod 502, 2026-10-26). Only --recreate-nginx recreates.
                 no_recreate=True,
             )
             ui.ok("front door (nextseek_nginx) running")
@@ -1134,7 +1135,7 @@ def rebuild(
         recreate_failed = not all(c.ok for c in checks)
     else:
         nginx_cfg = validate.check_nginx_config(REPO_ROOT, state.compose_env())
-        if not nginx_cfg.ok:
+        if not nginx_cfg.ok or nginx_cfg.warn:
             ui.warn(nginx_cfg.detail)
 
     # Stack health, step 1 of CI. Every first-party image, not just this

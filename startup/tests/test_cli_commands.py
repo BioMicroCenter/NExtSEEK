@@ -1104,10 +1104,10 @@ def test_rebuild_starts_a_stopped_front_door_without_recreating_it(
     repo: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A stopped nginx survived every rebuild on 2026-09-10, and the suite then
-    spent its whole readiness floor on a refused port. `up` without
-    --force-recreate is a no-op on a running nginx and a start on a stopped one;
-    --no-deps keeps it from touching anything else, which is the rule an
-    unscoped recreate taught on 2026-09-02."""
+    spent its whole readiness floor on a refused port. `up --no-recreate` is a
+    no-op on a running nginx and a start on a stopped one; --no-deps keeps it
+    from touching anything else, which is the rule an unscoped recreate taught
+    on 2026-09-02."""
     _saved_state(repo, ci_profile="dev")
     _mock_rebuild(monkeypatch)
     calls = _record_compose_up(monkeypatch)
@@ -1173,6 +1173,32 @@ def test_rebuild_warns_when_nginx_serves_an_old_config(
 
     assert result.exit_code == 0, result.output
     assert "nginx serves an old config; run ./startup.sh rebuild --recreate-nginx" in " ".join(
+        result.output.split())
+    assert not any(c.get("force_recreate") and "nextseek_nginx" in c["services"] for c in calls)
+
+
+def test_rebuild_warns_when_the_nginx_service_definition_changed(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The front-door start never recreates a running nginx, so a changed nginx service
+    (an image tag, a new mount) stays unapplied: the rebuild says so (a warning, not a red)."""
+    from startup.steps import validate
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    monkeypatch.setattr(
+        validate, "check_nginx_config",
+        lambda *a, **k: validate.HealthResult(
+            "nginx config", True,
+            "nginx service definition changed: run ./startup.sh rebuild --recreate-nginx", warn=True),
+    )
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert "nginx service definition changed: run ./startup.sh rebuild --recreate-nginx" in " ".join(
         result.output.split())
     assert not any(c.get("force_recreate") and "nextseek_nginx" in c["services"] for c in calls)
 

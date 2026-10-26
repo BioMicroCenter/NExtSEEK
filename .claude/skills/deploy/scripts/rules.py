@@ -41,8 +41,9 @@ HEALTH_NEEDS = (
     ("cc-agent context", "cc-agent"),
     ("bedrock-proxy allow list", "bedrock-proxy"),
     # A pre-split box (no `web`, no cc-spawner) read from the new checkout (prod-launch-20261026-2116): these stay
-    # red until the step that creates them. The prefix carries the detail so another missing service still stops.
-    ("app + front door: not running: web", "app"),
+    # red until the step that creates them. The prefix carries the detail so another missing service still stops:
+    # "web --" ends the list, so "web, nextseek_nginx" (a down front door) is never pending.
+    ("app + front door: not running: web --", "app"),
     ("cc services: not running: cc-spawner", "cc-spawner"),
     ("first-party images: ABSENT: nextseek-cc-spawner", "cc-spawner"),
     ("model ids reachable", "app"),   # test/model-reachability (2026-09-28): the app probes, then the proxy
@@ -56,6 +57,10 @@ NOT_HEALTH = ("CI failed", "CI passed", "stopped before building")
 # (unexplained or stale), or alone, when no known or pending red explains it. Rich drops the space
 # where it wraps a line, so each space is optional.
 SUMMARY_RED = r"^Rebuild finished but is red: .*No ?rollback ?is ?needed"
+# The same line when the blocking check (app + front door) is red. On a first split (FIRST_SPLIT=1: the box has
+# never had a `web` container) every rebuild before the app's ends with it, since `web` does not exist yet
+# (prod-launch-20261026-2116), so there, and only there, it is pending until the app step. Anywhere else it stops.
+SUMMARY_DOWN = r"^Rebuild finished but is red: .*The ?app ?or ?front ?door ?is ?not ?up"
 
 
 @dataclass(frozen=True)

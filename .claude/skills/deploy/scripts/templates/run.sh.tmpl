@@ -12,6 +12,7 @@ INSTANCE=@@INSTANCE@@
 IN=@@IN@@
 COMPONENTS="@@COMPONENTS@@"
 RECREATE_NGINX_ON="@@RECREATE_NGINX_ON@@"
+NGINX_RECREATE_OK=@@NGINX_RECREATE_OK@@   # 1: the brief allows 'nginx recreate ok'
 CONTINUE_ON_FAILURE=" @@CONTINUE_ON_FAILURE@@ "
 DO_STATIC=@@DO_STATIC@@ DO_LABS=@@DO_LABS@@ DO_CI=@@DO_CI@@ DO_NESSIE=@@DO_NESSIE@@
 CI_FLAGS="@@CI_FLAGS@@"
@@ -21,6 +22,7 @@ NESSIE_FLAGS="@@NESSIE_FLAGS@@"
 KNOWN_CI_REDS='@@KNOWN_CI_REDS@@'
 KNOWN_HEALTH_REDS='@@KNOWN_HEALTH_REDS@@'
 SUMMARY_RED='@@SUMMARY_RED@@'
+SUMMARY_DOWN='@@SUMMARY_DOWN@@'
 WINDOWS="@@WINDOWS@@"
 DISCARD="@@DISCARD@@"
 SET_ASIDE="@@SET_ASIDE@@"
@@ -65,6 +67,9 @@ classify(){ # $1 one red: skip | known | summary | pending <component> | stale <
   case "$1" in "CI failed"*|"CI passed"*|"stopped before building"*) echo skip; return;; esac
   if printf '%s\n' "$1" | grep -qE "$KNOWN_HEALTH_REDS"; then echo known; return; fi
   if printf '%s\n' "$1" | grep -qE "$SUMMARY_RED"; then echo summary; return; fi
+  # a first split: no `web` until the app step, so the rebuild's "front door is not up" summary waits for it
+  if [ "${FIRST_SPLIT:-0}" = 1 ] && printf '%s\n' "$1" | grep -qE "$SUMMARY_DOWN"; then
+    case " $PENDING " in *" app "*) echo "pending app";; *) echo "stale app";; esac; return; fi
   n=$(need_of "$1")
   if [ -n "$n" ]; then
     case " $PENDING " in *" $n "*) echo "pending $n";; *) echo "stale $n";; esac
@@ -89,7 +94,7 @@ rollback_tag(){ # $1 log: the verified tag, even when the rebuild's output wrapp
 rebuild(){ # $1 component, or app-build (the switchover's first step: the app image built and preflighted, nothing
   # restarted); returns 1 when its success line is missing
   comp=$1; flags=""; [ "$1" = app-build ] && { comp=app; flags=--no-restart; }
-  extra=""; [ "$1" = "$RECREATE_NGINX_ON" ] && { extra="--recreate-nginx"; say "NGINX_RECREATE with the $1 rebuild (docker/nginx.conf changed, 'nginx recreate ok')"; }
+  extra=""; [ "$1" = "$RECREATE_NGINX_ON" ] && { extra="--recreate-nginx"; say "NGINX_RECREATE with the $1 rebuild (docker/nginx.conf or the nginx service changed, 'nginx recreate ok')"; }
   ./startup.sh rebuild --component "$comp" --no-ci $flags $extra > "$L/$(logname "$1").log" 2>&1 </dev/null
   say "REBUILD $1 exit=$?"
   t=$(rollback_tag "$L/$(logname "$1").log")
@@ -125,12 +130,20 @@ switch_order(){ # $1 the components: the phase 4 switchover order. app-build fir
   # web, nextseek and the sidecar, fixes ownership and starts them: the mixed-uid window no longer spans the app build
   for c in app-build cc-agent nextseek-sidecar bedrock-proxy cc-spawner app; do case " $1 " in *" ${c%-build} "*) echo "$c";; esac; done
 }
-has_web(){ # a running `web` container: false on a box from before the split (the check is on the box, not the brief)
-  [ -n "$(docker compose ps -q --status running web </dev/null 2>/dev/null | head -1)" ]
+first_split(){ # prints 1 when the checkout defines `web` and this box has never had a web container (ps -a: a
+  # stopped or restarting web on a split box is no first split), else 0. Returns 1 when compose cannot say. Without
+  # `web` in the checkout compose lists nothing and exits 0, so the checkout is read first.
+  git show HEAD:docker-compose.yml 2>/dev/null | grep -qE '^  web:' || { echo 0; return 0; }
+  ids=$(docker compose ps -a -q web </dev/null 2>/dev/null) || return 1
+  [ -z "$ids" ] && echo 1 || echo 0
 }
-split_order(){ # $1 the components: cc-spawner, then app (it creates `web` and takes the nginx recreate), then the rest
-  for c in cc-spawner app; do case " $1 " in *" $c "*) echo "$c";; esac; done
-  for c in $1; do case "$c" in cc-spawner|app) ;; *) echo "$c";; esac; done
+nginx_def_changed(){ # the running nginx was made from another service definition than the checkout's (compose's
+  # config hash vs the container's label: the test a plain `up` recreates on). False when either cannot be read.
+  want=$(docker compose config --hash nextseek_nginx </dev/null 2>/dev/null | awk '{print $2}')
+  cid=$(docker compose ps -q nextseek_nginx </dev/null 2>/dev/null | head -1)
+  [ -n "$want" ] && [ -n "$cid" ] || return 1
+  have=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.config-hash"}}' "$cid" </dev/null 2>/dev/null)
+  [ -n "$have" ] && [ "$have" != "$want" ]
 }
 rehearse(){ # the migration rehearsal, run AFTER the new app image is built and BEFORE anything restarts: this box's
   # schema (no rows, plus django_migrations and django_content_type) is loaded into a throwaway MySQL and the NEW image
@@ -221,6 +234,25 @@ git merge --ff-only "$EXP" >> "$L/pull.log" 2>&1 || stop "fast-forward refused, 
 [ "$(git rev-parse HEAD)" = "$EXP" ] || stop "HEAD $(git rev-parse --short HEAD) is not the expected sha"
 say "HEAD $(git log --oneline -1 | cut -c1-70)"
 
+# First split (prod-launch-20261026-2116): the checkout has `web` and the box has never had one. Read once, here:
+# the old compose has no `web` service. The rules order stays (the proxy goes first): the rebuild's front-door start
+# never recreates a running nginx (607031e7), so nginx keeps the old conf until the app step recreates it.
+FIRST_SPLIT=$(first_split) || stop "docker compose could not list the web containers, so a first split cannot be ruled out; nothing was rebuilt (the checkout is at $EXP)"
+say "FIRST_SPLIT=$FIRST_SPLIT"
+# A changed nginx service definition (an image tag, a new mount) is applied only by a recreate.
+if [ -z "$RECREATE_NGINX_ON" ] && [ -n "$COMPONENTS" ] && nginx_def_changed; then
+  if [ "$NGINX_RECREATE_OK" = 1 ]; then
+    case " $COMPONENTS " in *" app "*) RECREATE_NGINX_ON=app;; *) RECREATE_NGINX_ON=${COMPONENTS%% *};; esac
+    say "NGINX_DEFINITION changed in the checkout: nginx is recreated with the $RECREATE_NGINX_ON rebuild"
+  else
+    say "FINDING the nextseek_nginx service definition changed in the checkout and the brief does not allow 'nginx recreate ok': nginx keeps the old one until ./startup.sh rebuild --recreate-nginx"
+  fi
+fi
+if [ "$FIRST_SPLIT" = 1 ]; then
+  [ "$RECREATE_NGINX_ON" = app ] || stop "first split (this box has never had a web container): the app step must recreate nginx (the app in images and 'nginx recreate ok'), or nginx keeps proxying to nextseek, which becomes the worker and serves nothing; nothing was rebuilt (the checkout is at $EXP)"
+  git grep -q 'no_recreate=True' HEAD -- startup/cli.py || stop "first split: $EXP lacks the rebuild's no-recreate front-door start (607031e7), so its first rebuild would recreate nginx onto web before web exists (prod 502, 2026-10-26); nothing was rebuilt (the checkout is at $EXP)"
+fi
+
 # Phase 4: the app containers run as 10001. NONROOT = the checked-out Dockerfile names a USER; the switchover = the app
 # is being rebuilt and the running nextseek still has no USER (what startup/ compares: .Config.User empty vs the new
 # image's). Read from git and docker, not a brief flag: nothing to forget, and the same test the app rebuild applies.
@@ -237,12 +269,6 @@ if [ $SWITCH = 1 ]; then
   [ -n "$m" ] && stop "the switchover to 10001 needs these images in the brief too: $(echo $m); nothing was rebuilt"
   COMPONENTS=$(echo $(switch_order "$COMPONENTS")); say "SWITCHOVER the app containers change user (root to 10001); order: $COMPONENTS"
 fi
-# First split (prod-launch-20261026-2116): no `web` yet, so the new nginx conf (which proxies to `web`) must wait for the
-# app step. Spawner and app go first, then the rest. Not with the switchover: its order already ends spawner, app, with
-# the agent and sidecar ahead of them because those images must be on 10001 before the app restarts.
-if [ $SWITCH = 0 ]; then case " $COMPONENTS " in *" app "*)
-  has_web || { COMPONENTS=$(echo $(split_order "$COMPONENTS")); say "FIRST_SPLIT no web service running: cc-spawner then app first; order: $COMPONENTS"; };;
-esac; fi
 # A migration in the range (REHEARSE=1 only with the app in the brief): app-build goes first (the switchover order already
 # has it), and the rehearsal runs right after it, so a failed migration stops the launch before anything restarts. A
 # failed app-build stops too (continue_on_failure cannot name it): the app's restart would migrate the live database.
