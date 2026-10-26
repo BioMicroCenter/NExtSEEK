@@ -51,11 +51,11 @@ export function useSessionSearch(service: SessionSearchServiceLike): UseSessionS
       setError(null);
       return;
     }
+    setLoading(true); // "Searching…", not "No chats match", while the typing settles
     const timer = setTimeout(() => {
       inFlight.current?.abort();
       const controller = new AbortController();
       inFlight.current = controller;
-      setLoading(true);
       service
         .searchSessions(q, filters, controller.signal)
         .then((res) => {

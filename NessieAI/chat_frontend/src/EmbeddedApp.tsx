@@ -291,9 +291,10 @@ export function EmbeddedApp() {
   }, [sessions.activeSessionId, addSystemMessage]);
 
   const scrollToTurn = useScrollToTurn();
-  // A search hit: open its chat (unless it is the open one), then scroll to the turn that matched.
+  // A search hit: (re)load its chat, then scroll to the turn that matched. Reloaded even when it is the open
+  // chat: turns asked in this page view carry no turn id until the chat is read back.
   const openSearchHit = useCallback((id: string, turnId: number | null) => {
-    (id === sessions.activeSessionId ? Promise.resolve() : sessions.setActive(id))
+    sessions.setActive(id)
       .then(() => scrollToTurn(turnId))
       .catch(() => addSystemMessage("Couldn't load this conversation."));
   }, [sessions, scrollToTurn, addSystemMessage]);

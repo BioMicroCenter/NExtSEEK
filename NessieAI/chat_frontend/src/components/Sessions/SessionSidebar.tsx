@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MessageSquare, Search } from "lucide-react";
 import { NewChatButton } from "./NewChatButton";
 import { SessionListItem } from "./SessionListItem";
@@ -31,6 +31,11 @@ interface SessionSidebarProps {
   onExpand?: () => void;
 }
 
+// Cmd+K on a Mac (Ctrl+K there deletes to the end of the line); Ctrl+K elsewhere. Never with Shift or Alt.
+const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+const isSearchShortcut = (e: KeyboardEvent) =>
+  (IS_MAC ? e.metaKey : e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k";
+
 const NO_SEARCH: SessionSearchServiceLike = {
   searchSessions: () => Promise.reject(new Error("no search service")),
 };
@@ -52,13 +57,14 @@ export function SessionSidebar({
     else if (narrow) onExpand?.();
     setFocusRequest((n) => n + 1);
   };
+  const focusHandled = useCallback(() => setFocusRequest(0), []);
   const openSearchRef = useRef(openSearch);
   openSearchRef.current = openSearch;
 
   useEffect(() => {
     if (!searchService) return;
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k") {
+      if (isSearchShortcut(e)) {
         e.preventDefault();
         openSearchRef.current();
       }
@@ -87,7 +93,7 @@ export function SessionSidebar({
           </Button>
         </div>
       ) : (
-        <SessionSearchBox search={search} isAdmin={isAdmin} focusRequest={focusRequest} />
+        <SessionSearchBox search={search} isAdmin={isAdmin} focusRequest={focusRequest} onFocused={focusHandled} />
       ))}
 
       <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-2">

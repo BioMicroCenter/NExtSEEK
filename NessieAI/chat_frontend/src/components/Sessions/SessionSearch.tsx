@@ -8,13 +8,14 @@ import { DEFAULT_FILTERS, type SearchFilters, type UseSessionSearchReturn } from
 interface SessionSearchBoxProps {
   search: UseSessionSearchReturn;
   isAdmin: boolean;
-  /** Bumped by Ctrl/Cmd+K: each new value focuses the box. */
+  /** Bumped by Ctrl/Cmd+K: a non-zero value focuses the box, which then calls `onFocused`. */
   focusRequest: number;
+  onFocused: () => void;
 }
 
 /** The search box above the saved chats, and its options panel (where the date and, for superusers, the
  *  all-users filter live; later sources such as transcripts and records add their switches here). */
-export function SessionSearchBox({ search, isAdmin, focusRequest }: SessionSearchBoxProps) {
+export function SessionSearchBox({ search, isAdmin, focusRequest, onFocused }: SessionSearchBoxProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const { filters, setFilters } = search;
@@ -23,9 +24,12 @@ export function SessionSearchBox({ search, isAdmin, focusRequest }: SessionSearc
   useEffect(() => {
     if (!focusRequest) return;
     // After a sheet or a collapsed sidebar has opened and rendered the box.
-    const t = setTimeout(() => inputRef.current?.focus(), 0);
+    const t = setTimeout(() => {
+      inputRef.current?.focus();
+      onFocused(); // once per Ctrl/Cmd+K: a later remount (sheet, expanded sidebar) does not grab focus again
+    }, 0);
     return () => clearTimeout(t);
-  }, [focusRequest]);
+  }, [focusRequest, onFocused]);
 
   const set = (patch: Partial<SearchFilters>) => setFilters({ ...filters, ...patch });
 
@@ -44,6 +48,7 @@ export function SessionSearchBox({ search, isAdmin, focusRequest }: SessionSearc
               if (search.query) search.clear();
               else inputRef.current?.blur();
             }}
+            maxLength={200}
             placeholder="Search chats"
             aria-label="Search chats"
             data-testid="session-search"

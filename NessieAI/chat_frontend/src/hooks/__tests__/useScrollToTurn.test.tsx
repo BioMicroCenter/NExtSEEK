@@ -29,6 +29,14 @@ describe("useScrollToTurn", () => {
     expect(el.hasAttribute("data-turn-flash")).toBe(false);
   });
 
+  it("a second hit inside the flash clears the first ring", () => {
+    const { container } = render(<Chat turns={[1, 2]} />);
+    act(() => scrollTo(1));
+    act(() => scrollTo(2));
+    expect(container.querySelector('[data-turn-id="1"]')!.hasAttribute("data-turn-flash")).toBe(false);
+    expect(container.querySelector('[data-turn-id="2"]')!.hasAttribute("data-turn-flash")).toBe(true);
+  });
+
   it("does nothing for a turn that is not on screen, and does not scroll later", () => {
     const { rerender } = render(<Chat turns={[1]} />);
     act(() => scrollTo(5));

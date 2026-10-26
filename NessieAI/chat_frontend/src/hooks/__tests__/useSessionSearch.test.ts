@@ -70,6 +70,13 @@ describe("useSessionSearch", () => {
       "ndma", { sinceDays: 30, allUsers: true }, expect.any(AbortSignal));
   });
 
+  it("shows loading, not an empty result, from the first keystroke", () => {
+    const service = { searchSessions: vi.fn().mockReturnValue(new Promise(() => {})) };
+    const { result } = renderHook(() => useSessionSearch(service));
+    act(() => result.current.setQuery("ndma"));
+    expect(result.current.loading).toBe(true);
+  });
+
   it("clear empties the query and the results", async () => {
     const service = { searchSessions: vi.fn().mockResolvedValue(resp(["a"])) };
     const { result } = renderHook(() => useSessionSearch(service));

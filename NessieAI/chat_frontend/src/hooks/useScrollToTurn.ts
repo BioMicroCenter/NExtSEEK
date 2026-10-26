@@ -20,7 +20,10 @@ export function useScrollToTurn(): (turnId: number | null) => void {
     el.scrollIntoView({ block: "start" });
     el.setAttribute("data-turn-flash", "");
     const t = setTimeout(() => el.removeAttribute("data-turn-flash"), TURN_FLASH_MS);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      el.removeAttribute("data-turn-flash"); // the next hit, inside the flash, must not leave this ring on
+    };
   }, [request]);
 
   return useCallback((turnId: number | null) => {

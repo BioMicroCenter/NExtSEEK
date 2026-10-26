@@ -117,6 +117,38 @@ describe("SessionSidebar search", () => {
     expect(props.onExpand).toHaveBeenCalledTimes(2);
   });
 
+  it("Ctrl+Shift+K and Alt+K are left alone", () => {
+    setup();
+    const box = screen.getByRole("searchbox", { name: /search chats/i });
+    fireEvent.keyDown(document, { key: "K", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(document, { key: "k", ctrlKey: true, altKey: true });
+    act(() => { vi.runAllTimers(); });
+    expect(box).not.toHaveFocus();
+  });
+
+  it("the box takes focus once per Ctrl+K, not again on a later remount", () => {
+    const props = {
+      sessions, activeSessionId: null, inFlight: false, onNewChat: vi.fn(), onSelect: vi.fn(),
+      onRename: vi.fn(), onDelete: vi.fn(), onExpand: vi.fn(),
+      searchService: { searchSessions: vi.fn().mockResolvedValue(resp([])) },
+    };
+    const { rerender } = render(<SessionSidebar {...props} collapsed={false} />);
+    fireEvent.keyDown(document, { key: "k", ctrlKey: true });
+    act(() => { vi.runAllTimers(); });
+    const box = screen.getByRole("searchbox", { name: /search chats/i });
+    expect(box).toHaveFocus();
+    box.blur();
+    rerender(<SessionSidebar {...props} collapsed={true} />);
+    rerender(<SessionSidebar {...props} collapsed={false} />);
+    act(() => { vi.runAllTimers(); });
+    expect(screen.getByRole("searchbox", { name: /search chats/i })).not.toHaveFocus();
+  });
+
+  it("the box stops at 200 characters, the server's limit", () => {
+    setup();
+    expect(screen.getByRole("searchbox", { name: /search chats/i })).toHaveAttribute("maxLength", "200");
+  });
+
   it("without a search service the sidebar has no search box", () => {
     setup({ searchService: undefined });
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
