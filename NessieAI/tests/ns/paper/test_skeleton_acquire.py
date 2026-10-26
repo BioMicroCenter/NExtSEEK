@@ -118,3 +118,30 @@ def test_a_deposit_with_only_a_project_record_is_an_empty_gap():
     assert ("deposit_empty", "zenodo 123456") in {(g.kind, g.detail) for g in evidence.gaps}
     assert [r for r in evidence.skeleton if r.repo == "zenodo"] == []
     assert [d.record_id for d in evidence.deposits if d.repo == "zenodo"] == ["123456"]
+
+
+def test_a_deposit_that_answers_badly_is_a_gap_not_a_failed_run():
+    import json
+
+    bad = json.JSONDecodeError("Expecting value", "<html>", 0)
+    f, _ = fetcher({})
+    evidence = acquire(_paper(), f, adapters=_adapters([], fail=(("ena", "PRJNA100001"), bad)))
+    assert [r.row_key for r in evidence.skeleton if r.repo == "geo"] == ["geo:GSM7000001", "geo:GSM7000002"]
+    assert ("deposit_unavailable", "ena PRJNA100001: JSONDecodeError") in {(g.kind, g.detail) for g in evidence.gaps}
+
+
+def test_a_deposit_that_redirects_off_the_allowlist_is_a_gap():
+    from NessieAI.ns.paper.fetch import HostNotAllowed
+
+    f, _ = fetcher({})
+    evidence = acquire(_paper(), f, adapters=_adapters([], fail=(("pride", "PXD012345"), HostNotAllowed("http://x"))))
+    assert ("deposit_unavailable", "pride PXD012345: HostNotAllowed") in {(g.kind, g.detail) for g in evidence.gaps}
+    assert [r for r in evidence.skeleton if r.repo == "pride"] == []
+
+
+def test_running_out_of_time_propagates():
+    from NessieAI.ns.paper.fetch import OutOfTime
+
+    f, _ = fetcher({})
+    with pytest.raises(OutOfTime):
+        acquire(_paper(), f, adapters=_adapters([], fail=(("pride", "PXD012345"), OutOfTime("t"))))

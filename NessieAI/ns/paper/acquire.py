@@ -2,23 +2,26 @@
 
 Reads the supplement, finds every accession in the paper and SI, fetches each deposit
 once (projects before their parts; a GEO series pulls its SRA project in), and builds the
-skeleton. A deposit that is missing is a gap; a source that is down raises
-SourceUnavailable so the run pauses and retries (spec §10).
+skeleton. A deposit that is missing, or that answers with something we cannot read, is a
+gap; a source that is down raises SourceUnavailable so the run pauses and retries (spec §10),
+and OutOfTime propagates to the caller's deadline.
 """
 from __future__ import annotations
 
+import logging
 import re
 
 from NessieAI.ns.paper import europepmc
 from NessieAI.ns.paper.accessions import find_accessions
 from NessieAI.ns.paper.deposits import ADAPTERS
 from NessieAI.ns.paper.evidence import deposit_items, paper_items
-from NessieAI.ns.paper.fetch import Fetcher, SourceNotFound
+from NessieAI.ns.paper.fetch import Fetcher, OutOfTime, SourceNotFound, SourceUnavailable
 from NessieAI.ns.paper.models import (Accession, DepositRecord, EvidenceArtifact, EvidenceItem, Gap,
                                       PaperArtifact)
 from NessieAI.ns.paper.si import supplement_items
 from NessieAI.ns.paper.skeleton import build_skeleton
 
+logger = logging.getLogger(__name__)
 _ENA_PROJECT = re.compile(r"^(?:PRJ(?:NA|EB|DB)\d+|[SED]RP\d+)$")
 _PROJECT_PREFIXES = ("GSE", "PRJ", "SRP", "ERP", "DRP", "PXD")
 
@@ -50,6 +53,12 @@ def acquire(paper: PaperArtifact, fetcher: Fetcher, adapters: dict | None = None
             records = adapter(acc.id, fetcher)
         except SourceNotFound as exc:
             gaps.append(Gap(kind="deposit_unavailable", detail=f"{acc.repo} {acc.id}: HTTP {exc.status}"))
+            continue
+        except (SourceUnavailable, OutOfTime):
+            raise
+        except Exception as exc:  # one deposit that answers badly is a gap, never a failed run
+            logger.exception("paper reingest: deposit %s %s could not be read", acc.repo, acc.id)
+            gaps.append(Gap(kind="deposit_unavailable", detail=f"{acc.repo} {acc.id}: {type(exc).__name__}"))
             continue
         if not any(rec.kind != "project" for rec in records):
             gaps.append(Gap(kind="deposit_empty", detail=f"{acc.repo} {acc.id}"))

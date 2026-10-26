@@ -25,7 +25,7 @@ proposing rows is a later piece.
 | `si.py` | `supplement_items`: the supplementary zip to evidence items, and gaps for what could not be read |
 | `evidence.py` | `paper_items`, `deposit_items`, `field_id`, `file_id`: records to quotable items |
 | `skeleton.py` | deposit records to skeleton rows: one GEO row per GSM (its SRA runs folded in through the SRX link), one ENA row per experiment for runs with no GSM, a PRIDE `raw` row per RAW file and an `analysis` row per SEARCH or RESULT file, one `file` row per Zenodo, figshare or SDR file |
-| `acquire.py` | `acquire`: `paper.json` to `evidence.json`. Reads the supplement, finds every accession, fetches each deposit once (projects before their parts) and builds the skeleton. A missing deposit or supplement is a `Gap`; a source that is down raises `SourceUnavailable` |
+| `acquire.py` | `acquire`: `paper.json` to `evidence.json`. Reads the supplement, finds every accession, fetches each deposit once (projects before their parts) and builds the skeleton. A missing deposit or supplement, or a deposit that answers with something unreadable, is a `Gap` (logged); a source that is down raises `SourceUnavailable` and a spent deadline `OutOfTime` |
 | `store.py` | `save_artifact` and `load_artifact`: content-addressed files, one folder per run under `NEXTSEEK_PAPER_REINGEST_DIR` |
 | `dates.py` | lenient date parsing (ISO, and GEO's `Jan 05 2024`) |
 
