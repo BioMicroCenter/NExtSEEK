@@ -1105,6 +1105,10 @@ def rebuild(
                 project_dir=REPO_ROOT,
                 env=state.compose_env(),
                 no_deps=True,
+                # a plain `up` also recreates a RUNNING nginx whose service definition differs in
+                # the new checkout's compose file; on a pre-split box that serves a conf naming
+                # `web` before `web` exists (prod 502, 2026-10-26). Only --recreate-nginx recreates.
+                no_recreate=True,
             )
             ui.ok("front door (nextseek_nginx) running")
     elif not policy.restart_services:

@@ -1121,6 +1121,9 @@ def test_rebuild_starts_a_stopped_front_door_without_recreating_it(
     assert list(front_door[0]["services"]) == ["nextseek_nginx"]
     assert front_door[0]["no_deps"] is True
     assert front_door[0].get("force_recreate", False) is False
+    # 2026-10-26 prod: a plain `up` still recreates a running nginx whose service definition
+    # differs in the new checkout's compose file (config hash), onto a conf that names `web`.
+    assert front_door[0].get("no_recreate") is True
 
 
 def test_rebuild_starts_the_front_door_after_the_app_restart(

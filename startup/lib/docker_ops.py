@@ -61,6 +61,7 @@ def compose_up(
     build: bool = False,
     force_recreate: bool = False,
     no_deps: bool = False,
+    no_recreate: bool = False,
 ) -> None:
     """Run ``docker compose up`` for an explicit service set."""
     cmd = ["docker", "compose", "up"]
@@ -72,6 +73,8 @@ def compose_up(
         cmd.append("--force-recreate")
     if no_deps:
         cmd.append("--no-deps")
+    if no_recreate:
+        cmd.append("--no-recreate")
     cmd.extend(services)
     result = subprocess.run(
         cmd,
