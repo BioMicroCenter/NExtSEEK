@@ -83,7 +83,7 @@ def _parse_csv(text: str) -> tuple[list[dict[str, str]], list[str]]:
         return [], [f"contrasts: the CSV header must start {','.join(_HEADER)}"]
     rows = [{k: (row.get(orig) or "").strip()
              for k, orig in zip(_HEADER, reader.fieldnames[:3])}
-            for row in reader if any((v or "").strip() for v in row.values())]
+            for row in reader if any((row.get(orig) or "").strip() for orig in reader.fieldnames[:3])]
     errors = _row_problems(rows)
     if not rows and not errors:
         errors.append("contrasts: the CSV has a header but no comparison rows")

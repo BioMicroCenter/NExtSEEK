@@ -171,3 +171,10 @@ def test_submit_stages_the_written_contrasts_file(tmp_path, monkeypatch):
     assert runs and runs[0]["job_id"] == "9"
     run_dir = runs[0]["remote_dir"]
     assert (str(contrasts), f"{run_dir}/contrasts.csv") in staged
+
+
+def test_a_pasted_csv_with_an_extra_column_does_not_crash():
+    # csv.DictReader files the cells past the header under the key None, as a list (PR 135 SF-14).
+    rows, errors = parse_contrasts("contrast,treatment,control\nEC_vs_FB,EC,FB\n,,,extra\nX_vs_Y,X,Y,more")
+    assert errors == []
+    assert [r["contrast"] for r in rows] == ["EC_vs_FB", "X_vs_Y"]
