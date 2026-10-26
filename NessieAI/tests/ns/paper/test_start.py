@@ -68,6 +68,7 @@ def test_existing_run_is_returned_not_duplicated(monkeypatch):
     session, made, _ = _session(existing=SimpleNamespace(run_id="old", state="paused"))
     out = start("1", None, session)
     assert (out["run_id"], out["status"], out["state"]) == ("old", "already_running", "paused")
+    assert out["reply"] == "A run for this paper is already in progress (paused): old."
     assert made == []
 
 

@@ -49,7 +49,7 @@ def start(paper: str, project: int | None, session) -> dict:
     existing = session.unfinished_run(ref.doi, paper)
     if existing is not None:
         return {"run_id": existing.run_id, "status": "already_running", "state": existing.state,
-                "reply": f"A run for this paper is already {existing.state}: {existing.run_id}."}
+                "reply": f"A run for this paper is already in progress ({existing.state}): {existing.run_id}."}
     # The op answers by its deadline; a check that ran past it must not leave a run the turn reported as failed.
     left = session.time_left()
     if left is None or left < MIN_LEFT_S:
