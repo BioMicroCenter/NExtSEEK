@@ -90,11 +90,6 @@ def test_column_present_with_final_definition_resets_constraints(monkeypatch):
     assert any("MODIFY COLUMN c INT NOT NULL" in call for call in calls)
 
 
-def test_root_password_defaults_and_env_override():
-    assert sf._root_password({}) == "seek_root"
-    assert sf._root_password({"MYSQL_ROOT_PASSWORD": "x"}) == "x"
-
-
 # ---------------------------------------------------------------------------
 # Small telemetry/identity helper guard clauses that don't need a live DB.
 # ---------------------------------------------------------------------------
@@ -233,9 +228,9 @@ def test_connect_to_managed_database_uses_compose_port(monkeypatch):
 
     monkeypatch.setattr(sf, "compose_port", fake_compose_port)
     monkeypatch.setitem(__import__("sys").modules, "MySQLdb", _FakeMySQLdb)
-    connection = sf._connect_to_managed_database(Path("/repo"), {}, "seek_production")
+    connection = sf._connect_to_managed_database(Path("/repo"), {"MYSQL_ROOT_PASSWORD": "x"}, "seek_production")
     assert isinstance(connection, _StubConnection)
-    assert captured["args"] == ("db", 3306, Path("/repo"), {})
+    assert captured["args"] == ("db", 3306, Path("/repo"), {"MYSQL_ROOT_PASSWORD": "x"})
     assert captured["connect_kwargs"]["port"] == 33060
     # The schema MUST be bound: forward_sql/reverse_sql/duplicate_preflight all
     # emit unqualified table names, so an unbound connection raises MySQL 1046

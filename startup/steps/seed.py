@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import NamedTuple
 
-from startup.lib.docker_ops import compose_exec, compose_port, DockerOpsError
+from startup.lib.docker_ops import compose_exec, compose_port, DockerOpsError, MYSQL_ROOT_CMD, CYPHER_SHELL_CMD
 
 SEED_FILES: dict[str, str] = {
     "dmac": "startup/seed/dmac.sql.gz",
@@ -32,9 +32,7 @@ def mysql_db_is_populated(database: str, repo_root: Path, env: dict[str, str]) -
         out = compose_exec(
             service="db",
             command=[
-                "mysql",
-                "-uroot",
-                f"-p{env.get('MYSQL_ROOT_PASSWORD', 'seek_root')}",
+                *MYSQL_ROOT_CMD,
                 "-N",
                 "-e",
                 f"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '{database}';",
@@ -56,11 +54,7 @@ def neo4j_is_populated(neo4j_password: str, repo_root: Path, env: dict[str, str]
         out = compose_exec(
             service="neo4j",
             command=[
-                "cypher-shell",
-                "-u",
-                "neo4j",
-                "-p",
-                neo4j_password,
+                *CYPHER_SHELL_CMD,
                 "--format",
                 "plain",
                 "MATCH (n) RETURN count(n);",
@@ -85,9 +79,7 @@ def load_mysql_dump(
     compose_exec(
         service="db",
         command=[
-            "mysql",
-            "-uroot",
-            f"-p{env.get('MYSQL_ROOT_PASSWORD', 'seek_root')}",
+            *MYSQL_ROOT_CMD,
             database,
         ],
         project_dir=repo_root,

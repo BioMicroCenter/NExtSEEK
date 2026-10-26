@@ -66,12 +66,8 @@ it into a running stack without a full reinstall:
 ## Test users baked in
 
 `./startup.sh install` replaces these passwords with random ones after loading the
-SEEK seed, unless `--keep-demo-passwords` is given. The seed itself still holds:
-
-| Username | Password | Role |
-|---|---|---|
-| `demo` | `demopassword` | Admin |
-| `user` | `userpassword` | Regular user |
+SEEK seed, unless `--keep-demo-passwords` is given. The seed itself still holds a published
+admin (`demo`) and a regular (`user`) password, so a box is safe only after that rotation.
 
 ## Regenerating these dumps (maintainer only)
 

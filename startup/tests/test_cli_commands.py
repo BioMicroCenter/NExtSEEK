@@ -29,9 +29,9 @@ runner = CliRunner()
 
 def _old_defaults():
     # The published defaults, read from the module rather than restated here.
-    from startup.steps.config import default_values
+    from types import SimpleNamespace
 
-    return default_values(8000, 3000, generate_passwords=False)
+    return SimpleNamespace(mysql_root_password="seek_root")
 
 
 @pytest.fixture()
@@ -156,7 +156,7 @@ def test_install_randomizes_logins_only_after_loading_the_seek_seed(repo: Path, 
     steps.users.set_random_passwords.assert_not_called()
     # (iii) the flag keeps the published ones
     _seed_populated(steps, seek_production=False)
-    assert runner.invoke(cli.app, ["install", "--yes", "--keep-demo-passwords"]).exit_code == 0
+    assert runner.invoke(cli.app, ["install", "--yes", "--keep-demo-passwords", "--demo-passwords-are-public"]).exit_code == 0
     steps.users.set_random_passwords.assert_not_called()
 
 
@@ -175,15 +175,24 @@ def test_install_warns_loudly_when_randomizing_fails(repo: Path, steps) -> None:
     steps.users.set_random_passwords.return_value = None
     _seed_populated(steps, seek_production=False)
     result = runner.invoke(cli.app, ["install", "--yes"])
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 1, result.output
     assert "still have the published passwords" in " ".join(result.output.split())
 
 
 def test_install_with_existing_data_volume_does_not_generate_passwords(repo: Path, steps, monkeypatch) -> None:
     monkeypatch.setattr(cli, "volume_exists", lambda name: True)
+    steps.config.kept_values.return_value = {
+        "MYSQL_ROOT_PASSWORD": "a", "MYSQL_PASSWORD": "b", "NEXTSEEK_NEO4J_PASSWORD": "c"}
     result = runner.invoke(cli.app, ["install", "--yes"])
     assert result.exit_code == 0, result.output
     assert steps.config.default_values.call_args.kwargs["generate_passwords"] is False
+
+
+def test_install_stops_when_a_data_volume_exists_and_a_password_is_lost(repo: Path, steps, monkeypatch) -> None:
+    monkeypatch.setattr(cli, "volume_exists", lambda name: True)
+    steps.config.kept_values.return_value = {}
+    assert runner.invoke(cli.app, ["install", "--yes"]).exit_code == 2
+    steps.config.default_values.assert_not_called()
 
 
 def test_install_fails_fast_when_prereqs_fail(repo: Path, steps) -> None:
@@ -2289,7 +2298,6 @@ def test_install_db_steps_use_the_kept_passwords(repo: Path, steps, monkeypatch)
     for step in db_calls:
         envs = [a for a in step.call_args.args if isinstance(a, dict) and "COMPOSE_PROJECT_NAME" in a]
         assert [e.get("MYSQL_ROOT_PASSWORD") for e in envs] == ["root-rotated"], step
-    assert steps.build.start_databases.call_args.kwargs["neo4j_password"] == "neo-rotated"
     assert steps.seed.neo4j_is_populated.call_args.args[0] == "neo-rotated"
     # The compose targeting file gets the Neo4j password it needs and never the MySQL root one.
     root_env = read_env(repo / ".env")
@@ -2594,3 +2602,16 @@ def test_rebuild_of_the_spawner_restarts_only_it(
     assert result.exit_code == 0, result.output
     assert swaps == []
     assert list(calls[0]["services"]) == ["cc-spawner"]
+
+
+def test_install_exits_nonzero_when_password_rotation_fails(repo: Path, steps) -> None:
+    steps.users.set_random_passwords.return_value = None
+    _seed_populated(steps, seek_production=False)
+    assert runner.invoke(cli.app, ["install", "--yes"]).exit_code == 1
+
+
+def test_keep_demo_passwords_needs_the_second_confirming_flag(repo: Path, steps) -> None:
+    _seed_populated(steps, seek_production=False)
+    assert runner.invoke(cli.app, ["install", "--yes", "--keep-demo-passwords"]).exit_code == 1
+    ok = runner.invoke(cli.app, ["install", "--yes", "--keep-demo-passwords", "--demo-passwords-are-public"])
+    assert ok.exit_code == 0, ok.output

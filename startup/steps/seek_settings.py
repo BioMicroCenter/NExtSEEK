@@ -29,15 +29,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from startup.lib.docker_ops import DockerOpsError, compose_exec
+from startup.lib.docker_ops import DockerOpsError, compose_exec, MYSQL_ROOT_CMD
 
 SEEK_DATABASE = "seek_production"
 SETTINGS_TABLE = "settings"
 SITE_BASE_HOST_VAR = "site_base_host"
-
-
-def _root_password(env: dict[str, str]) -> str:
-    return env.get("MYSQL_ROOT_PASSWORD", "seek_root")
 
 
 def encode_setting_value(url: str) -> str:
@@ -57,7 +53,7 @@ def _table_exists(repo_root: Path, env: dict[str, str]) -> bool:
     out = compose_exec(
         service="db",
         command=[
-            "mysql", "-uroot", f"-p{_root_password(env)}", "-N", "-e",
+            *MYSQL_ROOT_CMD, "-N", "-e",
             "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES "
             f"WHERE TABLE_SCHEMA='{SEEK_DATABASE}' AND TABLE_NAME='{SETTINGS_TABLE}';",
         ],
@@ -76,7 +72,7 @@ def _current_value(repo_root: Path, env: dict[str, str]) -> str | None:
     out = compose_exec(
         service="db",
         command=[
-            "mysql", "-uroot", f"-p{_root_password(env)}", "-N", "-e",
+            *MYSQL_ROOT_CMD, "-N", "-e",
             f"SELECT value FROM {SEEK_DATABASE}.{SETTINGS_TABLE} "
             f"WHERE var='{SITE_BASE_HOST_VAR}' "
             "AND target_type IS NULL AND target_id IS NULL;",
@@ -146,7 +142,7 @@ def _insert(repo_root: Path, env: dict[str, str], url: str) -> None:
     compose_exec(
         service="db",
         command=[
-            "mysql", "-uroot", f"-p{_root_password(env)}", SEEK_DATABASE, "-e",
+            *MYSQL_ROOT_CMD, SEEK_DATABASE, "-e",
             f"INSERT INTO {SETTINGS_TABLE} (var, value, target_type, target_id, created_at, updated_at) "
             f"VALUES ('{SITE_BASE_HOST_VAR}', '{encoded}', NULL, NULL, NOW(), NOW());",
         ],

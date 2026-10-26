@@ -43,7 +43,8 @@ Always decode with `errors="replace"`.
 
 ```bash
 docker exec -w /app nextseek uv run manage.py nessie \
-    --tier {route,full} --scope {specific,all} --sample <ratio> --out /app/nessie_out_X
+    --tier {route,full} --scope {specific,all} --sample <ratio> --out /app/nessie_out_X \
+    --password-env NESSIE_PW   # the login password lives in that variable, never on the command line
 ```
 
 `route` tier is cheaper and needs no seed data. `full` executes real turns, costs

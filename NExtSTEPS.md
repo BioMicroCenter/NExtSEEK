@@ -17,16 +17,13 @@ what to run to apply.
 A fresh `./startup.sh install` generates the database passwords and gives the
 two seeded accounts (`demo`, admin; `user`, regular) random passwords, printed
 once at the end of the install. It does not touch an install that already holds
-the seed. With `--keep-demo-passwords` it keeps the seed's published pair, below:
+the seed. If the rotation fails, install exits with an error and the two accounts
+still hold the seed's published passwords. `--keep-demo-passwords` (with
+`--demo-passwords-are-public`) keeps them on purpose.
 
-| Username | Password | Role |
-|---|---|---|
-| `demo` | `demopassword` | Admin |
-| `user` | `userpassword` | Regular |
-
-Anyone who can `git clone` this repo knows those credentials. The moment your
-install is reachable by anyone you don't trust, rotate them via SEEK's admin
-UI:
+Anyone who can `git clone` this repo can read the seed's published passwords. The
+moment your install is reachable by anyone you don't trust, rotate them via SEEK's
+admin UI:
 
 1. Log in as `demo` at `http://<your-host>:<seek-port>/login`
 2. **My Account → Edit profile → Change password** for both `demo` and `user`

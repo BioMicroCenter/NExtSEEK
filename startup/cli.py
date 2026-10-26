@@ -157,6 +157,7 @@ def _install_impl(
     no_disk_check: bool = False,
     disk_floor: int | None = None,
     keep_demo_passwords: bool = False,
+    demo_passwords_are_public: bool = False,
 ) -> None:
     """Install body as plain Python with real defaults.
 
@@ -168,6 +169,14 @@ def _install_impl(
     # Before the banner and before anything is written: an unusable value here
     # would otherwise be discovered only by the first CI run after the install,
     # as a pytest.exit(2) with no obvious connection to what was typed.
+    if keep_demo_passwords:
+        # install cannot tell which interfaces the compose ports bind, so it cannot prove
+        # the box is loopback-only: the operator says so with a second flag (SEC-H21).
+        ui.warn("--keep-demo-passwords: the demo and user logins stay at the PUBLISHED passwords. "
+                "Anyone who can reach this box can sign in as an admin.")
+        if not demo_passwords_are_public:
+            ui.fail("add --demo-passwords-are-public to confirm, or drop --keep-demo-passwords.")
+            raise typer.Exit(code=1)
     if ci_profile not in CI_PROFILE_CHOICES:
         ui.fail(
             f"unknown ci profile: {ci_profile!r}. "
@@ -253,9 +262,9 @@ def _install_impl(
     if not fresh_db and not all(
         kept.get(k) for k in ("MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD", "NEXTSEEK_NEO4J_PASSWORD")
     ):
-        ui.warn("a database data volume already exists but docker/db.env or docker/nextseek.env "
-                "lacks a password: install is using the old default. Restore the env files "
-                "if the database was set up with other passwords.")
+        ui.fail("a database data volume already exists but docker/db.env or docker/nextseek.env "
+                "lacks a password. Restore the env files that went with the volume, then run install again.")
+        raise typer.Exit(code=2)
 
     state = InstanceState(
         name=name,
@@ -377,14 +386,14 @@ def _install_impl(
     loaded_seek_seed = False
     if no_seed:
         ui.warn("--no-seed: starting database containers only, no seed import")
-        build.start_databases(REPO_ROOT, db_env, neo4j_password=values.neo4j_password)
+        build.start_databases(REPO_ROOT, db_env)
         ui.ok("databases up (empty — populate them yourself or re-run without --no-seed)")
     else:
         missing = seed.seed_files_present(REPO_ROOT)
         if missing:
             ui.fail(f"missing seed files: {', '.join(missing)}")
             raise typer.Exit(code=1)
-        build.start_databases(REPO_ROOT, db_env, neo4j_password=values.neo4j_password)
+        build.start_databases(REPO_ROOT, db_env)
         if seed.mysql_db_is_populated("dmac", REPO_ROOT, db_env):
             ui.ok("dmac already populated; skipping")
         else:
@@ -490,7 +499,9 @@ def _install_impl(
     if loaded_seek_seed and not keep_demo_passwords:
         new_logins = users.set_random_passwords(REPO_ROOT, db_env, compose_env)
         if new_logins is None:
-            ui.warn("demo and user still have the published passwords: change them in SEEK now")
+            ui.fail("demo and user still have the published passwords: password rotation failed. "
+                    "Change them in SEEK now, then do not expose this box.")
+            raise typer.Exit(code=1)
         else:
             ui.ok("demo + user given random passwords (shown once, not saved):")
             # Shown here, before any step that can fail: a failed health check
@@ -559,7 +570,13 @@ def install(
     keep_demo_passwords: bool = typer.Option(
         False,
         "--keep-demo-passwords",
-        help="Keep the seed's published demo/user passwords (a private laptop only).",
+        help="Keep the seed's published demo/user passwords (a private laptop only). "
+             "Needs --demo-passwords-are-public.",
+    ),
+    demo_passwords_are_public: bool = typer.Option(
+        False,
+        "--demo-passwords-are-public",
+        help="Confirms --keep-demo-passwords: the logins are published, so the box must not be reachable by others.",
     ),
 ) -> None:
     """First-time install: prereqs, config, volumes, seeds, build, users, validate."""
@@ -577,6 +594,7 @@ def install(
         no_disk_check=no_disk_check,
         disk_floor=disk_floor,
         keep_demo_passwords=keep_demo_passwords,
+        demo_passwords_are_public=demo_passwords_are_public,
     )
 
 
@@ -753,6 +771,7 @@ def reset(
         no_disk_check=False,
         disk_floor=None,
         keep_demo_passwords=False,
+        demo_passwords_are_public=False,
     )
 
 

@@ -25,6 +25,16 @@ def _check(result: subprocess.CompletedProcess[Any], context: str) -> None:
         raise DockerOpsError(f"{context} failed (exit {result.returncode}): {stderr.strip() or stdout.strip()}")
 
 
+# A mysql client run as root inside the db container, for compose_exec(service="db", command=[*MYSQL_ROOT_CMD, ...]).
+# The password is the container's own MYSQL_ROOT_PASSWORD (from db.env) handed over as MYSQL_PWD, so it is never
+# on any argv, host or container (SEC-H23).
+MYSQL_ROOT_CMD = ("sh", "-c", 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot "$@"', "sh")
+
+
+# The same for cypher-shell in the neo4j container: NEO4J_AUTH is "neo4j/<password>", handed over as NEO4J_PASSWORD.
+CYPHER_SHELL_CMD = ("sh", "-c", 'NEO4J_PASSWORD="${NEO4J_AUTH#neo4j/}" exec cypher-shell -u neo4j "$@"', "sh")
+
+
 def _redacted(command: Sequence[str]) -> str:
     """The command for an error message, with a -p<password> or -p <password> masked.
 
