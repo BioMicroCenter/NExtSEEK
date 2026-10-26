@@ -1,4 +1,5 @@
-"""Operator CLI for paper reingest runs: start one, read its state, export an artifact.
+"""Operator CLI for paper reingest runs: start one, read its state, export an artifact, and
+recover a stuck one (`cancel` fails any live run; `requeue` queues stage 1 again).
 
 `start --inline` runs stage 1 in this process instead of on the worker, which is how a
 golden paper's evidence.json is captured for the piece-2 tests.
@@ -15,6 +16,8 @@ from nextseek_api.paper_reingest.lookups import doi_project_ids_strict
 from nextseek_api.paper_reingest.models_db import PaperReingestRun
 
 _MODELS = {"paper": PaperArtifact, "evidence": EvidenceArtifact}
+#: The states stage 1 can be queued again from: waiting, paused, or stuck mid-acquire after a worker died.
+REQUEUE_STATES = ("queued", "paused", "acquiring")
 
 
 class Command(BaseCommand):
@@ -33,6 +36,10 @@ class Command(BaseCommand):
         export.add_argument("run_id")
         export.add_argument("artifact", choices=sorted(_MODELS))
         export.add_argument("--out", required=True)
+        cancel = sub.add_parser("cancel", help="fail a live run (failed_stage cancelled)")
+        cancel.add_argument("run_id")
+        requeue = sub.add_parser("requeue", help="queue stage 1 again for a queued, paused or acquiring run")
+        requeue.add_argument("run_id")
 
     def handle(self, *args, verb, **opts):
         getattr(self, f"_{verb}")(**opts)
@@ -68,6 +75,25 @@ class Command(BaseCommand):
                      f"gaps={len(ev.gaps)}")
         self.stdout.write(line)
 
+    def _cancel(self, *, run_id, **_):
+        run = _run(run_id)
+        if run.state not in service.LIVE_STATES:
+            raise CommandError(f"run {run_id} is {run.state}, not a live run")
+        service.set_state(run, "failed", failed_stage="cancelled", reason="cancelled by operator")
+        self.stdout.write(f"{run.run_id}  failed  (cancelled)")
+
+    def _requeue(self, *, run_id, **_):
+        run = _run(run_id)
+        if run.state not in REQUEUE_STATES:
+            raise CommandError(f"run {run_id} is {run.state}; only a {', '.join(REQUEUE_STATES)} run can be requeued")
+        service.set_state(run, "queued")
+        try:
+            service.enqueue_acquire(run)
+        except Exception as exc:
+            raise CommandError(f"could not queue run {run_id} ({type(exc).__name__}); it is left queued, "
+                               "requeue it again once the queue is back") from exc
+        self.stdout.write(f"{run.run_id}  queued")
+
     def _export(self, *, run_id, artifact, out, **_):
         run = PaperReingestRun.objects.filter(run_id=run_id).first()
         if run is None or artifact not in run.artifacts:
@@ -76,3 +102,10 @@ class Command(BaseCommand):
         with open(out, "w", encoding="utf-8") as handle:
             handle.write(model.model_dump_json(indent=2))
         self.stdout.write(f"wrote {out}")
+
+
+def _run(run_id: str) -> PaperReingestRun:
+    run = PaperReingestRun.objects.filter(run_id=run_id).first()
+    if run is None:
+        raise CommandError(f"no run {run_id}")
+    return run
