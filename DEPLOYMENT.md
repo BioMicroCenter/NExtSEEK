@@ -493,6 +493,56 @@ from that checkout.
 
 ---
 
+### 3.5 Phase 4: the app containers stop running as root
+
+What changes: `nextseek` and `web` (the app image), `cc-agent` and `nextseek-sidecar` run as 10001:10001 (host
+uid 1001 is a person on both boxes, so it is not used); the bedrock proxy runs as 10002. Compose drops all caps
+and sets no-new-privileges. The app reads `dmac/local_settings.py` and the Luria key by group (`group_add:
+${NEXTSEEK_HOST_GID}`, files 0640, that group). No file in a volume or bind the app writes may stay root- or
+1001-owned: `./startup.sh fix-ownership` hands them over.
+
+**Preflight** (rebuild runs both before any build; run them by hand first on a box you have not touched):
+- `check_app_ids` (`startup/steps/validate.py`): uid and gid 10001 are free on the box (NSS, so directory
+  accounts count) and `NEXTSEEK_HOST_GID` is a number that is not 0 and not the docker group's gid.
+- the group-read step (`ensure_secret_group_read`, in `startup/steps/volumes.py`): `local_settings.py` and the
+  file named by `LURIAKEY` get group `NEXTSEEK_HOST_GID` and mode 0640. Run as the installing user; if the file
+  belongs to someone else it prints the `chgrp` and `chmod` for that owner.
+
+**Switchover sitting** (the first deploy whose app image has a USER; runner-driven or by hand). Pick a quiet
+window: between the sidecar rebuild and the app step, the 10001 sidecar cannot write a `_staging` still owned by
+1001, and a CC turn on the new agent image cannot write its old 1001 files; the app step's FIX closes both.
+1. `./startup.sh rebuild --component cc-agent`, then `--component nextseek-sidecar`, then `--component bedrock-proxy`,
+   then the app (`./startup.sh rebuild`), back to back. The app rebuild notices the user change, does not swap,
+   stops `web`, `nextseek` and `nextseek-sidecar`, runs FIX on every volume and bind, then starts them. Users
+   see the restart page meanwhile. Measured sizes: dev about 16k files, prod about 14k, the scans take 0 to 1 s,
+   so the FIX is seconds, not minutes.
+2. CHECK: `./startup.sh fix-ownership --check` must print 0 on every target (exit 0). The runner does this
+   itself after the rebuilds and stops the launch otherwise, and its post-deploy checks add: `id -u` in `web` is
+   10001, no `/var/run/docker.sock` in `web`, a spawner call without the token answers 401 or 403, and
+   `docker inspect` of `web` and `nextseek` shows User 10001:10001, CapDrop [ALL] and no-new-privileges.
+3. `fix-ownership` (without `--check`) refuses while the running app user is not 10001; after the switchover it
+   is safe at any time.
+
+Phase 4 rides the same dev rollout as phase 3.
+
+**Rollback** to the previous commit's compose and images (root app, 1001 agent and sidecar). Do this first, with
+the stack's app and agents still on the new images or stopped:
+
+```bash
+docker run --rm --network none --user 0:0 --entrypoint sh -v dmac-cc-users:/v <app-or-cc-image> \
+  -c 'find /v -xdev ! -user 1001 -exec chown -h 1001:1001 {} +'
+```
+
+The old 1001 agent cannot write 10001's files; the old root app does not care who owns them, so no other volume
+or bind needs anything. Then roll back as in section 5 (compose files from the previous commit AND the
+rollback-tagged images). Rolling forward again repeats the switchover.
+
+**`docker compose exec` is 10001 now.** Work that must write as root needs `-u 0` (`docker compose exec -u 0 ...`).
+Its files stay root-owned, so the next CHECK reports them and the next rebuild's ownership pass fixes them. The
+runner's own execs (collectstatic, `mkdir -p /app/runs`, the Nessie run) run as the app user on purpose, and its
+copies into the containers use `docker compose cp -a` / `docker cp -a`, which gives the file the container user
+(verified on docker here: without `-a` the host uid is kept).
+
 ## 4. Config-only changes
 
 `docker/nextseek.env`, `docker/db.env`, and `dmac/local_settings.py` are

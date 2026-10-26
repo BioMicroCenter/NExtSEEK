@@ -499,11 +499,53 @@ def test_the_runner_reads_the_web_process_from_the_web_service(tmp_path, capsys)
 def test_the_labs_copy_writes_once_to_the_shared_path_and_restarts_nothing(tmp_path, capsys):
     d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
                               allowed_extras=["bedrock-proxy rebuild ok"])
-    assert "docker compose cp /tmp/labs_db.json nextseek:/media/context/labs_db.json" in text
+    assert "docker compose cp -a /tmp/labs_db.json nextseek:/media/context/labs_db.json" in text
     assert "mkdir -p /media/context" in text
     after = text.split("LABS copied", 1)[1].split("else", 1)[0]
     assert "restart" not in after and "sleep 60" not in after
     assert "stat -c %y /media/context/labs_db.json" in text
+
+
+def test_every_copy_into_an_app_container_is_archive_mode(tmp_path, capsys):
+    """Phase 4: the app containers run as 10001. `cp -a` is what gives a copied-in file the container
+    user (checked with docker 2026-10-26: plain cp keeps the host uid, -a gives the container user)."""
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    assert "docker compose cp -a /tmp/labs_db.json nextseek:/media/context/labs_db.json" in text
+    into = [ln for ln in text.splitlines() if re.search(r"docker( compose)? cp ", ln) and re.search(r" nextseek:/\S+( |$)", ln.split(" cp ", 1)[1]) and not re.search(r" cp \S*nextseek:", ln)]
+    assert len(into) == 2 and all(" cp -a " in ln for ln in into), into
+
+
+def test_a_switchover_rebuilds_agent_sidecar_proxy_then_app_and_checks_ownership(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app", "bedrock-proxy", "nextseek-sidecar"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    fn = _functions(text)
+    # the order is a pure function of the rendered component list, sourced from the functions block
+    r = subprocess.run(["bash", "-c", f'{fn}\nswitch_order "app cc-agent bedrock-proxy nextseek-sidecar"'],
+                       capture_output=True, text=True)
+    assert r.stdout.split() == ["cc-agent", "nextseek-sidecar", "bedrock-proxy", "app"], r.stderr
+    r = subprocess.run(["bash", "-c", f'{fn}\nswitch_order "app cc-agent"'], capture_output=True, text=True)
+    assert r.stdout.split() == ["cc-agent", "app"]
+    # detection: the running app has no USER while the checked-out Dockerfile names one
+    assert "SWITCH=1" in text and ".Config.User" in text and "git show HEAD:Dockerfile" in text
+    assert "COMPONENTS=$(switch_order" in text
+    # after the rebuilds: the ownership CHECK, and the launch stops when it is not clean
+    block = text.split("fix-ownership --check", 1)[1].split("fi\n", 1)[0]
+    assert "|| stop" in block
+    assert text.index("fix-ownership --check") > text.index('for c in $COMPONENTS; do')
+
+
+def test_the_post_deploy_checks_prove_web_is_non_root_and_the_spawner_refuses_without_a_token(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["app"], allowed_extras=[])
+    assert "CHECK web_uid $(docker compose exec -T web id -u" in text
+    assert "CHECK web_no_docker_sock" in text and "/var/run/docker.sock" in text
+    sp = text.split("CHECK spawner_untokened", 1)[1].split("fi\n", 1)[0].split("for s in", 1)[0]
+    assert "NEXTSEEK_SPAWNER_URL" in sp and "/turns" in sp and "X-Spawner-Token" not in sp
+    ins = next(ln for ln in text.splitlines() if "CHECK app_inspect" in ln)
+    assert "{{.Config.User}}" in ins and "{{.HostConfig.CapDrop}}" in ins and "{{.HostConfig.SecurityOpt}}" in ins
+    assert "for s in web nextseek; do" in text
+    # judged: a wrong answer is a finding in the status file
+    assert "FINDING non-root check" in text
 
 
 def test_the_labs_file_is_on_the_volume_before_the_app_rebuild_starts_web(tmp_path, capsys):
