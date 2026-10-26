@@ -126,9 +126,10 @@ say "HEAD $(git log --oneline -1 | cut -c1-70)"
 
 pre_app(){ # the labs file goes onto the shared volume BEFORE the app rebuild starts the new web, which reads it once at load
   [ $DO_LABS = 1 ] && [ -f /tmp/labs_db.json ] || return 0
-  docker compose run --rm --no-deps -T --entrypoint sh -v /tmp/labs_db.json:/labs_src.json:ro nextseek \
-    -c 'mkdir -p /media/context && cp /labs_src.json /media/context/labs_db.json' </dev/null \
-    && say "LABS pre-copied" || say "LABS pre-copy failed; post_app copies it after the rebuild"
+  # piped in, not bind-mounted: a bind source is resolved by the daemon and would need :z on an SELinux host
+  docker compose run --rm -T --no-deps --entrypoint sh nextseek \
+    -c 'mkdir -p /media/context && cat > /media/context/.labs.tmp && mv -f /media/context/.labs.tmp /media/context/labs_db.json' \
+    < /tmp/labs_db.json && say "LABS pre-copied" || say "LABS pre-copy failed; post_app copies it after the rebuild"
 }
 
 post_app(){

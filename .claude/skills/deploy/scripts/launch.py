@@ -1769,7 +1769,7 @@ def prefill_report(facts: dict, brief: BriefForm, data: dict) -> dict:
                   "evidence": ["static.log"] if ran_app else [], "note": None})
     if rules.INSTANCES[brief.instance].labs_copy:
         labs = facts["status"]["labs"] or ""
-        steps.append({"step": "labs", "status": "ok" if labs.startswith("copied") else
+        steps.append({"step": "labs", "status": "ok" if labs.startswith(("copied", "pre-copied")) else
                       ("not_in_brief" if not ran_app else "failed"), "evidence": ["checks.log"], "note": labs or None})
     steps.append({"step": "checks", "status": "ok" if facts["checks"].get("http") == "200" else
                   ("failed" if facts["checks"] else "stopped"), "evidence": ["checks.log"], "note": None})
