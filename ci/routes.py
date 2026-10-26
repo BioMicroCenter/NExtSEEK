@@ -324,10 +324,10 @@ REGISTRY: list[Route] = [
     # ----------------------------------------------------------------- #
     Route(pattern=r"^admin/login/$", path="/admin/login/",
           effect="n/a",
-          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=404,
           resolver=False,
-          note="Django admin is outside the gate's denominator; kept as the "
-               "cheapest proof Django itself serves"),
+          note="/admin/ is superuser-only and answers 404 to everyone else; "
+               "superusers sign in at /login/"),
     Route(pattern=r"^seek/newsearch/$", path="/seek/newsearch/",
           effect="n/a",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=404,
