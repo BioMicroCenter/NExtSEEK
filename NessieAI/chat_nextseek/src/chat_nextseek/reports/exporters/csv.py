@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from ._text_safe import csv_safe
+
 
 def _coerce_scalar_csv_value(value: Any) -> str:
     """Convert JSON-like values into CSV-safe scalar strings."""
@@ -80,5 +82,5 @@ def _write_csv_rows(path: Path, rows: Sequence[Mapping[str, Any]], columns: Sequ
         writer = _csv.DictWriter(handle, fieldnames=list(columns), extrasaction="ignore")
         writer.writeheader()
         for row in rows:
-            writer.writerow({col: _coerce_scalar_csv_value(row.get(col)) for col in columns})
+            writer.writerow({col: csv_safe(_coerce_scalar_csv_value(row.get(col))) for col in columns})
     return str(path)

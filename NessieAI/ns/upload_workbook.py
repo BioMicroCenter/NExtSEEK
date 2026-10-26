@@ -17,6 +17,7 @@ import json
 from typing import Any
 
 import openpyxl
+from chat_nextseek.reports.exporters._text_safe import text_cell
 
 
 def render_upload_workbook(sample_type: str, rows: list[dict[str, Any]], out_path: str) -> None:
@@ -54,6 +55,8 @@ def render_upload_workbook(sample_type: str, rows: list[dict[str, Any]], out_pat
     for row in rows:
         meta = row.get("json_metadata") or {}
         ws.append([_cell(meta.get(field)) for field in fields])
+        for cell in ws[ws.max_row]:
+            text_cell(cell)  # SEC-H03: a stored value never becomes a formula
 
     # ASSAY: one row per distinct assay_id, applied to this sample type (Direction 1).
     wa = wb.create_sheet("Assay")

@@ -34,6 +34,7 @@ from seek.models import (
     Samples,
 )
 
+from nextseek_api.services.excel_safe import protect_sheet, text_cell
 from nextseek_api.services.sample_provenance import (
     SAMPLE_TYPE_RE,
     build_provenance_tree,
@@ -374,7 +375,7 @@ def _safe_cell_value(value: str) -> str:
 
 def _write_cell(ws, row: int, column: int, value: str, bold: bool = False):
     """The single place the README writes text, so sanitizing cannot be skipped."""
-    cell = ws.cell(row=row, column=column, value=_safe_cell_value(value))
+    cell = text_cell(ws.cell(row=row, column=column, value=_safe_cell_value(value)))
     if bold:
         cell.font = Font(bold=True)
     return cell
@@ -579,7 +580,7 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None, notice=
 
         for code, frame in prepared:
             frame.to_excel(writer, sheet_name=code, index=False)
-            sheet = writer.sheets[code]
+            sheet = protect_sheet(writer.sheets[code])
             _annotate_header(sheet, code, list(frame.columns), meaning_by_pair)
             _apply_dropdowns(sheet, list(frame.columns), field_map, ranges, len(frame))
 
