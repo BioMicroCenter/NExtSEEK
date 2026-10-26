@@ -10,10 +10,21 @@ Covers:
 
 import json
 import pytest
+import requests
 from unittest.mock import MagicMock, Mock, patch, PropertyMock
 
 from django.test import override_settings
 from rest_framework.test import APIRequestFactory
+
+
+@pytest.fixture(autouse=True)
+def _titles():
+    """The create's title check reads SEEK's sample_types table; there is none here. ``.real`` is the unpatched one."""
+    from nextseek_api.services import sample_types
+    real = getattr(sample_types, "_existing_type_ids", None)
+    with patch.object(sample_types, "_existing_type_ids", return_value=[], create=True) as m:
+        m.real = real
+        yield m
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +246,17 @@ class TestSeekClientTimeout:
     def test_other_value_reaches_requests(self):
         assert self._call(timeout_s=45) == 45
 
+    def test_create_timeout_reaches_requests(self):
+        from nextseek_api.helpers import SeekAPIClient
+        c = SeekAPIClient()
+        c.session = MagicMock()
+        c.session.request.return_value = Mock(content=b"{}", status_code=201, headers={})
+        with patch("nextseek_api.helpers.resolve_seek_auth", return_value=(("u", "p"), {})):
+            c.create_sample_type(MagicMock(), {"data": {}})
+            assert c.session.request.call_args.kwargs["timeout"] == 20
+            c.create_sample_type(MagicMock(), {"data": {}}, timeout_s=(10, 50))
+            assert c.session.request.call_args.kwargs["timeout"] == (10, 50)
+
 
 # ============================================================================
 # SampleTypeProxyViewSet.retrieve
@@ -345,6 +367,112 @@ class TestSampleTypeCreate:
         req = _auth_request(method="post", data=GOOD_ST_CREATE_PAYLOAD)
         resp = vs.create(req)
         assert resp.status_code == 502
+
+
+# Issue #140: SEEK finished creating a large type (70+ attributes) after the front proxy had given up, so the caller
+# saw a 504 or 500 for a type that exists, and a retry would have made a second type with the same title.
+class TestSampleTypeCreateUnconfirmed:
+    @pytest.fixture(autouse=True)
+    def _seek_login(self):
+        with patch("nextseek_api.services.sample_types.resolve_seek_auth", return_value=(("u", "p"), {})) as m:
+            yield m
+
+    def _viewset(self):
+        from nextseek_api.services.sample_types import SampleTypeProxyViewSet
+        vs = SampleTypeProxyViewSet()
+        vs.client = MagicMock()
+        return vs
+
+    def _create(self, vs):
+        resp = vs.create(_auth_request(method="post", data=GOOD_ST_CREATE_PAYLOAD))
+        return resp, json.loads(resp.content)
+
+    def test_create_waits_longer_than_the_default_but_answers_before_the_front_proxy(self):
+        from nextseek_api.services.sample_types import CREATE_TIMEOUT_S
+        vs = self._viewset()
+        vs.client.create_sample_type.return_value = _ok(GOOD_ST_SINGLE, 201)
+        resp, _ = self._create(vs)
+        assert resp.status_code == 201
+        assert vs.client.create_sample_type.call_args.kwargs["timeout_s"] == (10, CREATE_TIMEOUT_S)
+        # Under nginx's default 60 s proxy_read_timeout, so the app's own JSON answers first.
+        assert 20 < CREATE_TIMEOUT_S < 60
+
+    def test_read_timeout_is_202_unconfirmed_with_the_title(self):
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = requests.ReadTimeout("slow")
+        resp, body = self._create(vs)
+        assert resp.status_code == 202
+        assert resp["Content-Type"] == "application/json"
+        assert body["status"] == "unconfirmed" and body["title"] == "NEW"
+        assert "GET /nextseek_api/sample_types/<title>/" in body["detail"]
+
+    def test_connection_error_is_502_json_with_the_title(self):
+        vs = self._viewset()
+        vs.client.create_sample_type.side_effect = requests.ConnectionError("down")
+        resp, body = self._create(vs)
+        assert resp.status_code == 502
+        assert resp["Content-Type"] == "application/json"
+        assert body["title"] == "NEW" and body["errors"]
+
+    def test_seek_5xx_is_502_json_that_says_the_type_may_exist(self):
+        vs = self._viewset()
+        vs.client.create_sample_type.return_value = (b"<html>boom</html>", 500, {"Content-Type": "text/html"}, Mock())
+        resp, body = self._create(vs)
+        assert resp.status_code == 502
+        assert resp["Content-Type"] == "application/json"
+        assert body["seek_status"] == 500 and body["title"] == "NEW"
+        assert "may still have been created" in body["errors"][0]["detail"]
+
+    def test_seek_refusal_keeps_seek_status_and_body(self):
+        vs = self._viewset()
+        refusal = _body({"errors": [{"title": "Title is invalid"}]})
+        vs.client.create_sample_type.return_value = (refusal, 422, {"Content-Type": "application/vnd.api+json"}, Mock())
+        resp, body = self._create(vs)
+        assert resp.status_code == 422
+        assert body["errors"][0]["title"] == "Title is invalid"
+
+    def test_taken_title_is_409_with_the_id_when_visible_and_nothing_is_sent(self, _titles):
+        _titles.return_value = ["117"]
+        vs = self._viewset()
+        vs.client.get_sample_type.return_value = _ok(GOOD_ST_SINGLE)
+        resp, body = self._create(vs)
+        assert resp.status_code == 409
+        assert resp["Content-Type"] == "application/json"
+        assert body["id"] == "117" and body["title"] == "NEW"
+        _titles.assert_called_once_with("NEW")
+        vs.client.create_sample_type.assert_not_called()
+
+    def test_taken_title_is_409_without_the_id_when_not_visible(self, _titles):
+        _titles.return_value = ["117", "118"]
+        vs = self._viewset()
+        vs.client.get_sample_type.side_effect = [(b"{}", 403, {}, Mock()), requests.ReadTimeout("slow")]
+        resp, body = self._create(vs)
+        assert resp.status_code == 409
+        assert "id" not in body
+        vs.client.create_sample_type.assert_not_called()
+
+    def test_caller_without_a_seek_login_gets_401_whether_or_not_the_title_is_taken(self, _titles, _seek_login):
+        _seek_login.return_value = (None, {})
+        vs = self._viewset()
+        vs.client.create_sample_type.return_value = (None, 401, {}, None)
+        _titles.return_value = ["117"]
+        taken = vs.create(_auth_request(method="post", data=GOOD_ST_CREATE_PAYLOAD))
+        _titles.return_value = []
+        free = vs.create(_auth_request(method="post", data=GOOD_ST_CREATE_PAYLOAD))
+        assert taken.status_code == free.status_code == 401
+        assert taken.content == free.content
+
+
+class TestExistingTypeIds:
+    def test_ids_of_the_types_holding_the_title(self, _titles):
+        with patch("nextseek_api.services.sample_types.DBtable_sampletype") as table:
+            table.return_value.queryRecordsByConstraint.return_value = [{"id": 117, "title": "D.HEM"}]
+            assert _titles.real("D.HEM") == ["117"]
+            table.return_value.queryRecordsByConstraint.assert_called_once_with({"title": "D.HEM"})
+
+    def test_an_unreadable_table_lets_the_create_through(self, _titles):
+        with patch("nextseek_api.services.sample_types.DBtable_sampletype", side_effect=RuntimeError("no db")):
+            assert _titles.real("D.HEM") == []
 
 
 # ============================================================================

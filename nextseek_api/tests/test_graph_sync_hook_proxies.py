@@ -40,6 +40,14 @@ pytestmark = pytest.mark.django_db
 
 JSON_H = {"Content-Type": "application/json"}
 
+
+@pytest.fixture(autouse=True)
+def _no_sample_type_title_lookup():
+    """The sample-type create's title check reads SEEK's sample_types table; there is none here."""
+    with patch("nextseek_api.services.sample_types._existing_type_ids", return_value=[]):
+        yield
+
+
 _EMPTY_REF = {"data": []}
 _STUDY_REF = {"data": {"type": "studies", "id": "434"}}
 
@@ -187,6 +195,7 @@ class Proxy:
     ok_code: int = 200
     unconfirmed: frozenset = frozenset()   # the rows it can name without SEEK's body: a 5xx or a raise holds them back
     held: frozenset = frozenset()          # the rows held back even on a 2xx
+    answers_a_raise: bool = False          # a raised SEEK call is answered (202 or 502) instead of reaching the caller
 
     def call(self, code: int | None = None, body: Any = None, raises: BaseException | None = None):
         viewset = self.viewset()
@@ -223,7 +232,7 @@ PROXIES = [
             "relationships": {"projects": {"data": [{"type": "projects", "id": "1"}]}}}},
         response_body=_sample_type_body(),
         rows=frozenset({("catalog", "*"), ("samples_of_type", "type:12")}), ok_code=201,
-        unconfirmed=frozenset({("catalog", "*")}),
+        unconfirmed=frozenset({("catalog", "*")}), answers_a_raise=True,
     ),
     Proxy(
         id="sample_type.partial_update", viewset=SampleTypeProxyViewSet, action="partial_update",
@@ -336,15 +345,24 @@ def test_a_5xx_enqueues_the_rows_it_can_name_held_back(proxy, code):
 @pytest.mark.parametrize("proxy", PROXIES, ids=[p.id for p in PROXIES])
 @pytest.mark.parametrize("error", [requests.ReadTimeout("read timed out"), requests.ConnectionError("reset")],
                          ids=["timeout", "connection"])
-def test_a_call_that_raises_enqueues_the_rows_it_can_name_held_back_and_still_raises(proxy, error):
-    with pytest.raises(type(error)):
-        proxy.call(raises=error)
+def test_a_call_that_raises_enqueues_the_rows_it_can_name_held_back(proxy, error):
+    """And the error reaches the caller, unless the proxy answers it (sample-type create, #140)."""
+    if proxy.answers_a_raise:
+        response = proxy.call(raises=error)
+        assert response.status_code == (202 if isinstance(error, requests.ReadTimeout) else 502)
+        assert response["Content-Type"] == "application/json"
+    else:
+        with pytest.raises(type(error)):
+            proxy.call(raises=error)
     assert _delays() == _held(proxy.unconfirmed, proxy.unconfirmed)
 
 
 @pytest.mark.parametrize("proxy", PROXIES, ids=[p.id for p in PROXIES])
-def test_a_call_that_raises_still_raises_its_own_error_when_the_outbox_is_down(proxy, monkeypatch):
+def test_a_call_that_raises_still_answers_as_it_would_when_the_outbox_is_down(proxy, monkeypatch):
     _broken_enqueue(monkeypatch)
+    if proxy.answers_a_raise:
+        assert proxy.call(raises=requests.ReadTimeout("read timed out")).status_code == 202
+        return
     with pytest.raises(requests.ReadTimeout):
         proxy.call(raises=requests.ReadTimeout("read timed out"))
 
