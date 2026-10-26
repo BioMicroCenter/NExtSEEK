@@ -7,8 +7,9 @@ gap-free swap or the spawner boundary breaks silently:
 * `web` without a healthcheck gives the swap nothing to wait on.
 * A grace period shorter than the drain cap makes Docker kill the container while
   it is still finishing chat turns.
-* The worker or `web` holding the Docker socket, or the worker sitting on the spawner network, undoes
-  the point of splitting the chat turn out of it.
+* The worker sitting on the spawner network undoes the point of splitting the chat
+  turn out of it. Which services may reach Docker at all is
+  `test_compose_no_raw_docker_socket.py`.
 """
 from __future__ import annotations
 
@@ -65,11 +66,6 @@ def test_web_grace_period_covers_the_drain_cap_plus_gunicorn():
     assert _drain_default() == 240
     grace = _seconds(SERVICES["web"]["stop_grace_period"])
     assert grace >= _drain_default() + 30
-
-
-def test_only_the_spawner_mounts_the_docker_socket():
-    holders = {n for n, s in SERVICES.items() if any(m.startswith(SOCK + ":") for m in _mounts(s))}
-    assert holders == {"cc-spawner"}
 
 
 def test_the_worker_has_no_socket_no_laya_and_no_spawner_network():
