@@ -79,6 +79,21 @@ BACK_EDGE_ALLOWLIST: dict[str, frozenset[str]] = {
         # Spec piece 1 (plan 02): the CC turn issues, dates and revokes its turn pass.
         "nextseek_api.assistant.turn_pass",
     }),
+    # Reingest: PipelineRun records which NExtSEEK sequencing samples a pipeline
+    # run consumed. The model lives in nextseek_api/assistant/models_db.py because
+    # models and migrations stay with the API (app label nextseek_api), so reading
+    # it from the engine is the same sanctioned edge cc/turn.py and the HiBayes
+    # ORM modules already hold.
+    "NessieAI/ns/reingest/launch_record.py": frozenset({"nextseek_api.assistant.models_db"}),
+    "NessieAI/ns/reingest/uid_resolve.py": frozenset({"nextseek_api.assistant.models_db"}),
+    # The proposal queue: the ReingestAttributeProposal ORM model (same
+    # sanctioned edge as launch_record.py/uid_resolve.py above), and the
+    # read-only attributes_for lookup it asks whether a candidate attribute
+    # is already defined on a sample type, so it never invents one.
+    "NessieAI/ns/reingest/proposals.py": frozenset({
+        "nextseek_api.assistant.models_db",
+        "nextseek_api.services.reingest_lookups",
+    }),
     # Router telemetry and the posterior leg, through the ORM models.
     "NessieAI/router/risk_overlay.py": frozenset({"nextseek_api.assistant.models_db"}),
     "NessieAI/router/turn_ledger.py": frozenset({"nextseek_api.assistant.models_db"}),
@@ -96,6 +111,10 @@ BACK_EDGE_ALLOWLIST: dict[str, frozenset[str]] = {
     "NessieAI/hibayes/task6_replay.py": frozenset({"nextseek_api.assistant.models_db"}),
     # Task-6 AppConfig: import_module string, kept on purpose (audit section 3).
     "NessieAI/hibayes/task6_app.py": frozenset({"nextseek_api.assistant.models_db"}),
+    # run-harvest's D.SEQ fastq-path lookup: a plain filtered SELECT against
+    # the seek-mirrored samples table, wrapped by reingest_lookups so the
+    # query is written once rather than re-invented at each call site.
+    "NessieAI/ns/granular.py": frozenset({"nextseek_api.services.reingest_lookups"}),
     # NS engine: the upload helper reingest QA reuses.
     "NessieAI/ns/reingest_qa.py": frozenset({"nextseek_api.batch_upload.helpers"}),
     # The evaluator's retry engine (Phase B, moved from
@@ -112,6 +131,12 @@ BACK_EDGE_ALLOWLIST: dict[str, frozenset[str]] = {
     # the error a failed ChatSession save raises, to tell the user the turn was
     # not saved. The adapter itself is built by the ViewSet and handed in.
     "NessieAI/ns/turn.py": frozenset({"nextseek_api.assistant.session_adapter"}),
+    # The session search index: writes ChatSearchEntry rows and reads CCSessionTranscript blobs at a turn's end, and
+    # reads back only the result keys of a stored bundle through the size guard's hydrate (never api_result_full).
+    "NessieAI/ns/chat_search_index.py": frozenset({
+        "nextseek_api.assistant.models_db",
+        "nextseek_api.assistant.spill",
+    }),
     # The Container-CC turn's shared state (approach 1): the op slots (plan 03) and the turn's memory (plan 04),
     # read and written as atomic updates on the CCTurn row.
     "NessieAI/ns/turn_memory.py": frozenset({"nextseek_api.assistant.models_db"}),

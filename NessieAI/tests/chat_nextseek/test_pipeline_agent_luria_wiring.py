@@ -130,7 +130,45 @@ def test_followup_says_where_to_paste_and_what_each_command_checks():
     assert "Ctrl-C" in out
 
 
+def test_followup_ends_with_the_run_done_handoff():
+    # Nothing polls Luria, so the user closes the loop: the block's last line tells them
+    # what to say, and that phrase is what the router sends to Container-CC's reingest.
+    for runs in ([_RUN], [_RUN, {**_RUN, "job_id": "11240787", "run_name": "second-run"}]):
+        last = format_luria_followup(runs, "user@cluster.example.edu").rstrip().splitlines()[-1]
+        assert "my run is done" in last
+        assert "register" in last and "outputs" in last
+
+
 def test_followup_explains_the_squeue_fallback_too():
     out = format_luria_followup([{**_RUN, "job_id": None}], "user@cluster.example.edu")
     assert "Is it still running?" in out
     assert "still pending or running" in out
+
+
+def test_start_records_the_session_owner_for_the_launch_record(monkeypatch):
+    # The launch record names who launched the run, so "my run is done" can find it.
+    # The Django session adapter exposes its owner; a plain dict session has none.
+    monkeypatch.setattr(agent, "_run_loop", lambda session, config, **kw: {"action": "ask"})
+    monkeypatch.setattr(agent, "summarize_pinned_bundle", lambda session: "")
+
+    class OwnedSession(dict):
+        owner_user_id = 7
+
+    owned, plain = OwnedSession(), {}
+    agent.start(owned, object(), user_query="run rnaseq")
+    agent.start(plain, object(), user_query="run rnaseq")
+    assert owned[agent.PIPELINE_AGENT_KEY]["launched_by_user_id"] == 7
+    assert plain[agent.PIPELINE_AGENT_KEY]["launched_by_user_id"] is None
+
+
+def test_the_prompt_hands_reingest_off_with_the_run_done_phrase():
+    # Users read "I can't load results from here; ask the main NExtSEEK assistant" as a
+    # dead end (seen live, rnavar). The agent must tell them the one thing to do: say
+    # the run is done, and Nessie carries on.
+    from pathlib import Path
+
+    import chat_nextseek
+
+    text = (Path(chat_nextseek.__file__).parent / "prompts" / "pipeline_agent.txt").read_text()
+    assert '"my run is done"' in text
+    assert "never say you cannot load" in text.lower()

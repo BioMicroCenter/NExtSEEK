@@ -1,0 +1,80 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/scrnaseq",
+  "applies_to_versions": ">=2.7",
+  "accepts_parent_types": ["D.SEQ"],
+  "harvest_globs": [
+    "{star,alevin,simpleaf,kallisto,cellranger}/mtx_conversions/**/*.h5ad",
+    "multiqc/**/multiqc_data/multiqc_*.txt"
+  ],
+  "derived_metrics": [],
+  "row_defaults": {
+    "Name": "@row_name",
+    "Scientist": "@nextseek_user",
+    "Lab": "@lab",
+    "SampleCreationDate": "@run_date"
+  },
+  "outputs": [
+    {
+      "id": "combined_matrix",
+      "candidates": [
+        "{star,alevin,simpleaf,kallisto,cellranger}/mtx_conversions/combined_cellbender_filter_matrix.h5ad",
+        "{star,alevin,simpleaf,kallisto,cellranger}/mtx_conversions/combined_emptydrops_filter_matrix.h5ad",
+        "{star,alevin,simpleaf,kallisto,cellranger}/mtx_conversions/combined_custom_emptydrops_filter_matrix.h5ad",
+        "{star,alevin,simpleaf,kallisto,cellranger}/mtx_conversions/combined_filtered_matrix.h5ad",
+        "{star,alevin,simpleaf,kallisto,cellranger}/mtx_conversions/combined_raw_matrix.h5ad",
+        "{star,alevin,simpleaf,kallisto,cellranger}/mtx_conversions/combined_matrix.h5ad"
+      ],
+      "sample_type": "A.SCXP",
+      "assay": "Single Cell Expression Matrix Analysis",
+      "cardinality": "per_run",
+      "primary_data": true,
+      "include_provenance": true,
+      "attributes": {
+        "DataType": "H5AD"
+      }
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "ReferenceGenome": "$params.genome",
+    "DemultiplexingTool": "$params.aligner"
+  },
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html", "target": "D.SEQ",
+      "datatype": "string", "provenance": "seed"
+    },
+    "Genome": {
+      "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
+      "provenance": "seed"
+    },
+    "EstimatedCells": {"from": "cell_ranger_count-count_estimated_cells", "target": "D.SEQ", "datatype": "number", "provenance": "seed"},
+    "MeanReadsPerCell": {"from": "cell_ranger_count-count_avg_reads_cell", "target": "D.SEQ", "datatype": "number", "provenance": "seed"},
+    "ReadsInCellsPercent": {"from": "cell_ranger_count-count_reads_in_cells", "target": "D.SEQ", "datatype": "number", "provenance": "seed"},
+    "ValidBarcodesPercent": {"from": "cell_ranger_count-count_valid_bc", "target": "D.SEQ", "datatype": "number", "provenance": "seed"},
+    "Q30Percent": {"from": "cell_ranger_count-count_q30_read", "target": "D.SEQ", "datatype": "number", "note": "Q30 of the RNA read", "provenance": "seed"},
+    "MappedPercent": {"from": "star-uniquely_mapped_percent", "target": "D.SEQ", "datatype": "number", "note": "STARsolo runs only", "provenance": "seed"},
+    "GCPercent": {"from": "fastqc-percent_gc@R2", "target": "D.SEQ", "datatype": "number", "alternates": ["fastqc-percent_gc"], "note": "10x: read 1 is the barcode read, so GC comes from read 2 (cDNA); @R1/@R2 are MultiQC's per-read rows, folded by harvest", "provenance": "seed"},
+    "F_bp": {"from": "fastqc-avg_sequence_length@R1", "target": "D.SEQ", "datatype": "number", "alternates": ["fastqc-avg_sequence_length"], "note": "mean read-1 length (FastQC per-read row, else the single-end sample row)", "provenance": "seed"},
+    "R_bp": {"from": "fastqc-avg_sequence_length@R2", "target": "D.SEQ", "datatype": "number", "note": "mean read-2 length; paired-end only", "provenance": "seed"}
+  },
+  "deliberately_unmapped": [
+    {
+      "key": "FastQC_total_sequences",
+      "why": "The contract test can only check that a rule's target attribute exists, not that its raw `from` key is a real MultiQC column; every raw key guessed this way in the rnaseq map turned out wrong against a real run (the real convention is <module>-<metric>, not Module_metric), and for rnaseq the fastqc read-count keys additionally turned out to live only on per-read rows, never the sample row. There is no scrnaseq fixture here to check a guess against, so the read-count key is deliberately left unmapped: the first real scrnaseq run will surface the true key through the approval queue, which is the designed mechanism for exactly this case."
+    },
+    {"key": "cell_ranger_count-count_genstats_reads", "why": "Count in millions; NumReads/TotalReads hold read counts."},
+    {"key": "cell_ranger_count-count_q30_bc", "why": "Barcode-read quality; Q30Percent records the RNA read."},
+    {"key": "cell_ranger_count-count_q30_umi", "why": "UMI-read quality; Q30Percent records the RNA read."},
+    {"key": "star-total_reads", "why": "Count in millions (raw counts in MultiQC <=1.21); exact counts belong to a STAR log harvest, as in rnaseq."},
+    {"key": "star-mapped", "why": "Count in millions (raw counts in MultiQC <=1.21); exact counts belong to a STAR log harvest, as in rnaseq."},
+    {"key": "star-mapped_percent", "why": "Unique plus multimapped; equals MappedPercent + MultimappedPercent (as ruled for rnaseq)."},
+    {"key": "star-uniquely_mapped", "why": "Count in millions (raw counts in MultiQC <=1.21); exact counts belong to a STAR log harvest, as in rnaseq."},
+    {"key": "star-multimapped", "why": "Count in millions. MultimappedPercent needs the STAR log harvested, as rnaseq does."},
+    {"key": "fastqc-total_sequences", "why": "Count in millions; NumReads/TotalReads hold read counts."},
+    {"key": "fastqc-percent_duplicates", "why": "Sequence-level duplication before alignment; DuplicationPercent is alignment-based (Picard), and mixing the two definitions in one field would mislead."},
+    {"key": "fastqc-median_sequence_length", "why": "Same as the average length; hidden when samples agree within 10 bp."},
+    {"key": "fastqc-percent_fails", "why": "Share of FastQC modules that failed: a report summary, not a measurement."}
+  ]
+}

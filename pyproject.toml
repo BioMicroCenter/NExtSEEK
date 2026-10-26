@@ -183,6 +183,9 @@ source_modules = ["chat_nextseek"]
 forbidden_modules = ["nextseek_api"]
 ignore_imports = [
     "chat_nextseek.orchestrator -> nextseek_api.assistant.excel_export",
+    # Indirect: the Luria submitter records the launch cohort through launch_record, whose
+    # PipelineRun edge is in the engine contract below.
+    "chat_nextseek.luria.submitter -> NessieAI.ns.reingest.launch_record",
 ]
 
 [[tool.importlinter.contracts]]
@@ -224,7 +227,12 @@ ignore_imports = [
     "NessieAI.hibayes.run_authorization -> nextseek_api.assistant.models_db",
     "NessieAI.hibayes.spend_conservation -> nextseek_api.assistant.models_db",
     "NessieAI.hibayes.task6_replay -> nextseek_api.assistant.models_db",
+    "NessieAI.ns.reingest.launch_record -> nextseek_api.assistant.models_db",
+    "NessieAI.ns.reingest.proposals -> nextseek_api.assistant.models_db",
+    "NessieAI.ns.reingest.uid_resolve -> nextseek_api.assistant.models_db",
     "NessieAI.ns.reingest_qa -> nextseek_api.batch_upload.helpers",
+    "NessieAI.ns.chat_search_index -> nextseek_api.assistant.models_db",
+    "NessieAI.ns.chat_search_index -> nextseek_api.assistant.spill",
     "NessieAI.ns.retry -> nextseek_api.assistant.models_db",
     "NessieAI.ns.retry -> nextseek_api.assistant.models_evaluator",
     "NessieAI.ns.turn -> nextseek_api.assistant.session_adapter",

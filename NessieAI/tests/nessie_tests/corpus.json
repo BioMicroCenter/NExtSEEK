@@ -15083,6 +15083,263 @@
           "_edited_2026_10_14_bmr_dev_test_fixes": "Strengthened turn 3 ('those mice'): source_bundle_id eq 1 (the setup search is bundle 1 on a fresh chat) and the reply must not say 'no pinned' or 'returned no rows'. Dev 2055 passed this turn while saying 'no pinned search results'."
         },
         {
+          "id": "route.ns_compare_named_pair",
+          "family": "pipeline_launch",
+          "name": "an expression comparison routes to nextseek_query: Find D.SEQ-250409KAM-1-PUB and D.SEQ-250409KAM-9-PUB. Which ",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find D.SEQ-250409KAM-1-PUB and D.SEQ-250409KAM-9-PUB. Which genes change between them?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Single-turn like the other route_gate cases: route tier stops at route_decided, so only `route` is observable. || TESTS: an expression comparison phrased as a question, naming no pipeline, is routed to the NS engine, where the parser hands it to the pipeline agent.",
+          "_added_2026_10_19_compare_offer": "Added 2026-10-19 with the comparison offer: an expression comparison between groups of samples, naming no pipeline, reaches the pipeline agent, which offers the nf-core run and its settings and waits for the user's confirmation."
+        },
+        {
+          "id": "route.ns_compare_huvec_fibroblast",
+          "family": "pipeline_launch",
+          "name": "an expression comparison routes to nextseek_query: Which genes change between the HUVEC and the lung fibroblast",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which genes change between the HUVEC and the lung fibroblast samples?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Single-turn like the other route_gate cases: route tier stops at route_decided, so only `route` is observable. || TESTS: an expression comparison phrased as a question, naming no pipeline, is routed to the NS engine, where the parser hands it to the pipeline agent.",
+          "_added_2026_10_19_compare_offer": "Added 2026-10-19 with the comparison offer: an expression comparison between groups of samples, naming no pipeline, reaches the pipeline agent, which offers the nf-core run and its settings and waits for the user's confirmation."
+        },
+        {
+          "id": "route.ns_compare_treated_control",
+          "family": "pipeline_launch",
+          "name": "an expression comparison routes to nextseek_query: What's different in gene expression between the treated and ",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What's different in gene expression between the treated and the control mice?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Single-turn like the other route_gate cases: route tier stops at route_decided, so only `route` is observable. || TESTS: an expression comparison phrased as a question, naming no pipeline, is routed to the NS engine, where the parser hands it to the pipeline agent.",
+          "_added_2026_10_19_compare_offer": "Added 2026-10-19 with the comparison offer: an expression comparison between groups of samples, naming no pipeline, reaches the pipeline agent, which offers the nf-core run and its settings and waits for the user's confirmation."
+        },
+        {
+          "id": "route.ns_compare_gene_expression_ndma",
+          "family": "pipeline_launch",
+          "name": "an expression comparison routes to nextseek_query: Compare gene expression between NDMA-treated and control mic",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Compare gene expression between NDMA-treated and control mice",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Single-turn like the other route_gate cases: route tier stops at route_decided, so only `route` is observable. || TESTS: an expression comparison phrased as a question, naming no pipeline, is routed to the NS engine, where the parser hands it to the pipeline agent.",
+          "_added_2026_10_19_compare_offer": "Added 2026-10-19 with the comparison offer: an expression comparison between groups of samples, naming no pipeline, reaches the pipeline agent, which offers the nf-core run and its settings and waits for the user's confirmation."
+        },
+        {
+          "id": "pipeline.compare_offer_named_pair",
+          "family": "pipeline_launch",
+          "name": "two named RNA-seq samples and a which-genes-change question get an rnaseq offer, not a launch",
+          "tags": [
+            "artifact"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find D.SEQ-250409KAM-1-PUB and D.SEQ-250409KAM-9-PUB. Which genes change between them?",
+              "pass_criteria": [
+                {
+                  "field": "parser_plan.report_type",
+                  "op": "eq",
+                  "value": "NFCORE"
+                },
+                {
+                  "field": "pipeline_agent.active",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "eq",
+                  "value": "rnaseq"
+                },
+                {
+                  "field": "pipeline_agent.selection.verdict",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\bcounts?\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)differential"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)replicate"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)reply \\W?submit"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)^(?!.*watching this run)"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Full tier only: the pipeline agent snapshot rides on query_complete.debug. D.SEQ-250409KAM-1-PUB (HUVEC) and D.SEQ-250409KAM-9-PUB (lung fibroblast) are public bulk RNA-seq samples whose reads Luria fetches from SRA; one sample per side, so the offer must carry the replicate caveat. NEVER add a 'submit' turn to this case: on a stack with Luria configured that is a real sbatch. || TESTS: the offer says rnaseq gives counts, names the differential step it does not run, gives the replicate caveat, ends with the submit prompt, and submits nothing (no \"Watching this run\" block, which only a real submit appends).",
+          "_added_2026_10_19_compare_offer": "Added 2026-10-19 with the comparison offer: an expression comparison between groups of samples, naming no pipeline, reaches the pipeline agent, which offers the nf-core run and its settings and waits for the user's confirmation."
+        },
+        {
+          "id": "pipeline.compare_offer_ndma",
+          "family": "pipeline_launch",
+          "name": "Compare gene expression between NDMA-treated and control mice reaches the pipeline agent",
+          "tags": [],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Compare gene expression between NDMA-treated and control mice",
+              "pass_criteria": [
+                {
+                  "field": "parser_plan.report_type",
+                  "op": "eq",
+                  "value": "NFCORE"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)^(?!.*can.?t do that one from here)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)^(?!.*watching this run)"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Full tier only. Replaces the retired Bayesian case unsup.compare_gene_expression_betwee, which pinned the old unsupported answer. Whether the NDMA cohort has RNA-seq reads decides the reply: an rnaseq offer, or a plain statement that there is nothing to run it on; either passes, the canned unsupported reply does not. || TESTS: an expression comparison over a described cohort is NFCORE, not unsupported, and submits nothing.",
+          "_added_2026_10_19_compare_offer": "Added 2026-10-19 with the comparison offer: an expression comparison between groups of samples, naming no pipeline, reaches the pipeline agent, which offers the nf-core run and its settings and waits for the user's confirmation."
+        },
+        {
           "id": "pipeline.run_on_other_type_search",
           "family": "pipeline_launch",
           "name": "Run rnaseq on those, after a search of another sample type",
@@ -15615,6 +15872,126 @@
           ],
           "_why": "6 samples: D.SEQ-220823SHA-1 through -6. An alevin (scrnaseq) run with alevin/, alevinqc/, fastqc/, multiqc/ output trees. || VERIFIED: ssh luria, samplesheet.csv has 6 data rows; directory listing verified 2026-08-06. || TESTS: the second half of the reingest op (build the 4-sheet workbook), on a different pipeline and a different cohort size. Same CC-only caveat.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
+        },
+        {
+          "id": "route.cc_reingest_run_done",
+          "family": "pipeline_output_reingest",
+          "name": "\"my run is done\", no folder \u2192 Container-CC reingest",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "My run is done.",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|reingest)$"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Single-turn like the other route_gate cases: route tier stops at route_decided, so only `route` and `route_source` are observable. || TESTS: the hand-off line the Luria submit reply ends with (format_luria_followup) names no folder, and must reach Container-CC's reingest, whose run-harvest finds the user's launched run itself. `route_source` excludes `pipeline`: on NExtSEEK the reporter can open a fresh pipeline wizard for this turn. `reingest` is the policy's run-done redirect, `baml` the router getting there on its own.",
+          "_added_2026_10_19_reingest_handoff": "Added 2026-10-19 with the reingest hand-off: \"my run is done\" with no folder goes to Container-CC's reingest, never to a reopened pipeline wizard."
+        },
+        {
+          "id": "route.cc_reingest_run_finished_register",
+          "family": "pipeline_output_reingest",
+          "name": "a finished run to register, no folder \u2192 Container-CC reingest",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "The nf-core run you launched for me has finished. Can you register its outputs?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|reingest)$"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Single-turn like the other route_gate cases: route tier stops at route_decided, so only `route` and `route_source` are observable. || TESTS: the hand-off line the Luria submit reply ends with (format_luria_followup) names no folder, and must reach Container-CC's reingest, whose run-harvest finds the user's launched run itself. `route_source` excludes `pipeline`: on NExtSEEK the reporter can open a fresh pipeline wizard for this turn. `reingest` is the policy's run-done redirect, `baml` the router getting there on its own.",
+          "_added_2026_10_19_reingest_handoff": "Added 2026-10-19 with the reingest hand-off: \"my run is done\" with no folder goes to Container-CC's reingest, never to a reopened pipeline wizard."
+        },
+        {
+          "id": "route.cc_reingest_pipeline_complete",
+          "family": "pipeline_output_reingest",
+          "name": "a casual run-done line, no folder \u2192 Container-CC reingest",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "ok my rnaseq pipeline is complete",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|reingest)$"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Single-turn like the other route_gate cases: route tier stops at route_decided, so only `route` and `route_source` are observable. || TESTS: the hand-off line the Luria submit reply ends with (format_luria_followup) names no folder, and must reach Container-CC's reingest, whose run-harvest finds the user's launched run itself. `route_source` excludes `pipeline`: on NExtSEEK the reporter can open a fresh pipeline wizard for this turn. `reingest` is the policy's run-done redirect, `baml` the router getting there on its own.",
+          "_added_2026_10_19_reingest_handoff": "Added 2026-10-19 with the reingest hand-off: \"my run is done\" with no folder goes to Container-CC's reingest, never to a reopened pipeline wizard."
         }
       ]
     },
@@ -15815,12 +16192,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(not upload|won.?t upload|will not upload|without uploading|no upload|didn.?t upload|haven.?t uploaded|for review|before you upload)"
+                  "value": "(?is)(not upload|won.?t upload|will not upload|without uploading|no upload|didn.?t upload|haven.?t uploaded|for review|before you upload|nothing (has been|was|is|will be|can be) uploaded)"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
@@ -16129,7 +16506,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
@@ -16182,7 +16559,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
@@ -16245,7 +16622,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 },
                 {
                   "field": "last_reply",
@@ -16303,7 +16680,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
@@ -16422,7 +16799,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/\\S*/ontology_[a-z_]+\\.json)"
+                  "value": "(?-i:github\\.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_[a-z_]+\\.json)"
                 }
               ]
             }
@@ -17323,7 +17700,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(nothing|fresh (session|start|chat)|first (turn|message)|no (cross.?session )?memory|no history|no record|clean slate|haven.?t (seen|got)|start(ing)? (fresh|clean)|(don.?t|do not) (have|retain|keep|carry) (any )?(memory|history|access)|(don.?t|do not) have anything from|starting from scratch|this chat is new)"
+                  "value": "(?is)(nothing|fresh (session|start|chat)|first (turn|message)|no (cross.?session )?memory|no history|no record|clean slate|haven.?t (seen|got)|start(ing)? (fresh|clean)|(don.?t|do not) (have|retain|keep|carry) (any )?(memory|history|access)|(don.?t|do not) have anything from|starting from scratch|this chat is new|(don.?t|do not) remember|starts? fresh|no saved (notes|memor))"
                 },
                 {
                   "field": "last_reply",
@@ -18020,40 +18397,6 @@
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. The chart itself cannot be rendered in chat, but the underlying table can: D.IMG 13,351, TIS 11,712, PAV 6,027, D.FLOW 5,210, DNA 2,109, D.SEQ 2,057, ... || VERIFIED: seek_production MySQL, verified 2026-08-06: samples grouped by sample type.",
           "_why": "Re-keyed 2026-09-23 against production (fairdata): samples by type (Neo4j cypher-shell, read-only): TIS 74,107, D.IMG 21,589, PAV 13,380, D.FLOW 11,303, DNA 7,021, D.SEQ 6,705, ...; the asserted row stays D.IMG; was 13,351."
-        },
-        {
-          "id": "unsup.compare_gene_expression_betwee",
-          "family": "unsupported",
-          "name": "Compare gene expression between NDMA-treated and control mice",
-          "tags": [],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "Compare gene expression between NDMA-treated and control mice",
-              "pass_criteria": [
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "unsupported"
-                },
-                {
-                  "field": "last_reply",
-                  "op": "matches_re",
-                  "value": "(?is)(no (expression|count|matrix)|don.?t (have|store)|metadata only|can.?t|cannot|references)"
-                }
-              ]
-            }
-          ],
-          "status": "active",
-          "origin": "base",
-          "is_bayesian": true,
-          "hibayes_subtype": null,
-          "expected_behavior": null,
-          "artifact_expected": null,
-          "artifact_kind": null,
-          "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. Same limit as above, on a concrete cohort: 195 NDMA mice and 200 saline controls exist as METADATA; no expression values are stored anywhere. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS $.Treatment1 -> NDMA 195, saline 200 (+ 'Saline' 4); content_blobs holds no matrices."
         },
         {
           "id": "unsup.give_me_a_bar_chart_of_all_sam",

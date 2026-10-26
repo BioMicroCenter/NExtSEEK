@@ -145,6 +145,7 @@ Route to `NFCORE` whenever the user is talking about pipelines at all, including
 - **Build directives:** "run rnaseq on these mice", "build a samplesheet for pipeline X on these samples", "make a fetchngs samplesheet for SRR1234567", "submit bulkrnaseq for the NDMA cohort".
 - **Pipeline-domain questions:** "which pipelines are supported?", "what does sarek need?", "can we run GSEA on these samples?", "is methylseq supported?", "have we already run scrnaseq on these mice?", "what data does pipeline X require?".
 - **Tower / Seqera references in the context of running a pipeline:** "send this to Tower", "launch on Seqera", "submit to the pipeline runner".
+- **Questions that compare molecular readouts between groups of samples:** "which genes change between these two cell types?", "compare gene expression between treated and control animals", "what's different in expression between these two groups?", "find these two samples (by UID) and tell me which genes change between them". The user names no pipeline, but an answer needs one: the pipeline_agent offers the nf-core run that produces the data the comparison starts from, and says plainly what that run does and does not answer. This holds whether the samples are named by UID, follow an earlier search, or are only described in the question. A "find X and Y" in the same message does not make it a search.
 
 DO NOT route to NFCORE for general system_question intent ("what can this chatbot do?", "how does NExtSEEK work?") — only when the question is specifically about nf-core or downstream-analysis pipelines.
 
@@ -218,12 +219,12 @@ Use when no downstream path can actually satisfy the request. Examples:
   RPPR, or an nf-core samplesheet out of records that already exist writes nothing to
   NExtSEEK — those are reporter, not unsupported.
 - Requests for visualizations or charts; the system cannot render graphics.
-- Analytical computations: statistical comparison, differential expression, clustering, fold-change analysis between groups.
+- Analytical computations on stored values: a statistical test, clustering, or fold-change analysis over metadata attributes between groups. A question about which genes, transcripts, isoforms or expression levels change between groups of samples is NOT this: it is NFCORE (see the reporter path), because a pipeline can produce the data that answers it.
 - General scientific domain knowledge: explaining what a molecule does, why something is carcinogenic, what a gene encodes. These are knowledge questions, not data queries.
 - Unscoped bulk export or bulk download requests that ask for all samples, all records, or the whole database in a file/table format without filters, UIDs, a project-reporting scope, or a supported repository/report-generation target.
 - Any request that requires capabilities the system fundamentally does not have.
 
-Do NOT route to new_search or graph_query simply because the topic overlaps with data in the system. A chart request is unsupported even if the underlying data exists. A comparison between two groups is unsupported even if both groups are in the database. A write request is unsupported even though the sample it names is real and the system holds it.
+Do NOT route to new_search or graph_query simply because the topic overlaps with data in the system. A chart request is unsupported even if the underlying data exists. A statistical comparison of stored metadata between two groups is unsupported even if both groups are in the database; a comparison of genes, transcripts or expression between them is NFCORE. A write request is unsupported even though the sample it names is real and the system holds it.
 
 --------------------------------------------------
 HOW TO CHOOSE
@@ -259,7 +260,7 @@ If the user is asking what exists in the catalog as available search categories 
 Exception: "Can you find me X?" is a search intent even though it is phrased as a question; use graph_query.
 
 4. Is the user asking for aggregate statistics, a project summary, or a formal report?
-Signals: upload/ingestion counts, SOPs registered to a project, published sample counts, time-scoped breakdowns, RPPR, NIH RePORT, annual report, progress report, "report", "summary" plus project name, repository submission, nf-core samplesheet generation, or project-scoped published reporting language like "what samples from CGR have been published?".
+Signals: upload/ingestion counts, SOPs registered to a project, published sample counts, time-scoped breakdowns, RPPR, NIH RePORT, annual report, progress report, "report", "summary" plus project name, repository submission, nf-core samplesheet generation, a question about which genes, transcripts or expression change between groups of samples (NFCORE), or project-scoped published reporting language like "what samples from CGR have been published?".
 Key distinction from graph_query: reporter answers the project reporting view, such as uploaded, published, SOPs registered, and RPPR-style summaries. graph_query answers structural graph questions about named studies/investigations and lineage, and which protocols samples used, even when a project is named or the user says "summary" ("protocol summary for SRP" is graph_query; go on to step 6).
 If yes, use reporter.
 

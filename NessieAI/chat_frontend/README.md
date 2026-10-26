@@ -58,7 +58,7 @@ NessieAI/chat_frontend/src/
 │   ├── ChatPanel/             # transcript, composer, stepper, artifact list, upload control
 │   ├── DebugPanel/            # the admin Debug panel
 │   ├── Layout/                # toolbar, sidebars and the admin controls
-│   ├── Sessions/              # session list, rename, delete
+│   ├── Sessions/              # session list, rename, delete, search (box, options panel, results)
 │   ├── TestRunner/            # the test-case runner
 │   ├── __tests__/             # shared component tests
 │   └── ui/                    # shadcn/ui primitives
@@ -111,6 +111,7 @@ session strategy above, the Basic-auth one at
 | Progress WebSocket | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:110` |
 | Two-second HTTP poll fallback | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:169-215` |
 | Session list, rename, delete, rehydrate | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:319-374` |
+| Session search (`GET sessions/search/`): the sidebar box, Ctrl/Cmd+K, the options panel (Agent steps, record filters with counts, date, All users for superusers), a hit opening its chat at the matching turn (an agent-steps hit with its Search Details open) | `searchSessions` in `chatApi.ts`; `useSessionSearch`, `useScrollToTurn`; `Sessions/SessionSearch.tsx` |
 | Bundle and artifact downloads | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:235-300` |
 | The whole chat as one zip (the Debug sheet's "All files"): a plain link under the session cookie, a fetched blob under Basic auth | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:445` |
 | Agent file upload and its job poll | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:388-410` |

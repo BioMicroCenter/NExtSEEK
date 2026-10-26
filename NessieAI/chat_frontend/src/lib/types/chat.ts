@@ -47,6 +47,8 @@ export interface Message {
   messageType?: "text" | "system" | "debug";
   debugEntries?: DebugEntry[];
   bundleId?: number | null;
+  /** A hydrated user message's chat_log turn number: the target of a search hit. */
+  turnId?: number | null;
   artifacts?: Artifact[] | null;
   ccTraces?: CCTrace[];
   mode?: string;

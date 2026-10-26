@@ -66,6 +66,9 @@ _TARGETS = {
     "transcripts": _WORKDIR + "/.cc-memory/transcripts",
 }
 _LABEL = "nextseek.cc"
+# Every agent container is started as this platform. The cc-agent service in docker-compose.yml builds for the same
+# one, or an Apple-silicon host files the image under linux/arm64 and Docker refuses the spawn with NotFound.
+CC_PLATFORM = "linux/amd64"
 _CONFIRM_EXIT_WAIT_S = 5.0
 
 
@@ -318,7 +321,7 @@ class Spawner:
             "mounts": self._mounts(v), "working_dir": _WORKDIR, "network": c.network,
             "name": _container_name(v["run_id"]),
             "labels": {_LABEL: "1", "nextseek.cc.user": v["user"], "nextseek.cc.run": v["run_id"]},
-            "platform": "linux/amd64", "detach": True, "stdin_open": True, "tty": False,
+            "platform": CC_PLATFORM, "detach": True, "stdin_open": True, "tty": False,
             "stdout": True, "stderr": True,
             "mem_limit": c.mem_limit, "memswap_limit": c.mem_limit, "nano_cpus": c.nano_cpus,
             "pids_limit": c.pids_limit,

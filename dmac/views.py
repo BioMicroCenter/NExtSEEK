@@ -89,6 +89,7 @@ def userSynchronization(user_seek):
         person_id = user_seek['user_id']
         person = People.objects.get(id__exact=person_id)
     except Exception:
+        logger.exception("SEEK people lookup failed for login %s", username)
         msg = "Error: Login user not found in SEEK people table, ask admin for help."
         logger.error(msg)
         return 0, msg

@@ -164,5 +164,21 @@
       "definition": "The miRTrace species code for this cohort's organism. Without it the miRNA QC output is not meaningful.",
       "example": "hsa   (human; mmu = mouse, mcc = rhesus macaque)"
     }
-  ]
+  ],
+  "runtime": {
+    "basis": "First guess from typical nf-core runtimes on one 16-CPU Luria node (Nessie's default submit); not yet measured on Luria. Refine from real runs.",
+    "setup_minutes": [
+      30,
+      90
+    ],
+    "setup_label": "building the bowtie genome index from the local genome (every run repeats it)",
+    "base_minutes": [
+      10,
+      20
+    ],
+    "per_sample_minutes": [
+      5,
+      15
+    ]
+  }
 }

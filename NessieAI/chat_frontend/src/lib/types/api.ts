@@ -200,9 +200,60 @@ export interface SessionListResponse {
   sessions: SessionListItem[];
 }
 
+// One chat that matched, in GET /assistant/sessions/search/
+export interface SessionSearchHit {
+  /** Where the best match came from: the chat's words, a record it showed, or its agent steps. */
+  source: "chat" | "record" | "steps";
+  session_id: string;
+  title: string;
+  updated_at: string;
+  /** The chat's owner, only on an all-users search. */
+  owner: string | null;
+  /** The turn to open the chat at; null opens it at the top. */
+  turn_id: number | null;
+  matched_in: "title" | "question" | "answer" | "record" | "steps";
+  /** Plain text around the first match; for a record hit, the matching IDs and how many more. */
+  snippet: string;
+  match_count: number;
+}
+
+// GET /assistant/sessions/search/ response
+export interface SessionSearchResponse {
+  query: string;
+  /** The words matched, lowercased: the UI marks them in each snippet. */
+  terms: string[];
+  sources: string[];
+  total: number;
+  results: SessionSearchHit[];
+  /** Per record filter: each value and how many of the matching chats it would keep. */
+  facets: SessionSearchFacets;
+}
+
+export interface SessionSearchFacets {
+  record_type: Record<string, number>;
+  project: Record<string, number>;
+  where: Record<string, number>;
+}
+
+export type RecordWhere = "question" | "answer" | "result";
+
+export interface SessionSearchOptions {
+  sinceDays?: 7 | 30 | 90 | null;
+  allUsers?: boolean;
+  /** Also search the Container-CC agent's steps (off by default). */
+  steps?: boolean;
+  recordType?: string | null;
+  project?: string | null;
+  where?: RecordWhere | null;
+  /** Only the filter counts over every chat in scope; no results. */
+  facetsOnly?: boolean;
+}
+
 // One turn from a session's results_history projection
 export interface Turn {
   bundle_id: number;
+  /** The chat_log turn number; null for a turn saved before chat_log existed. */
+  turn_id?: number | null;
   user_query: string;
   reply: string;
   mode: string;

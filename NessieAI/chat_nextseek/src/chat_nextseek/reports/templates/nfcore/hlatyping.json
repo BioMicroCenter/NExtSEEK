@@ -145,5 +145,21 @@
       "No row carries both bam and fastq_1.",
       "No genome flags are requested."
     ]
+  },
+  "runtime": {
+    "basis": "First guess from typical nf-core runtimes on one 16-CPU Luria node (Nessie's default submit); not yet measured on Luria. Refine from real runs.",
+    "setup_minutes": [
+      0,
+      5
+    ],
+    "setup_label": "",
+    "base_minutes": [
+      5,
+      15
+    ],
+    "per_sample_minutes": [
+      10,
+      30
+    ]
   }
 }

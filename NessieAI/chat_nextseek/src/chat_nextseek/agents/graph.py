@@ -369,7 +369,8 @@ _SAMPLE_SOURCE_RELATIONSHIPS = frozenset({schema.IN_STUDY, schema.OF_TYPE, schem
 # sample, even on a relationship whose source is a Sample by name.
 _NEVER_A_SAMPLE = frozenset({schema.ASSAY})
 _WHOLE_NODE_ALTERNATIVE = (
-    "return s.id, s.uuid, s.type and the named properties the question needs, and count with count(*)")
+    "return s.id, s.uuid, s.type and the named properties the question needs, and count with count(*); for a total "
+    "beside groups carry `WITH count(DISTINCT s) AS total`, never `collect(DISTINCT s)` then `size()`")
 # A path variable (or nodes(p) shipped whole) gets its own hint: the path never goes back, its length and node ids do.
 _WHOLE_PATH_ALTERNATIVE = (
     "return length({p}) AS hops and the uuids of the variables at the path's ends (a.uuid, b.uuid), and test the "
@@ -1138,7 +1139,7 @@ _LUCENE_WORD_RE = re.compile(r"\w+(?:[.'\u2019]\w+)*")  # \u2019 is the typograp
 
 class _Shape(NamedTuple):
     pos: int
-    kind: str  # 'unbounded_path' | 'unanchored_path' | 'unscoped_fulltext' | 'assay_join'
+    kind: str  # 'unbounded_path' | 'unanchored_path' | 'unscoped_fulltext' | 'assay_join' | 'pattern_comprehension'
     text: str  # the offending fragment, verbatim from the Cypher
     detail: str  # why it is one: the bound, the ends, the words the index would search
 
@@ -2245,11 +2246,35 @@ def _assay_join_problems(scan: _Scan, cypher: str) -> list[_Shape]:
 # ------------------------------------------------------------------------------ the guard's surface
 
 
-def query_shape_problems(cypher: str | None, parameters=None) -> list[_Shape]:
+# A pattern comprehension `[(a)-[:R]->(b) | expr]` (or `[p = (a)-->(b) | expr]`): the member scope prover refuses it
+# (cypher_scope.refuse_pattern_expression), so a scoped request falls back to a partial answer. A list comprehension
+# (`[x IN xs | ...]`), a list literal and an EXISTS / COUNT subquery do not start with a node pattern and a link.
+_PATTERN_COMPREHENSION_RE = re.compile(r"\[\s*(?:\w+\s*=\s*)?\([^()]*\)\s*<?-")
+
+
+def _pattern_comprehension_problems(scan: _Scan, cypher: str) -> list[_Shape]:
+    masked, problems = scan.masked, []
+    for m in _PATTERN_COMPREHENSION_RE.finditer(masked):
+        depth, i = 0, m.start()
+        while i < len(masked):
+            ch = masked[i]
+            depth += (ch in "[") - (ch in "]")
+            if ch == "|" and depth == 1:
+                problems.append(_Shape(m.start(), "pattern_comprehension", cypher[m.start():i + 1].strip(),
+                                       "is a pattern comprehension, which a scoped request cannot run"))
+                break
+            if depth == 0:
+                break
+            i += 1
+    return problems
+
+
+def query_shape_problems(cypher: str | None, parameters=None, scoped: bool = False) -> list[_Shape]:
     """P6a, P6b and assay_join: the shapes this graph must not be asked to run, in the order they appear in the
     Cypher.
 
-    ``parameters`` is the plan's parameter map, which the fulltext check reads the search term from. A guard that
+    ``parameters`` is the plan's parameter map, which the fulltext check reads the search term from. ``scoped`` (a
+    caller who is not an admin) adds the pattern-comprehension check. A guard that
     breaks on a query says nothing about it rather than refusing it.
     """
     if not cypher or not cypher.strip():
@@ -2257,7 +2282,8 @@ def query_shape_problems(cypher: str | None, parameters=None) -> list[_Shape]:
     try:
         scan = _scan(cypher)
         problems = (_path_problems(scan, cypher) + _fulltext_problems(scan, cypher, parameters)
-                    + _assay_join_problems(scan, cypher))
+                    + _assay_join_problems(scan, cypher)
+                    + (_pattern_comprehension_problems(scan, cypher) if scoped else []))
     except Exception as e:  # noqa: BLE001 (never refuse a query because the guard itself broke)
         print(f"[DEBUG][GRAPH][SHAPE_GUARD] guard failed, allowing the query: {e!r}")
         return []
@@ -2275,6 +2301,10 @@ def _shape_lines(shapes: list[_Shape]) -> list[str]:
         return []
     lines = [f"- {p.text}: {p.detail}" for p in shapes]
     kinds = {p.kind for p in shapes}
+    if "pattern_comprehension" in kinds:
+        lines.append(
+            "Never a pattern comprehension `[(a)-->(b) | x]`: a scoped caller's query refuses it. Use `OPTIONAL MATCH` "
+            "+ `collect(b.prop)`, or `COUNT { }` / `EXISTS { }`.")
     if "unbounded_path" in kinds:
         lines.append(
             f"Give every variable-length path a literal maximum from 1 to {_MAX_HOPS}: "
@@ -2848,6 +2878,7 @@ def graph_agent(
 
     context = resolve_catalog_context(config, user_query, entity_dict, plan_dict)
     call_scope.mark("catalog_ready")
+    scoped = not graph_catalog.shows_committed_vocabulary(config)  # not an admin: the scope prover refuses patterns
     catalog = context if isinstance(context, CatalogContext) else None
     context_mode = CONTEXT_CATALOG if catalog is not None else CONTEXT_FALLBACK
     # Why the committed schema stands in, and how old it is; logged already, carried on every plan returned below.
@@ -2939,7 +2970,7 @@ def graph_agent(
             problems = _property_problems(result.cypher, catalog.snapshot)
             whole = whole_node_returns(result.cypher, procedures)
             calls = _procedure_problems(result.cypher, procedures)
-            shapes = query_shape_problems(result.cypher, result.parameters)
+            shapes = query_shape_problems(result.cypher, result.parameters, scoped)
             if problems or whole or calls or shapes:
                 attempted = result.cypher
                 print(f"[DEBUG][GRAPH] Catalog guard: {[p.text for p in problems]} whole nodes {whole}"
@@ -2953,7 +2984,9 @@ def graph_agent(
                 problems = _property_problems(result.cypher, catalog.snapshot)
                 whole = whole_node_returns(result.cypher, procedures)
                 calls = _procedure_problems(result.cypher, procedures)
-                shapes = query_shape_problems(result.cypher, result.parameters)
+                # Unscoped: a pattern comprehension the repair kept goes on to the scope prover, which refuses it, and
+                # the graph_search fallback answers. The scoped check only asks for the repair.
+                shapes = query_shape_problems(result.cypher, result.parameters, scoped=False)
                 if problems or whole or calls or shapes:
                     print(f"[DEBUG][GRAPH] Repair still fails the catalog guard: {[p.text for p in problems]} "
                           f"whole nodes {whole}" + (f" calls {calls}" if calls else "")
@@ -2976,7 +3009,7 @@ def graph_agent(
                      | set().union(*V11_RELATIONSHIP_PROPERTIES.values()))
             unknown = unknown_cypher_properties(result.cypher, known)
             calls = _procedure_problems(result.cypher, procedures)
-            shapes = query_shape_problems(result.cypher, result.parameters)
+            shapes = query_shape_problems(result.cypher, result.parameters, scoped)
             if unknown or calls or shapes:
                 attempted = result.cypher
                 print(f"[DEBUG][GRAPH] Unknown properties in cypher: {unknown}"
@@ -2999,7 +3032,7 @@ def graph_agent(
                 print(f"[DEBUG][GRAPH] Repaired cypher: {result.cypher!r}")
                 still = unknown_cypher_properties(result.cypher, known)
                 calls = _procedure_problems(result.cypher, procedures)
-                shapes = query_shape_problems(result.cypher, result.parameters)
+                shapes = query_shape_problems(result.cypher, result.parameters, scoped=False)  # as in the catalog branch
                 if still or calls or shapes:
                     print(f"[DEBUG][GRAPH] Repair still references unknown properties: {still}"
                           + (f" calls {calls}" if calls else "")

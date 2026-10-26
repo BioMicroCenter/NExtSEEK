@@ -20,9 +20,11 @@ import json
 import logging
 import os
 import queue
+import re
 import threading  # noqa: F401  (tests patch threading.Thread through this module)
 import time
 import uuid
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import orjson
@@ -57,6 +59,7 @@ from nextseek_api.assistant.descriptions import (
     ASSISTANT_SESSION_DOWNLOAD_DESC,
     ASSISTANT_SESSION_PATCH_DESC,
     ASSISTANT_SESSIONS_LIST_DESC,
+    ASSISTANT_SESSIONS_SEARCH_DESC,
     ASSISTANT_TASK_PROGRESS_DESC,
     ASSISTANT_TEST_CASES_DESC,
 )
@@ -70,6 +73,7 @@ from nextseek_api.assistant.models_api import (
     SessionListItem,
     SessionListResponse,
     SessionPatchRequest,
+    SessionSearchResponse,
     TaskProgressResponse,
     TestCaseItem,
     TestCaseListResponse,
@@ -92,6 +96,9 @@ from nextseek_api.assistant.models_api import (
     ParseOpResponse,
     ReportOpRequest,
     ReportOpResponse,
+    RunChecksumRequest,
+    UploadReingestRequest,
+    RunHarvestRequest,
     RunLsRequest,
     BuildUploadXlsxRequest,
     SubmissionRequest,
@@ -125,7 +132,7 @@ from NessieAI.ns.artifacts import (
     _resolve_saved_path,
     _safe_artifact_path,
 )
-from nextseek_api.assistant import session_export
+from nextseek_api.assistant import session_export, session_search
 from rest_framework.authentication import (
     BasicAuthentication,
     TokenAuthentication,
@@ -172,8 +179,8 @@ class UserInParticipatingProject(BasePermission):
     _CACHE_TTL_SECONDS = 60
     # A member who has left every pilot project keeps reading their own past chats (these GETs answer the owner or
     # a superuser only); everything else stays gated.
-    _OWN_CHAT_READS = frozenset({"list_sessions", "get_session", "download_bundle", "download_artifact",
-                                 "download_session", "task_progress"})
+    _OWN_CHAT_READS = frozenset({"list_sessions", "search_sessions", "get_session", "download_bundle",
+                                 "download_artifact", "download_session", "task_progress"})
 
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
@@ -304,6 +311,9 @@ _GRANULAR_REQUEST_MODELS = {
     "generate-submission": SubmissionRequest,
     "run-ls": RunLsRequest,
     "build-upload-xlsx": BuildUploadXlsxRequest,
+    "run-harvest": RunHarvestRequest,
+    "run-checksum": RunChecksumRequest,
+    "upload-reingest": UploadReingestRequest,
 }
 
 
@@ -362,6 +372,25 @@ _ARTIFACT_CONTENT_TYPES = {
 }
 
 
+def artifact_download_entries(saved_files, base: str) -> list[dict]:
+    """The ``download.artifacts`` list for an op's saved files.
+
+    Each entry is ``{key, url, filename}``. The key is the URL segment, word
+    characters only, so it cannot carry the extension (``reingest_A.ALN.xlsx``
+    is keyed ``reingest_A_ALN``); ``filename`` is the file's real basename, which
+    the sidecar stages it under so it still opens as what it is. A key holding
+    several paths is served as its first one, so that one names it.
+    """
+    entries = []
+    for key, value in (saved_files or {}).items():
+        first = value[0] if isinstance(value, (list, tuple)) and value else value
+        entry = {"key": key, "url": f"{base}/{key}/"}
+        if isinstance(first, str) and first:
+            entry["filename"] = os.path.basename(first)
+        entries.append(entry)
+    return entries
+
+
 #: The ops that answer on a throwaway parser session. Under a turn pass they take no session id: the chat's history
 #: would reach the parser and change answers.
 _THROWAWAY_SESSION_OPS = frozenset({"entity", "parse", "graph", "aggregate"})
@@ -396,7 +425,7 @@ def _launched_runs(state) -> list:
 
 
 def _refuse_run_ls(request, req, chat_config) -> Response | None:
-    """run-ls lists one run the caller launched (any run for a superuser off a turn pass), never the runs root.
+    """run-ls, run-harvest and run-checksum take one run the caller launched (any run for a superuser off a turn pass), never the runs root.
 
     A run is the caller's when one of the caller's own chats records it as launched (``_launched_runs``); its
     folders are the caller's too. None when the op may go on; without a configured Luria the op answers itself,
@@ -406,6 +435,8 @@ def _refuse_run_ls(request, req, chat_config) -> Response | None:
     if not working:
         return None
     runs_root = working + "/runs"
+    if not getattr(req, "run_dir", None):
+        return None  # run-harvest with no folder: the op picks the caller's own waiting run
     run_dir = os.path.normpath(str(req.run_dir))
     if run_dir == runs_root:
         return op_error("VALIDATION", fields=[{"field": "run_dir", "type": "the_runs_root"}],
@@ -419,6 +450,11 @@ def _refuse_run_ls(request, req, chat_config) -> Response | None:
               .filter(Q(extra_state__icontains=run) | Q(extra_state__icontains="$spill"))
               .values_list("extra_state", flat=True))
     if any(run in _launched_runs(state) for state in states):
+        return None
+    # A later wizard in the chat wipes that list; the launch record still names who launched the run.
+    from nextseek_api.assistant.models_db import PipelineRun
+
+    if PipelineRun.objects.filter(run_dir=run, launched_by=request.user).exists():
         return None
     return op_error("VALIDATION", fields=[{"field": "run_dir", "type": "not_your_run"}],
                     status=HTTP_STATUS["VALIDATION"])
@@ -554,6 +590,69 @@ class AssistantViewSet(viewsets.ViewSet):
             ).model_dump(mode="json"),
             status=status.HTTP_201_CREATED,
         )
+
+    # ------------------------------------------------------------------
+    # 2b. GET /assistant/sessions/search/
+    # ------------------------------------------------------------------
+    @extend_schema(
+        operation_id="Assistant: Search Sessions",
+        description=ASSISTANT_SESSIONS_SEARCH_DESC,
+        responses={200: SessionSearchResponse},
+        examples=[OpenApiExample(name="Search my chats", response_only=True, value={
+            "query": "ndma liver", "terms": ["ndma", "liver"], "sources": ["chats", "records"], "total": 1,
+            "results": [{"source": "chat", "session_id": "abc12345-def6-7890-abcd-ef1234567890",
+                         "title": "NDMA mice", "updated_at": "2026-10-21T14:02:11Z", "owner": None, "turn_id": 3,
+                         "matched_in": "question", "snippet": "find mice treated with NDMA in the liver",
+                         "match_count": 2}],
+            "facets": {"record_type": {"MUS": 1}, "project": {"MetNet": 1}, "where": {"result": 1}}})],
+    )
+    @action(detail=False, methods=["get"], url_path="sessions/search")
+    def search_sessions(self, request):
+        authed, err = self._check_auth(request)
+        if not authed:
+            return err
+
+        params = request.query_params
+        def invalid(detail):
+            return _error_response("Validation error", detail, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        record_type = params.get("record_type") or None
+        project = params.get("project") or None
+        where = params.get("where") or None
+        facets_only = params.get("facets_only") in ("1", "true")
+        if record_type and not re.fullmatch(r"[A-Z][A-Z.]{0,15}", record_type):
+            return invalid("Parameter 'record_type' must be a type code such as TIS or D.SEQ.")
+        if project and len(project) > 64:
+            return invalid("Parameter 'project' must be at most 64 characters.")
+        if where and where not in session_search.WHERE:
+            return invalid(f"Parameter 'where' accepts: {', '.join(session_search.WHERE)}.")
+        q = (params.get("q") or "").strip()
+        words_optional = facets_only or bool(record_type or project or where)
+        if len(q) > 200 or (len(q) < 2 and not (words_optional and not q)):
+            return invalid("Parameter 'q' must be 2 to 200 characters (it may be empty with a record filter).")
+        sources = [s.strip() for s in (params.get("sources") or "chats,records").split(",") if s.strip()]
+        if not sources or any(s not in session_search.SOURCES for s in sources):
+            return _error_response("Validation error",
+                                   f"Parameter 'sources' accepts: {', '.join(sorted(session_search.SOURCES))}.",
+                                   status.HTTP_422_UNPROCESSABLE_ENTITY)
+        since = params.get("since") or None
+        if since not in (None, "7", "30", "90"):
+            return _error_response("Validation error", "Parameter 'since' must be 7, 30 or 90.",
+                                   status.HTTP_422_UNPROCESSABLE_ENTITY)
+        all_users = params.get("all_users") in ("1", "true")
+        if all_users and not may_read_any(request):
+            return _error_response("Forbidden", "Only a superuser may search every user's chats.",
+                                   status.HTTP_403_FORBIDDEN)
+        try:
+            limit = min(max(int(params.get("limit", 20)), 1), 50)
+        except ValueError:
+            limit = 20
+
+        result = session_search.search_sessions(
+            request.user.pk, q, all_users=all_users, sources=sources, since_days=int(since) if since else None,
+            limit=limit, record_type=record_type, project=project, where=where, facets_only=facets_only)
+        return Response(SessionSearchResponse.model_validate(result).model_dump(mode="json"),
+                        status=status.HTTP_200_OK)
 
     # ------------------------------------------------------------------
     # 3. GET /assistant/sessions/{session_id}/
@@ -1340,6 +1439,61 @@ class AssistantViewSet(viewsets.ViewSet):
             chat_session = ChatSession(user=request.user)  # transient; not persisted
         return DictSessionAdapter(chat_session)
 
+    def _granular_op_session(self, request, req, op: str):
+        """The session ``run_op`` hands the op, or None for the ops that never touch one."""
+        # parse, graph and aggregate all run parser_agent, which reads results_history
+        # off the session: build a (transient) session for them, else parser_agent
+        # crashes on None. build-upload-xlsx, run-harvest and upload-reingest need
+        # only the user and the seams below.
+        if op in ("parse", "graph", "aggregate"):
+            return self._granular_session(request, req)
+        if op == "build-upload-xlsx":
+            # The build record is filed under this user, and Scientist is
+            # this user (mapper's @nextseek_user); without a session both are blank.
+            # The record also names the chat turn the build ran in, looked up from
+            # this server's own records, so upload-reingest can require a later turn.
+            from nextseek_api.assistant import chat_turns
+
+            return SimpleNamespace(
+                user=request.user,
+                chat_turn=lambda: chat_turns.running_cc_turn(request.user))
+        if op == "run-harvest":
+            # With no run_dir the op picks the caller's waiting launched run;
+            # without a session it sees nobody and reports that no run is waiting.
+            return SimpleNamespace(user=request.user)
+        if op == "upload-reingest":
+            # The identity lookup is handed over uncalled: the op resolves it
+            # only after the write gate passes, so an unconfirmed call never
+            # reaches SEEK. The request model forbids extra keys, so the
+            # resolver's admin person_id override can never arrive here. The
+            # import is deferred too: batch_upload.views pulls in Celery. The
+            # job dispatch and workbook staging seams travel on the session as
+            # well, so the engine never imports the batch-upload views. So do the
+            # chat-turn lookups: a build is uploaded only from a later turn of the
+            # chat it was shown in, and the agent never names the chat or the turn.
+            # The dispatch carries the caller's project scope (SEC-001), read
+            # when a job starts, so a member uploads only into their own projects.
+            from nextseek_api.assistant import chat_turns
+            from nextseek_api.batch_upload import views as batch_views
+            from nextseek_api.services import reingest_assays
+
+            def _upload_context():
+                return batch_views._resolve_user_context(request)
+
+            def _dispatch_job(**kwargs):
+                return batch_views.dispatch_batch_job(
+                    scope_project_ids=batch_views._caller_project_scope(request.user), **kwargs)
+
+            return SimpleNamespace(
+                user=request.user, upload_context=_upload_context,
+                dispatch_job=_dispatch_job, stage_workbook=batch_views.stage_workbook_copy,
+                chat_turn=lambda: chat_turns.running_cc_turn(request.user),
+                turn_delivered=lambda task_id: chat_turns.turn_delivered(request.user, task_id),
+                job_state=batch_views.job_outcome,
+                create_study_assay=lambda **kw: reingest_assays.create_study_assay(request, **kw),
+                register_parents=lambda pairs: reingest_assays.register_parents(request, pairs))
+        return None
+
     def _run_granular_op(self, request, op: str) -> Response:
         timing = [("view", time.monotonic())]
         authed, err = self._check_auth(request)
@@ -1377,7 +1531,7 @@ class AssistantViewSet(viewsets.ViewSet):
             # the same rule.
             return op_error("AUTH_FAILED", status=HTTP_STATUS["AUTH_FAILED"])
         chat_config = _granular_chat_config(request, req)
-        if op == "run-ls":
+        if op in ("run-ls", "run-harvest", "run-checksum"):
             refused = _refuse_run_ls(request, req, chat_config)
             if refused is not None:
                 return refused
@@ -1389,10 +1543,7 @@ class AssistantViewSet(viewsets.ViewSet):
         outputs_dir = None
         # Every failure from here on maps to a closed code (Task 4 Step 6), the bundle registration included.
         try:
-            # parse, graph and aggregate all run parser_agent, which reads results_history
-            # off the session: build a (transient) session for them, else parser_agent
-            # crashes on None. Other ops don't touch the session.
-            session = self._granular_session(request, req) if op in ("parse", "graph", "aggregate") else None
+            session = self._granular_op_session(request, req, op)
             gate = build_gate(load_allowlist())
             args = _granular_args(op, req)
             timing.append(("session", time.monotonic()))
@@ -1451,6 +1602,17 @@ class AssistantViewSet(viewsets.ViewSet):
             chat_pk = ChatSession.objects.create(user=request.user).pk
 
         saved_files = result.get("saved_files") if isinstance(result, dict) else None
+        if op == "build-upload-xlsx":
+            # The op returns proposals; persisting them is a service-layer
+            # concern, so build-upload-xlsx keeps its "writes nothing" invariant.
+            pending = (result or {}).get("proposals") or []
+            if pending:
+                from NessieAI.ns.reingest.proposals import record
+                record(pending, pipeline=pending[0].get("pipeline", ""),
+                       run_dir=pending[0].get("run_dir", ""),
+                       manifest_digest=pending[0].get("manifest_digest", ""),
+                       user_id=getattr(request.user, "id", None))
+
         with transaction.atomic():
             locked = ChatSession.objects.select_for_update().get(pk=chat_pk)
             bundle_id = next_bundle_id_locked(locked)
@@ -1466,10 +1628,11 @@ class AssistantViewSet(viewsets.ViewSet):
             locked.save(update_fields=["results_history", "extra_state", "updated_at"])
 
         base = f"/nextseek_api/assistant/sessions/{chat_pk}/bundles/{bundle_id}/artifacts"
-        artifacts = [{"key": k, "url": f"{base}/{k}/"} for k in (saved_files or {})]
+        artifacts = artifact_download_entries(saved_files, base)
         if op == "generate-submission":
             # The submission output has no on-disk file; expose it as a combined xlsx.
-            artifacts.append({"key": "all_tables", "url": f"{base}/all_tables/"})
+            artifacts.append({"key": "all_tables", "url": f"{base}/all_tables/",
+                              "filename": "all_tables.xlsx"})
         return {"session_id": str(chat_pk), "bundle_id": bundle_id, "artifacts": artifacts}
 
     @extend_schema(
@@ -1601,3 +1764,38 @@ class AssistantViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="build-upload-xlsx")
     def build_upload_xlsx(self, request):
         return self._run_granular_op(request, "build-upload-xlsx")
+
+    @extend_schema(
+        operation_id="Assistant: Run Harvest",
+        description="Stage a finished Luria run's allowlisted outputs off the cluster and "
+                    "parse them into a manifest (reingest step 1). Never writes to Luria "
+                    "or to NExtSEEK.",
+        request=RunHarvestRequest,
+        responses={401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="run-harvest")
+    def run_harvest(self, request):
+        return self._run_granular_op(request, "run-harvest")
+
+    @extend_schema(
+        operation_id="Assistant: Run Checksum",
+        description="md5 a caller-named set of settled primary-data files under a finished "
+                    "Luria run (reingest step 2). Never writes to Luria or to NExtSEEK.",
+        request=RunChecksumRequest,
+        responses={401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="run-checksum")
+    def run_checksum(self, request):
+        return self._run_granular_op(request, "run-checksum")
+
+    @extend_schema(
+        operation_id="Assistant: Upload Reingest",
+        description="Upload reviewed reingest workbooks (by build id) to NExtSEEK. "
+                    "Write-class: requires confirmed_write=true. One batch-upload job "
+                    "per workbook, new samples first.",
+        request=UploadReingestRequest,
+        responses={401: OpErrorResponse, 403: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="upload-reingest")
+    def upload_reingest(self, request):
+        return self._run_granular_op(request, "upload-reingest")

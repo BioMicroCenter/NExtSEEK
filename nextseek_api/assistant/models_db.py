@@ -423,3 +423,179 @@ class CCSessionTranscript(models.Model):
         app_label = "nextseek_api"
         unique_together = (("chat_session", "cc_session_id", "turn_id"),)
         ordering = ["-created_at"]
+
+
+class PipelineRun(models.Model):
+    """What Nessie launched, and which D.SEQ samples went into it.
+
+    Reingest's primary source for sample -> UID. Without this the only way back
+    is matching fastq paths against D.SEQ records, which cannot distinguish a
+    sample that was never registered from one whose path was stored differently.
+
+    `cohort` is a list of {d_seq_uid, nfcore_sample, fastq_1, fastq_2}. It is
+    JSON rather than a related table because it is written once at launch and
+    only ever read whole.
+
+    ``run_dir`` is 768 chars (option (a) of the 2026-09-16 whole-branch
+    review's Critical 3), not 1024: MySQL 8.0 utf8mb4 needs 4 bytes/char, so
+    a unique index on a 1024-char CharField is 4096 bytes -- over InnoDB's
+    3072-byte index limit (ERROR 1071). 768 is exactly 3072 bytes and never
+    caught in CI because the test lane is SQLite, which has no such limit.
+    768 stays generous for a real cluster path: submitter.py builds
+    ``remote_run_dir`` as ``f"{working}/runs/{safe}_{run_id}"``, where
+    ``safe`` is capped at 64 chars (``sanitize_job_name``) and ``run_id`` is
+    a ``YYMMDD_HHMMSS_<idx>`` timestamp (~17 chars) -- so the whole suffix
+    after ``working`` is under 90 chars; ``working`` (``LURIA_WORKING_PATH``)
+    is an admin-set cluster path, never observed anywhere near 678 chars.
+    Option (b) (a separate ``run_dir_digest`` sha256 column, keying
+    ``record_launch``/``uid_resolve`` on the digest instead) was rejected as
+    unnecessary complexity for a field this bounded in practice.
+    """
+
+    run_dir = models.CharField(max_length=768, unique=True)
+    run_name = models.CharField(max_length=255)
+    slurm_job_id = models.CharField(max_length=64, blank=True, default="")
+    pipeline = models.CharField(max_length=255)
+    revision = models.CharField(max_length=64, blank=True, default="")
+    params_digest = models.CharField(max_length=64, blank=True, default="")
+    launched_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+        related_name="pipeline_runs",
+    )
+    launched_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=32, default="submitted")
+    cohort = models.JSONField(default=list)
+
+    class Meta:
+        db_table = "assistant_pipeline_run"
+        app_label = "nextseek_api"
+        ordering = ["-launched_at"]
+
+    def uid_for(self, nfcore_sample: str) -> str | None:
+        """The D.SEQ UID this run's samplesheet row came from, or None.
+
+        A ``None`` return does not by itself mean the sample was absent from
+        this run: `cohort` can hold an entry for `nfcore_sample` whose
+        `d_seq_uid` is null, and that also returns `None` here. Call
+        `knows_sample` to tell "never in this run" apart from "in this run,
+        UID unresolved".
+        """
+        for entry in self.cohort or []:
+            if entry.get("nfcore_sample") == nfcore_sample:
+                return entry.get("d_seq_uid") or None
+        return None
+
+    def knows_sample(self, nfcore_sample: str) -> bool:
+        """Whether `cohort` has an entry for `nfcore_sample`, resolved or not.
+
+        Separates the two facts `uid_for` alone cannot: absent from `cohort`
+        means this run never processed the sample, so a caller should fall
+        back to matching fastq paths against D.SEQ records; present with a
+        null `d_seq_uid` means the run DID process it but no NExtSEEK sample
+        was known for it, so it must be reported unresolved rather than
+        retried through the fastq fallback.
+        """
+        return any(entry.get("nfcore_sample") == nfcore_sample for entry in self.cohort or [])
+
+
+class ReingestAttributeProposal(models.Model):
+    """A raw pipeline key the agent proposed mapping onto a sample attribute.
+
+    Two different gaps share this table, distinguished by status:
+
+    * ``pending`` — the attribute EXISTS; nobody has confirmed this source is
+      the right one for it. The requesting user has leverage to chase it, so it
+      is surfaced by pull (a QA soft flag) rather than pushed.
+    * ``needs_definition`` — the attribute does NOT exist on that sample type.
+      Only a superuser can fix that, so the value is parked in ``Notes`` and the
+      row is pushed to superusers.
+
+    Approved rows are read by the mapper alongside the committed map file, so
+    approving never requires editing a file inside a running image.
+    """
+
+    STATUS_PENDING = "pending"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+    STATUS_NEEDS_DEFINITION = "needs_definition"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"), (STATUS_APPROVED, "Approved"),
+        (STATUS_REJECTED, "Rejected"), (STATUS_NEEDS_DEFINITION, "Needs definition"),
+    ]
+
+    # pipeline and proposed_attribute are capped at 128 (not 255, unlike
+    # raw_key): unique_together over three CharFields at utf8mb4 sums index
+    # key bytes as max_length * 4 per column, plus a 2-byte length prefix per
+    # long VARCHAR. Three columns at 255 is 3060 + 6 = 3066 bytes -- six bytes
+    # under InnoDB's 3072-byte hard limit (ERROR 1071), the same failure mode
+    # that already sank a max_length=1024 unique CharField on this branch.
+    # Real values are short ("nf-core/rnaseq", "ContamPercent"), so 128 is
+    # generous headroom while keeping the composite key well under the
+    # limit: 128*4 + 255*4 + 128*4 + 6 = 2050 bytes, 1022 to spare.
+    pipeline = models.CharField(max_length=128)
+    raw_key = models.CharField(max_length=255)
+    proposed_target = models.CharField(max_length=64)
+    proposed_attribute = models.CharField(max_length=128)
+    datatype = models.CharField(max_length=32, default="string")
+    example_value = models.TextField(blank=True, default="")
+    source_file = models.CharField(max_length=1024, blank=True, default="")
+    rationale = models.TextField(blank=True, default="")
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES,
+                              default=STATUS_PENDING)
+    times_proposed = models.PositiveIntegerField(default=1)
+    first_seen_run = models.CharField(max_length=1024, blank=True, default="")
+    last_seen_run = models.CharField(max_length=1024, blank=True, default="")
+    manifest_digest = models.CharField(max_length=64, blank=True, default="")
+    proposed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="reingest_proposals")
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="reingest_reviews")
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "assistant_reingest_attribute_proposal"
+        app_label = "nextseek_api"
+        # pipeline and proposed_attribute are max_length=128, not 255, so this
+        # composite unique index fits under InnoDB's 3072-byte key limit at
+        # utf8mb4 -- see the field comment above. Load-bearing, not arbitrary.
+        unique_together = (("pipeline", "raw_key", "proposed_attribute"),)
+        ordering = ["-times_proposed", "-created_at"]
+
+
+class ChatSearchEntry(models.Model):
+    """What a turn put in front of the user, pulled out once when the turn ends, for the session search.
+
+    Written by ``NessieAI/ns/chat_search_index.py`` (``index_chat``) at every turn's end and by the
+    ``chat_search_index`` backfill; read by ``nextseek_api/assistant/session_search.py``. Reading these at search
+    time instead (zstd transcripts, results of up to 5,000 IDs) took over a second per search on dev.
+
+    ``source`` ``steps``: the Container-CC agent's own words (``kind`` ``agent_text``) and the commands and paths it
+    used (``tool_call``), in ``text``. ``source`` ``record``: one ``uid`` row per ID the turn showed (``key`` the ID,
+    ``record_type`` its type code, ``text`` where it appeared: ``question``, ``answer`` or ``result``), one
+    ``project`` row per project the question named, and one ``turn`` row per indexed turn (``text``: how many
+    result IDs it had, of which at most 500 have rows). Only turns still in the chat's ``chat_log`` keep rows.
+    """
+
+    session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name="search_entries")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    turn_id = models.IntegerField()
+    source = models.CharField(max_length=16)
+    kind = models.CharField(max_length=16)
+    key = models.CharField(max_length=64, blank=True, default="")
+    record_type = models.CharField(max_length=16, blank=True, default="")
+    text = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "assistant_chat_search_entry"
+        app_label = "nextseek_api"
+        indexes = [
+            models.Index(fields=["user", "source"], name="chat_search_user_source"),
+            models.Index(fields=["user", "key"], name="chat_search_user_key"),
+            models.Index(fields=["session", "turn_id"], name="chat_search_session_turn"),
+        ]
+
+    def __str__(self):
+        return f"ChatSearchEntry {self.source}/{self.kind} session={self.session_id} turn={self.turn_id}"

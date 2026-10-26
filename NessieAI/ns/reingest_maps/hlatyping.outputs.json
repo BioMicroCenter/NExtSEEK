@@ -1,0 +1,60 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/hlatyping",
+  "applies_to_versions": ">=2.2,<2.3",
+  "accepts_parent_types": ["D.SEQ", "A.ALN"],
+  "harvest_globs": [],
+  "inventory_globs": ["**/optitype/*/*_result.tsv", "**/optitype/*/*_coverage_plot.pdf"],
+  "derived_metrics": [],
+  "row_defaults": {
+    "Name": "@row_name",
+    "Scientist": "@nextseek_user",
+    "Lab": "@lab",
+    "SampleCreationDate": "@run_date"
+  },
+  "outputs": [
+    {
+      "id": "hla_class_i",
+      "candidates": ["optitype/*/*_result.tsv"],
+      "sample_type": "A.HLA",
+      "assay": "HLA Typing",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "optional": true,
+      "companions": [{"glob": "optitype/*/*_coverage_plot.pdf"}],
+      "attributes": {
+        "Software": "OptiType",
+        "Pipeline": "$pipeline.name",
+        "PipelineVersion": "$pipeline.version",
+        "HLA_A1": "$metrics.optitype-A1",
+        "HLA_A2": "$metrics.optitype-A2",
+        "HLA_B1": "$metrics.optitype-B1",
+        "HLA_B2": "$metrics.optitype-B2",
+        "HLA_C1": "$metrics.optitype-C1",
+        "HLA_C2": "$metrics.optitype-C2",
+        "HLAReads": "$metrics.optitype-Reads",
+        "HLATypingObjective": "$metrics.optitype-Objective"
+      }
+    }
+  ],
+  "provenance_attributes": {},
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html", "target": "D.SEQ",
+      "datatype": "string", "provenance": "seed"
+    },
+    "Genome": {
+      "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
+      "provenance": "seed"
+    },
+    "GCPercent": {"from": "fastqc-percent_gc", "target": "D.SEQ", "datatype": "number", "alternates": ["fastqc-percent_gc@R1"], "note": "FastQC on the raw reads; single-end runs write it on the sample row, paired-end on <sample>_1 (@R1)", "provenance": "seed"},
+    "F_bp": {"from": "fastqc-avg_sequence_length@R1", "target": "D.SEQ", "datatype": "number", "alternates": ["fastqc-avg_sequence_length"], "note": "mean read-1 length (FastQC per-read row, else the single-end sample row)", "provenance": "seed"},
+    "R_bp": {"from": "fastqc-avg_sequence_length@R2", "target": "D.SEQ", "datatype": "number", "note": "mean read-2 length; paired-end only", "provenance": "seed"}
+  },
+  "deliberately_unmapped": [
+    {"key": "fastqc-percent_duplicates", "why": "Sequence-level duplication before alignment; DuplicationPercent is alignment-based (Picard), and mixing the two definitions in one field would mislead."},
+    {"key": "fastqc-median_sequence_length", "why": "Same as the average length; hidden when samples agree within 10 bp."},
+    {"key": "fastqc-percent_fails", "why": "Share of FastQC modules that failed: a report summary, not a measurement."},
+    {"key": "fastqc-total_sequences", "why": "Count in millions; NumReads/TotalReads hold read counts."}
+  ]
+}

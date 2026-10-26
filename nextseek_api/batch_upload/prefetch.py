@@ -19,6 +19,9 @@ _ASSAY_EXISTS_CACHE: Dict[int, bool] = {}
 _SAMPLE_TYPE_TITLE_TO_ID: Dict[str, int] = {}
 _PROJECT_SAMPLE_TYPE_LINKED: Dict[int, Set[int]] = {}
 _SAMPLE_TYPE_ATTRIBUTES_CACHE: Dict[int, Set[str]] = {}
+# sample_type_id -> the title of its is_title attribute, or None when it has none.
+# Invalidated with _SAMPLE_TYPE_ATTRIBUTES_CACHE: moving is_title moves updated_at.
+_SAMPLE_TYPE_TITLE_ATTRIBUTE: Dict[int, Optional[str]] = {}
 # Database-side generation stamp for _SAMPLE_TYPE_ATTRIBUTES_CACHE.
 # See refresh_sample_type_attributes_cache.
 _ATTRIBUTES_GENERATION: Optional[Tuple[int, Optional[str]]] = None
@@ -257,6 +260,7 @@ def refresh_sample_type_attributes_cache(conn: Connection) -> None:
                 _ATTRIBUTES_GENERATION, generation, len(_SAMPLE_TYPE_ATTRIBUTES_CACHE),
             )
         _SAMPLE_TYPE_ATTRIBUTES_CACHE.clear()
+        _SAMPLE_TYPE_TITLE_ATTRIBUTE.clear()
         _ATTRIBUTES_GENERATION = generation
 
 
@@ -306,6 +310,48 @@ def prefetch_sample_type_attributes(
         }
 
 
+def prefetch_title_attributes(
+    sample_type_ids: List[int], conn: Connection
+) -> Dict[int, str]:
+    """Bulk-fetch sample type id -> the title of its is_title attribute, using cache.
+
+    SEEK sets a sample's title to this attribute's value whenever it saves the sample, so a
+    title written any other way changes the next time SEEK re-saves the type. Types with no
+    title attribute are omitted from the result and remembered as None.
+    """
+    if not sample_type_ids:
+        return {}
+
+    with _CACHE_LOCK:
+        uncached = [sid for sid in sample_type_ids if sid not in _SAMPLE_TYPE_TITLE_ATTRIBUTE]
+
+    if uncached:
+        for chunk_start in range(0, len(uncached), 1000):
+            chunk = uncached[chunk_start : chunk_start + 1000]
+            params = {f"id_{i}": sid for i, sid in enumerate(chunk)}
+            placeholders = ", ".join(f":id_{i}" for i in range(len(chunk)))
+            sql = text(
+                f"SELECT sample_type_id, title FROM sample_attributes "
+                f"WHERE is_title = 1 AND sample_type_id IN ({placeholders})"
+            )
+            rows = conn.execute(sql, params).fetchall()
+
+            chunk_result: Dict[int, Optional[str]] = {sid: None for sid in chunk}
+            for st_id, title in rows:
+                chunk_result[st_id] = title
+
+            with _CACHE_LOCK:
+                _SAMPLE_TYPE_TITLE_ATTRIBUTE.update(chunk_result)
+                _trim_cache(_SAMPLE_TYPE_TITLE_ATTRIBUTE, _config.attribute_cache_max)
+
+    with _CACHE_LOCK:
+        return {
+            sid: _SAMPLE_TYPE_TITLE_ATTRIBUTE[sid]
+            for sid in sample_type_ids
+            if _SAMPLE_TYPE_TITLE_ATTRIBUTE.get(sid)
+        }
+
+
 def clear_caches() -> None:
     """Clear all in-process caches."""
     with _CACHE_LOCK:
@@ -313,6 +359,7 @@ def clear_caches() -> None:
         _SAMPLE_TYPE_TITLE_TO_ID.clear()
         _PROJECT_SAMPLE_TYPE_LINKED.clear()
         _SAMPLE_TYPE_ATTRIBUTES_CACHE.clear()
+        _SAMPLE_TYPE_TITLE_ATTRIBUTE.clear()
         global _ATTRIBUTES_GENERATION
         _ATTRIBUTES_GENERATION = None
     log.debug("Prefetch caches cleared")
@@ -328,4 +375,5 @@ def cache_stats() -> Dict[str, int]:
                 len(v) for v in _PROJECT_SAMPLE_TYPE_LINKED.values()
             ),
             "sample_type_attributes": len(_SAMPLE_TYPE_ATTRIBUTES_CACHE),
+            "sample_type_title_attribute": sum(1 for v in _SAMPLE_TYPE_TITLE_ATTRIBUTE.values() if v),
         }

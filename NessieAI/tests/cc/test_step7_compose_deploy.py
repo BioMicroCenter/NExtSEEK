@@ -1640,9 +1640,16 @@ def test_compose_bedrock_proxy_container_name_matches_realstack_default(tmp_path
     assert m.group(1) == compose_container_name
 
 
-
-
-
-
-
-
+@pytest.mark.host_only
+def test_compose_config_cc_agent_builds_for_the_platform_the_spawner_runs_it_on(tmp_path):
+    """cc-spawner starts every agent container as ``CC_PLATFORM``. Without a
+    matching ``platform:`` here, an Apple-silicon host builds and files the
+    image under linux/arm64 (its content is amd64: the Dockerfile pins an
+    amd64 base), and Docker refuses the spawn with NotFound, "does not
+    provide the specified platform". An x86 server never notices. Read from
+    the spawner's source: the app's test env need not import its docker SDK."""
+    spawner_src = (REPO_ROOT / "docker" / "cc-spawner" / "spawner.py").read_text(encoding="utf-8")
+    m = re.search(r'^CC_PLATFORM = "([^"]+)"$', spawner_src, re.M)
+    assert m, "CC_PLATFORM not found in docker/cc-spawner/spawner.py"
+    cfg = _real_compose_config(tmp_path)
+    assert cfg["services"]["cc-agent"].get("platform") == m.group(1)

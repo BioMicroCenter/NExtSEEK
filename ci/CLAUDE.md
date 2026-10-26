@@ -157,11 +157,11 @@
   string dispatch, a decorator that does not set `__wrapped__` -- so read its
   output as routes worth re-reading, never as a verdict. Its one assertion is
   that the Sample Search page is not in the list, which catches a walk gone loose.
-- `EXCLUDE_DEAD` and `EXCLUDE_ADMIN` are declared at `ci/routes.py:29-35` but no
-  entry uses either: counting the `exclude` values across `REGISTRY` on
-  2026-09-03 gives `EXCLUDE_UNSAFE_METHOD` 13, `EXCLUDE_COST` 12 and
-  `EXCLUDE_EXTERNAL` 1, totalling all 26 excluded entries. Reading the code list
-  as a description of what the registry actually excludes will mislead you.
+- `EXCLUDE_DEAD` and `EXCLUDE_ADMIN` are declared in `ci/routes.py` but no
+  entry uses either. Count the `exclude` values across `REGISTRY` with
+  `python3 -c "import collections, ci.routes as r; print(collections.Counter(x.exclude for x in r.REGISTRY if x.exclude))"`.
+  Reading the code list as a description of what the registry actually excludes
+  will mislead you.
 
 ## Test command
 

@@ -1,0 +1,70 @@
+{
+  "map_version": 2,
+  "pipeline": "nf-core/rnafusion",
+  "applies_to_versions": ">=4.1,<5",
+  "accepts_parent_types": ["D.SEQ", "A.ALN"],
+  "harvest_globs": [],
+  "derived_metrics": [],
+  "outputs": [
+    {
+      "id": "aln",
+      "candidates": ["star/*.Aligned.sortedByCoord.out.bam"],
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [{"glob": "star/*.Aligned.sortedByCoord.out.bam.bai"}],
+      "attributes": {
+        "DataType": "BAM",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "STAR",
+        "Genome": "$params.genome"
+      }
+    }
+  ],
+  "provenance_attributes": {},
+  "qc_attributes": {
+    "Link_QC": {
+      "from": "$outputs.multiqc_report_html", "target": "D.SEQ",
+      "datatype": "string", "provenance": "seed"
+    },
+    "Genome": {
+      "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
+      "provenance": "seed"
+    },
+    "GCPercent": {"from": "fastqc_raw-percent_gc", "target": "D.SEQ", "datatype": "number", "alternates": ["fastqc_raw-percent_gc@R1", "fastp-after_filtering_gc_content"], "note": "FastQC on the raw reads; single-end runs write it on the sample row, paired-end on <sample>_1 (@R1)", "provenance": "seed"},
+    "F_bp": {"from": "fastqc_raw-avg_sequence_length@R1", "target": "D.SEQ", "datatype": "number", "alternates": ["fastqc_raw-avg_sequence_length", "fastp-before_filtering_read1_mean_length"], "note": "mean read-1 length (FastQC per-read row, else the single-end sample row)", "provenance": "seed"},
+    "R_bp": {"from": "fastqc_raw-avg_sequence_length@R2", "target": "D.SEQ", "datatype": "number", "alternates": ["fastp-before_filtering_read2_mean_length"], "note": "mean read-2 length; paired-end only", "provenance": "seed"},
+    "Q30Percent": {"from": "fastp-after_filtering_q30_rate", "target": "D.SEQ", "datatype": "number", "note": "fastp's base-level Q30 rate, written as a percentage by MultiQC", "provenance": "seed"},
+    "PassedFilterPercent": {"from": "fastp-pct_surviving", "target": "D.SEQ", "datatype": "number", "provenance": "seed"},
+    "AdapterPercent": {"from": "fastp-pct_adapter", "target": "D.SEQ", "datatype": "number", "provenance": "seed"},
+    "MappedPercent": {"from": "star-uniquely_mapped_percent", "target": "D.SEQ", "datatype": "number", "note": "only when --tools runs a STAR-based caller on FASTQ input", "provenance": "seed"},
+    "DuplicationPercent": {"from": "picard_mark_duplicates-PERCENT_DUPLICATION", "target": "D.SEQ", "datatype": "number", "note": "GATK4 MarkDuplicates, parsed by MultiQC's picard module", "provenance": "seed"},
+    "rRNAPercent": {"from": "picard_rnaseqmetrics-PCT_RIBOSOMAL_BASES", "target": "D.SEQ", "datatype": "number", "note": "Picard counts aligned bases, not reads, in rRNA", "provenance": "seed"},
+    "MRNAPercent": {"from": "picard_rnaseqmetrics-PCT_MRNA_BASES", "target": "D.SEQ", "datatype": "number", "provenance": "seed"}
+  },
+  "deliberately_unmapped": [
+    {"key": "fastqc_raw-percent_duplicates", "why": "Sequence-level duplication before alignment; DuplicationPercent is alignment-based (Picard), and mixing the two definitions in one field would mislead."},
+    {"key": "fastqc_raw-median_sequence_length", "why": "Same as the average length; hidden when samples agree within 10 bp."},
+    {"key": "fastqc_raw-percent_fails", "why": "Share of FastQC modules that failed: a report summary, not a measurement."},
+    {"key": "fastqc_raw-total_sequences", "why": "Count in millions; NumReads/TotalReads hold read counts."},
+    {"key": "fastqc_trimmed-percent_duplicates", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_trimmed-percent_gc", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_trimmed-avg_sequence_length", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_trimmed-median_sequence_length", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_trimmed-percent_fails", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastqc_trimmed-total_sequences", "why": "Post-trim repeat of the raw FastQC values."},
+    {"key": "fastp-pct_duplication", "why": "fastp's pre-alignment duplication estimate; DuplicationPercent is alignment-based."},
+    {"key": "fastp-after_filtering_q30_bases", "why": "Megabases; Q30Percent carries the quality."},
+    {"key": "fastp-filtering_result_passed_filter_reads", "why": "Count in millions; PassedFilterPercent carries it."},
+    {"key": "star-total_reads", "why": "Count in millions (raw counts in MultiQC <=1.21); exact counts belong to a STAR log harvest, as in rnaseq."},
+    {"key": "star-mapped", "why": "Count in millions (raw counts in MultiQC <=1.21); exact counts belong to a STAR log harvest, as in rnaseq."},
+    {"key": "star-mapped_percent", "why": "Unique plus multimapped; equals MappedPercent + MultimappedPercent (as ruled for rnaseq)."},
+    {"key": "star-uniquely_mapped", "why": "Count in millions (raw counts in MultiQC <=1.21); exact counts belong to a STAR log harvest, as in rnaseq."},
+    {"key": "star-multimapped", "why": "Count in millions. MultimappedPercent needs the STAR log harvested, as rnaseq does."},
+    {"key": "picard_insertsizemetrics-summed_median", "why": "Insert size from spliced RNA alignments is inflated by introns."},
+    {"key": "picard_insertsizemetrics-summed_mean", "why": "Insert size from spliced RNA alignments is inflated by introns."}
+  ]
+}

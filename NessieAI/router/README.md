@@ -37,16 +37,17 @@ it rebuilds (`router_record`), and `route_decided` gets the three cost fields on
 Routing degrades; it never raises. A missing corpus, a missing build context or a BAML failure
 drops a turn to the heuristic and logs, so a wrong route is the only symptom. The route decision
 in the Debug panel shows `source` (`baml`, `heuristic`, `posterior`, `forced`, `pipeline`, `sticky`,
-`followup`, `cc_unavailable`).
+`followup`, `reingest`, `cc_unavailable`).
 
 ## Overrides
 
 Applied by `_decide_route` in `policy.py`, in this order:
 
-`force_route` > `pipeline_agent` > a turn that refers back goes to CC > the router.
+`force_route` > a "my run is done" turn goes to CC's reingest > `pipeline_agent` > a turn that refers back goes to CC > the router.
 
 - `force_route` (`ns` or `cc`) and the `cc/query/async/` endpoint beat the router, for admins only. A non-admin `force_route` is ignored.
 - An open `pipeline_agent` wizard only keeps a turn the router already sent to NExtSEEK.
+- **Run done** (`run_done.py`): a turn announcing that a run, pipeline or job is done, finished or complete, with or without a folder, that the router sent to NExtSEEK or `unrelated` becomes `container_cc` with task family `pipeline_output_reingest` (`reingest`). It is the line the Luria submit reply ends with; CC's run-harvest finds the user's launched run with no folder named. It runs before the `pipeline_agent` gate, because NExtSEEK's reporter can open a fresh wizard for it. A question ("is my run done?") or a launch request is left to the router. A `reingest` turn never falls back to NExtSEEK when the CC runner is down.
 - **Follow-ups and sticky CC** (2026-09-24 split; `NESSIE_FOLLOWUP_ROUTING`, default `split`): a follow-up is a turn that refers back to an answered turn of the chat (a back-reference cue in `followup.py`: "of those", "which of them", "that chart", "the file", "remind me", "what query did you run"). Under `split`, one NExtSEEK can answer from the earlier result or by re-running the earlier search (count, filter, a breakdown by one or two fields, recall, a one-change re-run) stays where the router sent it; one that names a file, a download, a chart, code, or a comparison, summary or analysis (`followup_shape`) becomes `container_cc` (`followup`); and in a chat with a completed CC turn any follow-up becomes `container_cc` (`sticky`). `cc` restores the 2026-09-23 rule (every follow-up to CC) with no rebuild. The router prompt renders the same rule from `followup.followup_rule_text()` (`RouterInput.followup_rule`); this guard is its deterministic backstop and never moves a turn toward NExtSEEK. A self-contained question (no back-reference) is left to the router. `unrelated` is never converted. The whole `chat_log` is scanned, not the 5-turn window.
 - **CC unavailable**: a turn this policy moved to CC (`sticky`, `followup`) runs on NExtSEEK for that one turn when the CC runner is down (`source: "cc_unavailable"`, `_fallback_when_cc_unavailable`). A turn the router or an admin sent to CC keeps its error.
 - An admin's `force_route` and an open `pipeline_agent` wizard override the rule for one turn.

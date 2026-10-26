@@ -39,6 +39,7 @@ from chat_nextseek.failure_replies import fatal_query_error
 from chat_nextseek.llm_clients import LLMFatalError
 from chat_nextseek.orchestrator import run_query, run_query_plan, run_pipeline_launch
 from chat_nextseek import turn_spend
+from NessieAI.ns import chat_search_index
 from NessieAI.ns.turn_memory import release_op_slot
 
 logger = logging.getLogger(__name__)
@@ -141,11 +142,18 @@ def _granular_args(op: str, req) -> dict:
     if op == "run-ls":
         return {"run_dir": req.run_dir}
     if op == "build-upload-xlsx":
-        return {"rows": req.rows, "existing_parent_uids": req.existing_parent_uids}
+        return {"rows": req.rows, "existing_parent_uids": req.existing_parent_uids,
+                "manifest_id": req.manifest_id, "mode": req.mode, "answers": req.answers}
+    if op == "run-harvest":
+        return {"run_dir": req.run_dir, "allow_failed_run": req.allow_failed_run}
+    if op == "run-checksum":
+        return {"run_dir": req.run_dir, "paths": req.paths, "manifest_id": req.manifest_id}
+    if op == "upload-reingest":
+        return {"build_ids": req.build_ids, "confirmed_write": req.confirmed_write}
     return {}
 
 
-def _save_session_or_report(adapter, chat_session, send_event, session_id) -> None:
+def _save_session_or_report(adapter, chat_session, send_event, session_id) -> bool:
     """Persist the turn, and TELL THE USER if it could not be persisted.
 
     This used to be a bare ``adapter.save()`` in a ``finally:`` outside the
@@ -168,11 +176,19 @@ def _save_session_or_report(adapter, chat_session, send_event, session_id) -> No
                 "agent": "session",
                 "session_id": session_id,
             })
-        return
+        return False
     except Exception:
         logger.exception("session %s: unexpected failure saving the turn", session_id)
-        return
+        return False
     _auto_title_if_unset(chat_session)
+    return True
+
+
+def _index_saved_turn(adapter, chat_session) -> None:
+    """The session search's index for a saved turn, from the adapter's memory (no spilled bundle re-read).
+    Called after the turn's end is sent and its slot given back: the user never waits on it."""
+    chat_search_index.index_chat_quietly(
+        chat_session, chat_log=adapter.get("chat_log"), bundles=adapter.get("results_history"))
 
 
 def make_sse_send_event(event_queue, resolved_session_id):
@@ -271,9 +287,11 @@ def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pas
                 "session_id": resolved_session_id,
             })
     finally:
-        _save_session_or_report(
+        saved = _save_session_or_report(
             adapter, chat_session, send_event, resolved_session_id)
         event_queue.put(None)  # sentinel
+        if saved:
+            _index_saved_turn(adapter, chat_session)
 
 
 def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pass,
@@ -314,11 +332,14 @@ def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_p
                 "session_id": resolved_session_id,
             })
     finally:
+        saved = False
         try:
-            _save_session_or_report(
+            saved = _save_session_or_report(
                 adapter, chat_session, send_event, resolved_session_id)
         finally:
             if parent_cc_turn is not None:
                 # A child turn a Container-CC pass started holds one of that turn's two slots (operator ruling
                 # 2026-09-30); it gives it back here, done, failed or interrupted. Never raises.
                 release_op_slot(parent_cc_turn)
+        if saved:
+            _index_saved_turn(adapter, chat_session)

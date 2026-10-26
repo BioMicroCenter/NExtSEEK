@@ -354,3 +354,108 @@ class AutoTitleTests(SessionEndpointsTestBase):
         _auto_title_if_unset(cs, fallback_query="   ")
         cs.refresh_from_db()
         self.assertIsNone(cs.title)
+
+
+class SearchSessionsTests(SessionEndpointsTestBase):
+    URL = "/nextseek_api/assistant/sessions/search/"
+
+    def chat(self, user, q, title=None):
+        return ChatSession.objects.create(
+            user=user, title=title,
+            extra_state={"chat_log": [{"turn_id": 1, "user_query": q, "assistant_reply": "ok"}]},
+        )
+
+    def test_search_returns_own_chat(self):
+        own = self.chat(self.user, "find NDMA mice")
+        resp = self.client.get(self.URL, {"q": "ndma"})
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(set(body), {"query", "terms", "sources", "total", "results", "facets"})
+        self.assertEqual(body["terms"], ["ndma"])
+        hit = body["results"][0]
+        self.assertEqual(set(hit), {"source", "session_id", "title", "updated_at", "owner", "turn_id",
+                                    "matched_in", "snippet", "match_count"})
+        self.assertEqual(hit["session_id"], str(own.session_id))
+        self.assertEqual((hit["source"], hit["turn_id"], hit["matched_in"]), ("chat", 1, "question"))
+
+    def test_user_b_never_sees_user_a(self):
+        self.chat(self.user, "find NDMA mice", title="NDMA")
+        other = APIClient()
+        other.force_authenticate(user=self.other)
+        body = other.get(self.URL, {"q": "ndma"}).json()
+        self.assertEqual((body["total"], body["results"]), (0, []))
+
+    def test_422_missing_short_long_q(self):
+        for params in ({}, {"q": " a "}, {"q": "x" * 201}):
+            self.assertEqual(self.client.get(self.URL, params).status_code, 422, params)
+
+    def test_422_unknown_source_or_since(self):
+        self.assertEqual(self.client.get(self.URL, {"q": "ndma", "sources": "transcripts"}).status_code, 422)
+        self.assertEqual(self.client.get(self.URL, {"q": "ndma", "since": "12"}).status_code, 422)
+        self.assertEqual(self.client.get(self.URL, {"q": "ndma", "sources": "chats,chats"}).json()["sources"], ["chats"])
+        self.assertEqual(self.client.get(self.URL, {"q": "ndma", "sources": "chats", "since": "30"}).status_code,
+                         200)
+
+    def test_limit_clamped(self):
+        for i in range(60):
+            self.chat(self.user, f"ndma {i}")
+        self.assertEqual(len(self.client.get(self.URL, {"q": "ndma", "limit": "500"}).json()["results"]), 50)
+        self.assertEqual(len(self.client.get(self.URL, {"q": "ndma", "limit": "abc"}).json()["results"]), 20)
+        self.assertEqual(len(self.client.get(self.URL, {"q": "ndma", "limit": "0"}).json()["results"]), 1)
+
+    def test_all_users_403_for_member(self):
+        self.assertEqual(self.client.get(self.URL, {"q": "ndma", "all_users": "1"}).status_code, 403)
+
+    def test_all_users_for_superuser_returns_others_with_owner(self):
+        self.chat(self.other, "find NDMA mice")
+        admin = User.objects.create_superuser("root", password="p")
+        client = APIClient()
+        client.force_authenticate(user=admin)
+        self.assertEqual(client.get(self.URL, {"q": "ndma"}).json()["results"], [])
+        hits = client.get(self.URL, {"q": "ndma", "all_users": "1"}).json()["results"]
+        self.assertEqual([h["owner"] for h in hits], ["u2"])
+
+    def test_401_without_auth(self):
+        self.assertIn(APIClient().get(self.URL, {"q": "ndma"}).status_code, (401, 403))
+
+    def test_search_not_shadowed_by_session_detail(self):
+        resp = self.client.get(self.URL, {"q": "ndma"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("results", resp.json())
+
+
+class SearchSessionsPart2Tests(SessionEndpointsTestBase):
+    URL = "/nextseek_api/assistant/sessions/search/"
+
+    def setUp(self):
+        super().setUp()
+        from NessieAI.ns.chat_search_index import index_chat
+        self.cs = ChatSession.objects.create(user=self.user, extra_state={"chat_log": [
+            {"turn_id": 1, "user_query": "liver", "assistant_reply": "TIS-220831FLY-26",
+             "key_entities": {"projects": ["GBM"]}}]})
+        index_chat(self.cs)
+
+    def test_records_searched_by_default_and_facets_returned(self):
+        body = self.client.get(self.URL, {"q": "tis-220831fly-26"}).json()
+        self.assertEqual(body["sources"], ["chats", "records"])
+        # The ID is in the answer's words too, and the chat's words outrank a record.
+        self.assertEqual((body["results"][0]["source"], body["results"][0]["matched_in"]), ("chat", "answer"))
+        self.assertEqual(body["facets"]["record_type"], {"TIS": 1})
+
+    def test_steps_accepted(self):
+        self.assertEqual(self.client.get(self.URL, {"q": "liver", "sources": "chats,records,steps"}).status_code, 200)
+
+    def test_filter_needs_no_words(self):
+        body = self.client.get(self.URL, {"record_type": "TIS", "project": "GBM", "where": "answer"}).json()
+        self.assertEqual([r["session_id"] for r in body["results"]], [str(self.cs.session_id)])
+
+    def test_facets_only(self):
+        body = self.client.get(self.URL, {"facets_only": "1"}).json()
+        self.assertEqual((body["results"], body["facets"]["project"]), ([], {"GBM": 1}))
+
+    def test_bad_filters_422(self):
+        for params in ({"record_type": "TIS;drop"}, {"where": "nowhere"}, {"project": "x" * 65}, {"q": ""}):
+            self.assertEqual(self.client.get(self.URL, params).status_code, 422, params)
+
+    def test_facets_only_all_users_403_for_member(self):
+        self.assertEqual(self.client.get(self.URL, {"facets_only": "1", "all_users": "1"}).status_code, 403)

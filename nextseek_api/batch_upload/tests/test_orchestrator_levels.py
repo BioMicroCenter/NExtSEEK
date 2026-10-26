@@ -5,6 +5,7 @@ that routes SQL queries to in-memory state.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import tempfile
@@ -72,6 +73,7 @@ class FakeDB:
         existing_samples: Dict[str, int] | None = None,
         fail_uuids: Set[str] | None = None,
         sample_attributes: Dict[int, Set[str]] | None = None,
+        title_attributes: Dict[int, str] | None = None,
     ):
         self.sample_types = sample_types or {"NHP_blood": 1}
         self.existing_samples = dict(existing_samples or {})
@@ -79,6 +81,9 @@ class FakeDB:
         # Per-sample_type allowed attribute titles (PR #2 attribute-name check).
         # Default covers keys produced by _make_row (Parent only).
         self.sample_attributes = sample_attributes or {1: {"Parent"}}
+        # Per-sample_type is_title attribute; none by default, so titles follow the identity rule.
+        self.title_attributes = dict(title_attributes or {})
+        self.inserted_titles: Dict[str, str] = {}  # uuid -> title written
 
         # Auto-increment counters
         self._next_sample_id = max(self.existing_samples.values(), default=0) + 1
@@ -123,6 +128,12 @@ class FakeDB:
                 ]
                 return FakeResultProxy(rows=rows)
 
+        # ── sample_attributes: the type's title attribute ──
+        if "FROM sample_attributes" in sql and "is_title" in sql:
+            id_params = [v for k, v in params.items() if k.startswith("id_")]
+            return FakeResultProxy(rows=[(st_id, self.title_attributes[st_id])
+                                         for st_id in id_params if st_id in self.title_attributes])
+
         # ── sample_attributes (PR #2 attribute-name check) ──
         if "FROM sample_attributes" in sql and "SELECT" in sql:
             id_params = [v for k, v in params.items() if k.startswith("id_")]
@@ -161,6 +172,8 @@ class FakeDB:
             )
             uuids = [v for _, v in uuid_params]
             self.insert_sample_calls.append(uuids)
+            for k, uid in uuid_params:
+                self.inserted_titles[uid] = params.get("title_" + k[len("uuid_"):])
 
             if "RETURNING" in sql:
                 rows = []
@@ -702,3 +715,23 @@ class TestFailedRowsAreReported:
         assert any("bad row" in e["message"] for e in result["errors"])
         assert any(f"parent {self.A} failed to insert" in e["message"] or "uid_not_found_in_db" in e["message"]
                    for e in result["errors"])
+
+
+class TestTitleFromTitleAttribute:
+    """Through the whole pipeline, a sample is titled the way SEEK titles it on every save."""
+
+    UID = "A.ALN-261021BMC-1"
+
+    def _row(self):
+        meta = json.dumps({"UID": self.UID, "File_PrimaryData": "D.SEQ-240709KAM-1-PUB.md.bam"})
+        return InputRowModel(UID=self.UID, SampleType="NHP_blood", json_metadata=meta, assay_ids=[])
+
+    def test_inserted_title_is_the_title_attribute_value(self):
+        db = FakeDB(sample_attributes={1: {"UID", "File_PrimaryData"}}, title_attributes={1: "UID"})
+        _run_orchestrator([self._row()], db)
+        assert db.inserted_titles == {self.UID: self.UID}
+
+    def test_type_without_title_attribute_keeps_the_identity_rule(self):
+        db = FakeDB(sample_attributes={1: {"UID", "File_PrimaryData"}})
+        _run_orchestrator([self._row()], db)
+        assert db.inserted_titles == {self.UID: "D.SEQ-240709KAM-1-PUB.md.bam"}

@@ -465,6 +465,55 @@ def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]], columns: Sequence[
             writer.writerow({c: _coerce_csv(row.get(c)) for c in columns})
 
 
+# A sequence-archive accession (the SRA/ENA/DDBJ id run.sh's fetchngs step downloads)
+# is never a NExtSEEK UID. The UID shape is the one in chat_nextseek.uid_links.
+_ARCHIVE_ACCESSION = re.compile(
+    r"^(?:SRR|SRX|SRP|SRS|ERR|ERX|ERP|ERS|DRR|DRX|DRP|DRS|GSE|GSM|PRJ[A-Z]+)\d+$", re.I)
+_NEXTSEEK_UID = re.compile(r"^(?:[A-Z]\.)?[A-Z]{2,8}-\d{6}[A-Z]{3}-\d+(?:-PUB\d*)?$")
+
+
+def _cohort_uid(row: Mapping[str, Any]) -> str | None:
+    """The NExtSEEK UID a samplesheet row came from, for cohort.json.
+
+    A row backed by a local file carries its UID as `accession` (`sample` is the
+    nf-core name). A row whose reads come from an archive carries the archive
+    accession there instead, for the fetch step, and its UID as `sample`; recording
+    that accession left reingest a parent no sample record has. Neither form found:
+    None, so reingest reports the sample unresolved rather than guess.
+    """
+    accession = str(row.get("accession") or "").strip()
+    if accession and not _ARCHIVE_ACCESSION.match(accession):
+        return accession
+    sample = str(row.get("sample") or "").strip()
+    return sample if _NEXTSEEK_UID.match(sample) else None
+
+
+def _write_cohort_sidecar(samplesheet_path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
+    """Write cohort.json beside the samplesheet: which NExtSEEK sample each row came from.
+
+    The UID is known here and nowhere downstream — `_write_csv` uses
+    extrasaction="ignore", so `accession` never reaches the CSV, and the submitter
+    receives only a path to that CSV. Without this sidecar the launch record cannot
+    say which D.SEQ sample a run processed, and reingest is left matching fastq
+    paths back to sample records.
+
+    Deliberately NOT a samplesheet column: the CSV is consumed by nf-core, and
+    adding a field there changes a file the pipeline reads.
+    """
+    entries = [
+        {
+            "d_seq_uid": _cohort_uid(row),
+            "nfcore_sample": str(row.get("sample") or ""),
+            "fastq_1": str(row.get("fastq_1") or ""),
+            "fastq_2": str(row.get("fastq_2") or "") or None,
+        }
+        for row in rows
+    ]
+    path = Path(samplesheet_path).parent / "cohort.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+
+
 def _build_notes_md(
     *,
     pipeline: str,
@@ -599,6 +648,14 @@ def emit_launch_artifacts(
             staged_sheet_path = str(staged_sheet)
             sheet_ref = staged_sheet_path
             result.saved_files["staged_samplesheet"] = staged_sheet_path
+            # cohort.json travels with the sheet it describes — best-effort: its
+            # absence (e.g. emit_launch_artifacts called standalone in a test, or
+            # against a hand-written sheet) must not fail the staging itself.
+            cohort_local = samplesheet_path.parent / "cohort.json"
+            if cohort_local.exists():
+                (staged_dir / "cohort.json").write_text(
+                    cohort_local.read_text(encoding="utf-8"), encoding="utf-8"
+                )
             if excluded:
                 fetchngs_local = out_path / "fetchngs_samplesheet.csv"
                 if fetchngs_local.exists():
@@ -804,6 +861,10 @@ def emit_nfcore_artifacts(
     # --- samplesheet.csv: rewrite fastq_1/fastq_2 from ENA + stamp enrichment values ---
     accession_metadata = dict(accession_metadata or {})
     keep_rows: list[dict[str, Any]] = []
+    # Parallel to keep_rows, but captured just before each per-pipeline column remap —
+    # so it still carries the pipeline-agnostic sample/fastq_1/fastq_2/accession keys
+    # the sidecar needs, whatever a given pipeline renames them to on the CSV side.
+    cohort_rows: list[dict[str, Any]] = []
     for row in samplesheet_rows or []:
         uid = str(row.get("sample") or row.get("Sample") or "")
         acc = row.get("accession") or row.get("Accession") or row.get("ena_accession")
@@ -827,6 +888,7 @@ def emit_nfcore_artifacts(
             for field in enrichment:
                 value = sample_meta.get(field)
                 rewritten[field] = "" if value is None else value
+            cohort_rows.append(dict(rewritten))
             keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
             continue
         runs = acc_to_runs.get(acc_str) if acc_str else None
@@ -846,6 +908,7 @@ def emit_nfcore_artifacts(
                 for field in enrichment:
                     value = sample_meta.get(field)
                     rewritten[field] = "" if value is None else value
+                cohort_rows.append(dict(rewritten))
                 keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
             continue
         # Luria path (default): fill fastq from a local /net/bmc-* path when the sample's
@@ -859,6 +922,12 @@ def emit_nfcore_artifacts(
         for field in enrichment:
             value = sample_meta.get(field)
             rewritten[field] = "" if value is None else value
+        # Captured before _apply_platform_columns, which — for genomeassembler —
+        # unconditionally pops fastq_1/fastq_2 (PIPELINE_PLATFORM_COLUMNS is truthy
+        # for every row regardless of detected platform), not just when a platform
+        # mapping actually renamed them. Capturing after it left every genomeassembler
+        # cohort entry with a blank fastq_1.
+        cohort_rows.append(dict(rewritten))
         # Platform-dependent columns come BEFORE the static alias map: the alias map
         # is keyed on the standard names, and this may have renamed them away.
         rewritten = _apply_platform_columns(rewritten, pipeline, sample_meta)
@@ -867,6 +936,18 @@ def emit_nfcore_artifacts(
     columns = _ensure_columns(keep_rows, required, enrichment)
     samplesheet_path = out_path / "samplesheet.csv"
     _write_csv(samplesheet_path, keep_rows, columns)
+    # cohort.json sidecar: the only surviving record of which D.SEQ sample each
+    # nf-core row came from (see _write_cohort_sidecar). Built from cohort_rows,
+    # NOT keep_rows: several pipelines rename `sample`/`fastq_1`/`fastq_2` away on
+    # the CSV side (PIPELINE_COLUMN_ALIASES, plus genomeassembler's dynamic platform
+    # columns), and a post-remap row would silently write nfcore_sample: "" for all
+    # of them — turning "this run processed these samples" into "this run processed
+    # nothing" for PipelineRun.knows_sample/uid_for. cohort_rows is captured just
+    # before each per-pipeline remap, so it still carries the original keys.
+    # Written for every real samplesheet, Tower or Luria — the Luria submitter
+    # reads it beside this same path; a future Tower re-enable would need it staged
+    # alongside the sheet too.
+    _write_cohort_sidecar(samplesheet_path, cohort_rows)
     result.saved_files["samplesheet"] = str(samplesheet_path)
     result.samplesheet_row_count = len(keep_rows)
     result.excluded_accessions = excluded
