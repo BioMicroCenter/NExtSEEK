@@ -14,16 +14,16 @@ FROM ghcr.io/astral-sh/uv:0.12.8-debian
 
 RUN mkdir /app
 
-# The app runs as uid/gid 1001 (compose `user:`, and USER below). A real passwd entry
+# The app runs as uid/gid 10001 (compose `user:`, and USER below). A real passwd entry
 # with a home is needed: uv opens its cache under $HOME, and ssh refuses a uid with no
-# entry (luria/ssh.py). Every path a service writes is created here owned by 1001, so a
+# entry (luria/ssh.py). Every path a service writes is created here owned by 10001, so a
 # fresh named volume mounted on it copies that owner up; the list is the writable named
 # volumes of `nextseek` and `web` in docker-compose.yml (pinned by
 # nextseek_api/tests/repo_guards/test_dockerfile_non_root.py). /app/runs is the Nessie lane's out dir.
-RUN useradd -m -u 1001 -U nextseek \
-    && install -d -o 1001 -g 1001 /static /media /var/celery /var/lib/attribute-broker \
+RUN useradd -m -u 10001 -U nextseek \
+    && install -d -o 10001 -g 10001 /static /media /var/celery /var/lib/attribute-broker \
         /var/tmp/nextseek-throttle /dmac/users /app/runs \
-    && install -d -m 0700 -o 1001 -g 1001 /app/.ssh
+    && install -d -m 0700 -o 10001 -g 10001 /app/.ssh
 
 WORKDIR /app
 
@@ -35,7 +35,7 @@ ENV PYTHONUNBUFFERED=1
 # to UV_PYTHON in .github/workflows/ci-pytest.yml (pinned by
 # nextseek_api/tests/repo_guards/test_build_context_env_guard.py).
 ENV UV_PYTHON=3.14
-# uv puts the venv's python under /root (mode 0700) by default, which uid 1001 cannot
+# uv puts the venv's python under /root (mode 0700) by default, which uid 10001 cannot
 # run. Install it where every user can read it.
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
 
@@ -84,9 +84,9 @@ RUN /app/.venv/bin/python -m compileall -q -j 0 -x '/\.venv/' /app \
     || echo "compileall: some files did not compile; they compile on import instead"
 
 # Runtime-written paths inside the image (chat context refresh, DuckDB session files),
-# after compileall so its bytecode is 1001-owned too.
+# after compileall so its bytecode is 10001-owned too.
 RUN mkdir -p /app/schema_rag/duckdb \
-    && chown -R 1001:1001 /app/NessieAI/chat_nextseek/src/chat_nextseek/context /app/schema_rag/duckdb
+    && chown -R 10001:10001 /app/NessieAI/chat_nextseek/src/chat_nextseek/context /app/schema_rag/duckdb
 
 # The venv is final here (the first-party packages are editable installs of this
 # tree), so no `uv run` in a running container syncs: a sync re-installs those
@@ -95,6 +95,6 @@ ENV UV_NO_SYNC=1
 
 EXPOSE 8000
 
-USER 1001:1001
+USER 10001:10001
 
 CMD ["/app/docker/scripts/entrypoint.sh"]

@@ -1,8 +1,8 @@
-"""The app image runs as uid/gid 1001 (W9 part 2, phase 4).
+"""The app image runs as uid/gid 10001 (W9 part 2, phase 4).
 
-`nextseek` (worker) and `web` run as 1001 with every capability dropped. That only works if
+`nextseek` (worker) and `web` run as 10001 with every capability dropped. That only works if
 the image is built for it: the venv's python must not sit under /root (0700), uv and ssh
-need a passwd entry with a home, and every path a service writes must be created 1001-owned
+need a passwd entry with a home, and every path a service writes must be created 10001-owned
 so a fresh named volume copies the owner up. Static: parses Dockerfile and docker-compose.yml.
 """
 from __future__ import annotations
@@ -36,16 +36,28 @@ def _writable_named_volume_targets() -> set[str]:
     return targets
 
 
-def test_last_user_is_1001():
+def test_last_user_is_10001():
     users = [line for line in INSTRUCTIONS if line.startswith("USER ")]
-    assert users and users[-1] in ("USER 1001:1001", "USER 1001"), users
+    assert users and users[-1] in ("USER 10001:10001", "USER 10001"), users
     assert INSTRUCTIONS.index(users[-1]) > _index(r"^RUN .*compileall"), "USER comes after the root build steps"
     assert INSTRUCTIONS.index(users[-1]) > _index(r"^EXPOSE ")
 
 
-def test_useradd_makes_uid_1001_with_a_home():
+def test_uid_is_the_dedicated_one_not_a_host_person():
+    # Host uid 1001 is a person on both boxes; the app, cc-agent and ns-sidecar share 10001.
+    assert not re.search(r"\b1001\b", " ".join(INSTRUCTIONS))
+
+
+def test_entrypoint_sets_umask_0002_before_the_first_uv_run():
+    text = (REPO_ROOT / "docker/scripts/entrypoint.sh").read_text()
+    code = [l for l in text.splitlines() if not l.lstrip().startswith("#")]
+    first_uv = next(i for i, l in enumerate(code) if re.search(r"\buv run\b", l))
+    assert any(re.match(r"\s*umask 0?002\b", l) for l in code[:first_uv])
+
+
+def test_useradd_makes_uid_10001_with_a_home():
     line = INSTRUCTIONS[_index(r"\buseradd\b")]
-    assert re.search(r"useradd\b.*-u 1001\b", line) and re.search(r"useradd\b.*-m\b", line), line
+    assert re.search(r"useradd\b.*-u 10001\b", line) and re.search(r"useradd\b.*-m\b", line), line
 
 
 def test_python_install_dir_is_set_before_uv_sync():
@@ -53,18 +65,18 @@ def test_python_install_dir_is_set_before_uv_sync():
     assert env < _index(r"\buv sync\b")
 
 
-def test_runtime_written_image_paths_are_chowned_to_1001():
-    chown = " ".join(line for line in INSTRUCTIONS if re.search(r"\bchown\b.*\b1001:1001\b", line))
+def test_runtime_written_image_paths_are_chowned_to_10001():
+    chown = " ".join(line for line in INSTRUCTIONS if re.search(r"\bchown\b.*\b10001:10001\b", line))
     assert CONTEXT_DIR in chown and "/app/schema_rag/duckdb" in chown
     assert _index(r"\bchown\b.*" + re.escape(CONTEXT_DIR)) > _index(r"^COPY \. /app/")
 
 
-def test_every_writable_named_volume_target_is_created_1001_owned():
-    created = " ".join(line for line in INSTRUCTIONS if re.search(r"\binstall -d\b.*-o 1001 -g 1001\b", line))
+def test_every_writable_named_volume_target_is_created_10001_owned():
+    created = " ".join(line for line in INSTRUCTIONS if re.search(r"\binstall -d\b.*-o 10001 -g 10001\b", line))
     targets = _writable_named_volume_targets() | {"/app/runs"}
     assert {"/static", "/media", "/var/celery", "/dmac/users", "/app/.ssh"} <= targets, targets
     missing = sorted(t for t in targets if not re.search(re.escape(t) + r"(\s|$)", created))
-    assert not missing, f"not created 1001-owned in the Dockerfile: {missing}"
+    assert not missing, f"not created 10001-owned in the Dockerfile: {missing}"
 
 
 def test_ssh_dir_is_private():

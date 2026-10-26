@@ -28,6 +28,10 @@ mkdir -p /media/download /media/uploads /media/uploads/production /media/dropbox
 # image's venv is final (the first-party packages are editable installs of the
 # tree), and a sync re-installs those two packages on each new container's first
 # command, which is time between a restart and the first served request.
+# Files the app writes in shared volumes (CC user trees) stay group-writable; the agent and sidecar share uid 10001.
+# gunicorn does not reset the umask in foreground workers (only its daemonize() does), so no gunicorn.conf.py change.
+umask 0002
+
 if [ "$MODE" = "web" ]; then
   # A stop before the server runs (collectstatic, the migrate wait below) exits at once: bash as PID 1 ignores a
   # TERM it has no trap for, which would sit out the whole stop_grace_period. The drain trap replaces this once the

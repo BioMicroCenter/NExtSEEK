@@ -74,8 +74,11 @@ services:
       # web serves and reads them, and two web containers during a swap must
       # see the same export files. A named volume, so a rebuild no longer wipes it.
       - nextseek-media:/media
-    # Non-root (uid/gid 1001, the user the image creates), no capabilities, no setuid escalation.
-    user: "1001:1001"
+    # Non-root (uid/gid 10001, the user the image creates; host uid 1001 is a person), no capabilities, no setuid
+    # escalation. group_add is the deploy account's gid, so the app can read local_settings.py and the Luria key (mode 0640).
+    user: "10001:10001"
+    group_add:
+      - "${NEXTSEEK_HOST_GID:?run ./startup.sh rebuild to write NEXTSEEK_HOST_GID into .env}"
     cap_drop:
       - ALL
     security_opt:
@@ -153,9 +156,9 @@ services:
       # of LURIA_KEY needs no translation. Defaults to /dev/null so the stack
       # still comes up when the Luria backend is unused.
       - ${LURIAKEY:-/dev/null}:${LURIAKEY:-/dev/null}:ro
-      # Writable ssh dir (1001-owned, 0700 in the image): holds known_hosts. ssh.py copies
+      # Writable ssh dir (10001-owned, 0700 in the image): holds known_hosts. ssh.py copies
       # the key to a 0600 mkstemp file in /tmp for one call (it cannot chmod the read-only
-      # bind above) and removes the copy after use. The key file must be readable by uid 1001.
+      # bind above) and removes the copy after use. The key file must be readable by group NEXTSEEK_HOST_GID (0640).
       - nextseek-luria-ssh:/app/.ssh
       # Container-CC user trees (see `nextseek`). A turn mkdirs scratch, cc-state,
       # memory and output dirs here; the sibling containers mount per-user
@@ -170,7 +173,9 @@ services:
       # on a volume they survive a swap and both web containers share them.
       - nextseek-throttle:/var/tmp/nextseek-throttle
     # Non-root, as `nextseek`.
-    user: "1001:1001"
+    user: "10001:10001"
+    group_add:
+      - "${NEXTSEEK_HOST_GID:?run ./startup.sh rebuild to write NEXTSEEK_HOST_GID into .env}"
     cap_drop:
       - ALL
     security_opt:
@@ -379,7 +384,7 @@ services:
   # Task 14 (G7-11, documented two-state flip of Task 13, Task 3/4 precedent):
   # the sidecar mounts the RESERVED top-level `_staging/` subpath of the
   # `dmac-cc-users` volume at `SIDECAR_STAGING_DIR` (long-syntax
-  # `volume.subpath:` below). `_staging` is bootstrapped + chowned to uid 1001
+  # `volume.subpath:` below). `_staging` is bootstrapped + chowned to uid 10001
   # (the sidecar user) by `startup/steps/volumes.py::ensure_cc_staging_dir`
   # BEFORE the sidecar ever starts (the Engine refuses to start a container
   # whose `VolumeOptions.Subpath` backing dir is absent). The sidecar can write
@@ -775,7 +780,7 @@ volumes:
   nextseek-media:
     name: ${INSTANCE_PREFIX:-}nextseek-media
   # Throttle counters for `web` only (the worker serves no requests). Compose-managed
-  # like nextseek-media; the image creates the mount point owned by 1001, so a fresh volume copies that owner.
+  # like nextseek-media; the image creates the mount point owned by 10001, so a fresh volume copies that owner.
   nextseek-throttle:
     name: ${INSTANCE_PREFIX:-}nextseek-throttle
 

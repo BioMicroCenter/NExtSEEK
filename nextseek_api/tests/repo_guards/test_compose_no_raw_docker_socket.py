@@ -87,7 +87,11 @@ def test_a_planted_road_to_docker_in_web_is_caught(plant):
 
 def test_no_service_joins_the_docker_group_or_runs_privileged():
     for name, svc in SERVICES.items():
-        assert "group_add" not in svc, f"{name} adds a group (the docker group is the socket)"
+        # Only `nextseek` and `web` may add a group, and only the deploy account's gid by env reference
+        # (test_compose_non_root.py pins the exact value); a literal gid could be the docker group.
+        groups = svc.get("group_add", [])
+        assert not groups or (name in ("nextseek", "web") and all(str(g).startswith("${NEXTSEEK_HOST_GID:?") for g in groups)), (
+            f"{name} adds a group (the docker group is the socket)")
         assert not svc.get("privileged"), name
 
 
