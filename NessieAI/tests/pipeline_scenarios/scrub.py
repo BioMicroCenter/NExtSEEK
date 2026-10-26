@@ -2,9 +2,9 @@
 
 Sample metadata keeps its shape but loses every value under a person-like key; protocol text
 keeps only the param-atlas markers found in it (never the lines around them), since nothing else
-is read; and a
-tape that still holds an email address, an absolute path or a URL (other than public nf-core
-test data) is refused, with the same patterns scripts/reingest/sanitize_fixture.py uses.
+is read; and a tape that still holds an email address, an absolute path or a URL (other than
+public nf-core test data) is refused, with the same patterns scripts/reingest/sanitize_fixture.py
+uses.
 """
 from __future__ import annotations
 

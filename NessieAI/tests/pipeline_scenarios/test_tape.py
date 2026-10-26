@@ -1,5 +1,6 @@
 import dataclasses
 import hashlib
+import threading
 import types
 
 import pytest
@@ -234,3 +235,164 @@ def test_recording_client_keeps_the_selection_answer_and_passes_calls_through():
     c = tp.RecordingClient(Live(), t)
     assert c.chat(model="m").content == "ANSWER" and c.chat_with_tools() == "tools" and c.extra == 7
     assert tp.ReplayClient(tp.Tape.from_json(t.to_json())).chat().content == "ANSWER"
+
+
+# ---- recordings that ended selection early must replay -----------------------------------
+
+class _TwoArgs(Exception):
+    def __init__(self, a, b):
+        super().__init__(a, b)
+
+
+def test_exceptions_are_taped_by_class_name_and_message_and_rebuilt():
+    spec = tp.exception_spec(ValueError("no good"))
+    assert spec == {"raise": "builtins.ValueError", "message": "no good"}
+    err = tp.rebuild_exception(spec)
+    assert type(err) is ValueError and str(err) == "no good"
+
+
+def test_an_exception_that_takes_other_arguments_comes_back_as_a_runtime_error():
+    err = tp.rebuild_exception(tp.exception_spec(_TwoArgs(1, 2)))
+    assert type(err) is RuntimeError and "_TwoArgs" in str(err)
+    err = tp.rebuild_exception({"raise": "no.such.Thing", "message": "m"})
+    assert type(err) is RuntimeError and "no.such.Thing" in str(err)
+
+
+def _replay_of(t):
+    return tp.Tape.from_json(t.to_json())
+
+
+def test_a_digest_error_is_taped_and_replays_clean(fakes, monkeypatch):
+    from chat_nextseek.pipeline.sample_digest import DigestError
+
+    def failing(*a, **k):
+        raise DigestError("these samples have no reads")
+    monkeypatch.setattr(fakes.tools, "build_sample_digest", failing)
+    t = tp.Tape(mode="record")
+    with tp.taped(t):
+        with pytest.raises(DigestError, match="no reads"):
+            fakes.tools.build_sample_digest(object(), ["U1"])
+    assert t.entries["digest"][0]["value"]["raise"].endswith("DigestError")
+    r = _replay_of(t)
+    with tp.taped(r):
+        with pytest.raises(DigestError, match="no reads"):
+            fakes.tools.build_sample_digest(object(), ["U1"])
+    assert r.unplayed() == {} and r.mismatches == []
+
+
+def test_a_successful_digest_is_taped_as_ok(fakes):
+    t2 = tp.Tape(mode="record")
+    with tp.taped(t2):
+        fakes.tools.build_sample_digest(object(), ["U1"])
+    assert t2.entries["digest"][0]["value"] == {"ok": True}
+    r = _replay_of(t2)
+    with tp.taped(r):
+        assert fakes.tools.build_sample_digest(object(), ["U1"]) == {}
+
+
+def test_a_payload_too_large_error_is_taped_and_replays_clean(fakes, monkeypatch):
+    from chat_nextseek.pipeline.selection_context import PayloadTooLargeError
+
+    def too_large(*a, **k):
+        raise PayloadTooLargeError("past the ceiling")
+    monkeypatch.setattr(fakes.tools, "build_selection_context", too_large)
+    t = tp.Tape(mode="record")
+    with tp.taped(t):
+        with pytest.raises(PayloadTooLargeError):
+            fakes.tools.build_selection_context(object(), ["U1"])
+    r = _replay_of(t)
+    with tp.taped(r):
+        with pytest.raises(PayloadTooLargeError, match="past the ceiling"):
+            fakes.tools.build_selection_context(object(), ["U1"])
+    assert r.unplayed() == {} and r.mismatches == []
+
+
+def test_a_failing_to_prompt_text_is_taped_and_replays_clean(fakes, monkeypatch):
+    from chat_nextseek.pipeline.selection_context import PayloadTooLargeError
+
+    class Bad(_Ctx):
+        def to_prompt_text(self, sections=None):
+            raise PayloadTooLargeError("rendering too large")
+    monkeypatch.setattr(fakes.tools, "build_selection_context", lambda *a, **k: Bad())
+    t = tp.Tape(mode="record")
+    with tp.taped(t):
+        with pytest.raises(PayloadTooLargeError):
+            fakes.tools.build_selection_context(object(), ["U1"]).to_prompt_text(["a"])
+    r = _replay_of(t)
+    with tp.taped(r):
+        with pytest.raises(PayloadTooLargeError, match="rendering"):
+            fakes.tools.build_selection_context(object(), ["U1"])
+    assert r.unplayed() == {}
+
+
+def test_a_failing_selection_call_is_taped_and_replays_clean(fakes):
+    class Live:
+        def chat(self, **kw):
+            raise ConnectionError("model unreachable")
+    t = tp.Tape(mode="record")
+    with tp.taped(t):
+        with pytest.raises(ConnectionError, match="unreachable"):
+            tp.RecordingClient(Live(), t).chat(model="m")
+    r = _replay_of(t)
+    with tp.taped(r):
+        with pytest.raises(ConnectionError, match="unreachable"):
+            tp.ReplayClient(r).chat(model="m")
+    assert r.unplayed() == {} and r.mismatches == []
+
+
+def test_a_digest_that_outlasts_the_tools_wait_is_taped_as_a_timeout_and_replays_as_one(fakes, monkeypatch):
+    release = threading.Event()
+
+    def slow(*a, **k):
+        release.wait(5)
+        return {"late": True}
+    monkeypatch.setattr(fakes.tools, "build_sample_digest", slow)
+    t = tp.Tape(mode="record")
+    with tp.taped(t):
+        pool = fakes.tools.concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(fakes.tools.build_sample_digest, object(), ["U1"])
+        with pytest.raises(fakes.tools.concurrent.futures.TimeoutError):
+            future.result(timeout=0.05)
+        pool.shutdown(wait=False)
+        release.set()
+        pool2 = fakes.tools.concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        pool2.submit(lambda: None).result(timeout=1)   # an unrelated call is untouched
+    import time
+    time.sleep(0.2)        # the abandoned worker finishes late; it must not overwrite the timeout
+    spec = t.entries["digest"][0]["value"]
+    assert spec["raise"].endswith("TimeoutError") and spec.get("waiting") is True
+    r = _replay_of(t)
+    with tp.taped(r):
+        pool = fakes.tools.concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(fakes.tools.build_sample_digest, object(), ["U1"])
+        with pytest.raises(fakes.tools.concurrent.futures.TimeoutError):
+            future.result(timeout=1)
+        pool.shutdown(wait=False)
+    assert r.unplayed() == {} and r.mismatches == []
+
+
+def test_a_selection_that_outlasts_the_tools_wait_replays_as_a_timeout(fakes, monkeypatch):
+    from chat_nextseek.pipeline import selection
+    release = threading.Event()
+
+    def slow_decide(**kw):
+        tp.RecordingClient(types.SimpleNamespace(chat=lambda **k: release.wait(5)), kw["tape"]).chat()
+    monkeypatch.setattr(selection, "decide", slow_decide)
+    t = tp.Tape(mode="record")
+    with tp.taped(t):
+        pool = fakes.tools.concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(selection.decide, tape=t)
+        with pytest.raises(fakes.tools.concurrent.futures.TimeoutError):
+            future.result(timeout=0.05)
+        pool.shutdown(wait=False)
+    release.set()
+    spec = t.entries["selection"][0]["value"]
+    assert spec.get("waiting") is True
+    r = _replay_of(t)
+    with tp.taped(r):
+        pool = fakes.tools.concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(selection.decide, tape=r)
+        with pytest.raises(fakes.tools.concurrent.futures.TimeoutError):
+            future.result(timeout=1)
+        pool.shutdown(wait=False)
+    assert r.unplayed() == {}
