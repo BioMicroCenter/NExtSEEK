@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import os
 import posixpath
 import re
 from pathlib import Path
@@ -19,10 +20,11 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SERVICES = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())["services"]
 SOCK = "/var/run/docker.sock"
-# The app code roots. docker/cc-spawner/ is outside them on purpose: it keeps the SDK.
-APP_ROOTS = ("nextseek_api", "NessieAI/cc", "NessieAI/chat_nextseek/src", "seek", "dmac")
-# Test files may fake or drive the SDK; app modules may not import it. No exception is needed today.
-ALLOWED: set[str] = set()
+# Every module in the repo is scanned but these folders. cc-spawner keeps the SDK; startup/ and scripts/ run on the
+# host, as do the hidden folders (.claude/skills); history and archive are frozen. Test folders and files may fake or
+# drive the SDK. Any folder of these names is skipped wherever it sits.
+EXEMPT_PATHS = ("docker/cc-spawner", "startup", "scripts", "NessieAI/history", "docs/archive")
+EXEMPT_DIR_NAMES = frozenset({"tests", "OLD", "node_modules", "__pycache__"})
 
 
 def _mounts(service: dict) -> list[str]:
@@ -96,13 +98,37 @@ def _imports_docker(tree: ast.AST) -> bool:
     return False
 
 
-def test_no_app_module_imports_the_docker_sdk():
+def _docker_importers(root: Path) -> list[str]:
     found = []
-    for root in APP_ROOTS:
-        for path in (REPO_ROOT / root).rglob("*.py"):
-            rel = path.relative_to(REPO_ROOT).as_posix()
-            if "/tests/" in rel or rel.rsplit("/", 1)[-1].startswith("test_") or rel in ALLOWED:
+    for here, dirs, files in os.walk(root):
+        rel_dir = Path(here).relative_to(root).as_posix()
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in EXEMPT_DIR_NAMES
+                         and posixpath.normpath(f"{rel_dir}/{d}") not in EXEMPT_PATHS)
+        for name in sorted(files):
+            if not name.endswith(".py") or name.startswith("test_") or name == "conftest.py":
                 continue
-            if _imports_docker(ast.parse(path.read_text(), filename=rel)):
+            rel = posixpath.normpath(f"{rel_dir}/{name}")
+            if _imports_docker(ast.parse((Path(here) / name).read_bytes(), filename=rel)):
                 found.append(rel)
-    assert not found, found
+    return found
+
+
+def test_no_app_module_imports_the_docker_sdk():
+    assert _docker_importers(REPO_ROOT) == []
+
+
+@pytest.mark.parametrize("rel,caught", [
+    ("NessieAI/router/x.py", True),
+    ("ci/smoke/x.py", True),
+    ("manage_tool.py", True),
+    ("docker/cc-spawner/x.py", False),
+    ("NessieAI/tests/cc/x.py", False),
+    ("startup/lib/x.py", False),
+    ("scripts/x.py", False),
+    ("NessieAI/history/cc/x.py", False),
+])
+def test_a_planted_docker_import_is_caught_outside_the_exempt_folders(tmp_path, rel, caught):
+    path = tmp_path / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("def f():\n    import docker\n")
+    assert (_docker_importers(tmp_path) == [rel]) is caught
