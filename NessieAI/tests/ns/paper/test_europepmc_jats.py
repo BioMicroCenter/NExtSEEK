@@ -58,6 +58,8 @@ def test_full_text_and_zip_missing_are_none():
 def test_classify():
     assert classify("Materials and Methods") == "methods"
     assert classify("STAR Methods") == "methods"
+    assert classify("Experimental model and subject details") == "methods"
+    assert classify("Quantification and statistical analysis") == "methods"
     assert classify("Data and code availability") == "data_availability"
     assert classify("Accession numbers") == "data_availability"
     assert classify("", "data-availability") == "data_availability"

@@ -18,7 +18,9 @@ _ROLES = [
     ("data_availability", re.compile(
         r"data[- ](?:and (?:code|materials|software) )?availab|availability of (?:data|materials)"
         r"|accession (?:codes|numbers)|data access|deposited data", re.I)),
-    ("methods", re.compile(r"method|experimental (?:procedures|section)|materials and", re.I)),
+    ("methods", re.compile(
+        r"method|experimental (?:procedures|section)|materials and"
+        r"|experimental model and subject details|quantification and statistical analysis", re.I)),
 ]
 
 

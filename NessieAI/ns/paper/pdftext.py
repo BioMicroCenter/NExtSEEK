@@ -23,13 +23,6 @@ _HEADING = re.compile(
     r"|data (?:and (?:code|materials) )?availability(?: statement)?|code availability"
     r"|acknowledge?ments?|references|supplementary (?:information|materials?)"
     r")\s*:?\s*$", re.I)
-# STAR Methods sub-headings that jats.classify would not map to the methods role.
-_STAR_METHODS_PARTS = re.compile(
-    r"experimental model and subject details|quantification and statistical analysis", re.I)
-
-
-def _slug(title: str) -> str:
-    return "methods" if _STAR_METHODS_PARTS.fullmatch(title) else classify(title)
 
 
 def pdf_to_text(data: bytes) -> str:
@@ -74,7 +67,7 @@ def split_sections(text: str) -> PaperText:
     sections: dict[str, Section] = {}
     counters: dict[str, int] = {}
     for title, lines in blocks:
-        slug = _slug(title)
+        slug = classify(title)
         for chunk in chunk_paragraphs(lines):
             counters[slug] = counters.get(slug, 0) + 1
             sections.setdefault(slug, Section(slug=slug, title=title, paragraphs=[])).paragraphs.append(
