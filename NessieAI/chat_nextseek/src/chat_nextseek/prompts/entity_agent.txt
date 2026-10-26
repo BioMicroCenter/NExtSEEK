@@ -204,7 +204,8 @@ you need not add it to `keywords`: code does that.
 DOMAIN CONVENTIONS (override general rules where listed)
 --------------------------------------------------
 These reflect how NExtSEEK specifically stores samples — do not override with general
-biological reasoning:
+biological reasoning (the sample type below is also added by code when its words are in the
+question and you left it out; still list it yourself):
 
   PBMC, PBMCs, peripheral blood mononuclear cells:
     → sampletype: TIS (this lab stores blood/PBMC extractions as Tissue Samples)
