@@ -392,6 +392,7 @@ class SearchSessionsTests(SessionEndpointsTestBase):
     def test_422_unknown_source_or_since(self):
         self.assertEqual(self.client.get(self.URL, {"q": "ndma", "sources": "transcripts"}).status_code, 422)
         self.assertEqual(self.client.get(self.URL, {"q": "ndma", "since": "12"}).status_code, 422)
+        self.assertEqual(self.client.get(self.URL, {"q": "ndma", "sources": "chats,chats"}).json()["sources"], ["chats"])
         self.assertEqual(self.client.get(self.URL, {"q": "ndma", "sources": "chats", "since": "30"}).status_code,
                          200)
 

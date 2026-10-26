@@ -42,8 +42,9 @@ def parse_terms(query: str) -> list[str]:
 
 
 def _patterns(terms: list[str]) -> list[re.Pattern]:
-    # A term matches where a word starts: "seq" finds "RNA-seq", "add" does not find "address".
-    return [re.compile(r"(?<![a-z0-9])" + re.escape(t), re.IGNORECASE) for t in terms]
+    # A term matches where a word starts (after anything but a letter or digit, in any script): "seq" finds
+    # "RNA-seq" and "type" finds "counts_by_type", "dress" does not find "address" nor "ve" "naïve".
+    return [re.compile(r"(?<![^\W_])" + re.escape(t), re.IGNORECASE) for t in terms]
 
 
 def _all(patterns: list[re.Pattern], text: str) -> bool:
@@ -99,6 +100,8 @@ def search_chats(user_id: int | None, terms: list[str], since: datetime | None) 
                 continue
             question = entry["user_query"]
             answer = _text(entry.get("assistant_reply")) or _text(entry.get("assistant_reply_preview"))
+            if not answer and entry.get("bundle_id") is None:
+                continue  # turn_rows hides it (PD-6): a hit there would open on nothing
             if _all(patterns, question):
                 tier, source = QUESTION, question
             elif _all(patterns, question + "\n" + answer):
@@ -131,18 +134,24 @@ Source = Callable[[int | None, list[str], datetime | None], list[dict]]
 SOURCES: dict[str, Source] = {"chats": search_chats}
 
 
-def search_sessions(user_id: int | None, query: str, *, sources: list[str] | tuple[str, ...] = ("chats",),
-                    since_days: int | None = None, limit: int = 20) -> dict:
+def search_sessions(user_id: int, query: str, *, all_users: bool = False,
+                    sources: list[str] | tuple[str, ...] = ("chats",), since_days: int | None = None,
+                    limit: int = 20) -> dict:
     """Hits from every named source, best tier first and newest first within a tier.
 
-    ``user_id=None`` searches every user's chats and names each hit's owner; the caller decides who may.
+    ``user_id``'s chats only, unless ``all_users``: then every user's, each hit naming its owner. The caller
+    decides who may ask for that (the view: ``may_read_any``).
     """
+    if user_id is None:
+        raise TypeError("search_sessions needs the caller's user id; pass all_users=True to search every user's")
     terms = parse_terms(query)
-    out = {"query": query, "terms": terms, "sources": list(sources), "total": 0, "results": []}
+    sources = list(dict.fromkeys(sources))
+    out = {"query": query, "terms": terms, "sources": sources, "total": 0, "results": []}
     if not terms:
         return out
     since = timezone.now() - timedelta(days=since_days) if since_days else None
-    hits = [h for name in sources for h in SOURCES[name](user_id, terms, since)]
+    scope = None if all_users else user_id
+    hits = [h for name in sources for h in SOURCES[name](scope, terms, since)]
     hits.sort(key=lambda h: (h["_tier"], h["updated_at"]), reverse=True)
     for h in hits:
         del h["_tier"]

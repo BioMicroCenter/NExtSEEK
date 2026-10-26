@@ -18,7 +18,7 @@ from nextseek_api.assistant.models_db import ChatSession
 from nextseek_api.assistant.session_search import SOURCES, make_snippet, parse_terms, search_sessions
 
 
-def turn(tid, q, a=""):
+def turn(tid, q, a="ok"):
     return {"turn_id": tid, "user_query": q, "assistant_reply": a, "mode": "x", "ts": "2026-10-20T00:00:00Z"}
 
 
@@ -100,6 +100,26 @@ class SearchTests(SearchBase):
         self.assertEqual(res["results"][0]["match_count"], 3)
         self.assertEqual(res["results"][0]["turn_id"], 1)
 
+    def test_turn_the_chat_hides_is_not_a_hit(self):
+        # turn_rows hides an entry with no reply, no preview and no bundle (PD-6): a hit there opens nowhere.
+        self.chat(log=[turn(1, "first"), {"turn_id": 2, "user_query": "ndma", "mode": "x"}])
+        self.assertEqual(search_sessions(self.a.pk, "ndma")["results"], [])
+        shown = self.chat(log=[{"turn_id": 1, "user_query": "ndma", "bundle_id": 4}])
+        self.assertEqual(self.ids(search_sessions(self.a.pk, "ndma")), [str(shown.session_id)])
+
+    def test_word_start_is_unicode_aware(self):
+        self.chat(log=[turn(1, "a naïve question")])
+        self.assertEqual(search_sessions(self.a.pk, "ve")["results"], [])
+        self.assertEqual(len(search_sessions(self.a.pk, "naïve")["results"]), 1)
+
+    def test_underscore_starts_a_word(self):
+        hit = self.chat(log=[turn(1, "open counts_by_type.xlsx")])
+        self.assertEqual(self.ids(search_sessions(self.a.pk, "type")), [str(hit.session_id)])
+
+    def test_repeated_source_counts_once(self):
+        self.chat(log=[turn(1, "ndma")])
+        self.assertEqual(search_sessions(self.a.pk, "ndma", sources=["chats", "chats"])["total"], 1)
+
     def test_reply_preview_used_when_no_full_reply(self):
         hit = self.chat(log=[{"turn_id": 1, "user_query": "q", "assistant_reply_preview": "found NDMA"}])
         self.assertEqual(self.ids(search_sessions(self.a.pk, "ndma")), [str(hit.session_id)])
@@ -148,8 +168,10 @@ class SearchTests(SearchBase):
     def test_all_users_carries_owner(self):
         self.chat(user=self.a, log=[turn(1, "ndma")])
         self.chat(user=self.b, log=[turn(1, "ndma")])
-        res = search_sessions(None, "ndma")
+        res = search_sessions(self.a.pk, "ndma", all_users=True)
         self.assertEqual(sorted(r["owner"] for r in res["results"]), ["alice", "bob"])
+        with self.assertRaises(TypeError):
+            search_sessions(None, "ndma")
 
     def test_sources_registry_has_only_chats(self):
         self.assertEqual(set(SOURCES), {"chats"})

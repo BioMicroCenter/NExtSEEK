@@ -174,8 +174,8 @@ class UserInParticipatingProject(BasePermission):
     _CACHE_TTL_SECONDS = 60
     # A member who has left every pilot project keeps reading their own past chats (these GETs answer the owner or
     # a superuser only); everything else stays gated.
-    _OWN_CHAT_READS = frozenset({"list_sessions", "get_session", "download_bundle", "download_artifact",
-                                 "download_session", "task_progress"})
+    _OWN_CHAT_READS = frozenset({"list_sessions", "search_sessions", "get_session", "download_bundle",
+                                 "download_artifact", "download_session", "task_progress"})
 
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
@@ -600,7 +600,7 @@ class AssistantViewSet(viewsets.ViewSet):
         except ValueError:
             limit = 20
 
-        result = session_search.search_sessions(None if all_users else request.user.pk, q, sources=sources,
+        result = session_search.search_sessions(request.user.pk, q, all_users=all_users, sources=sources,
                                                 since_days=int(since) if since else None, limit=limit)
         return Response(SessionSearchResponse.model_validate(result).model_dump(mode="json"),
                         status=status.HTTP_200_OK)
