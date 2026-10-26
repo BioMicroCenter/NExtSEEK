@@ -177,3 +177,29 @@ def test_a_check_that_used_up_the_time_creates_no_run(monkeypatch):
     with pytest.raises(StartRefused) as err:
         start("38000001", None, session)
     assert err.value.error_type == "out_of_time" and made == [] and queued == []
+
+
+# A source that answers, but not with something the launch check can use, is source_bad_answer.
+
+def test_a_europepmc_4xx_is_source_bad_answer():
+    from NessieAI.tests.ns.paper.fakes import FakeResponse
+
+    err = _refusal("38000001", _seams({_pmid_search(): FakeResponse(400, b"bad query")}))
+    assert err.error_type == "source_bad_answer"
+
+
+def test_a_search_answer_that_is_not_json_is_source_bad_answer():
+    from NessieAI.tests.ns.paper.fakes import FakeResponse
+
+    err = _refusal("38000001", _seams({_pmid_search(): FakeResponse(200, b"<html>maintenance</html>")}))
+    assert err.error_type == "source_bad_answer"
+
+
+def test_malformed_jats_is_source_bad_answer():
+    from NessieAI.ns.paper import europepmc
+    from NessieAI.tests.ns.paper.fakes import FakeResponse, js, key
+    from NessieAI.tests.ns.paper.fixtures import EPMC_HIT, epmc_search
+
+    routes = {_pmid_search(): js(epmc_search([EPMC_HIT])),
+              key(f"{europepmc.BASE}/PMC10000001/fullTextXML"): FakeResponse(200, b"<article><body><sec>")}
+    assert _refusal("38000001", _seams(routes)).error_type == "source_bad_answer"
