@@ -39,3 +39,22 @@ def test_store_refuses_unsafe_names(tmp_path, monkeypatch):
         save_artifact("abc", "pa/per", PaperRef())
     with pytest.raises(ValueError):
         load_artifact("abc", "../../etc/passwd", PaperRef)
+
+
+def _evidence(items, evidence_ids):
+    from NessieAI.ns.paper.models import EvidenceArtifact, EvidenceItem, SkeletonRow
+
+    row = SkeletonRow(row_key="geo:GSM1", repo="geo", record_id="GSM1", kind="raw", evidence_ids=evidence_ids)
+    return EvidenceArtifact(paper=PaperRef(pmid="1"), items=[EvidenceItem(id=i, text="t", source="s") for i in items],
+                            deposits=[], skeleton=[row], gaps=[])
+
+
+def test_evidence_item_ids_must_be_unique():
+    with pytest.raises(ValidationError, match="E:geo:GSM1:title"):
+        _evidence(["E:geo:GSM1:title", "E:geo:GSM1:title"], ["E:geo:GSM1:title"])
+
+
+def test_every_skeleton_evidence_id_must_be_an_item():
+    with pytest.raises(ValidationError, match="E:geo:GSM1:missing"):
+        _evidence(["E:geo:GSM1:title"], ["E:geo:GSM1:title", "E:geo:GSM1:missing"])
+    assert _evidence(["E:geo:GSM1:title"], ["E:geo:GSM1:title"]).skeleton[0].row_key == "geo:GSM1"

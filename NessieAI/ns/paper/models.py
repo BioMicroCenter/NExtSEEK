@@ -5,10 +5,11 @@ version and read by another fails loudly instead of dropping a field.
 """
 from __future__ import annotations
 
+from collections import Counter
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 Repo = Literal["geo", "ena", "pride", "zenodo", "figshare", "sdr"]
 
@@ -129,9 +130,24 @@ class Gap(_Strict):
 
 
 class EvidenceArtifact(_Strict):
-    """evidence.json: everything quotable, the deposits, the skeleton rows and the gaps."""
+    """evidence.json: everything quotable, the deposits, the skeleton rows and the gaps.
+
+    Item IDs are unique and every skeleton row cites only items that exist: a later stage quotes by ID, so a
+    duplicate or a dangling ID fails here, loudly, instead of being dropped or resolved to the wrong text."""
     paper: PaperRef
     items: list[EvidenceItem]
     deposits: list[DepositRecord]
     skeleton: list[SkeletonRow]
     gaps: list[Gap]
+
+    @model_validator(mode="after")
+    def _ids_resolve(self) -> "EvidenceArtifact":
+        counts = Counter(i.id for i in self.items)
+        duplicates = sorted(i for i, n in counts.items() if n > 1)
+        if duplicates:
+            raise ValueError(f"evidence item IDs are not unique: {', '.join(duplicates[:5])}")
+        for row in self.skeleton:
+            dangling = [e for e in row.evidence_ids if e not in counts]
+            if dangling:
+                raise ValueError(f"skeleton row {row.row_key} cites evidence IDs with no item: {', '.join(dangling[:5])}")
+        return self

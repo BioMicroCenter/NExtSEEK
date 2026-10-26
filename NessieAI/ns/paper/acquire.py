@@ -76,8 +76,7 @@ def acquire(paper: PaperArtifact, fetcher: Fetcher, adapters: dict | None = None
         queue.sort(key=_priority)
     for rec in deposits:
         items += deposit_items(rec)
-    unique = list({item.id: item for item in items}.values())
-    return EvidenceArtifact(paper=paper.ref, items=unique, deposits=deposits,
+    return EvidenceArtifact(paper=paper.ref, items=items, deposits=deposits,
                             skeleton=build_skeleton(deposits), gaps=gaps)
 
 

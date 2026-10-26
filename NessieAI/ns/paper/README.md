@@ -12,7 +12,7 @@ proposing rows is a later piece.
 
 | Module | What it does |
 |---|---|
-| `models.py` | the artifacts: `PaperArtifact` (`paper.json`) and `EvidenceArtifact` (`evidence.json`), with `PaperRef`, `PaperText`, `DepositRecord`, `EvidenceItem`, `SkeletonRow` and `Gap`. Every model forbids unknown keys, so an artifact one version wrote and another reads fails loudly |
+| `models.py` | the artifacts: `PaperArtifact` (`paper.json`) and `EvidenceArtifact` (`evidence.json`), with `PaperRef`, `PaperText`, `DepositRecord`, `EvidenceItem`, `SkeletonRow` and `Gap`. Every model forbids unknown keys, so an artifact one version wrote and another reads fails loudly; `EvidenceArtifact` also refuses a duplicate item ID or a skeleton row citing an ID with no item |
 | `identify.py` | `identify`: the typed text to one `PaperInput` (`pmid`, `pmcid`, `doi` or `file`); raises `IdentifyError` for anything else |
 | `fetch.py` | `Fetcher`, the only way the package reaches the internet, and `ALLOWED_HOSTS` |
 | `europepmc.py` | `resolve` (metadata), `full_text_xml` (open-access JATS) and `supplementary_zip` |
