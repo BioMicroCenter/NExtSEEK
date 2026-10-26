@@ -49,6 +49,8 @@ docker exec nextseek test -d /app/NessieAI/ns/reingest \
 work="$(mktemp -d)"; ctr="/tmp/folder_to_manifest.$$"
 trap 'rm -rf "$work"; docker exec nextseek rm -rf "$ctr" >/dev/null 2>&1 || true' EXIT
 docker exec nextseek mkdir -p "$ctr"
+# Piped, not docker cp: the app runs as uid 10001 and a docker cp file is root-owned with the host's mode.
+put() { docker exec -i nextseek sh -c 'cat > "$1"' _ "$2" < "$1"; }
 
 # Container side: phase "cmd" prints the exact stage command the cluster would run;
 # phase "harvest" parses that command's output into a manifest and saves it.
@@ -146,7 +148,7 @@ for w in m.warnings:
     print(f"warning    {w}", file=out)
 print(manifest_id)
 PY
-docker cp -q "$work/inside.py" "nextseek:$ctr/inside.py"
+put "$work/inside.py" "$ctr/inside.py"
 run_inside() { docker exec -w /app nextseek /app/.venv/bin/python "$ctr/inside.py" "$@"; }
 
 # 1. The stage command, built by the server exactly as for the cluster.
@@ -155,10 +157,10 @@ stage_cmd="$(run_inside cmd "$folder")"
 
 # 2. Run it here: copies the small text files into a tar, lists the data files.
 sh -c "$stage_cmd" > "$work/stage.tar"
-docker cp -q "$work/stage.tar" "nextseek:$ctr/stage.tar"
+put "$work/stage.tar" "$ctr/stage.tar"
 
 # 3. Parse and save on the server.
-if [ -n "$parents" ]; then docker cp -q "$parents" "nextseek:$ctr/parents.csv"; parents_in="$ctr/parents.csv"; else parents_in=""; fi
+if [ -n "$parents" ]; then put "$parents" "$ctr/parents.csv"; parents_in="$ctr/parents.csv"; else parents_in=""; fi
 if [ -z "$run_dir" ]; then
   base="$(docker exec nextseek printenv LURIA_WORKING_PATH 2>/dev/null || true)"
   run_dir="${base:-/local-test}/runs/$(basename "$folder")"
