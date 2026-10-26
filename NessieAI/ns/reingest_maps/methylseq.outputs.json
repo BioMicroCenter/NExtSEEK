@@ -44,7 +44,7 @@
     },
     "MappedPercent": {"from": "bismark-percent_aligned", "target": "D.SEQ", "datatype": "number",
                       "alternates": ["samtools_stats-reads_mapped_percent"],
-                      "note": "Bismark's percent of reads with a unique best alignment (MultiQC 1.32 bismark module, general-stats column percent_aligned); the alternate is samtools stats on the bwa-meth and bwa-mem alignments, as in the rnaseq map; key unverified until a real run",
+                      "note": "Bismark's percent of reads with a unique best alignment (MultiQC 1.32 bismark module, general-stats column percent_aligned). The alternate, samtools stats on the bwa-meth and bwa-mem alignments as in the rnaseq map, counts any mapped read, multimapped included, so the two paths' values do not mean the same thing; key unverified until a real run",
                       "provenance": "seed"},
     "DuplicationPercent": {"from": "bismark-dup_reads_percent", "target": "D.SEQ", "datatype": "number",
                            "alternates": ["picard_mark_duplicates-PERCENT_DUPLICATION"],
@@ -71,8 +71,8 @@
     {"key": "samtools_stats-insert_size_average", "why": "Mean insert size of the aligned pairs. D.SEQ has no insert-size attribute; one would be a schema request, not a mapping."}
   ],
   "unmapped_files": [
-    {"glob": "*/alignments/logs/*", "why": "Bismark alignment reports (and bwa-meth's samtools stats and flagstat); their numbers are read through MultiQC."},
-    {"glob": "*/alignments/samtools_stats/*", "why": "bwa-mem's samtools stats, flagstat and idxstats; their numbers are read through MultiQC."},
+    {"glob": "*/alignments/logs/*", "why": "Bismark's alignment reports (bismark and bismark_hisat); their numbers are read through MultiQC."},
+    {"glob": "*/alignments/samtools_stats/*", "why": "samtools stats, flagstat and idxstats on the bwa-meth and bwa-mem alignments; their numbers are read through MultiQC."},
     {"glob": "*/alignments/unmapped/*", "why": "Unmapped reads as FASTQ (with --unmapped): leftovers of the alignment, not a result."},
     {"glob": "*/alignments/*_bismark_{bt2,hisat2}*.bam", "why": "Bismark's unsorted alignment (with --save_align_intermeds, --skip_deduplication or --rrbs): the same reads as the sorted BAM the aln rule registers, before sorting."},
     {"glob": "*/deduplicated/logs/*", "why": "Bismark deduplication reports; the duplicate share is read through MultiQC."},
