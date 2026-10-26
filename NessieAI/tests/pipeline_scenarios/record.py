@@ -1,0 +1,65 @@
+"""Turn an accepted paid run into the committed replay fixtures.
+
+  python -m NessieAI.tests.pipeline_scenarios.record <run dir> [--ids a,b]
+
+Run on the host from the worktree root, on the commit the paid run was made from (its
+fingerprint must equal the current one, or nothing is written). A story the runner failed on
+(an `error` on the row, `tape: null`) is skipped; a fixture that still holds an email, an
+absolute path or a private URL anywhere in its text is refused.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from NessieAI.tests.pipeline_scenarios import fingerprint
+from NessieAI.tests.pipeline_scenarios.scrub import refusals_in
+
+HERE = Path(__file__).resolve().parent
+RECORDED = HERE / "recorded"
+STORY_FIELDS = ("id", "route", "acceptable", "must_not", "expect", "launch", "cohort", "question",
+                "history", "replies")
+
+
+def fixture_from_row(row: dict, fp: str) -> dict:
+    """The committed form of one run row: the story fields the replay checks, and what was seen."""
+    return {"story": {k: row["story"][k] for k in STORY_FIELDS}, "fingerprint": fp,
+            "decision": row["decision"], "outcome": row["outcome"], "score": row["score"],
+            "tape": row["tape"]}
+
+
+def main(argv: list[str]) -> int:
+    p = argparse.ArgumentParser()
+    p.add_argument("run_dir", type=Path)
+    p.add_argument("--ids", default="")
+    p.add_argument("--fingerprint", default=None, help="the run's fingerprint, if the run dir lacks one")
+    a = p.parse_args(argv)
+    now = fingerprint.current()
+    run_fp = a.fingerprint or json.loads((a.run_dir / "summary.json").read_text()).get("fingerprint")
+    if run_fp != now:
+        print(f"refusing: the run was made under fingerprint {run_fp}, the tree is at {now}", file=sys.stderr)
+        return 1
+    wanted = set(filter(None, a.ids.split(",")))
+    for path in sorted((a.run_dir / "stories").glob("*.json")):
+        row = json.loads(path.read_text())
+        story_id = row["story"]["id"]
+        if wanted and story_id not in wanted:
+            continue
+        if row["outcome"].get("error") or row.get("tape") is None:
+            print(f"skip {story_id}: runner error")
+            continue
+        fixture = fixture_from_row(row, now)
+        found = refusals_in(fixture)
+        if found:
+            print(f"refusing {story_id}: {found[:3]}", file=sys.stderr)
+            return 1
+        RECORDED.mkdir(parents=True, exist_ok=True)
+        (RECORDED / f"{story_id}.json").write_text(json.dumps(fixture, indent=1, sort_keys=True) + "\n")
+        print(f"recorded {story_id}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

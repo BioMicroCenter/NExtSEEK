@@ -18,7 +18,7 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
-from NessieAI.tests.pipeline_scenarios import scrub
+from NessieAI.tests.pipeline_scenarios import fingerprint, scrub
 from NessieAI.tests.pipeline_scenarios.scorer import Outcome, score
 from NessieAI.tests.pipeline_scenarios.stories import Story, cohort_uids, load_stories
 from NessieAI.tests.pipeline_scenarios.tape import RecordingClient, Tape, taped
@@ -174,6 +174,7 @@ def main(argv: list[str]) -> int:
     out = a.out or OUTPUTS / f"{time.strftime('%Y%m%dT%H%M%S')}_pipeline_scenarios"
     (out / "stories").mkdir(parents=True, exist_ok=True)
     real = ChatConfig()
+    run_fingerprint = fingerprint.current()
     results = []
     for story in runnable:
         tape = Tape(mode="record")
@@ -186,12 +187,13 @@ def main(argv: list[str]) -> int:
             outcome.error = f"{type(exc).__name__}: {exc}"
         s = score(story, outcome)
         row = {"story": asdict(story), "decision": record["decision"], "outcome": asdict(outcome),
-               "score": asdict(s), "tape": None if outcome.error else tape.to_json(), "fingerprint": None}
+               "score": asdict(s), "tape": None if outcome.error else tape.to_json(), "fingerprint": run_fingerprint}
         (out / "stories" / f"{story.id}.json").write_text(json.dumps(row, indent=2, default=str))
         results.append(row)
         print(f"[{s.grade:<7}] {story.id}: {'; '.join(s.reasons)}")
     summary = {g: sum(1 for r in results if r["score"]["grade"] == g) for g in ("PASS", "PARTIAL", "FAIL")}
-    (out / "summary.json").write_text(json.dumps({"summary": summary, "n": len(results), "skipped": skipped}, indent=2))
+    (out / "summary.json").write_text(json.dumps({"summary": summary, "n": len(results), "skipped": skipped,
+                                                "fingerprint": run_fingerprint}, indent=2))
     write_report(out, results)
     print(f"{summary} -> {out}")
     return 0

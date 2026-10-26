@@ -168,8 +168,17 @@ def test_main_writes_the_run_folder_even_when_a_story_crashes(tmp_path, monkeypa
     assert rn.main(["--yes", "--out", str(tmp_path)]) == 0
     row = json.loads((tmp_path / "stories" / "s1.json").read_text())
     assert row["outcome"]["error"].startswith("RuntimeError") and row["score"]["grade"] == "FAIL"
-    assert row["fingerprint"] is None and (tmp_path / "report.html").exists()
+    from NessieAI.tests.pipeline_scenarios import fingerprint
+    assert row["fingerprint"] == fingerprint.current() and (tmp_path / "report.html").exists()
     assert json.loads((tmp_path / "summary.json").read_text())["summary"]["FAIL"] == 1
+
+
+def test_the_summary_carries_the_fingerprint_the_run_was_made_under(tmp_path, monkeypatch):
+    from NessieAI.tests.pipeline_scenarios import fingerprint
+    import chat_nextseek.config as cc
+    monkeypatch.setattr(cc, "ChatConfig", lambda: _Cfg())
+    assert rn.main(["--ids", "nosuch", "--yes", "--out", str(tmp_path)]) == 0
+    assert json.loads((tmp_path / "summary.json").read_text())["fingerprint"] == fingerprint.current()
 
 
 def test_the_report_groups_by_family_and_escapes(tmp_path):

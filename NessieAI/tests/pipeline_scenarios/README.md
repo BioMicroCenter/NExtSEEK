@@ -18,6 +18,9 @@ route is right.
 | `run.py` | the paid in-process runner: the real router and pipeline agent on each ruled story, no submit tool, every outside answer recorded on a tape and scrubbed for a public repo. Without `--yes` it only prints what it would run and the estimate; a paid run needs the owner's go (usage in its docstring) |
 | `report.py` | `write_report`: the HTML page of a run, totals and then every story by family |
 | `test_run.py` | the free test of the runner and report, with a stubbed router and agent (no model, no stack) |
+| `fingerprint.py` | `current()`: sha256 over everything that decides routing and pipeline choice (`INPUTS`); a tape is valid only under the fingerprint it was recorded with. `test_fingerprint.py` tests it |
+| `record.py` | turns an accepted paid run into `recorded/<id>.json` (`python -m NessieAI.tests.pipeline_scenarios.record <run dir> [--ids a,b]`): refuses a run made under another fingerprint, skips stories the runner failed on, refuses any fixture holding an email, absolute path or private URL |
+| `test_replay.py` | the free CI replay: each `recorded/*.json` is replayed against the current code and must end with the recorded grade and pipeline; a changed fingerprint, story or call fails it until a paid run re-records. Also replays a synthetic recording of a stubbed run, so the machinery is tested before any recording exists. With no recordings the replay test skips |
 
 The three layers (the paid run, the CI replay, the chat end-to-end check) are added in later commits of the same
 branch, and this README gains a row for each.
