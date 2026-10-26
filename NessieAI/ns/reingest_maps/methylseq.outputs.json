@@ -5,7 +5,11 @@
   "accepts_parent_types": ["D.SEQ"],
   "claims_every_file": true,
   "qc_row_suffixes": ["_1_val_1"],
-  "inventory_globs": [],
+  "inventory_globs": [
+    "**/methylation_calls/methylation_coverage/*.bismark.cov.gz",
+    "**/methylation_calls/bedGraph/*.bedGraph.gz",
+    "**/methyldackel/*_CpG.bedGraph"
+  ],
   "harvest_globs": [],
   "derived_metrics": [],
   "outputs": [
@@ -29,6 +33,46 @@
         "Aligner": "$params.aligner",
         "Genome": "$params.genome",
         "Software": "nf-core/methylseq"
+      }
+    },
+    {
+      "id": "mseq_bismark",
+      "optional": true,
+      "candidates": ["*/methylation_calls/methylation_coverage/*.bismark.cov.gz"],
+      "sample_type": "A.MSEQ",
+      "assay": "Methylation Calling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "companions": [{"glob": "*/methylation_calls/bedGraph/*.bedGraph.gz"}],
+      "attributes": {
+        "DataType": "BISMARK_COV",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Genome": "$params.genome",
+        "Software": "Bismark methylation extractor",
+        "ConversionMethod": "@conversion_method",
+        "MethylationProtocol": "@methylation_protocol",
+        "MeanCpGMethylationPercent": "$metrics.bismark-percent_cpg_meth"
+      }
+    },
+    {
+      "id": "mseq_methyldackel",
+      "optional": true,
+      "candidates": ["methyldackel/*_CpG.bedGraph"],
+      "sample_type": "A.MSEQ",
+      "assay": "Methylation Calling",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "attributes": {
+        "DataType": "BEDGRAPH",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Genome": "$params.genome",
+        "Software": "MethylDackel",
+        "ConversionMethod": "@conversion_method",
+        "MethylationProtocol": "@methylation_protocol"
       }
     }
   ],
@@ -77,10 +121,13 @@
     {"glob": "*/alignments/*_bismark_{bt2,hisat2}*.bam", "why": "Bismark's unsorted alignment (with --save_align_intermeds, --skip_deduplication or --rrbs): the same reads as the sorted BAM the aln rule registers, before sorting."},
     {"glob": "*/deduplicated/logs/*", "why": "Bismark deduplication reports; the duplicate share is read through MultiQC."},
     {"glob": "*/deduplicated/picard_metrics/*", "why": "Picard MarkDuplicates metrics on the bwa-meth and bwa-mem paths; the duplicate share is read through MultiQC."},
-    {"glob": "*/methylation_calls/{bedGraph,methylation_coverage,methylation_calls}/*", "why": "Bismark's methylation calls (CpG bedGraph, CpG coverage, per-context calls): no sample type means what they hold yet. They wait for the methylation-calls type proposed to the owner (see \"Outputs with no rule yet\" in the README)."},
-    {"glob": "*/coverage2cytosine/*", "why": "Bismark coverage2cytosine reports and coverage (with --cytosine_report or --nomeseq): methylation calls, waiting for the methylation-calls type with the other call files."},
-    {"glob": "methyldackel/*.{bedGraph,methylKit}", "why": "MethylDackel's methylation calls on the bwa-meth path: waiting for the methylation-calls type with the other call files."},
-    {"glob": "rastair/{call,methylkit}/*", "why": "Rastair's TAPS methylation calls on the bwa-mem path: waiting for the methylation-calls type with the other call files."},
+    {"glob": "*/methylation_calls/methylation_calls/*", "why": "Bismark's per-read, per-context cytosine calls (CpG, CHG, CHH by strand): large, and every CpG value in them is summarised in the coverage file the mseq_bismark rule registers."},
+    {"glob": "*/methylation_calls/bedGraph/*.targeted.bedGraph", "why": "The bedGraph limited to the target BED (with --run_targeted_sequencing): a subset of the registered row's bedGraph companion, and A.MSEQ has no Notes to carry a second companion."},
+    {"glob": "*/coverage2cytosine/*", "why": "Bismark coverage2cytosine reports and coverage (with --cytosine_report or --nomeseq): no rule yet (see \"Outputs with no rule yet\" in the README)."},
+    {"glob": "methyldackel/*_{CHG,CHH}.bedGraph", "why": "MethylDackel's non-CpG calls (with --all_contexts): no rule yet, and A.MSEQ has one secondary-file slot and no Notes (see \"Outputs with no rule yet\" in the README)."},
+    {"glob": "methyldackel/*.targeted.bedGraph", "why": "MethylDackel's calls limited to the target BED (with --run_targeted_sequencing): a subset of the registered CpG bedGraph."},
+    {"glob": "methyldackel/*.methylKit", "why": "MethylDackel's calls rewritten for the methylKit R package (with --methyl_kit): the same calls as the registered bedGraph, in another layout."},
+    {"glob": "rastair/{call,methylkit}/*", "why": "Rastair's TAPS methylation calls on the bwa-mem path: no rule yet (see \"Outputs with no rule yet\" in the README)."},
     {"glob": "*/methylation_calls/{mbias,splitting_report}/*", "why": "Bismark's M-bias tables and methylation-extractor reports: QC read through MultiQC."},
     {"glob": "methyldackel/mbias/*", "why": "MethylDackel's M-bias tables: QC of the extraction, not a result."},
     {"glob": "rastair/{mbias,mbiasparser}/*", "why": "Rastair's conversion-by-position tables and the trimming they set for its caller: QC and an intermediate, not a result."},

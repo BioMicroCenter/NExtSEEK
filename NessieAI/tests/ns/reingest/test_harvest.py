@@ -1401,6 +1401,10 @@ _OLD_INVENTORY = {
     "**/*.mRp.clN.bigWig", "**/*.mLb.clN.bigWig",
     "**/consensus_peaks.mLb.clN.bed", "**/consensus_peaks.mLb.clN.featureCounts.txt",
     "**/*_peaks.narrowPeak", "**/*_peaks.broadPeak",
+    # methylseq's A.MSEQ rules: Bismark's CpG coverage with its bedGraph, and
+    # MethylDackel's CpG bedGraph
+    "**/methylation_calls/methylation_coverage/*.bismark.cov.gz",
+    "**/methylation_calls/bedGraph/*.bedGraph.gz", "**/methyldackel/*_CpG.bedGraph",
 }
 
 
