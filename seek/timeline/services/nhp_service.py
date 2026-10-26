@@ -324,7 +324,7 @@ def save_nhp_data(all_data: List[dict]) -> bytes:
     
     # Create Excel file in memory
     output = BytesIO()
-    with pd.ExcelWriter(output) as writer:
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
         for sheet_name, df in nhp_data.items():
             df.to_excel(writer, sheet_name=sheet_name, index=False)
             protect_sheet(writer.sheets[sheet_name])

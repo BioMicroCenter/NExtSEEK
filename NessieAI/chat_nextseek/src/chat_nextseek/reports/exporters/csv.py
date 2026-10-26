@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from ._text_safe import csv_safe
+
 
 def _coerce_scalar_csv_value(value: Any) -> str:
     """Convert JSON-like values into CSV-safe scalar strings."""
@@ -73,16 +75,6 @@ def _ordered_csv_columns(rows: Sequence[Mapping[str, Any]], preferred: Sequence[
     return columns
 
 
-def _csv_safe(value: str) -> str:
-    # Copy of nextseek_api.services.excel_safe.csv_safe: import-linter bars chat_nextseek from nextseek_api (SEC-H03).
-    if value.startswith(("=", "+", "-", "@", "\t", "\r")):
-        try:
-            float(value)
-        except ValueError:
-            return "'" + value
-    return value
-
-
 def _write_csv_rows(path: Path, rows: Sequence[Mapping[str, Any]], columns: Sequence[str]) -> str:
     """Write ordered rows to CSV."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -90,5 +82,5 @@ def _write_csv_rows(path: Path, rows: Sequence[Mapping[str, Any]], columns: Sequ
         writer = _csv.DictWriter(handle, fieldnames=list(columns), extrasaction="ignore")
         writer.writeheader()
         for row in rows:
-            writer.writerow({col: _csv_safe(_coerce_scalar_csv_value(row.get(col))) for col in columns})
+            writer.writerow({col: csv_safe(_coerce_scalar_csv_value(row.get(col))) for col in columns})
     return str(path)

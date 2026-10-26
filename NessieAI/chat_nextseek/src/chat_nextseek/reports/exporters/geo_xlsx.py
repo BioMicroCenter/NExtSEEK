@@ -15,6 +15,8 @@ from typing import Any, Mapping, Sequence
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+from ._text_safe import set_text
+
 
 def _copy_row_format(ws: Worksheet, source_row: int, target_row: int) -> None:
     """
@@ -38,7 +40,7 @@ def _write_cell(ws: Worksheet, row: int, col: int, value: Any) -> None:
     """
     if value is None:
         return
-    ws.cell(row=row, column=col).value = value
+    set_text(ws, row, col, value)
 
 
 def _write_list_down(
@@ -63,9 +65,9 @@ def _write_list_down(
             row = start_row + max_rows - 1
             existing = ws.cell(row=row, column=col).value or ""
             separator = "\n" if existing else ""
-            ws.cell(row=row, column=col).value = f"{existing}{separator}{val}"
+            set_text(ws, row, col, f"{existing}{separator}{val}")
             continue
-        ws.cell(row=row, column=col).value = val
+        set_text(ws, row, col, val)
 
 
 def _build_header_map(ws: Worksheet, header_row: int) -> dict[str, list[int]]:
@@ -270,7 +272,7 @@ def _populate_geo_seq_workbook(wb, report: Mapping[str, Any]) -> None:
         cols = header_map.get(key)
         if not cols or occurrence >= len(cols) or value in (None, ""):
             return
-        meta_sheet.cell(row=row_idx, column=cols[occurrence]).value = value
+        set_text(meta_sheet, row_idx, cols[occurrence], value)
 
     for idx, sample in enumerate(samples):
         if not isinstance(sample, Mapping):
@@ -369,10 +371,10 @@ def _populate_geo_seq_workbook(wb, report: Mapping[str, Any]) -> None:
         if not isinstance(entry, Mapping):
             continue
         row_idx = paired_data_start_row + idx
-        meta_sheet.cell(row=row_idx, column=1).value = entry.get("file name 1")
-        meta_sheet.cell(row=row_idx, column=2).value = entry.get("file name 2")
-        meta_sheet.cell(row=row_idx, column=3).value = entry.get("file name 3")
-        meta_sheet.cell(row=row_idx, column=4).value = entry.get("file name 4")
+        set_text(meta_sheet, row_idx, 1, entry.get("file name 1"))
+        set_text(meta_sheet, row_idx, 2, entry.get("file name 2"))
+        set_text(meta_sheet, row_idx, 3, entry.get("file name 3"))
+        set_text(meta_sheet, row_idx, 4, entry.get("file name 4"))
 
     # ---- Checksums sheet ----
     checksums_sheet = wb["MD5 Checksums"]

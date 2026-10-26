@@ -56,3 +56,13 @@ def test_render_rejects_empty_rows(tmp_path):
     import pytest
     with pytest.raises(ValueError):
         render_upload_workbook("A.SCXP", [], str(tmp_path / "empty.xlsx"))
+
+
+def test_formula_shaped_value_is_a_text_cell(tmp_path):
+    from openpyxl import load_workbook
+
+    evil = '=HYPERLINK("http://x","y")'
+    out = tmp_path / "u.xlsx"
+    render_upload_workbook("MUS", [{"json_metadata": {"Name": evil}, "assay_ids": []}], str(out))
+    cell = load_workbook(out)["Samples"]["A2"]
+    assert cell.data_type == "s" and cell.value == evil
