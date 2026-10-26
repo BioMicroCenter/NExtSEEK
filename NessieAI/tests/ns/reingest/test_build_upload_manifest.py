@@ -162,7 +162,7 @@ def _patch_seek_assays(monkeypatch):
     # And none of the run's files is a sample yet.
     monkeypatch.setattr(
         "nextseek_api.services.reingest_lookups.existing_uids_for_primary_files_strict",
-        lambda sample_type, files: [[] for _ in files])
+        lambda sample_type, files: [{"uids": [], "changed": []} for _ in files])
 
 # Default per-sample output inventory a real `run-harvest` would have found
 # for a `star_salmon`-aligned run -- matching rnaseq.outputs.json's own

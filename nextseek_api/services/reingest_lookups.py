@@ -245,15 +245,18 @@ def _parent_set(value) -> frozenset[str]:
 
 
 def existing_uids_for_primary_files_strict(sample_type: str,
-                                           files: list[dict]) -> list[list[str]]:
-    """For each ``{"link", "checksum", "parent"}``, the UIDs of ``sample_type``
-    samples that already hold that file under that parent.
+                                           files: list[dict]) -> list[dict]:
+    """For each ``{"link", "checksum", "parent"}``, the ``sample_type`` samples
+    under that parent that already hold that file (``uids``) and those whose
+    file at that path has changed since (``changed``).
 
-    A sample holds the file when its ``Link_PrimaryData`` equals ``link`` or its
-    ``Checksum_PrimaryData`` equals a non-empty ``checksum``, and its ``Parent``
-    names the same set of UIDs. The parent is part of the match because a
+    Only a sample whose ``Parent`` names the same set of UIDs is compared: a
     per-run output (one gene-count matrix for every sample) is the same file on
-    every row. The answer is aligned with ``files``.
+    every row. It holds the file when the checksums agree, or when the
+    ``Link_PrimaryData`` paths agree and either side has no checksum to compare.
+    The same path with a different checksum is a run redone in the same folder:
+    new content, so ``changed``, never ``uids``. A reanalysis in its own run
+    folder matches neither. The answer is aligned with ``files``.
 
     Reingest leaves out a new row that is already a sample, so an uploaded run
     is never uploaded twice. Strict: a failed fetch or metadata that cannot be
@@ -266,7 +269,7 @@ def existing_uids_for_primary_files_strict(sample_type: str,
                _parent_set(f.get("parent"))) for f in files]
     needles = sorted({v for link, checksum, _ in wanted for v in (link, checksum) if v})
     if not needles:
-        return [[] for _ in files]
+        return [{"uids": [], "changed": []} for _ in files]
     try:
         from django.db.models import Q
 
@@ -275,7 +278,7 @@ def existing_uids_for_primary_files_strict(sample_type: str,
         type_ids = list(Sample_types.objects.filter(title=sample_type)
                         .values_list("id", flat=True))
         if not type_ids:
-            return [[] for _ in files]
+            return [{"uids": [], "changed": []} for _ in files]
         match_any = Q()
         for needle in needles:
             match_any |= Q(json_metadata__icontains=needle)
@@ -298,10 +301,19 @@ def existing_uids_for_primary_files_strict(sample_type: str,
         held.append((str(uid), str(meta.get("Link_PrimaryData") or "").strip(),
                      str(meta.get("Checksum_PrimaryData") or "").strip(),
                      _parent_set(meta.get("Parent"))))
-    return [sorted({uid for uid, h_link, h_sum, h_parents in held
-                    if h_parents == parents
-                    and ((link and h_link == link) or (checksum and h_sum == checksum))})
-            for link, checksum, parents in wanted]
+    out: list[dict] = []
+    for link, checksum, parents in wanted:
+        same: set[str] = set()
+        changed: set[str] = set()
+        for uid, h_link, h_sum, h_parents in held:
+            if h_parents != parents:
+                continue
+            if checksum and h_sum == checksum:
+                same.add(uid)
+            elif link and h_link == link:
+                (changed if checksum and h_sum else same).add(uid)
+        out.append({"uids": sorted(same), "changed": sorted(changed - same)})
+    return out
 
 
 def sample_types_for_uids(uids: list[str]) -> dict[str, str]:

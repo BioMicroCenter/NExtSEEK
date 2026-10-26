@@ -15,14 +15,18 @@ pytestmark = pytest.mark.django_db
 LOOKUP = "nextseek_api.services.reingest_lookups.existing_uids_for_primary_files_strict"
 
 
-def _existing(monkeypatch, present: dict[str, dict[str, str]]):
-    """``present``: sample type -> {parent UID: existing UID}. Records what was asked."""
+def _existing(monkeypatch, present: dict[str, dict[str, str]], changed=None):
+    """``present`` and ``changed``: sample type -> {parent UID: existing UID}, for a sample
+    holding the row's file and one whose file at that path has changed. Records the asks."""
     asked = []
 
     def lookup(sample_type, files):
         asked.append((sample_type, files))
-        by_parent = present.get(sample_type, {})
-        return [[by_parent[f["parent"]]] if f["parent"] in by_parent else [] for f in files]
+        same = present.get(sample_type, {})
+        moved = (changed or {}).get(sample_type, {})
+        return [{"uids": [same[f["parent"]]] if f["parent"] in same else [],
+                 "changed": [moved[f["parent"]]] if f["parent"] in moved else []}
+                for f in files]
     monkeypatch.setattr(LOOKUP, lookup)
     return asked
 
@@ -64,6 +68,19 @@ def test_nothing_uploaded_yet_changes_nothing(rows, tmp_path, monkeypatch):
     out = _new(tmp_path, manifest_id)
     assert {b["sample_type"] for b in out["builds"]} == {"A.ALN", "A.GEX"}
     assert "already in NExtSEEK" not in out["reply"]
+
+
+@patch(CATALOG)
+def test_a_changed_file_at_an_uploaded_path_is_built_and_flagged(rows, tmp_path, monkeypatch):
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    _existing(monkeypatch, {}, changed={"A.ALN": {"D.SEQ-EXAMPLE-1": "A.ALN-OLD-1"}})
+    out = _new(tmp_path, manifest_id)
+    aln = next(b for b in out["builds"] if b["sample_type"] == "A.ALN")
+    assert aln["row_count"] == 1
+    assert "A.ALN-OLD-1" in out["reply"]
+    assert "changed" in out["reply"]
+    assert "already in NExtSEEK (" not in out["reply"]
 
 
 @patch(CATALOG)

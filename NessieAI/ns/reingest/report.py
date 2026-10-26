@@ -154,6 +154,18 @@ def _already_present_line(sample_type: str, present: dict) -> str:
             f"{'was' if left_out == 1 else 'were'} left out of the workbook")
 
 
+def _path_changed_line(sample_type: str, uids: list[str]) -> str:
+    """One status line for rows built at an uploaded path whose file has changed."""
+    shown = ", ".join(uids[:_LISTED_PRESENT])
+    if len(uids) > _LISTED_PRESENT:
+        shown += f", and {len(uids) - _LISTED_PRESENT} more"
+    return (f"{sample_type} — the file at the path of {shown} has changed since "
+            f"{'it was' if len(uids) == 1 else 'they were'} uploaded (a new checksum), so "
+            "these rows are built as new samples beside "
+            f"{'it' if len(uids) == 1 else 'them'}; decide whether the old "
+            f"{'one is' if len(uids) == 1 else 'ones are'} still wanted")
+
+
 def _compact_item(index, code, attribute, where):
     """Two lines for a finding shared across workbooks: the headline naming
     each workbook and its row count, then the choice."""
@@ -173,7 +185,8 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
                         row_counts: dict[str, int] | None = None,
                         unmapped_count: int = 0,
                         missed_rules: list[dict] | None = None,
-                        already_present: dict[str, dict] | None = None) -> str:
+                        already_present: dict[str, dict] | None = None,
+                        path_changed: dict[str, list] | None = None) -> str:
     """Render the whole run's QA outcome as plain-language text.
 
     ``reports`` -- ``{sample_type: QaReport}``, one entry per sample type QA'd
@@ -220,6 +233,11 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
     type (``reingest_lookups.existing_uids_for_primary_files_strict``): ``uids``
     are those samples, ``total`` the rows the run mapped for the type.
 
+    ``path_changed`` -- ``{sample_type: [UID, ...]}``, samples whose data file
+    sits at the path of a row being built but whose checksum differs: the run
+    was redone in the same folder, so the rows are built as new samples and the
+    reader decides whether the old ones are replaced.
+
     Returns the full report as one string. This is the module's only public
     function, and its output is relayed to the user VERBATIM by the calling
     agent -- see the module docstring's three rules -- so nothing here should
@@ -253,6 +271,8 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
         lines.append("  " + " — ".join(parts))
     for sample_type, present in sorted(already_present.items()):
         lines.append("  " + _already_present_line(sample_type, present))
+    for sample_type, uids in sorted((path_changed or {}).items()):
+        lines.append("  " + _path_changed_line(sample_type, uids))
     lines.append("")
 
     hard_checks: list[tuple] = []

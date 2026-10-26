@@ -354,6 +354,9 @@ class TestNotesForUids:
         assert reingest_lookups.notes_for_uids([]) == {}
 
 
+NONE = {"uids": [], "changed": []}
+
+
 class TestExistingUidsForPrimaryFilesStrict:
     """Which new reingest rows are already samples: same type, same Parent, same file."""
 
@@ -369,37 +372,55 @@ class TestExistingUidsForPrimaryFilesStrict:
     def test_the_same_link_and_parent_is_already_there(self):
         rows = [_metadata_row("A.VCF-1", Link_PrimaryData=self.LINK, Parent="D.SEQ-1")]
         assert self._lookup(rows, [{"link": self.LINK, "checksum": "", "parent": "D.SEQ-1"}]) \
-            == [["A.VCF-1"]]
+            == [{"uids": ["A.VCF-1"], "changed": []}]
 
     def test_the_same_checksum_and_parent_is_already_there(self):
         rows = [_metadata_row("A.VCF-1", Link_PrimaryData="/elsewhere/S1.vcf.gz",
                               Checksum_PrimaryData="abc", Parent="D.SEQ-1")]
         assert self._lookup(rows, [{"link": self.LINK, "checksum": "abc", "parent": "D.SEQ-1"}]) \
-            == [["A.VCF-1"]]
+            == [{"uids": ["A.VCF-1"], "changed": []}]
 
     def test_the_same_file_under_another_parent_is_not(self):
         # A per-run output (one matrix for every sample) is shared; the parent tells them apart.
         rows = [_metadata_row("A.VCF-1", Link_PrimaryData=self.LINK, Parent="D.SEQ-2")]
         assert self._lookup(rows, [{"link": self.LINK, "checksum": "", "parent": "D.SEQ-1"}]) \
-            == [[]]
+            == [NONE]
 
     def test_a_link_inside_a_longer_link_is_not_the_same_file(self):
         rows = [_metadata_row("A.VCF-1", Link_PrimaryData=self.LINK + ".tbi", Parent="D.SEQ-1")]
         assert self._lookup(rows, [{"link": self.LINK, "checksum": "", "parent": "D.SEQ-1"}]) \
-            == [[]]
+            == [NONE]
 
     def test_an_empty_checksum_matches_nothing(self):
         rows = [_metadata_row("A.VCF-1", Checksum_PrimaryData="", Parent="D.SEQ-1")]
-        assert self._lookup(rows, [{"link": "", "checksum": "", "parent": "D.SEQ-1"}]) == [[]]
+        assert self._lookup(rows, [{"link": "", "checksum": "", "parent": "D.SEQ-1"}]) == [NONE]
 
     def test_parents_compare_as_a_set(self):
         rows = [_metadata_row("A.VCF-1", Link_PrimaryData=self.LINK, Parent="D.SEQ-2; D.SEQ-1")]
         assert self._lookup(rows, [{"link": self.LINK, "checksum": "",
-                                    "parent": "D.SEQ-1;D.SEQ-2"}]) == [["A.VCF-1"]]
+                                    "parent": "D.SEQ-1;D.SEQ-2"}]) == [{"uids": ["A.VCF-1"], "changed": []}]
 
     def test_a_type_this_instance_lacks_holds_no_samples(self):
         assert self._lookup([], [{"link": self.LINK, "checksum": "", "parent": "D.SEQ-1"}],
-                            type_ids=()) == [[]]
+                            type_ids=()) == [NONE]
+
+    def test_the_same_link_with_a_different_checksum_is_a_changed_file(self):
+        # A run redone in the same folder: same path, new content. Built, and flagged.
+        rows = [_metadata_row("A.VCF-1", Link_PrimaryData=self.LINK,
+                              Checksum_PrimaryData="old", Parent="D.SEQ-1")]
+        assert self._lookup(rows, [{"link": self.LINK, "checksum": "new", "parent": "D.SEQ-1"}]) \
+            == [{"uids": [], "changed": ["A.VCF-1"]}]
+
+    def test_the_same_link_with_no_checksum_on_the_sample_is_already_there(self):
+        rows = [_metadata_row("A.VCF-1", Link_PrimaryData=self.LINK, Parent="D.SEQ-1")]
+        assert self._lookup(rows, [{"link": self.LINK, "checksum": "new", "parent": "D.SEQ-1"}]) \
+            == [{"uids": ["A.VCF-1"], "changed": []}]
+
+    def test_the_same_link_with_no_checksum_on_the_row_is_already_there(self):
+        rows = [_metadata_row("A.VCF-1", Link_PrimaryData=self.LINK,
+                              Checksum_PrimaryData="old", Parent="D.SEQ-1")]
+        assert self._lookup(rows, [{"link": self.LINK, "checksum": "", "parent": "D.SEQ-1"}]) \
+            == [{"uids": ["A.VCF-1"], "changed": []}]
 
     def test_raises_when_the_fetch_fails(self):
         # An outage must never read as "nothing there yet": the upload would duplicate.

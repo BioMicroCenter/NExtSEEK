@@ -1953,9 +1953,12 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
 
     # A new row whose data file is already a sample of its type, under the same
     # parent, is left out: reingesting a run that was uploaded must never make a
-    # second copy. A partly uploaded run still builds the rows it lacks. An outage
-    # raises, as every strict lookup here does; it never reads as "nothing there".
+    # second copy. A partly uploaded run still builds the rows it lacks. A row whose
+    # path matches a sample but whose content has changed (a run redone in the same
+    # folder) is built and named in the reply. An outage raises, as every strict
+    # lookup here does; it never reads as "nothing there".
     already_present: dict[str, dict] = {}
+    path_changed: dict[str, list] = {}
     if mode == MODE_NEW:
         def _cell(row, name):
             attr = row.attributes.get(name)
@@ -1971,10 +1974,14 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
                 {"link": _cell(row, "Link_PrimaryData"),
                  "checksum": _cell(row, "Checksum_PrimaryData"),
                  "parent": _cell(row, "Parent")} for row in type_rows])
-            uids = sorted({uid for matches in found for uid in matches})
+            uids = sorted({uid for match in found for uid in match["uids"]})
             if uids:
-                dropped |= {id(row) for row, matches in zip(type_rows, found) if matches}
+                dropped |= {id(row) for row, match in zip(type_rows, found) if match["uids"]}
                 already_present[sample_type] = {"uids": uids, "total": len(type_rows)}
+            changed = sorted({uid for match in found if not match["uids"]
+                              for uid in match["changed"]})
+            if changed:
+                path_changed[sample_type] = changed
         if dropped:
             result = result.model_copy(
                 update={"rows": [row for row in result.rows if id(row) not in dropped]})
@@ -2360,7 +2367,7 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
         reports_by_type, saved_files, run_name, ambiguous_primary=ambiguous_primary,
         row_counts={st: len(rows) for st, rows in final.rows_by_type.items()},
         unmapped_count=len(result.unmapped or []), missed_rules=result.missed_rules,
-        already_present=already_present)
+        already_present=already_present, path_changed=path_changed)
     # Map notes (an unchecked release, a companion with nowhere to go, values
     # with no home on the parent's type) are for whoever maintains the map; the
     # user can act on none of them, so they go to the server log, not the reply.
