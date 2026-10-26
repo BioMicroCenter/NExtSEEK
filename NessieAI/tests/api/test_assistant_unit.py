@@ -627,6 +627,17 @@ class DBEventCallbackTests(TestCase):
         self.assertEqual(self.task.result["error"], "Something went wrong")
         self.assertEqual(self.task.result["session_id"], str(self.session.session_id))
 
+    def test_terminal_status_is_not_overwritten(self):
+        from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
+
+        QueryTask.objects.filter(pk=self.task.pk).update(status="error", result={"error": "cut"})
+        cb = make_db_event_callback(str(self.task.task_id), str(self.session.session_id))
+        cb("query_complete", {"reply": "late", "debug": {}})
+
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, "error")
+        self.assertEqual(self.task.result, {"error": "cut"})
+
     def test_nonexistent_task_does_not_crash(self):
         from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
 

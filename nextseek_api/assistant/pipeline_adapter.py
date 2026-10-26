@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from django.utils import timezone
+
 logger = logging.getLogger(__name__)
 
 SendEvent = Callable[[str, dict[str, Any]], None]
@@ -31,17 +33,16 @@ def make_db_event_callback(task_id: str, session_id: str) -> SendEvent:
         progress.append({"event": event_type, "data": data})
         task.progress = progress
 
-        update_fields = ["progress", "updated_at"]
-        if event_type == "query_complete":
-            task.status = "completed"
-            task.result = data
-            update_fields.extend(["status", "result"])
-        elif event_type == "query_error":
-            task.status = "error"
-            task.result = data
-            update_fields.extend(["status", "result"])
+        if event_type in ("query_complete", "query_error"):
+            # One conditional UPDATE: a row already ended (a turn cut by a stopping container, or reaped) keeps its
+            # status and result even when the turn's thread finishes late. Race-safe, unlike read-then-write.
+            QueryTask.objects.filter(pk=task.pk, status__in=("pending", "running")).update(
+                status="completed" if event_type == "query_complete" else "error",
+                result=data, progress=progress, updated_at=timezone.now(),
+            )
+            return
 
-        task.save(update_fields=update_fields)
+        task.save(update_fields=["progress", "updated_at"])
 
     return send_event
 
