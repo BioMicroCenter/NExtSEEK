@@ -80,3 +80,19 @@ def test_no_step_builds_a_mysql_password_argv() -> None:
         text = f.read_text()
         assert "seek_root" not in text, f.name
         assert not re.search(r'f"-p\{', text), f.name
+
+
+def test_no_step_puts_a_neo4j_password_on_argv() -> None:
+    for f in sorted((_ROOT / "startup" / "steps").glob("*.py")):
+        text = f.read_text()
+        assert not re.search(r'"cypher-shell"', text), f.name
+
+
+def test_the_refresh_dump_passes_mysql_pwd_through_docker_exec() -> None:
+    run = (_ROOT / "startup/seed/regenerate/refresh/run.sh").read_text()
+    assert "docker exec -e MYSQL_PWD" in run
+
+
+def test_verify_reads_the_token_columns_through_its_own_container() -> None:
+    verify = (_ROOT / "startup/seed/regenerate/refresh/verify.py").read_text()
+    assert 's.scalar("SELECT COUNT(*) FROM users' not in verify and 'fake_exec("db"' in verify

@@ -386,14 +386,14 @@ def _install_impl(
     loaded_seek_seed = False
     if no_seed:
         ui.warn("--no-seed: starting database containers only, no seed import")
-        build.start_databases(REPO_ROOT, db_env, neo4j_password=values.neo4j_password)
+        build.start_databases(REPO_ROOT, db_env)
         ui.ok("databases up (empty — populate them yourself or re-run without --no-seed)")
     else:
         missing = seed.seed_files_present(REPO_ROOT)
         if missing:
             ui.fail(f"missing seed files: {', '.join(missing)}")
             raise typer.Exit(code=1)
-        build.start_databases(REPO_ROOT, db_env, neo4j_password=values.neo4j_password)
+        build.start_databases(REPO_ROOT, db_env)
         if seed.mysql_db_is_populated("dmac", REPO_ROOT, db_env):
             ui.ok("dmac already populated; skipping")
         else:

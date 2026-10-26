@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))  # the repo root
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from startup.lib.docker_ops import DockerOpsError  # noqa: E402
+from startup.lib.docker_ops import DockerOpsError, MYSQL_ROOT_CMD  # noqa: E402
 from startup.steps import seed  # noqa: E402
 
 import seedlib as s  # noqa: E402
@@ -45,8 +45,10 @@ def main(root):
             seed.load_mysql_dump(repo / "startup" / "seed" / f"{db}.sql.gz", db, repo, env)
             print(f"{db} loaded in {time.time() - t:.0f}s")
     # A seed must carry no login token (SEC-H07): remember-me, activation and reset codes are credentials.
-    n = s.scalar("SELECT COUNT(*) FROM users WHERE remember_token IS NOT NULL OR activation_code IS NOT NULL "
-                 "OR reset_password_code IS NOT NULL", db="seek_production")
+    # Read through the verify container (fake_exec), like the loads above, not seedlib's work copy.
+    n = fake_exec("db", [*MYSQL_ROOT_CMD, "-N", "seek_production", "-e",
+                         "SELECT COUNT(*) FROM users WHERE remember_token IS NOT NULL OR activation_code IS NOT NULL "
+                         "OR reset_password_code IS NOT NULL"], repo, env).strip()
     assert n == "0", f"{n} SEEK users still hold a remember_token, activation_code or reset_password_code"
     if seed.neo4j_is_populated(NEO4J_PW, repo, env):
         print("neo4j already populated; skipping")

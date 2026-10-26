@@ -7,7 +7,7 @@ import urllib.request
 from pathlib import Path
 
 from startup.lib import ui
-from startup.lib.docker_ops import DockerOpsError, compose_build, compose_exec, compose_up, MYSQL_ROOT_CMD
+from startup.lib.docker_ops import DockerOpsError, compose_build, compose_exec, compose_up, MYSQL_ROOT_CMD, CYPHER_SHELL_CMD
 from startup.lib.rebuild_policy import app_runtime_services
 
 
@@ -74,32 +74,27 @@ def wait_for_mysql(repo_root: Path, env: dict[str, str]) -> None:
     )
 
 
-def wait_for_neo4j(
-    repo_root: Path, env: dict[str, str], password: str = "demopassword"
-) -> None:
+def wait_for_neo4j(repo_root: Path, env: dict[str, str]) -> None:
     """Block until Neo4j accepts Bolt connections inside the neo4j container."""
     _wait_for(
         service="neo4j",
-        check_command=["cypher-shell", "-u", "neo4j", "-p", password, "RETURN 1"],
+        check_command=[*CYPHER_SHELL_CMD, "RETURN 1"],
         repo_root=repo_root,
         env=env,
         label="Neo4j",
     )
 
 
-def start_databases(
-    repo_root: Path, env: dict[str, str], neo4j_password: str = "demopassword"
-) -> None:
+def start_databases(repo_root: Path, env: dict[str, str]) -> None:
     """Start MySQL and Neo4j, then wait until both accept connections.
 
-    The MySQL wait uses the db container's own root password; the Neo4j wait logs in with
-    ``neo4j_password`` (#103).
+    Both waits log in with the containers' own passwords (#103), never on an argv.
     """
     compose_up(services=["db", "neo4j"], project_dir=repo_root, env=env)
     with ui.spinner("waiting for MySQL to accept connections"):
         wait_for_mysql(repo_root, env)
     with ui.spinner("waiting for Neo4j to accept connections"):
-        wait_for_neo4j(repo_root, env, neo4j_password)
+        wait_for_neo4j(repo_root, env)
 
 
 def wait_for_seek_filestore(repo_root: Path, env: dict[str, str]) -> None:

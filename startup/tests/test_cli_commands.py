@@ -2298,7 +2298,6 @@ def test_install_db_steps_use_the_kept_passwords(repo: Path, steps, monkeypatch)
     for step in db_calls:
         envs = [a for a in step.call_args.args if isinstance(a, dict) and "COMPOSE_PROJECT_NAME" in a]
         assert [e.get("MYSQL_ROOT_PASSWORD") for e in envs] == ["root-rotated"], step
-    assert steps.build.start_databases.call_args.kwargs["neo4j_password"] == "neo-rotated"
     assert steps.seed.neo4j_is_populated.call_args.args[0] == "neo-rotated"
     # The compose targeting file gets the Neo4j password it needs and never the MySQL root one.
     root_env = read_env(repo / ".env")

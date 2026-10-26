@@ -20,8 +20,9 @@ fi
 set -a; source "$ENV_FILE"; set +a
 
 # The client that writes the seed: the host's `mysqldump` unless MYSQLDUMP names another command, e.g. the
-# MySQL container's own client, `MYSQLDUMP="docker exec <mysql container> mysqldump"` with
-# MYSQL_HOST_DEV=127.0.0.1 and MYSQL_PORT=3306 (no published port needed). The old seeds were written by an
+# MySQL container's own client, `MYSQLDUMP="docker exec -e MYSQL_PWD <mysql container> mysqldump"` with
+# MYSQL_HOST_DEV=127.0.0.1 and MYSQL_PORT=3306 (no published port needed). The password travels as MYSQL_PWD;
+# `docker exec` does not pass the caller's environment on, so the command must carry `-e MYSQL_PWD`. The old seeds were written by an
 # Oracle MySQL 8 client, the same one install loads them with.
 read -r -a DUMP <<< "${MYSQLDUMP:-mysqldump}"
 

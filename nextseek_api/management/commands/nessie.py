@@ -4,8 +4,8 @@ Runs the ``nessie_tests`` harness (see ``NessieAI/tests/nessie_tests/README.md``
 the trusted Django process, so the full-tier bundle reader (which imports Django
 models) works with no separate ``django.setup()`` bootstrap.
 
-    docker exec nextseek uv run manage.py nessie --tier route              # cheap route gate
-    docker exec nextseek uv run manage.py nessie --tier full --scope all   # paid full pass (needs seed)
+    docker exec nextseek uv run manage.py nessie --tier route --password-env NESSIE_PW   # cheap route gate
+    docker exec nextseek uv run manage.py nessie --tier full --scope all --password-env NESSIE_PW   # paid full pass (needs seed)
 
 The harness drives cases through the real top-level router at ``--base-url``
 (default ``http://localhost:8000`` — gunicorn inside the same container),
@@ -54,9 +54,6 @@ class Command(BaseCommand):
         parser.add_argument("--family", default=None)
         parser.add_argument("--variant", default=None)
         parser.add_argument("--user", default="demo")
-        parser.add_argument("--password", default=None,
-                            help="The password, on the command line. Prefer --password-env, which "
-                                 "keeps it off the command line.")
         parser.add_argument("--password-env", default=None, metavar="NAME",
                             help="Read the password from the environment variable NAME. The "
                                  "value is never printed.")
@@ -196,8 +193,6 @@ class Command(BaseCommand):
         name = opts["password_env"]
         if not name:
             raise CommandError("give --password-env NAME (the environment variable that holds the password).")
-        if opts["password"] is not None:
-            raise CommandError("give --password or --password-env, not both.")
         value = os.environ.get(name)
         if not value:
             raise CommandError(f"--password-env {name}: that environment variable is unset "

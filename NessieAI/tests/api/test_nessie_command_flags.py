@@ -72,7 +72,7 @@ def _default_password_env(monkeypatch):
 
 
 def _call(*args):
-    if "--password-env" not in args and "--password" not in args:
+    if "--password-env" not in args:
         args = (*args, "--password-env", PW_ENV)  # the command has no default password
     out, err = io.StringIO(), io.StringIO()
     call_command("nessie", *args, stdout=out, stderr=err)
@@ -223,12 +223,9 @@ def test_a_missing_password_variable_is_named_without_a_value(suite, monkeypatch
     assert suite == {}
 
 
-def test_password_and_password_env_are_exclusive(suite, monkeypatch, tmp_path):
-    monkeypatch.setenv(PW_ENV, SECRET)
-    with pytest.raises(CommandError, match="not both") as e:
-        _call("--tier", "route", "--password", "x", "--password-env", PW_ENV,
-              "--out", str(tmp_path))
-    assert SECRET not in str(e.value)
+def test_a_literal_password_flag_is_gone(suite, tmp_path):
+    with pytest.raises(CommandError):
+        call_command("nessie", "--tier", "route", "--password", "x", "--out", str(tmp_path))
     assert suite == {}
 
 

@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import NamedTuple
 
-from startup.lib.docker_ops import compose_exec, compose_port, DockerOpsError, MYSQL_ROOT_CMD
+from startup.lib.docker_ops import compose_exec, compose_port, DockerOpsError, MYSQL_ROOT_CMD, CYPHER_SHELL_CMD
 
 SEED_FILES: dict[str, str] = {
     "dmac": "startup/seed/dmac.sql.gz",
@@ -54,11 +54,7 @@ def neo4j_is_populated(neo4j_password: str, repo_root: Path, env: dict[str, str]
         out = compose_exec(
             service="neo4j",
             command=[
-                "cypher-shell",
-                "-u",
-                "neo4j",
-                "-p",
-                neo4j_password,
+                *CYPHER_SHELL_CMD,
                 "--format",
                 "plain",
                 "MATCH (n) RETURN count(n);",
