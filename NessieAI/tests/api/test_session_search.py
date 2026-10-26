@@ -127,7 +127,7 @@ class SearchTests(SearchBase):
     def test_hit_shape(self):
         self.chat(title="T", log=[turn(1, "ndma")])
         res = search_sessions(self.a.pk, "ndma")
-        self.assertEqual(set(res), {"query", "terms", "sources", "total", "results"})
+        self.assertEqual(set(res), {"query", "terms", "sources", "total", "results", "facets"})
         self.assertEqual(res["sources"], ["chats"])
         hit = res["results"][0]
         self.assertEqual(set(hit), {"source", "session_id", "title", "updated_at", "owner", "turn_id",
@@ -173,8 +173,8 @@ class SearchTests(SearchBase):
         with self.assertRaises(TypeError):
             search_sessions(None, "ndma")
 
-    def test_sources_registry_has_only_chats(self):
-        self.assertEqual(set(SOURCES), {"chats"})
+    def test_sources_registry(self):
+        self.assertEqual(set(SOURCES), {"chats", "records", "steps"})
 
     def test_empty_terms_return_nothing(self):
         self.chat(title="anything", log=[turn(1, "q")])
@@ -224,3 +224,104 @@ class SpilledSearchTests(SearchBase):
         with self.assertLogs("nextseek_api.assistant.spill", level="ERROR"):
             res = search_sessions(self.a.pk, "zebrafish")
         self.assertEqual(self.ids(res), [str(cs.session_id)])
+
+
+class Part2SearchTests(SearchBase):
+    """Records and agent steps, through the index the turn's end writes (NessieAI/ns/chat_search_index.py)."""
+
+    def indexed(self, user=None, title=None, log=None, history=None, transcripts=()):
+        from NessieAI.cc.cc_transcript_store import compress
+        from NessieAI.ns.chat_search_index import index_chat
+        from nextseek_api.assistant.models_db import CCSessionTranscript
+        cs = ChatSession.objects.create(user=user or self.a, title=title, extra_state={"chat_log": log or []},
+                                        results_history=history or [])
+        for run_id, raw in transcripts:
+            CCSessionTranscript.objects.create(chat_session=cs, cc_session_id="s", turn_id=run_id, blob=compress(raw))
+        index_chat(cs)
+        return cs
+
+    def steps(self, text, command):
+        import json
+        return json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "text", "text": text}, {"type": "tool_use", "name": "Bash", "input": {"command": command}}]}}).encode()
+
+    def test_a_record_id_finds_the_chat_that_showed_it(self):
+        hit = self.indexed(log=[turn(1, "q", "ok") | {"bundle_id": 1}],
+                           history=[{"id": 1, "graph_result": ["TIS-220831FLY-26", "TIS-220831FLY-27"]}])
+        self.indexed(log=[turn(1, "q", "MUS-220101ABC-1")])
+        res = search_sessions(self.a.pk, "tis-220831fly-26", sources=["chats", "records"])
+        self.assertEqual(self.ids(res), [str(hit.session_id)])
+        r = res["results"][0]
+        self.assertEqual((r["source"], r["matched_in"], r["turn_id"]), ("record", "record", 1))
+        self.assertIn("TIS-220831FLY-26", r["snippet"])
+
+    def test_record_snippet_says_how_many_more(self):
+        uids = [f"TIS-220831FLY-{i}" for i in range(10)]
+        self.indexed(log=[turn(1, "q", "ok") | {"bundle_id": 1}], history=[{"id": 1, "graph_result": uids}])
+        snip = search_sessions(self.a.pk, "tis", sources=["records"])["results"][0]["snippet"]
+        self.assertEqual(snip, "TIS-220831FLY-0, TIS-220831FLY-1, TIS-220831FLY-2 and 7 more")
+
+    def test_record_snippet_says_when_results_were_capped(self):
+        from NessieAI.ns.chat_search_index import RESULT_CAP
+        uids = [f"TIS-220831FLY-{i}" for i in range(RESULT_CAP + 20)]
+        self.indexed(log=[turn(1, "q", "ok") | {"bundle_id": 1}], history=[{"id": 1, "graph_result": uids}])
+        snip = search_sessions(self.a.pk, "tis", sources=["records"])["results"][0]["snippet"]
+        self.assertTrue(snip.endswith(f"(first {RESULT_CAP} of {RESULT_CAP + 20} results searched)"), snip)
+
+    def test_steps_only_when_asked(self):
+        cs = self.indexed(log=[{"turn_id": 1, "user_query": "analyze", "assistant_reply": "Done.", "cc_run_id": "r1"}],
+                          transcripts=[("r1", self.steps("Reading the graph schema.", "nextseek-graph-schema"))])
+        self.assertEqual(search_sessions(self.a.pk, "schema", sources=["chats", "records"])["results"], [])
+        res = search_sessions(self.a.pk, "schema", sources=["chats", "records", "steps"])
+        self.assertEqual(self.ids(res), [str(cs.session_id)])
+        self.assertEqual((res["results"][0]["source"], res["results"][0]["matched_in"]), ("steps", "steps"))
+
+    def test_merge_keeps_the_best_tier_and_adds_counts(self):
+        cs = self.indexed(title="Schema chat",
+                          log=[{"turn_id": 1, "user_query": "analyze", "assistant_reply": "Done.", "cc_run_id": "r1"}],
+                          transcripts=[("r1", self.steps("graph schema read", "nextseek-graph-schema"))])
+        res = search_sessions(self.a.pk, "schema", sources=["chats", "steps"])
+        self.assertEqual(res["total"], 1)
+        r = res["results"][0]
+        self.assertEqual((str(r["session_id"]), r["matched_in"], r["match_count"]), (str(cs.session_id), "title", 1))
+
+    def test_tiers_answer_above_record_above_steps(self):
+        steps = self.indexed(log=[{"turn_id": 1, "user_query": "q", "assistant_reply": "a", "cc_run_id": "r1"}],
+                             transcripts=[("r1", self.steps("NHP work", "x"))])
+        rec = self.indexed(log=[turn(1, "q", "ok") | {"bundle_id": 1}], history=[{"id": 1, "graph_result": "NHP-220630FLY-9"}])
+        ans = self.indexed(log=[turn(1, "q", "the NHP answer")])
+        res = search_sessions(self.a.pk, "nhp", sources=["chats", "records", "steps"])
+        self.assertEqual(self.ids(res), [str(ans.session_id), str(rec.session_id), str(steps.session_id)])
+
+    def test_filters_narrow_and_need_no_words(self):
+        tis = self.indexed(log=[turn(1, "liver", "TIS-220831FLY-26") | {"key_entities": {"projects": ["GBM"]}}])
+        mus = self.indexed(log=[turn(1, "liver", "MUS-220101ABC-1") | {"key_entities": {"projects": ["IMPACT"]}}])
+        self.assertEqual(self.ids(search_sessions(self.a.pk, "liver", sources=["chats", "records"], record_type="TIS")),
+                         [str(tis.session_id)])
+        self.assertEqual(self.ids(search_sessions(self.a.pk, "", sources=["chats", "records"], project="IMPACT")),
+                         [str(mus.session_id)])
+        self.assertEqual(self.ids(search_sessions(self.a.pk, "", sources=["records"], record_type="TIS",
+                                                  where="answer")), [str(tis.session_id)])
+        self.assertEqual(search_sessions(self.a.pk, "", sources=["records"], record_type="TIS", where="result")["results"],
+                         [])
+
+    def test_filter_only_scoped(self):
+        self.indexed(user=self.b, log=[turn(1, "q", "TIS-220831FLY-26")])
+        self.assertEqual(search_sessions(self.a.pk, "", sources=["records"], record_type="TIS")["results"], [])
+        self.assertEqual(len(search_sessions(self.a.pk, "", sources=["records"], record_type="TIS",
+                                             all_users=True)["results"]), 1)
+
+    def test_facets_count_chats_and_equal_direct_counts(self):
+        self.indexed(log=[turn(1, "q", "TIS-220831FLY-26 TIS-220831FLY-27") | {"key_entities": {"projects": ["GBM"]}}])
+        self.indexed(log=[turn(1, "q", "TIS-220831FLY-28 MUS-220101ABC-1")])
+        self.indexed(user=self.b, log=[turn(1, "q", "TIS-220831FLY-29")])
+        res = search_sessions(self.a.pk, "", sources=["records"], facets_only=True)
+        self.assertEqual(res["results"], [])
+        self.assertEqual(res["facets"], {"record_type": {"TIS": 2, "MUS": 1}, "project": {"GBM": 1},
+                                         "where": {"answer": 2}})
+
+    def test_facets_follow_the_matches(self):
+        self.indexed(log=[turn(1, "liver", "TIS-220831FLY-26")])
+        self.indexed(log=[turn(1, "brain", "MUS-220101ABC-1")])
+        self.assertEqual(search_sessions(self.a.pk, "liver", sources=["chats", "records"])["facets"]["record_type"],
+                         {"TIS": 1})

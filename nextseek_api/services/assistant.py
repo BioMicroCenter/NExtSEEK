@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import queue
+import re
 import threading  # noqa: F401  (tests patch threading.Thread through this module)
 import time
 import uuid
@@ -598,11 +599,12 @@ class AssistantViewSet(viewsets.ViewSet):
         description=ASSISTANT_SESSIONS_SEARCH_DESC,
         responses={200: SessionSearchResponse},
         examples=[OpenApiExample(name="Search my chats", response_only=True, value={
-            "query": "ndma liver", "terms": ["ndma", "liver"], "sources": ["chats"], "total": 1,
+            "query": "ndma liver", "terms": ["ndma", "liver"], "sources": ["chats", "records"], "total": 1,
             "results": [{"source": "chat", "session_id": "abc12345-def6-7890-abcd-ef1234567890",
                          "title": "NDMA mice", "updated_at": "2026-10-21T14:02:11Z", "owner": None, "turn_id": 3,
                          "matched_in": "question", "snippet": "find mice treated with NDMA in the liver",
-                         "match_count": 2}]})],
+                         "match_count": 2}],
+            "facets": {"record_type": {"MUS": 1}, "project": {"MetNet": 1}, "where": {"result": 1}}})],
     )
     @action(detail=False, methods=["get"], url_path="sessions/search")
     def search_sessions(self, request):
@@ -611,11 +613,24 @@ class AssistantViewSet(viewsets.ViewSet):
             return err
 
         params = request.query_params
+        def invalid(detail):
+            return _error_response("Validation error", detail, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        record_type = params.get("record_type") or None
+        project = params.get("project") or None
+        where = params.get("where") or None
+        facets_only = params.get("facets_only") in ("1", "true")
+        if record_type and not re.fullmatch(r"[A-Z][A-Z.]{0,15}", record_type):
+            return invalid("Parameter 'record_type' must be a type code such as TIS or D.SEQ.")
+        if project and len(project) > 64:
+            return invalid("Parameter 'project' must be at most 64 characters.")
+        if where and where not in session_search.WHERE:
+            return invalid(f"Parameter 'where' accepts: {', '.join(session_search.WHERE)}.")
         q = (params.get("q") or "").strip()
-        if not 2 <= len(q) <= 200:
-            return _error_response("Validation error", "Parameter 'q' must be 2 to 200 characters.",
-                                   status.HTTP_422_UNPROCESSABLE_ENTITY)
-        sources = [s.strip() for s in (params.get("sources") or "chats").split(",") if s.strip()]
+        words_optional = facets_only or bool(record_type or project or where)
+        if len(q) > 200 or (len(q) < 2 and not (words_optional and not q)):
+            return invalid("Parameter 'q' must be 2 to 200 characters (it may be empty with a record filter).")
+        sources = [s.strip() for s in (params.get("sources") or "chats,records").split(",") if s.strip()]
         if not sources or any(s not in session_search.SOURCES for s in sources):
             return _error_response("Validation error",
                                    f"Parameter 'sources' accepts: {', '.join(sorted(session_search.SOURCES))}.",
@@ -633,8 +648,9 @@ class AssistantViewSet(viewsets.ViewSet):
         except ValueError:
             limit = 20
 
-        result = session_search.search_sessions(request.user.pk, q, all_users=all_users, sources=sources,
-                                                since_days=int(since) if since else None, limit=limit)
+        result = session_search.search_sessions(
+            request.user.pk, q, all_users=all_users, sources=sources, since_days=int(since) if since else None,
+            limit=limit, record_type=record_type, project=project, where=where, facets_only=facets_only)
         return Response(SessionSearchResponse.model_validate(result).model_dump(mode="json"),
                         status=status.HTTP_200_OK)
 

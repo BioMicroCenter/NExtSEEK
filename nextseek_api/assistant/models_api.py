@@ -94,14 +94,16 @@ class SessionListResponse(BaseModel):
 
 class SessionSearchHit(BaseModel):
     """One chat that matched, in GET /assistant/sessions/search/."""
-    source: Literal["chat"] = Field(..., description="Where the hit came from; later sources add their own value")
+    source: Literal["chat", "record", "steps"] = Field(
+        ..., description="Where the best match came from: the chat's words, a record it showed, or its agent steps")
     session_id: UUID
     title: str = Field(..., description="Display title; 'New chat' when no title is set")
     updated_at: datetime
     owner: Optional[str] = Field(None, description="The chat's owner, only on an all_users search")
     turn_id: Optional[int] = Field(None, description="The turn to open the chat at; null opens it at the top")
-    matched_in: Literal["title", "question", "answer"]
-    snippet: str = Field("", description="Plain text around the first match, at most 162 characters")
+    matched_in: Literal["title", "question", "answer", "record", "steps"]
+    snippet: str = Field("", description=(
+        "Plain text around the first match (at most 162 characters), or for a record hit the matching IDs"))
     match_count: int = Field(..., description="How many turns of the chat matched")
 
     model_config = ConfigDict(extra="forbid")
@@ -114,6 +116,8 @@ class SessionSearchResponse(BaseModel):
     sources: List[str]
     total: int = Field(..., description="Every matching chat, before the limit")
     results: List[SessionSearchHit]
+    facets: Dict[str, Dict[str, int]] = Field(..., description=(
+        "For record_type, project and where: each value and how many of the matching chats it would keep"))
 
     model_config = ConfigDict(extra="forbid")
 

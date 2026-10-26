@@ -370,7 +370,7 @@ class SearchSessionsTests(SessionEndpointsTestBase):
         resp = self.client.get(self.URL, {"q": "ndma"})
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
-        self.assertEqual(set(body), {"query", "terms", "sources", "total", "results"})
+        self.assertEqual(set(body), {"query", "terms", "sources", "total", "results", "facets"})
         self.assertEqual(body["terms"], ["ndma"])
         hit = body["results"][0]
         self.assertEqual(set(hit), {"source", "session_id", "title", "updated_at", "owner", "turn_id",
@@ -422,3 +422,40 @@ class SearchSessionsTests(SessionEndpointsTestBase):
         resp = self.client.get(self.URL, {"q": "ndma"})
         self.assertEqual(resp.status_code, 200)
         self.assertIn("results", resp.json())
+
+
+class SearchSessionsPart2Tests(SessionEndpointsTestBase):
+    URL = "/nextseek_api/assistant/sessions/search/"
+
+    def setUp(self):
+        super().setUp()
+        from NessieAI.ns.chat_search_index import index_chat
+        self.cs = ChatSession.objects.create(user=self.user, extra_state={"chat_log": [
+            {"turn_id": 1, "user_query": "liver", "assistant_reply": "TIS-220831FLY-26",
+             "key_entities": {"projects": ["GBM"]}}]})
+        index_chat(self.cs)
+
+    def test_records_searched_by_default_and_facets_returned(self):
+        body = self.client.get(self.URL, {"q": "tis-220831fly-26"}).json()
+        self.assertEqual(body["sources"], ["chats", "records"])
+        # The ID is in the answer's words too, and the chat's words outrank a record.
+        self.assertEqual((body["results"][0]["source"], body["results"][0]["matched_in"]), ("chat", "answer"))
+        self.assertEqual(body["facets"]["record_type"], {"TIS": 1})
+
+    def test_steps_accepted(self):
+        self.assertEqual(self.client.get(self.URL, {"q": "liver", "sources": "chats,records,steps"}).status_code, 200)
+
+    def test_filter_needs_no_words(self):
+        body = self.client.get(self.URL, {"record_type": "TIS", "project": "GBM", "where": "answer"}).json()
+        self.assertEqual([r["session_id"] for r in body["results"]], [str(self.cs.session_id)])
+
+    def test_facets_only(self):
+        body = self.client.get(self.URL, {"facets_only": "1"}).json()
+        self.assertEqual((body["results"], body["facets"]["project"]), ([], {"GBM": 1}))
+
+    def test_bad_filters_422(self):
+        for params in ({"record_type": "TIS;drop"}, {"where": "nowhere"}, {"project": "x" * 65}, {"q": ""}):
+            self.assertEqual(self.client.get(self.URL, params).status_code, 422, params)
+
+    def test_facets_only_all_users_403_for_member(self):
+        self.assertEqual(self.client.get(self.URL, {"facets_only": "1", "all_users": "1"}).status_code, 403)
