@@ -127,6 +127,9 @@ When the user mentions a type of data existing ("has sequencing data", "with ima
 - flow cytometry data → D.FLOW
 Emit D.* alongside any assays you also identify — both can coexist in the output.
 Downstream agents decide which to use.
+One exception: when the question is scoped to an investigation whose PROJECTS CATALOG
+description says it holds no D.* record of that kind, emit the type the description names
+instead (TCGA: "sequencing data" → A.ALN, not D.SEQ).
 
 If the user qualified the data as ANALYZED / ANALYSIS / PROCESSED ("analyzed sequencing
 data", "processed imaging results"), emit the A.* analysis types for that modality
@@ -253,7 +256,8 @@ FINAL SELF-CHECK (MANDATORY)
 --------------------------------------------------
 Before returning, verify each of the following:
 1. Did I normalize all plurals/verb forms before catalog matching?
-2. If the user mentioned data existing ("has sequencing data"), did I emit the D.* sampletype?
+2. If the user mentioned data existing ("has sequencing data"), did I emit the D.* sampletype,
+   or the type a scoped investigation's description names in its place?
 3. If the user mentioned a process or named an assay, did I emit the assay too?
 4. Did any assay I emitted match the assay's NAME, not just incidental description text?
 5. Did I apply the DOMAIN CONVENTIONS section correctly (PBMC→TIS, T cell→CEL, etc.)?
