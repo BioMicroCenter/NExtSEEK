@@ -1,5 +1,6 @@
 """Batch upload: a workbook that inflates past the caps is refused before any parse; saved names are unique (SEC-H12, SEC-H37)."""
 import io
+import struct
 import zipfile
 from unittest.mock import MagicMock, patch
 
@@ -8,6 +9,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from nextseek_api.batch_upload.views import BatchUploadViewSet, _save_uploaded_file
+from nextseek_api.batch_upload import xlsx_guard
 from nextseek_api.batch_upload.xlsx_guard import XlsxExpansionError, check_xlsx_expansion
 
 
@@ -28,17 +30,46 @@ def test_small_workbook_passes_and_stream_is_rewound():
 
 def test_one_huge_member_is_refused():
     with pytest.raises(XlsxExpansionError):
-        check_xlsx_expansion(_zip(120 * 1024 * 1024))
+        check_xlsx_expansion(_zip(30 * 1024 * 1024))
 
 
 def test_many_members_over_the_total_are_refused():
     with pytest.raises(XlsxExpansionError):
-        check_xlsx_expansion(_zip(60 * 1024 * 1024, count=4))
+        check_xlsx_expansion(_zip(20 * 1024 * 1024, count=3))
 
 
 def test_high_ratio_inflation_is_refused():
     with pytest.raises(XlsxExpansionError):
-        check_xlsx_expansion(_zip(40 * 1024 * 1024))
+        check_xlsx_expansion(_zip(20 * 1024 * 1024))
+
+
+def _lying_zip(real_bytes):
+    """A zip whose central directory states a tiny uncompressed size for a member that really inflates to real_bytes."""
+    raw = _zip(real_bytes).getvalue()
+    at = raw.index(b"PK\x01\x02")
+    patched = raw[:at + 24] + struct.pack("<I", 100) + raw[at + 28:]  # file_size field
+    return io.BytesIO(patched)
+
+
+def test_a_declared_size_smaller_than_the_real_content_is_refused(monkeypatch):
+    monkeypatch.setattr(xlsx_guard, "MAX_MEMBER_BYTES", 1024 * 1024)
+    with pytest.raises(XlsxExpansionError):
+        check_xlsx_expansion(_lying_zip(3 * 1024 * 1024))
+
+
+def test_an_unsupported_compression_method_is_refused():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_BZIP2) as z:
+        z.writestr("a.xml", b"x" * 100)
+    with pytest.raises(XlsxExpansionError):
+        check_xlsx_expansion(buf)
+
+
+def test_a_corrupt_member_is_a_refusal_not_a_crash():
+    raw = bytearray(_zip(50_000).getvalue())
+    raw[40:60] = b"\xff" * 20  # inside the deflate stream
+    with pytest.raises(XlsxExpansionError):
+        check_xlsx_expansion(io.BytesIO(bytes(raw)))
 
 
 def test_non_zip_passes_to_the_parser_to_refuse():
