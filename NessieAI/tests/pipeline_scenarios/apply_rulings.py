@@ -4,7 +4,7 @@
 
 <rulings.json> maps story id to {"state": "accepted"} or {"state": "changed", "note": str,
 "set": {field: value}}; Claude writes it from the review page's store. Unknown ids raise;
-"set" may change any field except id, family and ruling.
+"set" may change any story field except id, family and ruling; any other key raises.
 """
 from __future__ import annotations
 
@@ -12,9 +12,10 @@ import json
 import sys
 from pathlib import Path
 
-from NessieAI.tests.pipeline_scenarios.stories import STORIES_DIR
+from NessieAI.tests.pipeline_scenarios.stories import STORIES_DIR, Story
 
 _FROZEN = {"id", "family", "ruling"}
+_FIELDS = set(Story.__dataclass_fields__)
 
 
 def apply_rulings(rulings: dict[str, dict], today: str, directory: Path = STORIES_DIR) -> list[str]:
@@ -30,6 +31,9 @@ def apply_rulings(rulings: dict[str, dict], today: str, directory: Path = STORIE
         bad = set(ruling.get("set") or {}) & _FROZEN
         if bad:
             raise ValueError(f"{story_id}: cannot set {sorted(bad)}")
+        unknown_fields = set(ruling.get("set") or {}) - _FIELDS
+        if unknown_fields:
+            raise ValueError(f"{story_id}: {sorted(unknown_fields)} is not a story field")
         path, index = where[story_id]
         row = files[path]["stories"][index]
         row.update(ruling.get("set") or {})

@@ -35,3 +35,5 @@ def test_an_unknown_id_or_field_is_refused(tmp_path):
         ar.apply_rulings({"zz": {"state": "accepted"}}, "2026-10-30", directory=d)
     with pytest.raises(ValueError):
         ar.apply_rulings({"a": {"state": "changed", "set": {"id": "x"}}}, "2026-10-30", directory=d)
+    with pytest.raises(ValueError, match="must_nots"):
+        ar.apply_rulings({"a": {"state": "changed", "set": {"must_nots": ["rnaseq"]}}}, "2026-10-30", directory=d)
