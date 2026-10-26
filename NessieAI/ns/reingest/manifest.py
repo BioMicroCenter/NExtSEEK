@@ -118,6 +118,14 @@ class RunManifest(BaseModel):
     # source of truth; `software_versions` above is the flat convenience view.
     software_versions_by_process: dict[str, dict[str, str]] = Field(default_factory=dict)
     samples: list[SampleRecord] = Field(default_factory=list)
+    # {group: [its replicates' nfcore_sample, samplesheet order]}, filled only for a
+    # map with `replicate_samples` (atacseq, chipseq): each sample record is then one
+    # biological replicate, `<sample>_REP<replicate>`, and the group is the
+    # samplesheet's own `sample`. A file named after the group (atacseq's merged
+    # replicates, `<sample>.mRp.*`) carries the group as its `OutputRecord.sample`,
+    # and the mapper registers it once for the group, parented by every replicate.
+    # Empty for every other pipeline, whose samples stay keyed by `sample`.
+    replicate_groups: dict[str, list[str]] = Field(default_factory=dict)
     # `outputs` is the INVENTORY: one entry per candidate output file found by
     # matching inventory_globs() against a remote listing (see harvest.py) --
     # never the file's content, just its path and real size. The next reingest

@@ -3,6 +3,7 @@
   "pipeline": "nf-core/atacseq",
   "applies_to_versions": ">=2.1,<2.2",
   "accepts_parent_types": ["D.SEQ"],
+  "replicate_samples": true,
   "inventory_globs": [
     "**/*.mRp.clN_peaks.narrowPeak",
     "**/*.mLb.clN_peaks.narrowPeak",

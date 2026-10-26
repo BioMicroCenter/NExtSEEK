@@ -80,6 +80,7 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
   re-proposes the same key on every run and the review queue fills with noise.
 - `qc_row_suffixes` — MultiQC rows named `<sample><suffix>` (sarek: `.recal`, `.md`) whose columns join that sample's metrics, best first; a column already held is kept. Folded columns no rule or `qc_attributes` entry claims go to the QC review queue unless a `deliberately_unmapped` ruling rules them out.
   methylseq folds `_1_val_1`: MultiQC 1.32's default name cleaning cuts a Bismark report's name at `_bismark`, so a paired-end sample's Bismark rows are named after Trim Galore's read-1 file, `<sample>_1_val_1` (single-end rows are `<sample>`). With `--skip_trimming` they are named after the input FASTQ instead (for example `<sample>_R1`), which no fixed suffix catches, so those rows are not folded. Unverified until a real run.
+- `replicate_samples` — when true, a samplesheet `replicate` column splits each `sample` into one sample per biological replicate, `<sample>_REP<replicate>`, the id nf-core/atacseq and nf-core/chipseq give each replicate's files, each with its own D.SEQ parent (and its own QC backfill). Rows sharing both `sample` and `replicate` are lanes of one library and stay one multi-run sample. The samplesheet's `sample` becomes the replicate group (`RunManifest.replicate_groups`): a file named after the group (atacseq's merged replicates, `<sample>.mRp.*`) gets one row for the group, parented by every replicate, when its candidate comes no later than any replicate's, and the replicates' files for that rule become its losing candidates. Off by default: a `replicate` column in another pipeline's samplesheet is sample metadata. The launch record is matched per replicate by the samplesheet `sample` and `fastq_1`.
 - `claims_every_file` — when true, the fixture contract test requires every file of a run to be a rule's candidate or companion, or to match `unmapped_files`.
 - `unmapped_files` — globs of run files no rule registers on purpose, each with a `why`. The mapper drops a matching file before any rule sees it, so a ruled-out file is never a rule's candidate or companion, and with `claims_every_file` set the fixture test counts it as claimed. Matching is `fnmatch` over brace-expanded globs, and `*` crosses `/`.
 
@@ -206,9 +207,8 @@ What blocks each row:
 
 | Pipeline | Output | Type | Blocked by |
 |---|---|---|---|
-| atacseq | the per-replicate files of a sample with several replicates: `<ALIGNER>/merged_library/<sample>_REP<n>.mLb.clN.sorted.bam`, its peaks and its bigWig | A.ALN, A.CHRM | choice: harvest makes one sample per samplesheet `sample`, so a sample's replicates share one row. The map registers the merged-replicate file, parented by every replicate; the per-replicate files lose to it and reach only the build report. With `--skip_merge_replicates` the first replicate's file wins, and its row is still parented by every replicate |
+| atacseq | the per-replicate files of a sample whose replicates were merged: `<ALIGNER>/merged_library/<sample>_REP<n>.mLb.clN.sorted.bam`, its peaks and its bigWig | A.ALN, A.CHRM | choice: whether to register replicate-level files beside the merged-replicate ones. Today the sample's merged-replicate file wins (G-4) and is registered once for the group, parented by every replicate; the replicates' files are its losing candidates, so they reach its companions or the build report. Rows of their own would need separate rules. A sample with one replicate, or a run with `--skip_merge_replicates`, registers each replicate's own files, parented by its own D.SEQ (`replicate_samples`) |
 | atacseq | `<ALIGNER>/merged_replicate/macs2/<PEAK_TYPE>/consensus/consensus_peaks.mRp.clN.bed` and its `featureCounts.txt` (the consensus over the merged-replicate peaks) | A.CHRM | inventory, choice: a second consensus set beside the merged-library one, which the map registers |
-| chipseq | the per-replicate files of an antibody or control sample with several replicates (`<sample>_REP<n>`: BAM, peaks, bigWig) | A.ALN, A.CHRM | choice: as for atacseq, but chipseq has no merged-replicate step, so the first replicate's file is the row's file and the row is parented by every replicate's D.SEQ, a wrong lineage, until harvest names samples per replicate |
 | chipseq | `<ALIGNER>/merged_library/macs3/<PEAK_TYPE>/consensus/<ANTIBODY>/<ANTIBODY>.consensus_peaks.bed` and its `featureCounts.txt`, one per antibody | A.CHRM | inventory, parent: a `per_file` row is parented by every sample of the run, controls and other antibodies' samples included |
 | chipseq | the antibody each peak row was called for | A.CHRM | type: A.CHRM has no Name or antibody field, and harvest reads no `antibody` column |
 | denovotranscript | `evigene/okayset/all_assembled.okay.mrna` (the final assembly, FASTA) | none | type, inventory |
@@ -286,6 +286,10 @@ release's run fixture lands, with its entry in `DOC_ONLY`.
 |---|---|---|---|
 | atacseq | 2.1.2 | pinned docs/output.md only; unverified until a real run | none from general stats: the release's `assets/multiqc_config.yml` sets `exclude_modules: general_stats`, which MultiQC 1.13 reads as `skip_generalstats`, so no `multiqc_general_stats.txt` is written. D.SEQ gets only `Link_QC` and `Genome` |
 | chipseq | 2.1.0 | pinned docs/output.md only; unverified until a real run | none from general stats, as for atacseq (MultiQC 1.23 reads the same setting the same way) |
+
+Both maps set `replicate_samples`, so each replicate's own D.SEQ takes the QC backfill
+(`Link_QC`, `Genome`); only lanes of one replicate, a multi-run sample, get none
+(`mapper._NO_BACKFILL`), as in every pipeline.
 
 A.CHRM has no `File_SecondaryData` or `Notes`, so a companion of an A.CHRM row
 (atacseq's consensus `featureCounts.txt`, a losing peak or bigWig candidate) reaches

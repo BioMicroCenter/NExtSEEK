@@ -57,6 +57,35 @@ from NessieAI.ns.reingest import manifest
 # (bam, cram) and rnavar (vcf) were reviewed.
 _PATH_COLUMNS: tuple[str, ...] = ("fastq_1", "fastq_2", "spring_1", "spring_2", "bam", "cram", "vcf")
 
+#: The samplesheet's own `sample` value, kept on a row `key_by_replicate` renamed.
+#: The launch record's cohort names a row by it (Nessie writes the samplesheet's
+#: `sample`), so a replicate row is matched there by this and its `fastq_1`.
+SAMPLESHEET_SAMPLE = "_samplesheet_sample"
+
+
+def key_by_replicate(rows: list[dict]) -> tuple[list[dict], dict[str, list[str]]]:
+    """Rows renamed to one sample per biological replicate, and the replicate groups.
+
+    nf-core/atacseq and nf-core/chipseq repeat `sample` across replicates and name each
+    replicate's files `<sample>_REP<replicate>` (their bin/check_samplesheet.py: spaces in
+    `sample` become "_", `replicate` must be an integer). Rows sharing both `sample` and
+    `replicate` are lanes of one library and keep one shared name, so `resolve` still
+    treats them as one multi-run sample. Returns ``(rows, {})`` unchanged when any row
+    lacks an integer `replicate`: nothing is renamed on a guess.
+    """
+    if not rows or not all(str(r.get("replicate") or "").strip().isdecimal() for r in rows):
+        return rows, {}
+    keyed: list[dict] = []
+    groups: dict[str, list[str]] = {}
+    for row in rows:
+        group = str(row.get("sample") or "")
+        name = f"{group.replace(' ', '_')}_REP{int(str(row['replicate']).strip())}"
+        keyed.append({**row, "sample": name, SAMPLESHEET_SAMPLE: group})
+        members = groups.setdefault(group.replace(" ", "_"), [])
+        if name not in members:
+            members.append(name)
+    return keyed, groups
+
 
 def resolve(
     samplesheet_rows: list[dict],
@@ -124,6 +153,14 @@ def resolve(
             else:
                 out.append((sample, None, manifest.RESOLUTION_UNRESOLVED, ()))
             continue
+        if record is not None and row.get(SAMPLESHEET_SAMPLE) is not None:
+            # A replicate row (key_by_replicate): the cohort names it by the
+            # samplesheet's `sample`, which its other replicates share, so the
+            # entry is told apart by this row's own fastq_1.
+            found = _cohort_entry_uid(row, sample, record)
+            if found is not None:
+                out.append((sample, *found, ()))
+                continue
         uid, resolution = _resolve_row_path(row, lookup_by_fastq)
         out.append((sample, uid, resolution, ()))
     return out
@@ -209,16 +246,37 @@ def _resolve_multirun_row(
     `fastq_1`/`fastq_2` identity only -- it can never confirm or refute a
     `bam`/`cram`/`vcf` row's parent, launched by Nessie or not.
     """
-    fastq = str(row.get("fastq_1") or "")
-    if record is not None and fastq:
-        entries = [entry for entry in (record.cohort or [])
-                   if entry.get("nfcore_sample") == sample
-                   and entry.get("fastq_1") == fastq]
-        if entries:
-            uids = {entry.get("d_seq_uid") for entry in entries if entry.get("d_seq_uid")}
-            return next(iter(uids)) if len(uids) == 1 else None
+    found = _cohort_entry_uid(row, sample, record)
+    if found is not None:
+        return found[0]
     uid, _resolution = _resolve_row_path(row, lookup_by_fastq)
     return uid
+
+
+def _cohort_entry_uid(row: dict, sample: str, record) -> tuple[str | None, str] | None:
+    """The launch record's answer for one row, matched on ``(nfcore_sample, fastq_1)``:
+    ``(uid, resolution)``, or None when no cohort entry names the pair (try the path).
+
+    The name matched is the row's own `sample`, or, on a replicate row
+    (`key_by_replicate`), the samplesheet's `sample` the cohort recorded. An entry
+    with no UID is authoritative: the launch found nothing in NExtSEEK for the row,
+    so it is unresolved, never retried by path. Entries for the pair naming two
+    different UIDs are ambiguous.
+    """
+    fastq = str(row.get("fastq_1") or "")
+    if record is None or not fastq:
+        return None
+    names = {sample, str(row.get(SAMPLESHEET_SAMPLE) or sample)}
+    entries = [entry for entry in (record.cohort or [])
+               if entry.get("nfcore_sample") in names and entry.get("fastq_1") == fastq]
+    if not entries:
+        return None
+    uids = {entry.get("d_seq_uid") for entry in entries if entry.get("d_seq_uid")}
+    if len(uids) == 1:
+        return next(iter(uids)), manifest.RESOLUTION_LAUNCH_RECORD
+    if not uids:
+        return None, manifest.RESOLUTION_UNRESOLVED
+    return None, manifest.RESOLUTION_AMBIGUOUS
 
 
 def _resolve_row_path(

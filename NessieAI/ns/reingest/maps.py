@@ -271,6 +271,13 @@ class PipelineMap(BaseModel):
     #: candidate or companion, or to match an `unmapped_files` glob.
     claims_every_file: bool = False
     unmapped_files: list[UnmappedFiles] = Field(default_factory=list)
+    #: When true, a samplesheet `replicate` column splits each `sample` into one sample per
+    #: biological replicate, `<sample>_REP<replicate>` (the id nf-core/atacseq and
+    #: nf-core/chipseq give each replicate's files), with the samplesheet's `sample` kept
+    #: as the replicate group (`RunManifest.replicate_groups`). Off for every other map:
+    #: a `replicate` column there is sample metadata, and rows sharing a `sample` stay
+    #: one multi-run sample.
+    replicate_samples: bool = False
 
     def ruled_out(self) -> set[str]:
         """Keys someone already decided not to map. Never re-proposed."""

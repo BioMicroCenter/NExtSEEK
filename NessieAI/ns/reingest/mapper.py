@@ -760,52 +760,137 @@ def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
       not all contributing rows resolved) is real and is not upgraded or
       downgraded to look like anything else; `harvest.py` records a warning
       when it happens; this layer just joins whatever it was handed.
+
+    Replicate groups (`RunManifest.replicate_groups`, a map with
+    `replicate_samples`): each sample is one replicate. For each group, a file
+    the GROUP owns (atacseq's merged replicates, `<sample>.mRp.*`) wins when its
+    candidate tier comes no later than any replicate's: the group then gets ONE
+    row for this rule, parented by every replicate, and its replicates' files
+    for the rule are that row's losing candidates (companions, G-4), never rows
+    of their own. Otherwise each replicate gets its own row from its own files,
+    exactly as any sample does. So one biological unit never registers the same
+    kind of output twice; a map that wants both writes two rules.
     """
+    groups = run_manifest.replicate_groups or {}
+    group_of = {member: group for group, members in groups.items() for member in members}
+    decided: dict[str, MappedRow | None] = {}
     rows: list[MappedRow] = []
     for sample in run_manifest.samples:
-        if sample.uid_resolution in _NO_CHILD_ROW:
-            continue
-        if (rule.optional and rule.primary_data and rule.skip_samples_without_file
-                and not any(_candidate_tiers(rule, run_manifest, sample.nfcore_sample))):
-            # The map says some samples never have this output (a tumour in a
-            # tumour/normal run gets no germline call set). A row without its
-            # data file is a hard reject that blocks the whole upload, so none
-            # is written, and the skip is logged. Every other rule still writes
-            # the fileless row: there its missing file is a real gap to show.
-            warnings.append(f"{sample.nfcore_sample}: no file for optional rule "
-                            f"{rule.id}; no row written")
-            continue
-        row = MappedRow(sample_type=rule.sample_type, nfcore_sample=sample.nfcore_sample,
-                        rule_id=rule.id)
-        row_context = {**(context or {}), "row_sample_type": rule.sample_type}
-        for attribute, ref in merged_attrs.items():
-            value = _resolve_value(ref, run_manifest, sample, row_context)
-            if value is None or value == "":
+        group = group_of.get(sample.nfcore_sample)
+        if group is not None:
+            if group not in decided:
+                members = [s for s in run_manifest.samples
+                           if group_of.get(s.nfcore_sample) == group]
+                decided[group] = _group_row(rule, merged_attrs, run_manifest, context,
+                                            warnings, group, members)
+                if decided[group] is not None:
+                    rows.append(decided[group])
+            if decided[group] is not None:
                 continue
-            row.attributes[attribute] = MappedAttribute(
-                attribute=attribute, value=value, origin=ORIGIN_MAP,
-                raw_key=ref if isinstance(ref, str) and ref.startswith("$") else "",
-                source_file=run_manifest.sources.get("params", ""))
-        _attach_checksum(row, rule, run_manifest, sample.nfcore_sample)
-        _place_companions(row, rule, run_manifest, sample.nfcore_sample, row_context,
-                          _losing_candidates(rule, run_manifest, sample.nfcore_sample),
-                          warnings)
-        _attach_links(row, run_manifest, row_context)
-        # Parent is a structural lineage field, not a mapped attribute -- set
-        # it last so no rule attribute can accidentally clobber it. A
-        # multi-run sample joins its OWN multi-parent list; a resolution in
-        # `_HAS_PARENT` sets its single `d_seq_uid` instead; an unresolved
-        # sample ships its row with no `Parent` key at all.
-        if sample.uid_resolution == manifest.RESOLUTION_MULTIRUN:
-            joined = _join_uids(sample.d_seq_uid_multirun)
-            if joined:
-                row.attributes["Parent"] = MappedAttribute(
-                    attribute="Parent", value=joined, origin=ORIGIN_MAP)
-        elif sample.uid_resolution in _HAS_PARENT and sample.d_seq_uid:
-            row.attributes["Parent"] = MappedAttribute(
-                attribute="Parent", value=sample.d_seq_uid, origin=ORIGIN_MAP)
-        rows.append(row)
+        row = _sample_row(rule, merged_attrs, run_manifest, context, warnings, sample)
+        if row is not None:
+            rows.append(row)
     return rows
+
+
+def _first_tier(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
+                sample_name: str) -> int | None:
+    """The index of the first candidate pattern that matches one of `sample_name`'s files."""
+    tiers = _candidate_tiers(rule, run_manifest, sample_name)
+    return next((i for i, tier in enumerate(tiers) if tier), None)
+
+
+def _group_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
+               run_manifest: manifest.RunManifest, context: dict | None,
+               warnings: list[str], group: str,
+               members: list[manifest.SampleRecord]) -> MappedRow | None:
+    """The replicate group's own row for this rule, or None when the group owns
+    no file that wins over its replicates' (see `_per_sample_rows`). Its parents
+    are every replicate's; its replicates' files for the rule (candidates and
+    companions) become its losing candidates, so none is dropped unseen."""
+    own = _first_tier(rule, run_manifest, group)
+    if own is None:
+        return None
+    theirs = [t for t in (_first_tier(rule, run_manifest, m.nfcore_sample) for m in members)
+              if t is not None]
+    if theirs and min(theirs) < own:
+        return None
+    parents: list[str] = []
+    unresolved: list[str] = []
+    for member in members:
+        if member.uid_resolution in _HAS_PARENT and member.d_seq_uid:
+            parents.append(member.d_seq_uid)
+        elif member.uid_resolution == manifest.RESOLUTION_MULTIRUN and member.d_seq_uid_multirun:
+            parents.extend(member.d_seq_uid_multirun)
+        else:
+            unresolved.append(member.nfcore_sample)
+    if unresolved:
+        warnings.append(f"{group}: replicate(s) {', '.join(unresolved)} resolved to no "
+                        f"D.SEQ; the group's {rule.id} row names only the others as Parent")
+    first = members[0]
+    stand_in = manifest.SampleRecord(
+        nfcore_sample=group, fastq_1=first.fastq_1, fastq_2=first.fastq_2,
+        uid_resolution=manifest.RESOLUTION_MULTIRUN, d_seq_uid_multirun=parents,
+        parent_sample_type=first.parent_sample_type)
+    lost: list[manifest.OutputRecord] = []
+    for member in members:
+        for tier in _candidate_tiers(rule, run_manifest, member.nfcore_sample):
+            lost.extend(tier)
+        for companion in rule.companions:
+            lost.extend(_companion_outputs(companion.glob, run_manifest,
+                                           member.nfcore_sample, context))
+    return _sample_row(rule, merged_attrs, run_manifest, context, warnings, stand_in,
+                       extra_losers=sorted(lost, key=lambda o: o.path))
+
+
+def _sample_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
+                run_manifest: manifest.RunManifest, context: dict | None,
+                warnings: list[str], sample: manifest.SampleRecord,
+                extra_losers: list[manifest.OutputRecord] = ()) -> MappedRow | None:
+    """One sample's row for a per_sample rule (see `_per_sample_rows`), or None."""
+    if sample.uid_resolution in _NO_CHILD_ROW:
+        return None
+    if (rule.optional and rule.primary_data and rule.skip_samples_without_file
+            and not any(_candidate_tiers(rule, run_manifest, sample.nfcore_sample))):
+        # The map says some samples never have this output (a tumour in a
+        # tumour/normal run gets no germline call set). A row without its
+        # data file is a hard reject that blocks the whole upload, so none
+        # is written, and the skip is logged. Every other rule still writes
+        # the fileless row: there its missing file is a real gap to show.
+        warnings.append(f"{sample.nfcore_sample}: no file for optional rule "
+                        f"{rule.id}; no row written")
+        return None
+    row = MappedRow(sample_type=rule.sample_type, nfcore_sample=sample.nfcore_sample,
+                    rule_id=rule.id)
+    row_context = {**(context or {}), "row_sample_type": rule.sample_type}
+    for attribute, ref in merged_attrs.items():
+        value = _resolve_value(ref, run_manifest, sample, row_context)
+        if value is None or value == "":
+            continue
+        row.attributes[attribute] = MappedAttribute(
+            attribute=attribute, value=value, origin=ORIGIN_MAP,
+            raw_key=ref if isinstance(ref, str) and ref.startswith("$") else "",
+            source_file=run_manifest.sources.get("params", ""))
+    _attach_checksum(row, rule, run_manifest, sample.nfcore_sample)
+    _place_companions(row, rule, run_manifest, sample.nfcore_sample, row_context,
+                      _losing_candidates(rule, run_manifest, sample.nfcore_sample)
+                      + list(extra_losers),
+                      warnings)
+    _attach_links(row, run_manifest, row_context)
+    # Parent is a structural lineage field, not a mapped attribute -- set
+    # it last so no rule attribute can accidentally clobber it. A
+    # multi-run sample joins its OWN multi-parent list; a resolution in
+    # `_HAS_PARENT` sets its single `d_seq_uid` instead; an unresolved
+    # sample ships its row with no `Parent` key at all.
+    if sample.uid_resolution == manifest.RESOLUTION_MULTIRUN:
+        joined = _join_uids(sample.d_seq_uid_multirun)
+        if joined:
+            row.attributes["Parent"] = MappedAttribute(
+                attribute="Parent", value=joined, origin=ORIGIN_MAP)
+    elif sample.uid_resolution in _HAS_PARENT and sample.d_seq_uid:
+        row.attributes["Parent"] = MappedAttribute(
+            attribute="Parent", value=sample.d_seq_uid, origin=ORIGIN_MAP)
+    return row
 
 
 def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],

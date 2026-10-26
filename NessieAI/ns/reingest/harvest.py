@@ -510,6 +510,18 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
         tuple(pipeline_map.accepts_parent_types) if pipeline_map is not None
         else ("D.SEQ",))
 
+    # A replicate-keyed map (atacseq, chipseq): one sample per biological
+    # replicate, `<sample>_REP<replicate>`, as nf-core names its files. Every
+    # other map keeps one sample per samplesheet `sample` -- see
+    # maps.PipelineMap.replicate_samples.
+    if pipeline_map is not None and pipeline_map.replicate_samples and rows:
+        rows, out.replicate_groups = uid_resolve.key_by_replicate(rows)
+        if not out.replicate_groups:
+            warnings.append(
+                f"{out.pipeline.name} names its files per replicate, but the samplesheet "
+                "has no integer `replicate` column on every row; samples are keyed by "
+                "`sample` alone, so replicates sharing a name are one multi-run sample")
+
     # `uid_resolve.resolve` keeps its original one-argument
     # Callable[[str], list[str]] contract (see its own module docstring) --
     # this closure is what "builds" the callable it actually receives,
@@ -612,7 +624,11 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     # never globbed or read here. Each entry becomes one `outputs` record,
     # attributed to a sample where derivable; `named_outputs` is then
     # resolved from that same list.
-    sample_names = [s.nfcore_sample for s in out.samples]
+    # A replicate group's own name attributes its group-level files (atacseq's
+    # merged replicates); the longest match still wins, so `<sample>_REP1.*`
+    # stays the replicate's.
+    sample_names = [s.nfcore_sample for s in out.samples] + [
+        g for g in out.replicate_groups if g not in {s.nfcore_sample for s in out.samples}]
     for entry in inventory or []:
         rel = str((entry or {}).get("path") or "")
         if not rel:
