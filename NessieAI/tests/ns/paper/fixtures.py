@@ -72,3 +72,21 @@ GEO_SAMPLES_SOFT = """^SAMPLE = GSM7000001
 !Sample_characteristics_ch1 = strain: C57BL/6
 !Sample_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRX2000002
 """
+
+ENA_RUNS = [
+    {"run_accession": "SRR3000001", "experiment_accession": "SRX2000001", "sample_accession": "SAMN1",
+     "secondary_sample_accession": "SRS1", "study_accession": "PRJNA100001", "secondary_study_accession": "SRP400001",
+     "sample_alias": "GSM7000001", "sample_title": "tumour_rep1", "experiment_title": "tumour_rep1 RNA-seq",
+     "library_strategy": "RNA-Seq", "library_layout": "PAIRED", "instrument_model": "Illumina NovaSeq 6000",
+     "scientific_name": "Mus musculus", "tax_id": "10090", "first_public": "2024-03-01",
+     "fastq_ftp": "ftp.sra.ebi.ac.uk/vol1/fastq/SRR300/001/SRR3000001/SRR3000001_1.fastq.gz;"
+                  "ftp.sra.ebi.ac.uk/vol1/fastq/SRR300/001/SRR3000001/SRR3000001_2.fastq.gz",
+     "fastq_bytes": "100;120", "fastq_md5": "aa;bb", "library_name": ""},
+    {"run_accession": "SRR3000002", "experiment_accession": "SRX2000002", "sample_accession": "SAMN2",
+     "study_accession": "PRJNA100001", "secondary_study_accession": "SRP400001", "experiment_title": "tumour_rep2 RNA-seq",
+     "first_public": "2024-03-01", "fastq_ftp": "ftp.sra.ebi.ac.uk/vol1/fastq/SRR300/002/SRR3000002/SRR3000002.fastq.gz",
+     "fastq_bytes": "90", "fastq_md5": "cc"},
+    {"run_accession": "SRR3000009", "experiment_accession": "SRX2000009", "sample_accession": "SAMN9",
+     "study_accession": "PRJNA100001", "secondary_study_accession": "SRP400001", "experiment_title": "input RNA-seq",
+     "first_public": "2024-03-01", "fastq_ftp": "", "fastq_bytes": "", "fastq_md5": ""},
+]
