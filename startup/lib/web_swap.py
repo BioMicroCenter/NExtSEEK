@@ -135,7 +135,7 @@ def _pin(run, repo_root: Path, name: str | None) -> None:
     _reload(run)
 
 
-DRAIN_MARGIN_S = 30   # web's stop_grace_period must outlast the drain by this much (gunicorn's own stop)
+DRAIN_MARGIN_S = 30   # web's stop_grace_period must outlast the drain by this much: one late poll + end_cut_turns
 
 
 def _seconds(value: str) -> int:
@@ -146,16 +146,21 @@ def _seconds(value: str) -> int:
 
 
 def drain_problem(repo_root: Path) -> str | None:
-    """A message when the NEXTSEEK_DRAIN_SECONDS set in .env (or docker/nextseek.env) is more than web's
-    stop_grace_period allows: Docker would SIGKILL web before it cuts the turns it could not finish."""
+    """A message when the NEXTSEEK_DRAIN_SECONDS set in .env is not a whole number of seconds, or is more than web's
+    stop_grace_period allows: Docker would SIGKILL web before it cuts the turns it could not finish. Only .env
+    counts: compose's environment: line for the key wins over docker/nextseek.env."""
     import yaml
     from startup.lib.env import read_env
 
     repo_root = Path(repo_root)
-    configured = {**read_env(repo_root / "docker" / "nextseek.env"), **read_env(repo_root / ".env")}.get(
-        "NEXTSEEK_DRAIN_SECONDS", "")
+    configured = read_env(repo_root / ".env").get("NEXTSEEK_DRAIN_SECONDS", "").strip()
+    if not configured:   # compose's ${NEXTSEEK_DRAIN_SECONDS:-240} reads empty as unset
+        return None
+    if not re.fullmatch(r"[0-9]+", configured):
+        return (f"NEXTSEEK_DRAIN_SECONDS={configured} is not a whole number of seconds: the entrypoint uses 240 "
+                "instead. Set a number of seconds in .env.")
     compose = repo_root / "docker-compose.yml"
-    if not configured.strip().isdigit() or not compose.exists():
+    if not compose.exists():
         return None
     grace = _seconds(((yaml.safe_load(compose.read_text()).get("services") or {}).get("web") or {})
                      .get("stop_grace_period", ""))

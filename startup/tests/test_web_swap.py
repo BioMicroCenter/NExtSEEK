@@ -289,3 +289,17 @@ def test_swap_warns_about_an_oversized_drain(repo: Path) -> None:
     warned = []
     web_swap.swap(FakeDocker(repo), repo, say=lambda m: None, warn=warned.append, sleep=lambda s: None)
     assert any("400" in w for w in warned)
+
+
+def test_a_drain_that_is_not_a_whole_number_of_seconds_is_reported(repo: Path) -> None:
+    for bad in ("4m", "300.5"):
+        _grace_repo(repo, bad)
+        msg = web_swap.drain_problem(repo)
+        assert msg and f"={bad} " in msg and "240" in msg
+
+
+def test_only_dot_env_sets_the_drain(repo: Path) -> None:
+    """compose's environment: line for it wins over env_file, so docker/nextseek.env never reaches web."""
+    _grace_repo(repo, None)
+    (repo / "docker" / "nextseek.env").write_text("NEXTSEEK_DRAIN_SECONDS=400\n")
+    assert web_swap.drain_problem(repo) is None

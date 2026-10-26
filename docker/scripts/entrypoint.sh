@@ -122,9 +122,16 @@ if [ "$MODE" = "web" ]; then
   }
   _drain_and_stop() {
     touch "$_turn_dir/.draining"
-    # web's stop_grace_period (300 s) minus 30 s: a longer drain is SIGKILLed before end_cut_turns runs.
+    # web's stop_grace_period (300 s) minus 30 s. The drain ends up to one poll late, then end_cut_turns pays a Django
+    # start; the margin covers both, so the cut messages are written before Docker's SIGKILL. The server's own stop
+    # after that may be SIGKILLed at 300 s, which loses nothing.
     _drain_max=270
     _drain="${NEXTSEEK_DRAIN_SECONDS:-240}"
+    case $_drain in
+      ''|*[!0-9]*)
+        echo "[drain] NEXTSEEK_DRAIN_SECONDS=$_drain is not a whole number of seconds; using 240" >&2
+        _drain=240 ;;
+    esac
     if [ "$_drain" -gt "$_drain_max" ]; then
       echo "[drain] NEXTSEEK_DRAIN_SECONDS=$_drain is above $_drain_max (the stop grace period less 30 s); using $_drain_max" >&2
       _drain=$_drain_max
