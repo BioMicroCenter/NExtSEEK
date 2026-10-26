@@ -23,5 +23,6 @@ Four commands here are shims. Django scans only each installed app's own folder 
 | `derive_sample_type_requirements` | derives sample type upload requirements from the sample graph; `--dry-run` prints without writing |
 | `backfill_publication_attributes` | backfills DOI and PMID into sample metadata from `--from-studies` or `--from-file`; dry run unless `--apply` |
 | `fill_study_publications` | `--extract` writes a review file of DOIs found in study descriptions and touches no database |
+| `paper_reingest` | the paper reingest operator CLI: `start` (`--user`, `--paper`, `--project`, `--inline`), `status <run_id>` and `export <run_id> paper\|evidence --out <path>`; prints counts and ids, never a paper's text; see `nextseek_api/paper_reingest/README.md` |
 | `rename_sample_retrieve_path` | rewrites the old retrieve path in stored Nessie chats; dry run unless `--apply` |
 | `scrub_stored_sample_properties` | removes two derived sample properties from stored graph results; dry run unless `--apply`, which needs `--backup-dir` |

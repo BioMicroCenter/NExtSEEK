@@ -763,6 +763,26 @@ files = ["nextseek.env"]
 default = "1"
 doc = "Container-CC memory: 0, false or off stops the scheduled paid summary sweep (the beat keeps running)."
 
+[NEXTSEEK_PAPER_REINGEST]
+files = ["nextseek.env"]
+default = "0"
+doc = "Paper reingest: 1 lets a superuser start a run with paper-reingest-start; anything else answers feature_off."
+
+[NEXTSEEK_PAPER_REINGEST_DIR]
+files = ["nextseek.env"]
+default = "outputs/paper_reingest"
+doc = "Paper reingest: folder of the runs' artifacts, one subfolder per run. It sits on the outputs bind mount unless moved."
+
+[PAPER_REINGEST_PAUSE_S]
+files = ["nextseek.env"]
+default = "600"
+doc = "Paper reingest: seconds a paused run waits, after a source did not answer, before stage 1 tries again."
+
+[PAPER_REINGEST_PAUSE_RETRIES]
+files = ["nextseek.env"]
+default = "12"
+doc = "Paper reingest: how many times a paused run retries before it fails at acquire."
+
 [DMAC_CC_MEMORY_SUMMARY_MODEL]
 files = ["nextseek.env"]
 default = "gemini-flash"

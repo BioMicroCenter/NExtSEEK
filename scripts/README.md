@@ -34,7 +34,7 @@ directory. That is why the container lanes can run these files at all.
 
 ## Surface
 
-The surface is not a set of entry points behind a package boundary. It is thirteen purpose
+The surface is not a set of entry points behind a package boundary. It is fourteen purpose
 groups, each defined by what it reads and what it writes.
 
 | Group | Files | Reads | Writes |
@@ -52,6 +52,9 @@ groups, each defined by what it reads and what it writes.
 | K. Citation converter | `line_cites.py` | a markdown doc, its git blame and the cited `.py` files at those commits | nothing by default (`--report`); the doc in place with `--apply` |
 | L. laya router tools | `laya/` (see [its README](laya/README.md)) | run `turns.json` files, the corpus, the router prompt files, scored rows | option texts and the calibration file in `NessieAI/router/`; the training view, held-out files and reports outside every git repo |
 | M. Reingest testing | `reingest/` (see [its README](reingest/README.md)): admin-only reingest testing from local copies (`fetch_run.sh`, `folder_to_manifest.sh`; the manifests are test-only) and the fixture maker (`make_fixture.sh`, `sanitize_fixture.py`) | a local copy of a run folder; `fetch_run.sh` copies one from the cluster, and you run it yourself | a manifest in the running stack, a local test folder, a fixture folder under `NessieAI/tests/ns/fixtures/reingest_runs/` |
+| N. Paper reingest live check | `paper_reingest_live_check.py` | the public APIs of Europe PMC, GEO, ENA, PRIDE, Zenodo, figshare and the Stanford Digital Repository, over the network | stdout (counts only) |
+
+**N. `paper_reingest_live_check.py`.** Run it by hand, never in CI, when a deposit adapter in `NessieAI/ns/paper/deposits/` may have fallen behind its repository's API: `PYTHONPATH=. uv run --no-project --with 'pydantic>=2.13' --with requests --with openpyxl python scripts/paper_reingest_live_check.py geo:<GSE> pride:<PXD> ena:<id> zenodo:<id> figshare:<id> sdr:<druid> epmc:<pmid>`. It prints, per accession, how many records of each kind came back and how many files they carry, or the error, and never the fetched content. A zero or an error on an accession you know is public means the API shape changed: fix the adapter, its fixture and its test together. It is a script, not a test, so it is not named `test_*.py`.
 
 **K. `line_cites.py`.** Use it once, when the operator says the graph program's branch has landed, to turn `path.py:N` citations in a doc into `path.py` plus the enclosing symbol, so edits stop breaking them. `python3 scripts/line_cites.py --report DOC.md` counts what would change; `--apply` rewrites; `--self-check` runs its built-in check. It leaves unresolvable citations as they are and lists them.
 

@@ -989,6 +989,10 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `DMAC_CC_MEMORY_SWEEP_IDLE_SECONDS` | nextseek.env | 900 |  |  | Container-CC memory: idle seconds before a sweep. |
 | `DMAC_CC_MEMORY_SWEEP_MAX_PER_RUN` | nextseek.env | 20 |  |  | Container-CC memory: most sessions one sweep run summarizes, oldest first. |
 | `NEXTSEEK_CC_SUMMARY_SWEEP` | nextseek.env | 1 |  |  | Container-CC memory: 0, false or off stops the scheduled paid summary sweep (the beat keeps running). |
+| `NEXTSEEK_PAPER_REINGEST` | nextseek.env | 0 |  |  | Paper reingest: 1 lets a superuser start a run with paper-reingest-start; anything else answers feature_off. |
+| `NEXTSEEK_PAPER_REINGEST_DIR` | nextseek.env | outputs/paper_reingest |  |  | Paper reingest: folder of the runs' artifacts, one subfolder per run. It sits on the outputs bind mount unless moved. |
+| `PAPER_REINGEST_PAUSE_S` | nextseek.env | 600 |  |  | Paper reingest: seconds a paused run waits, after a source did not answer, before stage 1 tries again. |
+| `PAPER_REINGEST_PAUSE_RETRIES` | nextseek.env | 12 |  |  | Paper reingest: how many times a paused run retries before it fails at acquire. |
 | `DMAC_CC_MEMORY_SUMMARY_MODEL` | nextseek.env | gemini-flash |  |  | Container-CC memory: summary model. |
 | `STEP7_LLM_LEDGER` | nextseek.env |  |  |  | Container-CC: write the per-call LLM cost ledger when 1. |
 | `DJANGO_BASE_DIR` | nextseek.env | /app |  |  | App root the LLM cost ledger writes under. |
@@ -1188,6 +1192,18 @@ delays the reaper, the purge and `clearsessions`.
 The sweep runs on its own `cc_summaries` worker, so it never delays an upload. It sends idle Container-CC transcripts (already scrubbed) to the summary model: set
 `NEXTSEEK_CC_SUMMARY_SWEEP=0` in `nextseek.env` and restart the app to stop it; the rest of the beat keeps running.
 `DMAC_CC_MEMORY_SWEEP_MAX_PER_RUN` (20) bounds one run's summaries.
+
+### Paper reingest worker
+
+The app entrypoint starts a third Celery worker beside the `batch_upload` and `cc_summaries` ones: queue
+`paper_reingest`, hostname `paper_reingest@%h`, concurrency 1. It runs stage 1 of a paper reingest (fetching the paper,
+its supplement and its deposits), one run at a time, so a slow repository never holds up an upload or the summary sweep.
+It is always running; the feature itself is off until `NEXTSEEK_PAPER_REINGEST=1` is in `nextseek.env` (the app
+container reads that file at start, so recreate the app after changing it). A source that does not answer pauses the run
+and the task retries after `PAPER_REINGEST_PAUSE_S` seconds, at most `PAPER_REINGEST_PAUSE_RETRIES` times. A run's
+artifacts are files under `NEXTSEEK_PAPER_REINGEST_DIR`, on the `outputs` bind mount, so they survive a rebuild. The
+fetcher reaches only the hosts in `NessieAI/ns/paper/fetch.py` `ALLOWED_HOSTS`, over https. Operator commands and the
+run's states: `nextseek_api/paper_reingest/README.md`.
 
 ### Durable upload queue
 
