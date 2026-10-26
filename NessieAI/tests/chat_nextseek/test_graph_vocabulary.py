@@ -151,15 +151,30 @@ def test_a_vocabulary_under_budget_renders_as_before():
         assay_connections=({"assay": "Bulk RNA Sequencing", "parent_type": "RNA", "child_type": "D.SEQ"},
                            {"assay": "Bulk RNA Sequencing", "parent_type": "TIS", "child_type": "D.SEQ"}))
     assert gc.render_vocabulary(small, EVERY_GATE) == (
-        'INVESTIGATION TITLES (Investigation.title):\n"Impact", "MetNet"\n\n'
+        'INVESTIGATION TITLES (Investigation.title):\n"Impact",\n"MetNet"\n\n'
         'PROJECT TITLES (Project.title):\n"Core"\n\n'
         'STUDY TITLES (Study.title):\n"A lung paper"\n\n'
         'PUBLISHED STUDIES (a DOI or PMID on the study, or on most of its samples):\n'
         '- "A lung paper", DOI 10.1/x, PMID 123\n\n'
-        'ASSAY TITLES (DERIVED_FROM.internal_assay_title values):\n"Bulk RNA Sequencing", "Flow Cytometry"\n\n'
+        'ASSAY TITLES (DERIVED_FROM.internal_assay_title values):\n"Bulk RNA Sequencing",\n"Flow Cytometry"\n\n'
         "ASSAY-SAMPLE CONNECTIONS (assay: parent type -> child type; shows which side of an assay a sample type "
         'sits on):\n- "Bulk RNA Sequencing": RNA -> D.SEQ, TIS -> D.SEQ\n\n'
         'PROTOCOL TITLES (DERIVED_FROM.protocol_title values):\n"P.ABC-1.pdf"')
+
+
+@pytest.mark.parametrize("budget", [10**9, gc.VOCAB_BUDGET_BYTES])
+def test_a_long_title_block_puts_every_title_on_its_own_line(budget):
+    """A reader that cuts each line (a shell's line[:3000]) still sees the title sorted last, trimmed or whole."""
+    titles = tuple(f"A Made-up Study Of Generic Samples, Number {i:04d}" for i in range(1_500)) + (
+        "zz made-up lowercase title",)
+    text = gc.render_vocabulary(SimpleNamespace(investigation_titles=titles, project_titles=()),
+                                "zz lowercase", budget=budget)
+    assert size(text) <= budget
+    head, *rows = text.splitlines()
+    assert head == "INVESTIGATION TITLES (Investigation.title):"
+    shown = [row for row in rows if not row.startswith("(and ")]
+    assert len(shown) > 100 and all(row.rstrip(",") in {f'"{t}"' for t in titles} for row in shown)
+    assert '"zz made-up lowercase title"' in shown
 
 
 def test_over_budget_every_entry_the_question_names_is_kept():
