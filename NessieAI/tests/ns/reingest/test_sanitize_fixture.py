@@ -193,3 +193,13 @@ def test_a_markdown_link_pair_does_not_hide_a_private_url(tmp_path):
 def test_an_allowed_host_path_with_odd_characters_is_refused(tmp_path):
     (tmp_path / "p.json").write_text('{"x": "https://github.com/nf-core/test-datasets/a%20b|c"}')
     assert run(tmp_path, "/RUN").returncode == 1
+
+
+def test_closing_punctuation_after_an_allowed_url_is_not_part_of_it(tmp_path):
+    ok = "https://raw.githubusercontent.com/nf-core/test-datasets/x/1.fq.gz"
+    for i, line in enumerate((f"[a]({ok})", f"(data at {ok})", f"see {ok}.", f'"{ok}",', f"<{ok}>;")):
+        folder = tmp_path / str(i)
+        folder.mkdir()
+        (folder / "n.md").write_text(line + "\n")
+        result = run(folder, "/RUN")
+        assert result.returncode == 0, (line, result.stderr)

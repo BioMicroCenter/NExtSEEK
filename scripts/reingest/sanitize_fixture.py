@@ -35,6 +35,7 @@ _ALLOWED_HOSTS = ("raw.githubusercontent.com", "github.com")
 _TEST_DATA_PATH = re.compile(r"^/nf-core/test-datasets/[A-Za-z0-9._/+-]*$")
 # The URL regex runs through commas, semicolons and (in escaped JSON text) backslashes, so one
 # match can hold several URLs; each piece is judged on its own.
+_TRAILING_PUNCTUATION = ")]}>.,;:'\""
 _URL_SEPARATORS = re.compile(r"[,;\\]")
 
 
@@ -65,6 +66,9 @@ def disallowed_urls(text: str) -> list[str]:
     out = []
     for match in URL.findall(text):
         for piece in _URL_SEPARATORS.split(match):
+            # Prose and markdown close a URL with punctuation that is not part of it; the
+            # one-"://" rule in allowed_url keeps a glued second URL from hiding behind it.
+            piece = piece.rstrip(_TRAILING_PUNCTUATION)
             if "://" in piece and not allowed_url(piece):
                 out.append(piece)
     return out
