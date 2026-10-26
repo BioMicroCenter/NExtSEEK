@@ -585,6 +585,18 @@ def test_a_repair_that_keeps_the_shape_is_refused(monkeypatch, request, mode):
 
 
 @pytest.mark.parametrize("mode", ["live", "down"])
+def test_a_repair_that_keeps_a_pattern_comprehension_goes_on_to_the_scope_prover(monkeypatch, request, mode):
+    """A member's pattern comprehension asks for one repair (the config here is not an admin's). A repair that keeps
+    it is not refused by this guard: the scope prover refuses it and the graph_search fallback answers, as before."""
+    request.getfixturevalue(mode)
+    comprehension = "MATCH (s:T_TIS) RETURN s.uuid AS uuid, [(s)<-[:DERIVED_FROM]-(c:Sample) | c.uuid] AS kids"
+    llm = FakeLLM(comprehension, comprehension)
+    out = run(monkeypatch, llm)
+    assert len(llm.calls) == 2 and "pattern comprehension" in llm.repair()
+    assert out.cypher == comprehension and not out.refusal_kinds
+
+
+@pytest.mark.parametrize("mode", ["live", "down"])
 def test_a_shape_repair_is_rechecked_by_the_property_guard(monkeypatch, request, mode):
     """The verifier's finding: a repair that bounds the path but invents a property must not reach Neo4j."""
     request.getfixturevalue(mode)

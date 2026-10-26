@@ -2369,9 +2369,6 @@ def _shape_refusal_parts(shapes: list[_Shape]) -> list[str]:
                          f"both ends anchored (bound it at *1..{_MAX_HOPS})")
         elif p.kind == "unanchored_path":
             parts.append(f"the path {p.text} expands from every sample: {p.detail}")
-        elif p.kind == "pattern_comprehension":
-            parts.append(f"the pattern comprehension {p.text} is refused for a scoped caller; use OPTIONAL MATCH and "
-                         "collect, or COUNT { } / EXISTS { }")
         elif p.kind == "assay_join":
             parts.append(f"the query pairs samples through the Assay {p.text}: {p.detail}; lineage is DERIVED_FROM")
         else:
@@ -2403,8 +2400,7 @@ _REFUSAL_PRIORITY = ("assay_join", "lineage_path", "unbounded_path", "fulltext",
 #: A shape kind's reply kind: an unanchored path is "lineage_path" (from every sample at once), a path with no step
 #: limit "unbounded_path" (review N3).
 _SHAPE_REPLY_KIND = {"assay_join": "assay_join", "unscoped_fulltext": "fulltext", "unbounded_path": "unbounded_path",
-                     "unanchored_path": "lineage_path",
-                     "pattern_comprehension": "catalog"}
+                     "unanchored_path": "lineage_path"}
 
 
 def refusal_kinds(problems=(), whole=(), calls=(), shapes=()) -> list[str]:
@@ -2988,7 +2984,9 @@ def graph_agent(
                 problems = _property_problems(result.cypher, catalog.snapshot)
                 whole = whole_node_returns(result.cypher, procedures)
                 calls = _procedure_problems(result.cypher, procedures)
-                shapes = query_shape_problems(result.cypher, result.parameters, scoped)
+                # Unscoped: a pattern comprehension the repair kept goes on to the scope prover, which refuses it, and
+                # the graph_search fallback answers. The scoped check only asks for the repair.
+                shapes = query_shape_problems(result.cypher, result.parameters, scoped=False)
                 if problems or whole or calls or shapes:
                     print(f"[DEBUG][GRAPH] Repair still fails the catalog guard: {[p.text for p in problems]} "
                           f"whole nodes {whole}" + (f" calls {calls}" if calls else "")
@@ -3034,7 +3032,7 @@ def graph_agent(
                 print(f"[DEBUG][GRAPH] Repaired cypher: {result.cypher!r}")
                 still = unknown_cypher_properties(result.cypher, known)
                 calls = _procedure_problems(result.cypher, procedures)
-                shapes = query_shape_problems(result.cypher, result.parameters, scoped)
+                shapes = query_shape_problems(result.cypher, result.parameters, scoped=False)  # as in the catalog branch
                 if still or calls or shapes:
                     print(f"[DEBUG][GRAPH] Repair still references unknown properties: {still}"
                           + (f" calls {calls}" if calls else "")

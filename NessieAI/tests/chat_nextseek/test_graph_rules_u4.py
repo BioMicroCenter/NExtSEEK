@@ -214,6 +214,12 @@ def test_a_method_word_on_a_sample_upstream_of_the_data_is_tested_on_the_descend
     assert "descendant" in rule and "EXISTS" in rule and "search_text" in rule
     assert "floor" in rule  # an edge-only test is a floor: lineage edges often carry no assay title
     assert "every spelling" in rule
+    assert "(d)-[r:DERIVED_FROM]->(:Sample)" in rule and "]->()" not in rule  # label both ends (STEP 4 Direction)
+
+
+def test_type_vs_assay_gives_way_to_the_method_word_rule():
+    rule = _line("- **Type vs assay**")
+    assert "upstream of the data" in rule and "the rule above" in rule
 
 
 def test_a_total_beside_groups_never_collects_nodes_to_size_them():
@@ -238,7 +244,9 @@ def test_the_rules_for_every_query_ban_a_pattern_comprehension():
 
 def test_two_named_types_are_tested_in_both_directions():
     rule = _line("- **Two named sample types: either may be the child.**")
-    assert "both directions" in rule and "which direction held" in rule
+    assert "both directions" in rule
+    assert "x_derived_from_y" in rule and "y_derived_from_x" in rule  # each result named by its direction
+    assert "which direction held" not in rule  # the explanation is written before the query runs
 
 
 @pytest.mark.parametrize("q", [
