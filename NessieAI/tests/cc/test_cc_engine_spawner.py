@@ -210,7 +210,6 @@ def test_id_rules_are_one_rule_on_both_sides():
     sp = _load_spawner()
     assert sp._SESSION_RE.pattern == cc_engine._SESSION_RE.pattern
     assert sp._MODEL_RE.pattern == cc_engine._MODEL_RE.pattern
-    assert sp._RUN_ID_RE.pattern == cc_engine._CONTAINER_NAME_SAFE_RE.pattern
     for rx in (sp._SESSION_RE, sp._MODEL_RE, sp._RUN_ID_RE):
         assert not rx.fullmatch("-abc") and not rx.fullmatch("--x")
 

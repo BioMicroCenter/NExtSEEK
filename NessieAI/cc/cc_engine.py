@@ -14,9 +14,10 @@ regular non-symlink files after the container exits.
 The terminal ``query_complete`` is deferred until after the copier so the reply
 can report the host-side artifact paths (D19).
 
-Topology note: this runs in the nextseek Django container; the CC container is a
-sibling spawned via the host docker socket, so bind *sources* are host paths
-while the bridge reads/writes the same dirs at ``CCPaths.user_root_mount``.
+Topology note: this runs in the ``web`` container, which has no Docker socket. The
+CC container is a sibling that cc-spawner (the only service holding the socket)
+starts on our behalf through ``spawner_client``; it mounts subpaths of the users
+volume, and the bridge reads/writes the same dirs at ``CCPaths.user_root_mount``.
 """
 from __future__ import annotations
 
@@ -51,10 +52,10 @@ DEFAULT_IMAGE = os.environ.get("NEXTSEEK_CC_IMAGE", "dmac-assistant:poc")
 # (agent + bedrock-proxy + the nginx entrypoint) — NOT the shared
 # ``nextseek_default`` where neo4j/mysql/seek/solr live. Network segmentation is
 # the real containment control: the de-credentialed agent must not even have L3
-# reach to ``neo4j:7687`` / ``db:3306`` (whose password is the committed default
-# ``demopassword``). The agent reaches only (a) the Bedrock auth-proxy and (b)
+# reach to ``neo4j:7687`` / ``db:3306``, whose shared backend passwords it must
+# never be able to use. The agent reaches only (a) the Bedrock auth-proxy and (b)
 # the NExtSEEK REST API via nginx — both attached to this net. Override via
-# NEXTSEEK_CC_NETWORK; a missing network is fail-fast (see run_cc_turn).
+# NEXTSEEK_CC_NETWORK; a missing network fails closed (cc-spawner's /health).
 DEFAULT_NETWORK = os.environ.get("NEXTSEEK_CC_NETWORK", "dmac-cc-net")
 
 # OI-3 (T4): the agent reaches Bedrock ONLY through the auth-proxy sidecar, which
@@ -146,13 +147,6 @@ def clamp_turn_timeout(seconds: int | None) -> int:
 # I-4 (audit B2): user_id / project flow into bind-mount SOURCES, so they must be
 # validated before any path interpolation or a ``..`` user_id is a host-dir escape.
 _USER_ID_RE = re.compile(r"^[A-Za-z0-9._@+-]{1,64}$")
-
-# Step 2b (iter-1 H-2 / iter-2 R2-L2): the deterministic agent container NAME
-# is built from ``run_id`` (a Celery task UUID). ``_USER_ID_RE`` above admits
-# ``@``/``+`` (legal in a NExtSEEK username) but those are NOT safe inside a
-# Docker container ``name=`` — this fail-closed guard is intentionally
-# stricter and scoped only to the name-construction path.
-_CONTAINER_NAME_SAFE_RE = re.compile(r"^[0-9a-f][0-9a-f-]{0,63}$")
 
 # The resume session id and the model id go into the agent's argv, so each starts with a letter or digit and can
 # never be read as a flag. cc-spawner enforces the same rules (a parity test holds the copies equal).
@@ -1042,21 +1036,6 @@ def _build_command(
     if session_id:
         cmd.append(f"--resume={session_id}")  # one argv element: the value is never a flag of its own
     return cmd
-
-
-def _container_name_for_run(run_id: str) -> str:
-    """Step 2b (iter-1 H-2): the deterministic ``dmac-cc-agent-<run_id>`` name
-    used so agents are identifiable BY NAME in ``docker network inspect``
-    output (previously a random Docker name, making any name-based
-    network-membership check unevaluable).
-
-    Fail-closed (iter-2 R2-L2): raises if ``run_id`` doesn't match the strict
-    Docker-name-safe charset ``^[0-9a-f-]{1,64}$`` — Celery task UUIDs satisfy
-    this; ``_USER_ID_RE`` is NOT sufficient here (it admits ``@``/``+``).
-    """
-    if not _CONTAINER_NAME_SAFE_RE.fullmatch(run_id or ""):
-        raise ValueError(f"run_id not safe for a docker container name: {run_id!r}")
-    return f"dmac-cc-agent-{run_id}"
 
 
 def _stop_and_confirm_exit(container: Any) -> bool:
