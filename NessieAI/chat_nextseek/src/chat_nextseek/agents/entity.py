@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 from ..session import SessionState
 
 from ..config import ChatConfig
+from ..graph_context import STUDY_WORDS_RE
 from ..llm_clients import LLMAPIConnectionError, LLMRateLimitError, LLMTimeoutError
 from ..helpers import (
     log_usage,
@@ -71,26 +72,37 @@ HOUSE_SAMPLE_TYPES: list[tuple[tuple[str, ...], str]] = [
 ]
 
 
+#: A quoted span: double or curly quotes, or single quotes that are not apostrophes (no letter just outside them).
+_QUOTED_RE = re.compile(r'"[^"]*"|“[^”]*”|‘[^’]*’|(?<!\w)\'[^\']*\'(?!\w)')
+
+
 def apply_house_sample_types(query: str, result: EntityAgentOutput, catalog: list[dict] | None) -> None:
     """Add the house sample type of a word the question uses when the entity agent left it out.
 
-    The word is also kept as a keyword. A code the catalog does not hold is never added; with no catalog the
-    code is added with no name. Words match whole, any letter case, with an optional plural s.
+    The list's word is also kept as a keyword unless the agent already has it or the question's form of it, in any
+    letter case. A code the catalog does not hold is never added; with no catalog the code is added with no name.
+    Words match whole, any letter case, a space or a hyphen between their parts, with an optional plural s.
+    A word inside a quoted span counts for nothing, and a question that names a study or paper (STUDY_WORDS_RE)
+    is left to the agent: there the word is most likely part of a title, not the kind of sample asked for.
     """
+    if STUDY_WORDS_RE.search(query or ""):
+        return
+    text = _QUOTED_RE.sub(" ", query or "")
     names = {r.get("SampleType"): r.get("Name") for r in catalog or [] if isinstance(r, dict)}
     chosen = {i.code for i in result.sampletypes}
     have = {k.lower() for k in result.keywords}
     for words, code in HOUSE_SAMPLE_TYPES:
         for word in words:
-            m = re.search(rf"(?<![\w-]){re.escape(word)}s?(?![\w-])", query or "", re.IGNORECASE)
+            parts = re.escape(word).replace(r"\ ", r"[\s-]")
+            m = re.search(rf"(?<![\w-]){parts}s?(?![\w-])", text, re.IGNORECASE)
             if not m:
                 continue
             if code not in chosen and (code in names or not names):
                 result.sampletypes.append(EntityItem(code=code, name=names.get(code)))
                 chosen.add(code)
-            if m.group(0).lower() not in have:
-                result.keywords.append(m.group(0))
-                have.add(m.group(0).lower())
+            if word.lower() not in have and m.group(0).lower() not in have:
+                result.keywords.append(word)
+                have.add(word.lower())
 
 
 def _as_list(value: Any) -> list:

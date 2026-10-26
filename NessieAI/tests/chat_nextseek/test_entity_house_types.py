@@ -17,30 +17,34 @@ PROMPT = (Path(__file__).resolve().parents[2] / "chat_nextseek/src/chat_nextseek
     encoding="utf-8")
 CATALOG = [{"SampleType": "TIS", "Name": "Tissue"}, {"SampleType": "CEL", "Name": "Cells"}]
 
-# every entry of the prompt's list: (words as a user writes them, the code)
+# every entry of the prompt's list: (words as a user writes them, the list's own word, the code)
 ENTRIES = [
-    ("PBMC", "TIS"), ("PBMCs", "TIS"), ("peripheral blood mononuclear cells", "TIS"),
-    ("BAL", "TIS"), ("bronchoalveolar lavage", "TIS"),
-    ("T cell", "CEL"), ("T cells", "CEL"), ("NK cell", "CEL"), ("NK cells", "CEL"),
-    ("natural killer cell", "CEL"), ("macrophage", "CEL"), ("monocyte", "CEL"),
-    ("dendritic cell", "CEL"), ("neutrophil", "CEL"), ("B cell", "CEL"), ("B cells", "CEL"),
+    ("PBMC", "PBMC", "TIS"), ("PBMCs", "PBMC", "TIS"),
+    ("peripheral blood mononuclear cells", "peripheral blood mononuclear cell", "TIS"),
+    ("BAL", "BAL", "TIS"), ("bronchoalveolar lavage", "bronchoalveolar lavage", "TIS"),
+    ("T cell", "T cell", "CEL"), ("T cells", "T cell", "CEL"), ("T-cells", "T cell", "CEL"),
+    ("NK cell", "NK cell", "CEL"), ("NK cells", "NK cell", "CEL"),
+    ("natural killer cell", "natural killer cell", "CEL"), ("macrophage", "macrophage", "CEL"),
+    ("monocyte", "monocyte", "CEL"), ("dendritic cell", "dendritic cell", "CEL"),
+    ("neutrophil", "neutrophil", "CEL"), ("B cell", "B cell", "CEL"), ("B cells", "B cell", "CEL"),
 ]
 
 
-@pytest.mark.parametrize("words,code", ENTRIES)
-def test_each_entry_adds_its_type_and_keyword_when_the_agent_left_it_out(words, code):
+@pytest.mark.parametrize("words,word,code", ENTRIES)
+def test_each_entry_adds_its_type_and_the_lists_word_when_the_agent_left_it_out(words, word, code):
     out = EntityAgentOutput()
     apply_house_sample_types(f"Find {words} that were sequenced", out, CATALOG)
     assert [i.code for i in out.sampletypes] == [code]
     assert out.sampletypes[0].name in {"Tissue", "Cells"}
-    assert words.lower() in [k.lower() for k in out.keywords]
+    assert out.keywords == [word]
 
 
-@pytest.mark.parametrize("words,code", ENTRIES)
-def test_each_entry_matches_in_any_letter_case(words, code):
+@pytest.mark.parametrize("words,word,code", ENTRIES)
+def test_each_entry_matches_in_any_letter_case(words, word, code):
     out = EntityAgentOutput()
     apply_house_sample_types(f"how many {words.upper()} samples", out, CATALOG)
     assert [i.code for i in out.sampletypes] == [code]
+    assert out.keywords == [word]
 
 
 def test_an_existing_type_and_keyword_are_not_duplicated():
@@ -76,3 +80,46 @@ def test_the_prompt_block_and_the_code_list_say_the_same():
             assert w.lower() in block.lower(), w
     assert {c for _, c in HOUSE_SAMPLE_TYPES} == {"TIS", "CEL"}
     assert "added by code" in block
+
+
+@pytest.mark.parametrize("have", [["Macrophages"], ["MACROPHAGE"]])
+def test_the_agents_own_keyword_in_any_form_is_not_duplicated(have):
+    out = EntityAgentOutput(keywords=list(have))
+    apply_house_sample_types("macrophages in the gut", out, CATALOG)
+    assert [i.code for i in out.sampletypes] == ["CEL"]
+    assert out.keywords == have
+
+
+@pytest.mark.parametrize("quoted", [
+    '"Neutrophil trails steer wound closure in a fictional fin model"',
+    "\u201cNeutrophil trails steer wound closure in a fictional fin model\u201d",
+    "'Neutrophil trails steer wound closure in a fictional fin model'",
+])
+def test_a_word_inside_a_quoted_title_adds_nothing(quoted):
+    out = EntityAgentOutput()
+    apply_house_sample_types(f"which samples belong to {quoted}?", out, CATALOG)
+    assert out.sampletypes == [] and out.keywords == []
+
+
+def test_the_same_word_outside_the_quotes_still_counts():
+    out = EntityAgentOutput()
+    apply_house_sample_types('macrophages like those in "Macrophage maps of a made-up reef sponge"', out, CATALOG)
+    assert [i.code for i in out.sampletypes] == ["CEL"]
+    assert out.keywords == ["macrophage"]
+
+
+def test_apostrophes_are_not_quotes():
+    out = EntityAgentOutput()
+    apply_house_sample_types("the lab's neutrophil samples from the Smiths' cohort", out, CATALOG)
+    assert [i.code for i in out.sampletypes] == ["CEL"]
+
+
+@pytest.mark.parametrize("query", [
+    "which samples are in this paper: Macrophage fate maps of a made-up reef sponge",
+    "the study on dendritic cell drift in a fictional estuary, what did it sequence",
+])
+def test_a_question_about_a_paper_or_study_is_left_to_the_agent(query):
+    out = EntityAgentOutput(sampletypes=[EntityItem(code="TIS", name="Tissue")], keywords=["fate maps"])
+    apply_house_sample_types(query, out, CATALOG)
+    assert [i.code for i in out.sampletypes] == ["TIS"]
+    assert out.keywords == ["fate maps"]
