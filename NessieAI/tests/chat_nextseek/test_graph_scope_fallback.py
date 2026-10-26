@@ -488,6 +488,15 @@ def test_the_planner_step_is_not_retried_on_a_scope_refusal(monkeypatch):
     assert orch.GRAPH_SEARCH_ENDPOINT in out["error"]
 
 
+def test_the_planner_step_no_cypher_error_carries_the_agents_reason(monkeypatch):
+    monkeypatch.setattr(planner_tools, "graph_agent", lambda *a, **k: GraphAgentPlan(
+        cypher="", explanation="could not build it", refusal_kinds=["catalog"]))
+    out = planner_tools._plan_tool_graph_query(MagicMock(), {}, _planner_step(), "how many", {}, None, {})
+    assert out["ok"] is False
+    assert out["error"].startswith("graph agent produced no cypher: could not build it")
+    assert "catalog" in out["error"]
+
+
 def test_the_planner_step_still_retries_a_cypher_error_once(monkeypatch):
     out, calls = _planner(monkeypatch, [_error(), _proven(1)])
 
