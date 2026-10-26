@@ -234,7 +234,10 @@ class _BatchTooLarge(Exception):
 def safe_zip_name(name, fallback):
     """Basename with control and quote characters removed; `fallback` when nothing is left."""
     base = (name or "").replace("\\", "/").rsplit("/", 1)[-1]
-    base = "".join(c for c in base if c.isprintable() and c not in "\"'`").strip().lstrip(".")
+    base = "".join(c for c in base if c.isprintable() and c not in "\"'`:").strip().lstrip(".")
+    if len(base) > 200:
+        stem, ext = os.path.splitext(base)
+        base = stem[:200 - len(ext[:20])] + ext[:20]
     return base or fallback
 
 
@@ -335,6 +338,12 @@ def download_single(client, request, asset_type: str, data: dict):
     return response
 
 
+def _too_large():
+    return HttpResponse(
+        json.dumps({"errors": [{"title": f"Batch too large: at most {MAX_BATCH_BYTES} bytes in total"}]}).encode(),
+        status=422, content_type='application/json')
+
+
 def download_batch(client, request, asset_type: str, data: list):
     """Handle batch download — returns zip with manifest.json."""
     if not data:
@@ -379,7 +388,7 @@ def download_batch(client, request, asset_type: str, data: list):
                     result["blob_meta"], result["upstream_path"], result["accept"], result["seek_id"])
 
                 # same blob asked twice: fetch once (access was checked above for this item too)
-                blob_key = (str(seek_id), upstream_path)
+                blob_key = (str(seek_id), upstream_path, accept)
                 if blob_key in fetched:
                     successes.append(BatchDownloadManifestEntry(
                         filename=fetched[blob_key], seek_id=seek_id, uid_or_id=uid_label))
@@ -406,6 +415,15 @@ def download_batch(client, request, asset_type: str, data: list):
                     failures.append(BatchDownloadManifestFailure(uid_or_id=uid_label, error="Upstream returned HTML"))
                     continue
 
+                # refuse up front when the declared size cannot fit; the counter below is the backstop
+                try:
+                    declared = int(upstream_headers.get('Content-Length') or 0)
+                except (TypeError, ValueError):
+                    declared = 0
+                if total_bytes + declared > MAX_BATCH_BYTES:
+                    upstream_resp.close()
+                    raise _BatchTooLarge()
+
                 original_filename = safe_zip_name(blob_meta.get("original_filename"), f"{fallback_name}_{seek_id}")
                 filename = deduplicate_filename(original_filename, seek_id, used_filenames)
                 try:
@@ -431,9 +449,7 @@ def download_batch(client, request, asset_type: str, data: list):
         except OSError:
             pass
         if isinstance(exc, _BatchTooLarge):
-            return HttpResponse(
-                json.dumps({"errors": [{"title": f"Batch too large: at most {MAX_BATCH_BYTES} bytes in total"}]}).encode(),
-                status=422, content_type='application/json')
+            return _too_large()
         raise
 
     zip_size = os.path.getsize(tmp_path)

@@ -1369,3 +1369,55 @@ class TestDownloadBatchHardening:
         cd = resp["Content-Disposition"]
         assert "\n" not in cd and "\r" not in cd
         assert 'a"b' not in cd
+
+
+class TestDownloadBatchReview:
+
+    @patch("nextseek_api.services.content_blobs.resolve_asset_and_blobs")
+    def test_content_length_over_budget_refused_without_reading_body(self, mock_resolve, monkeypatch):
+        from nextseek_api.services import content_blobs as cb
+        monkeypatch.setattr(cb, "MAX_BATCH_BYTES", 10)
+        mock_resolve.return_value = _batch_resolve()
+        client = _mock_client()
+        up = _streaming_upstream()
+        client.stream_content_blob.return_value = (200, {"Content-Length": "11"}, up)
+        resp = download_batch(client, _req(), "sops", [{"uid_or_id": "42"}])
+        assert resp.status_code == 422
+        up.iter_content.assert_not_called()
+        up.close.assert_called()
+
+    @patch("nextseek_api.services.content_blobs.resolve_asset_and_blobs")
+    def test_same_path_different_accept_fetched_separately(self, mock_resolve):
+        a = _batch_resolve(name="d.csv"); a["accept"] = "text/csv"
+        b = _batch_resolve(name="d.json"); b["accept"] = "application/json"
+        mock_resolve.side_effect = [a, b]
+        client = _mock_client()
+        client.stream_content_blob.side_effect = [
+            (200, {}, _streaming_upstream((b"csv",))), (200, {}, _streaming_upstream((b"json",)))]
+        resp = download_batch(client, _req(), "sops", [{"uid_or_id": "42"}, {"uid_or_id": "42"}])
+        zf = zipfile.ZipFile(BytesIO(b"".join(resp.streaming_content)))
+        assert zf.read("d.csv") == b"csv" and zf.read("d.json") == b"json"
+
+    @patch("nextseek_api.services.content_blobs.resolve_asset_and_blobs")
+    def test_every_repeated_item_still_resolved(self, mock_resolve):
+        mock_resolve.return_value = _batch_resolve()
+        client = _mock_client()
+        client.stream_content_blob.return_value = (200, {}, _streaming_upstream())
+        download_batch(client, _req(), "sops", [{"uid_or_id": "42"}] * 3)
+        assert mock_resolve.call_count == 3
+
+    @patch("nextseek_api.services.content_blobs.resolve_asset_and_blobs")
+    def test_blob_named_manifest_json_gets_other_name(self, mock_resolve):
+        mock_resolve.return_value = _batch_resolve(name="manifest.json")
+        client = _mock_client()
+        client.stream_content_blob.return_value = (200, {}, _streaming_upstream())
+        resp = download_batch(client, _req(), "sops", [{"uid_or_id": "42"}])
+        zf = zipfile.ZipFile(BytesIO(b"".join(resp.streaming_content)))
+        assert zf.namelist().count("manifest.json") == 1
+        assert "manifest_42.json" in zf.namelist()
+
+    def test_safe_zip_name_strips_colon_and_caps_length(self):
+        from nextseek_api.services.content_blobs import safe_zip_name
+        assert ":" not in safe_zip_name("C:evil.txt", "f")
+        n = safe_zip_name("a" * 500 + ".pdf", "f")
+        assert len(n) <= 200 and n.endswith(".pdf")
