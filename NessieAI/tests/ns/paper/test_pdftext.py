@@ -15,6 +15,44 @@ def test_split_sections():
     assert "Smith" not in " ".join(text.all_text())
 
 
+CELL_TEXT = (
+    "Title line\nSummary\nWe found x.\nReferences\n1. Smith J. A paper.\n2. Doe K. Another.\n"
+    "STAR\u2605METHODS\nKey resources table\nAntibody X.\nMethod details\nMice were bred.\n"
+    "Data and code availability\nReads are at GSE123456.\n"
+)
+
+
+def test_split_sections_resumes_after_the_reference_list():
+    text = split_sections(CELL_TEXT)
+    by = {s.slug: " ".join(p.text for p in s.paragraphs) for s in text.sections}
+    assert text.has("methods") and text.has("data_availability")
+    assert "Mice were bred." in by["methods"]
+    assert by["data_availability"] == "Reads are at GSE123456."
+    joined = " ".join(text.all_text())
+    assert "Smith" not in joined and "Doe" not in joined
+
+
+def test_split_sections_skips_every_reference_block():
+    text = split_sections("Abstract\nA.\nReferences\n1. Smith J.\nMethods\nM.\nReferences\n2. Doe K.\n")
+    joined = " ".join(text.all_text())
+    assert text.has("methods") and "Smith" not in joined and "Doe" not in joined
+
+
+def test_star_methods_headings_classify_to_methods_and_availability_keeps_its_slug():
+    for variant in ("STAR\u2605METHODS", "STAR*Methods", "STAR Methods", "star methods", "STAR\u2605 METHODS"):
+        by = {s.slug for s in split_sections(f"Front\n{variant}\nBody text.\n").sections}
+        assert "methods" in by, variant
+    text = split_sections(
+        "Front\nSTAR Methods\nKey resources table\nAb.\nResource availability\nR.\nLead contact\nL.\n"
+        "Materials availability\nM.\nExperimental model and subject details\nE.\n"
+        "Quantification and statistical analysis\nQ.\n")
+    slugs = [s.slug for s in text.sections]
+    assert slugs.count("methods") == 1
+    by = {s.slug: " ".join(p.text for p in s.paragraphs) for s in text.sections}
+    assert "E." in by["methods"] and "Q." in by["methods"]
+    assert {"key_resources_table", "resource_availability", "lead_contact", "materials_availability"} <= set(slugs)
+
+
 def test_chunk_paragraphs_splits_long_text_at_sentences():
     long = ("Sentence number one is here. " * 60).strip()
     chunks = chunk_paragraphs([long], limit=200)
