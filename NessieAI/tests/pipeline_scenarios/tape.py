@@ -18,6 +18,7 @@ import hashlib
 import importlib
 import json
 import re
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -58,8 +59,15 @@ class TapeRefused(ValueError):
 
 
 def exception_spec(exc: BaseException, **extra) -> dict:
+    """The exception by class name and message, plus its arguments when they are not just the message
+    (an OSError's errno, a KeyError's key, an exception that takes several) and can go on a tape."""
     cls = type(exc)
     spec = {"raise": f"{cls.__module__}.{cls.__qualname__}", "message": str(exc), **extra}
+    if exc.args != (spec["message"],):
+        try:
+            spec["args"] = encode(list(exc.args))
+        except TypeError:
+            pass                          # an argument a tape cannot hold: the message alone is kept
     status = getattr(getattr(exc, "response", None), "status_code", None)
     if isinstance(status, int):
         spec["status_code"] = status      # an HTTP error is judged by its status (a 404 is "absent")
@@ -71,9 +79,10 @@ def is_raise(value) -> bool:
 
 
 def rebuild_exception(spec: dict) -> BaseException:
-    """The recorded exception: its class imported by dotted name and given the message, or a
-    RuntimeError naming both when the class is gone or cannot take one message argument."""
+    """The recorded exception: its class imported by dotted name and given its recorded arguments
+    (else the message), or a RuntimeError naming both when the class is gone or takes neither."""
     name, message = spec["raise"], spec["message"]
+    args = decode(spec["args"]) if "args" in spec else [message]
     try:
         module, _, qualname = name.rpartition(".")
         cls = importlib.import_module(module)
@@ -82,10 +91,14 @@ def rebuild_exception(spec: dict) -> BaseException:
         if isinstance(cls, type) and issubclass(cls, BaseException):
             if "status_code" in spec:
                 try:
-                    return cls(message, response=SimpleNamespace(status_code=spec["status_code"]))
+                    return cls(*args, response=SimpleNamespace(status_code=spec["status_code"]))
                 except TypeError:
                     pass
-            return cls(message)
+            for tried in (args, [message]):
+                try:
+                    return cls(*tried)
+                except TypeError:
+                    continue
     except Exception:  # noqa: BLE001 - any failure to rebuild falls through to RuntimeError
         pass
     return RuntimeError(f"{name}: {message}")
@@ -130,10 +143,19 @@ def schema_answer(url: str, data: bytes) -> dict:
 
 
 def schema_error_answer(exc: BaseException) -> dict:
-    """A failed fetch: the class and the HTTP status, with the message stripped of every URL."""
-    spec = exception_spec(exc)
-    spec["message"] = _URL.sub("<url>", spec["message"])
-    return spec
+    """A failed fetch: the class and the HTTP status, its message and arguments stripped of every URL,
+    and of the bare request path and host a connection error names (scrub.for_tape)."""
+    from . import scrub
+
+    def strip(value):
+        if isinstance(value, str):
+            return _URL.sub("<url>", value)
+        if isinstance(value, dict):
+            return {k: strip(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [strip(v) for v in value]
+        return value
+    return strip(scrub.for_tape(exception_spec(exc)))
 
 
 def decode(value):
@@ -178,6 +200,8 @@ class Tape:
         self.refused: list[str] = []
         self._final: set[int] = set()
         self._source_of: dict[int, str] = {}
+        #: The slot a worker thread was handed when its call was submitted (in_slot).
+        self._slot = threading.local()
 
     def record(self, source: str, args, kwargs, value) -> None:
         self.entries.setdefault(source, []).append({"args": _args_key(args, kwargs), "value": encode(value)})
@@ -200,7 +224,13 @@ class Tape:
 
     def reserve(self, source: str, args=(), kwargs=None) -> dict:
         """Take the next slot of a source now and fill it when the call ends, so entries stay in
-        call order even when a call runs on a worker thread the tool may give up waiting for."""
+        call order even when a call runs on a worker thread the tool may give up waiting for. On a
+        worker that was handed a slot of this source when it was submitted (in_slot), that slot."""
+        handed = getattr(self._slot, "entry", None)
+        if handed is not None and self._source_of.get(id(handed)) == source:
+            self._slot.entry = None
+            handed["args"] = _args_key(args, kwargs or {})
+            return handed
         entry = {"args": _args_key(args, kwargs or {}), "value": None}
         self.entries.setdefault(source, []).append(entry)
         self._source_of[id(entry)] = source
@@ -219,10 +249,27 @@ class Tape:
         if final:
             self._final.add(id(entry))
 
-    def mark_timeout(self, source: str) -> None:
-        """The tool stopped waiting for a call of this source: tape that, not the late answer."""
-        queue = self.entries.get(source)
-        entry = queue[-1] if queue else self.reserve(source)
+    def in_slot(self, entry: dict, fn, *args, **kwargs):
+        """Run fn on this (worker) thread with `entry`, the slot reserved when it was submitted, as
+        the one its own reserve() takes. A slot fn never took is removed, unless it was timed out."""
+        self._slot.entry = entry
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            untaken = getattr(self._slot, "entry", None) is entry
+            self._slot.entry = None
+            if untaken and id(entry) not in self._final:
+                queue = self.entries.get(self._source_of.get(id(entry)), [])
+                for i, e in enumerate(queue):
+                    if e is entry:
+                        del queue[i]
+                        break
+
+    def mark_timeout(self, entry: dict) -> None:
+        """The tool stopped waiting for the call that holds `entry`: tape that, final. Its late answer,
+        if it ever comes, is dropped on purpose (fill ignores a final entry): replay raises the timeout
+        where the tool gave up, so the answer was never used and must not become an entry to play."""
+        source = self._source_of.get(id(entry), "?")
         self.fill(entry, exception_spec(TimeoutError(f"{source} timed out"), waiting=True), final=True)
 
     def schema_key(self, url: str) -> str:
@@ -329,8 +376,8 @@ class _HashingContext:
 
 
 class _ObservedFuture:
-    def __init__(self, future, source, tape: Tape):
-        self._future, self._source, self._tape = future, source, tape
+    def __init__(self, future, entry: dict | None, tape: Tape):
+        self._future, self._entry, self._tape = future, entry, tape
 
     def result(self, timeout=None):
         try:
@@ -338,8 +385,8 @@ class _ObservedFuture:
         except concurrent.futures.TimeoutError:
             # Only the tool giving up on a call that is still running counts; a TimeoutError the
             # call itself raised comes with a finished future and is taped by the wrapper.
-            if self._source and not self._future.done():
-                self._tape.mark_timeout(self._source)
+            if self._entry is not None and not self._future.done():
+                self._tape.mark_timeout(self._entry)
             raise
 
     def __getattr__(self, name):
@@ -353,8 +400,13 @@ class _ObservedPool:
         self._tape = tape
 
     def submit(self, fn, *args, **kwargs):
-        return _ObservedFuture(self._pool.submit(fn, *args, **kwargs),
-                               getattr(fn, "_tape_source", None), self._tape)
+        """A taped call's slot is reserved here, on the tool's thread, before the worker starts, so a
+        timeout marks that call's own entry however far the worker got (it may not have asked yet)."""
+        source = getattr(fn, "_tape_source", None)
+        if not source:
+            return _ObservedFuture(self._pool.submit(fn, *args, **kwargs), None, self._tape)
+        entry = self._tape.reserve(source)
+        return _ObservedFuture(self._pool.submit(self._tape.in_slot, entry, fn, *args, **kwargs), entry, self._tape)
 
     def __getattr__(self, name):
         return getattr(self._pool, name)

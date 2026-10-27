@@ -256,11 +256,33 @@ def test_exceptions_are_taped_by_class_name_and_message_and_rebuilt():
     assert type(err) is ValueError and str(err) == "no good"
 
 
-def test_an_exception_that_takes_other_arguments_comes_back_as_a_runtime_error():
-    err = tp.rebuild_exception(tp.exception_spec(_TwoArgs(1, 2)))
-    assert type(err) is RuntimeError and "_TwoArgs" in str(err)
+def test_an_exception_that_takes_other_arguments_comes_back_with_them():
+    spec = json.loads(json.dumps(tp.exception_spec(_TwoArgs(1, "two"))))      # through the tape's JSON
+    err = tp.rebuild_exception(spec)
+    assert type(err) is _TwoArgs and err.args == (1, "two") and str(err) == str(_TwoArgs(1, "two"))
+    err = tp.rebuild_exception(tp.exception_spec(FileNotFoundError(2, "No such file")))
+    assert type(err) is FileNotFoundError and err.errno == 2 and err.strerror == "No such file"
+    err = tp.rebuild_exception(tp.exception_spec(KeyError("UID")))
+    assert type(err) is KeyError and str(err) == str(KeyError("UID"))
+    raw = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+    err = tp.rebuild_exception(json.loads(json.dumps(tp.exception_spec(raw))))
+    assert type(err) is UnicodeDecodeError and str(err) == str(raw)
+
+
+def test_an_exception_that_cannot_be_rebuilt_comes_back_as_a_runtime_error():
+    class _Unkept(Exception):
+        def __init__(self, a, b):
+            super().__init__(a, b)
+    # its arguments cannot go on a tape (an object), and it will not take the message alone
+    err = tp.rebuild_exception(tp.exception_spec(_Unkept(object(), 2)))
+    assert type(err) is RuntimeError and "_Unkept" in str(err)
     err = tp.rebuild_exception({"raise": "no.such.Thing", "message": "m"})
     assert type(err) is RuntimeError and "no.such.Thing" in str(err)
+
+
+def test_a_one_message_exception_keeps_the_spec_it_always_had():
+    assert tp.exception_spec(TimeoutError("digest timed out")) == {"raise": "builtins.TimeoutError",
+                                                                    "message": "digest timed out"}
 
 
 def _replay_of(t):
@@ -403,6 +425,57 @@ def test_a_selection_that_outlasts_the_tools_wait_replays_as_a_timeout(fakes, mo
     assert r.unplayed() == {}
 
 
+def test_a_timeout_marks_the_call_that_timed_out_and_its_late_answer_is_dropped(fakes, monkeypatch):
+    """The tool gave up before the worker had even asked the model: the timeout goes on that call's own
+    slot (not the newest selection entry, here an earlier answer), and the late answer, when it comes,
+    is dropped on purpose: it neither overwrites the timeout, nor adds an entry, nor refuses the tape."""
+    from chat_nextseek.pipeline import selection
+    release, finished = threading.Event(), threading.Event()
+
+    def late_decide(**kw):
+        release.wait(5)            # still before its model call when the tool stops waiting
+        try:
+            late = types.SimpleNamespace(chat=lambda **k: types.SimpleNamespace(content="late, see /home/u/x"))
+            return tp.RecordingClient(late, kw["tape"]).chat()
+        finally:
+            finished.set()
+    monkeypatch.setattr(selection, "decide", late_decide)
+    first = types.SimpleNamespace(chat=lambda **k: types.SimpleNamespace(content="FIRST"))
+    t = tp.Tape(mode="record")
+    with tp.taped(t):
+        tp.RecordingClient(first, t).chat()                   # an earlier selection answer
+        pool = fakes.tools.concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(selection.decide, tape=t)
+        with pytest.raises(fakes.tools.concurrent.futures.TimeoutError):
+            future.result(timeout=0.05)
+        pool.shutdown(wait=False)
+        release.set()
+        assert finished.wait(5)
+    queue = t.entries["selection"]
+    assert [e["value"] if not tp.is_raise(e["value"]) else "timeout" for e in queue] == ["FIRST", "timeout"]
+    assert queue[1]["value"].get("waiting") is True and t.refused == []
+    r = _replay_of(t)
+    with tp.taped(r):
+        assert tp.ReplayClient(r).chat().content == "FIRST"
+        pool = fakes.tools.concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(selection.decide, tape=r)
+        with pytest.raises(fakes.tools.concurrent.futures.TimeoutError):
+            future.result(timeout=1)
+        pool.shutdown(wait=False)
+    assert r.unplayed() == {} and r.mismatches == []
+
+
+def test_a_worker_that_never_asks_the_model_leaves_no_empty_entry(fakes, monkeypatch):
+    from chat_nextseek.pipeline import selection
+    monkeypatch.setattr(selection, "decide", lambda **kw: "no model call")
+    t = tp.Tape(mode="record")
+    with tp.taped(t):
+        pool = fakes.tools.concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        assert pool.submit(selection.decide, tape=t).result(timeout=1) == "no model call"
+        pool.shutdown(wait=False)
+    assert "selection" not in t.entries or t.entries["selection"] == []
+
+
 def test_an_exception_message_with_a_path_or_email_makes_taped_raise_at_exit(fakes, monkeypatch):
     from chat_nextseek.pipeline.sample_digest import DigestError
     for message, needle in (("could not read /Users/alice/data/x.bam", "path"),
@@ -517,6 +590,42 @@ def test_a_404_message_with_a_url_does_not_reach_refused_and_still_reads_as_not_
     r = tp.Tape.from_json(t.to_json())
     with tp.taped(r):
         assert ns.get_schema("fetchngs", "1.12.0") == {"nextflow_schema": {"title": "a", "definitions": {}}}
+    ns.clear_cache()
+
+
+def test_a_connection_error_naming_the_request_path_does_not_refuse_the_tape(fakes, monkeypatch):
+    """urllib3 names the request path bare ("with url: /nf-core/..."): the tape keeps the error without it."""
+    import requests
+    ns, _ = _schema_world(monkeypatch)
+    msg = ("HTTPSConnectionPool(host='raw.githubusercontent.com', port=443): Max retries exceeded with url: "
+           "/nf-core/rnaseq/3.18.0/nextflow_schema.json (Caused by NameResolutionError(\"Failed to resolve "
+           "'raw.githubusercontent.com' ([Errno -2] Name or service not known)\"))")
+    monkeypatch.setattr(ns, "_default_fetcher", lambda url: (_ for _ in ()).throw(requests.ConnectionError(msg)))
+    t = tp.Tape(mode="record")
+    with tp.taped(t, **SCRUB):
+        with pytest.raises(ns.SchemaFetchError, match="nf-core/rnaseq"):     # the live run sees the real message
+            ns.get_schema("rnaseq", "3.18.0")
+    assert t.refused == []
+    (answer,) = t.entries["schemas"].values()
+    assert answer["raise"] == "requests.exceptions.ConnectionError" and "Max retries exceeded" in answer["message"]
+    assert "/nf-core" not in json.dumps(answer) and "githubusercontent" not in json.dumps(answer)
+    r = tp.Tape.from_json(t.to_json())
+    with tp.taped(r):
+        with pytest.raises(ns.SchemaFetchError, match="Max retries exceeded"):
+            ns.get_schema("rnaseq", "3.18.0")
+    assert r.mismatches == []
+    ns.clear_cache()
+
+
+def test_a_schema_error_with_arguments_loses_its_urls_in_them_too(fakes, monkeypatch):
+    ns, _ = _schema_world(monkeypatch)
+    monkeypatch.setattr(ns, "_default_fetcher",
+                        lambda url: (_ for _ in ()).throw(_TwoArgs("fetch failed", url)))
+    t = tp.Tape(mode="record")
+    with tp.taped(t, **SCRUB):
+        with pytest.raises(ns.SchemaFetchError):
+            ns.get_schema("rnaseq", "3.18.0")
+    assert t.refused == [] and "https://" not in json.dumps(t.to_json())
     ns.clear_cache()
 
 
