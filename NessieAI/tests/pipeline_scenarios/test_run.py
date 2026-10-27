@@ -419,12 +419,31 @@ def test_a_crash_building_the_session_keeps_the_paid_router_decision(tmp_path, m
     assert caught.value.record["decision"]["route"] == "nextseek_query"
 
 
-def test_the_parser_plan_names_the_cohorts_search_as_production_does():
-    plan = rn.parser_plan(_story(), ["D.SEQ-1-PUB"])
-    s = rn.make_session(_story(), ["D.SEQ-1-PUB"])
+def test_the_parser_plan_names_the_cohorts_search_only_on_a_follow_up():
+    """The parser names an earlier result (target_result_id) on a follow-up; a question that stands on its
+    own gets a plan naming none, and start() takes its own path for it."""
+    follow_up = _story(history=[{"user": "and the controls?", "assistant": "Yes."}])
+    plan = rn.parser_plan(follow_up, ["D.SEQ-1-PUB"])
+    s = rn.make_session(follow_up, ["D.SEQ-1-PUB"])
     assert plan.target_result_id == s["results_history"][0]["id"] and plan.mode == "reporter"
     assert plan.report_type.startswith("NFCORE")      # the orchestrator's branch that starts the agent
-    assert rn.parser_plan(_story(), []) is None
+    alone = rn.parser_plan(_story(), ["D.SEQ-1-PUB"])
+    assert alone.target_result_id is None and alone.mode == "reporter" and alone.filters.uids == []
+    assert rn.parser_plan(follow_up, []) is None
+
+
+def test_a_question_that_stands_on_its_own_takes_starts_own_path(tmp_path, monkeypatch):
+    from chat_nextseek.pipeline import agent as pa
+    seeds = []
+
+    def first_message(session, config, **k):
+        seeds.append(session[pa.PIPELINE_AGENT_KEY]["messages"][0]["content"])
+        return {"action": "ask", "reply": "Which groups?", "params": None}
+    monkeypatch.setattr(pa, "_run_loop", first_message)
+    monkeypatch.setattr(rn, "cohort_uids", lambda c: ["D.SEQ-1-PUB", "D.SEQ-2-PUB"])
+    rn.run_story(_story(expect="ask"), _Cfg(), None, tmp_path, decide=_decide())
+    assert "the result you mean" not in seeds[0] and "earlier turns" not in seeds[0]
+    assert "[context]" in seeds[0]                       # the pinned search, as start() summarises it
 
 
 def test_the_storys_history_reaches_the_pipeline_agent(tmp_path, monkeypatch):
@@ -458,11 +477,11 @@ class _Model:
 
 
 class _PricedCfg(_Cfg):
-    def __init__(self, usage):
-        self.model = _Model(usage)
+    def __init__(self, usage, name=PRICED):
+        self.model, self.name = _Model(usage), name
 
     def get_agent_model(self, label):
-        return self.model, PRICED, None
+        return self.model, self.name, None
 
 
 def _spending_agent(monkeypatch):
@@ -560,3 +579,139 @@ def test_without_max_usd_every_story_runs(tmp_path, monkeypatch):
     assert rn.main(["--yes", "--out", str(tmp_path)]) == 0
     summary = json.loads((tmp_path / "summary.json").read_text())
     assert summary["n"] == 3 and summary["not_run"] == []
+
+
+def test_a_selection_call_the_tool_gave_up_on_is_priced_and_its_late_answer_is_not_counted_twice(tmp_path, monkeypatch):
+    """The tool stops waiting; the worker goes on and is billed. The story is charged its prompt at the
+    input rate (turn_spend's estimate for a timeout) and says so; the answer that comes later, here
+    during the next story, lands in neither story."""
+    import concurrent.futures
+    import threading
+    import NessieAI.router.router as router
+    import chat_nextseek.config as cc
+    from chat_nextseek import turn_spend
+    from chat_nextseek.pipeline import agent as pa
+    release, finished = threading.Event(), threading.Event()
+
+    class _Slow(_Model):
+        def chat(self, **kw):
+            release.wait(5)
+            try:
+                return super().chat(**kw)
+            finally:
+                finished.set()
+
+    def start(session, config, **k):
+        client, model, _ = config.get_agent_model("pipeline_agent")
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        if starts.pop(0) == "slow":
+            future = pool.submit(client.chat, model=model, messages=[{"role": "user", "content": "x" * 400_000}])
+            with pytest.raises(concurrent.futures.TimeoutError):
+                future.result(timeout=0.05)            # the tool gives up; the worker runs on
+        else:
+            release.set()
+            assert finished.wait(5)                    # the first story's answer arrives now
+            pool.submit(client.chat, model=model, messages=[]).result(timeout=5)
+        pool.shutdown(wait=False)
+        turn_spend.record_call({"agent": "pipeline_agent", "provider": "gcp", "model": model, "attempt": 0,
+                                "outcome": "ok"},
+                               resp=SimpleNamespace(usage={"prompt_tokens": 0, "completion_tokens": 100_000}))
+        session[pa.PIPELINE_AGENT_KEY] = {"active": False, "selection": {"verdict": "chosen", "pipelines": ["rnaseq"]}}
+        return {"action": "ask", "reply": "rnaseq", "params": None}
+    starts = ["slow", "fast"]
+    monkeypatch.setattr(pa, "start", start)
+    cfg = _PricedCfg({"prompt_tokens": 1_000_000, "completion_tokens": 0})
+    cfg.model = _Slow(cfg.model.usage)
+    monkeypatch.setattr(rn, "load_stories", lambda: _ruled("s1", "s2"))
+    monkeypatch.setattr(rn, "cohort_uids", lambda c: ["D.SEQ-1-PUB"])
+    monkeypatch.setattr(router, "decide", _paid_decide)
+    monkeypatch.setattr(cc, "ChatConfig", lambda: cfg)
+    assert rn.main(["--yes", "--out", str(tmp_path)]) == 0
+    first = json.loads((tmp_path / "stories" / "s1.json").read_text())["spend"]
+    # 400k characters, 4 a token, at $0.30 a million input tokens, plus the loop's $0.25
+    assert first["agent"]["usd"] == pytest.approx(0.03 + 0.25) and first["agent"]["estimated"] is True
+    assert first["partial"] is True                    # its output was never seen
+    second = json.loads((tmp_path / "stories" / "s2.json").read_text())["spend"]
+    assert second["agent"]["usd"] == pytest.approx(0.30 + 0.25) and second["partial"] is False
+
+
+def test_max_usd_charges_the_per_story_estimate_for_spend_it_cannot_price(tmp_path, monkeypatch):
+    import NessieAI.router.router as router
+    import chat_nextseek.config as cc
+    _spending_agent(monkeypatch)
+    monkeypatch.setattr(rn, "load_stories", lambda: _ruled("s1", "s2", "s3"))
+    monkeypatch.setattr(rn, "cohort_uids", lambda c: ["D.SEQ-1-PUB"])
+    monkeypatch.setattr(router, "decide", _paid_decide)
+    monkeypatch.setattr(cc, "ChatConfig",
+                        lambda: _PricedCfg({"prompt_tokens": 1_000_000, "completion_tokens": 0}, name="no-price-model"))
+    assert rn.main(["--yes", "--max-usd", "1.00", "--per-story-usd", "0.60", "--out", str(tmp_path)]) == 0
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    assert summary["not_run"] == ["s3"]                # $0.02 priced + $0.60 charged a story
+    assert summary["spend"]["usd"] == pytest.approx(0.04) and summary["spend"]["cap_usd"] == pytest.approx(1.24)
+    row = json.loads((tmp_path / "stories" / "s1.json").read_text())["spend"]
+    assert row["cap_usd"] == pytest.approx(0.62) and row["partial"] is True
+
+
+def test_a_provider_outage_fails_that_story_and_the_run_goes_on(tmp_path, monkeypatch):
+    """LLMFatalError is a BaseException: it must not escape the story and lose the run's summary."""
+    import NessieAI.router.router as router
+    import chat_nextseek.config as cc
+    from chat_nextseek.llm_clients import LLMFatalError
+    from chat_nextseek.pipeline import agent as pa
+    _spending_agent(monkeypatch)
+    spending_start = pa.start
+
+    def outage(session, config, **k):
+        if story_ids.pop(0) == "s1":
+            raise LLMFatalError("all providers down", unavailable=True)
+        return spending_start(session, config, **k)
+    story_ids = ["s1", "s2"]
+    monkeypatch.setattr(pa, "start", outage)
+    monkeypatch.setattr(rn, "load_stories", lambda: _ruled("s1", "s2"))
+    monkeypatch.setattr(rn, "cohort_uids", lambda c: ["D.SEQ-1-PUB"])
+    monkeypatch.setattr(router, "decide", _paid_decide)
+    monkeypatch.setattr(cc, "ChatConfig", lambda: _PricedCfg({"prompt_tokens": 1_000_000, "completion_tokens": 0}))
+    assert rn.main(["--yes", "--out", str(tmp_path)]) == 0
+    row = json.loads((tmp_path / "stories" / "s1.json").read_text())
+    assert row["outcome"]["error"].startswith("LLMFatalError") and row["score"]["grade"] == "FAIL"
+    assert row["decision"]["route"] == "nextseek_query" and row["spend"]["router"]["usd"] == 0.02
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    assert summary["n"] == 2 and summary["summary"]["FAIL"] == 1
+
+
+def test_an_interrupted_run_still_writes_its_summary(tmp_path, monkeypatch):
+    import NessieAI.router.router as router
+    import chat_nextseek.config as cc
+    from chat_nextseek.pipeline import agent as pa
+    _spending_agent(monkeypatch)
+    spending_start = pa.start
+
+    def interrupted(session, config, **k):
+        if story_ids.pop(0) == "s2":
+            raise KeyboardInterrupt
+        return spending_start(session, config, **k)
+    story_ids = ["s1", "s2", "s3"]
+    monkeypatch.setattr(pa, "start", interrupted)
+    monkeypatch.setattr(rn, "load_stories", lambda: _ruled("s1", "s2", "s3"))
+    monkeypatch.setattr(rn, "cohort_uids", lambda c: ["D.SEQ-1-PUB"])
+    monkeypatch.setattr(router, "decide", _paid_decide)
+    monkeypatch.setattr(cc, "ChatConfig", lambda: _PricedCfg({"prompt_tokens": 1_000_000, "completion_tokens": 0}))
+    with pytest.raises(KeyboardInterrupt):
+        rn.main(["--yes", "--out", str(tmp_path)])
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    assert summary["n"] == 1 and summary["not_run"] == ["s2", "s3"]
+    assert summary["spend"]["usd"] == pytest.approx(0.57)
+
+
+def test_the_story_runs_in_a_call_scope_as_a_production_turn_does(tmp_path, monkeypatch):
+    from chat_nextseek import call_scope
+    from chat_nextseek.pipeline import agent as pa
+    scopes = []
+
+    def start(session, config, **k):
+        scopes.append(call_scope.current())
+        return {"action": "ask", "reply": "?", "params": None}
+    monkeypatch.setattr(pa, "start", start)
+    monkeypatch.setattr(rn, "cohort_uids", lambda c: ["D.SEQ-1-PUB"])
+    rn.run_story(_story(expect="ask"), _Cfg(), None, tmp_path, decide=_decide())
+    assert scopes[0] is not None and call_scope.current() is None
