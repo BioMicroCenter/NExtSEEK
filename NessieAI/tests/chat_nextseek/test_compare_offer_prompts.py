@@ -15,7 +15,8 @@ def _read(name: str) -> str:
 def test_the_parser_sends_an_expression_comparison_to_nfcore():
     text = _read("parser_core_routing.txt")
     assert "Questions that compare molecular readouts between groups of samples" in text
-    assert "Which genes change between them?" in text
+    assert "which genes change between these two cell types?" in text
+    assert "250409KAM" not in text   # a corpus case is not a prompt example (house rule)
 
 
 def test_the_parser_no_longer_calls_every_group_comparison_unsupported():
@@ -27,7 +28,7 @@ def test_the_parser_no_longer_calls_every_group_comparison_unsupported():
 def test_the_reporter_keeps_an_nfcore_comparison_on_report_generation():
     text = _read("reporter_agent.txt")
     assert "never a summary" in text
-    assert "Which genes change between them?" in text
+    assert "How does expression differ between" in text
 
 
 def test_the_pipeline_agent_frames_a_question_as_an_offer():

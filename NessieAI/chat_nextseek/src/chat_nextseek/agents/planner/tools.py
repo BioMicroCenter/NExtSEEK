@@ -24,6 +24,7 @@ from ...helpers import (
     tool_neo4j_query,
     tool_nextseek_api_request,
 )
+from ...schemas.graph import no_cypher_error
 from ...schemas import (
     APIRequestPlan,
     ContextEngineerOutput,
@@ -83,7 +84,7 @@ def _plan_tool_graph_query(
     graph_plan = graph_agent(config, query, entity_result, parser_plan=graph_parser_plan)
     print(f"[DEBUG][PLAN_TOOL] cypher={graph_plan.cypher!r}")
     if not graph_plan.cypher:
-        return {"ok": False, "tool": "graph_query", "output": {}, "error": "graph_agent produced no cypher"}
+        return {"ok": False, "tool": "graph_query", "output": {}, "error": no_cypher_error(graph_plan)}
     result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
     if not result.get("ok") and not is_scope_refusal(result):
         retry_ctx = (

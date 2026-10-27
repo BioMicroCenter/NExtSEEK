@@ -1126,8 +1126,9 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
     # SIMPLEAF_QUANT --knee); the submitter renders these into the run's -c config.
     process_args = process_args_for(state.get("pipeline_key") or "", launch_params.get("protocol"))
     tool_input = tool_input or {}
+    reasons: list = []
     try:
-        runs = submit_luria(launch, luria_env=luria_env,
+        runs = submit_luria(launch, luria_env=luria_env, reasons=reasons,
                             resources=tool_input.get("resources"),
                             job_name=tool_input.get("job_name"),
                             samplesheet_local=samplesheet,
@@ -1139,7 +1140,8 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
     except Exception as exc:
         return json.dumps({"ok": False, "message": f"Luria submit failed: {exc!r}"})
     if not runs:
-        return json.dumps({"ok": False, "message": "No runs submitted — check Luria logs."})
+        return json.dumps({"ok": False, "message": "No runs submitted: " + "; ".join(reasons)
+                           if reasons else "No runs submitted — check Luria logs."})
     state.setdefault("artifacts", {})["luria_runs"] = runs
     # Stash the ssh target now, while we still have config in hand — _conclude builds the
     # follow-up block from state alone and has no ChatConfig to ask.

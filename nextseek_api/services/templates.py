@@ -61,9 +61,8 @@ class TemplatesViewSet(viewsets.ViewSet):
         deliberately not project membership: these are schema definitions, not
         sample data, so there is nothing project-scoped to expose.
 
-        IsSuperUser, never DRF's IsAdminUser -- dmac/views.py sets is_staff=1 on
-        every SEEK user at login, so IsAdminUser is IsAuthenticated under a
-        misleading name.
+        IsSuperUser, never DRF's IsAdminUser -- is_staff is not an admin signal
+        here (old accounts carry it, nothing grants it now).
         """
         if self.action == "generate":
             return [IsAuthenticated(), IsSuperUser()]

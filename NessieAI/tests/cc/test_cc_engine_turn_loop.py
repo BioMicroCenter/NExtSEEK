@@ -10,6 +10,7 @@ import docker as docker_mod
 from django.test import override_settings
 from docker.errors import APIError, NotFound
 
+from NessieAI.tests.cc import fake_spawner
 from NessieAI.cc import cc_engine
 from NessieAI.cc.cc_config import CCPaths
 
@@ -102,7 +103,7 @@ def test_run_cc_turn_streams_result_and_persists(tmp_path, monkeypatch):
         }),
     ]
     monkeypatch.setattr(
-        cc_engine, "BridgeAttachSocket",
+        fake_spawner, "BridgeAttachSocket",
         lambda raw, stdout_stream=None: _FakeSock(lines),
     )
     monkeypatch.setattr(cc_engine.os, "chmod", lambda *a, **k: (_ for _ in ()).throw(OSError("chmod")))
@@ -202,7 +203,7 @@ def test_run_cc_turn_timeout_and_generic_error(tmp_path, monkeypatch):
             return ""
 
     monkeypatch.setattr(
-        cc_engine, "BridgeAttachSocket",
+        fake_spawner, "BridgeAttachSocket",
         lambda raw, stdout_stream=None: _BlockingSock(),
     )
     cc_engine.run_cc_turn(
@@ -253,7 +254,7 @@ def test_run_cc_turn_finalize_without_result(tmp_path, monkeypatch):
     _install_client(monkeypatch, container)
     events: list[tuple[str, dict]] = []
     monkeypatch.setattr(
-        cc_engine, "BridgeAttachSocket",
+        fake_spawner, "BridgeAttachSocket",
         lambda raw, stdout_stream=None: _FakeSock(["not-json", None]),
     )
     cc_engine.run_cc_turn(

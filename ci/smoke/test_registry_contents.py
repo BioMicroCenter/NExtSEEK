@@ -51,12 +51,12 @@ from ci.smoke.test_reachability import _callable_routes
 # moves, and the COMPLETENESS GATE (ci/gate/test_route_registry.py) is the
 # authority on what the right number is: it diffs the registry against the live
 # resolver. This constant only stops the registry drifting silently between gate
-# runs, which happen in a different environment. 177 -> 184 when
-# feat/nfcore-reingest-integration merged dev: its seven routes (the four
-# /nextseek_api/reingest-proposals/ routes and /nextseek_api/assistant/ run-harvest,
-# run-checksum and upload-reingest) were absent from dev's 177.
-# 184 -> 185 for /nextseek_api/assistant/paper-reingest-start/ (paper reingest, piece 1).
-OWNED_ROUTE_COUNT = 185
+# runs, which happen in a different environment. 177 -> 185 on the phase C
+# integration: +1 session search (/nextseek_api/assistant/sessions/search/) and +7
+# from feat/nfcore-reingest-integration (the four /nextseek_api/reingest-proposals/
+# routes and /nextseek_api/assistant/ run-harvest, run-checksum and upload-reingest).
+# 185 -> 186 for /nextseek_api/assistant/paper-reingest-start/ (paper reingest, piece 1).
+OWNED_ROUTE_COUNT = 186
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
 # static asset, the Django admin login page and the retired /seek/newsearch/ (404).

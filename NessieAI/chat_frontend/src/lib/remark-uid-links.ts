@@ -7,7 +7,7 @@ import { visit } from "unist-util-visit";
  * SOP UIDs (P. prefix) → /seek/sop/uid=.../
  * Sample UIDs           → /seek/sampletree/uid=.../
  */
-function getUrlForUid(uid: string): string {
+export function getUrlForUid(uid: string): string {
   if (uid.startsWith("P.")) {
     return `/seek/sop/uid=${encodeURIComponent(uid)}/`;
   }
@@ -16,6 +16,11 @@ function getUrlForUid(uid: string): string {
 
 // Combined regex that matches either SOP or sample UIDs.
 // SOP pattern first (more specific due to P. prefix).
+/** The UIDs in `text`, in order: the same rule the chat uses to link them. */
+export function findUids(text: string): string[] {
+  return [...text.matchAll(COMBINED_REGEX)].map((m) => m[1]);
+}
+
 const COMBINED_REGEX =
   /\b(P\.[A-Z]{2,5}-\d{6}-V\d+_[\w.+\-]+(?:\.\w{2,5})?|(?:[A-Z]\.)?[A-Z]{2,}-\d{6}[A-Z]{2,5}-\d+(?:-PUB\d*)?)\b/g;
 

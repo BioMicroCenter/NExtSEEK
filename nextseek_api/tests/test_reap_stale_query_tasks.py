@@ -1,9 +1,11 @@
 """The reaper ends turns whose worker died; a live turn (recently updated) is left alone."""
 from datetime import timedelta
 from io import StringIO
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
+from django.db.models.query import QuerySet
 from django.test import TestCase
 from django.utils import timezone
 
@@ -47,3 +49,19 @@ class ReapStaleQueryTasksTests(TestCase):
         call_command("reap_stale_query_tasks", "--once", stdout=StringIO())
         done.refresh_from_db()
         assert done.status == "completed" and done.progress == []
+
+    def test_a_turn_that_answers_just_before_the_reap_writes_keeps_its_answer(self):
+        """The row was selected while open and its answer landed before the reaper's write: the write must not
+        replace a finished answer (a query_error may land on a completed row, so the reaper needs its own check)."""
+        stale = self._task("running", 40)
+        real_update = QuerySet.update
+
+        def answer_first(qs, **fields):
+            if fields.get("status") == "error":
+                real_update(QueryTask.objects.filter(pk=stale.pk), status="completed", result={"reply": "done"})
+            return real_update(qs, **fields)
+
+        with patch.object(QuerySet, "update", answer_first):
+            call_command("reap_stale_query_tasks", "--once", stdout=StringIO())
+        stale.refresh_from_db()
+        assert stale.status == "completed" and stale.result == {"reply": "done"}

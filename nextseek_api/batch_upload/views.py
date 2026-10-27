@@ -5,6 +5,7 @@ import csv
 import logging
 import os
 import json
+import tempfile
 import time
 import uuid
 
@@ -31,6 +32,7 @@ from .job_index import list_jobs, register_job, state_dir, user_owns_job
 from .models import InputRowModel, ValidationResult
 from .tasks import cancel_marker_path, run_batch_upload_task
 from .validation import run_validation_multi
+from .xlsx_guard import XlsxExpansionError, check_xlsx_expansion
 from nextseek_api.endpoint_descriptions import (
     BATCH_UPLOAD_START_DESC,
     BATCH_UPLOAD_STATUS_DESC,
@@ -219,6 +221,8 @@ class BatchUploadViewSet(viewsets.ViewSet):
                     {"detail": f"Total upload size ({mb_actual:.1f} MB) exceeds limit ({mb_limit:.0f} MB)."},
                     status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 )
+            if (refusal := _expansion_refusal(uploaded_files)) is not None:
+                return refusal
 
         # ── Neither provided ──
         else:
@@ -412,7 +416,7 @@ class BatchUploadViewSet(viewsets.ViewSet):
         },
         description=BATCH_UPLOAD_VALIDATE_DESC,
     )
-    @action(detail=False, methods=["post"], url_path="validate")
+    @action(detail=False, methods=["post"], url_path="validate", throttle_classes=UPLOAD_THROTTLES)
     def validate(self, request):
         """POST /api/batch-upload/validate/ -- synchronously validate a batch upload.
 
@@ -500,6 +504,8 @@ class BatchUploadViewSet(viewsets.ViewSet):
                     {"detail": f"Total upload size ({mb_actual:.1f} MB) exceeds limit ({mb_limit:.0f} MB)."},
                     status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 )
+            if (refusal := _expansion_refusal(uploaded_files)) is not None:
+                return refusal
             for uf in uploaded_files:
                 xlsx_paths.append(_save_uploaded_file(uf))
 
@@ -680,14 +686,24 @@ class BatchUploadViewSet(viewsets.ViewSet):
 _UPLOAD_DIR = "uploads"
 
 
+def _expansion_refusal(uploaded_files):
+    """A 413 Response if any upload inflates past the caps (checked before any parse), else None."""
+    for uf in uploaded_files:
+        try:
+            check_xlsx_expansion(uf)
+        except XlsxExpansionError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+    return None
+
+
 def _save_uploaded_file(uploaded_file) -> str:
     """Save an uploaded Django file to <state_dir>/uploads/ (the durable volume) and return the path."""
     upload_dir = os.path.join(state_dir(), _UPLOAD_DIR)
     os.makedirs(upload_dir, exist_ok=True)
     safe_name = os.path.basename(getattr(uploaded_file, "name", "upload.xlsx") or "upload.xlsx")
-    filename = f"{int(time.time())}_{safe_name}"
-    dest_path = os.path.join(upload_dir, filename)
-    with open(dest_path, "wb") as f:
+    # mkstemp: an unpredictable name, created exclusively (SEC-H37)
+    fd, dest_path = tempfile.mkstemp(prefix=f"{int(time.time())}_", suffix=f"_{safe_name}", dir=upload_dir)
+    with os.fdopen(fd, "wb") as f:
         for chunk in uploaded_file.chunks():
             f.write(chunk)
     return dest_path

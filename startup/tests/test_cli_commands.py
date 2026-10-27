@@ -29,9 +29,9 @@ runner = CliRunner()
 
 def _old_defaults():
     # The published defaults, read from the module rather than restated here.
-    from startup.steps.config import default_values
+    from types import SimpleNamespace
 
-    return default_values(8000, 3000, generate_passwords=False)
+    return SimpleNamespace(mysql_root_password="seek_root")
 
 
 @pytest.fixture()
@@ -98,6 +98,7 @@ def steps(repo: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     volumes = MagicMock()
     volumes.ensure_volumes.return_value = ["v1"]
     volumes.REQUIRED_VOLUMES = ["v1", "v2"]
+    volumes.ensure_secret_group_read.return_value = []
 
     disk_preflight = MagicMock()
     disk_preflight.run_preflight.return_value = SimpleNamespace(
@@ -156,7 +157,7 @@ def test_install_randomizes_logins_only_after_loading_the_seek_seed(repo: Path, 
     steps.users.set_random_passwords.assert_not_called()
     # (iii) the flag keeps the published ones
     _seed_populated(steps, seek_production=False)
-    assert runner.invoke(cli.app, ["install", "--yes", "--keep-demo-passwords"]).exit_code == 0
+    assert runner.invoke(cli.app, ["install", "--yes", "--keep-demo-passwords", "--demo-passwords-are-public"]).exit_code == 0
     steps.users.set_random_passwords.assert_not_called()
 
 
@@ -175,15 +176,24 @@ def test_install_warns_loudly_when_randomizing_fails(repo: Path, steps) -> None:
     steps.users.set_random_passwords.return_value = None
     _seed_populated(steps, seek_production=False)
     result = runner.invoke(cli.app, ["install", "--yes"])
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 1, result.output
     assert "still have the published passwords" in " ".join(result.output.split())
 
 
 def test_install_with_existing_data_volume_does_not_generate_passwords(repo: Path, steps, monkeypatch) -> None:
     monkeypatch.setattr(cli, "volume_exists", lambda name: True)
+    steps.config.kept_values.return_value = {
+        "MYSQL_ROOT_PASSWORD": "a", "MYSQL_PASSWORD": "b", "NEXTSEEK_NEO4J_PASSWORD": "c"}
     result = runner.invoke(cli.app, ["install", "--yes"])
     assert result.exit_code == 0, result.output
     assert steps.config.default_values.call_args.kwargs["generate_passwords"] is False
+
+
+def test_install_stops_when_a_data_volume_exists_and_a_password_is_lost(repo: Path, steps, monkeypatch) -> None:
+    monkeypatch.setattr(cli, "volume_exists", lambda name: True)
+    steps.config.kept_values.return_value = {}
+    assert runner.invoke(cli.app, ["install", "--yes"]).exit_code == 2
+    steps.config.default_values.assert_not_called()
 
 
 def test_install_fails_fast_when_prereqs_fail(repo: Path, steps) -> None:
@@ -561,6 +571,7 @@ def test_rebuild_reports_verified_rollback_tag(
     from startup.steps import disk_preflight, registry_push, rollback_tags, validate
 
     _saved_state(repo)
+    _stub_ownership(monkeypatch)
     monkeypatch.setattr(
         rollback_tags,
         "create_verified",
@@ -919,6 +930,27 @@ def _stub_web_swap(monkeypatch: pytest.MonkeyPatch, *, pending: bool = False) ->
     return seen
 
 
+def _stub_ownership(monkeypatch: pytest.MonkeyPatch, *, user_changed: bool = False,
+                    check_counts: dict | None = None) -> list[str]:
+    """No docker: the user comparison, the stop and the FIX/CHECK passes are recorded, not run."""
+    from startup.steps import volumes
+
+    seen: list[str] = []
+    from startup.steps import validate
+    monkeypatch.setattr(volumes, "app_user_change", lambda root, env: user_changed)
+    monkeypatch.setattr(volumes, "peers_not_on_app_uid", lambda root, env: [])
+    monkeypatch.setattr(volumes, "stop_app_services", lambda root, env: seen.append("stop"))
+    monkeypatch.setattr(volumes, "ensure_secret_group_read", lambda root, env: [])
+    monkeypatch.setattr(validate, "check_app_ids", lambda gid: validate.HealthResult("app uid/gid", True, "ok"))
+
+    def passes(root, env, *, check_only, skip_cc_users=False, say=None):
+        seen.append("CHECK" if check_only else "FIX")
+        return (check_counts or {"vol": 0}) if check_only else {"vol": None}
+
+    monkeypatch.setattr(volumes, "ensure_app_ownership", passes)
+    return seen
+
+
 def _mock_rebuild(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -942,6 +974,7 @@ def _mock_rebuild(
     monkeypatch.setattr(docker_ops, "compose_build", lambda **kwargs: None)
     monkeypatch.setattr(docker_ops, "compose_up", lambda **kwargs: None)
     _stub_web_swap(monkeypatch)
+    _stub_ownership(monkeypatch)
     monkeypatch.setattr(registry_push, "push_baselines", lambda *args, **kwargs: ())
     from startup.steps import validate as _validate
     monkeypatch.setattr(
@@ -1071,10 +1104,10 @@ def test_rebuild_starts_a_stopped_front_door_without_recreating_it(
     repo: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A stopped nginx survived every rebuild on 2026-09-10, and the suite then
-    spent its whole readiness floor on a refused port. `up` without
-    --force-recreate is a no-op on a running nginx and a start on a stopped one;
-    --no-deps keeps it from touching anything else, which is the rule an
-    unscoped recreate taught on 2026-09-02."""
+    spent its whole readiness floor on a refused port. `up --no-recreate` is a
+    no-op on a running nginx and a start on a stopped one; --no-deps keeps it
+    from touching anything else, which is the rule an unscoped recreate taught
+    on 2026-09-02."""
     _saved_state(repo, ci_profile="dev")
     _mock_rebuild(monkeypatch)
     calls = _record_compose_up(monkeypatch)
@@ -1088,6 +1121,9 @@ def test_rebuild_starts_a_stopped_front_door_without_recreating_it(
     assert list(front_door[0]["services"]) == ["nextseek_nginx"]
     assert front_door[0]["no_deps"] is True
     assert front_door[0].get("force_recreate", False) is False
+    # 2026-10-26 prod: a plain `up` still recreates a running nginx whose service definition
+    # differs in the new checkout's compose file (config hash), onto a conf that names `web`.
+    assert front_door[0].get("no_recreate") is True
 
 
 def test_rebuild_starts_the_front_door_after_the_app_restart(
@@ -1137,6 +1173,32 @@ def test_rebuild_warns_when_nginx_serves_an_old_config(
 
     assert result.exit_code == 0, result.output
     assert "nginx serves an old config; run ./startup.sh rebuild --recreate-nginx" in " ".join(
+        result.output.split())
+    assert not any(c.get("force_recreate") and "nextseek_nginx" in c["services"] for c in calls)
+
+
+def test_rebuild_warns_when_the_nginx_service_definition_changed(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The front-door start never recreates a running nginx, so a changed nginx service
+    (an image tag, a new mount) stays unapplied: the rebuild says so (a warning, not a red)."""
+    from startup.steps import validate
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    monkeypatch.setattr(
+        validate, "check_nginx_config",
+        lambda *a, **k: validate.HealthResult(
+            "nginx config", True,
+            "nginx service definition changed: run ./startup.sh rebuild --recreate-nginx", warn=True),
+    )
+    calls = _record_compose_up(monkeypatch)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert "nginx service definition changed: run ./startup.sh rebuild --recreate-nginx" in " ".join(
         result.output.split())
     assert not any(c.get("force_recreate") and "nextseek_nginx" in c["services"] for c in calls)
 
@@ -2289,7 +2351,6 @@ def test_install_db_steps_use_the_kept_passwords(repo: Path, steps, monkeypatch)
     for step in db_calls:
         envs = [a for a in step.call_args.args if isinstance(a, dict) and "COMPOSE_PROJECT_NAME" in a]
         assert [e.get("MYSQL_ROOT_PASSWORD") for e in envs] == ["root-rotated"], step
-    assert steps.build.start_databases.call_args.kwargs["neo4j_password"] == "neo-rotated"
     assert steps.seed.neo4j_is_populated.call_args.args[0] == "neo-rotated"
     # The compose targeting file gets the Neo4j password it needs and never the MySQL root one.
     root_env = read_env(repo / ".env")
@@ -2594,3 +2655,269 @@ def test_rebuild_of_the_spawner_restarts_only_it(
     assert result.exit_code == 0, result.output
     assert swaps == []
     assert list(calls[0]["services"]) == ["cc-spawner"]
+
+
+def test_install_exits_nonzero_when_password_rotation_fails(repo: Path, steps) -> None:
+    steps.users.set_random_passwords.return_value = None
+    _seed_populated(steps, seek_production=False)
+    assert runner.invoke(cli.app, ["install", "--yes"]).exit_code == 1
+
+
+def test_keep_demo_passwords_needs_the_second_confirming_flag(repo: Path, steps) -> None:
+    _seed_populated(steps, seek_production=False)
+    assert runner.invoke(cli.app, ["install", "--yes", "--keep-demo-passwords"]).exit_code == 1
+    ok = runner.invoke(cli.app, ["install", "--yes", "--keep-demo-passwords", "--demo-passwords-are-public"])
+    assert ok.exit_code == 0, ok.output
+
+
+# phase 4: the root -> 1001 switchover and the ownership CHECK
+
+def _record_all(monkeypatch: pytest.MonkeyPatch, order: list[str]) -> None:
+    from startup.lib import docker_ops, web_swap
+
+    monkeypatch.setattr(docker_ops, "compose_up", lambda **kw: order.append("up " + ",".join(kw["services"])))
+    monkeypatch.setattr(web_swap, "swap", lambda run, repo_root, **kw: order.append("swap") or "swapped")
+    monkeypatch.setattr(web_swap, "migrations_pending",
+                        lambda run: order.append("migcheck") or (False, ""))
+
+
+def test_rebuild_with_a_user_change_stops_fixes_then_ups_and_never_swaps(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    order = _stub_ownership(monkeypatch, user_changed=True)
+    _record_all(monkeypatch, order)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert order[:6] == ["stop", "FIX", "up nextseek-sidecar", "up web", "up nextseek", "CHECK"]
+    assert "swap" not in order and "migcheck" not in order
+
+
+def test_rebuild_without_a_user_change_swaps_then_checks(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    order = _stub_ownership(monkeypatch)
+    _record_all(monkeypatch, order)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert order[:4] == ["migcheck", "up nextseek", "swap", "CHECK"]
+    assert "FIX" not in order
+
+
+def test_rebuild_check_above_zero_runs_fix_and_warns(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    order = _stub_ownership(monkeypatch, check_counts={"nextseek-media": 7})
+    _record_all(monkeypatch, order)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert order[order.index("CHECK"):order.index("CHECK") + 2] == ["CHECK", "FIX"]
+    flat = "".join(result.output.split())
+    assert "nextseek-media" in flat and "notowned" in flat.lower()
+
+
+def test_fix_ownership_command_prints_counts_and_seconds(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import volumes
+
+    _saved_state(repo, ci_profile="dev")
+    seen: list[bool] = []
+
+    def passes(root, env, *, check_only, skip_cc_users=False, say=None):
+        seen.append((check_only, skip_cc_users))
+        say("p-media", 12 if check_only else None, 3.4)
+        return {"p-media": 12 if check_only else None}
+
+    monkeypatch.setattr(volumes, "ensure_app_ownership", passes)
+    monkeypatch.setattr(volumes, "before_switchover", lambda root, env: changed)
+
+    changed = False
+    r1 = runner.invoke(cli.app, ["fix-ownership", "--check"])
+    r2 = runner.invoke(cli.app, ["fix-ownership"])
+
+    assert r1.exit_code == 1 and r2.exit_code == 0, (r1.output, r2.output)
+    assert seen == [(True, False), (False, False)]
+    changed = True   # the app still runs as the old user: dmac-cc-users is left alone
+    r3 = runner.invoke(cli.app, ["fix-ownership"])
+    assert r3.exit_code == 0 and seen[-1] == (False, True) and "dmac-cc-users" in r3.output
+    assert "p-media" in r1.output and "12" in r1.output and "3.4" in r1.output
+
+
+def test_rebuild_refuses_before_building_when_the_app_ids_are_bad(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import validate
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    order = _stub_ownership(monkeypatch)
+    monkeypatch.setattr(validate, "check_app_ids",
+                        lambda gid: validate.HealthResult("app uid/gid", False, "uid 10001 is the host account x"))
+    built: list[int] = []
+    from startup.lib import docker_ops
+    monkeypatch.setattr(docker_ops, "compose_build", lambda **kw: built.append(1))
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-ci"])
+
+    assert result.exit_code == 1 and built == [] and order == []
+    assert "10001" in result.output
+
+
+def test_rebuild_refuses_when_a_secret_file_cannot_be_made_group_readable(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import volumes
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    _stub_ownership(monkeypatch)
+    monkeypatch.setattr(volumes, "ensure_secret_group_read", lambda root, env: ["/k is not owned by this user"])
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-ci"])
+
+    assert result.exit_code == 1 and "not owned by this user" in result.output
+
+
+# phase 4 fix round: NEXTSEEK_HOST_GID reaches .env before any compose call
+
+def test_rebuild_writes_the_host_gid_into_an_old_env_before_the_preflight(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import validate
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    _stub_ownership(monkeypatch)
+    (repo / ".env").write_text("COMPOSE_PROJECT_NAME=nextseek")   # an existing box: no key, no final newline
+    seen: list[str] = []
+    monkeypatch.setattr(validate, "check_app_ids", lambda gid: seen.append(
+        read_env(repo / ".env").get("NEXTSEEK_HOST_GID", "")) or validate.HealthResult("app uid/gid", True, "ok"))
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-ci"])
+
+    assert result.exit_code == 0, result.output
+    assert seen == [str(os.getgid())]
+    assert read_env(repo / ".env")["COMPOSE_PROJECT_NAME"] == "nextseek"
+
+
+def test_fix_ownership_writes_the_host_gid_before_asking_compose(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import volumes
+
+    _saved_state(repo, ci_profile="dev")
+    (repo / ".env").write_text("COMPOSE_PROJECT_NAME=nextseek\n")
+    seen: list[str] = []
+    monkeypatch.setattr(volumes, "ensure_app_ownership", lambda root, env, *, check_only, skip_cc_users=False,
+                        say=None: seen.append(read_env(repo / ".env").get("NEXTSEEK_HOST_GID", "")) or {})
+
+    result = runner.invoke(cli.app, ["fix-ownership", "--check"])
+
+    assert result.exit_code == 0, result.output
+    assert seen == [str(os.getgid())]
+
+
+def test_fix_ownership_before_the_app_build_leaves_cc_users_alone(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Old root image still at the tag, old root containers running: the pass must skip dmac-cc-users."""
+    import json
+    from startup.steps import volumes
+
+    _saved_state(repo, ci_profile="dev")
+    cfg = json.dumps({"services": {"nextseek": {"image": "nextseek-nextseek:latest"}}})
+
+    def fake_run(cmd, **kw):
+        out = {("docker", "compose", "config"): cfg, ("docker", "compose", "ps"): "c1"}.get(tuple(cmd[:3]), "")
+        return MagicMock(returncode=0, stdout=out, stderr="")
+
+    seen: list[bool] = []
+    monkeypatch.setattr(volumes, "ensure_app_ownership", lambda root, env, *, check_only, skip_cc_users=False,
+                        say=None: seen.append(skip_cc_users) or {})
+    with patch("startup.steps.volumes.subprocess.run", side_effect=fake_run):
+        result = runner.invoke(cli.app, ["fix-ownership"])
+
+    assert result.exit_code == 0, result.output
+    assert seen == [True] and "dmac-cc-users" in result.output
+
+
+def test_the_switchover_refuses_before_stopping_anything_when_a_peer_image_is_not_on_10001(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from startup.steps import volumes
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    order = _stub_ownership(monkeypatch, user_changed=True)
+    _record_all(monkeypatch, order)
+    monkeypatch.setattr(volumes, "peers_not_on_app_uid",
+                        lambda root, env: ["nextseek-sidecar (nextseek-ns-sidecar:latest) runs as 1001"])
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-ci"])
+
+    assert result.exit_code == 1
+    assert order == []    # nothing stopped, fixed or started
+    flat = " ".join(result.output.split())
+    assert "nextseek-ns-sidecar:latest" in flat and "rebuild --component nextseek-sidecar" in flat
+
+
+@pytest.mark.parametrize("failing", ["stop", "FIX"])
+def test_a_docker_error_inside_the_switchover_prints_the_recovery_and_exits_1(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, failing: str,
+) -> None:
+    from startup.lib.docker_ops import DockerOpsError
+    from startup.steps import volumes
+
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    order = _stub_ownership(monkeypatch, user_changed=True)
+    _record_all(monkeypatch, order)
+
+    def boom(*a, **k):
+        raise DockerOpsError(f"{failing} broke")
+
+    if failing == "stop":
+        monkeypatch.setattr(volumes, "stop_app_services", boom)
+    else:
+        monkeypatch.setattr(volumes, "ensure_app_ownership", boom)
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-ci"])
+
+    assert result.exit_code == 1 and not isinstance(result.exception, DockerOpsError)
+    flat = " ".join(result.output.split())
+    assert f"{failing} broke" in flat
+    assert "./startup.sh fix-ownership" in flat and "docker compose up -d nextseek-sidecar web nextseek" in flat
+    assert not any(o.startswith("up ") for o in order)
+
+
+def test_install_runs_the_app_preflight_after_the_root_env_and_before_the_volumes(repo: Path, steps) -> None:
+    """The root .env (with NEXTSEEK_HOST_GID) first, then the uid/gid check and the group-read step (a
+    re-install keeps an existing 0600 local_settings.py; this makes it 0640), then anything else."""
+    order: list[str] = []
+    steps.config.render_root_env.side_effect = lambda *a, **k: order.append("root_env")
+    steps.validate.check_app_ids.side_effect = lambda gid: order.append("ids") or SimpleNamespace(ok=True)
+    steps.volumes.ensure_secret_group_read.side_effect = lambda root, env: order.append("group_read") or []
+    steps.volumes.ensure_volumes.side_effect = lambda prefix: order.append("volumes") or []
+
+    result = runner.invoke(cli.app, ["install", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert order[:4] == ["root_env", "ids", "group_read", "volumes"]
+    steps.volumes.ensure_secret_group_read.side_effect = lambda root, env: ["dmac/local_settings.py is not owned"]
+    bad = runner.invoke(cli.app, ["install", "--yes"])
+    assert bad.exit_code == 1 and "not owned" in bad.output

@@ -41,6 +41,16 @@ def test_sanitize_job_name_strips_shell_chars():
     assert sanitize_job_name("") == "nfcore_run"
 
 
+def test_sanitize_job_name_never_yields_a_cleanup_tombstone_name():
+    # The weekly cleanup deletes any work/.nessie-deleting-*-<14 digits> without checking the queue (PR 135 SF-12).
+    from chat_nextseek.luria.cleanup import is_leftover
+
+    for name in (".nessie-deleting-x-20261001120000", "-.nessie-deleting-x-20261001120000",
+                 "._.nessie-deleting-x-20261001120000", "-_.nessie-deleting-x-20261001120000"):
+        got = sanitize_job_name(name)
+        assert not got.startswith((".", "-")) and not is_leftover(got)
+
+
 def test_render_substitutes_all_slots_and_no_tokens_left():
     script = render_run_script(
         job_name="nfcore_rnaseq", pipeline="nf-core/rnaseq", revision="3.16.1",

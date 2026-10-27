@@ -36,12 +36,14 @@ estimate from `brief.json` against the budget), expected minutes (`derived.estim
 | window | checks the UTC clock against the stop windows | inside one |
 | busy | `pgrep` inside `nextseek` for a graph sync, drift or harness run | anything found |
 | pull | `git fetch`; discards only the app's context refresh; `git merge --ff-only <expected>` | origin/dev is not the sha, or the fast-forward is refused |
-| rebuilds | each component in the order bedrock-proxy, cc-spawner, app, cc-agent, nextseek-sidecar, `--no-ci` | the success line is missing (unless the component is in `continue_on_failure`: then it says `FAILED ..., continuing`) |
-| after app | collectstatic in `web`; on dev the labs copy onto the volume `web` and `nextseek` share (no restart); `mkdir -p /app/runs` in both | never |
+| rehearsal | only when the range has a migration and the app is rebuilt: `app-build` goes first (the switchover order already has it) and, right after it, `migrate` runs on a throwaway copy of the box schema (DEPLOYMENT.md section 3.6) | the rehearsal fails, or `app-build` has no success line (even with the app in `continue_on_failure`): nothing has restarted yet |
+| rebuilds | each component in the order bedrock-proxy, cc-spawner, app, cc-agent, nextseek-sidecar (on the phase 4 switchover: `app-build` (the app image built and preflighted with `--no-restart`, log `app-build.log`; its ROLLBACK line is the app's, later app tags are not reported), cc-agent, nextseek-sidecar, bedrock-proxy, cc-spawner, app (a cached build, then the restart), then `./startup.sh fix-ownership --check`, which stops the launch on any count above 0; a switchover brief without cc-agent and nextseek-sidecar stops before any rebuild), `--no-ci` | the success line is missing (unless the component is in `continue_on_failure`: then it says `FAILED ..., continuing`) |
+| first split | right after the pull the runner asks the box, not the brief: `FIRST_SPLIT=1` when the checkout defines `web` and `docker compose ps -a -q web` lists nothing (a stopped or restarting `web` is a split box); the order stays the rules order. On `FIRST_SPLIT=1` the rebuild's summary "The app or front door is not up" and the new-layout reds (`web` alone not running, `cc-spawner` not running, its image ABSENT) are `pending app` / `pending cc-spawner` until their step has run, then real; anywhere else that summary stops. Why: the new nginx conf proxies to `web`, which only the app step creates, and the front-door start (607031e7) leaves nginx on the old conf until then. An nginx service definition that differs from the running one (compose config hash) moves the nginx recreate onto the app step (else the first) when the brief allows `nginx recreate ok`, else it is a `FINDING` | compose cannot list the `web` containers; on `FIRST_SPLIT=1`: the app step does not carry the nginx recreate, or the shipped sha lacks `no_recreate=True` in `startup/cli.py` (both also stop the commits step when the range creates `web`) |
+| after app | collectstatic in `web`; on dev the labs copy (`compose cp -a`, so the file is owned by the app user) onto the volume `web` and `nextseek` share (no restart); `mkdir -p /app/runs` in both | never |
 | judge | every red stack-health line of each rebuild log, classified | an unexplained or stale red while components are still pending; after the last rebuild it becomes a `FINDING` line and the run goes on to CI |
-| checks | http, containers, boot markers, CC runner, labs, refresh marker, the ops road and, on the sidecar road only, sidecar ops against the repo, image ages, cc-agent node and Claude Code versions (when rebuilt), every live marker, memory | never (it is evidence) |
+| checks | http, containers, (non-root builds) web uid 10001, no docker.sock in web, an untokened spawner call refused, User/CapDrop/no-new-privileges of web and nextseek, boot markers, CC runner, labs, refresh marker, the ops road and, on the sidecar road only, sidecar ops against the repo, image ages, cc-agent node and Claude Code versions (when rebuilt), every live marker, memory | never (it is evidence) |
 | CI | `./startup.sh ci [--wait-ready] --no-nessie` | never; it records the result line, new reds and red health lines |
-| Nessie | only when CI printed a result and every failed id is a known red; restarts SEEK over 12 GiB when allowed; one run dir per cases file (a `*-member.json` file as the non-admin `CI_SMOKE_USER`, every other as `CI_WRITE_USER`), copied out to `~/launch-<TAG>/` and `~/backups/` | CI not green apart from the known reds |
+| Nessie | only when CI printed a result and every failed id is a known red; restarts SEEK over 12 GiB when allowed; one run dir per cases file (a `*-member.json` file as the non-admin `CI_SMOKE_USER`, every other as `CI_WRITE_USER`; a file with a non-empty `_measure` block is re-pinned on the box first, `PINNED`, and a failed pin skips it with `FINDING PIN_FAILED`), copied out to `~/launch-<TAG>/` and `~/backups/` | CI not green apart from the known reds |
 
 The red classes come from `.claude/skills/deploy/scripts/rules.py`: `known` (the table of known reds), `pending <c>` (a
 check that names a component still to be rebuilt: expected mid-launch, since stack health runs after
@@ -61,9 +63,13 @@ Every line ends in a UTC `HH:MM:SS`; the last is `ALL_DONE`. `launch.py judge` p
 START tag=... instance=dev components=app cc-agent
 HEAD 1c070c08 Merge ...
 REBUILD app exit=1               # exit 1 is often drift or GHCR; the success line decides
-ROLLBACK app nextseek-nextseek:pre-<utc>-<sha>   # the NEW image was built from <sha>
+ROLLBACK app nextseek-nextseek:pre-<utc>-<sha>   # the NEW image was built from <sha>; a component's first ROLLBACK line wins
+MIGRATION in the range: app-build first, ...; order: app-build ...   # only when the range has a migration
+REBUILD app-build exit=1         # the app image built with --no-restart (switchover or migration); the success line decides
+REHEARSAL-OK applied=<names> seconds=<n>   # right after app-build: migrate on a copy of the box schema; a failure is STOPPED, nothing restarted
 REBUILT app | FAILED cc-agent, continuing (...)
 STATIC exit=0 ...
+LABS pre-copied | LABS pre-copy failed; ...   # before the app rebuild; the last LABS line decides
 LABS copied | LABS source missing: /tmp/labs_db.json
 RED app [pending cc-agent] cc-agent runtime: STALE: ...
 FINDING red after the last rebuild (...)
@@ -71,13 +77,17 @@ CHECKS CHECK http 200
 CI exit=1
 CI_RESULT CI failed: 2 failed, 304 passed, ...
 CI_NEW_REDS <ids>
+PINNED <file> measured={...} dropped=<ids>   # a cases file's non-empty _measure block re-pinned on this box
+FINDING PIN_FAILED <file> see <launch>/pin-<file>.log; this file's run was skipped
 NESSIE_START run=... utc=... login=admin|member  /  NESSIE_EXIT run=... exit=1 utc=...
 STOPPED: <why>
 ALL_DONE
 ```
 
 `NESSIE_EXIT exit=1` means at least one non-known_fail case failed; it is not an infrastructure
-failure. The `utc=` stamps are the `--since/--until` for `fetch_run.py` (the app clock is UTC).
+failure. A cases file whose pin failed has no NESSIE_START, so the Nessie section can hold fewer runs
+than the brief has cases files: count them against the `FINDING PIN_FAILED` lines.
+The `utc=` stamps are the `--since/--until` for `fetch_run.py` (the app clock is UTC).
 
 ## Watch
 

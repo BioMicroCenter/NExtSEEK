@@ -563,3 +563,43 @@ class ReingestAttributeProposal(models.Model):
         # utf8mb4 -- see the field comment above. Load-bearing, not arbitrary.
         unique_together = (("pipeline", "raw_key", "proposed_attribute"),)
         ordering = ["-times_proposed", "-created_at"]
+
+
+class ChatSearchEntry(models.Model):
+    """What a turn put in front of the user, pulled out once when the turn ends, for the session search.
+
+    Written by ``NessieAI/ns/chat_search_index.py`` (``index_chat``) at every turn's end and by the
+    ``chat_search_index`` backfill; read by ``nextseek_api/assistant/session_search.py``. Reading these at search
+    time instead (zstd transcripts, results of up to 5,000 IDs) took over a second per search on dev.
+
+    ``source`` ``steps``: the Container-CC agent's own words (``kind`` ``agent_text``) and the commands and paths it
+    used (``tool_call``), in ``text``. ``source`` ``record``: one ``uid`` row per ID the turn showed (``key`` the ID,
+    ``record_type`` its type code, ``text`` where it appeared: ``question``, ``answer`` or ``result``), one
+    ``project`` row per project the question named, and one ``turn`` row per indexed turn (``text``: how many
+    result IDs it had, of which at most 500 have rows). Only turns still in the chat's ``chat_log`` keep rows.
+    """
+
+    # No database-level FK: assistant_chat_session predates utf8mb4 and is latin1 on dev and prod, so
+    # MySQL refuses a constraint from this utf8mb4 table's char(32) session_id (error 3780). The ORM
+    # still cascades the delete; the column stays indexed.
+    session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name="search_entries",
+                                db_constraint=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    turn_id = models.IntegerField()
+    source = models.CharField(max_length=16)
+    kind = models.CharField(max_length=16)
+    key = models.CharField(max_length=64, blank=True, default="")
+    record_type = models.CharField(max_length=16, blank=True, default="")
+    text = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "assistant_chat_search_entry"
+        app_label = "nextseek_api"
+        indexes = [
+            models.Index(fields=["user", "source"], name="chat_search_user_source"),
+            models.Index(fields=["user", "key"], name="chat_search_user_key"),
+            models.Index(fields=["session", "turn_id"], name="chat_search_session_turn"),
+        ]
+
+    def __str__(self):
+        return f"ChatSearchEntry {self.source}/{self.kind} session={self.session_id} turn={self.turn_id}"

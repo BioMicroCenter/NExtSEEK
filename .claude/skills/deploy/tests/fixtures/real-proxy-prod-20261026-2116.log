@@ -1,0 +1,53 @@
+       ✓ bedrock-proxy rebuilt and restarted
+       ✓ front door (nextseek_nginx) running
+       ✗ app + front door: not running: web -- start it with: docker compose up 
+-d --no-deps web
+       ✗ first-party images: ABSENT: nextseek-cc-spawner:latest -- build with: 
+./startup.sh rebuild --component cc-spawner
+       ✗ cc services: not running: cc-spawner
+       ✗ cc-agent context: STALE: dmac-assistant:poc bakes 3 of 21 canonical 
+context files unlike the checkout: capabilities.md (differs), 
+min_sampletypes_db.json (differs), ONTOLOGIES.json (differs), the Nessie docs 
+snapshot (.content-hash differs). The CC agent reads its baked copy until you 
+run: ./startup.sh rebuild --component cc-agent
+       ✗ app image code: STALE: of 2615 tracked app files, 391 differ 
+(NessieAI/CLAUDE.md, NessieAI/README.md, NessieAI/build_tools/README.md, 
+NessieAI/build_tools/gen_op_surfaces/route_capabilities.py, 
+NessieAI/cc/CLAUDE.md, NessieAI/cc/DEPLOY.md and 385 more); 251 absent 
+(NessieAI/cc/spawner_client.py, 
+NessieAI/chat_frontend/src/components/Sessions/SessionSearch.tsx, 
+NessieAI/chat_frontend/src/components/Sessions/__tests__/SessionSearch.test.tsx,
+NessieAI/chat_frontend/src/hooks/__tests__/useScrollToTurn.test.tsx, 
+NessieAI/chat_frontend/src/hooks/__tests__/useSessionSearch.test.ts, 
+NessieAI/chat_frontend/src/hooks/useScrollToTurn.ts and 245 more) in the running
+nextseek. It is not running the checkout's code. Rebuild with: ./startup.sh 
+rebuild
+       ✗ cc-agent runtime: STALE: dmac-assistant:poc: Claude Code '2.1.282 
+(Claude Code)' where the checkout pins @anthropic-ai/claude-code@2.1.294. 
+Rebuild with: ./startup.sh rebuild --component cc-agent
+       ✓ bedrock-proxy allow list: the running bedrock-proxy allows exactly the 
+checkout's 5: global.anthropic.claude-sonnet-5-5, us.anthropic.claude-opus-4-8, 
+us.anthropic.claude-opus-5-5, us.anthropic.claude-opus-4-7, 
+us.anthropic.claude-sonnet-4-6
+       ✓ CC fallback wiring: --model global.anthropic.claude-sonnet-5-5, 
+--fallback-model us.anthropic.claude-opus-4-8, classifier 
+us.anthropic.claude-sonnet-4-6, retries 3, request timeout 60000 ms; every one 
+allowed by the running proxy
+       ✓ model ids reachable: every id the deployed config calls answered, each 
+with the credential its calls carry (free metadata calls; 8 ids, profile default
+(mode mixed)): global.anthropic.claude-sonnet-5-5 via app Bedrock token ok (api,
+chatter, context_engineer, entity +14); gemini-3.8-flash via app GCP_API_KEY ok 
+(fallback of api, chatter, context_engineer, entity +6); 
+us.anthropic.claude-opus-4-7 via app Bedrock token ok (fallback of followup, 
+pipeline_agent); gemini-3.1-pro-preview via app GCP_API_KEY ok (router primary; 
+fallback of multi_parser, parser, planner, report_coder +1; BAML ClassifyQuery, 
+EvaluateFunctionalUsefulness, JudgeRouterAnswer, JudgeUITranscript, RouteQuery);
+us.anthropic.claude-opus-5-5 via app Bedrock token ok (fallback of system); 
+gemini-3.5-flash via app GCP_API_KEY ok (router fallback; BAML Summarize); 
+global.anthropic.claude-sonnet-5-5 via bedrock-proxy token ok (CC main); 
+us.anthropic.claude-opus-4-8 via bedrock-proxy token ok (CC fallback); 
+us.anthropic.claude-sonnet-4-6 via bedrock-proxy token ok (CC classifier)
+       ✓ off-box rollback baseline pushed: 
+ghcr.io/biomicrocenter/nextseek-bedrock-proxy:baseline-20261026-f39ce29a-dirty
+       ✗ Rebuild finished but is red: stack health. The app or front door is not
+up; see DEPLOYMENT.md section 5 (Rollback).

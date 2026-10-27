@@ -251,6 +251,13 @@ def verify(build_ids: list[str], *, user_id, chat_turn=None,
             reasons.append(f"{build_id[:12]}: record is incomplete")
             continue
         key = record["artifact_key"]
+        if record.get("uploaded_at"):
+            reasons.append(f"{key}: already uploaded; build it again to upload it once more")
+            continue
+        if os.path.exists(build_records._claim_path(build_id, user_id)):
+            reasons.append(f"{key}: an upload of it already started; check the batch-upload page, "
+                           "or build it again if it did not finish")
+            continue
         if record.get("built_by_user_id") != user_id:
             reasons.append(f"{key}: built by another user")
             continue
@@ -339,12 +346,23 @@ def _summarise(job_id: str, raw: dict | None) -> dict:
     totals = raw.get("totals") or {}
     errors = list(raw.get("errors") or [])
     failed = int(totals.get("failed") or 0)
-    return {"status": "failed" if (failed or errors) else "succeeded",
-            "created": int(totals.get("uids_generated") or 0),
-            "updated": int(totals.get("updated") or 0),
+    skipped = int(totals.get("skipped") or 0)
+    created, updated = int(totals.get("uids_generated") or 0), int(totals.get("updated") or 0)
+    # Rows the batch upload skipped (a name that already exists) or a job that wrote nothing are not "written".
+    status = ("failed" if (failed or errors)
+              else "skipped" if (skipped or not (created or updated)) else "succeeded")
+    return {"status": status, "created": created, "updated": updated,
+            "skipped_rows": skipped,
             "failed_rows": failed, "processed": int(totals.get("processed") or 0),
             "errors": errors[:3], "graph": totals.get("graph"),
             "created_uids": _created_uids(raw.get("rows"))}
+
+
+def job_is_done(outcome: dict | None) -> bool:
+    """A job that ran to its end with no failed row: its rows were written or already existed (skipped)."""
+    outcome = outcome or {}
+    return (outcome.get("status") == "succeeded"
+            or (outcome.get("status") == "skipped" and not outcome.get("failed_rows")))
 
 
 def _created_uids(rows) -> list[str] | None:
@@ -420,6 +438,11 @@ def _outcome_line(job: dict) -> str:
         done += ": " + _uid_list(outcome["created_uids"], outcome["created"])
     if outcome["status"] == "succeeded":
         return f"- {what}: done, {done}"
+    if outcome["status"] == "skipped":
+        skipped = outcome.get("skipped_rows") or 0
+        note = (f"{_plural(skipped, 'row')} skipped (a sample with the same name or file is already in "
+                "NExtSEEK)" if skipped else "nothing was written")
+        return f"- {what}: {done}; {note}"
     errors = "; ".join(_error_text(e) for e in outcome["errors"])
     return (f"- {what}: {outcome['failed_rows']} of {outcome['processed']} rows failed"
             f" ({done}){': ' + errors if errors else ''}")
@@ -450,6 +473,8 @@ def _reply(jobs: list[dict], created_assays: list[dict] | None = None) -> str:
         else:
             head = ("Upload finished: the samples were written to NExtSEEK, but not every "
                     "parent sample was added to its assay:")
+    elif all(o["status"] in ("succeeded", "skipped") for o in outcomes):
+        head = "Upload finished, but not every row was written:"
     else:
         head = "Upload finished with problems:"
     tail = ""
@@ -486,7 +511,7 @@ def _register_parents(entry: dict, record: dict, register_parents) -> dict | Non
         return {**base, "status": "skipped"}
     if outcome.get("status") == "running":
         return {**base, "status": "waiting"}
-    if outcome.get("status") != "succeeded":
+    if not job_is_done(outcome):
         return {**base, "status": "not_added"}
     if not callable(register_parents):
         return {**base, "status": "unavailable"}
@@ -562,6 +587,20 @@ def _parents_line(job: dict) -> str | None:
     return "\n".join(lines) or None
 
 
+def _settle_claims(verified: list[dict], jobs: list[dict], user_id) -> None:
+    """After the wait: a build whose job succeeded stays claimed and is stamped uploaded; one whose job did
+    not start or failed is given back; one still running keeps its claim (a repeat would double-write)."""
+    by_key = {entry["artifact_key"]: entry for entry in jobs}
+    for record in verified:
+        entry = by_key.get(record["artifact_key"])
+        status = ((entry or {}).get("outcome") or {}).get("status")
+        if entry is None or "job_id" not in entry or status == "failed":
+            build_records.release(record["build_id"], user_id)
+        elif job_is_done(entry.get("outcome")):
+            build_records.mark_uploaded(record["build_id"], user_id)
+            build_records.mark_uploaded(entry["build_id"], user_id)
+
+
 def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
         turn_delivered, job_state=None, create_study_assay=None, rebuild=None,
         register_parents=None, limit_s=None, started_at=None) -> dict:
@@ -589,64 +628,82 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage, chat_turn,
     records = verify(ids, user_id=user_id, chat_turn=chat_turn(),
                      turn_delivered=turn_delivered)
     verified = records
-    created = _create_assays(records, create_study_assay, rebuild)
-    records = _rebuild_after_create(records, created, rebuild, user_id)
-    created_assays = _created_assays(verified, created)
-    # What a refusal from here on says about the assays already made.
-    already = [_created_line(created)] if created else []
+    # One call at a time per build: taken before anything is created or started, given back unless a job
+    # started and has not failed.
+    claimed: list[str] = []
+    for record in verified:
+        if not build_records.claim(record["build_id"], user_id):
+            for build_id in claimed:
+                build_records.release(build_id, user_id)
+            raise UploadRefused([f"{record['artifact_key']}: an upload of it already started"])
+        claimed.append(record["build_id"])
+    kept = False
+    try:
+        created = _create_assays(records, create_study_assay, rebuild)
+        records = _rebuild_after_create(records, created, rebuild, user_id)
+        created_assays = _created_assays(verified, created)
+        # What a refusal from here on says about the assays already made.
+        already = [_created_line(created)] if created else []
 
-    # Phase A: stage every copy and prove it is the reviewed file, before any job starts.
-    staged_paths: list[tuple[dict, str]] = []
+        # Phase A: stage every copy and prove it is the reviewed file, before any job starts.
+        staged_paths: list[tuple[dict, str]] = []
 
-    def _discard() -> None:
-        for _, staged in staged_paths:
+        def _discard() -> None:
+            for _, staged in staged_paths:
+                try:
+                    os.remove(staged)
+                except OSError:
+                    logger.warning("upload-reingest: could not remove staged copy %s", staged)
+
+        for record in records:
             try:
-                os.remove(staged)
-            except OSError:
-                logger.warning("upload-reingest: could not remove staged copy %s", staged)
+                staged = stage(record["path"])
+                staged_paths.append((record, staged))
+                matches = build_records.sha256_of(staged) == record["build_id"]
+            except Exception:  # noqa: BLE001 -- the caller sees no raw text
+                logger.exception("upload-reingest: could not stage %s", record["artifact_key"])
+                _discard()
+                raise UploadRefused([f"{record['artifact_key']}: could not stage the workbook",
+                                     *already])
+            if not matches:
+                _discard()
+                raise UploadRefused(
+                    [f"{record['artifact_key']}: the staged copy does not match the reviewed workbook",
+                     *already])
 
-    for record in records:
-        try:
-            staged = stage(record["path"])
-            staged_paths.append((record, staged))
-            matches = build_records.sha256_of(staged) == record["build_id"]
-        except Exception:  # noqa: BLE001 -- the caller sees no raw text
-            logger.exception("upload-reingest: could not stage %s", record["artifact_key"])
-            _discard()
-            raise UploadRefused([f"{record['artifact_key']}: could not stage the workbook",
-                                 *already])
-        if not matches:
-            _discard()
-            raise UploadRefused(
-                [f"{record['artifact_key']}: the staged copy does not match the reviewed workbook",
-                 *already])
+        by_build = {r["build_id"]: r for r in records}
 
-    by_build = {r["build_id"]: r for r in records}
+        # Phase B: new mode first; a failed start is recorded and never stops the next.
+        jobs: list[dict] = []
+        for record, staged in staged_paths:
+            entry = {"build_id": record["build_id"], "artifact_key": record["artifact_key"],
+                     "sample_type": record["sample_type"], "mode": record["mode"],
+                     "manifest_id": record.get("manifest_id")}
+            try:
+                entry["job_id"] = dispatch(
+                    user_pk=user_id, user_ctx=upload_context,
+                    lababbv=upload_context["lababbv"], project_id=record["project_id"],
+                    # keep_assay_links: a backfill's ASSAY sheet is empty, and the update
+                    # path otherwise removes every assay link the sheet does not list.
+                    config_overrides={"update_existing": record["mode"] == "update",
+                                      "keep_assay_links": True},
+                    xlsx_paths=[staged])
+            except Exception as exc:  # noqa: BLE001 -- one failed start never stops the next
+                logger.exception("upload-reingest: job for %s did not start", record["artifact_key"])
+                entry["error"] = f"did not start ({type(exc).__name__}); see the server log"
+            jobs.append(entry)
+        if callable(job_state):
+            _await_jobs(jobs, job_state, _wait_budget_s(limit_s, started_at))
+        _settle_claims(verified, jobs, user_id)
+        kept = True
+        for entry in jobs:
+            if "job_id" in entry and (parents := _register_parents(
+                    entry, by_build[entry["build_id"]], register_parents)):
+                entry["parents"] = parents
+        return {"jobs": jobs, "reply": _reply(jobs, created_assays),
+                "created_assays": created_assays}
+    finally:
+        if not kept:
+            for build_id in claimed:
+                build_records.release(build_id, user_id)
 
-    # Phase B: new mode first; a failed start is recorded and never stops the next.
-    jobs: list[dict] = []
-    for record, staged in staged_paths:
-        entry = {"build_id": record["build_id"], "artifact_key": record["artifact_key"],
-                 "sample_type": record["sample_type"], "mode": record["mode"],
-                 "manifest_id": record.get("manifest_id")}
-        try:
-            entry["job_id"] = dispatch(
-                user_pk=user_id, user_ctx=upload_context,
-                lababbv=upload_context["lababbv"], project_id=record["project_id"],
-                # keep_assay_links: a backfill's ASSAY sheet is empty, and the update
-                # path otherwise removes every assay link the sheet does not list.
-                config_overrides={"update_existing": record["mode"] == "update",
-                                  "keep_assay_links": True},
-                xlsx_paths=[staged])
-        except Exception as exc:  # noqa: BLE001 -- one failed start never stops the next
-            logger.exception("upload-reingest: job for %s did not start", record["artifact_key"])
-            entry["error"] = f"did not start ({type(exc).__name__}); see the server log"
-        jobs.append(entry)
-    if callable(job_state):
-        _await_jobs(jobs, job_state, _wait_budget_s(limit_s, started_at))
-    for entry in jobs:
-        if "job_id" in entry and (parents := _register_parents(
-                entry, by_build[entry["build_id"]], register_parents)):
-            entry["parents"] = parents
-    return {"jobs": jobs, "reply": _reply(jobs, created_assays),
-            "created_assays": created_assays}

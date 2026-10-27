@@ -85,3 +85,32 @@ def test_render_rejects_rows_with_no_metadata_despite_schema(tmp_path):
     with pytest.raises(ValueError, match="no json_metadata"):
         render_upload_workbook("A.SCXP", [{"json_metadata": {}}],
                                str(tmp_path / "blank.xlsx"), schema_fields=["Name"])
+
+
+def test_formula_shaped_value_is_a_text_cell(tmp_path):
+    from openpyxl import load_workbook
+
+    evil = '=HYPERLINK("http://x","y")'
+    out = tmp_path / "u.xlsx"
+    render_upload_workbook("MUS", [{"json_metadata": {"Name": evil}, "assay_ids": []}], str(out))
+    cell = load_workbook(out)["Samples"]["A2"]
+    assert cell.data_type == "s" and cell.value == evil
+
+
+def test_every_user_value_is_a_text_cell(tmp_path):
+    # SEC-H03 across the whole workbook: a field name (Instructions, the
+    # Samples header), an update-mode UID and a Provenance value all come from
+    # stored metadata or a curator's chat answer, so none may become a formula.
+    from openpyxl import load_workbook
+
+    evil = '=HYPERLINK("http://x","y")'
+    out = tmp_path / "u.xlsx"
+    render_upload_workbook(
+        "MUS", [{"json_metadata": {"UID": evil, evil: "v"}, "assay_ids": []}], str(out),
+        mode="update", provenance=[{"uid": evil, "attribute": evil, "value": evil,
+                                    "origin": evil, "raw_key": evil,
+                                    "source_file": evil, "answered_by": evil}])
+    wb = load_workbook(out)
+    formulas = [(ws.title, c.coordinate) for ws in wb.worksheets
+                for row in ws.iter_rows() for c in row if c.data_type == "f"]
+    assert formulas == []

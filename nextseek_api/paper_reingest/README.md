@@ -10,7 +10,7 @@ The invariants and landmines are in [CLAUDE.md](CLAUDE.md).
 
 | File | What it does |
 |---|---|
-| `models_db.py` | `PaperReingestRun`, table `paper_reingest_run` under the `nextseek_api` app label (migration `0032_paper_reingest_run`). One row per run: the owner, the paper's ids and title, `mode`, `state`, the failure stage and reason, `artifacts` (artifact name to content-addressed key), `attempts` and `superseded_by` |
+| `models_db.py` | `PaperReingestRun`, table `paper_reingest_run` under the `nextseek_api` app label (migration `0034_paper_reingest_run`). One row per run: the owner, the paper's ids and title, `mode`, `state`, the failure stage and reason, `artifacts` (artifact name to content-addressed key), `attempts` and `superseded_by` |
 | `service.py` | `create_run` (writes `paper.json` before the row exists), `enqueue_acquire`, `set_state`, `unfinished_run_for` and `LIVE_STATES` |
 | `tasks.py` | `acquire_task` and `run_acquire`: stage 1 on its own queue |
 | `host.py` | the seams `paper-reingest-start` runs with: `enabled` (the flag), `read_input` (the attached PDF), the launch fetcher and its deadline, `start_session` |

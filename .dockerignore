@@ -58,6 +58,8 @@ docker/db.env*
 docker/nextseek.env*
 !docker/nextseek.env.example
 docker/cc-spawner.env*
+#   docker/luria-key  is startup's group-readable copy of the Luria ssh key (a private key), bind-mounted
+docker/luria-key*
 docker/laya.env*
 !docker/laya.env.example
 **/proxy-secret.env*

@@ -420,6 +420,49 @@ def test_build_params_yml_refuses_shell_syntax():
     assert "star_salmon" in _build_params_yml({"aligner": "star_salmon", "genome": "GRCm39"})
 
 
+# ---- skip reasons are recorded (return value unchanged) ----
+
+def test_reason_launch_yml_missing():
+    r = []
+    assert sub.submit_luria("/no/such/launch.yml", luria_env=LE, reasons=r) == []
+    assert len(r) == 1 and "launch.yml not found" in r[0]
+
+
+def test_reason_env_incomplete_names_keys_only(tmp_path):
+    launch, _ = _fixture(tmp_path)
+    r = []
+    env = {"user": "u", "key": None, "working_path": "/p", "host": "h", "password": "s3cret"}
+    assert sub.submit_luria(str(launch), luria_env=env, reasons=r) == []
+    assert len(r) == 1 and "key" in r[0] and "s3cret" not in r[0]
+
+
+def test_reason_no_entries(tmp_path):
+    (tmp_path / "launch.yml").write_text(yaml.safe_dump({"launch": []}))
+    r = []
+    assert sub.submit_luria(str(tmp_path / "launch.yml"), luria_env=LE, reasons=r) == []
+    assert len(r) == 1 and "no launch entries" in r[0]
+
+
+def test_reason_entry_missing_pipeline_and_missing_samplesheet(tmp_path, monkeypatch):
+    (tmp_path / "launch.yml").write_text(yaml.safe_dump({"launch": [
+        {"name": "bad"}, {"name": "nosheet", "pipeline": "nf-core/rnaseq", "revision": "3.16.1"}]}))
+    _patch_transport(monkeypatch)
+    r = []
+    assert sub.submit_luria(str(tmp_path / "launch.yml"), luria_env=LE, reasons=r) == []
+    assert any("'bad'" in x and "pipeline/revision" in x for x in r)
+    assert any("'nosheet'" in x and "samplesheet" in x for x in r)
+
+
+def test_reason_failing_entry_has_exception_trimmed_without_key(tmp_path, monkeypatch):
+    launch, _ = _fixture(tmp_path)
+    _patch_transport(monkeypatch)
+    monkeypatch.setattr(sub, "scp_file", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x" * 500)))
+    r = []
+    assert sub.submit_luria(str(launch), luria_env={**LE, "key": "/secret/keypath"}, reasons=r) == []
+    assert len(r) == 1 and "nfcore_rnaseq" in r[0] and "RuntimeError" in r[0]
+    assert len(r[0]) < 450 and "/secret/keypath" not in r[0]
+
+
 def _record_transport(monkeypatch, fail_on=None, timeouts=None):
     order, staged = [], {}
     timeouts = {} if timeouts is None else timeouts

@@ -50,8 +50,8 @@ services:
     volumes:
       # :z relabels the host path for SELinux-enforcing hosts (Fedora/RHEL).
       # No-op on macOS/Ubuntu/non-SELinux systems, so safe everywhere.
-      - ./themes/NextSeek:/app/themes/NextSeek:z
-      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./themes/NextSeek:/app/themes/NextSeek:ro,z
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:ro,z
       - ./outputs:/app/outputs:z
       - ./logs:/app/logs:z
       # Container-CC user trees (G7-10). Persisted in the external named volume
@@ -74,6 +74,15 @@ services:
       # web serves and reads them, and two web containers during a swap must
       # see the same export files. A named volume, so a rebuild no longer wipes it.
       - nextseek-media:/media
+    # Non-root (uid/gid 10001, the user the image creates; host uid 1001 is a person), no capabilities, no setuid
+    # escalation. group_add is the deploy account's gid, so the app can read local_settings.py and docker/luria-key (0640).
+    user: "10001:10001"
+    group_add:
+      - "${NEXTSEEK_HOST_GID:?is missing from .env: add it with echo NEXTSEEK_HOST_GID=`id -g` >> .env}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     # One probe for the four background runtimes this container carries
     # (docker/scripts/attribute_runtime_healthcheck.py app). Nothing gates on this
     # container's health (`nextseek_nginx` depends on it by start-order only, and
@@ -101,9 +110,9 @@ services:
   # image as `nextseek` (no second build) and NO container_name: compose names
   # it nextseek-web-N, which is what lets a rebuild run two at once and swap them
   # (startup/lib/web_swap.py). The chat turn runs here, so this service carries
-  # everything a turn touches: the Docker socket (CC containers and the SEEK admin
-  # scripts; one dev cycle of the spawner switch, then it goes), laya-net, the
-  # luria key and ssh dir, and the CC user trees.
+  # everything a turn touches: dmac-spawner-net (CC containers and the SEEK admin
+  # scripts run in cc-spawner, the only service with the Docker socket), laya-net,
+  # the luria key and ssh dir, and the CC user trees.
   web:
     image: ${COMPOSE_PROJECT_NAME:-nextseek}-nextseek:latest
     # Built by `nextseek` above; never looked up in a registry under that name.
@@ -123,12 +132,11 @@ services:
       # link made on the old web container still answers after a swap. Outside
       # uploads/production/, the one tree /media/ serves (dmac/media.py).
       NEXTSEEK_EXPORT_ROOT: /media/private-exports
-      # The CC spawner switch. Unset: CC turns go through the spawner. Set it EMPTY
-      # in the project-root .env (NEXTSEEK_SPAWNER_URL=) to take today's direct
-      # Docker path for the one dev cycle this switch lives. The token is
-      # NEXTSEEK_SPAWNER_TOKEN in docker/nextseek.env (install writes it, with the
+      # Where CC turns and SEEK user ops go: the cc-spawner service, the only holder
+      # of the Docker socket. There is no direct Docker path; an empty value in the
+      # project-root .env falls back to this default. The token is NEXTSEEK_SPAWNER_TOKEN in docker/nextseek.env (install writes it, with the
       # same value in docker/cc-spawner.env).
-      NEXTSEEK_SPAWNER_URL: ${NEXTSEEK_SPAWNER_URL-http://cc-spawner:8080}
+      NEXTSEEK_SPAWNER_URL: ${NEXTSEEK_SPAWNER_URL:-http://cc-spawner:8080}
     env_file:
       - ./docker/db.env
       - ./docker/nextseek.env
@@ -139,21 +147,21 @@ services:
         condition: service_healthy
     volumes:
       - nextseek-static-files:/static
-      - ./themes/NextSeek:/app/themes/NextSeek:z
-      - ./dmac/local_settings.py:/app/dmac/local_settings.py:z
+      - ./themes/NextSeek:/app/themes/NextSeek:ro,z
+      - ./dmac/local_settings.py:/app/dmac/local_settings.py:ro,z
       - ./outputs:/app/outputs:z
       - ./logs:/app/logs:z
       # Luria SLURM launch backend. LURIAKEY is the host path to the operator's
-      # private key, bind-mounted read-only at the SAME path inside so the value
-      # of LURIA_KEY needs no translation. Defaults to /dev/null so the stack
-      # still comes up when the Luria backend is unused.
-      - ${LURIAKEY:-/dev/null}:${LURIAKEY:-/dev/null}:ro
-      # Writable ssh dir: ssh.py copies the key here for one call, chmods 0600 (which it
-      # cannot do on the read-only bind above) and removes the copy after use.
+      # private key; the app reads it at the SAME path inside, so its value needs no
+      # translation. The source is startup's copy, docker/luria-key (0640, group
+      # NEXTSEEK_HOST_GID, refreshed on every rebuild; NEXTSEEK_LURIA_KEY_COPY in .env),
+      # never the key itself: OpenSSH refuses a group-readable key for its owner.
+      # Both default to /dev/null so the stack still comes up when Luria is unused.
+      - ${NEXTSEEK_LURIA_KEY_COPY:-/dev/null}:${LURIAKEY:-/dev/null}:ro
+      # Writable ssh dir (10001-owned, 0700 in the image): holds known_hosts. ssh.py copies
+      # the key to a 0600 mkstemp file in /tmp for one call (it cannot chmod the read-only
+      # bind above) and removes the copy after use. The bound copy is readable by group NEXTSEEK_HOST_GID (0640).
       - nextseek-luria-ssh:/app/.ssh
-      # Container-CC route: lets the assistant spawn sibling `claude` containers on
-      # the host Docker daemon. Goes away with the spawner switch (W9 part 2).
-      - /var/run/docker.sock:/var/run/docker.sock
       # Container-CC user trees (see `nextseek`). A turn mkdirs scratch, cc-state,
       # memory and output dirs here; the sibling containers mount per-user
       # *subpaths* of this SAME volume.
@@ -166,6 +174,14 @@ services:
       # Sign-in lockout and request-rate counters (CACHES["throttle"], a file cache):
       # on a volume they survive a swap and both web containers share them.
       - nextseek-throttle:/var/tmp/nextseek-throttle
+    # Non-root, as `nextseek`.
+    user: "10001:10001"
+    group_add:
+      - "${NEXTSEEK_HOST_GID:?is missing from .env: add it with echo NEXTSEEK_HOST_GID=`id -g` >> .env}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     # GET /login/ answering 200 is the same first probe CI's readiness gate uses.
     # start_interval makes a new container visible as healthy within seconds of
     # being ready, which is what the swap waits on (Engine 25+). start_period stays
@@ -325,9 +341,9 @@ services:
     # :8080 must be reachable ONLY on dmac-cc-net (R-8/gate G5) — no host
     # `ports:` publish here, ever.
 
-  # Container-CC agent image build target ONLY. The nextseek Django worker
-  # spawns one ephemeral, per-turn sibling container from this image directly
-  # via the host docker socket (docker-py `containers.run`, see cc_engine.py)
+  # Container-CC agent image build target ONLY. cc-spawner, which holds the
+  # host docker socket, starts one ephemeral, per-turn sibling container from
+  # this image when `web` asks it to (see NessieAI/cc/spawner_client.py)
   # — it is NOT a persistent compose-managed service. This stanza exists so
   # `docker compose build` (part of the canonical `docker compose build &&
   # docker compose up -d` deploy flow) produces/tags the image compose-
@@ -347,7 +363,7 @@ services:
         dmac_assistant_baml: ./NessieAI/dmac_assistant/baml_src
 # END PLAN005-GEN:additional-contexts
     image: dmac-assistant:poc
-    # cc_engine.CC_PLATFORM: build for the platform every agent is started as.
+    # docker/cc-spawner/spawner.py CC_PLATFORM: build for the platform every agent is started as.
     platform: linux/amd64
     network_mode: none
     command: ["true"]
@@ -372,7 +388,7 @@ services:
   # Task 14 (G7-11, documented two-state flip of Task 13, Task 3/4 precedent):
   # the sidecar mounts the RESERVED top-level `_staging/` subpath of the
   # `dmac-cc-users` volume at `SIDECAR_STAGING_DIR` (long-syntax
-  # `volume.subpath:` below). `_staging` is bootstrapped + chowned to uid 1001
+  # `volume.subpath:` below). `_staging` is bootstrapped + chowned to uid 10001
   # (the sidecar user) by `startup/steps/volumes.py::ensure_cc_staging_dir`
   # BEFORE the sidecar ever starts (the Engine refuses to start a container
   # whose `VolumeOptions.Subpath` backing dir is absent). The sidecar can write
@@ -569,7 +585,7 @@ services:
       - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687"
 
   seek:
-    image: fairdom/seek:1.15.1
+    image: fairdom/seek:1.18
 
     container_name: ${INSTANCE_PREFIX:-}seek
     # The image's docker/entrypoint.sh (puma in the background, nginx in the
@@ -639,7 +655,7 @@ services:
   seek_workers: # The SEEK delayed job workers
       #build: .
 
-      image: fairdom/seek:1.15.1
+      image: fairdom/seek:1.18
       container_name: ${INSTANCE_PREFIX:-}seek-workers
       # The image's docker/start_workers.sh ends in `tail -f`, so when the
       # delayed_job workers lose MySQL they log "MySQL client is not connected"
@@ -722,8 +738,9 @@ networks:
   dmac-cc-net:
     name: dmac-cc-net
     # F1: no NAT/gateway. The per-turn agent (spawned onto this net via docker-py)
-    # runs `claude --permission-mode auto` with the requesting user's plaintext
-    # NExtSEEK password in its env — an internal net removes the L3 path a
+    # runs `claude --permission-mode auto` with the one-turn pass Django issues
+    # (NEXTSEEK_TURN_PASS), never the user's password (NessieAI/cc/cc_engine.py
+    # build_agent_environment) — an internal net removes the L3 path a
     # prompt-injected or jailbroken turn would use to exfiltrate it. bedrock-proxy
     # keeps AWS egress via dmac-cc-egress below; the agent is not on that net.
     internal: true
@@ -767,7 +784,7 @@ volumes:
   nextseek-media:
     name: ${INSTANCE_PREFIX:-}nextseek-media
   # Throttle counters for `web` only (the worker serves no requests). Compose-managed
-  # like nextseek-media; the image runs as root, so a fresh volume is writable.
+  # like nextseek-media; the image creates the mount point owned by 10001, so a fresh volume copies that owner.
   nextseek-throttle:
     name: ${INSTANCE_PREFIX:-}nextseek-throttle
 

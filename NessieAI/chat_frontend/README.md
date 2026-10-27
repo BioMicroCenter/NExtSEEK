@@ -58,7 +58,7 @@ NessieAI/chat_frontend/src/
 │   ├── ChatPanel/             # transcript, composer, stepper, artifact list, upload control
 │   ├── DebugPanel/            # the admin Debug panel
 │   ├── Layout/                # toolbar, sidebars and the admin controls
-│   ├── Sessions/              # session list, rename, delete
+│   ├── Sessions/              # session list, rename, delete, search (box, options panel, results)
 │   ├── TestRunner/            # the test-case runner
 │   ├── __tests__/             # shared component tests
 │   └── ui/                    # shadcn/ui primitives
@@ -75,11 +75,9 @@ NessieAI/chat_frontend/src/
 | `npm run build` (`NessieAI/chat_frontend/package.json:8`) | `NessieAI/chat_frontend/vite.config.ts:6-12` | `NessieAI/chat_frontend/dist`, ignored at `NessieAI/chat_frontend/.gitignore:2` |
 | `npm run dev` (`NessieAI/chat_frontend/package.json:7`) | `NessieAI/chat_frontend/vite.config.ts:13-15` | nothing on disk |
 
-The embedded build writes three asset files plus a manifest. Two of them are
-named in that manifest (`static/js/chat_assistant/.vite/manifest.json:7-16`); the
-third, a 429 kB SheetJS chunk, exists only because of the dynamic import at
-`NessieAI/chat_frontend/src/lib/services/chatApi.ts:380` and is fetched at call time from
-the `base` prefix set at `NessieAI/chat_frontend/vite.config.embedded.ts:21`.
+The embedded build writes two asset files plus a manifest that names both
+(`static/js/chat_assistant/.vite/manifest.json`). There is no lazy SheetJS chunk any more:
+the dead `downloadSearchAsExcel` and the `xlsx` dependency were removed (SEC-H34).
 
 ### Host page contract
 
@@ -113,6 +111,7 @@ session strategy above, the Basic-auth one at
 | Progress WebSocket | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:110` |
 | Two-second HTTP poll fallback | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:169-215` |
 | Session list, rename, delete, rehydrate | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:319-374` |
+| Session search (`GET sessions/search/`): the sidebar box, Ctrl/Cmd+K, the options panel (Agent steps, record filters with counts, date, All users for superusers), a hit opening its chat at the matching turn (an agent-steps hit with its Search Details open) | `searchSessions` in `chatApi.ts`; `useSessionSearch`, `useScrollToTurn`; `Sessions/SessionSearch.tsx` |
 | Bundle and artifact downloads | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:235-300` |
 | The whole chat as one zip (the Debug sheet's "All files"): a plain link under the session cookie, a fetched blob under Basic auth | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:445` |
 | Agent file upload and its job poll | `NessieAI/chat_frontend/src/lib/services/chatApi.ts:388-410` |
@@ -214,7 +213,7 @@ Playwright and vitest output, so it has the same browser-binary requirement.
   `seek/templates/smartSearch.html:1-9`.
 - The Django view and URL that serve that template: `seek/urls.py:13` under the
   prefix mounted at `dmac/urls.py:27`, gated on authentication at
-  `seek/views/search.py:110-114`.
+  `seek/views/search.py:102-105`.
 
 ### Depended on by
 

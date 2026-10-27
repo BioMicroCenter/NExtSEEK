@@ -98,20 +98,10 @@ Break one of these and the failure is silent: a page that renders, returns HTTP
   (`seek/templatetags/vite_assets.py:25-26`). A rebuilt bundle plus
   `collectstatic` is not enough on a long-running server: the old hashed
   filenames keep being emitted until the process restarts.
-- **Three files must reach the static root, and only two are in the manifest.**
-  `static/js/chat_assistant/.vite/manifest.json:7-16` names the entry script and
-  its stylesheet; the SheetJS chunk is pulled at call time from the prefix at
-  `NessieAI/chat_frontend/vite.config.embedded.ts:21`, so a partial copy fails only when a
-  user clicks, never at page load.
-- **That SheetJS chunk is dead weight, and it is the largest of the three
-  assets.** It is named at `static/js/chat_assistant/.vite/manifest.json:2-3`.
-  Grepping `NessieAI/chat_frontend/src` and `NessieAI/chat_frontend/e2e` for an `xlsx`
-  import finds one, the dynamic call at
-  `NessieAI/chat_frontend/src/lib/services/chatApi.ts:380`, and it sits inside a method
-  nothing invokes: the same grep for `downloadSearchAsExcel` returns a single hit, the
-  definition itself at `NessieAI/chat_frontend/src/lib/services/chatApi.ts:376`. The
-  spreadsheet button users can actually see asks the server instead
-  (`NessieAI/chat_frontend/src/components/ChatPanel/ReportArtifacts.tsx:232-243`).
+- **Two asset files must reach the static root, and both are in the manifest.**
+  `static/js/chat_assistant/.vite/manifest.json` names the entry script and its
+  stylesheet. The lazy SheetJS chunk is gone (SEC-H34): its only user,
+  `downloadSearchAsExcel`, had no caller and was deleted with the `xlsx` dependency.
 - **The Basic-auth client is compiled into the embedded bundle even though the
   embedded shell never uses it.** `NessieAI/chat_frontend/src/EmbeddedApp.tsx:2` imports
   through the barrel, which re-exports two hooks that reach the module-scope

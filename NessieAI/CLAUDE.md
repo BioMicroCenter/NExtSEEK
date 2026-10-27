@@ -11,6 +11,7 @@ Test commands live only in `NessieAI/tests/README.md`.
   - `nextseek_api.assistant.turn_pass`, from `NessieAI/cc/turn.py` (the CC turn issues, dates and revokes its turn pass)
   - `nextseek_api.batch_upload.helpers`, from `NessieAI/ns/reingest_qa.py`
   - `nextseek_api.assistant.session_adapter` (for `SessionSaveError`), from `NessieAI/ns/turn.py`
+  - `nextseek_api.assistant.models_db` and `nextseek_api.assistant.spill` (its `hydrate`, to read a stored bundle's result keys without the rest), from `NessieAI/ns/chat_search_index.py`
   - `nextseek_api.assistant.models_evaluator` (the retry-context response models) and `models_db` (`QueryTask` reads), from `NessieAI/ns/retry.py`
   - `seek.seekdb`, lazily, from `NessieAI/cc/cc_provision.py`
   - `nextseek_api.models`, from `NessieAI/schema_rag/`

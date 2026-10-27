@@ -32,6 +32,7 @@ import json
 from typing import Any
 
 import openpyxl
+from chat_nextseek.reports.exporters._text_safe import text_cell
 
 MODE_NEW = "new"
 MODE_UPDATE = "update"
@@ -155,6 +156,13 @@ def render_upload_workbook(
                        _cell(entry.get("value")), entry.get("origin", ""),
                        entry.get("raw_key", ""), entry.get("source_file", ""),
                        entry.get("answered_by", "")])
+
+    # SEC-H03: field names, values, UIDs and curator answers are all stored or
+    # user-typed text, so no cell of this workbook may become a formula.
+    for sheet in wb.worksheets:
+        for sheet_row in sheet.iter_rows():
+            for cell in sheet_row:
+                text_cell(cell)
 
     wb.save(out_path)
 

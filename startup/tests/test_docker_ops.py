@@ -43,6 +43,13 @@ def test_compose_up_can_force_recreate(mock_run: MagicMock) -> None:
 
 
 @patch("startup.lib.docker_ops.subprocess.run")
+def test_compose_up_can_refuse_to_recreate(mock_run: MagicMock) -> None:
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    compose_up(services=["nextseek_nginx"], project_dir="/repo", env={}, no_recreate=True)
+    assert "--no-recreate" in mock_run.call_args.args[0]
+
+
+@patch("startup.lib.docker_ops.subprocess.run")
 def test_compose_up_can_exclude_dependencies(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
     compose_up(
@@ -161,7 +168,7 @@ def test_bootstrap_staging_dir_invokes_docker_run_alpine_mkdir_chown(mock_run: M
     assert args[-2] == "-c"
     shell_cmd = args[-1]
     assert "mkdir -p /v/_staging" in shell_cmd
-    assert "chown 1001 /v/_staging" in shell_cmd
+    assert "chown 10001:10001 /v /v/_staging" in shell_cmd
 
 
 @patch("startup.lib.docker_ops.subprocess.run")
@@ -169,7 +176,7 @@ def test_bootstrap_staging_dir_uid_overridable(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
     bootstrap_staging_dir("dmac-cc-users", uid=2000)
     shell_cmd = mock_run.call_args.args[0][-1]
-    assert "chown 2000 /v/_staging" in shell_cmd
+    assert "chown 2000:2000 /v /v/_staging" in shell_cmd
 
 
 @patch("startup.lib.docker_ops.subprocess.run")

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from NessieAI.tests.cc import fake_spawner
 from NessieAI.cc import cc_engine, cc_staging
 from NessieAI.cc.op_registry import export as op_export
 from NessieAI.cc.op_registry import paired_evidence as pe
@@ -1107,7 +1108,7 @@ def test_gap2_production_misses(tmp_path, monkeypatch):
         }),
     ]
     monkeypatch.setattr(
-        cc_engine, "BridgeAttachSocket",
+        fake_spawner, "BridgeAttachSocket",
         lambda raw, stdout_stream=None: _FakeSock(lines),
     )
     from NessieAI.cc import cc_provision

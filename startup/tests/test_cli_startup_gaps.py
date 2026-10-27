@@ -60,7 +60,9 @@ def _find_function(tree: ast.AST, name: str) -> ast.FunctionDef:
 
 
 def _stub_env_reads(monkeypatch) -> None:
-    """These tests run install against this checkout: never read its real env files (#103)."""
+    """These tests run install against this checkout: never read its real env files (#103), nor ask this
+    host's Docker whether a data volume exists (install refuses an existing volume with no kept password)."""
+    monkeypatch.setattr(cli, "volume_exists", lambda name: False)
     monkeypatch.setattr(cli.config, "kept_values", lambda root: {})
     monkeypatch.setattr(
         cli.config, "preview_changed_keys",

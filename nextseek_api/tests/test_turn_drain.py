@@ -110,6 +110,25 @@ class EndCutTurnsTests(TestCase):
         assert done.status == "completed" and done.progress == []
         assert "1" in out.getvalue()
 
+    def test_a_turn_that_finishes_after_its_cut_keeps_the_cut_message(self):
+        """The cut turn's thread ends later: its query_complete (and a failed save's query_error) change nothing the
+        user sees, and stay in progress, marked, under a name no reader takes for the turn's end."""
+        from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
+
+        running = self._task("running")
+        call_command("end_cut_turns", str(running.task_id), stdout=StringIO())
+        send = make_db_event_callback(str(running.task_id), str(self.session.session_id))
+        send("query_complete", {"reply": "late", "debug": {}})
+        send("query_error", {"error": "This answer was not saved"})
+
+        running.refresh_from_db()
+        assert running.status == "error"
+        assert running.result["error"] == turn_drain.CUT_MESSAGE
+        assert [e["event"] for e in running.progress] == ["query_error", "after_end", "after_end"]
+        assert running.progress[1]["data"]["event"] == "query_complete"
+        assert running.progress[1]["data"]["data"]["reply"] == "late"
+        assert running.progress[2]["data"]["event"] == "query_error"
+
     def test_an_unknown_id_is_ignored(self):
         call_command("end_cut_turns", "00000000-0000-4000-8000-000000000000", stdout=StringIO())
 

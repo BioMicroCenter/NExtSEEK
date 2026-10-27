@@ -16,6 +16,8 @@ import subprocess
 import time
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ENTRYPOINT = REPO_ROOT / "docker" / "scripts" / "entrypoint.sh"
 
@@ -165,6 +167,15 @@ class TestWebDrain:
         assert "[drain] 1 turns running" in err
         calls = call_log.read_text()
         assert "server-stopped" in calls and "end_cut_turns" not in calls
+
+    @pytest.mark.parametrize("bad", ["4m", "300.5"])
+    def test_an_unparseable_drain_falls_back_to_the_default_and_still_stops_cleanly(self, tmp_path, bad):
+        """A value test(1) cannot compare used to abort the stop handler: no clamp, no end_cut_turns, no clean stop."""
+        proc, call_log = _start_web(tmp_path, NEXTSEEK_DRAIN_SECONDS=bad)
+        code, err = _stop(proc)
+        assert code == 143
+        assert f"NEXTSEEK_DRAIN_SECONDS={bad}" in err and "using 240" in err
+        assert "server-stopped" in call_log.read_text()
 
     def test_turns_past_the_cap_are_ended_before_the_server_stops(self, tmp_path):
         proc, call_log = _start_web(tmp_path, NEXTSEEK_DRAIN_SECONDS=1)

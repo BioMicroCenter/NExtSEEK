@@ -567,7 +567,9 @@ def _run_plan(plan, exec_fn, config, prepare_cypher) -> tuple[Any, str | None, s
         plan_dump.get("parameters") if isinstance(plan_dump, dict) else getattr(plan, "parameters", {})
     ) or {}
     if not cypher:
-        return plan_dump, cypher, cypher, {"ok": False, "error": "graph agent produced no cypher", "data": []}
+        from chat_nextseek.schemas.graph import no_cypher_error
+
+        return plan_dump, cypher, cypher, {"ok": False, "error": no_cypher_error(plan_dump), "data": []}
     submitted = prepare_cypher(cypher, params) if prepare_cypher is not None else cypher
     return plan_dump, cypher, submitted, exec_fn(config, submitted, params)
 
@@ -1313,6 +1315,16 @@ def _pick_waiting_run(user):
         for run in waiting]}
 
 
+def _remove_key_copy(key_path: str, source_key: str) -> None:
+    """Remove the temp key copy ``prepare_key`` made, and nothing else (never the source key or a device)."""
+    if (key_path != source_key and os.path.basename(key_path).startswith("luria_key_")
+            and os.path.isfile(key_path) and not os.path.islink(key_path)):
+        try:
+            os.remove(key_path)
+        except OSError:
+            pass
+
+
 def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     """Reingest step 1 — stage the allowlisted files off the cluster and parse
     them into a RunManifest. Read-only; like run-ls it never calls the write
@@ -1333,6 +1345,10 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, 
     if launch is None:
         raise OpValidationError(
             "reingest covers Nessie-launched runs; this run has no launch record", field="run_dir", error_type="no_launch_record_for_this_run")
+    user = getattr(session, "user", None)
+    if not getattr(user, "is_superuser", False) and (
+            launch.launched_by_id is None or launch.launched_by_id != getattr(user, "pk", None)):
+        raise OpValidationError("this run was launched by someone else", field="run_dir", error_type="not_your_run")
     from chat_nextseek.luria.ssh import prepare_key
     key_path = prepare_key(luria_env["key"])
     try:
@@ -1350,10 +1366,7 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, 
                 staged, run_dir=run_dir, lookup_by_fastq=_d_seq_by_fastq,
                 sample_type_lookup=_sample_types_for_uids, inventory=inventory)
     finally:
-        try:
-            os.remove(key_path)
-        except OSError:
-            pass
+        _remove_key_copy(key_path, luria_env["key"])
 
     run_manifest.launch_record_id = launch.pk
     if not run_manifest.pipeline.name and launch.pipeline:
@@ -1552,6 +1565,8 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir, *,
     import shlex
 
     run_dir, luria_env, runs_root = _validate_run_dir(args, config)
+    if run_dir == runs_root:
+        raise OpValidationError("run_dir is the runs root", field="run_dir", error_type="the_runs_root")
     rels = [p.strip() for p in str(args.get("paths") or "").split(",") if p.strip()]
     if not rels:
         raise OpValidationError("paths must name at least one file", field="paths", error_type="names_no_file")
@@ -1614,10 +1629,7 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir, *,
         # filesystem) rather than the oversized request.
         out = ssh_run(luria_env, remote_cmd, key_path=key_path, timeout=_CHECKSUM_SSH_TIMEOUT_S)
     finally:
-        try:
-            os.remove(key_path)
-        except OSError:
-            pass
+        _remove_key_copy(key_path, luria_env["key"])
 
     try:
         payload = json.loads(out)
@@ -2469,14 +2481,16 @@ def _rebuild_record(record: dict, user, outputs_dir) -> list[dict]:
 
 
 def _mark_runs_reingested(jobs: list[dict], config=None) -> None:
-    """A run whose upload started at least one job stops waiting for run-harvest's
+    """A run whose upload had at least one job succeed stops waiting for run-harvest's
     no-folder pick, and its Luria folder gets nessie_status/saved.txt, which starts the
     weekly cleanup's 7-day clock for its work folder. Best-effort: the upload has already
     started."""
-    from NessieAI.ns.reingest import launch_record
+    from NessieAI.ns.reingest import launch_record, upload
     from NessieAI.ns.reingest.store import load_manifest
 
-    for manifest_id in {job.get("manifest_id") for job in jobs if job.get("job_id")}:
+    succeeded = {job.get("manifest_id") for job in jobs
+                 if job.get("job_id") and upload.job_is_done(job.get("outcome"))}
+    for manifest_id in succeeded:
         try:
             manifest = load_manifest(manifest_id)
             launch_record.mark_reingested(manifest.launch_record_id)

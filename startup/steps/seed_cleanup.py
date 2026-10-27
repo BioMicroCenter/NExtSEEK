@@ -17,11 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from startup.lib.docker_ops import DockerOpsError, compose_exec
-
-
-def _root_password(env: dict[str, str]) -> str:
-    return env.get("MYSQL_ROOT_PASSWORD", "seek_root")
+from startup.lib.docker_ops import DockerOpsError, compose_exec, MYSQL_ROOT_CMD
 
 
 def _query_count(sql: str, repo_root: Path, env: dict[str, str]) -> int:
@@ -29,7 +25,7 @@ def _query_count(sql: str, repo_root: Path, env: dict[str, str]) -> int:
     try:
         out = compose_exec(
             service="db",
-            command=["mysql", "-uroot", f"-p{_root_password(env)}", "-N", "dmac", "-e", sql],
+            command=[*MYSQL_ROOT_CMD, "-N", "dmac", "-e", sql],
             project_dir=repo_root,
             env=env,
         )
@@ -46,7 +42,7 @@ def _run_delete(sql: str, repo_root: Path, env: dict[str, str]) -> bool:
     try:
         compose_exec(
             service="db",
-            command=["mysql", "-uroot", f"-p{_root_password(env)}", "dmac", "-e", sql],
+            command=[*MYSQL_ROOT_CMD, "dmac", "-e", sql],
             project_dir=repo_root,
             env=env,
         )

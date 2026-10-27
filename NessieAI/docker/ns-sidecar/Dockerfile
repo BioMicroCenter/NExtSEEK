@@ -28,7 +28,7 @@ RUN uv pip install "httpx>=0.28.1" "websockets~=16.0" "pydantic>=2.9"
 COPY __init__.py /app/sidecar/__init__.py
 COPY app/ /app/sidecar/app/
 
-RUN useradd -m -u 1001 -s /bin/sh sidecar
+RUN useradd -m -u 10001 -U -s /bin/sh sidecar
 USER sidecar
 WORKDIR /app
 ENV PYTHONPATH=/app

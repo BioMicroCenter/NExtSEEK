@@ -201,3 +201,33 @@ def test_parse_output_cli_writes_what_pin_reads(tmp_path, capsys):
     text = capsys.readouterr().out
     assert "DROP: ex.scope_missing_here" in text and "BY HAND: ex.short" in text
     assert json.loads(measured.read_text())["ex.one_count"] == 207
+
+
+def _two_case_probe():
+    probe = _probe([{"field": "last_reply", "op": "matches_re", "value": _num(990002)}],
+                   measure={"c1": {"cypher": "RETURN 1", "locals": 990002},
+                            "c2": {"cypher": "RETURN 1", "locals": 990003}})
+    probe["families"]["f"]["variants"].append(
+        {"id": "c2", "family": "f", "tags": [], "requires_env": [],
+         "turns": [{"label": "main", "query": "q",
+                    "pass_criteria": [{"field": "last_reply", "op": "matches_re", "value": _num(990003)}]}]})
+    probe["include_ids"] = ["c1", "c2"]
+    return probe
+
+
+def test_drop_unmeasured_removes_a_zero_and_leaves_no_placeholder():
+    spec, _ = P.pin(_two_case_probe(), {"c2": 7})        # c1 measured 0: the parse step dropped it
+    spec, dropped = P.drop_unmeasured(spec, {"c2": 7})
+    assert dropped == ["c1"]
+    assert [v["id"] for v in P.variants(spec)] == ["c2"]
+    assert spec["include_ids"] == ["c2"] and list(spec["_measure"]) == ["c2"]
+    assert "990002" not in json.dumps(spec) and "990003" not in json.dumps(spec)
+
+
+def test_drop_unmeasured_empties_the_file_and_the_cli_exits_3(tmp_path, capsys):
+    probe = tmp_path / "p.json"
+    probe.write_text(json.dumps(_two_case_probe()))
+    (tmp_path / "m.json").write_text("{}")
+    code = P.main(["--pin", str(probe), "--from", str(tmp_path / "m.json"),
+                   "--out", str(tmp_path / "o.json"), "--drop-unmeasured"])
+    assert code == 3 and "DROPPED: c1,c2" in capsys.readouterr().out

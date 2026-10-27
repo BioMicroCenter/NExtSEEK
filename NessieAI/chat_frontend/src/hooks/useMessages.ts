@@ -73,6 +73,7 @@ export function useMessages(): UseMessagesReturn {
           id: `msg-hydrate-u-${i}-${turn.bundle_id}`,
           content: turn.user_query,
           isUser: true,
+          turnId: turn.turn_id ?? null,
           timestamp: ts,
           status: "sent",
           messageType: "text",

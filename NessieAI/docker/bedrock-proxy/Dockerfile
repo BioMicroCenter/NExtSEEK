@@ -31,8 +31,8 @@ RUN uv pip install "fastapi>=0.116" "uvicorn[standard]>=0.35" "httpx>=0.28.1"
 COPY app/ /app/app/
 
 # The slim base ships a system user literally named `proxy` (uid 13), so use a
-# distinct name. The uid (1001, non-root) is the load-bearing invariant.
-RUN useradd -m -u 1001 -s /bin/sh proxyapp
+# distinct name. The uid (10002, non-root, no host account) is the load-bearing invariant.
+RUN useradd -m -u 10002 -U -s /bin/sh proxyapp
 USER proxyapp
 WORKDIR /app
 ENV PYTHONPATH=/app

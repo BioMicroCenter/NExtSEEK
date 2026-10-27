@@ -6,6 +6,8 @@ Moved out of ``helpers.py`` during Phase 2 of the src/ restructure.
 """
 from __future__ import annotations
 
+import json
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -108,9 +110,45 @@ def session_reporter_result(reporter_result):
     return {**reporter_result, "reports": reports}
 
 
-def _wrap_report_result(report_type_value, result: dict, coder_output):
+_ACCESSION_RE = re.compile(r"\b(PRJNA|PRJEB|PRJDB|SRR|SRX|SRS|SAMN|GSE|GSM|PXD)\d+\b")
+
+
+def _first(items: list[str], n: int = 5) -> str:
+    return ", ".join(items[:n]) + (f" and {len(items) - n} more" if len(items) > n else "")
+
+
+def _code_path_lead(canonical: str, metadata: dict | None, target_type: str, result: dict) -> str:
+    """The reply lead for a code-path report, built from the payload. The coder's own ``result_description``
+    describes its code, not the package, so it is not the lead."""
+    uids: list[str] = []
+    try:
+        for group in ((metadata or {}).get("data") or {}).get("data") or []:
+            if group.get("sample_type") == target_type:
+                uids = []
+                for s in group.get("samples") or []:
+                    meta = s.get("metadata")  # the UID as reports/metadata.py reads it
+                    uid = (isinstance(meta, dict) and meta.get("UID")) or s.get("uuid") or s.get("uid")
+                    if uid:
+                        uids.append(str(uid))
+    except Exception:
+        pass
+    found: dict[str, list[str]] = {}
+    for m in _ACCESSION_RE.finditer(json.dumps(result or {}, default=str)):
+        bucket = found.setdefault(m.group(1), [])
+        if m.group(0) not in bucket:
+            bucket.append(m.group(0))
+    lead = f"{canonical} package built for {len(uids)} samples"
+    if uids:
+        lead += f": {_first(uids)}"
+    lead += "."
+    if found:
+        lead += " Accessions in the package: " + "; ".join(_first(v) for v in found.values()) + "."
+    return lead
+
+
+def _wrap_report_result(report_type_value, result: dict, coder_output, lead: str | None = None):
     canonical = normalize_report_type(report_type_value)
-    narrative = coder_output.result_description or None
+    narrative = lead or coder_output.result_description or None
     notes = coder_output.notes or ""
     if canonical == "GEO":
         return ReportWriterOutputGEO(report_type=canonical, report=result or {}, narrative=narrative, notes=notes)
@@ -171,7 +209,8 @@ def _produce_report_output(
                 rows = (result or {}).get(row_key)
                 if isinstance(rows, list) and len(rows) == count:
                     print(f"[DEBUG][REPORT_CODER] Emitted {len(rows)} '{row_key}' rows (parity OK).")
-                    return _wrap_report_result(report_type_value, result, coder_output)
+                    lead = _code_path_lead(canonical, metadata, target_type, result)
+                    return _wrap_report_result(report_type_value, result, coder_output, lead)
                 got = len(rows) if isinstance(rows, list) else "n/a"
                 previous_error = (f"row parity failed for '{row_key}': got {got}, want {count} "
                                   f"(one row per {target_type} sample)")

@@ -232,6 +232,8 @@ ignore_imports = [
     "NessieAI.ns.reingest.proposals -> nextseek_api.assistant.models_db",
     "NessieAI.ns.reingest.uid_resolve -> nextseek_api.assistant.models_db",
     "NessieAI.ns.reingest_qa -> nextseek_api.batch_upload.helpers",
+    "NessieAI.ns.chat_search_index -> nextseek_api.assistant.models_db",
+    "NessieAI.ns.chat_search_index -> nextseek_api.assistant.spill",
     "NessieAI.ns.retry -> nextseek_api.assistant.models_db",
     "NessieAI.ns.retry -> nextseek_api.assistant.models_evaluator",
     "NessieAI.ns.turn -> nextseek_api.assistant.session_adapter",

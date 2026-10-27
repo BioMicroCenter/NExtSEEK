@@ -141,6 +141,26 @@ class TurnSurfacesTheFailureTests(TestCase):
         self.assertEqual([n for n, _ in events], ["query_error"])
         self.assertIn("not saved", events[0][1]["error"].lower())
 
+    def test_a_turn_that_answers_then_fails_its_save_ends_in_error_on_its_task_row(self):
+        """The DATABASE callback, not a list: query_complete lands first, then the save fails, and its query_error
+        must still end the row, or the task reads completed and the answer vanishes on reload (session c0062000)."""
+        from NessieAI.ns.turn import _save_session_or_report
+        from nextseek_api.assistant.models_db import QueryTask
+        from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
+
+        task = QueryTask.objects.create(session=self.session, user=self.user, query="q", status="running")
+        send_event = make_db_event_callback(str(task.task_id), str(self.session.session_id))
+        send_event("query_complete", {"reply": "Found 5 samples.", "debug": {}})
+
+        with patch.object(DictSessionAdapter, "save", side_effect=SessionSaveError("too big")):
+            _save_session_or_report(DictSessionAdapter(self.session), self.session, send_event,
+                                    str(self.session.session_id))
+
+        task.refresh_from_db()
+        self.assertEqual(task.status, "error")
+        self.assertIn("not saved", task.result["error"])
+        self.assertEqual([e["event"] for e in task.progress], ["query_complete", "query_error"])
+
     def test_a_successful_save_emits_nothing_and_titles_the_chat(self):
         from NessieAI.ns.turn import _save_session_or_report
 

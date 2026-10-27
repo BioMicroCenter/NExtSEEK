@@ -133,6 +133,24 @@ if untitled), timestamps, the count of completed query bundles, and an 80-char
 preview derived from the first user query in the session's results_history.
 """
 
+ASSISTANT_SESSIONS_SEARCH_DESC = """
+Search the current user's chats by what was asked or answered in them, the
+records they showed, and (when asked) the Container-CC agent's steps.
+Query parameters: q (2..200 characters; every word must start a word in the
+same place: the title, one turn's question and answer, one record ID, or one
+turn's agent steps; may be empty with a record filter), sources (comma list of
+chats, records, steps; default chats,records), record_type (a type code such
+as TIS or D.SEQ), project, where (question, answer or result), since (7, 30
+or 90 days of last activity), all_users=1 (superusers only: every user's
+chats, each hit naming its owner), facets=1 (also the filter counts; empty
+otherwise), facets_only=1 (only the filter counts),
+limit (1..50, default 20). One hit per chat: title, then question, answer,
+record, agent steps, newest first; each carries the turn to open at and a
+plain-text snippet. With facets=1, facets counts, per filter value, the
+matching chats it keeps. A value moved to a spill file is searched as its content.
+422 on a bad parameter, 403 when a non-superuser asks for all_users.
+"""
+
 ASSISTANT_SESSION_DELETE_DESC = """
 Permanently delete a chat session and all associated QueryTask rows.
 Returns 204 on success, 404 if the session is missing, 403 if the

@@ -886,8 +886,8 @@ def test_stack_health_compares_the_cc_agent_context_with_the_tree_it_is_given(mo
 
 
 def test_check_cc_runner_runs_deployment_step_6_in_the_app_container(monkeypatch):
-    """Host-side image presence does not prove the APP CONTAINER's docker socket
-    can see the image, which is the thing that actually failed. This runs the
+    """Host-side image presence does not prove the web container's spawner can
+    see the image, which is the thing that actually failed. This runs the
     command DEPLOYMENT.md asks the operator to run by hand, in the same place."""
     seen = {}
 
@@ -901,7 +901,7 @@ def test_check_cc_runner_runs_deployment_step_6_in_the_app_container(monkeypatch
     result = validate.check_cc_runner(Path("/repo"), env={})
 
     assert result.ok is True
-    assert seen["service"] == "nextseek"
+    assert seen["service"] == "web"   # the worker holds no spawner address
     joined = " ".join(seen["command"])
     assert "cc_runner_available" in joined
     # The app image has no bare `python` on PATH (DEPLOYMENT.md 6.6).
@@ -1085,6 +1085,7 @@ def _nginx_repo(tmp_path: Path, text: str = "events {}\n") -> Path:
 def test_nginx_config_ok_when_the_served_file_equals_the_checkout(monkeypatch, tmp_path):
     repo = _nginx_repo(tmp_path)
     monkeypatch.setattr(validate, "compose_exec", lambda **k: "events {}\n")
+    monkeypatch.setattr(validate, "nginx_definition_changed", lambda repo, env: False)
     r = validate.check_nginx_config(repo, {})
     assert r.ok is True and r.warn is False
 
@@ -1095,6 +1096,46 @@ def test_nginx_config_red_and_names_the_fix_when_the_served_file_differs(monkeyp
     r = validate.check_nginx_config(repo, {})
     assert r.ok is False
     assert r.detail == "nginx serves an old config; run ./startup.sh rebuild --recreate-nginx"
+
+
+def test_nginx_config_warns_when_the_nginx_service_definition_changed(monkeypatch, tmp_path):
+    """The rebuild's front-door start passes --no-recreate (prod 502, 2026-10-26), so a changed
+    nginx service (an image tag, a new mount) is applied only by --recreate-nginx: say so."""
+    repo = _nginx_repo(tmp_path)
+    monkeypatch.setattr(validate, "compose_exec", lambda **k: "events {}\n")
+    monkeypatch.setattr(validate, "nginx_definition_changed", lambda repo, env: True)
+    r = validate.check_nginx_config(repo, {})
+    assert r.ok is True and r.warn is True
+    assert r.detail == "nginx service definition changed: run ./startup.sh rebuild --recreate-nginx"
+
+
+def test_nginx_definition_changed_compares_compose_config_hash_with_the_running_label(monkeypatch, tmp_path):
+    """`docker compose config --hash` prints `<service> <hash>`; the container compose made carries
+    the same hash in com.docker.compose.config-hash (checked with Compose v5.4.0, 2026-10-26)."""
+    answers = {"config": "nextseek_nginx abc\n", "ps": "cid1\n", "inspect": "abc\n"}
+    seen: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append(cmd)
+        key = "config" if "config" in cmd else "inspect" if cmd[1] == "inspect" else "ps"
+        return SimpleNamespace(returncode=0, stdout=answers[key], stderr="")
+
+    monkeypatch.setattr(validate.subprocess, "run", fake_run)
+    assert validate.nginx_definition_changed(tmp_path, {}) is False
+    assert ["docker", "compose", "config", "--hash", "nextseek_nginx"] in seen
+    assert any(c[:2] == ["docker", "inspect"] and c[-1] == "cid1" for c in seen)
+    answers["inspect"] = "old\n"
+    assert validate.nginx_definition_changed(tmp_path, {}) is True
+    # no label, no container, or no hash: unknown, so no warning
+    for key in ("inspect", "ps", "config"):
+        answers.update({"inspect": "old\n", "ps": "cid1\n", "config": "nextseek_nginx abc\n", key: ""})
+        assert validate.nginx_definition_changed(tmp_path, {}) is False, key
+
+    def boom(cmd, **kwargs):
+        raise OSError("no docker")
+
+    monkeypatch.setattr(validate.subprocess, "run", boom)
+    assert validate.nginx_definition_changed(tmp_path, {}) is False
 
 
 def test_nginx_config_says_it_could_not_check_when_exec_fails(monkeypatch, tmp_path):

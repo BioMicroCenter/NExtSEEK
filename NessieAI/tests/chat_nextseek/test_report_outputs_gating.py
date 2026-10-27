@@ -351,3 +351,52 @@ def test_run_query_keeps_a_big_reports_summary_in_the_session():
     assert session["last_debug"]["reporter_metadata"] is None
     assert len(json.dumps(session["last_debug"], default=str)) < 500_000
     assert len(json.dumps(session["results_history"], default=str)) < 500_000
+
+
+def _code_path_lead_for(report_type, rows_code, n, narrative):
+    md = _metadata_with_n_dseq(n)
+    coder = MagicMock(return_value=ReportCoderOutput(extraction_code=rows_code, result_description=narrative))
+    return outmod._produce_report_output(
+        config=MagicMock(), user_query="package", report_type_value=report_type,
+        reporter_context={}, template_for_llm={}, metadata=md,
+        report_writer_fn=MagicMock(), report_coder_fn=coder, log_dir="/tmp",
+    )
+
+
+_SRA_CODE = (
+    "rows = [{'*library name': (s.get('metadata') or {}).get('UID'), 'bioproject': 'PRJNA123456', 'run': 'SRR%d' % i}\n"
+    "        for g in data['data']['data'] for i, s in enumerate(g['samples'])]\n"
+    "result = {'libraries': rows}\n"
+)
+_GEO_CODE = (
+    "rows = [{'library name': (s.get('metadata') or {}).get('UID'), 'series': 'GSE99999'}\n"
+    "        for g in data['data']['data'] for s in g['samples']]\n"
+    "result = {'samples': rows}\n"
+)
+
+
+def test_code_path_sra_reply_lead_comes_from_the_payload_not_the_coders_narrative():
+    out = _code_path_lead_for("SRA", _SRA_CODE, 12, "SRA report body with one library row per sample")
+    lead = out.narrative
+    assert "SRA report body" not in lead
+    assert "SRA" in lead and "12 samples" in lead
+    assert "D.SEQ-0" in lead and "D.SEQ-4" in lead and "D.SEQ-5" not in lead and "7 more" in lead
+    assert "PRJNA123456" in lead and "SRR0" in lead and "SRR4" in lead and "SRR5" not in lead
+    assert "PRJNA PRJNA" not in lead and "SRR SRR" not in lead  # an accession is written once, not after its prefix
+
+
+def test_code_path_geo_reply_lead_names_uids_and_accessions():
+    out = _code_path_lead_for("GEO", _GEO_CODE, 11, "GEO body built by looping over groups")
+    assert "looping over groups" not in out.narrative
+    assert "D.SEQ-0" in out.narrative and "GSE99999" in out.narrative and "11 samples" in out.narrative
+    assert "GSE GSE" not in out.narrative
+
+
+def test_code_path_lead_reads_a_uid_the_way_the_report_metadata_does():
+    # reports/metadata.py: the metadata's UID, else the sample's uuid, else its uid.
+    samples = [{"uid": "D.SEQ-U"}, {"uuid": "D.SEQ-V", "metadata": {"Notes": "x"}},
+               {"metadata": {"UID": "D.SEQ-W"}, "uuid": "not-this-one"}]
+    md = {"data": {"data": [{"sample_type": "D.SEQ", "samples": samples}]}}
+    lead = outmod._code_path_lead("SRA", md, "D.SEQ", {})
+    assert "3 samples" in lead and all(u in lead for u in ("D.SEQ-U", "D.SEQ-V", "D.SEQ-W"))
+    assert "not-this-one" not in lead

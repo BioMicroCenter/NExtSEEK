@@ -290,6 +290,11 @@ def execute():
         t = name[6:]
         n = run_batched(sc, t, pks[(sc, t)][0], f"`{W}`.`{name}`")
         done[f"{sc}.{t}"] = done.get(f"{sc}.{t}", 0) + n
+    # 3) the kept accounts carry no login token: remember-me, activation and reset codes are credentials (SEC-H07)
+    keep = ",".join(f"'{lit(x)}'" for x in KEEP_LOGINS)
+    done[f"{SEEK}.users [tokens cleared]"] = int(s.run_sql(
+        f"UPDATE {SEEK}.users SET remember_token=NULL, remember_token_expires_at=NULL, activation_code=NULL, "
+        f"reset_password_code=NULL, reset_password_code_until=NULL WHERE login IN ({keep}); SELECT ROW_COUNT();").strip().split("\n")[-1])
     json.dump(done, open(os.environ.get("LOG", "kill_exec.json"), "w"), indent=1, sort_keys=True)
     for k, v in sorted(done.items()):
         if v:

@@ -721,3 +721,16 @@ def test_the_13_structure_teaches_the_two_relationships_a_non_admin_may_walk_and
     assert not shouted & {"RUN_IN", "ACCEPTED_BY", "GENERATES"}, "the admin-only relationships are not taught"
     assert dict(re.findall(r"\[:([A-Z_]+) \{([^}]*)\}\]", " ".join(gc.load_assay_structure().split()))) == {
         "INPUT_TO": "seek_assay_ids", "OUTPUT_OF": "seek_assay_ids"}
+
+
+def test_a_rare_question_word_outranks_common_word_matches_when_trimming():
+    # Every filler title shares the common word "cohort" with the question, so all are named; the one title that
+    # holds the rare word sorts last. A tie on "words used" must not drop it before the common-word matches.
+    fillers = tuple(f"Alpha cohort study number {i:04d} of mixed tissue" for i in range(1200))
+    rare = "Zqxlab enables analysis from cells"
+    v = vocab(study_titles=fillers + (rare,), published_studies=(), investigation_titles=("Inv",),
+              project_titles=("Proj",))
+    for question in ("studies named cohort zqxlab", "studies named cohort ZQXLAB"):
+        text = gc.render_vocabulary(v, question)
+        assert len(text.encode("utf-8")) <= gc.VOCAB_BUDGET_BYTES
+        assert f'"{rare}"' in text, "trimming dropped the title the rare word names"

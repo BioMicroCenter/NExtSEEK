@@ -163,9 +163,9 @@ modules and splitting module-scope imports from in-function ones:
   Django's own connection registry used everywhere else here.
 - `pandas` and `openpyxl`, at `nextseek_api/services/sample_workbook.py:16-17`, which is why
   importing the workbook writer is not free.
-- The `docker` SDK, imported lazily and turned into a typed error when absent
-  (`nextseek_api/services/seek_rails_runner.py:73-82`), so a runtime without the Docker socket
-  degrades rather than failing to import.
+- `NessieAI.cc.spawner_client`, which `nextseek_api/services/seek_rails_runner.py` uses for the
+  SEEK user scripts: no app module touches Docker, cc-spawner runs them, and a missing spawner
+  becomes a typed error rather than a failed import.
 - Django settings read at module import rather than per request:
   `nextseek_api/services/assistant.py:37-38` binds two, and
   `nextseek_api/services/entity_tree.py:48-49` binds the two database aliases.

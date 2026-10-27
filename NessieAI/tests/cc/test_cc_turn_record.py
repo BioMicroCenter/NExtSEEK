@@ -14,6 +14,7 @@ from pathlib import Path
 
 import docker as docker_mod
 
+from NessieAI.tests.cc import fake_spawner
 from NessieAI.cc import cc_engine
 from NessieAI.cc.cc_config import CCPaths
 from NessieAI.cc.translate import MODEL_UNAVAILABLE_TRIED
@@ -77,7 +78,7 @@ def _drive(tmp_path, monkeypatch, lines, *, idle=False, persist=False, runs=None
         containers = _Containers()
 
     monkeypatch.setattr(docker_mod, "from_env", lambda: _Client())
-    monkeypatch.setattr(cc_engine, "BridgeAttachSocket",
+    monkeypatch.setattr(fake_spawner, "BridgeAttachSocket",
                         lambda raw, stdout_stream=None: _Sock(container, lines, idle))
     metas: list[dict] = []
     payloads: list = []

@@ -324,10 +324,10 @@ REGISTRY: list[Route] = [
     # ----------------------------------------------------------------- #
     Route(pattern=r"^admin/login/$", path="/admin/login/",
           effect="n/a",
-          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=404,
           resolver=False,
-          note="Django admin is outside the gate's denominator; kept as the "
-               "cheapest proof Django itself serves"),
+          note="/admin/ is superuser-only and answers 404 to everyone else; "
+               "superusers sign in at /login/"),
     Route(pattern=r"^seek/newsearch/$", path="/seek/newsearch/",
           effect="n/a",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=404,
@@ -682,6 +682,12 @@ REGISTRY: list[Route] = [
           shape="sessions",
           note="also accepts POST (PATCH and DELETE on a session), which the Nessie "
                "lane sends on local and dev for its scratch session and its cleanup"),
+    Route(pattern=r"^nextseek_api/^^assistant/sessions/search/$",
+          path="/nextseek_api/assistant/sessions/search/?q=ndma",
+          effect="reads",
+          methods=("GET",), profiles="local,dev,prod", auth="smoke", expect=200,
+          note="the caller's own chats by title, question and answer; all_users=1 is "
+               "superuser only (403 otherwise)"),
     Route(pattern=r"^nextseek_api/^^assistant/sessions/(?P<session_id>[0-9a-f-]+)/$",
           path="/nextseek_api/assistant/sessions/" + _NO_SUCH_UUID + "/",
           effect="external",

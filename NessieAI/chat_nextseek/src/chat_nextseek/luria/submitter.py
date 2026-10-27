@@ -69,19 +69,25 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
                  genome: str | None = None, launch_params: dict | None = None,
                  process_args: dict | None = None, cwd=None,
                  user_id: int | None = None,
-                 extra_files: dict[str, str] | None = None) -> list[dict]:
+                 extra_files: dict[str, str] | None = None,
+                 reasons: list | None = None) -> list[dict]:
     """Submit each launch.yml entry to Luria via ssh+sbatch. Returns run refs (empty on any skip).
 
     ``user_id`` is the Django user the run is for (the chat's owner), recorded on the
     launch record so the finished run can be found for them; None when unknown.
     ``extra_files`` is {remote name: local path} of other inputs staged into the run
-    folder beside the samplesheet (params.yml names them bare)."""
+    folder beside the samplesheet (params.yml names them bare).
+    ``reasons``, when given, collects one plain line per skip or failure (never a key, key path or password)."""
+    reasons = [] if reasons is None else reasons
     launch_path = Path(launch_yml_path).resolve()
     if not launch_path.exists():
         print(f"[LURIA][SUBMIT] launch.yml not found: {launch_path}")
+        reasons.append(f"launch.yml not found: {launch_path}")
         return []
     if not all(luria_env.get(k) for k in _REQUIRED_ENV):
         print("[LURIA][SUBMIT] LURIA env incomplete — skipping")
+        reasons.append("Luria env incomplete, missing: "
+                       + ", ".join(k for k in _REQUIRED_ENV if not luria_env.get(k)))
         return []
     if _yaml is None:
         raise RuntimeError("PyYAML is required to parse launch.yml for Luria submission.")
@@ -90,6 +96,7 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
     entries = doc.get("launch") if isinstance(doc, dict) else None
     if not entries:
         print(f"[LURIA][SUBMIT] no launch entries in {launch_path}")
+        reasons.append("no launch entries in launch.yml")
         return []
 
     working = str(luria_env["working_path"]).rstrip("/")
@@ -102,12 +109,17 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
                 continue
             try:
                 ref = _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key_path,
-                                  samplesheet_local, genome, launch_params, process_args,
+                                  samplesheet_local, genome, launch_params, process_args, reasons,
                                   user_id=user_id, extra_files=extra_files)
                 if ref:
                     runs.append(ref)
             except Exception as exc:
                 print(f"[LURIA][SUBMIT] entry {entry.get('name', idx)!r} failed: {exc!r}")
+                msg = repr(exc)
+                for secret in (key_path, luria_env.get("key")):
+                    if secret:
+                        msg = msg.replace(str(secret), "<key>")
+                reasons.append(f"entry {entry.get('name', idx)!r} failed: {msg[:300]}")
     finally:
         try:
             os.remove(key_path)
@@ -167,12 +179,14 @@ def _write_launch_labels(luria_env, key_path, *, working, run_dir, work_dir, pip
 
 def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key_path,
                 samplesheet_local=None, genome=None, launch_params=None, process_args=None,
-                user_id=None, extra_files=None):
+                reasons=None, user_id=None, extra_files=None):
+    reasons = [] if reasons is None else reasons
     name = (entry.get("name") or f"run{idx}").strip() or f"run{idx}"
     pipeline = entry.get("pipeline")
     revision = entry.get("revision")
     if not pipeline or not revision:
         print(f"[LURIA][SUBMIT] entry {name!r} missing pipeline/revision — skipping")
+        reasons.append(f"entry {name!r} missing pipeline/revision")
         return None
 
     # Local samplesheet: prefer the explicit path from state; the params.yml the Tower
@@ -185,6 +199,7 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
             local_sheet = str(candidate)
     if not local_sheet or not Path(local_sheet).exists():
         print(f"[LURIA][SUBMIT] local samplesheet not found for entry {name!r}: {local_sheet!r}")
+        reasons.append(f"entry {name!r}: local samplesheet not found")
         return None
 
     safe = sanitize_job_name(job_name or name)

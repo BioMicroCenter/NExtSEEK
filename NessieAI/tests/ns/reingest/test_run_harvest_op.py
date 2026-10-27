@@ -22,6 +22,8 @@ import sys
 import tarfile
 from pathlib import Path
 
+from types import SimpleNamespace
+
 import pytest
 from django.contrib.auth import get_user_model
 
@@ -51,6 +53,9 @@ def _dispatch(op: str, args: dict, config=None, session=None, write_gate=None,
     `NessieAI/tests/ns/test_granular_dispatch.py`). This wrapper keeps the
     brief's positional call shape at the test call sites below while calling
     the real function correctly."""
+    if op == "run-harvest" and session is None:
+        # The owner rule (PR 135 MF-2) needs a caller; these tests are not about it.
+        session = SimpleNamespace(user=SimpleNamespace(is_superuser=True, pk=0))
     return g.run_op(op, args, config=config, session=session, write_gate=write_gate,
                      neo4j_exec=neo4j_exec, outputs_dir=outputs_dir)
 
@@ -891,15 +896,16 @@ def test_run_harvest_end_to_end_resolves_via_launch_record_despite_a_decoy_csv(
     from NessieAI.ns.reingest import store as store_mod
     monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
 
+    owner = get_user_model().objects.create(username="t")
     PipelineRun.objects.create(
         run_dir=run_dir, run_name="r", pipeline="nf-core/rnaseq",
-        launched_by=get_user_model().objects.create(username="t"),
+        launched_by=owner,
         cohort=[{"d_seq_uid": "D.SEQ-EXAMPLE-1", "nfcore_sample": "CONTROL_REP1",
                  "fastq_1": "/net/cluster/fastq/CONTROL_REP1_R1.fastq.gz",
                  "fastq_2": None}])
 
     result = _dispatch("run-harvest", {"run_dir": run_dir},
-                        _Cfg(), None, None, None, None)
+                        _Cfg(), SimpleNamespace(user=owner), None, None, None)
 
     got = result["manifest"]
     assert got["run_dir"] == run_dir, (

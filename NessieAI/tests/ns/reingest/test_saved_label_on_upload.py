@@ -25,8 +25,8 @@ def _patch(monkeypatch, write=None):
 def test_a_started_upload_writes_saved_once_per_run(monkeypatch):
     calls = _patch(monkeypatch)
     config = types.SimpleNamespace(LURIA_ENV=LURIA)
-    granular._mark_runs_reingested([{"manifest_id": "m1", "job_id": "j1"},
-                                    {"manifest_id": "m1", "job_id": "j2"}], config)
+    granular._mark_runs_reingested([{"manifest_id": "m1", "job_id": "j1", "outcome": {"status": "succeeded"}},
+                                    {"manifest_id": "m1", "job_id": "j2", "outcome": {"status": "succeeded"}}], config)
     assert calls == [(LURIA, "/w/runs/a_1", 5)]
 
 
@@ -42,7 +42,7 @@ def test_a_saved_label_failure_never_fails_the_upload(monkeypatch):
         raise RuntimeError("ssh down")
 
     _patch(monkeypatch, write=boom)
-    granular._mark_runs_reingested([{"manifest_id": "m1", "job_id": "j1"}],
+    granular._mark_runs_reingested([{"manifest_id": "m1", "job_id": "j1", "outcome": {"status": "succeeded"}}],
                                    types.SimpleNamespace(LURIA_ENV=LURIA))
 
 

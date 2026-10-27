@@ -122,8 +122,9 @@ export function MessageBubble({
       data-testid="message-bubble"
       data-role={message.isUser ? "user" : "assistant"}
       data-bubble-index={index ?? 0}
+      data-turn-id={message.isUser && message.turnId != null ? message.turnId : undefined}
       className={cn(
-        "flex flex-col py-1",
+        "flex flex-col rounded-lg py-1 transition-shadow data-[turn-flash]:ring-2 data-[turn-flash]:ring-primary/60",
         message.isUser ? "items-end" : "items-start",
       )}
     >
@@ -201,6 +202,7 @@ export function MessageBubble({
             <button
               type="button"
               onClick={() => setDebugOpen((v) => !v)}
+              data-testid="search-details-toggle"
               aria-expanded={debugOpen}
               aria-controls={detailsId}
               className="flex items-center gap-1 rounded-md px-2 py-1 text-xs [@media(pointer:coarse)]:min-h-11 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"

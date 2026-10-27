@@ -7,10 +7,12 @@ cd @@REPO@@ || exit 1
 H=@@HOME@@
 TAG=@@TAG@@
 EXP=@@EXP@@
+BEHIND_OK=@@BEHIND_OK@@   # 1: the brief quotes the operator letting EXP be an ancestor of origin/dev
 INSTANCE=@@INSTANCE@@
 IN=@@IN@@
 COMPONENTS="@@COMPONENTS@@"
 RECREATE_NGINX_ON="@@RECREATE_NGINX_ON@@"
+NGINX_RECREATE_OK=@@NGINX_RECREATE_OK@@   # 1: the brief allows 'nginx recreate ok'
 CONTINUE_ON_FAILURE=" @@CONTINUE_ON_FAILURE@@ "
 DO_STATIC=@@DO_STATIC@@ DO_LABS=@@DO_LABS@@ DO_CI=@@DO_CI@@ DO_NESSIE=@@DO_NESSIE@@
 CI_FLAGS="@@CI_FLAGS@@"
@@ -20,18 +22,22 @@ NESSIE_FLAGS="@@NESSIE_FLAGS@@"
 KNOWN_CI_REDS='@@KNOWN_CI_REDS@@'
 KNOWN_HEALTH_REDS='@@KNOWN_HEALTH_REDS@@'
 SUMMARY_RED='@@SUMMARY_RED@@'
+SUMMARY_DOWN='@@SUMMARY_DOWN@@'
 WINDOWS="@@WINDOWS@@"
 DISCARD="@@DISCARD@@"
 SET_ASIDE="@@SET_ASIDE@@"
+REHEARSE=@@REHEARSE@@   # 1 when the range has a migration (the brief's migrations_expected or the commits step's migration flag)
 
 ST=$H/launch-$TAG.status; L=$H/launch-$TAG
 # >>> functions (tests/test_launch.py sources this block)
 say(){ echo "$* $(date -u +%H:%M:%S)" >> "$ST"; }
 stop(){ say "STOPPED: $*"; say ALL_DONE; exit 1; }
 logname(){ case "$1" in
+  app-build) echo app-build;;
 @@LOGNAME_CASES@@
 esac; }
 success_line(){ case "$1" in
+  app-build) echo 'app image rebuilt; runtime restart deferred by request';;
 @@SUCCESS_CASES@@
 esac; }
 need_of(){ case "$1" in
@@ -61,6 +67,9 @@ classify(){ # $1 one red: skip | known | summary | pending <component> | stale <
   case "$1" in "CI failed"*|"CI passed"*|"stopped before building"*) echo skip; return;; esac
   if printf '%s\n' "$1" | grep -qE "$KNOWN_HEALTH_REDS"; then echo known; return; fi
   if printf '%s\n' "$1" | grep -qE "$SUMMARY_RED"; then echo summary; return; fi
+  # a first split: no `web` until the app step, so the rebuild's "front door is not up" summary waits for it
+  if [ "${FIRST_SPLIT:-0}" = 1 ] && printf '%s\n' "$1" | grep -qE "$SUMMARY_DOWN"; then
+    case " $PENDING " in *" app "*) echo "pending app";; *) echo "stale app";; esac; return; fi
   n=$(need_of "$1")
   if [ -n "$n" ]; then
     case " $PENDING " in *" $n "*) echo "pending $n";; *) echo "stale $n";; esac
@@ -82,12 +91,15 @@ judge(){ # $1 log $2 label: records every red with its class; prints the reds no
 rollback_tag(){ # $1 log: the verified tag, even when the rebuild's output wrapped it onto the next line
   tr -s ' \n' ' ' < "$1" | grep -m1 -o "rollback tag verified: [^ ]*"
 }
-rebuild(){ # $1 component; returns 1 when its success line is missing
-  extra=""; [ "$1" = "$RECREATE_NGINX_ON" ] && { extra="--recreate-nginx"; say "NGINX_RECREATE with the $1 rebuild (docker/nginx.conf changed, 'nginx recreate ok')"; }
-  ./startup.sh rebuild --component "$1" --no-ci $extra > "$L/$(logname "$1").log" 2>&1 </dev/null
+rebuild(){ # $1 component, or app-build (the switchover's first step: the app image built and preflighted, nothing
+  # restarted); returns 1 when its success line is missing
+  comp=$1; flags=""; [ "$1" = app-build ] && { comp=app; flags=--no-restart; }
+  extra=""; [ "$1" = "$RECREATE_NGINX_ON" ] && { extra="--recreate-nginx"; say "NGINX_RECREATE with the $1 rebuild (docker/nginx.conf or the nginx service changed, 'nginx recreate ok')"; }
+  ./startup.sh rebuild --component "$comp" --no-ci $flags $extra > "$L/$(logname "$1").log" 2>&1 </dev/null
   say "REBUILD $1 exit=$?"
   t=$(rollback_tag "$L/$(logname "$1").log")
-  [ -n "$t" ] && say "ROLLBACK $1 ${t#rollback tag verified: }"
+  # only an image's first rebuild reports ROLLBACK: after app-build the app step's tag points at the image app-build made
+  case " ${ROLLED:-} " in *" $comp "*) ;; *) [ -n "$t" ] && say "ROLLBACK $comp ${t#rollback tag verified: }"; ROLLED="${ROLLED:-} $comp";; esac
   PENDING=$(echo " $PENDING " | sed "s/ $1 / /; s/^ *//; s/ *\$//")
   grep -qF "$(success_line "$1")" "$L/$(logname "$1").log"
 }
@@ -105,6 +117,102 @@ set_aside(){ # local edits to files the range CHANGES: copy them to $H/backups/s
     say "SET_ASIDE $p -> $d"
   done
 }
+host_gid_env(){ # phase 4 compose needs NEXTSEEK_HOST_GID in .env for EVERY verb; the old compose ignores it, so add it before the pull
+  grep -q '^NEXTSEEK_HOST_GID=' .env 2>/dev/null && return 0
+  printf '\nNEXTSEEK_HOST_GID=%s\n' "$(id -g)" >> .env && say "ENV NEXTSEEK_HOST_GID=$(id -g) added to .env"
+}
+switch_missing(){ # $1 the components: what the switchover needs that the brief left out. The agent and sidecar share
+  # dmac-cc-users with the app, so their images must be on 10001 before the app switches (startup refuses otherwise)
+  for c in cc-agent nextseek-sidecar; do case " $1 " in *" $c "*) ;; *) echo "$c";; esac; done
+}
+switch_order(){ # $1 the components: the phase 4 switchover order. app-build first (the slow app build and its preflight,
+  # nothing restarted), then the agent, sidecar and proxy images, then the app restart (a cached build), which stops
+  # web, nextseek and the sidecar, fixes ownership and starts them: the mixed-uid window no longer spans the app build
+  for c in app-build cc-agent nextseek-sidecar bedrock-proxy cc-spawner app; do case " $1 " in *" ${c%-build} "*) echo "$c";; esac; done
+}
+first_split(){ # prints 1 when the checkout defines `web` and this box has never had a web container (ps -a: a
+  # stopped or restarting web on a split box is no first split), else 0. Returns 1 when compose cannot say. Without
+  # `web` in the checkout compose lists nothing and exits 0, so the checkout is read first.
+  git show HEAD:docker-compose.yml 2>/dev/null | grep -qE '^  web:' || { echo 0; return 0; }
+  ids=$(docker compose ps -a -q web </dev/null 2>/dev/null) || return 1
+  [ -z "$ids" ] && echo 1 || echo 0
+}
+nginx_def_changed(){ # the running nginx was made from another service definition than the checkout's (compose's
+  # config hash vs the container's label: the test a plain `up` recreates on). False when either cannot be read.
+  want=$(docker compose config --hash nextseek_nginx </dev/null 2>/dev/null | awk '{print $2}')
+  cid=$(docker compose ps -q nextseek_nginx </dev/null 2>/dev/null | head -1)
+  [ -n "$want" ] && [ -n "$cid" ] || return 1
+  have=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.config-hash"}}' "$cid" </dev/null 2>/dev/null)
+  [ -n "$have" ] && [ "$have" != "$want" ]
+}
+rehearse(){ # the migration rehearsal, run AFTER the new app image is built and BEFORE anything restarts: this box's
+  # schema (no rows, plus django_migrations and django_content_type) is loaded into a throwaway MySQL and the NEW image
+  # runs `migrate` against it. Reads the live DB only (mysqldump --single-transaction --no-data, two tables' rows).
+  # Returns 1 on any failure; the error tail is in $L/rehearsal.log. Its own subshell, so the EXIT trap always cleans.
+  ( set +x; umask 077
+    net=rehearse-net-$TAG; ctr=rehearse-db-$TAG; mig=rehearse-mig-$TAG; dump=$H/backups/rehearse-$TAG.sql.gz; log=$L/rehearsal.log
+    : > "$log"; t0=$(date +%s)
+    # a runner killed mid-rehearsal (SIGKILL skips the trap) leaves its 2 GB db and its network: remove every leftover first
+    for o in $(docker ps -a --format '{{.Names}}' --filter name=rehearse- </dev/null 2>/dev/null | grep -E '^rehearse-(db|mig)-'); do docker rm -f "$o" >/dev/null 2>&1; done
+    for o in $(docker network ls --format '{{.Name}}' --filter name=rehearse-net- </dev/null 2>/dev/null | grep '^rehearse-net-'); do docker network rm "$o" >/dev/null 2>&1; done
+    rm -f "$H"/backups/rehearse-*.sql.gz*
+    cleanup(){ rc=$?   # on a failure the throwaway db's own last lines go under a marker, after the error
+      [ $rc = 0 ] || { echo "--- the throwaway db, last 20 lines"; docker logs --tail 20 "$ctr" </dev/null 2>&1; } >> "$log"
+      docker rm -f "$ctr" "$mig" >/dev/null 2>&1; docker network rm "$net" >/dev/null 2>&1; rm -f "$dump" "$dump.body"; }
+    trap cleanup EXIT
+    # the throwaway runs the live db container's own image and command (its flags: charset, collation); never without them
+    dbc=$(docker compose ps -q db </dev/null 2>/dev/null | head -1)
+    [ -n "$dbc" ] || { echo "no running db container: the throwaway db never starts without the live one's flags" >> "$log"; exit 1; }
+    img=$(docker inspect -f '{{.Image}}' "$dbc" </dev/null 2>/dev/null)
+    mapfile -t margs < <(docker inspect -f '{{range .Config.Cmd}}{{println .}}{{end}}' "$dbc" </dev/null 2>/dev/null | sed '/^$/d')
+    { [ -n "$img" ] && [ ${#margs[@]} -gt 0 ]; } || { echo "could not read the db container's image and command" >> "$log"; exit 1; }
+    dbn=$(docker exec nextseek printenv NEXTSEEK_MYSQL_DATABASE </dev/null 2>/dev/null); dbn=${dbn:-dmac}
+    # the live db's password stays inside its own container (MYSQL_PWD from its env); nothing secret is on an argv.
+    # Line 1 out = the live database's default charset and collation (the throwaway's CREATE DATABASE reuses them),
+    # then ---, then the schema without rows, then the rows of the two tables migrate reads. sh -e: a failed step stops
+    docker compose exec -T -e DBN="$dbn" db sh -ec 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
+      mysql -h127.0.0.1 -uroot -N -e "select concat(default_character_set_name, \" \", default_collation_name) from information_schema.schemata where schema_name=\"$DBN\""
+      echo ---
+      mysqldump -h127.0.0.1 -uroot --single-transaction --no-data --skip-triggers "$DBN"
+      mysqldump -h127.0.0.1 -uroot --single-transaction --no-create-info --skip-triggers "$DBN" django_migrations django_content_type' \
+      </dev/null 2>>"$log" | gzip -c > "$dump"
+    [ "${PIPESTATUS[0]}" = 0 ] || { echo "schema dump failed" >> "$log"; exit 1; }
+    cs=$(zcat "$dump" | sed -n '1p'); zcat "$dump" | sed '1,/^---$/d' | gzip -c > "$dump.body" && mv -f "$dump.body" "$dump"
+    export REHEARSE_PW=$(head -c 18 /dev/urandom | base64 | tr -d '/+=\n')   # a throwaway password for a throwaway container
+    docker network create --internal "$net" >/dev/null 2>&1 || { echo "network create failed" >> "$log"; exit 1; }
+    # timeout (coreutils, in the mysql image) as the container's entrypoint is the real limit: it holds with no runner left
+    docker run -d --name "$ctr" --network "$net" --memory 2g -e MYSQL_ROOT_PASSWORD="$REHEARSE_PW" \
+      --entrypoint timeout "$img" -k 10 900 docker-entrypoint.sh "${margs[@]}" >/dev/null 2>>"$log" \
+      || { echo "throwaway db did not start" >> "$log"; exit 1; }
+    ok=0; for i in $(seq 60); do
+      docker exec -e MYSQL_PWD="$REHEARSE_PW" "$ctr" mysqladmin ping -h127.0.0.1 -uroot --silent </dev/null >/dev/null 2>&1 && { ok=1; break; }; sleep 2; done
+    [ $ok = 1 ] || { echo "throwaway db never answered" >> "$log"; exit 1; }
+    set -- $cs; cset=${1:-utf8mb4}; coll=${2:-utf8mb4_unicode_ci}
+    { echo "create database \`$dbn\` default character set $cset collate $coll;"; echo "use \`$dbn\`;"; zcat "$dump"; } \
+      | docker exec -i -e MYSQL_PWD="$REHEARSE_PW" "$ctr" mysql -h127.0.0.1 -uroot >> "$log" 2>&1 \
+      || { echo "schema load failed" >> "$log"; exit 1; }
+    # the settings go in on stdin and are written inside the container: no host mount, so no file mode, owner or SELinux
+    # label matters (the app image may run as 10001)
+    timeout -k 10 600 docker run -i --rm --name "$mig" --network "$net" --memory 2g -e REHEARSE_PW -e REHEARSE_DB="$dbn" \
+      -e REHEARSE_HOST="$ctr" -e DJANGO_SETTINGS_MODULE=rehearsal_settings -e PYTHONPATH=/tmp/rehearsal -e LOG_DIR=/tmp/l \
+      -e DJANGO_CSRF_TRUSTED_ORIGINS=https://rehearsal.invalid -w /app nextseek-nextseek:latest \
+      sh -ec 'mkdir -p /tmp/rehearsal; cat > /tmp/rehearsal/rehearsal_settings.py; exec /app/.venv/bin/python manage.py migrate --noinput' \
+      >> "$log" 2>&1 <<'PYEOF' || exit 1
+import os
+from dmac.test_settings import *  # noqa
+DATABASES["default"] = {"ENGINE": "django.db.backends.mysql", "NAME": os.environ["REHEARSE_DB"], "USER": "root",
+                        "PASSWORD": os.environ["REHEARSE_PW"], "HOST": os.environ["REHEARSE_HOST"], "PORT": "3306",
+                        "OPTIONS": {"charset": "utf8mb4"}}
+PYEOF
+    names=$(grep -oE 'Applying [A-Za-z0-9_]+\.[A-Za-z0-9_]+' "$log" | sed 's/^Applying //' | paste -sd' ' -)   # app.migration only: DEBUG lines follow on the same line
+    echo "REHEARSAL-OK applied=${names:-none} seconds=$(( $(date +%s) - t0 ))" >> "$log" )
+}
+rehearse_or_stop(){ # right after app-build (the new app image built, nothing restarted): the migration rehearsal; a
+  # failure stops the launch there, before ANY component is rebuilt and restarted
+  if rehearse; then say "$(grep -m1 '^REHEARSAL-OK' "$L/rehearsal.log")"; return 0; fi
+  say "REHEARSAL FAILED: $(sed '/^--- the throwaway db/,$d' "$L/rehearsal.log" | grep -vE '^[[:space:]]*$' | tail -4 | tr '\n' ' ' | cut -c1-400)"
+  stop "the migration rehearsal failed on this box's schema; the old containers are still serving, nothing was restarted, see $L/rehearsal.log"
+}
 # <<< functions
 
 mkdir -p "$L" "$H/backups"
@@ -112,17 +220,70 @@ mkdir -p "$L" "$H/backups"
 say "START tag=$TAG instance=$INSTANCE components=${COMPONENTS:-none}"
 
 w=$(in_window); [ -n "$w" ] && stop "inside the $w UTC stop window; start after it"
+host_gid_env || stop "could not add NEXTSEEK_HOST_GID to .env"   # before any compose verb, so before the pull too
 busy=$(docker compose exec -T nextseek sh -c 'pgrep -af "manage.py (graph_sync --full|graph_sync --drift|nessie)" || true' </dev/null 2>/dev/null)
 [ -n "$busy" ] && stop "busy inside nextseek: $busy"
 
 git fetch -q origin || stop "git fetch failed"
-[ "$(git rev-parse origin/dev)" = "$EXP" ] || stop "origin/dev is $(git rev-parse --short origin/dev), not the expected sha"
+{ [ "$(git rev-parse origin/dev)" = "$EXP" ] || { [ "$BEHIND_OK" = 1 ] && git merge-base --is-ancestor "$EXP" origin/dev; }; } \
+  || stop "origin/dev is $(git rev-parse --short origin/dev), not the expected sha (or, with ship_behind_origin, not after it)"
 for p in $DISCARD; do git checkout -- "$p" 2>/dev/null; done   # the app's daily context refresh only
 set_aside || stop "could not set the dirty $SET_ASIDE aside; nothing was reset past the failed file"
 rm -f @@REFRESH_MARKER@@
 git merge --ff-only "$EXP" >> "$L/pull.log" 2>&1 || stop "fast-forward refused, see $L/pull.log"
 [ "$(git rev-parse HEAD)" = "$EXP" ] || stop "HEAD $(git rev-parse --short HEAD) is not the expected sha"
 say "HEAD $(git log --oneline -1 | cut -c1-70)"
+
+# First split (prod-launch-20261026-2116): the checkout has `web` and the box has never had one. Read once, here:
+# the old compose has no `web` service. The rules order stays (the proxy goes first): the rebuild's front-door start
+# never recreates a running nginx (607031e7), so nginx keeps the old conf until the app step recreates it.
+FIRST_SPLIT=$(first_split) || stop "docker compose could not list the web containers, so a first split cannot be ruled out; nothing was rebuilt (the checkout is at $EXP)"
+say "FIRST_SPLIT=$FIRST_SPLIT"
+# A changed nginx service definition (an image tag, a new mount) is applied only by a recreate.
+if [ -z "$RECREATE_NGINX_ON" ] && [ -n "$COMPONENTS" ] && nginx_def_changed; then
+  if [ "$NGINX_RECREATE_OK" = 1 ]; then
+    case " $COMPONENTS " in *" app "*) RECREATE_NGINX_ON=app;; *) RECREATE_NGINX_ON=${COMPONENTS%% *};; esac
+    say "NGINX_DEFINITION changed in the checkout: nginx is recreated with the $RECREATE_NGINX_ON rebuild"
+  else
+    say "FINDING the nextseek_nginx service definition changed in the checkout and the brief does not allow 'nginx recreate ok': nginx keeps the old one until ./startup.sh rebuild --recreate-nginx"
+  fi
+fi
+if [ "$FIRST_SPLIT" = 1 ]; then
+  [ "$RECREATE_NGINX_ON" = app ] || stop "first split (this box has never had a web container): the app step must recreate nginx (the app in images and 'nginx recreate ok'), or nginx keeps proxying to nextseek, which becomes the worker and serves nothing; nothing was rebuilt (the checkout is at $EXP)"
+  git grep -q 'no_recreate=True' HEAD -- startup/cli.py || stop "first split: $EXP lacks the rebuild's no-recreate front-door start (607031e7), so its first rebuild would recreate nginx onto web before web exists (prod 502, 2026-10-26); nothing was rebuilt (the checkout is at $EXP)"
+fi
+
+# Phase 4: the app containers run as 10001. NONROOT = the checked-out Dockerfile names a USER; the switchover = the app
+# is being rebuilt and the running nextseek still has no USER (what startup/ compares: .Config.User empty vs the new
+# image's). Read from git and docker, not a brief flag: nothing to forget, and the same test the app rebuild applies.
+NONROOT=0; SWITCH=0
+git show HEAD:Dockerfile 2>/dev/null | grep -qE '^USER +[1-9]' && NONROOT=1
+if [ $NONROOT = 1 ]; then
+  case " $COMPONENTS " in *" app "*)
+    u=$(docker inspect -f '{{.Config.User}}' nextseek 2>/dev/null </dev/null)
+    { [ -z "$u" ] || [ "$u" = 0 ] || [ "$u" = root ]; } && SWITCH=1;;
+  esac
+fi
+if [ $SWITCH = 1 ]; then
+  m=$(switch_missing "$COMPONENTS")
+  [ -n "$m" ] && stop "the switchover to 10001 needs these images in the brief too: $(echo $m); nothing was rebuilt"
+  COMPONENTS=$(echo $(switch_order "$COMPONENTS")); say "SWITCHOVER the app containers change user (root to 10001); order: $COMPONENTS"
+fi
+# A migration in the range (REHEARSE=1 only with the app in the brief): app-build goes first (the switchover order already
+# has it), and the rehearsal runs right after it, so a failed migration stops the launch before anything restarts. A
+# failed app-build stops too (continue_on_failure cannot name it): the app's restart would migrate the live database.
+if [ $REHEARSE = 1 ]; then
+  case " $COMPONENTS " in *" app-build "*) ;; *) COMPONENTS="app-build $COMPONENTS";; esac
+  say "MIGRATION in the range: app-build first, the rehearsal right after it; order: $COMPONENTS"
+fi
+
+pre_app(){ # the labs file goes onto the shared volume BEFORE the app rebuild starts the new web, which reads it once at load
+  [ $DO_LABS = 1 ] && [ -f /tmp/labs_db.json ] || return 0
+  # piped in, not bind-mounted: a bind source is resolved by the daemon and would need :z on an SELinux host
+  docker compose run --rm -T --no-deps --entrypoint sh nextseek \
+    -c 'mkdir -p /media/context && cat > /media/context/.labs.tmp && mv -f /media/context/.labs.tmp /media/context/labs_db.json' \
+    < /tmp/labs_db.json && say "LABS pre-copied" || say "LABS pre-copy failed; post_app copies it after the rebuild"
+}
 
 post_app(){
   if [ $DO_STATIC = 1 ]; then
@@ -132,7 +293,7 @@ post_app(){
   if [ $DO_LABS = 1 ]; then   # dev only; the file lives on the volume web and nextseek share (NEXTSEEK_LABS_FILE), so one write, no restart
     if [ -f /tmp/labs_db.json ]; then
       docker compose exec -T nextseek mkdir -p /media/context </dev/null
-      docker compose cp /tmp/labs_db.json nextseek:/media/context/labs_db.json && say "LABS copied"
+      docker compose cp -a /tmp/labs_db.json nextseek:/media/context/labs_db.json && say "LABS copied"
     else
       say "LABS source missing: /tmp/labs_db.json"
     fi
@@ -143,6 +304,7 @@ post_app(){
 
 PENDING="$COMPONENTS"
 for c in $COMPONENTS; do
+  [ "$c" = app ] && pre_app
   if rebuild "$c"; then
     say "REBUILT $c"
   else
@@ -151,6 +313,7 @@ for c in $COMPONENTS; do
       *) stop "$c: no '$(success_line "$c")' line, see $L/$(logname "$c").log";;
     esac
   fi
+  [ "$c" = app-build ] && [ $REHEARSE = 1 ] && rehearse_or_stop
   [ "$c" = app ] && post_app
   bad=$(judge "$L/$(logname "$c").log" "$c")
   if [ -n "$bad" ]; then
@@ -158,6 +321,12 @@ for c in $COMPONENTS; do
     else say "FINDING red after the last rebuild ($c): $(echo $bad | cut -c1-300)"; fi
   fi
 done
+
+if [ $SWITCH = 1 ]; then   # every count above 0 is a file the new user cannot write: the launch stops here
+  ./startup.sh fix-ownership --check > "$L/ownership.log" 2>&1 </dev/null; rc=$?
+  say "OWNERSHIP check exit=$rc $(tail -1 "$L/ownership.log" | cut -c1-100)"
+  [ $rc = 0 ] || stop "fix-ownership --check found files not owned by the app user, see $L/ownership.log"
+fi
 
 C=/app/NessieAI/chat_nextseek/src/chat_nextseek/context
 {
@@ -194,10 +363,28 @@ C=/app/NessieAI/chat_nextseek/src/chat_nextseek/context
     echo "CHECK cc_agent_versions $(timeout 90 docker run --rm --network none --entrypoint sh dmac-assistant:poc -c 'echo node $(node --version) claude $(claude --version 2>&1)' 2>&1 | tail -1)";;
   esac
 @@MARKERS@@
+  if [ $NONROOT = 1 ]; then   # the outside check that the app really runs unprivileged (what a code review cannot see)
+    echo "CHECK web_uid $(docker compose exec -T web id -u </dev/null 2>&1 | tail -1)"
+    echo "CHECK web_no_docker_sock $(docker compose exec -T web sh -c 'test -e /var/run/docker.sock && echo present || echo absent' </dev/null 2>&1 | tail -1)"
+    # no token: the spawner must answer 401 or 403 (POST /turns needs X-Spawner-Token; only GET /health is open)
+    echo "CHECK spawner_untokened $(docker compose exec -T web uv run --no-sync python -c 'import os,urllib.request as u,urllib.error as e
+try: u.urlopen(u.Request(os.environ["NEXTSEEK_SPAWNER_URL"]+"/turns", data=b"{}", method="POST"), timeout=10); print(200)
+except e.HTTPError as x: print(x.code)
+except Exception as x: print("error", type(x).__name__)' </dev/null 2>&1 | tail -1)"
+    for s in web nextseek; do
+      echo "CHECK app_inspect $s $(docker inspect -f '{{.Config.User}} capdrop={{.HostConfig.CapDrop}} secopt={{.HostConfig.SecurityOpt}}' $(docker compose ps -q $s </dev/null | head -1) 2>&1)"
+    done
+  fi
   echo "CHECK memory $(free -g | awk '/^Mem:/{print "available_gib=" $7}')"
   docker stats --no-stream --format 'MEM {{.Name}} {{.MemUsage}}'
 } > "$L/checks.log" 2>&1
 say "CHECKS $(grep -m1 '^CHECK http' "$L/checks.log")"
+if [ $NONROOT = 1 ]; then
+  grep -qx 'CHECK web_uid 10001' "$L/checks.log" && grep -qx 'CHECK web_no_docker_sock absent' "$L/checks.log" \
+    && grep -qE '^CHECK spawner_untokened (401|403)$' "$L/checks.log" \
+    && [ "$(grep -cE '^CHECK app_inspect (web|nextseek) 10001:10001 capdrop=\[ALL\] secopt=\[.*no-new-privileges' "$L/checks.log")" = 2 ] \
+    || say "FINDING non-root check failed, see CHECK web_uid .. app_inspect in $L/checks.log"
+fi
 
 CI_OK=1
 if [ $DO_CI = 1 ]; then
@@ -231,7 +418,21 @@ if [ $DO_NESSIE = 1 ]; then
   for f in $CASES; do
     RUN=$INSTANCE-${f%.json}
     cp "$IN/$f" "$L/$f" || { say "CASES missing $f"; continue; }
-    docker cp "$L/$f" nextseek:/app/runs/$f
+    if grep -q '"_measure"' "$L/$f" && ! grep -q '"_measure": *{}' "$L/$f"; then   # every number in it was measured on another graph: re-pin on this box, never run placeholders (an empty block has nothing to pin)
+      PS=NessieAI/tests/nessie_tests/scripts/pin_probe_truths.py; P="$L/pin-${f%.json}"
+      if python3 $PS --emit-cypher "$L/$f" > "$P.cypher" 2> "$P.log" \
+         && docker compose exec -T neo4j sh -c 'NEO4J_PASSWORD="${NEO4J_AUTH#neo4j/}" cypher-shell --access-mode read -u neo4j --format plain' \
+              < "$P.cypher" > "$P.out" 2>> "$P.log" \
+         && python3 $PS --parse-output "$P.out" --probe "$L/$f" --measured-out "$P.measured.json" >> "$P.log" 2>&1 \
+         && python3 $PS --pin "$L/$f" --from "$P.measured.json" --drop-unmeasured --out "$P.pinned.json" >> "$P.log" 2>&1 \
+         && cp "$P.pinned.json" "$L/$f"; then
+        say "PINNED $f measured=$(tr -d ' \n' < "$P.measured.json" | cut -c1-300) dropped=$(sed -n 's/^DROPPED: //p' "$P.log" | tail -1)"
+      else
+        say "FINDING PIN_FAILED $f see $P.log; this file's run was skipped"
+        continue
+      fi
+    fi
+    docker cp -a "$L/$f" nextseek:/app/runs/$f
     case "$f" in   # a *-member.json file runs as the non-admin smoke login, every other as the admin (2026-10-05)
       *-member.json) LOGIN=member U=${CI_SMOKE_USER:-} PW=CI_SMOKE_PASS;;
       *) LOGIN=admin U=${CI_WRITE_USER:-} PW=CI_WRITE_PASS;;

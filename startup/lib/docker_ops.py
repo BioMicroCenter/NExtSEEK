@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Sequence
 
+from startup.lib.ownership import APP_UID
+
 
 class DockerOpsError(RuntimeError):
     """A docker / docker compose invocation failed."""
@@ -23,6 +25,16 @@ def _check(result: subprocess.CompletedProcess[Any], context: str) -> None:
         stderr = result.stderr.decode() if isinstance(result.stderr, bytes) else (result.stderr or "")
         stdout = result.stdout.decode() if isinstance(result.stdout, bytes) else (result.stdout or "")
         raise DockerOpsError(f"{context} failed (exit {result.returncode}): {stderr.strip() or stdout.strip()}")
+
+
+# A mysql client run as root inside the db container, for compose_exec(service="db", command=[*MYSQL_ROOT_CMD, ...]).
+# The password is the container's own MYSQL_ROOT_PASSWORD (from db.env) handed over as MYSQL_PWD, so it is never
+# on any argv, host or container (SEC-H23).
+MYSQL_ROOT_CMD = ("sh", "-c", 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot "$@"', "sh")
+
+
+# The same for cypher-shell in the neo4j container: NEO4J_AUTH is "neo4j/<password>", handed over as NEO4J_PASSWORD.
+CYPHER_SHELL_CMD = ("sh", "-c", 'NEO4J_PASSWORD="${NEO4J_AUTH#neo4j/}" exec cypher-shell -u neo4j "$@"', "sh")
 
 
 def _redacted(command: Sequence[str]) -> str:
@@ -49,6 +61,7 @@ def compose_up(
     build: bool = False,
     force_recreate: bool = False,
     no_deps: bool = False,
+    no_recreate: bool = False,
 ) -> None:
     """Run ``docker compose up`` for an explicit service set."""
     cmd = ["docker", "compose", "up"]
@@ -60,6 +73,8 @@ def compose_up(
         cmd.append("--force-recreate")
     if no_deps:
         cmd.append("--no-deps")
+    if no_recreate:
+        cmd.append("--no-recreate")
     cmd.extend(services)
     result = subprocess.run(
         cmd,
@@ -286,20 +301,20 @@ def volume_remove(name: str) -> None:
     _check(result, f"docker volume rm {name}")
 
 
-def bootstrap_staging_dir(volume_name: str, *, uid: int = 1001) -> None:
+def bootstrap_staging_dir(volume_name: str, *, uid: int = APP_UID) -> None:
     """One-shot helper container: mkdir -p + chown the `_staging` subdir
     inside `volume_name` so a later VolumeOptions.Subpath mount (the NS
     sidecar's `_staging` mount, Task 14) finds a pre-existing backing
     directory. Docker's Engine refuses to start a container whose
     VolumeOptions.Subpath backing dir is absent, and compose `restart:` does
     NOT retry container-create failures -- this must run at install time.
-    Idempotent (mkdir -p / chown are safe to re-run). `uid` defaults to 1001,
+    Idempotent (mkdir -p / chown are safe to re-run). `uid` defaults to the app uid (ownership.APP_UID),
     the NS sidecar image's non-root user (docker/ns-sidecar/Dockerfile).
     """
     result = subprocess.run(
         [
             "docker", "run", "--rm", "-v", f"{volume_name}:/v", "alpine",
-            "sh", "-c", f"mkdir -p /v/_staging && chown {uid} /v/_staging",
+            "sh", "-c", f"mkdir -p /v/_staging && chown {uid}:{uid} /v /v/_staging",
         ],
         capture_output=True,
         text=True,

@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import queue
+import re
 import threading  # noqa: F401  (tests patch threading.Thread through this module)
 import time
 import uuid
@@ -58,6 +59,7 @@ from nextseek_api.assistant.descriptions import (
     ASSISTANT_SESSION_DOWNLOAD_DESC,
     ASSISTANT_SESSION_PATCH_DESC,
     ASSISTANT_SESSIONS_LIST_DESC,
+    ASSISTANT_SESSIONS_SEARCH_DESC,
     ASSISTANT_TASK_PROGRESS_DESC,
     ASSISTANT_TEST_CASES_DESC,
 )
@@ -71,6 +73,7 @@ from nextseek_api.assistant.models_api import (
     SessionListItem,
     SessionListResponse,
     SessionPatchRequest,
+    SessionSearchResponse,
     TaskProgressResponse,
     TestCaseItem,
     TestCaseListResponse,
@@ -130,7 +133,7 @@ from NessieAI.ns.artifacts import (
     _resolve_saved_path,
     _safe_artifact_path,
 )
-from nextseek_api.assistant import session_export
+from nextseek_api.assistant import session_export, session_search
 from rest_framework.authentication import (
     BasicAuthentication,
     TokenAuthentication,
@@ -177,8 +180,8 @@ class UserInParticipatingProject(BasePermission):
     _CACHE_TTL_SECONDS = 60
     # A member who has left every pilot project keeps reading their own past chats (these GETs answer the owner or
     # a superuser only); everything else stays gated.
-    _OWN_CHAT_READS = frozenset({"list_sessions", "get_session", "download_bundle", "download_artifact",
-                                 "download_session", "task_progress"})
+    _OWN_CHAT_READS = frozenset({"list_sessions", "search_sessions", "get_session", "download_bundle",
+                                 "download_artifact", "download_session", "task_progress"})
 
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
@@ -424,7 +427,7 @@ def _launched_runs(state) -> list:
 
 
 def _refuse_run_ls(request, req, chat_config) -> Response | None:
-    """run-ls lists one run the caller launched (any run for a superuser off a turn pass), never the runs root.
+    """run-ls, run-harvest and run-checksum take one run the caller launched (any run for a superuser off a turn pass), never the runs root.
 
     A run is the caller's when one of the caller's own chats records it as launched (``_launched_runs``); its
     folders are the caller's too. None when the op may go on; without a configured Luria the op answers itself,
@@ -434,6 +437,8 @@ def _refuse_run_ls(request, req, chat_config) -> Response | None:
     if not working:
         return None
     runs_root = working + "/runs"
+    if not getattr(req, "run_dir", None):
+        return None  # run-harvest with no folder: the op picks the caller's own waiting run
     run_dir = os.path.normpath(str(req.run_dir))
     if run_dir == runs_root:
         return op_error("VALIDATION", fields=[{"field": "run_dir", "type": "the_runs_root"}],
@@ -447,6 +452,11 @@ def _refuse_run_ls(request, req, chat_config) -> Response | None:
               .filter(Q(extra_state__icontains=run) | Q(extra_state__icontains="$spill"))
               .values_list("extra_state", flat=True))
     if any(run in _launched_runs(state) for state in states):
+        return None
+    # A later wizard in the chat wipes that list; the launch record still names who launched the run.
+    from nextseek_api.assistant.models_db import PipelineRun
+
+    if PipelineRun.objects.filter(run_dir=run, launched_by=request.user).exists():
         return None
     return op_error("VALIDATION", fields=[{"field": "run_dir", "type": "not_your_run"}],
                     status=HTTP_STATUS["VALIDATION"])
@@ -582,6 +592,71 @@ class AssistantViewSet(viewsets.ViewSet):
             ).model_dump(mode="json"),
             status=status.HTTP_201_CREATED,
         )
+
+    # ------------------------------------------------------------------
+    # 2b. GET /assistant/sessions/search/
+    # ------------------------------------------------------------------
+    @extend_schema(
+        operation_id="Assistant: Search Sessions",
+        description=ASSISTANT_SESSIONS_SEARCH_DESC,
+        responses={200: SessionSearchResponse},
+        examples=[OpenApiExample(name="Search my chats", response_only=True, value={
+            "query": "ndma liver", "terms": ["ndma", "liver"], "sources": ["chats", "records"], "total": 1,
+            "results": [{"source": "chat", "session_id": "abc12345-def6-7890-abcd-ef1234567890",
+                         "title": "NDMA mice", "updated_at": "2026-10-21T14:02:11Z", "owner": None, "turn_id": 3,
+                         "matched_in": "question", "snippet": "find mice treated with NDMA in the liver",
+                         "match_count": 2}],
+            "facets": {"record_type": {"MUS": 1}, "project": {"MetNet": 1}, "where": {"result": 1}}})],
+    )
+    @action(detail=False, methods=["get"], url_path="sessions/search")
+    def search_sessions(self, request):
+        authed, err = self._check_auth(request)
+        if not authed:
+            return err
+
+        params = request.query_params
+        def invalid(detail):
+            return _error_response("Validation error", detail, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        record_type = params.get("record_type") or None
+        project = params.get("project") or None
+        where = params.get("where") or None
+        facets_only = params.get("facets_only") in ("1", "true")
+        want_facets = params.get("facets") in ("1", "true")
+        if record_type and not re.fullmatch(r"[A-Z][A-Z.]{0,15}", record_type):
+            return invalid("Parameter 'record_type' must be a type code such as TIS or D.SEQ.")
+        if project and len(project) > 64:
+            return invalid("Parameter 'project' must be at most 64 characters.")
+        if where and where not in session_search.WHERE:
+            return invalid(f"Parameter 'where' accepts: {', '.join(session_search.WHERE)}.")
+        q = (params.get("q") or "").strip()
+        words_optional = facets_only or bool(record_type or project or where)
+        if len(q) > 200 or (len(q) < 2 and not (words_optional and not q)):
+            return invalid("Parameter 'q' must be 2 to 200 characters (it may be empty with a record filter).")
+        sources = [s.strip() for s in (params.get("sources") or "chats,records").split(",") if s.strip()]
+        if not sources or any(s not in session_search.SOURCES for s in sources):
+            return _error_response("Validation error",
+                                   f"Parameter 'sources' accepts: {', '.join(sorted(session_search.SOURCES))}.",
+                                   status.HTTP_422_UNPROCESSABLE_ENTITY)
+        since = params.get("since") or None
+        if since not in (None, "7", "30", "90"):
+            return _error_response("Validation error", "Parameter 'since' must be 7, 30 or 90.",
+                                   status.HTTP_422_UNPROCESSABLE_ENTITY)
+        all_users = params.get("all_users") in ("1", "true")
+        if all_users and not may_read_any(request):
+            return _error_response("Forbidden", "Only a superuser may search every user's chats.",
+                                   status.HTTP_403_FORBIDDEN)
+        try:
+            limit = min(max(int(params.get("limit", 20)), 1), 50)
+        except ValueError:
+            limit = 20
+
+        result = session_search.search_sessions(
+            request.user.pk, q, all_users=all_users, sources=sources, since_days=int(since) if since else None,
+            limit=limit, record_type=record_type, project=project, where=where, facets_only=facets_only,
+            facets=want_facets)
+        return Response(SessionSearchResponse.model_validate(result).model_dump(mode="json"),
+                        status=status.HTTP_200_OK)
 
     # ------------------------------------------------------------------
     # 3. GET /assistant/sessions/{session_id}/
@@ -1464,7 +1539,7 @@ class AssistantViewSet(viewsets.ViewSet):
             # the same rule.
             return op_error("AUTH_FAILED", status=HTTP_STATUS["AUTH_FAILED"])
         chat_config = _granular_chat_config(request, req)
-        if op == "run-ls":
+        if op in ("run-ls", "run-harvest", "run-checksum"):
             refused = _refuse_run_ls(request, req, chat_config)
             if refused is not None:
                 return refused

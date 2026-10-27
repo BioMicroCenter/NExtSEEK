@@ -496,14 +496,152 @@ def test_the_runner_reads_the_web_process_from_the_web_service(tmp_path, capsys)
     assert "for s in web cc-spawner;" in text and "CHECK container $s " in text and "compose ps -q $s" in text
 
 
+def test_the_runner_pins_a_measure_file_on_the_box_before_its_nessie_start(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    i_pin, i_cp, i_start = (text.index(k) for k in ("--emit-cypher", "docker cp -a \"$L/$f\"", "NESSIE_START"))
+    assert i_pin < i_cp < i_start                     # pinned file is the one copied and run
+    assert "grep -q '\"_measure\"' \"$L/$f\"" in text
+    assert "! grep -q '\"_measure\": *{}' \"$L/$f\"" in text   # an empty block has nothing to pin: the file runs
+    assert 'NEO4J_PASSWORD="${NEO4J_AUTH#neo4j/}" cypher-shell --access-mode read' in text
+    assert ' -p "${NEO4J_AUTH' not in text                     # the password is never on cypher-shell's argv
+    assert "--parse-output" in text and "--measured-out" in text and "--pin " in text
+    assert 'say "PINNED $f' in text and 'say "FINDING PIN_FAILED $f' in text
+    assert "continue" in text[text.index("PIN_FAILED"):i_start]   # a failed pin skips the file
+    assert "CI_WRITE_PASS\"" not in text[i_pin:i_cp]            # the pin step never touches the login
+
+
+def test_a_failed_pin_is_a_finding_so_the_launch_cannot_say_shipped(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    line = re.search(r'say "(FINDING PIN_FAILED [^"]*)"', text).group(1).replace("$f", "x.json")
+    assert L.parse_status(line + " 19:10:00\n")["findings"] == [line[len("FINDING "):]]
+
+
+@pytest.mark.parametrize("measure,warned", [({"c": {"cypher": "RETURN 1"}}, True), ({}, False)])
+def test_the_brief_says_a_measure_file_is_re_pinned_and_a_failed_pin_is_a_finding(tmp_path, capsys, measure,
+                                                                                    warned):
+    p = Path(_cases_file(tmp_path))
+    p.write_text(json.dumps({**json.loads(p.read_text()), "_measure": measure}))
+    code, out, d = make_brief(tmp_path, capsys, nessie={"cases": [{"file": str(p), "cc_turns_estimate": 1}]},
+                              paid={"approved": True, "budget_usd": 5, "approved_by": "operator"})
+    assert code == 0, out.err
+    warns = " ".join(json.loads((d / "brief.json").read_text())["warnings"])
+    assert ("re-pins it" in warns and "FINDING PIN_FAILED" in warns) is warned
+
+
 def test_the_labs_copy_writes_once_to_the_shared_path_and_restarts_nothing(tmp_path, capsys):
     d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
                               allowed_extras=["bedrock-proxy rebuild ok"])
-    assert "docker compose cp /tmp/labs_db.json nextseek:/media/context/labs_db.json" in text
+    assert "docker compose cp -a /tmp/labs_db.json nextseek:/media/context/labs_db.json" in text
     assert "mkdir -p /media/context" in text
     after = text.split("LABS copied", 1)[1].split("else", 1)[0]
     assert "restart" not in after and "sleep 60" not in after
     assert "stat -c %y /media/context/labs_db.json" in text
+
+
+def test_every_copy_into_an_app_container_is_archive_mode(tmp_path, capsys):
+    """Phase 4: the app containers run as 10001. `cp -a` is what gives a copied-in file the container
+    user (checked with docker 2026-10-26: plain cp keeps the host uid, -a gives the container user)."""
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    assert "docker compose cp -a /tmp/labs_db.json nextseek:/media/context/labs_db.json" in text
+    into = [ln for ln in text.splitlines() if re.search(r"docker( compose)? cp ", ln) and re.search(r" nextseek:/\S+( |$)", ln.split(" cp ", 1)[1]) and not re.search(r" cp \S*nextseek:", ln)]
+    assert len(into) == 2 and all(" cp -a " in ln for ln in into), into
+
+
+def test_a_switchover_rebuilds_agent_sidecar_proxy_then_app_and_checks_ownership(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app", "bedrock-proxy", "nextseek-sidecar"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    fn = _functions(text)
+    # the order is a pure function of the rendered component list, sourced from the functions block
+    r = subprocess.run(["bash", "-c", f'{fn}\nswitch_order "app cc-agent bedrock-proxy nextseek-sidecar"'],
+                       capture_output=True, text=True)
+    # the app image is built (and preflighted) first with no restart; the restart is last and its build cached
+    assert r.stdout.split() == ["app-build", "cc-agent", "nextseek-sidecar", "bedrock-proxy", "app"], r.stderr
+    r = subprocess.run(["bash", "-c", f'{fn}\nswitch_order "app cc-agent"'], capture_output=True, text=True)
+    assert r.stdout.split() == ["app-build", "cc-agent", "app"]
+    # detection: the running app has no USER while the checked-out Dockerfile names one
+    assert "SWITCH=1" in text and ".Config.User" in text and "git show HEAD:Dockerfile" in text
+    assert "COMPONENTS=$(echo $(switch_order" in text   # space-joined, one status line
+    # after the rebuilds: the ownership CHECK, and the launch stops when it is not clean
+    block = text.split("fix-ownership --check", 1)[1].split("fi\n", 1)[0]
+    assert "|| stop" in block
+    assert text.index("fix-ownership --check") > text.index('for c in $COMPONENTS; do')
+
+
+def test_the_host_gid_reaches_env_before_the_pull(tmp_path, capsys):
+    """Phase 4 compose interpolates ${NEXTSEEK_HOST_GID:?...}: every compose verb after the pull fails without it.
+    The old compose ignores the key, so writing it before the fast-forward leaves no window."""
+    d, text = rendered_runner(tmp_path, capsys, images=["app"], allowed_extras=[])
+    body = text.split("# <<< functions", 1)[1]
+    assert body.index("\nhost_gid_env") < body.index("git merge --ff-only")
+    box = tmp_path / "box"; box.mkdir()
+    (box / ".env").write_text("COMPOSE_PROJECT_NAME=nextseek")          # no final newline
+    r = subprocess.run(["bash", "-c", f'ST={box}/st\n{_functions(text)}\ncd {box} && host_gid_env && host_gid_env'],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    lines = (box / ".env").read_text().splitlines()
+    assert "COMPOSE_PROJECT_NAME=nextseek" in lines and lines.count(f"NEXTSEEK_HOST_GID={os.getgid()}") == 1
+    assert "NEXTSEEK_HOST_GID" in (box / "st").read_text()   # said once, in the status file
+
+
+def test_a_switchover_without_the_agent_and_sidecar_images_stops_before_any_rebuild(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["app"], allowed_extras=[])
+    fn = _functions(text)
+    for comps, missing in (("app", ["cc-agent", "nextseek-sidecar"]), ("app cc-agent", ["nextseek-sidecar"]),
+                           ("app cc-agent nextseek-sidecar", [])):
+        r = subprocess.run(["bash", "-c", f'{fn}\nswitch_missing "{comps}"'], capture_output=True, text=True)
+        assert r.stdout.split() == missing, (comps, r.stderr)
+    block = text.split("if [ $SWITCH = 1 ]; then", 1)[1].split("\nfi\n", 1)[0]
+    assert "switch_missing" in block and "stop" in block
+    assert block.index("switch_missing") < block.index("COMPONENTS=$(echo $(switch_order")
+
+
+def test_the_switchover_app_build_step_builds_without_restart_and_keeps_the_first_rollback_line(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"], allowed_extras=["bedrock-proxy rebuild ok"])
+    box = tmp_path / "box"; box.mkdir()
+    (box / "startup.sh").write_text(
+        '#!/bin/bash\necho "$*" >> calls\nn=$(wc -l < calls)\n'
+        'echo "  ✓ rollback tag verified: nextseek-nextseek:pre-2026102${n}-1c070c08 (sha256:x)"\n'
+        'case "$*" in *--no-restart*) echo "  ✓ app image rebuilt; runtime restart deferred by request";;\n'
+        '  *) echo "  ✓ app rebuilt and restarted";; esac\n')
+    (box / "startup.sh").chmod(0o755)
+    script = (f'ST={box}/st L={box}/l RECREATE_NGINX_ON=app PENDING="app-build app"\n{_functions(text)}\n'
+              f'mkdir -p {box}/l && cd {box} && rebuild app-build && rebuild app')
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    calls = (box / "calls").read_text().splitlines()
+    assert calls == ["rebuild --component app --no-ci --no-restart", "rebuild --component app --no-ci --recreate-nginx"]
+    st = (box / "st").read_text()
+    assert [ln.split()[:3] for ln in st.splitlines() if ln.startswith("ROLLBACK")] == [
+        ["ROLLBACK", "app", "nextseek-nextseek:pre-20261021-1c070c08"]]   # the old image, from the build-only step
+    assert (box / "l" / "app-build.log").is_file() and (box / "l" / f"{rules.LOG_NAME['app']}.log").is_file()
+
+
+def test_the_post_deploy_checks_prove_web_is_non_root_and_the_spawner_refuses_without_a_token(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["app"], allowed_extras=[])
+    assert "CHECK web_uid $(docker compose exec -T web id -u" in text
+    assert "CHECK web_no_docker_sock" in text and "/var/run/docker.sock" in text
+    sp = text.split("CHECK spawner_untokened", 1)[1].split("fi\n", 1)[0].split("for s in", 1)[0]
+    assert "NEXTSEEK_SPAWNER_URL" in sp and "/turns" in sp and "X-Spawner-Token" not in sp
+    ins = next(ln for ln in text.splitlines() if "CHECK app_inspect" in ln)
+    assert "{{.Config.User}}" in ins and "{{.HostConfig.CapDrop}}" in ins and "{{.HostConfig.SecurityOpt}}" in ins
+    assert "for s in web nextseek; do" in text
+    # judged: a wrong answer is a finding in the status file
+    assert "FINDING non-root check" in text
+
+
+def test_the_labs_file_is_on_the_volume_before_the_app_rebuild_starts_web(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    loop = text.split('for c in $COMPONENTS; do', 1)[1]
+    assert loop.index('[ "$c" = app ] && pre_app') < loop.index('if rebuild "$c"')
+    pre = text.split("pre_app(){", 1)[1].split("\n}\n", 1)[0]
+    # piped in, not bind-mounted: a bind source is resolved by the daemon and needs :z on an SELinux host
+    assert "docker compose run --rm -T --no-deps --entrypoint sh nextseek" in pre
+    assert "cat > /media/context/.labs.tmp && mv -f /media/context/.labs.tmp /media/context/labs_db.json" in pre
+    assert "< /tmp/labs_db.json" in pre and " -v " not in pre and "-u 0" not in pre
 
 
 def test_the_paid_step_needs_every_model_id_proven(tmp_path, capsys):
@@ -556,11 +694,14 @@ def _functions(text):
     return text.split("# >>> functions", 1)[1].split("# <<< functions", 1)[0]
 
 
-def bash_judge(tmp_path, text, log, pending):
-    header = "\n".join(ln for ln in text.splitlines()[:30]
-                       if re.match(r"^(KNOWN_HEALTH_REDS|KNOWN_CI_REDS|SUMMARY_RED|WINDOWS)=", ln))
+def _header(text):
+    return "\n".join(ln for ln in text.splitlines()[:30]
+                     if re.match(r"^(KNOWN_HEALTH_REDS|KNOWN_CI_REDS|SUMMARY_RED|SUMMARY_DOWN|WINDOWS)=", ln))
+
+
+def bash_judge(tmp_path, text, log, pending, first_split=0):
     script = tmp_path / "j.sh"
-    script.write_text(f"{header}\nST={tmp_path}/st\n{_functions(text)}\nPENDING='{pending}'\n"
+    script.write_text(f"{_header(text)}\nST={tmp_path}/st FIRST_SPLIT={first_split}\n{_functions(text)}\nPENDING='{pending}'\n"
                       f'health_reds "{log}" | while IFS= read -r l; do echo "$(classify "$l")|$l"; done\n')
     r = subprocess.run(["bash", str(script)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
@@ -593,15 +734,16 @@ def test_a_red_for_a_pending_component_is_expected_and_after_it_is_stale(tmp_pat
     assert got[3][0] == "skip"
 
 
-def judges_bad(tmp_path, text, log, pending, known):
+def judges_bad(tmp_path, text, log, pending, known, first_split=0):
     """The reds that stop, from the runner's bash judge() and from launch.py, with the instance's known reds."""
     funcs = _functions(text)
     script = tmp_path / "jb.sh"
     script.write_text(f"KNOWN_HEALTH_REDS='{L.ere_alternation(known)}'\nSUMMARY_RED='{rules.SUMMARY_RED}'\n"
+                      f"SUMMARY_DOWN='{rules.SUMMARY_DOWN}'\nFIRST_SPLIT={first_split}\n"
                       f"ST={tmp_path}/st\n{funcs}\nPENDING='{pending}'\njudge \"{log}\" app\n")
     r = subprocess.run(["bash", str(script)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
-    reds = [{"text": t, "class": L.classify_red(t, set(pending.split()), known)}
+    reds = [{"text": t, "class": L.classify_red(t, set(pending.split()), known, bool(first_split))}
             for t in L.health_reds(Path(log).read_text())]
     reds = [x for x in reds if x["class"] != "skip"]
     return r.stdout.splitlines(), L.bad_reds(reds), reds
@@ -774,11 +916,11 @@ FAILED ci/smoke/test_reachability.py::test_route_is_reachable[/nextseek_api/samp
 """
 
 
-def judged(tmp_path, capsys, ci_log=CI_LOG):
+def judged(tmp_path, capsys, ci_log=CI_LOG, status=STATUS):
     d, _ = rendered_runner(tmp_path, capsys)
     ev = d / "launch-20260926-1300"
     ev.mkdir()
-    (d / "launch-20260926-1300.status").write_text(STATUS)
+    (d / "launch-20260926-1300.status").write_text(status)
     (ev / "app.log").write_text((FIX / "real-app-p3.log").read_text())
     (ev / "cc.log").write_text("       ✓ cc-agent image rebuilt; no persistent container to restart\n"
                                "       ✓ cc-agent runtime: node v22.11.0, Claude Code 2.1.282\n")
@@ -801,6 +943,12 @@ def test_judge_writes_facts_and_a_prefilled_form(tmp_path, capsys):
     form = json.loads((d / "report-form.json").read_text())
     assert form["headline"]["verdict"] is None
     assert [f["known"] for f in form["ci"]["failures"]] == [True, True]
+
+
+def test_a_labs_pre_copy_alone_counts_as_copied(tmp_path, capsys):
+    d = judged(tmp_path, capsys, status=STATUS.replace("LABS copied 13:12:15", "LABS pre-copied 13:01:00"))
+    labs = next(s for s in json.loads((d / "report-form.json").read_text())["steps"] if s["step"] == "labs")
+    assert labs["status"] == "ok"
 
 
 def fill(d, **over):
@@ -1459,3 +1607,564 @@ def test_cc_spawner_is_a_component_rebuilt_before_the_app(tmp_path, capsys):
     assert "nextseek-cc-spawner:latest" in text
     note = (Path(__file__).resolve().parents[1] / "references" / "dev.md").read_text()
     assert "cuts a CC turn" in note
+
+
+# ---- the migration rehearsal (before the app restart) ----
+def _app_runner(tmp_path, capsys, **over):
+    return rendered_runner(tmp_path, capsys, images=["app"], **over)
+
+
+def test_the_rehearsal_is_rendered_only_when_the_range_has_a_migration(tmp_path, capsys):
+    _, off = _app_runner(tmp_path / "a", capsys)
+    assert "REHEARSE=0" in off
+    _, on = _app_runner(tmp_path / "b", capsys, migrations_expected=True)
+    assert "REHEARSE=1" in on
+
+
+def test_the_commits_step_migration_flag_is_the_second_signal(tmp_path, capsys):
+    code, out, d = preflight(tmp_path, capsys, good_preflight(), images=["app"])
+    assert code == 0
+    (d / "commit-review-form.json").write_text(json.dumps({"derived": {"flags": {"migration": ["x/migrations/0001_a.py"]}}}))
+    code, _ = run(["runner", "--brief", str(d / "brief.json")], capsys)
+    assert code == 0
+    tag = json.loads((d / "brief.json").read_text())["derived"]["tag"]
+    assert "REHEARSE=1" in (d / "runner" / f"launch-{tag}-run.sh").read_text()
+
+
+def test_no_rehearsal_without_an_app_rebuild(tmp_path, capsys):
+    _, t = rendered_runner(tmp_path, capsys, images=["cc-agent"], migrations_expected=True)
+    assert "REHEARSE=0" in t
+
+
+def test_the_rehearsal_reads_only_and_keeps_secrets_off_argv(tmp_path, capsys):
+    _, t = _app_runner(tmp_path, capsys, migrations_expected=True)
+    fn = t.split("rehearse(){", 1)[1].split("# <<< functions", 1)[0]
+    assert "--single-transaction --no-data" in fn and "--no-create-info" in fn
+    assert "django_migrations django_content_type" in fn
+    assert "trap cleanup EXIT" in fn and "rm -f \"$dump\"" in fn and "network rm" in fn
+    assert "timeout -k" in fn and "--memory 2g" in fn and "--internal" in fn
+    assert "MYSQL_PWD" in fn and "-p\"" not in fn and "-p$" not in fn and "--password" not in fn
+    assert "set -x" not in fn.replace("set +x", "")
+    # a read of the live db: no write verb is ever sent to it
+    live = fn.split("docker compose exec", 1)[1].split("gzip", 1)[0]
+    sql = " ".join(re.findall(r'-e "([^"]*)"', live))
+    assert sql.lower().startswith("select") and not re.search(r"\b(insert|update|delete|drop|alter|truncate|create)\b", sql, re.I)
+    # sh -e: a failed first mysqldump stops the dump instead of loading a cut schema
+    assert " db sh -ec '" in live
+    # the image comes from the running db container, never from `compose config` (it renders the root password)
+    assert "compose config" not in fn
+
+
+_DOCKER_STUB = r'''#!/bin/bash
+echo "$*" >> @T@/calls
+case "$1 $2" in "run -d"|"run -i") printf '<%s>' "$@" >> @T@/argv; echo >> @T@/argv;; esac
+case "$*" in
+  "compose ps -q db") @DBPS@;;
+  "inspect -f {{.Image}} dbc1") echo sha256:dbimg;;
+  "inspect -f {{range .Config.Cmd}}{{println .}}{{end}} dbc1")   # what docker prints: one per line, then its own newline
+    printf -- '--character-set-server=utf8mb4\n--collation-server=utf8mb4_unicode_ci\n--log-error-verbosity=1\n\n';;
+  "ps -a --format {{.Names}} --filter name=rehearse-") @LEFT_C@;;
+  "network ls --format {{.Name}} --filter name=rehearse-net-") @LEFT_N@;;
+  "compose exec"*) printf 'utf8mb4 utf8mb4_unicode_ci\n---\nCREATE TABLE t (a int);\n';;
+  "logs --tail 20 rehearse-db-t1") echo "mysqld: the throwaway db said this";;
+  "run -i --rm --name rehearse-mig-t1"*) cat > @T@/settings_stdin; @MIGRATE@;;
+  "exec nextseek printenv"*) echo dmac;;
+  "exec -e MYSQL_PWD"*mysqladmin*) exit 0;;
+  "exec -i -e MYSQL_PWD"*) cat > /dev/null;;
+esac
+exit 0
+'''
+
+
+def _stub_docker(tmp_path, fail_migrate, db_running=True, leftovers=False):
+    b = tmp_path / "bin"
+    b.mkdir()
+    migrate = ("echo 'django.db.utils.OperationalError: (3780, bad fk)'; exit 1" if fail_migrate
+               # what migrate prints under the test settings: the schema editor's DEBUG line follows on the same line
+               else "echo '  Applying nextseek_api.0032_x...DEBUG:django.db.backends.schema:ALTER TABLE t'; echo ' OK';"
+                    " echo '  Applying seek.0004_y... OK'")
+    (b / "docker").write_text(
+        _DOCKER_STUB.replace("@T@", str(tmp_path)).replace("@MIGRATE@", migrate)
+        .replace("@DBPS@", "echo dbc1" if db_running else "true")
+        .replace("@LEFT_C@", "printf 'rehearse-db-old\\nrehearse-mig-old\\nmy-rehearse-db-x\\n'" if leftovers else "true")
+        .replace("@LEFT_N@", "printf 'rehearse-net-old\\n'" if leftovers else "true"))
+    (b / "docker").chmod(0o755)
+    return b
+
+
+def _run_rehearse(tmp_path, capsys, fail=False, **stub):
+    _, text = _app_runner(tmp_path, capsys, migrations_expected=True)
+    b = _stub_docker(tmp_path, fail, **stub)
+    L = tmp_path / "L"; L.mkdir(); H = tmp_path / "H"; (H / "backups").mkdir(parents=True)
+    (H / "backups" / "rehearse-old.sql.gz").write_text("a leftover dump")
+    script = tmp_path / "r.sh"
+    script.write_text(f'TAG=t1; L={L}; H={H}\n{_functions(text)}\nrehearse; echo "rc=$?"\n')
+    r = subprocess.run(["bash", str(script)], capture_output=True, text=True, env={**os.environ, "PATH": f"{b}:{os.environ['PATH']}"})
+    argv = (tmp_path / "argv").read_text().splitlines() if (tmp_path / "argv").exists() else []
+    return r, L, H, (tmp_path / "calls").read_text(), argv
+
+
+def test_a_green_rehearsal_names_the_applied_migrations_and_cleans_up(tmp_path, capsys):
+    r, L, H, calls, _ = _run_rehearse(tmp_path, capsys)
+    assert "rc=0" in r.stdout, r.stderr
+    log = (L / "rehearsal.log").read_text()
+    assert "REHEARSAL-OK applied=nextseek_api.0032_x seek.0004_y" in log and "--- the throwaway db" not in log
+    assert "rm -f rehearse-db-t1 rehearse-mig-t1" in calls and "network rm rehearse-net-t1" in calls
+    assert not list((H / "backups").iterdir())          # the dump is gone, and the leftover one
+
+
+def test_the_throwaway_db_runs_the_live_db_image_and_flags_under_a_real_time_limit(tmp_path, capsys):
+    r, L, H, calls, argv = _run_rehearse(tmp_path, capsys)
+    assert "rc=0" in r.stdout, r.stderr
+    db = next(a for a in argv if a.startswith("<run><-d>"))
+    assert "<>" not in db                                # no empty argument: mysqld 'Too many arguments'
+    # timeout is the container's own entrypoint, so the limit holds with no runner left to enforce it
+    assert db.endswith("<--entrypoint><timeout><sha256:dbimg><-k><10><900><docker-entrypoint.sh>"
+                       "<--character-set-server=utf8mb4><--collation-server=utf8mb4_unicode_ci><--log-error-verbosity=1>"), db
+    assert "<--rm>" not in db                            # the cleanup removes it, after reading its log on a failure
+    assert "compose config" not in calls
+
+
+def test_no_running_live_db_means_no_throwaway_db(tmp_path, capsys):
+    r, L, H, calls, argv = _run_rehearse(tmp_path, capsys, db_running=False)
+    assert "rc=1" in r.stdout
+    assert "no running db container" in (L / "rehearsal.log").read_text()
+    assert not argv and "network create" not in calls
+
+
+def test_a_failed_migrate_fails_the_step_keeps_the_error_and_the_db_log_and_cleans_up(tmp_path, capsys):
+    r, L, H, calls, _ = _run_rehearse(tmp_path, capsys, fail=True)
+    assert "rc=1" in r.stdout
+    log = (L / "rehearsal.log").read_text()
+    assert "3780" in log
+    assert log.index("3780") < log.index("--- the throwaway db") < log.index("mysqld: the throwaway db said this")
+    assert "network rm rehearse-net-t1" in calls and not list((H / "backups").iterdir())
+    assert "stop " not in calls and "restart" not in calls   # nothing the live stack runs
+
+
+def test_the_leftovers_of_a_killed_runner_are_removed_first(tmp_path, capsys):
+    r, L, H, calls, _ = _run_rehearse(tmp_path, capsys, leftovers=True)
+    assert "rc=0" in r.stdout, r.stderr
+    first = calls.index("network create")
+    assert calls.index("rm -f rehearse-db-old") < first and calls.index("rm -f rehearse-mig-old") < first
+    assert calls.index("network rm rehearse-net-old") < first
+    assert "my-rehearse-db-x" not in calls
+
+
+def test_the_settings_go_in_on_stdin_with_no_host_mount(tmp_path, capsys):
+    r, L, H, calls, argv = _run_rehearse(tmp_path, capsys)
+    assert "rc=0" in r.stdout, r.stderr
+    settings = (tmp_path / "settings_stdin").read_text()
+    assert 'DATABASES["default"]' in settings and 'os.environ["REHEARSE_PW"]' in settings
+    mig = next(a for a in argv if a.startswith("<run><-i>"))
+    assert "<-v>" not in mig and "<--volume>" not in mig and "<nextseek-nextseek:latest>" in mig
+    assert "<PYTHONPATH=/tmp/rehearsal>" in mig and "/app/.venv/bin/python manage.py migrate --noinput" in mig
+    assert not (L / "rehearsal").exists()
+
+
+def _run_loop(tmp_path, capsys, *, comps, switch, rehearse_flag, build_ok=True, rehearsal_ok=True, cont=" ",
+              first_split=None):
+    """The runner's body from the switchover block to the end of the rebuild loop, with the rebuilds, the rehearsal
+    and docker stubbed: the order the steps run in, and where a failure stops. first_split 0 or 1 runs the REAL
+    judge, each rebuild leaving the log a pre-split box gave (prod-launch-20261026-2116): the proxy's log as it
+    was, the spawner's without its two spawner reds, then green logs."""
+    _, text = rendered_runner(tmp_path / "r", capsys, images=["app"], migrations_expected=True)
+    body = text.split("# <<< functions", 1)[1]
+    seg = "if [ $SWITCH = 1 ]; then" + body.split("\nif [ $SWITCH = 1 ]; then", 1)[1]
+    seg = seg.split("for c in $COMPONENTS; do", 1)
+    seg = seg[0] + "for c in $COMPONENTS; do" + seg[1].split("\ndone\n", 1)[0] + "\ndone\n"
+    box = tmp_path / "box"; (box / "l").mkdir(parents=True)
+    fake = ('echo "REHEARSAL-OK applied=a.0001_x seconds=3" > "$L/rehearsal.log"' if rehearsal_ok else
+            'printf "OperationalError: (3780, bad fk)\\n--- the throwaway db, last 20 lines\\nmysqld noise\\n"'
+            ' > "$L/rehearsal.log"; return 1')
+    script = (f'ST={box}/st L={box}/l TAG=t1 H={box} CONTINUE_ON_FAILURE="{cont}" DO_LABS=0 DO_STATIC=0 '
+              f'REHEARSE={rehearse_flag} SWITCH={switch} COMPONENTS="{comps}"\n{_functions(text)}\n'
+              f'docker(){{ :; }}\nlogfor(){{ :; }}\n'
+              + ('judge(){ :; }\n' if first_split is None else
+                 f'{_header(text)}\nFIRST_SPLIT={first_split}\nlogfor(){{ case "$1" in bedrock-proxy) cat {INCIDENT};; '
+                 f'cc-spawner) grep -v cc-spawner {INCIDENT};; esac; }}\n')
+              + f'rebuild(){{ echo "rebuild $1" >> {box}/order; logfor "$1" > "$L/$(logname "$1").log"; '
+              f'PENDING=$(echo " $PENDING " | sed "s/ $1 / /; s/^ *//; s/ *\\$//"); '
+              f'[ "$1" != app-build ] || {"true" if build_ok else "false"}; }}\n'
+              f'rehearse(){{ echo rehearse >> {box}/order; {fake}; }}\n'
+              f'{seg}echo end >> {box}/order\n')
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    order = (box / "order").read_text().splitlines() if (box / "order").exists() else []
+    return r, order, (box / "st").read_text() if (box / "st").exists() else ""
+
+
+def test_a_switchover_with_a_migration_rehearses_after_the_app_build_and_before_any_restart(tmp_path, capsys):
+    r, order, st = _run_loop(tmp_path, capsys, comps="bedrock-proxy app cc-agent nextseek-sidecar", switch=1,
+                             rehearse_flag=1)
+    assert order == ["rebuild app-build", "rehearse", "rebuild cc-agent", "rebuild nextseek-sidecar",
+                     "rebuild bedrock-proxy", "rebuild app", "end"], (order, r.stderr)
+    assert "REHEARSAL-OK applied=a.0001_x" in st
+    # one status line per step: switch_order prints one name per line, and a newline-joined COMPONENTS also hid
+    # " app " and " cc-agent " from the later case tests (CI's --wait-ready, the cc-agent versions check)
+    assert all(re.search(r" \d\d:\d\d:\d\d$", ln) for ln in st.splitlines()), st
+    assert "order: app-build cc-agent nextseek-sidecar bedrock-proxy app " in st
+
+
+def test_a_plain_migration_launch_builds_the_app_first_and_rehearses_before_any_restart(tmp_path, capsys):
+    r, order, st = _run_loop(tmp_path, capsys, comps="bedrock-proxy cc-spawner app cc-agent", switch=0, rehearse_flag=1)
+    assert order == ["rebuild app-build", "rehearse", "rebuild bedrock-proxy", "rebuild cc-spawner", "rebuild app",
+                     "rebuild cc-agent", "end"], (order, r.stderr)
+
+
+def test_no_migration_means_no_build_only_step_and_no_rehearsal(tmp_path, capsys):
+    r, order, _ = _run_loop(tmp_path, capsys, comps="bedrock-proxy app cc-agent", switch=0, rehearse_flag=0)
+    assert order == ["rebuild bedrock-proxy", "rebuild app", "rebuild cc-agent", "end"], (order, r.stderr)
+    r, order, _ = _run_loop(tmp_path / "s", capsys, comps="app cc-agent nextseek-sidecar", switch=1, rehearse_flag=0)
+    assert order == ["rebuild app-build", "rebuild cc-agent", "rebuild nextseek-sidecar", "rebuild app", "end"], order
+
+
+def test_a_failed_rehearsal_stops_before_any_component_restarts(tmp_path, capsys):
+    r, order, st = _run_loop(tmp_path, capsys, comps="bedrock-proxy app cc-agent nextseek-sidecar", switch=1,
+                             rehearse_flag=1, rehearsal_ok=False)
+    assert order == ["rebuild app-build", "rehearse"], order
+    failed = next(ln for ln in st.splitlines() if ln.startswith("REHEARSAL FAILED"))
+    assert "3780" in failed and "mysqld noise" not in failed      # the error, not the throwaway db's log
+    assert "STOPPED: the migration rehearsal failed on this box's schema; the old containers are still serving, " \
+           "nothing was restarted" in st
+
+
+def test_a_failed_app_build_stops_even_with_the_app_in_continue_on_failure(tmp_path, capsys):
+    """A failed build must never fall through to the app's restart, which runs migrate on the live database unrehearsed."""
+    r, order, st = _run_loop(tmp_path, capsys, comps="bedrock-proxy app cc-agent", switch=0, rehearse_flag=1,
+                             build_ok=False, cont=" app ")
+    assert order == ["rebuild app-build"], order
+    assert "STOPPED: app-build: no 'app image rebuilt; runtime restart deferred by request' line" in st
+
+
+def test_the_merged_runner_builds_the_app_only_through_rebuild(tmp_path, capsys):
+    _, t = _app_runner(tmp_path, capsys, migrations_expected=True)
+    assert "build_and_rehearse" not in t and t.count("./startup.sh rebuild --component") == 1
+    assert "APP_BUILD" not in t                        # the build-only step is REBUILD app-build, its ROLLBACK is rebuild()'s
+
+
+def test_the_app_build_is_judged_by_its_success_line_not_its_exit_code(tmp_path, capsys):
+    """A --no-restart rebuild still runs stack health and exits 1 on any red, and `app image code` is always
+    STALE before the restart (dev-launch-20260928-1708): the exit code would stop every migration launch."""
+    _, text = _app_runner(tmp_path, capsys, migrations_expected=True)
+    box = tmp_path / "box"; (box / "l").mkdir(parents=True)
+    (box / "startup.sh").write_text(
+        '#!/bin/bash\necho "$*" >> calls\n'
+        'echo "  ✓ rollback tag verified: nextseek-nextseek:pre-20261026T190000-1c070c08 (sha256:old)"\n'
+        'echo "  ✓ app image rebuilt; runtime restart deferred by request"\n'
+        'echo "       ✗ app image code: STALE: of 2153 tracked app files, 109 differ in the running nextseek"\n'
+        'exit 1\n')
+    (box / "startup.sh").chmod(0o755)
+    r = subprocess.run(["bash", "-c", f'ST={box}/st L={box}/l RECREATE_NGINX_ON="" PENDING="app-build app"\n'
+                                      f'{_functions(text)}\ncd {box} && rebuild app-build; echo "rc=$?"'],
+                       capture_output=True, text=True)
+    assert "rc=0" in r.stdout, r.stderr
+    assert (box / "calls").read_text().strip() == "rebuild --component app --no-ci --no-restart"
+    st = (box / "st").read_text()
+    assert "REBUILD app-build exit=1" in st and "ROLLBACK app nextseek-nextseek:pre-20261026T190000-1c070c08" in st
+
+
+def test_the_first_rollback_line_of_a_component_is_its_rollback_point(tmp_path):
+    """After the build-only step, the restart's own rebuild tags the image that step made: the new one."""
+    st = L.parse_status("ROLLBACK app nextseek-nextseek:pre-20261026T190000-1c070c08 (the old image) 19:10:00\n"
+                        "ROLLBACK app nextseek-nextseek:pre-20261026T191500-1c070c08 19:16:00\n")
+    assert st["rollback"]["app"] == "nextseek-nextseek:pre-20261026T190000-1c070c08"
+
+
+def test_the_runner_drops_unmeasured_cases_and_names_them_in_the_pinned_line(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys, images=["cc-agent", "app"],
+                              allowed_extras=["bedrock-proxy rebuild ok"])
+    assert "--drop-unmeasured" in text
+    assert 'say "PINNED $f measured=' in text and 'dropped=$(sed -n' in text
+    assert "DROPPED:" in text
+
+
+# --------------------------------------------------------------------------- ship behind origin/dev
+SHIP_BEHIND = "The operator, 10-26: 'Skill exception for an older sha' (prod takes the dev-green sha)"
+
+
+def test_behind_origin_stops_without_the_operators_words(tmp_path, capsys):
+    text = good_preflight(origin="c" * 40, origin_match="no", origin_ancestor="yes")
+    code, out, d = preflight(tmp_path, capsys, text)
+    assert code == 5 and "origin_match" in out.out
+
+
+def test_behind_origin_passes_with_the_operators_words_when_an_ancestor(tmp_path, capsys):
+    text = good_preflight(origin="c" * 40, origin_match="no", origin_ancestor="yes")
+    code, out, d = preflight(tmp_path, capsys, text, ship_behind_origin=SHIP_BEHIND)
+    assert code == 0, out.out + out.err
+    assert "behind origin/dev" in out.out
+
+
+def test_behind_origin_still_stops_when_not_an_ancestor(tmp_path, capsys):
+    text = good_preflight(origin="c" * 40, origin_match="no", origin_ancestor="no")
+    code, out, d = preflight(tmp_path, capsys, text, ship_behind_origin=SHIP_BEHIND)
+    assert code == 5 and "origin_match" in out.out
+
+
+def test_ship_behind_origin_must_hold_words(tmp_path, capsys):
+    code, out, d = make_brief(tmp_path, capsys, ship_behind_origin="  ")
+    assert code == 2
+
+
+def test_preflight_script_reports_whether_expected_is_an_ancestor(tmp_path, capsys):
+    code, out, d = make_brief(tmp_path, capsys)
+    code, out = run(["preflight-script", "--brief", str(d / "brief.json")], capsys)
+    assert "origin_ancestor" in out.out
+
+
+def test_runner_allows_behind_only_with_the_words(tmp_path, capsys):
+    for words, flag in ((None, "BEHIND_OK=0"), (SHIP_BEHIND, "BEHIND_OK=1")):
+        sub = tmp_path / ("w" if words else "n")
+        over = {"ship_behind_origin": words} if words else {}
+        code, out, d = make_brief(sub, capsys, **over)
+        assert code == 0, out.err
+        d2, runner_text = rendered_runner(sub / "r", capsys, **over)
+        assert flag in runner_text and "merge-base --is-ancestor \"$EXP\" origin/dev" in runner_text
+
+
+# ---- the first split (prod-launch-20261026-2116): a box that has never had a `web` container ----
+PRE = "bedrock-proxy cc-spawner app cc-agent nextseek-sidecar"
+INCIDENT = FIX / "real-proxy-prod-20261026-2116.log"   # the proxy step's log on prod, copied as it was
+GIT_ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.org",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.org"}
+COMPOSE = "services:\n  nextseek:\n    image: x\n"
+WEB = "  web:\n    image: x\n"
+
+
+def _commit(repo, msg):
+    for a in (["add", "."], ["commit", "-qm", msg]):
+        subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, env=GIT_ENV)
+    return subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], check=True, capture_output=True,
+                          text=True).stdout.strip()
+
+
+def _cli_py(marker):
+    return "compose_up(services=('nextseek_nginx',), no_deps=True" + (", no_recreate=True" if marker else "") + ")\n"
+
+
+def test_first_split_the_incident_reds_are_all_pending_and_the_rules_order_runs_to_the_end(tmp_path, capsys):
+    """The REAL judge on prod's own proxy log: every red, the rebuild's 'front door is not up' summary included,
+    is pending until the step that fixes it, so the launch goes on in the rules order (the proxy stays first)."""
+    r, order, st = _run_loop(tmp_path, capsys, comps=PRE, switch=0, rehearse_flag=0, first_split=1)
+    assert order == ["rebuild bedrock-proxy", "rebuild cc-spawner", "rebuild app", "rebuild cc-agent",
+                     "rebuild nextseek-sidecar", "end"], (order, r.stderr, st)
+    assert "STOPPED" not in st
+    proxy = [ln for ln in st.splitlines() if ln.startswith("RED bedrock-proxy ")]
+    assert len(proxy) == 7 and all(re.match(r"RED bedrock-proxy \[pending (app|cc-spawner|cc-agent)\] ", ln)
+                                   for ln in proxy), proxy
+    assert any(ln.startswith("RED bedrock-proxy [pending app] Rebuild finished but is red") for ln in proxy)
+    assert any(ln.startswith("RED cc-spawner [pending app] Rebuild finished but is red") for ln in st.splitlines())
+
+
+def test_on_a_split_box_the_same_log_stops_after_the_proxy_on_the_down_front_door(tmp_path, capsys):
+    r, order, st = _run_loop(tmp_path, capsys, comps=PRE, switch=0, rehearse_flag=0, first_split=0)
+    assert order == ["rebuild bedrock-proxy"], (order, r.stderr)
+    assert "RED bedrock-proxy [unexplained] Rebuild finished but is red" in st
+    assert "STOPPED: unexplained red after bedrock-proxy: Rebuild finished but is red" in st
+
+
+def test_bash_and_python_judges_agree_on_the_incident_log(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys)
+    after_proxy = "cc-spawner app cc-agent nextseek-sidecar"
+    b, p, reds = judges_bad(tmp_path, text, INCIDENT, after_proxy, _known("prod"), first_split=1)
+    assert b == p == []
+    assert [x["class"] for x in reds] == ["pending app", "pending cc-spawner", "pending cc-spawner",
+                                          "pending cc-agent", "pending app", "pending cc-agent", "pending app"]
+    b, p, _ = judges_bad(tmp_path, text, INCIDENT, after_proxy, _known("prod"), first_split=0)
+    assert b == p and len(p) == 1 and p[0].startswith("Rebuild finished but is red: stack health. The app or front")
+    # after the app step a down front door is real on a first split too
+    b, p, _ = judges_bad(tmp_path, text, INCIDENT, "cc-agent nextseek-sidecar", _known("prod"), first_split=1)
+    assert b == p and p[0].startswith("app + front door") and p[-1].startswith("Rebuild finished")
+
+
+def test_the_python_judge_excuses_the_down_front_door_only_on_a_first_split(tmp_path, capsys):
+    assert L.parse_status("FIRST_SPLIT=1 21:18:16\n")["first_split"] is True
+    assert L.parse_status("FIRST_SPLIT=0 21:18:16\n")["first_split"] is False
+    for fs, bad in ((1, 0), (0, 1)):
+        d, _ = rendered_runner(tmp_path / str(fs), capsys, images=PRE.split(),
+                               allowed_extras=["bedrock-proxy rebuild ok"])
+        tag = json.loads((d / "brief.json").read_text())["derived"]["tag"]
+        ev = d / f"launch-{tag}"
+        ev.mkdir()
+        (ev / "proxy.log").write_text(INCIDENT.read_text())
+        (d / f"launch-{tag}.status").write_text(f"START tag={tag} 21:18:15\nFIRST_SPLIT={fs} 21:18:16\n"
+                                                "REBUILT bedrock-proxy 21:19:09\nALL_DONE 21:19:09\n")
+        code, out = run(["judge", "--brief", str(d / "brief.json")], capsys)
+        assert code == 0, out.err
+        un = json.loads((d / "facts.json").read_text())["rebuilds"]["bedrock-proxy"]["unexplained"]
+        assert len(un) == bad and all(u.startswith("Rebuild finished") for u in un), un
+
+
+def test_a_down_nginx_or_worker_beside_web_is_never_pending(tmp_path, capsys):
+    """The pending prefix is web alone: another service in the list (nginx, or the old app that still serves a
+    pre-split box) is an outage, first split or not."""
+    d, text = rendered_runner(tmp_path, capsys)
+    log = tmp_path / "x.log"
+    for missing in ("web, nextseek_nginx", "nextseek, web"):
+        log.write_text(f"       ✗ app + front door: not running: {missing} -- start it with: docker compose \n"
+                       f"up -d --no-deps {missing.replace(',', '')}\n")
+        assert bash_judge(tmp_path, text, log, "app", first_split=1)[0][0] == "unexplained"
+        assert L.classify_red(L.health_reds(log.read_text())[0], {"app"}, [], True) == "unexplained"
+
+
+def _first_split_box(tmp_path, capsys, *, web=True, marker=True, ps_a="", ps_rc=0, want="h1", have="h1",
+                     recreate="", ok=0, comps=PRE):
+    """The runner's block after the fast-forward on a stub box: a git checkout of the shipped sha (its compose file
+    with or without `web`, its startup/cli.py with or without the no-recreate fix) and docker answering as told."""
+    _, text = rendered_runner(tmp_path / "r", capsys, images=["app"])
+    body = text.split("# <<< functions", 1)[1]
+    seg = "# First split" + body.split("\n# First split", 1)[1].split("\n# Phase 4", 1)[0]
+    box = tmp_path / "box"
+    (box / "startup").mkdir(parents=True)
+    (box / "docker-compose.yml").write_text(COMPOSE + (WEB if web else ""))
+    (box / "startup" / "cli.py").write_text(_cli_py(marker))
+    subprocess.run(["git", "-C", str(box), "init", "-q"], check=True, capture_output=True)
+    _commit(box, "shipped")
+    stub = ('docker(){ echo "$*" >> calls; case "$*" in\n'
+            f'  "compose ps -a -q web") [ {ps_rc} = 0 ] || return {ps_rc}; printf "%s" "{ps_a}";;\n'
+            f'  "compose config --hash nextseek_nginx") echo "nextseek_nginx {want}";;\n'
+            '  "compose ps -q nextseek_nginx") echo nginxcid;;\n'
+            f'  inspect*nginxcid) echo "{have}";;\n'
+            '  *) echo "unexpected docker $*" >&2; return 9;; esac; }\n')
+    script = (f'ST={box}/st EXP=x RECREATE_NGINX_ON="{recreate}" NGINX_RECREATE_OK={ok} COMPONENTS="{comps}"\n'
+              f'{_functions(text)}\n{stub}cd {box}\n{seg}\necho "RECREATE_NGINX_ON=$RECREATE_NGINX_ON" >> {box}/st\n')
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    st = (box / "st").read_text() if (box / "st").exists() else ""
+    calls = (box / "calls").read_text() if (box / "calls").exists() else ""
+    return r, st, calls
+
+
+def test_first_split_is_a_box_that_has_never_had_a_web_container(tmp_path, capsys):
+    r, st, calls = _first_split_box(tmp_path / "a", capsys, recreate="app")
+    assert re.search(r"^FIRST_SPLIT=1 ", st, re.M) and "STOPPED" not in st, (st, r.stderr)
+    assert "compose ps -a -q web" in calls
+    # a stopped or restarting web on a split box is still listed by ps -a: no first split
+    r, st, _ = _first_split_box(tmp_path / "b", capsys, ps_a="3f2a9c0d")
+    assert re.search(r"^FIRST_SPLIT=0 ", st, re.M) and "STOPPED" not in st, (st, r.stderr)
+    # a checkout without `web` (compose would list nothing for it and exit 0): nothing to split
+    r, st, calls = _first_split_box(tmp_path / "c", capsys, web=False)
+    assert re.search(r"^FIRST_SPLIT=0 ", st, re.M) and "ps -a" not in calls, (st, calls)
+
+
+def test_first_split_fails_closed_when_compose_cannot_list_the_web_containers(tmp_path, capsys):
+    r, st, _ = _first_split_box(tmp_path, capsys, ps_rc=1, recreate="app")
+    assert r.returncode == 1 and "STOPPED: docker compose could not list" in st and "FIRST_SPLIT=" not in st, st
+
+
+def test_a_first_split_stops_unless_the_app_step_recreates_nginx(tmp_path, capsys):
+    """With the no-recreate front-door start nginx keeps the old conf, which proxies to `nextseek`: after the app
+    step that is the worker, which serves nothing (docker-compose.yml)."""
+    for sub, recreate in (("a", ""), ("b", "cc-spawner")):
+        r, st, _ = _first_split_box(tmp_path / sub, capsys, recreate=recreate)
+        assert r.returncode == 1 and "STOPPED: first split" in st and "nginx recreate ok" in st, st
+    # the brief allows the recreate and the nginx definition changed (the new upstream mount): it rides the app step
+    r, st, _ = _first_split_box(tmp_path / "c", capsys, ok=1, want="new", have="old")
+    assert "STOPPED" not in st and re.search(r"^RECREATE_NGINX_ON=app$", st, re.M), (st, r.stderr)
+
+
+def test_a_first_split_stops_when_the_shipped_sha_lacks_the_no_recreate_fix(tmp_path, capsys):
+    r, st, _ = _first_split_box(tmp_path / "a", capsys, recreate="app", marker=False)
+    assert r.returncode == 1 and "STOPPED: first split" in st and "607031e7" in st, st
+    # a split box needs no such fix from the sha
+    r, st, _ = _first_split_box(tmp_path / "b", capsys, ps_a="3f2a9c0d", marker=False)
+    assert "STOPPED" not in st, st
+
+
+def test_a_changed_nginx_service_definition_rides_the_app_step_when_the_brief_allows_it(tmp_path, capsys):
+    """The rebuild's front-door start never recreates a running nginx, so an nginx service change (an image tag, a
+    new mount) needs the recreate: compose's config hash against the running container's label says so."""
+    r, st, _ = _first_split_box(tmp_path / "a", capsys, ps_a="w1", ok=1, want="new", have="old")
+    assert re.search(r"^RECREATE_NGINX_ON=app$", st, re.M) and "NGINX_DEFINITION changed" in st, st
+    r, st, _ = _first_split_box(tmp_path / "b", capsys, ps_a="w1", ok=1, want="new", have="old",
+                                comps="bedrock-proxy cc-agent")
+    assert re.search(r"^RECREATE_NGINX_ON=bedrock-proxy$", st, re.M), st
+    # not allowed: a finding, nothing recreated
+    r, st, _ = _first_split_box(tmp_path / "c", capsys, ps_a="w1", ok=0, want="new", have="old")
+    assert re.search(r"^RECREATE_NGINX_ON=$", st, re.M) and "FINDING the nextseek_nginx service definition" in st
+    # the same definition, or a label that cannot be read: nothing
+    for sub, have in (("d", "h1"), ("e", "")):
+        r, st, _ = _first_split_box(tmp_path / sub, capsys, ps_a="w1", ok=1, want="h1", have=have)
+        assert re.search(r"^RECREATE_NGINX_ON=$", st, re.M) and "NGINX_DEFINITION" not in st, st
+    _, text = rendered_runner(tmp_path / "f", capsys, images=["app"], allowed_extras=["nginx recreate ok"])
+    assert "NGINX_RECREATE_OK=1" in text
+
+
+def _split_commits(tmp_path, capsys, extras, *, base_web=False, marker=True):
+    """The commits step over a range whose base (the box's HEAD) has no `web` service and whose head has it."""
+    repo = tmp_path / "repo"
+    (repo / "startup").mkdir(parents=True)
+    (repo / "nextseek_api").mkdir()
+    subprocess.run(["git", "-C", str(repo), "init", "-q", "-b", "dev"], check=True, capture_output=True)
+    (repo / "docker-compose.yml").write_text(COMPOSE + (WEB if base_web else ""))
+    (repo / "startup" / "cli.py").write_text(_cli_py(False))
+    base = _commit(repo, "base")
+    (repo / "docker-compose.yml").write_text(COMPOSE + WEB + "  # the split\n")
+    (repo / "startup" / "cli.py").write_text(_cli_py(marker))
+    (repo / "nextseek_api" / "views.py").write_text("x\n")
+    head = _commit(repo, "the split")
+    code, out, d = make_brief(tmp_path, capsys, expected_sha=head[:8], images=["app"], compose_change_expected=True,
+                              allowed_extras=extras)
+    assert code == 0, out.err
+    return run(["commits", "--brief", str(d / "brief.json"), "--repo", str(repo), "--base", base], capsys)
+
+
+def test_the_commits_step_stops_a_first_split_whose_app_step_would_not_recreate_nginx(tmp_path, capsys):
+    code, out = _split_commits(tmp_path / "a", capsys, [])
+    assert code == 5 and "creates the `web` service" in out.err and "nginx recreate ok" in out.err, out.err
+    code, out = _split_commits(tmp_path / "b", capsys, ["nginx recreate ok"])
+    assert code == 0, out.err
+    # the box's compose already has web: no first split in the range
+    code, out = _split_commits(tmp_path / "c", capsys, [], base_web=True)
+    assert code == 0, out.err
+
+
+def test_the_commits_step_stops_a_first_split_to_a_sha_without_the_no_recreate_fix(tmp_path, capsys):
+    code, out = _split_commits(tmp_path, capsys, ["nginx recreate ok"], marker=False)
+    assert code == 5 and "607031e7" in out.err, out.err
+
+
+def test_nothing_in_the_runner_runs_a_compose_verb_on_nginx_itself(tmp_path, capsys):
+    _, text = rendered_runner(tmp_path, capsys, images=["bedrock-proxy", "cc-spawner", "app"],
+                              nginx_change_expected=True, allowed_extras=["nginx recreate ok", "bedrock-proxy rebuild ok"])
+    assert re.search(r'^RECREATE_NGINX_ON="app"$', text, re.M)
+    assert 'COMPONENTS="bedrock-proxy cc-spawner app"' in text and "split_order" not in text and "has_web" not in text
+    body = text.split("# >>> functions", 1)[1]
+    # the only compose verb naming nginx is the rebuild() flag; the runner never runs `up`/`restart` on it itself
+    assert not re.search(r"compose (up|restart|stop|rm)[^\n]*nginx", body)
+
+
+def test_new_layout_reds_are_pending_until_the_step_that_creates_them_then_real(tmp_path, capsys):
+    d, text = rendered_runner(tmp_path, capsys)
+    log = tmp_path / "x.log"
+    log.write_text("       ✗ app + front door: not running: web -- start it with: docker compose up \n"
+                   "-d --no-deps web\n"
+                   "       ✗ first-party images: ABSENT: nextseek-cc-spawner:latest -- build with: \n"
+                   "./startup.sh rebuild --component cc-spawner\n"
+                   "       ✗ cc services: not running: cc-spawner\n")
+    got = bash_judge(tmp_path, text, log, "app cc-spawner")
+    assert [c for c, _ in got] == ["pending app", "pending cc-spawner", "pending cc-spawner"]
+    known = json.loads((d / "brief.json").read_text())["derived"]["known_health_reds"]
+    assert [L.classify_red(r, {"app", "cc-spawner"}, known) for r in L.health_reds(log.read_text())] == [
+        "pending app", "pending cc-spawner", "pending cc-spawner"]
+    after = bash_judge(tmp_path, text, log, "")
+    assert [c for c, _ in after] == ["stale app", "stale cc-spawner", "stale cc-spawner"]
+
+
+def test_judge_ranks_a_switchover_by_the_order_the_runner_ran(tmp_path):
+    # dev-launch-20261026-2235: the app is rebuilt LAST on a switchover, so 'app image code: STALE' after the agent,
+    # sidecar, proxy and spawner steps is pending, not unexplained (the judge used the rules order, app third)
+    st = L.parse_status((FIX / "real-switchover-dev-20261026-2235.status").read_text())
+    assert st["order"] == ["app-build", "cc-agent", "nextseek-sidecar", "bedrock-proxy", "cc-spawner", "app"]
+    comps = L.judge_order(["bedrock-proxy", "cc-spawner", "app", "cc-agent", "nextseek-sidecar"], st)
+    assert comps == ["cc-agent", "nextseek-sidecar", "bedrock-proxy", "cc-spawner", "app"]
+    pending, known = set(comps), _known("dev")
+    for c in comps[:-1]:
+        pending.discard(c)
+        log = FIX / f"real-switchover-dev-20261026-2235-{rules.LOG_NAME[c]}.log"
+        reds = [{"text": t, "class": L.classify_red(t, pending, known)} for t in L.health_reds(log.read_text())]
+        assert L.bad_reds([r for r in reds if r["class"] != "skip"]) == [], c
+
+
+def test_judge_order_is_unchanged_without_a_switchover_line():
+    comps = ["bedrock-proxy", "app", "cc-agent"]
+    assert L.judge_order(comps, L.parse_status("START tag=x instance=dev components=app\n")) == comps
