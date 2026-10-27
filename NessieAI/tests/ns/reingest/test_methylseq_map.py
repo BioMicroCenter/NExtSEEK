@@ -44,3 +44,45 @@ def test_the_bedgraph_is_still_registered_as_bedgraph():
 
 def test_the_methylkit_file_is_inventoried():
     assert "**/methyldackel/*_CpG.methylKit" in maps.load("methylseq").inventory_globs
+
+
+def _apply(outputs: list[str]):
+    run = _run(outputs[0], {})
+    run = run.model_copy(update={"outputs": run.outputs + [
+        manifest.OutputRecord(path=p, sample="S1") for p in outputs[1:]]})
+    return mapper.apply(run, maps.load("methylseq"),
+                        context={"has_attribute": lambda st, a: a in ATTRS.get(st, ())})
+
+
+def test_a_folder_reused_by_two_launches_keeps_both_rows_and_says_why():
+    # nf-core's publishDir never deletes a stale file, so a run folder reused by a
+    # launch with --methyl_kit keeps the earlier launch's bedGraph beside the new
+    # methylKit file. Both rows stay; the build report says which files and why.
+    result = _apply(["methyldackel/S1.markdup.sorted_CpG.bedGraph",
+                     "methyldackel/S1.markdup.sorted_CpG.methylKit"])
+    assert sorted(r.rule_id for r in result.rows if r.sample_type == "A.MSEQ") == [
+        "mseq_methyldackel", "mseq_methyldackel_methylkit"]
+    [warning] = [w for w in result.warnings if "earlier launch" in w]
+    assert warning.startswith("S1: 2 A.MSEQ rows")
+    assert "methyldackel/S1.markdup.sorted_CpG.bedGraph" in warning
+    assert "methyldackel/S1.markdup.sorted_CpG.methylKit" in warning
+
+
+def test_two_aligners_in_one_folder_are_flagged_too():
+    result = _apply(["methyldackel/S1.markdup.sorted_CpG.bedGraph",
+                     "bismark/methylation_calls/methylation_coverage/"
+                     "S1.deduplicated.bismark.cov.gz"])
+    [warning] = [w for w in result.warnings if "earlier launch" in w]
+    assert "mseq_bismark" in warning and "mseq_methyldackel" in warning
+
+
+def test_one_launchs_calls_raise_no_reused_folder_warning():
+    result = _apply(["methyldackel/S1.markdup.sorted_CpG.bedGraph"])
+    assert [w for w in result.warnings if "earlier launch" in w] == []
+
+
+def test_every_a_mseq_rule_is_one_alternative_group():
+    groups = {r.id: r.alternative_group for r in maps.load("methylseq").outputs}
+    assert groups == {"aln": None, "mseq_bismark": "methylation_calls",
+                      "mseq_methyldackel": "methylation_calls",
+                      "mseq_methyldackel_methylkit": "methylation_calls"}

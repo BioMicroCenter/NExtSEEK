@@ -129,6 +129,14 @@ class OutputRule(BaseModel):
     # Unset, such a sample gets a fileless row, whose hard block on the upload is
     # what makes a genuinely missing file (hlatyping's OptiType call) visible.
     skip_samples_without_file: bool = False
+    # Per_sample primary rules only: rules naming one group are alternative
+    # outputs, of which one launch writes at most one per sample (methylseq's
+    # Bismark coverage, MethylDackel bedGraph or methylKit; atacseq's narrow or
+    # broad peaks). A sample with rows from two of them got files from two
+    # launches in one reused run folder (nf-core never deletes a stale output):
+    # both rows are kept and the mapper warns. None for an output that coexists
+    # with its siblings of the same type (a bigwig beside peaks, sarek's callers).
+    alternative_group: str | None = None
     attributes: dict[str, str] = Field(default_factory=dict)
     # Whether this rule's rows also receive the map's `provenance_attributes`
     # (mapper.apply merges that one flat dict into every row of every output
@@ -180,6 +188,11 @@ class OutputRule(BaseModel):
             raise ValueError(f"rule {self.id!r}: skip_samples_without_file is for optional "
                              "per_sample rules that set primary_data (the mapper's skip "
                              "guard reads the primary file)")
+        if self.alternative_group is not None and not (
+                self.alternative_group and self.cardinality == "per_sample"
+                and self.primary_data):
+            raise ValueError(f"rule {self.id!r}: alternative_group must be a non-empty name, "
+                             "on a per_sample rule that sets primary_data")
         if self.cardinality == "per_file":
             if not self.primary_data:
                 raise ValueError(f"per_file rule {self.candidates[0]!r} must set primary_data")
@@ -318,6 +331,14 @@ class PipelineMap(BaseModel):
         dupes = sorted({i for i in ids if ids.count(i) > 1})
         if dupes:
             raise ValueError(f"duplicate rule id(s): {dupes}")
+        types_by_group: dict[str, set[str]] = {}
+        for rule in self.outputs + [r for o in self.versions for r in o.outputs]:
+            if rule.alternative_group:
+                types_by_group.setdefault(rule.alternative_group, set()).add(rule.sample_type)
+        mixed = sorted(g for g, types in types_by_group.items() if len(types) > 1)
+        if mixed:
+            raise ValueError(f"alternative_group(s) {mixed} hold rules of more than one "
+                             "sample type")
         for spec in [self.applies_to_versions] if self.applies_to_versions else []:
             _specifier(spec)
         known = set(ids)

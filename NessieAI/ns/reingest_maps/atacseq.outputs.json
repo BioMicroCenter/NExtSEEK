@@ -39,6 +39,7 @@
     },
     {
       "id": "peaks_narrow",
+      "alternative_group": "peaks",
       "candidates": ["*/merged_replicate/macs2/narrow_peak/*.mRp.clN_peaks.narrowPeak",
                      "*/merged_library/macs2/narrow_peak/*.mLb.clN_peaks.narrowPeak"],
       "sample_type": "A.CHRM",
@@ -55,6 +56,7 @@
     },
     {
       "id": "peaks_broad",
+      "alternative_group": "peaks",
       "candidates": ["*/merged_replicate/macs2/broad_peak/*.mRp.clN_peaks.broadPeak",
                      "*/merged_library/macs2/broad_peak/*.mLb.clN_peaks.broadPeak"],
       "sample_type": "A.CHRM",

@@ -310,7 +310,36 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
             if row is not None:
                 result.rows.append(row)
 
+    result.warnings.extend(_alternative_rows_warnings(result.rows, pipeline_map))
     return result
+
+
+def _alternative_rows_warnings(rows: list[MappedRow],
+                               pipeline_map: maps.PipelineMap) -> list[str]:
+    """One warning per sample that got rows from two or more rules of one
+    ``alternative_group`` (see ``maps.OutputRule``). One launch writes only one
+    of those outputs, so the run folder also holds an earlier launch's files:
+    nf-core never deletes an old output. Every row is kept; the warning names
+    the files so whoever reads it can tell which one is stale. A row with no
+    primary file is no evidence of a stale file and is not counted."""
+    group_of = {r.id: r.alternative_group for r in pipeline_map.outputs if r.alternative_group}
+    found: dict[tuple[str, str], list[MappedRow]] = {}
+    for row in rows:
+        group = group_of.get(row.rule_id)
+        if group and "File_PrimaryData" in row.attributes:
+            found.setdefault((row.nfcore_sample, group), []).append(row)
+    warnings = []
+    for (sample, _group), group_rows in found.items():
+        if len({r.rule_id for r in group_rows}) < 2:
+            continue
+        files = ", ".join(f"{r.attributes['File_PrimaryData'].source_file} ({r.rule_id})"
+                          for r in group_rows)
+        warnings.append(
+            f"{sample}: {len(group_rows)} {group_rows[0].sample_type} rows from outputs "
+            f"one launch writes only one of: {files}. The run folder likely also holds "
+            "files from an earlier launch (nf-core does not delete old outputs). Every "
+            "row is kept; check which file belongs to this run.")
+    return warnings
 
 
 def _without_ruled_out_files(run_manifest: manifest.RunManifest,

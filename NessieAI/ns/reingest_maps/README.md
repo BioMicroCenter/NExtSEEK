@@ -50,6 +50,7 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
   - `optional` — a flag-dependent output (`--cram`, `--tools salmon`): matching
     nothing is expected, so it is not reported and builds no rows.
   - `skip_samples_without_file` — optional per_sample rules only: a sample with no file gets no row (logged), e.g. tumours for germline callers. Without it, such a sample gets a fileless row, which blocks the upload.
+  - `alternative_group` — per_sample primary rules only, and one sample type per group: rules naming one group are outputs of which one launch writes at most one per sample (methylseq's three A.MSEQ rules; atacseq's and chipseq's narrow and broad peaks). nf-core never deletes an old output, so a run folder reused by a second launch can hold both; the sample then gets a row from each, every row is kept, and the mapper adds a map note naming the files. Leave it unset for outputs that coexist (a bigWig beside its peaks, sarek's variant callers).
   - `assay` — the house assay the rule's rows are filed under, by its `internal_assays` title (a catalog alternative name also resolves). A name, never an id: the ASSAY sheet needs a study-scoped `assays.id`, resolved per run from the parents' study, and the upload creates the study assay when the study has none. Every rule must name one (`test_map_contract.py`).
   - `attributes`, `primary_data`, `include_provenance` — as in the schema.
 

@@ -32,6 +32,7 @@
     },
     {
       "id": "peaks_narrow",
+      "alternative_group": "peaks",
       "candidates": ["*/merged_library/macs3/narrow_peak/*_peaks.narrowPeak"],
       "sample_type": "A.CHRM",
       "assay": "Chromatin Sequencing Analysis",
@@ -48,6 +49,7 @@
     },
     {
       "id": "peaks_broad",
+      "alternative_group": "peaks",
       "candidates": ["*/merged_library/macs3/broad_peak/*_peaks.broadPeak"],
       "sample_type": "A.CHRM",
       "assay": "Chromatin Sequencing Analysis",

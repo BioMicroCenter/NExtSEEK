@@ -38,6 +38,7 @@
     },
     {
       "id": "mseq_bismark",
+      "alternative_group": "methylation_calls",
       "optional": true,
       "candidates": ["*/methylation_calls/methylation_coverage/*.bismark.cov.gz"],
       "sample_type": "A.MSEQ",
@@ -59,6 +60,7 @@
     },
     {
       "id": "mseq_methyldackel",
+      "alternative_group": "methylation_calls",
       "optional": true,
       "candidates": ["methyldackel/*_CpG.bedGraph"],
       "sample_type": "A.MSEQ",
@@ -78,6 +80,7 @@
     },
     {
       "id": "mseq_methyldackel_methylkit",
+      "alternative_group": "methylation_calls",
       "optional": true,
       "candidates": ["methyldackel/*_CpG.methylKit"],
       "sample_type": "A.MSEQ",

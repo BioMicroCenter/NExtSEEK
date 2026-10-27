@@ -217,3 +217,25 @@ def test_the_launch_record_resolves_each_replicate_by_its_own_fastq(tmp_path):
         ("SPT5_REP2", "D.SEQ-12", manifest.RESOLUTION_LAUNCH_RECORD),
         ("INPUT_REP1", None, manifest.RESOLUTION_UNRESOLVED),
         ("INPUT_REP2", "D.SEQ-4", manifest.RESOLUTION_FASTQ_EXACT)]
+
+
+def test_one_atacseq_launch_raises_no_reused_folder_warning(tmp_path):
+    # A group's bigwig and its peaks are both A.CHRM rows: two outputs of one
+    # launch, not alternatives, so no warning.
+    _run(tmp_path, "atacseq", "2.1.2", ATAC_SHEET)
+    result = mapper.apply(_harvest(tmp_path, _atac_paths(), ATAC_UIDS),
+                          maps.load("atacseq"), context=CONTEXT)
+    assert [w for w in result.warnings if "earlier launch" in w] == []
+
+
+def test_narrow_and_broad_peaks_in_one_folder_are_flagged(tmp_path):
+    # --narrow_peak picks one peak mode per launch; both on disk means a reused folder.
+    _run(tmp_path, "atacseq", "2.1.2", ATAC_SHEET)
+    paths = _atac_paths() + ["bwa/merged_replicate/macs2/narrow_peak/WT.mRp.clN_peaks.narrowPeak"]
+    result = mapper.apply(_harvest(tmp_path, paths, ATAC_UIDS),
+                          maps.load("atacseq"), context=CONTEXT)
+    assert [r.nfcore_sample for r in result.rows
+            if r.rule_id == "peaks_narrow" and "File_PrimaryData" in r.attributes] == ["WT"]
+    [warning] = [w for w in result.warnings if "earlier launch" in w]
+    assert warning.startswith("WT: 2 A.CHRM rows")
+    assert "WT.mRp.clN_peaks.narrowPeak" in warning and "WT.mRp.clN_peaks.broadPeak" in warning
