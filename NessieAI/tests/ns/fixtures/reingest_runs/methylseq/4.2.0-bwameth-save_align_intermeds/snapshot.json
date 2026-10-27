@@ -1,0 +1,37 @@
+{
+ "rules": {
+  "aln": {
+   "attributes": [
+    "Aligner",
+    "DataType",
+    "File_PrimaryData",
+    "File_SecondaryData",
+    "Link_PrimaryData",
+    "Link_SecondaryData",
+    "Name",
+    "Software"
+   ],
+   "rows": 4,
+   "sample_type": "A.ALN"
+  },
+  "mseq_methyldackel": {
+   "attributes": [
+    "ConversionMethod",
+    "DataType",
+    "File_PrimaryData",
+    "Link_PrimaryData",
+    "MethylationProtocol",
+    "Name",
+    "Software"
+   ],
+   "rows": 4,
+   "sample_type": "A.MSEQ"
+  }
+ },
+ "warnings": [
+  "Ecoli_10K_methylated: no Notes on A.ALN; also in run: bwameth/alignments/Ecoli_10K_methylated.sorted.bam.bai, bwameth/alignments/Ecoli_10K_methylated.sorted.bam",
+  "SRR389222_sub1: no Notes on A.ALN; also in run: bwameth/alignments/SRR389222_sub1.sorted.bam.bai, bwameth/alignments/SRR389222_sub1.sorted.bam",
+  "SRR389222_sub2: no Notes on A.ALN; also in run: bwameth/alignments/SRR389222_sub2.sorted.bam.bai, bwameth/alignments/SRR389222_sub2.sorted.bam",
+  "SRR389222_sub3: no Notes on A.ALN; also in run: bwameth/alignments/SRR389222_sub3.sorted.bam.bai, bwameth/alignments/SRR389222_sub3.sorted.bam"
+ ]
+}

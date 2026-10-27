@@ -14,7 +14,9 @@ There are two ways to make one, and either is evidence for a rule (G-7 in
   `conf/test.config`; `aws` lists nf-core's public AWS results for the release and
   downloads their MultiQC tables, params and software versions. It reads public URLs only
   and touches no cluster. The folder is `<version>` for a snapshot and
-  `<version>-aws-<profile>` for AWS results. A snapshot gives no file sizes and no MultiQC
+  `<version>-aws-<profile>` for AWS results. A flag-dependent snapshot test (methylseq's
+  `Params: bwameth with rrbs`) is imported alone with `--test`, given the params its
+  `.nf.test` sets with `--param`, into `<version>-<variant>` with `--variant`. A snapshot gives no file sizes and no MultiQC
   values, so QC attributes are mapped from AWS results or a Nessie run, never a snapshot.
 - **From a `-profile test` run launched through Nessie**, with
   `scripts/reingest/make_fixture.sh`. Only the run's owner starts it: it reaches the

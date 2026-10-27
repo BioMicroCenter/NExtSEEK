@@ -7,10 +7,20 @@
   "inventory_globs": [
     "**/*_peaks.narrowPeak",
     "**/*_peaks.broadPeak",
-    "**/*.mLb.clN.bigWig"
+    "**/*.mLb.clN.bigWig",
+    "**/*.consensus_peaks.bed",
+    "**/*.consensus_peaks.featureCounts.txt"
   ],
-  "harvest_globs": [],
-  "derived_metrics": [],
+  "harvest_globs": ["multiqc/*/multiqc_data/multiqc_picard_dups.yaml"],
+  "derived_metrics": ["duplication_pct"],
+  "row_defaults": {
+    "Name": "@row_name",
+    "Antibody": "$samplesheet.antibody"
+  },
+  "module_tables": {
+    "multiqc_picard_dups.yaml": {"namespace": "picard_dups"},
+    "multiqc_picard_dups.txt": {"namespace": "picard_dups"}
+  },
   "outputs": [
     {
       "id": "aln",
@@ -32,6 +42,7 @@
     },
     {
       "id": "peaks_narrow",
+      "alternative_group": "peaks",
       "candidates": ["*/merged_library/macs3/narrow_peak/*_peaks.narrowPeak"],
       "sample_type": "A.CHRM",
       "assay": "Chromatin Sequencing Analysis",
@@ -48,6 +59,7 @@
     },
     {
       "id": "peaks_broad",
+      "alternative_group": "peaks",
       "candidates": ["*/merged_library/macs3/broad_peak/*_peaks.broadPeak"],
       "sample_type": "A.CHRM",
       "assay": "Chromatin Sequencing Analysis",
@@ -75,6 +87,42 @@
         "Assembly": "$params.genome",
         "Pipeline": "nf-core/chipseq"
       }
+    },
+    {
+      "id": "consensus_narrow",
+      "candidates": ["*/merged_library/macs3/narrow_peak/consensus/*/*.consensus_peaks.bed"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_file",
+      "primary_data": true,
+      "optional": true,
+      "alternative_group": "consensus",
+      "parents_by_samplesheet": "antibody",
+      "companions": [{"glob": "*/merged_library/macs3/narrow_peak/consensus/*/*.consensus_peaks.featureCounts.txt"}],
+      "attributes": {
+        "DataType": "BED",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/chipseq"
+      }
+    },
+    {
+      "id": "consensus_broad",
+      "candidates": ["*/merged_library/macs3/broad_peak/consensus/*/*.consensus_peaks.bed"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_file",
+      "primary_data": true,
+      "optional": true,
+      "alternative_group": "consensus",
+      "parents_by_samplesheet": "antibody",
+      "companions": [{"glob": "*/merged_library/macs3/broad_peak/consensus/*/*.consensus_peaks.featureCounts.txt"}],
+      "attributes": {
+        "DataType": "BED",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/chipseq"
+      }
     }
   ],
   "provenance_attributes": {},
@@ -86,9 +134,25 @@
     "Genome": {
       "from": "$params.genome", "target": "D.SEQ", "datatype": "string",
       "provenance": "seed"
+    },
+    "DuplicationPercent": {
+      "from": "$derived.duplication_pct", "target": "D.SEQ", "datatype": "number",
+      "note": "Picard MarkDuplicates on each replicate's merged library, before filtering: the only MarkDuplicates table in the release's MultiQC config with no anchor, so MultiQC 1.23 writes it as multiqc_picard_dups (.yaml, from the config's data_format: yaml), rows named <sample>_REP<n> after the config's extra_fn_clean_exts. The table keeps Picard's 0-1 fraction, so $derived.duplication_pct multiplies it by 100. A replicate sequenced over several runs is a multi-run sample and gets no backfill. Table name, row names and the fraction are unverified until a real run",
+      "provenance": "seed"
     }
   },
-  "deliberately_unmapped": [],
+  "deliberately_unmapped": [
+    {"key": "picard_dups-PERCENT_DUPLICATION", "why": "Picard's 0-1 fraction; DuplicationPercent reads it as a percentage through $derived.duplication_pct."},
+    {"key": "picard_dups-LIBRARY", "why": "Picard's library name (the read group's LB), not a measurement."},
+    {"key": "picard_dups-UNPAIRED_READS_EXAMINED", "why": "A read count; D.SEQ's read counts come from the sequencing, not from one alignment step."},
+    {"key": "picard_dups-READ_PAIRS_EXAMINED", "why": "A read-pair count; D.SEQ's read counts come from the sequencing, not from one alignment step."},
+    {"key": "picard_dups-SECONDARY_OR_SUPPLEMENTARY_RDS", "why": "A count of secondary and supplementary records: no D.SEQ attribute means it."},
+    {"key": "picard_dups-UNMAPPED_READS", "why": "A count of unmapped reads in the merged library; MappedPercent waits for a samtools table this map can tell apart (README, \"Maps written from the docs alone\")."},
+    {"key": "picard_dups-UNPAIRED_READ_DUPLICATES", "why": "A duplicate count; DuplicationPercent records the duplicate share from the same table."},
+    {"key": "picard_dups-READ_PAIR_DUPLICATES", "why": "A duplicate count; DuplicationPercent records the duplicate share from the same table."},
+    {"key": "picard_dups-READ_PAIR_OPTICAL_DUPLICATES", "why": "Optical duplicates, a subset of the duplicates DuplicationPercent counts: no D.SEQ attribute means it."},
+    {"key": "picard_dups-ESTIMATED_LIBRARY_SIZE", "why": "Picard's estimate of unique molecules in the library: a library-complexity measure no D.SEQ attribute means."}
+  ],
   "unmapped_files": [
     {"glob": "fastqc/*", "why": "FastQC reports on the raw reads; QC, not a result of the analysis."},
     {"glob": "trimgalore/*", "why": "Trim Galore logs, FastQC of the trimmed reads, and the trimmed reads themselves (with --save_trimmed): an intermediate of the registered alignment."},
@@ -100,9 +164,9 @@
     {"glob": "*/merged_library/deepTools/*", "why": "deepTools plotFingerprint (IP against its control) and plotProfile QC: plotted in the MultiQC report; the fingerprint's JS distance has no attribute yet and is listed for the owner."},
     {"glob": "*/merged_library/macs3/*/*_peaks.{xls,gappedPeak}", "why": "MACS3's peak table and gapped peaks: the same calls as the narrowPeak or broadPeak file the peaks rules register."},
     {"glob": "*/merged_library/macs3/*/*_summits.bed", "why": "MACS3 summits (narrow mode): one point per registered peak, derived from the same call."},
-    {"glob": "*/merged_library/macs3/*/*.annotatePeaks.txt", "why": "HOMER peak-to-gene annotation of the registered peaks (and of each consensus set): an annotation, and A.CHRM has no secondary-file slot to hold it."},
+    {"glob": "*/merged_library/macs3/*/*.annotatePeaks.txt", "why": "HOMER peak-to-gene annotation of the registered peaks (and of each consensus set): an annotation a user can rebuild from the registered files, and a peak row's one secondary slot is kept for its own losing variant (G-4)."},
     {"glob": "*/merged_library/macs3/*/qc/*", "why": "MACS3 and HOMER QC plots and the FRiP, peak-count and annotation MultiQC custom-content files: QC read through MultiQC."},
-    {"glob": "*/merged_library/macs3/*/consensus/*/*.{saf,boolean.txt,boolean.annotatePeaks.txt,boolean.intersect.txt,boolean.intersect.plot.pdf}", "why": "Each antibody's consensus peak set again as SAF and as presence/absence spreadsheets, and its UpSetR intersection files: reformats of the consensus BED, which itself waits for a rule (README, \"Outputs with no rule yet\")."},
+    {"glob": "*/merged_library/macs3/*/consensus/*/*.{saf,boolean.txt,boolean.annotatePeaks.txt,boolean.intersect.txt,boolean.intersect.plot.pdf}", "why": "Each antibody's consensus peak set again as SAF and as presence/absence spreadsheets, and its UpSetR intersection files: reformats of the consensus BED the consensus rule registers."},
     {"glob": "*/merged_library/macs3/*/consensus/*/{deseq2,sizeFactors}/*", "why": "chipseq's DESeq2 step is QC only: PCA, sample distances and the DESeqDataSet over each antibody's consensus counts, with no contrast. No differential-binding result exists to register."},
     {"glob": "igv/*", "why": "IGV session file and its file list: points at the registered files, holds no data of its own."},
     {"glob": "genome/*", "why": "Reference FASTA, blacklist, gene BED and aligner indexes (with --save_reference): reference files, not sample data."}

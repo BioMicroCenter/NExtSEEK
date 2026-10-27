@@ -38,6 +38,7 @@
     },
     {
       "id": "mseq_bismark",
+      "alternative_group": "methylation_calls",
       "optional": true,
       "candidates": ["*/methylation_calls/methylation_coverage/*.bismark.cov.gz"],
       "sample_type": "A.MSEQ",
@@ -59,6 +60,7 @@
     },
     {
       "id": "mseq_methyldackel",
+      "alternative_group": "methylation_calls",
       "optional": true,
       "candidates": ["methyldackel/*_CpG.bedGraph"],
       "sample_type": "A.MSEQ",
@@ -78,6 +80,7 @@
     },
     {
       "id": "mseq_methyldackel_methylkit",
+      "alternative_group": "methylation_calls",
       "optional": true,
       "candidates": ["methyldackel/*_CpG.methylKit"],
       "sample_type": "A.MSEQ",
@@ -139,6 +142,7 @@
     {"glob": "*/alignments/samtools_stats/*", "why": "samtools stats, flagstat and idxstats on the bwa-meth and bwa-mem alignments; their numbers are read through MultiQC."},
     {"glob": "*/alignments/unmapped/*", "why": "Unmapped reads as FASTQ (with --unmapped): leftovers of the alignment, not a result."},
     {"glob": "*/alignments/*_bismark_{bt2,hisat2}*.bam", "why": "Bismark's unsorted alignment (with --save_align_intermeds, --skip_deduplication or --rrbs): the same reads as the sorted BAM the aln rule registers, before sorting."},
+    {"glob": "*/alignments/*.bam", "except_globs": ["*/alignments/*.sorted.bam"], "why": "bwa-meth's unsorted alignment, <sample>.bam (with --save_align_intermeds; seen in the 4.2.0 snapshot test 'Params: bwameth with save_reference and save_align_intermeds'): the same reads as the sorted BAM the aln rule registers, before sorting, ruled out as Bismark's is."},
     {"glob": "*/deduplicated/logs/*", "why": "Bismark deduplication reports; the duplicate share is read through MultiQC."},
     {"glob": "*/deduplicated/picard_metrics/*", "why": "Picard MarkDuplicates metrics on the bwa-meth and bwa-mem paths; the duplicate share is read through MultiQC."},
     {"glob": "*/methylation_calls/methylation_calls/*", "why": "Bismark's per-read, per-context cytosine calls (CpG, CHG, CHH by strand): large, and every CpG value in them is summarised in the coverage file the mseq_bismark rule registers."},

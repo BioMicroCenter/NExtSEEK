@@ -1401,6 +1401,8 @@ _OLD_INVENTORY = {
     "**/*.mRp.clN.bigWig", "**/*.mLb.clN.bigWig",
     "**/consensus_peaks.mLb.clN.bed", "**/consensus_peaks.mLb.clN.featureCounts.txt",
     "**/*_peaks.narrowPeak", "**/*_peaks.broadPeak",
+    # chipseq's per-antibody consensus peaks and their read counts
+    "**/*.consensus_peaks.bed", "**/*.consensus_peaks.featureCounts.txt",
     # methylseq's A.MSEQ rules: Bismark's CpG coverage with its bedGraph, and
     # MethylDackel's CpG bedGraph, or its methylKit file with --methyl_kit
     "**/methylation_calls/methylation_coverage/*.bismark.cov.gz",

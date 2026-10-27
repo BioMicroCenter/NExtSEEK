@@ -154,7 +154,16 @@ def test_atacseq_merged_replicate_files_land_on_their_group(tmp_path):
     lost = " ".join(result.warnings)
     for name in ("WT_REP1", "WT_REP2", "KO_REP1", "KO_REP2"):
         assert f"{name}.mLb.clN.sorted.bam" in lost
-        assert f"{name}.mLb.clN_peaks.broadPeak" in lost
+    # A.CHRM has Notes (local stack; README merge checklist), so the replicates' own
+    # peaks are named there. Never in the secondary slot: a replicate's output is not
+    # the group's secondary data (G-4).
+    wt_peaks = next(r for r in result.rows if r.rule_id == "peaks_broad" and r.nfcore_sample == "WT")
+    assert "File_SecondaryData" not in wt_peaks.attributes
+    assert "Link_SecondaryData" not in wt_peaks.attributes
+    assert wt_peaks.attributes["Notes"].value == (
+        "Also in run: bwa/merged_library/macs2/broad_peak/WT_REP1.mLb.clN_peaks.broadPeak, "
+        "bwa/merged_library/macs2/broad_peak/WT_REP2.mLb.clN_peaks.broadPeak")
+    assert "clN_peaks.broadPeak" not in lost
     assert _rows(result, "consensus") == [
         ("", "consensus_peaks.mLb.clN.bed", "D.SEQ-1;D.SEQ-2;D.SEQ-3;D.SEQ-4;D.SEQ-5")]
 
@@ -217,3 +226,120 @@ def test_the_launch_record_resolves_each_replicate_by_its_own_fastq(tmp_path):
         ("SPT5_REP2", "D.SEQ-12", manifest.RESOLUTION_LAUNCH_RECORD),
         ("INPUT_REP1", None, manifest.RESOLUTION_UNRESOLVED),
         ("INPUT_REP2", "D.SEQ-4", manifest.RESOLUTION_FASTQ_EXACT)]
+
+
+def test_one_atacseq_launch_raises_no_reused_folder_warning(tmp_path):
+    # A group's bigwig and its peaks are both A.CHRM rows: two outputs of one
+    # launch, not alternatives, so no warning.
+    _run(tmp_path, "atacseq", "2.1.2", ATAC_SHEET)
+    result = mapper.apply(_harvest(tmp_path, _atac_paths(), ATAC_UIDS),
+                          maps.load("atacseq"), context=CONTEXT)
+    assert [w for w in result.warnings if "earlier launch" in w] == []
+
+
+def test_narrow_and_broad_peaks_in_one_folder_are_flagged(tmp_path):
+    # --narrow_peak picks one peak mode per launch; both on disk means a reused folder.
+    _run(tmp_path, "atacseq", "2.1.2", ATAC_SHEET)
+    paths = _atac_paths() + ["bwa/merged_replicate/macs2/narrow_peak/WT.mRp.clN_peaks.narrowPeak"]
+    result = mapper.apply(_harvest(tmp_path, paths, ATAC_UIDS),
+                          maps.load("atacseq"), context=CONTEXT)
+    assert [r.nfcore_sample for r in result.rows
+            if r.rule_id == "peaks_narrow" and "File_PrimaryData" in r.attributes] == ["WT"]
+    [warning] = [w for w in result.warnings if "earlier launch" in w]
+    assert warning.startswith("WT: 2 A.CHRM rows")
+    assert "WT.mRp.clN_peaks.narrowPeak" in warning and "WT.mRp.clN_peaks.broadPeak" in warning
+
+
+def test_a_cohort_naming_two_uids_for_one_replicate_is_ambiguous(tmp_path):
+    # Two launch-record entries for one (sample, fastq_1) disagree: never pick one,
+    # and never fall back to the fastq path, which would resolve it.
+    from nextseek_api.assistant.models_db import PipelineRun
+    _run(tmp_path, "chipseq", "2.1.0", CHIP_SHEET)
+    PipelineRun.objects.create(run_dir=str(tmp_path), run_name="r", pipeline="nf-core/chipseq", cohort=[
+        {"nfcore_sample": "SPT5", "fastq_1": _fq("spt5_a"), "d_seq_uid": "D.SEQ-11"},
+        {"nfcore_sample": "SPT5", "fastq_1": _fq("spt5_a"), "d_seq_uid": "D.SEQ-99"},
+        {"nfcore_sample": "SPT5", "fastq_1": _fq("spt5_b"), "d_seq_uid": "D.SEQ-12"}])
+    got = _harvest(tmp_path, [], CHIP_UIDS)
+    assert [(s.nfcore_sample, s.d_seq_uid, s.uid_resolution) for s in got.samples][:2] == [
+        ("SPT5_REP1", None, manifest.RESOLUTION_AMBIGUOUS),
+        ("SPT5_REP2", "D.SEQ-12", manifest.RESOLUTION_LAUNCH_RECORD)]
+
+
+def test_the_launch_record_resolves_each_lane_of_a_replicate(tmp_path):
+    # Lanes of one replicate are one multi-run sample; each lane's parent comes from
+    # its own cohort entry (by fastq_1 under the samplesheet's `sample`), not the path.
+    from nextseek_api.assistant.models_db import PipelineRun
+    sheet = ("sample,fastq_1,fastq_2,replicate\n"
+             f"WT,{_fq('wt_l1')},,1\nWT,{_fq('wt_l2')},,1\nWT,{_fq('wt_b')},,2\n")
+    _run(tmp_path, "atacseq", "2.1.2", sheet)
+    PipelineRun.objects.create(run_dir=str(tmp_path), run_name="r", pipeline="nf-core/atacseq", cohort=[
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_l1"), "d_seq_uid": "D.SEQ-21"},
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_l2"), "d_seq_uid": "D.SEQ-22"},
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_b"), "d_seq_uid": "D.SEQ-23"}])
+    got = _harvest(tmp_path, [], {_fq("wt_l1"): "D.SEQ-1", _fq("wt_l2"): "D.SEQ-9",
+                                  _fq("wt_b"): "D.SEQ-2"})
+    assert [(s.nfcore_sample, s.uid_resolution, s.d_seq_uid, s.d_seq_uid_multirun)
+            for s in got.samples] == [
+        ("WT_REP1", manifest.RESOLUTION_MULTIRUN, None, ["D.SEQ-21", "D.SEQ-22"]),
+        ("WT_REP2", manifest.RESOLUTION_LAUNCH_RECORD, "D.SEQ-23", [])]
+    assert got.replicate_groups == {"WT": ["WT_REP1", "WT_REP2"]}
+
+
+def test_a_merged_group_with_an_ambiguous_replicate_still_writes_its_row(tmp_path):
+    # Owner's ruling (2026-10-27): a merged group whose replicate is ambiguous still
+    # gets its row. The ambiguous replicate is left out of Parent and a warning names
+    # it; the other replicates parent the row. A standalone ambiguous sample, by
+    # contrast, gets no row (mapper._NO_CHILD_ROW); the group's merged file is the
+    # group's own output, and its other parents are certain.
+    from nextseek_api.assistant.models_db import PipelineRun
+    _run(tmp_path, "atacseq", "2.1.2", ATAC_SHEET)
+    PipelineRun.objects.create(run_dir=str(tmp_path), run_name="r", pipeline="nf-core/atacseq", cohort=[
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_a"), "d_seq_uid": "D.SEQ-1"},
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_a"), "d_seq_uid": "D.SEQ-99"},
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_b"), "d_seq_uid": "D.SEQ-2"}])
+    got = _harvest(tmp_path, _atac_paths(), ATAC_UIDS)
+    assert {s.nfcore_sample: s.uid_resolution for s in got.samples}["WT_REP1"] == (
+        manifest.RESOLUTION_AMBIGUOUS)
+    result = mapper.apply(got, maps.load("atacseq"), context=CONTEXT)
+    assert [row for row in _rows(result, "aln") if row[0] == "WT"] == [
+        ("WT", "WT.mRp.clN.sorted.bam", "D.SEQ-2")]
+    assert "WT: replicate(s) WT_REP1 resolved to no D.SEQ; the group's aln row names only " \
+           "the others as Parent" in result.warnings
+
+
+def test_alternatives_at_the_group_and_replicate_levels_are_flagged_on_the_group(tmp_path):
+    # An earlier --skip_merge_replicates launch left each replicate's broad peaks; this
+    # launch merged the replicates and called narrow peaks on the group. The rows sit
+    # under different names (WT, WT_REP1, WT_REP2) but belong to one replicate group.
+    _run(tmp_path, "atacseq", "2.1.2", ATAC_SHEET)
+    paths = [p for p in _atac_paths()
+             if p != "bwa/merged_replicate/macs2/broad_peak/WT.mRp.clN_peaks.broadPeak"]
+    paths.append("bwa/merged_replicate/macs2/narrow_peak/WT.mRp.clN_peaks.narrowPeak")
+    result = mapper.apply(_harvest(tmp_path, paths, ATAC_UIDS),
+                          maps.load("atacseq"), context=CONTEXT)
+    [warning] = [w for w in result.warnings if "earlier launch" in w]
+    assert warning.startswith("WT: 3 A.CHRM rows")
+    for path in ("WT.mRp.clN_peaks.narrowPeak", "WT_REP1.mLb.clN_peaks.broadPeak",
+                 "WT_REP2.mLb.clN_peaks.broadPeak"):
+        assert path in warning
+    assert [e["sample"] for e in result.alternative_rows] == ["WT"]
+
+
+def test_a_merged_group_with_no_resolved_replicate_ships_a_row_with_no_parent(tmp_path):
+    # Pins today's behaviour; whether such a row should ship awaits the owner's ruling
+    # (NessieAI/ns/reingest/README.md "Invariants"). The warning must not claim the
+    # row names "the others" when there are none.
+    from nextseek_api.assistant.models_db import PipelineRun
+    _run(tmp_path, "atacseq", "2.1.2", ATAC_SHEET)
+    PipelineRun.objects.create(run_dir=str(tmp_path), run_name="r", pipeline="nf-core/atacseq", cohort=[
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_a"), "d_seq_uid": "D.SEQ-1"},
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_a"), "d_seq_uid": "D.SEQ-98"},
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_b"), "d_seq_uid": "D.SEQ-2"},
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_b"), "d_seq_uid": "D.SEQ-99"}])
+    result = mapper.apply(_harvest(tmp_path, _atac_paths(), ATAC_UIDS),
+                          maps.load("atacseq"), context=CONTEXT)
+    assert [row for row in _rows(result, "aln") if row[0] == "WT"] == [
+        ("WT", "WT.mRp.clN.sorted.bam", None)]
+    assert ("WT: no replicate (WT_REP1, WT_REP2) resolved to a D.SEQ; the group's aln "
+            "row has no Parent") in result.warnings
+    assert not any("names only the others" in w for w in result.warnings if w.startswith("WT:"))

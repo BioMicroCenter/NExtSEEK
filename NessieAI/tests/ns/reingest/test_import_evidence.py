@@ -239,3 +239,75 @@ def test_install_fixture_refuses_what_the_sanitizer_refuses(tmp_path, capsys):
     assert ie.install_fixture(dest, pipeline="sarek", version="3.10.0", built=built) == 1
     assert not dest.exists()
     assert "refusing" in capsys.readouterr().err
+
+
+# ---- one test of a snap file, the test's own params, and a variant folder ----
+
+VARIANTS = {"Params: x (default)": {"content": [{"Workflow": {"nf-core/sarek": "v3.10.0"}},
+                                               ["x/default.bam", "x/shared.txt"]]},
+            "Params: x with rrbs": {"content": [{"Workflow": {"nf-core/sarek": "v3.10.0"}},
+                                               ["x/rrbs.bam", "x/shared.txt"]]},
+            "Params: x with rrbs -stub": {"content": [["x/stub.bam"]]}}
+
+
+def variants_fetch():
+    urls = {f"{RAW}/sarek/3.10.0/tests/variants.nf.test.snap": json.dumps(VARIANTS).encode(),
+            f"{RAW}/sarek/3.10.0/conf/test.config": TEST_CONFIG.encode(),
+            f"{RAW}/sarek/3.10.0/tests/sheet.csv": SHEET.encode()}
+    return lambda url: urls[url]
+
+
+def test_without_a_test_name_every_test_but_the_stubs_is_merged():
+    built = ie.from_snapshot("sarek", "3.10.0", "variants", variants_fetch())
+    assert [e["path"] for e in built["inventory"]] == ["x/default.bam", "x/rrbs.bam", "x/shared.txt"]
+    assert built["folder"] == "3.10.0"
+
+
+def test_a_test_name_imports_that_test_alone():
+    built = ie.from_snapshot("sarek", "3.10.0", "variants", variants_fetch(),
+                             test="Params: x with rrbs")
+    assert [e["path"] for e in built["inventory"]] == ["x/rrbs.bam", "x/shared.txt"]
+    assert 'test "Params: x with rrbs" of tests/variants.nf.test.snap' in built["evidence"]
+
+
+def test_an_unknown_test_name_is_refused_with_the_names_there_are():
+    with pytest.raises(SystemExit) as err:
+        ie.from_snapshot("sarek", "3.10.0", "variants", variants_fetch(), test="Params: x with pbat")
+    assert "'Params: x with rrbs'" in str(err.value)
+
+
+def test_the_tests_own_params_lie_over_the_test_config_and_are_named_in_the_evidence():
+    built = ie.from_snapshot("sarek", "3.10.0", "variants", variants_fetch(),
+                             test="Params: x with rrbs",
+                             params=ie.param_pairs(["aligner=bwameth", "rrbs=true", "genome=GRCh37"]))
+    assert built["params"]["aligner"] == "bwameth" and built["params"]["rrbs"] is True
+    assert built["params"]["genome"] == "GRCh37"
+    assert "Params the test sets, given by hand: aligner=bwameth, genome=GRCh37, rrbs=true." \
+        in built["evidence"]
+
+
+def test_param_pairs_type_their_values_and_refuse_a_pair_without_a_key():
+    assert ie.param_pairs(["a=true", "b=false", "c=3", "d=0.5", "e=x=y"]) == {
+        "a": True, "b": False, "c": 3, "d": 0.5, "e": "x=y"}
+    for bad in ("novalue", "=x"):
+        with pytest.raises(SystemExit):
+            ie.param_pairs([bad])
+
+
+def test_a_variant_fixture_sits_beside_the_release_folder(tmp_path):
+    base = tmp_path / "out" / "sarek"
+    plain = ie.from_snapshot("sarek", "3.10.0", "variants", variants_fetch(), test="Params: x (default)")
+    assert ie.install_fixture(base / plain["folder"], pipeline="sarek", version="3.10.0", built=plain) == 0
+    rrbs = ie.from_snapshot("sarek", "3.10.0", "variants", variants_fetch(),
+                            test="Params: x with rrbs", variant="rrbs")
+    assert rrbs["folder"] == "3.10.0-rrbs"
+    assert ie.install_fixture(base / rrbs["folder"], pipeline="sarek", version="3.10.0", built=rrbs) == 0
+    # The variant's launch record still names the release, not the folder.
+    assert json.loads((base / "3.10.0-rrbs" / "launch_record.json").read_text())["revision"] == "3.10.0"
+    assert sorted(p.name for p in base.iterdir()) == ["3.10.0", "3.10.0-rrbs"]
+
+
+@pytest.mark.parametrize("bad", ["", "-rrbs", ".rrbs", "a/b", "a b"])
+def test_a_variant_name_that_is_not_a_plain_word_is_refused(bad):
+    with pytest.raises(SystemExit):
+        ie.fixture_folder("3.10.0", bad)

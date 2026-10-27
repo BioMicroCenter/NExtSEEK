@@ -9,7 +9,8 @@
       "D.SEQ: GCPercent, Q30Percent, AdapterPercent, PassedFilterPercent, AssignedPercent, MRNAPercent, PseudoalignedPercent, IsomiRPercent, UMIUniquePercent, EstimatedCells, MeanReadsPerCell, ReadsInCellsPercent and ValidBarcodesPercent, and A.VCF: TsTvRatio, added by hand on 2026-10-15 for the other-pipelines QC review, ahead of their creation through the attributes API. Regenerate from a database that has them to replace this note.",
       "A.HLA: the whole type added by hand on 2026-10-15, from the schema-mode proposal (schema/A.HLA.review.md), for the hlatyping map's OptiType output rule, ahead of its creation on prod. Regenerate from a database that has it to replace this note.",
       "A.ALN: MedianCoverage, Coverage10xPercent and Coverage30xPercent added by hand on 2026-10-23, for sarek's mosdepth coverage rule, ahead of their creation on dev and prod. Regenerate from a database that has them to replace this note.",
-      "A.MSEQ: the whole type added by hand on 2026-10-26, as created on the local SEEK only (from schema/A.MSEQ.proposed.json), for the methylseq map's methylation-call rules; it does not exist on dev or prod yet. Regenerate from a database that has it to replace this note."
+      "A.MSEQ: the whole type added by hand on 2026-10-26, as created on the local SEEK only (from schema/A.MSEQ.proposed.json), for the methylseq map's methylation-call rules; it does not exist on dev or prod yet. Regenerate from a database that has it to replace this note.",
+      "A.CHRM: Name, Antibody, File_SecondaryData, Link_SecondaryData and Notes added by hand on 2026-10-27, as created on the local SEEK only, for the chipseq and atacseq maps' peak rows; they do not exist on dev or prod yet (the merge checklist in NessieAI/ns/reingest_maps/README.md). Regenerate from a database that has them to replace this note."
     ],
     "note": "manage.py shell prints a banner line (e.g. \"N objects imported automatically\") before the JSON on some instances; strip everything before the first '{' when piping to a file. Contains only SampleType codes and attribute titles (schema field names) -- no user, project, or path data. Snapshots EVERY sample type known_sample_types() returns, not a hardcoded subset, so a future map targeting a sample type outside the original seven maps tasks 2/8 covered is still checked against something real.",
     "purpose": "Snapshot of every SampleType attribute known to the NExtSEEK sample-type catalog, for NessieAI/tests/ns/reingest/test_map_contract.py. CI has no populated database, so this fixture stands in for a live nextseek_api.services.reingest_lookups.attributes_for() lookup.",
@@ -141,11 +142,16 @@
       "UID"
     ],
     "A.CHRM": [
+      "Antibody",
       "Assembly",
       "Checksum_PrimaryData",
       "DataType",
       "File_PrimaryData",
+      "File_SecondaryData",
       "Link_PrimaryData",
+      "Link_SecondaryData",
+      "Name",
+      "Notes",
       "Parent",
       "Pipeline",
       "Protocol",

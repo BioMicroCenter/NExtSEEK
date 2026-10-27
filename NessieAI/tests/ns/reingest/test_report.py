@@ -721,3 +721,42 @@ def test_two_house_assays_for_one_name_block_in_plain_words():
     assert ("the A.GEX workbook: NExtSEEK has more than one assay type that matches "
             "'Genome Alignment'; an administrator needs to resolve that, then rebuild.") in text
     assert qa.HOUSE_ASSAY_AMBIGUOUS not in text
+
+
+def _alternative(sample, files, other_picks=()):
+    return {"sample": sample, "sample_type": "A.MSEQ",
+            "files": [{"rule_id": rule, "path": path} for rule, path in files],
+            "other_picks": list(other_picks)}
+
+
+def test_rows_from_a_reused_run_folder_reach_the_curator():
+    built = _single_finding_report(qa.LINEAGE_UNRESOLVED, qa.SOFT, sample_type="A.GEX",
+                                   attribute="", row_index=0)
+    entry = _alternative("S1", [("mseq_methyldackel", "methyldackel/S1_CpG.bedGraph"),
+                                ("mseq_methyldackel_methylkit", "methyldackel/S1_CpG.methylKit")],
+                         [{"rule_id": "aln", "sample_type": "A.ALN",
+                           "used": "bismark/deduplicated/S1.deduplicated.sorted.bam",
+                           "also": ["bwameth/deduplicated/S1.markdup.sorted.bam"]}])
+    text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN, alternative_rows=[entry])
+    assert "FILES FROM AN EARLIER RUN TO CHECK" in text
+    assert ("S1 has 2 A.MSEQ rows, one for each of methyldackel/S1_CpG.bedGraph and "
+            "methyldackel/S1_CpG.methylKit") in text
+    assert "only one of these" in text
+    assert ("Its A.ALN row used bismark/deduplicated/S1.deduplicated.sorted.bam, not "
+            "bwameth/deduplicated/S1.markdup.sorted.bam") in text
+    assert "harvest the run again" in text
+    assert text.index("FILES FROM AN EARLIER RUN") < text.index("TO UPLOAD")
+    assert "earlier run" not in report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
+
+
+def test_many_samples_from_a_reused_folder_are_counted_not_listed():
+    built = _single_finding_report(qa.LINEAGE_UNRESOLVED, qa.SOFT, sample_type="A.GEX",
+                                   attribute="", row_index=0)
+    entries = [_alternative(f"S{i}", [("mseq_methyldackel", f"methyldackel/S{i}_CpG.bedGraph"),
+                                      ("mseq_methyldackel_methylkit",
+                                       f"methyldackel/S{i}_CpG.methylKit")])
+               for i in range(1, 25)]
+    text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN, alternative_rows=entries)
+    assert "24 samples have 2 A.MSEQ rows each" in text
+    assert "for example S1: methyldackel/S1_CpG.bedGraph and methyldackel/S1_CpG.methylKit" in text
+    assert "S24" not in text

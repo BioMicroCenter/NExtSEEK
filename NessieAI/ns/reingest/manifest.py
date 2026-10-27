@@ -70,6 +70,10 @@ class SampleRecord(BaseModel):
     # a count cast to float lands in the workbook as 4763343.0. str only for
     # a verdict computed from measurements (derived.strandedness).
     derived: dict[str, int | float | str] = Field(default_factory=dict)
+    # The sample's own samplesheet cells (its first row's), for a map to read as
+    # `$samplesheet.<column>` (chipseq's `antibody`). Paths and URLs are left out:
+    # fastq_1/fastq_2 above carry the reads, and no map reads a path from here.
+    samplesheet: dict[str, str] = Field(default_factory=dict)
 
 
 class OutputRecord(BaseModel):
