@@ -281,6 +281,13 @@ def refuse_shell_syntax(params: dict[str, Any]) -> None:
         raise ValueError(f"params with shell characters refused: {', '.join(bad)}")
 
 
+def agent_param_names(pipeline_key: str) -> set[str]:
+    """The params the agent may send for a pipeline: its curated menu, its reference
+    resources and 'genome'."""
+    ctx = load_pipeline_context(pipeline_key)
+    return set(ctx.get("params") or {}) | set(ctx.get("reference_resources") or []) | {"genome"}
+
+
 def build_run_params(
     pipeline_key: str,
     agent_params: dict[str, Any] | None,
@@ -296,10 +303,8 @@ def build_run_params(
     return is ({}, errors, "invalid") so the caller surfaces errors and never an
     incomplete params set.
     """
-    ctx = load_pipeline_context(pipeline_key)
-    menu = ctx.get("params") or {}
-    ref_names = set(ctx.get("reference_resources") or [])
-    allowed_keys = set(menu) | ref_names | {"genome"}
+    menu = load_pipeline_context(pipeline_key).get("params") or {}
+    allowed_keys = agent_param_names(pipeline_key)
 
     agent_params = dict(agent_params or {})
     for k in _STRIP_KEYS:

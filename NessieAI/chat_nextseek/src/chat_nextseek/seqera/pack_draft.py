@@ -169,7 +169,9 @@ def draft(pipeline: str, revision: str, fetch: Fetch) -> dict[str, Any]:
     paths = sorted({p for snap in snapshots.values() for p in snapshot_paths(snap)})
     menu = draft_params_menu(nextflow_schema)
     defaults = {k: v["default"] for k, v in menu.items() if v.get("default") is not None}
-    errors, skipped = check_params(pipeline, revision, defaults,
+    # The menu's defaults are not a launch (no genome, no launcher params), so required
+    # params are not checked here.
+    errors, skipped = check_params(pipeline, revision, defaults, required=False,
                                    schema_getter=lambda _p, _r: schema)
     return {"catalog_row": draft_catalog_row(pipeline, revision, nextflow_schema, input_schema),
             "params_menu": menu,

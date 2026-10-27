@@ -35,6 +35,7 @@ from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
 from ..seqera.emitter import emit_launch_artifacts, emit_luria_launch_artifacts, emit_nfcore_artifacts
 from ..seqera.ena import extract_accessions_from_metadata, lookup_run_sizes, resolve_accessions
 from ..seqera.pipeline_params import (
+    agent_param_names,
     build_run_params,
     gencode_for_genome_key,
     load_pipeline_context,
@@ -43,7 +44,8 @@ from ..seqera.pipeline_params import (
     resolve_bundle_for_species,
     runtime_estimate,
 )
-from ..seqera.schema_check import check_params, check_reference_flags
+from ..seqera.schema_check import (GENOME_FILLS, check_params, check_reference_flags,
+                                    missing_required, required_message)
 from ..seqera.submitter import submit_launch
 from ..seqera.user_params import (
     missing_user_params,
@@ -851,7 +853,21 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     supplied = {k: v for k, v in merged.items() if k in agent_params and k in sent_by_model}
     curated = {k: v for k, v in merged.items() if k not in supplied}
 
-    schema_errors, schema_skip = check_params(pipeline_key, revision, supplied, source="supplied")
+    schema_errors, schema_skip = check_params(pipeline_key, revision, supplied, source="supplied",
+                                              required=False)
+    # A schema-required param is checked on the whole run, after the bundle's genome and the
+    # agent's params are merged (the launcher's input/outdir and a genome's reference files
+    # count as set). One the agent can send is a hard error, so it sends the genome chipseq's
+    # fasta needs rather than leaving the Luria submitter to default it to GRCh38 unseen; one
+    # it cannot (rnafusion's genomes_base) warns, for the same MAX_ITER reason as a drifted
+    # curated default.
+    required_warnings: list[str] = []
+    if not schema_errors and not schema_skip:
+        unset, _ = missing_required(pipeline_key, revision, merged)
+        sendable = agent_param_names(pipeline_key) | GENOME_FILLS
+        schema_errors = [required_message(pipeline_key, revision, n) for n in unset if n in sendable]
+        required_warnings = [required_message(pipeline_key, revision, n) for n in unset
+                             if n not in sendable]
     if schema_errors:
         return json.dumps({"ok": False, "errors": schema_errors})
     if schema_skip:
@@ -860,9 +876,11 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         schema_check = {"status": "ok"}
         # The schema is cached by (pipeline, revision) after the call above, so
         # this second call costs a dict lookup, not a fetch.
-        curated_warnings, _ = check_params(pipeline_key, revision, curated)
+        curated_warnings, _ = check_params(pipeline_key, revision, curated, required=False)
         if curated_warnings:
             schema_check["curated_warnings"] = curated_warnings
+        if required_warnings:
+            schema_check["required_warnings"] = required_warnings
         reference_warnings = check_reference_flags(pipeline_key, revision)
         if reference_warnings:
             schema_check["reference_warnings"] = reference_warnings

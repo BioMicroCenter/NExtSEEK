@@ -450,12 +450,74 @@ def test_new_choosable_pipelines_pin_the_approved_release(key):
     assert NFCORE_PIPELINE_CATALOG[key]["default_revision"] == PINS[key]
 
 
+def launched(key, bundle_key="GRCh38"):
+    """The params a launch for a human cohort would send: curated defaults, the bundle's
+    genome, and the example of each value only the user can give (its first word: an
+    example may carry a gloss, as smrnaseq's "hsa   (human; ...)" does)."""
+    from chat_nextseek.seqera.user_params import required_user_params
+    user = {spec["name"]: (spec.get("example") or "x").split()[0] for spec in required_user_params(key)}
+    merged, errors, _status = build_run_params(key, user, bundle_key)
+    assert errors == [], f"{key}: launch params do not validate: {errors}"
+    return merged
+
+
 @pytest.mark.parametrize("key", sorted(PINS))
 def test_new_choosable_pipelines_defaults_pass_the_pinned_schema(key):
     schema = json.loads((FIXTURES / f"{key}.nextflow_schema.json").read_text())
-    errors, skipped = check_params(key, PINS[key], curated(key),
+    errors, skipped = check_params(key, PINS[key], launched(key),
                                    schema_getter=lambda _p, _r: {"nextflow_schema": schema})
     assert skipped is None and errors == []
+
+
+PINNED_SCHEMAS = sorted(p.name.split(".")[0] for p in FIXTURES.glob("*.nextflow_schema.json"))
+#: Required params NExtSEEK has no way to set today. rnafusion's prebuilt reference bundle
+#: (genomes_base) is not provisioned, so a launch would abort at nf-schema.
+UNSET_REQUIRED = {"rnafusion": ["genomes_base"]}
+
+
+@pytest.mark.parametrize("key", PINNED_SCHEMAS)
+def test_a_human_launch_leaves_no_required_param_unset_on_any_pinned_schema(key):
+    """The required check must not fail a launch that works: the bundle's genome fills the
+    reference, the launcher writes input/outdir, and nextflow.config sets every schema default."""
+    from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
+    from chat_nextseek.seqera.schema_check import missing_required
+    schema = json.loads((FIXTURES / f"{key}.nextflow_schema.json").read_text())
+    names, skipped = missing_required(key, NFCORE_PIPELINE_CATALOG[key]["default_revision"],
+                                      launched(key),
+                                      schema_getter=lambda _p, _r: {"nextflow_schema": schema})
+    assert skipped is None and names == UNSET_REQUIRED.get(key, [])
+
+
+def test_configure_run_refuses_chipseq_with_no_reference_genome(monkeypatch, tmp_path):
+    """chipseq 2.1.0 requires fasta: with no species-resolved genome the run would die on the
+    cluster, so the agent is told to send one."""
+    from chat_nextseek.pipeline import agent_tools
+
+    _pinned_schema(monkeypatch)
+    state = _state(tmp_path)
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), state, {"pipeline_key": "chipseq", "params": {}}, str(tmp_path)))
+    assert out["ok"] is False
+    assert any("'fasta'" in e and "genome" in e for e in out["errors"])
+
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), state, {"pipeline_key": "chipseq", "params": {"genome": "GRCh38"}}, str(tmp_path)))
+    assert out["ok"] is True, out
+    assert out["schema_check"] == {"status": "ok"}
+
+
+def test_a_required_param_the_agent_cannot_send_warns_not_errors(monkeypatch, tmp_path):
+    """rnafusion's genomes_base is on no menu: the agent can neither send nor drop it, so
+    hard-failing would spin it to MAX_ITER, as a drifted curated default would."""
+    from chat_nextseek.pipeline import agent_tools
+
+    _pinned_schema(monkeypatch)
+    state = _state(tmp_path)
+    state["bundle_key"] = "GRCh38"
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), state, {"pipeline_key": "rnafusion", "params": {}}, str(tmp_path)))
+    assert out["ok"] is True, out
+    assert any("genomes_base" in w for w in out["schema_check"]["required_warnings"])
 
 
 @pytest.mark.parametrize("key", sorted(PINS))
@@ -475,7 +537,7 @@ def test_new_choosable_pipelines_offer_only_params_of_the_pinned_schema(key):
     """Every param on the menu, not only those with a default, is one the pinned release declares."""
     schema = json.loads((FIXTURES / f"{key}.nextflow_schema.json").read_text())
     menu = json.loads((TEMPLATES / f"{key}.json").read_text())["params"]
-    errors, skipped = check_params(key, PINS[key], {name: None for name in menu},
+    errors, skipped = check_params(key, PINS[key], {name: None for name in menu}, required=False,
                                    schema_getter=lambda _p, _r: {"nextflow_schema": schema})
     assert skipped is None and errors == []
 
