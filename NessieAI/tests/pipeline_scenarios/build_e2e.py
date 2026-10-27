@@ -6,7 +6,8 @@ Each variant: a setup turn that finds the cohort's samples by UID, the story's q
 for a launch story, one turn asking for the build (BUILD_ONLY, which says not to submit; never a
 confirmation, and never the story's own replies, which the in-process runner answers with). It
 stops at the confirm-to-submit question and never answers it. A not_yet or refuse story has a
-third turn, BUILD_ONLY again pushing for a build, on which nothing may be built.
+third turn, BUILD_ONLY again pushing for a build, which the pipeline agent must answer (AGENT_ANSWERED)
+and on which nothing may be built.
 
 The variants run against a real stack, so every one needs NESSIE_PIPELINE_SCENARIOS_E2E set
 (`requires_env`; the harness skips it otherwise). Run them only on a stack whose Luria env is
@@ -49,6 +50,9 @@ def _alternation(keys) -> str:
 #: The selection names no pipeline: absent (None) or an empty list. A refusal, an out_of_scope verdict
 #: and a story that expects "not yet" all leave `selection.pipelines` empty.
 NO_PIPELINE_OFFERED = {"field": "pipeline_agent.selection.pipelines", "op": "matches_re", "value": r"^(\[\]|None)$"}
+#: The pipeline agent answered the turn: its snapshot is on the turn and holds the chat. Nothing built and
+#: nothing offered also reads true on a turn the agent never saw (no snapshot) or on an empty agent state.
+AGENT_ANSWERED = {"field": "pipeline_agent.message_count", "op": "gte", "value": 1}
 
 
 def _never_named(keys) -> dict:
@@ -74,6 +78,7 @@ def _variant(story) -> dict:
             {"field": "pipeline_agent.selection.verdict", "op": "matches_re", "value": "^(refused|out_of_scope)$"},
             NO_PIPELINE_OFFERED]
         turns.append({"label": "push_to_build", "query": BUILD_ONLY, "pass_criteria": [
+            AGENT_ANSWERED,
             {"field": "pipeline_agent.pipeline_key", "op": "eq", "value": None},
             NO_PIPELINE_OFFERED]})
     elif story.launch.get("built"):
