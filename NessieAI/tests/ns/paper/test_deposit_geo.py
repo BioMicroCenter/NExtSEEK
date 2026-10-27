@@ -67,3 +67,65 @@ def test_links_are_unique_in_first_seen_order():
             "!Sample_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRX1\n"
             "!Sample_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRX2\n")
     assert geo.parse_soft(text)[0].links == ["SRX2", "SRX1"]
+
+
+SUPER_SOFT = """^SERIES = GSE900000
+!Series_title = Super
+!Series_relation = SuperSeries of: GSE900001
+!Series_relation = SuperSeries of: GSE900002
+!Series_relation = BioProject: https://www.ncbi.nlm.nih.gov/bioproject/PRJNA900000
+"""
+SUB1_SOFT = """^SERIES = GSE900001
+!Series_title = Sub one
+!Series_relation = SubSeries of: GSE900000
+!Series_relation = BioProject: https://www.ncbi.nlm.nih.gov/bioproject/PRJNA900001
+!Series_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRP900001
+"""
+SUB2_SOFT = """^SERIES = GSE900002
+!Series_title = Sub two (array)
+!Series_relation = SubSeries of: GSE900000
+"""
+SUPER_GSMS_SOFT = """^SAMPLE = GSM9000011
+!Sample_title = s11
+!Sample_relation = SRA: https://www.ncbi.nlm.nih.gov/sra?term=SRX9000011
+!Sample_series_id = GSE900000
+!Sample_series_id = GSE900001
+^SAMPLE = GSM9000021
+!Sample_title = s21
+!Sample_series_id = GSE900000
+!Sample_series_id = GSE900002
+"""
+
+
+def super_routes(sub_missing=False):
+    def k(acc, targ):
+        return key(geo.URL, {"acc": acc, "targ": targ, "form": "text", "view": "brief"})
+    routes = {k("GSE900000", "self"): FakeResponse(200, SUPER_SOFT),
+              k("GSE900000", "gsm"): FakeResponse(200, SUPER_GSMS_SOFT),
+              k("GSE900001", "self"): FakeResponse(200, SUB1_SOFT),
+              k("GSE900001", "gsm"): FakeResponse(200, SUPER_GSMS_SOFT.split("^SAMPLE = GSM9000021")[0]),
+              k("GSE900002", "gsm"): FakeResponse(200, "^SAMPLE = GSM9000021\n!Sample_title = s21\n")}
+    if not sub_missing:
+        routes[k("GSE900002", "self")] = FakeResponse(200, SUB2_SOFT)
+    return routes
+
+
+def test_a_superseries_brings_its_subseries_projects_and_every_sample():
+    f, session = fetcher(super_routes())
+    records = geo.fetch("GSE900000", f)
+    assert [(r.record_id, r.kind) for r in records] == [
+        ("GSE900000", "project"), ("GSE900001", "project"), ("GSE900002", "project"),
+        ("GSM9000011", "sample"), ("GSM9000021", "sample")]
+    assert records[1].links == ["PRJNA900001", "SRP900001"]
+    assert len(session.calls) == 4  # each SubSeries is read once, as itself; its samples come with the SuperSeries'
+
+
+def test_a_subseries_geo_cannot_find_is_left_out_not_the_superseries():
+    f, _ = fetcher(super_routes(sub_missing=True))
+    assert [r.record_id for r in geo.fetch("GSE900000", f)] == ["GSE900000", "GSE900001", "GSM9000011", "GSM9000021"]
+
+
+def test_a_subseries_is_never_followed_up_to_its_superseries():
+    f, session = fetcher(super_routes())
+    assert [r.record_id for r in geo.fetch("GSE900001", f)] == ["GSE900001", "GSM9000011"]
+    assert len(session.calls) == 2

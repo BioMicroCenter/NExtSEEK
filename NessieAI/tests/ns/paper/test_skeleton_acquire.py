@@ -145,3 +145,95 @@ def test_running_out_of_time_propagates():
     f, _ = fetcher({})
     with pytest.raises(OutOfTime):
         acquire(_paper(), f, adapters=_adapters([], fail=(("pride", "PXD012345"), OutOfTime("t"))))
+
+
+def _paper_citing(text: bytes, text_source="pdf", **ref) -> PaperArtifact:
+    jats = parse_jats(JATS_XML.replace(b"GSE123456.", text))
+    return PaperArtifact(ref=PaperRef(pmid="1", **ref), text=jats, text_source=text_source, mode="new")
+
+
+def test_a_paper_citing_only_gsms_folds_their_sra_runs_in():
+    calls = []
+    gsm1 = geo.parse_soft(GEO_SAMPLES_SOFT.split("^SAMPLE = GSM7000002")[0])
+
+    def geo_adapter(acc, f):
+        calls.append(("geo", acc))
+        return gsm1
+
+    def ena_adapter(acc, f):
+        calls.append(("ena", acc))
+        return [ena._record(ENA_RUNS[0])] if acc == "SRX2000001" else []
+
+    adapters = _adapters([])
+    adapters.update(geo=geo_adapter, ena=ena_adapter)
+    f, _ = fetcher({})
+    evidence = acquire(_paper_citing(b"GSM7000001."), f, adapters=adapters)
+    assert calls == [("geo", "GSM7000001"), ("ena", "SRX2000001")]
+    [row] = evidence.skeleton
+    assert row.row_key == "geo:GSM7000001"
+    assert [x.name for x in row.files] == ["GSM7000001_counts.txt.gz", "SRR3000001_1.fastq.gz", "SRR3000001_2.fastq.gz"]
+
+
+def test_gsms_of_a_cited_series_never_fetch_their_runs_one_by_one():
+    calls = []
+    f, _ = fetcher({})
+    acquire(_paper_citing(b"GSE123456 (GSM7000001, GSM7000002)."), f, adapters=_adapters(calls))
+    assert [c for c in calls if c[0] == "ena"] == [("ena", "PRJNA100001")]
+
+
+def _zip_with(name: str) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(name, "a\n")
+    return buf.getvalue()
+
+
+def test_an_open_access_pdf_paper_with_a_pmcid_reads_the_europepmc_supplement():
+    f, session = fetcher({f"{europepmc.BASE}/PMC1/supplementaryFiles": FakeResponse(200, _zip_with("TableS2.csv"))})
+    evidence = acquire(_paper_citing(b"GSE123456.", pmcid="PMC1", open_access=True), f, adapters=_adapters([]))
+    assert any(i.id.startswith("E:si:TableS2.csv!") for i in evidence.items)
+
+
+def test_a_closed_pdf_paper_never_asks_for_the_supplement():
+    f, session = fetcher({f"{europepmc.BASE}/PMC1/supplementaryFiles": FakeResponse(200, _zip_with("TableS2.csv"))})
+    evidence = acquire(_paper_citing(b"GSE123456.", pmcid="PMC1"), f, adapters=_adapters([]))
+    assert session.calls == []
+    assert not any(i.id.startswith("E:si:") for i in evidence.items)
+
+
+def _super_adapters(calls, umbrella_runs=True):
+    from NessieAI.tests.ns.paper.test_deposit_geo import super_routes
+
+    geo_fetcher, _ = fetcher(super_routes())
+    run11 = {"run_accession": "SRR9000011", "experiment_accession": "SRX9000011", "study_accession": "PRJNA900001",
+             "secondary_study_accession": "SRP900001", "experiment_title": "s11 RNA-seq",
+             "fastq_ftp": "ftp.sra.ebi.ac.uk/x/SRR9000011.fastq.gz", "fastq_bytes": "5", "fastq_md5": "ab"}
+
+    def geo_adapter(acc, f):
+        calls.append(("geo", acc))
+        return geo.fetch(acc, geo_fetcher)
+
+    def ena_adapter(acc, f):
+        calls.append(("ena", acc))
+        if acc == "PRJNA900000":
+            return [ena._record(run11)] if umbrella_runs else []
+        return [ena._record(run11)] if acc in ("PRJNA900001", "SRP900001") else []
+
+    adapters = _adapters([])
+    adapters.update(geo=geo_adapter, ena=ena_adapter)
+    return adapters
+
+
+@pytest.mark.parametrize("umbrella_runs", [True, False])
+def test_a_superseries_gives_one_row_per_gsm_with_runs_even_when_the_subseries_is_cited_too(umbrella_runs):
+    calls = []
+    f, _ = fetcher({})
+    paper = _paper_citing(b"GSE900000 (subseries GSE900001).")
+    evidence = acquire(paper, f, adapters=_super_adapters(calls, umbrella_runs))
+    rows = {r.row_key: r for r in evidence.skeleton}
+    assert sorted(rows) == ["geo:GSM9000011", "geo:GSM9000021"]
+    assert [x.name for x in rows["geo:GSM9000011"].files] == ["SRR9000011.fastq.gz"]
+    assert [c for c in calls if c[0] == "geo"] == [("geo", "GSE900000")]
+    assert sorted(d.record_id for d in evidence.deposits if d.kind == "project") == ["GSE900000", "GSE900001", "GSE900002"]
+    ena_calls = [c[1] for c in calls if c[0] == "ena"]
+    assert ena_calls == (["PRJNA900000"] if umbrella_runs else ["PRJNA900000", "PRJNA900001"])

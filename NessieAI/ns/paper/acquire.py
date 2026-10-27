@@ -1,7 +1,8 @@
 """Stage 1, acquire (spec §4): paper.json → evidence.json.
 
 Reads the supplement, finds every accession in the paper and SI, fetches each deposit
-once (projects before their parts; a GEO series pulls its SRA project in), and builds the
+once (projects before their parts; a GEO series, and each SubSeries of a SuperSeries, pulls
+its SRA project in; a GSM cited without its series pulls its own SRX), and builds the
 skeleton. A deposit that is missing, or that answers with something we cannot read, is a
 gap; a source that is down raises SourceUnavailable so the run pauses and retries (spec §10),
 and OutOfTime propagates to the caller's deadline.
@@ -23,6 +24,7 @@ from NessieAI.ns.paper.skeleton import build_skeleton
 
 logger = logging.getLogger(__name__)
 _ENA_PROJECT = re.compile(r"^(?:PRJ(?:NA|EB|DB)\d+|[SED]RP\d+)$")
+_SRA_EXPERIMENT = re.compile(r"^[SED]RX\d+$")
 _PROJECT_PREFIXES = ("GSE", "PRJ", "SRP", "ERP", "DRP", "PXD")
 
 
@@ -73,6 +75,9 @@ def acquire(paper: PaperArtifact, fetcher: Fetcher, adapters: dict | None = None
             deposits.append(rec)
             if rec.repo == "geo" and rec.kind == "project":
                 queue += [Accession(repo="ena", id=link) for link in rec.links if _ENA_PROJECT.match(link)]
+            elif rec.repo == "geo" and rec.kind == "sample" and acc.id.startswith("GSM"):
+                # A GSM cited on its own: no series fetch brings its runs, so fetch its SRX (one per sample).
+                queue += [Accession(repo="ena", id=link) for link in rec.links if _SRA_EXPERIMENT.match(link)]
         queue.sort(key=_priority)
     for rec in deposits:
         items += deposit_items(rec)
@@ -83,7 +88,8 @@ def acquire(paper: PaperArtifact, fetcher: Fetcher, adapters: dict | None = None
 def _supplements(paper: PaperArtifact, fetcher: Fetcher) -> tuple[list[EvidenceItem], list[Gap]]:
     expected = paper.text.supplements
     missing = [Gap(kind="supplement_unavailable", detail=s.name) for s in expected]
-    if not (paper.ref.pmcid and paper.text_source == "europepmc"):
+    # Europe PMC serves the zip for its open-access papers, however the text was read (a PDF included).
+    if not (paper.ref.pmcid and (paper.text_source == "europepmc" or paper.ref.open_access)):
         return [], missing
     data = europepmc.supplementary_zip(paper.ref.pmcid, fetcher)
     return supplement_items(data, expected) if data else ([], missing)
