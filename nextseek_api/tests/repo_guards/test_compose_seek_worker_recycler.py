@@ -76,8 +76,11 @@ def _start(tmp_path: Path, big_mb: int, max_mb, check_s: int = 1) -> subprocess.
     stub.chmod(0o755)
     env = {**os.environ, "PY": sys.executable, "BIG_MB": str(big_mb),
            "SEEK_WORKER_MAX_MB": str(max_mb), "SEEK_WORKER_CHECK_S": str(check_s)}
-    proc = subprocess.Popen(_command(), cwd=tmp_path, env=env, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.PIPE, text=True, start_new_session=True)
+    # stdout goes to a file of the test's own, not subprocess.DEVNULL: a test elsewhere in the lane that leaves
+    # /dev/null missing (as root in the test container) must not fail this one at Popen.
+    with open(tmp_path / "stdout.log", "wb") as out:
+        proc = subprocess.Popen(_command(), cwd=tmp_path, env=env, stdout=out,
+                                stderr=subprocess.PIPE, text=True, start_new_session=True)
     _wait_for(lambda: all((tmp_path / f).exists() for f in ("master.pid", "big.pid", "small.pid", "entrypoint.pid")), 10, "the stub")
     return proc
 

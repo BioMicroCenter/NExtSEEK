@@ -44,10 +44,13 @@ def _start(tmp_path: Path, old_log: str = "") -> subprocess.Popen:
     if old_log:
         (tmp_path / "log").mkdir()
         (tmp_path / "log" / "production.log").write_text(old_log)
-    proc = subprocess.Popen(
-        _command(), cwd=tmp_path, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-        text=True, start_new_session=True,
-    )
+    # stdout goes to a file of the test's own, not subprocess.DEVNULL: a test elsewhere in the lane that leaves
+    # /dev/null missing (as root in the test container) must not fail this one at Popen.
+    with open(tmp_path / "stdout.log", "wb") as out:
+        proc = subprocess.Popen(
+            _command(), cwd=tmp_path, stdout=out, stderr=subprocess.PIPE,
+            text=True, start_new_session=True,
+        )
     deadline = time.monotonic() + 10
     while not (tmp_path / "started.txt").exists():
         assert time.monotonic() < deadline, "start_workers.sh never ran"
