@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('nextseek_api', '0031_merge_reingest_spill'),
+        ('nextseek_api', '0033_clear_staff_non_superusers'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
