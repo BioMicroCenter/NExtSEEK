@@ -16,33 +16,30 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
 ]
 
 
-# The start of an accession whose repository never puts a hyphen in its IDs, at the end of a line
-# that was broken at a hyphen ("GSE1234-" over "56"). DOIs and URLs can hold real hyphens, so they
-# are not here.
-_SPLIT_TAIL = re.compile(
-    r"(?:(?<![A-Za-z0-9])(?:GSE|GSM|PRJ(?:NA|EB|DB)|[SED]R[PXR]|PXD)|zenodo\.|zenodo\.org/records?/"
-    r"|figshare\.|figshare\.com/articles/(?:[\w-]+/)*)(\d+)-$", re.I)
-_HEAD_DIGITS = re.compile(r"\d+")
-_MAX_ID_DIGITS = 10  # more digits than any of these IDs has: a range ("GSM7000001-7000010"), left alone
-
-
-def rejoin_split_accession(prev: str, line: str) -> str | None:
-    """``prev`` and the next ``line`` as one, the line-break hyphen dropped, when ``prev`` ends in the first
-    digits of a hyphen-free accession and ``line`` starts with the rest; None otherwise."""
-    tail, head = _SPLIT_TAIL.search(prev), _HEAD_DIGITS.match(line)
-    if not (tail and head) or len(tail.group(1)) + len(head.group(0)) > _MAX_ID_DIGITS:
-        return None
-    return prev[:-1] + line
+# Repositories whose IDs never hold a hyphen. "GSE1234-56" is a range or an ID broken over a line, so these
+# are also read with a hyphen between digits dropped (GSE123456), when that gives no more digits than any ID has.
+_HYPHEN_FREE = frozenset({"geo", "ena", "pride", "zenodo", "figshare"})
+_DIGIT_HYPHEN = re.compile(r"(?<=\d)-(?=\d)")
+_MAX_ID_DIGITS = 10
 
 
 def find_accessions(texts: Iterable[str]) -> list[Accession]:
     seen: set[tuple[str, str]] = set()
     found: list[Accession] = []
     for text in texts:
-        for repo, pattern in _PATTERNS:
-            for match in pattern.finditer(text or ""):
-                acc = match.group(1).lower() if repo == "sdr" else match.group(1)
-                if (repo, acc) not in seen:
-                    seen.add((repo, acc))
-                    found.append(Accession(repo=repo, id=acc))
+        text = text or ""
+        joined = _DIGIT_HYPHEN.sub("", text)
+        for reading, joined_reading in ((text, False), (joined, True)):
+            if joined_reading and joined == text:
+                break
+            for repo, pattern in _PATTERNS:
+                if joined_reading and repo not in _HYPHEN_FREE:
+                    continue
+                for match in pattern.finditer(reading):
+                    acc = match.group(1).lower() if repo == "sdr" else match.group(1)
+                    if joined_reading and sum(ch.isdigit() for ch in acc) > _MAX_ID_DIGITS:
+                        continue
+                    if (repo, acc) not in seen:
+                        seen.add((repo, acc))
+                        found.append(Accession(repo=repo, id=acc))
     return found

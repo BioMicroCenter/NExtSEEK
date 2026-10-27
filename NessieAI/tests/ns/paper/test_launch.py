@@ -209,6 +209,49 @@ def test_pdf_doi_broken_over_a_line_at_a_hyphen_is_found(monkeypatch):
     assert out.paper.ref.doi == "10.1000/xyz123" and out.paper.ref.pmid == "38000001"
 
 
+def test_pdf_title_match_survives_angle_brackets_in_the_page(monkeypatch):
+    text = PDF_TEXT.replace("J Test 2024 doi:10.1000/xyz123\nMice and RNA.\n",
+                            "J Test 2024 doi:10.1000/xyz123 received <2 weeks ago\nMice and RNA.\nP < 0.001, >2 fold\n")
+    monkeypatch.setattr("NessieAI.ns.paper.launch.pdf_to_text", lambda data: text)
+    seams = _seams({_search('DOI:"10.1000/xyz123"'): js(epmc_search([EPMC_HIT]))}, files={"paper.pdf": b"%PDF"})
+    assert launch_check("paper.pdf", seams).paper.ref.pmid == "38000001"
+
+
+def test_pdf_title_match_reads_html_entities_in_the_europepmc_title(monkeypatch):
+    hit = {**EPMC_HIT, "title": "Mice &amp; RNA of the gut."}
+    text = PDF_TEXT.replace("Mice and RNA.\n", "Mice & RNA of the gut.\n")
+    monkeypatch.setattr("NessieAI.ns.paper.launch.pdf_to_text", lambda data: text)
+    seams = _seams({_search('DOI:"10.1000/xyz123"'): js(epmc_search([hit]))}, files={"paper.pdf": b"%PDF"})
+    assert launch_check("paper.pdf", seams).paper.ref.pmid == "38000001"
+
+
+def test_pdf_lookup_cap_counts_printed_dois_not_their_readings(monkeypatch):
+    cited = "".join(f"see doi:10.3000/c{i}-\nx\n" for i in range(2))  # each read two ways
+    text = cited + PDF_TEXT
+    monkeypatch.setattr("NessieAI.ns.paper.launch.pdf_to_text", lambda data: text)
+    routes = {_search(f'DOI:"{d}"'): js(epmc_search([])) for i in range(2) for d in (f"10.3000/c{i}-x", f"10.3000/c{i}x")}
+    routes[_search('DOI:"10.1000/xyz123"')] = js(epmc_search([EPMC_HIT]))
+    seams = _seams(routes, files={"paper.pdf": b"%PDF"})
+    assert launch_check("paper.pdf", seams).paper.ref.pmid == "38000001"
+
+
+def test_pdf_one_unreadable_cited_doi_does_not_stop_the_own_one(monkeypatch):
+    text = CITED_FIRST
+    monkeypatch.setattr("NessieAI.ns.paper.launch.pdf_to_text", lambda data: text)
+    seams = _seams({_search('DOI:"10.2000/cited"'): FakeResponse(400),
+                    _search('DOI:"10.1000/xyz123"'): js(epmc_search([EPMC_HIT]))}, files={"paper.pdf": b"%PDF"})
+    assert launch_check("paper.pdf", seams).paper.ref.pmid == "38000001"
+
+
+def test_pdf_lookups_that_fail_with_no_match_still_refuse(monkeypatch):
+    from NessieAI.ns.paper.launch import PdfDoiLookupFailed
+
+    monkeypatch.setattr("NessieAI.ns.paper.launch.pdf_to_text", lambda data: PDF_TEXT)
+    seams = _seams({_search('DOI:"10.1000/xyz123"'): FakeResponse(400)}, files={"paper.pdf": b"%PDF"})
+    with pytest.raises(PdfDoiLookupFailed):
+        launch_check("paper.pdf", seams)
+
+
 def test_pdf_looks_up_at_most_three_dois(monkeypatch):
     dois = [f"10.3000/c{i}" for i in range(5)]
     text = "".join(f"see doi:{d}\n" for d in dois) + PDF_TEXT.replace("doi:10.1000/xyz123", "")

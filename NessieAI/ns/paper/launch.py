@@ -8,6 +8,7 @@ be a cited paper's.
 """
 from __future__ import annotations
 
+import html
 import json
 import re
 import unicodedata
@@ -17,14 +18,15 @@ from typing import Callable, Literal
 from NessieAI.ns.paper import europepmc
 from NessieAI.ns.paper.accessions import find_accessions
 from NessieAI.ns.paper.fetch import Fetcher, SourceNotFound
-from NessieAI.ns.paper.identify import doi_candidates, identify
+from NessieAI.ns.paper.identify import doi_readings, identify
 from NessieAI.ns.paper.jats import parse_jats
 from NessieAI.ns.paper.models import PaperArtifact, PaperInput, PaperRef, PaperText, _Strict
 from NessieAI.ns.paper.pdftext import pdf_to_text, split_sections
 
 
-MAX_PDF_DOI_LOOKUPS = 3  # Europe PMC calls per PDF, inside the op's one launch deadline
+MAX_PDF_DOIS = 3  # printed DOIs looked up per PDF (each with its readings), inside the op's one launch deadline
 _MIN_TITLE_CHARS = 10  # a shorter squashed title could be found on any page
+_TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9]*(?:\s[^<>]*)?/?>")  # markup in a Europe PMC title (<i>, <sup>)
 _GLUED_WORD = re.compile(r"(?<=\d)[a-z]{3,}$")  # pypdf can join a DOI to the next word
 
 
@@ -118,11 +120,7 @@ def _from_pdf(name: str, seams: LaunchSeams) -> tuple[PaperRef, PaperText, str]:
     except Exception as exc:  # pypdf raises its own errors, and others, on a damaged or non-PDF file
         raise AttachmentUnreadable(f"{name} is not a PDF I can read") from exc
     text = split_sections(raw_text)
-    try:
-        ref = _own_ref(raw_text.split("\f", 1)[0], seams.fetcher)
-    except (SourceNotFound, json.JSONDecodeError, europepmc.UnreadableAnswer) as exc:
-        # Refused, not skipped: without the DOI the paper would start in new mode even if it is already in NExtSEEK.
-        raise PdfDoiLookupFailed("Europe PMC's answer for a DOI in the PDF could not be read") from exc
+    ref = _own_ref(raw_text.split("\f", 1)[0], seams.fetcher)
     if ref is None:
         first = text.all_text()[0][:300] if text.all_text() else name
         ref = PaperRef(title=first)
@@ -131,19 +129,27 @@ def _from_pdf(name: str, seams: LaunchSeams) -> tuple[PaperRef, PaperText, str]:
 
 
 def _own_ref(first_page: str, fetcher: Fetcher) -> PaperRef | None:
-    """Europe PMC's record for the first DOI on the first page whose title is on that page too."""
+    """Europe PMC's record for the first DOI on the first page whose title is on that page too.
+
+    A reading Europe PMC answers badly is skipped; when none matched and one was skipped, the start is refused,
+    because without the DOI the paper would start in new mode even if it is already in NExtSEEK."""
     page = _squash(first_page)
-    found = doi_candidates(first_page)
-    dois = list(dict.fromkeys(d for doi in found for d in (doi, _GLUED_WORD.sub("", doi))))
-    for doi in dois[:MAX_PDF_DOI_LOOKUPS]:
-        ref = europepmc.resolve(PaperInput(kind="doi", value=doi), fetcher)
-        title = _squash(ref.title) if ref else ""
-        if len(title) >= _MIN_TITLE_CHARS and title in page:
-            return ref
+    failed = None
+    for readings in doi_readings(first_page)[:MAX_PDF_DOIS]:
+        for doi in dict.fromkeys(d for r in readings for d in (r, _GLUED_WORD.sub("", r))):
+            try:
+                ref = europepmc.resolve(PaperInput(kind="doi", value=doi), fetcher)
+            except (SourceNotFound, json.JSONDecodeError, europepmc.UnreadableAnswer) as exc:
+                failed = failed or exc
+                continue
+            title = _squash(_TAG.sub("", html.unescape(ref.title))) if ref else ""
+            if len(title) >= _MIN_TITLE_CHARS and title in page:
+                return ref
+    if failed is not None:
+        raise PdfDoiLookupFailed("Europe PMC's answer for a DOI in the PDF could not be read") from failed
     return None
 
 
 def _squash(text: str) -> str:
-    """Letters and digits only, case-folded: survives markup, line breaks and hyphenation."""
-    text = unicodedata.normalize("NFKD", re.sub(r"<[^>]+>", "", text)).casefold()
-    return "".join(ch for ch in text if ch.isalnum())
+    """Letters and digits only, case-folded: survives line breaks and hyphenation."""
+    return "".join(ch for ch in unicodedata.normalize("NFKD", text).casefold() if ch.isalnum())

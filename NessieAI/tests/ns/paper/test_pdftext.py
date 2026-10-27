@@ -84,13 +84,20 @@ def _para(raw: str) -> str:
     return " ".join(split_sections("Data availability\n" + raw).all_text())
 
 
-def test_an_accession_broken_across_lines_is_rejoined():
+def test_an_accession_broken_across_lines_is_kept_as_printed_and_read_both_ways():
     text = _para("Reads are at GSE1234-\n56 and PXD012-\n345; runs SRR30-\n00001.\n"
                  "Images: https://zenodo.org/records/765-\n4321 and 10.6084/m9.figshare.234-\n56789.\n")
-    assert "GSE123456" in text and "PXD012345" in text and "zenodo.org/records/7654321" in text
-    assert [(a.repo, a.id) for a in find_accessions([text])] == [
-        ("geo", "GSE123456"), ("ena", "SRR3000001"), ("pride", "PXD012345"),
-        ("zenodo", "7654321"), ("figshare", "23456789")]
+    assert "GSE1234-56" in text and "PXD012-345" in text and "zenodo.org/records/765-4321" in text
+    found = [(a.repo, a.id) for a in find_accessions([text])]
+    assert ("geo", "GSE1234") in found and ("zenodo", "765") in found
+    assert found[-5:] == [("geo", "GSE123456"), ("ena", "SRR3000001"), ("pride", "PXD012345"),
+                          ("zenodo", "7654321"), ("figshare", "23456789")]
+
+
+def test_a_shorthand_range_broken_across_lines_keeps_its_first_id():
+    text = _para("samples GSM100-\n105 were sequenced\n")
+    assert text == "samples GSM100-105 were sequenced"
+    assert [a.id for a in find_accessions([text])] == ["GSM100", "GSM100105"]
 
 
 def test_a_doi_broken_at_its_own_hyphen_stays_whole():

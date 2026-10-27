@@ -5,15 +5,14 @@ heading skips the reference list only: reading resumes at the next recognised he
 Cell Press papers put STAR Methods and Data availability after the references. pypdf is
 imported only here and only when a PDF is read, so nothing else in the package needs it.
 
-A line broken at a hyphen inside an identifier is rejoined (``_join_broken``), so an accession or
-DOI split over two lines is read whole; a hyphenated word is joined with a space, as before.
+A line broken at a hyphen inside an identifier is rejoined as printed (``_join_broken``), so an
+accession or DOI split over two lines is read whole; a hyphenated word is joined with a space, as before.
 """
 from __future__ import annotations
 
 import io
 import re
 
-from NessieAI.ns.paper.accessions import rejoin_split_accession
 from NessieAI.ns.paper.jats import classify
 from NessieAI.ns.paper.models import Paragraph, PaperText, Section
 
@@ -41,15 +40,13 @@ def pdf_to_text(data: bytes) -> str:
 def _join_broken(prev: str, line: str) -> str | None:
     """``prev`` and ``line`` as one line when ``prev`` ends in a hyphen inside an identifier; None otherwise.
 
-    A hyphen-free accession ("GSE1234-" over "56") loses the hyphen. A DOI or URL ("/" in the last word),
-    or digits running on into digits, keeps it with no space: those hyphens are often the identifier's own,
-    and a typesetter's added one is tried both ways by ``identify.doi_candidates``. Anything else, such as
-    "well-" over "known" or "pre-" over "and", is left to the space join.
+    A DOI or URL ("/" in the last word), or digits running on into digits ("GSE1234-" over "56"), keeps the
+    hyphen with no space, as printed: the hyphen may be the identifier's own or a range's ("GSM100-105"), so
+    both readings are left to the readers (``identify.doi_readings``, ``accessions.find_accessions``).
+    Anything else, such as "well-" over "known" or "pre-" over "and", is left to the space join.
     """
     if not prev.endswith("-"):
         return None
-    if (joined := rejoin_split_accession(prev, line)) is not None:
-        return joined
     tail = prev.rsplit(None, 1)[-1]
     if "/" in tail or (line[:1].isdigit() and any(ch.isdigit() for ch in tail)):
         return prev + line

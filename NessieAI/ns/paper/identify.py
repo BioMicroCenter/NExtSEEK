@@ -44,18 +44,27 @@ def clean_doi(raw: str) -> str:
         doi = stripped
 
 
-def doi_candidates(text: str) -> list[str]:
-    """Every DOI in raw (PDF) text, cleaned, in order, without repeats. A DOI broken over two lines at a
-    hyphen is read across the break twice: first keeping the hyphen (it is often the DOI's own, as in
+def doi_readings(text: str) -> list[list[str]]:
+    """Each DOI printed in raw (PDF) text, in order, as the list of its readings, cleaned. A DOI broken over two
+    lines at a hyphen has two: first keeping the hyphen (it is often the DOI's own, as in
     10.1038/s41467-024-00001-x), then without it (a typesetter's hyphen). The caller checks which is real."""
     marked = _LINE_BREAK_HYPHEN.sub("-" + _MARK, text.replace(_MARK, ""))
-    found = []
+    groups, seen = [], set()
     for m in DOI_RE.finditer(marked):
         doi = m.group(0)
-        found.append(clean_doi(doi.replace(_MARK, "")))
+        readings = [clean_doi(doi.replace(_MARK, ""))]
         if _MARK in doi:
-            found.append(clean_doi(doi.replace("-" + _MARK, "")))
-    return list(dict.fromkeys(found))
+            readings.append(clean_doi(doi.replace("-" + _MARK, "")))
+        readings = [r for r in dict.fromkeys(readings) if r not in seen]
+        seen.update(readings)
+        if readings:
+            groups.append(readings)
+    return groups
+
+
+def doi_candidates(text: str) -> list[str]:
+    """Every reading of every DOI in raw (PDF) text, in order, without repeats (``doi_readings`` flattened)."""
+    return [doi for readings in doi_readings(text) for doi in readings]
 
 
 def _url_doi(parts) -> str | None:
