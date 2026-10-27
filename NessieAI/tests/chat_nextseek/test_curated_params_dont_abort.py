@@ -522,14 +522,16 @@ def test_a_required_param_the_agent_cannot_send_warns_not_errors(monkeypatch, tm
 
 @pytest.mark.parametrize("key", sorted(PINS))
 def test_new_choosable_pipelines_templates_name_every_required_input_column(key):
-    """The samplesheet columns the template asks for are the pinned input schema's required ones."""
+    """The catalog, the template and the pinned input schema name the same required columns."""
+    from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
     path = FIXTURES / f"{key}.schema_input.json"
     if not path.exists():
         pytest.skip(f"{key} {PINS[key]} ships no assets/schema_input.json")
     items = json.loads(path.read_text())["items"]
-    required = set(items.get("required") or [])
-    template = json.loads((TEMPLATES / f"{key}.json").read_text())
-    assert required <= set(template["pipeline"]["required_columns"]), required - set(template["pipeline"]["required_columns"])
+    schema = set(items.get("required") or [])
+    template = set(json.loads((TEMPLATES / f"{key}.json").read_text())["pipeline"]["required_columns"])
+    catalog = set(NFCORE_PIPELINE_CATALOG[key]["required_columns"])
+    assert catalog == template == schema, {"catalog": catalog, "template": template, "schema": schema}
 
 
 @pytest.mark.parametrize("key", sorted(PINS))
