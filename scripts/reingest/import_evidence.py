@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 """Turn nf-core's own published evidence into a reingest fixture (G-7 in NessieAI/ns/reingest_maps/README.md).
 
-  import_evidence.py snapshot <pipeline> <version> <test-name>
-      Inventory from tests/<test-name>.nf.test.snap at the release tag; the samplesheet and
-      params from conf/test.config.
+  import_evidence.py snapshot <pipeline> <version> <snap-name> [--test NAME]
+                    [--variant NAME] [--param KEY=VALUE ...]
+      Inventory from tests/<snap-name>.nf.test.snap at the release tag; the samplesheet and
+      params from conf/test.config. A snap file can hold several nf-test tests: --test
+      imports only the one with that name (else every test that is not a stub, merged).
+      --param adds a param the test sets in its own .nf.test params block, which this
+      script does not read (aligner=bwameth, rrbs=true). --variant names the folder
+      <version>-<variant>, so a flag-dependent fixture sits beside the release's own.
   import_evidence.py aws <pipeline> <version> <profile> [--samplesheet-url URL]
       Inventory, MultiQC tables and run params from nf-core's AWS results,
       s3://nf-core-awsmegatests/<pipeline>/results-<release commit>/<profile>/.
 
 Writes NessieAI/tests/ns/fixtures/reingest_runs/<pipeline>/<folder>/ in the layout
-make_fixture.sh writes, plus EVIDENCE.txt naming the source; <folder> is <version>, or
-<version>-aws-<profile>. Reads public URLs only and touches no cluster. Run it inside the
-stack image with PYTHONPATH=/src/NessieAI/chat_nextseek/src (it imports pack_draft).
+make_fixture.sh writes, plus EVIDENCE.txt naming the source; <folder> is <version>,
+<version>-<variant>, or <version>-aws-<profile>. Reads public URLs only and touches no
+cluster. Run it inside the stack image with PYTHONPATH=/src/NessieAI/chat_nextseek/src (it
+imports pack_draft).
 
 The fixture is built in a temporary folder, run through sanitize_fixture.py (cluster prefix
 /RUN), and moved into place only if the sanitizer accepts it; otherwise the sanitizer's
@@ -49,6 +55,8 @@ _COMMENT = re.compile(r"\s(//|#).*$")
 # One complete quoted string: its body holds no quote character of its own kind, so a
 # concatenation such as 'x' + 'y' is an expression and matches nothing.
 _QUOTED = re.compile(r"""^(?:'([^']*)'|"([^"]*)")(?:\s+(?://|#).*)?$""")
+# A variant folder name: what follows "<version>-". No slash, no leading dot or dash.
+_VARIANT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 
 def _fetch(url: str) -> bytes:
@@ -110,10 +118,14 @@ def localise_samplesheet(text: str) -> str:
     return out.getvalue()
 
 
-def versions_yml_from_snapshot(snapshot: dict, pipeline: str, tag: str | None = None) -> str:
-    """The pipeline's own version from the snapshot's Workflow entry. Some snapshots (sarek's)
-    list only process tool versions; then the release tag the snapshot was read at stands in."""
-    for test in snapshot.values():
+def versions_yml_from_snapshot(snapshot: dict, pipeline: str, tag: str | None = None,
+                               test_name: str | None = None) -> str:
+    """The pipeline's own version from the snapshot's Workflow entry (only `test_name`'s, when
+    given). Some snapshots (sarek's) list only process tool versions; then the release tag the
+    snapshot was read at stands in."""
+    for name, test in snapshot.items():
+        if test_name is not None and name != test_name:
+            continue
         for part in test.get("content") or []:
             if isinstance(part, dict) and isinstance(part.get("Workflow"), dict):
                 version = part["Workflow"].get(f"nf-core/{pipeline}")
@@ -147,6 +159,39 @@ def config_params(text: str) -> dict:
         elif re.fullmatch(r"-?\d+\.\d+", raw):
             found[name] = float(raw)
     return found
+
+
+def param_value(text: str):
+    """One `--param KEY=VALUE` value, typed the way config_params types a config line:
+    true/false, an integer, a decimal, else the text itself."""
+    if text in ("true", "false"):
+        return text == "true"
+    if re.fullmatch(r"-?\d+", text):
+        return int(text)
+    if re.fullmatch(r"-?\d+\.\d+", text):
+        return float(text)
+    return text
+
+
+def param_pairs(pairs: list[str]) -> dict:
+    """`--param` arguments as a dict. A pair without `=`, or with an empty key, is refused."""
+    out: dict = {}
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep or not key.strip():
+            raise SystemExit(f"--param takes KEY=VALUE, got {pair!r}")
+        out[key.strip()] = param_value(value.strip())
+    return out
+
+
+def fixture_folder(version: str, variant: str | None) -> str:
+    """`<version>`, or `<version>-<variant>` for a flag-dependent fixture beside it."""
+    if variant is None:
+        return version
+    if not _VARIANT.fullmatch(variant):
+        raise SystemExit(f"--variant must be letters, digits, '.', '_' or '-' "
+                         f"(not first), got {variant!r}")
+    return f"{version}-{variant}"
 
 
 def evidence_params(params: dict) -> dict:
@@ -196,27 +241,40 @@ def _samplesheet(pipeline: str, version: str, config_text: str, url: str | None,
     return localise_samplesheet(fetch(url).decode())
 
 
-def from_snapshot(pipeline: str, version: str, test_name: str, fetch,
-                  samplesheet_url: str | None = None) -> dict:
+def from_snapshot(pipeline: str, version: str, snap_name: str, fetch,
+                  samplesheet_url: str | None = None, *, test: str | None = None,
+                  variant: str | None = None, params: dict | None = None) -> dict:
+    """A fixture from tests/<snap_name>.nf.test.snap: every test that is not a stub, merged, or
+    only `test`. `params` are the test's own params, laid over conf/test.config's."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "NessieAI/chat_nextseek/src"))
     from chat_nextseek.seqera.pack_draft import snapshot_paths
-    url = f"{RAW}/{pipeline}/{version}/tests/{test_name}.nf.test.snap"
+    folder = fixture_folder(version, variant)
+    url = f"{RAW}/{pipeline}/{version}/tests/{snap_name}.nf.test.snap"
     snapshot = json.loads(fetch(url))
+    if test is not None and test not in snapshot:
+        raise SystemExit(f"no test {test!r} in tests/{snap_name}.nf.test.snap; it has: "
+                         + "; ".join(repr(name) for name in snapshot))
     config = _test_config(pipeline, version, "test", fetch)
-    params = config_params(config)
+    run_params = {**config_params(config), **(params or {})}
     try:
-        versions_yml, has_workflow = versions_yml_from_snapshot(snapshot, pipeline), True
+        versions_yml = versions_yml_from_snapshot(snapshot, pipeline, test_name=test)
+        has_workflow = True
     except SystemExit:
-        versions_yml, has_workflow = versions_yml_from_snapshot(snapshot, pipeline, version), False
-    return {"folder": version,
-            "inventory": [{"path": p, "bytes": 0} for p in snapshot_paths(snapshot)],
+        versions_yml, has_workflow = versions_yml_from_snapshot(snapshot, pipeline, version, test), False
+    which = f'test "{test}" of ' if test is not None else ""
+    set_by_test = ", ".join(f"{k}={str(v).lower() if isinstance(v, bool) else v}"
+                            for k, v in sorted((params or {}).items()))
+    return {"folder": folder,
+            "inventory": [{"path": p, "bytes": 0} for p in snapshot_paths(snapshot, test)],
             "samplesheet": _samplesheet(pipeline, version, config, samplesheet_url, fetch),
-            "params": evidence_params(params),
+            "params": evidence_params(run_params),
             "versions_yml": versions_yml,
             "files": {},
             "evidence": (f"Evidence: GitHub nf-core/{pipeline} tag {version}, "
-                         f"tests/{test_name}.nf.test.snap and conf/test.config, read "
-                         f"{date.today().isoformat()}. File sizes are not in a snapshot, so every "
+                         f"{which}tests/{snap_name}.nf.test.snap and conf/test.config, read "
+                         f"{date.today().isoformat()}."
+                         + (f" Params the test sets, given by hand: {set_by_test}." if set_by_test else "")
+                         + " File sizes are not in a snapshot, so every "
                          "inventory entry has bytes 0. No MultiQC values: snapshots hold none."
                          + ("" if has_workflow else
                             f" The workflow version comes from the release tag {version}, "
@@ -284,10 +342,19 @@ def main() -> int:
     parser.add_argument("source", choices=["snapshot", "aws"])
     parser.add_argument("pipeline")
     parser.add_argument("version")
-    parser.add_argument("name", help="snapshot test name, or AWS profile folder")
+    parser.add_argument("name", help="snapshot file name (tests/<name>.nf.test.snap), or AWS profile folder")
     parser.add_argument("--samplesheet-url", default=None)
+    parser.add_argument("--test", default=None,
+                        help="snapshot only: import this one nf-test test of the snap file")
+    parser.add_argument("--variant", default=None,
+                        help="snapshot only: write the fixture to <version>-<variant>")
+    parser.add_argument("--param", action="append", default=[], metavar="KEY=VALUE",
+                        help="snapshot only: a param the test sets in its .nf.test (repeatable)")
     args = parser.parse_args()
-    built = (from_snapshot(args.pipeline, args.version, args.name, _fetch, args.samplesheet_url)
+    if args.source == "aws" and (args.test or args.variant or args.param):
+        parser.error("--test, --variant and --param are for snapshot fixtures")
+    built = (from_snapshot(args.pipeline, args.version, args.name, _fetch, args.samplesheet_url,
+                           test=args.test, variant=args.variant, params=param_pairs(args.param))
              if args.source == "snapshot"
              else from_aws(args.pipeline, args.version, args.name, args.samplesheet_url, _fetch))
     dest = (Path(__file__).resolve().parents[2] / "NessieAI/tests/ns/fixtures/reingest_runs"
