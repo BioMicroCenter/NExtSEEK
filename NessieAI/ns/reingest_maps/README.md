@@ -6,7 +6,10 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
 
 **Where the maps are checked.** `test_map_contract.py` (the schema and catalog contract), `test_fixture_runs.py`
 (each map against its run fixture), `test_doc_only_maps.py` (maps written from the docs alone), and
-`test_replicate_samples.py` (replicate handling), all under `NessieAI/tests/ns/reingest/`; and the link test
+`test_replicate_samples.py` (replicate handling), `test_methylseq_map.py` (methylseq's tiers against its variant
+fixtures), `test_chromatin_module_qc.py` (atacseq and chipseq QC from module tables) and `test_qc_completeness_dna.py`
+(the QC-completeness check for atacseq, chipseq and methylseq, which skips until a run with MultiQC tables is a
+fixture), all under `NessieAI/tests/ns/reingest/`; and the link test
 `NessieAI/tests/chat_nextseek/test_choosable_pipelines_have_maps.py` (a choosable pipeline has a map for its pinned release).
 
 ## What a map may contain
@@ -69,6 +72,12 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
   no-op — the contract test fails it deliberately, because that block would
   otherwise be merged into nothing.
 - `qc_attributes` — raw key to a sample attribute on an EXISTING sample type.
+- `module_tables` — MultiQC data files by name (`multiqc_picard_dups.yaml`), each with a
+  `namespace` (and an optional row `suffix`), read like the harvest's own `_MODULE_TABLES`:
+  column `C` of row `<sample>` becomes the metric `<namespace>-C`. For a pipeline whose
+  MultiQC writes no general-stats table (atacseq and chipseq exclude it). MultiQC's
+  `data_format: yaml` writes `.yaml` tables, which are staged only through this map's
+  `harvest_globs`; list the `.txt` name too when the format is unsure.
 - `inventory_globs` — this map's own inventory patterns (see "Inventory" below).
   Each must start with `**/`; the stager lists the union of these across every map
   and `harvest.CORE_INVENTORY_GLOBS`.
@@ -87,7 +96,7 @@ read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
   methylseq folds `_1_val_1`: MultiQC 1.32's default name cleaning cuts a Bismark report's name at `_bismark`, so a paired-end sample's Bismark rows are named after Trim Galore's read-1 file, `<sample>_1_val_1` (single-end rows are `<sample>`). With `--skip_trimming` they are named after the input FASTQ instead (for example `<sample>_R1`), which no fixed suffix catches, so those rows are not folded. Unverified until a real run.
 - `replicate_samples` — when true, a samplesheet `replicate` column splits each `sample` into one sample per biological replicate, `<sample>_REP<replicate>`, the id nf-core/atacseq and nf-core/chipseq give each replicate's files, each with its own D.SEQ parent (and its own QC backfill). Rows sharing both `sample` and `replicate` are lanes of one library and stay one multi-run sample. The samplesheet's `sample` becomes the replicate group (`RunManifest.replicate_groups`): a file named after the group (atacseq's merged replicates, `<sample>.mRp.*`) gets one row for the group, parented by every replicate, when its candidate comes no later than any replicate's, and the replicates' files for that rule become its losing candidates. Off by default: a `replicate` column in another pipeline's samplesheet is sample metadata. The launch record is matched per replicate by the samplesheet `sample` and `fastq_1`.
 - `claims_every_file` — when true, the fixture contract test requires every file of a run to be a rule's candidate or companion, or to match `unmapped_files`.
-- `unmapped_files` — globs of run files no rule registers on purpose, each with a `why`. The mapper drops a matching file before any rule sees it, so a ruled-out file is never a rule's candidate or companion, and with `claims_every_file` set the fixture test counts it as claimed. Matching is `fnmatch` over brace-expanded globs, and `*` crosses `/`.
+- `unmapped_files` — globs of run files no rule registers on purpose, each with a `why`. The mapper drops a matching file before any rule sees it, so a ruled-out file is never a rule's candidate or companion, and with `claims_every_file` set the fixture test counts it as claimed. Matching is `fnmatch` over brace-expanded globs, and `*` crosses `/`. `except_globs` names files the glob also matches that the ruling leaves to the rules (methylseq rules out bwa-meth's unsorted `alignments/<sample>.bam` but not the `<sample>.sorted.bam` its aln rule reads); `maps.UnmappedFiles.rules_out` is the one matcher.
 
 `$`-prefixed values are lookups into a manifest section (`params`, `pipeline`,
 `software_versions`, `outputs`, `metrics`, `derived`). There is no evaluation.
@@ -289,16 +298,54 @@ release's run fixture lands, with its entry in `DOC_ONLY`.
 
 | Pipeline | Release | Evidence | QC |
 |---|---|---|---|
-| atacseq | 2.1.2 | pinned docs/output.md only; unverified until a real run | none from general stats: the release's `assets/multiqc_config.yml` sets `exclude_modules: general_stats`, which MultiQC 1.13 reads as `skip_generalstats`, so no `multiqc_general_stats.txt` is written. D.SEQ gets only `Link_QC` and `Genome` |
-| chipseq | 2.1.0 | pinned docs/output.md only; unverified until a real run | none from general stats, as for atacseq (MultiQC 1.23 reads the same setting the same way) |
+| atacseq | 2.1.2 | pinned docs/output.md only; unverified until a real run | none from general stats: the release's `assets/multiqc_config.yml` sets `exclude_modules: general_stats`, which MultiQC 1.13 reads as `skip_generalstats`, so no `multiqc_general_stats.txt` is written. The same config sets `data_format: yaml`. D.SEQ gets `Link_QC`, `Genome` and `DuplicationPercent`, read from the `multiqc_picard_dups` module table (below); unverified until a real run |
+| chipseq | 2.1.0 | pinned docs/output.md only; unverified until a real run | as for atacseq (MultiQC 1.23 reads both settings the same way) |
 
 Both maps set `replicate_samples`, so each replicate's own D.SEQ takes the QC backfill
-(`Link_QC`, `Genome`); only lanes of one replicate, a multi-run sample, get none
+(`Link_QC`, `Genome`, `DuplicationPercent`); only lanes of one replicate, a multi-run sample, get none
 (`mapper._NO_BACKFILL`), as in every pipeline.
+
+**QC from module tables.** Without general stats, a map reads MultiQC's per-module data
+files through `module_tables`. Both maps read `multiqc_picard_dups` (Picard MarkDuplicates on
+each replicate's merged library, before filtering; the configs' only MarkDuplicates section
+without an anchor, so MultiQC names it plainly, while atacseq's merged-replicate one is
+`multiqc_picard_dups_mrep_picard` and is not read). It holds Picard's 0-1 fraction, so
+`DuplicationPercent` reads `$derived.duplication_pct`; its other columns are ruled out. The
+releases write no other QC metric that an existing D.SEQ, A.CHRM or A.ALN attribute means.
+These have no attribute yet; each is a schema request, with the table it would come from
+(names from MultiQC's source and the releases' configs, unverified until a real run):
+
+| Metric | Pipelines | Where it is | Would fit |
+|---|---|---|---|
+| FRiP (fraction of reads in peaks) | both | custom content `multiqc_mlib_frip_score-plot` (atacseq; `multiqc_mrep_...` for merged replicates) or `multiqc_frip_score-plot` (chipseq); one value per row, under a column named after the row | A.CHRM, per peak row |
+| Peak count | both | custom content `multiqc_mlib_peak_count-plot` / `multiqc_peak_count-plot`, same shape | A.CHRM, per peak row |
+| NSC and RSC (strand cross-correlation) | chipseq | `multiqc_phantompeakqualtools` (columns `NSC`, `RSC`), also custom content `multiqc_{nsc,rsc}_coefficient-plot` | D.SEQ or A.ALN |
+| Fingerprint JS distance, synthetic AUC | both | not in MultiQC: only plotFingerprint's raw counts reach it; the `*.plotFingerprint.qcmetrics.txt` beside them is published but not inventoried | A.ALN |
+| Library complexity (Preseq) | both | a curve in MultiQC, no single value; Picard's `ESTIMATED_LIBRARY_SIZE` is the scalar the run has | D.SEQ |
+| TSS enrichment | atacseq | ataqv's JSON only (`*/merged_library/ataqv/`), not in MultiQC | D.SEQ or A.CHRM |
+| Mapped share | both | `multiqc_samtools_flagstat` for four samtools sections (library, merged library before and after filtering, merged replicates) with no anchors, so the tables are told apart only by an order a real run must confirm | D.SEQ `MappedPercent` (exists) |
+
+The custom-content tables keep each value under a column named after its own row (MultiQC's
+two-column bargraph shape), so reading them needs a harvest reader for that shape as well as
+the attribute.
 
 A.CHRM has no `File_SecondaryData` or `Notes`, so a companion of an A.CHRM row
 (atacseq's consensus `featureCounts.txt`, a losing peak or bigWig candidate) reaches
 only the build report.
+
+### methylseq's variant fixtures
+
+The 4.2.0 map's file rules are checked against seven fixtures, each one nf-test snapshot
+test: `4.2.0` (the default `-profile test`, Bismark), and `4.2.0-<variant>` for bwameth,
+bwameth-rrbs, bwameth-skip_deduplication, bwameth-save_align_intermeds, bismark-rrbs and
+bismark-skip_deduplication, imported with `import_evidence.py --test --variant --param`.
+With `--rrbs` or `--skip_deduplication` deduplication is skipped, so the sorted BAM under
+`alignments/` is the aln row's file. With `--save_align_intermeds`, bwa-meth's unsorted
+`alignments/<sample>.bam` is ruled out, as Bismark's unsorted BAM is, and the sorted BAM
+before deduplication is a losing candidate of the aln rule: A.ALN's one secondary slot holds
+the index and A.ALN has no `Notes`, so it is named in the build report. A snapshot holds no
+MultiQC values, so the map's QC keys stay unverified until a real run
+(`test_qc_completeness_dna.py`).
 
 ## Filling in a stub
 
