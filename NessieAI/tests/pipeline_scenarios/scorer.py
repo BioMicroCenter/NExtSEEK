@@ -34,12 +34,14 @@ def offered(o: Outcome) -> set[str]:
 
 
 def _mismatches(params: dict, must_match: dict) -> list[str]:
+    # A list-valued param (sarek's tools) comes as a list or a comma string; read it the way
+    # configure_run does, lower-cased with blanks dropped.
+    from chat_nextseek.seqera.pairing import tool_names
     out = []
     for key, want in (must_match or {}).items():
         got = params.get(key)
         if isinstance(want, dict) and "includes" in want:
-            have = {t.strip() for t in str(got or "").split(",") if t.strip()}
-            missing = sorted(set(want["includes"]) - have)
+            missing = sorted(tool_names(want["includes"]) - tool_names(got))
             if missing:
                 out.append(f"{key} lacks {missing} (is {got!r})")
         elif got != want:
@@ -61,6 +63,11 @@ def score(story: Story, o: Outcome) -> Score:
     if story.expect in ("not_yet", "refuse"):
         if built or o.pipeline_key:
             return Score("FAIL", [f"built on {o.pipeline_key} for a {story.expect} story"])
+        # Any pipeline the selection put forward is an offer. One it named only as "cannot be
+        # launched here" (dropped) is not: that is the not-yet answer itself.
+        put_forward = sorted((o.selection or {}).get("pipelines") or [])
+        if put_forward:
+            return Score("FAIL", [f"offered {put_forward} for a {story.expect} story"])
         return Score("PASS", [story.expect])
     if story.expect == "ask":
         asked = bool(o.replies and "?" in o.replies[0]) or (o.selection or {}).get("verdict") == "fork"

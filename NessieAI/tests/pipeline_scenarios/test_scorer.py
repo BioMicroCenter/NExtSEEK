@@ -117,3 +117,28 @@ def test_a_refusal_of_a_launch_story_fails_with_the_refusal_reason():
                 replies=["Sorry, I cannot run that."])
     s = score(_story(), o)
     assert s.grade == "FAIL" and "refused" in s.reasons[0] and "no matching data" in s.reasons[0]
+
+
+def test_not_yet_and_refuse_fail_when_a_pipeline_is_offered_without_a_build():
+    for expect in ("not_yet", "refuse"):
+        st = _story(expect=expect, acceptable=[], must_not=[], launch={"built": False, "must_match": {}})
+        chose = Outcome(route="nextseek_query", selection={"verdict": "chosen", "pipelines": ["chipseq"]})
+        s = score(st, chose)
+        assert s.grade == "FAIL" and "chipseq" in s.reasons[0], expect
+        forked = Outcome(route="nextseek_query", selection={"verdict": "fork", "pipelines": ["chipseq", "atacseq"]})
+        assert score(st, forked).grade == "FAIL"
+        keyed = Outcome(route="nextseek_query", pipeline_key="chipseq")
+        assert score(st, keyed).grade == "FAIL"
+        # naming a pipeline as one that cannot be launched here is the "not yet" answer, not an offer
+        dropped = Outcome(route="nextseek_query", selection={"verdict": "out_of_scope", "pipelines": [],
+                                                             "dropped": ["differentialabundance"]})
+        assert score(st, dropped).grade == "PASS"
+
+
+def test_must_match_includes_reads_a_list_and_ignores_case():
+    st = _story(acceptable=[["sarek"]], must_not=[], launch={"built": True,
+                "must_match": {"tools": {"includes": ["haplotypecaller", "Strelka"]}}})
+    assert score(st, _built("sarek", {"tools": ["HaplotypeCaller", "strelka"]})).grade == "PASS"
+    assert score(st, _built("sarek", {"tools": " haplotypecaller , STRELKA "})).grade == "PASS"
+    s = score(st, _built("sarek", {"tools": ["haplotypecaller"]}))
+    assert s.grade == "PARTIAL" and "strelka" in s.reasons[0].lower()
