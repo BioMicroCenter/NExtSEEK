@@ -15,7 +15,7 @@ import posixpath
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from NessieAI.ns.reingest import manifest, maps, pipelines
+from NessieAI.ns.reingest import derived, manifest, maps, pipelines
 from NessieAI.ns.reingest.pipelines import common
 
 ORIGIN_MAP = "map"
@@ -138,6 +138,12 @@ class MapResult(BaseModel):
     # pattern's (the stale launch may have won there too). Also in `warnings`;
     # this copy reaches the curator, who would otherwise upload both rows.
     alternative_rows: list[dict] = Field(default_factory=list)
+    # Files left out because they are not this run's: {rule_id, sample_type, path,
+    # column, value} for a per_file rule with `parents_by_samplesheet` whose file
+    # names a value no sample of this run's samplesheet has (chipseq's consensus for
+    # an antibody an earlier launch in the same folder ran). Also in `warnings`;
+    # this copy reaches the curator.
+    stale_files: list[dict] = Field(default_factory=list)
 
 
 _METRICS_REF = "$metrics."
@@ -186,7 +192,6 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
     result.warnings.extend(version_warnings)
     run_manifest = _without_ruled_out_files(run_manifest, pipeline_map)
     ruled_out = pipeline_map.ruled_out()
-    metrics_source = run_manifest.sources.get("metrics", "")
 
     # Every raw key either kind of rule claims -- whether or not it ends up
     # applied to a given sample -- is known evidence, not an unmapped key.
@@ -240,7 +245,7 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
                     value, raw_key = found
                     row.attributes[attribute] = MappedAttribute(
                         attribute=attribute, value=value, origin=ORIGIN_MAP,
-                        raw_key=raw_key, source_file=metrics_source)
+                        raw_key=raw_key, source_file=_metric_source(run_manifest, raw_key))
 
                 # Approved rules only fill attributes the committed map left
                 # empty, same target-matching rule as above.
@@ -256,7 +261,7 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
                     value, raw_key = found
                     row.attributes[attribute] = MappedAttribute(
                         attribute=attribute, value=value, origin=ORIGIN_APPROVED,
-                        raw_key=raw_key, source_file=metrics_source)
+                        raw_key=raw_key, source_file=_metric_source(run_manifest, raw_key))
 
                 if unmatched:
                     # A real, visible outcome, not a no-op: this many
@@ -281,7 +286,7 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
                 continue
             result.unmapped.append({
                 "raw_key": raw_key, "example_value": value,
-                "source_file": metrics_source,
+                "source_file": _metric_source(run_manifest, raw_key),
                 "example_sample": sample.nfcore_sample,
             })
 
@@ -311,12 +316,14 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
                 _per_sample_rows(rule, merged_attrs, run_manifest, context, result.warnings))
         elif rule.cardinality == "per_file":
             result.rows.extend(
-                _per_file_rows(rule, merged_attrs, run_manifest, context, result.warnings))
+                _per_file_rows(rule, merged_attrs, run_manifest, context, result.warnings,
+                               result.stale_files))
         else:
             row = _per_run_row(rule, merged_attrs, run_manifest, context, result.warnings)
             if row is not None:
                 result.rows.append(row)
 
+    _name_same_named_files_apart(result.rows)
     result.alternative_rows = _alternative_rows(result.rows, pipeline_map, run_manifest)
     result.warnings.extend(_alternative_rows_warning(e) for e in result.alternative_rows)
     return result
@@ -341,6 +348,7 @@ def _alternative_rows(rows: list[MappedRow], pipeline_map: maps.PipelineMap,
     file may have won there too."""
     group_of = {r.id: r.alternative_group for r in pipeline_map.outputs if r.alternative_group}
     rules = {r.id: r for r in pipeline_map.outputs}
+    per_file = {r.id for r in pipeline_map.outputs if r.cardinality == "per_file"}
     replicate_group = {member: group
                        for group, members in (run_manifest.replicate_groups or {}).items()
                        for member in members}
@@ -348,7 +356,16 @@ def _alternative_rows(rows: list[MappedRow], pipeline_map: maps.PipelineMap,
     for row in rows:
         group = group_of.get(row.rule_id)
         if group and "File_PrimaryData" in row.attributes:
-            key = replicate_group.get(row.nfcore_sample, row.nfcore_sample)
+            if row.rule_id in per_file:
+                # A per_file row is counted by its file stem (the antibody of a
+                # chipseq consensus); one with no stem is no evidence.
+                key = common.file_stem({
+                    "file_path": row.attributes["File_PrimaryData"].source_file,
+                    "file_glob": rules[row.rule_id].candidates[0]})
+                if not key:
+                    continue
+            else:
+                key = replicate_group.get(row.nfcore_sample, row.nfcore_sample)
             found.setdefault((key, group), []).append(row)
     entries = []
     for (sample, group), group_rows in found.items():
@@ -746,12 +763,15 @@ def _companion_outputs(glob: str, run_manifest, sample_name, context) -> list:
 
 
 def _place_companions(row: MappedRow, rule: maps.OutputRule, run_manifest,
-                      sample_name, context, losers, warnings: list[str]) -> None:
+                      sample_name, context, losers, warnings: list[str],
+                      notes_only=()) -> None:
     """Place every companion of this row (spec G-3): the named slot if the
     type has it and it is empty, else File_SecondaryData if the type has it
     and it is empty, else the run-relative path appended to Notes. A type
     with no Notes sends the leftovers to the warnings instead. A value the
-    map already set is never overwritten."""
+    map already set is never overwritten. `notes_only` files (a replicate
+    group's members' own outputs) skip both slots: they are named, never
+    recorded as this row's secondary data."""
     if not rule.primary_data:
         return
     primary = row.attributes.get("File_PrimaryData")
@@ -767,6 +787,10 @@ def _place_companions(row: MappedRow, rule: maps.OutputRule, run_manifest,
             seen.add(output.path)
             queue.append((None, output))
     overflow: list[str] = []
+    for output in notes_only:
+        if output.path not in seen:
+            seen.add(output.path)
+            overflow.append(output.path)
     for slot, output in queue:
         if slot and slot not in row.attributes and _exists(context, row.sample_type, slot):
             row.attributes[slot] = MappedAttribute(
@@ -923,14 +947,17 @@ def _group_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
             lost.extend(_companion_outputs(companion.glob, run_manifest,
                                            member.nfcore_sample, context))
     return _sample_row(rule, merged_attrs, run_manifest, context, warnings, stand_in,
-                       extra_losers=sorted(lost, key=lambda o: o.path))
+                       replicate_files=sorted(lost, key=lambda o: o.path))
 
 
 def _sample_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
                 run_manifest: manifest.RunManifest, context: dict | None,
                 warnings: list[str], sample: manifest.SampleRecord,
-                extra_losers: list[manifest.OutputRecord] = ()) -> MappedRow | None:
-    """One sample's row for a per_sample rule (see `_per_sample_rows`), or None."""
+                replicate_files: list[manifest.OutputRecord] = ()) -> MappedRow | None:
+    """One sample's row for a per_sample rule (see `_per_sample_rows`), or None.
+    `replicate_files` are a replicate group's members' own files for the rule: named in
+    Notes (or the build report), never in a secondary slot, which holds the row's own
+    files only."""
     if sample.uid_resolution in _NO_CHILD_ROW:
         return None
     if (rule.optional and rule.primary_data and rule.skip_samples_without_file
@@ -956,9 +983,8 @@ def _sample_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
             source_file=run_manifest.sources.get("params", ""))
     _attach_checksum(row, rule, run_manifest, sample.nfcore_sample)
     _place_companions(row, rule, run_manifest, sample.nfcore_sample, row_context,
-                      _losing_candidates(rule, run_manifest, sample.nfcore_sample)
-                      + list(extra_losers),
-                      warnings)
+                      _losing_candidates(rule, run_manifest, sample.nfcore_sample),
+                      warnings, notes_only=replicate_files)
     _attach_links(row, run_manifest, row_context)
     # Parent is a structural lineage field, not a mapped attribute -- set
     # it last so no rule attribute can accidentally clobber it. A
@@ -1035,7 +1061,8 @@ def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
 
 def _per_file_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
                    run_manifest: manifest.RunManifest,
-                   context: dict | None, warnings: list[str]) -> list[MappedRow]:
+                   context: dict | None, warnings: list[str],
+                   stale_files: list[dict] | None = None) -> list[MappedRow]:
     """One per_run-shaped row for EACH file the rule's glob matches, in path order.
 
     A per_run rule keeps the first match and drops the rest, which is right for
@@ -1056,43 +1083,112 @@ def _per_file_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
     same file.
     """
     candidates = _primary_candidates(rule, run_manifest, None)
-    name_counts: dict[str, int] = {}
-    for output in candidates:
-        base = os.path.basename(output.path)
-        name_counts[base] = name_counts.get(base, 0) + 1
     rows: list[MappedRow] = []
     for output in candidates:
         update: dict = {"outputs": [output]}
         if rule.parents_by_samplesheet:
-            update["samples"] = _samples_named_by_file(rule, run_manifest, output, warnings)
+            named = _samples_named_by_file(rule, run_manifest, output, warnings)
+            if named is None:
+                if stale_files is not None:
+                    stale_files.append(_stale_file(rule, output))
+                continue
+            update["samples"] = named
         only_this_file = run_manifest.model_copy(update=update)
         row_context = {**(context or {}), "file_path": output.path, "file_glob": rule.candidates[0],
                        "all_outputs": list(run_manifest.outputs)}
         row = _per_run_row(rule, merged_attrs, only_this_file, row_context, warnings)
         if row is None:
             continue
-        primary = row.attributes.get("File_PrimaryData")
-        base = os.path.basename(output.path)
-        if (primary is not None and primary.origin == ORIGIN_MAP and primary.value == base
-                and name_counts[base] > 1):
-            primary.value = "/".join(output.path.split("/")[-2:])
         rows.append(row)
     return rows
 
 
+def _name_same_named_files_apart(rows: list[MappedRow]) -> None:
+    """Rows of one sample type whose File_PrimaryData names different files by the
+    same name keep as many trailing folders as tell them apart.
+
+    ``File_PrimaryData`` is a bare file name by house convention, and the upload
+    matches rows by it. Two files can share one: differentialabundance 2.0.0 runs a
+    contrast under several paramsets (``<paramset>/<contrast>.deseq2.results.tsv``),
+    and a folder reused by a broad then a narrow chipseq launch holds
+    ``broad_peak/consensus/SPT5/SPT5.consensus_peaks.bed`` and its narrow twin, where
+    the antibody folder alone would still collide. Only a name the map set from the
+    file itself is lengthened, never one a curator answered."""
+    by_name: dict[tuple[str, str], list[MappedAttribute]] = {}
+    for row in rows:
+        primary = row.attributes.get("File_PrimaryData")
+        if (primary is not None and primary.origin == ORIGIN_MAP and primary.source_file
+                and primary.value == os.path.basename(primary.source_file)):
+            by_name.setdefault((row.sample_type, str(primary.value)), []).append(primary)
+    for same in by_name.values():
+        paths = {a.source_file for a in same}
+        if len(paths) < 2:
+            continue
+        depth = 2
+        while depth < max(len(p.split("/")) for p in paths) and len(
+                {"/".join(p.split("/")[-depth:]) for p in paths}) < len(paths):
+            depth += 1
+        for attribute in same:
+            attribute.value = "/".join(attribute.source_file.split("/")[-depth:])
+
+
 def _samples_named_by_file(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
-                           output: manifest.OutputRecord, warnings: list[str]) -> list:
+                           output: manifest.OutputRecord, warnings: list[str]) -> list | None:
     """The samples a per_file row with ``parents_by_samplesheet`` is parented by: those
     whose samplesheet column holds the row's @file_stem (chipseq's per-antibody consensus,
-    ``<antibody>.consensus_peaks.bed``). None of them is a warning: the row then names no
-    Parent rather than every sample of the run."""
+    ``<antibody>.consensus_peaks.bed``).
+
+    None when no sample of this run's samplesheet has that value: the file is not this
+    run's (a folder reused by a launch with another antibody), so the row is left out
+    and reported (``MapResult.stale_files``). Named samples that resolved to no D.SEQ
+    are left out of Parent with a warning, as ``_group_row`` does; when none resolved
+    the row still ships with no Parent, pending the owner's ruling on parentless
+    group rows (NessieAI/ns/reingest/README.md "Invariants")."""
     column = rule.parents_by_samplesheet
     stem = common.file_stem({"file_path": output.path, "file_glob": rule.candidates[0]})
     named = [s for s in run_manifest.samples if stem and s.samplesheet.get(column) == stem]
     if not named:
-        warnings.append(f"{output.path}: no sample's samplesheet {column} is {stem!r}; "
-                        f"the {rule.id} row names no Parent")
+        warnings.append(f"{output.path}: no sample in this run's samplesheet has {column} "
+                        f"{stem!r}; left out as a file from an earlier launch")
+        return None
+    unresolved = [s.nfcore_sample for s in named if not _names_a_parent(s)]
+    if unresolved and len(unresolved) == len(named):
+        warnings.append(f"{output.path}: no sample with {column} {stem!r} "
+                        f"({', '.join(unresolved)}) resolved to a D.SEQ; the {rule.id} row "
+                        "has no Parent (pending ruling on parentless group rows)")
+    elif unresolved:
+        warnings.append(f"{output.path}: sample(s) {', '.join(unresolved)} with {column} "
+                        f"{stem!r} resolved to no D.SEQ; the {rule.id} row names only the "
+                        "others as Parent")
     return named
+
+
+def _names_a_parent(sample: manifest.SampleRecord) -> bool:
+    """Whether a per_run-shaped row's Parent join takes a UID from `sample`."""
+    if sample.uid_resolution in _HAS_PARENT and sample.d_seq_uid:
+        return True
+    return sample.uid_resolution == manifest.RESOLUTION_MULTIRUN and bool(sample.d_seq_uid_multirun)
+
+
+def _stale_file(rule: maps.OutputRule, output: manifest.OutputRecord) -> dict:
+    """A `MapResult.stale_files` entry for a per_file file no sample of this run names."""
+    return {"rule_id": rule.id, "sample_type": rule.sample_type, "path": output.path,
+            "column": rule.parents_by_samplesheet,
+            "value": common.file_stem({"file_path": output.path,
+                                       "file_glob": rule.candidates[0]})}
+
+
+def _metric_source(run_manifest: manifest.RunManifest, raw_key: str) -> str:
+    """The file a QC value was read from: a module table's own (`metrics_<namespace>`)
+    for its `<namespace>-<column>` keys and the derived values computed from it, else
+    the general-stats table."""
+    sources = run_manifest.sources
+    namespace = None
+    if raw_key.startswith("$derived."):
+        namespace = derived.MODULE_TABLE_INPUTS.get(raw_key[len("$derived."):])
+    elif "-" in raw_key:
+        namespace = raw_key.split("-", 1)[0]
+    return sources.get(f"metrics_{namespace}") or sources.get("metrics", "")
 
 
 def _lookup(rule: maps.AttributeRule, run_manifest: manifest.RunManifest,

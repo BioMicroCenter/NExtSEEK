@@ -154,12 +154,15 @@ def test_atacseq_merged_replicate_files_land_on_their_group(tmp_path):
     lost = " ".join(result.warnings)
     for name in ("WT_REP1", "WT_REP2", "KO_REP1", "KO_REP2"):
         assert f"{name}.mLb.clN.sorted.bam" in lost
-    # A.CHRM has a secondary slot and Notes (local stack; README merge checklist), so
-    # the replicates' own peaks ride on the group's peak row instead of the report.
+    # A.CHRM has Notes (local stack; README merge checklist), so the replicates' own
+    # peaks are named there. Never in the secondary slot: a replicate's output is not
+    # the group's secondary data (G-4).
     wt_peaks = next(r for r in result.rows if r.rule_id == "peaks_broad" and r.nfcore_sample == "WT")
-    assert wt_peaks.attributes["File_SecondaryData"].value == "WT_REP1.mLb.clN_peaks.broadPeak"
+    assert "File_SecondaryData" not in wt_peaks.attributes
+    assert "Link_SecondaryData" not in wt_peaks.attributes
     assert wt_peaks.attributes["Notes"].value == (
-        "Also in run: bwa/merged_library/macs2/broad_peak/WT_REP2.mLb.clN_peaks.broadPeak")
+        "Also in run: bwa/merged_library/macs2/broad_peak/WT_REP1.mLb.clN_peaks.broadPeak, "
+        "bwa/merged_library/macs2/broad_peak/WT_REP2.mLb.clN_peaks.broadPeak")
     assert "clN_peaks.broadPeak" not in lost
     assert _rows(result, "consensus") == [
         ("", "consensus_peaks.mLb.clN.bed", "D.SEQ-1;D.SEQ-2;D.SEQ-3;D.SEQ-4;D.SEQ-5")]

@@ -2331,7 +2331,7 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
         reports_by_type, saved_files, run_name, ambiguous_primary=ambiguous_primary,
         row_counts={st: len(rows) for st, rows in final.rows_by_type.items()},
         unmapped_count=len(result.unmapped or []), missed_rules=result.missed_rules,
-        alternative_rows=result.alternative_rows)
+        alternative_rows=result.alternative_rows, stale_files=result.stale_files)
     # Map notes (an unchecked release, a companion with nowhere to go, values
     # with no home on the parent's type) are for whoever maintains the map; the
     # user can act on none of them, so they go to the server log, not the reply.

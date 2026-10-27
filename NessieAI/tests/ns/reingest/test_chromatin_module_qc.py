@@ -92,6 +92,10 @@ def test_chipseq_duplication_is_read_per_replicate_as_a_percentage(tmp_path, nam
     assert backfill["D.SEQ-2"]["DuplicationPercent"] == pytest.approx(6.2656)
     assert backfill["D.SEQ-4"]["DuplicationPercent"] == pytest.approx(25.0)
     assert run.sources["metrics_picard_dups"].endswith(name)
+    # The value's provenance names the module table it came from.
+    rows = {r.uid: r for r in result.rows if r.uid}
+    assert rows["D.SEQ-1"].attributes["DuplicationPercent"].source_file == \
+        run.sources["metrics_picard_dups"]
     # Every other column of the table is ruled out, so nothing reaches the review queue.
     assert result.unmapped == []
 
@@ -145,6 +149,8 @@ def test_the_yaml_reader_keeps_scalar_cells_only():
         "  series: {1: 2}\n  flag: true\nnot_a_row: 3\n")
     assert table == {"A_REP1": {"PERCENT_DUPLICATION": 0.25, "LIBRARY": "A_REP1_T1"}}
     assert parsers.parse_multiqc_yaml_table("- a\n- b\n") == {}
+    # YAML's not-a-number is no measurement: left out like a blank.
+    assert parsers.parse_multiqc_yaml_table("A:\n  x: .nan\n  y: .NaN\n  z: 1\n") == {"A": {"z": 1.0}}
 
 
 def test_duplication_pct_is_picards_fraction_times_a_hundred():

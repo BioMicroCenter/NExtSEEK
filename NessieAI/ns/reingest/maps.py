@@ -134,15 +134,16 @@ class OutputRule(BaseModel):
     # Unset, such a sample gets a fileless row, whose hard block on the upload is
     # what makes a genuinely missing file (hlatyping's OptiType call) visible.
     skip_samples_without_file: bool = False
-    # Optional per_sample primary rules only, two or more to a group, all of one
-    # sample type: rules naming one group are alternative outputs, of which one
-    # launch writes at most one per sample (methylseq's Bismark coverage,
-    # MethylDackel bedGraph or methylKit; atacseq's narrow or broad peaks). A
-    # sample (or replicate group) with rows from two of them got files from two
-    # launches in one reused run folder (nf-core never deletes a stale output):
-    # every row is kept, and the mapper warns and tells the curator. None for an
-    # output that coexists with its siblings of the same type (a bigwig beside
-    # peaks, sarek's callers).
+    # Optional primary rules only, per_sample or per_file, two or more to a group,
+    # all of one sample type and cardinality: rules naming one group are
+    # alternative outputs, of which one launch writes at most one per sample
+    # (methylseq's Bismark coverage, MethylDackel bedGraph or methylKit; atacseq's
+    # narrow or broad peaks), or per file stem for per_file rules (chipseq's narrow
+    # or broad consensus of one antibody). A sample (or replicate group, or stem)
+    # with rows from two of them got files from two launches in one reused run
+    # folder (nf-core never deletes a stale output): every row is kept, and the
+    # mapper warns and tells the curator. None for an output that coexists with its
+    # siblings of the same type (a bigwig beside peaks, sarek's callers).
     alternative_group: str | None = None
     attributes: dict[str, str] = Field(default_factory=dict)
     # Whether this rule's rows also receive the map's `provenance_attributes`
@@ -205,10 +206,10 @@ class OutputRule(BaseModel):
             raise ValueError(f"rule {self.id!r}: parents_by_samplesheet is for per_file rules")
         if self.alternative_group is not None and not (
                 self.alternative_group and self.optional
-                and self.cardinality == "per_sample" and self.primary_data):
+                and self.cardinality in ("per_sample", "per_file") and self.primary_data):
             raise ValueError(f"rule {self.id!r}: alternative_group must be a non-empty name, "
-                             "on an optional per_sample rule that sets primary_data (a "
-                             "launch writes at most one of a group's outputs)")
+                             "on an optional per_sample or per_file rule that sets "
+                             "primary_data (a launch writes at most one of a group's outputs)")
         if self.cardinality == "per_file":
             if not self.primary_data:
                 raise ValueError(f"per_file rule {self.candidates[0]!r} must set primary_data")
@@ -334,6 +335,20 @@ class PipelineMap(BaseModel):
     #: one multi-run sample.
     replicate_samples: bool = False
 
+    def samplesheet_columns(self) -> set[str]:
+        """The samplesheet columns this map reads: every `$samplesheet.<column>` in a
+        rule's attributes, a version override's, `row_defaults` or
+        `provenance_attributes`, and every rule's `parents_by_samplesheet`. The harvest
+        keeps only these cells (`SampleRecord.samplesheet`), so a column no map reads
+        (sarek's sex or status) never reaches the stored manifest."""
+        rules = list(self.outputs) + [r for o in self.versions for r in o.outputs]
+        values = [v for rule in rules for v in rule.attributes.values()]
+        values += list(self.row_defaults.values()) + list(self.provenance_attributes.values())
+        prefix = f"${_SAMPLESHEET_SECTION}."
+        columns = {v[len(prefix):] for v in values
+                   if isinstance(v, str) and v.startswith(prefix) and len(v) > len(prefix)}
+        return columns | {r.parents_by_samplesheet for r in rules if r.parents_by_samplesheet}
+
     def ruled_out(self) -> set[str]:
         """Keys someone already decided not to map. Never re-proposed."""
         return {entry.key for entry in self.deliberately_unmapped}
@@ -375,14 +390,19 @@ class PipelineMap(BaseModel):
             raise ValueError(f"duplicate rule id(s): {dupes}")
         types_by_group: dict[str, set[str]] = {}
         ids_by_group: dict[str, set[str]] = {}
+        kinds_by_group: dict[str, set[str]] = {}
         for rule in self.outputs + [r for o in self.versions for r in o.outputs]:
             if rule.alternative_group:
                 types_by_group.setdefault(rule.alternative_group, set()).add(rule.sample_type)
                 ids_by_group.setdefault(rule.alternative_group, set()).add(rule.id)
+                kinds_by_group.setdefault(rule.alternative_group, set()).add(rule.cardinality)
         mixed = sorted(g for g, types in types_by_group.items() if len(types) > 1)
         if mixed:
             raise ValueError(f"alternative_group(s) {mixed} hold rules of more than one "
                              "sample type")
+        mixed = sorted(g for g, kinds in kinds_by_group.items() if len(kinds) > 1)
+        if mixed:
+            raise ValueError(f"alternative_group(s) {mixed} mix per_sample and per_file rules")
         alone = sorted(g for g, ids in ids_by_group.items() if len(ids) < 2)
         if alone:
             raise ValueError(f"alternative_group(s) {alone} name only one rule; a group "

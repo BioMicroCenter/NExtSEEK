@@ -563,6 +563,7 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
     # has a second row to skip.
     seen_samples: set[str] = set()
     row_counts = Counter(str(row.get("sample") or "") for row in rows)
+    sheet_columns = pipeline_map.samplesheet_columns() if pipeline_map is not None else set()
 
     for row in rows:
         name = str(row.get("sample") or "")
@@ -610,7 +611,7 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
             # A per-sample tool file (RSeQC, the STAR log) wins over a value
             # derived from a general-stats column (Salmon's library type).
             derived={**derived.from_metrics(metrics), **_derived_for(base, name, read)},
-            samplesheet=_samplesheet_cells(row),
+            samplesheet=_samplesheet_cells(row, sheet_columns),
         ))
 
     # SampleRecord.parent_sample_type: one batched call for every resolved
@@ -834,17 +835,18 @@ def _pick_module_table(candidates: list[str], stats_path: str | None,
     return None
 
 
-def _samplesheet_cells(row: dict) -> dict[str, str]:
-    """A samplesheet row's own cells for `SampleRecord.samplesheet`: non-empty, and no
-    path or URL (a map reads metadata such as chipseq's `antibody` from here, never a
-    file). Keys starting with "_" are the harvest's own bookkeeping, not columns."""
+def _samplesheet_cells(row: dict, columns: set[str]) -> dict[str, str]:
+    """A samplesheet row's cells for `SampleRecord.samplesheet`: only the `columns` the
+    run's map reads (`PipelineMap.samplesheet_columns`, chipseq's `antibody`), each
+    non-empty and no path or URL. The manifest is stored and handed to Container-CC
+    whole, so a column no map reads (sarek's sex and status, a lab's clinical
+    columns) is never kept."""
     cells: dict[str, str] = {}
-    for column, value in row.items():
-        text = str(value or "").strip()
-        if (not column or str(column).startswith("_") or not text
-                or text.startswith(("/", "~", "${")) or "://" in text):
+    for column in sorted(columns):
+        text = str(row.get(column) or "").strip()
+        if not text or text.startswith(("/", "~", "${")) or "://" in text:
             continue
-        cells[str(column)] = text
+        cells[column] = text
     return cells
 
 

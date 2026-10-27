@@ -89,15 +89,34 @@
       }
     },
     {
-      "id": "consensus",
-      "candidates": ["*/merged_library/macs3/*/consensus/*/*.consensus_peaks.bed"],
+      "id": "consensus_narrow",
+      "candidates": ["*/merged_library/macs3/narrow_peak/consensus/*/*.consensus_peaks.bed"],
       "sample_type": "A.CHRM",
       "assay": "Chromatin Sequencing Analysis",
       "cardinality": "per_file",
       "primary_data": true,
       "optional": true,
+      "alternative_group": "consensus",
       "parents_by_samplesheet": "antibody",
-      "companions": [{"glob": "*/merged_library/macs3/*/consensus/*/*.consensus_peaks.featureCounts.txt"}],
+      "companions": [{"glob": "*/merged_library/macs3/narrow_peak/consensus/*/*.consensus_peaks.featureCounts.txt"}],
+      "attributes": {
+        "DataType": "BED",
+        "Scientist": "@nextseek_user",
+        "Assembly": "$params.genome",
+        "Pipeline": "nf-core/chipseq"
+      }
+    },
+    {
+      "id": "consensus_broad",
+      "candidates": ["*/merged_library/macs3/broad_peak/consensus/*/*.consensus_peaks.bed"],
+      "sample_type": "A.CHRM",
+      "assay": "Chromatin Sequencing Analysis",
+      "cardinality": "per_file",
+      "primary_data": true,
+      "optional": true,
+      "alternative_group": "consensus",
+      "parents_by_samplesheet": "antibody",
+      "companions": [{"glob": "*/merged_library/macs3/broad_peak/consensus/*/*.consensus_peaks.featureCounts.txt"}],
       "attributes": {
         "DataType": "BED",
         "Scientist": "@nextseek_user",

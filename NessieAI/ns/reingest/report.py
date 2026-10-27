@@ -187,12 +187,30 @@ def _render_alternative_rows(entries: list[dict]) -> list[str]:
     return lines
 
 
+def _render_stale_files(entries: list[dict]) -> list[str]:
+    """The FILES LEFT OUT section: files of the run folder that name a samplesheet value
+    no sample of this run has (a consensus for an antibody an earlier launch ran)."""
+    if not entries:
+        return []
+    lines = ["FILES LEFT OUT: NOT FROM THIS RUN", ""]
+    for index, entry in enumerate(entries, start=1):
+        lines.append(f"  {index}.  {entry['path']}: no sample in this run's samplesheet has"
+                     f" {entry['column']} {entry['value']}.")
+    lines.append("")
+    lines.append("      The run folder likely also holds files from an earlier run, so")
+    lines.append("      these are not in the workbook. If one does belong to this run,")
+    lines.append("      check the samplesheet and harvest the run again.")
+    lines.append("")
+    return lines
+
+
 def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str],
                         run_name: str, ambiguous_primary: list[dict] | None = None,
                         row_counts: dict[str, int] | None = None,
                         unmapped_count: int = 0,
                         missed_rules: list[dict] | None = None,
-                        alternative_rows: list[dict] | None = None) -> str:
+                        alternative_rows: list[dict] | None = None,
+                        stale_files: list[dict] | None = None) -> str:
     """Render the whole run's QA outcome as plain-language text.
 
     ``reports`` -- ``{sample_type: QaReport}``, one entry per sample type QA'd
@@ -238,6 +256,9 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
     from two outputs one launch writes only one of, the mark of a run folder
     reused by two launches. Samples sharing the same rules render as one item
     (rule 1), with the first as the example.
+
+    ``stale_files`` -- ``MapResult.stale_files``: files left out of the workbook
+    because no sample of this run's samplesheet names them.
 
     Returns the full report as one string. This is the module's only public
     function, and its output is relayed to the user VERBATIM by the calling
@@ -356,6 +377,7 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
             lines.append("")
 
     lines.extend(_render_alternative_rows(alternative_rows or []))
+    lines.extend(_render_stale_files(stale_files or []))
 
     if unmapped_count:
         lines.append(f"{unmapped_count} QC metrics had no matching attribute; they are"

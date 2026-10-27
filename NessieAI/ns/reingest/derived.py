@@ -49,6 +49,10 @@ DERIVED_METRICS: tuple[str, ...] = (
 #: The module-table key duplication_pct reads (maps.ModuleTable namespace + column).
 PICARD_DUPLICATION_FRACTION = "picard_dups-PERCENT_DUPLICATION"
 
+#: Derived metrics computed from one module table, by that table's namespace, so a
+#: value's provenance names the table (RunManifest.sources["metrics_<namespace>"]).
+MODULE_TABLE_INPUTS = {"duplication_pct": PICARD_DUPLICATION_FRACTION.split("-", 1)[0]}
+
 # nf-core/rnaseq's defaults (params.stranded_threshold, unstranded_threshold),
 # applied the way its calculateStrandedness does: to the forward and reverse
 # shares of the reads RSeQC could assign a strand to, ignoring "failed".

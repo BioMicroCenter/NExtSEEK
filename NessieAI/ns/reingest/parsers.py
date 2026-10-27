@@ -222,9 +222,12 @@ def parse_multiqc_yaml_table(text: str) -> dict[str, dict[str, float | str]]:
             if not text_cell:
                 continue
             try:
-                values[str(column)] = float(text_cell)
+                number = float(text_cell)
             except ValueError:
                 values[str(column)] = text_cell
+                continue
+            if number == number:  # YAML's .nan is no measurement: left out like a blank
+                values[str(column)] = number
         out[name] = values
     return out
 
