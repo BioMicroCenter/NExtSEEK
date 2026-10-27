@@ -96,7 +96,7 @@ from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
 from .reports.outputs import ReportCodePathError, session_reporter_result
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
-from .schemas.entity import EntityItem
+from .agents.entity import carry_code_owned_types
 from .schemas.graph import GraphAgentPlan
 from .session import SessionState
 from .vocabulary import resolve_vocabulary, take as take_vocabulary
@@ -1096,8 +1096,10 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
     not parse, could come back as a guessed code. Everything downstream (the API and graph
     agents, the empty-result retry ladder, the reply's scope note) reads the plan, so the
     clamp runs once, straight after the parser. Nothing but the codes changes, apart from the scientists and
-    category types the parser's echo has no slot for, which are restored from the entity result.
+    category types the parser's echo has no slot for, which are restored from the entity result, and the house types,
+    which always come from the entity result (``carry_code_owned_types``).
     """
+    plan = carry_code_owned_types(plan, entity_result)
     if isinstance(entity_result, dict):
         matched = entity_result.get("lab_codes")
     else:
@@ -1121,26 +1123,8 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
     entity_scientists = _entity("scientists")
     if entity_scientists and not plan.resolved.scientists:
         resolved_update["scientists"] = list(entity_scientists)
-    # R2: nor a `category_types` slot, so the graph agent (which reads the parser plan) never saw the category's
-    # types. Restore the map and add any of its codes the echo left out of `sampletypes`.
-    categories = _entity("category_types") or {}
-    if categories:
-        resolved_update["category_types"] = {w: list(codes) for w, codes in categories.items()}
-        names = {}
-        for item in _entity("sampletypes") or []:
-            item = item if isinstance(item, dict) else item.model_dump()
-            names[item.get("code")] = item.get("name")
-        types = list(plan.resolved.sampletypes)
-        have = {t.code for t in types}
-        for code in (c for codes in categories.values() for c in codes):
-            if code not in have:
-                types.append(EntityItem(code=code, name=names.get(code)))
-                have.add(code)
-        resolved_update["sampletypes"] = types
-    # The same for `house_types`: the graph agent anchors the type a house word names, as if the question said it.
-    house = _entity("house_types") or {}
-    if house:
-        resolved_update["house_types"] = dict(house)
+    # R2 (`category_types`) and dtd3 (`house_types`) were restored above by carry_code_owned_types, which the graph op
+    # (NessieAI/ns/granular.py) calls too: the graph agent reads only the parser plan.
     updates: dict[str, Any] = {
         "resolved": plan.resolved.model_copy(update=resolved_update),
     }

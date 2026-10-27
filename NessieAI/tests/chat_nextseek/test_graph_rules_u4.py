@@ -159,7 +159,7 @@ def test_the_graph_prompt_carries_the_rules():
                  "has no records of the asked type", "`Seq 100` and `Seq100`",
                  "A keyword for what a sample was exposed to", "never address the reply writer",
                  '"All", "every" and "across all" are not a scope',
-                 "`resolved.house_types`"):
+                 "resolved.house_types", "narrows the word", "the paragraph above decides"):
         assert text in GRAPH, text
 
 

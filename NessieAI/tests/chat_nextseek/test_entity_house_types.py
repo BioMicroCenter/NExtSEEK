@@ -146,6 +146,13 @@ def test_house_types_is_empty_by_default_and_for_a_quoted_or_paper_question():
     assert out.house_types == {}
 
 
+def test_house_types_is_code_owned_so_a_paper_question_clears_a_model_written_map():
+    # house_types is a field of the entity model's own output schema: a value the model wrote never survives.
+    out = EntityAgentOutput(house_types={"WORD_X": "TIS"})
+    apply_house_sample_types("which samples are in this paper: Macrophage maps of a made-up sponge", out, CATALOG)
+    assert out.house_types == {}
+
+
 def test_house_types_skips_a_code_the_catalog_does_not_hold():
     out = EntityAgentOutput()
     apply_house_sample_types("PBMC samples", out, [{"SampleType": "CEL"}])

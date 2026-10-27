@@ -82,10 +82,12 @@ def apply_house_sample_types(query: str, result: EntityAgentOutput, catalog: lis
     The list's word is also kept as a keyword unless the agent already has it or the question's form of it, in any
     letter case. A code the catalog does not hold is never added; with no catalog the code is added with no name.
     Each word found is recorded in ``result.house_types`` with its code, whoever put the code in ``sampletypes``.
+    The field is code-owned: whatever the model wrote there is cleared first, also when the question is left alone.
     Words match whole, any letter case, a space or a hyphen between their parts, with an optional plural s.
     A word inside a quoted span counts for nothing, and a question that names a study or paper (STUDY_WORDS_RE)
     is left to the agent: there the word is most likely part of a title, not the kind of sample asked for.
     """
+    result.house_types = {}
     if STUDY_WORDS_RE.search(query or ""):
         return
     text = _QUOTED_RE.sub(" ", query or "")
@@ -106,6 +108,39 @@ def apply_house_sample_types(query: str, result: EntityAgentOutput, catalog: lis
             if word.lower() not in have and m.group(0).lower() not in have:
                 result.keywords.append(word)
                 have.add(word.lower())
+
+
+def carry_code_owned_types(plan: Any, entity_result: Any) -> Any:
+    """``plan`` with the entity result's code-written ``house_types`` and ``category_types`` in ``plan.resolved``.
+
+    The graph agent reads the parser plan's resolved block, and the parser's echo of the entity result leaves both
+    out. ``house_types`` always comes from the entity result, empty when it has none, so a map the parser model wrote
+    is dropped. A category map is restored when the entity step found one, with any of its codes the echo left out of
+    ``sampletypes``. The NS clamp and the graph op both call it; the lab codes stay the clamp's alone. Anything that
+    is not a parser plan (no ``EntityAgentOutput`` as ``resolved``) is returned as it is.
+    """
+    if not isinstance(getattr(plan, "resolved", None), EntityAgentOutput):
+        return plan
+
+    def _get(name):
+        return entity_result.get(name) if isinstance(entity_result, dict) else getattr(entity_result, name, None)
+
+    update: dict[str, Any] = {"house_types": dict(_get("house_types") or {})}
+    categories = _get("category_types") or {}
+    if categories:
+        update["category_types"] = {w: list(codes) for w, codes in categories.items()}
+        names = {}
+        for item in _get("sampletypes") or []:
+            item = item if isinstance(item, dict) else item.model_dump()
+            names[item.get("code")] = item.get("name")
+        types = list(plan.resolved.sampletypes)
+        have = {t.code for t in types}
+        for code in (c for codes in categories.values() for c in codes):
+            if code not in have:
+                types.append(EntityItem(code=code, name=names.get(code)))
+                have.add(code)
+        update["sampletypes"] = types
+    return plan.model_copy(update={"resolved": plan.resolved.model_copy(update=update)})
 
 
 def _as_list(value: Any) -> list:
