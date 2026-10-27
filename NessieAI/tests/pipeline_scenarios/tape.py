@@ -10,6 +10,7 @@ digest, the payload, the selection call) is taped as {"raise": "<module>.<Class>
 """
 from __future__ import annotations
 
+import base64
 import concurrent.futures
 import contextlib
 import dataclasses
@@ -28,6 +29,9 @@ TAPED: tuple[str, ...] = (
     "chat_nextseek.pipeline.agent_tools.expand_uid_prefixes",
     "chat_nextseek.pipeline.agent_tools.lookup_run_sizes",
     "chat_nextseek.pipeline.agent_tools.resolve_accessions",
+    # Public nf-core JSON, taped by URL so a replay serves exactly what the recording fetched,
+    # at the revision it fetched.
+    "chat_nextseek.seqera.nfcore_schema._default_fetcher",
 )
 
 
@@ -43,7 +47,11 @@ class TapeMismatch(AssertionError):
 
 def exception_spec(exc: BaseException, **extra) -> dict:
     cls = type(exc)
-    return {"raise": f"{cls.__module__}.{cls.__qualname__}", "message": str(exc), **extra}
+    spec = {"raise": f"{cls.__module__}.{cls.__qualname__}", "message": str(exc), **extra}
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(status, int):
+        spec["status_code"] = status      # an HTTP error is judged by its status (a 404 is "absent")
+    return spec
 
 
 def is_raise(value) -> bool:
@@ -60,6 +68,11 @@ def rebuild_exception(spec: dict) -> BaseException:
         for part in qualname.split("."):
             cls = getattr(cls, part)
         if isinstance(cls, type) and issubclass(cls, BaseException):
+            if "status_code" in spec:
+                try:
+                    return cls(message, response=SimpleNamespace(status_code=spec["status_code"]))
+                except TypeError:
+                    pass
             return cls(message)
     except Exception:  # noqa: BLE001 - any failure to rebuild falls through to RuntimeError
         pass
@@ -71,6 +84,9 @@ def encode(value):
         cls = type(value)
         return {"__dataclass__": f"{cls.__module__}.{cls.__qualname__}",
                 "fields": {f.name: encode(getattr(value, f.name)) for f in dataclasses.fields(value)}}
+    if isinstance(value, bytes):
+        # URL-safe alphabet: no "/" or "+", so the text can never read as an absolute path.
+        return {"__bytes__": base64.urlsafe_b64encode(value).decode("ascii")}
     if isinstance(value, dict):
         return {str(k): encode(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
@@ -81,6 +97,8 @@ def encode(value):
 
 
 def decode(value):
+    if isinstance(value, dict) and set(value) == {"__bytes__"}:
+        return base64.urlsafe_b64decode(value["__bytes__"])
     if isinstance(value, dict) and "__dataclass__" in value:
         module, _, name = value["__dataclass__"].rpartition(".")
         cls = importlib.import_module(module)
@@ -301,7 +319,12 @@ def taped(tape: Tape, scrubber=None):
     recording whose scrubber refused raises ValueError.
     """
     from chat_nextseek.pipeline import agent, agent_tools
+    from chat_nextseek.seqera import nfcore_schema
+    from . import scrub as scrub_module
 
+    # Schemas are cached by (pipeline, revision) for the life of the process: a cached one would
+    # skip the fetch the tape holds (recording) or expects (replay).
+    nfcore_schema.clear_cache()
     patches = []
 
     def wrap(source, original):
@@ -309,7 +332,16 @@ def taped(tape: Tape, scrubber=None):
             return ((), {}) if source in UNKEYED else (args, kwargs)
 
         def recording(*args, **kwargs):
-            value = original(*args, **kwargs)
+            try:
+                value = original(*args, **kwargs)
+            except Exception as exc:
+                spec = exception_spec(exc)
+                hits = scrub_module.refusals_in(spec)
+                if hits:
+                    tape.refused.append(f"{source}: {'; '.join(hits)}")
+                else:
+                    tape.record(source, *key(args, kwargs), spec)
+                raise
             try:
                 kept = scrubber(source, value) if scrubber else value
                 tape.record(source, *key(args, kwargs), kept)
@@ -319,7 +351,10 @@ def taped(tape: Tape, scrubber=None):
             return decode(encode(kept))
 
         def replaying(*args, **kwargs):
-            return tape.play(source, *key(args, kwargs))
+            answer = tape.play(source, *key(args, kwargs))
+            if is_raise(answer):
+                raise rebuild_exception(answer)
+            return answer
         return recording if tape.mode == "record" else replaying
 
     for target in TAPED:
@@ -393,6 +428,8 @@ def taped(tape: Tape, scrubber=None):
     except BaseException as exc:
         _raise_collected(tape, exc)
         raise
+    finally:
+        nfcore_schema.clear_cache()
     _raise_collected(tape, None)
     if tape.mode != "record" and tape.unplayed():
         raise TapeMismatch(f"recorded entries were never played (re-record): {tape.unplayed()}")

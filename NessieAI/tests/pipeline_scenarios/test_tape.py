@@ -411,3 +411,90 @@ def test_an_exception_message_with_a_path_or_email_makes_taped_raise_at_exit(fak
             with tp.taped(t):
                 with pytest.raises(DigestError):
                     fakes.tools.build_sample_digest(object(), ["U1"])
+
+
+# ---- bytes, schema fetches and exceptions of the taped I/O functions ----------------------
+
+def test_bytes_round_trip_through_json_without_a_slash():
+    import json
+    raw = bytes(range(256)) * 3
+    enc = tp.encode({"b": raw})
+    assert "/" not in enc["b"]["__bytes__"] and "+" not in enc["b"]["__bytes__"]
+    assert tp.decode(json.loads(json.dumps(enc))) == {"b": raw}
+
+
+def test_the_schema_fetcher_is_taped():
+    assert "chat_nextseek.seqera.nfcore_schema._default_fetcher" in tp.TAPED
+
+
+def _schema_world(monkeypatch):
+    """A fetcher that serves two documents and 404s the optional one, and counts its calls."""
+    import requests
+    from chat_nextseek.seqera import nfcore_schema as ns
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        if url.endswith("/nextflow_schema.json"):
+            return b'{"title": "a", "definitions": {}}'
+        raise requests.HTTPError("404 Client Error: Not Found", response=types.SimpleNamespace(status_code=404))
+    ns.clear_cache()
+    monkeypatch.setattr(ns, "_default_fetcher", fetch)
+    return ns, calls
+
+
+def test_schema_fetches_replay_by_url_with_their_404s_and_never_touch_the_network(fakes, monkeypatch):
+    ns, calls = _schema_world(monkeypatch)
+    t = tp.Tape(mode="record")
+    with tp.taped(t, _scrubber):
+        recorded = ns.get_schema("rnaseq", "3.18.0")
+    assert recorded == {"nextflow_schema": {"title": "a", "definitions": {}}} and len(calls) == 2
+    assert len(t.entries["_default_fetcher"]) == 2
+    r = tp.Tape.from_json(t.to_json())
+    monkeypatch.setattr(ns, "_default_fetcher", lambda url: (_ for _ in ()).throw(AssertionError("network")))
+    with tp.taped(r):
+        assert ns.get_schema("rnaseq", "3.18.0") == recorded
+    ns.clear_cache()
+
+
+def test_a_schema_the_tape_never_fetched_fails_the_replay(fakes, monkeypatch):
+    ns, _ = _schema_world(monkeypatch)
+    t = tp.Tape(mode="record")
+    with tp.taped(t, _scrubber):
+        ns.get_schema("rnaseq", "3.18.0")
+    r = tp.Tape.from_json(t.to_json())
+    with pytest.raises(tp.TapeMismatch, match="other arguments"):
+        with tp.taped(r):
+            ns.get_schema("rnaseq", "3.19.0")      # another revision: another URL
+    ns.clear_cache()
+
+
+def test_taped_clears_the_schema_cache_in_both_modes(fakes, monkeypatch):
+    from chat_nextseek.seqera import nfcore_schema as ns
+    for mode in ("record", "replay"):
+        ns._CACHE[("p", "1")] = {"nextflow_schema": {}}
+        t = tp.Tape(mode="record") if mode == "record" else tp.Tape.from_json({"entries": {}})
+        with tp.taped(t):
+            assert ns._CACHE == {}
+        assert ns._CACHE == {}
+
+
+def test_an_exception_a_taped_function_raised_is_taped_and_raised_again_in_replay(fakes, monkeypatch):
+    def boom(*a, **k):
+        raise TimeoutError("ena was slow")
+    monkeypatch.setattr(fakes.tools, "lookup_run_sizes", boom)
+    t = tp.Tape(mode="record")
+    with tp.taped(t, _scrubber):
+        with pytest.raises(TimeoutError, match="ena was slow"):
+            fakes.tools.lookup_run_sizes(object(), ["SRR1"])
+    r = tp.Tape.from_json(t.to_json())
+    with tp.taped(r):
+        with pytest.raises(TimeoutError, match="ena was slow"):
+            fakes.tools.lookup_run_sizes(object(), ["SRR1"])
+
+
+def test_an_http_status_survives_the_tape():
+    import requests
+    spec = tp.exception_spec(requests.HTTPError("404", response=types.SimpleNamespace(status_code=404)))
+    again = tp.rebuild_exception(spec)
+    assert isinstance(again, requests.HTTPError) and again.response.status_code == 404
