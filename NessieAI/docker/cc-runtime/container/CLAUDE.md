@@ -53,7 +53,7 @@ nextseek-validate-upload	build-validate	Fused build and validate of an upload wo
 
 ## Skills in this image
 
-The `nextseek` plugin ships two skills. Neither writes to NExtSEEK without the user's explicit yes: the `nextseek` skill's query path only reads, and it writes only through `nextseek-api-write` and `nextseek-upload-reingest`, each after the confirmation its SKILL.md prescribes; the `nextseek-batch-upload` skill only builds and validates a payload for the user to inspect — it never uploads or writes. Choose the right one up front, because the choice governs the whole turn, not just its first step. Read the chosen skill's SKILL.md before acting.
+The `nextseek` plugin ships three skills. None writes to NExtSEEK without the user's explicit yes: the `nextseek` skill's query path only reads, and it writes only through `nextseek-api-write` and `nextseek-upload-reingest`, each after the confirmation its SKILL.md prescribes; the `nextseek-batch-upload` skill only builds and validates a payload for the user to inspect — it never uploads or writes. Choose the right one up front, because the choice governs the whole turn, not just its first step. Read the chosen skill's SKILL.md before acting. The third, `paper-curation`, is only for a background paper-reingest curation run, whose prompt says so and whose inputs are in `/data/input`; never use it in a chat turn.
 
 <!-- BEGIN PLAN005-GEN:skills -->
 nextseek	nextseek
