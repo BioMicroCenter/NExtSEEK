@@ -15823,9 +15823,9 @@
                   "value": "nextseek_query"
                 },
                 {
-                  "field": "pipeline_agent.pipeline_key",
+                  "field": "pipeline_agent.selection.pipelines",
                   "op": "matches_re",
-                  "value": "(?s)^(?!(rnaseq|smrnaseq)$).*"
+                  "value": "(?s)^(?!.*\\b(rnaseq|smrnaseq)\\b).*"
                 }
               ]
             },
@@ -15936,9 +15936,9 @@
                   "value": "nextseek_query"
                 },
                 {
-                  "field": "pipeline_agent.pipeline_key",
+                  "field": "pipeline_agent.selection.pipelines",
                   "op": "matches_re",
-                  "value": "(?s)^(?!(methylseq|rnavar)$).*"
+                  "value": "(?s)^(?!.*\\b(methylseq|rnavar)\\b).*"
                 }
               ]
             },
@@ -15995,9 +15995,9 @@
                   "value": "nextseek_query"
                 },
                 {
-                  "field": "pipeline_agent.pipeline_key",
+                  "field": "pipeline_agent.selection.pipelines",
                   "op": "matches_re",
-                  "value": "(?s)^(?!(chipseq|rnaseq)$).*"
+                  "value": "(?s)^(?!.*\\b(chipseq|rnaseq)\\b).*"
                 }
               ]
             },
@@ -16054,9 +16054,9 @@
                   "value": "nextseek_query"
                 },
                 {
-                  "field": "pipeline_agent.pipeline_key",
+                  "field": "pipeline_agent.selection.pipelines",
                   "op": "matches_re",
-                  "value": "(?s)^(?!(sarek)$).*"
+                  "value": "(?s)^(?!.*\\b(sarek)\\b).*"
                 }
               ]
             },
@@ -16116,6 +16116,27 @@
                   "field": "pipeline_agent.selection.verdict",
                   "op": "matches_re",
                   "value": "^(refused|out_of_scope)$"
+                },
+                {
+                  "field": "pipeline_agent.selection.pipelines",
+                  "op": "matches_re",
+                  "value": "^(\\[\\]|None)$"
+                }
+              ]
+            },
+            {
+              "label": "push_to_build",
+              "query": "Yes, use what you recommend and build the run.",
+              "pass_criteria": [
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "eq",
+                  "value": null
+                },
+                {
+                  "field": "pipeline_agent.selection.pipelines",
+                  "op": "matches_re",
+                  "value": "^(\\[\\]|None)$"
                 }
               ]
             }

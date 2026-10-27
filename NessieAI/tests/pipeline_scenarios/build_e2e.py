@@ -4,7 +4,8 @@
 
 Each variant: a setup turn that finds the cohort's samples by UID, the story's question, and,
 for a launch story, one reply asking for the build (the story's first scripted reply, else
-DEFAULT_REPLY). It stops at the confirm-to-submit question and never answers it.
+DEFAULT_REPLY). It stops at the confirm-to-submit question and never answers it. A not_yet or
+refuse story has a third turn, the same reply pushing for a build, on which nothing may be built.
 
 The build turn asserts only which pipeline was built. Settings (`launch.must_match`) are checked by
 the in-process run only, because the chat snapshot carries no launch plan, so the harness skips every
@@ -37,6 +38,18 @@ def _alternation(keys) -> str:
     return "|".join(re.escape(k) for k in sorted(keys))
 
 
+#: The selection names no pipeline: absent (None) or an empty list. A refusal, an out_of_scope verdict
+#: and a story that expects "not yet" all leave `selection.pipelines` empty.
+NO_PIPELINE_OFFERED = {"field": "pipeline_agent.selection.pipelines", "op": "matches_re", "value": r"^(\[\]|None)$"}
+
+
+def _never_named(keys) -> dict:
+    """No pipeline in `keys` appears in the selection's pipelines. The selection is read, not
+    `pipeline_key`, which is rarely set by the question turn. The field renders as str(list)."""
+    return {"field": "pipeline_agent.selection.pipelines", "op": "matches_re",
+            "value": rf"(?s)^(?!.*\b({_alternation(keys)})\b).*"}
+
+
 def _variant(story) -> dict:
     uids = cohort_uids(story.cohort)[:MAX_SETUP_UIDS]
     setup = {"label": "setup_search", "query": "Find " + ", ".join(uids) + ".",
@@ -45,11 +58,16 @@ def _variant(story) -> dict:
            "pass_criteria": [{"field": "route", "op": "eq", "value": story.route}]}
     turns = [setup, ask]
     if story.route == "nextseek_query" and story.must_not:
-        ask["pass_criteria"].append({"field": "pipeline_agent.pipeline_key", "op": "matches_re",
-                                     "value": rf"(?s)^(?!({_alternation(story.must_not)})$).*"})
+        ask["pass_criteria"].append(_never_named(story.must_not))
     if story.expect in ("not_yet", "refuse"):
-        ask["pass_criteria"].append({"field": "pipeline_agent.selection.verdict", "op": "matches_re",
-                                     "value": "^(refused|out_of_scope)$"})
+        # The verdict alone also passes on a degraded out_of_scope (a model call that failed), so the
+        # user then pushes for the build and nothing may be offered or built.
+        ask["pass_criteria"] += [
+            {"field": "pipeline_agent.selection.verdict", "op": "matches_re", "value": "^(refused|out_of_scope)$"},
+            NO_PIPELINE_OFFERED]
+        turns.append({"label": "push_to_build", "query": DEFAULT_REPLY, "pass_criteria": [
+            {"field": "pipeline_agent.pipeline_key", "op": "eq", "value": None},
+            NO_PIPELINE_OFFERED]})
     elif story.launch.get("built"):
         union = {k for a in story.acceptable for k in a}
         turns.append({"label": "build", "query": story.replies[0] if story.replies else DEFAULT_REPLY,
