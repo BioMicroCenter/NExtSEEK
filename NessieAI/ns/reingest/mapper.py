@@ -902,7 +902,12 @@ def _group_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
             parents.extend(member.d_seq_uid_multirun)
         else:
             unresolved.append(member.nfcore_sample)
-    if unresolved:
+    if unresolved and not parents:
+        # Whether this row should ship at all awaits the owner's ruling
+        # (NessieAI/ns/reingest/README.md "Invariants"); today it ships with no Parent.
+        warnings.append(f"{group}: no replicate ({', '.join(unresolved)}) resolved to a "
+                        f"D.SEQ; the group's {rule.id} row has no Parent")
+    elif unresolved:
         warnings.append(f"{group}: replicate(s) {', '.join(unresolved)} resolved to no "
                         f"D.SEQ; the group's {rule.id} row names only the others as Parent")
     first = members[0]

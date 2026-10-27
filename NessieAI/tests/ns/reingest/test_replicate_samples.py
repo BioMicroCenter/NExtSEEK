@@ -314,3 +314,23 @@ def test_alternatives_at_the_group_and_replicate_levels_are_flagged_on_the_group
                  "WT_REP2.mLb.clN_peaks.broadPeak"):
         assert path in warning
     assert [e["sample"] for e in result.alternative_rows] == ["WT"]
+
+
+def test_a_merged_group_with_no_resolved_replicate_ships_a_row_with_no_parent(tmp_path):
+    # Pins today's behaviour; whether such a row should ship awaits the owner's ruling
+    # (NessieAI/ns/reingest/README.md "Invariants"). The warning must not claim the
+    # row names "the others" when there are none.
+    from nextseek_api.assistant.models_db import PipelineRun
+    _run(tmp_path, "atacseq", "2.1.2", ATAC_SHEET)
+    PipelineRun.objects.create(run_dir=str(tmp_path), run_name="r", pipeline="nf-core/atacseq", cohort=[
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_a"), "d_seq_uid": "D.SEQ-1"},
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_a"), "d_seq_uid": "D.SEQ-98"},
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_b"), "d_seq_uid": "D.SEQ-2"},
+        {"nfcore_sample": "WT", "fastq_1": _fq("wt_b"), "d_seq_uid": "D.SEQ-99"}])
+    result = mapper.apply(_harvest(tmp_path, _atac_paths(), ATAC_UIDS),
+                          maps.load("atacseq"), context=CONTEXT)
+    assert [row for row in _rows(result, "aln") if row[0] == "WT"] == [
+        ("WT", "WT.mRp.clN.sorted.bam", None)]
+    assert ("WT: no replicate (WT_REP1, WT_REP2) resolved to a D.SEQ; the group's aln "
+            "row has no Parent") in result.warnings
+    assert not any("names only the others" in w for w in result.warnings if w.startswith("WT:"))

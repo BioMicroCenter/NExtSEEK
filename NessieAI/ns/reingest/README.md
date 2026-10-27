@@ -90,7 +90,9 @@ per-job path cannot be listed until the allowlist supports patterns.
   A group's merged file is the group's own output and its other replicates' parents are
   certain, so the row ships, `Parent` names only the replicates that resolved, and a map note
   names the one left out. See `test_a_merged_group_with_an_ambiguous_replicate_still_writes_its_row`
-  in `NessieAI/tests/ns/reingest/test_replicate_samples.py`.
+  in `NessieAI/tests/ns/reingest/test_replicate_samples.py`. When no replicate resolved, the row
+  still ships today, with no `Parent`, and the note says so; whether it should ship awaits an
+  owner ruling (`test_a_merged_group_with_no_resolved_replicate_ships_a_row_with_no_parent`).
 
 ## Running and testing
 
