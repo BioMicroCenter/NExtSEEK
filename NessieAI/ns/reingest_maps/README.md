@@ -43,7 +43,11 @@ fixture), all under `NessieAI/tests/ns/reingest/`; and the link test
     per_run-shaped row per matching file, for outputs written once per contrast).
     A `per_file` rule must set `primary_data` and takes exactly one candidate. Its
     rows can read `@file_stem`, the part of the file name the glob's leading `*`
-    matched (the contrast id for `*.deseq2.results.tsv`).
+    matched (the contrast id for `*.deseq2.results.tsv`). A `per_file` row is parented
+    by every sample of the run, unless the rule sets `parents_by_samplesheet`, a
+    samplesheet column whose value is the row's `@file_stem`: then only the samples
+    with that value are its parents (chipseq's `<antibody>.consensus_peaks.bed`, column
+    `antibody`), and a file no sample names gets no `Parent` and a warning.
   - `companions` — files derived from the row's primary file (a subset, an index,
     other units, a model object). A companion is never its own row. It goes into
     its `slot` if it names one, the row's type has it and it is empty; else
@@ -99,7 +103,10 @@ fixture), all under `NessieAI/tests/ns/reingest/`; and the link test
 - `unmapped_files` — globs of run files no rule registers on purpose, each with a `why`. The mapper drops a matching file before any rule sees it, so a ruled-out file is never a rule's candidate or companion, and with `claims_every_file` set the fixture test counts it as claimed. Matching is `fnmatch` over brace-expanded globs, and `*` crosses `/`. `except_globs` names files the glob also matches that the ruling leaves to the rules (methylseq rules out bwa-meth's unsorted `alignments/<sample>.bam` but not the `<sample>.sorted.bam` its aln rule reads); `maps.UnmappedFiles.rules_out` is the one matcher.
 
 `$`-prefixed values are lookups into a manifest section (`params`, `pipeline`,
-`software_versions`, `outputs`, `metrics`, `derived`). There is no evaluation.
+`software_versions`, `outputs`, `metrics`, `derived`, `samplesheet`). There is no evaluation.
+`$samplesheet.<column>` is the sample's own samplesheet cell (the harvest keeps every
+cell that is not a path); on a row with no sample in scope (`per_run`, `per_file`) it is
+the value every sample of the row's run shares, else nothing.
 A map cannot compute; `derived_metrics` in `reingest/derived.py` is the only
 place reingest does arithmetic on a measurement.
 
@@ -223,8 +230,6 @@ What blocks each row:
 |---|---|---|---|
 | atacseq | the per-replicate files of a sample whose replicates were merged: `<ALIGNER>/merged_library/<sample>_REP<n>.mLb.clN.sorted.bam`, its peaks and its bigWig | A.ALN, A.CHRM | choice: whether to register replicate-level files beside the merged-replicate ones. Today the sample's merged-replicate file wins (G-4) and is registered once for the group, parented by every replicate; the replicates' files are its losing candidates, so they reach its companions or the build report. Rows of their own would need separate rules. A sample with one replicate, or a run with `--skip_merge_replicates`, registers each replicate's own files, parented by its own D.SEQ (`replicate_samples`) |
 | atacseq | `<ALIGNER>/merged_replicate/macs2/<PEAK_TYPE>/consensus/consensus_peaks.mRp.clN.bed` and its `featureCounts.txt` (the consensus over the merged-replicate peaks) | A.CHRM | inventory, choice: a second consensus set beside the merged-library one, which the map registers |
-| chipseq | `<ALIGNER>/merged_library/macs3/<PEAK_TYPE>/consensus/<ANTIBODY>/<ANTIBODY>.consensus_peaks.bed` and its `featureCounts.txt`, one per antibody | A.CHRM | inventory, parent: a `per_file` row is parented by every sample of the run, controls and other antibodies' samples included |
-| chipseq | the antibody each peak row was called for | A.CHRM | type: A.CHRM has no Name or antibody field, and harvest reads no `antibody` column |
 | denovotranscript | `evigene/okayset/all_assembled.okay.mrna` (the final assembly, FASTA) | none | type, inventory |
 | denovotranscript | `evigene/okayset/all_assembled.okay.aa` (its proteins) | none | type, inventory |
 | denovotranscript | `trinity/pooled_reads.fa.gz`, `rnaspades/pooled_reads.transcripts.fa.gz` (assemblies before redundancy reduction) | none | type, inventory, choice: whether to register pre-reduction assemblies at all |
@@ -238,6 +243,7 @@ What blocks each row:
 | hlatyping | `yara/<sample>/<sample>.mapped.bam`, or `<sample>_1`/`_2.mapped.bam` when paired | A.ALN? | choice: HLA-only reference, and two BAMs per paired sample |
 | methylseq | Bismark's per-read, per-context calls `<aligner>/methylation_calls/methylation_calls/{CpG,CHG,CHH}_{OT,OB}_*.txt.gz`, the targeted bedGraph `*.bedGraph.targeted.bedGraph` (with `--run_targeted_sequencing`), and `bismark/coverage2cytosine/{coverage,reports}/` (with `--cytosine_report` or `--nomeseq`). The CpG coverage and bedGraph have rules (A.MSEQ); their MeanCpGMethylationPercent reads the general-stats column `bismark-percent_cpg_meth`, unverified until a real run | A.MSEQ | choice: whether to register the per-read calls (large; summarised by the coverage file) and the genome-wide cytosine report, which would need a slot or Notes on A.MSEQ |
 | methylseq | `methyldackel/*_{CHG,CHH}.bedGraph` (with `--all_contexts`; `*_{CHG,CHH}.methylKit` with `--methyl_kit` as well), `methyldackel/*.targeted.bedGraph`, and Rastair's TAPS calls `rastair/{call,methylkit}/` (bwa-mem, or bwa-meth with `--taps`). MethylDackel's CpG calls have rules (A.MSEQ): `*_CpG.bedGraph`, or `*_CpG.methylKit`, which `--methyl_kit` writes instead of the bedGraph. With `--taps` and a Bismark aligner, Bismark still calls the reads as bisulfite data, so its calls come out inverted while the row's ConversionMethod says TAPS; methylseq only logs a recommendation to use bwa-mem (`workflows/methylseq/main.nf`) | A.MSEQ | inventory; choice: A.MSEQ has one secondary slot and no Notes for the non-CpG files; TAPS calls need their own DataType and Software; whether to refuse a TAPS run aligned with Bismark |
+| chipseq, atacseq | A.CHRM's Name, Antibody, File_SecondaryData, Link_SecondaryData and Notes exist on the local stack only (widened 2026-10-27). The maps set Name and Antibody as `row_defaults`, which the mapper drops for a type that lacks them, and companions fall back to the build report there, so dev and prod build the rows they built before. The committed `context/sample_types.json` stays prod-true; the contract test reads the fields from the test-only snapshot `NessieAI/tests/ns/fixtures/sampletype_attributes.json` (its `hand_edits` note). Before this map merges to a branch that deploys: widen A.CHRM on dev and prod (the owner's commands, untracked, in `schema/reingest-types-src/remote-create/`: `remote_create.py widen <instance> --definitions achrm_fields.json`, then `achrm_catalog.sql` on that instance's dmac database and `graph_sync --catalog`), then add the five to A.CHRM in `context/sample_types.json`, regenerate (`scripts/context_gen.py --emit update`, `--emit exports`) and drop the snapshot's hand-edit note. | A.CHRM | five fields to create on dev and prod |
 | methylseq | A.MSEQ and its producing assay "Methylation Calling" exist on the local stack only; the A.MSEQ rows cannot upload on dev or prod until both are created there. The committed assay catalog (`assays_db.json`, `min_assays_db.json`, the installer seed) stays prod-true and does not list the assay: the contract test reads it from the test-only overlay `NessieAI/tests/ns/fixtures/local_only_assays.json`. Before this map merges to a branch that deploys, Methylation Calling must be in `context/assays.json` and the exports (and the overlay entry deleted), and A.MSEQ created on dev and prod. | A.MSEQ | a sample type and a house assay to create on dev and prod |
 | riboseq | `alignment/star/sorted/<sample>.transcriptome.sorted.bam` (+ `.bai`) | A.ALN | ready: a companion of the genome BAM's row |
 | riboseq | `alignment/star/deduplicated/<sample>.umi_dedup.genome.sorted.bam` (with `--with_umi`; unconfirmed name) | A.ALN | ready: a first candidate, ahead of the sorted BAM |
@@ -329,9 +335,14 @@ The custom-content tables keep each value under a column named after its own row
 two-column bargraph shape), so reading them needs a harvest reader for that shape as well as
 the attribute.
 
-A.CHRM has no `File_SecondaryData` or `Notes`, so a companion of an A.CHRM row
-(atacseq's consensus `featureCounts.txt`, a losing peak or bigWig candidate) reaches
-only the build report.
+A.CHRM rows carry a `Name` (`@row_name`) and, for chipseq, the `Antibody` their
+replicate's samplesheet names (`$samplesheet.antibody`; blank for the input controls),
+both as `row_defaults`. chipseq's per-antibody consensus peaks are one `per_file` row
+each, parented only by that antibody's samples (`parents_by_samplesheet`), with its
+`featureCounts.txt` as companion. A companion of an A.CHRM row (atacseq's consensus
+`featureCounts.txt`, a losing peak or bigWig candidate of a merged-replicate group) goes
+to `File_SecondaryData`, then `Notes`, on an instance whose A.CHRM has them (the local
+stack, until dev and prod are widened: the row above), and to the build report elsewhere.
 
 ### methylseq's variant fixtures
 
