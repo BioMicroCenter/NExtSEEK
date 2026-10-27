@@ -145,11 +145,24 @@ def _seconds(value: str) -> int:
     return total
 
 
+def _web_grace_period(text: str) -> str:
+    """web's stop_grace_period, read without a YAML library (./startup.sh installs no test group): the key sits
+    at the top level of the `  web:` service block. "" when absent or the file is not shaped like that."""
+    in_web = False
+    for line in text.splitlines():
+        if re.match(r"  web:\s*(#.*)?$", line):
+            in_web = True
+        elif in_web and re.match(r"  \S", line):   # next service
+            in_web = False
+        elif in_web and (m := re.match(r"    stop_grace_period:\s*['\"]?([0-9hms]+)", line)):
+            return m.group(1)
+    return ""
+
+
 def drain_problem(repo_root: Path) -> str | None:
     """A message when the NEXTSEEK_DRAIN_SECONDS set in .env is not a whole number of seconds, or is more than web's
     stop_grace_period allows: Docker would SIGKILL web before it cuts the turns it could not finish. Only .env
     counts: compose's environment: line for the key wins over docker/nextseek.env."""
-    import yaml
     from startup.lib.env import read_env
 
     repo_root = Path(repo_root)
@@ -162,8 +175,10 @@ def drain_problem(repo_root: Path) -> str | None:
     compose = repo_root / "docker-compose.yml"
     if not compose.exists():
         return None
-    grace = _seconds(((yaml.safe_load(compose.read_text()).get("services") or {}).get("web") or {})
-                     .get("stop_grace_period", ""))
+    try:
+        grace = _seconds(_web_grace_period(compose.read_text()))
+    except (OSError, UnicodeDecodeError) as e:   # a check must never stop a rebuild
+        return f"could not read {compose} to check the drain time: {e}"
     limit = grace - DRAIN_MARGIN_S
     if grace and int(configured) > limit:
         return (f"NEXTSEEK_DRAIN_SECONDS={configured} is above {limit} (web's stop_grace_period {grace} s "

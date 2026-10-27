@@ -1,0 +1,45 @@
+START tag=20261026-2235 instance=dev components=bedrock-proxy cc-spawner app cc-agent nextseek-sidecar 22:00:00
+HEAD c500ab2c Merge branch 'fix/deploy-first-split-order-nginx-pending-app' 22:00:00
+FIRST_SPLIT=0 22:00:00
+SWITCHOVER the app containers change user (root to 10001); order: app-build cc-agent nextseek-sidecar bedrock-proxy cc-spawner app 22:00:00
+MIGRATION in the range: app-build first, the rehearsal right after it; order: app-build cc-agent nextseek-sidecar bedrock-proxy cc-spawner app 22:00:00
+REBUILD app-build exit=1 22:00:00
+REBUILT app-build 22:00:00
+RED app-build [pending cc-agent] cc-agent context: STALE: dmac-assistant:poc bakes 0 of 21 canonical context files unlike the checkout: the Nessie docs snapshot (.content-hash differs). The CC  22:00:00
+RED app-build [pending app] app image code: STALE: of 2630 tracked app files, 122 differ (NessieAI/cc/CLAUDE.md, NessieAI/cc/DEPLOY.md, NessieAI/cc/README.md, NessieAI/cc/cc_engine.py, Nes 22:00:00
+RED app-build [known] graph drift: DRIFT: 1 of 85 checks failed: catalog.assistant_investigations 22:00:00
+RED app-build [known] graph sync health: failing outbox rows: 0 (0 overdue); failed runs: 0 (0 overdue); latest drift check: run 334 drift drift run 334 (finished 2026-10-26T22:55:38 22:00:00
+RED app-build [known] no usable GHCR credential at /home/service-account/.config/nextseek/ghcr.env 22:00:00
+RED app-build [summary] Rebuild finished but is red: stack health, graph drift, graph sync health. No rollback is needed: the build and restart succeeded, only the health judgement is  22:00:00
+REBUILD cc-agent exit=1 22:00:00
+REBUILT cc-agent 22:00:00
+RED cc-agent [pending app] app image code: STALE: of 2630 tracked app files, 122 differ (NessieAI/cc/CLAUDE.md, NessieAI/cc/DEPLOY.md, NessieAI/cc/README.md, NessieAI/cc/cc_engine.py, Nes 22:00:00
+RED cc-agent [known] graph sync health: failing outbox rows: 0 (0 overdue); failed runs: 0 (0 overdue); latest drift check: run 334 drift drift run 334 (finished 2026-10-26T22:55:38 22:00:00
+RED cc-agent [known] no usable GHCR credential at /home/service-account/.config/nextseek/ghcr.env 22:00:00
+RED cc-agent [summary] Rebuild finished but is red: stack health, graph sync health. No rollback is needed: the build and restart succeeded, only the health judgement is red. 22:00:00
+REBUILD nextseek-sidecar exit=1 22:00:00
+REBUILT nextseek-sidecar 22:00:00
+RED nextseek-sidecar [pending app] app image code: STALE: of 2630 tracked app files, 122 differ (NessieAI/cc/CLAUDE.md, NessieAI/cc/DEPLOY.md, NessieAI/cc/README.md, NessieAI/cc/cc_engine.py, Nes 22:00:00
+RED nextseek-sidecar [known] graph sync health: failing outbox rows: 0 (0 overdue); failed runs: 0 (0 overdue); latest drift check: run 334 drift drift run 334 (finished 2026-10-26T22:55:38 22:00:00
+RED nextseek-sidecar [known] no usable GHCR credential at /home/service-account/.config/nextseek/ghcr.env 22:00:00
+RED nextseek-sidecar [summary] Rebuild finished but is red: stack health, graph sync health. No rollback is needed: the build and restart succeeded, only the health judgement is red. 22:00:00
+REBUILD bedrock-proxy exit=1 22:00:00
+REBUILT bedrock-proxy 22:00:00
+RED bedrock-proxy [pending app] app image code: STALE: of 2630 tracked app files, 122 differ (NessieAI/cc/CLAUDE.md, NessieAI/cc/DEPLOY.md, NessieAI/cc/README.md, NessieAI/cc/cc_engine.py, Nes 22:00:00
+RED bedrock-proxy [known] graph sync health: failing outbox rows: 0 (0 overdue); failed runs: 0 (0 overdue); latest drift check: run 334 drift drift run 334 (finished 2026-10-26T22:55:38 22:00:00
+RED bedrock-proxy [known] no usable GHCR credential at /home/service-account/.config/nextseek/ghcr.env 22:00:00
+RED bedrock-proxy [summary] Rebuild finished but is red: stack health, graph sync health. No rollback is needed: the build and restart succeeded, only the health judgement is red. 22:00:00
+REBUILD cc-spawner exit=1 22:00:00
+REBUILT cc-spawner 22:00:00
+RED cc-spawner [pending app] app image code: STALE: of 2630 tracked app files, 122 differ (NessieAI/cc/CLAUDE.md, NessieAI/cc/DEPLOY.md, NessieAI/cc/README.md, NessieAI/cc/cc_engine.py, Nes 22:00:00
+RED cc-spawner [known] graph sync health: failing outbox rows: 0 (0 overdue); failed runs: 0 (0 overdue); latest drift check: run 334 drift drift run 334 (finished 2026-10-26T22:55:38 22:00:00
+RED cc-spawner [known] no usable GHCR credential at /home/service-account/.config/nextseek/ghcr.env 22:00:00
+RED cc-spawner [summary] Rebuild finished but is red: stack health, graph sync health. No rollback is needed: the build and restart succeeded, only the health judgement is red. 22:00:00
+REBUILD app exit=1 22:00:00
+REBUILT app 22:00:00
+RED app [known] graph drift: DRIFT: 1 of 85 checks failed: catalog.assistant_investigations 22:00:00
+RED app [known] graph sync health: failing outbox rows: 0 (0 overdue); failed runs: 0 (0 overdue); latest drift check: run 336 drift drift run 336 (finished 2026-10-26T23:16:37 22:00:00
+RED app [known] no usable GHCR credential at /home/service-account/.config/nextseek/ghcr.env 22:00:00
+RED app [summary] Rebuild finished but is red: graph drift, graph sync health. No rollback is needed: the build and restart succeeded, only the health judgement is red. 22:00:00
+RED ci [known] graph drift: DRIFT: 1 of 85 checks failed: catalog.assistant_investigations 22:00:00
+RED ci [known] graph sync health: failing outbox rows: 0 (0 overdue); failed runs: 0 (0 overdue); latest drift check: run 338 drift drift run 338 (finished 2026-10-26T23:25:53 22:00:00

@@ -1444,7 +1444,7 @@ def parse_status(text: str) -> dict:
                 "stopped": None, "head": None, "rebuilds": {}, "rollback": {}, "failed": [],
                 "ci_exit": None, "ci_result": None, "ci_new_reds": [], "findings": [], "reds": [],
                 "nessie": [], "stamps": [], "checks_http": None, "labs": None, "static_exit": None,
-                "first_split": False}
+                "first_split": False, "order": []}
     for ln in lines:
         m = STAMP_RE.search(ln)
         body = ln[: m.start()].strip() if m else ln.strip()
@@ -1456,6 +1456,8 @@ def parse_status(text: str) -> dict:
             st["head"] = body[5:]
         elif body.startswith("FIRST_SPLIT="):
             st["first_split"] = body.startswith("FIRST_SPLIT=1")
+        elif mm := re.match(r"^(?:SWITCHOVER|MIGRATION)\b.*\border: (.*)$", body):
+            st["order"] = mm.group(1).split()   # the runner's own step order; the last line wins
         elif mm := re.match(r"^REBUILD (\S+) exit=(\d+)", body):
             st["rebuilds"].setdefault(mm.group(1), {})["exit"] = int(mm.group(2))
         elif mm := re.match(r"^REBUILT (\S+)", body):
@@ -1603,6 +1605,12 @@ def parse_nessie_log(text: str) -> dict:
     return {"cases": cases, "gate": gate, "cost_line": cost}
 
 
+def judge_order(comps: list[str], st: dict) -> list[str]:
+    """The components in the order the runner ran them: its SWITCHOVER / MIGRATION line (the app last), else as given."""
+    ran = [c for c in st.get("order", []) if c in comps]
+    return ran + [c for c in comps if c not in ran] if ran else list(comps)
+
+
 def cmd_judge(a) -> int:
     data, brief, d = load_brief(a.brief)
     tag = data["derived"]["tag"]
@@ -1616,6 +1624,7 @@ def cmd_judge(a) -> int:
     known_c = data["derived"]["known_ci_reds"]
     comps = (load_json(d / "runner" / "runner.json", "runner.json")["components"]
              if (d / "runner" / "runner.json").is_file() else images_for(brief, d))
+    comps = judge_order(comps, st)
     pending = set(comps)
     rebuilds = {}
     for c in comps:

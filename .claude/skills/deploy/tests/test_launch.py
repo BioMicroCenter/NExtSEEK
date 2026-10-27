@@ -2148,3 +2148,23 @@ def test_new_layout_reds_are_pending_until_the_step_that_creates_them_then_real(
         "pending app", "pending cc-spawner", "pending cc-spawner"]
     after = bash_judge(tmp_path, text, log, "")
     assert [c for c, _ in after] == ["stale app", "stale cc-spawner", "stale cc-spawner"]
+
+
+def test_judge_ranks_a_switchover_by_the_order_the_runner_ran(tmp_path):
+    # dev-launch-20261026-2235: the app is rebuilt LAST on a switchover, so 'app image code: STALE' after the agent,
+    # sidecar, proxy and spawner steps is pending, not unexplained (the judge used the rules order, app third)
+    st = L.parse_status((FIX / "real-switchover-dev-20261026-2235.status").read_text())
+    assert st["order"] == ["app-build", "cc-agent", "nextseek-sidecar", "bedrock-proxy", "cc-spawner", "app"]
+    comps = L.judge_order(["bedrock-proxy", "cc-spawner", "app", "cc-agent", "nextseek-sidecar"], st)
+    assert comps == ["cc-agent", "nextseek-sidecar", "bedrock-proxy", "cc-spawner", "app"]
+    pending, known = set(comps), _known("dev")
+    for c in comps[:-1]:
+        pending.discard(c)
+        log = FIX / f"real-switchover-dev-20261026-2235-{rules.LOG_NAME[c]}.log"
+        reds = [{"text": t, "class": L.classify_red(t, pending, known)} for t in L.health_reds(log.read_text())]
+        assert L.bad_reds([r for r in reds if r["class"] != "skip"]) == [], c
+
+
+def test_judge_order_is_unchanged_without_a_switchover_line():
+    comps = ["bedrock-proxy", "app", "cc-agent"]
+    assert L.judge_order(comps, L.parse_status("START tag=x instance=dev components=app\n")) == comps
