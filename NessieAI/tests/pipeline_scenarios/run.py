@@ -3,10 +3,12 @@
 Inside the nextseek container, with the owner's go for this run:
 
   docker exec -w /app nextseek uv run --no-sync python -m NessieAI.tests.pipeline_scenarios.run \
-      [--ids a,b | --family chromatin] [--per-story-usd 1.50] --yes
+      [--ids a,b | --family chromatin] [--per-story-usd 1.50] [--max-usd 40] --yes
 
 Without --yes it prints the stories it would run and the estimated cost, and stops.
 Only ruled stories run, and only those whose cohort has UIDs on this stack.
+Each story's row and summary.json record what the run spent (story_spend); --max-usd stops the run
+before the next story once that total reaches it.
 """
 from __future__ import annotations
 
@@ -29,11 +31,35 @@ MAX_REPLIES = 3
 MAX_STORY_UIDS = 60
 #: The run folders' root; scrub rewrites paths under it to /RUN on the tape.
 OUTPUTS = scrub.OUTPUTS
+#: The id make_session gives the cohort's search, which the parser plan names.
+SEED_RESULT_ID = 1
 _METADATA_SOURCES = ("fetch_reporter_metadata", "annotate_metadata_with_sampletypes")
 
 
+class _PricedClient:
+    """Hands each answer of the model client's chat() to the story's spend collector, as tool_loop.call_tools
+    does for the agent loop's own calls (chat_with_tools, passed through here, is counted there). The
+    selection model is asked through chat() on a worker thread, where turn_spend's ContextVar is unset,
+    so the collector is the one current when the client was handed out."""
+    def __init__(self, client, spend):
+        self._client, self._spend = client, spend
+
+    def chat(self, **kw):
+        entry = {"agent": "selection", "provider": None, "model": kw.get("model"), "attempt": 0, "outcome": "ok"}
+        try:
+            resp = self._client.chat(**kw)
+        except Exception as exc:
+            self._spend.record({**entry, "outcome": "error"}, err=exc)
+            raise
+        self._spend.record(entry, resp=resp)
+        return resp
+
+    def __getattr__(self, name):
+        return getattr(self._client, name)
+
+
 class RunConfig:
-    """The real config, minus every submit tool, with the selection model's answers taped."""
+    """The real config, minus every submit tool, with the selection model's answers taped and priced."""
     LURIA_ENV_COMPLETE = False
     # The loop dispatches any tool name the model emits, and the submit tools read these, so a
     # model that names submit_to_luria or submit_to_tower still finds nothing configured. The
@@ -47,7 +73,11 @@ class RunConfig:
         self._config, self._tape = config, tape
 
     def get_agent_model(self, label):
+        from chat_nextseek import turn_spend
         client, model, budget = self._config.get_agent_model(label)
+        spend = turn_spend.current()
+        if spend is not None:
+            client = _PricedClient(client, spend)
         return (RecordingClient(client, self._tape) if self._tape and self._tape.mode == "record" else client), model, budget
 
     def __getattr__(self, name):
@@ -68,13 +98,25 @@ def make_session(story: Story, uids: list[str]) -> dict:
     if uids:
         query = seed_query(uids)
         result = {"ok": True, "data": [{"uuid": u} for u in uids]}
-        session["results_history"].append({"id": 1, "user_query": query, "graph_result": result})
+        session["results_history"].append({"id": SEED_RESULT_ID, "user_query": query, "graph_result": result})
         append_turn(session, user_query=query, mode="graph_query", result_payload=result,
-                    assistant_reply=f"Found {len(uids)} samples.", bundle_id=1)
+                    assistant_reply=f"Found {len(uids)} samples.", bundle_id=SEED_RESULT_ID)
     for turn in story.history:
         append_turn(session, user_query=turn["user"], mode="graph_query",
                     assistant_reply=turn.get("assistant") or None)
     return session
+
+
+def parser_plan(story: Story, uids: list[str]):
+    """The parser plan the agent starts with, as the orchestrator hands it over on its nf-core report
+    branch: the parser names the cohort's search as the result the question is about. start() then
+    builds on that search and puts the chat's earlier turns, the story's history among them, into the
+    agent's first message. None with no cohort, as there is no search to name."""
+    if not uids:
+        return None
+    from chat_nextseek.schemas.router import ParserPlan
+    return ParserPlan(mode="reporter", intent_summary=story.question, report_type="NFCORE",
+                      target_result_id=SEED_RESULT_ID)
 
 
 def router_history(story: Story, uids: list[str]):
@@ -129,7 +171,45 @@ def _decision_record(d) -> dict:
     return {k: getattr(d, k, None) for k in ("route", "source", "reasoning", "router_model", "router_cost_usd")}
 
 
-def _finish(outcome: Outcome, record: dict, session: dict, pa) -> None:
+_ROUTER_TOKENS = ("input_tokens", "output_tokens", "thoughts_tokens", "cached_tokens")
+_AGENT_TOKENS = ("input", "cache_read", "cache_write_5m", "cache_write_1h", "output")
+
+
+def story_spend(decision, agent: dict | None) -> dict:
+    """What one story cost, from what is already counted: the router's calls as its decision prices them
+    (router_cost_usd, router_usage) and the agent's (the loop's calls and the selection model's) as
+    turn_spend priced them, both on model_prices.json. `usd` is the sum of what was priced; `partial`
+    says some call went unpriced or unseen (its cost is not in `usd`), never that it cost nothing.
+    `agent` is turn_spend's turn record, None for a story that never started the agent."""
+    usage = getattr(decision, "router_usage", None)
+    router_usd = getattr(decision, "router_cost_usd", None)
+    router = {"usd": router_usd,
+              "partial": router_usd is None or bool(getattr(decision, "router_cost_partial", False)),
+              "tokens": {k: int((usage or {}).get(k) or 0) for k in _ROUTER_TOKENS}}
+    if agent is None:
+        agent_part = {"usd": 0.0, "partial": False, "tokens": {k: 0 for k in _AGENT_TOKENS}}
+    else:
+        by_model = (agent.get("cost") or {}).get("by_model") or {}
+        agent_part = {"usd": agent.get("total_cost_usd"),
+                      "partial": agent.get("total_cost_usd") is None or bool(agent.get("cost_partial")),
+                      "tokens": {k: sum(int(m.get(k) or 0) for m in by_model.values()) for k in _AGENT_TOKENS},
+                      "turn_record": agent}
+    known = [part["usd"] for part in (router, agent_part) if part["usd"] is not None]
+    return {"usd": round(sum(known), 6), "partial": router["partial"] or agent_part["partial"],
+            "router": router, "agent": agent_part}
+
+
+def _total_spend(rows: list[dict], max_usd: float | None) -> dict:
+    spends = [r.get("spend") or {"usd": 0.0, "partial": True} for r in rows]
+
+    def part(name):
+        return round(sum((s.get(name) or {}).get("usd") or 0.0 for s in spends), 6)
+    return {"usd": round(sum(s["usd"] or 0.0 for s in spends), 6), "router_usd": part("router"),
+            "agent_usd": part("agent"), "partial": any(s["partial"] for s in spends), "max_usd": max_usd}
+
+
+def _finish(outcome: Outcome, record: dict, session: dict, pa, decision=None, spend=None) -> None:
+    record["spend"] = story_spend(decision, spend.summary() if spend is not None else None)
     state = session.get(pa.PIPELINE_AGENT_KEY) or {}
     built = bool((state.get("artifacts") or {}).get("launch"))
     outcome.selection = state.get("selection")
@@ -142,7 +222,8 @@ def run_story(story: Story, config, tape: Tape | None, log_dir: Path, decide=Non
     """Run one story. A tape that refused or did not match raises from taped()'s exit: the
     caller (main) records that as the story's runner error, so it must never be caught here.
     The exception carries what the paid run produced (`exc.outcome`, `exc.record`) so main
-    keeps the router's decision and the agent's replies."""
+    keeps the router's decision, the agent's replies and what both spent (`record["spend"]`)."""
+    from chat_nextseek import turn_spend
     from chat_nextseek.pipeline import agent as pa
     if decide is None:
         from NessieAI.router.router import decide
@@ -151,26 +232,31 @@ def run_story(story: Story, config, tape: Tape | None, log_dir: Path, decide=Non
     record = {"decision": _decision_record(decision), "replies": []}
     outcome = Outcome(route=decision.route, uids=list(uids))
     if decision.route != "nextseek_query" or (story.family == "off_topic" and not story.acceptable):
+        record["spend"] = story_spend(decision, None)
         return outcome, record
-    session = make_session(story, uids)
-    try:
-        cfg = config if isinstance(config, RunConfig) else RunConfig(config, tape)
-        log_dir.mkdir(parents=True, exist_ok=True)
-        with (taped(tape, live=live, store=store) if tape else contextlib.nullcontext()):
-            res = pa.start(session, cfg, user_query=story.question, log_dir=str(log_dir))
-            record["replies"].append(res.get("reply") or "")
-            answers = list(story.replies)
-            for _ in range(MAX_REPLIES):
-                state = session.get(pa.PIPELINE_AGENT_KEY) or {}
-                if (state.get("artifacts") or {}).get("launch") or not state.get("active") or story.expect == "ask":
-                    break
-                res = pa.handle_turn(session, cfg, answers.pop(0) if answers else DEFAULT_REPLY, log_dir=str(log_dir))
+    session: dict = {}
+    with turn_spend.collecting() as spend:
+        try:
+            session = make_session(story, uids)
+            cfg = config if isinstance(config, RunConfig) else RunConfig(config, tape)
+            log_dir.mkdir(parents=True, exist_ok=True)
+            with (taped(tape, live=live, store=store) if tape else contextlib.nullcontext()):
+                res = pa.start(session, cfg, user_query=story.question, parser_plan=parser_plan(story, uids),
+                               log_dir=str(log_dir))
                 record["replies"].append(res.get("reply") or "")
-    except Exception as exc:
-        _finish(outcome, record, session, pa)
-        exc.outcome, exc.record = outcome, record
-        raise
-    _finish(outcome, record, session, pa)
+                answers = list(story.replies)
+                for _ in range(MAX_REPLIES):
+                    state = session.get(pa.PIPELINE_AGENT_KEY) or {}
+                    if (state.get("artifacts") or {}).get("launch") or not state.get("active") or story.expect == "ask":
+                        break
+                    res = pa.handle_turn(session, cfg, answers.pop(0) if answers else DEFAULT_REPLY,
+                                         log_dir=str(log_dir))
+                    record["replies"].append(res.get("reply") or "")
+        except Exception as exc:
+            _finish(outcome, record, session, pa, decision, spend)
+            exc.outcome, exc.record = outcome, record
+            raise
+        _finish(outcome, record, session, pa, decision, spend)
     return outcome, record
 
 
@@ -180,6 +266,8 @@ def main(argv: list[str]) -> int:
     p.add_argument("--ids", default="")
     p.add_argument("--family", default="")
     p.add_argument("--per-story-usd", type=float, default=1.50)
+    p.add_argument("--max-usd", type=float, default=None,
+                   help="stop before the next story once the recorded spend reaches this (priced calls only)")
     p.add_argument("--yes", action="store_true")
     p.add_argument("--out", type=Path, default=None)
     a = p.parse_args(argv)
@@ -197,6 +285,7 @@ def main(argv: list[str]) -> int:
     runnable = [s for s in chosen if not s.cohort or cohort_uids(s.cohort)]
     skipped = sorted(s.id for s in chosen if s not in runnable)
     print(f"{len(runnable)} stories, ~${len(runnable) * a.per_story_usd:.2f} estimated"
+          + (f", stopping once ${a.max_usd:.2f} is spent (--max-usd)" if a.max_usd is not None else "")
           + (f"; skipped (no UIDs on this stack): {skipped}" if skipped else ""))
     if not a.yes:
         print("Not run: pass --yes once the owner has approved this run.")
@@ -209,7 +298,13 @@ def main(argv: list[str]) -> int:
     agent_model = real.get_agent_model("pipeline_agent")[1]    # a model swap must be visible on the run
     routing = routing_settings()
     results = []
-    for story in runnable:
+    not_run: list[str] = []
+    for n, story in enumerate(runnable):
+        spent = _total_spend(results, a.max_usd)["usd"]
+        if a.max_usd is not None and spent >= a.max_usd:
+            not_run = [s.id for s in runnable[n:]]
+            print(f"Stopped: ${spent:.2f} spent reaches --max-usd ${a.max_usd:.2f}; not run: {not_run}")
+            break
         tape = Tape(mode="record")
         unrecorded = None
         try:
@@ -221,25 +316,31 @@ def main(argv: list[str]) -> int:
         except Exception as exc:  # noqa: BLE001 - one story's crash is that story's FAIL
             # Keep what the paid run produced; only a crash before the router answered has nothing.
             outcome = getattr(exc, "outcome", None) or Outcome(route="?")
-            record = getattr(exc, "record", None) or {"decision": {}, "replies": []}
+            # A crash before the router answered: whatever it spent was never seen.
+            record = getattr(exc, "record", None) or {"decision": {}, "replies": [],
+                                                      "spend": {"usd": 0.0, "partial": True}}
             outcome.error = f"{type(exc).__name__}: {exc}"
         s = score(story, outcome)
         row = {"story": asdict(story), "decision": record["decision"], "outcome": asdict(outcome),
-               "score": asdict(s), "tape": None if outcome.error or unrecorded else tape.to_json(),
+               "score": asdict(s), "spend": record["spend"],
+               "tape": None if outcome.error or unrecorded else tape.to_json(),
                "fingerprint": run_fingerprint, "fingerprint_files": run_files, "agent_model": agent_model, **routing}
         if unrecorded:
             row["unrecorded"] = unrecorded
         (out / "stories" / f"{story.id}.json").write_text(json.dumps(row, indent=2, default=str))
         results.append(row)
-        print(f"[{s.grade:<7}] {story.id}: {'; '.join(s.reasons)}" + (" (unrecorded)" if unrecorded else ""))
+        print(f"[{s.grade:<7}] {story.id}: {'; '.join(s.reasons)}" + (" (unrecorded)" if unrecorded else "")
+              + f" ${record['spend']['usd']:.2f}" + ("+" if record["spend"]["partial"] else ""))
     summary = {g: sum(1 for r in results if r["score"]["grade"] == g) for g in ("PASS", "PARTIAL", "FAIL")}
+    spend = _total_spend(results, a.max_usd)
     (out / "summary.json").write_text(json.dumps({"summary": summary, "n": len(results), "skipped": skipped,
+                                                "not_run": not_run, "spend": spend,
                                                 "unrecorded": [r["story"]["id"] for r in results if "unrecorded" in r],
                                                 "fingerprint": run_fingerprint, "fingerprint_files": run_files,
                                                 "agent_model": agent_model,
                                                 **routing}, indent=2))
     write_report(out, results)
-    print(f"{summary} -> {out}")
+    print(f"{summary}, ${spend['usd']:.2f} spent{' (partial)' if spend['partial'] else ''} -> {out}")
     return 0
 
 

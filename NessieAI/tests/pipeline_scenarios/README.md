@@ -52,11 +52,23 @@ docker exec -w /app nextseek uv run --no-sync python -m NessieAI.tests.pipeline_
 
 - `--ids a,b` runs those stories; `--family <name>` runs one family. Only ruled stories run, and only those
   whose cohort has UIDs on this stack.
-- `--per-story-usd` is the per-story cost used for the printed estimate. Nothing caps spend, so approve
-  each run on that estimate.
+- `--per-story-usd` is the per-story cost used for the printed estimate. Approve each run on that estimate.
+- Each story's row records what it spent (`spend`: the router's calls, priced by the router itself, and the
+  agent's, the loop's and the selection model's calls, priced by `turn_spend`, both on
+  `NessieAI/chat_nextseek/model_prices.json`), and `summary.json` the run's total. `partial` means some call
+  went unpriced or unseen, so the true cost is higher than `usd`.
+- `--max-usd <n>` stops the run before the next story once that total reaches `n`; `summary.json` lists the
+  stories it did not run in `not_run`. It counts only priced calls, and a story already started runs to its
+  end, so a run can pass the cap by one story's cost.
 - The run writes a run folder (`summary.json`, one file per story, the HTML report from `report.py`) to
   `--out`, which defaults to `outputs/<timestamp>_pipeline_scenarios`.
 - `DEPLOYMENT.md` §1 says when a prod deploy needs an accepted run.
+- The agent starts as production starts it on the nf-core report branch: with a parser plan naming the
+  cohort's search (`run.parser_plan`), so the chat's earlier turns, a story's `history` among them, reach
+  its first message.
+- The first paid run is also the first measure of a tape's size, not yet known. A fetched nf-core schema is
+  kept as a sha only when it is byte for byte a committed fixture; otherwise its bytes go on the tape as
+  base64 (about 65 KB a schema). Check the size of `recorded/` before committing it.
 - Unlike production, the agent sees the cohort's person fields (Scientist, Lab, PrepUser and the rest of
   `scrub.PERSON_NAMES`) as `REDACTED`. No story asks to group by them, so no grade depends on it.
 - Run it on a stack built from a commit whose fingerprint inputs (`fingerprint.INPUTS`) equal the branch's:
