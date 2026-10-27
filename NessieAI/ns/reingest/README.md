@@ -35,7 +35,7 @@ Map files live beside this package in [`../reingest_maps/`](../reingest_maps/REA
 
 ## The fix loop and the upload
 
-`build-upload-xlsx` maps and QAs a run, and returns the findings. The mapper's warnings (an unchecked release, a rule that matched nothing, a companion with nowhere to go) are map maintenance, not something the user can act on: they go to `logs/django.log` as `reingest map note:` lines with the pipeline, release, run and manifest (the `NessieAI.ns.reingest.map_notes` logger, routed in `dmac/settings.py`), never into the reply. When a primary-data rule matched nothing, the missing-file blocker names the rule and says the file can't be filled in from chat, rather than asking for a path. A build from a manifest with no launch record opens with a "TEST ONLY:" line, and only a superuser can make one. The curator answers in chat
+`build-upload-xlsx` maps and QAs a run, and returns the findings. The mapper's warnings (an unchecked release, a rule that matched nothing, a companion with nowhere to go) are map maintenance, not something the user can act on: they go to `logs/django.log` as `reingest map note:` lines with the pipeline, release, run and manifest (the `NessieAI.ns.reingest.map_notes` logger, routed in `dmac/settings.py`), never into the reply. One kind is also the user's: when a sample, or a replicate group, has rows from two outputs one launch writes only one of (`alternative_group` in `NessieAI/ns/reingest_maps/README.md`), the run folder holds an earlier launch's files too, and the reply lists those files, and any other row whose file was picked over another, under FILES FROM AN EARLIER RUN TO CHECK (`MapResult.alternative_rows`), since the curator would otherwise upload every row. When a primary-data rule matched nothing, the missing-file blocker names the rule and says the file can't be filled in from chat, rather than asking for a path. A build from a manifest with no launch record opens with a "TEST ONLY:" line, and only a superuser can make one. The curator answers in chat
 and the op is called again with `answers`, validated against the first pass's findings. Three
 kinds, each licensed only by what that run flagged:
 
@@ -84,6 +84,15 @@ per-job path cannot be listed until the allowlist supports patterns.
 - **An unresolved sample's child ships with no `Parent` key at all** — never an empty string.
   The QA gate distinguishes absent (soft, ships) from blank (hard reject) and can only do so
   because this package never emits the latter.
+- **An ambiguous sample gets no child row, but a merged replicate group with an ambiguous
+  replicate still gets its row** (the owner's ruling). Guessing between candidate parents would
+  write a wrong lineage, so a standalone ambiguous sample ships nothing (`mapper._NO_CHILD_ROW`).
+  A group's merged file is the group's own output and its other replicates' parents are
+  certain, so the row ships, `Parent` names only the replicates that resolved, and a map note
+  names the one left out. See `test_a_merged_group_with_an_ambiguous_replicate_still_writes_its_row`
+  in `NessieAI/tests/ns/reingest/test_replicate_samples.py`. When no replicate resolved, the row
+  still ships today, with no `Parent`, and the note says so; whether it should ship awaits an
+  owner ruling (`test_a_merged_group_with_no_resolved_replicate_ships_a_row_with_no_parent`).
 
 ## Running and testing
 

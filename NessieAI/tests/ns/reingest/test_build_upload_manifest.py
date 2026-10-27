@@ -21,6 +21,7 @@ import pytest
 
 import NessieAI.ns.granular as g
 from NessieAI.ns.reingest import manifest as manifest_mod
+from NessieAI.ns.reingest import mapper as mapper_mod
 from NessieAI.ns.reingest import store as store_mod
 
 pytestmark = pytest.mark.django_db
@@ -958,3 +959,26 @@ def test_a_build_with_no_chat_turn_seam_records_none(rows, tmp_path, monkeypatch
     out = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id},
                     session=_admin_session(False), outputs_dir=str(tmp_path))
     assert out["builds"] and all(b["shown_in"] is None for b in out["builds"])
+
+
+@patch("nextseek_api.services.context_catalog._sample_type_rows")
+def test_rows_from_a_reused_run_folder_reach_the_reply(rows, tmp_path, monkeypatch):
+    """The mapper's alternative_rows reach the curator's reply, not only the log: the
+    curator is the one who would upload both rows."""
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    real_apply = mapper_mod.apply
+
+    def apply_with_alternatives(*args, **kwargs):
+        result = real_apply(*args, **kwargs)
+        result.alternative_rows.append({
+            "sample": "SAMPLE_1", "sample_type": "A.ALN",
+            "files": [{"rule_id": "x", "path": "a/SAMPLE_1.bam"},
+                      {"rule_id": "y", "path": "b/SAMPLE_1.bam"}],
+            "other_picks": []})
+        return result
+
+    monkeypatch.setattr(mapper_mod, "apply", apply_with_alternatives)
+    result = _dispatch("build-upload-xlsx", {"manifest_id": manifest_id, "mode": "new"},
+                       outputs_dir=str(tmp_path))
+    assert "SAMPLE_1 has 2 A.ALN rows" in result["reply"]

@@ -6,7 +6,7 @@
       "Alternative Assay Names": "Methylation Extraction, Bisulfite Sequencing Analysis",
       "Required Parent Sample Types": "D.SEQ or A.ALN",
       "Children Sample Types": "A.MSEQ",
-      "why": "Created on the local stack only on 2026-10-26 (internal_assays 85, assay_context 234), as the producing assay for A.MSEQ; move into context/assays.json once dev and prod have it."
+      "why": "The producing assay for A.MSEQ, created on the local stack only; move into context/assays.json once dev and prod have it."
     }
   ]
 }

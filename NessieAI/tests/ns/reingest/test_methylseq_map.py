@@ -118,3 +118,78 @@ def test_bwameths_unsorted_bam_is_ruled_out_and_the_pre_dedup_bam_rides_on_the_r
 def test_the_bwameth_rows_name_their_aligner():
     _, rows = _fixture_rows("4.2.0-bwameth")
     assert _value(rows[("aln", "SRR389222_sub2")], "Aligner") == "bwameth"
+
+
+def _apply(outputs: list[str]):
+    run = _run(outputs[0], {})
+    run = run.model_copy(update={"outputs": run.outputs + [
+        manifest.OutputRecord(path=p, sample="S1") for p in outputs[1:]]})
+    return mapper.apply(run, maps.load("methylseq"),
+                        context={"has_attribute": lambda st, a: a in ATTRS.get(st, ())})
+
+
+def test_a_folder_reused_by_two_launches_keeps_both_rows_and_says_why():
+    # nf-core's publishDir never deletes a stale file, so a run folder reused by a
+    # launch with --methyl_kit keeps the earlier launch's bedGraph beside the new
+    # methylKit file. Both rows stay; the build report says which files and why.
+    result = _apply(["methyldackel/S1.markdup.sorted_CpG.bedGraph",
+                     "methyldackel/S1.markdup.sorted_CpG.methylKit"])
+    assert sorted(r.rule_id for r in result.rows if r.sample_type == "A.MSEQ") == [
+        "mseq_methyldackel", "mseq_methyldackel_methylkit"]
+    [warning] = [w for w in result.warnings if "earlier launch" in w]
+    assert warning.startswith("S1: 2 A.MSEQ rows")
+    assert "methyldackel/S1.markdup.sorted_CpG.bedGraph" in warning
+    assert "methyldackel/S1.markdup.sorted_CpG.methylKit" in warning
+
+
+def test_two_aligners_in_one_folder_are_flagged_too():
+    result = _apply(["methyldackel/S1.markdup.sorted_CpG.bedGraph",
+                     "bismark/methylation_calls/methylation_coverage/"
+                     "S1.deduplicated.bismark.cov.gz"])
+    [warning] = [w for w in result.warnings if "earlier launch" in w]
+    assert "mseq_bismark" in warning and "mseq_methyldackel" in warning
+
+
+def test_one_launchs_calls_raise_no_reused_folder_warning():
+    result = _apply(["methyldackel/S1.markdup.sorted_CpG.bedGraph"])
+    assert [w for w in result.warnings if "earlier launch" in w] == []
+
+
+def test_every_a_mseq_rule_is_one_alternative_group():
+    groups = {r.id: r.alternative_group for r in maps.load("methylseq").outputs}
+    assert groups == {"aln": None, "mseq_bismark": "methylation_calls",
+                      "mseq_methyldackel": "methylation_calls",
+                      "mseq_methyldackel_methylkit": "methylation_calls"}
+
+
+def test_the_alternative_rows_are_carried_for_the_curator():
+    result = _apply(["methyldackel/S1.markdup.sorted_CpG.bedGraph",
+                     "methyldackel/S1.markdup.sorted_CpG.methylKit"])
+    assert result.alternative_rows == [{
+        "sample": "S1", "sample_type": "A.MSEQ",
+        "files": [{"rule_id": "mseq_methyldackel",
+                   "path": "methyldackel/S1.markdup.sorted_CpG.bedGraph"},
+                  {"rule_id": "mseq_methyldackel_methylkit",
+                   "path": "methyldackel/S1.markdup.sorted_CpG.methylKit"}],
+        "other_picks": []}]
+
+
+def test_a_reused_folder_also_names_the_alignment_rows_pick():
+    # Bismark then bwa-meth in one folder: the aln rule's tier order takes Bismark's
+    # BAM, which may be the stale one, so the curator is told to check it too.
+    result = _apply(["methyldackel/S1.markdup.sorted_CpG.bedGraph",
+                     "bismark/deduplicated/S1.deduplicated.sorted.bam",
+                     "bismark/methylation_calls/methylation_coverage/"
+                     "S1.deduplicated.bismark.cov.gz"])
+    [entry] = result.alternative_rows
+    assert entry["other_picks"] == [{
+        "rule_id": "aln", "sample_type": "A.ALN",
+        "used": "bismark/deduplicated/S1.deduplicated.sorted.bam",
+        "also": ["bwameth/deduplicated/S1.markdup.sorted.bam"]}]
+    [warning] = [w for w in result.warnings if "earlier launch" in w]
+    assert ("A.ALN row (aln) used bismark/deduplicated/S1.deduplicated.sorted.bam over "
+            "bwameth/deduplicated/S1.markdup.sorted.bam") in warning
+
+
+def test_one_launch_carries_no_alternative_rows():
+    assert _apply(["methyldackel/S1.markdup.sorted_CpG.bedGraph"]).alternative_rows == []

@@ -149,11 +149,50 @@ def _compact_item(index, code, attribute, where):
             " or upload as-is."]
 
 
+def _and_join(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _render_alternative_rows(entries: list[dict]) -> list[str]:
+    """The FILES FROM AN EARLIER RUN section: one item per (sample type, rules,
+    other picks) shape, counted when several samples share it."""
+    if not entries:
+        return []
+    shapes: dict[tuple, list[dict]] = {}
+    for entry in entries:
+        key = (entry["sample_type"], tuple(f["rule_id"] for f in entry["files"]),
+               tuple(p["rule_id"] for p in entry.get("other_picks", ())))
+        shapes.setdefault(key, []).append(entry)
+    lines = ["FILES FROM AN EARLIER RUN TO CHECK", ""]
+    for index, same in enumerate(shapes.values(), start=1):
+        first = same[0]
+        files = _and_join([f["path"] for f in first["files"]])
+        rows = len(first["files"])
+        if len(same) == 1:
+            lines.append(f"  {index}.  {first['sample']} has {rows} {first['sample_type']} rows,"
+                         f" one for each of {files}.")
+        else:
+            lines.append(f"  {index}.  {len(same)} samples have {rows} {first['sample_type']}"
+                         f" rows each, for example {first['sample']}: {files}.")
+        for pick in first.get("other_picks", ()):
+            whose = "Its" if len(same) == 1 else f"For {first['sample']}, its"
+            lines.append(f"      {whose} {pick['sample_type']} row used {pick['used']}, not"
+                         f" {_and_join(pick['also'])}; check that file too.")
+        lines.append("")
+        lines.append("      One run writes only one of these, so the run folder likely")
+        lines.append("      also holds files from an earlier run. Every row is in the")
+        lines.append("      workbook. If a file is left over, remove it from the run folder")
+        lines.append("      and harvest the run again; otherwise upload as-is.")
+        lines.append("")
+    return lines
+
+
 def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str],
                         run_name: str, ambiguous_primary: list[dict] | None = None,
                         row_counts: dict[str, int] | None = None,
                         unmapped_count: int = 0,
-                        missed_rules: list[dict] | None = None) -> str:
+                        missed_rules: list[dict] | None = None,
+                        alternative_rows: list[dict] | None = None) -> str:
     """Render the whole run's QA outcome as plain-language text.
 
     ``reports`` -- ``{sample_type: QaReport}``, one entry per sample type QA'd
@@ -194,6 +233,11 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
     that matched no file (``MapResult.missed_rules``). A missing primary file
     on one of those sample types is explained as the map's miss rather than
     asked for, since a data file is never set from chat.
+
+    ``alternative_rows`` -- ``MapResult.alternative_rows``: samples with rows
+    from two outputs one launch writes only one of, the mark of a run folder
+    reused by two launches. Samples sharing the same rules render as one item
+    (rule 1), with the first as the example.
 
     Returns the full report as one string. This is the module's only public
     function, and its output is relayed to the user VERBATIM by the calling
@@ -310,6 +354,8 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
             lines.append(
                 "      on the right one and rebuild — the hashed file wins the pick.")
             lines.append("")
+
+    lines.extend(_render_alternative_rows(alternative_rows or []))
 
     if unmapped_count:
         lines.append(f"{unmapped_count} QC metrics had no matching attribute; they are"
