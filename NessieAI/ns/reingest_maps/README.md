@@ -4,6 +4,11 @@ One `<pipeline>.outputs.json` per nf-core pipeline. Committed, code-reviewed,
 read-only at runtime. `NessieAI/ns/reingest/maps.py` defines the schema and
 `NessieAI/tests/ns/reingest/test_map_contract.py` gates every file in CI.
 
+**Where the maps are checked.** `test_map_contract.py` (the schema and catalog contract), `test_fixture_runs.py`
+(each map against its run fixture), `test_doc_only_maps.py` (maps written from the docs alone), and
+`test_replicate_samples.py` (replicate handling), all under `NessieAI/tests/ns/reingest/`; and the link test
+`NessieAI/tests/chat_nextseek/test_choosable_pipelines_have_maps.py` (a choosable pipeline has a map for its pinned release).
+
 ## What a map may contain
 
 - `harvest_globs` — extra files this pipeline needs, on top of the generic

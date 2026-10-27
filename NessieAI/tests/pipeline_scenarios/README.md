@@ -14,13 +14,97 @@ route is right.
 | `stories.py` | loader, cohort resolution, format problems |
 | `test_cohorts.json` | local-only test cohorts (`test::<name>`); real cohorts come from `NessieAI/chat_nextseek/evals/groundtruth_cohorts.json` |
 | `test_story_format.py` | the free format test |
+| `scorer.py` | `score`: grades one story's outcome PASS, PARTIAL or FAIL, with the reasons; `test_scorer.py` tests it |
+| `scrub.py` | makes a tape safe for a public repository and lists what must be refused (an email, an absolute path, a private URL); `test_scrub.py` tests it |
+| `tape.py` | records, then replays, every answer the pipeline tools get from outside the code under test; a call the tape did not see raises `TapeMismatch`, the signal to re-record; `test_tape.py` tests it |
 | `apply_rulings.py` | writes the owner's rulings from the review page into the story files (`python -m NessieAI.tests.pipeline_scenarios.apply_rulings <rulings.json> <yyyy-mm-dd>`); `test_apply_rulings.py` tests it |
 | `run.py` | the paid in-process runner: the real router and pipeline agent on each ruled story, no submit tool, every outside answer recorded on a tape and scrubbed for a public repo. Without `--yes` it only prints what it would run and the estimate; a paid run needs the owner's go (usage in its docstring) |
 | `report.py` | `write_report`: the HTML page of a run, totals and then every story by family |
 | `test_run.py` | the free test of the runner and report, with a stubbed router and agent (no model, no stack) |
 | `fingerprint.py` | `current()`: sha256 over everything that decides routing and pipeline choice (`INPUTS`); a tape is valid only under the fingerprint it was recorded with. `test_fingerprint.py` tests it |
 | `record.py` | turns an accepted paid run into `recorded/<id>.json` (`python -m NessieAI.tests.pipeline_scenarios.record <run dir> [--ids a,b]`): refuses a run made under another fingerprint, skips stories the runner failed on, refuses any fixture holding an email, absolute path or private URL |
+| `recorded/` | the committed replay fixtures, one `<story id>.json` per recorded story. It does not exist until the first accepted paid run is recorded |
 | `test_replay.py` | the free CI replay: each `recorded/*.json` is replayed against the current code and must end with the recorded grade and pipeline; a changed fingerprint, story or call fails it until a paid run re-records. Also replays a synthetic recording of a stubbed run, so the machinery is tested before any recording exists. With no recordings the replay test skips |
 | `e2e.json` | the ruled story ids that also run through the real chat, one per family: bulk_rna, single_cell, dna_variants, chromatin, methylation, not_yet |
 | `build_e2e.py` | `variants()` and `main()`: turns each `e2e.json` story into a multi-turn `pipeline_launch` variant (id `pipeline_scenarios.<story id>`, tag `pipeline_scenarios`) in `NessieAI/tests/nessie_tests/corpus.json` (`python3 -m NessieAI.tests.pipeline_scenarios.build_e2e`). It rewrites only those variants, in the file's own layout. The turns stop at the confirm-to-submit question. The build turn asserts only the pipeline built; settings (`launch.must_match`) are checked by the in-process run only, because the chat snapshot carries no launch plan |
 | `test_e2e_in_sync.py` | the free test that the corpus holds exactly the generated variants (never hand-edit them) and that every `e2e.json` story is ruled |
+
+## The starting state
+
+The first paid run has not been made, so `recorded/` does not exist and `test_replay.py` skips its
+per-story replay with "no recorded stories yet". That is the expected starting state, not an error: the
+replay machinery is still tested by its synthetic recording of a stubbed run. The skip ends when a paid run
+is accepted and recorded (below). Ruled stories are the ones that run; `stories/*.json` shows each story's
+`ruling`. The rulings were made through a review page and written back with `apply_rulings.py`; the commit
+history records that the current rulings came from an independent reviewer agent, on the owner's instruction.
+
+## Running the paid eval
+
+Paid: it calls the real router and the real pipeline agent on each ruled story. Every submit path is
+removed, so nothing launches. Each run needs the owner's go in chat.
+
+```bash
+# Dry run: prints the estimate and the stories it would run, then stops.
+docker exec -w /app nextseek uv run --no-sync python -m NessieAI.tests.pipeline_scenarios.run
+# The paid run.
+docker exec -w /app nextseek uv run --no-sync python -m NessieAI.tests.pipeline_scenarios.run --yes
+```
+
+- `--ids a,b` runs those stories; `--family <name>` runs one family; `--per-story-usd` sets the spend cap
+  per story. Only ruled stories run, and only those whose cohort has UIDs on this stack.
+- The run writes a run folder under `outputs/` (`summary.json`, one file per story, the HTML report from
+  `report.py`).
+- `DEPLOYMENT.md` §1 says when a prod deploy needs an accepted run.
+
+## Re-recording
+
+Run `record.py` on the host, from the worktree root, on the commit the paid run was made from:
+
+```bash
+python -m NessieAI.tests.pipeline_scenarios.record <run dir> [--ids a,b]
+```
+
+It writes `recorded/<id>.json` for each story and refuses (writing nothing) when:
+
+- a fixture holds an email, an absolute path or a private URL;
+- the run was made under another fingerprint;
+- the run had posterior routing on.
+
+A story the runner failed on is skipped. Review the diff of `recorded/` before committing it.
+
+CI demands a re-record whenever `fingerprint.current()` changes. `fingerprint.INPUTS` lists what it covers
+(the router's BAML and code, the selection and agent code and prompts, the atlases, the param atlas, the
+nf-core templates, the pinned schemas, the catalog, and the corpus families' projection); read that file
+for the list. A change to any of these fails the replay until a paid re-record. A change to a story's own
+fields, or a tool call the tape never saw, fails it the same way.
+
+## Adding a story
+
+1. Draft it in `stories/<family>.json` with `ruling.state` `proposed`. `test_story_format.py` lists format
+   problems; a story with a test cohort names `test::<cohort>`.
+2. Put it on the review page for the owner's ruling: an Artifact whose database holds a "rulings"
+   collection. (The page is private; it has no URL here.)
+3. Write the rulings back with `apply_rulings.py` (usage above). Only `accepted` or `changed` stories run.
+4. Make a paid run of just that story (`run --ids <id> --yes`), with the owner's go.
+5. Record it with `record.py <run dir> --ids <id>`.
+
+## Chat end-to-end
+
+`e2e.json` names one ruled story per family, and `build_e2e.py` turns each into a `pipeline_launch` variant
+in `NessieAI/tests/nessie_tests/corpus.json` (id `pipeline_scenarios.<story id>`). Paid, and each run needs
+the owner's go. The harness CLI has no `--ids`; run one story at a time:
+
+```bash
+docker exec nextseek uv run manage.py nessie --base-url http://localhost:8000 --tier full --scope all \
+  --variant pipeline_scenarios.<story id>
+```
+
+or pass `--cases <file>` for several. This checks the route, the pipeline chosen and, for `not_yet`, that
+nothing was built. Launch settings (`must_match`) are checked by the in-process run only.
+
+## Test cohorts
+
+The `test::` cohorts in `test_cohorts.json` exist only on the local stack, in the project "Nessie test
+cohorts". `scripts/pipeline_scenarios/make_test_cohorts.py` writes their upload workbooks, and
+`scripts/pipeline_scenarios/README.md` says how to upload them. A fresh stack must upload them again and
+re-record the UIDs in `test_cohorts.json`; a story whose cohort has no UIDs is skipped by the runner.
