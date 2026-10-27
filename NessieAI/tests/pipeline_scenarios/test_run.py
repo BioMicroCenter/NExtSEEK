@@ -19,6 +19,9 @@ def _story(**kw):
 class _Cfg:
     LOG_DIR = "/tmp"
 
+    def get_agent_model(self, label):
+        return None, "model-x", None
+
     def _load_prompt(self, name):
         return "SYSTEM"
 
@@ -169,7 +172,8 @@ def test_main_writes_the_run_folder_even_when_a_story_crashes(tmp_path, monkeypa
     row = json.loads((tmp_path / "stories" / "s1.json").read_text())
     assert row["outcome"]["error"].startswith("RuntimeError") and row["score"]["grade"] == "FAIL"
     from NessieAI.tests.pipeline_scenarios import fingerprint
-    assert row["fingerprint"] == fingerprint.current() and (tmp_path / "report.html").exists()
+    assert row["fingerprint"] == fingerprint.current() and row["agent_model"] == "model-x"
+    assert (tmp_path / "report.html").exists()
     assert json.loads((tmp_path / "summary.json").read_text())["summary"]["FAIL"] == 1
 
 
@@ -178,7 +182,8 @@ def test_the_summary_carries_the_fingerprint_the_run_was_made_under(tmp_path, mo
     import chat_nextseek.config as cc
     monkeypatch.setattr(cc, "ChatConfig", lambda: _Cfg())
     assert rn.main(["--ids", "nosuch", "--yes", "--out", str(tmp_path)]) == 0
-    assert json.loads((tmp_path / "summary.json").read_text())["fingerprint"] == fingerprint.current()
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    assert summary["fingerprint"] == fingerprint.current() and summary["agent_model"] == "model-x"
 
 
 def test_the_report_groups_by_family_and_escapes(tmp_path):

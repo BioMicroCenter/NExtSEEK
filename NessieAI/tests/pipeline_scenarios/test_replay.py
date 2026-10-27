@@ -7,7 +7,6 @@ machinery itself is tested in CI before any recording exists.
 """
 import dataclasses
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -19,7 +18,6 @@ from NessieAI.tests.pipeline_scenarios.stories import story_by_id
 from NessieAI.tests.pipeline_scenarios.tape import ReplayClient, Tape, TapeMismatch
 
 FIXTURES = sorted(RECORDED.glob("*.json"))
-SCHEMAS = Path(__file__).resolve().parents[1] / "chat_nextseek" / "fixtures" / "nfcore"
 REGENERATE = "re-record with a paid run (NessieAI/tests/pipeline_scenarios/README.md)"
 
 
@@ -39,17 +37,6 @@ class _ReplayConfig:
         return ""
 
 
-def _offline_schemas(url: str) -> bytes:
-    """Serve the pinned schema fixtures by URL; anything else is a recording gap (a 404)."""
-    import requests
-    name = url.split("/nf-core/")[1]
-    pipeline, _revision, *rest = name.split("/")
-    path = SCHEMAS / f"{pipeline}.{rest[-1]}"
-    if not path.exists():
-        raise requests.HTTPError(response=SimpleNamespace(status_code=404))
-    return path.read_bytes()
-
-
 def replay_fixture(fixture: dict, tmp_path, monkeypatch):
     """Replay one recorded story against the current code and check it still ends the same."""
     assert fixture["fingerprint"] == fingerprint.current(), f"selection inputs changed: {REGENERATE}"
@@ -58,9 +45,7 @@ def replay_fixture(fixture: dict, tmp_path, monkeypatch):
     assert current == fixture["story"], f"the story changed since it was recorded: {REGENERATE}"
     assert story.ruled, "an unruled story has a recording"
 
-    from chat_nextseek.seqera import nfcore_schema
-    nfcore_schema.clear_cache()
-    monkeypatch.setattr(nfcore_schema, "_default_fetcher", _offline_schemas)
+    # Schema fetches replay from the tape too (taped() clears the schema cache around the run).
     monkeypatch.setattr(rn, "cohort_uids", lambda c: list(fixture["outcome"]["uids"]))
     decision = SimpleNamespace(**fixture["decision"])
     tape = Tape.from_json(fixture["tape"])
@@ -69,8 +54,6 @@ def replay_fixture(fixture: dict, tmp_path, monkeypatch):
                                   decide=lambda q, h: decision)
     except TapeMismatch as exc:
         pytest.fail(f"{exc}: {REGENERATE}")
-    finally:
-        nfcore_schema.clear_cache()
     s = score(story, outcome)
     want = fixture["outcome"]
     assert (s.grade, outcome.pipeline_key) == (fixture["score"]["grade"], want["pipeline_key"]), s.reasons
@@ -208,11 +191,12 @@ def _row(story_id=STORY_ID, **over):
     return {**row, **over}
 
 
-def _run_dir(tmp_path, rows, fp=None):
+def _run_dir(tmp_path, rows, fp=None, summary=None):
     (tmp_path / "stories").mkdir(parents=True)
     for r in rows:
         (tmp_path / "stories" / f"{r['story']['id']}.json").write_text(json.dumps(r))
-    (tmp_path / "summary.json").write_text(json.dumps({"fingerprint": fp or fingerprint.current()}))
+    (tmp_path / "summary.json").write_text(json.dumps(
+        summary if summary is not None else {"fingerprint": fp or fingerprint.current()}))
     return tmp_path
 
 
@@ -246,11 +230,33 @@ def test_record_refuses_a_path_hidden_after_an_escaped_newline(tmp_path, monkeyp
     assert "path" in capsys.readouterr().err and not list((tmp_path / "rec").glob("*.json"))
 
 
-def test_the_offline_schema_fetcher_serves_pinned_fixtures_and_404s_the_rest():
-    import requests
-    from chat_nextseek.seqera import nfcore_schema as ns
-    nfcore_schema_url = ns.schema_urls("rnaseq", "3.18.0")[0]
-    assert json.loads(_offline_schemas(nfcore_schema_url))
-    with pytest.raises(requests.HTTPError) as err:
-        _offline_schemas(ns.schema_urls("nosuchpipeline", "1.0")[1])
-    assert ns._is_not_found(err.value)
+def test_the_fingerprint_flag_is_used_only_when_the_summary_has_none(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(record, "RECORDED", tmp_path / "rec")
+    run = _run_dir(tmp_path / "run", [_row()], fp="old")
+    # the summary names the run's fingerprint: a flag cannot override it
+    assert record.main([str(run), "--fingerprint", fingerprint.current()]) == 1
+    assert not (tmp_path / "rec").exists()
+    # an older run dir with no key in its summary may be vouched for by the flag
+    bare = _run_dir(tmp_path / "bare", [_row()], summary={"summary": {}})
+    assert record.main([str(bare)]) == 1
+    assert record.main([str(bare), "--fingerprint", fingerprint.current()]) == 0
+    assert (tmp_path / "rec" / f"{STORY_ID}.json").exists()
+
+
+def test_a_refusal_on_any_row_writes_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(record, "RECORDED", tmp_path / "rec")
+    bad = _row("gene-fusion", tape={"entries": {"agent": [{"args": "x", "value": "mail a@b.org"}]}})
+    run = _run_dir(tmp_path / "run", [bad, _row()])         # the refused row sorts first; the good one must not be kept
+    assert record.main([str(run)]) == 1
+    assert not (tmp_path / "rec").exists()
+    run2 = _run_dir(tmp_path / "run2", [_row(), bad])      # and the other way round
+    assert record.main([str(run2)]) == 1
+    assert not (tmp_path / "rec").exists()
+
+
+def test_the_fixture_keeps_the_family_and_the_agent_model(tmp_path, monkeypatch):
+    assert "family" in STORY_FIELDS
+    monkeypatch.setattr(record, "RECORDED", tmp_path / "rec")
+    assert record.main([str(_run_dir(tmp_path / "run", [_row(agent_model="model-x")]))]) == 0
+    kept = json.loads((tmp_path / "rec" / f"{STORY_ID}.json").read_text())
+    assert kept["story"]["family"] == "bulk_rna" and kept["agent_model"] == "model-x"

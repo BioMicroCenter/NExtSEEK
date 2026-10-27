@@ -175,6 +175,7 @@ def main(argv: list[str]) -> int:
     (out / "stories").mkdir(parents=True, exist_ok=True)
     real = ChatConfig()
     run_fingerprint = fingerprint.current()
+    agent_model = real.get_agent_model("pipeline_agent")[1]    # a model swap must be visible on the run
     results = []
     for story in runnable:
         tape = Tape(mode="record")
@@ -187,13 +188,14 @@ def main(argv: list[str]) -> int:
             outcome.error = f"{type(exc).__name__}: {exc}"
         s = score(story, outcome)
         row = {"story": asdict(story), "decision": record["decision"], "outcome": asdict(outcome),
-               "score": asdict(s), "tape": None if outcome.error else tape.to_json(), "fingerprint": run_fingerprint}
+               "score": asdict(s), "tape": None if outcome.error else tape.to_json(), "fingerprint": run_fingerprint,
+               "agent_model": agent_model}
         (out / "stories" / f"{story.id}.json").write_text(json.dumps(row, indent=2, default=str))
         results.append(row)
         print(f"[{s.grade:<7}] {story.id}: {'; '.join(s.reasons)}")
     summary = {g: sum(1 for r in results if r["score"]["grade"] == g) for g in ("PASS", "PARTIAL", "FAIL")}
     (out / "summary.json").write_text(json.dumps({"summary": summary, "n": len(results), "skipped": skipped,
-                                                "fingerprint": run_fingerprint}, indent=2))
+                                                "fingerprint": run_fingerprint, "agent_model": agent_model}, indent=2))
     write_report(out, results)
     print(f"{summary} -> {out}")
     return 0
