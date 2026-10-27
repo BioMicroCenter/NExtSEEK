@@ -36,7 +36,9 @@ SNIPPET_WIDTH = 160
 _LEAD = 40  # characters of context kept before the first hit in a snippet
 _EDGE = string.punctuation + "“”‘’"
 _MARKDOWN = re.compile(r"[*#|`>]+|-{3,}|={3,}")
-_LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")  # [text](url) and ![alt](src): the text stays
+# [text](url) and ![alt](src), shaped like the links NessieAI/chat_nextseek's uid_links writes (one level of nested
+# brackets, no newline): the text stays, the address goes from what is matched and shown.
+_LINK = re.compile(r"!?\[((?:[^\[\]\n]|\[[^\[\]\n]*\])*)\]\([^)\n]*\)")
 _SPACE = re.compile(r"\s+")
 
 TITLE, QUESTION, ANSWER, RECORD, STEPS = 5, 4, 3, 2, 1
@@ -67,9 +69,13 @@ def _all(patterns: list[re.Pattern], text: str) -> bool:
     return all(p.search(text) for p in patterns)
 
 
+def _unlinked(text: str) -> str:
+    return _LINK.sub(r"\1", text)
+
+
 def make_snippet(text: str, terms: list[str], width: int = SNIPPET_WIDTH) -> str:
-    """Plain text around the first hit: markdown marks and link targets dropped, whitespace collapsed, ``…`` on a cut end."""
-    clean = _SPACE.sub(" ", _MARKDOWN.sub(" ", _LINK.sub(r"\1", text or ""))).strip()
+    """Plain text around the first hit: markdown marks and link addresses dropped, ``…`` on a cut end."""
+    clean = _SPACE.sub(" ", _MARKDOWN.sub(" ", _unlinked(text or ""))).strip()
     if len(clean) <= width:
         return clean
     hits = [m.start() for p in _patterns(terms) if (m := p.search(clean))]
@@ -118,6 +124,9 @@ def search_chats(user_id: int | None, terms: list[str], since: datetime | None) 
             answer = _text(entry.get("assistant_reply")) or _text(entry.get("assistant_reply_preview"))
             if not answer and entry.get("bundle_id") is None:
                 continue  # turn_rows hides it (PD-6): a hit there would open on nothing
+            if not _all(patterns, question + "\n" + answer):
+                continue  # a cheap first cut: without the link addresses the text can only match less
+            question, answer = _unlinked(question), _unlinked(answer)
             if _all(patterns, question):
                 tier, source, exact = QUESTION, question, _all(whole, question)
             elif _all(patterns, question + "\n" + answer):
@@ -205,7 +214,7 @@ def search_steps(scope: int | None, terms: list[str], since: datetime | None) ->
         qs = qs.filter(text__icontains=t)  # a cheap first cut; the word-start rule is checked below
     found: dict = {}
     for session_id, turn_id, text in qs.order_by("turn_id", "id").values_list("session_id", "turn_id", "text"):
-        if _in_window(session_id, scope, since) and _all(patterns, text):
+        if _in_window(session_id, scope, since) and _all(patterns, text) and _all(patterns, text := _unlinked(text)):
             exact = _all(whole, text)
             f = found.setdefault(session_id, {"turn": turn_id, "snippet": make_snippet(text, terms), "turns": set(),
                                               "exact": exact})

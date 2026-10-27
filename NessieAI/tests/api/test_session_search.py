@@ -58,9 +58,18 @@ class ParseTests(TestCase):
     def test_snippet_markdown_links_keep_their_text(self):
         text = "Found [D.SEQ-231101GRI-1-PUB](/seek/samples/D.SEQ-231101GRI-1-PUB/) and ![plot](/m/x.png) here"
         self.assertEqual(make_snippet(text, ["d.seq"]), "Found D.SEQ-231101GRI-1-PUB and plot here")
+        self.assertEqual(make_snippet("see [a [b] c](u) and [Foo](/w/Foo_bar)", ["foo"]), "see a [b] c and Foo")
 
 
 class SearchTests(SearchBase):
+    def test_a_term_only_in_a_link_address_does_not_match(self):
+        link = "[TIS-1](/seek/sampletree/uid=TIS-1/) " + "word " * 60  # long: the cut-snippet path
+        hit = self.chat(log=[turn(1, "show it", link)])
+        self.assertEqual(search_sessions(self.a.pk, "sampletree")["results"], [])
+        res = search_sessions(self.a.pk, "tis-1")["results"]
+        self.assertEqual(self.ids({"results": res}), [str(hit.session_id)])
+        self.assertTrue(res[0]["snippet"].startswith("TIS-1 word"))
+
     def test_other_users_chats_never_returned(self):
         mine = self.chat(log=[turn(1, "NDMA liver mice")])
         self.assertEqual(search_sessions(self.b.pk, "ndma")["results"], [])
