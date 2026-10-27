@@ -40,7 +40,7 @@ case "$*" in
   *"MySQLdb.connect"*) exit "${DB_PROBE_EXIT:-0}" ;;
   *"manage.py collectstatic"*) exit "${COLLECTSTATIC_EXIT:-0}" ;;
   *"manage.py migrate"*) exit "${MIGRATE_EXIT:-0}" ;;
-  *"manage.py mark_interrupted_batch_jobs"*) exit 0 ;;
+  *"manage.py mark_interrupted_batch_jobs"*|*"manage.py sweep_paper_reingest_runs"*) exit 0 ;;
   *) sleep "${STUB_LINGER:-0.5}"; exit 0 ;;
 esac
 """
@@ -232,7 +232,7 @@ class TestRetiredServiceArguments:
 _LINGERING_UV_STUB = """#!/usr/bin/env bash
 echo "start uv $*" >> "$CALL_LOG"
 case "$*" in
-  *"MySQLdb.connect"*|*"manage.py collectstatic"*|*"manage.py migrate"*|*"manage.py mark_interrupted_batch_jobs"*) exit 0 ;;
+  *"MySQLdb.connect"*|*"manage.py collectstatic"*|*"manage.py migrate"*|*"manage.py mark_interrupted_batch_jobs"*|*"manage.py sweep_paper_reingest_runs"*) exit 0 ;;
 esac
 trap 'kill $! 2>/dev/null; echo "TERM uv $*" >> "$CALL_LOG"; exit 143' TERM
 sleep 30 & wait $!
@@ -267,7 +267,7 @@ class TestStopSignal:
         )
         try:
             deadline = time.monotonic() + 30
-            while call_log.read_text().count("start uv") < 12:  # 3 boot steps + 9 runtimes (graph sync off)
+            while call_log.read_text().count("start uv") < 13:  # 4 boot steps + 9 runtimes (graph sync off)
                 assert time.monotonic() < deadline, call_log.read_text()
                 assert proc.poll() is None, call_log.read_text()
                 time.sleep(0.05)

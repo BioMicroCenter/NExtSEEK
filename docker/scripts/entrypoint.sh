@@ -170,6 +170,9 @@ esac
 # Boot recovery: no worker is running yet, so any job still STARTED/PROGRESS was killed by the restart.
 # Fail it (never re-run it) so its status page ends. Queued, not-yet-started jobs are kept.
 uv run --no-sync manage.py mark_interrupted_batch_jobs || echo "[entrypoint] mark_interrupted_batch_jobs failed; continuing" >&2
+# The same for paper reingest, before its worker starts: a run still acquiring was cut (failed, never re-run);
+# queued and paused runs get stage 1 queued again, and a duplicate message is skipped by the run's claim.
+uv run --no-sync manage.py sweep_paper_reingest_runs || echo "[entrypoint] sweep_paper_reingest_runs failed; continuing" >&2
 
 uv run --no-sync celery -A nextseek_api.batch_upload.celery_app worker \
               --loglevel=info \

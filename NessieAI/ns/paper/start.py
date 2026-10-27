@@ -21,6 +21,19 @@ PDF_BAD_ANSWER = ("Europe PMC answered with something I can't read when I looked
                   "attached PDF, so I can't tell whether the paper is already in NExtSEEK; try again later.")
 
 
+class RunExists(Exception):
+    """Raised by the host's create_run when another start of the paper got its row in first; ``run`` is that run."""
+
+    def __init__(self, run):
+        super().__init__(run.run_id)
+        self.run = run
+
+
+def _already_running(run) -> dict:
+    return {"run_id": run.run_id, "status": "already_running", "state": run.state,
+            "reply": f"A run for this paper is already in progress ({run.state}): {run.run_id}."}
+
+
 class StartRefused(ValueError):
     def __init__(self, message: str, error_type: str):
         super().__init__(message)
@@ -61,13 +74,15 @@ def start(paper: str, project: int | None, session) -> dict:
     ref = outcome.paper.ref
     existing = session.unfinished_run(ref.doi, paper)
     if existing is not None:
-        return {"run_id": existing.run_id, "status": "already_running", "state": existing.state,
-                "reply": f"A run for this paper is already in progress ({existing.state}): {existing.run_id}."}
+        return _already_running(existing)
     # The op answers by its deadline; a check that ran past it must not leave a run the turn reported as failed.
     left = session.time_left()
     if left is None or left < MIN_LEFT_S:
         raise StartRefused(OUT_OF_TIME, "out_of_time")
-    run = session.create_run(paper_input=paper, paper=outcome.paper, project_hint=project)
+    try:
+        run = session.create_run(paper_input=paper, paper=outcome.paper, project_hint=project)
+    except RunExists as exc:  # another curator's start of this paper won the database's unique key
+        return _already_running(exc.run)
     session.enqueue_acquire(run)
     note = ""
     if outcome.paper.mode == "update":

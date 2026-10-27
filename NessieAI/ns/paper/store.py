@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 
 from pydantic import BaseModel
 
@@ -25,6 +26,11 @@ def _run_dir(run_id: str) -> str:
     if not _SAFE.match(run_id or ""):
         raise ValueError(f"bad run_id: {run_id!r}")
     return os.path.join(_root(), run_id)
+
+
+def discard_run(run_id: str) -> None:
+    """Remove a run's folder (a run whose row was never saved); a missing folder is fine."""
+    shutil.rmtree(_run_dir(run_id), ignore_errors=True)
 
 
 def save_artifact(run_id: str, name: str, model: BaseModel) -> str:

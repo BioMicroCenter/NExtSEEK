@@ -12,6 +12,16 @@
   `SourceUnavailable` into `paused`, and only `retries_done >= max_retries` turns it into `failed`. Any other
   exception fails the run at once. Every path out of `run_acquire` must leave the run in a state other than
   `acquiring`.
+- **A worker, the operator and the boot sweep move a run only with `service.transition`.** It is one UPDATE filtered
+  on the states the move is from, so the writer that lands second changes nothing: a run cancelled while stage 1
+  runs stays cancelled, and a second message for a claimed run is skipped. `set_state` writes whatever the row holds
+  and is only for code that owns the row outright (tests, a run no one else can see yet).
+- **One unfinished run per paper, whoever starts it, and the database enforces it.** `live_key` is
+  `models_db.paper_key` (the DOI case folded, else the input) while the run is in `LIVE_STATES` and not superseded,
+  NULL otherwise, under a unique index (NULLs never collide). `PaperReingestRun.save` and `transition` keep it in
+  step; an `.update()` that changes `state` or `superseded_by` must set it too. `create_run` turns the index's refusal
+  into `RunAlreadyLive`, which the op answers as `already_running`. A later piece that supersedes a run must finish
+  the old run (free its key) before it creates the new one, in one transaction.
 - **A run row exists only with its `paper.json`.** `create_run` writes the artifact before it saves the row, and
   the op queues stage 1 only after the row is committed (`host.start_session`, `transaction.on_commit`). A
   queue that refuses the task fails the run at stage `queue` (`host.queue_or_fail`) instead of leaving it
@@ -27,10 +37,12 @@
   where the network is open and expect a failure, not a pause, on an outage.
 - The status and export commands print counts and write files; do not make them print the paper or a deposit
   to the terminal.
-- **A run can get stuck, and nothing sweeps it yet.** A worker killed mid-acquire leaves the run `acquiring`, and a
-  lost queue message leaves it `queued`; either blocks a new start of the same paper (`already_running`). The
-  operator recovers it with `manage.py paper_reingest cancel <run_id>` or `requeue <run_id>` (README "The
-  command"). A boot-time sweep of stale runs is a follow-up, not built.
+- **A run cut by a restart is put right only at boot.** `manage.py sweep_paper_reingest_runs` (the entrypoint, before
+  the paper worker starts) fails every `acquiring` run at `acquire` and queues `queued` and `paused` runs again. Between
+  boots a lost queue message still leaves a run `queued`, blocking a new start of the paper (`already_running`); the
+  operator recovers it with `manage.py paper_reingest cancel <run_id>` or `requeue <run_id>` (README "The command"). A
+  re-queued `paused` run starts a fresh retry budget, and if its old message survived it can run twice; the claim keeps
+  the two from overlapping.
 - The PDF cap in `host.py` and the launch deadline (the op's 60 s in `NessieAI/ns/op_limits.py` less
   `ANSWER_MARGIN_S`) are tied to the op's limit; change them together.
 

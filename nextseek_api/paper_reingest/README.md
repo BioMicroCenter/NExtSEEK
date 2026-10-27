@@ -10,8 +10,8 @@ The invariants and landmines are in [CLAUDE.md](CLAUDE.md).
 
 | File | What it does |
 |---|---|
-| `models_db.py` | `PaperReingestRun`, table `paper_reingest_run` under the `nextseek_api` app label (migration `0034_paper_reingest_run`). One row per run: the owner, the paper's ids and title, `mode`, `state`, the failure stage and reason, `artifacts` (artifact name to content-addressed key), `attempts` and `superseded_by` |
-| `service.py` | `create_run` (writes `paper.json` before the row exists), `enqueue_acquire`, `set_state`, `unfinished_run_for` and `LIVE_STATES` |
+| `models_db.py` | `PaperReingestRun`, table `paper_reingest_run` under the `nextseek_api` app label (migrations `0034_paper_reingest_run`, `0035_paper_reingest_run_live_key`). One row per run: the owner, the paper's ids and title, `mode`, `state`, the failure stage and reason, `artifacts` (artifact name to content-addressed key), `attempts`, `superseded_by` and `live_key` (unique while the run is unfinished); `LIVE_STATES` and `paper_key` |
+| `service.py` | `create_run` (writes `paper.json` before the row exists; raises `RunAlreadyLive` when another run of the paper is unfinished), `enqueue_acquire`, `set_state`, `transition` (a move that happens only from the states named), `unfinished_run_for` |
 | `tasks.py` | `acquire_task` and `run_acquire`: stage 1 on its own queue |
 | `host.py` | the seams `paper-reingest-start` runs with: `enabled` (the flag), `read_input` (the attached PDF), the launch fetcher and its deadline, `start_session` |
 | `lookups.py` | `doi_project_ids_strict`: SEEK projects whose samples carry this DOI. An outage raises; it is never read as "not in NExtSEEK" |
@@ -32,10 +32,13 @@ queued -> acquiring -> context          (stage 1 done; evidence.json is saved)
               +-> paused -> acquiring   (a source did not answer; the task retries later)
               +-> failed                (anything else, or the retries ran out)
 queued -> failed                        (stage 1 could not be queued: failed_stage queue)
+acquiring -> failed                     (a restart cut stage 1: the boot sweep, failed_stage acquire)
 any live state -> failed                (the operator cancelled it: failed_stage cancelled)
 ```
 
-`LIVE_STATES` are the states a second start of the same paper is refused in (`already_running`). A run
+`LIVE_STATES` are the states a second start of the same paper is refused in (`already_running`), by any curator:
+the paper is its DOI, case folded, or the input as given when it has none, and a unique `live_key` makes the
+database refuse a second unfinished row even when two starts race. A run
 that reaches `context` waits there: the later stages arrive in later pieces. Until the review op exists,
 read a run with the command below.
 
@@ -43,8 +46,9 @@ read a run with the command below.
 
 `acquire_task` is the Celery task `paper_reingest.acquire`, routed to the queue `paper_reingest` and served
 by its own worker with concurrency 1 (`docker/scripts/entrypoint.sh`, `DEPLOYMENT.md` "Paper reingest
-worker"). `run_acquire` is the body. It runs only a run that is `queued` or `paused`, counts the attempt,
-loads `paper.json`, calls `acquire`, saves `evidence.json` and sets `context`. A `SourceUnavailable` sets
+worker"). `run_acquire` is the body. It claims the run (`queued` or `paused` to `acquiring`, one conditional
+update that also counts the attempt), loads `paper.json`, calls `acquire`, saves `evidence.json` and sets `context`
+only if the run is still `acquiring`: a run cancelled meanwhile stays cancelled, and a second message is skipped. A `SourceUnavailable` sets
 `paused` and the task retries after `PAPER_REINGEST_PAUSE_S`; once `PAPER_REINGEST_PAUSE_RETRIES` retries are
 spent the run fails at stage `acquire`. Any other exception fails the run at once, with its class and message
 as the reason.
@@ -68,6 +72,7 @@ manage.py paper_reingest status <run_id>
 manage.py paper_reingest export <run_id> paper|evidence --out <path>
 manage.py paper_reingest cancel <run_id>
 manage.py paper_reingest requeue <run_id>
+manage.py sweep_paper_reingest_runs
 ```
 
 - `start` needs an existing superuser and runs the launch check first. `--paper` takes a PMID, PMCID, DOI or
@@ -77,11 +82,18 @@ manage.py paper_reingest requeue <run_id>
 - `status` prints one line (`<run_id>  <state>  <mode>  attempts=<n>  <title>`), the failure reason if any, and the
   evidence counts once stage 1 is done.
 - `export` writes `paper.json` or `evidence.json` to a file you name.
+- `start` refuses a paper with an unfinished run, whoever started it, and a queue that refuses stage 1 fails the run at
+  stage `queue` and the command exits with an error, as the op does.
 - `cancel` sets a run in any live state (`LIVE_STATES`) to `failed`, with `failed_stage` `cancelled` and the reason
-  `cancelled by operator`. It refuses a run that is already finished or failed.
+  `cancelled by operator`. It refuses a run that is already finished or failed, including one that finished while the
+  command ran.
 - `requeue` puts a `queued`, `paused` or `acquiring` run back to `queued` and queues stage 1 again. Use it for a run
   the worker lost (a restart mid-acquire leaves it `acquiring`; a lost message leaves it `queued`). Check first that
   no worker is still running it. Any other state is refused. If the queue is down the run is left `queued`.
+
+- `sweep_paper_reingest_runs` runs once at boot, from `docker/scripts/entrypoint.sh`, before the paper worker starts.
+  It fails every `acquiring` run at stage `acquire` ("interrupted by a server restart") and queues stage 1 again for
+  `queued` and `paused` runs. A failure of it is logged and the boot goes on.
 
 These commands print counts and ids, never the paper's text or a deposit's content.
 

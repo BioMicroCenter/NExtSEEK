@@ -72,6 +72,23 @@ def test_existing_run_is_returned_not_duplicated(monkeypatch):
     assert made == []
 
 
+def test_a_start_that_loses_the_race_answers_already_running(monkeypatch):
+    from NessieAI.ns.paper.start import RunExists
+
+    monkeypatch.setattr("NessieAI.ns.paper.start.launch_check", lambda raw, seams: _ok())
+    session, _, queued = _session()
+    winner = SimpleNamespace(run_id="won", state="queued")
+
+    def lost(**kw):
+        raise RunExists(winner)
+
+    session.create_run = lost
+    out = start("1", None, session)
+    assert (out["run_id"], out["status"], out["state"]) == ("won", "already_running", "queued")
+    assert out["reply"] == "A run for this paper is already in progress (queued): won."
+    assert queued == []
+
+
 def test_unrecognised_paper(monkeypatch):
     from NessieAI.ns.paper.identify import IdentifyError
 

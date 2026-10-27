@@ -93,7 +93,8 @@ def queue_or_fail(run) -> None:
         service.enqueue_acquire(run)
     except Exception as exc:
         logger.exception("paper reingest %s: could not queue stage 1", run.run_id)
-        service.set_state(run, "failed", failed_stage="queue", reason=f"could not queue: {type(exc).__name__}")
+        service.transition(run, ("queued",), "failed", failed_stage="queue",
+                           reason=f"could not queue: {type(exc).__name__}")
         raise StartRefused(QUEUE_UNAVAILABLE, "queue_unavailable") from exc
 
 
@@ -108,11 +109,16 @@ def _queue_after_commit(run) -> None:
         pass
 
 
+def already_running(run) -> str:
+    return f"A run for this paper is already in progress ({run.state}): {run.run_id}."
+
+
 def start_session(request) -> SimpleNamespace:
     from django.db import transaction
 
     from NessieAI.cc.cc_upload_list import list_input_files
     from NessieAI.ns.paper.launch import LaunchSeams
+    from NessieAI.ns.paper.start import RunExists
     from nextseek_api.assistant import chat_turns
     from nextseek_api.paper_reingest import service
     from nextseek_api.paper_reingest.lookups import doi_project_ids_strict
@@ -128,7 +134,11 @@ def start_session(request) -> SimpleNamespace:
 
     def create_run(**kwargs):
         turn = chat_turns.running_cc_turn(user) or {}
-        return service.create_run(user=user, chat_session_id=turn.get("session_id", ""), **kwargs)
+        try:
+            return service.create_run(user=user, chat_session_id=turn.get("session_id", ""), **kwargs)
+        except service.RunAlreadyLive as exc:
+            # Another start of this paper, by any curator, got its row in after the op's own check.
+            raise RunExists(exc.run) from exc
 
     def enqueue_acquire(run) -> None:
         # Stage 1 must never see a run row that is not committed yet. The op view runs in autocommit
@@ -141,5 +151,5 @@ def start_session(request) -> SimpleNamespace:
 
     return SimpleNamespace(
         user=user, enabled=enabled, launch_seams=launch_seams,
-        unfinished_run=lambda doi, raw: service.unfinished_run_for(user, doi, raw),
+        unfinished_run=service.unfinished_run_for,
         create_run=create_run, enqueue_acquire=enqueue_acquire, time_left=time_left)

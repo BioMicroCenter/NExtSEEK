@@ -149,3 +149,26 @@ def test_a_queue_that_is_down_after_the_commit_still_fails_the_run(django_user_m
     assert len(callbacks) == 1
     run.refresh_from_db()
     assert (run.state, run.failed_stage, run.reason) == ("failed", "queue", "could not queue: ConnectionError")
+
+
+@pytest.mark.django_db
+def test_another_curators_live_run_is_found_whoever_asks(django_user_model, tmp_path, monkeypatch):
+    first = django_user_model.objects.create(username="curator", is_superuser=True)
+    second = django_user_model.objects.create(username="other", is_superuser=True)
+    run, _ = _run(first, tmp_path, monkeypatch)
+    assert host.start_session(SimpleNamespace(user=second)).unfinished_run("10.1/x", "1") == run
+
+
+@pytest.mark.django_db
+def test_a_start_that_loses_the_race_hands_back_the_winning_run(django_user_model, tmp_path, monkeypatch):
+    """Both starts saw no live run; the database lets only one row in, and the other start gets the winner."""
+    from NessieAI.ns.paper.start import RunExists
+    from nextseek_api.assistant import chat_turns
+
+    first = django_user_model.objects.create(username="curator", is_superuser=True)
+    second = django_user_model.objects.create(username="other", is_superuser=True)
+    winner, paper = _run(first, tmp_path, monkeypatch)
+    monkeypatch.setattr(chat_turns, "running_cc_turn", lambda user: None)
+    with pytest.raises(RunExists) as err:
+        host.start_session(SimpleNamespace(user=second)).create_run(paper_input="1", paper=paper, project_hint=None)
+    assert err.value.run.run_id == winner.run_id

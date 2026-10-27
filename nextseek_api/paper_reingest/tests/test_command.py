@@ -90,3 +90,82 @@ def test_requeue_refuses_any_other_state(django_user_model, tmp_path, monkeypatc
         call_command("paper_reingest", "requeue", run.run_id)
     run.refresh_from_db()
     assert run.state == state and queued == []
+
+
+def _launch_ok(monkeypatch, doi="10.1/x"):
+    from NessieAI.ns.paper.launch import LaunchOutcome
+
+    paper = PaperArtifact(ref=PaperRef(pmid="1", doi=doi, title="T"), text=PaperText(), text_source="pdf", mode="new")
+    monkeypatch.setattr("nextseek_api.management.commands.paper_reingest.launch_check",
+                        lambda raw, seams: LaunchOutcome(status="ok", paper=paper))
+    return paper
+
+
+@pytest.mark.django_db
+def test_start_with_the_queue_down_fails_the_run_at_queue_and_says_so(django_user_model, tmp_path, monkeypatch):
+    from django.core.management.base import CommandError
+
+    from nextseek_api.paper_reingest.models_db import PaperReingestRun
+
+    monkeypatch.setenv("NEXTSEEK_PAPER_REINGEST_DIR", str(tmp_path))
+    django_user_model.objects.create(username="curator", is_superuser=True)
+    _launch_ok(monkeypatch)
+
+    def down(run):
+        raise ConnectionError("broker refused the connection")
+    monkeypatch.setattr(service, "enqueue_acquire", down)
+    with pytest.raises(CommandError) as err:
+        call_command("paper_reingest", "start", "--user", "curator", "--paper", "1")
+    row = PaperReingestRun.objects.get()
+    assert (row.state, row.failed_stage) == ("failed", "queue")
+    assert row.run_id in str(err.value) and "could not be queued" in str(err.value)
+
+
+@pytest.mark.django_db
+def test_start_queues_stage_1(django_user_model, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("NEXTSEEK_PAPER_REINGEST_DIR", str(tmp_path))
+    django_user_model.objects.create(username="curator", is_superuser=True)
+    _launch_ok(monkeypatch)
+    queued = []
+    monkeypatch.setattr(service, "enqueue_acquire", lambda r: queued.append(r.run_id))
+    call_command("paper_reingest", "start", "--user", "curator", "--paper", "1")
+    assert capsys.readouterr().out.strip() == f"{queued[0]}  queued"
+
+
+@pytest.mark.django_db
+def test_start_refuses_a_paper_another_curator_is_running(django_user_model, tmp_path, monkeypatch):
+    from django.core.management.base import CommandError
+
+    from nextseek_api.paper_reingest.models_db import PaperReingestRun
+
+    monkeypatch.setenv("NEXTSEEK_PAPER_REINGEST_DIR", str(tmp_path))
+    django_user_model.objects.create(username="curator", is_superuser=True)
+    paper = _launch_ok(monkeypatch)
+    theirs = service.create_run(user=django_user_model.objects.create(username="other", is_superuser=True),
+                                paper_input="10.1/x", paper=paper)
+    monkeypatch.setattr(service, "enqueue_acquire", lambda r: pytest.fail("a duplicate run was queued"))
+    with pytest.raises(CommandError) as err:
+        call_command("paper_reingest", "start", "--user", "curator", "--paper", "1")
+    assert theirs.run_id in str(err.value) and "already in progress" in str(err.value)
+    assert PaperReingestRun.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_cancel_refuses_a_run_that_finished_meanwhile(django_user_model, tmp_path, monkeypatch):
+    """The cancel's write is conditional too: a run the worker failed a moment ago keeps its own reason."""
+    from django.core.management.base import CommandError
+
+    from nextseek_api.paper_reingest.models_db import PaperReingestRun
+
+    run = _a_run(django_user_model, tmp_path, monkeypatch, "acquiring")
+
+    def stale_read(run_id):
+        # The worker fails the run just after the cancel read it as acquiring.
+        PaperReingestRun.objects.filter(pk=run.pk).update(state="failed", failed_stage="acquire",
+                                                          reason="KeyError: x", live_key=None)
+        return run
+    monkeypatch.setattr("nextseek_api.management.commands.paper_reingest._run", stale_read)
+    with pytest.raises(CommandError):
+        call_command("paper_reingest", "cancel", run.run_id)
+    run.refresh_from_db()
+    assert (run.state, run.failed_stage, run.reason) == ("failed", "acquire", "KeyError: x")

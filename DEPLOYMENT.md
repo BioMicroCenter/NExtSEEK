@@ -1344,8 +1344,10 @@ It is always running; the feature itself is off until `NEXTSEEK_PAPER_REINGEST=1
 container reads that file at start, so recreate the app after changing it). A source that does not answer pauses the run
 and the task retries after `PAPER_REINGEST_PAUSE_S` seconds, at most `PAPER_REINGEST_PAUSE_RETRIES` times. A run's
 artifacts are files under `NEXTSEEK_PAPER_REINGEST_DIR`, on the `outputs` bind mount, so they survive a rebuild. The
-fetcher reaches only the hosts in `NessieAI/ns/paper/fetch.py` `ALLOWED_HOSTS`, over https. Operator commands and the
-run's states: `nextseek_api/paper_reingest/README.md`.
+fetcher reaches only the hosts in `NessieAI/ns/paper/fetch.py` `ALLOWED_HOSTS`, over https. At boot, before this worker
+starts, `manage.py sweep_paper_reingest_runs` fails every run a restart left `acquiring` and queues stage 1 again for
+`queued` and `paused` runs; a failure of it is logged and the boot goes on. Operator commands and the run's states:
+`nextseek_api/paper_reingest/README.md`.
 
 ### Durable upload queue
 

@@ -130,3 +130,50 @@ def test_good_and_missing_env_values(monkeypatch):
     assert tasks._env_int("PAPER_REINGEST_PAUSE_S", 600) == 30
     monkeypatch.delenv("PAPER_REINGEST_PAUSE_S")
     assert tasks._env_int("PAPER_REINGEST_PAUSE_S", 600) == 600
+
+
+def _cancel_during(outcome):
+    """An acquire that the operator cancels while it runs, then ends with ``outcome``."""
+    from django.core.management import call_command
+
+    def run_and_cancel(paper, fetcher):
+        call_command("paper_reingest", "cancel", PaperReingestRun.objects.get().run_id)
+        if outcome == "down":
+            raise SourceUnavailable("www.ebi.ac.uk", "HTTP 503")
+        if outcome == "broken":
+            raise KeyError("x")
+        return _evidence()
+    return run_and_cancel
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("outcome", ["evidence", "down", "broken"])
+def test_a_run_cancelled_while_it_acquires_stays_cancelled(run, monkeypatch, outcome):
+    monkeypatch.setattr(tasks, "acquire", _cancel_during(outcome))
+    assert tasks.run_acquire(run.run_id, retries_done=0, max_retries=2) == "skipped:failed"
+    row = _state(run)
+    assert (row.state, row.failed_stage, row.reason) == ("failed", "cancelled", "cancelled by operator")
+    assert "evidence" not in row.artifacts and row.live_key is None
+
+
+@pytest.mark.django_db
+def test_a_second_message_for_a_run_already_acquiring_does_nothing(run, monkeypatch):
+    service.set_state(run, "acquiring")
+    monkeypatch.setattr(tasks, "acquire", lambda paper, fetcher: pytest.fail("a claimed run was run twice"))
+    assert tasks.run_acquire(run.run_id, retries_done=0, max_retries=2) == "skipped:acquiring"
+    assert _state(run).attempts == 0
+
+
+@pytest.mark.django_db
+def test_the_claim_is_one_conditional_update(run, monkeypatch):
+    """A cancel that lands between the read and the claim wins: the stale read must not start the run."""
+    real_get = PaperReingestRun.objects.get
+
+    def get_then_cancel(**kwargs):
+        row = real_get(**kwargs)
+        PaperReingestRun.objects.filter(pk=row.pk).update(state="failed", failed_stage="cancelled", live_key=None)
+        return row
+    monkeypatch.setattr(PaperReingestRun.objects, "get", get_then_cancel)
+    monkeypatch.setattr(tasks, "acquire", lambda paper, fetcher: pytest.fail("a cancelled run was started"))
+    assert tasks.run_acquire(run.run_id, retries_done=0, max_retries=2) == "skipped:failed"
+    assert _state(run).state == "failed"

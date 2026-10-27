@@ -10,8 +10,9 @@ from django.core.management.base import BaseCommand, CommandError
 from NessieAI.ns.paper.fetch import Fetcher
 from NessieAI.ns.paper.launch import LaunchSeams, launch_check
 from NessieAI.ns.paper.models import EvidenceArtifact, PaperArtifact
+from NessieAI.ns.paper.start import StartRefused
 from NessieAI.ns.paper.store import load_artifact
-from nextseek_api.paper_reingest import service, tasks
+from nextseek_api.paper_reingest import host, service, tasks
 from nextseek_api.paper_reingest.lookups import doi_project_ids_strict
 from nextseek_api.paper_reingest.models_db import PaperReingestRun
 
@@ -54,13 +55,23 @@ class Command(BaseCommand):
         outcome = launch_check(paper, seams)
         if outcome.status != "ok":
             raise CommandError(f"{outcome.status}: {outcome.reply}")
-        run = service.create_run(user=owner, paper_input=paper, paper=outcome.paper, project_hint=project)
+        existing = service.unfinished_run_for(outcome.paper.ref.doi, paper)
+        if existing is not None:
+            raise CommandError(host.already_running(existing))
+        try:
+            run = service.create_run(user=owner, paper_input=paper, paper=outcome.paper, project_hint=project)
+        except service.RunAlreadyLive as exc:
+            raise CommandError(host.already_running(exc.run)) from exc
         if inline:
             result = tasks.run_acquire(run.run_id, retries_done=0, max_retries=0)
             self.stdout.write(f"{run.run_id}  {result}")
-        else:
-            service.enqueue_acquire(run)
-            self.stdout.write(f"{run.run_id}  queued")
+            return
+        # As the op does: a queue that refuses the task fails the run at `queue`, never leaves it queued.
+        try:
+            host.queue_or_fail(run)
+        except StartRefused as exc:
+            raise CommandError(f"{run.run_id}  failed at queue: {exc}") from exc
+        self.stdout.write(f"{run.run_id}  queued")
 
     def _status(self, *, run_id, **_):
         run = PaperReingestRun.objects.filter(run_id=run_id).first()
@@ -77,16 +88,15 @@ class Command(BaseCommand):
 
     def _cancel(self, *, run_id, **_):
         run = _run(run_id)
-        if run.state not in service.LIVE_STATES:
+        if not service.transition(run, service.LIVE_STATES, "failed", failed_stage="cancelled",
+                                  reason="cancelled by operator"):
             raise CommandError(f"run {run_id} is {run.state}, not a live run")
-        service.set_state(run, "failed", failed_stage="cancelled", reason="cancelled by operator")
         self.stdout.write(f"{run.run_id}  failed  (cancelled)")
 
     def _requeue(self, *, run_id, **_):
         run = _run(run_id)
-        if run.state not in REQUEUE_STATES:
+        if not service.transition(run, REQUEUE_STATES, "queued"):
             raise CommandError(f"run {run_id} is {run.state}; only a {', '.join(REQUEUE_STATES)} run can be requeued")
-        service.set_state(run, "queued")
         try:
             service.enqueue_acquire(run)
         except Exception as exc:
