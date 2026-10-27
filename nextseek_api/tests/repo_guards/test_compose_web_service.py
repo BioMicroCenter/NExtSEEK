@@ -138,7 +138,7 @@ def test_the_spawner_is_hardened_and_only_on_its_own_network():
     assert sp["init"] is True   # an init as PID 1 hands SIGTERM on, so a stop is prompt
     assert set(sp["environment"]) == {
         "DMAC_CC_USERS_VOLUME", "NEXTSEEK_CC_IMAGE", "NEXTSEEK_CC_NETWORK", "SEEK_CONTAINER",
-        "NEXTSEEK_CC_MAX_TURNS", "NEXTSEEK_CC_MEM_LIMIT", "NEXTSEEK_CC_NANO_CPUS",
+        "NEXTSEEK_CC_MAX_TURNS", "NEXTSEEK_CC_MAX_TURNS_CEILING", "NEXTSEEK_CC_MEM_LIMIT", "NEXTSEEK_CC_NANO_CPUS",
         "NEXTSEEK_CC_PIDS_LIMIT", "NEXTSEEK_CC_FSIZE_BYTES", "NEXTSEEK_INTERNAL_BASE_URL",
         "NEO4J_URI", "NEXTSEEK_CC_AUTOMODE_GCP"}
     assert "nextseek.env" not in str(sp["env_file"]), "the spawner must not hold the app's secrets"

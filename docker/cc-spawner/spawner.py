@@ -52,6 +52,7 @@ _MAX_ENV_VALUE = 64 * 1024
 _TURN_FIELDS = frozenset({
     "run_id", "user_id", "project_dirname", "cc_state_key", "transcripts_subpath", "previous_turns", "turn_files",
     "model_id", "fallback_model_id", "max_budget_usd", "resume_session_id", "environment", "stdin_envelope",
+    "max_turns",
 })
 
 _BASE_CMD = [
@@ -120,6 +121,8 @@ class Config:
     network: str = "dmac-cc-net"
     seek_container: str = "seek"
     max_turns: str = "50"
+    #: The most turns one request may ask for (`max_turns`); a paper curation run asks for more than a chat turn.
+    max_turns_ceiling: str = "300"
     mem_limit: str = "4g"
     nano_cpus: int = 2_000_000_000
     pids_limit: int = 512
@@ -142,6 +145,7 @@ class Config:
             network=e.get("NEXTSEEK_CC_NETWORK", cls.network),
             seek_container=e.get("SEEK_CONTAINER", cls.seek_container),
             max_turns=e.get("NEXTSEEK_CC_MAX_TURNS", cls.max_turns),
+            max_turns_ceiling=e.get("NEXTSEEK_CC_MAX_TURNS_CEILING", cls.max_turns_ceiling),
             mem_limit=e.get("NEXTSEEK_CC_MEM_LIMIT", cls.mem_limit),
             nano_cpus=int(e.get("NEXTSEEK_CC_NANO_CPUS", cls.nano_cpus)),
             pids_limit=int(e.get("NEXTSEEK_CC_PIDS_LIMIT", cls.pids_limit)),
@@ -266,6 +270,10 @@ class Spawner:
         resume = _optional(body, "resume_session_id")
         if resume is not None and (not isinstance(resume, str) or not _SESSION_RE.fullmatch(resume)):
             raise _refuse("invalid resume_session_id")
+        max_turns = body.get("max_turns")
+        if max_turns is not None and (isinstance(max_turns, bool) or not isinstance(max_turns, int)
+                                      or not 1 <= max_turns <= int(self.config.max_turns_ceiling)):
+            raise _refuse("invalid max_turns")
         env = body.get("environment")
         if not isinstance(env, dict):
             raise _refuse("environment must be an object")
@@ -279,7 +287,7 @@ class Spawner:
             raise _refuse("invalid stdin_envelope")
         return {"run_id": run_id, "user": user, "project": project, "state_key": state_key, "subs": subs,
                 "transcripts": transcripts is not None, "previous_turns": bool(body.get("previous_turns")),
-                "turn_files": bool(body.get("turn_files")), "budget": budget, "resume": resume, "env": env,
+                "turn_files": bool(body.get("turn_files")), "budget": budget, "max_turns": max_turns, "resume": resume, "env": env,
                 "envelope": envelope, **models}
 
     def _mounts(self, v: dict) -> list[dict]:
@@ -305,7 +313,7 @@ class Spawner:
             cmd += ["--model", v["model_id"]]
         if v["fallback_model_id"] and v["fallback_model_id"] != v["model_id"]:
             cmd += ["--fallback-model", v["fallback_model_id"]]
-        cmd += ["--max-turns", self.config.max_turns]
+        cmd += ["--max-turns", str(v["max_turns"]) if v["max_turns"] else self.config.max_turns]
         if v["budget"] > 0:
             cmd += ["--max-budget-usd", str(v["budget"])]
         settings = {"autoMode": {"environment": self.config.automode_environment()}}

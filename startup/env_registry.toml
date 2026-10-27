@@ -681,6 +681,11 @@ files = ["nextseek.env", "root.env"]
 default = "50"
 doc = "Most agent turns in one Container-CC turn."
 
+[NEXTSEEK_CC_MAX_TURNS_CEILING]
+files = ["root.env"]
+default = "300"
+doc = "Most agent turns one cc-spawner request may ask for (a paper curation run asks for more than a chat turn)."
+
 [NEXTSEEK_CC_TIMEOUT_SECONDS]
 files = ["nextseek.env"]
 doc = "Default length in seconds of one Container-CC turn."

@@ -1111,6 +1111,7 @@ entrypoint) or `internal` (set by code, never by an operator). Secrets show no d
 | `NEXTSEEK_CC_NETWORK` | nextseek.env | dmac-cc-net |  |  | Docker network a Container-CC turn joins. |
 | `DMAC_BEDROCK_PROXY_URL` | nextseek.env | http://bedrock-proxy:8080 |  |  | Bedrock proxy URL the agent calls. |
 | `NEXTSEEK_CC_MAX_TURNS` | nextseek.env, root.env | 50 |  |  | Most agent turns in one Container-CC turn. |
+| `NEXTSEEK_CC_MAX_TURNS_CEILING` | root.env | 300 |  |  | Most agent turns one cc-spawner request may ask for (a paper curation run asks for more than a chat turn). |
 | `NEXTSEEK_CC_TIMEOUT_SECONDS` | nextseek.env |  |  |  | Default length in seconds of one Container-CC turn. |
 | `NEXTSEEK_CC_MEM_LIMIT` | nextseek.env, root.env | 4g |  |  | Memory limit of the agent container. |
 | `NEXTSEEK_CC_NANO_CPUS` | nextseek.env, root.env |  |  |  | CPU limit of the agent container, in nano CPUs. |

@@ -1,6 +1,7 @@
 """cc-spawner unit tests: the Docker SDK is faked, no daemon and no network but loopback."""
 from __future__ import annotations
 
+import dataclasses
 import http.client
 import importlib.util
 import json
@@ -419,3 +420,29 @@ def test_no_configured_token_refuses_everything_but_health(client, cfg):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_a_turn_may_ask_for_more_turns_up_to_the_ceiling(client, cfg):
+    svc = spawner.Spawner(client, dataclasses.replace(cfg, max_turns_ceiling="300"))
+    svc.start_turn(turn_body(max_turns=200))
+    cmd = client.containers.runs[-1]["command"]
+    assert cmd[cmd.index("--max-turns") + 1] == "200"
+
+
+def test_no_max_turns_keeps_the_configured_one(svc, client):
+    svc.start_turn(turn_body(max_turns=None))
+    cmd = client.containers.runs[-1]["command"]
+    assert cmd[cmd.index("--max-turns") + 1] == "7"
+
+
+@pytest.mark.parametrize("value", [0, -1, 301, True, "200", 2.5])
+def test_max_turns_out_of_bounds_is_refused(client, cfg, value):
+    svc = spawner.Spawner(client, dataclasses.replace(cfg, max_turns_ceiling="300"))
+    with pytest.raises(spawner.Refusal) as caught:
+        svc.start_turn(turn_body(max_turns=value))
+    assert caught.value.status == 422 and client.containers.runs == []
+
+
+def test_the_ceiling_is_read_from_the_environment():
+    assert spawner.Config.from_env({"NEXTSEEK_CC_MAX_TURNS_CEILING": "250"}).max_turns_ceiling == "250"
+    assert spawner.Config.from_env({}).max_turns_ceiling == "300"
