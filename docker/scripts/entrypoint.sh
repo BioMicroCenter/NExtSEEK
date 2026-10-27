@@ -126,6 +126,8 @@ if [ "$MODE" = "web" ]; then
   }
   _drain_and_stop() {
     touch "$_turn_dir/.draining"
+    # The curation loop first: the run it holds goes back to curation_pending for the next web container.
+    [ -n "$_curation_pid" ] && kill -TERM "$_curation_pid" 2>/dev/null
     # web's stop_grace_period (300 s) minus 30 s. The drain ends up to one poll late, then end_cut_turns pays a Django
     # start; the margin covers both, so the cut messages are written before Docker's SIGKILL. The server's own stop
     # after that may be SIGKILLed at 300 s, which loses nothing.
@@ -157,6 +159,20 @@ if [ "$MODE" = "web" ]; then
   }
   rm -rf "$_turn_dir"   # a restarted container keeps /tmp: no stale flag or marker may survive the start
   mkdir -p "$_turn_dir"
+  # Paper reingest's curation loop (spec delta 1): web is the one service that reaches cc-spawner. Off unless the
+  # feature flag is on. It restarts itself after a crash rather than taking the web server down, and the drain
+  # above hands it a TERM before the server's.
+  _curation_pid=""
+  if [ "${NEXTSEEK_PAPER_REINGEST:-0}" = "1" ]; then
+    ( trap 'kill -TERM "$_c" 2>/dev/null; wait "$_c"; exit 0' TERM
+      while :; do
+        uv run --no-sync python manage.py run_paper_curation &
+        _c=$!
+        wait "$_c"
+        sleep 30
+      done ) &
+    _curation_pid=$!
+  fi
   trap _drain_and_stop TERM INT
   wait "$_server_pid"
   exit $?
