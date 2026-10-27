@@ -567,7 +567,9 @@ def _run_plan(plan, exec_fn, config, prepare_cypher) -> tuple[Any, str | None, s
         plan_dump.get("parameters") if isinstance(plan_dump, dict) else getattr(plan, "parameters", {})
     ) or {}
     if not cypher:
-        return plan_dump, cypher, cypher, {"ok": False, "error": "graph agent produced no cypher", "data": []}
+        from chat_nextseek.schemas.graph import no_cypher_error
+
+        return plan_dump, cypher, cypher, {"ok": False, "error": no_cypher_error(plan_dump), "data": []}
     submitted = prepare_cypher(cypher, params) if prepare_cypher is not None else cypher
     return plan_dump, cypher, submitted, exec_fn(config, submitted, params)
 
@@ -1313,6 +1315,16 @@ def _pick_waiting_run(user):
         for run in waiting]}
 
 
+def _remove_key_copy(key_path: str, source_key: str) -> None:
+    """Remove the temp key copy ``prepare_key`` made, and nothing else (never the source key or a device)."""
+    if (key_path != source_key and os.path.basename(key_path).startswith("luria_key_")
+            and os.path.isfile(key_path) and not os.path.islink(key_path)):
+        try:
+            os.remove(key_path)
+        except OSError:
+            pass
+
+
 def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     """Reingest step 1 — stage the allowlisted files off the cluster and parse
     them into a RunManifest. Read-only; like run-ls it never calls the write
@@ -1333,6 +1345,10 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, 
     if launch is None:
         raise OpValidationError(
             "reingest covers Nessie-launched runs; this run has no launch record", field="run_dir", error_type="no_launch_record_for_this_run")
+    user = getattr(session, "user", None)
+    if not getattr(user, "is_superuser", False) and (
+            launch.launched_by_id is None or launch.launched_by_id != getattr(user, "pk", None)):
+        raise OpValidationError("this run was launched by someone else", field="run_dir", error_type="not_your_run")
     from chat_nextseek.luria.ssh import prepare_key
     key_path = prepare_key(luria_env["key"])
     try:
@@ -1350,10 +1366,7 @@ def _run_harvest(args, config, session, write_gate, neo4j_exec, outputs_dir, *, 
                 staged, run_dir=run_dir, lookup_by_fastq=_d_seq_by_fastq,
                 sample_type_lookup=_sample_types_for_uids, inventory=inventory)
     finally:
-        try:
-            os.remove(key_path)
-        except OSError:
-            pass
+        _remove_key_copy(key_path, luria_env["key"])
 
     run_manifest.launch_record_id = launch.pk
     if not run_manifest.pipeline.name and launch.pipeline:
@@ -1552,6 +1565,8 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir, *,
     import shlex
 
     run_dir, luria_env, runs_root = _validate_run_dir(args, config)
+    if run_dir == runs_root:
+        raise OpValidationError("run_dir is the runs root", field="run_dir", error_type="the_runs_root")
     rels = [p.strip() for p in str(args.get("paths") or "").split(",") if p.strip()]
     if not rels:
         raise OpValidationError("paths must name at least one file", field="paths", error_type="names_no_file")
@@ -1614,10 +1629,7 @@ def _run_checksum(args, config, session, write_gate, neo4j_exec, outputs_dir, *,
         # filesystem) rather than the oversized request.
         out = ssh_run(luria_env, remote_cmd, key_path=key_path, timeout=_CHECKSUM_SSH_TIMEOUT_S)
     finally:
-        try:
-            os.remove(key_path)
-        except OSError:
-            pass
+        _remove_key_copy(key_path, luria_env["key"])
 
     try:
         payload = json.loads(out)
@@ -1850,8 +1862,9 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
         PARENTS_JOIN_ASSAY, SOFT, Finding, qa_rows)
     from NessieAI.ns.upload_workbook import MODE_NEW, MODE_UPDATE, render_upload_workbook
     from nextseek_api.services.reingest_lookups import (
-        attributes_for, known_sample_types, lab_code_from_uid,
-        lab_for_code_strict, next_name_ordinal_strict, project_ids_for_uids_strict)
+        attributes_for, existing_uids_for_primary_files_strict, known_sample_types,
+        lab_code_from_uid, lab_for_code_strict, next_name_ordinal_strict,
+        project_ids_for_uids_strict)
 
     def _slug(name: str) -> str:
         # Artifact keys are word characters only; the download route accepts
@@ -1949,6 +1962,41 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
     # needs this cohort or every new-mode row's Parent would fail resolution
     # against an empty set and hard-reject the whole batch.
     existing_parent_uids = {s.d_seq_uid for s in run_manifest.samples if s.d_seq_uid}
+
+    # A new row whose data file is already a sample of its type, under the same
+    # parent, is left out: reingesting a run that was uploaded must never make a
+    # second copy. A partly uploaded run still builds the rows it lacks. A row whose
+    # path matches a sample but whose content has changed (a run redone in the same
+    # folder) is built and named in the reply. An outage raises, as every strict
+    # lookup here does; it never reads as "nothing there".
+    already_present: dict[str, dict] = {}
+    path_changed: dict[str, list] = {}
+    if mode == MODE_NEW:
+        def _cell(row, name):
+            attr = row.attributes.get(name)
+            return attr.value if attr is not None else ""
+
+        checked: dict[str, list] = {}
+        for row in result.rows:
+            if row.rule_id and row.sample_type != "D.SEQ":
+                checked.setdefault(row.sample_type, []).append(row)
+        dropped: set[int] = set()
+        for sample_type, type_rows in checked.items():
+            found = existing_uids_for_primary_files_strict(sample_type, [
+                {"link": _cell(row, "Link_PrimaryData"),
+                 "checksum": _cell(row, "Checksum_PrimaryData"),
+                 "parent": _cell(row, "Parent")} for row in type_rows])
+            uids = sorted({uid for match in found for uid in match["uids"]})
+            if uids:
+                dropped |= {id(row) for row, match in zip(type_rows, found) if match["uids"]}
+                already_present[sample_type] = {"uids": uids, "total": len(type_rows)}
+            changed = sorted({uid for match in found if not match["uids"]
+                              for uid in match["changed"]})
+            if changed:
+                path_changed[sample_type] = changed
+        if dropped:
+            result = result.model_copy(
+                update={"rows": [row for row in result.rows if id(row) not in dropped]})
 
     out_root = outputs_dir or os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs"
 
@@ -2331,7 +2379,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None, rebuilt_fr
         reports_by_type, saved_files, run_name, ambiguous_primary=ambiguous_primary,
         row_counts={st: len(rows) for st, rows in final.rows_by_type.items()},
         unmapped_count=len(result.unmapped or []), missed_rules=result.missed_rules,
-        alternative_rows=result.alternative_rows, stale_files=result.stale_files)
+        alternative_rows=result.alternative_rows, stale_files=result.stale_files,
+        already_present=already_present, path_changed=path_changed)
     # Map notes (an unchecked release, a companion with nowhere to go, values
     # with no home on the parent's type) are for whoever maintains the map; the
     # user can act on none of them, so they go to the server log, not the reply.
@@ -2406,7 +2455,7 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir,
                                 record, getattr(session, "user", None), outputs_dir))
     except upload.UploadRefused as exc:
         raise OpValidationError(str(exc), field="build_ids", error_type="upload_refused") from exc
-    _mark_runs_reingested(result.get("jobs") or [])
+    _mark_runs_reingested(result.get("jobs") or [], config)
     return result
 
 
@@ -2432,17 +2481,51 @@ def _rebuild_record(record: dict, user, outputs_dir) -> list[dict]:
     return list(result.get("builds") or [])
 
 
-def _mark_runs_reingested(jobs: list[dict]) -> None:
-    """A run whose upload started at least one job stops waiting for run-harvest's
-    no-folder pick. Best-effort: the upload has already started."""
-    from NessieAI.ns.reingest import launch_record
+def _mark_runs_reingested(jobs: list[dict], config=None) -> None:
+    """A run whose upload had at least one job succeed stops waiting for run-harvest's
+    no-folder pick, and its Luria folder gets nessie_status/saved.txt, which starts the
+    weekly cleanup's 7-day clock for its work folder. Best-effort: the upload has already
+    started."""
+    from NessieAI.ns.reingest import launch_record, upload
     from NessieAI.ns.reingest.store import load_manifest
 
-    for manifest_id in {job.get("manifest_id") for job in jobs if job.get("job_id")}:
+    succeeded = {job.get("manifest_id") for job in jobs
+                 if job.get("job_id") and upload.job_is_done(job.get("outcome"))}
+    for manifest_id in succeeded:
         try:
-            launch_record.mark_reingested(load_manifest(manifest_id).launch_record_id)
+            manifest = load_manifest(manifest_id)
+            launch_record.mark_reingested(manifest.launch_record_id)
         except Exception:  # noqa: BLE001 -- bookkeeping never fails an upload
             logger.exception("upload-reingest: could not mark manifest %s reingested", manifest_id)
+            continue
+        _write_saved_label(config, manifest)
+
+
+def _start_background(fn: Callable, *args) -> None:
+    """Run `fn(*args)` on a daemon thread and return at once; the one seam tests replace to
+    run it inline."""
+    import threading
+
+    threading.Thread(target=fn, args=args, daemon=True, name="nessie-saved-label").start()
+
+
+def _write_saved_label(config, manifest) -> None:
+    """Best-effort, like mark_reingested: when this fails, the run's work folder waits 30
+    days instead of 7 (chat_nextseek/luria/README.md). The SSH write runs on a background
+    thread so the upload request does not wait for Luria."""
+    _start_background(_write_saved_label_now, getattr(config, "LURIA_ENV", None) or {},
+                      getattr(manifest, "run_dir", None), getattr(manifest, "launch_record_id", None))
+
+
+def _write_saved_label_now(luria_env, run_dir, launch_record_id) -> None:
+    # Runs on a background thread: write_saved_label only uses SSH, never the database, so
+    # there is no Django connection to manage here.
+    try:
+        from chat_nextseek.luria.status_labels import write_saved_label
+
+        write_saved_label(luria_env, run_dir, launch_record_id)
+    except Exception:  # noqa: BLE001 -- bookkeeping never fails an upload
+        logger.exception("upload-reingest: could not write saved.txt for %s", run_dir or "?")
 
 
 _HANDLERS: dict[str, Callable] = {

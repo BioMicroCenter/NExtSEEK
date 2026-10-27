@@ -18,13 +18,14 @@ _OPEN = ("pending", "running")
 def _end_if_open(task, message: str, **still) -> bool:
     """Write ``message`` as the task's query_error unless it has finished (or, via ``still``, moved) meanwhile."""
     from nextseek_api.assistant.models_db import QueryTask
-    from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
 
-    # A turn can finish between the select and here: re-check so a result is never overwritten.
-    if not QueryTask.objects.filter(pk=task.pk, status__in=_OPEN, **still).exists():
-        return False
-    make_db_event_callback(str(task.task_id), str(task.session.session_id))("query_error", {"error": message})
-    return True
+    # A turn can finish between the select and here, and the event callback lets a query_error land on a completed
+    # row: so one conditional UPDATE of its own, which never overwrites a finished answer.
+    data = {"error": message, "session_id": str(task.session.session_id)}
+    progress = QueryTask.objects.filter(pk=task.pk).values_list("progress", flat=True).first() or []
+    return bool(QueryTask.objects.filter(pk=task.pk, status__in=_OPEN, **still).update(
+        status="error", result=data, progress=[*progress, {"event": "query_error", "data": data}],
+        updated_at=timezone.now()))
 
 
 def reap_stale_query_tasks() -> int:

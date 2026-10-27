@@ -32,10 +32,10 @@ from this file.
   empty container from a bare `except`: `nextseek_api/views.py:115-116` and
   `nextseek_api/views.py:133-134`. Reading an empty list as "unscoped" hands every row to
   a caller whose SEEK lookup merely timed out.
-- **Superuser gates key on `is_superuser`, never on `is_staff`.** `dmac/views.py:80` sets
-  `is_staff` on every SEEK user during login, on the create branch and again at
-  `dmac/views.py:97` on the update branch. A gate written against `is_staff` therefore
-  admits every logged-in SEEK user and enforces nothing;
+- **Superuser gates key on `is_superuser`, never on `is_staff`.** The SEEK login once set
+  `is_staff` on every user; migration `migrations/0033_clear_staff_non_superusers.py`
+  cleared it and `services/users.py` now keeps it equal to `is_superuser`. A gate on
+  `is_staff` would still drift from the one admin flag;
   `nextseek_api/permissions.py:9-14` records that ruling and
   `nextseek_api/permissions.py:21-27` implements the predicate that does work.
 - **`nextseek_api/views.py` imports every routed ViewSet unguarded**, in one block at

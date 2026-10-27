@@ -678,7 +678,7 @@ A(Q("keep", "report.geo_submission", "submission_package", "GEO for two scRNA-se
 
 A(Q("keep", "report.sra_submission", "submission_package", "SRA for two amplicon runs",
     [T("Build me an SRA submission for D.SEQ-230512FOR-288-PUB, D.SEQ-230512FOR-289-PUB.",
-       r"(?is)(?=.*SRR24445250)(?=.*PRJNA967652)")],
+       r"(?is)(?=.*D\.SEQ-230512FOR-288-PUB)(?=.*D\.SEQ-230512FOR-289-PUB)(?=.*PRJNA967652)")],
     "-288 is SRR24445250, Illumina MiSeq, Amplicon/Genomic/PCR, BioProject PRJNA967652, Scientist Forrest Hopkins.",
     SQL + ": json_metadata for both UIDs; both present in both stores.",
     "a different repository and a different library strategy from the GEO case."))

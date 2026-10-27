@@ -10,14 +10,14 @@
     "edger_exon":     {"type": "bool",   "default": false, "steerable": true, "help": "edgeR differential exon usage."},
     "dexseq_dtu":     {"type": "bool",   "default": false, "steerable": true, "help": "DEXSeq differential transcript usage."},
     "sashimi_plot":   {"type": "bool",   "default": false, "steerable": true, "help": "MISO sashimi plots."},
-    "contrasts":      {"type": "string", "default": null,  "steerable": true, "help": "Path to the contrasts CSV naming the two groups to compare. Currently supplied by the user (see required_user_params); a future step will derive it from the cohort grouping."},
+    "contrasts":      {"type": "string", "default": null,  "steerable": true, "help": "The contrasts CSV naming the groups to compare. The user states the comparison (see required_user_params) and configure_run writes contrasts.csv into the run folder; an absolute path is the user's own file and is passed through."},
     "multiqc_title":  {"type": "string", "default": null,  "steerable": true, "help": "MultiQC report title."}
   },
   "reference_resources": ["fasta", "gtf"],
   "required_user_params": [
     {"name": "contrasts",
-     "definition": "Path to a CSV naming the two groups of samples to compare (matches the 'condition' column values in the samplesheet). rnasplice cannot run without it, and it cannot be derived from a single sample's metadata.",
-     "example": "/net/bmc-lab/contrasts.csv",
+     "definition": "Which groups to compare, written TREATMENT vs CONTROL using the 'condition' values in the samplesheet (one comparison per line). Nessie writes the contrasts CSV from it. Which side is the treatment is your call: results are reported as treatment minus control. If you already have a contrasts CSV on Luria, give its full path instead.",
+     "example": "EC vs FB",
      "scope": "run"}
   ],
   "pipeline": {
@@ -29,7 +29,7 @@
     "required_columns": ["sample", "fastq_1", "fastq_2", "strandedness", "condition"],
     "optional_columns": []
   },
-  "notes": "The comparison is defined by the 'condition' column plus a contrasts file. For now contrasts is a required user-supplied path; deriving it from the cohort grouping is a scoped follow-up (Part B non-goal).",
+  "notes": "The comparison is defined by the 'condition' column plus a contrasts file. The user states the comparison and Nessie writes the file (seqera/contrasts.py); the direction is never defaulted.",
   "sources": [
     {"label": "nf-core/rnasplice nextflow_schema.json @ 1.0.4", "url": "https://raw.githubusercontent.com/nf-core/rnasplice/1.0.4/nextflow_schema.json", "notes": "param names, types, defaults; suppa default true."},
     {"label": "nf-core/rnasplice assets/schema_input.json @ 1.0.4", "url": "https://raw.githubusercontent.com/nf-core/rnasplice/1.0.4/assets/schema_input.json", "notes": "required columns: sample, fastq_1, strandedness, condition (fastq_2 optional)."}

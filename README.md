@@ -15,7 +15,7 @@ cd NExtSEEK
 
 Install generates the database passwords (kept in `docker/db.env` and
 `docker/nextseek.env`) and gives the `demo` (admin) and `user` (regular) logins
-random passwords, printed once at the end. `./startup.sh install --keep-demo-passwords`
+random passwords, printed once at the end. `./startup.sh install --keep-demo-passwords --demo-passwords-are-public`
 keeps the seed's published logins instead (a private laptop only; see `NExtSTEPS.md`).
 Open http://localhost:8000 to log in.
 

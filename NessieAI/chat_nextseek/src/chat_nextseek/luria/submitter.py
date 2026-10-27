@@ -4,7 +4,8 @@ Reads chat_nextseek's emitted launch.yml (the same file the Tower path reads),
 renders a run.sh per launch entry, and stages four files into a per-run remote
 directory: run.sh, luria.config (local reference-genome map, passed via -c),
 params.yml (curated per-pipeline params, passed via -params-file), and
-samplesheet.csv. CLI flags in run.sh (--input/--outdir/--genome) override
+samplesheet.csv, plus any file configure_run wrote that the run reads by name
+(rnasplice's contrasts.csv). CLI flags in run.sh (--input/--outdir/--genome) override
 params.yml. Then `sbatch`es it over SSH. Returns one ref dict per submitted run
 (SLURM job id + remote dir + log path).
 """
@@ -27,6 +28,7 @@ from .run_script import (luria_params_overrides, luria_resource_params, luria_ru
                          render_process_config, sanitize_job_name, validate_resources)
 from .fetchngs_helpers import needs_fetch_accessions
 from .ssh import prepare_key, ssh_run, scp_file
+from .status_labels import STATUS_DIR, STATUS_README, launched_label
 from ..seqera.catalog import NFCORE_PIPELINE_CATALOG
 from ..seqera.pipeline_params import refuse_shell_syntax
 
@@ -38,6 +40,10 @@ _REQUIRED_ENV = ("user", "key", "working_path", "host")
 # Params the CLI owns in run.sh (--input/--outdir/--genome); stripped from the
 # per-pipeline params.yml so there is no conflicting duplicate.
 _PARAMS_STRIP = ("input", "outdir", "genome")
+
+# The weekly cleanup script, staged verbatim to <working>/bin/nessie_cleanup.py on every
+# submit so the copy on Luria is always the current one (luria/README.md).
+_CLEANUP_SCRIPT = Path(__file__).parent / "cleanup.py"
 
 
 def _build_params_yml(launch_params: dict | None, overrides: dict | None = None) -> str:
@@ -63,17 +69,26 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
                  job_name: str | None = None, samplesheet_local: str | None = None,
                  genome: str | None = None, launch_params: dict | None = None,
                  process_args: dict | None = None, cwd=None,
-                 user_id: int | None = None) -> list[dict]:
+                 user_id: int | None = None,
+                 extra_files: dict[str, str] | None = None,
+                 reasons: list | None = None) -> list[dict]:
     """Submit each launch.yml entry to Luria via ssh+sbatch. Returns run refs (empty on any skip).
 
     ``user_id`` is the Django user the run is for (the chat's owner), recorded on the
-    launch record so the finished run can be found for them; None when unknown."""
+    launch record so the finished run can be found for them; None when unknown.
+    ``extra_files`` is {remote name: local path} of other inputs staged into the run
+    folder beside the samplesheet (params.yml names them bare).
+    ``reasons``, when given, collects one plain line per skip or failure (never a key, key path or password)."""
+    reasons = [] if reasons is None else reasons
     launch_path = Path(launch_yml_path).resolve()
     if not launch_path.exists():
         print(f"[LURIA][SUBMIT] launch.yml not found: {launch_path}")
+        reasons.append(f"launch.yml not found: {launch_path}")
         return []
     if not all(luria_env.get(k) for k in _REQUIRED_ENV):
         print("[LURIA][SUBMIT] LURIA env incomplete — skipping")
+        reasons.append("Luria env incomplete, missing: "
+                       + ", ".join(k for k in _REQUIRED_ENV if not luria_env.get(k)))
         return []
     if _yaml is None:
         raise RuntimeError("PyYAML is required to parse launch.yml for Luria submission.")
@@ -82,6 +97,7 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
     entries = doc.get("launch") if isinstance(doc, dict) else None
     if not entries:
         print(f"[LURIA][SUBMIT] no launch entries in {launch_path}")
+        reasons.append("no launch entries in launch.yml")
         return []
 
     working = str(luria_env["working_path"]).rstrip("/")
@@ -94,12 +110,17 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
                 continue
             try:
                 ref = _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key_path,
-                                  samplesheet_local, genome, launch_params, process_args,
-                                  user_id=user_id)
+                                  samplesheet_local, genome, launch_params, process_args, reasons,
+                                  user_id=user_id, extra_files=extra_files)
                 if ref:
                     runs.append(ref)
             except Exception as exc:
                 print(f"[LURIA][SUBMIT] entry {entry.get('name', idx)!r} failed: {exc!r}")
+                msg = repr(exc)
+                for secret in (key_path, luria_env.get("key")):
+                    if secret:
+                        msg = msg.replace(str(secret), "<key>")
+                reasons.append(f"entry {entry.get('name', idx)!r} failed: {msg[:300]}")
     finally:
         try:
             os.remove(key_path)
@@ -108,25 +129,65 @@ def submit_luria(launch_yml_path, *, luria_env: dict, resources: dict | None = N
     return runs
 
 
-def _sheet_needs_fetch(sheet_path: str) -> bool:
-    """True when the staged samplesheet has at least one blank-fastq SRR row to fetch."""
+def _sheet_fetch_accessions(sheet_path: str) -> list[str]:
+    """The SRA/ENA accessions the staged samplesheet asks to fetch (its blank-fastq rows)."""
     import csv
     try:
         with open(sheet_path, newline="") as fh:
             rows = list(csv.DictReader(fh))
     except OSError:
-        return False
-    return bool(needs_fetch_accessions(rows))
+        return []
+    return needs_fetch_accessions(rows)
+
+
+# The Luria calls made after sbatch are bookkeeping; a stalled shared filesystem must not hold
+# the submit (and the chat turn) hostage for a run that is already queued.
+_LABEL_SSH_TIMEOUT_S = 60
+
+
+def _write_launch_labels(luria_env, key_path, *, working, run_dir, work_dir, pipeline,
+                         revision, job_id, accessions) -> None:
+    """After sbatch: the run's nessie_status/ labels, then the current cleanup script in
+    <working>/bin/. Best-effort: a submitted run never fails here. Without launched.txt the
+    run stays unlabelled, and the cleanup never deletes an unlabelled run's work folder. The
+    label writes and the script staging are independent: a failure in one does not skip the
+    other."""
+    tmp_files: list[str] = []
+    try:
+        launched = launched_label(run_dir=run_dir, work_dir=work_dir, pipeline=pipeline,
+                                  revision=revision, slurm_job_id=job_id, accessions=accessions)
+        for name, text in (("launched.txt", launched), ("README.txt", STATUS_README)):
+            tmp = _write_temp(text, prefix="status_", suffix=".txt")
+            tmp_files.append(tmp)
+            scp_file(luria_env, tmp, f"{run_dir}/{STATUS_DIR}/{name}", key_path=key_path,
+                     timeout=_LABEL_SSH_TIMEOUT_S)
+    except Exception:  # bookkeeping must never fail a submitted run
+        log.exception("status labels failed for %s", run_dir)
+    finally:
+        for tmp in tmp_files:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+    try:
+        ssh_run(luria_env, f"mkdir -p {working}/bin", key_path=key_path,
+                timeout=_LABEL_SSH_TIMEOUT_S)
+        scp_file(luria_env, str(_CLEANUP_SCRIPT), f"{working}/bin/nessie_cleanup.py",
+                 key_path=key_path, timeout=_LABEL_SSH_TIMEOUT_S)
+    except Exception:  # the script is refreshed on the next submit, so log and carry on
+        log.exception("cleanup script staging failed for %s", working)
 
 
 def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key_path,
                 samplesheet_local=None, genome=None, launch_params=None, process_args=None,
-                user_id=None):
+                reasons=None, user_id=None, extra_files=None):
+    reasons = [] if reasons is None else reasons
     name = (entry.get("name") or f"run{idx}").strip() or f"run{idx}"
     pipeline = entry.get("pipeline")
     revision = entry.get("revision")
     if not pipeline or not revision:
         print(f"[LURIA][SUBMIT] entry {name!r} missing pipeline/revision — skipping")
+        reasons.append(f"entry {name!r} missing pipeline/revision")
         return None
 
     # Local samplesheet: prefer the explicit path from state; the params.yml the Tower
@@ -139,6 +200,7 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
             local_sheet = str(candidate)
     if not local_sheet or not Path(local_sheet).exists():
         print(f"[LURIA][SUBMIT] local samplesheet not found for entry {name!r}: {local_sheet!r}")
+        reasons.append(f"entry {name!r}: local samplesheet not found")
         return None
 
     safe = sanitize_job_name(job_name or name)
@@ -159,7 +221,8 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
     # and -c luria.config (genomes map for --genome identity + a per-protocol SIMPLEAF_QUANT
     # --knee block for scrnaseq bead protocols). Stage run.sh + luria.config + params.yml + sheet.
     refs_root = f"{working}/refs"
-    needs_fetch = _sheet_needs_fetch(local_sheet)
+    accessions = _sheet_fetch_accessions(local_sheet)
+    needs_fetch = bool(accessions)
     fastq_cache = f"{working}/fastq_cache"
     fetchngs_rev = NFCORE_PIPELINE_CATALOG.get("fetchngs", {}).get("default_revision", "1.12.0")
     # One validated allocation fills both run.sh's #SBATCH -n/--mem and luria.config's
@@ -193,11 +256,13 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
         params_tmp = _write_temp(params_yml, prefix="params_", suffix=".yml")
         tmp_files.append(params_tmp)
 
-        ssh_run(luria_env, f"mkdir -p {remote_run_dir} {work_dir}", key_path=key_path)
+        ssh_run(luria_env, f"mkdir -p {remote_run_dir}/{STATUS_DIR} {work_dir}", key_path=key_path)
         scp_file(luria_env, run_tmp, f"{remote_run_dir}/run.sh", key_path=key_path)
         scp_file(luria_env, cfg_tmp, f"{remote_run_dir}/luria.config", key_path=key_path)
         scp_file(luria_env, params_tmp, f"{remote_run_dir}/params.yml", key_path=key_path)
         scp_file(luria_env, local_sheet, f"{remote_run_dir}/samplesheet.csv", key_path=key_path)
+        for remote_name, local_path in (extra_files or {}).items():
+            scp_file(luria_env, local_path, f"{remote_run_dir}/{remote_name}", key_path=key_path)
         if needs_fetch:
             helper = str(Path(__file__).parent / "fetchngs_helpers.py")
             scp_file(luria_env, helper, f"{remote_run_dir}/fetchngs_helpers.py", key_path=key_path)
@@ -227,6 +292,9 @@ def _submit_one(entry, idx, parent, working, luria_env, resources, job_name, key
     except Exception:  # bookkeeping must never fail a submitted run
         log.exception("launch record failed for %s", remote_run_dir)
 
+    _write_launch_labels(luria_env, key_path, working=working, run_dir=remote_run_dir,
+                         work_dir=work_dir, pipeline=pipeline, revision=revision,
+                         job_id=str(job_id or ""), accessions=accessions)
     return {
         "job_id": job_id,
         "remote_dir": remote_run_dir,

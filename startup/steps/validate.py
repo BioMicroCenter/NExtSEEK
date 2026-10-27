@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import grp
 import os
+import pwd
 import re
 import subprocess
 import tempfile
@@ -42,6 +44,33 @@ class HealthResult:
     ok: bool
     detail: str
     warn: bool = False
+
+
+def check_app_ids(host_gid: str) -> HealthResult:
+    """The dedicated app uid/gid must not exist on the host (NSS, so directory accounts count), and
+    NEXTSEEK_HOST_GID must be a real, non-root, non-docker group id."""
+    from startup.lib.ownership import APP_GID, APP_UID
+
+    bad: list[str] = []
+    try:
+        bad.append(f"uid {APP_UID} is the host account {pwd.getpwuid(APP_UID).pw_name}")
+    except KeyError:
+        pass
+    try:
+        bad.append(f"gid {APP_GID} is the host group {grp.getgrgid(APP_GID).gr_name}")
+    except KeyError:
+        pass
+    if not host_gid.isdigit() or int(host_gid) == 0:
+        bad.append(f"NEXTSEEK_HOST_GID is {host_gid!r}: it must be the deploy account's gid, not empty or 0")
+    else:
+        try:
+            if int(host_gid) == grp.getgrnam("docker").gr_gid:
+                bad.append(f"NEXTSEEK_HOST_GID {host_gid} is the docker group's gid: never hand that to the app")
+        except KeyError:
+            pass
+    if bad:
+        return HealthResult("app uid/gid", False, "; ".join(bad))
+    return HealthResult("app uid/gid", True, f"{APP_UID}:{APP_GID} free on this host; host gid {host_gid}")
 
 
 def check_http(name: str, url: str, timeout: float = 5.0) -> HealthResult:
@@ -316,7 +345,31 @@ def check_nginx_config(repo_root: Path, env: dict[str, str]) -> HealthResult:
         return HealthResult(
             name=name, ok=False,
             detail="nginx serves an old config; run ./startup.sh rebuild --recreate-nginx")
+    if nginx_definition_changed(repo_root, env):
+        # The rebuild's front-door start passes --no-recreate (a plain `up` recreated a running
+        # nginx onto `web` before `web` existed: prod 502, 2026-10-26), so nothing else applies it.
+        return HealthResult(
+            name=name, ok=True, warn=True,
+            detail="nginx service definition changed: run ./startup.sh rebuild --recreate-nginx")
     return HealthResult(name=name, ok=True, detail="matches the checkout")
+
+
+def nginx_definition_changed(repo_root: Path, env: dict[str, str]) -> bool:
+    """Whether the running nginx was made from another service definition than the checkout's
+    (an image tag, a mount): compose's config hash against the container's
+    com.docker.compose.config-hash label, the test a plain `up` recreates on. False when either
+    cannot be read."""
+    def out(cmd: list[str]) -> str:
+        return subprocess.run(cmd, cwd=str(repo_root), env={**os.environ, **env}, capture_output=True,
+                              text=True, timeout=30).stdout.strip()
+    try:
+        want = out(["docker", "compose", "config", "--hash", FRONT_DOOR_SERVICE]).split()[1:2]
+        cid = out(["docker", "compose", "ps", "-q", FRONT_DOOR_SERVICE]).split()[:1]
+        have = out(["docker", "inspect", "-f",
+                    '{{index .Config.Labels "com.docker.compose.config-hash"}}', *cid]) if cid else ""
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return bool(want and have) and want[0] != have
 
 
 def seek_started_at(repo_root: Path, env: dict[str, str]) -> str | None:
@@ -591,16 +644,17 @@ def check_cc_agent_context(
 def check_cc_runner(repo_root: Path, env: dict[str, str]) -> HealthResult:
     """DEPLOYMENT.md section 6 step 6, run for the operator rather than by them.
 
-    Host-side image presence is not the same claim. This one runs inside the app
-    container, over the docker socket it actually spawns CC turns through, and so
-    covers all three legs of ``cc_engine.cc_runner_available()``: the daemon is
-    reachable from in there, the image is visible to it, and ``dmac-cc-net``
-    exists. It is the exact command the runbook asks for by hand.
+    Host-side image presence is not the same claim. This one runs inside the web
+    container, which reaches Docker only through cc-spawner (the worker has no
+    spawner address), and so covers ``cc_engine.cc_runner_available()``: the
+    spawner accepts the token (no token, or an answer without the authenticated
+    detail, is not green), sees the image and finds ``dmac-cc-net``.
+    It is the exact command the runbook asks for by hand.
     """
     name = "CC runner"
     try:
         out = compose_exec(
-            service="nextseek",
+            service="web",
             # The app image carries no bare `python` on PATH; `uv run --no-sync`
             # executes in /app/.venv without modifying it (DEPLOYMENT.md 6.6).
             command=[
@@ -618,8 +672,8 @@ def check_cc_runner(repo_root: Path, env: dict[str, str]) -> HealthResult:
         return HealthResult(
             name=name,
             ok=True,
-            detail=f"{reported} -- image, docker socket and dmac-cc-net all "
-                   "reachable from the app container",
+            detail=f"{reported} -- cc-spawner, the image and dmac-cc-net all "
+                   "reachable from the web container",
         )
     return HealthResult(
         name=name,

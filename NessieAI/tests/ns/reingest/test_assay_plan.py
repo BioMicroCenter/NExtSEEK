@@ -42,7 +42,9 @@ def test_one_matching_assay_per_study_files_the_row_and_pairs_the_parents():
 
 def test_a_study_with_no_assay_is_marked_to_create():
     result, _ = _row(plan=_plan({25: []}, {25: ["D.SEQ-1"]}, titles={25: "Study B"}))
-    assert result.assay_ids == []
+    # The reviewed workbook shows the planned assay; the upload puts its id in place.
+    assert result.assay_ids == ["to be created at upload: Gene Expression Analysis - Data Linked"
+                                " (study 25)"]
     assert _codes(result) == [(qa.ASSAY_TO_CREATE, qa.SOFT)]
     assert result.to_create == [{"study_id": 25, "study_title": "Study B",
                                  "internal_assay_title": "Gene Expression Analysis",
@@ -54,7 +56,8 @@ def test_a_study_with_no_assay_is_marked_to_create():
 def test_two_studies_file_under_one_and_create_in_the_other():
     result, _ = _row(parents=("D.SEQ-1", "D.SEQ-2"),
                      plan=_plan({25: [], 51: [315]}, {25: ["D.SEQ-2"], 51: ["D.SEQ-1"]}))
-    assert result.assay_ids == [315]
+    assert result.assay_ids == [
+        "to be created at upload: Gene Expression Analysis - Data Linked (study 25)", 315]
     assert [e["study_id"] for e in result.to_create] == [25]
     assert sorted((p["parent_uid"], p["assay_id"]) for p in result.parent_assays) == \
         [("D.SEQ-1", 315), ("D.SEQ-2", None)]
@@ -111,3 +114,8 @@ def test_merges_keep_one_entry_per_key():
     assert assay_plan.merge_to_create([a, b]) == [dict(a, rows=[0, 1])]
     pair = {"parent_uid": "D.SEQ-1", "study_id": 25, "internal_assay_title": "X", "assay_id": None}
     assert assay_plan.merge_parent_assays([pair, dict(pair)]) == [pair]
+
+
+def test_the_planned_label_names_the_new_assay_and_its_study():
+    assert assay_plan.planned_assay_label(25, "Genome Alignment - Data Linked") == \
+        "to be created at upload: Genome Alignment - Data Linked (study 25)"

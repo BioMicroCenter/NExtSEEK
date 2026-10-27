@@ -59,8 +59,7 @@ context processor; `{% static %}` also works.
 
 Third-party script loading is security item SEC-0930-F (tracked privately). Bootstrap (jsDelivr),
 Bootstrap Icons (jsDelivr) and Google Fonts load on every page: if jsDelivr is unreachable, styling and
-the sidebar collapse break. SheetJS, select2, moment, DataTables and vis are not used by any Django page (`xlsx`
-appears only inside the React bundle).
+the sidebar collapse break. select2, moment, DataTables and vis are not used by any Django page.
 
 ### EasyUI components in use
 

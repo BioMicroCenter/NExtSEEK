@@ -55,7 +55,9 @@ def test_a_missing_study_assay_is_recorded_to_create(rows, tmp_path, monkeypatch
     _fake(monkeypatch, study=25, assay=None)
     out = _new(tmp_path, manifest_id)
     aln = _build(out, "reingest_A_ALN")
-    assert _assay_column(out["saved_files"]["reingest_A_ALN"]) == []
+    # The reviewed workbook shows the row the upload will file it under.
+    assert _assay_column(out["saved_files"]["reingest_A_ALN"]) == [
+        "to be created at upload: Genome Alignment - Data Linked (study 25)"]
     assert [(e["study_id"], e["assay_title"]) for e in aln["assays_to_create"]] == \
         [(25, "Genome Alignment - Data Linked")]
     assert any("assay_to_create" in item for item in out["qa"]["A.ALN"]["soft"])

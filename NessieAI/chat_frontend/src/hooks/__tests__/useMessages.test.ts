@@ -58,6 +58,18 @@ describe("useMessages", () => {
 });
 
 describe("useMessages — hydrateFromTurns", () => {
+  it("hydrateFromTurns: the user message carries its turn id", () => {
+    const { result } = renderHook(() => useMessages());
+    act(() => {
+      result.current.hydrateFromTurns([
+        { bundle_id: 1, turn_id: 4, user_query: "q", reply: "a", mode: "x" },
+        { bundle_id: 2, user_query: "old", reply: "b", mode: "x" },
+      ]);
+    });
+    expect(result.current.messages[0].turnId).toBe(4);
+    expect(result.current.messages[2].turnId).toBeNull();
+  });
+
   it("replaces messages with paired user+assistant entries per turn", () => {
     const { result } = renderHook(() => useMessages());
 

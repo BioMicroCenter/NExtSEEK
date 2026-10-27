@@ -51,7 +51,6 @@ class People(models.Model):
     last_name = models.CharField(max_length=255, default=None)
     email = models.CharField(max_length=255, default=None)
     phone = models.CharField(max_length=255, default=None)
-    skype_name = models.CharField(max_length=255, default=None)
     web_page = models.CharField(max_length=255, default=None)
     description = models.TextField(default=None)
     avatar_id = models.IntegerField(default=None)

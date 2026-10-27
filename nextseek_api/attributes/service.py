@@ -19,6 +19,7 @@ from .repository import AttributeRepository, SeekAttributeGateway
 from .resolver import ResolutionError
 from .scalars import parse_query_positive_int
 from .schemas import (
+    ACCEPTED_ZERO_OUTCOMES,
     AttributeErrorResponse,
     AttributeListResponse,
     AttributeRecord,
@@ -56,6 +57,11 @@ def _counts(plan) -> MutationCounts:
             if key in values:
                 values[key] += value
     return MutationCounts(**values)
+
+
+def _accepted_counts(plan) -> MutationCounts:
+    """The plan's counts with no outcome yet: an accepted job has written nothing."""
+    return _counts(plan).model_copy(update={key: 0 for key in ACCEPTED_ZERO_OUTCOMES})
 
 
 HYPOTHETICAL_PREVIEW_KEYS = {
@@ -202,7 +208,7 @@ class AttributeServices:
             body = MutationAcceptedResponse(
                 mode="asynchronous", job_id=job.job_id,
                 status_url=reverse("nextseek_api:attribute-job", kwargs={"job_id": job.job_id}),
-                counts=_counts(plan),
+                counts=_accepted_counts(plan),
             )
             return body.model_dump(mode="json"), 202
 

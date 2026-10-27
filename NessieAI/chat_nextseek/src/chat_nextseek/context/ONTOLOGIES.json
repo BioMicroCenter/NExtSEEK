@@ -1,5 +1,5 @@
 {
- "_about": "House ontologies for harmonizing sample attribute values. Each entry names one ontology file in this folder: a JSON list of records with the keys TERM, DEF, ONT_SOURCE, ONT_ID and SYNONYMS. The files are the source of truth; nextseek_api/services/controlled_vocabularies.json (the upload-sheet dropdowns) is generated from the entries that name an upload_vocabulary. source_url plus an entry's file is that ontology's public link, for replies.",
+ "_about": "House ontologies for harmonizing sample attribute values. Each entry names one ontology file in this folder: a JSON list of records with the keys TERM, DEF, ONT_SOURCE, ONT_ID and SYNONYMS. The files are the source of truth; nextseek_api/services/controlled_vocabularies.json (the upload-sheet dropdowns) is generated from the entries that name an upload_vocabulary. For replies, each entry's url is that ontology's public link.",
  "source_url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/",
  "record_keys": {
   "TERM": "The house spelling. A harmonized value equals it exactly.",
@@ -15,6 +15,7 @@
    "id": "species",
    "title": "Species",
    "file": "ontology_species.json",
+   "url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_species.json",
    "attributes": [
     "*.Species"
    ],
@@ -27,6 +28,7 @@
    "id": "sex",
    "title": "Sex",
    "file": "ontology_sex.json",
+   "url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_sex.json",
    "attributes": [
     "*.Sex"
    ],
@@ -39,6 +41,7 @@
    "id": "organ",
    "title": "Organ and tissue",
    "file": "ontology_organ.json",
+   "url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_organ.json",
    "attributes": [
     "*.Organ",
     "CEL.Tissue"
@@ -52,6 +55,7 @@
    "id": "disease",
    "title": "Disease",
    "file": "ontology_disease.json",
+   "url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_disease.json",
    "attributes": [
     "*.Disease"
    ],
@@ -64,6 +68,7 @@
    "id": "units",
    "title": "Units",
    "file": "ontology_units.json",
+   "url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_units.json",
    "attributes": [
     "*.*Units"
    ],
@@ -76,6 +81,7 @@
    "id": "mouse_genotype",
    "title": "Mouse genotypes",
    "file": "ontology_mouse_genotype.json",
+   "url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_mouse_genotype.json",
    "attributes": [
     "MUS.Genotype"
    ],
@@ -88,6 +94,7 @@
    "id": "mouse_strain",
    "title": "Mouse strains",
    "file": "ontology_mouse_strain.json",
+   "url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_mouse_strain.json",
    "attributes": [
     "MUS.Strain",
     "MUS.Genotype",
@@ -102,6 +109,7 @@
    "id": "library_strategy",
    "title": "Library strategy",
    "file": "ontology_library_strategy.json",
+   "url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_library_strategy.json",
    "attributes": [
     "D.SEQ.LibraryStrategy"
    ],
@@ -115,6 +123,7 @@
    "id": "library_source",
    "title": "Library source",
    "file": "ontology_library_source.json",
+   "url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_library_source.json",
    "attributes": [
     "D.SEQ.LibrarySource"
    ],
@@ -128,6 +137,7 @@
    "id": "library_selection",
    "title": "Library selection",
    "file": "ontology_library_selection.json",
+   "url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_library_selection.json",
    "attributes": [
     "D.SEQ.LibrarySelection"
    ],
@@ -141,6 +151,7 @@
    "id": "library_layout",
    "title": "Library layout",
    "file": "ontology_library_layout.json",
+   "url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_library_layout.json",
    "attributes": [
     "D.SEQ.LibraryDesign"
    ],
@@ -154,6 +165,7 @@
    "id": "extracted_molecule",
    "title": "Extracted molecule",
    "file": "ontology_extracted_molecule.json",
+   "url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_extracted_molecule.json",
    "attributes": [
     "D.SEQ.ExtractedMolecule"
    ],
@@ -166,6 +178,7 @@
    "id": "instrument_model",
    "title": "Sequencing instrument",
    "file": "ontology_instrument_model.json",
+   "url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_instrument_model.json",
    "attributes": [
     "D.SEQ.Sequencer"
    ],
@@ -179,6 +192,7 @@
    "id": "file_format",
    "title": "Data file format",
    "file": "ontology_file_format.json",
+   "url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_file_format.json",
    "attributes": [
     "*.DataType",
     "*.*DataType"
@@ -193,6 +207,7 @@
    "id": "genome_assembly",
    "title": "Reference genome assembly",
    "file": "ontology_genome_assembly.json",
+   "url": "https://github.com/BioMicroCenter/NExtSEEK/blob/dev/NessieAI/chat_nextseek/src/chat_nextseek/context/ontology_genome_assembly.json",
    "attributes": [
     "*.Genome",
     "*.ReferenceGenome"

@@ -94,7 +94,6 @@ it only works against a remote `VITE_API_BASE_URL` with CORS.
 | Tailwind | ^4.1 via `@tailwindcss/vite` (no `postcss` step needed) |
 | UI primitives | shadcn-style files in `src/components/ui/` over 9 Radix packages; `lucide-react` icons |
 | Markdown | `react-markdown` ^10, `remark-gfm`, `rehype-highlight` (highlight.js github theme, light only) |
-| Spreadsheet | `xlsx` ^0.18.5, bundled as a lazy chunk but never loaded: its only user, `downloadSearchAsExcel` in `chatApi.ts`, has no caller |
 | Not present | state library, router, data-fetching library, chart library, table library |
 
 ### Component map (all under `NessieAI/chat_frontend/src/`)
@@ -185,8 +184,8 @@ the hamburger). The page itself never scrolls; only the message list does.
 ## Build and commit rule
 
 The Dockerfile has no Node stage: it installs no JavaScript toolchain and runs no bundler. The
-image ships whatever is committed in `static/js/chat_assistant/` (hashed `main.embedded-*.js`, a
-lazy `xlsx-*.js` chunk, `main-*.css`, and `.vite/manifest.json`, about 1.2 MB). A source change
+image ships whatever is committed in `static/js/chat_assistant/` (hashed `main.embedded-*.js`,
+`main-*.css`, and `.vite/manifest.json`). A source change
 without a rebuilt bundle deploys fine, renders fine, and shows the old UI.
 
 ```

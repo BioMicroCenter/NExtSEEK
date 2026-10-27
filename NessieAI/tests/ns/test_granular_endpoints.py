@@ -5,6 +5,8 @@ They cover the HTTP envelope, request validation (422), the write-blocked path
 (403 + WRITE_BLOCKED, agent never called), and auth (401/403). The real-stack
 provenance + write-DB-unchanged proofs live in the paid acceptance tier.
 """
+import shutil
+import tempfile
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -313,6 +315,12 @@ class ReingestEndpointTests(GranularEndpointBase):
         super().setUp()
         patcher = patch("nextseek_api.services.assistant._granular_chat_config",
                         return_value=SimpleNamespace())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        # The artifact ops would otherwise write under <BASE_DIR>/outputs in the checkout (PR 135 SF-15).
+        out = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, out, ignore_errors=True)
+        patcher = patch("nextseek_api.services.assistant._granular_outputs_dir", return_value=out)
         patcher.start()
         self.addCleanup(patcher.stop)
 

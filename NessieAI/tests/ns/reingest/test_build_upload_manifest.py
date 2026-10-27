@@ -160,6 +160,10 @@ def _patch_seek_assays(monkeypatch):
             {1: [500]}, {1: sorted(parent_uids)}, [], {1: "Study"}))
     monkeypatch.setattr(
         "nextseek_api.services.reingest_lookups.house_assay_title_strict", lambda name: name)
+    # And none of the run's files is a sample yet.
+    monkeypatch.setattr(
+        "nextseek_api.services.reingest_lookups.existing_uids_for_primary_files_strict",
+        lambda sample_type, files: [{"uids": [], "changed": []} for _ in files])
 
 # Default per-sample output inventory a real `run-harvest` would have found
 # for a `star_salmon`-aligned run -- matching rnaseq.outputs.json's own
@@ -618,7 +622,7 @@ def test_a_manifest_with_no_checksums_still_renders_a_workbook(rows, tmp_path, m
 
     wb_gex = openpyxl.load_workbook(result["saved_files"]["reingest_A_GEX"])
     gex_files = _cell_by_header(wb_gex["Samples"], "File_PrimaryData")
-    assert set(gex_files.values()) == {"all.merged.gene_counts.tsv"}
+    assert set(gex_files.values()) == {"r1/all.merged.gene_counts.tsv"}
 
 
 # ---------------------------------------------------------------------------

@@ -237,9 +237,10 @@ class SeekAPIClient:
         params = {'version': int(version)}
         return self._request('GET', f'/data_files/{data_file_id}', request, params=params)
 
-    def create_data_file(self, request, payload: Dict[str, Any]):
+    def create_data_file(self, request, payload: Dict[str, Any], timeout_s=(10, SOP_CREATE_TIMEOUT_S)):
+        # The same wait as a SOP create: SEEK can be slow to answer a create (see SOP_CREATE_TIMEOUT_S).
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
-        return self._request('POST', '/data_files', request, json=payload)
+        return self._request('POST', '/data_files', request, json=payload, timeout_s=timeout_s)
 
     def update_data_file(self, request, data_file_id: str, payload: Dict[str, Any]):
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
@@ -336,9 +337,9 @@ class SeekAPIClient:
     def get_sample_type(self, request, sample_type_id: str):
         return self._request('GET', f'/sample_types/{sample_type_id}', request)
 
-    def create_sample_type(self, request, payload: Dict[str, Any]):
+    def create_sample_type(self, request, payload: Dict[str, Any], timeout_s=None):
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
-        return self._request('POST', '/sample_types', request, json=payload)
+        return self._request('POST', '/sample_types', request, json=payload, timeout_s=timeout_s)
 
     def update_sample_type(self, request, sample_type_id: str, payload: Dict[str, Any]):
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})

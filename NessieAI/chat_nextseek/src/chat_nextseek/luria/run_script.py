@@ -103,6 +103,12 @@ CACHE="{FASTQ_CACHE}"
 mkdir -p "$CACHE/fastq" "$CACHE/work"
 python3 fetchngs_helpers.py ids
 if [ -s ids.csv ]; then
+  # Mark these accessions in use BEFORE checking the cache, under the lock the weekly
+  # cleanup holds while it deletes, so it can't delete a file this run is about to reuse.
+  # run.sh's exit trap releases them. Best-effort: the cleanup also refuses to delete while
+  # this job is queued, so a failed claim warns and the run carries on.
+  python3 fetchngs_helpers.py claim "$CACHE" "${{SLURM_JOB_ID:-}}" \\
+    || echo "[FETCHNGS] could not mark the downloads in use; continuing" >&2
   # "cached" uses fill's own matcher (whole run or experiment id in fetchngs' <exp>_<run>
   # names), so the download is skipped only when fill will find every accession.
   if ! python3 fetchngs_helpers.py cached "$CACHE"; then
@@ -119,6 +125,48 @@ if [ -s ids.csv ]; then
     || {{ echo "[FETCHNGS] fill failed -- fastqs not present in $CACHE/fastq; aborting before the pipeline run" >&2; exit 1; }}
 fi
 """
+
+# --- nessie_status/: the labels the weekly cleanup (bin/nessie_cleanup.py) reads ---------
+# finished.txt is written on every exit. SLURM's time limit sends TERM, which the TERM trap
+# turns into exit 143 so the EXIT trap still runs (further TERMs are ignored while it
+# labels). A run that fetches also releases its download claims here. NESSIE_PY is captured
+# while the conda env is active: by the time the trap runs, `conda deactivate` has put the
+# login python3 (possibly too old) first.
+_STATUS_BLOCK_TMPL = """
+# --- nessie_status/: labels the weekly cleanup (bin/nessie_cleanup.py) reads ---
+# finished.txt is written on every exit, success or failure. chat_nextseek/luria/README.md
+# says what each label means.
+NESSIE_PY="$(command -v python3)"
+mkdir -p nessie_status
+nessie_finish() {{
+  rc=$?
+  trap - EXIT
+  trap '' TERM
+  if [ "$rc" -eq 0 ]; then result=succeeded; else result=failed; fi
+  printf 'result: %s\\nexit_code: %s\\nfinished_at: %s\\n' "$result" "$rc" \\
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "{RUN_DIR}/nessie_status/finished.txt"
+{RELEASE_LINE}  exit "$rc"
+}}
+trap nessie_finish EXIT
+trap 'exit 143' TERM
+"""
+
+_RELEASE_LINE_TMPL = ('  [ -n "$NESSIE_PY" ] && "$NESSIE_PY" "{RUN_DIR}/fetchngs_helpers.py" release '
+                      '"{FASTQ_CACHE}" "${{SLURM_JOB_ID:-}}" || true\n')
+
+
+def render_status_block(*, run_dir: str, fastq_cache: str | None = None) -> str:
+    """The run.sh block that creates nessie_status/ and writes finished.txt on every exit.
+    With `fastq_cache` (a run that fetches), the exit also releases the run's download claims.
+    `run_dir` is trusted config (LURIA_WORKING_PATH + a sanitized name), like everywhere here."""
+    release = ""
+    if fastq_cache:
+        if not _REFS_ROOT_RE.fullmatch(str(fastq_cache)):
+            raise ValueError(f"invalid fastq_cache {fastq_cache!r}")
+        release = _RELEASE_LINE_TMPL.format(RUN_DIR=run_dir,
+                                            FASTQ_CACHE=str(fastq_cache).rstrip("/"))
+    return _STATUS_BLOCK_TMPL.format(RUN_DIR=run_dir, RELEASE_LINE=release)
+
 
 _REFS_ROOT_RE = re.compile(r"[A-Za-z0-9_./-]{1,256}")
 
@@ -460,7 +508,8 @@ def render_fetchngs_config(resources: dict | None = None) -> str:
 
 def sanitize_job_name(name: str, fallback: str = "nfcore_run") -> str:
     """Reduce an arbitrary name to a SLURM-safe token."""
-    cleaned = _JOB_NAME_STRIP.sub("_", (name or "").strip())[:64].strip("_")
+    # No leading "." or "-": a name shaped like the cleanup's tombstone (".nessie-deleting-...") would lose its live work folder.
+    cleaned = re.sub(r"^[._-]+", "", _JOB_NAME_STRIP.sub("_", (name or "").strip())[:64]).strip("_")
     return cleaned or fallback
 
 
@@ -571,6 +620,8 @@ def render_run_script(*, job_name: str, pipeline: str, revision: str, run_dir: s
         "SYNTAX_PARSER": profile["syntax_parser"],
         "REFS_FLAGS": refs_flags,
         "FETCHNGS_BLOCK": fetchngs_block,
+        "STATUS_BLOCK": render_status_block(
+            run_dir=run_dir, fastq_cache=str(fastq_cache) if needs_fetch else None),
         "WORK_DIR": work_dir,
         "SINGULARITY_CACHE": singularity_cache,
         "MAIL_DIRECTIVES": render_mail_directives(),

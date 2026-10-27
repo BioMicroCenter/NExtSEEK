@@ -534,6 +534,50 @@ def test_load_filestore_streams_archive_and_chowns(mock_exec: MagicMock, tmp_pat
 # steps/doctor — instance-present path
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _doctor_never_asks_docker_about_ownership(monkeypatch: pytest.MonkeyPatch) -> None:
+    import startup.steps.doctor as doctor_mod
+    monkeypatch.setattr(doctor_mod, "check_app_ownership", lambda root, env: None)
+
+
+def test_doctor_ownership_row_only_on_a_problem(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from startup.steps import doctor as doctor_mod, volumes
+
+    monkeypatch.undo()   # the autouse stub off: this test drives the real function
+    monkeypatch.setattr(doctor_mod, "compose_ps_running", lambda services, root, env: ["web"])
+    monkeypatch.setattr(volumes, "ensure_app_ownership",
+                        lambda root, env, *, check_only, say=None: {"p-media": 3, "p-throttle": 0})
+    name, ok, detail = doctor_mod.check_app_ownership(tmp_path, {})
+    assert (name, ok) == ("app ownership", False)
+    assert "p-media (3)" in detail and "p-throttle" not in detail and "fix-ownership" in detail
+    monkeypatch.setattr(volumes, "ensure_app_ownership", lambda root, env, *, check_only, say=None: {"p-media": 0})
+    assert doctor_mod.check_app_ownership(tmp_path, {}) is None
+    monkeypatch.setattr(doctor_mod, "compose_ps_running", lambda services, root, env: [])
+    assert doctor_mod.check_app_ownership(tmp_path, {}) is None
+
+
+@patch("startup.steps.doctor.validate")
+@patch("startup.steps.doctor.load_instance")
+@patch("startup.steps.doctor.prereqs")
+def test_doctor_writes_the_host_gid_into_an_old_env(
+    mock_prereqs: MagicMock, mock_load: MagicMock, mock_validate: MagicMock, tmp_path: Path
+) -> None:
+    import os
+    from startup.lib.env import read_env
+    from startup.steps.doctor import diagnose
+
+    (tmp_path / "startup").mkdir()
+    (tmp_path / ".env").write_text("COMPOSE_PROJECT_NAME=nextseek\n")
+    mock_prereqs.run_all.return_value = []
+    state = MagicMock()
+    state.name, state.prefix, state.ports = "nextseek", "", {"nextseek": 8000}
+    state.compose_env.return_value = {}
+    mock_load.return_value = state
+    mock_validate.run_all_health_checks.return_value = []
+    diagnose(tmp_path)
+    assert read_env(tmp_path / ".env")["NEXTSEEK_HOST_GID"] == str(os.getgid())
+
+
 @patch("startup.steps.doctor.validate")
 @patch("startup.steps.doctor.load_instance")
 @patch("startup.steps.doctor.prereqs")
@@ -620,3 +664,26 @@ def test_doctor_reports_a_pin_left_by_a_killed_swap(
 
     assert row[1] is False
     assert "nextseek-web-1" in row[2] and "pin.conf" in row[2]
+
+
+@patch("startup.steps.doctor.validate")
+@patch("startup.steps.doctor.load_instance")
+@patch("startup.steps.doctor.prereqs")
+def test_doctor_reports_a_drain_longer_than_web_can_wait(
+    mock_prereqs: MagicMock, mock_load: MagicMock, mock_validate: MagicMock, tmp_path: Path
+) -> None:
+    from startup.steps.doctor import diagnose
+
+    (tmp_path / "docker-compose.yml").write_text("services:\n  web:\n    stop_grace_period: 5m\n")
+    (tmp_path / ".env").write_text("NEXTSEEK_DRAIN_SECONDS=400\n")
+    mock_prereqs.run_all.return_value = []
+    state = MagicMock()
+    state.name, state.prefix, state.ports = "nextseek", "", {"nextseek": 8000}
+    state.compose_env.return_value = {}
+    mock_load.return_value = state
+    mock_validate.run_all_health_checks.return_value = []
+
+    row = next(r for r in diagnose(tmp_path) if r[0] == "web drain")
+
+    assert row[1] is False
+    assert "400" in row[2] and "270" in row[2]

@@ -10,6 +10,7 @@ import zipfile
 import requests as upstream_requests
 from django.conf import settings
 from django.http import HttpResponse, StreamingHttpResponse
+from django.utils.http import content_disposition_header
 
 from rest_framework.exceptions import APIException
 from rest_framework.permissions import BasePermission
@@ -221,6 +222,25 @@ def resolve_asset_and_blobs(client, request, asset_type: str, req,
     }
 
 
+# A batch zip is staged on local disk; documents and small data files fit well inside this.
+MAX_BATCH_ITEMS = 100
+MAX_BATCH_BYTES = 1024 ** 3
+
+
+class _BatchTooLarge(Exception):
+    pass
+
+
+def safe_zip_name(name, fallback):
+    """Basename with control and quote characters removed; `fallback` when nothing is left."""
+    base = (name or "").replace("\\", "/").rsplit("/", 1)[-1]
+    base = "".join(c for c in base if c.isprintable() and c not in "\"'`:").strip().lstrip(".")
+    if len(base) > 200:
+        stem, ext = os.path.splitext(base)
+        base = stem[:200 - len(ext[:20])] + ext[:20]
+    return base or fallback
+
+
 def deduplicate_filename(original_filename, seek_id, used_filenames):
     """Return a unique filename for zip archive. Mutates used_filenames set."""
     if original_filename not in used_filenames:
@@ -301,7 +321,8 @@ def download_single(client, request, asset_type: str, data: dict):
     original_filename = blob_meta.get("original_filename")
     content_disposition = upstream_headers.get('Content-Disposition')
     if not content_disposition:
-        content_disposition = f'attachment; filename="{original_filename}"' if original_filename else 'attachment'
+        content_disposition = (content_disposition_header(True, original_filename)
+                               if original_filename else 'attachment')
 
     def _iter_and_close():
         try:
@@ -317,15 +338,27 @@ def download_single(client, request, asset_type: str, data: dict):
     return response
 
 
+def _too_large():
+    return HttpResponse(
+        json.dumps({"errors": [{"title": f"Batch too large: at most {MAX_BATCH_BYTES} bytes in total"}]}).encode(),
+        status=422, content_type='application/json')
+
+
 def download_batch(client, request, asset_type: str, data: list):
     """Handle batch download — returns zip with manifest.json."""
     if not data:
         return HttpResponse(b'{"errors":[{"title":"Empty list: provide at least one item to download"}]}',
                             status=422, content_type='application/json')
 
+    if len(data) > MAX_BATCH_ITEMS:
+        return HttpResponse(
+            json.dumps({"errors": [{"title": f"Too many items: at most {MAX_BATCH_ITEMS} per batch"}]}).encode(),
+            status=422, content_type='application/json')
+
     request_model = _ASSET_CONFIG[asset_type]["request_model"]
     fallback_name = _ASSET_CONFIG[asset_type]["default_fallback_name"]
-    successes, failures, used_filenames = [], [], set()
+    successes, failures, used_filenames = [], [], {"manifest.json"}
+    fetched, total_bytes = {}, 0
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
     tmp_path = tmp.name
@@ -354,6 +387,13 @@ def download_batch(client, request, asset_type: str, data: list):
                 blob_meta, upstream_path, accept, seek_id = (
                     result["blob_meta"], result["upstream_path"], result["accept"], result["seek_id"])
 
+                # same blob asked twice: fetch once (access was checked above for this item too)
+                blob_key = (str(seek_id), upstream_path, accept)
+                if blob_key in fetched:
+                    successes.append(BatchDownloadManifestEntry(
+                        filename=fetched[blob_key], seek_id=seek_id, uid_or_id=uid_label))
+                    continue
+
                 upstream_resp = None
                 try:
                     status_code, upstream_headers, upstream_resp = client.stream_content_blob(
@@ -375,14 +415,27 @@ def download_batch(client, request, asset_type: str, data: list):
                     failures.append(BatchDownloadManifestFailure(uid_or_id=uid_label, error="Upstream returned HTML"))
                     continue
 
+                # refuse up front when the declared size cannot fit; the counter below is the backstop
                 try:
-                    content = upstream_resp.content
+                    declared = int(upstream_headers.get('Content-Length') or 0)
+                except (TypeError, ValueError):
+                    declared = 0
+                if total_bytes + declared > MAX_BATCH_BYTES:
+                    upstream_resp.close()
+                    raise _BatchTooLarge()
+
+                original_filename = safe_zip_name(blob_meta.get("original_filename"), f"{fallback_name}_{seek_id}")
+                filename = deduplicate_filename(original_filename, seek_id, used_filenames)
+                try:
+                    with zf.open(filename, "w", force_zip64=True) as out:
+                        for chunk in upstream_resp.iter_content(chunk_size=65536):
+                            total_bytes += len(chunk)
+                            if total_bytes > MAX_BATCH_BYTES:
+                                raise _BatchTooLarge()
+                            out.write(chunk)
                 finally:
                     upstream_resp.close()
-
-                original_filename = blob_meta.get("original_filename") or f"{fallback_name}_{seek_id}"
-                filename = deduplicate_filename(original_filename, seek_id, used_filenames)
-                zf.writestr(filename, content)
+                fetched[blob_key] = filename
                 successes.append(BatchDownloadManifestEntry(filename=filename, seek_id=seek_id, uid_or_id=uid_label))
 
             manifest = BatchDownloadManifest(
@@ -390,11 +443,13 @@ def download_batch(client, request, asset_type: str, data: list):
                 total_requested=len(data), total_success=len(successes),
                 total_failed=len(failures), successes=successes, failures=failures)
             zf.writestr("manifest.json", manifest.model_dump_json(indent=2))
-    except Exception:
+    except BaseException as exc:
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
+        if isinstance(exc, _BatchTooLarge):
+            return _too_large()
         raise
 
     zip_size = os.path.getsize(tmp_path)

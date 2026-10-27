@@ -472,16 +472,22 @@ class MutationCompletedResponse(ContractModel):
         return self
 
 
+ACCEPTED_ZERO_OUTCOMES = ("created", "patched", "deleted", "unchanged", "reordered")
+
+
 class MutationAcceptedResponse(ContractModel):
     mode: Literal["asynchronous"] = Field(description="Discriminator proving the validated mutation was accepted for asynchronous execution.")
     job_id: UUID = Field(description="Durable NExtSEEK-owned mutation job identifier.")
     status_url: str = Field(min_length=1, description="Relative API URL for durable job status and terminal results.")
-    counts: MutationCounts = Field(description="Resolved operation and affected-sample counts fixed at acceptance time.")
+    counts: MutationCounts = Field(description="Resolved operation and affected-sample counts fixed at acceptance time. Nothing is written yet, so the outcome counts (created, patched, deleted, unchanged, reordered, updated_samples) are zero; the terminal result at status_url carries them.")
 
     @model_validator(mode="after")
     def accepted_has_no_updated_samples(self) -> "MutationAcceptedResponse":
         if self.counts.updated_samples != 0:
             raise ValueError("accepted asynchronous updated_samples must be zero")
+        # A 202 that said created: 46 read as done (#140): outcomes belong to the job's terminal result.
+        if any(getattr(self.counts, key) for key in ACCEPTED_ZERO_OUTCOMES):
+            raise ValueError("accepted asynchronous outcome counts must be zero")
         parsed = urlsplit(self.status_url)
         if parsed.scheme or parsed.netloc or not parsed.path.startswith("/nextseek_api/attributes/jobs/"):
             raise ValueError("status_url must be an approved relative API path")

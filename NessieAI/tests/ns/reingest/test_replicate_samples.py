@@ -165,7 +165,7 @@ def test_atacseq_merged_replicate_files_land_on_their_group(tmp_path):
         "bwa/merged_library/macs2/broad_peak/WT_REP2.mLb.clN_peaks.broadPeak")
     assert "clN_peaks.broadPeak" not in lost
     assert _rows(result, "consensus") == [
-        ("", "consensus_peaks.mLb.clN.bed", "D.SEQ-1;D.SEQ-2;D.SEQ-3;D.SEQ-4;D.SEQ-5")]
+        ("", f"{tmp_path.name}/consensus_peaks.mLb.clN.bed", "D.SEQ-1;D.SEQ-2;D.SEQ-3;D.SEQ-4;D.SEQ-5")]
 
 
 def test_atacseq_without_merged_replicates_registers_every_replicate(tmp_path):

@@ -3,6 +3,8 @@ import type {
   ProgressEvent,
   SessionListItem,
   SessionListResponse,
+  SessionSearchOptions,
+  SessionSearchResponse,
   SessionDetailWithTurns,
   TestCase,
   TestCasesResponse,
@@ -425,6 +427,31 @@ export class NextseekApiService {
     return response.json();
   }
 
+  async searchSessions(
+    q: string,
+    opts: SessionSearchOptions = {},
+    signal?: AbortSignal,
+  ): Promise<SessionSearchResponse> {
+    const baseUrl = this.auth.getApiBaseUrl();
+    const params = new URLSearchParams({ q });
+    params.set("sources", opts.steps ? "chats,records,steps" : "chats,records");
+    if (opts.sinceDays) params.set("since", String(opts.sinceDays));
+    if (opts.allUsers) params.set("all_users", "1");
+    if (opts.recordType) params.set("record_type", opts.recordType);
+    if (opts.project) params.set("project", opts.project);
+    if (opts.where) params.set("where", opts.where);
+    if (opts.facetsOnly) params.set("facets_only", "1");
+    if (opts.facets) params.set("facets", "1");
+    const response = await fetch(
+      `${baseUrl}/nextseek_api/assistant/sessions/search/?${params}`,
+      { headers: { ...this.auth.getAuthHeaders() }, signal },
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to search sessions: ${response.status}`);
+    }
+    return response.json();
+  }
+
   async renameSession(sessionId: string, title: string): Promise<SessionListItem> {
     const baseUrl = this.auth.getApiBaseUrl();
     const response = await fetch(
@@ -468,18 +495,6 @@ export class NextseekApiService {
       throw new Error(`Failed to load session: ${response.status}`);
     }
     return response.json();
-  }
-
-  downloadSearchAsExcel(
-    data: Record<string, unknown>[],
-    filename: string,
-  ): void {
-    import("xlsx").then((XLSX) => {
-      const ws = XLSX.utils.json_to_sheet(data);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Search Results");
-      XLSX.writeFile(wb, filename);
-    });
   }
 
   async uploadFiles(files: File[]): Promise<{ job_id: string }> {

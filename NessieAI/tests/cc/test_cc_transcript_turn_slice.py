@@ -793,8 +793,7 @@ def test_the_locals_the_finally_reads_are_bound_before_the_try():
     assert set(first) == {"pre_turn_lines", "transcript_persisted"}
     assert first["pre_turn_lines"] < tries[0].lineno
     assert first["transcript_persisted"] < tries[0].lineno
-
-    spawn = _calls(fn, name="_spawn_with_stale_name_retry")
+    spawn = _calls(fn, attr="start_turn")
     assert spawn, "no spawn call found"
     assert first["pre_turn_lines"] < spawn[0].lineno
 

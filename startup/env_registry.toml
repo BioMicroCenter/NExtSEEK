@@ -834,6 +834,17 @@ files = ["root.env"]
 default = ""
 doc = "Prefix for container and volume names of a second instance; install writes it."
 
+[NEXTSEEK_HOST_GID]
+files = ["root.env"]
+default = ""
+dynamic = true
+doc = "Gid of the deploy account (id -g of the user running startup); compose gives it to the nextseek and web services in group_add so the non-root app can read local_settings.py and docker/luria-key (startup's 0640 copy of the Luria key). Install writes it (render_root_env); rebuild, fix-ownership and doctor add it to an older .env (ensure_host_gid), and the deploy runner appends it before its first compose verb and its pull. Compose reads it in the mandatory form, so every compose verb fails without it; by hand: echo NEXTSEEK_HOST_GID=`id -g` >> .env. Never the docker group."
+
+[NEXTSEEK_LURIA_KEY_COPY]
+files = ["root.env"]
+default = "/dev/null"
+doc = "Host path compose binds at the LURIAKEY path: ./docker/luria-key, startup's copy of the Luria key (0640, group NEXTSEEK_HOST_GID; the key itself is never chmodded, as OpenSSH refuses a group-readable key), or /dev/null with no key. rebuild and install write it (startup/steps/volumes.py ensure_secret_group_read); never set it by hand."
+
 [NEXTSEEK_PORT]
 files = ["root.env"]
 default = "8000"
@@ -872,7 +883,7 @@ doc = "Memory cap of the worker container (the nine background loops)."
 [NEXTSEEK_DRAIN_SECONDS]
 files = ["root.env"]
 default = "240"
-doc = "How long a stopping web container lets running chat turns finish before it cuts them. web's stop_grace_period must stay at least this plus 30 s."
+doc = "How long a stopping web container lets running chat turns finish before it cuts them. The entrypoint clamps it to web's stop_grace_period less 30 s (270) and uses 240 for a value that is not a whole number of seconds; doctor reports either."
 
 [NEXTSEEK_SPAWNER_TOKEN]
 files = ["nextseek.env"]
@@ -882,7 +893,7 @@ doc = "Token web sends to cc-spawner. Install and rebuild write it, with the sam
 [NEXTSEEK_SPAWNER_URL]
 files = ["root.env"]
 default = "http://cc-spawner:8080"
-doc = "Where web sends Container-CC turns. Unset: the cc-spawner service. Set empty in .env: today's direct Docker path (the switch lives one dev cycle)."
+doc = "Where web sends Container-CC turns and SEEK user ops: the cc-spawner service. Unset or empty in .env: this default. There is no direct Docker path."
 
 [NEXTSEEK_CC_AUTOMODE_GCP]
 files = ["root.env"]

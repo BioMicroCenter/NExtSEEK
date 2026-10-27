@@ -11,6 +11,7 @@ local stack only (README merge checklist): with a catalog that lacks them, as de
 are today, the row defaults are dropped and companions go to the build report, as before.
 """
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -77,7 +78,9 @@ def _harvest(root):
 
 
 def _by(result, rule_id):
-    return {(r.nfcore_sample or r.attributes["File_PrimaryData"].value):
+    # A run-wide row's File_PrimaryData carries its run folder ("<run>/SPT5.consensus_peaks.bed");
+    # key it by its file's own name.
+    return {(r.nfcore_sample or os.path.basename(r.attributes["File_PrimaryData"].source_file)):
             {k: v.value for k, v in r.attributes.items()}
             for r in result.rows if r.rule_id == rule_id}
 
@@ -108,6 +111,7 @@ def test_each_antibodys_consensus_is_parented_by_its_own_samples_only(tmp_path):
     consensus = _by(result, "consensus_broad")
     assert sorted(consensus) == ["H3K27ac.consensus_peaks.bed", "SPT5.consensus_peaks.bed"]
     spt5, k27 = consensus["SPT5.consensus_peaks.bed"], consensus["H3K27ac.consensus_peaks.bed"]
+    assert spt5["File_PrimaryData"] == f"{tmp_path.name}/SPT5.consensus_peaks.bed"
     assert spt5["Parent"] == "D.SEQ-1;D.SEQ-2"
     assert k27["Parent"] == "D.SEQ-3;D.SEQ-4"
     assert (spt5["Antibody"], k27["Antibody"]) == ("SPT5", "H3K27ac")
@@ -203,8 +207,8 @@ def test_a_consensus_for_an_antibody_this_run_never_named_is_left_out_and_report
 def test_both_launches_spt5_consensus_rows_are_kept_named_apart_and_flagged(tmp_path):
     result = mapper.apply(_two_launch_run(tmp_path), maps.load("chipseq"), context=LOCAL)
     spt5 = sorted(r.attributes["File_PrimaryData"].value for r in _consensus_rows(result))
-    assert spt5 == ["broad_peak/consensus/SPT5/SPT5.consensus_peaks.bed",
-                    "narrow_peak/consensus/SPT5/SPT5.consensus_peaks.bed"]
+    assert spt5 == [f"{tmp_path.name}/broad_peak/consensus/SPT5/SPT5.consensus_peaks.bed",
+                    f"{tmp_path.name}/narrow_peak/consensus/SPT5/SPT5.consensus_peaks.bed"]
     flagged = {(e["sample"], e["sample_type"]) for e in result.alternative_rows}
     assert ("SPT5", "A.CHRM") in flagged
     entry = next(e for e in result.alternative_rows

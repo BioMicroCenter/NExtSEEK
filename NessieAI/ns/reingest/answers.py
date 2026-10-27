@@ -359,8 +359,11 @@ def apply_answers(bundle: Answers, *, mapped_by_type, findings_by_type, run_mani
             # The chosen file's harvested values: its name, its checksum, and the link
             # the mapper wrote for the file it picked (mapper._attach_links), which
             # would otherwise point at the file not chosen.
+            name = os.path.basename(answer.path)
+            if current.value == mapper._in_run_folder(run_manifest, os.path.basename(current.source_file)):
+                name = mapper._in_run_folder(run_manifest, name)    # a per-run file keeps its run folder
             row.attributes[answer.attribute] = MappedAttribute(
-                attribute=answer.attribute, value=os.path.basename(answer.path),
+                attribute=answer.attribute, value=name,
                 origin=ORIGIN_CURATOR, source_file=answer.path, answered_by=answered_by)
             link_attr = mapper.LINK_FOR.get(answer.attribute)
             link = row.attributes.get(link_attr) if link_attr else None

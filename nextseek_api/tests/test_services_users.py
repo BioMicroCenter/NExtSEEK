@@ -474,6 +474,7 @@ class TestUsersViewSetPatch:
         response = UsersViewSet().partial_update(request, uid="5")
         assert response.status_code == 200
         assert dj.is_superuser is True
+        assert dj.is_staff is True  # staff follows superuser on update (SEC-H19)
 
     @patch("nextseek_api.services.users.Users")
     def test_patch_empty_body_422(self, mock_users):

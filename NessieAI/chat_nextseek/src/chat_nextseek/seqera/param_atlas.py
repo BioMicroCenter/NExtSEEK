@@ -240,7 +240,7 @@ def _evaluate_detection(spec: dict, signals: dict) -> dict[str, Any]:
 #: Verdicts backed by the metadata: only these may overrule a value the user gave.
 DECISIVE_VERDICTS = frozenset({"corroborated", "derived_uncorroborated"})
 #: Verdicts that may fill a param nobody set; ``defaulted`` is the spec's safe default.
-FILL_VERDICTS = DECISIVE_VERDICTS | {"defaulted"}
+FILL_VERDICTS = DECISIVE_VERDICTS | {"defaulted", "user_confirmed"}
 
 
 def evaluate_data_driven_param(spec: dict, signals: dict) -> dict[str, Any]:
@@ -305,6 +305,11 @@ def evaluate_leaf(pipeline_key: str, signals: dict, atlas: dict | None = None) -
 _ROW_UID_KEYS = ("sample", "Sample")
 
 
+# user_confirmed: the user answered an ask for this param (written by confirm_user_answer).
+# It is never corrected: a value that disagrees with it is asked again.
+_ASK_VERDICTS = ("conflict", "absent")
+
+
 def _leaf_verdict(evidence: dict, uid: str, param: str) -> dict | None:
     return ((evidence or {}).get(uid) or {}).get(param)
 
@@ -313,15 +318,17 @@ def check_row_column_params(pipeline_key: str, rows: list[dict], evidence: dict,
                             atlas: dict | None = None) -> dict[str, Any]:
     """Check each row's data-driven COLUMN value against its cached verdict.
 
-    Returns ask_uids (conflict/absent -> must ask), ask_specs (the specs behind
-    them), and corrections (uid, param, derived_value) where a decisive verdict
-    disagrees with what the row carries.
+    Returns ask_uids (conflict/absent -> must ask), ask_by_param (the same uids per
+    param), ask_specs (the specs behind them), and corrections (uid, param,
+    derived_value) where a decisive verdict disagrees with what the row carries.
+    A row that disagrees with a user_confirmed verdict is asked, not corrected:
+    only the user can change what the user confirmed.
 
     A spec with ``confirm_in`` is not asked here: its conflict/absent rows are confirmed
     later, where it names (``pairing_table``: sarek's tumour/normal table, built by
     ``seqera.pairing`` in configure_run). Its corrections stand.
     """
-    ask_uids: list[str] = []
+    ask_by_param: dict[str, list[str]] = {}
     ask_specs: dict[str, dict] = {}
     corrections: list[tuple[str, str, str]] = []
     for name, spec in _params(pipeline_key, atlas).items():
@@ -335,24 +342,28 @@ def check_row_column_params(pipeline_key: str, rows: list[dict], evidence: dict,
             if not verdict:
                 continue
             v = verdict.get("verdict")
-            if v in ("conflict", "absent"):
+            disagrees = str(row.get(name)) != str(verdict.get("value"))
+            if v in _ASK_VERDICTS:
                 if spec.get("confirm_in"):
                     continue
-                ask_uids.append(uid)
+                ask_by_param.setdefault(name, []).append(uid)
+                ask_specs[name] = spec
+            elif v == "user_confirmed" and disagrees:
+                ask_by_param.setdefault(name, []).append(uid)
                 ask_specs[name] = spec
             # A defaulted verdict is a fallback, not evidence: a value the user gave stands.
-            elif v in DECISIVE_VERDICTS:
-                if str(row.get(name)) != str(verdict.get("value")):
-                    corrections.append((uid, name, verdict.get("value")))
-    return {"ask_uids": sorted(set(ask_uids)), "ask_specs": ask_specs, "corrections": corrections}
+            elif v in DECISIVE_VERDICTS and disagrees:
+                corrections.append((uid, name, verdict.get("value")))
+    return _asks(ask_by_param, ask_specs, corrections)
 
 
 def check_run_params(pipeline_key: str, params: dict, evidence: dict,
                      atlas: dict | None = None) -> dict[str, Any]:
     """Run-scope analog: a run_param whose leaves conflict/absent must be asked;
     if the supplied value disagrees with a unanimous verdict that some leaf's metadata
-    decided, correct it. A value only the default backs never overrules the user's."""
-    ask_uids: list[str] = []
+    decided, correct it, unless the user confirmed that verdict, in which case ask
+    again. A value only the default backs never overrules the user's."""
+    ask_by_param: dict[str, list[str]] = {}
     ask_specs: dict[str, dict] = {}
     corrections: list[tuple[str, str, str]] = []
     for name, spec in _params(pipeline_key, atlas).items():
@@ -365,11 +376,11 @@ def check_run_params(pipeline_key: str, params: dict, evidence: dict,
         if spec.get("detect_only"):
             needs = [u for u, v in per_leaf.items() if v.get("verdict") == "needs_value"]
             if needs and (params or {}).get(name) in (None, ""):
-                ask_uids += needs
+                ask_by_param[name] = needs
                 ask_specs[name] = spec
             continue
-        if any(v.get("verdict") in ("conflict", "absent") for v in per_leaf.values()):
-            ask_uids += [u for u, v in per_leaf.items() if v.get("verdict") in ("conflict", "absent")]
+        if any(v.get("verdict") in _ASK_VERDICTS for v in per_leaf.values()):
+            ask_by_param[name] = [u for u, v in per_leaf.items() if v.get("verdict") in _ASK_VERDICTS]
             ask_specs[name] = spec
             continue
         values = {v.get("value") for v in per_leaf.values()}
@@ -377,15 +388,52 @@ def check_run_params(pipeline_key: str, params: dict, evidence: dict,
             # Every leaf individually decisive, but they disagree with each other —
             # a heterogeneous cohort for a run-scope param. Must ask, not silently
             # pass: there is no single value to write for the whole run.
-            ask_uids += list(per_leaf)
+            ask_by_param[name] = list(per_leaf)
             ask_specs[name] = spec
             continue
-        decided = any(v.get("verdict") in DECISIVE_VERDICTS for v in per_leaf.values())
+        decided = any(v.get("verdict") in DECISIVE_VERDICTS | {"user_confirmed"}
+                      for v in per_leaf.values())
         if len(values) == 1 and decided and (params or {}).get(name) is not None:
             derived = next(iter(values))
             if str(params.get(name)) != str(derived):
-                corrections.append(("*", name, derived))
-    return {"ask_uids": sorted(set(ask_uids)), "ask_specs": ask_specs, "corrections": corrections}
+                if any(v.get("verdict") == "user_confirmed" for v in per_leaf.values()):
+                    ask_by_param[name] = list(per_leaf)
+                    ask_specs[name] = spec
+                else:
+                    corrections.append(("*", name, derived))
+    return _asks(ask_by_param, ask_specs, corrections)
+
+
+def _asks(ask_by_param: dict[str, list[str]], ask_specs: dict[str, dict],
+          corrections: list[tuple[str, str, str]]) -> dict[str, Any]:
+    ask_by_param = {name: sorted(set(uids)) for name, uids in ask_by_param.items()}
+    ask_uids = sorted({u for uids in ask_by_param.values() for u in uids})
+    return {"ask_uids": ask_uids, "ask_by_param": ask_by_param,
+            "ask_specs": ask_specs, "corrections": corrections}
+
+
+def confirm_user_answer(evidence: dict, name: str, uids: list[str], value: Any,
+                        spec: dict) -> str | None:
+    """Record the user's answer for an asked param as a user_confirmed verdict on each uid.
+
+    Returns a problem (and records nothing) when the value is not one of the spec's
+    allowed values; None once recorded. Deciding that the value IS the user's answer
+    (it was asked, and the user has spoken since) is the caller's job.
+    """
+    allowed = [str(a) for a in spec.get("allowed") or []]
+    if str(value) not in allowed:
+        return (f"{value!r} is not one of the allowed values ({', '.join(allowed)}): "
+                "ask the user which of these it is")
+    for uid in uids:
+        prior = (evidence.get(uid) or {}).get(name) or {}
+        if prior.get("verdict") == "user_confirmed":
+            note = prior.get("evidence") or "confirmed by the user"
+        else:
+            note = (f"confirmed by the user (the metadata verdict was "
+                    f"{prior.get('verdict') or 'missing'}: {prior.get('evidence') or 'none'})")
+        evidence.setdefault(uid, {})[name] = {"value": value, "verdict": "user_confirmed",
+                                              "evidence": note}
+    return None
 
 
 def render_param_elicitation(ask_specs: dict[str, dict], ask_uids: list[str], evidence: dict) -> str:
@@ -416,6 +464,14 @@ def render_param_elicitation(ask_specs: dict[str, dict], ask_uids: list[str], ev
         if disagreeing:
             lines.append("  - these samples disagree on the value:")
             lines.append(f"    affected: {', '.join(sorted(disagreeing))}")
+        confirmed: dict[str, list[str]] = {}
+        for u in ask_uids:
+            verdict = _leaf_verdict(evidence, u, name) or {}
+            if verdict.get("verdict") == "user_confirmed":
+                confirmed.setdefault(str(verdict.get("value")), []).append(u)
+        for value, uids in confirmed.items():
+            lines.append(f"  - you confirmed {value!r} earlier; a different value was sent:")
+            lines.append(f"    affected: {', '.join(sorted(uids))}")
         if spec.get("allowed"):
             lines.append(f"  - allowed: {', '.join(str(a) for a in spec['allowed'])}")
     lines += ["", "I will not guess: a wrong value here produces a plausible-looking wrong result rather than an error."]

@@ -516,3 +516,28 @@ def test_validate_passes_the_existing_values_lookup_to_place():
                          attribute_exists=lambda st, a: True,
                          existing_values=lambda uids, a: {"D.SEQ-EXAMPLE-1": 3})
     assert "1 sample(s) already hold a value in NExtSEEK" in exc.value.reasons[0]
+
+
+def test_choose_keeps_the_run_folder_on_a_per_run_matrix():
+    # N3: the mapper names a per-run file "<run folder>/<name>"; a choose answer must not drop the folder.
+    from NessieAI.ns.reingest import answers, manifest, mapper, maps
+
+    run = manifest.RunManifest(
+        run_dir="/net/cluster/runs/r",
+        params={"genome": "GRCm39", "aligner": "star_salmon"},
+        pipeline=manifest.PipelineInfo(name="nf-core/rnaseq", version="3.18.0"),
+        samples=[manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                                       uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD)],
+        sources={"metrics": "multiqc/star_salmon/multiqc_data/multiqc_general_stats.txt"})
+    run.outputs = [
+        manifest.OutputRecord(path="star_salmon/all.merged.gene_counts.tsv", bytes=50),
+        manifest.OutputRecord(path="star_rsem/all.merged.gene_counts.tsv", bytes=50),
+    ]
+    result = mapper.apply(run, maps.load("rnaseq"))
+    gex = [r for r in result.rows if r.sample_type == "A.GEX"]
+    assert gex[0].attributes["File_PrimaryData"].value == "r/all.merged.gene_counts.tsv"
+    choose = answers.ChooseAnswer(sample_type="A.GEX", attribute="File_PrimaryData",
+                                  path="star_salmon/all.merged.gene_counts.tsv")
+    answers.apply_answers(answers.Answers(choose=[choose]), mapped_by_type={"A.GEX": gex},
+                          findings_by_type={}, run_manifest=run, answered_by="c")
+    assert gex[0].attributes["File_PrimaryData"].value == "r/all.merged.gene_counts.tsv"

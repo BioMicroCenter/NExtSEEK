@@ -65,4 +65,4 @@ def test_reverse_is_noop():
 def test_single_leaf_in_seek_app():
     loader = MigrationLoader(connection, ignore_no_migrations=True)
     leaves = [n for a, n in loader.graph.leaf_nodes() if a == "seek"]
-    assert leaves == ["0003_project_template_bundles_table"]
+    assert leaves == ["0004_remove_people_skype_name"]

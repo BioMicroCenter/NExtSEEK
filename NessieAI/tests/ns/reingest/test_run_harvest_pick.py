@@ -4,10 +4,12 @@
 user. One waiting run is harvested; several come back as candidates for the
 agent to ask about; none is a refusal that asks for the folder. A run with no
 recorded launcher (every launch before launches recorded one) is visible to a
-superuser only, and a run whose upload has started is no longer waiting.
+superuser only, and a run whose upload finished (a job done) is no longer waiting.
 """
 from __future__ import annotations
 
+import os
+import tempfile
 from types import SimpleNamespace
 
 import pytest
@@ -47,7 +49,10 @@ def _harvest(args, user, monkeypatch):
         raise RuntimeError("staged")  # stop before any parsing; the pick is what is tested
 
     monkeypatch.setattr(g, "_stage_run_dir", _fake_stage)
-    monkeypatch.setattr("chat_nextseek.luria.ssh.prepare_key", lambda key: "/dev/null")
+    # A real throwaway file: _run_harvest removes its key copy in a finally (as root, "/dev/null" is deleted).
+    fd, key_copy = tempfile.mkstemp(prefix="luria_key_")
+    os.close(fd)
+    monkeypatch.setattr("chat_nextseek.luria.ssh.prepare_key", lambda key: key_copy)
     session = SimpleNamespace(user=user)
     try:
         result = g.run_op("run-harvest", args, config=_Cfg(), session=session,
@@ -145,7 +150,7 @@ def test_a_started_upload_marks_its_run_reingested(monkeypatch):
     me = _user("me")
     run = _run("mine", me)
     monkeypatch.setattr(upload, "run", lambda **_k: {
-        "jobs": [{"build_id": "b1", "manifest_id": "m1", "job_id": "j1"},
+        "jobs": [{"build_id": "b1", "manifest_id": "m1", "job_id": "j1", "outcome": {"status": "succeeded"}},
                  {"build_id": "b2", "manifest_id": "m2", "error": "did not start"}],
         "reply": "ok"})
     monkeypatch.setattr("NessieAI.ns.reingest.store.load_manifest",
@@ -175,7 +180,7 @@ def test_an_upload_whose_jobs_all_failed_leaves_the_run_waiting(monkeypatch):
     assert run.status == "submitted"
 
 
-def test_upload_jobs_name_their_manifest():
+def test_upload_jobs_name_their_manifest(tmp_path, monkeypatch):
     """upload.run carries each record's manifest_id onto its job entry, so the
     caller can mark the run without re-reading build records."""
     from NessieAI.ns.reingest import upload
@@ -184,6 +189,7 @@ def test_upload_jobs_name_their_manifest():
                 "mode": "new", "project_id": 1, "path": "/x", "manifest_id": "m1"}]
     import NessieAI.ns.reingest.build_records as build_records
 
+    monkeypatch.setattr(build_records, "_ROOT", str(tmp_path / "builds"))
     orig_verify, orig_sha = upload.verify, build_records.sha256_of
     upload.verify = lambda ids, user_id, **_turn: records
     build_records.sha256_of = lambda path: "b1"
@@ -196,3 +202,57 @@ def test_upload_jobs_name_their_manifest():
     finally:
         upload.verify, build_records.sha256_of = orig_verify, orig_sha
     assert out["jobs"][0]["manifest_id"] == "m1"
+
+
+def test_the_key_cleanup_never_removes_a_file_it_did_not_copy(tmp_path):
+    """The source key (or a device) handed back as the 'copy' must survive the finally."""
+    source = tmp_path / "shared_key"
+    source.write_text("k")
+    g._remove_key_copy(str(source), str(source))
+    assert source.exists()
+    g._remove_key_copy("/dev/null", str(source))
+    assert os.path.exists("/dev/null")
+    copy = tmp_path / "luria_key_abc"
+    copy.write_text("k")
+    g._remove_key_copy(str(copy), str(source))
+    assert not copy.exists()
+
+
+def test_an_all_skipped_upload_still_takes_the_run_off_the_pick(monkeypatch):
+    # N2: the second upload of a run is all skipped; the run must still leave the waiting pick.
+    from NessieAI.ns.reingest import upload
+
+    me = _user("me")
+    run = _run("mine", me)
+    job = {"build_id": "b1", "manifest_id": "m1", "job_id": "j1",
+           "outcome": {"status": "skipped", "failed_rows": 0}}
+    monkeypatch.setattr(upload, "run", lambda **_k: {"jobs": [job], "reply": "ok"})
+    monkeypatch.setattr("NessieAI.ns.reingest.store.load_manifest",
+                        lambda mid: SimpleNamespace(launch_record_id=run.pk))
+    g.run_op("upload-reingest", {"build_ids": "b1", "confirmed_write": True},
+             config=_Cfg(), session=SimpleNamespace(user=me), write_gate=lambda *a: None,
+             neo4j_exec=None, outputs_dir=None)
+    run.refresh_from_db()
+    assert run.status == launch_record.STATUS_REINGESTED
+
+
+@pytest.mark.parametrize("outcome", [{"status": "failed", "error": "worker lost"}, {"status": "running"},
+                                     {"status": "skipped", "failed_rows": 2}, None])
+def test_a_job_that_started_but_did_not_succeed_leaves_the_run_waiting(monkeypatch, outcome):
+    """A run is marked reingested on success only (PR 135 SF-3): a started job that failed, is still
+    running, or wrote nothing must not take the run off the pick or start the cleanup clock."""
+    from NessieAI.ns.reingest import upload
+
+    me = _user("me")
+    run = _run("mine", me)
+    job = {"build_id": "b1", "manifest_id": "m1", "job_id": "j1"}
+    if outcome is not None:
+        job["outcome"] = outcome
+    monkeypatch.setattr(upload, "run", lambda **_k: {"jobs": [job], "reply": "ok"})
+    monkeypatch.setattr("NessieAI.ns.reingest.store.load_manifest",
+                        lambda mid: SimpleNamespace(launch_record_id=run.pk))
+    g.run_op("upload-reingest", {"build_ids": "b1", "confirmed_write": True},
+             config=_Cfg(), session=SimpleNamespace(user=me), write_gate=lambda *a: None,
+             neo4j_exec=None, outputs_dir=None)
+    run.refresh_from_db()
+    assert run.status == "submitted"

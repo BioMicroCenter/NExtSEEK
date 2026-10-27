@@ -1640,89 +1640,16 @@ def test_compose_bedrock_proxy_container_name_matches_realstack_default(tmp_path
     assert m.group(1) == compose_container_name
 
 
-# ==========================================================================
-# PLAN-7 Task 5: cc_runner_available() detail strings cite `docker compose
-# build` + NEXTSEEK_CC_IMAGE -- never the old standalone `make image-build` /
-# manual sidecar bring-up language. Hermetic: a fake `docker` module is
-# injected into sys.modules so no real Docker daemon or docker-py install is
-# required (cc_runner_available() does a local `import docker`).
-# ==========================================================================
-
-def _fake_docker_module(*, ping_exc=None, image_exc=None, network_exc=None):
-    mod = types.ModuleType("docker")
-
-    class _Images:
-        def get(self, name):
-            if image_exc is not None:
-                raise image_exc
-            return object()
-
-    class _Networks:
-        def get(self, name):
-            if network_exc is not None:
-                raise network_exc
-            return object()
-
-    class _Client:
-        def __init__(self):
-            self.images = _Images()
-            self.networks = _Networks()
-
-        def ping(self):
-            if ping_exc is not None:
-                raise ping_exc
-
-    mod.from_env = lambda: _Client()
-    return mod
-
-
-def test_cc_runner_available_ok_when_daemon_image_and_network_all_present(monkeypatch):
-    monkeypatch.setitem(sys.modules, "docker", _fake_docker_module())
-    ok, detail = cc_engine.cc_runner_available()
-    assert ok is True
-    assert detail == "ok"
-
-
-def test_cc_runner_available_daemon_unreachable_detail_unaffected(monkeypatch):
-    monkeypatch.setitem(
-        sys.modules, "docker",
-        _fake_docker_module(ping_exc=ConnectionError("connection refused")),
-    )
-    ok, detail = cc_engine.cc_runner_available()
-    assert ok is False
-    assert "docker daemon unreachable" in detail
-
-
-def test_cc_runner_available_image_missing_detail_excludes_make_image_build(monkeypatch):
-    monkeypatch.setitem(
-        sys.modules, "docker",
-        _fake_docker_module(image_exc=LookupError("no such image")),
-    )
-    ok, detail = cc_engine.cc_runner_available()
-    assert ok is False
-    assert "make image-build" not in detail
-    assert "docker compose build" in detail
-    assert "NEXTSEEK_CC_IMAGE" in detail
-
-
-def test_cc_runner_available_network_missing_detail_excludes_make_image_build_and_cites_compose(monkeypatch):
-    monkeypatch.setitem(
-        sys.modules, "docker",
-        _fake_docker_module(network_exc=LookupError("no such network")),
-    )
-    ok, detail = cc_engine.cc_runner_available()
-    assert ok is False
-    assert "make image-build" not in detail
-    assert "docker compose" in detail
-    assert "NEXTSEEK_CC_NETWORK" in detail
-
-
 @pytest.mark.host_only
-def test_compose_config_cc_agent_builds_for_the_platform_the_engine_runs_it_on(tmp_path):
-    """cc_engine starts every agent container as ``CC_PLATFORM``. Without a
+def test_compose_config_cc_agent_builds_for_the_platform_the_spawner_runs_it_on(tmp_path):
+    """cc-spawner starts every agent container as ``CC_PLATFORM``. Without a
     matching ``platform:`` here, an Apple-silicon host builds and files the
     image under linux/arm64 (its content is amd64: the Dockerfile pins an
     amd64 base), and Docker refuses the spawn with NotFound, "does not
-    provide the specified platform". An x86 server never notices."""
+    provide the specified platform". An x86 server never notices. Read from
+    the spawner's source: the app's test env need not import its docker SDK."""
+    spawner_src = (REPO_ROOT / "docker" / "cc-spawner" / "spawner.py").read_text(encoding="utf-8")
+    m = re.search(r'^CC_PLATFORM = "([^"]+)"$', spawner_src, re.M)
+    assert m, "CC_PLATFORM not found in docker/cc-spawner/spawner.py"
     cfg = _real_compose_config(tmp_path)
-    assert cfg["services"]["cc-agent"].get("platform") == cc_engine.CC_PLATFORM
+    assert cfg["services"]["cc-agent"].get("platform") == m.group(1)

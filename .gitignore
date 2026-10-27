@@ -172,6 +172,8 @@ docker/nextseek.env
 docker/db.env
 # the CC spawner's token (same value as NEXTSEEK_SPAWNER_TOKEN in nextseek.env)
 docker/cc-spawner.env
+# startup's group-readable copy of the Luria ssh key (LURIAKEY); a private key
+docker/luria-key
 # laya sidecar's own key file and the (large) fine-tuned checkpoints.
 docker/laya.env
 docker/laya/models/

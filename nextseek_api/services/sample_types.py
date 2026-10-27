@@ -15,6 +15,7 @@ import requests
 from nextseek_api.helpers import SeekAPIClient
 from nextseek_api.helpers import resolve_seek_auth
 from nextseek_api.graph_sync import hooks
+from nextseek_api.services.sops import _json, _seek_refused, _unconfirmed
 from nextseek_api.graph_search.query import _LINEAGE_PATH_SCOPE, _SCOPE_MATCH
 from nextseek_api.graph_search.scope import Scope, resolve_scope
 import logging
@@ -148,6 +149,47 @@ def _graph_sync_type_id(data, fallback: Optional[str] = None) -> Optional[str]:
 # Under nginx's default 60 s proxy_read_timeout (the host nginx is box config), so the app's JSON 504 answers first.
 LIST_TIMEOUT_S = 50
 
+# A create of 70+ attributes outlived the front proxy on dev and prod while SEEK went on to commit it (#140). The
+# create waits as long as the list, so the app's own JSON 202 answers before the proxy's 504.
+CREATE_TIMEOUT_S = LIST_TIMEOUT_S
+
+
+def _existing_type_ids(title: str) -> List[str]:
+    """Ids of the sample types that already hold this title, read from SEEK's table. [] when it cannot be read."""
+    try:
+        rows = DBtable_sampletype("DEFAULT").queryRecordsByConstraint({"title": title})
+        return [str(r["id"]) for r in rows if r.get("id") is not None] if isinstance(rows, list) else []
+    except Exception:
+        logging.getLogger(__name__).warning("sample_types_proxy.create: could not read the sample_types table for "
+                                            "the title check", exc_info=True)
+        return []
+
+
+def _duplicate_title(client, request, title: str) -> Optional[HttpResponse]:
+    """409 when a sample type already holds ``title``: SEEK allows two, and a client retrying a create it saw time
+    out would make the second. The id is given only to a caller SEEK lets read that type."""
+    ids = _existing_type_ids(title)
+    if not ids:
+        return None
+    if not any(resolve_seek_auth(request)):
+        # No SEEK login: the create's own 401, so a taken title answers the same as a free one.
+        return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+    visible = None
+    for type_id in ids:
+        try:
+            if client.get_sample_type(request, type_id)[1] == 200:
+                visible = type_id
+                break
+        except requests.RequestException:
+            continue
+    body = {"errors": [{"title": "A sample type with this title already exists",
+                        "detail": "Nothing was created. Sample types are found by title, so a second type with the "
+                                  "same title would stop resolving."}],
+            "title": title}
+    if visible:
+        body["id"] = visible
+    return _json(body, 409)
+
 
 def _seek_unanswered(action: str, seek_id, exc: Exception, timeout_s) -> HttpResponse:
     """The response for a SEEK call that raised instead of answering: 504 on a timeout, 502 otherwise.
@@ -263,7 +305,21 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         operation_id="Create a SampleType",
         description=SAMPLETYPE_CREATE_DESC,
         request=SampleTypeCreateRequest,
-        responses={201: SampleTypeSingleResponse, 200: SampleTypeSingleResponse},
+        responses={
+            201: SampleTypeSingleResponse,
+            200: SampleTypeSingleResponse,
+            202: OpenApiResponse(description=(
+                f"SEEK did not answer within {CREATE_TIMEOUT_S} s: it received the create and may still complete it. "
+                "Body: {\"status\": \"unconfirmed\", \"title\": ..., \"detail\": ...}. Look the type up with GET "
+                "/nextseek_api/sample_types/<title>/ before you send the create again.")),
+            409: OpenApiResponse(description=(
+                "A sample type with this title already exists and nothing was created. Body: {\"errors\": [...], "
+                "\"title\": ...}, with \"id\" only when the caller can read that type.")),
+            422: OpenApiResponse(description="The request is not valid, or SEEK refused it. Nothing was created."),
+            502: OpenApiResponse(description=(
+                "SEEK could not be reached, answered with an error, or answered with something that is not a sample "
+                "type document. The type may still exist: Body: {\"errors\": [...], \"title\": ...}.")),
+        },
         tags=['SampleTypes'],
     )
     def create(self, request):
@@ -272,18 +328,27 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
+        title = payload["data"]["attributes"].get("title")
+        if title:
+            taken = _duplicate_title(self.client, request, title)
+            if taken is not None:
+                return taken
+
         try:
-            body, code, headers, resp = self.client.create_sample_type(request, payload)
-        except requests.RequestException:
+            body, code, headers, resp = self.client.create_sample_type(request, payload,
+                                                                       timeout_s=(10, CREATE_TIMEOUT_S))
+        except requests.RequestException as exc:
             # SEEK may have committed the write it did not answer: its rows go in, held back.
             hooks.enqueue("catalog", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
-            raise
+            return _unconfirmed(title, exc, CREATE_TIMEOUT_S, kind="sample type", path="sample_types")
         delay = hooks.write_delay(code)
         if delay is not None:
             # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it.
             hooks.enqueue("catalog", "*", delay_s=delay)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+        if code >= 400:
+            return _seek_refused(body, code, headers, title, kind="sample type", path="sample_types")
 
         try:
             data = json.loads(body or b"{}")

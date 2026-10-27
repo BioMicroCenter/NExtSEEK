@@ -33,7 +33,7 @@ TRANSCRIPT_CONTENT = (
 # (`all_ok is True`) must carry every one of those artifacts too.
 # --------------------------------------------------------------------------
 
-# Hex-and-hyphen only (matches cc_engine._CONTAINER_NAME_SAFE_RE /
+# Hex-and-hyphen only (matches cc-spawner's _RUN_ID_RE /
 # ^dmac-cc-agent-[0-9a-f-]{1,64}$ -- Task 15's closed-set general-agent
 # pattern): real run_ids are Celery task UUIDs.
 RUN_ID = "a1b2c3d4-e5f6-0001"

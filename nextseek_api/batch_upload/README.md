@@ -86,7 +86,7 @@ both the upload and the validate entry points; the stage order is spelled out at
 | 2 DAG | `nextseek_api/batch_upload/dag.py:78` | assay direction per parent/child pair |
 | 2.5 LEVELS | `nextseek_api/batch_upload/levels.py:27` | topological insert order |
 | 3 PREFETCH | `nextseek_api/batch_upload/prefetch.py:263` | cached sample-type and assay lookups |
-| 4 TRANSFORM | `nextseek_api/batch_upload/transform.py:43` | builds the insertable row |
+| 4 TRANSFORM | `nextseek_api/batch_upload/transform.py:43` | builds the insertable row, titled by its type's title attribute |
 | 5 INSERT | `nextseek_api/batch_upload/insert.py:171` | the batch loop, per topological level |
 | 6 GRAPH SYNC | `nextseek_api/batch_upload/orchestrator.py:637` | hands this job's committed ids to `graph_sync` |
 | 7 REPORT | `nextseek_api/batch_upload/report.py:108` | the per-row summary CSV |

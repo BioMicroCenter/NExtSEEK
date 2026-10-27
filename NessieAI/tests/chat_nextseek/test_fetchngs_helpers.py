@@ -1,5 +1,13 @@
 import csv
+import fcntl
+import subprocess
+import sys
+import time
 from pathlib import Path
+
+import pytest
+
+from chat_nextseek.luria import fetchngs_helpers as fh
 from chat_nextseek.luria.fetchngs_helpers import (
     _main_cached, _main_fill, fill_rows, needs_fetch_accessions, uncached_accessions,
 )
@@ -231,3 +239,90 @@ def test_run_list_without_a_run_column_falls_back_to_the_files(tmp_path):
     _runinfo(tmp_path, "SRX1", ["SRR11", "SRR12"], header="id\taccession\texperiment_accession\tfastq_ftp")
     rows, missing = fill_rows([{"sample": "a", "accession": "SRX1", "fastq_1": "", "fastq_2": ""}], cache)
     assert missing == [] and len(rows) == 1
+
+
+# --- download claims: what the weekly cleanup reads -------------------------------------
+
+def _status(cache):
+    return Path(cache) / "nessie_status"
+
+
+def test_claim_marks_each_accession_in_use_and_stamps_last_used(tmp_path):
+    got = fh.claim(str(tmp_path), "4821", ["SRR1", "SRX2"], run_dir="/net/x/runs/r_1", now=0)
+    assert got == ["SRR1", "SRX2"]
+    entry = _status(tmp_path) / "in_use" / "SRR1" / "4821"
+    assert entry.read_text() == "claimed_at: 1970-01-01T00:00:00Z\nrun_dir: /net/x/runs/r_1\n"
+    assert (_status(tmp_path) / "in_use" / "SRX2" / "4821").is_file()
+    assert (_status(tmp_path) / "last_used" / "SRR1.txt").read_text() == \
+        "last_used_at: 1970-01-01T00:00:00Z\n"
+
+
+def test_claim_skips_non_bare_accessions(tmp_path):
+    assert fh.claim(str(tmp_path), "4821", ["../evil", "SRR1"]) == ["SRR1"]
+    assert sorted(p.name for p in (_status(tmp_path) / "in_use").iterdir()) == ["SRR1"]
+
+
+@pytest.mark.parametrize("job", ["", "12;rm", "../1"])
+def test_claim_and_release_reject_a_bad_job_id(tmp_path, job):
+    with pytest.raises(ValueError):
+        fh.claim(str(tmp_path), job, ["SRR1"])
+    with pytest.raises(ValueError):
+        fh.release(str(tmp_path), job)
+
+
+def test_release_drops_only_this_jobs_claims_and_refreshes_last_used(tmp_path):
+    fh.claim(str(tmp_path), "1", ["SRR1", "SRR2"], now=0)
+    fh.claim(str(tmp_path), "2", ["SRR2"], now=0)
+    assert fh.release(str(tmp_path), "1", now=86400) == ["SRR1", "SRR2"]
+    assert not (_status(tmp_path) / "in_use" / "SRR1").exists()       # nobody holds it now
+    assert (_status(tmp_path) / "in_use" / "SRR2" / "2").is_file()      # job 2 still does
+    assert not (_status(tmp_path) / "in_use" / "SRR2" / "1").exists()
+    assert (_status(tmp_path) / "last_used" / "SRR1.txt").read_text() == \
+        "last_used_at: 1970-01-02T00:00:00Z\n"
+
+
+def test_release_with_nothing_claimed_is_a_no_op(tmp_path):
+    assert fh.release(str(tmp_path), "1") == []
+    assert not _status(tmp_path).exists()
+
+
+def test_claim_and_release_cli(tmp_path):
+    (tmp_path / "ids.csv").write_text("SRR1\nSRR2\n")
+    cache = tmp_path / "cache"
+    script = fh.__file__
+    subprocess.run([sys.executable, script, "claim", str(cache), "77"], cwd=tmp_path, check=True)
+    entry = _status(cache) / "in_use" / "SRR1" / "77"
+    assert f"run_dir: {tmp_path}\n" in entry.read_text()
+    subprocess.run([sys.executable, script, "release", str(cache), "77"], cwd=tmp_path, check=True)
+    assert not (_status(cache) / "in_use" / "SRR1").exists()
+
+
+def test_claim_and_release_reject_a_trailing_newline_in_the_job_id(tmp_path):
+    with pytest.raises(ValueError):
+        fh.claim(str(tmp_path), "12\n", ["SRR1"])
+    with pytest.raises(ValueError):
+        fh.release(str(tmp_path), "12\n")
+
+
+def test_a_trailing_newline_does_not_make_an_accession_bare(tmp_path):
+    assert fh.claim(str(tmp_path), "1", ["SRR1\n", "SRR2"]) == ["SRR2"]
+    assert fh.needs_fetch_accessions([{"accession": "SRR1\n"}]) == ["SRR1"]   # stripped first
+    assert uncached_accessions(["SRR1\n"], str(tmp_path)) == ["SRR1\n"]
+
+
+def test_a_stuck_lock_makes_claim_and_release_time_out(tmp_path, monkeypatch):
+    fh.claim(str(tmp_path), "1", ["SRR1"])                  # so release has something to lock for
+    monkeypatch.setattr(fh, "CLAIM_LOCK_TIMEOUT_S", 0.2)
+    with open(_status(tmp_path) / fh.LOCK_NAME, "a") as holder:
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        try:
+            started = time.monotonic()
+            with pytest.raises(TimeoutError):
+                fh.claim(str(tmp_path), "2", ["SRR2"])
+            with pytest.raises(TimeoutError):
+                fh.release(str(tmp_path), "1")
+            assert time.monotonic() - started < 5
+        finally:
+            fcntl.flock(holder, fcntl.LOCK_UN)
+    assert not (_status(tmp_path) / "in_use" / "SRR2").exists()
+    assert fh.release(str(tmp_path), "1") == ["SRR1"]       # works again once the lock is free

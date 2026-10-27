@@ -1,9 +1,12 @@
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from chat_nextseek.luria.run_script import (
+    render_status_block,
     validate_resources,
     sanitize_job_name,
     render_run_script,
@@ -36,6 +39,16 @@ def test_validate_resources_non_dict_falls_back():
 def test_sanitize_job_name_strips_shell_chars():
     assert sanitize_job_name("rnaseq; rm -rf /") == "rnaseq_rm_-rf"
     assert sanitize_job_name("") == "nfcore_run"
+
+
+def test_sanitize_job_name_never_yields_a_cleanup_tombstone_name():
+    # The weekly cleanup deletes any work/.nessie-deleting-*-<14 digits> without checking the queue (PR 135 SF-12).
+    from chat_nextseek.luria.cleanup import is_leftover
+
+    for name in (".nessie-deleting-x-20261001120000", "-.nessie-deleting-x-20261001120000",
+                 "._.nessie-deleting-x-20261001120000", "-_.nessie-deleting-x-20261001120000"):
+        got = sanitize_job_name(name)
+        assert not got.startswith((".", "-")) and not is_leftover(got)
 
 
 def test_render_substitutes_all_slots_and_no_tokens_left():
@@ -417,7 +430,8 @@ def test_run_sh_writes_the_fetchngs_config_verbatim_with_the_jobs_allocation():
     # a quoted heredoc: bash expands nothing in the config, and the terminator is at column 0
     assert _fetchngs_config_in(out) == render_fetchngs_config({"cpus": 8, "mem": "64G"})
     assert out.index("FETCHNGS_CONFIG\n    nextflow run nf-core/fetchngs") > 0
-    assert "printf" not in out
+    # the config is a heredoc, not printf; the nessie_status/ block above it legitimately uses printf
+    assert "printf" not in out[out.index("cat > fetchngs.config"):]
 
 
 def test_run_sh_with_the_fetch_block_is_valid_bash(tmp_path):
@@ -612,7 +626,9 @@ def _golden_kwargs():
 @pytest.mark.parametrize("case", sorted(_golden_kwargs()))
 def test_run_script_differs_from_before_only_by_the_mem_line(case, monkeypatch):
     # Goldens are the rendered run.sh from before the executor limits were added; the
-    # fetchngs one has since gained the fetchngs.config heredoc (render_fetchngs_config).
+    # fetchngs one has since gained the fetchngs.config heredoc (render_fetchngs_config),
+    # and all have since gained the nessie_status/ block (render_status_block) and the
+    # exit-status tail after the nextflow command.
     monkeypatch.delenv("LURIA_MAIL_USER", raising=False)
     monkeypatch.delenv("LURIA_CONDA_ENV", raising=False)
     s = render_run_script(**_golden_kwargs()[case])
@@ -645,6 +661,15 @@ def _script(**over):
               run_dir="/net/x/runs/j", work_dir="/net/x/work/j",
               singularity_cache="/net/x/singularity_cache", genome="GRCh38",
               resources={}, refs_root="/net/x/refs")
+    kw.update(over)
+    return render_run_script(**kw)
+
+
+# --- nessie_status/: the labels the weekly cleanup reads --------------------------------
+
+def _status_render(**over):
+    kw = dict(job_name="j", pipeline="nf-core/rnaseq", revision="3.22.2", run_dir="/r",
+              work_dir="/w", singularity_cache="/c", genome="GRCh38", resources={})
     kw.update(over)
     return render_run_script(**kw)
 
@@ -740,3 +765,88 @@ def test_luria_config_omits_gtf_for_a_genome_without_one():
     cfg = render_luria_config("/net/x/refs")
     block = cfg.split("'GATK.GRCh38' {", 1)[1].split("}", 1)[0]
     assert "fasta" in block and "gtf" not in block
+
+
+def test_run_sh_writes_the_finished_label_on_every_exit():
+    s = _status_render()
+    assert "trap nessie_finish EXIT" in s and "trap 'exit 143' TERM" in s
+    assert '> "/r/nessie_status/finished.txt"' in s
+    assert s.index("trap nessie_finish EXIT") < s.index("nextflow run nf-core/rnaseq")
+
+
+def test_run_sh_without_downloads_never_claims_or_releases():
+    s = _status_render()
+    assert "fetchngs_helpers.py claim" not in s and " release " not in s
+
+
+def test_run_sh_claims_before_the_cache_check_and_releases_on_exit():
+    s = _status_render(needs_fetch=True, fastq_cache="/w/fastq_cache")
+    assert s.index('fetchngs_helpers.py claim "$CACHE"') < s.index('fetchngs_helpers.py cached "$CACHE"')
+    assert '|| echo "[FETCHNGS] could not mark the downloads in use; continuing" >&2' in s
+    assert ('[ -n "$NESSIE_PY" ] && "$NESSIE_PY" "/r/fetchngs_helpers.py" release '
+            '"/w/fastq_cache" "${SLURM_JOB_ID:-}" || true') in s
+
+
+def _run_bash(tmp_path, body, env=None):
+    import shutil
+    import subprocess
+    if not shutil.which("bash"):
+        pytest.skip("no bash")
+    script = tmp_path / "run.sh"
+    script.write_text("#!/bin/bash\ncd " + str(tmp_path) + "\n" + body + "\n")
+    return subprocess.run(["bash", str(script)], cwd=str(tmp_path), env=env,
+                          capture_output=True, timeout=30)
+
+
+@pytest.mark.parametrize("tail,result,code", [
+    ("exit 0", "succeeded", 0),
+    ("exit 3", "failed", 3),
+    ("kill -TERM $$; sleep 5", "failed", 143),   # SLURM's time limit sends TERM
+    ("(sleep 0.3; kill -TERM $$) & sleep 2", "failed", 143),   # TERM from outside, child running
+])
+def test_status_block_labels_each_way_a_job_ends(tmp_path, tail, result, code):
+    proc = _run_bash(tmp_path, render_status_block(run_dir=str(tmp_path)) + tail)
+    assert proc.returncode == code
+    label = (tmp_path / "nessie_status" / "finished.txt").read_text()
+    assert f"result: {result}\nexit_code: {code}\nfinished_at: 20" in label
+
+
+def test_status_block_releases_the_jobs_claims_on_exit(tmp_path):
+    import shutil
+    from chat_nextseek.luria import fetchngs_helpers as fh
+    cache = tmp_path / "cache"
+    fh.claim(str(cache), "77", ["SRR1"])
+    shutil.copy(fh.__file__, str(tmp_path / "fetchngs_helpers.py"))
+    env = dict(os.environ, SLURM_JOB_ID="77",
+               PATH=os.path.dirname(sys.executable) + os.pathsep + os.environ.get("PATH", ""))
+    block = render_status_block(run_dir=str(tmp_path), fastq_cache=str(cache))
+    proc = _run_bash(tmp_path, block + "exit 0", env=env)
+    assert proc.returncode == 0, proc.stderr
+    assert not (cache / "nessie_status" / "in_use" / "SRR1").exists()
+
+
+def test_a_second_term_while_labelling_does_not_lose_the_label(tmp_path):
+    # bash runs the first TERM's trap once the foreground sleep ends (t=2.0) and `date` then
+    # takes 1.0s inside the trap, so the second TERM (t=2.4) lands while the label is written.
+    # The margins are doubled from the first version so a loaded container does not flake.
+    body = (render_status_block(run_dir=str(tmp_path))
+            + 'date() { sleep 1.0; command date "$@"; }\n'
+            + "(sleep 0.4; kill -TERM $$; sleep 2.0; kill -TERM $$) & sleep 2\n"
+            + "sleep 6\n")
+    proc = _run_bash(tmp_path, body)
+    assert proc.returncode == 143
+    assert "result: failed\nexit_code: 143" in (tmp_path / "nessie_status" / "finished.txt").read_text()
+
+
+@pytest.mark.parametrize("stub,result,code", [
+    ("return 7", "failed", 7),
+    ("return 0", "succeeded", 0),
+])
+def test_rendered_run_sh_is_labelled_from_nextflows_status_not_condas(tmp_path, stub, result, code):
+    s = _status_render(run_dir=str(tmp_path))
+    body = s[s.index("\ncd " + str(tmp_path)):]   # from the cd on: skips module/conda sourcing
+    stubs = "module() { :; }\nconda() { :; }\nnextflow() { " + stub + "; }\n"
+    proc = _run_bash(tmp_path, stubs + body)
+    assert proc.returncode == code, proc.stderr
+    label = (tmp_path / "nessie_status" / "finished.txt").read_text()
+    assert f"result: {result}\nexit_code: {code}\n" in label

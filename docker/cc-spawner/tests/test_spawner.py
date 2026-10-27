@@ -191,7 +191,11 @@ def test_run_kwargs_are_pinned_and_hardened(svc, client, cfg):
     assert kw["auto_remove"] is True and kw["detach"] is True and kw["stdin_open"] is True
     assert kw["name"] == f"dmac-cc-agent-{RUN}"
     assert kw["labels"]["nextseek.cc"] == "1" and kw["labels"]["nextseek.cc.run"] == RUN
-    assert kw["mem_limit"] == kw["memswap_limit"] == "4g"
+    assert kw["mem_limit"] == kw["memswap_limit"] == "4g"  # memswap equal, else the cap escapes into swap
+    # #73: a turn with no cpu, pids or file-size cap can starve the co-tenant mysql, neo4j and seek.
+    assert kw["nano_cpus"] == cfg.nano_cpus
+    assert kw["pids_limit"] == cfg.pids_limit
+    assert [(u.name, u.soft, u.hard) for u in kw["ulimits"]] == [("fsize", cfg.fsize_bytes, cfg.fsize_bytes)]
     assert kw["working_dir"] == "/home/user"
     for forbidden in ("volumes", "privileged", "cap_add", "devices", "pid_mode", "network_mode", "binds"):
         assert forbidden not in kw
@@ -327,6 +331,13 @@ def test_health_with_token_names_the_missing_network(svc, client):
     out = svc.health(with_detail=True)
     assert out["ok"] is False and "dmac-cc-net" in out["detail"]
     assert svc.health(with_detail=False) == {"ok": False}
+
+
+def test_health_with_token_says_how_to_build_a_missing_image(svc, client):
+    client.images.ok = False
+    out = svc.health(with_detail=True)
+    assert out["ok"] is False and "cc-img:test" in out["detail"]
+    assert "docker compose build cc-agent" in out["detail"]
 
 
 # ---- HTTP layer -------------------------------------------------------------------------------------------

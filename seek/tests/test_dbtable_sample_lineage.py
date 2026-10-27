@@ -1,7 +1,6 @@
 """``extractParents``: the parent tokens the legacy upload route reads out of a sample's metadata.
 
 The legacy batch-upload route is retired (``/seek/sampleupload/`` had no project check); the code path stays --
-``seek.views.upload.sampleUploadAjax`` ->
 ``DBtable_sample.batchUpload`` -> ``seek/sample/upload.py``. It writes the sample row to MySQL and enqueues the
 sample's graph sync; the graph itself is written later by the sync loop, which reads MySQL's parent tokens with
 ``nextseek_api.batch_upload.helpers.collect_parent_tokens``. The tests for the enqueue are

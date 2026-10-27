@@ -27,10 +27,12 @@ not fail locally; it fails somewhere else.
   that ordering: `dmac/settings.py:485-486` and `dmac/settings.py:491-492` only assign
   when the overlay has not already. Rewriting this as a star-import silently reverses
   who wins.
-- **Permission checks read `is_superuser`, never `is_staff`.** This module hands every
-  SEEK account staff rights: `dmac/views.py:80` on the registration branch and
-  `dmac/views.py:97` on the update branch, so the flag marks "has logged in", not "is an
-  admin". A gate written against it admits every authenticated user.
+- **Permission checks read `is_superuser`, never `is_staff`.** The SEEK login used to set
+  `is_staff` on every account; it no longer does, and migration
+  `nextseek_api/migrations/0033_clear_staff_non_superusers.py` cleared it from every
+  non-superuser. The users API keeps `is_staff` equal to `is_superuser` (the Mezzanine
+  media library needs it), and `/admin/` is superuser-only (`dmac/urls.py`). A gate
+  written against `is_staff` is still wrong: superuser is the one admin flag.
 - **The URLconf and the ASGI application are resolved from strings built out of the
   directory name.** `dmac/settings.py:68-69` derives the package name from the filesystem
   path and `dmac/settings.py:103` interpolates it into `ROOT_URLCONF`. Renaming this

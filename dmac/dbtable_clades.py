@@ -39,13 +39,13 @@ class DBtable_clades(DBtable):
         self.fieldMapping = {}
         
 
-    def __sendQuery(self, query):
+    def __sendQuery(self, query, params=None):
         conn = MySQLdb.connect(host=SEEK_DATABASE['HOST'],
                                user=SEEK_DATABASE['USER'],
                                passwd=SEEK_DATABASE['PASSWORD'],
                                db=SEEK_DATABASE['NAME'])
         cursor = conn.cursor()
-        cursor.execute(query)
+        cursor.execute(query, params)
         columns = [col[0] for col in cursor.description]
         rows = cursor.fetchall()
         data = pd.DataFrame(rows, columns=columns).replace({np.nan: None}).to_dict(orient="records")
@@ -74,11 +74,11 @@ class DBtable_clades(DBtable):
             JOIN {self.dbname}.sample_types_clades stc ON st.id = stc.sample_type_id
             JOIN {self.dbname}.clades c ON stc.clade_id = c.id
             JOIN {seekdb}.projects p ON ps.project_id = p.id
-            WHERE p.id = {project_id}
+            WHERE p.id = %s
             GROUP BY p.id, p.title, st_group, c.title, c.color, c.order
             ORDER BY c.order
         """
-        data = self.__sendQuery(query)
+        data = self.__sendQuery(query, (project_id,))
 
         return data
 

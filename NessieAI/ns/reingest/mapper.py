@@ -323,7 +323,7 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
             if row is not None:
                 result.rows.append(row)
 
-    _name_same_named_files_apart(result.rows)
+    _name_same_named_files_apart(result.rows, run_manifest)
     result.alternative_rows = _alternative_rows(result.rows, pipeline_map, run_manifest)
     result.warnings.extend(_alternative_rows_warning(e) for e in result.alternative_rows)
     return result
@@ -643,6 +643,11 @@ def _attach_checksum(row: MappedRow, rule: maps.OutputRule,
         raw_key=f"$checksums.{primary.path}", source_file=primary.path)
 
 
+def _in_run_folder(run_manifest: manifest.RunManifest, name: str) -> str:
+    run = os.path.basename(run_manifest.run_dir.rstrip("/"))
+    return f"{run}/{name}" if run else name
+
+
 def _file_primary_data_value(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
                              primary: manifest.OutputRecord,
                              sample_name: str | None) -> str:
@@ -659,7 +664,9 @@ def _file_primary_data_value(rule: maps.OutputRule, run_manifest: manifest.RunMa
     """
     name = os.path.basename(primary.path)
     if sample_name is None:
-        return name
+        # The upload skips a new row whose File_PrimaryData already exists under any sample type, so a
+        # run-wide file (the same matrix name in every run) carries its run folder.
+        return _in_run_folder(run_manifest, name)
     collides = any(
         o.sample != sample_name and os.path.basename(o.path) == name
         for o in _primary_candidates(rule, run_manifest, None))
@@ -1103,7 +1110,8 @@ def _per_file_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
     return rows
 
 
-def _name_same_named_files_apart(rows: list[MappedRow]) -> None:
+def _name_same_named_files_apart(rows: list[MappedRow],
+                                 run_manifest: manifest.RunManifest) -> None:
     """Rows of one sample type whose File_PrimaryData names different files by the
     same name keep as many trailing folders as tell them apart.
 
@@ -1112,13 +1120,16 @@ def _name_same_named_files_apart(rows: list[MappedRow]) -> None:
     contrast under several paramsets (``<paramset>/<contrast>.deseq2.results.tsv``),
     and a folder reused by a broad then a narrow chipseq launch holds
     ``broad_peak/consensus/SPT5/SPT5.consensus_peaks.bed`` and its narrow twin, where
-    the antibody folder alone would still collide. Only a name the map set from the
-    file itself is lengthened, never one a curator answered."""
+    the antibody folder alone would still collide. A run-wide name keeps its run
+    folder in front (``_in_run_folder``). Only a name the map set from the file
+    itself is lengthened, never one a curator answered."""
     by_name: dict[tuple[str, str], list[MappedAttribute]] = {}
     for row in rows:
         primary = row.attributes.get("File_PrimaryData")
-        if (primary is not None and primary.origin == ORIGIN_MAP and primary.source_file
-                and primary.value == os.path.basename(primary.source_file)):
+        if primary is None or primary.origin != ORIGIN_MAP or not primary.source_file:
+            continue
+        base = os.path.basename(primary.source_file)
+        if primary.value in (base, _in_run_folder(run_manifest, base)):
             by_name.setdefault((row.sample_type, str(primary.value)), []).append(primary)
     for same in by_name.values():
         paths = {a.source_file for a in same}
@@ -1129,7 +1140,9 @@ def _name_same_named_files_apart(rows: list[MappedRow]) -> None:
                 {"/".join(p.split("/")[-depth:]) for p in paths}) < len(paths):
             depth += 1
         for attribute in same:
-            attribute.value = "/".join(attribute.source_file.split("/")[-depth:])
+            tail = "/".join(attribute.source_file.split("/")[-depth:])
+            run_wide = attribute.value != os.path.basename(attribute.source_file)
+            attribute.value = _in_run_folder(run_manifest, tail) if run_wide else tail
 
 
 def _samples_named_by_file(rule: maps.OutputRule, run_manifest: manifest.RunManifest,

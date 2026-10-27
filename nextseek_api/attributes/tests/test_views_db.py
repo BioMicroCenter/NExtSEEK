@@ -75,6 +75,9 @@ def test_real_product_asynchronous_path_accepts_durable_202(disposable_attribute
     )
     assert response.status_code == 202
     assert response.data["mode"] == "asynchronous"
+    # Nothing is created until the job runs: the outcome counts come in its terminal result (#140).
+    assert response.data["counts"]["resolved"] == 1 and response.data["counts"]["affected_samples"] == 1
+    assert response.data["counts"]["created"] == 0
     job = AttributeMutationJob.objects.get(job_id=response.data["job_id"])
     assert job.state == "accepted"
     assert job.execution_mode == "asynchronous"

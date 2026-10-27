@@ -162,6 +162,7 @@ class ScopeEndsOnLeaving(TestCase):
     def _answers(self, client, session_url):
         return {
             "list": client.get("/nextseek_api/assistant/sessions/").status_code,
+            "search": client.get("/nextseek_api/assistant/sessions/search/?q=ndma").status_code,
             "open": client.get(session_url).status_code,
             "who am I": client.get("/nextseek_api/assistant/me/").status_code,
             "rename": client.patch(session_url, {"title": "x"}, format="json").status_code,
@@ -172,7 +173,7 @@ class ScopeEndsOnLeaving(TestCase):
 
     def test_a_pilot_leaver_still_reads_their_own_chats_and_starts_nothing_new(self):
         answers = self._answers(*self._client_for([LEFT_FLAGGED, LEFT_NOT_YET_FLAGGED]))
-        self.assertEqual(answers, {"list": 200, "open": 200, "who am I": 403, "rename": 403, "delete": 403, "new chat": 403,
+        self.assertEqual(answers, {"list": 200, "search": 200, "open": 200, "who am I": 403, "rename": 403, "delete": 403, "new chat": 403,
                                    "ask": 403})
 
     def test_every_read_a_pilot_leaver_keeps_is_a_get_only_action(self):

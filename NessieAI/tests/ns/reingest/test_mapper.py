@@ -661,7 +661,7 @@ def test_differentialabundance_1x_registers_its_normalised_counts_as_one_run_lev
     gex = [r for r in result.rows if r.sample_type == "A.GEX"]
     assert len(gex) == 1
     attrs = {k: v.value for k, v in gex[0].attributes.items()}
-    assert attrs["File_PrimaryData"] == "all.normalised_counts.tsv"
+    assert attrs["File_PrimaryData"] == "240404Kel_diffabun/all.normalised_counts.tsv"
     assert attrs["Matrix"] == "normalised_counts"
     assert attrs["DataType"] == "TSV"
     assert attrs["Pipeline"] == "nf-core/differentialabundance"
@@ -705,13 +705,13 @@ def test_differentialabundance_registers_one_gex_per_contrast_named_by_its_contr
     # One row per unfiltered table; the 1.5 *_filtered.tsv subsets are not rows.
     assert sorted(by_contrast) == ["LPS_MUC2_vs_Ctrl", "LPS_vs_Ctrl", "MUC2_vs_Ctrl"]
     lps = {k: v.value for k, v in by_contrast["LPS_vs_Ctrl"].attributes.items()}
-    assert lps["File_PrimaryData"] == "LPS_vs_Ctrl.deseq2.results.tsv"
+    assert lps["File_PrimaryData"] == "250818Rib_diffabun/LPS_vs_Ctrl.deseq2.results.tsv"
     assert lps["Checksum_PrimaryData"] == "abc123"
     assert lps["Matrix"] == "deseq2_results"
     assert lps["Parent"] == "D.SEQ-1;D.SEQ-2"
     # Each row names only its own file: no other contrast's checksum or candidates.
     muc2 = by_contrast["MUC2_vs_Ctrl"].attributes
-    assert muc2["File_PrimaryData"].value == "MUC2_vs_Ctrl.deseq2.results.tsv"
+    assert muc2["File_PrimaryData"].value == "250818Rib_diffabun/MUC2_vs_Ctrl.deseq2.results.tsv"
     assert muc2["File_PrimaryData"].candidates == []
     assert "Checksum_PrimaryData" not in muc2
 
@@ -806,9 +806,9 @@ def test_a_file_name_shared_across_paramsets_keeps_its_folder():
     files = sorted(r.attributes["File_PrimaryData"].value for r in result.rows
                    if r.sample_type == "A.GEX" and r.attributes["Matrix"].value == "dream_results")
     assert files == [
-        "generic_matrix_dream/full_model_with_interactions_SRP254919.dream.results.tsv",
-        "interaction_genotype_treatment_SRP254919.dream.results.tsv",
-        "rnaseq_dream/full_model_with_interactions_SRP254919.dream.results.tsv",
+        "250818Rib_diffabun/generic_matrix_dream/full_model_with_interactions_SRP254919.dream.results.tsv",
+        "250818Rib_diffabun/interaction_genotype_treatment_SRP254919.dream.results.tsv",
+        "250818Rib_diffabun/rnaseq_dream/full_model_with_interactions_SRP254919.dream.results.tsv",
     ]
 
 
@@ -931,7 +931,7 @@ def test_file_primary_data_is_set_even_when_nothing_has_been_checksummed_yet():
     aln = next(r for r in result.rows if r.sample_type == "A.ALN")
     gex = next(r for r in result.rows if r.sample_type == "A.GEX")
     assert aln.attributes["File_PrimaryData"].value == "CONTROL_REP1.markdup.sorted.bam"
-    assert gex.attributes["File_PrimaryData"].value == "all.merged.gene_counts.tsv"
+    assert gex.attributes["File_PrimaryData"].value == "r/all.merged.gene_counts.tsv"
     assert "Checksum_PrimaryData" not in aln.attributes
     assert "Checksum_PrimaryData" not in gex.attributes
 
@@ -975,7 +975,7 @@ def test_primary_output_prefers_the_checksummed_candidate_over_sorted_first():
     result = mapper.apply(run, maps.load("rnaseq"))
     gex = next(r for r in result.rows if r.sample_type == "A.GEX")
     assert gex.attributes["Checksum_PrimaryData"].value == "star0salmon0checksum"
-    assert gex.attributes["File_PrimaryData"].value == "all.merged.gene_counts.tsv"
+    assert gex.attributes["File_PrimaryData"].value == "r/all.merged.gene_counts.tsv"
 
 
 def test_the_aligners_matrix_wins_over_the_pseudo_aligners_when_none_is_checksummed():
@@ -1031,7 +1031,7 @@ def test_ambiguous_primary_candidates_are_reported_but_still_set_a_value():
     gex = next(r for r in result.rows if r.sample_type == "A.GEX")
     attr = gex.attributes["File_PrimaryData"]
     # A value is still set -- the render stays unblocked.
-    assert attr.value == "all.merged.gene_counts.tsv"
+    assert attr.value == "r/all.merged.gene_counts.tsv"
     # ...but the ambiguity is reported: both candidates are named, and the
     # winner is identifiable by its full, directory-qualified path (unlike
     # `value`, which cannot show the difference).
@@ -1683,7 +1683,7 @@ def test_the_scrnaseq_map_finds_each_releases_combined_matrix(release, filtered)
                         version=release)
     result = mapper.apply(run, maps.load("scrnaseq"), context=_SCRNASEQ_CTX)
     (row,) = _out_rows(result, "combined_matrix")
-    assert row.attributes["File_PrimaryData"].value == f"combined_{filtered}_matrix.h5ad"
+    assert row.attributes["File_PrimaryData"].value == f"scrnaseq_M188_run/combined_{filtered}_matrix.h5ad"
     assert result.missed_rules == []
     assert not any("matched no file" in w or "no usable pipeline version" in w
                    for w in result.warnings)
@@ -1695,7 +1695,7 @@ def test_the_scrnaseq_map_falls_back_to_the_aligner_filtered_matrix():
     run = _scrnaseq_run(["combined_filtered_matrix.h5ad", "combined_raw_matrix.h5ad"])
     (row,) = _out_rows(mapper.apply(run, maps.load("scrnaseq"), context=_SCRNASEQ_CTX),
                        "combined_matrix")
-    assert row.attributes["File_PrimaryData"].value == "combined_filtered_matrix.h5ad"
+    assert row.attributes["File_PrimaryData"].value == "scrnaseq_M188_run/combined_filtered_matrix.h5ad"
 
 
 def test_the_scrnaseq_row_gets_the_row_defaults():
@@ -1773,8 +1773,8 @@ def test_per_file_companions_never_pair_a_contrast_with_a_longer_one():
         "tables/differential/A_vs_B_batch.deseq2.results_filtered.tsv"])
     rows = {r.attributes["File_PrimaryData"].value: r
             for r in _out_rows(mapper.apply(run, _v2map([rule])), "de")}
-    plain = rows["A_vs_B.deseq2.results.tsv"]
-    batch = rows["A_vs_B_batch.deseq2.results.tsv"]
+    plain = rows["r/A_vs_B.deseq2.results.tsv"]
+    batch = rows["r/A_vs_B_batch.deseq2.results.tsv"]
     assert plain.attributes["File_SecondaryData"].value == "A_vs_B.deseq2.results_filtered.tsv"
     assert batch.attributes["File_SecondaryData"].value == (
         "A_vs_B_batch.deseq2.results_filtered.tsv")
@@ -2081,3 +2081,19 @@ def test_an_optional_rule_that_matches_nothing_in_the_run_warns_for_no_sample():
     result = mapper.apply(run, _v2map([_MANTA_RULE]))
     assert _manta_rows(result) == {}
     assert not any("vcf_manta" in w for w in result.warnings)
+
+
+def test_a_per_run_file_name_is_unique_to_its_run():
+    """The upload skips a new row whose File_PrimaryData already exists, whatever its sample type, so
+    two runs' same-named matrix must not share one cell (PR 135 MF-3)."""
+    values = []
+    for run_dir in ("/net/cluster/runs/run_a", "/net/cluster/runs/run_b"):
+        run = _multi_sample_run(
+            manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                                  uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+        run.run_dir = run_dir
+        run.outputs = [manifest.OutputRecord(path="star_salmon/all.merged.gene_counts.tsv", bytes=50)]
+        result = mapper.apply(run, maps.load("rnaseq"))
+        gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+        values.append(gex.attributes["File_PrimaryData"].value)
+    assert values == ["run_a/all.merged.gene_counts.tsv", "run_b/all.merged.gene_counts.tsv"]

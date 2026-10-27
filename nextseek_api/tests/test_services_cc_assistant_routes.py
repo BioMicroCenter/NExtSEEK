@@ -152,6 +152,23 @@ class UploadTests(TestCase):
         self.assertEqual(f["name"], "evil.txt")
         self.assertEqual(os.path.dirname(f["tmp_path"]), os.path.join(self.media, "cc_upload_staging"))
 
+    def test_the_staged_file_is_readable_by_the_cc_agent(self):
+        resp = self.client.post(self.URLS[0], {"file": self._file()}, format="multipart")
+        self.assertEqual(resp.status_code, 202)
+        (f,) = self.m["delay"].call_args.kwargs["files"]
+        self.assertEqual(os.stat(f["tmp_path"]).st_mode & 0o777, 0o644)
+
+    def test_a_workbook_bomb_is_a_413_and_nothing_is_staged(self):
+        import io
+        import zipfile
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("xl/sheet.xml", b"0" * (60 * 1024 * 1024))
+        resp = self.client.post(self.URLS[0], {"file": self._file(name="b.xlsx", data=buf.getvalue())}, format="multipart")
+        self.assertEqual(resp.status_code, 413)
+        self.m["delay"].assert_not_called()
+
     def test_a_duplicate_name_in_one_batch_is_a_400(self):
         resp = self.client.post(self.URLS[0], {"file": [self._file(), self._file()]}, format="multipart")
         self.assertEqual(resp.status_code, 400)

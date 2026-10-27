@@ -22,6 +22,8 @@ Hermetic: SEEK (``SeekAPI``) and the SEEK users table are stubbed; nothing shell
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import json
+
 import pytest
 from django.http import HttpResponse
 from django.test import RequestFactory
@@ -149,9 +151,10 @@ def test_an_anonymous_search_naming_a_member_searches_nothing(seekstub):
                        path="/seek/searchAdvanced/" + query)
 
     with patch("seek.views.search.DBtable_sample", return_value=dbsample):
-        seek.views.search.searchingAdvanced(request)
+        response = seek.views.search.searchingAdvanced(request)
 
-    assert dbsample.searchAdvanced.call_args.kwargs["scoped_project_ids"] == []
+    dbsample.searchAdvanced.assert_not_called()  # an explicit login check answers first (SEC-H05)
+    assert json.loads(response.content)["status"] == 0
 
 
 # --------------------------------------------------------------------------- the login form

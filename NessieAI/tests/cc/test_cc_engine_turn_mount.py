@@ -13,7 +13,8 @@ from pathlib import Path
 import docker as docker_mod
 import pytest
 
-from NessieAI.cc import cc_engine, safe_fs
+from NessieAI.tests.cc import fake_spawner
+from NessieAI.cc import cc_engine, safe_fs, spawner_client
 from NessieAI.cc.cc_config import CCPaths
 from NessieAI.cc.cc_provision import build_user_dirs
 
@@ -86,7 +87,7 @@ def _run(tmp_path, monkeypatch, *, vocabulary, previous_turns=False, slot=None, 
             return _Container()
 
     monkeypatch.setattr(docker_mod, "from_env", lambda: type("C", (), {"containers": _Containers()})())
-    monkeypatch.setattr(cc_engine, "BridgeAttachSocket", lambda raw, stdout_stream=None: _Sock())
+    monkeypatch.setattr(fake_spawner, "BridgeAttachSocket", lambda raw, stdout_stream=None: _Sock())
     events: list = []
     cc_engine.run_cc_turn(
         query="how many mice", model_id="opus", send_event=lambda e, d: events.append((e, d)), user_id="alice",
@@ -124,15 +125,16 @@ def test_no_vocabulary_no_turn_mount(tmp_path, monkeypatch):
 
 
 def test_no_vocabulary_file_outlives_a_turn_that_fails_before_its_container_starts(tmp_path, monkeypatch):
-    def socket_down():
-        raise RuntimeError("socket down")
-    monkeypatch.setattr(docker_mod, "from_env", socket_down)
+    def spawner_down(body, *, read_timeout):
+        raise spawner_client.SpawnerUnavailable("cc-spawner unreachable")
+    monkeypatch.setattr(spawner_client, "start_turn", spawner_down)
+    events: list = []
 
-    with pytest.raises(RuntimeError):
-        cc_engine.run_cc_turn(
-            query="how many mice", model_id="opus", send_event=lambda e, d: None, user_id="alice",
-            project_dirname="1-testproj", run_id=RUN_ID,
-            paths=CCPaths(users_volume="dmac-cc-users", user_root_mount=str(tmp_path)), vocabulary_slot=_slot(VOCAB))
+    cc_engine.run_cc_turn(
+        query="how many mice", model_id="opus", send_event=lambda e, d: events.append((e, d)), user_id="alice",
+        project_dirname="1-testproj", run_id=RUN_ID,
+        paths=CCPaths(users_volume="dmac-cc-users", user_root_mount=str(tmp_path)), vocabulary_slot=_slot(VOCAB))
+    assert [e for e, _ in events if e == "query_error"]
 
     vocabulary_file = tmp_path / f"1-testproj/alice/_turn/{RUN_ID}" / cc_engine.VOCABULARY_FILE
     assert not vocabulary_file.exists(), "written only inside the try whose finally removes it"

@@ -2,7 +2,7 @@
 
 The legacy export views answer with JSON carrying a ``link`` that the page then opens: ``samples.sampleDownload``,
 ``samples.sampleExport``, ``samples.sampleFindAjax`` and ``samples.sampleDelete``, and the sample upload page
-(``upload.sampleUploadAjax``) for its feedback workbook. They used to write under ``MEDIA_ROOT/download/`` with a
+(the retired ``upload.sampleUploadAjax``) for its feedback workbook. They used to write under ``MEDIA_ROOT/download/`` with a
 per-minute name, under a route that served ``MEDIA_ROOT`` by name alone, so a name was the only thing standing
 between a caller and someone else's export, and two exports made in the same minute shared one file.
 
