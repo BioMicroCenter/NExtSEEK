@@ -171,7 +171,10 @@ Key facts every operator must internalize:
    fresh paid pipeline-scenarios run
    (`NessieAI/tests/pipeline_scenarios/README.md`) with no FAIL and at least as
    many PASSes as the last accepted run, once one exists, approved by the owner.
-   CI does not enforce this; the deployer checks it.
+   That run is approved separately and never run by the deploy itself. The
+   full list of files whose change invalidates the recordings is `INPUTS` in
+   `NessieAI/tests/pipeline_scenarios/fingerprint.py`. CI does not enforce
+   this; the deployer checks it.
 9. **Pruning is not cleanup: it destroys backups.** Rollback tags and cached
    layers on the deploy host are the rollback path. Get the owner's explicit
    approval per item before removing images, tags, or volumes.

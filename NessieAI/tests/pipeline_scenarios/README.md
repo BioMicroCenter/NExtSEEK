@@ -50,10 +50,12 @@ docker exec -w /app nextseek uv run --no-sync python -m NessieAI.tests.pipeline_
 docker exec -w /app nextseek uv run --no-sync python -m NessieAI.tests.pipeline_scenarios.run --yes
 ```
 
-- `--ids a,b` runs those stories; `--family <name>` runs one family; `--per-story-usd` sets the spend cap
-  per story. Only ruled stories run, and only those whose cohort has UIDs on this stack.
-- The run writes a run folder under `outputs/` (`summary.json`, one file per story, the HTML report from
-  `report.py`).
+- `--ids a,b` runs those stories; `--family <name>` runs one family. Only ruled stories run, and only those
+  whose cohort has UIDs on this stack.
+- `--per-story-usd` is the per-story cost used for the printed estimate. Nothing caps spend, so approve
+  each run on that estimate.
+- The run writes a run folder (`summary.json`, one file per story, the HTML report from `report.py`) to
+  `--out`, which defaults to `outputs/<timestamp>_pipeline_scenarios`.
 - `DEPLOYMENT.md` §1 says when a prod deploy needs an accepted run.
 
 ## Re-recording
