@@ -183,9 +183,20 @@ def test_ensure_secret_group_read_leaves_a_file_with_an_acl_alone(tmp_path: Path
     (tmp_path / "dmac").mkdir()
     ls = tmp_path / "dmac" / "local_settings.py"
     ls.write_text("x"); ls.chmod(0o644)
-    with patch("startup.steps.volumes.os.getxattr", return_value=b"acl"):
+    with patch("startup.steps.volumes.os.getxattr", return_value=b"acl", create=True):   # absent on macOS
         p = volumes.ensure_secret_group_read(tmp_path, {"NEXTSEEK_HOST_GID": "1000"})
     assert len(p) == 1 and "ACL" in p[0] and oct(ls.stat().st_mode & 0o777) == "0o644"
+
+
+def test_ensure_secret_group_read_runs_where_os_has_no_getxattr(tmp_path: Path, monkeypatch) -> None:
+    """macOS has no os.getxattr (nor POSIX ACLs): the step sets the group bits instead of crashing the preflight."""
+    import os
+    monkeypatch.delattr(volumes.os, "getxattr", raising=False)
+    (tmp_path / "dmac").mkdir()
+    ls = tmp_path / "dmac" / "local_settings.py"
+    ls.write_text("x"); ls.chmod(0o644)
+    assert volumes.ensure_secret_group_read(tmp_path, {"NEXTSEEK_HOST_GID": str(os.getgid())}) == []
+    assert oct(ls.stat().st_mode & 0o777) == "0o640"
 
 
 def _answers(image_user: str, running: dict[str, list[str]]):

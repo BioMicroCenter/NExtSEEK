@@ -227,6 +227,18 @@ def _sync_luria_key(repo_root: Path, env: dict[str, str], gid: int) -> list[str]
     return []
 
 
+def _has_posix_acl(path: Path) -> bool:
+    """Linux only: macOS has no os.getxattr and no POSIX ACLs, so there is nothing to leave alone there."""
+    getxattr = getattr(os, "getxattr", None)
+    if getxattr is None:
+        return False
+    try:
+        getxattr(path, "system.posix_acl_access")
+        return True
+    except OSError:
+        return False
+
+
 def ensure_secret_group_read(repo_root: Path, env: dict[str, str]) -> list[str]:
     """Give dmac/local_settings.py group NEXTSEEK_HOST_GID and group read only (g+r,g-wx,o-rwx: 0644 -> 0640; the
     owner's bits are never widened, so 0400 -> 0440), so the app (which has that gid as an extra group) can read
@@ -247,12 +259,9 @@ def ensure_secret_group_read(repo_root: Path, env: dict[str, str]) -> list[str]:
         mode = stat.S_IMODE(st.st_mode)
         if st.st_gid == int(gid) and mode & 0o077 == 0o040:
             continue
-        try:
-            os.getxattr(p, "system.posix_acl_access")
+        if _has_posix_acl(p):
             problems.append(f"{p} has a POSIX ACL: left alone (mode/group not changed); check it by hand")
             continue
-        except OSError:
-            pass
         fix = f"sudo chgrp {gid} {p} && sudo chmod g+r,g-wx,o-rwx {p}"
         if st.st_uid != os.getuid():
             problems.append(f"{p} is not owned by this user: its owner runs `{fix}`")
