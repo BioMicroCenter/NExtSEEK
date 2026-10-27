@@ -48,3 +48,15 @@ def test_drain_problem_works_without_yaml(tmp_path: Path, monkeypatch: pytest.Mo
     assert "above 270" in web_swap.drain_problem(tmp_path)
     (tmp_path / "docker-compose.yml").write_text("services: [unclosed\n")
     assert web_swap.drain_problem(tmp_path) is None   # a compose file it cannot read is no reason to crash a rebuild
+
+
+def test_the_scan_reads_the_real_compose_files_web_grace_period() -> None:
+    """The line scan must keep finding web's stop_grace_period in the real docker-compose.yml: a reformat that it
+    no longer reads would turn the drain check off without a word."""
+    import yaml
+
+    from startup.lib import web_swap
+
+    text = (ROOT.parent / "docker-compose.yml").read_text()
+    expected = str(yaml.safe_load(text)["services"]["web"]["stop_grace_period"])
+    assert expected and web_swap._web_grace_period(text) == expected
