@@ -4,43 +4,36 @@
     {
       "route": "nextseek_query",
       "must_not": [
-        "smrnaseq",
-        "scrnaseq",
         "hlatyping",
-        "riboseq"
+        "riboseq",
+        "rnaseq",
+        "smrnaseq"
       ],
       "phrasing": "migrated",
       "history": [],
       "replies": [],
       "ruling": {
         "state": "changed",
-        "date": "2026-10-26",
-        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). The question said 'mice' but 241219BRY is primary human monocyte-derived macrophages; the species in the question must match the cohort or a careful answer would stop to query it."
+        "date": "2026-10-27",
+        "note": "Owner's ruling (2026-10-27): the earlier 'bulk, one library per sample' ruling was wrong. 241219BRY is pooled prime-seq (SOP 65): barcoded oligo(dT) at RT, 48 samples per pool, one donor per pool, counted with kallisto bustools. Each D.SEQ FASTQ is a pool, not one sample, and the conditions are cytokines against a GM-CSF-only control, not treated/untreated. A barcode-aware scrnaseq (kallisto/bustools) run splits the pools; a right reply asks for the barcode layout and the barcode list before building, and says the comparison itself is differentialabundance, not launchable here. rnaseq on a pool mixes 48 conditions, so it is never right."
       },
       "id": "expression-two-groups",
-      "question": "Which genes changed between the treated and untreated macrophages?",
+      "question": "Which genes changed between the IFN-\u03b3 macrophages and the GM-CSF-only ones?",
       "cohort": "241219BRY::A.GEX",
       "acceptable": [
         [
-          "rnaseq"
-        ],
-        [
-          "rnaseq",
-          "rnasplice"
-        ],
-        [
-          "rnaseq",
-          "differentialabundance"
+          "scrnaseq"
         ]
       ],
       "launch": {
-        "built": true,
+        "built": false,
         "must_match": {}
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "Bulk human macrophage RNA-seq (241219BRY), two groups: rnaseq gives the counts; a pair with rnasplice or differentialabundance follows the atlas's own versus entries. Reworded from 'mice' to 'macrophages' to match the cohort's species."
-      }
+        "pipelines": "241219BRY is pooled prime-seq (SOP 65): barcoded oligo(dT) at RT, 48 samples per pool, one donor per pool, counted with kallisto bustools. Each D.SEQ FASTQ is a pool, not one sample, and the conditions are cytokines against a GM-CSF-only control, not treated/untreated. scrnaseq demultiplexes them into per-sample counts once the barcode chemistry and whitelist are known, so the reply must ask; the comparison is differentialabundance, which cannot be launched here."
+      },
+      "expect": "ask"
     },
     {
       "route": "nextseek_query",
@@ -258,36 +251,34 @@
       "route": "nextseek_query",
       "must_not": [
         "hlatyping",
-        "riboseq"
+        "riboseq",
+        "rnaseq"
       ],
       "phrasing": "migrated",
       "history": [],
       "replies": [],
       "ruling": {
         "state": "changed",
-        "date": "2026-10-26",
-        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). 241219BRY is a bulk library (RNA-Seq, cDNA, one library per sample); scrnaseq cannot consume it, so a fork naming scrnaseq is not a right answer."
+        "date": "2026-10-27",
+        "note": "Owner's ruling (2026-10-27): the earlier 'bulk, one library per sample' ruling was wrong. 241219BRY is pooled prime-seq (SOP 65): barcoded oligo(dT) at RT, 48 samples per pool, one donor per pool, counted with kallisto bustools. Each D.SEQ FASTQ is a pool, not one sample, and the conditions are cytokines against a GM-CSF-only control, not treated/untreated. A vague transcriptome question on these pools: the right reply offers a barcode-aware scrnaseq run and asks for the barcode layout and list. rnaseq on a pool is never right."
       },
       "id": "ambiguous-expression-question",
       "question": "I want to understand what is going on transcriptionally in these samples.",
       "cohort": "241219BRY::A.GEX",
       "acceptable": [
         [
-          "rnaseq"
-        ],
-        [
-          "rnaseq",
-          "rnasplice"
+          "scrnaseq"
         ]
       ],
       "launch": {
-        "built": true,
+        "built": false,
         "must_match": {}
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "A vague transcriptome question on bulk human RNA: rnaseq is the default, and a fork with rnasplice follows the atlas. scrnaseq removed: the library is bulk, so it is not a tie."
-      }
+        "pipelines": "241219BRY is pooled prime-seq (SOP 65): barcoded oligo(dT) at RT, 48 samples per pool, one donor per pool, counted with kallisto bustools. Each D.SEQ FASTQ is a pool, not one sample, and the conditions are cytokines against a GM-CSF-only control, not treated/untreated. Only a barcode-aware scrnaseq run gives per-sample counts, and it needs the barcode chemistry and whitelist, so the reply must ask."
+      },
+      "expect": "ask"
     },
     {
       "route": "nextseek_query",
@@ -302,11 +293,11 @@
       "replies": [],
       "ruling": {
         "state": "changed",
-        "date": "2026-10-26",
-        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26). Ruled with kam-chip-matrix and qout-normalised-from-matrix: the user already has counts, so offering rnaseq to realign ignores the stated input; only differentialabundance answers, and it cannot be launched."
+        "date": "2026-10-27",
+        "note": "Owner's ruling (2026-10-27): the earlier 'bulk, one library per sample' ruling was wrong. 241219BRY is pooled prime-seq (SOP 65): barcoded oligo(dT) at RT, 48 samples per pool, one donor per pool, counted with kallisto bustools. Each D.SEQ FASTQ is a pool, not one sample, and the conditions are cytokines against a GM-CSF-only control, not treated/untreated. The user already has counts, so re-running scrnaseq or rnaseq to demultiplex ignores the stated input; only differentialabundance answers, and it cannot be launched."
       },
       "id": "already-have-counts",
-      "question": "We already have a count matrix from an earlier run \u2014 just compare the two groups.",
+      "question": "We already have a count matrix from an earlier run \u2014 just compare the TNF-\u03b1 macrophages with the GM-CSF-only ones.",
       "cohort": "241219BRY::A.GEX",
       "acceptable": [
         [
@@ -319,43 +310,41 @@
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples; the router sends that to nextseek_query, whose pipeline agent offers the nf-core run.",
-        "pipelines": "The user has a count matrix and asks only for the comparison: differentialabundance is the answer and cannot be launched here, so the right reply says so and builds nothing. Re-running rnaseq is not what was asked; a reply that offers it is partial at best."
+        "pipelines": "241219BRY is pooled prime-seq (SOP 65): barcoded oligo(dT) at RT, 48 samples per pool, one donor per pool, counted with kallisto bustools. Each D.SEQ FASTQ is a pool, not one sample, and the conditions are cytokines against a GM-CSF-only control, not treated/untreated. The user has the per-sample count matrix and asks only for the comparison: differentialabundance answers and cannot be launched here, so the right reply says so and builds nothing."
       }
     },
     {
       "route": "nextseek_query",
       "must_not": [
-        "sarek",
-        "rnavar"
+        "rnaseq",
+        "rnavar",
+        "sarek"
       ],
       "phrasing": "migrated",
       "history": [],
       "replies": [],
       "ruling": {
-        "state": "accepted",
-        "date": "2026-10-26",
-        "note": "Ruled by an independent Fable reviewer agent on the owner's instruction (2026-10-26)."
+        "state": "changed",
+        "date": "2026-10-27",
+        "note": "Owner's ruling (2026-10-27): the earlier 'bulk, one library per sample' ruling was wrong. 241219BRY is pooled prime-seq (SOP 65): barcoded oligo(dT) at RT, 48 samples per pool, one donor per pool, counted with kallisto bustools. Each D.SEQ FASTQ is a pool, not one sample, and the conditions are cytokines against a GM-CSF-only control, not treated/untreated. A barcode-aware scrnaseq (kallisto/bustools) run splits the pools; a right reply asks for the barcode layout and the barcode list before building, and says the comparison itself is differentialabundance, not launchable here. rnaseq on a pool mixes 48 conditions, so it is never right."
       },
       "id": "dna-expression-control",
-      "question": "Which genes are up in the treated cultures compared with the untreated ones?",
+      "question": "Which genes are up in the IL-4 cultures compared with the GM-CSF-only ones?",
       "cohort": "241219BRY::A.GEX",
       "acceptable": [
         [
-          "rnaseq"
-        ],
-        [
-          "rnaseq",
-          "differentialabundance"
+          "scrnaseq"
         ]
       ],
       "launch": {
-        "built": true,
+        "built": false,
         "must_match": {}
       },
       "why": {
         "route": "The question asks for an analysis of the user's own sequenced samples.",
-        "pipelines": "Migrated from the old DNA selection cases; answers unchanged."
-      }
+        "pipelines": "241219BRY is pooled prime-seq (SOP 65): barcoded oligo(dT) at RT, 48 samples per pool, one donor per pool, counted with kallisto bustools. Each D.SEQ FASTQ is a pool, not one sample, and the conditions are cytokines against a GM-CSF-only control, not treated/untreated. scrnaseq demultiplexes them into per-sample counts once the barcode chemistry and whitelist are known, so the reply must ask; the comparison is differentialabundance, which cannot be launched here."
+      },
+      "expect": "ask"
     },
     {
       "route": "nextseek_query",
