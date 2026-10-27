@@ -7,6 +7,7 @@ machinery itself is tested in CI before any recording exists.
 """
 import dataclasses
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -88,9 +89,11 @@ class _Ctx:
 
 class _FakeModel:
     """Chooses the story's acceptable pipelines; the agent loop itself is scripted."""
+    pipelines = ["rnaseq", "scrnaseq"]
+
     def chat(self, **kw):
         return SimpleNamespace(content=json.dumps(
-            {"pipelines": ["rnaseq", "scrnaseq"], "reason": "bulk or single-cell is not stated"}))
+            {"pipelines": self.pipelines, "reason": "bulk or single-cell is not stated"}))
 
     def chat_with_tools(self, **kw):
         raise AssertionError("the agent loop is scripted through call_tools")
@@ -107,7 +110,7 @@ class _FakeConfig:
         return ""
 
 
-def _stub_the_world(monkeypatch, story):
+def _stub_the_world(monkeypatch, story, real_context=False):
     from chat_nextseek.pipeline import agent, agent_tools as at
     import chat_nextseek.config as cc
     import NessieAI.router.router as router
@@ -118,7 +121,8 @@ def _stub_the_world(monkeypatch, story):
     ]
     monkeypatch.setattr(agent, "call_tools", lambda *a, **k: script.pop(0))
     monkeypatch.setattr(at, "build_sample_digest", lambda *a, **k: {"digest": 1})
-    monkeypatch.setattr(at, "build_selection_context", lambda *a, **k: _Ctx())
+    if not real_context:
+        monkeypatch.setattr(at, "build_selection_context", lambda *a, **k: _Ctx())
     for name in ("fetch_reporter_metadata", "annotate_metadata_with_sampletypes", "gather_protocol_text",
                  "expand_uid_prefixes", "lookup_run_sizes", "resolve_accessions"):
         monkeypatch.setattr(at, name, lambda *a, **k: pytest.fail("the scripted run reads nothing else"))
@@ -127,17 +131,47 @@ def _stub_the_world(monkeypatch, story):
     monkeypatch.setattr(cc, "ChatConfig", _FakeConfig)
 
 
-@pytest.fixture()
-def synthetic(tmp_path, monkeypatch):
+def _record_synthetic(tmp_path, monkeypatch, real_context=False):
     """The fixture record.py writes for a stubbed run of a real ruled story."""
     story = story_by_id(STORY_ID)
     assert story.ruled and story.expect == "ask"
-    _stub_the_world(monkeypatch, story)
+    _stub_the_world(monkeypatch, story, real_context)
     run_dir, recorded = tmp_path / "run", tmp_path / "recorded"
     assert rn.main(["--ids", STORY_ID, "--yes", "--out", str(run_dir)]) == 0
     monkeypatch.setattr(record, "RECORDED", recorded)
     assert record.main([str(run_dir)]) == 0
     return json.loads((recorded / f"{STORY_ID}.json").read_text())
+
+
+@pytest.fixture()
+def synthetic(tmp_path, monkeypatch):
+    return _record_synthetic(tmp_path, monkeypatch)
+
+
+FETCHED = []
+
+
+@pytest.fixture()
+def synthetic_real_context(tmp_path, monkeypatch):
+    """The same run, but select_pipeline builds the REAL selection context, which fetches the
+    nf-core schemas of every rich pipeline through the taped fetcher. The model picks one pipeline."""
+    import requests
+    from chat_nextseek.seqera import nfcore_schema as ns
+    fixtures = Path(__file__).resolve().parents[1] / "chat_nextseek" / "fixtures" / "nfcore"
+    FETCHED.clear()
+
+    def fetch(url):
+        FETCHED.append(url)
+        pipeline, _revision, *rest = url.split("/nf-core/")[1].split("/")
+        name = f"{pipeline}.{rest[-1]}"
+        if pipeline == "sarek" and name.endswith("schema_input.json"):
+            raise requests.HTTPError(f"404 Client Error: Not Found for url: {url}",
+                                     response=SimpleNamespace(status_code=404))
+        data = (fixtures / name).read_bytes()
+        return data + b"\n" if pipeline == "rnaseq" and name.endswith("nextflow_schema.json") else data
+    monkeypatch.setattr(ns, "_default_fetcher", fetch)
+    monkeypatch.setattr(_FakeModel, "pipelines", ["rnaseq"])
+    return _record_synthetic(tmp_path, monkeypatch, real_context=True)
 
 
 def test_a_recorded_run_replays_to_the_same_grade(synthetic, tmp_path, monkeypatch):
@@ -260,3 +294,22 @@ def test_the_fixture_keeps_the_family_and_the_agent_model(tmp_path, monkeypatch)
     assert record.main([str(_run_dir(tmp_path / "run", [_row(agent_model="model-x")]))]) == 0
     kept = json.loads((tmp_path / "rec" / f"{STORY_ID}.json").read_text())
     assert kept["story"]["family"] == "bulk_rna" and kept["agent_model"] == "model-x"
+
+
+def test_a_run_that_builds_the_real_selection_context_replays_clean(synthetic_real_context, tmp_path, monkeypatch):
+    fx = synthetic_real_context
+    schemas = fx["tape"]["entries"]["schemas"]
+    # 10 rich pipelines, two documents each, every one fetched by the real context build
+    assert len(schemas) == len(FETCHED) == 20
+    kinds = [("fixture" if "fixture" in a else "bytes" if "__bytes__" in a else "error") for a in schemas.values()]
+    assert kinds.count("fixture") == 18 and kinds.count("bytes") == 1 and kinds.count("error") == 1
+    assert "https://" not in json.dumps(fx)
+    assert fx["outcome"]["selection"] == {"verdict": "chosen", "pipelines": ["rnaseq"],
+                                          "reason": "bulk or single-cell is not stated"}
+    total = len(json.dumps(fx, indent=1, sort_keys=True))
+    own_bytes = sum(len(a["__bytes__"]) for a in schemas.values() if "__bytes__" in a)
+    print(f"tape size: {total} bytes; {own_bytes} of them the one schema that is not a committed fixture")
+    assert total - own_bytes < 15_000       # a sha per committed schema, not its bytes
+    FETCHED.clear()
+    replay_fixture(fx, tmp_path / "replay", monkeypatch)     # raises on any unplayed entry or mismatch
+    assert FETCHED == []                                      # the stubbed context build fetched nothing
