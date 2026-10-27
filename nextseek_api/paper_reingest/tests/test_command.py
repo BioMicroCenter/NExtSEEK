@@ -169,3 +169,31 @@ def test_cancel_refuses_a_run_that_finished_meanwhile(django_user_model, tmp_pat
         call_command("paper_reingest", "cancel", run.run_id)
     run.refresh_from_db()
     assert (run.state, run.failed_stage, run.reason) == ("failed", "acquire", "KeyError: x")
+
+
+@pytest.mark.django_db
+def test_status_shows_the_context_and_the_verify_counts(django_user_model, tmp_path, monkeypatch, capsys):
+    from datetime import datetime, timezone
+
+    from NessieAI.ns.paper.curation_models import (ContextArtifact, CurationArtifact, ExportSummary,
+                                                   ProjectCandidate, ProjectChoice, RulebookVersion,
+                                                   VerifiedArtifact)
+    from NessieAI.ns.paper.store import save_artifact
+    from nextseek_api.paper_reingest.models_db import PaperReingestRun
+
+    run = _a_run(django_user_model, tmp_path, monkeypatch, "building")
+    ctx = ContextArtifact(mode="new", project=ProjectChoice(chosen=ProjectCandidate(project_id=10, title="CSBC",
+                                                                                     score=25)),
+                          sample_types=[], house_assays=[], lab_code="MIT",
+                          export=ExportSummary(project_ids=[10], pulled_at=datetime.now(timezone.utc), samples=3,
+                                               uids=[]),
+                          rulebook=RulebookVersion(file_sha256="0" * 64))
+    cur = CurationArtifact(tree=[], rows=[])
+    ver = VerifiedArtifact(curation=cur, held=[], gaps=[], findings=[], uid_plan=[], bounced=True)
+    keys = {**run.artifacts, "context": save_artifact(run.run_id, "context", ctx),
+            "verified": save_artifact(run.run_id, "verified", ver)}
+    PaperReingestRun.objects.filter(pk=run.pk).update(artifacts=keys)
+    call_command("paper_reingest", "status", run.run_id)
+    out = capsys.readouterr().out
+    assert "project=10 (CSBC, inferred)" in out and "lab=MIT" in out
+    assert "rows=0 held=0 gaps=0 findings=0 uids=0 bounced=yes" in out

@@ -12,6 +12,13 @@
   `SourceUnavailable` into `paused`, and only `retries_done >= max_retries` turns it into `failed`. Any other
   exception fails the run at once. Every path out of `run_acquire` must leave the run in a state other than
   `acquiring`.
+- **The curation container holds no turn pass and no login** (user ruling 2026-10-27). `launcher._body` builds its
+  environment with `api_user=None` and `turn_pass=None`; everything the agent reads is staged into
+  `/data/input`, and its only tools are the local `nextseek-evidence-search` and `nextseek-curation-check`. Giving it
+  a pass would mean holding a superuser's SEEK password for the length of a run.
+- **Only the web loop starts curation containers.** `run_paper_curation` runs in web mode only, the one service with
+  `NEXTSEEK_SPAWNER_URL` and its token; the worker never gets spawner access (`test_compose_web_service.py`). Stage 2
+  runs in the worker and stops at `curation_pending` for that reason.
 - **A worker, the operator and the boot sweep move a run only with `service.transition`.** It is one UPDATE filtered
   on the states the move is from, so the writer that lands second changes nothing: a run cancelled while stage 1
   runs stays cancelled, and a second message for a claimed run is skipped. `set_state` writes whatever the row holds

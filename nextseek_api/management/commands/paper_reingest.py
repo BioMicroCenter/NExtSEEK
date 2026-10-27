@@ -7,6 +7,7 @@ golden paper's evidence.json is captured for the piece-2 tests.
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
+from NessieAI.ns.paper.curation_models import ContextArtifact, CurationArtifact, VerifiedArtifact
 from NessieAI.ns.paper.fetch import Fetcher
 from NessieAI.ns.paper.launch import LaunchSeams, launch_check
 from NessieAI.ns.paper.models import EvidenceArtifact, PaperArtifact
@@ -16,8 +17,9 @@ from nextseek_api.paper_reingest import host, service, tasks
 from nextseek_api.paper_reingest.lookups import doi_project_ids_strict
 from nextseek_api.paper_reingest.models_db import PaperReingestRun
 
-_MODELS = {"paper": PaperArtifact, "evidence": EvidenceArtifact}
-#: The states stage 1 can be queued again from: waiting, paused, or stuck mid-acquire after a worker died.
+_MODELS = {"paper": PaperArtifact, "evidence": EvidenceArtifact, "context": ContextArtifact,
+           "curation": CurationArtifact, "verified": VerifiedArtifact}
+#: The states stage 1 can be queued again from: waiting or paused.
 # Not acquiring: a worker may still be running it, and a second message would overlap it. The boot sweep
 # fails runs a restart cut; a stuck live run is cancelled and started again.
 REQUEUE_STATES = ("queued", "paused")
@@ -41,7 +43,7 @@ class Command(BaseCommand):
         export.add_argument("--out", required=True)
         cancel = sub.add_parser("cancel", help="fail a live run (failed_stage cancelled)")
         cancel.add_argument("run_id")
-        requeue = sub.add_parser("requeue", help="queue stage 1 again for a queued, paused or acquiring run")
+        requeue = sub.add_parser("requeue", help="queue stage 1 again for a queued or paused run")
         requeue.add_argument("run_id")
 
     def handle(self, *args, verb, **opts):
@@ -86,6 +88,16 @@ class Command(BaseCommand):
             ev = load_artifact(run_id, run.artifacts["evidence"], EvidenceArtifact)
             line += (f"\n  items={len(ev.items)} deposits={len(ev.deposits)} skeleton={len(ev.skeleton)} "
                      f"gaps={len(ev.gaps)}")
+        if "context" in run.artifacts:
+            ctx = load_artifact(run_id, run.artifacts["context"], ContextArtifact)
+            chosen = ctx.project.chosen
+            project = f"{chosen.project_id} ({chosen.title}, inferred)" if chosen else "none chosen"
+            line += (f"\n  project={project} lab={ctx.lab_code or 'none'} existing={len(ctx.existing)} "
+                     f"precedent={len(ctx.precedent)} export={ctx.export.samples}")
+        if "verified" in run.artifacts:
+            ver = load_artifact(run_id, run.artifacts["verified"], VerifiedArtifact)
+            line += (f"\n  rows={len(ver.curation.rows)} held={len(ver.held)} gaps={len(ver.gaps)} "
+                     f"findings={len(ver.findings)} uids={len(ver.uid_plan)} bounced={'yes' if ver.bounced else 'no'}")
         self.stdout.write(line)
 
     def _cancel(self, *, run_id, **_):
