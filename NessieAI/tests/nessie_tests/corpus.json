@@ -15837,11 +15837,6 @@
                   "field": "pipeline_agent.pipeline_key",
                   "op": "matches_re",
                   "value": "^(riboseq)$"
-                },
-                {
-                  "field": "pipeline_agent.launch_plan.params.genome",
-                  "op": "nonempty",
-                  "value": null
                 }
               ]
             }
@@ -15896,16 +15891,6 @@
                   "field": "pipeline_agent.pipeline_key",
                   "op": "matches_re",
                   "value": "^(scrnaseq)$"
-                },
-                {
-                  "field": "pipeline_agent.launch_plan.params.genome",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "pipeline_agent.launch_plan.params.protocol",
-                  "op": "eq",
-                  "value": "10XV3"
                 }
               ]
             }
@@ -15965,16 +15950,6 @@
                   "field": "pipeline_agent.pipeline_key",
                   "op": "matches_re",
                   "value": "^(sarek)$"
-                },
-                {
-                  "field": "pipeline_agent.launch_plan.params.genome",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "pipeline_agent.launch_plan.params.wes",
-                  "op": "eq",
-                  "value": false
                 }
               ]
             }
@@ -16034,11 +16009,6 @@
                   "field": "pipeline_agent.pipeline_key",
                   "op": "matches_re",
                   "value": "^(atacseq)$"
-                },
-                {
-                  "field": "pipeline_agent.launch_plan.params.genome",
-                  "op": "nonempty",
-                  "value": null
                 }
               ]
             }
@@ -16098,16 +16068,6 @@
                   "field": "pipeline_agent.pipeline_key",
                   "op": "matches_re",
                   "value": "^(methylseq)$"
-                },
-                {
-                  "field": "pipeline_agent.launch_plan.params.genome",
-                  "op": "nonempty",
-                  "value": null
-                },
-                {
-                  "field": "pipeline_agent.launch_plan.params.rrbs",
-                  "op": "eq",
-                  "value": true
                 }
               ]
             }

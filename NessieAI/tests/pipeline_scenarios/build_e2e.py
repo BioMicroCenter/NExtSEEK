@@ -6,6 +6,11 @@ Each variant: a setup turn that finds the cohort's samples by UID, the story's q
 for a launch story, one reply asking for the build (the story's first scripted reply, else
 DEFAULT_REPLY). It stops at the confirm-to-submit question and never answers it.
 
+The build turn asserts only which pipeline was built. Settings (`launch.must_match`) are checked by
+the in-process run only, because the chat snapshot carries no launch plan, so the harness skips every
+`pipeline_agent.launch_plan.*` criterion. No built-launch artifact is observable either: a pipeline-agent
+turn's query_complete carries no files or artifacts, so `api_artifact.samplesheet.csv` cannot resolve.
+
 The variants join the existing `pipeline_launch` family (the live router reads corpus.json
 for its family labels, so a new family would change routing). Everything else in the file is
 left byte for byte as it was: the rewrite uses the file's own indent and ASCII escaping.
@@ -26,24 +31,10 @@ E2E = Path(__file__).resolve().parent / "e2e.json"
 MAX_SETUP_UIDS = 12
 #: corpus.json's own layout; a different one would make the rewrite touch every line.
 CORPUS_INDENT = 2
-PARAM_FIELD = "pipeline_agent.launch_plan.params."
 
 
 def _alternation(keys) -> str:
     return "|".join(re.escape(k) for k in sorted(keys))
-
-
-def _param_criteria(must_match: dict) -> list[dict]:
-    """One criterion per launch setting the story rules on: `eq` for a value, `matches_re`
-    for each entry of an `includes` list."""
-    out: list[dict] = []
-    for key, want in sorted(must_match.items()):
-        if isinstance(want, dict) and "includes" in want:
-            out += [{"field": PARAM_FIELD + key, "op": "matches_re", "value": rf"\b{re.escape(str(item))}\b"}
-                    for item in want["includes"]]
-        else:
-            out.append({"field": PARAM_FIELD + key, "op": "eq", "value": want})
-    return out
 
 
 def _variant(story) -> dict:
@@ -63,9 +54,7 @@ def _variant(story) -> dict:
         union = {k for a in story.acceptable for k in a}
         turns.append({"label": "build", "query": story.replies[0] if story.replies else DEFAULT_REPLY,
                       "pass_criteria": [
-                          {"field": "pipeline_agent.pipeline_key", "op": "matches_re", "value": rf"^({_alternation(union)})$"},
-                          {"field": PARAM_FIELD + "genome", "op": "nonempty", "value": None},
-                          *_param_criteria(story.launch.get("must_match") or {})]})
+                          {"field": "pipeline_agent.pipeline_key", "op": "matches_re", "value": rf"^({_alternation(union)})$"}]})
     return {"id": f"pipeline_scenarios.{story.id}", "family": "pipeline_launch",
             "name": f"pipeline scenario {story.id}", "tags": ["pipeline_scenarios", "multi-turn"],
             "requires_env": [], "turns": turns, "status": "active", "origin": "overlay", "is_bayesian": False,
