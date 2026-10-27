@@ -1,7 +1,10 @@
+import email.utils
+
 import pytest
+import requests
 
 from NessieAI.ns.paper.fetch import HostNotAllowed, SourceNotFound, SourceUnavailable
-from NessieAI.tests.ns.paper.fakes import FakeResponse, fetcher, key
+from NessieAI.tests.ns.paper.fakes import FakeResponse, FakeSession, fetcher, key
 
 URL = "https://www.ebi.ac.uk/x"
 
@@ -46,10 +49,119 @@ def test_transient_exhausted_is_unavailable():
     assert len(session.calls) == 3
 
 
-def test_connection_error_is_transient():
-    f, _ = fetcher({key(URL): [ConnectionError("boom")]}, retries=1)
+@pytest.mark.parametrize("exc", [requests.ConnectionError("boom"), requests.Timeout("slow")])
+def test_connection_error_is_transient(exc):
+    f, _ = fetcher({key(URL): [exc]}, retries=1)
     with pytest.raises(SourceUnavailable):
         f.get(URL)
+
+
+def test_a_programming_error_in_the_request_is_raised_not_retried():
+    f, session = fetcher({key(URL): [TypeError("bad call"), FakeResponse(200, b"ok")]})
+    with pytest.raises(TypeError):
+        f.get(URL)
+    assert len(session.calls) == 1
+
+
+class _Broken(FakeResponse):
+    def __init__(self, exc):
+        super().__init__(200)
+        self.exc = exc
+
+    def iter_content(self, size):
+        yield b"part"
+        raise self.exc
+
+
+def test_a_body_cut_off_mid_stream_is_transient():
+    cut = requests.exceptions.ChunkedEncodingError("connection broken")
+    f, session = fetcher({key(URL): [_Broken(cut), FakeResponse(200, b"ok")]})
+    assert f.get(URL) == b"ok"
+    assert len(session.calls) == 2
+
+
+def test_a_programming_error_in_the_body_read_is_raised_not_retried():
+    f, session = fetcher({key(URL): [_Broken(KeyError("oops")), FakeResponse(200, b"ok")]})
+    with pytest.raises(KeyError):
+        f.get(URL)
+    assert len(session.calls) == 1
+
+
+def test_408_is_retried():
+    f, session = fetcher({key(URL): [FakeResponse(408), FakeResponse(200, b"ok")]})
+    assert f.get(URL) == b"ok"
+    assert len(session.calls) == 2
+
+
+# Retry-After: honoured, but only inside the retry count and the deadline.
+
+def _sleepy(routes, **kwargs):
+    from NessieAI.ns.paper.fetch import Fetcher
+
+    slept, session = [], FakeSession(routes)
+    return Fetcher(session, sleep=slept.append, **kwargs), session, slept
+
+
+def test_retry_after_seconds_is_waited_instead_of_a_shorter_backoff():
+    f, _, slept = _sleepy({key(URL): [FakeResponse(429, headers={"Retry-After": "7"}), FakeResponse(200, b"ok")]},
+                          backoff_s=2.0)
+    assert f.get(URL) == b"ok"
+    assert slept == [7.0]
+
+
+def test_a_shorter_retry_after_never_cuts_the_backoff():
+    f, _, slept = _sleepy({key(URL): [FakeResponse(503, headers={"Retry-After": "0"}), FakeResponse(200, b"ok")]},
+                          backoff_s=2.0)
+    assert f.get(URL) == b"ok"
+    assert slept == [2.0]
+
+
+def test_retry_after_http_date_is_read_against_the_clock():
+    now = 1_700_000_000.0
+    when = email.utils.formatdate(now + 30, usegmt=True)
+    f, _, slept = _sleepy({key(URL): [FakeResponse(503, headers={"Retry-After": when}), FakeResponse(200, b"ok")]},
+                          backoff_s=1.0, now=lambda: now)
+    assert f.get(URL) == b"ok"
+    assert slept == [30.0]
+
+
+def test_an_unreadable_retry_after_falls_back_to_the_backoff():
+    f, _, slept = _sleepy({key(URL): [FakeResponse(429, headers={"Retry-After": "soon"}), FakeResponse(200, b"ok")]},
+                          backoff_s=2.0)
+    assert f.get(URL) == b"ok"
+    assert slept == [2.0]
+
+
+def test_a_retry_after_past_the_deadline_gives_up_without_sleeping():
+    f, session, slept = _sleepy({key(URL): [FakeResponse(429, headers={"Retry-After": "60"}), FakeResponse(200)]},
+                                time_left=lambda: 20.0)
+    with pytest.raises(SourceUnavailable) as err:
+        f.get(URL)
+    assert slept == [] and len(session.calls) == 1
+    assert "429" in err.value.reason
+
+
+def test_a_backoff_past_the_deadline_gives_up_without_sleeping():
+    f, session, slept = _sleepy({key(URL): [FakeResponse(503), FakeResponse(200)]},
+                                backoff_s=5.0, time_left=lambda: 5.5)
+    with pytest.raises(SourceUnavailable):
+        f.get(URL)
+    assert slept == [] and len(session.calls) == 1
+
+
+def test_a_retry_after_over_the_cap_gives_up_without_sleeping():
+    f, session, slept = _sleepy({key(URL): [FakeResponse(503, headers={"Retry-After": "3600"}), FakeResponse(200)]},
+                                max_wait_s=60.0)
+    with pytest.raises(SourceUnavailable):
+        f.get(URL)
+    assert slept == [] and len(session.calls) == 1
+
+
+def test_retry_after_does_not_add_attempts():
+    f, session, slept = _sleepy({key(URL): [FakeResponse(429, headers={"Retry-After": "3"})]}, retries=2)
+    with pytest.raises(SourceUnavailable):
+        f.get(URL)
+    assert len(session.calls) == 3 and slept == [3.0, 4.0]
 
 
 def test_404_is_not_found():

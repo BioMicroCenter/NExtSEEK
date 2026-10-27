@@ -1,6 +1,7 @@
 import sys
 import types
 
+from NessieAI.ns.paper.accessions import find_accessions
 from NessieAI.ns.paper.pdftext import chunk_paragraphs, pdf_to_text, split_sections
 from NessieAI.tests.ns.paper.fixtures import PDF_TEXT
 
@@ -75,3 +76,35 @@ def test_pdf_to_text_joins_pages_with_a_form_feed(monkeypatch):
     monkeypatch.setitem(sys.modules, "pypdf", types.SimpleNamespace(PdfReader=Reader))
     text = pdf_to_text(b"%PDF-1.4")
     assert text == "a\f\fb" and text.splitlines() == ["a", "", "b"]
+
+
+# Line-break hyphenation: pypdf keeps the hyphen a line was broken at, and the line break.
+
+def _para(raw: str) -> str:
+    return " ".join(split_sections("Data availability\n" + raw).all_text())
+
+
+def test_an_accession_broken_across_lines_is_rejoined():
+    text = _para("Reads are at GSE1234-\n56 and PXD012-\n345; runs SRR30-\n00001.\n"
+                 "Images: https://zenodo.org/records/765-\n4321 and 10.6084/m9.figshare.234-\n56789.\n")
+    assert "GSE123456" in text and "PXD012345" in text and "zenodo.org/records/7654321" in text
+    assert [(a.repo, a.id) for a in find_accessions([text])] == [
+        ("geo", "GSE123456"), ("ena", "SRR3000001"), ("pride", "PXD012345"),
+        ("zenodo", "7654321"), ("figshare", "23456789")]
+
+
+def test_a_doi_broken_at_its_own_hyphen_stays_whole():
+    text = _para("Code: doi:10.1038/s41467-024-\n00001-x and https://github.com/lab/my-\ntool here.\n")
+    assert "10.1038/s41467-024-00001-x" in text and "github.com/lab/my-tool" in text
+
+
+def test_hyphenated_words_and_ranges_are_left_as_they_were():
+    text = _para("A well-\nknown pre-\nand post-treatment of IL-6-\nand TNF, samples GSM7000001-\n7000010.\n")
+    assert text == "A well- known pre- and post-treatment of IL-6- and TNF, samples GSM7000001-7000010."
+    assert [a.id for a in find_accessions([text])] == ["GSM7000001"]
+
+
+def test_a_long_paragraph_with_no_sentence_end_is_cut_between_words():
+    chunks = chunk_paragraphs(["GSE123456 PRJNA100001 " * 40], limit=100)
+    assert len(chunks) > 1 and all(len(c) <= 100 for c in chunks)
+    assert {tok for c in chunks for tok in c.split()} == {"GSE123456", "PRJNA100001"}

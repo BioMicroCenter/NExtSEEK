@@ -4,12 +4,16 @@ Headings are found by name (optionally numbered) on a line of their own. A Refer
 heading skips the reference list only: reading resumes at the next recognised heading, because
 Cell Press papers put STAR Methods and Data availability after the references. pypdf is
 imported only here and only when a PDF is read, so nothing else in the package needs it.
+
+A line broken at a hyphen inside an identifier is rejoined (``_join_broken``), so an accession or
+DOI split over two lines is read whole; a hyphenated word is joined with a space, as before.
 """
 from __future__ import annotations
 
 import io
 import re
 
+from NessieAI.ns.paper.accessions import rejoin_split_accession
 from NessieAI.ns.paper.jats import classify
 from NessieAI.ns.paper.models import Paragraph, PaperText, Section
 
@@ -34,11 +38,33 @@ def pdf_to_text(data: bytes) -> str:
     return "\f".join((page.extract_text() or "") for page in reader.pages)
 
 
+def _join_broken(prev: str, line: str) -> str | None:
+    """``prev`` and ``line`` as one line when ``prev`` ends in a hyphen inside an identifier; None otherwise.
+
+    A hyphen-free accession ("GSE1234-" over "56") loses the hyphen. A DOI or URL ("/" in the last word),
+    or digits running on into digits, keeps it with no space: those hyphens are often the identifier's own,
+    and a typesetter's added one is tried both ways by ``identify.doi_candidates``. Anything else, such as
+    "well-" over "known" or "pre-" over "and", is left to the space join.
+    """
+    if not prev.endswith("-"):
+        return None
+    if (joined := rejoin_split_accession(prev, line)) is not None:
+        return joined
+    tail = prev.rsplit(None, 1)[-1]
+    if "/" in tail or (line[:1].isdigit() and any(ch.isdigit() for ch in tail)):
+        return prev + line
+    return None
+
+
 def chunk_paragraphs(lines: list[str], limit: int = 1000) -> list[str]:
     paras, current = [], []
     for line in list(lines) + [""]:
         if line.strip():
-            current.append(line.strip())
+            joined = _join_broken(current[-1], line.strip()) if current else None
+            if joined is None:
+                current.append(line.strip())
+            else:
+                current[-1] = joined
         elif current:
             paras.append(" ".join(current))
             current = []
@@ -46,7 +72,11 @@ def chunk_paragraphs(lines: list[str], limit: int = 1000) -> list[str]:
     for para in paras:
         while len(para) > limit:
             cut = para.rfind(". ", 0, limit)
-            cut = cut + 1 if cut > 0 else limit
+            if cut > 0:
+                cut += 1
+            else:  # no sentence end: cut between words, so no accession or DOI is cut in two
+                space = para.rfind(" ", 0, limit + 1)
+                cut = space if space > 0 else limit
             chunks.append(para[:cut].strip())
             para = para[cut:].strip()
         if para:
