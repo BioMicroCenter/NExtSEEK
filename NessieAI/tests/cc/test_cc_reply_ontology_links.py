@@ -3,6 +3,7 @@ whatever the agent printed. The engine fixes it before the reply is stored or se
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from NessieAI.cc import cc_engine
@@ -50,3 +51,12 @@ def test_every_real_entry_title_maps_to_its_url():
     for e in entries:
         assert cc_engine.fix_ontology_links(f"[{e['title']}](https://bad.example/z)") == \
             f"[{e['title']}]({e['url']})"
+
+
+def test_an_unreadable_index_leaves_links_and_logs_a_warning(tmp_path, monkeypatch, caplog):
+    missing = tmp_path / "ONTOLOGIES.json"
+    monkeypatch.setattr(cc_engine, "_ONTOLOGIES_JSON", missing)
+    with caplog.at_level(logging.WARNING, logger=cc_engine.logger.name):
+        assert cc_engine.fix_ontology_links("[Thing One](http://a)") == "[Thing One](http://a)"
+    [record] = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert str(missing) in record.getMessage()

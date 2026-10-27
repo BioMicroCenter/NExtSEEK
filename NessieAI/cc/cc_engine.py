@@ -41,6 +41,7 @@ from . import cc_transcript_store, spawner_client
 from .ops_road import DIRECT, ROAD_ENV, SIDECAR
 from NessieAI.cc import cc_session
 from NessieAI.cc import safe_fs
+from NessieAI.paths import CHAT_NEXTSEEK_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -258,15 +259,17 @@ def rewrite_container_paths(text: Any, path_mappings: Mapping[str, Any] | None) 
     return re.sub("|".join(alternatives), lambda m: roots[m.lastgroup], text)
 
 
-_ONTOLOGIES_JSON = (Path(__file__).resolve().parents[1]
-                    / "chat_nextseek/src/chat_nextseek/context/ONTOLOGIES.json")
+_ONTOLOGIES_JSON = CHAT_NEXTSEEK_DIR / "src/chat_nextseek/context/ONTOLOGIES.json"
 _MD_LINK = re.compile(r"\[([^\]\n]*)\]\(([^)\s]*)\)")
 
 
 def _ontology_index() -> list[dict]:
     try:
         return json.loads(_ONTOLOGIES_JSON.read_text(encoding="utf-8")).get("ontologies") or []
-    except (OSError, ValueError):
+    except (OSError, ValueError) as exc:
+        logger.warning("cc: cannot read the house ontology index %s (%s); "
+                       "ontology links in the reply are left as written",
+                       _ONTOLOGIES_JSON, type(exc).__name__)
         return []
 
 
@@ -285,6 +288,8 @@ def fix_ontology_links(text: Any, index: list[dict] | None = None) -> Any:
 
     def one(m: re.Match) -> str:
         label, href = m.group(1), m.group(2)
+        # Known ceiling: a link whose text is exactly a house title (e.g. "Species") is
+        # repointed even when it went to another real page.
         url = by_title.get(" ".join(label.casefold().split()))
         if url is None:
             url = next((u for f, u in by_file.items() if href.endswith(f)), None)
@@ -1673,7 +1678,8 @@ def run_cc_turn(
             # far it got, with the agent's own words left only in the transcript row.
             partial = ""
             try:
-                partial = rewrite_container_paths(translator.partial_reply(), path_mappings)
+                partial = fix_ontology_links(
+                    rewrite_container_paths(translator.partial_reply(), path_mappings))
             except Exception:  # pragma: no cover - never lose the timeout to a salvage
                 logger.exception("cc: reading the partial reply failed (run_id=%s)", run_id)
             # Review M2: stopped while Claude Code was still retrying a model call, the
