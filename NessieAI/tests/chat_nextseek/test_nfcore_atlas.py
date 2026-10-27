@@ -230,3 +230,22 @@ def test_atac_and_chip_point_at_each_other():
 
 def test_differentialabundance_is_choosable_but_not_launchable():
     assert load_atlas()["pipelines"]["differentialabundance"].get("launchable") is False
+
+
+def test_methylseq_and_rnaseq_point_at_each_other():
+    """Spec §5.3: methylseq vs rnaseq, both directions."""
+    pipelines = load_atlas()["pipelines"]
+    assert pipelines["methylseq"]["versus"]["rnaseq"]["differs_by"]
+    assert pipelines["rnaseq"]["versus"]["methylseq"]["differs_by"]
+
+
+def test_taps_is_not_offered_until_the_template_supports_it():
+    """TAPS needs methylseq's --taps with bwamem, which the launch template does not set yet
+    (owner ruling pending): it must not read as a fit, and the entry says why."""
+    entry = load_atlas()["pipelines"]["methylseq"]
+    hints = [h.lower() for h in entry["data_signals"]["prep_kit_hints"]]
+    assert "taps" not in hints
+    assert "TAPS" not in entry["input_you_must_have"]
+    prep = entry["assumes_prep"]
+    assert "TAPS" in prep and "not offered" in prep and "--taps" in prep and "bwamem" in prep
+    assert "PBAT or TAPS" not in prep

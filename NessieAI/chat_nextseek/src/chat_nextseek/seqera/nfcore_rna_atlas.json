@@ -69,6 +69,9 @@
         },
         "atacseq": {
           "differs_by": "atacseq measures accessible DNA, rnaseq measures transcripts; ATAC libraries are genomic."
+        },
+        "methylseq": {
+          "differs_by": "methylseq measures cytosine methylation from bisulfite or enzymatically converted genomic DNA (LibraryStrategy Bisulfite-Seq), not expression; rnaseq on such reads, or methylseq on RNA reads, answers nothing."
         }
       }
     },
