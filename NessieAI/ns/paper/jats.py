@@ -2,12 +2,15 @@
 
 Paragraph IDs are E:<slug>:p<n>, numbered per slug in document order; captions are
 E:cap:<n>. Floats (figures, tables, supplementary material) are read only as captions
-and supplements, never as section paragraphs.
+and supplements, never as section paragraphs. Anything that is not a readable JATS <article>
+(broken XML, another root, nesting too deep to walk) raises JatsUnreadable; an article with no
+body is read as empty text, which the launch check reports as missing sections.
 """
 from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
+from urllib.parse import unquote, urlsplit
 
 from NessieAI.ns.paper.models import Paragraph, PaperText, Section, SupplementRef
 
@@ -22,6 +25,10 @@ _ROLES = [
         r"method|experimental (?:procedures|section)|materials and"
         r"|experimental model and subject details|quantification and statistical analysis", re.I)),
 ]
+
+
+class JatsUnreadable(ValueError):
+    """The full text is not a JATS article this module can read."""
 
 
 def classify(title: str, sec_type: str = "") -> str:
@@ -46,11 +53,29 @@ def _plain_text(el) -> str:
     return re.sub(r"\s+", " ", "".join(parts)).strip()
 
 
+def _file_name(href: str) -> str:
+    """The file an href names: its last path part, without query or fragment, URL-decoded."""
+    path = urlsplit(href.strip()).path if "://" in href else href.strip().split("?", 1)[0].split("#", 1)[0]
+    return unquote(path.rsplit("/", 1)[-1]).strip()
+
+
 _ROLE_SLUGS = frozenset(slug for slug, _ in _ROLES)
 
 
 def parse_jats(xml: bytes) -> PaperText:
-    root = ET.fromstring(xml)
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError as exc:
+        raise JatsUnreadable(f"the full text is not well-formed XML ({exc})") from exc
+    if root.tag != "article":
+        raise JatsUnreadable(f"the full text's root is <{root.tag[:80]}>, not a JATS <article>")
+    try:
+        return _read(root)
+    except RecursionError as exc:
+        raise JatsUnreadable("the full text is nested too deeply to read") from exc
+
+
+def _read(root) -> PaperText:
     sections: dict[str, Section] = {}
     counters: dict[str, int] = {}
 
@@ -100,11 +125,14 @@ def parse_jats(xml: bytes) -> PaperText:
             if text:
                 captions.append(Paragraph(id=f"E:cap:{len(captions) + 1}", text=text))
 
-    supplements = []
+    supplements: dict[str, SupplementRef] = {}  # a file listed twice (in the body and the back) is one supplement
     for el in root.iter("supplementary-material"):
         media = el.find("media")
         href = (media.get(_XLINK) if media is not None else None) or el.get(_XLINK)
-        if href:
-            supplements.append(SupplementRef(name=href.rsplit("/", 1)[-1], caption=_text(el.find("caption"))))
+        name = _file_name(href or "")
+        if name:
+            caption = _text(el.find("caption"))
+            if name not in supplements or (caption and not supplements[name].caption):
+                supplements[name] = SupplementRef(name=name, caption=caption)
 
-    return PaperText(sections=list(sections.values()), captions=captions, supplements=supplements)
+    return PaperText(sections=list(sections.values()), captions=captions, supplements=list(supplements.values()))

@@ -8,6 +8,7 @@ be a cited paper's.
 """
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -15,7 +16,7 @@ from typing import Callable, Literal
 
 from NessieAI.ns.paper import europepmc
 from NessieAI.ns.paper.accessions import find_accessions
-from NessieAI.ns.paper.fetch import Fetcher
+from NessieAI.ns.paper.fetch import Fetcher, SourceNotFound
 from NessieAI.ns.paper.identify import DOI_RE, clean_doi, identify
 from NessieAI.ns.paper.jats import parse_jats
 from NessieAI.ns.paper.models import PaperArtifact, PaperInput, PaperRef, PaperText, _Strict
@@ -33,6 +34,10 @@ class AttachmentTooLarge(ValueError):
 
 class AttachmentUnreadable(ValueError):
     """The attached file could not be read, or is not a PDF pypdf can read."""
+
+
+class PdfDoiLookupFailed(ValueError):
+    """Europe PMC gave an unreadable answer (a 4xx, or a body of the wrong shape) for a DOI printed in the PDF."""
 
 
 class CatalogUnavailable(RuntimeError):
@@ -113,7 +118,11 @@ def _from_pdf(name: str, seams: LaunchSeams) -> tuple[PaperRef, PaperText, str]:
     except Exception as exc:  # pypdf raises its own errors, and others, on a damaged or non-PDF file
         raise AttachmentUnreadable(f"{name} is not a PDF I can read") from exc
     text = split_sections(raw_text)
-    ref = _own_ref(raw_text.split("\f", 1)[0], seams.fetcher)
+    try:
+        ref = _own_ref(raw_text.split("\f", 1)[0], seams.fetcher)
+    except (SourceNotFound, json.JSONDecodeError, europepmc.UnreadableAnswer) as exc:
+        # Refused, not skipped: without the DOI the paper would start in new mode even if it is already in NExtSEEK.
+        raise PdfDoiLookupFailed("Europe PMC's answer for a DOI in the PDF could not be read") from exc
     if ref is None:
         first = text.all_text()[0][:300] if text.all_text() else name
         ref = PaperRef(title=first)

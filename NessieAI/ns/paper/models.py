@@ -7,11 +7,26 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import date
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, model_validator
+
+from NessieAI.ns.paper.dates import parse_partial_date
 
 Repo = Literal["geo", "ena", "pride", "zenodo", "figshare", "sdr"]
+
+
+def _partial_iso(value):
+    """A date, or reduced-precision ISO text ('2024', '2024-02', '2024-02-03') exactly as written."""
+    if isinstance(value, (date, str)):
+        iso = parse_partial_date(value)
+        if iso is not None and (isinstance(value, date) or iso == value):
+            return iso
+    raise ValueError("a date must be YYYY, YYYY-MM or YYYY-MM-DD")
+
+
+#: A date at the precision its source gives: a year or a month is never padded into a day.
+PartialDate = Annotated[str, BeforeValidator(_partial_iso)]
 
 
 class _Strict(BaseModel):
@@ -29,8 +44,10 @@ class Accession(_Strict):
 
 
 class Author(_Strict):
+    """One author; collective is a consortium or group (Europe PMC's collectiveName), never a person's lab."""
     name: str
     affiliation: str = ""
+    collective: bool = False
 
 
 class PaperRef(_Strict):
@@ -39,7 +56,7 @@ class PaperRef(_Strict):
     doi: str | None = None
     title: str = ""
     journal: str = ""
-    published: date | None = None
+    published: PartialDate | None = None
     authors: list[Author] = []
     open_access: bool = False
     source_file: str | None = None

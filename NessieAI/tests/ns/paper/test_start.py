@@ -203,3 +203,48 @@ def test_malformed_jats_is_source_bad_answer():
     routes = {_pmid_search(): js(epmc_search([EPMC_HIT])),
               key(f"{europepmc.BASE}/PMC10000001/fullTextXML"): FakeResponse(200, b"<article><body><sec>")}
     assert _refusal("38000001", _seams(routes)).error_type == "source_bad_answer"
+
+
+def _fulltext_routes(body: bytes):
+    from NessieAI.ns.paper import europepmc
+    from NessieAI.tests.ns.paper.fakes import FakeResponse, js, key
+    from NessieAI.tests.ns.paper.fixtures import EPMC_HIT, epmc_search
+
+    return {_pmid_search(): js(epmc_search([EPMC_HIT])),
+            key(f"{europepmc.BASE}/PMC10000001/fullTextXML"): FakeResponse(200, body)}
+
+
+@pytest.mark.parametrize("body", [
+    b"<html><body><p>Service maintenance</p></body></html>",
+    b"<article><body><sec><title>Methods</title><p>" + b"<i>" * 5000 + b"x" + b"</i>" * 5000 + b"</p></sec></body></article>",
+    b"<article>&nbsp;</article>",
+])
+def test_full_text_that_is_not_readable_jats_is_source_bad_answer(body):
+    err = _refusal("38000001", _seams(_fulltext_routes(body)))
+    assert err.error_type == "source_bad_answer" and "attach the PDF" in str(err)
+
+
+def test_jats_with_no_body_is_needs_pdf_not_a_refusal():
+    out = start("38000001", None, _session(seams=_seams(_fulltext_routes(b"<article><front/></article>")))[0])
+    assert out["status"] == "needs_pdf" and out["missing"] == ["methods", "data_availability"]
+
+
+def test_a_search_answer_of_the_wrong_shape_is_source_bad_answer():
+    from NessieAI.tests.ns.paper.fakes import js
+
+    err = _refusal("38000001", _seams({_pmid_search(): js({"resultList": {"result": ["not a record"]}})}))
+    assert err.error_type == "source_bad_answer"
+
+
+def test_bad_answer_on_the_pdf_path_does_not_ask_for_the_pdf(monkeypatch):
+    from NessieAI.ns.paper import europepmc
+    from NessieAI.tests.ns.paper.fakes import FakeResponse, key
+    from NessieAI.tests.ns.paper.fixtures import PDF_TEXT
+
+    monkeypatch.setattr("NessieAI.ns.paper.launch.pdf_to_text", lambda data: PDF_TEXT)
+    doi_q = key(f"{europepmc.BASE}/search", {"query": 'DOI:"10.1000/xyz123"', "format": "json",
+                                             "resultType": "core", "pageSize": "1"})
+    for answer in (FakeResponse(200, b"<html>maintenance</html>"), FakeResponse(400, b"bad query")):
+        err = _refusal("paper.pdf", _seams({doi_q: answer}, files={"paper.pdf": b"%PDF"}))
+        assert err.error_type == "source_bad_answer"
+        assert "attach the pdf" not in str(err).lower() and "DOI" in str(err) and "PDF" in str(err)

@@ -214,3 +214,8 @@ def test_pdf_looks_up_at_most_three_dois(monkeypatch):
 def test_unrecognisable_input_raises():
     with pytest.raises(IdentifyError):
         launch_check("a nice paper", _seams({}))
+
+
+def test_open_access_text_with_no_body_needs_pdf():
+    out = launch_check("38000001", _seams({**PMID_ROUTES, FULLTEXT: FakeResponse(200, b"<article><front/></article>")}))
+    assert out.status == "needs_pdf" and out.missing == ["methods", "data_availability"]

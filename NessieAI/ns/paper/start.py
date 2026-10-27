@@ -6,15 +6,19 @@ launch check runs here, in the turn; nothing is queued unless it passes.
 from __future__ import annotations
 
 import json
-from xml.etree.ElementTree import ParseError
 
+from NessieAI.ns.paper.europepmc import UnreadableAnswer
 from NessieAI.ns.paper.fetch import MIN_LEFT_S, HostNotAllowed, OutOfTime, SourceNotFound, SourceUnavailable
 from NessieAI.ns.paper.identify import IdentifyError
-from NessieAI.ns.paper.launch import AttachmentTooLarge, AttachmentUnreadable, CatalogUnavailable, launch_check
+from NessieAI.ns.paper.jats import JatsUnreadable
+from NessieAI.ns.paper.launch import (AttachmentTooLarge, AttachmentUnreadable, CatalogUnavailable,
+                                      PdfDoiLookupFailed, launch_check)
 
 
 OUT_OF_TIME = "Reading the paper took longer than this step allows; try again."
 BAD_ANSWER = "Europe PMC answered with something I can't read for this paper; check it, or attach the PDF."
+PDF_BAD_ANSWER = ("Europe PMC answered with something I can't read when I looked up the DOI printed in the "
+                  "attached PDF, so I can't tell whether the paper is already in NExtSEEK; try again later.")
 
 
 class StartRefused(ValueError):
@@ -41,7 +45,10 @@ def start(paper: str, project: int | None, session) -> dict:
         raise StartRefused(f"{exc.host} is not answering; try again later", "source_unavailable") from exc
     except HostNotAllowed as exc:
         raise StartRefused("a source sent me to a site paper reingest does not read", "source_not_allowed") from exc
-    except (SourceNotFound, json.JSONDecodeError, ParseError) as exc:  # a 4xx, a body that is not JSON, bad JATS
+    except PdfDoiLookupFailed as exc:  # the PDF is read; only the lookup of its DOI got a bad answer
+        raise StartRefused(PDF_BAD_ANSWER, "source_bad_answer") from exc
+    except (SourceNotFound, json.JSONDecodeError, UnreadableAnswer, JatsUnreadable) as exc:
+        # a 4xx, a body that is not JSON, JSON of the wrong shape, full text that is not a readable JATS article
         raise StartRefused(BAD_ANSWER, "source_bad_answer") from exc
     except AttachmentTooLarge as exc:
         raise StartRefused(str(exc), "pdf_too_large") from exc

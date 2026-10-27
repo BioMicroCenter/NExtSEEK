@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from pydantic import ValidationError
 
@@ -19,6 +21,22 @@ def test_paper_text_roles_need_paragraphs():
 def test_models_refuse_unknown_keys():
     with pytest.raises(ValidationError):
         FileRef(name="a", url="u", colour="red")
+
+
+def test_published_date_keeps_its_precision():
+    assert PaperRef(published=date(2024, 2, 3)).published == "2024-02-03"
+    assert PaperRef(published="2024").published == "2024"
+    assert PaperRef(published="2024-02").model_dump_json() == '{"pmid":null,"pmcid":null,"doi":null,"title":"",' \
+        '"journal":"","published":"2024-02","authors":[],"open_access":false,"source_file":null}'
+    for bad in ("Feb 2024", "2024-13", "2024-02-30", "2024-2", 2024):
+        with pytest.raises(ValidationError):
+            PaperRef(published=bad)
+
+
+def test_paper_json_written_before_partial_dates_still_loads():
+    old = '{"title": "T", "published": "2024-02-03", "authors": [{"name": "Doe J", "affiliation": ""}]}'
+    ref = PaperRef.model_validate_json(old)
+    assert ref.published == "2024-02-03" and ref.authors[0].collective is False
 
 
 def test_store_round_trip_and_stable_key(tmp_path, monkeypatch):
