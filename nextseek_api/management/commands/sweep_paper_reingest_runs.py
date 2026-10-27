@@ -4,7 +4,9 @@ No worker is running yet, so a run still `acquiring` was killed mid-stage: it is
 re-run here; a paper that brought the worker down would bring it down again on every boot). A `queued` or
 `paused` run may have lost its message with the old worker, so stage 1 is queued again. If the broker still
 holds the first message too, whichever runs second finds the run claimed or done and skips it
-(`tasks.run_acquire`).
+(`tasks.run_acquire`). A run in `contextualizing` is failed the same way, and one in `context` gets stage 2 queued
+again; `curation_pending`, `curating` and `verifying` belong to the web loop (`run_paper_curation`), which sweeps
+its own.
 """
 import logging
 
@@ -20,18 +22,22 @@ INTERRUPTED = "interrupted by a server restart: start the paper again"
 
 def sweep_paper_reingest_runs() -> dict:
     failed = queued = unqueued = 0
-    for run in PaperReingestRun.objects.filter(state="acquiring"):
-        failed += service.transition(run, ("acquiring",), "failed", failed_stage="acquire", reason=INTERRUPTED)
-    for run in PaperReingestRun.objects.filter(state__in=("queued", "paused"), superseded_by__isnull=True):
+    for state, stage in (("acquiring", "acquire"), ("contextualizing", "context")):
+        for run in PaperReingestRun.objects.filter(state=state):
+            failed += service.transition(run, (state,), "failed", failed_stage=stage, reason=INTERRUPTED)
+    waiting = PaperReingestRun.objects.filter(state__in=("queued", "paused", "context"), superseded_by__isnull=True)
+    for run in waiting:
         try:
-            service.enqueue_acquire(run)
+            if run.state == "context":
+                service.enqueue_context(run.run_id)
+            else:
+                service.enqueue_acquire(run)
             queued += 1
         except Exception:
             # Left as it is: the next boot, or `manage.py paper_reingest requeue`, queues it.
-            logger.exception("paper reingest %s: could not queue stage 1 at boot", run.run_id)
+            logger.exception("paper reingest %s: could not queue its stage at boot", run.run_id)
             unqueued += 1
     return {"failed": failed, "queued": queued, "unqueued": unqueued}
-
 
 class Command(BaseCommand):
     help = "Fail paper reingest runs a restart cut mid-acquire and queue waiting ones again (once at boot)."

@@ -6,8 +6,8 @@ from django.conf import settings
 from django.db import models
 
 #: The unfinished states: while a run of a paper is in one, a second start of that paper is refused.
-LIVE_STATES = ("queued", "acquiring", "context", "curating", "verifying", "building", "ready",
-               "paused", "applying", "partially_applied")
+LIVE_STATES = ("queued", "acquiring", "context", "contextualizing", "curation_pending", "curating", "verifying",
+               "building", "ready", "paused", "applying", "partially_applied")
 
 
 def new_run_id() -> str:
@@ -24,8 +24,8 @@ def paper_key(doi: str | None, paper_input: str) -> str:
 
 class PaperReingestRun(models.Model):
     STATES = [(s, s) for s in (
-        "queued", "acquiring", "context", "curating", "verifying", "building", "ready",
-        "applying", "applied", "paused", "failed", "superseded", "partially_applied")]
+        "queued", "acquiring", "context", "contextualizing", "curation_pending", "curating", "verifying",
+        "building", "ready", "applying", "applied", "paused", "failed", "superseded", "partially_applied")]
     MODES = [("new", "new"), ("update", "update")]
 
     run_id = models.CharField(max_length=32, unique=True, default=new_run_id, editable=False)
@@ -43,6 +43,8 @@ class PaperReingestRun(models.Model):
     reason = models.TextField(blank=True, default="")
     artifacts = models.JSONField(default=dict)
     attempts = models.PositiveIntegerField(default=0)
+    #: Times the web curation loop claimed the run (launcher.MAX_LAUNCH_ATTEMPTS); `attempts` counts stage 1's tries.
+    curation_attempts = models.PositiveSmallIntegerField(default=0)
     superseded_by = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL,
                                       related_name="supersedes")
     #: ``paper_key`` while the run is unfinished, NULL once it is not. Unique, so the database itself refuses a

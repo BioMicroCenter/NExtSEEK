@@ -33,6 +33,7 @@ def test_the_sweep_fails_cut_runs_and_queues_waiting_ones(django_user_model, tmp
     runs = _runs(django_user_model, tmp_path, monkeypatch, ["queued", "paused", "acquiring", "context", "failed"])
     queued = []
     monkeypatch.setattr(service, "enqueue_acquire", lambda run: queued.append(run.run_id))
+    monkeypatch.setattr(service, "enqueue_context", lambda run_id: None)
     call_command("sweep_paper_reingest_runs")
     cut = _row(runs["acquiring"])
     assert (cut.state, cut.failed_stage) == ("failed", "acquire")
@@ -40,7 +41,7 @@ def test_the_sweep_fails_cut_runs_and_queues_waiting_ones(django_user_model, tmp
     assert sorted(queued) == sorted([runs["queued"].run_id, runs["paused"].run_id])
     assert _row(runs["paused"]).state == "paused"  # the claim moves it on, not the sweep
     assert (_row(runs["context"]).state, _row(runs["failed"]).state) == ("context", "failed")
-    assert "failed 1 interrupted paper reingest run(s); queued 2 again; 0 could not be queued" in capsys.readouterr().out
+    assert "failed 1 interrupted paper reingest run(s); queued 3 again; 0 could not be queued" in capsys.readouterr().out
 
 
 @pytest.mark.django_db
@@ -79,3 +80,16 @@ def test_the_entrypoint_sweeps_before_the_paper_worker_starts_and_never_stops_th
     assert sweep.start() < entrypoint.index("-Q paper_reingest")
     # The worker branch only: the web server's branch has exited by then.
     assert sweep.start() > entrypoint.index("mark_interrupted_batch_jobs")
+
+
+@pytest.mark.django_db
+def test_the_sweep_fails_a_cut_stage_2_and_queues_a_waiting_one(django_user_model, tmp_path, monkeypatch):
+    runs = _runs(django_user_model, tmp_path, monkeypatch, ["contextualizing", "context", "curation_pending"])
+    queued = []
+    monkeypatch.setattr(service, "enqueue_acquire", lambda run: queued.append(("acquire", run.run_id)))
+    monkeypatch.setattr(service, "enqueue_context", lambda run_id: queued.append(("context", run_id)))
+    call_command("sweep_paper_reingest_runs")
+    cut = _row(runs["contextualizing"])
+    assert (cut.state, cut.failed_stage) == ("failed", "context")
+    assert queued == [("context", runs["context"].run_id)]
+    assert _row(runs["curation_pending"]).state == "curation_pending"  # the web loop's, not the worker's

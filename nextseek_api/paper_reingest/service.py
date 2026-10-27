@@ -79,3 +79,9 @@ def enqueue_acquire(run: PaperReingestRun) -> None:
     from nextseek_api.paper_reingest.tasks import acquire_task
 
     acquire_task.delay(run_id=run.run_id)
+
+
+def enqueue_context(run_id: str) -> None:
+    from nextseek_api.paper_reingest.tasks import context_task
+
+    context_task.delay(run_id=run_id)
