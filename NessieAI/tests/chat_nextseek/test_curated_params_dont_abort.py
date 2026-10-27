@@ -468,3 +468,67 @@ def test_new_choosable_pipelines_templates_name_every_required_input_column(key)
     required = set(items.get("required") or [])
     template = json.loads((TEMPLATES / f"{key}.json").read_text())
     assert required <= set(template["pipeline"]["required_columns"]), required - set(template["pipeline"]["required_columns"])
+
+
+@pytest.mark.parametrize("key", sorted(PINS))
+def test_new_choosable_pipelines_offer_only_params_of_the_pinned_schema(key):
+    """Every param on the menu, not only those with a default, is one the pinned release declares."""
+    schema = json.loads((FIXTURES / f"{key}.nextflow_schema.json").read_text())
+    menu = json.loads((TEMPLATES / f"{key}.json").read_text())["params"]
+    errors, skipped = check_params(key, PINS[key], {name: None for name in menu},
+                                   schema_getter=lambda _p, _r: {"nextflow_schema": schema})
+    assert skipped is None and errors == []
+
+
+@pytest.mark.parametrize("key", sorted(PINS))
+def test_new_choosable_pipelines_template_rows_use_only_input_schema_columns(key):
+    items = json.loads((FIXTURES / f"{key}.schema_input.json").read_text())["items"]
+    template = json.loads((TEMPLATES / f"{key}.json").read_text())
+    for row in template["samplesheet_template"]:
+        assert set(row) <= set(items["properties"]), set(row) - set(items["properties"])
+
+
+def test_atacseq_offers_input_controls_off_by_default():
+    """atacseq 2.1.2 calls peaks against controls only with --with_control and the control columns."""
+    template = json.loads((TEMPLATES / "atacseq.json").read_text())
+    spec = template["params"]["with_control"]
+    assert spec["type"] == "bool" and spec["default"] is False and spec["steerable"] is True
+    assert curated("atacseq")["with_control"] is False
+    assert {"control", "control_replicate"} <= set(template["samplesheet_template"][0])
+
+
+def _pinned_schema(monkeypatch):
+    """Serve every schema check from the pinned fixtures, never the network."""
+    from chat_nextseek.seqera import schema_check
+
+    def get(pipeline, revision):
+        return {"nextflow_schema": json.loads((FIXTURES / f"{pipeline}.nextflow_schema.json").read_text())}
+    monkeypatch.setattr(schema_check, "get_schema", get)
+
+
+def test_configure_run_launches_atacseq_with_its_input_controls(monkeypatch, tmp_path):
+    import csv
+
+    import yaml
+
+    from chat_nextseek.pipeline import agent_tools
+
+    _pinned_schema(monkeypatch)
+    rows = [{"sample": "D.SEQ-IN-1", "fastq_1": "/net/x/in_R1.fastq.gz", "replicate": 1},
+            {"sample": "D.SEQ-ATAC-1", "fastq_1": "/net/x/atac_R1.fastq.gz", "replicate": 1,
+             "control": "D.SEQ-IN-1", "control_replicate": 1}]
+    state = {"resolved": {"uids": [r["sample"] for r in rows], "accessions": []},
+             "accession_file_paths": {}, "bundle_key": "GRCh38"}
+    built = json.loads(agent_tools.tool_write_samplesheet(
+        object(), state, {"pipeline_key": "atacseq", "cohorts": [{"label": "c", "rows": rows}]},
+        str(tmp_path)))
+    assert built["ok"] is True, built
+    with open(built["samplesheet"], newline="") as fh:
+        sheet = list(csv.DictReader(fh))
+    assert sheet[1]["control"] == "D.SEQ-IN-1" and sheet[1]["control_replicate"] == "1"
+
+    out = json.loads(agent_tools.tool_configure_run(
+        object(), state, {"pipeline_key": "atacseq", "params": {"with_control": True}}, str(tmp_path)))
+    assert out["ok"] is True, out
+    assert out["schema_check"]["status"] == "ok"
+    assert yaml.safe_load(open(out["params_yml"]))["with_control"] is True
